@@ -1,8 +1,7 @@
 import React, { useMemo, useState, useRef } from 'react';
 import { PhotoData, MapState } from '../types';
 import { ChevronDown, ChevronUp, Download, AlertCircle, RefreshCw } from 'lucide-react';
-
-const geoPicsUrl = import.meta.env.VITE_REACT_APP_GEO_PICS_URL;
+import { geoPicsUrl } from '../data.ts';
 
 interface Props {
   photos: PhotoData[];

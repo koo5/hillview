@@ -5,7 +5,7 @@ import { Map } from './components/Map';
 import { PhotoData, MapState } from './types';
 import { Camera, Upload, X, Compass } from 'lucide-react';
 
-const geoPicsUrl = import.meta.env.VITE_REACT_APP_GEO_PICS_URL;
+import { geoPicsUrl } from 'data.ts';
 
 function parseCoordinate(coord: string): number {
   try {
