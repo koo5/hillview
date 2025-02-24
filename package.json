@@ -21,6 +21,8 @@
 	},
 	"type": "module",
 	"dependencies": {
+		"leaflet": "^1.9.4",
+		"svelte-leaflet": "^0.2.0",
 		"tsgeo": "^1.2.2"
 	}
 }
