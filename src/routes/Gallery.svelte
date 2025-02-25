@@ -1,7 +1,7 @@
 <script>
     import { ChevronDown, ChevronUp, Download, AlertCircle, RefreshCw } from 'lucide-svelte';
 
-    import {photo_in_front, photo_to_left, photo_to_right, photos_in_area} from "$lib/data.svelte.js";
+    import {photo_in_front, photo_to_left, photo_to_right, photos_in_range} from "$lib/data.svelte.js";
 
     let show_debug = false;
 
@@ -12,7 +12,7 @@
     <!-- Header -->
     <div class="p-4 bg-gray-50 border-b flex justify-between items-center">
         <div>
-            <h2 class="text-lg font-semibold">{photos_in_area.length} photos</h2>
+            <h2 class="text-lg font-semibold">{photos_in_range.length} photos</h2>
         </div>
         <button
                 on:click={() => (show_debug = !show_debug)}
@@ -47,7 +47,7 @@
                     <h3 class="font-medium">Debug Information</h3>
                 </div>
                 <div class="divide-y">
-                    {#each photos_in_area as photo (photo.id)}
+                    {#each photos_in_range as photo (photo.id)}
                         <div>
                             <a href="{photo.url}" target="_blank" class="block p-3 group hover:bg-gray-100">
                                 <div class="font-medium mb-1 truncate flex items-center justify-between">

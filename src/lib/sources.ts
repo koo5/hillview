@@ -1,4 +1,5 @@
 import {error, geoPicsUrl, loading, photos, range} from "$lib/data.svelte";
+import { APIPhotoData, Photo} from "./types";
 
 export async function fetch_photos() {
     try {
@@ -57,7 +58,7 @@ function parseFraction(value) {
 }
 
 function parse_photo_data(item) {
-    return {
+    let result = {
         id: Math.random().toString(36).substring(7),
         file: item.file,
         url: `${geoPicsUrl}/${encodeURIComponent(item.file)}`,
@@ -67,5 +68,12 @@ function parse_photo_data(item) {
         altitude: parseFraction(item.altitude),
         loaded: false
     };
+    if (result.latitude.isNaN || result.longitude.isNaN) {
+        console.error('Invalid coordinates:', result);
+    }
+    if (direction < 0 || direction > 360) {
+        console.error('Invalid direction:', result);
+    }
+    return result;
 }
 

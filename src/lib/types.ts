@@ -15,12 +15,5 @@ export interface Photo {
     coord: Coordinate;
     direction: number;
     altitude?: number;
-    loaded?: boolean;
-}
-
-export interface MapState {
-    center: Coordinate;
-    zoom: number;
-    bearing: number;
-    range: number;
+    abs_bearing_diff: number;
 }

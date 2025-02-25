@@ -4,7 +4,18 @@
     import Map from './Map.svelte';
     import { Camera, Compass } from 'lucide-svelte';
 
-    import {error, map_state} from "$lib/data.svelte.js";
+    import {
+        bearing,
+        bottom_right,
+        center,
+        error,
+        photo_in_front, photo_to_left, photo_to_right,
+        photos,
+        photos_in_area, photos_in_range,
+        range,
+        top_left,
+        zoom
+    } from "$lib/data.svelte.js";
     import {fetch_photos} from "$lib/sources.js";
     import {dms} from "$lib/utils.js";
     import {goto} from "$app/navigation";
@@ -77,4 +88,20 @@
         </div>
     </main>
 
+</div>
+
+
+<div>
+    bearing: {bearing}
+    center: {center}
+    zoom: {zoom}
+    range: {range}
+    top_left: {top_left}
+    bottom_right: {bottom_right}
+    photos.length: {photos.length}
+    photos_in_area.length: {photos_in_area.length}
+    photos_in_range.length: {photos_in_range.length}
+    photo_in_front: {photo_in_front}
+    photo_to_left: {photo_to_left}
+    photo_to_right: {photo_to_right}
 </div>

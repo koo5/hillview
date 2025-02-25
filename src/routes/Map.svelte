@@ -1,11 +1,25 @@
 <script>
     import { onMount, onDestroy } from 'svelte';
     import { Map, TileLayer, Marker, Circle } from 'svelte-leaflet';
+    import { RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle } from 'lucide-svelte';
     import L from 'leaflet';
 
-    import { RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle } from 'lucide-svelte';
+    import {
+        center,
+        zoom,
+        range,
+        bearing,
+        top_left,
+        bottom_right,
 
-    import {map_state, photo_to_left, photo_to_right, photos, photos_in_area, range} from "$lib/data.svelte.js";
+        photos,
+        photos_in_area,
+        photos_in_range,
+        photo_to_left,
+        photo_to_right,
+
+        turn_to_photo_to, photo_in_front
+    } from "$lib/data.svelte.js";
     import {Coordinate} from "tsgeo/Coordinate";
 
 
@@ -33,73 +47,73 @@
     }
 
     // Calculate how many km are “visible” based on the current zoom/center
-    function updateVisibleDistance(leafletMap) {
-        const center = leafletMap.getCenter();
-        const pointC = leafletMap.latLngToContainerPoint(center);
+    function get_range(center) {
+        const pointC = map.latLngToContainerPoint(center);
         // Move 100px to the right
         const pointR = L.point(pointC.x + fov_circle_radius_px, pointC.y);
-        const latLngR = leafletMap.containerPointToLatLng(pointR);
+        const latLngR = map.containerPointToLatLng(pointR);
         // distanceTo returns meters
-        range = center.distanceTo(latLngR) / 1000;
-
+        return center.distanceTo(latLngR) / 1000;
     }
 
     // Update local mapState and notify parent
     function updateMapState() {
         if (!map) return;
-        const center = map.getCenter();
-        map_state.center = new Coordinate(center.lat, center.lng);
-        map_state.zoom = map.getZoom();
-        updateVisibleDistance(map);
+        let _center = map.getCenter();
+        //center = new Coordinate(_center.lat, _center.lng);
+        //zoom = map.getZoom();
+        range = get_range(center);
+        top_left = map.getBounds().getNorthWest();
+        bottom_right = map.getBounds().getSouthEast();
     }
 
-    function rotateBearing(deg) {
-        map_state.bearing = (map_state.bearing + deg + 360) % 360;
-        updateMapState();
-    }
-
-    function rotateToNextPhoto(direction) {
-        if (direction === 'right' && photo_to_right) {
-            map_state.bearing = photo_to_right.bearing;
-        } else if (direction === 'left' && photo_to_left) {
-            map_state.bearing = photo_to_left.bearing;
-        }
-    }
 
     // Listen for arrow keys
-    onMount(() => {
-        function handleKeyDown(e) {
-            if (e.key === 'z') {
-                rotateBearing(-5);
-            } else if (e.key === 'x') {
-                rotateBearing(5);
-            }
+    function handleKeyDown(e) {
+        if (e.key === 'z') {
+            bearing -=5;
+        } else if (e.key === 'x') {
+            bearing +=5;
         }
+    }
+
+    onMount(() => {
         window.addEventListener('keydown', handleKeyDown);
-        onDestroy(() => {
-            window.removeEventListener('keydown', handleKeyDown);
-        });
+    });
+    onDestroy(() => {
+        window.removeEventListener('keydown', handleKeyDown);
     });
 
     // For the “Field of View” overlay arrow:
+
+    const width = 400;
+    const height = 400;
+
     const centerX = width / 2;
     const centerY = height / 2;
     const arrowLength = fov_circle_radius_px - 20;
 
-    $: radians = (map_state.bearing - 90) * Math.PI / 180; // shift so 0° points "up"
-    $: arrowX = centerX + Math.cos(radians) * arrowLength;
-    $: arrowY = centerY + Math.sin(radians) * arrowLength;
+    let arrow_radians;
+    let arrowX;
+    let arrowY;
+
+    $: arrow_radians = (bearing - 90) * Math.PI / 180; // shift so 0° points "up"
+    $: arrowX = centerX + Math.cos(arrow_radians) * arrowLength;
+    $: arrowY = centerY + Math.sin(arrow_radians) * arrowLength;
 
     // Helper for coloring the marker icons
     function getColor(photo) {
-        // difference between viewer’s bearing and photo’s direction
-        const absDiff = Math.abs(photo.bearing_diff);
-
-        if (absDiff <= 60) return '#4CAF50'; // green, roughly "in front"
-        if (absDiff >= 150) return '#F44336'; // red, roughly "behind"
-        return '#FF9800'; // orange
+        if (photo.abs_bearing_diff === null) return '#9E9E9E'; // grey
+        function rgbToHex(r,g,b) {
+            return '#' + [r,g,b].map(x => {
+                const hex = x.toString(16);
+                return hex.length === 1 ? '0' + hex : hex;
+            }).join('');
+        }
+        return rgbToHex(photo.abs_bearing_diff, 255 - photo.abs_bearing_diff, 0);
     }
 </script>
+
 
 <!-- The map container -->
 <div class="relative w-full h-full">
@@ -108,8 +122,8 @@
       This gives us direct access to the underlying L.Map object for bounding, etc.
     -->
     <Map
-            center={mapState.center}
-            zoom={mapState.zoom}
+            center={center}
+            zoom={zoom}
             style="width: 100%; height: 100%;"
             bind:leafletMap={map}
             on:moveend={updateMapState}
@@ -123,25 +137,24 @@
 
         <!-- Visibility Circle (maxDistance in km, Circle wants meters) -->
         <Circle
-                latLng={mapState.center}
-                radius={mapState.maxDistance * 1000}
+                latLng={center}
+                radius={range}
                 color="#4A90E2"
                 fillColor="#4A90E2"
-                fillOpacity={0.1}
-                weight={1}
+                fillOpacity={0.07}
+                weight={0.8}
         />
 
         <!-- Markers for photos -->
-        {#each photos as photo (photo.id)}
-            {#if !isNaN(photo.latitude) && !isNaN(photo.longitude)}
+        {#each photos_in_area as photo (photo.id)}
                 <Marker
                         latLng={[photo.latitude, photo.longitude]}
-                        icon={createDirectionalArrow(photo.direction, getColor(photo.direction))}
+                        icon={createDirectionalArrow(photo.direction, getColor(photo))}
                         title={`Photo at ${photo.latitude.toFixed(6)}, ${photo.longitude.toFixed(6)}\n
 Direction: ${photo.direction.toFixed(1)}°\n
 (Relative: ${(photo.direction - bearing).toFixed(1)}°)`}
                 />
-            {/if}
+
         {/each}
     </Map>
 
