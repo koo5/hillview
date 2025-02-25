@@ -64,7 +64,7 @@ function parse_photo_data(item) {
         url: `${geoPicsUrl}/${encodeURIComponent(item.file)}`,
         latitude: parseCoordinate(item.latitude),
         longitude: parseCoordinate(item.longitude),
-        direction: parseFraction(item.bearing),
+        bearing: parseFraction(item.bearing),
         altitude: parseFraction(item.altitude),
         loaded: false
     };
