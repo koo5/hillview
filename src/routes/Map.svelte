@@ -5,40 +5,11 @@
 
     import { RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle } from 'lucide-svelte';
 
-    // If you have these utils in a separate file, import them:
-    // import { calculateBearing, calculateDistance } from '../data';
-    // For this demo, let's inline minimal versions:
-    function calculateDistance(lat1, lng1, lat2, lng2) {
-        const R = 6371; // Earth radius in km
-        const dLat = (lat2 - lat1) * Math.PI / 180;
-        const dLng = (lng2 - lng1) * Math.PI / 180;
-        const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-            Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) *
-            Math.sin(dLng/2) * Math.sin(dLng/2);
-        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    }
+    import {map_state, photo_to_left, photo_to_right, photos, photos_in_area, range} from "$lib/data.svelte.js";
+    import {Coordinate} from "tsgeo/Coordinate";
 
-    function calculateBearing(lat1, lng1, lat2, lng2) {
-        const dLng = (lng2 - lng1) * Math.PI / 180;
-        const y = Math.sin(dLng) * Math.cos(lat2 * Math.PI / 180);
-        const x = Math.cos(lat1 * Math.PI / 180) * Math.sin(lat2 * Math.PI / 180)
-            - Math.sin(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.cos(dLng);
-        let brng = Math.atan2(y, x) * (180 / Math.PI);
-        return (brng + 360) % 360;
-    }
 
-    export let photos = [];
-    export let onMapStateChange;
-
-    // Map state
-    let bearing = 0;
-    let map;
-    let mapState = {
-        center: [51.505, -0.09],
-        zoom: 13,
-        bearing: 0,
-        maxDistance: 2  // in km
-    };
+    const fov_circle_radius_px = 200;
 
     // Create the directional arrow icon for each photo
     function createDirectionalArrow(direction, color) {
@@ -62,101 +33,45 @@
     }
 
     // Calculate how many km are “visible” based on the current zoom/center
-    function calculateVisibleDistance(leafletMap) {
+    function updateVisibleDistance(leafletMap) {
         const center = leafletMap.getCenter();
         const pointC = leafletMap.latLngToContainerPoint(center);
         // Move 100px to the right
-        const pointR = L.point(pointC.x + 100, pointC.y);
+        const pointR = L.point(pointC.x + fov_circle_radius_px, pointC.y);
         const latLngR = leafletMap.containerPointToLatLng(pointR);
         // distanceTo returns meters
-        return center.distanceTo(latLngR) / 1000;
+        range = center.distanceTo(latLngR) / 1000;
+
     }
 
     // Update local mapState and notify parent
     function updateMapState() {
         if (!map) return;
         const center = map.getCenter();
-        mapState = {
-            center: [center.lat, center.lng],
-            zoom: map.getZoom(),
-            bearing: bearing,
-            maxDistance: calculateVisibleDistance(map)
-        };
-        onMapStateChange?.(mapState);
+        map_state.center = new Coordinate(center.lat, center.lng);
+        map_state.zoom = map.getZoom();
+        updateVisibleDistance(map);
     }
 
     function rotateBearing(deg) {
-        bearing = (bearing + deg + 360) % 360;
+        map_state.bearing = (map_state.bearing + deg + 360) % 360;
         updateMapState();
     }
 
     function rotateToNextPhoto(direction) {
-        if (!map || !photos || photos.length === 0) return;
-
-        const center = map.getCenter();
-        const currentBearing = bearing;
-        const maxDistance = calculateVisibleDistance(map);
-
-        // Collect only photos within visible range
-        let candidates = photos
-            .map(photo => {
-                const distance = calculateDistance(
-                    center.lat,
-                    center.lng,
-                    photo.latitude,
-                    photo.longitude
-                );
-                if (distance > maxDistance) return null; // skip out-of-range
-
-                const brng = calculateBearing(
-                    center.lat,
-                    center.lng,
-                    photo.latitude,
-                    photo.longitude
-                );
-                // relative bearing in range -180..180
-                let relativeBearing = ((brng - currentBearing + 180 + 360) % 360) - 180;
-
-                // For 'right', we only want positive relative bearings (clockwise).
-                // For 'left', only negative (counterclockwise).
-                if (direction === 'right' && relativeBearing < 0) {
-                    relativeBearing += 360;
-                } else if (direction === 'left' && relativeBearing > 0) {
-                    relativeBearing -= 360;
-                }
-                return {
-                    distance,
-                    bearing: brng,
-                    relativeBearing
-                };
-            })
-            .filter(Boolean)
-            .filter(item =>
-                direction === 'right'
-                    ? item.relativeBearing > 0
-                    : item.relativeBearing < 0
-            );
-
-        // Sort ascending for right, descending for left
-        if (direction === 'right') {
-            candidates.sort((a, b) => a.relativeBearing - b.relativeBearing);
-        } else {
-            candidates.sort((a, b) => b.relativeBearing - a.relativeBearing);
-        }
-
-        if (candidates.length > 0) {
-            // The first one is the next photo
-            const nextPhoto = candidates[0];
-            rotateBearing(nextPhoto.relativeBearing);
+        if (direction === 'right' && photo_to_right) {
+            map_state.bearing = photo_to_right.bearing;
+        } else if (direction === 'left' && photo_to_left) {
+            map_state.bearing = photo_to_left.bearing;
         }
     }
 
     // Listen for arrow keys
     onMount(() => {
         function handleKeyDown(e) {
-            if (e.key === 'ArrowLeft') {
+            if (e.key === 'z') {
                 rotateBearing(-5);
-            } else if (e.key === 'ArrowRight') {
+            } else if (e.key === 'x') {
                 rotateBearing(5);
             }
         }
@@ -166,44 +81,19 @@
         });
     });
 
-    // Expose these to the window if you need external calls (like in your React code):
-    // window.rotateBearing = rotateBearing;
-    // window.rotateToNextPhoto = rotateToNextPhoto;
-
-    // We need to manually “fit bounds” on the first pass (or whenever photos change)
-    let initialFitDone = false;
-    $: if (map && !initialFitDone && photos.length > 0) {
-        const valid = photos.filter(p => !isNaN(p.latitude) && !isNaN(p.longitude));
-        if (valid.length) {
-            const bounds = L.latLngBounds(valid.map(p => [p.latitude, p.longitude]));
-            map.fitBounds(bounds, { padding: [50, 50] });
-            initialFitDone = true;
-        }
-    }
-
-    // Recalculate mapState whenever bearing changes (since that’s not directly a Leaflet event)
-    $: if (map) {
-        updateMapState();
-    }
-
     // For the “Field of View” overlay arrow:
-    const width = 300;
-    const height = 300;
     const centerX = width / 2;
     const centerY = height / 2;
-    const radius = 100;
-    const arrowLength = radius - 20;
+    const arrowLength = fov_circle_radius_px - 20;
 
-    $: radians = (bearing - 90) * Math.PI / 180; // shift so 0° points "up"
+    $: radians = (map_state.bearing - 90) * Math.PI / 180; // shift so 0° points "up"
     $: arrowX = centerX + Math.cos(radians) * arrowLength;
     $: arrowY = centerY + Math.sin(radians) * arrowLength;
 
     // Helper for coloring the marker icons
-    function getColor(photoDirection) {
+    function getColor(photo) {
         // difference between viewer’s bearing and photo’s direction
-        let bearingDiff = ((photoDirection - bearing + 360) % 360);
-        if (bearingDiff > 180) bearingDiff -= 360;
-        const absDiff = Math.abs(bearingDiff);
+        const absDiff = Math.abs(photo.bearing_diff);
 
         if (absDiff <= 60) return '#4CAF50'; // green, roughly "in front"
         if (absDiff >= 150) return '#F44336'; // red, roughly "behind"

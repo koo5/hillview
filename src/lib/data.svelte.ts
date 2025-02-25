@@ -13,16 +13,15 @@ export let loading = $state(true);
 export let error = $state(null);
 export let photos = $state([]);
 
+
+
 export let map_state = $state({
     center: new Coordinate(51.505, -0.09),
     zoom: 13,
     bearing: 0
 });
-export let range = $derived.by(() => {
-    const baseDistance = 2;
-    const baseZoom = 13;
-    return baseDistance * Math.pow(2, baseZoom - map_state.zoom);
-});
+export let range = $state(1);
+
 export let photos_in_area = $derived.by(() => {
     return photos.filter(photo => {calculator.getDistance(photo.coord, map_state.center) <= range;});
 });
