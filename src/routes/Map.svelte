@@ -1,6 +1,6 @@
 <script lang="ts">
     import {onMount, onDestroy} from 'svelte';
-    import {Polygon, LeafletMap, TileLayer, Marker, Circle, ScaleControl} from 'svelte-leafletjs';
+    import {Icon, Popup, Polygon, LeafletMap, TileLayer, Marker, Circle, ScaleControl} from 'svelte-leafletjs';
     import {LatLng} from 'leaflet';
     import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle} from 'lucide-svelte';
     import L from 'leaflet';
@@ -9,6 +9,7 @@
 
     import {pos, bearing, photos_in_area, photo_in_front, update_bearing, turn_to_photo_to} from "$lib/data.svelte.js";
     import {get} from "svelte/store";
+    import PhotoPopup from "./PhotoPopup.svelte";
 
 
     let map;
@@ -137,6 +138,15 @@
 
     const tileUrl = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
 
+
+    const iconOptions: IconOptions = {
+        iconUrl: 'icons/contact.svg',
+        iconSize: [41, 41],
+        iconAnchor: [20, 41],
+        popupAnchor: [1, -34],
+        tooltipAnchor: [16, -28],
+    };
+
 </script>
 
 
@@ -173,65 +183,73 @@
         {/if}
 
         <!-- Markers for photos -->
+
+<!--        icon={createDirectionalArrow(photo)}-->
+<!--        title={`Photo at ${photo.coord.lat.toFixed(6)}, ${photo.coord.lng.toFixed(6)}\n-->
+<!--Direction: ${photo.bearing.toFixed(1)}°\n-->
+<!--(Relative: ${(photo.bearing - $bearing).toFixed(1)}°)`}-->
+
+
         {#each $photos_in_area as photo (photo.file)}
             <Marker
                     latLng={photo.coord}
-                    icon={createDirectionalArrow(photo)}
-                    title={`Photo at ${photo.coord.lat.toFixed(6)}, ${photo.coord.lng.toFixed(6)}\n
-Direction: ${photo.bearing.toFixed(1)}°\n
-(Relative: ${(photo.bearing - $bearing).toFixed(1)}°)`}
-            />
+            >
+                <Icon iconUrl="icons/contact.svg" options={iconOptions}/>
+                <Popup><PhotoPopup photo={photo}/>
+
+                </Popup>
+            </Marker>
 
         {/each}
 
-        <div class="svg-overlay">
-            <svg
-                    width={width}
-                    height={height}
-                    viewBox={`0 0 ${width} ${height}`}
-            >
-                <!--                    <circle-->
-                <!--                            cx={centerX}-->
-                <!--                            cy={centerY}-->
-                <!--                            r={radius}-->
-                <!--                            fill="rgba(74, 144, 226, 0.1)"-->
-                <!--                            stroke="rgb(74, 144, 226)"-->
-                <!--                            strokeWidth="2"-->
-                <!--                    />-->
+<!--        <div class="svg-overlay">-->
+<!--            <svg-->
+<!--                    width={width}-->
+<!--                    height={height}-->
+<!--                    viewBox={`0 0 ${width} ${height}`}-->
+<!--            >-->
+<!--                &lt;!&ndash;                    <circle&ndash;&gt;-->
+<!--                &lt;!&ndash;                            cx={centerX}&ndash;&gt;-->
+<!--                &lt;!&ndash;                            cy={centerY}&ndash;&gt;-->
+<!--                &lt;!&ndash;                            r={radius}&ndash;&gt;-->
+<!--                &lt;!&ndash;                            fill="rgba(74, 144, 226, 0.1)"&ndash;&gt;-->
+<!--                &lt;!&ndash;                            stroke="rgb(74, 144, 226)"&ndash;&gt;-->
+<!--                &lt;!&ndash;                            strokeWidth="2"&ndash;&gt;-->
+<!--                &lt;!&ndash;                    />&ndash;&gt;-->
 
-                <line
-                        x1={centerX}
-                        y1={centerY}
-                        x2={arrowX}
-                        y2={arrowY}
-                        stroke="rgb(74, 144, 226)"
-                        stroke-width="3"
-                        marker-end="url(#arrowhead)"
-                />
-                <defs>
-                    <marker
-                            id="arrowhead"
-                            markerWidth="10"
-                            markerHeight="7"
-                            refX="9"
-                            refY="3.5"
-                            orient="auto"
-                    >
-                        <polygon
-                                points="0 0, 10 3.5, 0 7"
-                                fill="rgb(74, 144, 226)"
-                        />
-                    </marker>
-                </defs>
+<!--                <line-->
+<!--                        x1={centerX}-->
+<!--                        y1={centerY}-->
+<!--                        x2={arrowX}-->
+<!--                        y2={arrowY}-->
+<!--                        stroke="rgb(74, 144, 226)"-->
+<!--                        stroke-width="3"-->
+<!--                        marker-end="url(#arrowhead)"-->
+<!--                />-->
+<!--                <defs>-->
+<!--                    <marker-->
+<!--                            id="arrowhead"-->
+<!--                            markerWidth="10"-->
+<!--                            markerHeight="7"-->
+<!--                            refX="9"-->
+<!--                            refY="3.5"-->
+<!--                            orient="auto"-->
+<!--                    >-->
+<!--                        <polygon-->
+<!--                                points="0 0, 10 3.5, 0 7"-->
+<!--                                fill="rgb(74, 144, 226)"-->
+<!--                        />-->
+<!--                    </marker>-->
+<!--                </defs>-->
 
-                <!--                    <circle-->
-                <!--                            cx={centerX}-->
-                <!--                            cy={centerY}-->
-                <!--                            r="3"-->
-                <!--                            fill="rgb(74, 144, 226)"-->
-                <!--                    />-->
-            </svg>
-        </div>
+<!--                &lt;!&ndash;                    <circle&ndash;&gt;-->
+<!--                &lt;!&ndash;                            cx={centerX}&ndash;&gt;-->
+<!--                &lt;!&ndash;                            cy={centerY}&ndash;&gt;-->
+<!--                &lt;!&ndash;                            r="3"&ndash;&gt;-->
+<!--                &lt;!&ndash;                            fill="rgb(74, 144, 226)"&ndash;&gt;-->
+<!--                &lt;!&ndash;                    />&ndash;&gt;-->
+<!--            </svg>-->
+<!--        </div>-->
 
 
     </LeafletMap>
