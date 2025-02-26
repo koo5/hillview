@@ -72,8 +72,8 @@
 
 <style>
     .photo {
-        width: 200px;
-        height: 200px
+        max-width: 200px;
+        max-height: 200px
     }
 
     .left {

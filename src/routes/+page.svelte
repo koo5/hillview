@@ -89,11 +89,3 @@
         </pre>
 </div>
 
-<style>
-    .gallery {
-        display: grid;
-        grid-template-rows: 1fr auto;
-        gap: 1rem;
-        min-height: 320px;
-    }
-    </style>
