@@ -1,6 +1,6 @@
 <script>
     import { onMount, onDestroy } from 'svelte';
-    import { Map, TileLayer, Marker, Circle } from 'svelte-leafletjs';
+    import { LeafletMap, TileLayer, Marker, Circle } from 'svelte-leafletjs';
     import { RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle } from 'lucide-svelte';
     import L from 'leaflet';
     import {Coordinate} from "tsgeo/Coordinate";
@@ -83,7 +83,7 @@
     let arrowX;
     let arrowY;
 
-    $: arrow_radians = (bearing - 90) * Math.PI / 180; // shift so 0° points "up"
+    $: arrow_radians = (map_state.bearing - 90) * Math.PI / 180; // shift so 0° points "up"
     $: arrowX = centerX + Math.cos(arrow_radians) * arrowLength;
     $: arrowY = centerY + Math.sin(arrow_radians) * arrowLength;
 
@@ -98,6 +98,8 @@
         }
         return rgbToHex(photo.abs_bearing_diff, 255 - photo.abs_bearing_diff, 0);
     }
+
+    const tileUrl = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
 </script>
 
 
@@ -107,9 +109,9 @@
       We bind the Leaflet map instance to the variable `map` using `bind:leafletMap`.
       This gives us direct access to the underlying L.Map object for bounding, etc.
     -->
-    <Map
+    <LeafletMap
             center={map_state.center}
-            zoom={zoom}
+            zoom={map_state.zoom}
             style="width: 100%; height: 100%;"
             bind:leafletMap={map}
             on:moveend={updateMapState}
@@ -117,19 +119,21 @@
     >
         <!-- Base map tiles -->
         <TileLayer
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                url={tileUrl}
                 attribution="&copy; OpenStreetMap contributors"
         />
 
         <!-- Visibility Circle (maxDistance in km, Circle wants meters) -->
-        <Circle
-                latLng={map_state.center}
-                radius={map_state.range}
-                color="#4A90E2"
-                fillColor="#4A90E2"
-                fillOpacity={0.07}
-                weight={0.8}
-        />
+        {#if map_state.center}
+<!--            <Circle-->
+<!--                    latLng={[map_state.center.lat, map_state.center.lng]}-->
+<!--                    radius={map_state.range * 1000}-->
+<!--                    color="#4A90E2"-->
+<!--                    fillColor="#4A90E2"-->
+<!--                    fillOpacity={0.07}-->
+<!--                    weight={0.8}-->
+<!--            />-->
+        {/if}
 
         <!-- Markers for photos -->
         {#each data.photos_in_area as photo (photo.id)}
@@ -142,7 +146,7 @@ Direction: ${photo.direction.toFixed(1)}°\n
                 />
 
         {/each}
-    </Map>
+    </LeafletMap>
 
     <!-- FOV Overlay (the arrow & circle in the center of the screen) -->
     <div class="absolute inset-0 pointer-events-none" style="z-index: 30000;">

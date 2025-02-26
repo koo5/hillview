@@ -1,5 +1,5 @@
 import {state, geoPicsUrl, data} from "$lib/data.svelte";
-import { APIPhotoData, Photo} from "./types";
+//import { APIPhotoData, Photo} from "./types.ts";
 
 export async function fetch_photos() {
     try {
@@ -71,7 +71,7 @@ function parse_photo_data(item) {
     if (result.latitude.isNaN || result.longitude.isNaN) {
         console.error('Invalid coordinates:', result);
     }
-    if (direction < 0 || direction > 360) {
+    if (result.direction < 0 || result.direction > 360) {
         console.error('Invalid direction:', result);
     }
     return result;
