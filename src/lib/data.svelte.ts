@@ -4,6 +4,7 @@ import {Vincenty}   from "tsgeo/Distance/Vincenty";
 import * as angles from 'angles';
 //import {DMS} from "tsgeo/Formatter/Coordinate/DMS";
 import { space_db } from "./debug_server.js";
+import { LatLng } from 'leaflet';
 
 
 export const geoPicsUrl = import.meta.env.VITE_REACT_APP_GEO_PICS_URL;
@@ -16,10 +17,10 @@ export let state = $state({
 })
 
 export let map_state = $state({
-    center: new Coordinate(51.505, -0.09),
+    center: new LatLng(51.505, -0.09),
     zoom: 13,
-    top_left: new Coordinate(0, 0),
-    bottom_right: new Coordinate(10, 10),
+    top_left: new LatLng(0, 0),
+    bottom_right: new LatLng(10, 10),
     range: 1,
     bearing: 0,
 });
@@ -35,6 +36,10 @@ export let data = $state(
         photo_to_left: null,
         photo_to_right: null
     });
+
+function dist(coord1, coord2) {
+    return calculator.getDistance(new Coordinate(coord1[0], coord1[1]), new Coordinate(coord2[0], coord2[1]));
+}
 
 const magic = $effect.root(() => {
 
@@ -59,8 +64,8 @@ const magic = $effect.root(() => {
 
     $effect(() => {
         let res = data.photos.filter(photo => {
-            return photo.coord.lat >= map_state.top_left.lat && photo.coord.lat <= map_state.bottom_right.lat &&
-                photo.coord.lon >= map_state.top_left.lon && photo.coord.lon <= map_state.bottom_right.lon;
+            return photo.coord[0] >= map_state.top_left[0] && photo.coord[0] <= map_state.bottom_right[0] &&
+                photo.coord[1] >= map_state.top_left[1] && photo.coord[1] <= map_state.bottom_right[1];
         });
         for (let photo of res) {
             photo.abs_bearing_diff = Math.abs(angles.diff(map_state.bearing, photo.bearing));
@@ -71,7 +76,7 @@ const magic = $effect.root(() => {
 
     $effect(() => {
         let res = data.photos_in_area.filter(photo => {
-            photo.range_distance = calculator.getDistance(photo.coord, map_state.center);
+            photo.range_distance = dist(photo.coord, map_state.center);
             if (photo.range_distance > map_state.range) {
                 photo.range_distance = null;
             }

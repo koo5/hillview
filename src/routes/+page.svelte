@@ -31,7 +31,7 @@
                     <div class="flex items-center">
                         <span class="font-medium">Position:</span>
                         <span class="ml-2">
-              {dms(map_state.center)}
+              {(map_state.center)}
             </span>
                     </div>
                     <div class="flex items-center">

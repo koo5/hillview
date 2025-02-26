@@ -1,6 +1,7 @@
 import {state, geoPicsUrl, data} from "$lib/data.svelte";
 //import { APIPhotoData, Photo} from "./types.ts";
 import { Coordinate } from "tsgeo/Coordinate";
+import { LatLng } from 'leaflet';
 
 
 export async function fetch_photos() {
@@ -60,22 +61,24 @@ function parseFraction(value) {
 }
 
 function parse_photo_data(item) {
+    let latitude = parseCoordinate(item.latitude);
+    let longitude = parseCoordinate(item.longitude);
+
     let photo = {
         id: Math.random().toString(36).substring(7),
         file: item.file,
         url: `${geoPicsUrl}/${encodeURIComponent(item.file)}`,
-        latitude: parseCoordinate(item.latitude),
-        longitude: parseCoordinate(item.longitude),
+        coord: new LatLng(latitude, longitude),
         bearing: parseFraction(item.bearing),
         altitude: parseFraction(item.altitude),
         loaded: false
     };
-    photo.coord = new Coordinate(photo.latitude, photo.longitude);
-    if (photo.latitude.isNaN || photo.longitude.isNaN) {
+
+    if (latitude.isNaN || longitude.isNaN) {
         console.error('Invalid coordinates:', photo);
     }
-    if (photo.direction < 0 || photo.direction > 360) {
-        console.error('Invalid direction:', photo);
+    if (photo.bearing < 0 || photo.bearing > 360) {
+        console.error('Invalid bearing:', photo);
     }
     return photo;
 }

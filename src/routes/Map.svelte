@@ -1,6 +1,7 @@
-<script>
+<script lang="ts">
     import {onMount, onDestroy} from 'svelte';
-    import {LeafletMap, TileLayer, Marker, Circle} from 'svelte-leafletjs';
+    import {LeafletMap, TileLayer, Marker, Circle } from 'svelte-leafletjs';
+    import { LatLng } from 'leaflet';
     import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle} from 'lucide-svelte';
     import L from 'leaflet';
     import {Coordinate} from "tsgeo/Coordinate";
@@ -10,6 +11,7 @@
 
 
     let map;
+    let _map;
     const fov_circle_radius_px = 200;
 
     // Create the directional arrow icon for each photo
@@ -34,21 +36,21 @@
     }
 
     // Calculate how many km are “visible” based on the current zoom/center
-    function get_range(center) {
-        const pointC = map.latLngToContainerPoint(center);
+    function get_range(_center: LatLng) {
+        const pointC = map.latLngToContainerPoint(_center);
         // Move 100px to the right
         const pointR = L.point(pointC.x + fov_circle_radius_px, pointC.y);
         const latLngR = map.containerPointToLatLng(pointR);
         // distanceTo returns meters
-        return center.distanceTo(latLngR) / 1000;
+        return _center.distanceTo(latLngR) / 1000;
     }
 
     // Update local mapState and notify parent
     function updateMapState() {
-        if (!map) return;
-        //let _center = map.getCenter();
-        //center = new Coordinate(_center.lat, _center.lng);
-        //zoom = map.getZoom();
+        console.log('updateMapState');
+        let _center = map.getCenter();
+        map_state.center = new LatLng(_center.lat, _center.lng);
+        map_state.zoom = map.getZoom();
         map_state.range = get_range(map_state.center);
         map_state.top_left = map.getBounds().getNorthWest();
         map_state.bottom_right = map.getBounds().getSouthEast();
@@ -65,6 +67,7 @@
     }
 
     onMount(() => {
+        map = _map.getMap();
         window.addEventListener('keydown', handleKeyDown);
     });
     onDestroy(() => {
@@ -104,23 +107,15 @@
     const tileUrl = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
 
 
-    const mapOptions = {
-        center: [1.364917, 103.822872],
-        zoom: 11,
-    };
 </script>
 
 
 <!-- The map container -->
 <div class="map">
     <LeafletMap
-            bind:leafletMap={map}
-            options={mapOptions}
-    <!--            center={map_state.center}-->
-    <!--            zoom={map_state.zoom}-->
-    <!--            style="width: 100%; height: 100%;"-->
-    <!--            on:moveend={updateMapState}-->
-    <!--            on:zoomend={updateMapState}-->
+            bind:this={_map}
+            options={{center: [map_state.center.lat, map_state.center.lng], zoom: map_state.zoom}}
+            events={{moveend: updateMapState, zoomend: updateMapState}}
     >
     <!-- Base map tiles -->
     <TileLayer
