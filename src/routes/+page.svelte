@@ -4,7 +4,7 @@
     import Map from './Map.svelte';
     import { Camera, Compass } from 'lucide-svelte';
 
-    import {state, map_state, data } from "$lib/data.svelte.js";
+    import {app, pos, bearing } from "$lib/data.svelte.js";
     import {fetch_photos} from "$lib/sources.js";
     import {dms} from "$lib/utils.js";
     import {goto} from "$app/navigation";
@@ -33,13 +33,13 @@
                     <div class="flex items-center">
                         <span class="font-medium">Position:</span>
                         <span class="ml-2">
-              {(map_state.center)}
+              {($pos.center)}
             </span>
                     </div>
                     <div class="flex items-center">
                         <Compass class="w-4 h-4 mr-1" />
                         <span class="font-medium">Viewing:</span>
-                        <span class="ml-2">{map_state.bearing.toFixed(1)}°</span>
+                        <span class="ml-2">{$bearing.toFixed(1)}°</span>
                     </div>
                 </div>
             </div>
@@ -62,9 +62,9 @@
 
     <!-- Main Content -->
     <main class="max-w-7xl mx-auto px-4 py-6">
-        {#if state.error}
+        {#if $app.error}
             <div class="mb-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded">
-                error: {state.error}
+                error: {$app.error}
             </div>
         {/if}
 
@@ -84,8 +84,7 @@
 
 <div>
     <pre>
-        state: {JSON.stringify(state, null, 2)}
-        map_state: {JSON.stringify(map_state, null, 2)}
-        data: {JSON.stringify(data, null, 2)}
+        $app: {JSON.stringify($app, null, 2)}
+        $pos: {JSON.stringify($pos, null, 2)}
         </pre>
 </div>

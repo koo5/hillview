@@ -1,4 +1,4 @@
-import {state, geoPicsUrl, data} from "$lib/data.svelte";
+import {app, photos, geoPicsUrl} from "$lib/data.svelte";
 //import { APIPhotoData, Photo} from "./types.ts";
 import { Coordinate } from "tsgeo/Coordinate";
 import { LatLng } from 'leaflet';
@@ -7,7 +7,7 @@ import { LatLng } from 'leaflet';
 export async function fetch_photos() {
     console.log('Fetching photos...');
     try {
-        state.loading = true;
+        app.update(state => ({ ...state, loading: true, error: null }));
         const response = await fetch(`${geoPicsUrl}/files.json`, {
             headers: { Accept: 'application/json' }
         });
@@ -22,14 +22,14 @@ export async function fetch_photos() {
         }
 
         const initialPhotos = res.map(item => parse_photo_data(item));
-        data.photos = initialPhotos;
-        state.error = null;
-        console.log('Photos loaded:', data.photos);
+        console.log('Photos loaded:', initialPhotos);
+        app.update(state => ({ ...state, error: null }));
+        photos.set(initialPhotos);
     } catch (err) {
         console.error('Error fetching photos:', err);
-        state.error = `Failed to load photos: ${err.message}`;
+        app.update(state => ({ ...state, error: err.message }));
     } finally {
-        state.loading = false;
+        app.update(state => ({ ...state, loading: false }));
     }
 }
 

@@ -7,7 +7,7 @@
     import {Coordinate} from "tsgeo/Coordinate";
     import 'leaflet/dist/leaflet.css';
 
-    import {map_state, data, turn_to_photo_to} from "$lib/data.svelte.js";
+    import {pos, bearing, photos_in_area, update_bearing, turn_to_photo_to} from "$lib/data.svelte.js";
 
 
     let map;
@@ -49,20 +49,29 @@
     function updateMapState() {
         console.log('updateMapState');
         let _center = map.getCenter();
-        map_state.center = new LatLng(_center.lat, _center.lng);
-        map_state.zoom = map.getZoom();
-        map_state.range = get_range(map_state.center);
-        map_state.top_left = map.getBounds().getNorthWest();
-        map_state.bottom_right = map.getBounds().getSouthEast();
+        pos.update((value) => {
+            return {
+                ...value,
+                center: new Coordinate(_center.lat, _center.lng),
+                zoom: map.getZoom(),
+                range: get_range(_center),
+                top_left: map.getBounds().getNorthWest(),
+                bottom_right: map.getBounds().getSouthEast()
+            };
+        });
     }
 
 
     // Listen for arrow keys
     function handleKeyDown(e) {
         if (e.key === 'z') {
-            map_state.bearing -= 5;
+            update_bearing(-5);
         } else if (e.key === 'x') {
-            map_state.bearing += 5;
+            update_bearing(5);
+        } else if (e.key === 'c') {
+            turn_to_photo_to('left');
+        } else if (e.key === 'v') {
+            turn_to_photo_to('right');
         }
     }
 
@@ -90,7 +99,7 @@
     let arrowX;
     let arrowY;
 
-    $: arrow_radians = (map_state.bearing - 90) * Math.PI / 180; // shift so 0° points "up"
+    $: arrow_radians = ($bearing - 90) * Math.PI / 180; // shift so 0° points "up"
     $: arrowX = centerX + Math.cos(arrow_radians) * arrowLength;
     $: arrowY = centerY + Math.sin(arrow_radians) * arrowLength;
 
@@ -117,7 +126,7 @@
 <div class="map" bind:clientWidth={width} bind:clientHeight={height}>
     <LeafletMap
             bind:this={_map}
-            options={{center: [map_state.center.lat, map_state.center.lng], zoom: map_state.zoom}}
+            options={{center: [$pos.center.lat, $pos.center.lng], zoom: $pos.zoom}}
             events={{moveend: updateMapState, zoomend: updateMapState}}
     >
 
@@ -133,10 +142,10 @@
         />
 
         <!-- Visibility Circle (maxDistance in km, Circle wants meters) -->
-        {#if map_state.center}
+        {#if $pos.center}
             <Circle
-                    latLng={map_state.center}
-                    radius={map_state.range * 1000}
+                    latLng={$pos.center}
+                    radius={$pos.range * 1000}
                     color="#4A90E2"
                     fillColor="#4A90E2"
                     weight={1.8}
@@ -145,13 +154,13 @@
         {/if}
 
         <!-- Markers for photos -->
-        {#each data.photos_in_area as photo (photo.id)}
+        {#each $photos_in_area as photo (photo.id)}
             <Marker
                     latLng={[photo.latitude, photo.longitude]}
                     icon={createDirectionalArrow(photo.direction, getColor(photo))}
                     title={`Photo at ${photo.latitude.toFixed(6)}, ${photo.longitude.toFixed(6)}\n
 Direction: ${photo.direction.toFixed(1)}°\n
-(Relative: ${(photo.direction - map_state.bearing).toFixed(1)}°)`}
+(Relative: ${(photo.direction - $bearing).toFixed(1)}°)`}
             />
 
         {/each}
@@ -221,7 +230,7 @@ Direction: ${photo.direction.toFixed(1)}°\n
     </button>
 
     <button
-            on:click={() => map_state.bearing -=15}
+            on:click={() => update_bearing(-15)}
             class="p-2 bg-white rounded-full shadow-lg hover:bg-gray-100 transition-colors"
             title="Rotate view 15° counterclockwise"
     >
@@ -229,7 +238,7 @@ Direction: ${photo.direction.toFixed(1)}°\n
     </button>
 
     <button
-            on:click={() => map_state.bearing +=15}
+            on:click={() => update_bearing(15)}
             class="p-2 bg-white rounded-full shadow-lg hover:bg-gray-100 transition-colors"
             title="Rotate view 15° clockwise"
     >

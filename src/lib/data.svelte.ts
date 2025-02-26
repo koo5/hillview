@@ -1,173 +1,199 @@
-import { type Photo } from "./types.ts";
-import { Coordinate } from "tsgeo/Coordinate";
-import {Vincenty}   from "tsgeo/Distance/Vincenty";
-import * as angles from 'angles';
+import {type Photo} from "./types.ts";
+import {Coordinate} from "tsgeo/Coordinate";
+import {Vincenty} from "tsgeo/Distance/Vincenty";
+import Angles from 'angles';
 //import {DMS} from "tsgeo/Formatter/Coordinate/DMS";
-import { space_db } from "./debug_server.js";
-import { LatLng } from 'leaflet';
+import {space_db} from "./debug_server.js";
+import {LatLng} from 'leaflet';
+import {get, writable} from "svelte/store";
 
 
 export const geoPicsUrl = import.meta.env.VITE_REACT_APP_GEO_PICS_URL;
 
 let calculator = new Vincenty();
 
-export let state = $state({
+export let app = writable({
     loading: true,
     error: null
 })
 
-export let map_state = $state({
+export let pos = writable({
     center: new LatLng(50.033989, 14.539032),
     zoom: 12,
     top_left: new LatLng(0, 0),
     bottom_right: new LatLng(10, 10),
     range: 1,
-    bearing: 0,
 });
 
-export let data = $state(
-    {
-        photos: [],
-        photos_in_area: [],
-        photos_in_range: [],
-        photo_in_front: null,
-        photos_to_left: [],
-        photos_to_right: [],
-        photo_to_left: null,
-        photo_to_right: null
-    });
+export let bearing = writable(0);
+
+export let photos = writable([]);
+export let photos_in_area = writable([]);
+export let photos_in_range = writable([]);
+
+export let photo_in_front = writable(null);
+export let photos_to_left = writable([]);
+export let photos_to_right = writable([]);
+export let photo_to_left = writable(null);
+export let photo_to_right = writable(null);
 
 function dist(coord1, coord2) {
     return calculator.getDistance(new Coordinate(coord1[0], coord1[1]), new Coordinate(coord2[0], coord2[1]));
 }
 
-//const magic = $effect.root(() => {
+bearing.subscribe(b => {
+    let b2 = (b + 360) % 360;
+    if (b2 !== b) {
+        bearing.set(b2);
+    }
+});
 
-    $effect(() => {
-        map_state.bearing = (map_state.bearing + 360) % 360;
+async function share_state() {
+    let p = get(pos);
+    await space_db.transaction('rw', 'state', async () => {
+        await space_db.state.clear();
+        let state = {
+            ts: Date.now(),
+            center: p.center,
+            zoom: p.zoom,
+            top_left: p.top_left,
+            bottom_right: p.bottom_right,
+            range: p.range,
+            bearing: get(bearing)
+        }
+        console.log('Saving state:', state);
+        space_db.state.add(state);
     });
+};
 
-    $effect(async () => {
-        await space_db.transaction('rw', 'state', async () => {
-            await space_db.state.clear();
-            space_db.state.add({
-                ts: Date.now(),
-                center: map_state.center,
-                zoom: map_state.zoom,
-                top_left: map_state.top_left,
-                bottom_right: map_state.bottom_right,
-                range: map_state.range,
-                bearing: map_state.bearing
-            });
-        });
+pos.subscribe(share_state);
+bearing.subscribe(share_state);
+
+
+function filter_photos_by_area() {
+    let p = get(pos);
+    let b = get(bearing);
+    let ph = get(photos);
+    console.log('photos:', ph);
+    let res = ph.filter(photo => {
+        console.log('photo:', photo);
+        console.log('map_state.top_left:', p.top_left, 'map_state.bottom_right:', p.bottom_right);
+        let yes = photo.coord.lat < p.top_left.lat && photo.coord.lat > p.bottom_right.lat &&
+            photo.coord.lng > p.top_left.lng && photo.coord.lng < p.bottom_right.lng;
+        //console.log('yes:', yes);
+        return yes;
     });
+    for (let photo of res) {
+        photo.abs_bearing_diff = Math.abs(Angles.diff(b, photo.bearing));
+        photo.range_distance = null;
+    }
+    console.log('Photos in area:', res);
+    photos_in_area.set(res);
+};
 
-    $effect(() => {console.log('map_state:', map_state)});
+pos.subscribe(filter_photos_by_area);
+bearing.subscribe(filter_photos_by_area);
+photos.subscribe(filter_photos_by_area);
 
-    $effect(() => {
-        console.log('photos:', data.photos);
-        let res = data.photos.filter(photo => {
-            console.log('photo:', photo);
-            console.log('map_state.top_left:', map_state.top_left, 'map_state.bottom_right:', map_state.bottom_right);
-            return photo.coord.lat >= map_state.top_left.lat && photo.coord.lat <= map_state.bottom_right.lat &&
-                photo.coord.lon >= map_state.top_left.lon && photo.coord.lon <= map_state.bottom_right.lon;
-        });
-        for (let photo of res) {
-            photo.abs_bearing_diff = Math.abs(angles.diff(map_state.bearing, photo.bearing));
+function filter_photos_in_range() {
+    let p = get(pos);
+    let ph = get(photos_in_area);
+    let res = ph.filter(photo => {
+        photo.range_distance = dist(photo.coord, p.center);
+        if (photo.range_distance > p.range) {
             photo.range_distance = null;
         }
-        data.photos_in_area = res;
-        console.log('Photos in area:', data.photos_in_area);
+        return photo.range_distance !== null;
     });
+    photos_in_range.set(res);
+};
 
-    $effect(() => {
-        let res = data.photos_in_area.filter(photo => {
-            photo.range_distance = dist(photo.coord, map_state.center);
-            if (photo.range_distance > map_state.range) {
-                photo.range_distance = null;
-            }
-            return photo.range_distance !== null;
-        });
-        data.photos_in_range = res;
-    });
+photos_in_area.subscribe(filter_photos_in_range);
 
-    $effect(() => {
-        data.photo_in_front = data.photos_in_range.reduce((prev, current) => {
-            current.diff = Math.abs(angles.diff(map_state.bearing, current.bearing));
-            if (prev.diff > current.diff) {
-                return current;
-            }
-            return prev;
-        }, null);
-    });
-
-// unordered
-    $effect(() => {
-        data.photos_to_left = data.photos_in_range.filter(photo => photo !== data.photo_in_front && angles.shortestDirection(map_state.bearing, photo.bearing) < 0);
-    });
-
-    $effect(() => {
-        data.photos_to_right = data.photos_in_range.filter(photo => photo !== data.photo_in_front && angles.shortestDirection(map_state.bearing, photo.bearing) > 0);
-    });
-
-    $effect(() => {
-        // what is the next closest photo going left
-        let result = data.photos_to_left.reduce((prev, current) => {
-            current.diff = Math.abs(angles.diff(map_state.bearing, current.bearing));
-            if (prev.diff > current.diff) {
-                return current;
-            }
-            return prev;
-        }, null);
-        if (!result) {
-            // if no photo to the left, then get the "furthest away (along the circle)" photo on the right
-            result = data.photos_to_right.reduce((prev, current) => {
-                if (prev.bearing < current.bearing) {
-                    return current;
-                }
-                return prev;
-            }, null);
+function update_photo_in_front() {
+    let b = get(bearing);
+    let ph = get(photos_in_range);
+    ph.map(photo => {photo.diff = undefined});
+    let phf = ph.reduce((prev, current) => {
+        current.diff = Math.abs(Angles.diff(b, current.bearing));
+        if (!prev || prev.diff === undefined) return current;
+        if (prev.diff > current.diff) {
+            return current;
         }
-        data.photo_to_left = result;
-    });
+        return prev;
+    }, null);
+    photo_in_front.set(phf);
+    let phsl = ph.filter(photo => photo !== phf && Angles.shortestDirection(b, photo.bearing) > 0);
+    photos_to_left.set(phsl);
+    let phsr = ph.filter(photo => photo !== phf && Angles.shortestDirection(b, photo.bearing) < 0);
+    photos_to_right.set(phsr);
+    photo_to_left.set(get_photo_to_left(b, phsl, phsr));
+    photo_to_right.set(get_photo_to_right(b, phsl, phsr));
+};
 
-    $effect(() => {
-        // what is the next closest photo going right
-        let result = data.photos_to_right.reduce((prev, current) => {
-            current.diff = Math.abs(angles.diff(map_state.bearing, current.bearing));
-            if (prev.diff > current.diff) {
+function get_photo_to_left(b, phsl, phsr) {
+    let result = phsl.reduce((prev, current) => {
+        if (!prev) return current;
+        current.diff = Math.abs(Angles.diff(b, current.bearing));
+        if (prev.diff > current.diff) {
+            return current;
+        }
+        return prev;
+    }, null);
+    if (!result) {
+        // if no photo to the left, then get the "furthest away (along the circle)" photo on the right
+        result = phsr.reduce((prev, current) => {
+            if (!prev) return current;
+            if (prev.bearing < current.bearing) {
                 return current;
             }
             return prev;
         }, null);
-        if (!result) {
-            // if no photo to the right, then get the "furthest away (along the circle)" photo on the left
-            result = data.photos_to_left.reduce((prev, current) => {
-                if (prev.bearing > current.bearing) {
-                    return current;
-                }
-                return prev;
-            }, null);
+    }
+    return result;
+};
+
+function get_photo_to_right(b, phsl, phsr) {
+    // what is the next closest photo going right
+    let result = phsr.reduce((prev, current) => {
+        if (!prev) return current;
+        current.diff = Math.abs(Angles.diff(b, current.bearing));
+        if (prev.diff > current.diff) {
+            return current;
         }
-        data.photo_to_right = result;
-    });
+        return prev;
+    }, null);
+    if (!result) {
+        // if no photo to the right, then get the "furthest away (along the circle)" photo on the left
+        result = phsl.reduce((prev, current) => {
+            if (!prev) return current;
+            if (prev.bearing > current.bearing) {
+                return current;
+            }
+            return prev;
+        }, null);
+    }
+    return result;
+};
 
-//});
+bearing.subscribe(update_photo_in_front);
+photos_in_range.subscribe(update_photo_in_front);
 
-export function turn_to_photo_to(dir)
-{
-    if (dir === 'left')
-    {
-        if (data.photo_to_left)
-        {
-            map_state.bearing = data.photo_to_left.bearing;
+export function turn_to_photo_to(dir) {
+    if (dir === 'left') {
+        let phl = get(photo_to_left);
+        if (phl) {
+            bearing.set(phl.bearing);
+        }
+    } else if (dir === 'right') {
+        let phr = get(photo_to_right);
+        if (phr) {
+            bearing.set(phr.bearing);
         }
     }
-    else if (dir === 'right')
-    {
-        if (data.photo_to_right)
-        {
-            map_state.bearing = data.photo_to_right.bearing;
-        }
-    }
+}
+
+export function update_bearing(diff) {
+    let b = get(bearing);
+    bearing.set(b + diff);
 }
