@@ -1,11 +1,12 @@
 <script>
-    import { onMount, onDestroy } from 'svelte';
-    import { LeafletMap, TileLayer, Marker, Circle } from 'svelte-leafletjs';
-    import { RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle } from 'lucide-svelte';
+    import {onMount, onDestroy} from 'svelte';
+    import {LeafletMap, TileLayer, Marker, Circle} from 'svelte-leafletjs';
+    import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle} from 'lucide-svelte';
     import L from 'leaflet';
     import {Coordinate} from "tsgeo/Coordinate";
+    import 'leaflet/dist/leaflet.css';
 
-    import {map_state, data, turn_to_photo_to } from "$lib/data.svelte.js";
+    import {map_state, data, turn_to_photo_to} from "$lib/data.svelte.js";
 
 
     let map;
@@ -57,9 +58,9 @@
     // Listen for arrow keys
     function handleKeyDown(e) {
         if (e.key === 'z') {
-            map_state.bearing -=5;
+            map_state.bearing -= 5;
         } else if (e.key === 'x') {
-            map_state.bearing +=5;
+            map_state.bearing += 5;
         }
     }
 
@@ -90,159 +91,116 @@
     // Helper for coloring the marker icons
     function getColor(photo) {
         if (photo.abs_bearing_diff === null) return '#9E9E9E'; // grey
-        function rgbToHex(r,g,b) {
-            return '#' + [r,g,b].map(x => {
+        function rgbToHex(r, g, b) {
+            return '#' + [r, g, b].map(x => {
                 const hex = x.toString(16);
                 return hex.length === 1 ? '0' + hex : hex;
             }).join('');
         }
+
         return rgbToHex(photo.abs_bearing_diff, 255 - photo.abs_bearing_diff, 0);
     }
 
     const tileUrl = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+
+
+    const mapOptions = {
+        center: [1.364917, 103.822872],
+        zoom: 11,
+    };
 </script>
 
 
 <!-- The map container -->
-<div class="relative w-full h-full">
-    <!--
-      We bind the Leaflet map instance to the variable `map` using `bind:leafletMap`.
-      This gives us direct access to the underlying L.Map object for bounding, etc.
-    -->
+<div class="map">
     <LeafletMap
-            center={map_state.center}
-            zoom={map_state.zoom}
-            style="width: 100%; height: 100%;"
             bind:leafletMap={map}
-            on:moveend={updateMapState}
-            on:zoomend={updateMapState}
+            options={mapOptions}
+    <!--            center={map_state.center}-->
+    <!--            zoom={map_state.zoom}-->
+    <!--            style="width: 100%; height: 100%;"-->
+    <!--            on:moveend={updateMapState}-->
+    <!--            on:zoomend={updateMapState}-->
     >
-        <!-- Base map tiles -->
-        <TileLayer
-                url={tileUrl}
-                attribution="&copy; OpenStreetMap contributors"
-        />
+    <!-- Base map tiles -->
+    <TileLayer
+            url={tileUrl}
+            options={{
+                    maxZoom: 18,
+                    }}
+            attribution="&copy; OpenStreetMap contributors"
+    />
 
-        <!-- Visibility Circle (maxDistance in km, Circle wants meters) -->
-        {#if map_state.center}
-<!--            <Circle-->
-<!--                    latLng={[map_state.center.lat, map_state.center.lng]}-->
-<!--                    radius={map_state.range * 1000}-->
-<!--                    color="#4A90E2"-->
-<!--                    fillColor="#4A90E2"-->
-<!--                    fillOpacity={0.07}-->
-<!--                    weight={0.8}-->
-<!--            />-->
-        {/if}
+    <!-- Visibility Circle (maxDistance in km, Circle wants meters) -->
+    {#if map_state.center}
+        <!--            <Circle-->
+        <!--                    latLng={[map_state.center.lat, map_state.center.lng]}-->
+        <!--                    radius={map_state.range * 1000}-->
+        <!--                    color="#4A90E2"-->
+        <!--                    fillColor="#4A90E2"-->
+        <!--                    fillOpacity={0.07}-->
+        <!--                    weight={0.8}-->
+        <!--            />-->
+    {/if}
 
-        <!-- Markers for photos -->
-        {#each data.photos_in_area as photo (photo.id)}
-                <Marker
-                        latLng={[photo.latitude, photo.longitude]}
-                        icon={createDirectionalArrow(photo.direction, getColor(photo))}
-                        title={`Photo at ${photo.latitude.toFixed(6)}, ${photo.longitude.toFixed(6)}\n
+    <!-- Markers for photos -->
+    {#each data.photos_in_area as photo (photo.id)}
+        <Marker
+                latLng={[photo.latitude, photo.longitude]}
+                icon={createDirectionalArrow(photo.direction, getColor(photo))}
+                title={`Photo at ${photo.latitude.toFixed(6)}, ${photo.longitude.toFixed(6)}\n
 Direction: ${photo.direction.toFixed(1)}°\n
 (Relative: ${(photo.direction - map_state.bearing).toFixed(1)}°)`}
-                />
+        />
 
-        {/each}
+    {/each}
     </LeafletMap>
-
-    <!-- FOV Overlay (the arrow & circle in the center of the screen) -->
-    <div class="absolute inset-0 pointer-events-none" style="z-index: 30000;">
-        <div class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
-            <svg
-                    width={width}
-                    height={height}
-                    viewBox={`0 0 ${width} ${height}`}
-                    class="transition-transform duration-200"
-            >
-                <!-- Outer circle -->
-                <circle
-                        cx={centerX}
-                        cy={centerY}
-                        r={fov_circle_radius_px}
-                        fill="rgba(74, 144, 226, 0.1)"
-                        stroke="rgb(74, 144, 226)"
-                        stroke-width="2"
-                />
-
-                <!-- Direction arrow line -->
-                <line
-                        x1={centerX}
-                        y1={centerY}
-                        x2={arrowX}
-                        y2={arrowY}
-                        stroke="rgb(74, 144, 226)"
-                        stroke-width="3"
-                        marker-end="url(#arrowhead)"
-                />
-
-                <!-- Arrow head -->
-                <defs>
-                    <marker
-                            id="arrowhead"
-                            markerWidth="10"
-                            markerHeight="7"
-                            refX="9"
-                            refY="3.5"
-                            orient="auto"
-                    >
-                        <polygon
-                                points="0 0, 10 3.5, 0 7"
-                                fill="rgb(74, 144, 226)"
-                        />
-                    </marker>
-                </defs>
-
-                <!-- Center dot -->
-                <circle
-                        cx={centerX}
-                        cy={centerY}
-                        r="3"
-                        fill="rgb(74, 144, 226)"
-                />
-            </svg>
-        </div>
-    </div>
-
-    <!-- Rotation / navigation buttons -->
-    <div class="absolute bottom-4 left-4 flex gap-2" style="z-index: 30000;">
-        <button
-                on:click={() => turn_to_photo_to('left')}
-                class="p-2 bg-white rounded-full shadow-lg hover:bg-gray-100 transition-colors"
-                title="Rotate to next photo on the left"
-        >
-            <ArrowLeftCircle class="w-5 h-5 text-gray-700" />
-        </button>
-
-        <button
-                on:click={() => map_state.bearing -=15}
-                class="p-2 bg-white rounded-full shadow-lg hover:bg-gray-100 transition-colors"
-                title="Rotate view 15° counterclockwise"
-        >
-            <RotateCcw class="w-5 h-5 text-gray-700" />
-        </button>
-
-        <button
-                on:click={() => map_state.bearing +=15}
-                class="p-2 bg-white rounded-full shadow-lg hover:bg-gray-100 transition-colors"
-                title="Rotate view 15° clockwise"
-        >
-            <RotateCw class="w-5 h-5 text-gray-700" />
-        </button>
-
-        <button
-                on:click={() => turn_to_photo_to('right')}
-                class="p-2 bg-white rounded-full shadow-lg hover:bg-gray-100 transition-colors"
-                title="Rotate to next photo on the right"
-        >
-            <ArrowRightCircle class="w-5 h-5 text-gray-700" />
-        </button>
-    </div>
-
-    <!-- Small help text -->
-    <div class="absolute bottom-4 right-4 bg-white p-2 rounded shadow" style="z-index: 30000;">
-        <p class="text-sm">Use ← → arrow keys or buttons to rotate the view direction.</p>
-    </div>
 </div>
+
+<!-- Rotation / navigation buttons -->
+<div class="absolute bottom-4 left-4 flex gap-2" style="z-index: 30000;">
+    <button
+            on:click={() => turn_to_photo_to('left')}
+            class="p-2 bg-white rounded-full shadow-lg hover:bg-gray-100 transition-colors"
+            title="Rotate to next photo on the left"
+    >
+        <ArrowLeftCircle class="w-5 h-5 text-gray-700"/>
+    </button>
+
+    <button
+            on:click={() => map_state.bearing -=15}
+            class="p-2 bg-white rounded-full shadow-lg hover:bg-gray-100 transition-colors"
+            title="Rotate view 15° counterclockwise"
+    >
+        <RotateCcw class="w-5 h-5 text-gray-700"/>
+    </button>
+
+    <button
+            on:click={() => map_state.bearing +=15}
+            class="p-2 bg-white rounded-full shadow-lg hover:bg-gray-100 transition-colors"
+            title="Rotate view 15° clockwise"
+    >
+        <RotateCw class="w-5 h-5 text-gray-700"/>
+    </button>
+
+    <button
+            on:click={() => turn_to_photo_to('right')}
+            class="p-2 bg-white rounded-full shadow-lg hover:bg-gray-100 transition-colors"
+            title="Rotate to next photo on the right"
+    >
+        <ArrowRightCircle class="w-5 h-5 text-gray-700"/>
+    </button>
+</div>
+
+<!-- Small help text -->
+<div class="absolute bottom-4 right-4 bg-white p-2 rounded shadow" style="z-index: 30000;">
+    <p class="text-sm">Use ← → arrow keys or buttons to rotate the view direction.</p>
+</div>
+
+<style>
+    .map {
+        width: 500px;
+        height: 500px;
+    }
+
+</style>

@@ -1,5 +1,7 @@
 import {state, geoPicsUrl, data} from "$lib/data.svelte";
 //import { APIPhotoData, Photo} from "./types.ts";
+import { Coordinate } from "tsgeo/Coordinate";
+
 
 export async function fetch_photos() {
     try {
@@ -58,7 +60,7 @@ function parseFraction(value) {
 }
 
 function parse_photo_data(item) {
-    let result = {
+    let photo = {
         id: Math.random().toString(36).substring(7),
         file: item.file,
         url: `${geoPicsUrl}/${encodeURIComponent(item.file)}`,
@@ -68,12 +70,13 @@ function parse_photo_data(item) {
         altitude: parseFraction(item.altitude),
         loaded: false
     };
-    if (result.latitude.isNaN || result.longitude.isNaN) {
-        console.error('Invalid coordinates:', result);
+    photo.coord = new Coordinate(photo.latitude, photo.longitude);
+    if (photo.latitude.isNaN || photo.longitude.isNaN) {
+        console.error('Invalid coordinates:', photo);
     }
-    if (result.direction < 0 || result.direction > 360) {
-        console.error('Invalid direction:', result);
+    if (photo.direction < 0 || photo.direction > 360) {
+        console.error('Invalid direction:', photo);
     }
-    return result;
+    return photo;
 }
 
