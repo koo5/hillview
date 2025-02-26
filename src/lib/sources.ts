@@ -1,9 +1,9 @@
-import {error, geoPicsUrl, loading, photos, range} from "$lib/data.svelte";
+import {state, geoPicsUrl, data} from "$lib/data.svelte";
 import { APIPhotoData, Photo} from "./types";
 
 export async function fetch_photos() {
     try {
-        loading = true;
+        state.loading = true;
         const response = await fetch(`${geoPicsUrl}/files.json`, {
             headers: { Accept: 'application/json' }
         });
@@ -18,13 +18,13 @@ export async function fetch_photos() {
         }
 
         const initialPhotos = data.map(item => parse_photo_data(item));
-        photos = initialPhotos;
-        error = null;
+        data.photos = initialPhotos;
+        state.error = null;
     } catch (err) {
         console.error('Error fetching photos:', err);
-        error = `Failed to load photos: ${err.message}`;
+        state.error = `Failed to load photos: ${err.message}`;
     } finally {
-        loading = false;
+        state.loading = false;
     }
 }
 

@@ -4,24 +4,13 @@
     import Map from './Map.svelte';
     import { Camera, Compass } from 'lucide-svelte';
 
-    import {
-        bearing,
-        bottom_right,
-        center,
-        error,
-        photo_in_front, photo_to_left, photo_to_right,
-        photos,
-        photos_in_area, photos_in_range,
-        range,
-        top_left,
-        zoom
-    } from "$lib/data.svelte.js";
+    import {state, map_state, data } from "$lib/data.svelte.js";
     import {fetch_photos} from "$lib/sources.js";
     import {dms} from "$lib/utils.js";
     import {goto} from "$app/navigation";
 
-    onMount(() => {
-        fetch_photos();
+    onMount(async () => {
+        await fetch_photos();
     });
 
 </script>
@@ -71,9 +60,9 @@
 
     <!-- Main Content -->
     <main class="max-w-7xl mx-auto px-4 py-6">
-        {#if error}
+        {#if state.error}
             <div class="mb-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded">
-                {error}
+                {state.error}
             </div>
         {/if}
 
@@ -92,16 +81,9 @@
 
 
 <div>
-    bearing: {bearing}
-    center: {center}
-    zoom: {zoom}
-    range: {range}
-    top_left: {top_left}
-    bottom_right: {bottom_right}
-    photos.length: {photos.length}
-    photos_in_area.length: {photos_in_area.length}
-    photos_in_range.length: {photos_in_range.length}
-    photo_in_front: {photo_in_front}
-    photo_to_left: {photo_to_left}
-    photo_to_right: {photo_to_right}
+    <pre>
+        state: {JSON.stringify(state, null, 2)}
+        map_state: {JSON.stringify(map_state, null, 2)}
+        data: {JSON.stringify(data, null, 2)}
+        </pre>
 </div>

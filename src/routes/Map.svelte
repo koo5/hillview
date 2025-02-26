@@ -1,28 +1,14 @@
 <script>
     import { onMount, onDestroy } from 'svelte';
-    import { Map, TileLayer, Marker, Circle } from 'svelte-leaflet';
+    import { Map, TileLayer, Marker, Circle } from 'svelte-leafletjs';
     import { RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle } from 'lucide-svelte';
     import L from 'leaflet';
-
-    import {
-        center,
-        zoom,
-        range,
-        bearing,
-        top_left,
-        bottom_right,
-
-        photos,
-        photos_in_area,
-        photos_in_range,
-        photo_to_left,
-        photo_to_right,
-
-        turn_to_photo_to, photo_in_front
-    } from "$lib/data.svelte.js";
     import {Coordinate} from "tsgeo/Coordinate";
 
+    import {map_state, data, turn_to_photo_to } from "$lib/data.svelte.js";
 
+
+    let map;
     const fov_circle_radius_px = 200;
 
     // Create the directional arrow icon for each photo
@@ -59,21 +45,21 @@
     // Update local mapState and notify parent
     function updateMapState() {
         if (!map) return;
-        let _center = map.getCenter();
+        //let _center = map.getCenter();
         //center = new Coordinate(_center.lat, _center.lng);
         //zoom = map.getZoom();
-        range = get_range(center);
-        top_left = map.getBounds().getNorthWest();
-        bottom_right = map.getBounds().getSouthEast();
+        map_state.range = get_range(map_state.center);
+        map_state.top_left = map.getBounds().getNorthWest();
+        map_state.bottom_right = map.getBounds().getSouthEast();
     }
 
 
     // Listen for arrow keys
     function handleKeyDown(e) {
         if (e.key === 'z') {
-            bearing -=5;
+            map_state.bearing -=5;
         } else if (e.key === 'x') {
-            bearing +=5;
+            map_state.bearing +=5;
         }
     }
 
@@ -122,7 +108,7 @@
       This gives us direct access to the underlying L.Map object for bounding, etc.
     -->
     <Map
-            center={center}
+            center={map_state.center}
             zoom={zoom}
             style="width: 100%; height: 100%;"
             bind:leafletMap={map}
@@ -137,8 +123,8 @@
 
         <!-- Visibility Circle (maxDistance in km, Circle wants meters) -->
         <Circle
-                latLng={center}
-                radius={range}
+                latLng={map_state.center}
+                radius={map_state.range}
                 color="#4A90E2"
                 fillColor="#4A90E2"
                 fillOpacity={0.07}
@@ -146,13 +132,13 @@
         />
 
         <!-- Markers for photos -->
-        {#each photos_in_area as photo (photo.id)}
+        {#each data.photos_in_area as photo (photo.id)}
                 <Marker
                         latLng={[photo.latitude, photo.longitude]}
                         icon={createDirectionalArrow(photo.direction, getColor(photo))}
                         title={`Photo at ${photo.latitude.toFixed(6)}, ${photo.longitude.toFixed(6)}\n
 Direction: ${photo.direction.toFixed(1)}°\n
-(Relative: ${(photo.direction - bearing).toFixed(1)}°)`}
+(Relative: ${(photo.direction - map_state.bearing).toFixed(1)}°)`}
                 />
 
         {/each}
@@ -171,7 +157,7 @@ Direction: ${photo.direction.toFixed(1)}°\n
                 <circle
                         cx={centerX}
                         cy={centerY}
-                        r={radius}
+                        r={fov_circle_radius_px}
                         fill="rgba(74, 144, 226, 0.1)"
                         stroke="rgb(74, 144, 226)"
                         stroke-width="2"
@@ -219,7 +205,7 @@ Direction: ${photo.direction.toFixed(1)}°\n
     <!-- Rotation / navigation buttons -->
     <div class="absolute bottom-4 left-4 flex gap-2" style="z-index: 30000;">
         <button
-                on:click={() => rotateToNextPhoto('left')}
+                on:click={() => turn_to_photo_to('left')}
                 class="p-2 bg-white rounded-full shadow-lg hover:bg-gray-100 transition-colors"
                 title="Rotate to next photo on the left"
         >
@@ -227,7 +213,7 @@ Direction: ${photo.direction.toFixed(1)}°\n
         </button>
 
         <button
-                on:click={() => rotateBearing(-15)}
+                on:click={() => map_state.bearing -=15}
                 class="p-2 bg-white rounded-full shadow-lg hover:bg-gray-100 transition-colors"
                 title="Rotate view 15° counterclockwise"
         >
@@ -235,7 +221,7 @@ Direction: ${photo.direction.toFixed(1)}°\n
         </button>
 
         <button
-                on:click={() => rotateBearing(15)}
+                on:click={() => map_state.bearing +=15}
                 class="p-2 bg-white rounded-full shadow-lg hover:bg-gray-100 transition-colors"
                 title="Rotate view 15° clockwise"
         >
@@ -243,7 +229,7 @@ Direction: ${photo.direction.toFixed(1)}°\n
         </button>
 
         <button
-                on:click={() => rotateToNextPhoto('right')}
+                on:click={() => turn_to_photo_to('right')}
                 class="p-2 bg-white rounded-full shadow-lg hover:bg-gray-100 transition-colors"
                 title="Rotate to next photo on the right"
         >
