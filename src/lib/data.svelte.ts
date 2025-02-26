@@ -18,8 +18,8 @@ export let app = writable({
 })
 
 export let pos = writable({
-    center: new LatLng(50.033989, 14.539032),
-    zoom: 12,
+    center: new LatLng( 50.06796359464938, 14.492716267704965),
+    zoom: 21,
     top_left: new LatLng(0, 0),
     bottom_right: new LatLng(10, 10),
     range: 1,
@@ -61,7 +61,7 @@ async function share_state() {
             range: p.range,
             bearing: get(bearing)
         }
-        console.log('Saving state:', state);
+        //console.log('Saving state:', state);
         space_db.state.add(state);
     });
 };
@@ -74,10 +74,10 @@ function filter_photos_by_area() {
     let p = get(pos);
     let b = get(bearing);
     let ph = get(photos);
-    console.log('photos:', ph);
+    //console.log('photos:', ph);
     let res = ph.filter(photo => {
-        console.log('photo:', photo);
-        console.log('map_state.top_left:', p.top_left, 'map_state.bottom_right:', p.bottom_right);
+        //console.log('photo:', photo);
+        //console.log('map_state.top_left:', p.top_left, 'map_state.bottom_right:', p.bottom_right);
         let yes = photo.coord.lat < p.top_left.lat && photo.coord.lat > p.bottom_right.lat &&
             photo.coord.lng > p.top_left.lng && photo.coord.lng < p.bottom_right.lng;
         //console.log('yes:', yes);
@@ -87,7 +87,7 @@ function filter_photos_by_area() {
         photo.abs_bearing_diff = Math.abs(Angles.diff(b, photo.bearing));
         photo.range_distance = null;
     }
-    console.log('Photos in area:', res);
+    console.log('Photos in area:', res.length);
     photos_in_area.set(res);
 };
 

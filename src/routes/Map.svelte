@@ -15,14 +15,18 @@
     const fov_circle_radius_px = 200;
 
     // Create the directional arrow icon for each photo
-    function createDirectionalArrow(direction, color) {
+    function createDirectionalArrow(bearing, color) {
+        console.log('createDirectionalArrow', bearing, color);
+        bearing = Math.round(bearing);
+        //color = '#4A90E2';
         const svg = `
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none"
            xmlns="http://www.w3.org/2000/svg">
         <circle cx="12" cy="12" r="10"
                 fill="${color}" fill-opacity="0.2"
-                stroke="${color}" stroke-width="2" />
-        <path transform="rotate(${direction} 12 12)"
+                stroke="${color}" stroke-width="2"
+                 />
+        <path transform="rotate(${bearing} 12 12)"
               d="M12 6l4 6h-8z"
               fill="${color}" />
       </svg>
@@ -33,6 +37,25 @@
             iconSize: [24, 24],
             iconAnchor: [12, 12]
         });
+    }
+
+    function RGB2HTML(red, green, blue)
+    {
+        red = Math.min(255, Math.max(0, Math.round(red)));
+        green = Math.min(255, Math.max(0, Math.round(green)));
+        blue = Math.min(255, Math.max(0, Math.round(blue)));
+        let r = red.toString(16);
+        let g = green.toString(16);
+        let b = blue.toString(16);
+        if (r.length == 1) r = '0' + r;
+        if (g.length == 1) g = '0' + g;
+        if (b.length == 1) b = '0' + b;
+        return '#' + r + g + b;
+    }
+    // Helper for coloring the marker icons
+    function getColor(photo) {
+        if (photo.abs_bearing_diff === null) return '#9E9E9E'; // grey
+        return RGB2HTML(photo.abs_bearing_diff, 255 - photo.abs_bearing_diff, 0);
     }
 
     // Calculate how many km are “visible” based on the current zoom/center
@@ -104,18 +127,6 @@
     $: arrowY = centerY + Math.sin(arrow_radians) * arrowLength;
 
 
-    // Helper for coloring the marker icons
-    function getColor(photo) {
-        if (photo.abs_bearing_diff === null) return '#9E9E9E'; // grey
-        function rgbToHex(r, g, b) {
-            return '#' + [r, g, b].map(x => {
-                const hex = x.toString(16);
-                return hex.length === 1 ? '0' + hex : hex;
-            }).join('');
-        }
-
-        return rgbToHex(photo.abs_bearing_diff, 255 - photo.abs_bearing_diff, 0);
-    }
 
     const tileUrl = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
 
@@ -154,13 +165,13 @@
         {/if}
 
         <!-- Markers for photos -->
-        {#each $photos_in_area as photo (photo.id)}
+        {#each $photos_in_area as photo (photo.file)}
             <Marker
-                    latLng={[photo.latitude, photo.longitude]}
-                    icon={createDirectionalArrow(photo.direction, getColor(photo))}
-                    title={`Photo at ${photo.latitude.toFixed(6)}, ${photo.longitude.toFixed(6)}\n
-Direction: ${photo.direction.toFixed(1)}°\n
-(Relative: ${(photo.direction - $bearing).toFixed(1)}°)`}
+                    latLng={photo.coord}
+                    icon={createDirectionalArrow(photo.bearing, getColor(photo))}
+                    title={`Photo at ${photo.coord.lat.toFixed(6)}, ${photo.coord.lng.toFixed(6)}\n
+Direction: ${photo.bearing.toFixed(1)}°\n
+(Relative: ${(photo.bearing - $bearing).toFixed(1)}°)`}
             />
 
         {/each}
