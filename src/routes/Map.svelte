@@ -7,7 +7,8 @@
     import {Coordinate} from "tsgeo/Coordinate";
     import 'leaflet/dist/leaflet.css';
 
-    import {pos, bearing, photos_in_area, update_bearing, turn_to_photo_to} from "$lib/data.svelte.js";
+    import {pos, bearing, photos_in_area, photo_in_front, update_bearing, turn_to_photo_to} from "$lib/data.svelte.js";
+    import {get} from "svelte/store";
 
 
     let map;
@@ -15,20 +16,28 @@
     const fov_circle_radius_px = 200;
 
     // Create the directional arrow icon for each photo
-    function createDirectionalArrow(bearing, color) {
+    function createDirectionalArrow(photo) {
+        let bearing = photo.bearing;
+        let color = getColor(photo);
+        let size = 24;
+        if ($photo_in_front === photo) {
+            size = 36;
+        }
+        let half = Math.round(size / 2);
         console.log('createDirectionalArrow', bearing, color);
         bearing = Math.round(bearing);
         //color = '#4A90E2';
         const svg = `
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none"
+      <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" fill="none"
            xmlns="http://www.w3.org/2000/svg">
-        <circle cx="12" cy="12" r="10"
-                fill="${color}" fill-opacity="0.2"
+        <circle cx="${half}" cy="${half}" r="${half}"
+                fill="${color}" fill-opacity="0.1"
                 stroke="${color}" stroke-width="2"
                  />
-        <path transform="rotate(${bearing} 12 12)"
-              d="M12 6l4 6h-8z"
+<path transform="rotate(${bearing} ${half} ${half})"
+              d="M${half} ${size / 6}l${size / 2} ${size * 3 / 6}h-${size}z"
               fill="${color}" />
+</svg>
       </svg>
     `;
         return L.divIcon({
@@ -126,8 +135,6 @@
     $: arrowX = centerX + Math.cos(arrow_radians) * arrowLength;
     $: arrowY = centerY + Math.sin(arrow_radians) * arrowLength;
 
-
-
     const tileUrl = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
 
 </script>
@@ -147,7 +154,8 @@
         <TileLayer
                 url={tileUrl}
                 options={{
-                    maxZoom: 30,
+                    maxZoom: 23,
+                    maxNativeZoom: 18,
                     }}
                 attribution="&copy; OpenStreetMap contributors"
         />
@@ -168,7 +176,7 @@
         {#each $photos_in_area as photo (photo.file)}
             <Marker
                     latLng={photo.coord}
-                    icon={createDirectionalArrow(photo.bearing, getColor(photo))}
+                    icon={createDirectionalArrow(photo)}
                     title={`Photo at ${photo.coord.lat.toFixed(6)}, ${photo.coord.lng.toFixed(6)}\n
 Direction: ${photo.bearing.toFixed(1)}°\n
 (Relative: ${(photo.bearing - $bearing).toFixed(1)}°)`}
