@@ -70,7 +70,7 @@
 
         <!-- Split: PhotoGallery & Map -->
         <div class="grid grid-cols-2 gap-6 h-[600px]">
-            <div class="bg-white rounded-lg shadow-lg overflow-hidden">
+            <div class="gallery">
                 <PhotoGallery />
             </div>
             <div class="bg-white rounded-lg shadow-lg overflow-hidden">
@@ -88,3 +88,12 @@
         $pos: {JSON.stringify($pos, null, 2)}
         </pre>
 </div>
+
+<style>
+    .gallery {
+        display: grid;
+        grid-template-rows: 1fr auto;
+        gap: 1rem;
+        min-height: 320px;
+    }
+    </style>

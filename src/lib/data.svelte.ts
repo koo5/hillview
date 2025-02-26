@@ -18,8 +18,9 @@ export let app = writable({
 })
 
 export let pos = writable({
-    center: new LatLng( 50.06798576091708, 14.492814503610138),
-    zoom: 21,
+    center: new LatLng(  50.06173640462974,
+         14.514600411057472),
+    zoom: 20,
     top_left: new LatLng(0, 0),
     bottom_right: new LatLng(10, 10),
     range: 1,
