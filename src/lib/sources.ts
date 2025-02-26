@@ -5,6 +5,7 @@ import { LatLng } from 'leaflet';
 
 
 export async function fetch_photos() {
+    console.log('Fetching photos...');
     try {
         state.loading = true;
         const response = await fetch(`${geoPicsUrl}/files.json`, {
@@ -15,14 +16,15 @@ export async function fetch_photos() {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
 
-        const data = await response.json();
-        if (!Array.isArray(data)) {
+        const res = await response.json();
+        if (!Array.isArray(res)) {
             throw new Error('Expected an array of APIPhotoData, but received something else.');
         }
 
-        const initialPhotos = data.map(item => parse_photo_data(item));
+        const initialPhotos = res.map(item => parse_photo_data(item));
         data.photos = initialPhotos;
         state.error = null;
+        console.log('Photos loaded:', data.photos);
     } catch (err) {
         console.error('Error fetching photos:', err);
         state.error = `Failed to load photos: ${err.message}`;

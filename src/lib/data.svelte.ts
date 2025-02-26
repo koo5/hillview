@@ -1,4 +1,4 @@
-//import { Photo } from "./types.ts";
+import { type Photo } from "./types.ts";
 import { Coordinate } from "tsgeo/Coordinate";
 import {Vincenty}   from "tsgeo/Distance/Vincenty";
 import * as angles from 'angles';
@@ -17,8 +17,8 @@ export let state = $state({
 })
 
 export let map_state = $state({
-    center: new LatLng(51.505, -0.09),
-    zoom: 13,
+    center: new LatLng(50.033989, 14.539032),
+    zoom: 12,
     top_left: new LatLng(0, 0),
     bottom_right: new LatLng(10, 10),
     range: 1,
@@ -41,7 +41,7 @@ function dist(coord1, coord2) {
     return calculator.getDistance(new Coordinate(coord1[0], coord1[1]), new Coordinate(coord2[0], coord2[1]));
 }
 
-const magic = $effect.root(() => {
+//const magic = $effect.root(() => {
 
     $effect(() => {
         map_state.bearing = (map_state.bearing + 360) % 360;
@@ -62,16 +62,22 @@ const magic = $effect.root(() => {
         });
     });
 
+    $effect(() => {console.log('map_state:', map_state)});
+
     $effect(() => {
+        console.log('photos:', data.photos);
         let res = data.photos.filter(photo => {
-            return photo.coord[0] >= map_state.top_left[0] && photo.coord[0] <= map_state.bottom_right[0] &&
-                photo.coord[1] >= map_state.top_left[1] && photo.coord[1] <= map_state.bottom_right[1];
+            console.log('photo:', photo);
+            console.log('map_state.top_left:', map_state.top_left, 'map_state.bottom_right:', map_state.bottom_right);
+            return photo.coord.lat >= map_state.top_left.lat && photo.coord.lat <= map_state.bottom_right.lat &&
+                photo.coord.lon >= map_state.top_left.lon && photo.coord.lon <= map_state.bottom_right.lon;
         });
         for (let photo of res) {
             photo.abs_bearing_diff = Math.abs(angles.diff(map_state.bearing, photo.bearing));
             photo.range_distance = null;
         }
         data.photos_in_area = res;
+        console.log('Photos in area:', data.photos_in_area);
     });
 
     $effect(() => {
@@ -146,7 +152,7 @@ const magic = $effect.root(() => {
         data.photo_to_right = result;
     });
 
-});
+//});
 
 export function turn_to_photo_to(dir)
 {

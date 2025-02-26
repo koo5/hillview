@@ -13,6 +13,8 @@
         await fetch_photos();
     });
 
+
+
 </script>
 
 <div class="min-h-screen bg-gray-100">
@@ -62,7 +64,7 @@
     <main class="max-w-7xl mx-auto px-4 py-6">
         {#if state.error}
             <div class="mb-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded">
-                {state.error}
+                error: {state.error}
             </div>
         {/if}
 

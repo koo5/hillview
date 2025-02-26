@@ -10,7 +10,6 @@
     import {map_state, data, turn_to_photo_to} from "$lib/data.svelte.js";
 
 
-
     let map;
     let _map;
     const fov_circle_radius_px = 200;
@@ -77,25 +76,23 @@
     });
 
 
-    const width = 400;
-    const height = 400;
+    let width;
+    let height;
 
-    // For the “Field of View” overlay arrow:
-    const centerX = width / 2;
-    const centerY = height / 2;
-    const arrowLength = fov_circle_radius_px - 20;
+    // For the bearing overlay arrow:
+    let centerX;
+    $: centerX = width / 2;
+    let centerY;
+    $: centerY = height / 2;
+    let arrowLength = fov_circle_radius_px - 20;
 
     let arrow_radians;
     let arrowX;
     let arrowY;
 
     $: arrow_radians = (map_state.bearing - 90) * Math.PI / 180; // shift so 0° points "up"
-    $: arrowX0 = centerX + Math.cos(arrow_radians) * arrowLength;
-    $: arrowY0 = centerY + Math.sin(arrow_radians) * arrowLength;
-    $: arrowX1 = centerX + Math.cos(arrow_radians + Math.PI * 2 / 5) * arrowLength;
-    $: arrowY1 = centerY + Math.sin(arrow_radians + Math.PI * 2 / 5) * arrowLength;
-    $: arrowX2 = centerX + Math.cos(arrow_radians - Math.PI * 2 / 5) * arrowLength;
-    $: arrowY2 = centerY + Math.sin(arrow_radians - Math.PI * 2 / 5) * arrowLength;
+    $: arrowX = centerX + Math.cos(arrow_radians) * arrowLength;
+    $: arrowY = centerY + Math.sin(arrow_radians) * arrowLength;
 
 
     // Helper for coloring the marker icons
@@ -112,13 +109,12 @@
     }
 
     const tileUrl = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
-    const polygon1: LatLngExpression[] = [[1.2605024,103.804856],[1.2595155,103.8058001],[1.2572416,103.8080317],[1.2555254,103.808418],[1.2549247,103.8096625],[1.2527365,103.8122374],[1.2507629,103.8157565],[1.2486177,103.8189322],[1.2460862,103.8224942],[1.2419673,103.8262707],[1.2378055,103.8309485],[1.2371619,103.8328797],[1.2374194,103.8341242],[1.2383204,103.8351113],[1.2383204,103.8356263],[1.238063,103.8371712],[1.2398221,103.8398749],[1.241195,103.841334],[1.2435977,103.8437373],[1.2460004,103.8454539],[1.2487035,103.8477713],[1.2523075,103.8492304],[1.2535517,103.8473851],[1.2536805,103.845883],[1.2531227,103.844381],[1.2528653,103.8425786],[1.2541953,103.8420636],[1.2540666,103.8404757],[1.2545386,103.838287],[1.2538092,103.8371283],[1.2537234,103.8350684],[1.255225,103.8321501],[1.2550534,103.829189],[1.2556112,103.8254124],[1.2581855,103.8233954],[1.2601591,103.8198763],[1.2608027,103.8168294],[1.2596443,103.8136965],[1.2605024,103.804856]];
 
 </script>
 
 
 <!-- The map container -->
-<div class="map">
+<div class="map" bind:clientWidth={width} bind:clientHeight={height}>
     <LeafletMap
             bind:this={_map}
             options={{center: [map_state.center.lat, map_state.center.lng], zoom: map_state.zoom}}
@@ -143,12 +139,9 @@
                     radius={map_state.range * 1000}
                     color="#4A90E2"
                     fillColor="#4A90E2"
-                    fillOpacity={0.07}
-                    weight={0.8}
+                    weight={1.8}
             />
-<!-- arrow -->
-            <Polygon latLngs={polygon1} color="#4A90E2" fillColor="#4A90E2" fillOpacity={0.8} weight={0.8} />
-
+            <!-- arrow -->
         {/if}
 
         <!-- Markers for photos -->
@@ -162,7 +155,59 @@ Direction: ${photo.direction.toFixed(1)}°\n
             />
 
         {/each}
+
+        <div class="svg-overlay">
+            <svg
+                    width={width}
+                    height={height}
+                    viewBox={`0 0 ${width} ${height}`}
+            >
+                <!--                    <circle-->
+                <!--                            cx={centerX}-->
+                <!--                            cy={centerY}-->
+                <!--                            r={radius}-->
+                <!--                            fill="rgba(74, 144, 226, 0.1)"-->
+                <!--                            stroke="rgb(74, 144, 226)"-->
+                <!--                            strokeWidth="2"-->
+                <!--                    />-->
+
+                <line
+                        x1={centerX}
+                        y1={centerY}
+                        x2={arrowX}
+                        y2={arrowY}
+                        stroke="rgb(74, 144, 226)"
+                        stroke-width="3"
+                        marker-end="url(#arrowhead)"
+                />
+                <defs>
+                    <marker
+                            id="arrowhead"
+                            markerWidth="10"
+                            markerHeight="7"
+                            refX="9"
+                            refY="3.5"
+                            orient="auto"
+                    >
+                        <polygon
+                                points="0 0, 10 3.5, 0 7"
+                                fill="rgb(74, 144, 226)"
+                        />
+                    </marker>
+                </defs>
+
+                <!--                    <circle-->
+                <!--                            cx={centerX}-->
+                <!--                            cy={centerY}-->
+                <!--                            r="3"-->
+                <!--                            fill="rgb(74, 144, 226)"-->
+                <!--                    />-->
+            </svg>
+        </div>
+
+
     </LeafletMap>
+
 </div>
 
 <!-- Rotation / navigation buttons -->
@@ -205,10 +250,21 @@ Direction: ${photo.direction.toFixed(1)}°\n
     <p class="text-sm">Use ← → arrow keys or buttons to rotate the view direction.</p>
 </div>
 
+width: {width}, height: {height}
+centerX: {centerX}, centerY: {centerY}
+arrowX: {arrowX}, arrowY: {arrowY}
+
 <style>
     .map {
         width: 500px;
         height: 500px;
+    }
+
+    .svg-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        z-index: 30000;
     }
 
 </style>

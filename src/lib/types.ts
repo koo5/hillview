@@ -16,4 +16,5 @@ export interface Photo {
     direction: number;
     altitude?: number;
     abs_bearing_diff: number;
+    areas: object[];
 }
