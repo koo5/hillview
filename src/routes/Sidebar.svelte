@@ -8,6 +8,10 @@
 {/if}
 
 
+<div>
+    <h3>{$photos_in_range.length} photos</h3>
+</div>
+
 <!-- Small help text -->
 <div class="absolute bottom-4 right-4 bg-white p-2 rounded shadow" style="z-index: 30000;">
     <p class="text-sm">Use ← → arrow keys or buttons to rotate the view direction.</p>
