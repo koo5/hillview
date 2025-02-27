@@ -239,53 +239,48 @@ Direction: ${photo.bearing.toFixed(1)}°\n
 </div>
 
 <!-- Rotation / navigation buttons -->
-<div class="absolute bottom-4 left-4 flex gap-2" style="z-index: 30000;">
+<div class="buttons">
     <button
             on:click={() => turn_to_photo_to('left')}
-            class="p-2 bg-white rounded-full shadow-lg hover:bg-gray-100 transition-colors"
             title="Rotate to next photo on the left"
     >
-        <ArrowLeftCircle class="w-5 h-5 text-gray-700"/>
+        <ArrowLeftCircle/>
     </button>
 
     <button
             on:click={() => update_bearing(-15)}
-            class="p-2 bg-white rounded-full shadow-lg hover:bg-gray-100 transition-colors"
             title="Rotate view 15° counterclockwise"
     >
-        <RotateCcw class="w-5 h-5 text-gray-700"/>
+        <RotateCcw/>
     </button>
 
     <button
             on:click={() => update_bearing(15)}
-            class="p-2 bg-white rounded-full shadow-lg hover:bg-gray-100 transition-colors"
             title="Rotate view 15° clockwise"
     >
-        <RotateCw class="w-5 h-5 text-gray-700"/>
+        <RotateCw/>
     </button>
 
     <button
             on:click={() => turn_to_photo_to('right')}
-            class="p-2 bg-white rounded-full shadow-lg hover:bg-gray-100 transition-colors"
             title="Rotate to next photo on the right"
     >
-        <ArrowRightCircle class="w-5 h-5 text-gray-700"/>
+        <ArrowRightCircle/>
     </button>
 </div>
 
-<!-- Small help text -->
-<div class="absolute bottom-4 right-4 bg-white p-2 rounded shadow" style="z-index: 30000;">
-    <p class="text-sm">Use ← → arrow keys or buttons to rotate the view direction.</p>
-</div>
-
-width: {width}, height: {height}
-centerX: {centerX}, centerY: {centerY}
-arrowX: {arrowX}, arrowY: {arrowY}
-
 <style>
     .map {
-        width: 500px;
-        height: 500px;
+        width: 100%;
+        height: 100%;
+        position: relative;
+    }
+
+    .buttons {
+        position: absolute;
+        bottom: 1rem;
+        right: 1rem;
+        z-index: 30000;
     }
 
     .svg-overlay {
