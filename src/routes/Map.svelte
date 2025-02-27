@@ -7,7 +7,7 @@
     import {Coordinate} from "tsgeo/Coordinate";
     import 'leaflet/dist/leaflet.css';
 
-    import {app, pos, bearing, photos_in_area, photos_in_area_sorted_by_diff, photo_in_front, update_bearing, turn_to_photo_to} from "$lib/data.svelte.js";
+    import {app, pos, bearing, photos_in_area, photo_in_front, photo_to_left, photo_to_right, update_bearing, turn_to_photo_to} from "$lib/data.svelte.js";
     import {get} from "svelte/store";
 
 
@@ -18,10 +18,15 @@
     function createDirectionalArrow(photo) {
         let bearing = Math.round(photo.bearing);
         let color = getColor(photo);
+        let arrow_color = color;
         let size = 48;
+        if ($photo_to_left === photo || $photo_to_right === photo) {
+            size = 55;
+            arrow_color = '#88f';
+        } else
         if ($photo_in_front === photo) {
-            size = 80;
-            color = 'white';
+            size = 100;
+            arrow_color = 'blue';
         }
         const half = Math.round(size / 2);
 
@@ -35,14 +40,15 @@
     <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" fill="none"
          xmlns="http://www.w3.org/2000/svg">
       <circle cx="${half}" cy="${half}" r="${12}"
-              fill="${color}" fill-opacity="0.1"
-              stroke="${color}" stroke-width="1" />
+              fill="${color}" fill-opacity="0.3"
+              stroke="#000" stroke-width="2" />
       <polygon transform="rotate(${bearing} ${half} ${half})"
                points="
                  ${half},${arrowTipY}
                  ${half + arrowWidth},${arrowBaseY}
                  ${half - arrowWidth},${arrowBaseY}"
-               fill="${color}" />
+               fill="${arrow_color}" />
+               stroke="${color}" stroke-width="2" />
     </svg>
   `;
 
@@ -161,27 +167,27 @@
                 url={tileUrl}
                 options={{
                     maxZoom: 23,
-                    maxNativeZoom: 18,
+                    maxNativeZoom: 19,
                     }}
                 attribution="&copy; OpenStreetMap contributors"
         />
 
         <!-- Visibility Circle (maxDistance in km, Circle wants meters) -->
-        {#if $pos.center}
-            <Circle
-                    latLng={$pos.center}
-                    radius={$pos.range * 1000}
-                    color="#4A90E2"
-                    fillColor="#4A90E2"
-                    weight={1.8}
-            />
-            <!-- arrow -->
-        {/if}
+        <!--{#if $pos.center}-->
+        <!--    <Circle-->
+        <!--            latLng={$pos.center}-->
+        <!--            radius={$pos.range * 1000}-->
+        <!--            color="#4A90E2"-->
+        <!--            fillColor="#4A90E2"-->
+        <!--            weight={1.8}-->
+        <!--    />-->
+        <!--    &lt;!&ndash; arrow &ndash;&gt;-->
+        <!--{/if}-->
 
         <!-- Markers for photos -->
         {#each $photos_in_area as photo (photo.file)}
             <Marker
-                    zIndexOffset={-photo.diff}
+                    zIndexOffset={-photo.abs_bearing_diff}
                     latLng={photo.coord}
                     icon={createDirectionalArrow(photo)}
                     title={`Photo at ${photo.coord.lat.toFixed(6)}, ${photo.coord.lng.toFixed(6)}\n
@@ -226,7 +232,7 @@ Direction: ${photo.bearing.toFixed(1)}°\n
                     >
                         <polygon
                                 points="0 0, 10 3.5, 0 7"
-                                fill="rgb(74, 144, 226)"
+                                fill="rgb(74, 144, 255)"
                         />
                     </marker>
                 </defs>

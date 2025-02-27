@@ -31,7 +31,6 @@ export let bearing = writable(0);
 
 export let photos = writable([]);
 export let photos_in_area = writable([]);
-export let photos_in_area_sorted_by_diff = writable([]);
 export let photos_in_range = writable([]);
 
 export let photo_in_front = writable(null);
@@ -113,74 +112,30 @@ function filter_photos_in_range() {
 
 photos_in_area.subscribe(filter_photos_in_range);
 
-function update_photo_in_front() {
+function update_view() {
     let b = get(bearing);
     let ph = get(photos_in_range);
-    ph.map(photo => {photo.diff = undefined});
-    let phf = ph.reduce((prev, current) => {
-        current.diff = Math.abs(Angles.diff(b, current.bearing));
-        if (!prev || prev.diff === undefined) return current;
-        if (prev.diff > current.diff) {
-            return current;
-        }
-        return prev;
-    }, null);
-    photo_in_front.set(phf);
-    let phsl = ph.filter(photo => photo !== phf && Angles.shortestDirection(b, photo.bearing) > 0);
-    photos_to_left.set(phsl);
-    let phsr = ph.filter(photo => photo !== phf && Angles.shortestDirection(b, photo.bearing) < 0);
-    photos_to_right.set(phsr);
-    photo_to_left.set(get_photo_to_left(b, phsl, phsr));
-    photo_to_right.set(get_photo_to_right(b, phsl, phsr));
-};
-
-function get_photo_to_left(b, phsl, phsr) {
-    let result = phsl.reduce((prev, current) => {
-        if (!prev) return current;
-        current.diff = Math.abs(Angles.diff(b, current.bearing));
-        if (prev.diff > current.diff) {
-            return current;
-        }
-        return prev;
-    }, null);
-    if (!result) {
-        // if no photo to the left, then get the "furthest away (along the circle)" photo on the right
-        result = phsr.reduce((prev, current) => {
-            if (!prev) return current;
-            if (prev.bearing < current.bearing) {
-                return current;
-            }
-            return prev;
-        }, null);
+    if (ph.length === 0) {
+        photo_in_front.set(null);
+        photo_to_left.set(null);
+        photo_to_right.set(null);
+        return;
     }
-    return result;
-};
+    ph.map(photo => {
+        photo.angular_distance_abs = Math.abs(Angles.distance(b, photo.bearing));
+    });
+    let phs = ph.slice().sort((a, b) => a.angular_distance_abs - b.angular_distance_abs);
+    let fr = phs[0];
+    let idx = ph.indexOf(fr);
+    let phl = ph[(idx - 1 + ph.length) % ph.length];
+    let phr = ph[(idx + 1) % ph.length];
+    photo_to_left.set(phl);
+    photo_to_right.set(phr);
+    photo_in_front.set(fr);
+}
 
-function get_photo_to_right(b, phsl, phsr) {
-    // what is the next closest photo going right
-    let result = phsr.reduce((prev, current) => {
-        if (!prev) return current;
-        current.diff = Math.abs(Angles.diff(b, current.bearing));
-        if (prev.diff > current.diff) {
-            return current;
-        }
-        return prev;
-    }, null);
-    if (!result) {
-        // if no photo to the right, then get the "furthest away (along the circle)" photo on the left
-        result = phsl.reduce((prev, current) => {
-            if (!prev) return current;
-            if (prev.bearing > current.bearing) {
-                return current;
-            }
-            return prev;
-        }, null);
-    }
-    return result;
-};
-
-bearing.subscribe(update_photo_in_front);
-photos_in_range.subscribe(update_photo_in_front);
+bearing.subscribe(update_view);
+photos_in_range.subscribe(update_view);
 
 export function turn_to_photo_to(dir) {
     if (dir === 'left') {

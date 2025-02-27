@@ -4,16 +4,14 @@
         pos,
         bearing,
         photos_in_area,
-        photos_in_area_sorted_by_diff,
         photos_in_range,
         photo_in_front,
         photo_to_left,
         photo_to_right,
-        photos_to_right,
-        photos_to_left,
         update_bearing,
         turn_to_photo_to
     } from "$lib/data.svelte.js";
+    import {dms} from "$lib/utils.js";
 </script>
 
 <div class="photo-container">
@@ -29,22 +27,31 @@
 
     {#if $app.debug}
         <div class="debug">
-            <b>Debug Information</b>
-            <b>Front:</b> {$photo_in_front.file}<br>
+            <b>Debug Information</b><br>
+            <b>Bearing:</b>  {$bearing}<br>
+            <b>Pos.center:</b> {$pos.center}<br>
             <b>Left:</b>  {$photo_to_left.file}<br>
+            <b>Front:</b> {$photo_in_front.file}<br>
             <b>Right:</b>  {$photo_to_right.file}<br>
-            <details>
-                <summary><b>photos_to_left:</b></summary>
-                <pre>{JSON.stringify($photos_to_left, null, 2)}</pre>
-                >
-            </details>
-            <details>
-                <summary><b>photos_to_right:</b></summary>
-                <pre>{JSON.stringify($photos_to_right, null, 2)}</pre>
-            </details>
+            <b>Photos in area:</b> {$photos_in_area.length}<br>
+            <b>Range:</b> {$pos.range} km<br>
+            <b>Photos in range count:</b> {$photos_in_range.length}<br>
+            <b>Photos in range:</b>
+            <ul>
+            {#each $photos_in_range as photo}
+                <li>{photo.file}</li>
+            {/each}
+                </ul>
 
-
-
+<!--            <details>-->
+<!--                <summary><b>photos_to_left:</b></summary>-->
+<!--                <pre>{JSON.stringify($photos_to_left, null, 2)}</pre>-->
+<!--                >-->
+<!--            </details>-->
+<!--            <details>-->
+<!--                <summary><b>photos_to_right:</b></summary>-->
+<!--                <pre>{JSON.stringify($photos_to_right, null, 2)}</pre>-->
+<!--            </details>-->
         </div>
     {/if}
 
@@ -66,6 +73,9 @@
     .photo {
         display: block;
         border: 1px solid green;
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain; /* This ensures aspect ratio is maintained */
     }
 
     /* Front image is centered and on top */
@@ -122,5 +132,9 @@
         z-index: 31000;
         width: 90%;
         height: 90%;
+    }
+
+    ul {
+        margin: 0.3em;
     }
 </style>

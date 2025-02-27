@@ -27,11 +27,11 @@
 </script>
 
 <!-- Hamburger icon -->
-<div class="hamburger" on:click={toggleMenu}>
-    <div class="bar"></div>
-    <div class="bar"></div>
-    <div class="bar"></div>
-</div>
+<!--<div class="hamburger" on:click={toggleMenu}>-->
+<!--    <div class="bar"></div>-->
+<!--    <div class="bar"></div>-->
+<!--    <div class="bar"></div>-->
+<!--</div>-->
 
 <div class="debug-button" on:click={toggleDebug}>
     <div>Debug</div>
@@ -148,7 +148,7 @@
         left: 50px;
         align-content: center;
         cursor: pointer;
-        z-index: 30000;
+        z-index: 50000;
         border: 1px solid black;
     }
 </style>
