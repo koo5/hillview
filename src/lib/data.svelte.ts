@@ -14,7 +14,8 @@ let calculator = new Vincenty();
 
 export let app = writable({
     loading: true,
-    error: null
+    error: null,
+    debug: false,
 })
 
 export let pos = writable({
@@ -30,6 +31,7 @@ export let bearing = writable(0);
 
 export let photos = writable([]);
 export let photos_in_area = writable([]);
+export let photos_in_area_sorted_by_diff = writable([]);
 export let photos_in_range = writable([]);
 
 export let photo_in_front = writable(null);

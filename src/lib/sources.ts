@@ -21,16 +21,30 @@ export async function fetch_photos() {
             throw new Error('Expected an array of APIPhotoData, but received something else.');
         }
 
-        const initialPhotos = res.map(item => parse_photo_data(item));
-        console.log('Photos loaded:', initialPhotos);
+        const ph = res.map(item => parse_photo_data(item));
+        fixup(ph)
+        console.log('Photos loaded:', ph);
         app.update(state => ({ ...state, error: null }));
-        photos.set(initialPhotos);
+        photos.set(ph);
     } catch (err) {
         console.error('Error fetching photos:', err);
         app.update(state => ({ ...state, error: err.message }));
     } finally {
         app.update(state => ({ ...state, loading: false }));
     }
+}
+
+function fixup(photos) {
+    // Sort photos by bearing
+    photos.sort((a, b) => a.bearing - b.bearing);
+    // Calculate the difference between each photo's bearing and the next
+    photos.forEach((photo, index) => {
+        const next = photos[(index + 1) % photos.length];
+        let diff = next.bearing - photo.bearing;
+        if (diff === 0) {
+            next.bearing += 0.0001;
+        }
+    });
 }
 
 export function parseCoordinate(coord) {

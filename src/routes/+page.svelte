@@ -3,16 +3,52 @@
     import PhotoGallery from './Gallery.svelte';
     import Map from './Map.svelte';
     import {Camera, Compass} from 'lucide-svelte';
-
-    import {app, pos, bearing} from "$lib/data.svelte.js";
     import {fetch_photos} from "$lib/sources.js";
     import {dms} from "$lib/utils.js";
     import {goto} from "$app/navigation";
+    import {app} from "$lib/data.svelte.js";
 
     onMount(async () => {
         await fetch_photos();
     });
+
+    let menuOpen = false;
+    const toggleMenu = () => {
+        menuOpen = !menuOpen;
+    }
+
+    let debugOpen = false;
+    const toggleDebug = () => {
+        app.update(a => {
+            a.debug = !a.debug;
+            return a;
+        });
+    }
 </script>
+
+<!-- Hamburger icon -->
+<div class="hamburger" on:click={toggleMenu}>
+    <div class="bar"></div>
+    <div class="bar"></div>
+    <div class="bar"></div>
+</div>
+
+<div class="debug-button" on:click={toggleDebug}>
+    <div>Debug</div>
+</div>
+
+{#if menuOpen}
+    <nav class="nav-menu">
+        <ul>
+            <li><a href="/">Map</a></li>
+            <li><a href="/upload">Sources</a></li>
+            <li><a href="/about">About</a></li>
+        </ul>
+    </nav>
+{/if}
+
+{#if debugOpen}
+{/if}
 
 <div class="container">
     <div class="panel">
@@ -57,5 +93,62 @@
         .container {
             flex-direction: column;
         }
+    }
+
+
+    .hamburger {
+        width: 30px;
+        height: 25px;
+        display: flex;
+        position: absolute;
+        flex-direction: column;
+        justify-content: space-between;
+        cursor: pointer;
+        z-index: 30000;
+    }
+
+    .bar {
+        z-index: 30000;
+        height: 3px;
+        background-color: #333;
+        border-radius: 3px;
+    }
+
+    .nav-menu {
+        z-index: 30000;
+        background: #f5f5f5;
+        position: absolute;
+        top: 30px;
+        left: 0px;
+        width: 200px;
+        padding: 1rem;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+    }
+
+    .nav-menu ul {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+    }
+
+    .nav-menu li {
+        margin-bottom: 0.5rem;
+        font-size: 2rem;
+    }
+
+    .nav-menu li a {
+        text-decoration: none;
+        color: #333;
+    }
+
+    .debug-button {
+        position: absolute;
+        height: 25px;
+        top: 0px;
+        left: 50px;
+        align-content: center;
+        cursor: pointer;
+        z-index: 30000;
+        border: 1px solid black;
     }
 </style>

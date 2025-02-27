@@ -1,25 +1,62 @@
 <script>
-    import { photos_in_range, photo_to_left, photo_in_front, photo_to_right } from "$lib/data.svelte.js";
+    import {
+        app,
+        pos,
+        bearing,
+        photos_in_area,
+        photos_in_area_sorted_by_diff,
+        photos_in_range,
+        photo_in_front,
+        photo_to_left,
+        photo_to_right,
+        photos_to_right,
+        photos_to_left,
+        update_bearing,
+        turn_to_photo_to
+    } from "$lib/data.svelte.js";
 </script>
 
 <div class="photo-container">
     {#if $photo_to_left}
-        <img src={$photo_to_left.url} alt={$photo_to_left.file} class="photo left" />
+        <img src={$photo_to_left.url} alt={$photo_to_left.file} class="photo left"/>
     {/if}
     {#if $photo_in_front}
-        <img src={$photo_in_front.url} alt={$photo_in_front.file} class="photo front" />
+        <img src={$photo_in_front.url} alt={$photo_in_front.file} class="photo front"/>
     {/if}
     {#if $photo_to_right}
-        <img src={$photo_to_right.url} alt={$photo_to_right.file} class="photo right" />
+        <img src={$photo_to_right.url} alt={$photo_to_right.file} class="photo right"/>
     {/if}
+
+    {#if $app.debug}
+        <div class="debug">
+            <b>Debug Information</b>
+            <b>Front:</b> {$photo_in_front.file}<br>
+            <b>Left:</b>  {$photo_to_left.file}<br>
+            <b>Right:</b>  {$photo_to_right.file}<br>
+            <details>
+                <summary><b>photos_to_left:</b></summary>
+                <pre>{JSON.stringify($photos_to_left, null, 2)}</pre>
+                >
+            </details>
+            <details>
+                <summary><b>photos_to_right:</b></summary>
+                <pre>{JSON.stringify($photos_to_right, null, 2)}</pre>
+            </details>
+
+
+
+        </div>
+    {/if}
+
 </div>
+
 
 <style>
     .photo-container {
         border: 1px solid black;
         position: relative;
         width: 100%;
-        height: 100%;  /* fills the parent's height */
+        height: 100%; /* fills the parent's height */
         display: flex;
         align-items: center;
         justify-content: center;
@@ -49,6 +86,7 @@
         width: 90%;
 
     }
+
     .right {
         opacity: 0.4;
         position: absolute;
@@ -71,5 +109,18 @@
         right: 0;
         mask-image: linear-gradient(to left, white 0%, white 70%, transparent 100%);
         -webkit-mask-image: linear-gradient(to left, white 0%, white 70%, transparent 100%);
+    }
+
+    .debug {
+        overflow: auto;
+        position: absolute;
+        top: 0;
+        left: 0;
+        padding: 0.5rem;
+        background: white;
+        border: 1px solid black;
+        z-index: 31000;
+        width: 90%;
+        height: 90%;
     }
 </style>

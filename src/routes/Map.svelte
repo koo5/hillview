@@ -7,7 +7,7 @@
     import {Coordinate} from "tsgeo/Coordinate";
     import 'leaflet/dist/leaflet.css';
 
-    import {pos, bearing, photos_in_area, photo_in_front, update_bearing, turn_to_photo_to} from "$lib/data.svelte.js";
+    import {app, pos, bearing, photos_in_area, photos_in_area_sorted_by_diff, photo_in_front, update_bearing, turn_to_photo_to} from "$lib/data.svelte.js";
     import {get} from "svelte/store";
 
 
@@ -15,36 +15,42 @@
     let _map;
     const fov_circle_radius_px = 200;
 
-    // Create the directional arrow icon for each photo
     function createDirectionalArrow(photo) {
-        let bearing = photo.bearing;
+        let bearing = Math.round(photo.bearing);
         let color = getColor(photo);
-        let size = 24;
+        let size = 48;
         if ($photo_in_front === photo) {
-            size = 36;
+            size = 80;
+            color = 'white';
         }
-        let half = Math.round(size / 2);
-        console.log('createDirectionalArrow', bearing, color);
-        bearing = Math.round(bearing);
-        //color = '#4A90E2';
+        const half = Math.round(size / 2);
+
+        // Define arrow dimensions relative to the size.
+        // Adjust these variables to easily control the arrow's shape.
+        const arrowTipY = size * 0.2;      // Y coordinate for the arrow tip (top)
+        const arrowBaseY = size * 0.75;    // Y coordinate for the arrow base
+        const arrowWidth = size * 0.15;    // Horizontal offset from center (controls thinness)
+
         const svg = `
-      <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" fill="none"
-           xmlns="http://www.w3.org/2000/svg">
-        <circle cx="${half}" cy="${half}" r="${half}"
-                fill="${color}" fill-opacity="0.1"
-                stroke="${color}" stroke-width="2"
-                 />
-<path transform="rotate(${bearing} ${half} ${half})"
-              d="M${half} ${size / 6}l${size / 2} ${size * 3 / 6}h-${size}z"
-              fill="${color}" />
-</svg>
-      </svg>
-    `;
+    <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" fill="none"
+         xmlns="http://www.w3.org/2000/svg">
+      <circle cx="${half}" cy="${half}" r="${12}"
+              fill="${color}" fill-opacity="0.1"
+              stroke="${color}" stroke-width="1" />
+      <polygon transform="rotate(${bearing} ${half} ${half})"
+               points="
+                 ${half},${arrowTipY}
+                 ${half + arrowWidth},${arrowBaseY}
+                 ${half - arrowWidth},${arrowBaseY}"
+               fill="${color}" />
+    </svg>
+  `;
+
         return L.divIcon({
             className: 'photo-direction-arrow',
             html: svg,
-            iconSize: [24, 24],
-            iconAnchor: [12, 12]
+            iconSize: [size, size],
+            iconAnchor: [half, half]
         });
     }
 
@@ -175,6 +181,7 @@
         <!-- Markers for photos -->
         {#each $photos_in_area as photo (photo.file)}
             <Marker
+                    zIndexOffset={-photo.diff}
                     latLng={photo.coord}
                     icon={createDirectionalArrow(photo)}
                     title={`Photo at ${photo.coord.lat.toFixed(6)}, ${photo.coord.lng.toFixed(6)}\n
@@ -289,5 +296,7 @@ Direction: ${photo.bearing.toFixed(1)}°\n
         left: 0;
         z-index: 30000;
     }
-
+    .photo-direction-arrow svg {
+        transition: transform 0.3s ease;
+    }
 </style>
