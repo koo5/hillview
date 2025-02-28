@@ -10,9 +10,9 @@
         photo_to_right,
         update_bearing,
         turn_to_photo_to
-    } from "$lib/data.svelte.js";
-    import {dms} from "$lib/utils.js";
-    import Photo from "$lib/Photo.svelte";
+    } from "$lib/data.svelte.ts";
+    import {dms} from "$lib/utils.ts";
+    import Photo from "./Photo.svelte";
 </script>
 
 <div class="photo-container">
@@ -20,7 +20,7 @@
         <Photo photo={$photo_to_left} className="left" />
     {/if}
     {#if $photo_in_front}
-        <Photo photo={$photo_in_front} className="front" fetchPriority="high" />
+        <Photo photo={$photo_in_front} className="front" />
     {/if}
     {#if $photo_to_right}
         <Photo photo={$photo_to_right} className="right" />
@@ -60,58 +60,6 @@
 
 
 <style>
-    .photo-container {
-        border: 1px solid black;
-        position: relative;
-        width: 100%;
-        height: 100%; /* fills the parent's height */
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
-    }
-
-    /* Front image is centered and on top */
-    .front {
-        width: 100%;
-        position: relative;
-        z-index: 2;
-    }
-
-    /* Side images are absolutely positioned and vertically centered */
-    .left {
-        opacity: 0.4;
-        position: absolute;
-        top: 50%;
-        transform: translateY(-80%);
-        z-index: 1;
-        /* Optionally, set a width to control how much of the side image shows */
-        width: 90%;
-    }
-
-    .right {
-        opacity: 0.4;
-        position: absolute;
-        top: 50%;
-        transform: translateY(-20%);
-        z-index: 1;
-        /* Optionally, set a width to control how much of the side image shows */
-        width: 90%;
-    }
-
-    /* Left image: fade out from fully opaque at the left edge to transparent toward the center */
-    .left {
-        left: 0;
-        mask-image: linear-gradient(to right, white 0%, white 70%, transparent 100%);
-        -webkit-mask-image: linear-gradient(to right, white 0%, white 70%, transparent 100%);
-    }
-
-    /* Right image: fade out from fully opaque at the right edge to transparent toward the center */
-    .right {
-        right: 0;
-        mask-image: linear-gradient(to left, white 0%, white 70%, transparent 100%);
-        -webkit-mask-image: linear-gradient(to left, white 0%, white 70%, transparent 100%);
-    }
 
     .debug {
         overflow: auto;
@@ -124,6 +72,16 @@
         z-index: 31000;
         width: 90%;
         height: 90%;
+    }
+
+    .photo-container {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
     }
 
     ul {

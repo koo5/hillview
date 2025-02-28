@@ -90,6 +90,13 @@ function parse_photo_data(item) {
         loaded: false
     };
 
+    if (item.sizes) {
+        photo.sizes = {}
+        for (let size in item.sizes) {
+            photo.sizes[size] = `${geoPicsUrl}/${item.sizes[size]}`;
+        }
+    }
+
     if (latitude.isNaN || longitude.isNaN) {
         console.error('Invalid coordinates:', photo);
     }

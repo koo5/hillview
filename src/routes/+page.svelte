@@ -1,16 +1,38 @@
 <script>
-    import {onMount} from 'svelte';
-    import PhotoGallery from './Gallery.svelte';
-    import Map from './Map.svelte';
+    import {onDestroy, onMount} from 'svelte';
+    import PhotoGallery from '../components/Gallery.svelte';
+    import Map from '../components/Map.svelte';
     import {Camera, Compass} from 'lucide-svelte';
     import {fetch_photos} from "$lib/sources.js";
     import {dms} from "$lib/utils.js";
     import {goto} from "$app/navigation";
-    import {app} from "$lib/data.svelte.js";
+    import {app, turn_to_photo_to, update_bearing} from "$lib/data.svelte.js";
 
     onMount(async () => {
         await fetch_photos();
+        window.addEventListener('keydown', handleKeyDown);
     });
+    onDestroy(() => {
+        window.removeEventListener('keydown', handleKeyDown);
+    });
+
+    function handleKeyDown(e) {
+        if (e.key === 'z') {
+            update_bearing(-5);
+        } else if (e.key === 'x') {
+            update_bearing(5);
+        } else if (e.key === 'c') {
+            turn_to_photo_to('left');
+        } else if (e.key === 'v') {
+            turn_to_photo_to('right');
+        }
+        else if (e.key === 'd') {
+            app.update(a => {
+                a.debug = !a.debug;
+                return a;
+            });
+        }
+    }
 
     let menuOpen = false;
     const toggleMenu = () => {
@@ -33,9 +55,6 @@
 <!--    <div class="bar"></div>-->
 <!--</div>-->
 
-<div class="debug-button" on:click={toggleDebug}>
-    <div>Debug</div>
-</div>
 
 {#if menuOpen}
     <nav class="nav-menu">
@@ -70,7 +89,7 @@
     }
 
     /* Ensure padding and borders are included in the elements' total size */
-    :global(*){
+    :global(*) {
         box-sizing: border-box;
     }
 
