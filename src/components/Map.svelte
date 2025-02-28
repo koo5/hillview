@@ -292,8 +292,8 @@ Direction: ${photo.bearing.toFixed(1)}°\n
 
     .control-buttons-container {
         position: absolute;
-        bottom: 1rem;
-        right: 1rem;
+        bottom: 0;
+        right: 0;
         z-index: 30000;
         pointer-events: none; /* This makes the container transparent to mouse events */
     }
@@ -301,9 +301,9 @@ Direction: ${photo.bearing.toFixed(1)}°\n
     .buttons {
         display: flex;
         gap: 0.5rem;
-        background-color: rgba(255, 255, 255, 0.8);
-        padding: 0.5rem;
-        border-radius: 0.5rem;
+        background-color: rgba(255, 255, 255, 0.9);
+        padding: 0.75rem;
+        border-radius: 0.5rem 0 0 0;
         box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
         pointer-events: auto; /* This makes the buttons clickable */
     }
