@@ -79,7 +79,7 @@
         return RGB2HTML(photo.abs_bearing_diff, 255 - photo.abs_bearing_diff, 0);
     }
 
-    // Calculate how many km are “visible” based on the current zoom/center
+    // Calculate how many km are "visible" based on the current zoom/center
     function get_range(_center: LatLng) {
         const pointC = map.latLngToContainerPoint(_center);
         // Move 100px to the right
@@ -105,7 +105,23 @@
         });
     }
 
-
+    // Handle button clicks and prevent map interaction
+    function handleButtonClick(action, event) {
+        event.preventDefault();
+        event.stopPropagation();
+        
+        if (action === 'left') {
+            turn_to_photo_to('left');
+        } else if (action === 'right') {
+            turn_to_photo_to('right');
+        } else if (action === 'rotate-ccw') {
+            update_bearing(-15);
+        } else if (action === 'rotate-cw') {
+            update_bearing(15);
+        }
+        
+        return false;
+    }
 
     onMount(() => {
         map = _map.getMap();
@@ -235,56 +251,81 @@ Direction: ${photo.bearing.toFixed(1)}°\n
 </div>
 
 <!-- Rotation / navigation buttons -->
-<div class="buttons" role="group" on:click={(e) => e.stopPropagation()}>
-    <button
-            on:click={() => turn_to_photo_to('left')}
-            title="Rotate to next photo on the left"
-    >
-        <ArrowLeftCircle/>
-    </button>
+<div class="control-buttons-container">
+    <div class="buttons" role="group">
+        <button
+                on:click={(e) => handleButtonClick('left', e)}
+                title="Rotate to next photo on the left"
+        >
+            <ArrowLeftCircle/>
+        </button>
 
-    <button
-            on:click={() => update_bearing(-15)}
-            title="Rotate view 15° counterclockwise"
-    >
-        <RotateCcw/>
-    </button>
+        <button
+                on:click={(e) => handleButtonClick('rotate-ccw', e)}
+                title="Rotate view 15° counterclockwise"
+        >
+            <RotateCcw/>
+        </button>
 
-    <button
-            on:click={() => update_bearing(15)}
-            title="Rotate view 15° clockwise"
-    >
-        <RotateCw/>
-    </button>
+        <button
+                on:click={(e) => handleButtonClick('rotate-cw', e)}
+                title="Rotate view 15° clockwise"
+        >
+            <RotateCw/>
+        </button>
 
-    <button
-            on:click={() => turn_to_photo_to('right')}
-            title="Rotate to next photo on the right"
-    >
-        <ArrowRightCircle/>
-    </button>
+        <button
+                on:click={(e) => handleButtonClick('right', e)}
+                title="Rotate to next photo on the right"
+        >
+            <ArrowRightCircle/>
+        </button>
+    </div>
 </div>
 
 <style>
-    .buttons {
-        position: absolute;
-        bottom: 1rem;
-        right: 1rem;
-        z-index: 30000;
-        pointer-events: auto;
-    }
-
     .map {
         width: 100%;
         height: 100%;
         position: relative;
     }
 
-    .buttons {
+    .control-buttons-container {
         position: absolute;
         bottom: 1rem;
         right: 1rem;
         z-index: 30000;
+        pointer-events: none; /* This makes the container transparent to mouse events */
+    }
+
+    .buttons {
+        display: flex;
+        gap: 0.5rem;
+        background-color: rgba(255, 255, 255, 0.8);
+        padding: 0.5rem;
+        border-radius: 0.5rem;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        pointer-events: auto; /* This makes the buttons clickable */
+    }
+
+    .buttons button {
+        cursor: pointer;
+        background-color: white;
+        border: 1px solid #ccc;
+        border-radius: 0.25rem;
+        padding: 0.5rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: background-color 0.2s;
+    }
+
+    .buttons button:hover {
+        background-color: #f0f0f0;
+    }
+
+    .buttons button:active {
+        background-color: #e0e0e0;
     }
 
     .svg-overlay {
@@ -293,6 +334,7 @@ Direction: ${photo.bearing.toFixed(1)}°\n
         left: 0;
         z-index: 30000;
     }
+    
     .photo-direction-arrow svg {
         transition: transform 0.3s ease;
     }
