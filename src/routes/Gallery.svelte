@@ -12,17 +12,18 @@
         turn_to_photo_to
     } from "$lib/data.svelte.js";
     import {dms} from "$lib/utils.js";
+    import Photo from "$lib/Photo.svelte";
 </script>
 
 <div class="photo-container">
     {#if $photo_to_left}
-        <img src={$photo_to_left.url} alt={$photo_to_left.file} class="photo left"/>
+        <Photo photo={$photo_to_left} className="left" />
     {/if}
     {#if $photo_in_front}
-        <img src={$photo_in_front.url} alt={$photo_in_front.file} class="photo front" fetchpriority="high" />
+        <Photo photo={$photo_in_front} className="front" fetchPriority="high" />
     {/if}
     {#if $photo_to_right}
-        <img src={$photo_to_right.url} alt={$photo_to_right.file} class="photo right"/>
+        <Photo photo={$photo_to_right} className="right" />
     {/if}
 
     {#if $app.debug}
@@ -70,14 +71,6 @@
         overflow: hidden;
     }
 
-    .photo {
-        display: block;
-        border: 1px solid green;
-        max-width: 100%;
-        max-height: 100%;
-        object-fit: contain; /* This ensures aspect ratio is maintained */
-    }
-
     /* Front image is centered and on top */
     .front {
         width: 100%;
@@ -94,7 +87,6 @@
         z-index: 1;
         /* Optionally, set a width to control how much of the side image shows */
         width: 90%;
-
     }
 
     .right {
