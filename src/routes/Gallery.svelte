@@ -19,7 +19,7 @@
         <img src={$photo_to_left.url} alt={$photo_to_left.file} class="photo left"/>
     {/if}
     {#if $photo_in_front}
-        <img src={$photo_in_front.url} alt={$photo_in_front.file} class="photo front"/>
+        <img src={$photo_in_front.url} alt={$photo_in_front.file} class="photo front" fetchpriority="high" />
     {/if}
     {#if $photo_to_right}
         <img src={$photo_to_right.url} alt={$photo_to_right.file} class="photo right"/>
