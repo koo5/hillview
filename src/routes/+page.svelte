@@ -28,7 +28,10 @@
         }
         else if (e.key === 'd') {
             app.update(a => {
-                a.debug = !a.debug;
+                a.debug = a.debug + 1;
+                if (a.debug > 2) {
+                    a.debug = 0;
+                }
                 return a;
             });
         }

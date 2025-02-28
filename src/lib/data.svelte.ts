@@ -6,7 +6,7 @@ import Angles from 'angles';
 import {space_db} from "./debug_server.js";
 import {LatLng} from 'leaflet';
 import {get, writable} from "svelte/store";
-
+import { localStorageSharedStore } from './svelte-shared-store.ts';
 
 export const geoPicsUrl = import.meta.env.VITE_REACT_APP_GEO_PICS_URL;
 
@@ -18,16 +18,19 @@ export let app = writable({
     debug: false,
 })
 
-export let pos = writable({
-    center: new LatLng(  50.06173640462974,
-         14.514600411057472),
-    zoom: 20,
+export let pos = localStorageSharedStore('pos', {
+    center: new LatLng(50.06173640462974,
+        14.514600411057472),
+    zoom: 20
+});
+
+export let pos2 = writable({
     top_left: new LatLng(0, 0),
     bottom_right: new LatLng(10, 10),
     range: 1,
 });
 
-export let bearing = writable(0);
+export let bearing = localStorageSharedStore('bearing', 0);
 
 export let photos = writable([]);
 export let photos_in_area = writable([]);
@@ -40,7 +43,7 @@ export let photo_to_left = writable(null);
 export let photo_to_right = writable(null);
 
 function dist(coord1, coord2) {
-    return calculator.getDistance(new Coordinate(coord1[0], coord1[1]), new Coordinate(coord2[0], coord2[1]));
+    return calculator.getDistance(new Coordinate(coord1.lat, coord1.lng), new Coordinate(coord2.lat, coord2.lng));
 }
 
 bearing.subscribe(b => {
@@ -52,15 +55,16 @@ bearing.subscribe(b => {
 
 async function share_state() {
     let p = get(pos);
+    let p2 = get(pos2);
     await space_db.transaction('rw', 'state', async () => {
         await space_db.state.clear();
         let state = {
             ts: Date.now(),
             center: p.center,
             zoom: p.zoom,
-            top_left: p.top_left,
-            bottom_right: p.bottom_right,
-            range: p.range,
+            top_left: p2.top_left,
+            bottom_right: p2.bottom_right,
+            range: p2.range,
             bearing: get(bearing)
         }
         //console.log('Saving state:', state);
@@ -74,14 +78,15 @@ bearing.subscribe(share_state);
 
 function filter_photos_by_area() {
     let p = get(pos);
+    let p2 = get(pos2);
     let b = get(bearing);
     let ph = get(photos);
     //console.log('photos:', ph);
     let res = ph.filter(photo => {
         //console.log('photo:', photo);
         //console.log('map_state.top_left:', p.top_left, 'map_state.bottom_right:', p.bottom_right);
-        let yes = photo.coord.lat < p.top_left.lat && photo.coord.lat > p.bottom_right.lat &&
-            photo.coord.lng > p.top_left.lng && photo.coord.lng < p.bottom_right.lng;
+        let yes = photo.coord.lat < p2.top_left.lat && photo.coord.lat > p2.bottom_right.lat &&
+            photo.coord.lng > p2.top_left.lng && photo.coord.lng < p2.bottom_right.lng;
         //console.log('yes:', yes);
         return yes;
     });
@@ -99,10 +104,12 @@ photos.subscribe(filter_photos_by_area);
 
 function filter_photos_in_range() {
     let p = get(pos);
+    let p2 = get(pos2);
     let ph = get(photos_in_area);
     let res = ph.filter(photo => {
         photo.range_distance = dist(photo.coord, p.center);
-        if (photo.range_distance > p.range) {
+        console.log('photo.range_distance:', photo.range_distance, 'p2.range:', p2.range);
+        if (photo.range_distance > p2.range) {
             photo.range_distance = null;
         }
         return photo.range_distance !== null;
@@ -140,11 +147,13 @@ photos_in_range.subscribe(update_view);
 export function turn_to_photo_to(dir) {
     if (dir === 'left') {
         let phl = get(photo_to_left);
+        console.log('phl:', phl);
         if (phl) {
             bearing.set(phl.bearing);
         }
     } else if (dir === 'right') {
         let phr = get(photo_to_right);
+        console.log('phr:', phr);
         if (phr) {
             bearing.set(phr.bearing);
         }

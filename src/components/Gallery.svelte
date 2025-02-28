@@ -2,6 +2,7 @@
     import {
         app,
         pos,
+        pos2,
         bearing,
         photos_in_area,
         photos_in_range,
@@ -26,7 +27,7 @@
         <Photo photo={$photo_to_right} className="right" />
     {/if}
 
-    {#if $app.debug}
+    {#if $app.debug === 1}
         <div class="debug">
             <b>Debug Information</b><br>
             <b>Bearing:</b>  {$bearing}<br>
@@ -35,7 +36,7 @@
             <b>Front:</b> {$photo_in_front.file}<br>
             <b>Right:</b>  {$photo_to_right.file}<br>
             <b>Photos in area:</b> {$photos_in_area.length}<br>
-            <b>Range:</b> {$pos.range} km<br>
+            <b>Range:</b> {$pos2.range / 1000} km<br>
             <b>Photos in range count:</b> {$photos_in_range.length}<br>
             <b>Photos in range:</b>
             <ul>

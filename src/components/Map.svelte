@@ -7,7 +7,7 @@
     import {Coordinate} from "tsgeo/Coordinate";
     import 'leaflet/dist/leaflet.css';
 
-    import {app, pos, bearing, photos_in_area, photo_in_front, photo_to_left, photo_to_right, update_bearing, turn_to_photo_to} from "$lib/data.svelte.js";
+    import {app, pos, pos2, bearing, photos_in_area, photo_in_front, photo_to_left, photo_to_right, update_bearing, turn_to_photo_to} from "$lib/data.svelte.js";
     import {get} from "svelte/store";
 
 
@@ -86,7 +86,7 @@
         const pointR = L.point(pointC.x + fov_circle_radius_px, pointC.y);
         const latLngR = map.containerPointToLatLng(pointR);
         // distanceTo returns meters
-        return _center.distanceTo(latLngR) / 1000;
+        return _center.distanceTo(latLngR);
     }
 
     // Update local mapState and notify parent
@@ -98,6 +98,11 @@
                 ...value,
                 center: new Coordinate(_center.lat, _center.lng),
                 zoom: map.getZoom(),
+            }
+        });
+        pos2.update((value) => {
+            return {
+                ...value,
                 range: get_range(_center),
                 top_left: map.getBounds().getNorthWest(),
                 bottom_right: map.getBounds().getSouthEast()
@@ -171,17 +176,17 @@
                 attribution="&copy; OpenStreetMap contributors"
         />
 
-        <!-- Visibility Circle (maxDistance in km, Circle wants meters) -->
-        <!--{#if $pos.center}-->
-        <!--    <Circle-->
-        <!--            latLng={$pos.center}-->
-        <!--            radius={$pos.range * 1000}-->
-        <!--            color="#4A90E2"-->
-        <!--            fillColor="#4A90E2"-->
-        <!--            weight={1.8}-->
-        <!--    />-->
-        <!--    &lt;!&ndash; arrow &ndash;&gt;-->
-        <!--{/if}-->
+
+        {#if $pos.center}
+            <Circle
+                    latLng={$pos.center}
+                    radius={$pos2.range}
+                    color="#4A90E2"
+                    fillColor="#4A90E2"
+                    weight={1.8}
+            />
+            <!-- arrow -->
+        {/if}
 
         <!-- Markers for photos -->
         {#each $photos_in_area as photo (photo.file)}

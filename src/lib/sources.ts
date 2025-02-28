@@ -21,7 +21,9 @@ export async function fetch_photos() {
             throw new Error('Expected an array of APIPhotoData, but received something else.');
         }
 
+        console.log('parse_photo_data...');
         const ph = res.map(item => parse_photo_data(item));
+        console.log('fixup...');
         fixup(ph)
         console.log('Photos loaded:', ph);
         app.update(state => ({ ...state, error: null }));
@@ -35,16 +37,24 @@ export async function fetch_photos() {
 }
 
 function fixup(photos) {
-    // Sort photos by bearing
-    photos.sort((a, b) => a.bearing - b.bearing);
-    // Calculate the difference between each photo's bearing and the next
-    photos.forEach((photo, index) => {
-        const next = photos[(index + 1) % photos.length];
-        let diff = next.bearing - photo.bearing;
-        if (diff === 0) {
-            next.bearing += 0.0001;
+    // Sort photos by bearing, spreading out photos with the same bearing
+    if (photos.length < 2) return;
+    let moved = true;
+    while (moved) {
+        photos.sort((a, b) => a.bearing - b.bearing);
+        moved = false;
+        for (let index = 0; index == photos.length + 1; index++) {
+            console.log('Index:', index);
+            const next = photos[(index + 1) % photos.length];
+            const photo = photos[index % photos.length];
+            let diff = next.bearing - photo.bearing;
+            if (diff === 0) {
+                next.bearing = (next.bearing + 0.01) % 360;
+                moved = true;
+            }
         }
-    });
+        console.log('Moved:', moved);
+    }
 }
 
 export function parseCoordinate(coord) {
@@ -81,7 +91,7 @@ function parse_photo_data(item) {
     let longitude = parseCoordinate(item.longitude);
 
     let photo = {
-        id: Math.random().toString(36).substring(7),
+        id: Math.random().toString(36),
         file: item.file,
         url: `${geoPicsUrl}/${encodeURIComponent(item.file)}`,
         coord: new LatLng(latitude, longitude),

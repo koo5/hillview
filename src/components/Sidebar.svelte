@@ -78,7 +78,7 @@
                         </div>
                     </a>
                     <div class="space-y-1 text-gray-600">
-                        <p>Distance: {photo.distance?.toFixed(2)}km</p>
+                        <p>Distance: {photo.distance?.toFixed(2)}m</p>
                         <p>Relative: {photo.bearing?.toFixed(1)}°</p>
                         <p>Direction diff: {photo.directionDiff?.toFixed(1)}°</p>
                         <p>Position: {photo.x?.toFixed(1)}%, {photo.y?.toFixed(1)}%</p>
