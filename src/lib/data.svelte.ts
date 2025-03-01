@@ -140,6 +140,10 @@ function update_view() {
     photo_to_left.set(phl);
     photo_to_right.set(phr);
     photo_in_front.set(fr);
+    let phsl = [];
+    let phsr = [];
+    let fake_bl = b;
+    let fake_br = b;
 }
 
 bearing.subscribe(update_view);

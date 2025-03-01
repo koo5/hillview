@@ -39,7 +39,7 @@
         }
         
         if (!photo.sizes) {
-            selectedUrl = photo.url;
+//            selectedUrl = photo.url;
             return;
         }
 

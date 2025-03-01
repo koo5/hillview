@@ -72,7 +72,7 @@
         <div class="divide-y">
             {#each $photos_in_range as photo (photo.id)}
                 <div>
-                    <a href="{photo.url}" target="_blank" class="block p-3 group hover:bg-gray-100">
+                    <a href="{photo.sizes.full.url}" target="_blank" class="block p-3 group hover:bg-gray-100">
                         <div class="font-medium mb-1 truncate flex items-center justify-between">
                             {photo.file}
                         </div>
