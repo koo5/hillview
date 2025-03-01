@@ -22,11 +22,11 @@
         let size = 48;
         if ($photo_to_left === photo || $photo_to_right === photo) {
             size = 55;
-            arrow_color = '#88f';
+            //arrow_color = '#88f';
         } else
         if ($photo_in_front === photo) {
             size = 100;
-            arrow_color = 'blue';
+            //arrow_color = 'blue';
         }
         const half = Math.round(size / 2);
 
@@ -39,7 +39,7 @@
         const svg = `
     <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" fill="none"
          xmlns="http://www.w3.org/2000/svg">
-      <circle cx="${half}" cy="${half}" r="${12}"
+      <circle cx="${half}" cy="${half}" r="${24}"
               fill="${color}" fill-opacity="0.3"
               stroke="#000" stroke-width="2" />
       <polygon transform="rotate(${bearing} ${half} ${half})"

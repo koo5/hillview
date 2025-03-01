@@ -43,8 +43,8 @@ function fixup(photos) {
     while (moved) {
         photos.sort((a, b) => a.bearing - b.bearing);
         moved = false;
-        for (let index = 0; index == photos.length + 1; index++) {
-            console.log('Index:', index);
+        for (let index = 0; index < photos.length + 1; index++) {
+            //console.log('Index:', index);
             const next = photos[(index + 1) % photos.length];
             const photo = photos[index % photos.length];
             let diff = next.bearing - photo.bearing;
@@ -103,7 +103,12 @@ function parse_photo_data(item) {
     if (item.sizes) {
         photo.sizes = {}
         for (let size in item.sizes) {
-            photo.sizes[size] = `${geoPicsUrl}/${item.sizes[size]}`;
+            let s = item.sizes[size];
+            photo.sizes[size] = {
+                url: `${geoPicsUrl}/${s.path}`,
+                width: s.width,
+                height: s.height
+            }
         }
     }
 

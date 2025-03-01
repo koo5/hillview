@@ -14,14 +14,16 @@
     } from "$lib/data.svelte.ts";
     import {dms} from "$lib/utils.ts";
     import Photo from "./Photo.svelte";
+
+    let clientWidth;
 </script>
 
-<div class="photo-container">
+<div class="photo-container" bind:clientWidth >
     {#if $photo_to_left}
         <Photo photo={$photo_to_left} className="left" />
     {/if}
     {#if $photo_in_front}
-        <Photo photo={$photo_in_front} className="front" />
+        <Photo photo={$photo_in_front} className="front" {clientWidth} />
     {/if}
     {#if $photo_to_right}
         <Photo photo={$photo_to_right} className="right" />

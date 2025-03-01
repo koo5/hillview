@@ -4,34 +4,30 @@
 
     export let photo = null;
     export let className = '';
+    export let clientWidth;
+
+    let clientWidth2;
+
     let fetchPriority = className === 'front' ? 'high' : 'auto';
     
-    let containerWidth = 0;
     let containerElement;
     let selectedUrl;
-    
-    onMount(() => {
-        updateSelectedUrl();
-        
-        // Set up resize observer to update the selected URL when container size changes
-        const resizeObserver = new ResizeObserver(() => {
-            updateSelectedUrl();
-        });
-        
-        if (containerElement) {
-            resizeObserver.observe(containerElement);
-        }
-        
-        return () => {
-            if (containerElement) {
-                resizeObserver.disconnect();
-            }
-        };
-    });
+    let selectedSize;
+    let width = 100;
+    let height = 100;
 
-    $: updateSelectedUrl(photo);
+
+    $: updateSelectedUrl(photo, clientWidth, containerElement);
     
     function updateSelectedUrl() {
+
+        if (clientWidth)
+            clientWidth2 = clientWidth;
+        else
+            if (!clientWidth2)
+                clientWidth2 = 500;
+
+        console.log('updateSelectedUrl clientWidth:', clientWidth2);
 
         if (!containerElement) {
             return;
@@ -46,41 +42,51 @@
             selectedUrl = photo.url;
             return;
         }
-        
-        containerWidth = containerElement.clientWidth;
-        
+
         // Find the best scaled version based on container width. Take the 'full' size if this fails
         const sizes = Object.keys(photo.sizes).filter(size => size !== 'full').sort((a, b) => a - b);
         for (let i = 0; i < sizes.length; i++) {
             const size = sizes[i];
-            //console.log('size:', size);
-            if (size >= containerWidth) {
-                selectedUrl = photo.sizes[sizes[i]];
+            console.log('size:', size);
+            if (size >= clientWidth2) {
+                let p = photo.sizes[sizes[i]];
+                selectedSize = size;
+                width = p.width;
+                height = p.height;
+                selectedUrl = p.url;
                 return;
             }
         }
-
-        selectedUrl = photo.sizes.full;
+        selectedSize = 'full';
+        width = photo.sizes.full.width;
+        height = photo.sizes.full.height;
+        selectedUrl = photo.sizes.full.url;
     }
 </script>
 
 {#if $app.debug === 2}
 <div class="debug">
     <b>Debug Information</b><br>
-    <b>Container width:</b> {containerWidth}<br>
+    <b>clientWidth2:</b> {clientWidth2}<br>
     <b>Selected URL:</b> {selectedUrl}
+    <b>Selected Size:</b> {selectedSize}
+    <b>Width:</b> {width}
+    <b>Height:</b> {height}
+
 </div>
 {/if}
 
-<div bind:this={containerElement} class="photo-wrapper {className}">
+<div bind:this={containerElement} class="photo-wrapper" >
     {#if photo}
-
+        {#key selectedUrl}
         <img
             src={selectedUrl}
             alt={photo.file}
-            class="photo"
+            class="{className} photo"
+            style="background-image: url({photo.sizes[50].url})"
             fetchpriority={fetchPriority}
         />
+        {/key}
     {/if}
 </div>
 
@@ -100,21 +106,25 @@
     .photo-wrapper {
         display: flex;
         justify-content: center;
-    }
-    
-    .photo {
-        border: 1px solid black;
-        display: block;
+        /*width: 100%;*/
         max-width: 100%;
         max-height: 100%;
         object-fit: contain;
+        background-repeat: no-repeat;
+
     }
+
+    .photo {
+        object-fit: contain;
+        background-size: cover;
+        -o-background-size: cover;
+    }
+    
 
     /* Front image is centered and on top */
     .front {
-        width: 100%;
-        position: relative;
         z-index: 2;
+        border: 4px solid rgb(0, 255, 0);
     }
 
     /* Side images are absolutely positioned and vertically centered */

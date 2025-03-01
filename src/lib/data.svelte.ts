@@ -8,7 +8,7 @@ import {LatLng} from 'leaflet';
 import {get, writable} from "svelte/store";
 import { localStorageSharedStore } from './svelte-shared-store.ts';
 
-export const geoPicsUrl = import.meta.env.VITE_REACT_APP_GEO_PICS_URL;
+export const geoPicsUrl = import.meta.env.VITE_REACT_APP_GEO_PICS_URL; //+'2'
 
 let calculator = new Vincenty();
 
@@ -108,12 +108,13 @@ function filter_photos_in_range() {
     let ph = get(photos_in_area);
     let res = ph.filter(photo => {
         photo.range_distance = dist(photo.coord, p.center);
-        console.log('photo.range_distance:', photo.range_distance, 'p2.range:', p2.range);
+        //console.log('photo.range_distance:', photo.range_distance, 'p2.range:', p2.range);
         if (photo.range_distance > p2.range) {
             photo.range_distance = null;
         }
         return photo.range_distance !== null;
     });
+    console.log('Photos in range:', res.length);
     photos_in_range.set(res);
 };
 
@@ -145,6 +146,7 @@ bearing.subscribe(update_view);
 photos_in_range.subscribe(update_view);
 
 export function turn_to_photo_to(dir) {
+    console.log('turn_to_photo_to:', dir);
     if (dir === 'left') {
         let phl = get(photo_to_left);
         console.log('phl:', phl);
