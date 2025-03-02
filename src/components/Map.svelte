@@ -13,24 +13,28 @@
 
     let map;
     let _map;
-    const fov_circle_radius_px = 200;
+    const fov_circle_radius_px = 70;
 
     function createDirectionalArrow(photo) {
         let bearing = Math.round(photo.bearing);
         let color = '#000';
         let arrow_color = color;
-        let size = 64;
+        let size = 100;
+        let inner_size = $pos.zoom*3;
+        let outer_size = 100;
         /*if ($photo_to_left === photo || $photo_to_right === photo) {
             size = 55;
             //arrow_color = '#88f';
         } else*/
         let dashes = '';
+        let fill = '';
         let stroke_width = 1;
         if ($photo_in_front === photo)
         {
             //dashes = 'stroke-dasharray="20 4"'
-            dashes = 'stroke-dasharray="1 8"'
+            dashes = 'stroke-dasharray="1 10"'
             color = photo.bearing_color;
+            fill = `fill="${color}"`;
             stroke_width = 6
             //arrow_color = 'blue';
         }
@@ -38,22 +42,36 @@
 
         // Define arrow dimensions relative to the size.
         // Adjust these variables to easily control the arrow's shape.
-        const arrowTipY = size * 0.2;      // Y coordinate for the arrow tip (top)
-        const arrowBaseY = size * 0.75;    // Y coordinate for the arrow base
-        const arrowWidth = size * 0.15;    // Horizontal offset from center (controls thinness)
+        const arrowTipY_inner = inner_size * 0.5;      // Y coordinate for the arrow tip (top)
+        const arrowBaseY_inner = inner_size * 1.25;    // Y coordinate for the arrow base
+        const arrowWidth_inner = inner_size * 0.15;    // Horizontal offset from center (controls thinness)
+        const arrowTipY_outer = outer_size * 0.1;
+        const arrowBaseY_outer = inner_size * 0.80;
+        const arrowWidth_outer = outer_size * 0.15;
 
-
-        const svg = `
+        let svg = `
     <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" fill="none"
          xmlns="http://www.w3.org/2000/svg">
       <polygon transform="rotate(${bearing} ${half} ${half})"
                points="
-                 ${half},${arrowTipY}
-                 ${half + arrowWidth},${arrowBaseY}
-                 ${half - arrowWidth},${arrowBaseY}"
+                 ${half},${arrowTipY_inner}
+                 ${half + arrowWidth_inner},${arrowBaseY_inner}
+                 ${half - arrowWidth_inner},${arrowBaseY_inner}"
+                 ${fill} fill-opacity=0.8
+               stroke="#000" stroke-width="1" />`
+
+        if (photo === $photo_in_front) {
+            svg += `
+      <polygon transform="rotate(${bearing} ${half} ${half})"
+               points="
+                 ${half},${arrowTipY_outer}
+                 ${half + arrowWidth_outer},${arrowBaseY_outer}
+                 ${half - arrowWidth_outer},${arrowBaseY_outer}"
+
                stroke="${color}" stroke-linecap="round" stroke-width="${stroke_width}" ${dashes}  />
     </svg>
   `;
+        }
 
         return L.divIcon({
             className: 'photo-direction-arrow',
@@ -126,7 +144,7 @@
     $: centerX = width / 2;
     let centerY;
     $: centerY = height / 2;
-    let arrowLength = fov_circle_radius_px - 20;
+    let arrowLength = fov_circle_radius_px + 200;
 
     let arrow_radians;
     let arrowX;
@@ -166,7 +184,7 @@
             <Circle
                     latLng={$pos.center}
                     radius={$pos2.range}
-                    color="#4A90E2"
+                    color="#4AE092"
                     fillColor="#4A90E2"
                     weight={1.8}
             />
@@ -176,7 +194,7 @@
         <!-- Markers for photos -->
         {#each $photos_in_area as photo (photo.file)}
             <Marker
-                    zIndexOffset={-photo.abs_bearing_diff}
+                    zIndexOffset={10000*180-photo.abs_bearing_diff*10000}
                     latLng={photo.coord}
                     icon={createDirectionalArrow(photo)}
                     title={`Photo at ${photo.coord.lat.toFixed(6)}, ${photo.coord.lng.toFixed(6)}\n
@@ -221,7 +239,7 @@ Direction: ${photo.bearing.toFixed(1)}°\n
                     >
                         <polygon
                                 points="0 0, 10 3.5, 0 7"
-                                fill="rgb(74, 144, 255)"
+                                fill="rgb(74, 244, 74)"
                         />
                     </marker>
                 </defs>
@@ -322,7 +340,7 @@ Direction: ${photo.bearing.toFixed(1)}°\n
         position: absolute;
         top: 0;
         left: 0;
-        z-index: 30000;
+        z-index: 750;
     }
     
     .photo-direction-arrow svg {

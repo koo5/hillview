@@ -92,7 +92,7 @@ function filter_photos_by_area() {
         return yes;
     });
     for (let photo of res) {
-        photo.abs_bearing_diff = Math.abs(Angles.diff(b, photo.bearing));
+        photo.abs_bearing_diff = Math.abs(Angles.distance(b, photo.bearing));
         photo.bearing_color = get_bearing_color(photo);
         photo.range_distance = null;
     }
@@ -185,7 +185,7 @@ export function update_bearing(diff) {
 
 function get_bearing_color(photo) {
     if (photo.abs_bearing_diff === null) return '#9E9E9E'; // grey
-    return RGB2HTML(photo.abs_bearing_diff, 255 - photo.abs_bearing_diff, 0);
+    return 'hsl(' + (100 - photo.abs_bearing_diff/2) + ', 100%, 70%)';
 }
 
 

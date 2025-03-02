@@ -18,6 +18,7 @@
 
     let border_style;
     $: border_style = className === 'front' ? 'border: 4px dotted '+ photo?.bearing_color +';' : '';
+    console.log('border_style:', border_style);
 
     $: updateSelectedUrl(photo, clientWidth, containerElement);
     
