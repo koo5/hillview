@@ -6,6 +6,8 @@
         bearing,
         photos_in_area,
         photos_in_range,
+        photos_to_left,
+        photos_to_right,
         photo_in_front,
         photo_to_left,
         photo_to_right,
@@ -19,6 +21,10 @@
 </script>
 
 <div class="photo-container" bind:clientWidth >
+    {#each $photos_to_left as photo}
+
+        {/each}
+
     {#if $photo_to_left}
         <Photo photo={$photo_to_left} className="left" />
     {/if}

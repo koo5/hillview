@@ -16,6 +16,8 @@
     let width = 100;
     let height = 100;
 
+    let border_style;
+    $: border_style = className === 'front' ? 'border: 4px dotted '+ photo?.bearing_color +';' : '';
 
     $: updateSelectedUrl(photo, clientWidth, containerElement);
     
@@ -27,7 +29,7 @@
             if (!clientWidth2)
                 clientWidth2 = 500;
 
-        console.log('updateSelectedUrl clientWidth:', clientWidth2);
+        //console.log('updateSelectedUrl clientWidth:', clientWidth2);
 
         if (!containerElement) {
             return;
@@ -47,7 +49,7 @@
         const sizes = Object.keys(photo.sizes).filter(size => size !== 'full').sort((a, b) => a - b);
         for (let i = 0; i < sizes.length; i++) {
             const size = sizes[i];
-            console.log('size:', size);
+            //console.log('size:', size);
             if (size >= clientWidth2) {
                 let p = photo.sizes[sizes[i]];
                 selectedSize = size;
@@ -83,7 +85,7 @@
             src={selectedUrl}
             alt={photo.file}
             class="{className} photo"
-            style="background-image: url({photo.sizes[50].url})"
+            style="background-image: url({photo.sizes[50].url}); {border_style}"
             fetchpriority={fetchPriority}
         />
         {/key}
@@ -124,7 +126,6 @@
     /* Front image is centered and on top */
     .front {
         z-index: 2;
-        border: 4px solid rgb(0, 255, 0);
     }
 
     /* Side images are absolutely positioned and vertically centered */

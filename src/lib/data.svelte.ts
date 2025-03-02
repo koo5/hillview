@@ -77,28 +77,31 @@ bearing.subscribe(share_state);
 
 
 function filter_photos_by_area() {
-    let p = get(pos);
+    //let p = get(pos);
     let p2 = get(pos2);
     let b = get(bearing);
     let ph = get(photos);
+    console.log('filter_photos_by_area: p2.top_left:', p2.top_left, 'p2.bottom_right:', p2.bottom_right);
     //console.log('photos:', ph);
+    const tolerance = 0.1;
     let res = ph.filter(photo => {
         //console.log('photo:', photo);
-        //console.log('map_state.top_left:', p.top_left, 'map_state.bottom_right:', p.bottom_right);
-        let yes = photo.coord.lat < p2.top_left.lat && photo.coord.lat > p2.bottom_right.lat &&
-            photo.coord.lng > p2.top_left.lng && photo.coord.lng < p2.bottom_right.lng;
+        let yes = photo.coord.lat < p2.top_left.lat + tolerance && photo.coord.lat > p2.bottom_right.lat - tolerance &&
+            photo.coord.lng > p2.top_left.lng - tolerance && photo.coord.lng < p2.bottom_right.lng + tolerance;
         //console.log('yes:', yes);
         return yes;
     });
     for (let photo of res) {
         photo.abs_bearing_diff = Math.abs(Angles.diff(b, photo.bearing));
+        photo.bearing_color = get_bearing_color(photo);
         photo.range_distance = null;
     }
     console.log('Photos in area:', res.length);
     photos_in_area.set(res);
 };
 
-pos.subscribe(filter_photos_by_area);
+//pos.subscribe(filter_photos_by_area);
+pos2.subscribe(filter_photos_by_area);
 bearing.subscribe(filter_photos_by_area);
 photos.subscribe(filter_photos_by_area);
 
@@ -142,8 +145,17 @@ function update_view() {
     photo_in_front.set(fr);
     let phsl = [];
     let phsr = [];
-    let fake_bl = b;
-    let fake_br = b;
+    for (let i = 0; i < 5; i++) {
+        let phl = ph[(idx - i + ph.length) % ph.length];
+        let phr = ph[(idx + i) % ph.length];
+        if (phsl.indexOf(phl) === -1 && phsr.indexOf(phl) === -1)
+            phsl.push(phl);
+        if (phsl.indexOf(phr) === -1 && phsr.indexOf(phr) === -1)
+            phsr.push(phr);
+    }
+    phsl.reverse();
+    photos_to_left.set(phsl);
+    photos_to_right.set(phsr);
 }
 
 bearing.subscribe(update_view);
@@ -170,3 +182,24 @@ export function update_bearing(diff) {
     let b = get(bearing);
     bearing.set(b + diff);
 }
+
+function get_bearing_color(photo) {
+    if (photo.abs_bearing_diff === null) return '#9E9E9E'; // grey
+    return RGB2HTML(photo.abs_bearing_diff, 255 - photo.abs_bearing_diff, 0);
+}
+
+
+function RGB2HTML(red, green, blue)
+{
+    red = Math.min(255, Math.max(0, Math.round(red)));
+    green = Math.min(255, Math.max(0, Math.round(green)));
+    blue = Math.min(255, Math.max(0, Math.round(blue)));
+    let r = red.toString(16);
+    let g = green.toString(16);
+    let b = blue.toString(16);
+    if (r.length == 1) r = '0' + r;
+    if (g.length == 1) g = '0' + g;
+    if (b.length == 1) b = '0' + b;
+    return '#' + r + g + b;
+}
+
