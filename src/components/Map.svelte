@@ -42,8 +42,8 @@
 
         // Define arrow dimensions relative to the size.
         // Adjust these variables to easily control the arrow's shape.
-        const arrowTipY_inner = inner_size * 0.5;      // Y coordinate for the arrow tip (top)
-        const arrowBaseY_inner = inner_size * 1.25;    // Y coordinate for the arrow base
+        const arrowTipY_inner = inner_size * 0.1;      // Y coordinate for the arrow tip (top)
+        const arrowBaseY_inner = inner_size * 0.8;    // Y coordinate for the arrow base
         const arrowWidth_inner = inner_size * 0.15;    // Horizontal offset from center (controls thinness)
         const arrowTipY_outer = outer_size * 0.1;
         const arrowBaseY_outer = inner_size * 0.80;
