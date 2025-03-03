@@ -1,4 +1,4 @@
-import {app, photos, geoPicsUrl} from "$lib/data.svelte";
+import {app, hillview_photos, geoPicsUrl} from "$lib/data.svelte";
 //import { APIPhotoData, Photo} from "./types.ts";
 import { Coordinate } from "tsgeo/Coordinate";
 import { LatLng } from 'leaflet';
@@ -23,11 +23,11 @@ export async function fetch_photos() {
 
         console.log('parse_photo_data...');
         const ph = res.map(item => parse_photo_data(item));
-        console.log('fixup...');
-        fixup(ph)
+        console.log('fixup_bearings...');
+        fixup_bearings(ph)
         console.log('Photos loaded:', ph);
         app.update(state => ({ ...state, error: null }));
-        photos.set(ph);
+        hillview_photos.set(ph);
     } catch (err) {
         console.error('Error fetching photos:', err);
         app.update(state => ({ ...state, error: err.message }));
@@ -36,7 +36,7 @@ export async function fetch_photos() {
     }
 }
 
-function fixup(photos) {
+export function fixup_bearings(photos) {
     // Sort photos by bearing, spreading out photos with the same bearing
     if (photos.length < 2) return;
     let moved = true;
@@ -91,13 +91,13 @@ function parse_photo_data(item) {
     let longitude = parseCoordinate(item.longitude);
 
     let photo = {
-        id: Math.random().toString(36),
+        id: 'hillview_' + item.file,
+        source_type: 'hillview',
         file: item.file,
         url: `${geoPicsUrl}/${encodeURIComponent(item.file)}`,
         coord: new LatLng(latitude, longitude),
         bearing: parseFraction(item.bearing),
         altitude: parseFraction(item.altitude),
-        loaded: false
     };
 
     if (item.sizes) {

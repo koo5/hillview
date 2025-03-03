@@ -7,6 +7,7 @@ import {space_db} from "./debug_server.js";
 import {LatLng} from 'leaflet';
 import {get, writable} from "svelte/store";
 import { localStorageSharedStore } from './svelte-shared-store.ts';
+import { fixup_bearings } from './sources.svelte';
 
 export const geoPicsUrl = import.meta.env.VITE_REACT_APP_GEO_PICS_URL; //+'2'
 
@@ -32,7 +33,9 @@ export let pos2 = writable({
 
 export let bearing = localStorageSharedStore('bearing', 0);
 
-export let photos = writable([]);
+export let hillview_photos = writable([]);
+export let hillview_photos_in_area = writable([]);
+export let mapillary_photos_in_area = writable([]);
 export let photos_in_area = writable([]);
 export let photos_in_range = writable([]);
 
@@ -72,38 +75,63 @@ async function share_state() {
     });
 };
 
-pos.subscribe(share_state);
+//pos.subscribe(share_state);
 bearing.subscribe(share_state);
 
+const area_tolerance = 0.1;
 
-function filter_photos_by_area() {
+function filter_hillview_photos_by_area() {
     //let p = get(pos);
     let p2 = get(pos2);
     let b = get(bearing);
-    let ph = get(photos);
-    console.log('filter_photos_by_area: p2.top_left:', p2.top_left, 'p2.bottom_right:', p2.bottom_right);
-    //console.log('photos:', ph);
-    const tolerance = 0.1;
+    let ph = get(hillview_photos);
+    console.log('filter_hillview_photos_by_area: p2.top_left:', p2.top_left, 'p2.bottom_right:', p2.bottom_right);
+
     let res = ph.filter(photo => {
         //console.log('photo:', photo);
-        let yes = photo.coord.lat < p2.top_left.lat + tolerance && photo.coord.lat > p2.bottom_right.lat - tolerance &&
-            photo.coord.lng > p2.top_left.lng - tolerance && photo.coord.lng < p2.bottom_right.lng + tolerance;
+        let yes = photo.coord.lat < p2.top_left.lat + area_tolerance && photo.coord.lat > p2.bottom_right.lat - area_tolerance &&
+            photo.coord.lng > p2.top_left.lng - area_tolerance && photo.coord.lng < p2.bottom_right.lng + area_tolerance;
         //console.log('yes:', yes);
         return yes;
     });
+    console.log('hillview photos in area:', res.length);
+    hillview_photos_in_area.set(res);
+}
+
+pos2.subscribe(filter_hillview_photos_by_area);
+hillview_photos.subscribe(filter_hillview_photos_by_area);
+
+function collect_photos_in_area() {
+    let phs = [...get(hillview_photos_in_area), ...get(mapillary_photos_in_area)];
+    fixup_bearings(phs);
+    phs.sort((a, b) => a.bearing - b.bearing);
+    photos_in_area.set(phs);
+}
+
+let mapillary_ts = writable(0);
+
+hillview_photos_in_area.subscribe(collect_photos_in_area);
+mapillary_photos_in_area.subscribe(collect_photos_in_area);
+
+async function get_mapillary_photos() {
+    let ts = new Date().getTime();
+    let res = await fetch(`https://geo.ueueeu.eu/api/mapillary?
+}
+
+pos2.subscribe(get_mapillary_photos);
+
+function update_bearing_diff() {
+    let b = get(bearing);
+    let res = get(photos_in_area);
     for (let photo of res) {
         photo.abs_bearing_diff = Math.abs(Angles.distance(b, photo.bearing));
         photo.bearing_color = get_bearing_color(photo);
         photo.range_distance = null;
     }
-    console.log('Photos in area:', res.length);
-    photos_in_area.set(res);
 };
 
-//pos.subscribe(filter_photos_by_area);
-pos2.subscribe(filter_photos_by_area);
-bearing.subscribe(filter_photos_by_area);
-photos.subscribe(filter_photos_by_area);
+bearing.subscribe(update_bearing_diff);
+photos_in_area.subscribe(update_bearing_diff);
 
 function filter_photos_in_range() {
     let p = get(pos);

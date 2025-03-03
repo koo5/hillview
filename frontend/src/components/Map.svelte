@@ -192,7 +192,7 @@
         {/if}
 
         <!-- Markers for photos -->
-        {#each $photos_in_area as photo (photo.file)}
+        {#each $photos_in_area as photo (photo.id)}
             <Marker
                     zIndexOffset={10000*180-photo.abs_bearing_diff*10000}
                     latLng={photo.coord}
