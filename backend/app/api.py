@@ -18,7 +18,7 @@ def get_images(top_left_lat: float = Query(..., description="Top left latitude")
                bottom_right_lat: float = Query(..., description="Bottom right latitude"),
                bottom_right_lon: float = Query(..., description="Bottom right longitude")):
     params = {
-        "bbox": ",".join(map(str, [top_left_lon, bottom_right_lat, bottom_right_lon, top_left_lat])),
+        "bbox": ",".join(map(str, [top_left_lon, top_left_lat, bottom_right_lon, bottom_right_lat])),
         "fields": "id,geometry,compass_angle,thumb_1024_url",
         "access_token": TOKEN,
     }

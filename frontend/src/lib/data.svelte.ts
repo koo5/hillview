@@ -56,6 +56,13 @@ bearing.subscribe(b => {
     }
 });
 
+pos.subscribe(p => {
+    if (p.center.lng > 360) {
+        p.center.lng -= 360;
+        pos.set(p);
+    }
+});
+
 async function share_state() {
     let p = get(pos);
     let p2 = get(pos2);
