@@ -30,4 +30,4 @@ def get_images(top_left_lat: float = Query(..., description="Top left latitude")
         return sorted_data
     else:
         log.error(f"Error: {data}")
-        return data
+        return []

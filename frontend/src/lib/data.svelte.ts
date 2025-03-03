@@ -108,7 +108,7 @@ function collect_photos_in_area() {
     photos_in_area.set(phs);
 }
 
-let mapillary_ts = writable(0);
+let mapillary_ts = 0;
 
 hillview_photos_in_area.subscribe(collect_photos_in_area);
 mapillary_photos_in_area.subscribe(collect_photos_in_area);
@@ -120,11 +120,12 @@ async function get_mapillary_photos() {
     let res = await fetch(`${import.meta.env.VITE_BACKEND}/mapillary?top_left_lat=${p.top_left.lat + area_tolerance}&top_left_lon=${p.top_left.lng - area_tolerance}&bottom_right_lat=${p.bottom_right.lat - area_tolerance}&bottom_right_lon=${p.bottom_right.lng + area_tolerance}`);
     let res2 = await res.json();
     console.log('Mapillary photos:', res2.length);
-    if (get(mapillary_ts) > ts) {
+    if (mapillary_ts > ts) {
         console.log('old request, ignoring');
-        return;
+        //return;
     }
-    mapillary_ts.set(ts);
+    mapillary_ts = ts;
+    console.log('Mapillary photos:', res2);
     let phs = res2.map(photo => {
         let coord = new LatLng(photo.lat, photo.lon);
         let bearing = photo.bearing;
