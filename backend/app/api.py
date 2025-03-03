@@ -4,7 +4,7 @@ import os
 import json
 import requests
 
-TOKEN = open(os.path.expanduser(os.environ('MAPILLARY_CLIENT_TOKEN_FILE'))).read().strip()
+TOKEN = open(os.path.expanduser(os.environ['MAPILLARY_CLIENT_TOKEN_FILE'])).read().strip()
 url = "https://graph.mapillary.com/images"
 
 app = FastAPI()
