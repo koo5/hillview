@@ -117,7 +117,7 @@ async function get_mapillary_photos() {
     let ts = new Date().getTime();
     let p = get(pos2);
     console.log('get_mapillary_photos:', p);
-    let res = await fetch(`${import.meta.env.VITE_BACKEND}/mapillary?top_left_lon=${p.top_left.lat + area_tolerance}&top_left_lat=${p.top_left.lng - area_tolerance}&bottom_right_lon=${p.bottom_right.lat - area_tolerance}&bottom_right_lat=${p.bottom_right.lng + area_tolerance}`);
+    let res = await fetch(`${import.meta.env.VITE_BACKEND}/mapillary?top_left_lat=${p.top_left.lat + area_tolerance}&top_left_lon=${p.top_left.lng - area_tolerance}&bottom_right_lat=${p.bottom_right.lat - area_tolerance}&bottom_right_lon=${p.bottom_right.lng + area_tolerance}`);
     let res2 = await res.json();
     console.log('Mapillary photos:', res2.length);
     if (get(mapillary_ts) > ts) {

@@ -3,6 +3,9 @@ from typing import List
 import os
 import json
 import requests
+import logging
+logging.basicConfig(level=logging.DEBUG)
+log = logging.getLogger(__name__)
 
 TOKEN = open(os.path.expanduser(os.environ['MAPILLARY_CLIENT_TOKEN_FILE'])).read().strip()
 url = "https://graph.mapillary.com/images"
@@ -21,5 +24,7 @@ def get_images(top_left_lat: float = Query(..., description="Top left latitude")
     }
     resp = requests.get(url, params=params)
     data = resp.json()
-    sorted_data = sorted(data['data'], key=lambda x: x['compass_angle'])
-    return sorted_data
+    if 'data' in data:
+        sorted_data = sorted(data['data'], key=lambda x: x['compass_angle'])
+        log.info(f"Found {len(sorted_data)} images")
+        return sorted_data
