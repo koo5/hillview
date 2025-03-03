@@ -127,7 +127,7 @@ async function get_mapillary_photos() {
     mapillary_ts = ts;
     console.log('Mapillary photos:', res2);
     let phs = res2.map(photo => {
-        let coord = new LatLng(photo.lat, photo.lon);
+        let coord = new LatLng(photo.geometry.coordinates[1], photo.geometry.coordinates[0]);
         let bearing = photo.bearing;
         return {
             id: 'mapillary_' + photo.id,
