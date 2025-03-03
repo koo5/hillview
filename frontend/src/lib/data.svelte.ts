@@ -7,7 +7,7 @@ import {space_db} from "./debug_server.js";
 import {LatLng} from 'leaflet';
 import {get, writable} from "svelte/store";
 import { localStorageSharedStore } from './svelte-shared-store.ts';
-import { fixup_bearings } from './sources.svelte';
+import { fixup_bearings } from './sources.ts';
 
 export const geoPicsUrl = import.meta.env.VITE_REACT_APP_GEO_PICS_URL; //+'2'
 
@@ -115,7 +115,27 @@ mapillary_photos_in_area.subscribe(collect_photos_in_area);
 
 async function get_mapillary_photos() {
     let ts = new Date().getTime();
-    let res = await fetch(`https://geo.ueueeu.eu/api/mapillary?
+    let p = get(pos2);
+    console.log('get_mapillary_photos:', p);
+    let res = await fetch(`https://geo.ueueeu.eu/api/mapillary?top_left_lon=${p.top_left.lat + area_tolerance}&top_left_lat=${p.top_left.lng - area_tolerance}&bottom_right_lon=${p.bottom_right.lat - area_tolerance}&bottom_right_lat=${p.bottom_right.lng + area_tolerance}`);
+    let res2 = await res.json();
+    console.log('Mapillary photos:', res2.length);
+    if (get(mapillary_ts) > ts) {
+        console.log('old request, ignoring');
+        return;
+    }
+    mapillary_ts.set(ts);
+    let phs = res2.map(photo => {
+        let coord = new LatLng(photo.lat, photo.lon);
+        let bearing = photo.bearing;
+        return {
+            id: 'mapillary_' + photo.id,
+            coord: coord,
+            bearing: bearing,
+            sizes: {1024: {width: 1024, height: 768, url: photo.url}},
+        };
+    });
+    mapillary_photos_in_area.set(phs);
 }
 
 pos2.subscribe(get_mapillary_photos);

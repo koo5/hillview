@@ -10,10 +10,12 @@ url = "https://graph.mapillary.com/images"
 app = FastAPI()
 
 @app.get("/api/mapillary")
-def get_images(bbox: List[float] = Query(..., description="Bounding box coordinates in the format [minLon, minLat, maxLon, maxLat]")):
-
+def get_images(top_left_lat: float = Query(..., description="Top left latitude"),
+               top_left_lon: float = Query(..., description="Top left longitude"),
+               bottom_right_lat: float = Query(..., description="Bottom right latitude"),
+               bottom_right_lon: float = Query(..., description="Bottom right longitude")):
     params = {
-        "bbox": ",".join(map(str, bbox)),
+        "bbox": ",".join(map(str, [top_left_lon, top_left_lat, bottom_right_lon, bottom_right_lat])),
         "fields": "id,geometry,compass_angle,thumb_1024_url",
         "access_token": TOKEN,
     }
