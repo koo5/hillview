@@ -28,3 +28,6 @@ def get_images(top_left_lat: float = Query(..., description="Top left latitude")
         sorted_data = sorted(data['data'], key=lambda x: x['compass_angle'])
         log.info(f"Found {len(sorted_data)} images")
         return sorted_data
+    else:
+        log.error(f"Error: {data}")
+        return data
