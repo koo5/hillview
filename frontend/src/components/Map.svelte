@@ -7,7 +7,18 @@
     import {Coordinate} from "tsgeo/Coordinate";
     import 'leaflet/dist/leaflet.css';
 
-    import {app, pos, pos2, bearing, photos_in_area, photo_in_front, photo_to_left, photo_to_right, update_bearing, turn_to_photo_to} from "$lib/data.svelte.js";
+    import {
+        app,
+        pos,
+        pos2,
+        bearing,
+        photos_in_area,
+        photo_in_front,
+        photo_to_left,
+        photo_to_right,
+        update_bearing,
+        turn_to_photo_to
+    } from "$lib/data.svelte.js";
     import {get} from "svelte/store";
 
 
@@ -20,7 +31,7 @@
         let color = '#000';
         let arrow_color = color;
         let size = 100;
-        let inner_size = $pos.zoom*3;
+        let inner_size = $pos.zoom * 3;
         let outer_size = 100;
         /*if ($photo_to_left === photo || $photo_to_right === photo) {
             size = 55;
@@ -29,8 +40,7 @@
         let dashes = '';
         let fill = '';
         let stroke_width = 1;
-        if ($photo_in_front === photo)
-        {
+        if ($photo_in_front === photo) {
             //dashes = 'stroke-dasharray="20 4"'
             dashes = 'stroke-dasharray="1 10"'
             color = photo.bearing_color;
@@ -95,29 +105,34 @@
     async function updateMapState() {
         await tick();
         let _center = map.getCenter();
-        console.log('updateMapState center:', _center);
-        pos.update((value) => {
-            return {
-                ...value,
-                center: new Coordinate(_center.lat, _center.lng),
-                zoom: map.getZoom(),
-            }
-        });
-        pos2.update((value) => {
-            return {
-                ...value,
-                range: get_range(_center),
-                top_left: map.getBounds().getNorthWest(),
-                bottom_right: map.getBounds().getSouthEast()
-            };
-        });
+        console.log('updateMapState center:', _center, 'map.getZoom():', map.getZoom());
+        let p = get(pos);
+        let new_v = {
+            ...p,
+            center: new Coordinate(_center.lat, _center.lng),
+            zoom: map.getZoom(),
+        };
+        if (p.center.lat !== new_v.center.lat || p.center.lng !== new_v.center.lng || p.zoom !== new_v.zoom) {
+            pos.update((value) => {
+                return new_v;
+            });
+            pos2.update((value) => {
+                return {
+                    ...value,
+                    range: get_range(_center),
+                    top_left: map.getBounds().getNorthWest(),
+                    bottom_right: map.getBounds().getSouthEast()
+                };
+            });
+        }
+
     }
 
     // Handle button clicks and prevent map interaction
     function handleButtonClick(action, event) {
         event.preventDefault();
         event.stopPropagation();
-        
+
         if (action === 'left') {
             turn_to_photo_to('left');
         } else if (action === 'right') {
@@ -127,7 +142,7 @@
         } else if (action === 'rotate-cw') {
             update_bearing(15);
         }
-        
+
         return false;
     }
 
@@ -160,23 +175,23 @@
 
 
 <!-- The map container -->
-<div class="map" bind:clientWidth={width} bind:clientHeight={height}>
+<div bind:clientHeight={height} bind:clientWidth={width} class="map">
     <LeafletMap
             bind:this={_map}
-            options={{center: [$pos.center.lat, $pos.center.lng], zoom: $pos.zoom}}
             events={{moveend: updateMapState, zoomend: updateMapState}}
+            options={{center: [$pos.center.lat, $pos.center.lng], zoom: $pos.zoom}}
     >
 
-        <ScaleControl position="bottomleft" options={{maxWidth: 100}}/>
+        <ScaleControl options={{maxWidth: 100}} position="bottomleft"/>
 
         <!-- Base map tiles -->
         <TileLayer
-                url={tileUrl}
+                attribution="&copy; OpenStreetMap contributors"
                 options={{
                     maxZoom: 23,
                     maxNativeZoom: 19,
                     }}
-                attribution="&copy; OpenStreetMap contributors"
+                url={tileUrl}
         />
 
 
@@ -206,9 +221,9 @@ Direction: ${photo.bearing.toFixed(1)}°\n
 
         <div class="svg-overlay">
             <svg
-                    width={width}
                     height={height}
                     viewBox={`0 0 ${width} ${height}`}
+                    width={width}
             >
                 <!--                    <circle-->
                 <!--                            cx={centerX}-->
@@ -220,26 +235,26 @@ Direction: ${photo.bearing.toFixed(1)}°\n
                 <!--                    />-->
 
                 <line
-                        x1={centerX}
-                        y1={centerY}
-                        x2={arrowX}
-                        y2={arrowY}
+                        marker-end="url(#arrowhead)"
                         stroke="rgb(74, 144, 226)"
                         stroke-width="3"
-                        marker-end="url(#arrowhead)"
+                        x1={centerX}
+                        x2={arrowX}
+                        y1={centerY}
+                        y2={arrowY}
                 />
                 <defs>
                     <marker
                             id="arrowhead"
-                            markerWidth="10"
                             markerHeight="7"
+                            markerWidth="10"
+                            orient="auto"
                             refX="9"
                             refY="3.5"
-                            orient="auto"
                     >
                         <polygon
-                                points="0 0, 10 3.5, 0 7"
                                 fill="rgb(74, 244, 74)"
+                                points="0 0, 10 3.5, 0 7"
                         />
                     </marker>
                 </defs>
@@ -310,7 +325,7 @@ Direction: ${photo.bearing.toFixed(1)}°\n
         display: flex;
         gap: 0.5rem;
         background-color: rgba(255, 255, 255, 0.9);
-        padding: 0.75rem;
+        padding: 0.15rem;
         border-radius: 0.5rem 0 0 0;
         box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
         pointer-events: auto; /* This makes the buttons clickable */
@@ -342,7 +357,7 @@ Direction: ${photo.bearing.toFixed(1)}°\n
         left: 0;
         z-index: 750;
     }
-    
+
     .photo-direction-arrow svg {
         transition: transform 0.3s ease;
     }
