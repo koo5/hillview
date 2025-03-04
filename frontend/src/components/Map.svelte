@@ -159,7 +159,7 @@
     $: centerX = width / 2;
     let centerY;
     $: centerY = height / 2;
-    let arrowLength = fov_circle_radius_px + 200;
+    let arrowLength = fov_circle_radius_px + 150;
 
     let arrow_radians;
     let arrowX;
