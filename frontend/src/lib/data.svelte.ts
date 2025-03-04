@@ -98,8 +98,8 @@ function filter_hillview_photos_by_area() {
     let ph = get(hillview_photos);
     console.log('filter_hillview_photos_by_area: p2.top_left:', p2.top_left, 'p2.bottom_right:', p2.bottom_right);
 
-    let window_x = p.bottom_right.lng - p.top_left.lng;
-    let window_y = p.top_left.lat - p.bottom_right.lat;
+    let window_x = p2.bottom_right.lng - p2.top_left.lng;
+    let window_y = p2.top_left.lat - p2.bottom_right.lat;
 
     let res = ph.filter(photo => {
         //console.log('photo:', photo);
@@ -129,11 +129,11 @@ mapillary_photos_in_area.subscribe(collect_photos_in_area);
 
 async function get_mapillary_photos() {
     let ts = new Date().getTime();
-    let p = get(pos2);
-    console.log('get_mapillary_photos:', p);
-    let window_x = 0//p.bottom_right.lng - p.top_left.lng;
-    let window_y = 0//p.top_left.lat - p.bottom_right.lat;
-    let res = await fetch(`${import.meta.env.VITE_BACKEND}/mapillary?top_left_lat=${p.top_left.lat + window_y}&top_left_lon=${p.top_left.lng - window_x}&bottom_right_lat=${p.bottom_right.lat - window_y}&bottom_right_lon=${p.bottom_right.lng + window_x}`);
+    let p2 = get(pos2);
+    console.log('get_mapillary_photos:', p2);
+    let window_x = 0//p2.bottom_right.lng - p2.top_left.lng;
+    let window_y = 0//p2.top_left.lat - p2.bottom_right.lat;
+    let res = await fetch(`${import.meta.env.VITE_BACKEND}/mapillary?top_left_lat=${p2.top_left.lat + window_y}&top_left_lon=${p2.top_left.lng - window_x}&bottom_right_lat=${p2.bottom_right.lat - window_y}&bottom_right_lon=${p2.bottom_right.lng + window_x}`);
     let res2 = await res.json();
     console.log('Mapillary photos:', res2.length);
     if (mapillary_ts > ts) {
@@ -150,7 +150,8 @@ async function get_mapillary_photos() {
             coord: coord,
             bearing: bearing,
             sizes: {1024: {width: 1024, height: 768, url: photo.thumb_1024_url},
-                50: {width: 500, height: 375, url: photo.thumb_1024_url},
+                50: {width: 50, height: 50, url: photo.thumb_1024_url},
+                'full': {width: 1024, height: 768, url: photo.thumb_1024_url}
             },
         };
     });

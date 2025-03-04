@@ -48,11 +48,12 @@
 
         // Find the best scaled version based on container width. Take the 'full' size if this fails
         const sizes = Object.keys(photo.sizes).filter(size => size !== 'full').sort((a, b) => a - b);
+        let p;
         for (let i = 0; i < sizes.length; i++) {
             const size = sizes[i];
             //console.log('size:', size);
             if (size >= clientWidth2) {
-                let p = photo.sizes[sizes[i]];
+                p = photo.sizes[sizes[i]];
                 selectedSize = size;
                 width = p.width;
                 height = p.height;
@@ -61,9 +62,9 @@
             }
         }
         selectedSize = 'full';
-        width = photo.sizes.full.width;
-        height = photo.sizes.full.height;
-        selectedUrl = photo.sizes.full.url;
+        width = photo.sizes.full?.width || p.width;
+        height = photo.sizes.full?.height || p.height;
+        selectedUrl = photo.sizes.full?.url || '';
     }
 </script>
 
