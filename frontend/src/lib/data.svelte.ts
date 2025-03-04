@@ -92,7 +92,6 @@ bearing.subscribe(share_state);
 const area_tolerance = 0.1;
 
 function filter_hillview_photos_by_area() {
-    //let p = get(pos);
     let p2 = get(pos2);
     let b = get(bearing);
     let ph = get(hillview_photos);
@@ -174,11 +173,10 @@ bearing.subscribe(update_bearing_diff);
 photos_in_area.subscribe(update_bearing_diff);
 
 function filter_photos_in_range() {
-    let p = get(pos);
     let p2 = get(pos2);
     let ph = get(photos_in_area);
     let res = ph.filter(photo => {
-        photo.range_distance = dist(photo.coord, p.center);
+        photo.range_distance = dist(photo.coord, new LatLng((p2.top_left.lat + p2.bottom_right.lat) / 2, (p2.top_left.lng + p2.bottom_right.lng) / 2));
         //console.log('photo.range_distance:', photo.range_distance, 'p2.range:', p2.range);
         if (photo.range_distance > p2.range) {
             photo.range_distance = null;

@@ -102,7 +102,7 @@
     }
 
     // Update local mapState and notify parent
-    async function updateMapState() {
+    async function updateMapState(force) {
         await tick();
         let _center = map.getCenter();
         console.log('updateMapState center:', _center, 'map.getZoom():', map.getZoom());
@@ -112,7 +112,7 @@
             center: new Coordinate(_center.lat, _center.lng),
             zoom: map.getZoom(),
         };
-        if (p.center.lat !== new_v.center.lat || p.center.lng !== new_v.center.lng || p.zoom !== new_v.zoom) {
+        if (force === true || p.center.lat !== new_v.center.lat || p.center.lng !== new_v.center.lng || p.zoom !== new_v.zoom) {
             pos.update((value) => {
                 return new_v;
             });
@@ -148,7 +148,7 @@
 
     onMount(async () => {
         map = _map.getMap();
-        await updateMapState();
+        await updateMapState(true);
     });
 
     let width;
