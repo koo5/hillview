@@ -35,6 +35,7 @@ export let bearing = localStorageSharedStore('bearing', 0);
 
 export let hillview_photos = writable([]);
 export let hillview_photos_in_area = writable([]);
+export let mapillary_photos = writable(new Map());
 export let mapillary_photos_in_area = writable([]);
 export let photos_in_area = writable([]);
 export let photos_in_range = writable([]);
@@ -117,12 +118,8 @@ hillview_photos.subscribe(filter_hillview_photos_by_area);
 function collect_photos_in_area() {
     let phs = [...get(hillview_photos_in_area), ...get(mapillary_photos_in_area)];
     fixup_bearings(phs);
-    phs.sort((a, b) => a.bearing - b.bearing);
     photos_in_area.set(phs);
 }
-
-let mapillary_ts = 0;
-let loaded_mapillary_photos = new Map(); // Store already loaded photos by ID
 
 hillview_photos_in_area.subscribe(collect_photos_in_area);
 mapillary_photos_in_area.subscribe(collect_photos_in_area);
@@ -135,29 +132,21 @@ async function get_mapillary_photos() {
     let window_y = 0//p2.top_left.lat - p2.bottom_right.lat;
     let res = await fetch(`${import.meta.env.VITE_BACKEND}/mapillary?top_left_lat=${p2.top_left.lat + window_y}&top_left_lon=${p2.top_left.lng - window_x}&bottom_right_lat=${p2.bottom_right.lat - window_y}&bottom_right_lon=${p2.bottom_right.lng + window_x}`);
     let res2 = await res.json();
-    console.log('Mapillary photos:', res2.length);
-    if (mapillary_ts > ts) {
-        console.log('old request, ignoring');
-        return;
-    }
-    mapillary_ts = ts;
+    console.log('fetched Mapillary photos:', res2.length);
+
+    let current_photos = get(mapillary_photos);
     
-    // Get current photos
-    let current_photos = get(mapillary_photos_in_area);
-    
-    // Process new photos
-    let new_photos = [];
     for (let photo of res2) {
         const id = 'mapillary_' + photo.id;
         
-        // Skip if we already have this photo
-        if (loaded_mapillary_photos.has(id)) {
+        if (current_photos.has(id)) {
             continue;
         }
         
         let coord = new LatLng(photo.geometry.coordinates[1], photo.geometry.coordinates[0]);
         let bearing = photo.compass_angle;
         let processed_photo = {
+            source: 'mapillary',
             id: id,
             coord: coord,
             bearing: bearing,
@@ -167,19 +156,46 @@ async function get_mapillary_photos() {
                 'full': {width: 1024, height: 768, url: photo.thumb_1024_url}
             },
         };
-        
-        // Add to new photos and mark as loaded
-        new_photos.push(processed_photo);
-        loaded_mapillary_photos.set(id, processed_photo);
+
+        current_photos.set(id, processed_photo);
     }
-    
-    console.log(`Adding ${new_photos.length} new Mapillary photos to existing ${current_photos.length}`);
-    
-    // Combine existing and new photos
-    mapillary_photos_in_area.set([...current_photos, ...new_photos]);
+
+    const limit = 15000;
+    if (current_photos.size > limit) {
+        let keys = [...current_photos.keys()];
+        for (let i = 0; i < current_photos.size - limit; i++) {
+            current_photos.delete(keys[i]);
+        }
+    }
+    console.log('Mapillary photos:', current_photos.size);
+    mapillary_photos.set(current_photos);
 }
 
 pos2.subscribe(get_mapillary_photos);
+
+
+function filter_mapillary_photos_by_area() {
+    let p2 = get(pos2);
+    let ph = get(mapillary_photos);
+
+    let window_x = p2.bottom_right.lng - p2.top_left.lng;
+    let window_y = p2.top_left.lat - p2.bottom_right.lat;
+
+    let res = [];
+    for (let photo of ph.values()) {
+        let yes = photo.coord.lat < p2.top_left.lat + window_y && photo.coord.lat > p2.bottom_right.lat - window_y &&
+            photo.coord.lng > p2.top_left.lng - window_x && photo.coord.lng < p2.bottom_right.lng + window_x;
+        if (yes) {
+            res.push(photo);
+        }
+    }
+    console.log('mapillary photos in area:', res.length);
+    mapillary_photos_in_area.set(res);
+}
+
+pos2.subscribe(filter_mapillary_photos_by_area);
+mapillary_photos.subscribe(filter_mapillary_photos_by_area);
+
 
 function update_bearing_diff() {
     let b = get(bearing);
@@ -218,6 +234,8 @@ function update_view() {
         photo_in_front.set(null);
         photo_to_left.set(null);
         photo_to_right.set(null);
+        photos_to_left.set([]);
+        photos_to_right.set([]);
         return;
     }
     ph.map(photo => {
@@ -233,7 +251,7 @@ function update_view() {
     photo_in_front.set(fr);
     let phsl = [];
     let phsr = [];
-    for (let i = 0; i < 5; i++) {
+    for (let i = 1; i < 6; i++) {
         let phl = ph[(idx - i + ph.length) % ph.length];
         let phr = ph[(idx + i) % ph.length];
         if (phsl.indexOf(phl) === -1 && phsr.indexOf(phl) === -1)
@@ -249,7 +267,17 @@ function update_view() {
 bearing.subscribe(update_view);
 photos_in_range.subscribe(update_view);
 
+let events = [];
+
 export function turn_to_photo_to(dir) {
+    events.push({type: 'turn_to_photo_to', dir: dir});
+    handle_events();
+}
+
+function handle_events() {
+    let e = events[events.length - 1];
+    events = [];
+    let dir = e.dir;
     console.log('turn_to_photo_to:', dir);
     if (dir === 'left') {
         let phl = get(photo_to_left);
@@ -291,3 +319,11 @@ function RGB2HTML(red, green, blue)
     return '#' + r + g + b;
 }
 
+export function reversed(list)
+{
+    let res = [];
+    for (let i = list.length - 1; i >= 0; i--) {
+        res.push(list[i]);
+    }
+    return res;
+}

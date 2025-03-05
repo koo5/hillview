@@ -12,7 +12,7 @@
         photo_to_left,
         photo_to_right,
         update_bearing,
-        turn_to_photo_to
+        turn_to_photo_to, reversed
     } from "$lib/data.svelte.ts";
     import {dms} from "$lib/utils.ts";
     import Photo from "./Photo.svelte";
@@ -48,7 +48,7 @@
     </div>
 
     <div class="thumbnails-bottom">
-        {#each $photos_to_right as photo}
+        {#each reversed($photos_to_right) as photo}
             <div class="thumbnail" on:click={() => handleThumbnailClick(photo)}>
                 {#if photo.sizes && photo.sizes[50]}
                     <img src={photo.sizes[50].url} alt="Thumbnail" style="border-color: {photo.bearing_color || '#ccc'}"/>
@@ -96,15 +96,20 @@
         flex-direction: column;
         width: 100%;
         height: 100%;
+        max-height: 100%;
     }
 
     .thumbnails-top, .thumbnails-bottom {
         display: flex;
         overflow-x: auto;
-        padding: 5px;
+        padding: 1px;
         background-color: rgba(0, 0, 0, 0.5);
-        height: 60px;
-        z-index: 1000;
+        height: 50px;
+        z-index: 30000;
+    }
+
+    .thumbnails-bottom {
+        flex-direction: row-reverse;
     }
 
     .thumbnail {

@@ -28,7 +28,12 @@
 
     function createDirectionalArrow(photo) {
         let bearing = Math.round(photo.bearing);
-        let color = '#000';
+        let color = '#f00';
+        if (photo.source === 'mapillary') {
+            color = '#00f';
+        } else if (photo.source === 'openstreetcam') {
+            color = '#f00';
+        }
         let arrow_color = color;
         let size = 100;
         let inner_size = $pos.zoom * 3;
@@ -68,7 +73,7 @@
                  ${half + arrowWidth_inner},${arrowBaseY_inner}
                  ${half - arrowWidth_inner},${arrowBaseY_inner}"
                  ${fill} fill-opacity=0.8
-               stroke="#000" stroke-width="1" />`
+               stroke="${color}" stroke-width="1" />`
 
         if (photo === $photo_in_front) {
             svg += `
