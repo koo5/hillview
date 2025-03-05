@@ -122,11 +122,11 @@ function collect_photos_in_area() {
 }
 
 let mapillary_ts = 0;
+let loaded_mapillary_photos = new Map(); // Store already loaded photos by ID
 
 hillview_photos_in_area.subscribe(collect_photos_in_area);
 mapillary_photos_in_area.subscribe(collect_photos_in_area);
 
-// maintain already loaded photos ai!
 async function get_mapillary_photos() {
     let ts = new Date().getTime();
     let p2 = get(pos2);
@@ -138,24 +138,45 @@ async function get_mapillary_photos() {
     console.log('Mapillary photos:', res2.length);
     if (mapillary_ts > ts) {
         console.log('old request, ignoring');
-        //return;
+        return;
     }
     mapillary_ts = ts;
-    console.log('Mapillary photos:', res2);
-    let phs = res2.map(photo => {
+    
+    // Get current photos
+    let current_photos = get(mapillary_photos_in_area);
+    
+    // Process new photos
+    let new_photos = [];
+    for (let photo of res2) {
+        const id = 'mapillary_' + photo.id;
+        
+        // Skip if we already have this photo
+        if (loaded_mapillary_photos.has(id)) {
+            continue;
+        }
+        
         let coord = new LatLng(photo.geometry.coordinates[1], photo.geometry.coordinates[0]);
         let bearing = photo.compass_angle;
-        return {
-            id: 'mapillary_' + photo.id,
+        let processed_photo = {
+            id: id,
             coord: coord,
             bearing: bearing,
-            sizes: {1024: {width: 1024, height: 768, url: photo.thumb_1024_url},
+            sizes: {
+                1024: {width: 1024, height: 768, url: photo.thumb_1024_url},
                 50: {width: 50, height: 50, url: photo.thumb_1024_url},
                 'full': {width: 1024, height: 768, url: photo.thumb_1024_url}
             },
         };
-    });
-    mapillary_photos_in_area.set(phs);
+        
+        // Add to new photos and mark as loaded
+        new_photos.push(processed_photo);
+        loaded_mapillary_photos.set(id, processed_photo);
+    }
+    
+    console.log(`Adding ${new_photos.length} new Mapillary photos to existing ${current_photos.length}`);
+    
+    // Combine existing and new photos
+    mapillary_photos_in_area.set([...current_photos, ...new_photos]);
 }
 
 pos2.subscribe(get_mapillary_photos);
