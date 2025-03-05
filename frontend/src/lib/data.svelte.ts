@@ -126,6 +126,7 @@ let mapillary_ts = 0;
 hillview_photos_in_area.subscribe(collect_photos_in_area);
 mapillary_photos_in_area.subscribe(collect_photos_in_area);
 
+// maintain already loaded photos ai!
 async function get_mapillary_photos() {
     let ts = new Date().getTime();
     let p2 = get(pos2);
