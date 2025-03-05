@@ -18,22 +18,44 @@
     import Photo from "./Photo.svelte";
 
     let clientWidth;
+    
+    function handleThumbnailClick(photo) {
+        bearing.set(photo.bearing);
+    }
 </script>
 
-<div class="photo-container" bind:clientWidth >
-    {#each $photos_to_left as photo}
-
+<div class="gallery-wrapper">
+    <div class="thumbnails-top">
+        {#each $photos_to_left as photo}
+            <div class="thumbnail" on:click={() => handleThumbnailClick(photo)}>
+                {#if photo.sizes && photo.sizes[50]}
+                    <img src={photo.sizes[50].url} alt="Thumbnail" style="border-color: {photo.bearing_color || '#ccc'}"/>
+                {/if}
+            </div>
         {/each}
+    </div>
 
-    {#if $photo_to_left}
-        <Photo photo={$photo_to_left} className="left" />
-    {/if}
-    {#if $photo_in_front}
-        <Photo photo={$photo_in_front} className="front" {clientWidth} />
-    {/if}
-    {#if $photo_to_right}
-        <Photo photo={$photo_to_right} className="right" />
-    {/if}
+    <div class="photo-container" bind:clientWidth >
+        {#if $photo_to_left}
+            <Photo photo={$photo_to_left} className="left" />
+        {/if}
+        {#if $photo_in_front}
+            <Photo photo={$photo_in_front} className="front" {clientWidth} />
+        {/if}
+        {#if $photo_to_right}
+            <Photo photo={$photo_to_right} className="right" />
+        {/if}
+    </div>
+
+    <div class="thumbnails-bottom">
+        {#each $photos_to_right as photo}
+            <div class="thumbnail" on:click={() => handleThumbnailClick(photo)}>
+                {#if photo.sizes && photo.sizes[50]}
+                    <img src={photo.sizes[50].url} alt="Thumbnail" style="border-color: {photo.bearing_color || '#ccc'}"/>
+                {/if}
+            </div>
+        {/each}
+    </div>
 
     {#if $app.debug === 1}
         <div class="debug">
@@ -69,6 +91,40 @@
 
 
 <style>
+    .gallery-wrapper {
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        height: 100%;
+    }
+
+    .thumbnails-top, .thumbnails-bottom {
+        display: flex;
+        overflow-x: auto;
+        padding: 5px;
+        background-color: rgba(0, 0, 0, 0.5);
+        height: 60px;
+        z-index: 1000;
+    }
+
+    .thumbnail {
+        flex: 0 0 auto;
+        margin: 0 5px;
+        cursor: pointer;
+        transition: transform 0.2s;
+    }
+
+    .thumbnail:hover {
+        transform: scale(1.1);
+    }
+
+    .thumbnail img {
+        height: 50px;
+        width: 50px;
+        object-fit: cover;
+        border: 2px solid;
+        border-radius: 4px;
+    }
 
     .debug {
         overflow: auto;
@@ -85,8 +141,8 @@
 
     .photo-container {
         position: relative;
+        flex: 1;
         width: 100%;
-        height: 100%;
         display: flex;
         align-items: center;
         justify-content: center;
