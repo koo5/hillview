@@ -8,6 +8,7 @@ import {LatLng} from 'leaflet';
 import {get, writable} from "svelte/store";
 import { localStorageSharedStore } from './svelte-shared-store.ts';
 import { fixup_bearings } from './sources.ts';
+import {tick} from "svelte";
 
 export const geoPicsUrl = import.meta.env.VITE_REACT_APP_GEO_PICS_URL; //+'2'
 
@@ -269,12 +270,14 @@ photos_in_range.subscribe(update_view);
 
 let events = [];
 
-export function turn_to_photo_to(dir) {
+export async function turn_to_photo_to(dir) {
     events.push({type: 'turn_to_photo_to', dir: dir});
-    handle_events();
+    await handle_events();
 }
 
-function handle_events() {
+async function handle_events() {
+    await tick();
+    if (events.length === 0) return;
     let e = events[events.length - 1];
     events = [];
     let dir = e.dir;

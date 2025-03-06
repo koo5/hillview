@@ -134,14 +134,14 @@
     }
 
     // Handle button clicks and prevent map interaction
-    function handleButtonClick(action, event) {
+    async function handleButtonClick(action, event) {
         event.preventDefault();
         event.stopPropagation();
 
         if (action === 'left') {
-            turn_to_photo_to('left');
+            await turn_to_photo_to('left');
         } else if (action === 'right') {
-            turn_to_photo_to('right');
+            await turn_to_photo_to('right');
         } else if (action === 'rotate-ccw') {
             update_bearing(-15);
         } else if (action === 'rotate-cw') {
@@ -282,14 +282,14 @@ Direction: ${photo.bearing.toFixed(1)}°\n
 <div class="control-buttons-container">
     <div class="buttons" role="group">
         <button
-                on:click={(e) => handleButtonClick('left', e)}
+                on:click={async (e) => {await handleButtonClick('left', e)}}
                 title="Rotate to next photo on the left"
         >
             <ArrowLeftCircle/>
         </button>
 
         <button
-                on:click={(e) => handleButtonClick('rotate-ccw', e)}
+                on:click={async (e) => {await handleButtonClick('rotate-ccw', e)}}
                 title="Rotate view 15° counterclockwise"
         >
             <RotateCcw/>

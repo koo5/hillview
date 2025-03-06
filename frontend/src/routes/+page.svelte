@@ -16,15 +16,15 @@
         window.removeEventListener('keydown', handleKeyDown);
     });
 
-    function handleKeyDown(e) {
+    async function handleKeyDown(e) {
         if (e.key === 'z') {
             update_bearing(-5);
         } else if (e.key === 'x') {
             update_bearing(5);
         } else if (e.key === 'c') {
-            turn_to_photo_to('left');
+            await turn_to_photo_to('left');
         } else if (e.key === 'v') {
-            turn_to_photo_to('right');
+            await turn_to_photo_to('right');
         }
         else if (e.key === 'd') {
             app.update(a => {
