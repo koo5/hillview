@@ -2,7 +2,7 @@
     import {onMount, onDestroy, tick} from 'svelte';
     import {Polygon, LeafletMap, TileLayer, Marker, Circle, ScaleControl} from 'svelte-leafletjs';
     import {LatLng} from 'leaflet';
-    import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle} from 'lucide-svelte';
+    import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle, MapPin} from 'lucide-svelte';
     import L from 'leaflet';
     import {Coordinate} from "tsgeo/Coordinate";
     import 'leaflet/dist/leaflet.css';
@@ -25,6 +25,13 @@
     let map;
     let _map;
     const fov_circle_radius_px = 70;
+    
+    // Location tracking variables
+    let locationTracking = false;
+    let watchId = null;
+    let userLocationMarker = null;
+    let userLocationCircle = null;
+    let userHeading = null;
 
     function createDirectionalArrow(photo) {
         let bearing = Math.round(photo.bearing);
@@ -146,14 +153,142 @@
             update_bearing(-15);
         } else if (action === 'rotate-cw') {
             update_bearing(15);
+        } else if (action === 'location') {
+            toggleLocationTracking();
         }
 
         return false;
+    }
+    
+    // Toggle location tracking on/off
+    function toggleLocationTracking() {
+        if (locationTracking) {
+            stopLocationTracking();
+        } else {
+            startLocationTracking();
+        }
+        locationTracking = !locationTracking;
+    }
+    
+    // Start tracking user location
+    function startLocationTracking() {
+        if (!navigator.geolocation) {
+            alert("Geolocation is not supported by your browser");
+            return;
+        }
+        
+        // Get initial position
+        navigator.geolocation.getCurrentPosition(
+            updateUserLocation,
+            (error) => {
+                console.error("Error getting location:", error);
+                alert(`Unable to get your location: ${error.message}`);
+                locationTracking = false;
+            },
+            { enableHighAccuracy: true }
+        );
+        
+        // Start watching position
+        watchId = navigator.geolocation.watchPosition(
+            updateUserLocation,
+            (error) => {
+                console.error("Error watching location:", error);
+            },
+            { enableHighAccuracy: true }
+        );
+    }
+    
+    // Stop tracking user location
+    function stopLocationTracking() {
+        if (watchId !== null) {
+            navigator.geolocation.clearWatch(watchId);
+            watchId = null;
+        }
+        
+        // Remove user location markers
+        if (map && userLocationMarker) {
+            map.removeLayer(userLocationMarker);
+            userLocationMarker = null;
+        }
+        
+        if (map && userLocationCircle) {
+            map.removeLayer(userLocationCircle);
+            userLocationCircle = null;
+        }
+    }
+    
+    // Update user location on the map
+    function updateUserLocation(position) {
+        const { latitude, longitude, accuracy, heading } = position.coords;
+        
+        // Update user heading if available
+        if (heading !== null && heading !== undefined) {
+            userHeading = heading;
+            // Optionally update the app bearing based on user heading
+            if (locationTracking) {
+                update_bearing(userHeading);
+            }
+        }
+        
+        if (map) {
+            const latLng = new L.LatLng(latitude, longitude);
+            
+            // Create or update user location marker
+            if (!userLocationMarker) {
+                const userIcon = L.divIcon({
+                    className: 'user-location-marker',
+                    html: `<div class="user-dot"></div>`,
+                    iconSize: [14, 14],
+                    iconAnchor: [7, 7]
+                });
+                
+                userLocationMarker = L.marker(latLng, { icon: userIcon }).addTo(map);
+            } else {
+                userLocationMarker.setLatLng(latLng);
+            }
+            
+            // Create or update accuracy circle
+            if (!userLocationCircle) {
+                userLocationCircle = L.circle(latLng, {
+                    radius: accuracy,
+                    color: '#4285F4',
+                    fillColor: '#4285F4',
+                    fillOpacity: 0.15,
+                    weight: 1
+                }).addTo(map);
+            } else {
+                userLocationCircle.setLatLng(latLng);
+                userLocationCircle.setRadius(accuracy);
+            }
+            
+            // Center map on user location if tracking is active
+            if (locationTracking) {
+                map.setView(latLng);
+                
+                // Update the app position
+                pos.update((value) => {
+                    return {
+                        ...value,
+                        center: new Coordinate(latitude, longitude),
+                    };
+                });
+                
+                // Update other state as needed
+                updateMapState(true);
+            }
+        }
     }
 
     onMount(async () => {
         map = _map.getMap();
         await updateMapState(true);
+    });
+    
+    onDestroy(() => {
+        // Clean up geolocation watcher if active
+        if (watchId !== null) {
+            navigator.geolocation.clearWatch(watchId);
+        }
     });
 
     let width;
@@ -311,6 +446,17 @@ Direction: ${photo.bearing.toFixed(1)}°\n
     </div>
 </div>
 
+<!-- Location tracking button -->
+<div class="location-button-container">
+    <button 
+        class={locationTracking ? 'active' : ''}
+        on:click={(e) => handleButtonClick('location', e)}
+        title="Track my location"
+    >
+        <MapPin />
+    </button>
+</div>
+
 <style>
     .map {
         width: 100%;
@@ -354,6 +500,45 @@ Direction: ${photo.bearing.toFixed(1)}°\n
 
     .buttons button:active {
         background-color: #e0e0e0;
+    }
+    
+    .location-button-container {
+        position: absolute;
+        top: 80px;
+        right: 10px;
+        z-index: 30000;
+    }
+    
+    .location-button-container button {
+        cursor: pointer;
+        background-color: white;
+        border: 1px solid #ccc;
+        border-radius: 0.25rem;
+        padding: 0.5rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.2s;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+    }
+    
+    .location-button-container button:hover {
+        background-color: #f0f0f0;
+    }
+    
+    .location-button-container button.active {
+        background-color: #4285F4;
+        color: white;
+        border-color: #3367d6;
+    }
+    
+    .user-location-marker .user-dot {
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        background-color: #4285F4;
+        border: 2px solid white;
+        box-shadow: 0 0 5px rgba(0, 0, 0, 0.3);
     }
 
     .svg-overlay {
