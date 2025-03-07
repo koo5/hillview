@@ -248,7 +248,7 @@
             }
             
             // Create or update accuracy circle
-            if (!userLocationCircle) {
+            /*if (!userLocationCircle) {
                 userLocationCircle = L.circle(latLng, {
                     radius: accuracy,
                     color: '#4285F4',
@@ -259,7 +259,7 @@
             } else {
                 userLocationCircle.setLatLng(latLng);
                 userLocationCircle.setRadius(accuracy);
-            }
+            }*/
             
             // Center map on user location if tracking is active
             if (locationTracking) {
