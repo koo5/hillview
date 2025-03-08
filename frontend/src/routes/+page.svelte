@@ -5,9 +5,9 @@
     import {Camera, Compass} from 'lucide-svelte';
     import {fetch_photos} from "$lib/sources.js";
     import {dms} from "$lib/utils.js";
-    import {goto} from "$app/navigation";
     import {app, pos, bearing, turn_to_photo_to, update_bearing} from "$lib/data.svelte.js";
     import {LatLng} from 'leaflet';
+    import { goto, replaceState } from "$app/navigation";
 
     let update_url = false;
 
@@ -54,7 +54,7 @@
         url.searchParams.set('lat', p.center.lat);
         url.searchParams.set('lon', p.center.lng);
         url.searchParams.set('zoom', p.zoom);
-        window.history.replaceState({}, '', url);
+        replaceState(url.toString());
     });
 
     bearing.subscribe(b => {
@@ -63,7 +63,7 @@
         }
         const url = new URL(window.location);
         url.searchParams.set('bearing', b);
-        window.history.replaceState({}, '', url);
+        replaceState(url.toString());
     });
 
     onDestroy(() => {
