@@ -9,6 +9,7 @@
 
     import {
         app,
+        sources,
         pos,
         pos2,
         bearing,
@@ -299,6 +300,16 @@
         }
     });
 
+    function toggleSourceVisibility(sourceId) {
+        sources.update(sources => {
+            const source = sources.find(s => s.id === sourceId);
+            if (source) {
+                source.enabled = !source.enabled;
+            }
+            return sources;
+        });
+    }
+
     let width;
     let height;
 
@@ -424,9 +435,6 @@ Direction: ${photo.bearing.toFixed(1)}°\n
 <!-- Rotation / navigation buttons -->
 <div class="control-buttons-container">
     <div class="buttons" role="group">
-
-
-
         <button
                 on:click={async (e) => {await handleButtonClick('left', e)}}
                 title="Rotate to next photo on the left"
@@ -468,7 +476,21 @@ Direction: ${photo.bearing.toFixed(1)}°\n
     </button>
 </div>
 
+<div class="source-buttons-container">
+    {#each $sources as source}
+        <button
+                class={source.enabled ? 'active' : ''}
+                on:click={() => toggleSourceVisibility(source.id)}
+                title={`Toggle ${source.name} visibility`}
+        >
+            {source.name}
+        </button>
+    {/each}
+</div>
+
 <style>
+
+
     .map {
         width: 100%;
         height: 100%;
@@ -542,7 +564,41 @@ Direction: ${photo.bearing.toFixed(1)}°\n
         color: white;
         border-color: #3367d6;
     }
-    
+
+
+    .source-buttons-container {
+        position: absolute;
+        top: 50px;
+        right: 10px;
+        z-index: 30000;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .source-buttons-container button {
+        cursor: pointer;
+        background-color: white;
+        border: 1px solid #ccc;
+        border-radius: 0.25rem;
+        padding: 0.5rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.2s;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+    }
+
+    .source-buttons-container button:hover {
+        background-color: #f0f0f0;
+    }
+
+    .source-buttons-container button.active {
+        background-color: #4285F4;
+        color: white;
+        border-color: #3367d6;
+    }
+
     .user-location-marker .user-dot {
         width: 14px;
         height: 14px;
