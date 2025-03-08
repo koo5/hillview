@@ -98,6 +98,12 @@ async function share_state() {
 const area_tolerance = 0.1;
 
 function filter_hillview_photos_by_area() {
+
+    if (!get(sources).find(s => s.id === 'hillview')?.enabled) {
+        hillview_photos_in_area.set([]);
+        return;
+    }
+
     let p2 = get(pos2);
     let b = get(bearing);
     let ph = get(hillview_photos);
@@ -119,6 +125,7 @@ function filter_hillview_photos_by_area() {
 
 pos2.subscribe(filter_hillview_photos_by_area);
 hillview_photos.subscribe(filter_hillview_photos_by_area);
+sources.subscribe(filter_hillview_photos_by_area);
 
 function collect_photos_in_area() {
     let phs = [...get(hillview_photos_in_area), ...get(mapillary_photos_in_area)];
@@ -181,6 +188,12 @@ pos2.subscribe(get_mapillary_photos);
 
 
 function filter_mapillary_photos_by_area() {
+
+    if (!get(sources).find(s => s.id === 'mapillary')?.enabled) {
+        mapillary_photos_in_area.set([]);
+        return;
+    }
+
     let p2 = get(pos2);
     let ph = get(mapillary_photos);
 
@@ -201,7 +214,7 @@ function filter_mapillary_photos_by_area() {
 
 pos2.subscribe(filter_mapillary_photos_by_area);
 mapillary_photos.subscribe(filter_mapillary_photos_by_area);
-
+sources.subscribe(filter_mapillary_photos_by_area);
 
 function update_bearing_diff() {
     let b = get(bearing);
