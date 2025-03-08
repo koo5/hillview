@@ -113,6 +113,14 @@
         return _center.distanceTo(latLngR);
     }
 
+    pos.subscribe((v) => {
+        console.log('pos changed:', v);
+        if (!map) return;
+        if (map.getCenter() !== v.center) {
+            map.setView(new LatLng(v.center.lat, v.center.lng), v.zoom);
+        }
+    });
+
     // Update local mapState and notify parent
     async function updateMapState(force) {
         await tick();

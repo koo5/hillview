@@ -15,10 +15,14 @@ export const geoPicsUrl = import.meta.env.VITE_REACT_APP_GEO_PICS_URL; //+'2'
 let calculator = new Vincenty();
 
 export let app = writable({
-    loading: true,
     error: null,
     debug: 1,
 })
+
+export let sources = writable([
+    {name: 'hillview', enabled: true},
+    {name: 'mapillary', enabled: true},
+]);
 
 export let pos = localStorageSharedStore('pos', {
     center: new LatLng(50.06173640462974,
@@ -89,7 +93,7 @@ async function share_state() {
 };
 
 //pos.subscribe(share_state);
-bearing.subscribe(share_state);
+//bearing.subscribe(share_state);
 
 const area_tolerance = 0.1;
 
