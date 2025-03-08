@@ -29,7 +29,7 @@
         {#each $photos_to_left as photo}
             <div class="thumbnail" on:click={() => handleThumbnailClick(photo)} role="button" tabindex="0" on:keydown={e => e.key === 'Enter' && handleThumbnailClick(photo)}>
                 {#if photo.sizes && photo.sizes[50]}
-                    <img src={photo.sizes[50].url} alt="Thumbnail" style="border-color: {photo.bearing_color || '#ccc'}"/>
+                    <img src={photo.sizes[50].url} alt="Thumbnail" style:border-color={photo.bearing_color || '#ccc'}/>
                 {/if}
             </div>
         {/each}

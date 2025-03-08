@@ -18,16 +18,20 @@
 
     async function handleKeyDown(e) {
         if (!e.ctrlKey && !e.altKey && !e.metaKey) {
-            e.preventDefault();
             if (e.key === 'z') {
+                e.preventDefault();
                 update_bearing(-5);
             } else if (e.key === 'x') {
+                e.preventDefault();
                 update_bearing(5);
             } else if (e.key === 'c') {
+                e.preventDefault();
                 await turn_to_photo_to('left');
             } else if (e.key === 'v') {
+                e.preventDefault();
                 await turn_to_photo_to('right');
             } else if (e.key === 'd') {
+                e.preventDefault();
                 app.update(a => {
                     a.debug = a.debug + 1;
                     if (a.debug > 2) {

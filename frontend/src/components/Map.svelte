@@ -35,11 +35,11 @@
 
     function createDirectionalArrow(photo) {
         let bearing = Math.round(photo.bearing);
-        let color = '#f00';
+        let color = '#000';
         if (photo.source === 'mapillary') {
-            color = '#00f';
+            color = '#777';
         } else if (photo.source === 'openstreetcam') {
-            color = '#f00';
+            color = '#aaa';
         }
         let arrow_color = color;
         let size = 100;
@@ -424,6 +424,9 @@ Direction: ${photo.bearing.toFixed(1)}°\n
 <!-- Rotation / navigation buttons -->
 <div class="control-buttons-container">
     <div class="buttons" role="group">
+
+
+
         <button
                 on:click={async (e) => {await handleButtonClick('left', e)}}
                 title="Rotate to next photo on the left"
