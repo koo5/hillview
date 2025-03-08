@@ -30,7 +30,7 @@
     let locationTracking = false;
     let watchId = null;
     let userLocationMarker = null;
-    let userLocationCircle = null;
+    let accuracyCircle = null;
     let userHeading = null;
 
     function createDirectionalArrow(photo) {
@@ -219,9 +219,9 @@
             userLocationMarker = null;
         }
         
-        if (map && userLocationCircle) {
-            map.removeLayer(userLocationCircle);
-            userLocationCircle = null;
+        if (map && accuracyCircle) {
+            map.removeLayer(accuracyCircle);
+            accuracyCircle = null;
         }
     }
     
@@ -256,8 +256,8 @@
             }
             
             // Create or update accuracy circle
-            /*if (!userLocationCircle) {
-                userLocationCircle = L.circle(latLng, {
+            /*if (!accuracyCircle) {
+                accuracyCircle = L.circle(latLng, {
                     radius: accuracy,
                     color: '#4285F4',
                     fillColor: '#4285F4',
@@ -265,8 +265,8 @@
                     weight: 1
                 }).addTo(map);
             } else {
-                userLocationCircle.setLatLng(latLng);
-                userLocationCircle.setRadius(accuracy);
+                accuracyCircle.setLatLng(latLng);
+                accuracyCircle.setRadius(accuracy);
             }*/
             
             // Center map on user location if tracking is active

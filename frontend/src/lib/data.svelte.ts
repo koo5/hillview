@@ -16,7 +16,7 @@ let calculator = new Vincenty();
 
 export let app = writable({
     error: null,
-    debug: 1,
+    debug: 0,
 })
 
 export let sources = writable([
@@ -318,7 +318,7 @@ export function update_bearing(diff) {
 
 function get_bearing_color(photo) {
     if (photo.abs_bearing_diff === null) return '#9E9E9E'; // grey
-    return 'hsl(' + (100 - photo.abs_bearing_diff/2) + ', 100%, 70%)';
+    return 'hsl(' + Math.round(100 - photo.abs_bearing_diff/2) + ', 100%, 70%)';
 }
 
 
