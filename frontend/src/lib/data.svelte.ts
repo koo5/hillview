@@ -12,6 +12,8 @@ import {tick} from "svelte";
 
 export const geoPicsUrl = import.meta.env.VITE_REACT_APP_GEO_PICS_URL; //+'2'
 
+let client_id = localStorageSharedStore('client_id', Math.random().toString(36));
+
 let calculator = new Vincenty();
 
 export let app = writable({
@@ -20,9 +22,13 @@ export let app = writable({
 })
 
 export let sources = writable([
-    {id: 'hillview', name: 'Hillview', enabled: true},
-    {id: 'mapillary', name: 'Mapillary', enabled: false},
+    {id: 'hillview', name: 'Hillview', enabled: true, requests: []},
+    {id: 'mapillary', name: 'Mapillary', enabled: false, requests: []},
 ]);
+
+function source_by_id(id) {
+    return get(sources).find(s => s.id === id);
+}
 
 export let pos = localStorageSharedStore('pos', {
     center: new LatLng(50.06173640462974,
@@ -108,7 +114,7 @@ function filter_hillview_photos_by_area() {
     let p2 = get(pos2);
     let b = get(bearing);
     let ph = get(hillview_photos);
-    console.log('filter_hillview_photos_by_area: p2.top_left:', p2.top_left, 'p2.bottom_right:', p2.bottom_right);
+    //console.log('filter_hillview_photos_by_area: p2.top_left:', p2.top_left, 'p2.bottom_right:', p2.bottom_right);
 
     let window_x = p2.bottom_right.lng - p2.top_left.lng;
     let window_y = p2.top_left.lat - p2.bottom_right.lat;
@@ -131,7 +137,7 @@ sources.subscribe(filter_hillview_photos_by_area);
 function collect_photos_in_area() {
     let phs = [...get(hillview_photos_in_area), ...get(mapillary_photos_in_area)];
     fixup_bearings(phs);
-    console.log('collect_photos_in_area:', phs);
+    //console.log('collect_photos_in_area:', phs);
     photos_in_area.set(phs);
 }
 
@@ -139,14 +145,34 @@ hillview_photos_in_area.subscribe(collect_photos_in_area);
 mapillary_photos_in_area.subscribe(collect_photos_in_area);
 
 async function get_mapillary_photos() {
+
+    let enabled = get(sources).find(s => s.id === 'mapillary')?.enabled;
+    console.log('mapillary enabled:', enabled);
+    if (!enabled) {
+        mapillary_photos.set(new Map());
+        return;
+    }
+
     let ts = new Date().getTime();
     let p2 = get(pos2);
-    console.log('get_mapillary_photos:', p2);
+    //console.log('get_mapillary_photos:', p2);
     let window_x = 0//p2.bottom_right.lng - p2.top_left.lng;
     let window_y = 0//p2.top_left.lat - p2.bottom_right.lat;
-    let res = await fetch(`${import.meta.env.VITE_BACKEND}/mapillary?top_left_lat=${p2.top_left.lat + window_y}&top_left_lon=${p2.top_left.lng - window_x}&bottom_right_lat=${p2.bottom_right.lat - window_y}&bottom_right_lon=${p2.bottom_right.lng + window_x}`);
-    let res2 = await res.json();
-    console.log('fetched Mapillary photos:', res2.length);
+    sources.update(s => {
+        let src = s.find(s => s.id === 'mapillary');
+        src.requests.push(ts);
+        return s;
+    });
+
+    let res2 = [];
+    try {
+        let res = await fetch(`${import.meta.env.VITE_BACKEND}/mapillary?top_left_lat=${p2.top_left.lat + window_y}&top_left_lon=${p2.top_left.lng - window_x}&bottom_right_lat=${p2.bottom_right.lat - window_y}&bottom_right_lon=${p2.bottom_right.lng + window_x}&client_id=${get(client_id)}`);
+        res2 = await res.json();
+        console.log('fetched Mapillary photos:', res2.length);
+    }
+    catch (e) {
+        console.warn('Error fetching Mapillary photos:', e);
+    }
 
     let current_photos = get(mapillary_photos);
     
@@ -174,7 +200,7 @@ async function get_mapillary_photos() {
         current_photos.set(id, processed_photo);
     }
 
-    const limit = 15000;
+    const limit = 1500;
     if (current_photos.size > limit) {
         let keys = [...current_photos.keys()];
         for (let i = 0; i < current_photos.size - limit; i++) {
@@ -183,9 +209,28 @@ async function get_mapillary_photos() {
     }
     console.log('Mapillary photos:', current_photos.size);
     mapillary_photos.set(current_photos);
+    sources.update(s => {
+        let src = s.find(s => s.id === 'mapillary');
+        src.requests.splice(src.requests.indexOf(ts), 1);
+        return s;
+    });
 }
 
 pos2.subscribe(get_mapillary_photos);
+let old_sources = JSON.parse(JSON.stringify(get(sources)));
+sources.subscribe(async s => {
+    console.log('sources changed:', s);
+    let old = JSON.parse(JSON.stringify(old_sources));
+    old_sources = JSON.parse(JSON.stringify(s));
+    if (old.find(s => s.id === 'hillview')?.enabled !== s.find(s => s.id === 'hillview')?.enabled) {
+        filter_hillview_photos_by_area();
+    }
+    if (old.find(s => s.id === 'mapillary')?.enabled !== s.find(s => s.id === 'mapillary')?.enabled) {
+        console.log('get_mapillary_photos');
+        await get_mapillary_photos();
+    }
+
+});
 
 
 function filter_mapillary_photos_by_area() {
@@ -274,9 +319,9 @@ function update_view() {
     if (idx !== -1 && ph.length > 1) {
         for (let i = 1; i < 8; i++) {
             let phl_idx = (idx - i + ph.length*2) % ph.length;
-            console.log('phl_idx:', phl_idx);
+            //console.log('phl_idx:', phl_idx);
             let phl = ph[phl_idx];
-            console.log('phl:', phl);
+            //console.log('phl:', phl);
             let phr = ph[(idx + i) % ph.length];
             if (phl && phsl.indexOf(phl) === -1 && phsr.indexOf(phl) === -1)
                 phsl.push(phl);
@@ -285,10 +330,10 @@ function update_view() {
         }
         phsl.reverse();
     }
-    console.log('ph:', ph);
-    console.log('phs:', phs);
-    console.log('phsl:', phsl);
-    console.log('phsr:', phsr);
+    // console.log('ph:', ph);
+    // console.log('phs:', phs);
+    // console.log('phsl:', phsl);
+    // console.log('phsr:', phsr);
     photos_to_left.set(phsl);
     photos_to_right.set(phsr);
 }

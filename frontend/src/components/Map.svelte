@@ -6,6 +6,7 @@
     import L from 'leaflet';
     import {Coordinate} from "tsgeo/Coordinate";
     import 'leaflet/dist/leaflet.css';
+    import Spinner from './Spinner.svelte';
 
     import {
         app,
@@ -24,7 +25,7 @@
 
 
     let map;
-    let _map;
+    let elMap;
     const fov_circle_radius_px = 70;
     
     // Location tracking variables
@@ -288,11 +289,14 @@
         }
     }
 
+    $: map = elMap?.getMap();
+
     onMount(async () => {
-        map = _map.getMap();
         await updateMapState(true);
     });
-    
+
+    //import.meta.hot?.dispose(() => (map = null));
+
     onDestroy(() => {
         // Clean up geolocation watcher if active
         if (watchId !== null) {
@@ -336,7 +340,7 @@
 <!-- The map container -->
 <div bind:clientHeight={height} bind:clientWidth={width} class="map">
     <LeafletMap
-            bind:this={_map}
+            bind:this={elMap}
             events={{moveend: updateMapState, zoomend: updateMapState}}
             options={{center: [$pos.center.lat, $pos.center.lng], zoom: $pos.zoom}}
     >
@@ -484,6 +488,7 @@ Direction: ${photo.bearing.toFixed(1)}°\n
                 title={`Toggle ${source.name} visibility`}
         >
             {source.name}
+            <Spinner show={!!source.requests.length} color="#4285F4"></Spinner>
         </button>
     {/each}
 </div>
@@ -574,6 +579,8 @@ Direction: ${photo.bearing.toFixed(1)}°\n
         display: flex;
         flex-direction: column;
         gap: 0.5rem;
+        margin: 0;
+        padding: 0;
     }
 
     .source-buttons-container button {
@@ -581,7 +588,7 @@ Direction: ${photo.bearing.toFixed(1)}°\n
         background-color: white;
         border: 1px solid #ccc;
         border-radius: 0.25rem;
-        padding: 0.5rem;
+        padding: 0.4rem;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -597,15 +604,6 @@ Direction: ${photo.bearing.toFixed(1)}°\n
         background-color: #4285F4;
         color: white;
         border-color: #3367d6;
-    }
-
-    .user-location-marker .user-dot {
-        width: 14px;
-        height: 14px;
-        border-radius: 50%;
-        background-color: #4285F4;
-        border: 2px solid white;
-        box-shadow: 0 0 5px rgba(0, 0, 0, 0.3);
     }
 
     .svg-overlay {

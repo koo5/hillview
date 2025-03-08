@@ -129,9 +129,6 @@
     </nav>
 {/if}
 
-{#if debugOpen}
-{/if}
-
 <div class="container">
     <div class="panel">
         <PhotoGallery/>
@@ -178,24 +175,6 @@
     }
 
 
-    .hamburger {
-        width: 30px;
-        height: 25px;
-        display: flex;
-        position: absolute;
-        flex-direction: column;
-        justify-content: space-between;
-        cursor: pointer;
-        z-index: 30000;
-    }
-
-    .bar {
-        z-index: 30000;
-        height: 3px;
-        background-color: #333;
-        border-radius: 3px;
-    }
-
     .nav-menu {
         z-index: 30000;
         background: #f5f5f5;
@@ -223,14 +202,4 @@
         color: #333;
     }
 
-    .debug-button {
-        position: absolute;
-        height: 25px;
-        top: 0px;
-        left: 50px;
-        align-content: center;
-        cursor: pointer;
-        z-index: 50000;
-        border: 1px solid black;
-    }
 </style>

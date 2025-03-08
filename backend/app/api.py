@@ -1,3 +1,6 @@
+import asyncio
+import datetime
+
 from fastapi import FastAPI, Query
 from typing import List
 import os
@@ -10,13 +13,30 @@ log = logging.getLogger(__name__)
 TOKEN = open(os.path.expanduser(os.environ['MAPILLARY_CLIENT_TOKEN_FILE'])).read().strip()
 url = "https://graph.mapillary.com/images"
 
+clients = {}
+
 app = FastAPI()
 
 @app.get("/api/mapillary")
-def get_images(top_left_lat: float = Query(..., description="Top left latitude"),
+async def get_images(top_left_lat: float = Query(..., description="Top left latitude"),
                top_left_lon: float = Query(..., description="Top left longitude"),
                bottom_right_lat: float = Query(..., description="Bottom right latitude"),
-               bottom_right_lon: float = Query(..., description="Bottom right longitude")):
+               bottom_right_lon: float = Query(..., description="Bottom right longitude"),
+               client_id: str = Query(..., description="Client ID")):
+
+
+    request_id = datetime.datetime.now().strftime("%Y%m%d%H%M%S.%f")
+    now = datetime.datetime.now()
+    if client_id in clients:
+        while True:
+            now = datetime.datetime.now()
+            if now - clients[client_id] < datetime.timedelta(seconds=1):
+                log.info(f"Client {client_id} request {request_id} rate limited")
+                await asyncio.sleep(1)
+            else:
+                break
+    clients[client_id] = now
+
     params = {
         "limit": 200,
         "bbox": ",".join(map(str, [round(top_left_lon, 7), round(bottom_right_lat,7), round(bottom_right_lon,7), round(top_left_lat,7)])),
