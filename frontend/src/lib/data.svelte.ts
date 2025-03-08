@@ -17,7 +17,7 @@ let calculator = new Vincenty();
 export let app = writable({
     loading: true,
     error: null,
-    debug: false,
+    debug: 1,
 })
 
 export let pos = localStorageSharedStore('pos', {
@@ -119,6 +119,7 @@ hillview_photos.subscribe(filter_hillview_photos_by_area);
 function collect_photos_in_area() {
     let phs = [...get(hillview_photos_in_area), ...get(mapillary_photos_in_area)];
     fixup_bearings(phs);
+    console.log('collect_photos_in_area:', phs);
     photos_in_area.set(phs);
 }
 
@@ -252,15 +253,24 @@ function update_view() {
     photo_in_front.set(fr);
     let phsl = [];
     let phsr = [];
-    for (let i = 1; i < 6; i++) {
-        let phl = ph[(idx - i + ph.length) % ph.length];
-        let phr = ph[(idx + i) % ph.length];
-        if (phsl.indexOf(phl) === -1 && phsr.indexOf(phl) === -1)
-            phsl.push(phl);
-        if (phsl.indexOf(phr) === -1 && phsr.indexOf(phr) === -1)
-            phsr.push(phr);
+    if (idx !== -1 && ph.length > 1) {
+        for (let i = 1; i < 8; i++) {
+            let phl_idx = (idx - i + ph.length*2) % ph.length;
+            console.log('phl_idx:', phl_idx);
+            let phl = ph[phl_idx];
+            console.log('phl:', phl);
+            let phr = ph[(idx + i) % ph.length];
+            if (phl && phsl.indexOf(phl) === -1 && phsr.indexOf(phl) === -1)
+                phsl.push(phl);
+            if (phr && phsl.indexOf(phr) === -1 && phsr.indexOf(phr) === -1)
+                phsr.push(phr);
+        }
+        phsl.reverse();
     }
-    phsl.reverse();
+    console.log('ph:', ph);
+    console.log('phs:', phs);
+    console.log('phsl:', phsl);
+    console.log('phsr:', phsr);
     photos_to_left.set(phsl);
     photos_to_right.set(phsr);
 }
