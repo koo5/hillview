@@ -512,7 +512,7 @@ Direction: ${photo.bearing.toFixed(1)}°\n
     
     .location-button-container {
         position: absolute;
-        top: 80px;
+        top: 0px;
         right: 10px;
         z-index: 30000;
     }
