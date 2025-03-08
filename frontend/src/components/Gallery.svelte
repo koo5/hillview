@@ -26,14 +26,11 @@
 
 <div class="gallery-wrapper">
     <div class="thumbnails-top">
-        {#each $photos_to_left as photo (photo.id)}
+        {#each $photos_to_left as photo}
             <div class="thumbnail" on:click={() => handleThumbnailClick(photo)}>
                 {#if photo.sizes && photo.sizes[50]}
                     <img src={photo.sizes[50].url} alt="Thumbnail" style="border-color: {photo.bearing_color || '#ccc'}"/>
                 {/if}
-<!--                <pre>-->
-<!--                {JSON.stringify(photo, null, 2)}-->
-<!--                </pre>-->
             </div>
         {/each}
     </div>
@@ -51,7 +48,7 @@
     </div>
 
     <div class="thumbnails-bottom">
-        {#each reversed($photos_to_right) as photo (photo.id)}
+        {#each reversed($photos_to_right) as photo}
             <div class="thumbnail" on:click={() => handleThumbnailClick(photo)}>
                 {#if photo.sizes && photo.sizes[50]}
                     <img src={photo.sizes[50].url} alt="Thumbnail" style="border-color: {photo.bearing_color || '#ccc'}"/>
@@ -73,14 +70,14 @@
             <b>Photos in range count:</b> {$photos_in_range.length}<br>
             <b>Photos in range:</b>
             <ul>
-            {#each $photos_in_range as photo (photo.id)}
+            {#each $photos_in_range as photo}
                 <li>{photo.id},{photo.file}</li>
             {/each}
                 </ul>
             <b>Photos to left:</b>
             {JSON.stringify($photos_to_left, null, 2)}
 <!--            <ul>-->
-<!--            {#each $photos_to_left as photo (photo.id)}-->
+<!--            {#each $photos_to_left as photo}-->
 <!--                <li>{photo.id},{photo.file}-->
 <!--                    {JSON.stringify(photo.sizes, null, 2)}-->
 <!--                </li>-->
@@ -88,7 +85,7 @@
 <!--            </ul>-->
             <b>Photos to right:</b>
             <ul>
-            {#each $photos_to_right as photo (photo.id)}
+            {#each $photos_to_right as photo}
                 <li>{photo.id},{photo.file}
                     {JSON.stringify(photo.sizes, null, 2)}
                 </li>
