@@ -1,0 +1,13 @@
+[Unit]
+Description=sleep_agent timer
+
+[Timer]
+AccuracySec=5s
+OnBootSec=10s
+OnUnitActiveSec=5s
+Unit=sleep_agent.service
+
+[Install]
+WantedBy=timers.target
+
+
