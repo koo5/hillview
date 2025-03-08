@@ -21,7 +21,7 @@ export let app = writable({
 
 export let sources = writable([
     {id: 'hillview', name: 'Hillview', enabled: true},
-    {id: 'mapillary', name: 'Mapillary', enabled: true},
+    {id: 'mapillary', name: 'Mapillary', enabled: false},
 ]);
 
 export let pos = localStorageSharedStore('pos', {
