@@ -6,12 +6,66 @@
     import {fetch_photos} from "$lib/sources.js";
     import {dms} from "$lib/utils.js";
     import {goto} from "$app/navigation";
-    import {app, turn_to_photo_to, update_bearing} from "$lib/data.svelte.js";
+    import {app, pos, bearing, turn_to_photo_to, update_bearing} from "$lib/data.svelte.js";
+    import {LatLng} from 'leaflet';
+
+    let update_url = false;
 
     onMount(async () => {
+        const urlParams = new URLSearchParams(window.location.search);
+        const lat = urlParams.get('lat');
+        const lon = urlParams.get('lon');
+        const zoom = urlParams.get('zoom');
+        const bearingParam = urlParams.get('bearing');
+
+        if (lat && lon) {
+            console.log('Setting position to', lat, lon, 'from URL');
+            pos.update(p => {
+                p.center = new LatLng(parseFloat(lat), parseFloat(lon));
+                return p;
+            });
+        }
+
+        if (zoom) {
+            console.log('Setting zoom to', zoom, 'from URL');
+            pos.update(p => {
+                p.zoom = parseFloat(zoom);
+                return p;
+            });
+        }
+
+        if (bearingParam) {
+            console.log('Setting bearing to', bearingParam, 'from URL');
+            bearing.set(parseFloat(bearingParam));
+        }
+
+        update_url = true;
         await fetch_photos();
         window.addEventListener('keydown', handleKeyDown);
+
+
     });
+
+    pos.subscribe(p => {
+        if (!update_url) {
+            return;
+        }
+        const url = new URL(window.location);
+        url.searchParams.set('lat', p.center.lat);
+        url.searchParams.set('lon', p.center.lng);
+        url.searchParams.set('zoom', p.zoom);
+        window.history.replaceState({}, '', url);
+    });
+
+    bearing.subscribe(b => {
+        if (!update_url) {
+            return;
+        }
+        const url = new URL(window.location);
+        url.searchParams.set('bearing', b);
+        window.history.replaceState({}, '', url);
+    });
+
     onDestroy(() => {
         window.removeEventListener('keydown', handleKeyDown);
     });

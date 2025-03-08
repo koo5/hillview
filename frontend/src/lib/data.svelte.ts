@@ -63,6 +63,7 @@ bearing.subscribe(b => {
 });
 
 pos.subscribe(p => {
+
     if (p.center.lng > 360) {
         p.center.lng -= 360;
         pos.set(p);
