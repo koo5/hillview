@@ -162,6 +162,9 @@ function collect_photos_in_area() {
 hillview_photos_in_area.subscribe(collect_photos_in_area);
 mapillary_photos_in_area.subscribe(collect_photos_in_area);
 
+let last_mapillary_request = 0;
+let mapillary_request_timer = null;
+
 async function get_mapillary_photos() {
 
     let src = get(sources).find(s => s.id === 'mapillary');
@@ -177,6 +180,19 @@ async function get_mapillary_photos() {
     }
 
     let ts = new Date().getTime();
+
+    if (ts - last_mapillary_request < 5000) {
+        if (mapillary_request_timer) {
+            return;
+        }
+        mapillary_request_timer = setTimeout(() => {
+            mapillary_request_timer = null;
+            get_mapillary_photos();
+            }, 1000);
+        return;
+    }
+    last_mapillary_request = ts;
+
     let p2 = get(pos2);
     //console.log('get_mapillary_photos:', p2);
     let window_x = 0//p2.bottom_right.lng - p2.top_left.lng;
