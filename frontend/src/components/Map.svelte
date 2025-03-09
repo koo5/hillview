@@ -282,8 +282,10 @@
                 await tick();
                 map.flyTo(latLng);
                 await tick();
-                flying = false;
-                
+                setTimeout(() => {
+                    flying = false;
+                }, 500);
+
                 // Update the app position
                 update_pos((value) => {
                     return {
