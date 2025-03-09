@@ -4,7 +4,6 @@
     import {LatLng} from 'leaflet';
     import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle, MapPin} from 'lucide-svelte';
     import L from 'leaflet';
-    import {Coordinate} from "tsgeo/Coordinate";
     import 'leaflet/dist/leaflet.css';
     import Spinner from './Spinner.svelte';
 
@@ -147,7 +146,7 @@
         let p = get(pos);
         let new_v = {
             ...p,
-            center: new Coordinate(_center.lat, _center.lng),
+            center: new LatLng(_center.lat, _center.lng),
             zoom: _zoom,
             reason: `onMapStateChange(${force}, ${reason})`,
         };
@@ -276,7 +275,7 @@
                 update_pos((value) => {
                     return {
                         ...value,
-                        center: new Coordinate(latitude, longitude),
+                        center: new LatLng(latitude, longitude),
                         reason: 'updateUserLocation'
                     };
                 });
@@ -289,7 +288,7 @@
                 update_pos((value) => {
                     return {
                         ...value,
-                        center: new Coordinate(latitude, longitude),
+                        center: new LatLng(latitude, longitude),
                         reason: 'updateUserLocation'
                     };
                 });
