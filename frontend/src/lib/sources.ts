@@ -1,6 +1,6 @@
 import {app, hillview_photos, geoPicsUrl} from "$lib/data.svelte";
 //import { APIPhotoData, Photo} from "./types.ts";
-import { Coordinate } from "tsgeo/Coordinate";
+//import { Coordinate } from "tsgeo/Coordinate";
 import { LatLng } from 'leaflet';
 import {writable, get} from "svelte/store";
 
