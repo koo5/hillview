@@ -129,12 +129,12 @@
             let _center = map.getCenter();
             let p = get(pos);
             console.log('mapStateUserEvent:', event);
-            if (p.center.lat !== _center.lat || p.center.lng !== _center.lng) {
+            if (p.center.lat != _center.lat || p.center.lng != _center.lng) {
                 console.log('disableLocationTracking');
                 disableLocationTracking();
             }
         }
-        await onMapStateChange(event, 'mapStateUserEvent');
+        await onMapStateChange(true, 'mapStateUserEvent');
     }
 
 
@@ -272,6 +272,13 @@
             // Center map on user location if tracking is active
             if (locationTracking) {
                 flying = true;
+                update_pos((value) => {
+                    return {
+                        ...value,
+                        center: new Coordinate(latitude, longitude),
+                        reason: 'updateUserLocation'
+                    };
+                });
                 map.flyTo(latLng);
                 await tick();
                 flying = false;
