@@ -2,7 +2,7 @@
     import {onMount, onDestroy, tick} from 'svelte';
     import {Polygon, LeafletMap, TileLayer, Marker, Circle, ScaleControl} from 'svelte-leafletjs';
     import {LatLng} from 'leaflet';
-    import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle, MapPin} from 'lucide-svelte';
+    import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle, MapPin, Pause} from 'lucide-svelte';
     import L from 'leaflet';
     import 'leaflet/dist/leaflet.css';
     import Spinner from './Spinner.svelte';
@@ -31,6 +31,14 @@
     let map;
     let elMap;
     const fov_circle_radius_px = 70;
+    
+    // Slideshow variables
+    let slideshowActive = false;
+    let slideshowDirection = null; // 'left' or 'right'
+    let slideshowTimer = null;
+    let slideshowInterval = 5000; // 5 seconds
+    let longPressTimeout = null;
+    const longPressDelay = 500; // 500ms for long press detection
     
     // Location tracking variables
     let locationTracking = false;
@@ -174,6 +182,11 @@
         event.preventDefault();
         event.stopPropagation();
 
+        // Stop slideshow if it's active
+        if (slideshowActive) {
+            stopSlideshow();
+        }
+
         if (action === 'left') {
             await turn_to_photo_to('left');
         } else if (action === 'right') {
@@ -187,6 +200,70 @@
         }
 
         return false;
+    }
+    
+    // Start slideshow in the specified direction
+    function startSlideshow(direction) {
+        if (slideshowActive && slideshowDirection === direction) {
+            // If already running in this direction, stop it
+            stopSlideshow();
+            return;
+        }
+        
+        slideshowActive = true;
+        slideshowDirection = direction;
+        
+        // Clear any existing timer
+        if (slideshowTimer) {
+            clearInterval(slideshowTimer);
+        }
+        
+        // Immediately perform the first action
+        performSlideshowAction();
+        
+        // Set up interval for subsequent actions
+        slideshowTimer = setInterval(performSlideshowAction, slideshowInterval);
+    }
+    
+    // Stop the slideshow
+    function stopSlideshow() {
+        slideshowActive = false;
+        slideshowDirection = null;
+        if (slideshowTimer) {
+            clearInterval(slideshowTimer);
+            slideshowTimer = null;
+        }
+    }
+    
+    // Perform the slideshow action based on current direction
+    async function performSlideshowAction() {
+        if (slideshowDirection === 'left' && $photo_to_left) {
+            await turn_to_photo_to('left');
+        } else if (slideshowDirection === 'right' && $photo_to_right) {
+            await turn_to_photo_to('right');
+        } else {
+            // If no more photos in this direction, stop slideshow
+            stopSlideshow();
+        }
+    }
+    
+    // Handle mouse down for long press detection
+    function handleMouseDown(direction, event) {
+        event.preventDefault();
+        
+        // Set timeout for long press
+        longPressTimeout = setTimeout(() => {
+            startSlideshow(direction);
+        }, longPressDelay);
+    }
+    
+    // Handle mouse up to cancel long press if released early
+    function handleMouseUp(event) {
+        event.preventDefault();
+        if (longPressTimeout) {
+            clearTimeout(longPressTimeout);
+            longPressTimeout = null;
+        }
     }
     
     function disableLocationTracking() {
@@ -322,6 +399,16 @@
         // Clean up geolocation watcher if active
         if (watchId !== null) {
             navigator.geolocation.clearWatch(watchId);
+        }
+        
+        // Clean up slideshow timer if active
+        if (slideshowTimer) {
+            clearInterval(slideshowTimer);
+        }
+        
+        // Clean up long press timeout if active
+        if (longPressTimeout) {
+            clearTimeout(longPressTimeout);
         }
     });
 
@@ -462,10 +549,20 @@ Direction: ${photo.bearing.toFixed(1)}°\n
     <div class="buttons" role="group">
         <button
                 on:click={async (e) => {await handleButtonClick('left', e)}}
-                title="Rotate to next photo on the left"
+                on:mousedown={(e) => handleMouseDown('left', e)}
+                on:mouseup={handleMouseUp}
+                on:mouseleave={handleMouseUp}
+                title={slideshowActive && slideshowDirection === 'left' ? 
+                      "Stop slideshow" : 
+                      "Rotate to next photo on the left (long press for slideshow)"}
                 disabled={!$photo_to_left}
+                class:slideshow-active={slideshowActive && slideshowDirection === 'left'}
         >
-            <ArrowLeftCircle/>
+            {#if slideshowActive && slideshowDirection === 'left'}
+                <Pause />
+            {:else}
+                <ArrowLeftCircle/>
+            {/if}
         </button>
 
         <button
@@ -484,10 +581,20 @@ Direction: ${photo.bearing.toFixed(1)}°\n
 
         <button
                 on:click={(e) => handleButtonClick('right', e)}
-                title="Rotate to next photo on the right"
+                on:mousedown={(e) => handleMouseDown('right', e)}
+                on:mouseup={handleMouseUp}
+                on:mouseleave={handleMouseUp}
+                title={slideshowActive && slideshowDirection === 'right' ? 
+                      "Stop slideshow" : 
+                      "Rotate to next photo on the right (long press for slideshow)"}
                 disabled={!$photo_to_right}
+                class:slideshow-active={slideshowActive && slideshowDirection === 'right'}
         >
-            <ArrowRightCircle/>
+            {#if slideshowActive && slideshowDirection === 'right'}
+                <Pause />
+            {:else}
+                <ArrowRightCircle/>
+            {/if}
         </button>
     </div>
 </div>
@@ -566,6 +673,25 @@ Direction: ${photo.bearing.toFixed(1)}°\n
 
     .buttons button:active {
         background-color: #e0e0e0;
+    }
+    
+    .buttons button.slideshow-active {
+        background-color: #4285F4;
+        color: white;
+        border-color: #3367d6;
+        animation: pulse 2s infinite;
+    }
+    
+    @keyframes pulse {
+        0% {
+            box-shadow: 0 0 0 0 rgba(66, 133, 244, 0.7);
+        }
+        70% {
+            box-shadow: 0 0 0 10px rgba(66, 133, 244, 0);
+        }
+        100% {
+            box-shadow: 0 0 0 0 rgba(66, 133, 244, 0);
+        }
     }
     
     .location-button-container {
