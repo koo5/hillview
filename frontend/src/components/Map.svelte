@@ -18,7 +18,7 @@
         photo_to_left,
         photo_to_right,
         update_bearing,
-        turn_to_photo_to
+        turn_to_photo_to, update_pos2
     } from "$lib/data.svelte.js";
     import {sources} from "$lib/sources.ts";
 
@@ -158,7 +158,7 @@
             update_pos((value) => {
                 return new_v;
             });
-            pos2.update((value) => {
+            update_pos2((value) => {
                 return {
                     ...value,
                     range: get_range(_center),

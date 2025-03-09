@@ -51,6 +51,13 @@ export let pos2 = writable({
     bottom_right: new LatLng(10, 10),
     range: 1,
 });
+export function update_pos2(cb)
+{
+    let v = get(pos2);
+    let n = cb(v);
+    if (n.top_left.lat == v.top_left.lat && n.top_left.lng == v.top_left.lng && n.bottom_right.lat == v.bottom_right.lat && n.bottom_right.lng == v.bottom_right.lng && n.range == v.range) return;
+    pos2.set(n);
+}
 
 export let bearing = localStorageSharedStore('bearing', 0);
 
