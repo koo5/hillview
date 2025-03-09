@@ -45,10 +45,10 @@ async def get_images(top_left_lat: float = Query(..., description="Top left lati
     }
     resp = requests.get(url, params=params)
     rr = resp.json()
-    log.debug(json.dumps(rr, indent=2))
+    #log.debug(json.dumps(rr, indent=2))
     if 'data' in rr:
         sorted_data = sorted(rr['data'], key=lambda x: x['compass_angle'])
-        log.info(f"Found {len(sorted_data)} images")
+        log.info(f"Found {len(sorted_data)} images for client {client_id} request {request_id}")
         #log.info(f"paging: {rr.get('paging')}")
         return sorted_data
     else:
