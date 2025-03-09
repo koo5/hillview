@@ -244,7 +244,7 @@
     }
     
     // Update user location on the map
-    function updateUserLocation(position) {
+    async function updateUserLocation(position) {
         const { latitude, longitude, accuracy, heading } = position.coords;
 
         console.log("updateUserLocation:", latitude, longitude, accuracy, heading);
@@ -273,6 +273,7 @@
             if (locationTracking) {
                 flying = true;
                 map.flyTo(latLng);
+                await tick();
                 flying = false;
                 
                 // Update the app position
