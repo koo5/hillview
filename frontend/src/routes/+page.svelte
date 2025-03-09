@@ -1,19 +1,21 @@
 <script>
-    import {onDestroy, onMount} from 'svelte';
+    import {onDestroy, onMount, tick} from 'svelte';
     import PhotoGallery from '../components/Gallery.svelte';
     import Map from '../components/Map.svelte';
     import {Camera, Compass} from 'lucide-svelte';
     import {fetch_photos} from "$lib/sources.js";
     import {dms} from "$lib/utils.js";
-    import {app, pos, bearing, turn_to_photo_to, update_bearing} from "$lib/data.svelte.js";
+    import {app, pos, bearing, turn_to_photo_to, update_bearing, update_pos} from "$lib/data.svelte.js";
     import {LatLng} from 'leaflet';
     import { goto, replaceState } from "$app/navigation";
     import {get, writable} from "svelte/store";
 
+    let map = null;
     let update_url = false;
 
     onMount(async () => {
         console.log('Page mounted');
+        await tick();
 
         const urlParams = new URLSearchParams(window.location.search);
         const lat = urlParams.get('lat');
@@ -22,7 +24,6 @@
         const bearingParam = urlParams.get('bearing');
 
         let p = get(pos);
-        p.reason = 'url';
         let update = false;
 
         if (lat && lon) {
@@ -38,7 +39,8 @@
         }
 
         if (update) {
-            pos.set(p);
+            update_pos((v) => {return {...p, reason: 'url'}});
+            map?.setView(p.center, p.zoom);
         }
 
         if (bearingParam) {
@@ -162,7 +164,7 @@
         <PhotoGallery/>
     </div>
     <div class="panel">
-        <Map/>
+        <Map bind:this={map}/>
     </div>
 </div>
 

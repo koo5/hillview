@@ -166,7 +166,7 @@ async function get_mapillary_photos() {
     let enabled = src.enabled;
     console.log('mapillary enabled:', enabled);
     if (!enabled) {
-        mapillary_photos.set(new Map());
+        filter_mapillary_photos_by_area();
         return;
     }
 
@@ -232,6 +232,8 @@ async function get_mapillary_photos() {
 }
 
 pos2.subscribe(get_mapillary_photos);
+
+
 let old_sources = JSON.parse(JSON.stringify(get(sources)));
 sources.subscribe(async s => {
     console.log('sources changed:', s);

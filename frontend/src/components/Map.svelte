@@ -25,7 +25,9 @@
 
     import {get} from "svelte/store";
 
-
+    let locationTrackingLoading = false;
+    let locationApiEventFlashTimer = null;
+    let locationApiEventFlash = false;
     let map;
     let elMap;
     const fov_circle_radius_px = 70;
@@ -40,6 +42,7 @@
     function createDirectionalArrow(photo) {
         let bearing = Math.round(photo.bearing);
         let color = photo.source.color;
+        let frc = '';
         let arrow_color = color;
         let size = 100;
         let inner_size = $pos.zoom * 3;
@@ -54,7 +57,7 @@
         if ($photo_in_front === photo) {
             //dashes = 'stroke-dasharray="20 4"'
             dashes = 'stroke-dasharray="1 10"'
-            color = photo.bearing_color;
+            frc = photo.bearing_color;
             fill = `fill="${color}"`;
             stroke_width = 6
             //arrow_color = 'blue';
@@ -66,14 +69,23 @@
         const arrowTipY_inner = inner_size * 0.1;      // Y coordinate for the arrow tip (top)
         const arrowBaseY_inner = inner_size * 0.8;    // Y coordinate for the arrow base
         const arrowWidth_inner = inner_size * 0.15;    // Horizontal offset from center (controls thinness)
-        const arrowTipY_outer = outer_size * 0.1;
-        const arrowBaseY_outer = inner_size * 0.80;
-        const arrowWidth_outer = outer_size * 0.15;
+        const arrowTipY_outer = outer_size * 0.12;
+        const arrowBaseY_outer = inner_size * 0.82;
+        const arrowWidth_outer = outer_size * 0.16;
 
-        let svg = `
-    <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" fill="none"
-         xmlns="http://www.w3.org/2000/svg">
-      <polygon transform="rotate(${bearing} ${half} ${half})"
+        let svg = `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" fill="none" xmlns="http://www.w3.org/2000/svg">`;
+
+        if (photo === $photo_in_front) {
+            svg += `<polygon transform="rotate(${bearing} ${half} ${half})"
+               points="
+                 ${half},${arrowTipY_outer}
+                 ${half + arrowWidth_outer},${arrowBaseY_outer}
+                 ${half - arrowWidth_outer},${arrowBaseY_outer}"
+               stroke="${frc}" stroke-linecap="round" stroke-width="${stroke_width}"   />`
+        //      <line x1="${half}" y1="${arrowTipY_outer * 4}" x2="${half}" y2="${arrowBaseY_outer}" stroke="${frc}" stroke-width="${stroke_width}" ${dashes} />
+        }
+
+        svg += `<polygon transform="rotate(${bearing} ${half} ${half})"
                points="
                  ${half},${arrowTipY_inner}
                  ${half + arrowWidth_inner},${arrowBaseY_inner}
@@ -81,18 +93,7 @@
                  ${fill} fill-opacity=0.8
                stroke="${color}" stroke-width="1" />`
 
-        if (photo === $photo_in_front) {
-            svg += `
-      <polygon transform="rotate(${bearing} ${half} ${half})"
-               points="
-                 ${half},${arrowTipY_outer}
-                 ${half + arrowWidth_outer},${arrowBaseY_outer}
-                 ${half - arrowWidth_outer},${arrowBaseY_outer}"
-
-               stroke="${color}" stroke-linecap="round" stroke-width="${stroke_width}" ${dashes}  />
-    </svg>
-  `;
-        }
+        svg += '</svg>';
 
         return L.divIcon({
             className: 'photo-direction-arrow',
@@ -117,24 +118,27 @@
         if (map.getCenter() !== v.center || map.getZoom() !== v.zoom) {
             console.log('setView', v.center, v.zoom);
             map.setView(new LatLng(v.center.lat, v.center.lng), v.zoom);
-            updateMapState(true, 'pos.subscribe');
+            onMapStateChange(true, 'pos.subscribe');
         }
     });
 
     // Update local mapState and notify parent
-    async function updateMapState(force, reason) {
+    async function onMapStateChange(force, reason) {
         await tick();
         let _center = map.getCenter();
         let _zoom = map.getZoom();
-        console.log('updateMapState force:', force, 'reason:', reason, 'center:', _center, '_zoom:', _zoom);
+        console.log('onMapStateChange force:', force, 'reason:', reason, 'center:', _center, '_zoom:', _zoom);
         let p = get(pos);
         let new_v = {
             ...p,
             center: new Coordinate(_center.lat, _center.lng),
             zoom: _zoom,
-            reason: `updateMapState(${force}, ${reason})`,
+            reason: `onMapStateChange(${force}, ${reason})`,
         };
         if (force === true || p.center.lat !== new_v.center.lat || p.center.lng !== new_v.center.lng || p.zoom !== new_v.zoom) {
+            if (force?.type) { // event
+                disableLocationTracking();
+            }
             update_pos((value) => {
                 return new_v;
             });
@@ -169,7 +173,12 @@
         return false;
     }
     
-    // Toggle location tracking on/off
+    function disableLocationTracking() {
+        if (locationTracking) {
+            toggleLocationTracking();
+        }
+    }
+
     function toggleLocationTracking() {
         if (locationTracking) {
             stopLocationTracking();
@@ -185,6 +194,8 @@
             alert("Geolocation is not supported by your browser");
             return;
         }
+
+        locationTrackingLoading = true;
         
         // Get initial position
         navigator.geolocation.getCurrentPosition(
@@ -209,20 +220,10 @@
     
     // Stop tracking user location
     function stopLocationTracking() {
+        locationTrackingLoading = false;
         if (watchId !== null) {
             navigator.geolocation.clearWatch(watchId);
             watchId = null;
-        }
-        
-        // Remove user location markers
-        if (map && userLocationMarker) {
-            map.removeLayer(userLocationMarker);
-            userLocationMarker = null;
-        }
-        
-        if (map && accuracyCircle) {
-            map.removeLayer(accuracyCircle);
-            accuracyCircle = null;
         }
     }
     
@@ -231,6 +232,14 @@
         const { latitude, longitude, accuracy, heading } = position.coords;
 
         console.log("updateUserLocation:", latitude, longitude, accuracy, heading);
+        locationTrackingLoading = false;
+        locationApiEventFlash = true;
+        if (locationApiEventFlashTimer !== null) {
+            clearTimeout(locationApiEventFlashTimer);
+        }
+        locationApiEventFlashTimer = setTimeout(() => {
+            locationApiEventFlash = false;
+        }, 100);
         
         // Update user heading if available
         if (heading !== null && heading !== undefined) {
@@ -243,35 +252,7 @@
         
         if (map) {
             const latLng = new L.LatLng(latitude, longitude);
-            
-            // Create or update user location marker
-            if (!userLocationMarker) {
-                const userIcon = L.divIcon({
-                    className: 'user-location-marker',
-                    html: `<div class="user-dot"></div>`,
-                    iconSize: [14, 14],
-                    iconAnchor: [7, 7]
-                });
-                
-                userLocationMarker = L.marker(latLng, { icon: userIcon }).addTo(map);
-            } else {
-                userLocationMarker.setLatLng(latLng);
-            }
-            
-            // Create or update accuracy circle
-            /*if (!accuracyCircle) {
-                accuracyCircle = L.circle(latLng, {
-                    radius: accuracy,
-                    color: '#4285F4',
-                    fillColor: '#4285F4',
-                    fillOpacity: 0.15,
-                    weight: 1
-                }).addTo(map);
-            } else {
-                accuracyCircle.setLatLng(latLng);
-                accuracyCircle.setRadius(accuracy);
-            }*/
-            
+
             // Center map on user location if tracking is active
             if (locationTracking) {
                 map.setView(latLng);
@@ -286,7 +267,7 @@
                 });
                 
                 // Update other state as needed
-                updateMapState(true, 'updateUserLocation');
+                onMapStateChange(true, 'updateUserLocation');
             }
         }
     }
@@ -295,9 +276,15 @@
 
     onMount(async () => {
         await console.log('Map component mounted');
-        await updateMapState(true, 'mount');
-        await console.log('Map component mounted - after updateMapState');
+        await onMapStateChange(true, 'mount');
+        await console.log('Map component mounted - after onMapStateChange');
     });
+
+    export function setView(center, zoom) {
+        if (map) {
+            map.setView(center, zoom);
+        }
+    }
 
     //import.meta.hot?.dispose(() => (map = null));
 
@@ -346,7 +333,7 @@
 <div bind:clientHeight={height} bind:clientWidth={width} class="map">
     <LeafletMap
             bind:this={elMap}
-            events={{moveend: updateMapState, zoomend: updateMapState}}
+            events={{moveend: onMapStateChange, zoomend: onMapStateChange}}
             options={{center: [$pos.center.lat, $pos.center.lng], zoom: $pos.zoom}}
     >
 
@@ -482,8 +469,12 @@ Direction: ${photo.bearing.toFixed(1)}°\n
         class={locationTracking ? 'active' : ''}
         on:click={(e) => handleButtonClick('location', e)}
         title="Track my location"
+        class:flash={locationApiEventFlash}
     >
         <MapPin />
+        {#if locationTrackingLoading}
+            <Spinner show={true} color="#4285F4"></Spinner>
+        {/if}
     </button>
 </div>
 
@@ -496,7 +487,7 @@ Direction: ${photo.bearing.toFixed(1)}°\n
         >
             <div class="source-icon" style="background-color: {source.color}"></div>
             {source.name}
-            <Spinner show={!!source.requests.length} color="#4285F4"></Spinner>
+            <Spinner show={source.enabled && !!source.requests.length} color="#4285F4"></Spinner>
         </button>
     {/each}
 </div>
@@ -567,7 +558,7 @@ Direction: ${photo.bearing.toFixed(1)}°\n
         transition: all 0.2s;
         box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
     }
-    
+
     .location-button-container button:hover {
         background-color: #f0f0f0;
     }
@@ -576,6 +567,10 @@ Direction: ${photo.bearing.toFixed(1)}°\n
         background-color: #4285F4;
         color: white;
         border-color: #3367d6;
+    }
+
+    .location-button-container button.flash {
+        border-radius: 100%;
     }
 
 
