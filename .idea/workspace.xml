@@ -6,7 +6,8 @@
   <component name="ChangeListManager">
     <list default="true" id="c3ae2355-73fb-46d1-a1a2-144c561d3c87" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/app/api.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/app/api.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/systemd/hillview.service" beforeDir="false" afterPath="$PROJECT_DIR$/systemd/hillview.service" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/systemd/hillview.timer" beforeDir="false" afterPath="$PROJECT_DIR$/systemd/hillview.timer" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -50,6 +51,11 @@
     &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
 }</component>
+  <component name="RecentsManager">
+    <key name="MoveFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$" />
+    </key>
+  </component>
   <component name="SharedIndexes">
     <attachedChunks>
       <set>

@@ -1,0 +1,14 @@
+[Unit]
+Description="hillview"
+StartLimitIntervalSec=600
+StartLimitBurst=400
+
+[Service]
+ExecStart=/home/user/geo.sh
+Environment="PYTHONUNBUFFERED=1"
+
+# Hardening
+SystemCallArchitectures=native
+MemoryDenyWriteExecute=true
+NoNewPrivileges=true
+
