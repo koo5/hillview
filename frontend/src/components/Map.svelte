@@ -130,6 +130,7 @@
             let p = get(pos);
             console.log('mapStateUserEvent:', event);
             if (p.center.lat != _center.lat || p.center.lng != _center.lng) {
+                console.log('p.center:', p.center, '_center:', _center);
                 console.log('disableLocationTracking');
                 disableLocationTracking();
             }
@@ -279,6 +280,7 @@
                         reason: 'updateUserLocation'
                     };
                 });
+                await tick();
                 map.flyTo(latLng);
                 await tick();
                 flying = false;
