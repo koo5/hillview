@@ -144,7 +144,6 @@ function filter_hillview_photos_by_area() {
 
 pos2.subscribe(filter_hillview_photos_by_area);
 hillview_photos.subscribe(filter_hillview_photos_by_area);
-sources.subscribe(filter_hillview_photos_by_area);
 
 function collect_photos_in_area() {
     let phs = [...get(hillview_photos_in_area), ...get(mapillary_photos_in_area)];
