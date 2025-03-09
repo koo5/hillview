@@ -25,6 +25,7 @@
 
     import {get} from "svelte/store";
 
+    let flying = false;
     let locationTrackingLoading = false;
     let locationApiEventFlashTimer = null;
     let locationApiEventFlash = false;
@@ -122,7 +123,21 @@
         }
     });
 
-    // Update local mapState and notify parent
+    async function mapStateUserEvent(event) {
+
+        if (!flying) {
+            let _center = map.getCenter();
+            let p = get(pos);
+            console.log('mapStateUserEvent:', event);
+            if (p.center.lat !== _center.lat || p.center.lng !== _center.lng) {
+                console.log('disableLocationTracking');
+                disableLocationTracking();
+            }
+        }
+        await onMapStateChange(event, 'mapStateUserEvent');
+    }
+
+
     async function onMapStateChange(force, reason) {
         await tick();
         let _center = map.getCenter();
@@ -137,10 +152,6 @@
         };
 
         if (force?.type) { // event
-            if (p.center.lat !== new_v.center.lat || p.center.lng !== new_v.center.lng) {
-                console.log('onMapStateChange event:', force.type, 'disableLocationTracking');
-                disableLocationTracking();
-            }
         }
 
         if (force === true || p.center.lat !== new_v.center.lat || p.center.lng !== new_v.center.lng || p.zoom !== new_v.zoom) {
@@ -260,7 +271,9 @@
 
             // Center map on user location if tracking is active
             if (locationTracking) {
-                map.setView(latLng);
+                flying = true;
+                map.flyTo(latLng);
+                flying = false;
                 
                 // Update the app position
                 update_pos((value) => {
@@ -272,7 +285,7 @@
                 });
                 
                 // Update other state as needed
-                onMapStateChange(true, 'updateUserLocation');
+                //onMapStateChange(true, 'updateUserLocation');
             }
         }
     }
@@ -338,7 +351,7 @@
 <div bind:clientHeight={height} bind:clientWidth={width} class="map">
     <LeafletMap
             bind:this={elMap}
-            events={{moveend: onMapStateChange, zoomend: onMapStateChange}}
+            events={{moveend: mapStateUserEvent, zoomend: mapStateUserEvent}}
             options={{center: [$pos.center.lat, $pos.center.lng], zoom: $pos.zoom}}
     >
 
