@@ -10,8 +10,8 @@
 
     import {
         app,
-        sources,
         pos,
+        update_pos,
         pos2,
         bearing,
         photos_in_area,
@@ -21,6 +21,8 @@
         update_bearing,
         turn_to_photo_to
     } from "$lib/data.svelte.js";
+    import {sources} from "$lib/sources.ts";
+
     import {get} from "svelte/store";
 
 
@@ -37,12 +39,7 @@
 
     function createDirectionalArrow(photo) {
         let bearing = Math.round(photo.bearing);
-        let color = '#000';
-        if (photo.source === 'mapillary') {
-            color = '#777';
-        } else if (photo.source === 'openstreetcam') {
-            color = '#aaa';
-        }
+        let color = photo.source.color;
         let arrow_color = color;
         let size = 100;
         let inner_size = $pos.zoom * 3;
@@ -116,26 +113,29 @@
     }
 
     pos.subscribe((v) => {
-        console.log('pos changed:', v);
         if (!map) return;
-        if (map.getCenter() !== v.center) {
+        if (map.getCenter() !== v.center || map.getZoom() !== v.zoom) {
+            console.log('setView', v.center, v.zoom);
             map.setView(new LatLng(v.center.lat, v.center.lng), v.zoom);
+            updateMapState(true, 'pos.subscribe');
         }
     });
 
     // Update local mapState and notify parent
-    async function updateMapState(force) {
+    async function updateMapState(force, reason) {
         await tick();
         let _center = map.getCenter();
-        console.log('updateMapState center:', _center, 'map.getZoom():', map.getZoom());
+        let _zoom = map.getZoom();
+        console.log('updateMapState force:', force, 'reason:', reason, 'center:', _center, '_zoom:', _zoom);
         let p = get(pos);
         let new_v = {
             ...p,
             center: new Coordinate(_center.lat, _center.lng),
-            zoom: map.getZoom(),
+            zoom: _zoom,
+            reason: `updateMapState(${force}, ${reason})`,
         };
         if (force === true || p.center.lat !== new_v.center.lat || p.center.lng !== new_v.center.lng || p.zoom !== new_v.zoom) {
-            pos.update((value) => {
+            update_pos((value) => {
                 return new_v;
             });
             pos2.update((value) => {
@@ -147,7 +147,6 @@
                 };
             });
         }
-
     }
 
     // Handle button clicks and prevent map interaction
@@ -230,6 +229,8 @@
     // Update user location on the map
     function updateUserLocation(position) {
         const { latitude, longitude, accuracy, heading } = position.coords;
+
+        console.log("updateUserLocation:", latitude, longitude, accuracy, heading);
         
         // Update user heading if available
         if (heading !== null && heading !== undefined) {
@@ -276,15 +277,16 @@
                 map.setView(latLng);
                 
                 // Update the app position
-                pos.update((value) => {
+                update_pos((value) => {
                     return {
                         ...value,
                         center: new Coordinate(latitude, longitude),
+                        reason: 'updateUserLocation'
                     };
                 });
                 
                 // Update other state as needed
-                updateMapState(true);
+                updateMapState(true, 'updateUserLocation');
             }
         }
     }
@@ -292,12 +294,15 @@
     $: map = elMap?.getMap();
 
     onMount(async () => {
-        await updateMapState(true);
+        await console.log('Map component mounted');
+        await updateMapState(true, 'mount');
+        await console.log('Map component mounted - after updateMapState');
     });
 
     //import.meta.hot?.dispose(() => (map = null));
 
     onDestroy(() => {
+        console.log('Map component destroyed');
         // Clean up geolocation watcher if active
         if (watchId !== null) {
             navigator.geolocation.clearWatch(watchId);
@@ -442,6 +447,7 @@ Direction: ${photo.bearing.toFixed(1)}°\n
         <button
                 on:click={async (e) => {await handleButtonClick('left', e)}}
                 title="Rotate to next photo on the left"
+                disabled={!$photo_to_left}
         >
             <ArrowLeftCircle/>
         </button>
@@ -463,6 +469,7 @@ Direction: ${photo.bearing.toFixed(1)}°\n
         <button
                 on:click={(e) => handleButtonClick('right', e)}
                 title="Rotate to next photo on the right"
+                disabled={!$photo_to_right}
         >
             <ArrowRightCircle/>
         </button>
@@ -487,6 +494,7 @@ Direction: ${photo.bearing.toFixed(1)}°\n
                 on:click={() => toggleSourceVisibility(source.id)}
                 title={`Toggle ${source.name} visibility`}
         >
+            <div class="source-icon" style="background-color: {source.color}"></div>
             {source.name}
             <Spinner show={!!source.requests.length} color="#4285F4"></Spinner>
         </button>
@@ -613,7 +621,13 @@ Direction: ${photo.bearing.toFixed(1)}°\n
         z-index: 750;
     }
 
-    .photo-direction-arrow svg {
-        transition: transform 0.3s ease;
+    .source-icon {
+        width: 1rem;
+        height: 1rem;
+        border-radius: 5%;
+        margin-right: 0.5rem;
+        border: 1px solid #ccc;
     }
+
+
 </style>

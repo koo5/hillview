@@ -5,11 +5,12 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="c3ae2355-73fb-46d1-a1a2-144c561d3c87" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/frontend/src/components/Spinner.svelte" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/hillview.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/hillview.iml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/app/api.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/app/api.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/frontend/src/components/Map.svelte" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/components/Map.svelte" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/frontend/src/lib/data.svelte.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/lib/data.svelte.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/lib/sources.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/lib/sources.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/lib/svelte-shared-store.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/lib/svelte-shared-store.ts" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/frontend/src/routes/+page.svelte" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/routes/+page.svelte" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />

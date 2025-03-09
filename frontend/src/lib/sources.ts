@@ -2,6 +2,13 @@ import {app, hillview_photos, geoPicsUrl} from "$lib/data.svelte";
 //import { APIPhotoData, Photo} from "./types.ts";
 import { Coordinate } from "tsgeo/Coordinate";
 import { LatLng } from 'leaflet';
+import {writable, get} from "svelte/store";
+
+
+export let sources = writable([
+    {id: 'hillview', name: 'Hillview', enabled: true, requests: [], color: '#000'},
+    {id: 'mapillary', name: 'Mapillary', enabled: false, requests: [], color: '#888'},
+]);
 
 
 export async function fetch_photos() {
@@ -23,6 +30,8 @@ export async function fetch_photos() {
 
         console.log('parse_photo_data...');
         const ph = res.map(item => parse_photo_data(item));
+        let src = get(sources).find(s => s.id === 'hillview');
+        ph.map(p => p.source = src);
         console.log('fixup_bearings...');
         fixup_bearings(ph)
         console.log('Photos loaded:', ph);

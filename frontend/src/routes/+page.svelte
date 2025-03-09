@@ -8,30 +8,37 @@
     import {app, pos, bearing, turn_to_photo_to, update_bearing} from "$lib/data.svelte.js";
     import {LatLng} from 'leaflet';
     import { goto, replaceState } from "$app/navigation";
+    import {get, writable} from "svelte/store";
 
     let update_url = false;
 
     onMount(async () => {
+        console.log('Page mounted');
+
         const urlParams = new URLSearchParams(window.location.search);
         const lat = urlParams.get('lat');
         const lon = urlParams.get('lon');
         const zoom = urlParams.get('zoom');
         const bearingParam = urlParams.get('bearing');
 
+        let p = get(pos);
+        p.reason = 'url';
+        let update = false;
+
         if (lat && lon) {
             console.log('Setting position to', lat, lon, 'from URL');
-            pos.update(p => {
-                p.center = new LatLng(parseFloat(lat), parseFloat(lon));
-                return p;
-            });
+            p.center = new LatLng(parseFloat(lat), parseFloat(lon));
+            update = true;
         }
 
         if (zoom) {
             console.log('Setting zoom to', zoom, 'from URL');
-            pos.update(p => {
-                p.zoom = parseFloat(zoom);
-                return p;
-            });
+            p.zoom = parseFloat(zoom);
+            update = true;
+        }
+
+        if (update) {
+            pos.set(p);
         }
 
         if (bearingParam) {
@@ -39,10 +46,12 @@
             bearing.set(parseFloat(bearingParam));
         }
 
-        update_url = true;
         await fetch_photos();
         window.addEventListener('keydown', handleKeyDown);
 
+        setTimeout(() => {
+            update_url = true;
+        }, 100);
 
     });
 
@@ -54,7 +63,8 @@
         url.searchParams.set('lat', p.center.lat);
         url.searchParams.set('lon', p.center.lng);
         url.searchParams.set('zoom', p.zoom);
-        replaceState(url.toString());
+        console.log('Setting URL to', url.toString());
+        replaceState2(url.toString());
     });
 
     bearing.subscribe(b => {
@@ -63,10 +73,28 @@
         }
         const url = new URL(window.location);
         url.searchParams.set('bearing', b);
-        replaceState(url.toString());
+        console.log('Setting URL to', url.toString());
+        setTimeout(() => {
+            replaceState2(url.toString());
+        }, 1000);
     });
 
+    let desiredUrl = null;
+
+    function replaceState2(url) {
+        desiredUrl = url;
+        try {
+            replaceState(url);
+        } catch (e) {
+            console.error('Failed to update URL', e);
+            setTimeout(() => {
+                replaceState(desiredUrl);
+            }, 1000);
+        }
+    }
+
     onDestroy(() => {
+        console.log('Page destroyed');
         window.removeEventListener('keydown', handleKeyDown);
     });
 

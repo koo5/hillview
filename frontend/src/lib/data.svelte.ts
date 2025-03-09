@@ -6,8 +6,12 @@ import Angles from 'angles';
 import {space_db} from "./debug_server.js";
 import {LatLng} from 'leaflet';
 import {get, writable} from "svelte/store";
-import { localStorageSharedStore } from './svelte-shared-store.ts';
-import { fixup_bearings } from './sources.ts';
+import {
+    localStorageReadOnceSharedStore,
+    localStorageSharedStore,
+    localStorageStaggeredStore
+} from './svelte-shared-store.ts';
+import { fixup_bearings, sources } from './sources.ts';
 import {tick} from "svelte";
 
 export const geoPicsUrl = import.meta.env.VITE_REACT_APP_GEO_PICS_URL; //+'2'
@@ -21,20 +25,26 @@ export let app = writable({
     debug: 0,
 })
 
-export let sources = writable([
-    {id: 'hillview', name: 'Hillview', enabled: true, requests: []},
-    {id: 'mapillary', name: 'Mapillary', enabled: false, requests: []},
-]);
 
 function source_by_id(id) {
     return get(sources).find(s => s.id === id);
 }
 
-export let pos = localStorageSharedStore('pos', {
+export let pos = localStorageReadOnceSharedStore('pos', {
     center: new LatLng(50.06173640462974,
         14.514600411057472),
-    zoom: 20
+    zoom: 20,
+    reason: 'default'
 });
+
+export function update_pos(cb)
+{
+    let v = get(pos);
+    let n = cb(v);
+    if (n.center.lat == v.center.lat && n.center.lng == v.center.lng && n.zoom == v.zoom) return;
+    pos.set(n);
+}
+
 
 export let pos2 = writable({
     top_left: new LatLng(0, 0),
@@ -70,13 +80,15 @@ bearing.subscribe(b => {
 
 pos.subscribe(p => {
 
+    console.log('pos changed:', p);
+
     if (p.center.lng > 360) {
         p.center.lng -= 360;
-        pos.set(p);
+        pos.set({...p, reason: 'wrap'})
     }
     if (p.center.lng < 0) {
         p.center.lng += 360;
-        pos.set(p);
+        pos.set({...p, reason: 'wrap'})
     }
 });
 
@@ -146,7 +158,12 @@ mapillary_photos_in_area.subscribe(collect_photos_in_area);
 
 async function get_mapillary_photos() {
 
-    let enabled = get(sources).find(s => s.id === 'mapillary')?.enabled;
+    let src = get(sources).find(s => s.id === 'mapillary');
+    if (!src) {
+        return;
+    }
+
+    let enabled = src.enabled;
     console.log('mapillary enabled:', enabled);
     if (!enabled) {
         mapillary_photos.set(new Map());
@@ -159,7 +176,6 @@ async function get_mapillary_photos() {
     let window_x = 0//p2.bottom_right.lng - p2.top_left.lng;
     let window_y = 0//p2.top_left.lat - p2.bottom_right.lat;
     sources.update(s => {
-        let src = s.find(s => s.id === 'mapillary');
         src.requests.push(ts);
         return s;
     });
@@ -175,10 +191,10 @@ async function get_mapillary_photos() {
     }
 
     let current_photos = get(mapillary_photos);
-    
+
     for (let photo of res2) {
         const id = 'mapillary_' + photo.id;
-        
+
         if (current_photos.has(id)) {
             continue;
         }
@@ -186,7 +202,7 @@ async function get_mapillary_photos() {
         let coord = new LatLng(photo.geometry.coordinates[1], photo.geometry.coordinates[0]);
         let bearing = photo.compass_angle;
         let processed_photo = {
-            source: 'mapillary',
+            source: src,
             id: id,
             coord: coord,
             bearing: bearing,
@@ -210,7 +226,6 @@ async function get_mapillary_photos() {
     console.log('Mapillary photos:', current_photos.size);
     mapillary_photos.set(current_photos);
     sources.update(s => {
-        let src = s.find(s => s.id === 'mapillary');
         src.requests.splice(src.requests.indexOf(ts), 1);
         return s;
     });
@@ -357,13 +372,13 @@ async function handle_events() {
     console.log('turn_to_photo_to:', dir);
     if (dir === 'left') {
         let phl = get(photo_to_left);
-        console.log('phl:', phl);
+        //console.log('phl:', phl);
         if (phl) {
             bearing.set(phl.bearing);
         }
     } else if (dir === 'right') {
         let phr = get(photo_to_right);
-        console.log('phr:', phr);
+        //console.log('phr:', phr);
         if (phr) {
             bearing.set(phr.bearing);
         }
