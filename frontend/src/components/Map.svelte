@@ -135,10 +135,15 @@
             zoom: _zoom,
             reason: `onMapStateChange(${force}, ${reason})`,
         };
-        if (force === true || p.center.lat !== new_v.center.lat || p.center.lng !== new_v.center.lng || p.zoom !== new_v.zoom) {
-            if (force?.type) { // event
+
+        if (force?.type) { // event
+            if (p.center.lat !== new_v.center.lat || p.center.lng !== new_v.center.lng) {
+                console.log('onMapStateChange event:', force.type, 'disableLocationTracking');
                 disableLocationTracking();
             }
+        }
+
+        if (force === true || p.center.lat !== new_v.center.lat || p.center.lng !== new_v.center.lng || p.zoom !== new_v.zoom) {
             update_pos((value) => {
                 return new_v;
             });
