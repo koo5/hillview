@@ -6,6 +6,7 @@ StartLimitBurst=400
 [Service]
 ExecStart=/home/user/geo.sh
 Environment="PYTHONUNBUFFERED=1"
+User=user
 
 # Hardening
 SystemCallArchitectures=native
