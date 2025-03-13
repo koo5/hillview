@@ -42,8 +42,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://localhost:5000", "http://localhost:8089"],  # Add your frontend URLs
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "Accept"],
 )
 
 # Create upload directories
@@ -427,6 +427,11 @@ async def get_photo_thumbnail(
         status_code=status.HTTP_404_NOT_FOUND,
         detail="Photo file not found"
     )
+
+@app.get("/api/debug")
+async def debug_endpoint():
+    """Debug endpoint to check if the API is working properly"""
+    return {"status": "ok", "message": "API is working properly"}
 
 @app.get("/api/mapillary")
 async def get_images(top_left_lat: float = Query(..., description="Top left latitude"),

@@ -53,6 +53,7 @@
                 goto('/');
             } else {
                 // Register
+                console.log('Registering with:', { email, username, password });
                 const success = await register(email, username, password);
                 
                 if (!success) {
@@ -64,6 +65,7 @@
                 errorMessage = 'Registration successful! Please log in.';
             }
         } catch (error) {
+            console.error('Form submission error:', error);
             errorMessage = error.message;
         } finally {
             isLoading = false;

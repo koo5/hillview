@@ -59,10 +59,12 @@ export async function login(username: string, password: string) {
 
 export async function register(email: string, username: string, password: string) {
     try {
+        console.log('Registering user:', { email, username });
         const response = await fetch('http://localhost:8089/api/auth/register', {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
             },
             body: JSON.stringify({
                 email,
@@ -72,8 +74,16 @@ export async function register(email: string, username: string, password: string
         });
         
         if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.detail || 'Registration failed');
+            const errorText = await response.text();
+            console.error('Registration error response:', errorText);
+            let errorDetail;
+            try {
+                const errorJson = JSON.parse(errorText);
+                errorDetail = errorJson.detail || 'Registration failed';
+            } catch (e) {
+                errorDetail = `Registration failed: ${response.status} ${response.statusText}`;
+            }
+            throw new Error(errorDetail);
         }
         
         return true;
