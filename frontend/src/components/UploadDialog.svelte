@@ -1,7 +1,7 @@
 <script>
     import { createEventDispatcher } from 'svelte';
     import { Upload, X, Image, MapPin, Compass, Info } from 'lucide-svelte';
-    import { auth } from '$lib/auth.svelte.ts';
+    import { auth, debugAuth } from '$lib/auth.svelte.ts';
     import { get } from 'svelte/store';
     import { app } from '$lib/data.svelte.js';
 
@@ -14,6 +14,11 @@
     auth.subscribe(value => {
         isAuthenticated = value.isAuthenticated;
         authToken = value.token;
+        
+        // Debug auth state when dialog is shown
+        if (show) {
+            console.log('UploadDialog auth state:', debugAuth());
+        }
     });
     
     const dispatch = createEventDispatcher();

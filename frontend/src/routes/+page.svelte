@@ -174,8 +174,14 @@
 
 {#if menuOpen}
     <nav class="nav-menu">
-
-        {JSON.stringify($auth)}
+        {#if $app.debug > 0}
+            <div class="debug-info">
+                <h4>Auth Debug:</h4>
+                <pre>isAuthenticated: {$auth.isAuthenticated}</pre>
+                <pre>token: {$auth.token ? 'exists' : 'none'}</pre>
+                <pre>user: {$auth.user ? $auth.user.username : 'none'}</pre>
+            </div>
+        {/if}
 
         <ul>
             <li><a href="/" on:click={() => menuOpen = false}>Map</a></li>
@@ -343,6 +349,28 @@
 
     .menu-button.logout:hover {
         color: #c62828;
+    }
+    
+    .debug-info {
+        background-color: #f8f9fa;
+        border: 1px solid #dee2e6;
+        border-radius: 4px;
+        padding: 10px;
+        margin: 0 10px 16px;
+        font-family: monospace;
+        font-size: 12px;
+    }
+    
+    .debug-info h4 {
+        margin-top: 0;
+        margin-bottom: 8px;
+        color: #495057;
+    }
+    
+    .debug-info pre {
+        margin: 0;
+        white-space: pre-wrap;
+        word-break: break-all;
     }
     
     .upload-button-container {

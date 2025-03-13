@@ -39,6 +39,8 @@ export async function login(username: string, password: string) {
         
         const data = await response.json();
         
+        console.log('Login successful, token received:', data);
+        
         // Store token
         localStorage.setItem('token', data.access_token);
         localStorage.setItem('token_expires', data.expires_at);
@@ -52,7 +54,11 @@ export async function login(username: string, password: string) {
         }));
         
         // Fetch user data
-        await fetchUserData();
+        const userData = await fetchUserData();
+        console.log('User data fetched:', userData);
+        
+        // Double-check auth state
+        console.log('Auth state after login:', debugAuth());
         
         return true;
     } catch (error) {
@@ -157,7 +163,7 @@ export function logout() {
 
 export async function fetchUserData() {
     const a = get(auth);
-    if (!a.isAuthenticated || !a.token) return null;
+    if (!a.token) return null;
     
     try {
         const response = await fetch('http://localhost:8089/api/auth/me', {
@@ -176,8 +182,10 @@ export async function fetchUserData() {
         
         const userData = await response.json();
         
+        // If we successfully got user data, ensure isAuthenticated is true
         auth.update(a => ({
             ...a,
+            isAuthenticated: true,
             user: userData
         }));
         
@@ -221,13 +229,39 @@ export async function fetchUserPhotos() {
 // Check token validity on app start
 export function checkAuth() {
     const a = get(auth);
-    if (a.isAuthenticated && a.tokenExpires) {
-        if (new Date() > a.tokenExpires) {
+    
+    console.log('Checking auth state:', a);
+    
+    // If we have a token, try to fetch user data regardless of isAuthenticated flag
+    if (a.token) {
+        if (a.tokenExpires && new Date() > a.tokenExpires) {
             // Token expired
+            console.log('Token expired, logging out');
             logout();
         } else {
-            // Token valid, fetch user data and photos
+            // Token exists, fetch user data and photos
+            console.log('Token exists, fetching user data');
             fetchUserData();
         }
+    } else if (a.isAuthenticated) {
+        // We think we're authenticated but have no token - fix this inconsistency
+        console.log('Inconsistent auth state: authenticated but no token');
+        auth.update(state => ({
+            ...state,
+            isAuthenticated: false
+        }));
     }
+}
+
+// Debug function to log auth state
+export function debugAuth() {
+    const a = get(auth);
+    console.log('Auth state:', {
+        isAuthenticated: a.isAuthenticated,
+        hasToken: !!a.token,
+        tokenExpires: a.tokenExpires,
+        hasUser: !!a.user,
+        user: a.user
+    });
+    return a;
 }
