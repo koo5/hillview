@@ -36,7 +36,77 @@
             // Update device info store
             deviceInfo.set({ isMobile, isIOS, isAndroid });
         }
+        
+        // Check for existing auth token in localStorage
+        const storedToken = localStorage.getItem('token');
+        if (storedToken) {
+            console.log('UploadDialog: Found token in localStorage on mount');
+            
+            // Update auth store if token exists but auth state is not set
+            if (!get(auth).isAuthenticated) {
+                const tokenExpires = localStorage.getItem('token_expires') 
+                    ? new Date(localStorage.getItem('token_expires')) 
+                    : null;
+                
+                // Check if token is expired
+                if (tokenExpires && new Date() > tokenExpires) {
+                    console.log('UploadDialog: Token expired, not updating auth state');
+                    localStorage.removeItem('token');
+                    localStorage.removeItem('token_expires');
+                } else {
+                    console.log('UploadDialog: Updating auth state with stored token');
+                    auth.update(state => ({
+                        ...state,
+                        isAuthenticated: true,
+                        token: storedToken,
+                        tokenExpires: tokenExpires
+                    }));
+                    
+                    // Fetch user info if not already in auth store
+                    if (!get(auth).user) {
+                        fetchUserInfo(storedToken);
+                    }
+                }
+            }
+        }
     });
+    
+    // Function to fetch user info using the token
+    async function fetchUserInfo(token) {
+        try {
+            const response = await fetch('http://localhost:8089/api/users/me', {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+            
+            if (response.ok) {
+                const userData = await response.json();
+                console.log('UploadDialog: Fetched user data', userData);
+                
+                auth.update(state => ({
+                    ...state,
+                    user: userData
+                }));
+            } else {
+                console.error('UploadDialog: Failed to fetch user info', response.status);
+                // If 401 Unauthorized, token is invalid
+                if (response.status === 401) {
+                    auth.update(state => ({
+                        ...state,
+                        isAuthenticated: false,
+                        token: null,
+                        tokenExpires: null,
+                        user: null
+                    }));
+                    localStorage.removeItem('token');
+                    localStorage.removeItem('token_expires');
+                }
+            }
+        } catch (error) {
+            console.error('UploadDialog: Error fetching user info', error);
+        }
+    }
     
     auth.subscribe(value => {
         isAuthenticated = value.isAuthenticated;
@@ -57,7 +127,13 @@
             const storedToken = localStorage.getItem('token');
             if (storedToken) {
                 console.log('UploadDialog: Found token in localStorage, using it');
-                authToken = storedToken;
+                auth.update(state => ({
+                    ...state,
+                    token: storedToken,
+                    tokenExpires: localStorage.getItem('token_expires') 
+                        ? new Date(localStorage.getItem('token_expires')) 
+                        : null
+                }));
             }
         }
         
