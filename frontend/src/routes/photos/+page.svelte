@@ -5,6 +5,7 @@
     import Spinner from '../../components/Spinner.svelte';
     import { auth } from '$lib/auth.svelte.ts';
     import { app } from '$lib/data.svelte.js';
+    import { get } from 'svelte/store';
 
     let photos = [];
     let isLoading = true;
