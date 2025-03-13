@@ -45,8 +45,6 @@
         }
     });
 
-    import { get } from 'svelte/store';
-    
     async function fetchPhotos() {
         const authValue = get(auth);
         if (!authValue.isAuthenticated || !authValue.token) return;

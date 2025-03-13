@@ -8,6 +8,7 @@ import json
 import requests
 import logging
 from fastapi import FastAPI, Query, Depends, HTTPException, status, UploadFile, File, Form, BackgroundTasks
+from fastapi.responses import FileResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -361,6 +362,39 @@ async def delete_photo(
     await db.commit()
     
     return None
+
+@app.get("/api/photos/{photo_id}/thumbnail")
+async def get_photo_thumbnail(
+    photo_id: str,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await db.execute(
+        select(Photo).where(
+            (Photo.id == photo_id) & 
+            ((Photo.owner_id == current_user.id) | (Photo.is_public == True))
+        )
+    )
+    photo = result.scalars().first()
+    
+    if not photo:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Photo not found or you don't have permission to view it"
+        )
+    
+    # If thumbnail exists, return it
+    if photo.thumbnail_path and os.path.exists(photo.thumbnail_path):
+        return FileResponse(photo.thumbnail_path)
+    
+    # If no thumbnail, return the original image
+    if os.path.exists(photo.filepath):
+        return FileResponse(photo.filepath)
+    
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Photo file not found"
+    )
 
 @app.get("/api/mapillary")
 async def get_images(top_left_lat: float = Query(..., description="Top left latitude"),
