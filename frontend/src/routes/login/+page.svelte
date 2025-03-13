@@ -9,6 +9,7 @@
     let email = '';
     let isLogin = true;
     let errorMessage = '';
+    let successMessage = '';
     let isLoading = false;
     let usernameGenerated = false;
 
@@ -63,7 +64,7 @@
                 
                 // Switch to login form after successful registration
                 isLogin = true;
-                errorMessage = 'Registration successful! Please log in.';
+                successMessage = 'Registration successful! Please log in.';
             }
         } catch (error) {
             console.error('Form submission error:', error);
@@ -101,6 +102,7 @@
     function toggleForm() {
         isLogin = !isLogin;
         errorMessage = '';
+        successMessage = '';
         if (!isLogin && email) {
             generateUsername();
         }
@@ -113,6 +115,10 @@
         
         {#if errorMessage}
             <div class="error-message">{errorMessage}</div>
+        {/if}
+        
+        {#if successMessage}
+            <div class="success-message">{successMessage}</div>
         {/if}
         
         <form on:submit|preventDefault={handleSubmit}>
@@ -356,6 +362,15 @@
     .error-message {
         background-color: #ffebee;
         color: #c62828;
+        padding: 10px;
+        border-radius: 4px;
+        margin-bottom: 20px;
+        text-align: center;
+    }
+    
+    .success-message {
+        background-color: #e8f5e9;
+        color: #2e7d32;
         padding: 10px;
         border-radius: 4px;
         margin-bottom: 20px;
