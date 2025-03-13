@@ -181,6 +181,15 @@
                     <Upload size={18} />
                     My Photos
                 </a></li>
+                <li>
+                    <button class="menu-button" on:click={() => {
+                        showUploadDialog = true;
+                        menuOpen = false;
+                    }}>
+                        <Upload size={18} />
+                        Upload Photos
+                    </button>
+                </li>
             {/if}
             <li><a href="/upload" on:click={() => menuOpen = false}>Sources</a></li>
             <li><a href="/about" on:click={() => menuOpen = false}>About</a></li>
