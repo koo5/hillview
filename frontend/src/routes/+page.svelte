@@ -174,6 +174,9 @@
 
 {#if menuOpen}
     <nav class="nav-menu">
+
+        {JSON.stringify($auth)}
+
         <ul>
             <li><a href="/" on:click={() => menuOpen = false}>Map</a></li>
             <li>
