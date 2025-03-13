@@ -178,7 +178,16 @@
                 <div class="success-message">{success}</div>
             {/if}
             
-            {#if files.length === 0}
+            {#if !get(auth).isAuthenticated}
+                <div class="login-prompt">
+                    <h3>Login Required</h3>
+                    <p>You need to be logged in to upload photos.</p>
+                    <div class="button-group">
+                        <a href="/login" class="primary-button">Login</a>
+                        <a href="/login" class="secondary-button">Register</a>
+                    </div>
+                </div>
+            {:else if files.length === 0}
                 <div 
                     class="drop-area"
                     on:dragover={handleDragOver}
