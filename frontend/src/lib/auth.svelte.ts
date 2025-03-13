@@ -7,6 +7,14 @@ const token = typeof localStorage !== 'undefined' ? localStorage.getItem('token'
 const tokenExpires = typeof localStorage !== 'undefined' ? localStorage.getItem('token_expires') : null;
 const isAuthenticated = token && tokenExpires && new Date(tokenExpires) > new Date();
 
+console.log('Auth initialization:');
+console.log('- Token exists:', !!token);
+console.log('- Token expires:', tokenExpires);
+console.log('- Is authenticated:', isAuthenticated);
+if (token) {
+    console.log('- Token preview:', token.substring(0, 10) + '...');
+}
+
 // Auth store
 export const auth = writable({
     isAuthenticated: isAuthenticated,
@@ -20,12 +28,19 @@ export const auth = writable({
 if (token && !isAuthenticated && tokenExpires) {
     console.log('Token exists but isAuthenticated is false, checking token validity');
     const expiry = new Date(tokenExpires);
-    if (expiry > new Date()) {
+    const now = new Date();
+    console.log('- Token expiry:', expiry);
+    console.log('- Current time:', now);
+    console.log('- Time difference (ms):', expiry.getTime() - now.getTime());
+    
+    if (expiry > now) {
         console.log('Token is still valid, setting isAuthenticated to true');
         auth.update(state => ({
             ...state,
             isAuthenticated: true
         }));
+    } else {
+        console.log('Token has expired, not setting isAuthenticated');
     }
 }
 
@@ -176,51 +191,81 @@ export async function oauthLogin(provider: string, code: string, redirectUri?: s
 }
 
 export function logout() {
+    console.log('=== LOGGING OUT ===');
+    console.log('- Removing token from localStorage');
     localStorage.removeItem('token');
     localStorage.removeItem('token_expires');
     
-    auth.update(a => ({
-        ...a,
-        isAuthenticated: false,
-        token: null,
-        tokenExpires: null,
-        user: null
-    }));
+    console.log('- Updating auth store');
+    auth.update(a => {
+        console.log('  - Setting isAuthenticated to false');
+        console.log('  - Clearing token and user data');
+        return {
+            ...a,
+            isAuthenticated: false,
+            token: null,
+            tokenExpires: null,
+            user: null
+        };
+    });
     
+    console.log('- Redirecting to login page');
     goto('/login');
+    console.log('=== LOGOUT COMPLETE ===');
 }
 
 export async function fetchUserData() {
     const a = get(auth);
     
+    console.log('=== FETCHING USER DATA ===');
+    console.log('- Current auth state:');
+    console.log('  - isAuthenticated:', a.isAuthenticated);
+    console.log('  - Has token:', !!a.token);
+    console.log('  - Has user:', !!a.user);
+    
     // If we don't have a token in the auth store, try to get it from localStorage
     const tokenToUse = a.token || localStorage.getItem('token');
+    console.log('- Token to use:', tokenToUse ? 'exists' : 'none');
+    if (tokenToUse) {
+        console.log('  - Token preview:', tokenToUse.substring(0, 10) + '...');
+    }
+    
     if (!tokenToUse) {
-        console.error('No token available to fetch user data');
+        console.error('NO TOKEN AVAILABLE to fetch user data');
         return null;
     }
     
     try {
+        console.log('Making API request to /api/auth/me');
         const response = await fetch('http://localhost:8089/api/auth/me', {
             headers: {
                 'Authorization': `Bearer ${tokenToUse}`
             }
         });
         
+        console.log('- API response status:', response.status);
+        
         if (!response.ok) {
+            console.error('API request failed:', response.status, response.statusText);
+            
             if (response.status === 401) {
-                // Token expired or invalid
+                console.log('UNAUTHORIZED: Token expired or invalid, logging out');
                 logout();
             }
             return null;
         }
         
         const userData = await response.json();
-        console.log('User data fetched successfully:', userData);
+        console.log('USER DATA FETCHED SUCCESSFULLY:');
+        console.log('- User ID:', userData.id);
+        console.log('- Username:', userData.username);
+        console.log('- Email:', userData.email);
         
         // If we successfully got user data, ensure isAuthenticated is true and update token
+        console.log('Updating auth store with user data');
         auth.update(a => {
-            console.log('Updating auth store with user data, setting isAuthenticated to true');
+            console.log('- Setting isAuthenticated to true');
+            console.log('- Updating token and user data');
             return {
                 ...a,
                 isAuthenticated: true,
@@ -231,11 +276,13 @@ export async function fetchUserData() {
         });
         
         // Fetch user photos
+        console.log('Fetching user photos');
         await fetchUserPhotos();
         
+        console.log('=== USER DATA FETCH COMPLETE ===');
         return userData;
     } catch (error) {
-        console.error('Error fetching user ', error);
+        console.error('ERROR FETCHING USER DATA:', error);
         return null;
     }
 }
@@ -293,61 +340,100 @@ export async function fetchUserPhotos() {
 export function checkAuth() {
     const a = get(auth);
     
-    console.log('Checking auth state:', a);
+    console.log('=== CHECKING AUTH STATE ===');
+    console.log('- isAuthenticated:', a.isAuthenticated);
+    console.log('- Has token:', !!a.token);
+    console.log('- Has user:', !!a.user);
+    if (a.token) {
+        console.log('- Token preview:', a.token.substring(0, 10) + '...');
+    }
+    if (a.tokenExpires) {
+        console.log('- Token expires:', a.tokenExpires);
+        console.log('- Current time:', new Date());
+        console.log('- Time until expiry (ms):', a.tokenExpires.getTime() - new Date().getTime());
+    }
+    if (a.user) {
+        console.log('- User ID:', a.user.id);
+        console.log('- Username:', a.user.username);
+    }
     
     // If we have a token, try to fetch user data regardless of isAuthenticated flag
     if (a.token) {
         if (a.tokenExpires && new Date() > new Date(a.tokenExpires)) {
             // Token expired
-            console.log('Token expired, logging out');
+            console.log('TOKEN EXPIRED, logging out');
+            console.log('- Token expiry:', a.tokenExpires);
+            console.log('- Current time:', new Date());
             logout();
         } else {
             // Token exists, fetch user data and photos
-            console.log('Token exists, fetching user data');
+            console.log('Token valid, fetching user data');
             fetchUserData();
         }
     } else if (a.user) {
         // We have user data but no token - try to recover from localStorage
-        console.log('Inconsistent auth state: user data but no token, checking localStorage');
+        console.log('INCONSISTENT STATE: User data exists but no token');
         const storedToken = localStorage.getItem('token');
+        console.log('- Token in localStorage:', !!storedToken);
+        
         if (storedToken) {
             console.log('Found token in localStorage, restoring it');
+            console.log('- Token preview:', storedToken.substring(0, 10) + '...');
+            
+            const storedExpiry = localStorage.getItem('token_expires');
+            console.log('- Token expiry in localStorage:', storedExpiry);
+            
             auth.update(state => ({
                 ...state,
                 isAuthenticated: true,
                 token: storedToken,
-                tokenExpires: localStorage.getItem('token_expires') ? new Date(localStorage.getItem('token_expires')) : null
+                tokenExpires: storedExpiry ? new Date(storedExpiry) : null
             }));
+            
             // Now that we have a token, fetch user data again
+            console.log('Fetching user data with restored token');
             setTimeout(() => fetchUserData(), 100);
         } else {
             // No token in localStorage either, this is truly inconsistent
-            console.log('No token in localStorage, this is truly inconsistent');
+            console.log('NO TOKEN IN LOCALSTORAGE, truly inconsistent state');
+            
             if (a.isAuthenticated) {
                 // We're marked as authenticated but have no token, this is wrong
-                console.log('Marked as authenticated but have no token, logging out');
+                console.log('Marked as authenticated but no token, logging out');
                 logout();
             }
         }
     } else if (a.isAuthenticated && !a.user) {
         // We think we're authenticated but have no user data - fix this inconsistency
-        console.log('Inconsistent auth state: authenticated but no user data');
+        console.log('INCONSISTENT STATE: Authenticated but no user data');
+        
         const storedToken = localStorage.getItem('token');
+        console.log('- Token in localStorage:', !!storedToken);
+        
         if (storedToken) {
             console.log('Found token in localStorage, restoring it');
+            console.log('- Token preview:', storedToken.substring(0, 10) + '...');
+            
+            const storedExpiry = localStorage.getItem('token_expires');
+            console.log('- Token expiry in localStorage:', storedExpiry);
+            
             auth.update(state => ({
                 ...state,
                 token: storedToken,
-                tokenExpires: localStorage.getItem('token_expires') ? new Date(localStorage.getItem('token_expires')) : null
+                tokenExpires: storedExpiry ? new Date(storedExpiry) : null
             }));
+            
             // Now that we have a token, fetch user data
+            console.log('Fetching user data with restored token');
             setTimeout(() => fetchUserData(), 100);
         } else {
             // No token in localStorage either, this is truly inconsistent
-            console.log('No token in localStorage, logging out');
+            console.log('NO TOKEN IN LOCALSTORAGE, logging out');
             logout();
         }
     }
+    
+    console.log('=== AUTH CHECK COMPLETE ===');
 }
 
 // Debug function to log auth state

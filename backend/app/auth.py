@@ -114,14 +114,22 @@ async def get_user_by_oauth(db: AsyncSession, provider: str, oauth_id: str):
     return result.scalars().first()
 
 async def authenticate_user(db: AsyncSession, username: str, password: str):
+    print(f"Authenticating user: {username}")
     user = await get_user_by_username(db, username)
     if not user:
+        print(f"User not found by username, trying email: {username}")
         user = await get_user_by_email(db, username)  # Try with email
     
     if not user:
+        print(f"Authentication failed: User not found: {username}")
         return False
-    if not verify_password(password, user.hashed_password):
+    
+    password_valid = verify_password(password, user.hashed_password)
+    if not password_valid:
+        print(f"Authentication failed: Invalid password for user: {username}")
         return False
+    
+    print(f"Authentication successful for user: {username}, id: {user.id}")
     return user
 
 async def get_current_user(
@@ -133,22 +141,34 @@ async def get_current_user(
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
+        print(f"Decoding JWT token: {token[:10]}...")
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get("sub")
         user_id: str = payload.get("user_id")
+        print(f"Token payload - username: {username}, user_id: {user_id}")
+        
         if username is None or user_id is None:
+            print("Token missing username or user_id")
             raise credentials_exception
+            
         token_data = TokenData(username=username, user_id=user_id)
-    except JWTError:
+    except JWTError as e:
+        print(f"JWT Error: {str(e)}")
         raise credentials_exception
     
+    print(f"Looking up user by ID: {user_id}")
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalars().first()
     
     if user is None:
+        print(f"User not found with ID: {user_id}")
         raise credentials_exception
+        
     if not user.is_active:
+        print(f"User is inactive: {user_id}")
         raise HTTPException(status_code=400, detail="Inactive user")
+        
+    print(f"User authenticated successfully: {user.username}, id: {user.id}")
     return user
 
 async def get_current_active_user(current_user: User = Depends(get_current_user)):
