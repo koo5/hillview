@@ -192,12 +192,18 @@ export function logout() {
 
 export async function fetchUserData() {
     const a = get(auth);
-    if (!a.token) return null;
+    
+    // If we don't have a token in the auth store, try to get it from localStorage
+    const tokenToUse = a.token || localStorage.getItem('token');
+    if (!tokenToUse) {
+        console.error('No token available to fetch user data');
+        return null;
+    }
     
     try {
         const response = await fetch('http://localhost:8089/api/auth/me', {
             headers: {
-                'Authorization': `Bearer ${a.token}`
+                'Authorization': `Bearer ${tokenToUse}`
             }
         });
         
@@ -212,12 +218,14 @@ export async function fetchUserData() {
         const userData = await response.json();
         console.log('User data fetched successfully:', userData);
         
-        // If we successfully got user data, ensure isAuthenticated is true
+        // If we successfully got user data, ensure isAuthenticated is true and update token
         auth.update(a => {
             console.log('Updating auth store with user data, setting isAuthenticated to true');
             return {
                 ...a,
                 isAuthenticated: true,
+                token: tokenToUse,
+                tokenExpires: localStorage.getItem('token_expires') ? new Date(localStorage.getItem('token_expires')) : null,
                 user: userData
             };
         });
@@ -234,16 +242,29 @@ export async function fetchUserData() {
 
 export async function fetchUserPhotos() {
     const a = get(auth);
-    if (!a.isAuthenticated || !a.token) return null;
+    
+    // If we're not authenticated, don't try to fetch photos
+    if (!a.isAuthenticated) return null;
+    
+    // If we don't have a token in the auth store, try to get it from localStorage
+    const tokenToUse = a.token || localStorage.getItem('token');
+    if (!tokenToUse) {
+        console.error('No token available to fetch user photos');
+        return null;
+    }
     
     try {
         const response = await fetch('http://localhost:8089/api/photos', {
             headers: {
-                'Authorization': `Bearer ${a.token}`
+                'Authorization': `Bearer ${tokenToUse}`
             }
         });
         
         if (!response.ok) {
+            if (response.status === 401) {
+                // Token is invalid, log out
+                logout();
+            }
             return null;
         }
         
@@ -251,6 +272,15 @@ export async function fetchUserPhotos() {
         
         // Update shared store with user photos
         userPhotos.set(photos);
+        
+        // If we used a token from localStorage, update the auth store
+        if (!a.token && tokenToUse) {
+            auth.update(state => ({
+                ...state,
+                token: tokenToUse,
+                tokenExpires: localStorage.getItem('token_expires') ? new Date(localStorage.getItem('token_expires')) : null
+            }));
+        }
         
         return photos;
     } catch (error) {
@@ -277,16 +307,46 @@ export function checkAuth() {
             fetchUserData();
         }
     } else if (a.user) {
-        // We have user data but no token - this is inconsistent
-        console.log('Inconsistent auth state: user data but no token');
-        auth.update(state => ({
-            ...state,
-            isAuthenticated: true
-        }));
+        // We have user data but no token - try to recover from localStorage
+        console.log('Inconsistent auth state: user data but no token, checking localStorage');
+        const storedToken = localStorage.getItem('token');
+        if (storedToken) {
+            console.log('Found token in localStorage, restoring it');
+            auth.update(state => ({
+                ...state,
+                isAuthenticated: true,
+                token: storedToken,
+                tokenExpires: localStorage.getItem('token_expires') ? new Date(localStorage.getItem('token_expires')) : null
+            }));
+            // Now that we have a token, fetch user data again
+            setTimeout(() => fetchUserData(), 100);
+        } else {
+            // No token in localStorage either, this is truly inconsistent
+            console.log('No token in localStorage, this is truly inconsistent');
+            if (a.isAuthenticated) {
+                // We're marked as authenticated but have no token, this is wrong
+                console.log('Marked as authenticated but have no token, logging out');
+                logout();
+            }
+        }
     } else if (a.isAuthenticated && !a.user) {
         // We think we're authenticated but have no user data - fix this inconsistency
         console.log('Inconsistent auth state: authenticated but no user data');
-        fetchUserData();
+        const storedToken = localStorage.getItem('token');
+        if (storedToken) {
+            console.log('Found token in localStorage, restoring it');
+            auth.update(state => ({
+                ...state,
+                token: storedToken,
+                tokenExpires: localStorage.getItem('token_expires') ? new Date(localStorage.getItem('token_expires')) : null
+            }));
+            // Now that we have a token, fetch user data
+            setTimeout(() => fetchUserData(), 100);
+        } else {
+            // No token in localStorage either, this is truly inconsistent
+            console.log('No token in localStorage, logging out');
+            logout();
+        }
     }
 }
 

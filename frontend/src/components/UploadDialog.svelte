@@ -26,6 +26,15 @@
             }));
         }
         
+        // If we're authenticated but have no token, try to get it from localStorage
+        if (isAuthenticated && !authToken) {
+            const storedToken = localStorage.getItem('token');
+            if (storedToken) {
+                console.log('UploadDialog: Found token in localStorage, using it');
+                authToken = storedToken;
+            }
+        }
+        
         // Debug auth state when dialog is shown
         if (show) {
             console.log('UploadDialog auth state:', debugAuth());
@@ -109,7 +118,7 @@
         error = null;
         success = null;
         
-        if (!isAuthenticated || !authToken) {
+        if (!isAuthenticated) {
             error = 'You must be logged in to upload photos';
             isUploading = false;
             
@@ -121,6 +130,26 @@
             }, 500);
             
             return;
+        }
+        
+        // If we don't have a token in the auth store, try to get it from localStorage
+        if (!authToken) {
+            const storedToken = localStorage.getItem('token');
+            if (storedToken) {
+                console.log('Using token from localStorage for upload');
+                authToken = storedToken;
+                
+                // Update the auth store with the token
+                auth.update(state => ({
+                    ...state,
+                    token: storedToken,
+                    tokenExpires: localStorage.getItem('token_expires') ? new Date(localStorage.getItem('token_expires')) : null
+                }));
+            } else {
+                error = 'Authentication token not found. Please log in again.';
+                isUploading = false;
+                return;
+            }
         }
         
         try {
@@ -159,7 +188,14 @@
                 
                 // Set up and send the request
                 xhr.open('POST', 'http://localhost:8089/api/photos/upload');
-                xhr.setRequestHeader('Authorization', `Bearer ${authToken}`);
+                
+                // Use token from localStorage if authToken is still null
+                const tokenToUse = authToken || localStorage.getItem('token');
+                if (!tokenToUse) {
+                    throw new Error('Authentication token not found. Please log in again.');
+                }
+                
+                xhr.setRequestHeader('Authorization', `Bearer ${tokenToUse}`);
                 xhr.send(formData);
                 
                 // Wait for the upload to complete
