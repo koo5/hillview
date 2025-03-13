@@ -89,7 +89,7 @@ async def register_user(user: UserCreate, db: AsyncSession = Depends(get_db)):
 
 @app.post("/api/auth/token", response_model=Token)
 async def login_for_access_token(
-    form_ OAuth2PasswordRequestForm = Depends(),
+        form_data: OAuth2PasswordRequestForm = Depends(),
     db: AsyncSession = Depends(get_db)
 ):
     user = await authenticate_user(db, form_data.username, form_data.password)
@@ -113,7 +113,7 @@ async def login_for_access_token(
 
 @app.post("/api/auth/oauth", response_model=Token)
 async def oauth_login(
-    oauth_ UserOAuth,
+        oauth_data: UserOAuth,
     db: AsyncSession = Depends(get_db)
 ):
     provider = oauth_data.provider
