@@ -136,19 +136,42 @@ async def oauth_login(
         "grant_type": "authorization_code"
     }
     
-    token_response = requests.post(provider_config["token_url"], data=token_data)
+    # GitHub returns different format based on Accept header
+    headers = {}
+    if provider == "github":
+        headers["Accept"] = "application/json"
+        
+    token_response = requests.post(provider_config["token_url"], data=token_data, headers=headers)
     if token_response.status_code != 200:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Failed to obtain OAuth token"
+            detail=f"Failed to obtain OAuth token: {token_response.text}"
         )
     
     # Get user info from provider
-    token_json = token_response.json()
+    token_json = token_response.json() if token_response.headers.get('content-type', '').startswith('application/json') else {}
     access_token = token_json.get("access_token")
     
+    if not access_token and provider == "github" and "access_token=" in token_response.text:
+        # Parse access token from response for GitHub if needed
+        access_token = token_response.text.split("access_token=")[1].split("&")[0]
+    
     headers = {"Authorization": f"Bearer {access_token}"}
+    if provider == "github":
+        headers["Accept"] = "application/json"
+        
     userinfo_response = requests.get(provider_config["userinfo_url"], headers=headers)
+    
+    # For GitHub, we need to make an additional request to get the email if it's not public
+    if provider == "github" and userinfo_response.status_code == 200:
+        email = userinfo_response.json().get("email")
+        if not email:
+            email_response = requests.get("https://api.github.com/user/emails", headers=headers)
+            if email_response.status_code == 200:
+                emails = email_response.json()
+                primary_email = next((e for e in emails if e.get("primary")), None)
+                if primary_email:
+                    email = primary_email.get("email")
     
     if userinfo_response.status_code != 200:
         raise HTTPException(
@@ -162,10 +185,19 @@ async def oauth_login(
     oauth_id = userinfo.get("id") or userinfo.get("sub")
     email = userinfo.get("email")
     
-    if not oauth_id or not email:
+    if not oauth_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="OAuth provider did not return required user information"
+            detail="OAuth provider did not return required user ID"
+        )
+        
+    if not email and provider == "github":
+        # For GitHub, use login as fallback if email is not available
+        email = f"{userinfo.get('login')}@github.com"
+    elif not email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="OAuth provider did not return required email"
         )
     
     # Check if user exists
