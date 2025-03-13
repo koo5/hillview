@@ -14,6 +14,11 @@ import {
 import { fixup_bearings, sources } from './sources.ts';
 import {tick} from "svelte";
 
+// Check for existing token
+const token = typeof localStorage !== 'undefined' ? localStorage.getItem('token') : null;
+const tokenExpires = typeof localStorage !== 'undefined' ? localStorage.getItem('token_expires') : null;
+const isAuthenticated = token && tokenExpires && new Date(tokenExpires) > new Date();
+
 export const geoPicsUrl = import.meta.env.VITE_REACT_APP_GEO_PICS_URL; //+'2'
 
 let client_id = localStorageSharedStore('client_id', Math.random().toString(36));
@@ -23,6 +28,8 @@ let calculator = new Vincenty();
 export let app = writable({
     error: null,
     debug: 0,
+    isAuthenticated: isAuthenticated,
+    userPhotos: [],
 })
 
 
