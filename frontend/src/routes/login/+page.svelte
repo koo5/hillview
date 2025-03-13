@@ -57,7 +57,7 @@
                 const success = await register(email, username, password);
                 
                 if (!success) {
-                    throw new Error('Registration failed. Username or email may already be in use.');
+                    throw new Error('Registration failed. Please check the console for more details.');
                 }
                 
                 // Switch to login form after successful registration

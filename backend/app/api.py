@@ -8,7 +8,7 @@ import json
 import requests
 import logging
 from fastapi import FastAPI, Query, Depends, HTTPException, status, UploadFile, File, Form, BackgroundTasks
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,6 +37,17 @@ clients = {}
 
 app = FastAPI(title="Hillview API", description="API for Hillview application")
 
+# Add exception handlers
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    import traceback
+    log.error(f"Unhandled exception: {exc}")
+    log.error(traceback.format_exc())
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"detail": str(exc)},
+    )
+
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
@@ -56,9 +67,8 @@ THUMBNAIL_DIR.mkdir(exist_ok=True)
 @app.on_event("startup")
 async def startup():
     async with engine.begin() as conn:
-        # Uncomment to create tables on startup (for development)
-        # await conn.run_sync(Base.metadata.create_all)
-        pass
+        # Create tables on startup
+        await conn.run_sync(Base.metadata.create_all)
 
 # Authentication routes
 @app.post("/api/auth/register", response_model=UserOut)
