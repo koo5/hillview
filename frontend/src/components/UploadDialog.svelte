@@ -87,6 +87,14 @@
         if (!authValue.isAuthenticated || !authValue.token) {
             error = 'You must be logged in to upload photos';
             isUploading = false;
+            
+            // Show login button
+            setTimeout(() => {
+                if (confirm('Would you like to log in now?')) {
+                    window.location.href = '/login';
+                }
+            }, 500);
+            
             return;
         }
         
@@ -610,6 +618,48 @@
         padding: 12px;
         border-radius: 4px;
         margin-bottom: 16px;
+    }
+    
+    .login-prompt {
+        text-align: center;
+        padding: 30px 20px;
+    }
+    
+    .login-prompt h3 {
+        margin-top: 0;
+        margin-bottom: 16px;
+        color: #333;
+    }
+    
+    .login-prompt p {
+        margin-bottom: 24px;
+        color: #666;
+    }
+    
+    .login-prompt .button-group {
+        display: flex;
+        gap: 12px;
+        justify-content: center;
+    }
+    
+    .login-prompt .primary-button,
+    .login-prompt .secondary-button {
+        display: inline-block;
+        text-decoration: none;
+        padding: 12px 24px;
+        border-radius: 4px;
+        font-weight: 500;
+    }
+    
+    .login-prompt .primary-button {
+        background-color: #4a90e2;
+        color: white;
+    }
+    
+    .login-prompt .secondary-button {
+        background-color: #f5f5f5;
+        color: #333;
+        border: 1px solid #ddd;
     }
     
     /* Responsive adjustments */

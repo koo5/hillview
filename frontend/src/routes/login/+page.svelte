@@ -169,9 +169,14 @@
                 />
             </div>
             
-            <button type="submit" class="primary-button" disabled={isLoading}>
-                {isLoading ? 'Loading...' : isLogin ? 'Login' : 'Register'}
-            </button>
+            <div class="auth-buttons">
+                <button type="submit" class="primary-button" disabled={isLoading}>
+                    {isLoading ? 'Loading...' : isLogin ? 'Login' : 'Register'}
+                </button>
+                <button type="button" class="secondary-button" on:click={toggleForm}>
+                    {isLogin ? 'Create Account' : 'Back to Login'}
+                </button>
+            </div>
         </form>
         
         <div class="divider">
@@ -203,12 +208,6 @@
             </button>
         </div>
         
-        <div class="toggle-form">
-            {isLogin ? "Don't have an account?" : "Already have an account?"}
-            <button class="text-button" on:click={toggleForm}>
-                {isLogin ? 'Register' : 'Login'}
-            </button>
-        </div>
     </div>
 </div>
 
@@ -264,8 +263,14 @@
         outline: none;
     }
     
+    .auth-buttons {
+        display: flex;
+        gap: 12px;
+        margin-bottom: 20px;
+    }
+    
     .primary-button {
-        width: 100%;
+        flex: 1;
         padding: 12px;
         background-color: #4a90e2;
         color: white;
@@ -284,6 +289,23 @@
     .primary-button:disabled {
         background-color: #a0c0e8;
         cursor: not-allowed;
+    }
+    
+    .secondary-button {
+        flex: 1;
+        padding: 12px;
+        background-color: #f5f5f5;
+        color: #333;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        font-size: 16px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: background-color 0.3s;
+    }
+    
+    .secondary-button:hover {
+        background-color: #e5e5e5;
     }
     
     .divider {
