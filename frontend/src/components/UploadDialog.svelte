@@ -3,8 +3,18 @@
     import { Upload, X, Image, MapPin, Compass, Info } from 'lucide-svelte';
     import { auth } from '$lib/auth.svelte.ts';
     import { get } from 'svelte/store';
+    import { app } from '$lib/data.svelte.js';
 
     export let show = false;
+    
+    // Subscribe to auth store
+    let isAuthenticated = false;
+    let authToken = null;
+    
+    auth.subscribe(value => {
+        isAuthenticated = value.isAuthenticated;
+        authToken = value.token;
+    });
     
     const dispatch = createEventDispatcher();
     
@@ -83,8 +93,7 @@
         error = null;
         success = null;
         
-        const authValue = get(auth);
-        if (!authValue.isAuthenticated || !authValue.token) {
+        if (!isAuthenticated || !authToken) {
             error = 'You must be logged in to upload photos';
             isUploading = false;
             
@@ -134,7 +143,7 @@
                 
                 // Set up and send the request
                 xhr.open('POST', 'http://localhost:8089/api/photos/upload');
-                xhr.setRequestHeader('Authorization', `Bearer ${authValue.token}`);
+                xhr.setRequestHeader('Authorization', `Bearer ${authToken}`);
                 xhr.send(formData);
                 
                 // Wait for the upload to complete
@@ -178,7 +187,18 @@
                 <div class="success-message">{success}</div>
             {/if}
             
-            {#if !get(auth).isAuthenticated}
+            <!-- Debug info -->
+            {#if $app.debug > 0}
+                <div class="debug-info">
+                    <h4>Auth Debug Info:</h4>
+                    <pre>isAuthenticated: {get(auth).isAuthenticated}</pre>
+                    <pre>token: {get(auth).token ? 'exists' : 'none'}</pre>
+                    <pre>tokenExpires: {get(auth).tokenExpires}</pre>
+                    <pre>user: {get(auth).user ? JSON.stringify(get(auth).user, null, 2) : 'none'}</pre>
+                </div>
+            {/if}
+            
+            {#if !isAuthenticated}
                 <div class="login-prompt">
                     <h3>Login Required</h3>
                     <p>You need to be logged in to upload photos.</p>
@@ -669,6 +689,28 @@
         background-color: #f5f5f5;
         color: #333;
         border: 1px solid #ddd;
+    }
+    
+    .debug-info {
+        background-color: #f8f9fa;
+        border: 1px solid #dee2e6;
+        border-radius: 4px;
+        padding: 10px;
+        margin-bottom: 16px;
+        font-family: monospace;
+        font-size: 12px;
+    }
+    
+    .debug-info h4 {
+        margin-top: 0;
+        margin-bottom: 8px;
+        color: #495057;
+    }
+    
+    .debug-info pre {
+        margin: 0;
+        white-space: pre-wrap;
+        word-break: break-all;
     }
     
     /* Responsive adjustments */
