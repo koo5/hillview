@@ -73,6 +73,8 @@ async def startup():
 # Authentication routes
 @app.post("/api/auth/register", response_model=UserOut)
 async def register_user(user: UserCreate, db: AsyncSession = Depends(get_db)):
+    log.info(f"Registration attempt for user: {user.username}, email: {user.email}")
+    
     # Check if username or email already exists
     result = await db.execute(
         select(User).where(
@@ -81,22 +83,31 @@ async def register_user(user: UserCreate, db: AsyncSession = Depends(get_db)):
     )
     existing_user = result.scalars().first()
     if existing_user:
+        log.warning(f"Registration failed - username or email already exists: {user.username}, {user.email}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Username or email already registered"
         )
     
     # Create new user
-    hashed_password = get_password_hash(user.password)
-    db_user = User(
-        email=user.email,
-        username=user.username,
-        hashed_password=hashed_password
-    )
-    db.add(db_user)
-    await db.commit()
-    await db.refresh(db_user)
-    return db_user
+    try:
+        hashed_password = get_password_hash(user.password)
+        db_user = User(
+            email=user.email,
+            username=user.username,
+            hashed_password=hashed_password
+        )
+        db.add(db_user)
+        await db.commit()
+        await db.refresh(db_user)
+        log.info(f"User registered successfully: {user.username}, ID: {db_user.id}")
+        return db_user
+    except Exception as e:
+        log.error(f"Error during user registration: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Registration failed: {str(e)}"
+        )
 
 @app.post("/api/auth/token", response_model=Token)
 async def login_for_access_token(

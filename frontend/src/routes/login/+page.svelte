@@ -44,10 +44,11 @@
         try {
             if (isLogin) {
                 // Login
+                console.log('Attempting login for:', username);
                 const success = await login(username, password);
                 
                 if (!success) {
-                    throw new Error('Login failed. Please check your credentials.');
+                    throw new Error('Login failed. Please check your credentials and try again.');
                 }
                 
                 goto('/');

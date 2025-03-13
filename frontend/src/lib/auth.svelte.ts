@@ -17,14 +17,17 @@ export const auth = writable({
 // Auth functions
 export async function login(username: string, password: string) {
     try {
+        console.log('Logging in with:', { username });
         const response = await fetch('http://localhost:8089/api/auth/token', {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/x-www-form-urlencoded'
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Accept': 'application/json'
             },
             body: new URLSearchParams({
                 'username': username,
-                'password': password
+                'password': password,
+                'grant_type': 'password'
             })
         });
         
