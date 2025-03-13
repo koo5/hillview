@@ -50,7 +50,7 @@
         if (!authValue.isAuthenticated || !authValue.token) return;
         
         try {
-            const response = await fetch('/api/photos', {
+            const response = await fetch('http://localhost:8089/api/photos', {
                 headers: {
                     'Authorization': `Bearer ${authValue.token}`
                 }
@@ -108,7 +108,7 @@
             });
             
             // Set up and send the request
-            xhr.open('POST', '/api/photos/upload');
+            xhr.open('POST', 'http://localhost:8089/api/photos/upload');
             xhr.setRequestHeader('Authorization', `Bearer ${authValue.token}`);
             xhr.send(formData);
             
@@ -134,7 +134,7 @@
         const authValue = get(auth);
         
         try {
-            const response = await fetch(`/api/photos/${photoId}`, {
+            const response = await fetch(`http://localhost:8089/api/photos/${photoId}`, {
                 method: 'DELETE',
                 headers: {
                     'Authorization': `Bearer ${authValue.token}`
@@ -170,7 +170,7 @@
                 formData.append('auto_upload_folder', autoUploadFolder);
             }
             
-            const response = await fetch('/api/auth/settings', {
+            const response = await fetch('http://localhost:8089/api/auth/settings', {
                 method: 'PUT',
                 headers: {
                     'Authorization': `Bearer ${authValue.token}`
@@ -312,7 +312,7 @@
                     <div class="photo-card">
                         <div class="photo-image">
                             <img 
-                                src={photo.thumbnail_url || `/api/photos/${photo.id}/thumbnail`} 
+                                src={photo.thumbnail_url || `http://localhost:8089/api/photos/${photo.id}/thumbnail`} 
                                 alt={photo.description || photo.filename} 
                             />
                         </div>

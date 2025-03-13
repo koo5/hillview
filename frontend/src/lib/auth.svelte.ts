@@ -17,7 +17,7 @@ export const auth = writable({
 // Auth functions
 export async function login(username: string, password: string) {
     try {
-        const response = await fetch('/api/auth/token', {
+        const response = await fetch('http://localhost:8089/api/auth/token', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded'
@@ -59,7 +59,7 @@ export async function login(username: string, password: string) {
 
 export async function register(email: string, username: string, password: string) {
     try {
-        const response = await fetch('/api/auth/register', {
+        const response = await fetch('http://localhost:8089/api/auth/register', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -85,7 +85,7 @@ export async function register(email: string, username: string, password: string
 
 export async function oauthLogin(provider: string, code: string, redirectUri?: string) {
     try {
-        const response = await fetch('/api/auth/oauth', {
+        const response = await fetch('http://localhost:8089/api/auth/oauth', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -146,7 +146,7 @@ export async function fetchUserData() {
     if (!a.isAuthenticated || !a.token) return null;
     
     try {
-        const response = await fetch('/api/auth/me', {
+        const response = await fetch('http://localhost:8089/api/auth/me', {
             headers: {
                 'Authorization': `Bearer ${a.token}`
             }

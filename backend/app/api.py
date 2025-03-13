@@ -40,7 +40,7 @@ app = FastAPI(title="Hillview API", description="API for Hillview application")
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, replace with specific origins
+    allow_origins=["http://localhost:5173", "http://localhost:5000", "http://localhost:8089"],  # Add your frontend URLs
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -253,7 +253,7 @@ class PhotoResponse(BaseModel):
     is_public: bool
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 @app.get("/api/photos", response_model=List[PhotoResponse])
 async def get_user_photos(

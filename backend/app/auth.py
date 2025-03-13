@@ -44,7 +44,7 @@ OAUTH_PROVIDERS = {
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # OAuth2 token URL
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
 
 # Models
 class Token(BaseModel):
@@ -80,7 +80,7 @@ class UserOut(BaseModel):
     auto_upload_folder: Optional[str] = None
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 # Helper functions
 def verify_password(plain_password, hashed_password):
