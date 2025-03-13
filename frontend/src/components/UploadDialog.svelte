@@ -1,9 +1,10 @@
 <script>
-    import { createEventDispatcher } from 'svelte';
-    import { Upload, X, Image, MapPin, Compass, Info } from 'lucide-svelte';
+    import { createEventDispatcher, onMount } from 'svelte';
+    import { Upload, X, Image, MapPin, Compass, Info, Smartphone, FolderSync, ExternalLink } from 'lucide-svelte';
     import { auth, debugAuth } from '$lib/auth.svelte.ts';
     import { get } from 'svelte/store';
     import { app } from '$lib/data.svelte.js';
+    import { autoUploadSettings, deviceInfo } from '$lib/stores';
 
     export let show = false;
     
@@ -11,6 +12,31 @@
     let isAuthenticated = false;
     let authToken = null;
     let authUser = null;
+    
+    // Mobile detection
+    let isMobile = false;
+    let isIOS = false;
+    let isAndroid = false;
+    
+    // Upload mode for mobile
+    let mobileUploadMode = 'manual'; // 'manual', 'auto', 'mapillary'
+    
+    onMount(() => {
+        // Detect mobile devices
+        const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+        
+        // Check if mobile
+        if (/android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent.toLowerCase())) {
+            isMobile = true;
+            
+            // Check specific platform
+            isIOS = /iphone|ipad|ipod/i.test(userAgent.toLowerCase());
+            isAndroid = /android/i.test(userAgent.toLowerCase());
+            
+            // Update device info store
+            deviceInfo.set({ isMobile, isIOS, isAndroid });
+        }
+    });
     
     auth.subscribe(value => {
         isAuthenticated = value.isAuthenticated;
@@ -260,26 +286,148 @@
                     </div>
                 </div>
             {:else if files.length === 0}
-                <div 
-                    class="drop-area"
-                    on:dragover={handleDragOver}
-                    on:drop={handleDrop}
-                >
-                    <div class="drop-area-content">
-                        <Upload size={48} />
-                        <p>Drag photos here or click to browse</p>
-                        <input 
-                            type="file" 
-                            id="file-input" 
-                            accept="image/*" 
-                            multiple 
-                            on:change={handleFileInput}
-                        />
-                        <button class="browse-button" on:click={() => document.getElementById('file-input').click()}>
-                            Browse Files
-                        </button>
+                {#if isMobile}
+                    <div class="mobile-upload-options">
+                        <h3>Upload Photos</h3>
+                        
+                        <div class="upload-option-tabs">
+                            <button 
+                                class={mobileUploadMode === 'manual' ? 'active' : ''} 
+                                on:click={() => mobileUploadMode = 'manual'}
+                            >
+                                <Smartphone size={20} />
+                                Manual Upload
+                            </button>
+                            <button 
+                                class={mobileUploadMode === 'auto' ? 'active' : ''} 
+                                on:click={() => mobileUploadMode = 'auto'}
+                            >
+                                <FolderSync size={20} />
+                                Auto-Upload
+                            </button>
+                            <button 
+                                class={mobileUploadMode === 'mapillary' ? 'active' : ''} 
+                                on:click={() => mobileUploadMode = 'mapillary'}
+                            >
+                                <ExternalLink size={20} />
+                                Mapillary
+                            </button>
+                        </div>
+                        
+                        {#if mobileUploadMode === 'manual'}
+                            <div class="mobile-upload-option">
+                                <h4>Manual Photo Upload</h4>
+                                <p>Select photos from your device to upload.</p>
+                                
+                                <input 
+                                    type="file" 
+                                    id="file-input" 
+                                    accept="image/*" 
+                                    multiple 
+                                    on:change={handleFileInput}
+                                />
+                                <button class="browse-button" on:click={() => document.getElementById('file-input').click()}>
+                                    <Image size={20} />
+                                    Select Photos
+                                </button>
+                                
+                                <div class="mobile-tip">
+                                    <Info size={16} />
+                                    <p>For best results, use the <strong>Solocator</strong> app to take photos with GPS and compass data.</p>
+                                </div>
+                            </div>
+                        {:else if mobileUploadMode === 'auto'}
+                            <div class="mobile-upload-option">
+                                <h4>Auto-Upload Folder</h4>
+                                <p>Set up a folder to automatically upload new photos.</p>
+                                
+                                <div class="form-group">
+                                    <label>
+                                        <input type="checkbox" bind:checked={$autoUploadSettings.enabled}>
+                                        Enable auto-upload
+                                    </label>
+                                </div>
+                                
+                                {#if $autoUploadSettings.enabled}
+                                    <div class="form-group">
+                                        <label for="upload-interval">Check for new photos every:</label>
+                                        <select id="upload-interval" bind:value={$autoUploadSettings.uploadInterval}>
+                                            <option value={5}>5 minutes</option>
+                                            <option value={15}>15 minutes</option>
+                                            <option value={30}>30 minutes</option>
+                                            <option value={60}>1 hour</option>
+                                        </select>
+                                    </div>
+                                    
+                                    {#if isAndroid}
+                                        <div class="form-group">
+                                            <label for="folder-path">Camera folder path:</label>
+                                            <input 
+                                                type="text" 
+                                                id="folder-path" 
+                                                bind:value={$autoUploadSettings.folderPath} 
+                                                placeholder="e.g., /DCIM/Camera"
+                                            />
+                                        </div>
+                                    {:else if isIOS}
+                                        <p class="note">On iOS, we can only access photos you specifically select.</p>
+                                    {/if}
+                                {/if}
+                                
+                                <div class="mobile-tip">
+                                    <Info size={16} />
+                                    <p>We recommend using the <strong>Solocator</strong> app to take photos with GPS and compass data for best results on the map.</p>
+                                </div>
+                            </div>
+                        {:else if mobileUploadMode === 'mapillary'}
+                            <div class="mobile-upload-option">
+                                <h4>Mapillary Integration</h4>
+                                <p>Hillview uses Mapillary as one of its photo sources.</p>
+                                
+                                <div class="mapillary-info">
+                                    <p>If you already use Mapillary to capture street-level imagery:</p>
+                                    <ol>
+                                        <li>Upload your photos to Mapillary using their app</li>
+                                        <li>They will automatically appear in Hillview once processed</li>
+                                    </ol>
+                                    
+                                    <div class="button-group">
+                                        <a href="https://www.mapillary.com/app" target="_blank" rel="noopener noreferrer" class="external-link">
+                                            <ExternalLink size={16} />
+                                            Open Mapillary
+                                        </a>
+                                        
+                                        <a href="https://www.mapillary.com/mobile-apps" target="_blank" rel="noopener noreferrer" class="external-link secondary">
+                                            <Smartphone size={16} />
+                                            Get Mapillary App
+                                        </a>
+                                    </div>
+                                </div>
+                            </div>
+                        {/if}
                     </div>
-                </div>
+                {:else}
+                    <div 
+                        class="drop-area"
+                        on:dragover={handleDragOver}
+                        on:drop={handleDrop}
+                    >
+                        <div class="drop-area-content">
+                            <Upload size={48} />
+                            <p>Drag photos here or click to browse</p>
+                            <input 
+                                type="file" 
+                                id="file-input" 
+                                accept="image/*" 
+                                multiple 
+                                on:change={handleFileInput}
+                            />
+                            <button class="browse-button" on:click={() => document.getElementById('file-input').click()}>
+                                Browse Files
+                            </button>
+                        </div>
+                    </div>
+                {/if}
             {:else}
                 <div class="selected-files">
                     <h3>Selected Photos ({files.length})</h3>
@@ -376,6 +524,115 @@
         justify-content: center;
         align-items: center;
         z-index: 1000;
+    }
+    
+    /* Mobile upload options */
+    .mobile-upload-options {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+    }
+    
+    .upload-option-tabs {
+        display: flex;
+        border-bottom: 1px solid #ddd;
+        margin-bottom: 20px;
+    }
+    
+    .upload-option-tabs button {
+        flex: 1;
+        background: none;
+        border: none;
+        padding: 12px 8px;
+        font-size: 14px;
+        font-weight: 500;
+        color: #666;
+        cursor: pointer;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+        transition: all 0.2s;
+    }
+    
+    .upload-option-tabs button.active {
+        color: #4a90e2;
+        border-bottom: 2px solid #4a90e2;
+    }
+    
+    .mobile-upload-option {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+    }
+    
+    .mobile-upload-option h4 {
+        margin: 0;
+        color: #333;
+    }
+    
+    .mobile-tip {
+        display: flex;
+        gap: 10px;
+        background-color: #f8f9fa;
+        border-radius: 6px;
+        padding: 12px;
+        margin-top: 10px;
+    }
+    
+    .mobile-tip svg {
+        color: #4a90e2;
+        flex-shrink: 0;
+        margin-top: 2px;
+    }
+    
+    .mobile-tip p {
+        margin: 0;
+        font-size: 14px;
+        color: #555;
+    }
+    
+    .mapillary-info {
+        background-color: #f8f9fa;
+        border-radius: 6px;
+        padding: 16px;
+    }
+    
+    .mapillary-info p {
+        margin-top: 0;
+    }
+    
+    .mapillary-info ol {
+        padding-left: 20px;
+    }
+    
+    .mapillary-info li {
+        margin-bottom: 8px;
+    }
+    
+    .external-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        text-decoration: none;
+        color: white;
+        background-color: #4a90e2;
+        padding: 10px 16px;
+        border-radius: 4px;
+        font-weight: 500;
+        margin-top: 10px;
+    }
+    
+    .external-link.secondary {
+        background-color: #f5f5f5;
+        color: #333;
+        border: 1px solid #ddd;
+    }
+    
+    .note {
+        font-size: 14px;
+        color: #666;
+        font-style: italic;
     }
     
     .upload-dialog {
@@ -787,6 +1044,19 @@
         .cancel-button,
         .upload-button {
             width: 100%;
+        }
+        
+        .upload-option-tabs {
+            margin-bottom: 16px;
+        }
+        
+        .upload-option-tabs button {
+            padding: 10px 4px;
+            font-size: 12px;
+        }
+        
+        .mobile-upload-option h4 {
+            font-size: 16px;
         }
     }
 </style>
