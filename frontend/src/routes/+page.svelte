@@ -125,7 +125,7 @@
                 e.preventDefault();
                 app.update(a => {
                     a.debug = a.debug + 1;
-                    if (a.debug > 2) {
+                    if (a.debug > 5) {
                         a.debug = 0;
                     }
                     return a;
@@ -173,8 +173,9 @@
 </div>
 
 {#if menuOpen}
+
     <nav class="nav-menu">
-        {#if $app.debug > 0}
+        {#if $app.debug  === 3}
             <div class="debug-info">
                 <h4>Auth Debug:</h4>
                 <pre>isAuthenticated: {$auth.isAuthenticated}</pre>

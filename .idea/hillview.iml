@@ -13,6 +13,9 @@
       <excludeFolder url="file://$MODULE_DIR$/.venv" />
       <excludeFolder url="file://$MODULE_DIR$/.aider" />
       <excludeFolder url="file://$MODULE_DIR$/aider" />
+      <excludeFolder url="file://$MODULE_DIR$/backend/uploads" />
+      <excludeFolder url="file://$MODULE_DIR$/backend/venv" />
+      <excludeFolder url="file://$MODULE_DIR$/frontend/.svelte-kit" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
