@@ -10,10 +10,21 @@
     // Subscribe to auth store
     let isAuthenticated = false;
     let authToken = null;
+    let authUser = null;
     
     auth.subscribe(value => {
         isAuthenticated = value.isAuthenticated;
         authToken = value.token;
+        authUser = value.user;
+        
+        // If we have a user but isAuthenticated is false, this is inconsistent
+        if (authUser && !isAuthenticated) {
+            console.log('UploadDialog: Inconsistent auth state - user exists but not authenticated');
+            auth.update(state => ({
+                ...state,
+                isAuthenticated: true
+            }));
+        }
         
         // Debug auth state when dialog is shown
         if (show) {

@@ -15,6 +15,20 @@ export const auth = writable({
     user: null
 });
 
+// If we have a token but isAuthenticated is false, this might be a bug
+// Let's check the token validity immediately
+if (token && !isAuthenticated && tokenExpires) {
+    console.log('Token exists but isAuthenticated is false, checking token validity');
+    const expiry = new Date(tokenExpires);
+    if (expiry > new Date()) {
+        console.log('Token is still valid, setting isAuthenticated to true');
+        auth.update(state => ({
+            ...state,
+            isAuthenticated: true
+        }));
+    }
+}
+
 // Auth functions
 export async function login(username: string, password: string) {
     try {
@@ -45,17 +59,32 @@ export async function login(username: string, password: string) {
         localStorage.setItem('token', data.access_token);
         localStorage.setItem('token_expires', data.expires_at);
         
-        // Update auth store
-        auth.update(a => ({
-            ...a,
-            isAuthenticated: true,
-            token: data.access_token,
-            tokenExpires: new Date(data.expires_at)
-        }));
+        // Update auth store with token info first
+        auth.update(a => {
+            console.log('Setting token and isAuthenticated to true');
+            return {
+                ...a,
+                isAuthenticated: true,
+                token: data.access_token,
+                tokenExpires: new Date(data.expires_at)
+            };
+        });
         
         // Fetch user data
         const userData = await fetchUserData();
         console.log('User data fetched:', userData);
+        
+        // Ensure isAuthenticated is still true after fetching user data
+        auth.update(a => {
+            if (!a.isAuthenticated && a.user) {
+                console.log('Fixing inconsistent state: user exists but not authenticated');
+                return {
+                    ...a,
+                    isAuthenticated: true
+                };
+            }
+            return a;
+        });
         
         // Double-check auth state
         console.log('Auth state after login:', debugAuth());
@@ -181,13 +210,17 @@ export async function fetchUserData() {
         }
         
         const userData = await response.json();
+        console.log('User data fetched successfully:', userData);
         
         // If we successfully got user data, ensure isAuthenticated is true
-        auth.update(a => ({
-            ...a,
-            isAuthenticated: true,
-            user: userData
-        }));
+        auth.update(a => {
+            console.log('Updating auth store with user data, setting isAuthenticated to true');
+            return {
+                ...a,
+                isAuthenticated: true,
+                user: userData
+            };
+        });
         
         // Fetch user photos
         await fetchUserPhotos();
@@ -234,7 +267,7 @@ export function checkAuth() {
     
     // If we have a token, try to fetch user data regardless of isAuthenticated flag
     if (a.token) {
-        if (a.tokenExpires && new Date() > a.tokenExpires) {
+        if (a.tokenExpires && new Date() > new Date(a.tokenExpires)) {
             // Token expired
             console.log('Token expired, logging out');
             logout();
@@ -243,13 +276,17 @@ export function checkAuth() {
             console.log('Token exists, fetching user data');
             fetchUserData();
         }
-    } else if (a.isAuthenticated) {
-        // We think we're authenticated but have no token - fix this inconsistency
-        console.log('Inconsistent auth state: authenticated but no token');
+    } else if (a.user) {
+        // We have user data but no token - this is inconsistent
+        console.log('Inconsistent auth state: user data but no token');
         auth.update(state => ({
             ...state,
-            isAuthenticated: false
+            isAuthenticated: true
         }));
+    } else if (a.isAuthenticated && !a.user) {
+        // We think we're authenticated but have no user data - fix this inconsistency
+        console.log('Inconsistent auth state: authenticated but no user data');
+        fetchUserData();
     }
 }
 
