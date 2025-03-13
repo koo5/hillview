@@ -2,6 +2,7 @@
     import {onDestroy, onMount, tick} from 'svelte';
     import PhotoGallery from '../components/Gallery.svelte';
     import Map from '../components/Map.svelte';
+    import UploadDialog from '../components/UploadDialog.svelte';
     import {Camera, Compass, User, LogOut, Upload, Menu} from 'lucide-svelte';
     import {fetch_photos} from "$lib/sources.js";
     import {dms} from "$lib/utils.js";
@@ -14,6 +15,7 @@
     let map = null;
     let update_url = false;
     let menuOpen = false;
+    let showUploadDialog = false;
 
     onMount(async () => {
         console.log('Page mounted');
@@ -156,6 +158,15 @@
     });
 </script>
 
+<!-- Upload button (visible when authenticated) -->
+{#if isAuthenticated}
+    <div class="upload-button-container">
+        <button class="floating-upload-button" on:click={() => showUploadDialog = true}>
+            <Upload size={24} />
+        </button>
+    </div>
+{/if}
+
 <!-- Hamburger icon -->
 <div class="hamburger" on:click={toggleMenu}>
     <Menu size={24} />
@@ -200,6 +211,16 @@
         <Map bind:this={map}/>
     </div>
 </div>
+
+<!-- Upload Dialog -->
+<UploadDialog 
+    show={showUploadDialog} 
+    on:close={() => showUploadDialog = false} 
+    on:uploaded={() => {
+        // Refresh photos after upload
+        fetch_photos();
+    }}
+/>
 
 <style>
     /* Reset default margin, padding and prevent body scroll */
@@ -310,5 +331,48 @@
 
     .menu-button.logout:hover {
         color: #c62828;
+    }
+    
+    .upload-button-container {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        z-index: 1000;
+    }
+    
+    .floating-upload-button {
+        width: 56px;
+        height: 56px;
+        border-radius: 50%;
+        background-color: #4a90e2;
+        color: white;
+        border: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        cursor: pointer;
+        transition: background-color 0.3s, transform 0.2s;
+    }
+    
+    .floating-upload-button:hover {
+        background-color: #3a7bc8;
+        transform: translateY(-2px);
+    }
+    
+    .floating-upload-button:active {
+        transform: translateY(0);
+    }
+    
+    @media (max-width: 768px) {
+        .upload-button-container {
+            bottom: 16px;
+            right: 16px;
+        }
+        
+        .floating-upload-button {
+            width: 48px;
+            height: 48px;
+        }
     }
 </style>

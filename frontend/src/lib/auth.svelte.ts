@@ -180,9 +180,43 @@ export async function fetchUserData() {
             user: userData
         }));
         
+        // Fetch user photos
+        await fetchUserPhotos();
+        
         return userData;
     } catch (error) {
         console.error('Error fetching user ', error);
+        return null;
+    }
+}
+
+export async function fetchUserPhotos() {
+    const a = get(auth);
+    if (!a.isAuthenticated || !a.token) return null;
+    
+    try {
+        const response = await fetch('http://localhost:8089/api/photos', {
+            headers: {
+                'Authorization': `Bearer ${a.token}`
+            }
+        });
+        
+        if (!response.ok) {
+            return null;
+        }
+        
+        const photos = await response.json();
+        
+        // Update app store with user photos
+        import { app } from './data.svelte.js';
+        app.update(a => ({
+            ...a,
+            userPhotos: photos
+        }));
+        
+        return photos;
+    } catch (error) {
+        console.error('Error fetching user photos:', error);
         return null;
     }
 }
@@ -195,7 +229,7 @@ export function checkAuth() {
             // Token expired
             logout();
         } else {
-            // Token valid, fetch user data
+            // Token valid, fetch user data and photos
             fetchUserData();
         }
     }

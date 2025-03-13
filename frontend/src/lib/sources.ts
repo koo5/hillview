@@ -3,6 +3,7 @@ import {app, hillview_photos, geoPicsUrl} from "$lib/data.svelte";
 //import { Coordinate } from "tsgeo/Coordinate";
 import { LatLng } from 'leaflet';
 import {writable, get} from "svelte/store";
+import { auth } from "$lib/auth.svelte.ts";
 
 
 export let sources = writable([
@@ -32,6 +33,36 @@ export async function fetch_photos() {
         const ph = res.map(item => parse_photo_data(item));
         let src = get(sources).find(s => s.id === 'hillview');
         ph.map(p => p.source = src);
+        
+        // Add user photos if authenticated
+        const appState = get(app);
+        const authState = get(auth);
+        if (authState.isAuthenticated && appState.userPhotos && appState.userPhotos.length > 0) {
+            console.log('Adding user photos:', appState.userPhotos.length);
+            for (let photo of appState.userPhotos) {
+                // Only add photos with location data
+                if (photo.latitude && photo.longitude) {
+                    let userPhoto = {
+                        id: 'user_' + photo.id,
+                        source_type: 'user',
+                        file: photo.filename,
+                        url: `http://localhost:8089/api/photos/${photo.id}/thumbnail`,
+                        coord: new LatLng(photo.latitude, photo.longitude),
+                        bearing: photo.compass_angle || 0,
+                        altitude: photo.altitude || 0,
+                        source: src,
+                        isUserPhoto: true
+                    };
+                    
+                    if (userPhoto.bearing < 0 || userPhoto.bearing > 360) {
+                        userPhoto.bearing = 0;
+                    }
+                    
+                    ph.push(userPhoto);
+                }
+            }
+        }
+        
         console.log('fixup_bearings...');
         fixup_bearings(ph)
         console.log('Photos loaded:', ph);
