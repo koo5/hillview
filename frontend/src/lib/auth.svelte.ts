@@ -1,5 +1,6 @@
 import { writable, get } from 'svelte/store';
 import { goto } from "$app/navigation";
+import { userPhotos } from './stores';
 
 // Check for existing token
 const token = typeof localStorage !== 'undefined' ? localStorage.getItem('token') : null;
@@ -207,12 +208,8 @@ export async function fetchUserPhotos() {
         
         const photos = await response.json();
         
-        // Update app store with user photos
-        import { app } from './data.svelte.js';
-        app.update(a => ({
-            ...a,
-            userPhotos: photos
-        }));
+        // Update shared store with user photos
+        userPhotos.set(photos);
         
         return photos;
     } catch (error) {

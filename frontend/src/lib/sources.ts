@@ -4,6 +4,7 @@ import {app, hillview_photos, geoPicsUrl} from "$lib/data.svelte";
 import { LatLng } from 'leaflet';
 import {writable, get} from "svelte/store";
 import { auth } from "$lib/auth.svelte.ts";
+import { userPhotos } from './stores';
 
 
 export let sources = writable([
@@ -35,11 +36,11 @@ export async function fetch_photos() {
         ph.map(p => p.source = src);
         
         // Add user photos if authenticated
-        const appState = get(app);
         const authState = get(auth);
-        if (authState.isAuthenticated && appState.userPhotos && appState.userPhotos.length > 0) {
-            console.log('Adding user photos:', appState.userPhotos.length);
-            for (let photo of appState.userPhotos) {
+        const userPhotosList = get(userPhotos);
+        if (authState.isAuthenticated && userPhotosList && userPhotosList.length > 0) {
+            console.log('Adding user photos:', userPhotosList.length);
+            for (let photo of userPhotosList) {
                 // Only add photos with location data
                 if (photo.latitude && photo.longitude) {
                     let userPhoto = {
