@@ -10,6 +10,7 @@
     let isLogin = true;
     let errorMessage = '';
     let isLoading = false;
+    let usernameGenerated = false;
 
     // OAuth configuration
     const oauthProviders = {
@@ -84,9 +85,22 @@
         window.location.href = `${config.authUrl}?${params.toString()}`;
     }
 
+    function generateUsername() {
+        if (!isLogin && email && email.includes('@')) {
+            // Extract username from email and add random numbers for uniqueness
+            const baseUsername = email.split('@')[0].replace(/[^a-zA-Z0-9]/g, '');
+            const randomSuffix = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+            username = baseUsername + randomSuffix;
+            usernameGenerated = true;
+        }
+    }
+
     function toggleForm() {
         isLogin = !isLogin;
         errorMessage = '';
+        if (!isLogin && email) {
+            generateUsername();
+        }
     }
 </script>
 
@@ -109,6 +123,7 @@
                         type="email" 
                         id="email" 
                         bind:value={email} 
+                        on:input={generateUsername}
                         required
                         placeholder="Enter your email"
                     />
@@ -118,7 +133,7 @@
             <div class="form-group">
                 <label for="username">
                     <User size={20} />
-                    Username
+                    Username {#if !isLogin && usernameGenerated}<span class="auto-generated">(auto-generated)</span>{/if}
                 </label>
                 <input 
                     type="text" 
@@ -126,6 +141,8 @@
                     bind:value={username} 
                     required
                     placeholder="Enter your username"
+                    class:auto-generated={!isLogin && usernameGenerated}
+                    on:focus={() => usernameGenerated = false}
                 />
             </div>
             
@@ -340,5 +357,15 @@
         border-radius: 4px;
         margin-bottom: 20px;
         text-align: center;
+    }
+    
+    .auto-generated {
+        font-size: 0.8em;
+        color: #666;
+        font-style: italic;
+    }
+    
+    input.auto-generated {
+        background-color: #f5f5f5;
     }
 </style>
