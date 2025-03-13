@@ -56,17 +56,35 @@ MAPILLARY_CLIENT_TOKEN_FILE=~/.mapillary_token
 
 ### Database Setup
 
-1. Create a PostgreSQL database:
+1. Create a PostgreSQL user and database:
    ```
-   createdb hillview
+   # Create a new PostgreSQL user
+   sudo -u postgres createuser --interactive --pwprompt
+   # Enter name of role to add: hillview
+   # Enter password for new role: your_password
+   # Enter it again: your_password
+   # Shall the new role be a superuser? (y/n) n
+   # Shall the new role be allowed to create databases? (y/n) y
+   # Shall the new role be allowed to create more new roles? (y/n) n
+   
+   # Create a new database owned by the new user
+   sudo -u postgres createdb --owner=hillview hillview
+   ```
+
+   Alternatively, you can use psql:
+   ```
+   sudo -u postgres psql
+   postgres=# CREATE USER hillview WITH PASSWORD 'your_password';
+   postgres=# CREATE DATABASE hillview OWNER hillview;
+   postgres=# \q
    ```
 
 2. Configure the database connection in the `.env` file:
    ```
-   DATABASE_URL=postgresql+asyncpg://username:password@localhost/hillview
+   DATABASE_URL=postgresql+asyncpg://hillview:your_password@localhost/hillview
    ```
    
-   Replace `username`, `password`, and `hillview` with your PostgreSQL credentials and database name.
+   Replace `your_password` with the password you set for the hillview user.
 
 3. Create the database tables:
    ```
