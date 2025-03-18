@@ -4,4 +4,4 @@ https://help.mapillary.com/hc/en-us/articles/360020825811-Mapillary-Desktop-Uplo
 
 https://github.com/Raruto/leaflet-rotate
 
-
+make sure that there is an in-app dialog where users get some photo upload options: 1) manual upload: open dialog to pick files. 2) auto-upload folder: set a folder that is regularly scanned and new photos are uploaded. Add a helpful note recommending "Solocator" app for taking such photos. 3) Add a helpful note about "Mapillary" and uploading their photos to mapillary, because hillview uses mapillary as one of the sources.
