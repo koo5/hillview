@@ -323,10 +323,21 @@
 </script>
 
 {#if show}
-<div class="upload-dialog-backdrop" on:click={close}>
-    <div class="upload-dialog" on:click|stopPropagation>
+<div 
+    class="upload-dialog-backdrop" 
+    on:click={close}
+    on:keydown={(e) => e.key === 'Escape' && close()}
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="dialog-title"
+>
+    <div 
+        class="upload-dialog" 
+        on:click|stopPropagation
+        role="document"
+>
         <div class="upload-dialog-header">
-            <h2>Upload Photos</h2>
+            <h2 id="dialog-title">Upload Photos</h2>
             <button class="close-button" on:click={close} disabled={isUploading}>
                 <X size={24} />
             </button>
@@ -487,6 +498,10 @@
                         class="drop-area"
                         on:dragover={handleDragOver}
                         on:drop={handleDrop}
+                        on:keydown={(e) => {}}
+                        role="button"
+                        tabindex="0"
+                        aria-label="Drop area for photos"
                     >
                         <div class="drop-area-content">
                             <Upload size={48} />
@@ -656,11 +671,6 @@
         margin-top: 10px;
     }
     
-    .mobile-tip svg {
-        color: #4a90e2;
-        flex-shrink: 0;
-        margin-top: 2px;
-    }
     
     .mobile-tip p {
         margin: 0;
@@ -782,9 +792,6 @@
         color: #666;
     }
     
-    .drop-area-content svg {
-        color: #4a90e2;
-    }
     
     input[type="file"] {
         display: none;
