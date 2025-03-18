@@ -330,12 +330,15 @@
     role="dialog"
     aria-modal="true"
     aria-labelledby="dialog-title"
+    tabindex="0"
 >
     <div 
         class="upload-dialog" 
         on:click|stopPropagation
+        on:keydown|stopPropagation
         role="document"
->
+        tabindex="-1"
+    >
         <div class="upload-dialog-header">
             <h2 id="dialog-title">Upload Photos</h2>
             <button class="close-button" on:click={close} disabled={isUploading}>
