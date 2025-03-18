@@ -361,25 +361,6 @@
         opacity: 0.9;
     }
     
-    .toggle-form {
-        margin-top: 24px;
-        text-align: center;
-        color: #555;
-    }
-    
-    .text-button {
-        background: none;
-        border: none;
-        color: #4a90e2;
-        font-weight: 500;
-        cursor: pointer;
-        padding: 0;
-        font-size: inherit;
-    }
-    
-    .text-button:hover {
-        text-decoration: underline;
-    }
     
     .error-message {
         background-color: #ffebee;

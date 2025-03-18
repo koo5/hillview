@@ -257,7 +257,7 @@
                     type="file" 
                     id="photo-file" 
                     accept="image/*" 
-                    bind:files={e => uploadFile = e[0]} 
+                    on:change={(e) => uploadFile = e.target.files[0]} 
                     required
                 />
             </div>

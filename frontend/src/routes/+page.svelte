@@ -168,9 +168,15 @@
 {/if}
 
 <!-- Hamburger icon -->
-<div class="hamburger" on:click={toggleMenu}>
+<button 
+    class="hamburger" 
+    on:click={toggleMenu}
+    on:keydown={(e) => e.key === 'Enter' && toggleMenu()}
+    aria-label="Toggle menu"
+    aria-expanded={menuOpen}
+>
     <Menu size={24} />
-</div>
+</button>
 
 {#if menuOpen}
 
@@ -291,6 +297,8 @@
         justify-content: center;
         box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
         cursor: pointer;
+        border: none;
+        padding: 0;
     }
 
     .nav-menu {
