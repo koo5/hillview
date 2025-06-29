@@ -52,7 +52,7 @@ def apply_blur(image, boxes):
         x2, y2 = min(x2, image.shape[1]), min(y2, image.shape[0])
         roi = image[y1:y2, x1:x2]
         if roi.size > 0:
-            image[y1:y2, x1:x2] = cv2.GaussianBlur(roi, (51, 51), 0)
+            image[y1:y2, x1:x2] = cv2.GaussianBlur(roi, (151, 151), 0)
     return image
 
 def process_directory(input_dir, output_dir, force_copy_all_images=False):
