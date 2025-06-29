@@ -29,10 +29,15 @@ TARGET_CLASSES = {
 }
 
 # Load YOLO model
-model = YOLO('yolov5su.pt')  # You can swap with yolov8 if preferred
+model = None
 
 def detect_targets(image):
     """Detect target objects in the image using YOLO."""
+    global model
+
+    if model is None:
+        model = YOLO("yolov5su.pt")
+
     results = model(image)[0]
     boxes = []
     for box in results.boxes:
