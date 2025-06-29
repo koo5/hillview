@@ -131,6 +131,8 @@ class Geo:
     def index(source_directory, directory):
         """iterate all files and create a json list of files with geo and bearing exif data"""
 
+        os.makedirs(directory, exist_ok=True)
+
         database = []
         files = sorted([f for f in os.listdir(source_directory) if os.path.isfile(os.path.join(source_directory, f))])
         print(str(len(files)) + ' files indexing...');
@@ -199,7 +201,7 @@ class Geo:
                 print()
                 print('file:', file['file'])
                 width, height = imgsize(input_file_path)
-                print('width:', width, 'height:', height)
+                #print('width:', width, 'height:', height)
 
                 anon_dir = '/tmp/geo/anon';
                 anon_file_path = anon_dir + '/' + file['file']
@@ -237,9 +239,12 @@ class Geo:
                         print('cmd:', shlex.join(cmd))
                         subprocess.run(cmd)
                 print('db:', file)
-            except:
-                errors.append(file)
-                print('error:', file)
+            except Exception as e:
+                errors.append({
+                    'file': file['file'],
+                    'error': str(e)
+                })
+                print('error:', e);
 
             result.append(file)
             result.sort(key=lambda x: x['bearing'])
