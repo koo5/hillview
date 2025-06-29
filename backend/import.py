@@ -203,7 +203,7 @@ class Geo:
                 width, height = imgsize(input_file_path)
                 #print('width:', width, 'height:', height)
 
-                anon_dir = '/tmp/geo/anon';
+                anon_dir = '/tmp/geo_anon';
                 anon_file_path = anon_dir + '/' + file['file']
                 os.makedirs(anon_dir, exist_ok=True)
                 if anonymize_image(source_directory, anon_dir, file['file']):
