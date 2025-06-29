@@ -11,6 +11,7 @@ import exifread
 import shlex
 import subprocess
 
+from anonymize import anonymize_image
 
 extensions = ['.jpg', '.jpeg', '.tiff', '.png', '.heic', '.heif']
 
@@ -176,7 +177,9 @@ class Geo:
 
         have_files = {}
         try:
-            with open(directory + '/files.json', 'r') as f:
+            old_fn = directory + '/files.json'
+            print('loading old files from:', old_fn)
+            with open(old_fn, 'r') as f:
                 old = json.load(f)
                 for file in old:
                     have_files[file['file']] = file
@@ -197,6 +200,13 @@ class Geo:
                 print('file:', file['file'])
                 width, height = imgsize(input_file_path)
                 print('width:', width, 'height:', height)
+
+                anon_dir = '/tmp/geo/anon';
+                anon_file_path = anon_dir + '/' + file['file']
+                os.makedirs(anon_dir, exist_ok=True)
+                if anonymize_image(source_directory, anon_dir, file['file']):
+                    input_file_path = anon_file_path
+                    print('anonymized:', input_file_path)
 
                 for size in ['full', 50, 320, 640, 1024, 1600, 2048, 2560, 3072]:
 
