@@ -4,7 +4,7 @@ StartLimitIntervalSec=600
 StartLimitBurst=400
 
 [Service]
-ExecStart=/home/user/geo.sh
+ExecStart=/home/user/repos/koo5/hillview/0/hillview/backend/geo.sh
 Environment="PYTHONUNBUFFERED=1"
 User=user
 

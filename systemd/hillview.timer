@@ -3,8 +3,8 @@ Description=hillview timer
 
 [Timer]
 AccuracySec=50s
-OnBootSec=1000s
-OnUnitActiveSec=30m
+OnBootSec=200s
+OnUnitActiveSec=1m
 Unit=hillview.service
 
 [Install]
