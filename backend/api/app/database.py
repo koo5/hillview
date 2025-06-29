@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Database configuration
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost/hillview")
+DATABASE_URL = os.getenv("DATABASE_URL", "hillview+asyncpg://hillview:hillview@localhost/hillview")
 
 # Create async engine
 engine = create_async_engine(DATABASE_URL)
