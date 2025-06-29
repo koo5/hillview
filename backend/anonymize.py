@@ -1,12 +1,8 @@
 #!/usr/bin/env python3
 
-
 import fire
-from ultralytics import YOLO
-import cv2
 import os
 import logging
-from datetime import datetime
 
 logging.basicConfig(
     level=logging.INFO,
@@ -14,8 +10,6 @@ logging.basicConfig(
 )
 console = logging.StreamHandler()
 console.setLevel(logging.DEBUG)
-#console.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
-#logging.getLogger().addHandler(console)
 
 
 # Define target classes for full anonymization (people + vehicles)
@@ -35,7 +29,9 @@ def detect_targets(image):
     """Detect target objects in the image using YOLO."""
     global model
 
+
     if model is None:
+        from ultralytics import YOLO
         model = YOLO("yolov5su.pt")
 
     results = model(image)[0]
@@ -49,6 +45,8 @@ def detect_targets(image):
 
 def apply_blur(image, boxes):
     """Apply Gaussian blur to the regions defined by boxes."""
+    import cv2
+
     for cls_id, (x1, y1, x2, y2) in boxes:
         x1, y1 = max(0, x1), max(0, y1)
         x2, y2 = min(x2, image.shape[1]), min(y2, image.shape[0])
@@ -69,6 +67,8 @@ def process_directory(input_dir, output_dir, force_copy_all_images=False):
 def anonymize_image(input_dir, output_dir, filename, force_copy_all_images=False):
     if not filename.lower().endswith(('.jpg', '.jpeg', '.png')):
         return False
+
+    import cv2
 
     input_path = os.path.join(input_dir, filename)
     image = cv2.imread(input_path)
