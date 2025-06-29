@@ -131,7 +131,9 @@ class Geo:
         """iterate all files and create a json list of files with geo and bearing exif data"""
 
         database = []
-        for file in sorted(os.listdir(source_directory)):
+        files = sorted(os.listdir(source_directory))
+        print(str(len(files)) + ' files indexing...');
+        for file in files:
             if is_pic(file):
                 filepath = os.path.join(source_directory, file)
                 tags = geo_and_bearing_exif(filepath)
@@ -152,6 +154,7 @@ class Geo:
         json_file = os.path.join(directory, 'files0.json')
         with open(json_file, 'w') as f:
             json.dump(database, f, indent=4)
+	print('indexing done')
 
 
     @staticmethod
@@ -167,6 +170,8 @@ class Geo:
 
         result = []
         errors = []
+
+        print('optimize ' + str(len(files)) + ' files');
 
         for file in files:
             try:
