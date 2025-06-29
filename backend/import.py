@@ -154,7 +154,7 @@ class Geo:
         json_file = os.path.join(directory, 'files0.json')
         with open(json_file, 'w') as f:
             json.dump(database, f, indent=4)
-	print('indexing done')
+    print('indexing done')
 
 
     @staticmethod
