@@ -343,49 +343,49 @@ async def process_photo(
                 await db.commit()
     except Exception as e:
         log.error(f"Error processing photo {photo_id}: {e}")
-
-@app.post("/api/photos/upload", response_model=PhotoResponse)
-async def upload_photo(
-    background_tasks: BackgroundTasks,
-    file: UploadFile = File(...),
-    description: str = Form(None),
-    is_public: bool = Form(True),
-    current_user: User = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db)
-):
-    # Create a unique filename
-    file_ext = os.path.splitext(file.filename)[1]
-    unique_filename = f"{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{current_user.id}{file_ext}"
-    file_path = UPLOAD_DIR / unique_filename
-    thumbnail_path = THUMBNAIL_DIR / unique_filename
-    
-    # Save the uploaded file
-    async with aiofiles.open(file_path, 'wb') as out_file:
-        content = await file.read()
-        await out_file.write(content)
-    
-    # Create photo record
-    photo = Photo(
-        filename=file.filename,
-        filepath=str(file_path),
-        description=description,
-        is_public=is_public,
-        owner_id=current_user.id
-    )
-    db.add(photo)
-    await db.commit()
-    await db.refresh(photo)
-    
-    # Process the photo in the background
-    background_tasks.add_task(
-        process_photo,
-        str(file_path),
-        str(thumbnail_path),
-        photo.id,
-        db
-    )
-    
-    return photo
+#
+# @app.post("/api/photos/upload", response_model=PhotoResponse)
+# async def upload_photo(
+#     background_tasks: BackgroundTasks,
+#     file: UploadFile = File(...),
+#     description: str = Form(None),
+#     is_public: bool = Form(True),
+#     current_user: User = Depends(get_current_active_user),
+#     db: AsyncSession = Depends(get_db)
+# ):
+#     # Create a unique filename
+#     file_ext = os.path.splitext(file.filename)[1]
+#     unique_filename = f"{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{current_user.id}{file_ext}"
+#     file_path = UPLOAD_DIR / unique_filename
+#     thumbnail_path = THUMBNAIL_DIR / unique_filename
+#
+#     # Save the uploaded file
+#     async with aiofiles.open(file_path, 'wb') as out_file:
+#         content = await file.read()
+#         await out_file.write(content)
+#
+#     # Create photo record
+#     photo = Photo(
+#         filename=file.filename,
+#         filepath=str(file_path),
+#         description=description,
+#         is_public=is_public,
+#         owner_id=current_user.id
+#     )
+#     db.add(photo)
+#     await db.commit()
+#     await db.refresh(photo)
+#
+#     # Process the photo in the background
+#     background_tasks.add_task(
+#         process_photo,
+#         str(file_path),
+#         str(thumbnail_path),
+#         photo.id,
+#         db
+#     )
+#
+#     return photo
 
 @app.delete("/api/photos/{photo_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_photo(
