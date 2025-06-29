@@ -131,7 +131,7 @@ class Geo:
         """iterate all files and create a json list of files with geo and bearing exif data"""
 
         database = []
-        files = sorted(os.listdir(source_directory))
+        files = sorted([f for f in os.listdir(source_directory) if os.path.isfile(os.path.join(source_directory, f))])
         print(str(len(files)) + ' files indexing...');
         for file in files:
             if is_pic(file):
@@ -154,7 +154,7 @@ class Geo:
         json_file = os.path.join(directory, 'files0.json')
         with open(json_file, 'w') as f:
             json.dump(database, f, indent=4)
-    print('indexing done')
+        print('indexing done, indexed ' + str(len(database)) + ' files, written to ' + json_file)
 
 
     @staticmethod
@@ -173,7 +173,23 @@ class Geo:
 
         print('optimize ' + str(len(files)) + ' files');
 
+
+        have_files = {}
+        try:
+            with open(directory + '/files.json', 'r') as f:
+                old = json.load(f)
+                for file in old:
+                    have_files[file['file']] = file
+        except FileNotFoundError:
+            print('no files.json found, creating new one')
+
+
         for file in files:
+            if file['file'] in have_files:
+                file = have_files[file['file']]
+                print('file already processed:', file['file'])
+                result.append(file)
+                continue
             try:
                 input_file_path = source_directory + '/' + file['file']
 
@@ -223,6 +239,12 @@ class Geo:
 
             with open(directory + '/errors1.json', 'w') as f:
                 json.dump(errors, f, indent=4)
+
+        with open(directory + '/files1.json', 'w') as f:
+            json.dump(result, f, indent=4)
+
+        with open(directory + '/errors1.json', 'w') as f:
+            json.dump(errors, f, indent=4)
 
         shutil.copy2(directory + '/files1.json', directory + '/files.json')
 
