@@ -1,17 +1,22 @@
 version: '3.8'
 
 services:
-  fastapi:
+  api:
     restart: always
     build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: fastapi_container
+      context: api
+      dockerfile: app/Dockerfile
+    container_name: api
     network_mode: host
     volumes:
-      - .:/app
       - ./secrets:/secrets:ro
     environment:
       - MAPILLARY_CLIENT_TOKEN_FILE=/secrets/MAPILLARY_CLIENT_TOKEN
     command: uvicorn app.api:app --host 0.0.0.0 --port 8089 --reload
-    
+#    secrets:
+#      - MAPILLARY_CLIENT_TOKEN
+#
+#secrets:
+#    MAPILLARY_CLIENT_TOKEN:
+#        file: secrets/MAPILLARY_CLIENT_TOKEN
+#
