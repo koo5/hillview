@@ -3,7 +3,7 @@
     import PhotoGallery from '../components/Gallery.svelte';
     import Map from '../components/Map.svelte';
     import UploadDialog from '../components/UploadDialog.svelte';
-    import {Camera, Compass, User, LogOut, Upload, Menu} from 'lucide-svelte';
+    import {Camera, Compass, User, LogOut, Upload, Menu, Download} from 'lucide-svelte';
     import {fetch_photos} from "$lib/sources.js";
     import {dms} from "$lib/utils.js";
     import {app, pos, bearing, turn_to_photo_to, update_bearing, update_pos} from "$lib/data.svelte.js";
@@ -209,6 +209,12 @@
             {/if}
             <li><a href="/upload" on:click={() => menuOpen = false}>Sources</a></li>
             <li><a href="/about" on:click={() => menuOpen = false}>About</a></li>
+            <li>
+                <a href="/hillview.apk" download on:click={() => menuOpen = false}>
+                    <Download size={18} />
+                    Download Android App
+                </a>
+            </li>
             {#if isAuthenticated}
                 <li>
                     <button class="menu-button logout" on:click={handleLogout}>
