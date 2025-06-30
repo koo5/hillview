@@ -2,10 +2,10 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "hillview",
   "version": "0.1.0",
-  "identifier": "io.github.koo5",
+  "identifier": "io.github.koo5.hillview",
   "build": {
-    "frontendDist": "../static",
-    "devUrl": "http://localhost:5173",
+    "frontendDist": "../build",
+    "devUrl": "http://localhost:8080",
     "beforeDevCommand": "bun run dev",
     "beforeBuildCommand": "bun run build"
   },
