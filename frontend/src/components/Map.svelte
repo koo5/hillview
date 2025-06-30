@@ -6,6 +6,7 @@
     import L from 'leaflet';
     import 'leaflet/dist/leaflet.css';
     import Spinner from './Spinner.svelte';
+    import { geolocation } from '$lib/geolocation';
 
     import {
         app,
@@ -282,27 +283,23 @@
     }
     
     // Start tracking user location
-    function startLocationTracking() {
-        if (!navigator.geolocation) {
-            alert("Geolocation is not supported by your browser");
-            return;
-        }
-
+    async function startLocationTracking() {
         locationTrackingLoading = true;
         
         // Get initial position
-        navigator.geolocation.getCurrentPosition(
+        await geolocation.getCurrentPosition(
             updateUserLocation,
             (error) => {
                 console.error("Error getting location:", error);
                 alert(`Unable to get your location: ${error.message}`);
                 locationTracking = false;
+                locationTrackingLoading = false;
             },
             { enableHighAccuracy: true }
         );
         
         // Start watching position
-        watchId = navigator.geolocation.watchPosition(
+        watchId = await geolocation.watchPosition(
             updateUserLocation,
             (error) => {
                 console.error("Error watching location:", error);
@@ -312,10 +309,10 @@
     }
     
     // Stop tracking user location
-    function stopLocationTracking() {
+    async function stopLocationTracking() {
         locationTrackingLoading = false;
         if (watchId !== null) {
-            navigator.geolocation.clearWatch(watchId);
+            await geolocation.clearWatch(watchId);
             watchId = null;
         }
     }
@@ -394,11 +391,11 @@
 
     //import.meta.hot?.dispose(() => (map = null));
 
-    onDestroy(() => {
+    onDestroy(async () => {
         console.log('Map component destroyed');
         // Clean up geolocation watcher if active
         if (watchId !== null) {
-            navigator.geolocation.clearWatch(watchId);
+            await geolocation.clearWatch(watchId);
         }
         
         // Clean up slideshow timer if active
