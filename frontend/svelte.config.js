@@ -6,6 +6,10 @@ const config = {
 	// Consult https://svelte.dev/docs/kit/integrations
 	// for more information about preprocessors
 	preprocess: vitePreprocess(),
+	
+	compilerOptions: {
+		enableSourcemap: true
+	},
 
 	kit: {
 		// adapter-auto only supports some environments, see https://svelte.dev/docs/kit/adapter-auto for a list.
@@ -16,10 +20,14 @@ const config = {
 			// these options are set automatically — see below
 			pages: 'build',
 			assets: 'build',
-			fallback: undefined,
+			fallback: 'index.html',
 			precompress: false,
 			strict: false
-		})
+		}),
+		paths: {
+			base: '',
+			assets: ''
+		}
 	}
 };
 

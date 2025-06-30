@@ -9,5 +9,11 @@ export default defineConfig({
 	})],
 	server: {
 		host: true
+	},
+	optimizeDeps: {
+		include: ['svelte-leafletjs']
+	},
+	build: {
+		minify: false
 	}
 });

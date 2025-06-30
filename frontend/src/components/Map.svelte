@@ -1,12 +1,10 @@
-<script lang="ts">
+<script>
     import {onMount, onDestroy, tick} from 'svelte';
     import {Polygon, LeafletMap, TileLayer, Marker, Circle, ScaleControl} from 'svelte-leafletjs';
-    import {LatLng} from 'leaflet';
+    import * as L from 'leaflet';
     import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle, MapPin, Pause} from 'lucide-svelte';
-    import L from 'leaflet';
     import 'leaflet/dist/leaflet.css';
     import Spinner from './Spinner.svelte';
-
     import {
         app,
         pos,
@@ -19,9 +17,8 @@
         photo_to_right,
         update_bearing,
         turn_to_photo_to, update_pos2
-    } from "$lib/data.svelte.js";
+    } from "$lib/data.svelte.ts";
     import {sources} from "$lib/sources.ts";
-
     import {get} from "svelte/store";
 
     let flying = false;
@@ -112,7 +109,7 @@
     }
 
     // Calculate how many km are "visible" based on the current zoom/center
-    function get_range(_center: LatLng) {
+    function get_range(_center) {
         const pointC = map.latLngToContainerPoint(_center);
         // Move 100px to the right
         const pointR = L.point(pointC.x + fov_circle_radius_px, pointC.y);
@@ -125,7 +122,7 @@
         if (!map) return;
         if (map.getCenter() !== v.center || map.getZoom() !== v.zoom) {
             console.log('setView', v.center, v.zoom);
-            map.setView(new LatLng(v.center.lat, v.center.lng), v.zoom);
+            map.setView(new L.LatLng(v.center.lat, v.center.lng), v.zoom);
             onMapStateChange(true, 'pos.subscribe');
         }
     });
@@ -154,7 +151,7 @@
         let p = get(pos);
         let new_v = {
             ...p,
-            center: new LatLng(_center.lat, _center.lng),
+            center: new L.LatLng(_center.lat, _center.lng),
             zoom: _zoom,
             reason: `onMapStateChange(${force}, ${reason})`,
         };
@@ -352,7 +349,7 @@
                 update_pos((value) => {
                     return {
                         ...value,
-                        center: new LatLng(latitude, longitude),
+                        center: new L.LatLng(latitude, longitude),
                         reason: 'updateUserLocation'
                     };
                 });
@@ -367,7 +364,7 @@
                 update_pos((value) => {
                     return {
                         ...value,
-                        center: new LatLng(latitude, longitude),
+                        center: new L.LatLng(latitude, longitude),
                         reason: 'updateUserLocation'
                     };
                 });
@@ -449,8 +446,10 @@
 <div bind:clientHeight={height} bind:clientWidth={width} class="map">
     <LeafletMap
             bind:this={elMap}
-            events={{moveend: mapStateUserEvent, zoomend: mapStateUserEvent}}
+            events={['moveend', 'zoomend']}
             options={{center: [$pos.center.lat, $pos.center.lng], zoom: $pos.zoom}}
+            on:moveend={mapStateUserEvent}
+            on:zoomend={mapStateUserEvent}
     >
 
         <ScaleControl options={{maxWidth: 100}} position="bottomleft"/>

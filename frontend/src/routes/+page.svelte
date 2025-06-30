@@ -4,9 +4,9 @@
     import Map from '../components/Map.svelte';
     import UploadDialog from '../components/UploadDialog.svelte';
     import {Camera, Compass, User, LogOut, Upload, Menu} from 'lucide-svelte';
-    import {fetch_photos} from "$lib/sources.js";
-    import {dms} from "$lib/utils.js";
-    import {app, pos, bearing, turn_to_photo_to, update_bearing, update_pos} from "$lib/data.svelte.js";
+    import {fetch_photos} from "$lib/sources.ts";
+    import {dms} from "$lib/utils.ts";
+    import {app, pos, bearing, turn_to_photo_to, update_bearing, update_pos} from "$lib/data.svelte.ts";
     import {LatLng} from 'leaflet';
     import { goto, replaceState } from "$app/navigation";
     import {get, writable} from "svelte/store";
@@ -35,7 +35,7 @@
 
         if (lat && lon) {
             console.log('Setting position to', lat, lon, 'from URL');
-            p.center = new LatLng(parseFloat(lat), parseFloat(lon));
+            p.center = new L.LatLng(parseFloat(lat), parseFloat(lon));
             update = true;
         }
 
