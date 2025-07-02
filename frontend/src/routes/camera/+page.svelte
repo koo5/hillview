@@ -2,6 +2,7 @@
 	import PhotoCapture from '../../components/PhotoCapture.svelte';
 	import type { CapturedPhotoData } from '$lib/photoCapture';
 	import { fetch_photos } from '$lib/sources';
+	import { goto } from '$app/navigation';
 	
 	interface CapturedPhotoWithPath extends CapturedPhotoData {
 		savedPath: string;
@@ -14,12 +15,21 @@
 		// Refresh photos to include the new device photo
 		await fetch_photos();
 	}
+	
+	function goBack() {
+		goto('/');
+	}
 </script>
 
 <div class="camera-page">
-	<h1>Take Photo</h1>
+	<div class="header">
+		<button class="back-button" on:click={goBack} aria-label="Go back">
+			← Back
+		</button>
+		<h1>📸 Camera</h1>
+	</div>
 	
-	<PhotoCapture on:photoCaptured={handlePhotoCaptured} />
+	<PhotoCapture on:photoCaptured={handlePhotoCaptured} autoCapture={true} />
 	
 	{#if capturedPhotos.length > 0}
 		<div class="captured-photos">
@@ -50,11 +60,34 @@
 	.camera-page {
 		max-width: 800px;
 		margin: 0 auto;
-		padding: 2rem;
+		padding: 1rem;
+	}
+	
+	.header {
+		display: flex;
+		align-items: center;
+		gap: 1rem;
+		margin-bottom: 2rem;
+	}
+	
+	.back-button {
+		padding: 0.5rem 1rem;
+		background: #f0f0f0;
+		border: none;
+		border-radius: 4px;
+		cursor: pointer;
+		font-size: 1rem;
+		transition: background 0.2s;
+	}
+	
+	.back-button:hover {
+		background: #e0e0e0;
 	}
 	
 	h1 {
-		margin-bottom: 2rem;
+		margin: 0;
+		flex: 1;
+		text-align: center;
 	}
 	
 	.captured-photos {

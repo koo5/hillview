@@ -6,11 +6,16 @@
 
 	const dispatch = createEventDispatcher();
 
+	export let autoCapture = false; // Allow auto-opening camera when ready
+
 	let fileInput: HTMLInputElement;
 	let capturing = false;
+	let initializingLocation = false;
+	let locationReady = false;
 	let locationError: string | null = null;
 	let currentLocation: GeolocationPosition | null = null;
 	let previewUrl: string | null = null;
+	let watchId: number | null = null;
 
 	async function getLocationData(): Promise<GeolocationPosition> {
 		return new Promise((resolve, reject) => {
@@ -18,10 +23,12 @@
 				(position) => {
 					currentLocation = position;
 					locationError = null;
+					locationReady = true;
 					resolve(position);
 				},
 				(error) => {
 					locationError = error.message;
+					locationReady = false;
 					reject(error);
 				},
 				{
@@ -33,20 +40,63 @@
 		});
 	}
 
-	async function capturePhoto() {
-		capturing = true;
-		locationError = null;
+	async function startLocationWatch() {
+		// Watch position for continuous updates
+		watchId = geolocation.watchPosition(
+			(position) => {
+				currentLocation = position;
+				locationError = null;
+				locationReady = true;
+			},
+			(error) => {
+				locationError = error.message;
+				locationReady = false;
+			},
+			{
+				enableHighAccuracy: true,
+				timeout: 5000,
+				maximumAge: 0
+			}
+		);
+	}
 
+	async function initializeLocation() {
+		initializingLocation = true;
 		try {
-			// Get location first
-			const location = await getLocationData();
+			await getLocationData();
+			startLocationWatch();
 			
-			// Trigger file input
-			fileInput.click();
+			// If autoCapture is enabled and location is ready, open camera
+			if (autoCapture && locationReady && fileInput) {
+				setTimeout(() => {
+					fileInput.click();
+				}, 500); // Small delay to ensure UI is ready
+			}
 		} catch (error) {
-			capturing = false;
-			console.error('Failed to get location:', error);
+			console.error('Failed to initialize location:', error);
+		} finally {
+			initializingLocation = false;
 		}
+	}
+
+	async function capturePhoto() {
+		if (!locationReady) {
+			capturing = true;
+			locationError = null;
+
+			try {
+				// Try to get fresh location
+				await getLocationData();
+			} catch (error) {
+				capturing = false;
+				console.error('Failed to get location:', error);
+				return;
+			}
+		}
+
+		// Trigger file input
+		fileInput.click();
+		capturing = false;
 	}
 
 	async function handleFileSelect(event: Event) {
@@ -89,9 +139,16 @@
 	}
 
 	onMount(() => {
+		// Initialize location immediately when component mounts
+		initializeLocation();
+
 		return () => {
+			// Cleanup
 			if (previewUrl) {
 				URL.revokeObjectURL(previewUrl);
+			}
+			if (watchId !== null) {
+				geolocation.clearWatch(watchId);
 			}
 		};
 	});
@@ -110,26 +167,45 @@
 
 	<button
 		on:click={capturePhoto}
-		disabled={capturing}
-		class="capture-button"
+		disabled={capturing || initializingLocation || (!locationReady && !currentLocation)}
+		class="capture-button {locationReady ? 'ready' : ''}"
 		data-testid="capture-button"
 	>
-		{#if capturing}
+		{#if initializingLocation}
 			<span class="spinner"></span>
 			Getting location...
-		{:else}
+		{:else if capturing}
+			<span class="spinner"></span>
+			Opening camera...
+		{:else if locationReady}
 			📸 Take Photo
+		{:else if locationError}
+			⚠️ Enable Location
+		{:else}
+			📍 Waiting for location...
 		{/if}
 	</button>
 
 	{#if locationError}
 		<div class="error" data-testid="location-error">
-			⚠️ Location error: {locationError}
+			<div class="error-content">
+				<span>⚠️ Location error: {locationError}</span>
+				{#if locationError.includes('denied') || locationError.includes('permission')}
+					<button class="retry-button" on:click={initializeLocation}>
+						🔄 Retry
+					</button>
+				{/if}
+			</div>
+			{#if locationError.includes('denied')}
+				<div class="permission-help">
+					Please enable location permissions in your device settings to use this feature.
+				</div>
+			{/if}
 		</div>
 	{/if}
 
-	{#if currentLocation && !capturing}
-		<div class="location-info" data-testid="location-info">
+	{#if currentLocation}
+		<div class="location-info {locationReady ? 'active' : ''}" data-testid="location-info">
 			<div>📍 Lat: {currentLocation.coords.latitude.toFixed(6)}</div>
 			<div>📍 Lng: {currentLocation.coords.longitude.toFixed(6)}</div>
 			{#if currentLocation.coords.heading !== null}
@@ -139,6 +215,9 @@
 				<div>⛰️ Alt: {currentLocation.coords.altitude.toFixed(1)}m</div>
 			{/if}
 			<div>🎯 Accuracy: ±{currentLocation.coords.accuracy.toFixed(1)}m</div>
+			{#if watchId !== null}
+				<div class="live-indicator">🔴 Live</div>
+			{/if}
 		</div>
 	{/if}
 
@@ -184,6 +263,27 @@
 		cursor: not-allowed;
 	}
 
+	.capture-button.ready {
+		background: #28a745;
+		animation: pulse 2s infinite;
+	}
+
+	.capture-button.ready:hover {
+		background: #218838;
+	}
+
+	@keyframes pulse {
+		0% {
+			box-shadow: 0 0 0 0 rgba(40, 167, 69, 0.4);
+		}
+		70% {
+			box-shadow: 0 0 0 10px rgba(40, 167, 69, 0);
+		}
+		100% {
+			box-shadow: 0 0 0 0 rgba(40, 167, 69, 0);
+		}
+	}
+
 	.spinner {
 		display: inline-block;
 		width: 1rem;
@@ -200,11 +300,41 @@
 	}
 
 	.error {
-		padding: 0.5rem;
+		padding: 0.75rem;
 		background: #fee;
 		color: #c00;
 		border-radius: 4px;
 		font-size: 0.9rem;
+		border: 1px solid #fcc;
+	}
+
+	.error-content {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 1rem;
+	}
+
+	.retry-button {
+		padding: 0.25rem 0.75rem;
+		background: white;
+		color: #c00;
+		border: 1px solid #c00;
+		border-radius: 4px;
+		cursor: pointer;
+		font-size: 0.85rem;
+		transition: all 0.2s;
+	}
+
+	.retry-button:hover {
+		background: #c00;
+		color: white;
+	}
+
+	.permission-help {
+		margin-top: 0.5rem;
+		font-size: 0.85rem;
+		color: #800;
 	}
 
 	.location-info {
@@ -216,6 +346,27 @@
 		border-radius: 4px;
 		font-size: 0.9rem;
 		font-family: monospace;
+		border: 2px solid transparent;
+		transition: all 0.3s;
+		position: relative;
+	}
+
+	.location-info.active {
+		background: #e8f5e9;
+		border-color: #4caf50;
+	}
+
+	.live-indicator {
+		position: absolute;
+		top: 0.5rem;
+		right: 0.5rem;
+		font-size: 0.8rem;
+		animation: blink 1.5s infinite;
+	}
+
+	@keyframes blink {
+		0%, 50% { opacity: 1; }
+		51%, 100% { opacity: 0.3; }
 	}
 
 	.preview {
