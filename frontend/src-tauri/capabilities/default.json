@@ -7,6 +7,13 @@
   ],
   "permissions": [
     "core:default",
-    "geolocation:default"
+    "geolocation:default",
+    "fs:default",
+    "fs:allow-write-text-file",
+    "fs:allow-read-text-file",
+    "fs:allow-mkdir",
+    "fs:allow-read-dir",
+    "fs:allow-appdata-write-recursive",
+    "fs:allow-appdata-read-recursive"
   ]
 }

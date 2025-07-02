@@ -4,6 +4,9 @@ import { localStorageSharedStore } from './svelte-shared-store';
 // Shared stores that can be imported by both auth and data modules
 export const userPhotos = writable([]);
 
+// Store for device-captured photos (loaded from backend)
+export const devicePhotos = writable([]);
+
 // Store for auto-upload folder settings
 export const autoUploadSettings = localStorageSharedStore('autoUploadSettings', {
     enabled: false,

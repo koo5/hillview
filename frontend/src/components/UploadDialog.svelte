@@ -332,10 +332,8 @@
     aria-labelledby="dialog-title"
     tabindex="0"
 >
-    <section 
+    <div 
         class="upload-dialog" 
-        on:click|stopPropagation
-        on:keydown|stopPropagation
         role="document"
         tabindex="-1"
     >
@@ -602,7 +600,7 @@
                 {/if}
             </div>
         </div>
-    </section>
+    </div>
 </div>
 {/if}
 

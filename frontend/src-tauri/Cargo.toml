@@ -24,3 +24,9 @@ log = "0.4"
 tauri = { version = "2.6.2", features = [] }
 tauri-plugin-log = "2"
 tauri-plugin-geolocation = "2"
+tauri-plugin-fs = "2"
+img-parts = "0.3"
+chrono = "0.4"
+image = "0.24"
+uuid = { version = "1.6", features = ["v4"] }
+kamadak-exif = "0.5"

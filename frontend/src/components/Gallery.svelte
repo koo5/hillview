@@ -16,6 +16,7 @@
     } from "$lib/data.svelte.ts";
     import {dms} from "$lib/utils.ts";
     import Photo from "./Photo.svelte";
+    import { getDevicePhotoUrl } from '$lib/devicePhotoHelper';
 
     let clientWidth;
     
@@ -29,7 +30,11 @@
         <div class="thumbnails-top">
             {#each $photos_to_left as photo}
                 <div class="thumbnail" on:click={() => handleThumbnailClick(photo)} role="button" tabindex="0" on:keydown={e => e.key === 'Enter' && handleThumbnailClick(photo)}>
-                    {#if photo.sizes && photo.sizes[50]}
+                    {#if photo.isDevicePhoto}
+                        {#await getDevicePhotoUrl(photo.url) then url}
+                            <img src={url} alt="Thumbnail" style:border-color={photo.bearing_color || '#ccc'}/>
+                        {/await}
+                    {:else if photo.sizes && photo.sizes[50]}
                         <img src={photo.sizes[50].url} alt="Thumbnail" style:border-color={photo.bearing_color || '#ccc'}/>
                     {/if}
                 </div>
@@ -53,7 +58,11 @@
         <div class="thumbnails-bottom">
             {#each reversed($photos_to_right) as photo}
                 <div class="thumbnail" on:click={() => handleThumbnailClick(photo)} role="button" tabindex="0" on:keydown={e => e.key === 'Enter' && handleThumbnailClick(photo)}>
-                    {#if photo.sizes && photo.sizes[50]}
+                    {#if photo.isDevicePhoto}
+                        {#await getDevicePhotoUrl(photo.url) then url}
+                            <img src={url} alt="Thumbnail" style="border-color: {photo.bearing_color || '#ccc'}"/>
+                        {/await}
+                    {:else if photo.sizes && photo.sizes[50]}
                         <img src={photo.sizes[50].url} alt="Thumbnail" style="border-color: {photo.bearing_color || '#ccc'}"/>
                     {/if}
                 </div>

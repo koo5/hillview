@@ -211,6 +211,17 @@
     {/if}
 </button>
 
+<!-- Camera button -->
+<button 
+    class="camera-button" 
+    on:click={() => goto('/camera')}
+    on:keydown={(e) => e.key === 'Enter' && goto('/camera')}
+    aria-label="Take photo"
+    title="Take photo with location"
+>
+    <Camera size={24} />
+</button>
+
 {#if menuOpen}
 
     <nav class="nav-menu">
@@ -362,6 +373,24 @@
         position: absolute;
         top: 10px;
         left: 60px;
+        z-index: 30001;
+        background: white;
+        border-radius: 50%;
+        width: 40px;
+        height: 40px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        cursor: pointer;
+        border: none;
+        padding: 0;
+    }
+    
+    .camera-button {
+        position: absolute;
+        top: 10px;
+        left: 110px;
         z-index: 30001;
         background: white;
         border-radius: 50%;

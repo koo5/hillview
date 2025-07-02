@@ -4,12 +4,14 @@ import {app, hillview_photos, geoPicsUrl} from "$lib/data.svelte";
 import { LatLng } from 'leaflet';
 import {writable, get} from "svelte/store";
 import { auth } from "$lib/auth.svelte.ts";
-import { userPhotos } from './stores';
+import { userPhotos, devicePhotos } from './stores';
+import { photoCaptureService } from './photoCapture';
 
 
 export let sources = writable([
     {id: 'hillview', name: 'Hillview', enabled: true, requests: [], color: '#000'},
     {id: 'mapillary', name: 'Mapillary', enabled: false, requests: [], color: '#888'},
+    {id: 'device', name: 'My Device', enabled: true, requests: [], color: '#4a90e2'},
 ]);
 
 
@@ -17,6 +19,15 @@ export async function fetch_photos() {
     console.log('Fetching photos...');
     try {
         app.update(state => ({ ...state, loading: true, error: null }));
+        
+        // Load device photos from backend
+        try {
+            const devicePhotosDb = await photoCaptureService.loadDevicePhotos();
+            devicePhotos.set(devicePhotosDb.photos);
+        } catch (error) {
+            console.error('Failed to load device photos:', error);
+        }
+        
         const response = await fetch(`${geoPicsUrl}/files.json`, {
             headers: { Accept: 'application/json' }
         });
@@ -61,6 +72,41 @@ export async function fetch_photos() {
                     
                     ph.push(userPhoto);
                 }
+            }
+        }
+        
+        // Add device photos
+        const devicePhotosList = get(devicePhotos);
+        const deviceSource = get(sources).find(s => s.id === 'device');
+        if (deviceSource && deviceSource.enabled && devicePhotosList && devicePhotosList.length > 0) {
+            console.log('Adding device photos:', devicePhotosList.length);
+            for (let photo of devicePhotosList) {
+                let devicePhoto = {
+                    id: photo.id,
+                    source_type: 'device',
+                    file: photo.filename,
+                    url: photo.path, // Local file path
+                    coord: new LatLng(photo.latitude, photo.longitude),
+                    bearing: photo.bearing || 0,
+                    altitude: photo.altitude || 0,
+                    source: deviceSource,
+                    isDevicePhoto: true,
+                    timestamp: photo.timestamp,
+                    accuracy: photo.accuracy,
+                    sizes: {
+                        full: {
+                            url: photo.path,
+                            width: photo.width,
+                            height: photo.height
+                        }
+                    }
+                };
+                
+                if (devicePhoto.bearing < 0 || devicePhoto.bearing > 360) {
+                    devicePhoto.bearing = 0;
+                }
+                
+                ph.push(devicePhoto);
             }
         }
         

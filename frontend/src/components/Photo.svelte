@@ -1,6 +1,7 @@
 <script>
-    import { onMount } from 'svelte';
+    import { onMount, onDestroy } from 'svelte';
     import { app } from '$lib/data.svelte.js';
+    import { getDevicePhotoUrl } from '$lib/devicePhotoHelper';
 
     export let photo = null;
     export let className = '';
@@ -15,6 +16,7 @@
     let selectedSize;
     let width = 100;
     let height = 100;
+    let devicePhotoUrl = null;
 
     let border_style;
     $: border_style = className === 'front' ? 'border: 4px dotted '+ photo?.bearing_color +';' : '';
@@ -22,7 +24,7 @@
 
     $: updateSelectedUrl(photo, clientWidth, containerElement);
     
-    function updateSelectedUrl() {
+    async function updateSelectedUrl() {
 
         if (clientWidth)
             clientWidth2 = clientWidth;
@@ -38,11 +40,25 @@
 
         if (!photo) {
             selectedUrl = '';
+            devicePhotoUrl = null;
             return;
         }
         
+        // Handle device photos specially
+        if (photo.isDevicePhoto && photo.url) {
+            try {
+                devicePhotoUrl = await getDevicePhotoUrl(photo.url);
+                selectedUrl = devicePhotoUrl;
+                return;
+            } catch (error) {
+                console.error('Failed to load device photo:', error);
+                selectedUrl = '';
+                return;
+            }
+        }
+        
         if (!photo.sizes) {
-//            selectedUrl = photo.url;
+            selectedUrl = photo.url;
             return;
         }
 
@@ -57,14 +73,26 @@
                 selectedSize = size;
                 width = p.width;
                 height = p.height;
-                selectedUrl = p.url;
+                
+                // Handle device photo URLs
+                if (photo.isDevicePhoto) {
+                    selectedUrl = await getDevicePhotoUrl(p.url);
+                } else {
+                    selectedUrl = p.url;
+                }
                 return;
             }
         }
         selectedSize = 'full';
-        width = photo.sizes.full?.width || p.width;
-        height = photo.sizes.full?.height || p.height;
-        selectedUrl = photo.sizes.full?.url || '';
+        width = photo.sizes.full?.width || p?.width || 0;
+        height = photo.sizes.full?.height || p?.height || 0;
+        
+        // Handle device photo URLs for full size
+        if (photo.isDevicePhoto && photo.sizes.full) {
+            selectedUrl = await getDevicePhotoUrl(photo.sizes.full.url);
+        } else {
+            selectedUrl = photo.sizes.full?.url || '';
+        }
     }
 </script>
 
@@ -87,7 +115,7 @@
             src={selectedUrl}
             alt={photo.file}
             class="{className} photo"
-            style="background-image: url({photo.sizes[50].url}); {border_style}"
+            style="{photo.sizes && photo.sizes[50] ? `background-image: url(${photo.sizes[50].url});` : ''} {border_style}"
             fetchpriority={fetchPriority}
         />
         {/key}
