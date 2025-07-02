@@ -2,7 +2,7 @@
     import {onMount, onDestroy, tick} from 'svelte';
     import {Polygon, LeafletMap, TileLayer, Marker, Circle, ScaleControl} from 'svelte-leafletjs';
     import {LatLng} from 'leaflet';
-    import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle, MapPin, Pause} from 'lucide-svelte';
+    import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle, MapPin, Pause, ArrowUp, ArrowDown} from 'lucide-svelte';
     import L from 'leaflet';
     import 'leaflet/dist/leaflet.css';
     import Spinner from './Spinner.svelte';
@@ -26,6 +26,7 @@
     import {get} from "svelte/store";
 
     let flying = false;
+    let programmaticMove = false; // Flag to prevent position sync conflicts
     let locationTrackingLoading = false;
     let locationApiEventFlashTimer = null;
     let locationApiEventFlash = false;
@@ -123,7 +124,7 @@
     }
 
     pos.subscribe((v) => {
-        if (!map) return;
+        if (!map || programmaticMove) return;
         if (map.getCenter() !== v.center || map.getZoom() !== v.zoom) {
             console.log('setView', v.center, v.zoom);
             map.setView(new LatLng(v.center.lat, v.center.lng), v.zoom);
@@ -196,6 +197,10 @@
             update_bearing(-15);
         } else if (action === 'rotate-cw') {
             update_bearing(15);
+        } else if (action === 'forward') {
+            moveForward();
+        } else if (action === 'backward') {
+            moveBackward();
         } else if (action === 'location') {
             toggleLocationTracking();
         }
@@ -271,6 +276,76 @@
         if (locationTracking) {
             toggleLocationTracking();
         }
+    }
+    
+    // Move in a direction relative to current bearing
+    function move(direction) {
+        // Ensure we have the latest map state
+        if (!map) return;
+        
+        const currentBearing = get(bearing);
+        const _center = map.getCenter();
+        
+        // Use the same approach as get_range function
+        // First, convert center to container point
+        const centerPoint = map.latLngToContainerPoint(_center);
+        
+        // Calculate pixel movement based on bearing
+        const pixelDistance = fov_circle_radius_px;
+        
+        // Adjust bearing based on direction
+        const adjustedBearing = direction === 'backward' ? (currentBearing + 180) % 360 : currentBearing;
+        
+        // Convert bearing to radians
+        const bearingRad = (adjustedBearing * Math.PI) / 180;
+        
+        // Calculate pixel offset
+        const dx = pixelDistance * Math.sin(bearingRad);
+        const dy = -pixelDistance * Math.cos(bearingRad);
+        
+        // Create new point in container coordinates
+        const newPoint = L.point(centerPoint.x + dx, centerPoint.y + dy);
+        
+        // Convert back to lat/lng
+        const newCenter = map.containerPointToLatLng(newPoint);
+        
+        console.log(`move ${direction}:`, {
+            bearing: currentBearing,
+            adjustedBearing: adjustedBearing,
+            centerPoint: centerPoint,
+            dx: dx,
+            dy: dy,
+            newPoint: newPoint,
+            oldCenter: _center,
+            newCenter: newCenter
+        });
+        
+        // Set flag to prevent position sync conflicts
+        programmaticMove = true;
+        
+        // Fly to new position
+        map.flyTo(newCenter, map.getZoom());
+        
+        // Update the position state
+        update_pos((p) => ({
+            ...p,
+            center: newCenter,
+            reason: direction
+        }));
+        
+        // Reset flag after the movement is complete
+        setTimeout(() => {
+            programmaticMove = false;
+        }, 1000); // Allow time for flyTo animation
+    }
+    
+    // Convenience functions
+    function moveForward() {
+        move('forward');
+    }
+    
+    function moveBackward() {
+        move('backward');
     }
 
     function toggleLocationTracking() {
@@ -567,6 +642,20 @@ Direction: ${photo.bearing.toFixed(1)}°\n
                 title="Rotate view 15° counterclockwise"
         >
             <RotateCcw/>
+        </button>
+
+        <button
+                on:click={(e) => handleButtonClick('forward', e)}
+                title="Move forward in viewing direction"
+        >
+            <ArrowUp/>
+        </button>
+
+        <button
+                on:click={(e) => handleButtonClick('backward', e)}
+                title="Move backward"
+        >
+            <ArrowDown/>
         </button>
 
         <button

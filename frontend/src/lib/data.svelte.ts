@@ -25,6 +25,7 @@ let calculator = new Vincenty();
 export let app = writable({
     error: null,
     debug: 0,
+    displayMode: 'split', // 'split' or 'max'
 })
 
 // Subscribe to auth store to keep app state in sync

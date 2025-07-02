@@ -3,7 +3,7 @@
     import PhotoGallery from '../components/Gallery.svelte';
     import Map from '../components/Map.svelte';
     import UploadDialog from '../components/UploadDialog.svelte';
-    import {Camera, Compass, User, LogOut, Upload, Menu, Download} from 'lucide-svelte';
+    import {Camera, Compass, User, LogOut, Upload, Menu, Download, Maximize2, Minimize2} from 'lucide-svelte';
     import {fetch_photos} from "$lib/sources.js";
     import {dms} from "$lib/utils.js";
     import {app, pos, bearing, turn_to_photo_to, update_bearing, update_pos} from "$lib/data.svelte.js";
@@ -130,12 +130,30 @@
                     }
                     return a;
                 });
+            } else if (e.key === 'm') {
+                e.preventDefault();
+                toggleDisplayMode();
             }
         }
     }
 
     const toggleMenu = () => {
         menuOpen = !menuOpen;
+    }
+    
+    const toggleDisplayMode = async () => {
+        app.update(a => ({
+            ...a,
+            displayMode: a.displayMode === 'split' ? 'max' : 'split'
+        }));
+        
+        // Wait for DOM to update
+        await tick();
+        
+        // Trigger a window resize event to make the map recalculate
+        setTimeout(() => {
+            window.dispatchEvent(new Event('resize'));
+        }, 100);
     }
 
     let debugOpen = false;
@@ -176,6 +194,21 @@
     aria-expanded={menuOpen}
 >
     <Menu size={24} />
+</button>
+
+<!-- Display mode toggle -->
+<button 
+    class="display-mode-toggle" 
+    on:click={toggleDisplayMode}
+    on:keydown={(e) => e.key === 'Enter' && toggleDisplayMode()}
+    aria-label="Toggle display mode"
+    title={$app.displayMode === 'split' ? 'Maximize view' : 'Split view'}
+>
+    {#if $app.displayMode === 'split'}
+        <Maximize2 size={24} />
+    {:else}
+        <Minimize2 size={24} />
+    {/if}
 </button>
 
 {#if menuOpen}
@@ -234,11 +267,11 @@
     </nav>
 {/if}
 
-<div class="container">
-    <div class="panel">
+<div class="container" class:max-mode={$app.displayMode === 'max'}>
+    <div class="panel photo-panel">
         <PhotoGallery/>
     </div>
-    <div class="panel">
+    <div class="panel map-panel">
         <Map bind:this={map}/>
     </div>
 </div>
@@ -281,10 +314,28 @@
         flex: 1;
         overflow: auto;
     }
+    
+    /* Max mode: photo panel takes up 7/8 of the screen */
+    .container.max-mode {
+        flex-direction: row;
+    }
+    
+    .container.max-mode .photo-panel {
+        flex: 7;
+    }
+    
+    .container.max-mode .map-panel {
+        flex: 1;
+    }
 
     /* For portrait mode, stack panels vertically */
     @media (orientation: portrait) {
         .container {
+            flex-direction: column;
+        }
+        
+        /* In portrait max mode, photo panel takes up 3/4 of height */
+        .container.max-mode {
             flex-direction: column;
         }
     }
@@ -293,6 +344,24 @@
         position: absolute;
         top: 10px;
         left: 10px;
+        z-index: 30001;
+        background: white;
+        border-radius: 50%;
+        width: 40px;
+        height: 40px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        cursor: pointer;
+        border: none;
+        padding: 0;
+    }
+    
+    .display-mode-toggle {
+        position: absolute;
+        top: 10px;
+        left: 60px;
         z-index: 30001;
         background: white;
         border-radius: 50%;
