@@ -5,7 +5,7 @@ echo "This may take 10-20 minutes on first build as it compiles all Rust depende
 echo ""
 
 # Build debug APK (faster than release)
-./tauri-android.sh android build --apk --debug
+./scripts/tauri-android.sh android build --apk --debug
 
 if [ $? -eq 0 ]; then
     echo ""

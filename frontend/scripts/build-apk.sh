@@ -33,7 +33,7 @@ build_apk() {
     
     # Run the build
     if [ -z "$gradle_flags" ]; then
-        run_in_project_root ./tauri-android.sh android build --apk
+        run_in_project_root ./scripts/tauri-android.sh android build --apk
     else
         (
             cd "$PROJECT_ROOT/src-tauri/gen/android" &&

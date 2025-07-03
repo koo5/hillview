@@ -5,7 +5,7 @@ echo "This will create a smaller APK specifically for x86_64 emulators."
 echo ""
 
 # Build debug APK for x86_64 only (for emulator)
-./tauri-android.sh android build --apk --debug --split-per-abi
+./scripts/tauri-android.sh android build --apk --debug --split-per-abi
 
 if [ $? -eq 0 ]; then
     echo ""

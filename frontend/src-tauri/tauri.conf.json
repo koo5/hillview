@@ -5,7 +5,7 @@
   "identifier": "io.github.koo5.hillview",
   "build": {
     "frontendDist": "../build",
-    "devUrl": "http://localhost:8080",
+    "devUrl": "http://localhost:8212",
     "beforeDevCommand": "bun run dev",
     "beforeBuildCommand": "bun run build"
   },
