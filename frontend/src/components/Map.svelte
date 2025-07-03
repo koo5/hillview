@@ -161,8 +161,7 @@
             reason: `onMapStateChange(${force}, ${reason})`,
         };
 
-        if (force?.type) { // event
-        }
+        // Remove obsolete event check
 
         if (force === true || p.center.lat !== new_v.center.lat || p.center.lng !== new_v.center.lng || p.zoom !== new_v.zoom) {
             update_pos((value) => {
@@ -529,7 +528,7 @@
 
         <!-- Base map tiles -->
         <TileLayer
-                attribution="&copy; OpenStreetMap contributors"
+                {...{ attribution: "&copy; OpenStreetMap contributors" }}
                 options={{
                     maxZoom: 23,
                     maxNativeZoom: 19,
@@ -555,9 +554,7 @@
                     zIndexOffset={10000*180-photo.abs_bearing_diff*10000}
                     latLng={photo.coord}
                     icon={createDirectionalArrow(photo)}
-                    title={`Photo at ${photo.coord.lat.toFixed(6)}, ${photo.coord.lng.toFixed(6)}\n
-Direction: ${photo.bearing.toFixed(1)}°\n
-(Relative: ${(photo.bearing - $bearing).toFixed(1)}°)`}
+                    {...{ title: `Photo at ${photo.coord.lat.toFixed(6)}, ${photo.coord.lng.toFixed(6)}\nDirection: ${photo.bearing.toFixed(1)}°\n(Relative: ${(photo.bearing - $bearing).toFixed(1)}°)` }}
             />
 
         {/each}

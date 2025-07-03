@@ -23,7 +23,7 @@
     
     onMount(() => {
         // Detect mobile devices
-        const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+        const userAgent = navigator.userAgent || navigator.vendor || (window as any).opera;
         
         // Check if mobile
         if (/android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent.toLowerCase())) {
