@@ -32,8 +32,8 @@
         }
     }
 </style>
-<div class="container" style="--spinner-color: {color}">
 {#if show}
+<div class="container" style="--spinner-color: {color}">
     <div class="spinner"></div>
-{/if}
 </div>
+{/if}

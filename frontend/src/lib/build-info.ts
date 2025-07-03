@@ -8,6 +8,6 @@ export function getBuildInfo() {
         buildTime: BUILD_TIME,
         buildVersion: BUILD_VERSION,
         debugMode: DEBUG_MODE,
-        formattedTime: new Date(BUILD_TIME).toLocaleString()
+        formattedTime: new Date(BUILD_TIME).toLocaleString(undefined, {hour12: false})
     };
 }

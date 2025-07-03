@@ -2,7 +2,7 @@
     import {onMount, onDestroy, tick} from 'svelte';
     import {Polygon, LeafletMap, TileLayer, Marker, Circle, ScaleControl} from 'svelte-leafletjs';
     import {LatLng} from 'leaflet';
-    import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle, MapPin, Pause, ArrowUp, ArrowDown} from 'lucide-svelte';
+    import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle, MapPin, Pause, ArrowUp, ArrowDown, Layers, Eye} from 'lucide-svelte';
     import L from 'leaflet';
     import 'leaflet/dist/leaflet.css';
     import Spinner from './Spinner.svelte';
@@ -22,6 +22,7 @@
         turn_to_photo_to, update_pos2
     } from "$lib/data.svelte";
     import {sources} from "$lib/sources";
+    import { updateGpsLocation, setLocationTracking, setLocationError, gpsLocation } from "$lib/location.svelte";
 
     import {get} from "svelte/store";
 
@@ -48,6 +49,31 @@
     let userLocationMarker: any = null;
     let accuracyCircle: any = null;
     let userHeading: number | null = null;
+    let userLocation: GeolocationPosition | null = null;
+    
+    // Source buttons display mode
+    let compactSourceButtons = false;
+    
+    // Export location tracking functions for use by parent
+    export function enableLocationTracking() {
+        if (!locationTracking) {
+            locationTracking = true;
+            setLocationTracking(true);
+            startLocationTracking();
+        }
+    }
+    
+    export function disableLocationTracking() {
+        if (locationTracking) {
+            locationTracking = false;
+            setLocationTracking(false);
+            stopLocationTracking();
+        }
+    }
+    
+    export function getLocationData() {
+        return userLocation;
+    }
 
     function createDirectionalArrow(photo: any) {
         let bearing = Math.round(photo.bearing);
@@ -271,11 +297,6 @@
         }
     }
     
-    function disableLocationTracking() {
-        if (locationTracking) {
-            toggleLocationTracking();
-        }
-    }
     
     // Move in a direction relative to current bearing
     function move(direction: string) {
@@ -354,6 +375,7 @@
             startLocationTracking();
         }
         locationTracking = !locationTracking;
+        setLocationTracking(locationTracking);
     }
     
     // Start tracking user location
@@ -365,8 +387,10 @@
             updateUserLocation,
             (error) => {
                 console.error("Error getting location:", error);
+                setLocationError(error.message);
                 alert(`Unable to get your location: ${error.message}`);
                 locationTracking = false;
+                setLocationTracking(false);
                 locationTrackingLoading = false;
             },
             { enableHighAccuracy: true }
@@ -389,11 +413,18 @@
             await geolocation.clearWatch(watchId);
             watchId = null;
         }
+        // Clear the location data when stopping
+        updateGpsLocation(null);
+        setLocationError(null);
     }
     
     // Update user location on the map
     async function updateUserLocation(position: GeolocationPosition) {
         const { latitude, longitude, accuracy, heading } = position.coords;
+        
+        // Store the location data in both local and global store
+        userLocation = position;
+        updateGpsLocation(position);
 
         console.log("updateUserLocation:", latitude, longitude, accuracy, heading);
         locationTrackingLoading = false;
@@ -697,16 +728,27 @@
     </button>
 </div>
 
-<div class="source-buttons-container">
+<div class="source-buttons-container" class:compact={compactSourceButtons}>
+    <button
+        class="toggle-compact {compactSourceButtons ? 'active' : ''}"
+        on:click={() => compactSourceButtons = !compactSourceButtons}
+        title={compactSourceButtons ? "Show labels" : "Hide labels"}
+    >
+        <Layers size={16} />
+    </button>
     {#each $sources as source}
         <button
                 class={source.enabled ? 'active' : ''}
                 on:click={() => toggleSourceVisibility(source.id)}
                 title={`Toggle ${source.name} visibility`}
         >
-            <div class="source-icon" style="background-color: {source.color}"></div>
-            {source.name}
-            <Spinner show={source.enabled && !!source.requests.length} color="#4285F4"></Spinner>
+            <div class="source-icon-wrapper">
+                <Spinner show={source.enabled && !!source.requests.length} color="#fff"></Spinner>
+                <div class="source-icon" style="background-color: {source.color}"></div>
+            </div>
+            {#if !compactSourceButtons}
+                {source.name}
+            {/if}
         </button>
     {/each}
 </div>
@@ -854,12 +896,55 @@
         z-index: 750;
     }
 
+    .source-icon-wrapper {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin-right: 0.5rem;
+    }
+    
     .source-icon {
         width: 1rem;
         height: 1rem;
         border-radius: 5%;
-        margin-right: 0.5rem;
         border: 1px solid #ccc;
+    }
+    
+    .source-icon-wrapper :global(.spinner-container) {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+    }
+    
+    /* Compact mode styles */
+    .source-buttons-container.compact button {
+        padding: 0.5rem;
+        width: 40px;
+        height: 40px;
+        justify-content: center;
+    }
+    
+    .source-buttons-container.compact .source-icon-wrapper {
+        margin-right: 0;
+    }
+    
+    /* Toggle button styles */
+    .toggle-compact {
+        border: 1px solid #999 !important;
+        background-color: #f8f8f8 !important;
+        transition: all 0.2s;
+    }
+    
+    .toggle-compact:hover {
+        background-color: #e8e8e8 !important;
+    }
+    
+    .toggle-compact.active {
+        background-color: #666 !important;
+        color: white !important;
+        border-color: #555 !important;
     }
 
 

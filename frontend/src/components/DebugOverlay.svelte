@@ -1,15 +1,17 @@
 <script lang="ts">
     import { getBuildInfo } from '$lib/build-info';
     import { onMount } from 'svelte';
+    import { pos, bearing } from '$lib/data.svelte';
+    import { gpsLocation, gpsCoordinates, locationTracking, locationError } from '$lib/location.svelte';
     
     let showDebug = false;
     let buildInfo = getBuildInfo();
-    let currentTime = new Date().toLocaleTimeString();
+    let currentTime;
     
     onMount(() => {
         // Update time every second
         const interval = setInterval(() => {
-            currentTime = new Date().toLocaleTimeString();
+            currentTime = new Date().toLocaleTimeString(undefined, {hour12: false});
         }, 1000);
         
         // Check for debug mode in localStorage or URL params
@@ -19,7 +21,9 @@
         
         showDebug = debugParam === 'true' || storedDebug === 'true' || buildInfo.debugMode;
         
-        return () => clearInterval(interval);
+        return () => {
+            clearInterval(interval);
+        };
     });
     
     function toggleDebug() {
@@ -45,10 +49,44 @@
         </div>
         <div class="debug-content">
             <div><strong>Build Time:</strong> {buildInfo.formattedTime}</div>
-            <div><strong>Build Version:</strong> {buildInfo.buildVersion}</div>
             <div><strong>Current Time:</strong> {currentTime}</div>
-            <div><strong>Debug Mode:</strong> {buildInfo.debugMode ? 'ON' : 'OFF'}</div>
-            <div><strong>User Agent:</strong> {navigator.userAgent}</div>
+
+            <div class="debug-section">
+                <div><strong>Map Position:</strong></div>
+                <div>Lat: {$pos.center.lat.toFixed(6)}, Lng: {$pos.center.lng.toFixed(6)}</div>
+                <div>Zoom: {$pos.zoom.toFixed(1)}</div>
+                <div>Bearing: {$bearing.toFixed(1)}°</div>
+            </div>
+            
+            {#if $gpsCoordinates}
+                <div class="debug-section">
+                    <div><strong>GPS Location:</strong> {$locationTracking ? '📍 Active' : '⭕ Inactive'}</div>
+                    <div>Lat: {$gpsCoordinates.latitude.toFixed(6)}</div>
+                    <div>Lng: {$gpsCoordinates.longitude.toFixed(6)}</div>
+                    {#if $gpsCoordinates.altitude !== null}
+                        <div>Alt: {$gpsCoordinates.altitude.toFixed(1)}m</div>
+                    {/if}
+                    <div>Accuracy: ±{$gpsCoordinates.accuracy.toFixed(1)}m</div>
+                    {#if $gpsCoordinates.heading !== null}
+                        <div>GPS Heading: {$gpsCoordinates.heading.toFixed(1)}°</div>
+                    {:else}
+                        <div>GPS Heading: N/A</div>
+                    {/if}
+                    {#if $gpsCoordinates.speed !== null}
+                        <div>Speed: {($gpsCoordinates.speed * 3.6).toFixed(1)} km/h</div>
+                    {/if}
+                    {#if $locationError}
+                        <div class="error">Error: {$locationError}</div>
+                    {/if}
+                </div>
+            {:else}
+                <div class="debug-section">
+                    <div><strong>GPS:</strong> {$locationTracking ? 'Acquiring...' : 'Not available'}</div>
+                    {#if $locationError}
+                        <div class="error">Error: {$locationError}</div>
+                    {/if}
+                </div>
+            {/if}
             <div class="debug-note">Press Ctrl+Shift+D to toggle</div>
         </div>
     </div>
@@ -126,6 +164,22 @@
         border-top: 1px solid rgba(0, 255, 0, 0.3);
         font-size: 11px;
         opacity: 0.7;
+    }
+    
+    .debug-section {
+        margin: 8px 0;
+        padding: 8px 0;
+        border-top: 1px solid rgba(0, 255, 0, 0.2);
+    }
+    
+    .debug-section:first-of-type {
+        border-top: none;
+        padding-top: 0;
+    }
+    
+    .error {
+        color: #ff6666;
+        font-style: italic;
     }
     
     .debug-toggle-button {

@@ -11,14 +11,16 @@
     import { goto, replaceState } from "$app/navigation";
     import {get, writable} from "svelte/store";
     import { auth, logout, checkAuth } from "$lib/auth.svelte";
-    import PhotoCaptureModal from '../components/PhotoCaptureModal.svelte';
+    import CameraCapture from '../components/CameraCapture.svelte';
     import DebugOverlay from '../components/DebugOverlay.svelte';
+    import { gpsLocation } from '$lib/location.svelte';
 
     let map: any = null;
+    let mapComponent: any = null;
     let update_url = false;
     let menuOpen = false;
     let showUploadDialog = false;
-    let showPhotoCaptureModal = false;
+    let showCameraView = false;
 
     onMount(async () => {
         console.log('Page mounted');
@@ -172,17 +174,33 @@
         menuOpen = false;
     }
 
+    async function handlePhotoCaptured(event: CustomEvent<{ file: File }>) {
+        // Process the captured photo
+        // Keep camera view open
+        // Refresh photos after capture
+        await fetch_photos();
+    }
+
+    function toggleCamera() {
+        showCameraView = !showCameraView;
+        if (showCameraView && mapComponent) {
+            // Enable location tracking when camera opens
+            mapComponent.enableLocationTracking();
+        } else if (!showCameraView && mapComponent) {
+            // Optionally disable location tracking when camera closes
+            // Commenting out to let user control via location button
+            // mapComponent.disableLocationTracking();
+        }
+    }
+    
+    // Use the reactive GPS location store
+    $: currentLocation = $gpsLocation;
+
     // Subscribe to auth store
     let isAuthenticated = false;
     auth.subscribe(value => {
         isAuthenticated = value.isAuthenticated;
     });
-
-    function handlePhotoCaptured(event: CustomEvent) {
-        console.log('Photo captured:', event.detail);
-        // Refresh photos to show the new device photo
-        fetch_photos();
-    }
 </script>
 
 <!-- Upload button (visible when authenticated) -->
@@ -222,11 +240,11 @@
 
 <!-- Camera button -->
 <button 
-    class="camera-button" 
-    on:click={() => showPhotoCaptureModal = true}
-    on:keydown={(e) => e.key === 'Enter' && (showPhotoCaptureModal = true)}
-    aria-label="Take photo"
-    title="Take photo with location"
+    class="camera-button {showCameraView ? 'active' : ''}" 
+    on:click={toggleCamera}
+    on:keydown={(e) => e.key === 'Enter' && toggleCamera()}
+    aria-label="{showCameraView ? 'Close camera' : 'Take photo'}"
+    title="{showCameraView ? 'Close camera' : 'Take photo with location'}"
     data-testid="camera-button"
 >
     <Camera size={24} />
@@ -290,10 +308,27 @@
 
 <div class="container" class:max-mode={$app.displayMode === 'max'}>
     <div class="panel photo-panel">
-        <PhotoGallery/>
+        {#if showCameraView}
+            <CameraCapture 
+                show={true}
+                on:close={() => showCameraView = false}
+                on:photoCaptured={handlePhotoCaptured}
+                locationData={{
+                    latitude: $pos.center.lat,
+                    longitude: $pos.center.lng,
+                    altitude: currentLocation?.coords.altitude || null,
+                    accuracy: currentLocation?.coords.accuracy || 10,
+                    heading: $bearing
+                }}
+                locationError={null}
+                locationReady={true}
+            />
+        {:else}
+            <PhotoGallery/>
+        {/if}
     </div>
     <div class="panel map-panel">
-        <Map bind:this={map}/>
+        <Map bind:this={mapComponent}/>
     </div>
 </div>
 
@@ -305,13 +340,6 @@
         // Refresh photos after upload
         fetch_photos();
     }}
-/>
-
-<!-- Photo Capture Modal -->
-<PhotoCaptureModal 
-    show={showPhotoCaptureModal} 
-    on:close={() => showPhotoCaptureModal = false}
-    on:photoCaptured={handlePhotoCaptured}
 />
 
 <!-- Debug Overlay -->
@@ -423,6 +451,17 @@
         cursor: pointer;
         border: none;
         padding: 0;
+        transition: all 0.2s ease;
+    }
+    
+    .camera-button.active {
+        background: #4a90e2;
+        color: white;
+        box-shadow: 0 2px 8px rgba(74, 144, 226, 0.4);
+    }
+    
+    .camera-button:hover {
+        transform: scale(1.05);
     }
 
     .nav-menu {
