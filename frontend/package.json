@@ -32,7 +32,15 @@
 		"test:android": "wdio run wdio.conf.ts",
 		"test:android:build": "./tauri-android.sh android build --apk",
 		"appium": "appium",
-		"appium:doctor": "appium doctor --android"
+		"appium:doctor": "appium doctor --android",
+		"validate": "./scripts/validate.sh",
+		"validate:quick": "./scripts/validate.sh --skip-android",
+		"validate:android": "./scripts/validate-android.sh",
+		"build:check": "./scripts/build-check.sh",
+		"clean:android": "./scripts/clean-android.sh",
+		"setup:hooks": "./scripts/setup-hooks.sh",
+		"ci": "bun run validate",
+		"precommit": "bun run validate:quick"
 	},
 	"type": "module",
 	"dependencies": {

@@ -11,11 +11,14 @@
     import { goto, replaceState } from "$app/navigation";
     import {get, writable} from "svelte/store";
     import { auth, logout, checkAuth } from "$lib/auth.svelte.ts";
+    import PhotoCaptureModal from '../components/PhotoCaptureModal.svelte';
+    import DebugOverlay from '../components/DebugOverlay.svelte';
 
     let map = null;
     let update_url = false;
     let menuOpen = false;
     let showUploadDialog = false;
+    let showPhotoCaptureModal = false;
 
     onMount(async () => {
         console.log('Page mounted');
@@ -174,6 +177,12 @@
     auth.subscribe(value => {
         isAuthenticated = value.isAuthenticated;
     });
+
+    function handlePhotoCaptured(event) {
+        console.log('Photo captured:', event.detail);
+        // Refresh photos to show the new device photo
+        fetch_photos();
+    }
 </script>
 
 <!-- Upload button (visible when authenticated) -->
@@ -214,10 +223,11 @@
 <!-- Camera button -->
 <button 
     class="camera-button" 
-    on:click={() => goto('/camera')}
-    on:keydown={(e) => e.key === 'Enter' && goto('/camera')}
+    on:click={() => showPhotoCaptureModal = true}
+    on:keydown={(e) => e.key === 'Enter' && (showPhotoCaptureModal = true)}
     aria-label="Take photo"
     title="Take photo with location"
+    data-testid="camera-button"
 >
     <Camera size={24} />
 </button>
@@ -296,6 +306,16 @@
         fetch_photos();
     }}
 />
+
+<!-- Photo Capture Modal -->
+<PhotoCaptureModal 
+    show={showPhotoCaptureModal} 
+    on:close={() => showPhotoCaptureModal = false}
+    on:photoCaptured={handlePhotoCaptured}
+/>
+
+<!-- Debug Overlay -->
+<DebugOverlay />
 
 <style>
     /* Reset default margin, padding and prevent body scroll */

@@ -1,0 +1,14 @@
+#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+# Run validation script before commit
+echo "Running pre-commit validation..."
+./scripts/validate.sh --skip-android
+
+# If validation fails, prevent commit
+if [ $? -ne 0 ]; then
+    echo "❌ Pre-commit validation failed. Please fix issues before committing."
+    exit 1
+fi
+
+echo "✅ Pre-commit validation passed!"

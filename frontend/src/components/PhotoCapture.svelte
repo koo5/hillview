@@ -159,7 +159,7 @@
 		bind:this={fileInput}
 		type="file"
 		accept="image/*"
-		capture="environment"
+		capture="camera"
 		on:change={handleFileSelect}
 		style="display: none;"
 		data-testid="photo-input"
