@@ -1,11 +1,11 @@
-<script>
+<script lang="ts">
     import { onMount } from 'svelte';
     import { goto } from '$app/navigation';
-    import { oauthLogin } from '$lib/auth.svelte.ts';
+    import { oauthLogin } from '$lib/auth.svelte';
     import Spinner from '../../../components/Spinner.svelte';
 
     let status = 'Processing your login...';
-    let error = null;
+    let error: string | null = null;
 
     onMount(async () => {
         try {
@@ -42,7 +42,7 @@
             
         } catch (err) {
             console.error('OAuth callback error:', err);
-            error = err.message;
+            error = err instanceof Error ? err.message : 'Authentication failed';
             status = 'Authentication failed';
             
             // Redirect to login page after a delay

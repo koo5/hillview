@@ -1,16 +1,18 @@
-<script>
+<script lang="ts">
     import { onMount } from 'svelte';
     import { goto } from '$app/navigation';
     import { Upload, Trash2, Map, Settings } from 'lucide-svelte';
     import Spinner from '../../components/Spinner.svelte';
-    import { auth } from '$lib/auth.svelte.ts';
-    import { app } from '$lib/data.svelte.js';
+    import { auth } from '$lib/auth.svelte';
+    import { app } from '$lib/data.svelte';
     import { get } from 'svelte/store';
+    import type { UserPhoto } from '$lib/stores';
+    import type { User } from '$lib/auth.svelte';
 
-    let photos = [];
+    let photos: UserPhoto[] = [];
     let isLoading = true;
-    let error = null;
-    let uploadFile = null;
+    let error: string | null = null;
+    let uploadFile: File | null = null;
     let description = '';
     let isPublic = true;
     let isUploading = false;
@@ -18,7 +20,7 @@
     let autoUploadEnabled = false;
     let autoUploadFolder = '';
     let showSettings = false;
-    let user = null;
+    let user: User | null = null;
 
     onMount(async () => {
         // Check if user is authenticated
@@ -29,7 +31,7 @@
             }
             user = value.user;
             if (user) {
-                autoUploadEnabled = user.auto_upload_enabled;
+                autoUploadEnabled = user.auto_upload_enabled || false;
                 autoUploadFolder = user.auto_upload_folder || '';
             }
         });
@@ -39,7 +41,7 @@
             await fetchPhotos();
         } catch (err) {
             console.error('Error loading photos:', err);
-            error = err.message;
+            error = err instanceof Error ? err.message : 'Failed to load photos';
         } finally {
             isLoading = false;
         }
@@ -69,7 +71,7 @@
             }));
         } catch (err) {
             console.error('Error fetching photos:', err);
-            error = err.message;
+            error = err instanceof Error ? err.message : 'Failed to fetch photos';
         }
     }
 
@@ -84,7 +86,7 @@
             const formData = new FormData();
             formData.append('file', uploadFile);
             formData.append('description', description);
-            formData.append('is_public', isPublic);
+            formData.append('is_public', String(isPublic));
             
             const xhr = new XMLHttpRequest();
             
@@ -122,13 +124,13 @@
             
         } catch (err) {
             console.error('Error uploading photo:', err);
-            error = err.message;
+            error = err instanceof Error ? err.message : 'Upload failed';
         } finally {
             isUploading = false;
         }
     }
 
-    async function deletePhoto(photoId) {
+    async function deletePhoto(photoId: number) {
         if (!confirm('Are you sure you want to delete this photo?')) return;
         
         const authValue = get(auth);
@@ -156,7 +158,7 @@
             
         } catch (err) {
             console.error('Error deleting photo:', err);
-            error = err.message;
+            error = err instanceof Error ? err.message : 'Delete failed';
         }
     }
 
@@ -165,7 +167,7 @@
         
         try {
             const formData = new FormData();
-            formData.append('auto_upload_enabled', autoUploadEnabled);
+            formData.append('auto_upload_enabled', String(autoUploadEnabled));
             if (autoUploadFolder) {
                 formData.append('auto_upload_folder', autoUploadFolder);
             }
@@ -186,16 +188,16 @@
             
         } catch (err) {
             console.error('Error saving settings:', err);
-            error = err.message;
+            error = err instanceof Error ? err.message : 'Failed to save settings';
         }
     }
 
-    function formatDate(dateString) {
+    function formatDate(dateString: string) {
         const date = new Date(dateString);
         return date.toLocaleString();
     }
 
-    function viewOnMap(photo) {
+    function viewOnMap(photo: UserPhoto) {
         if (photo.latitude && photo.longitude) {
             goto(`/?lat=${photo.latitude}&lon=${photo.longitude}&zoom=18`);
         }
@@ -257,7 +259,7 @@
                     type="file" 
                     id="photo-file" 
                     accept="image/*" 
-                    on:change={(e) => uploadFile = e.target.files[0]} 
+                    on:change={(e) => uploadFile = (e.target as HTMLInputElement).files?.[0] || null} 
                     required
                 />
             </div>
@@ -321,7 +323,7 @@
                             {#if photo.description}
                                 <p class="description">{photo.description}</p>
                             {/if}
-                            <p class="meta">Uploaded: {formatDate(photo.uploaded_at)}</p>
+                            <p class="meta">Uploaded: {formatDate(photo.uploaded_at || photo.created_at)}</p>
                             {#if photo.captured_at}
                                 <p class="meta">Captured: {formatDate(photo.captured_at)}</p>
                             {/if}
@@ -574,6 +576,7 @@
         color: #555;
         margin: 0 0 12px 0;
         display: -webkit-box;
+        line-clamp: 2;
         -webkit-line-clamp: 2;
         -webkit-box-orient: vertical;
         overflow: hidden;

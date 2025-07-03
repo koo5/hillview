@@ -3,12 +3,20 @@ import {app, hillview_photos, geoPicsUrl} from "$lib/data.svelte";
 //import { Coordinate } from "tsgeo/Coordinate";
 import { LatLng } from 'leaflet';
 import {writable, get} from "svelte/store";
-import { auth } from "$lib/auth.svelte.ts";
+import { auth } from "$lib/auth.svelte";
 import { userPhotos, devicePhotos } from './stores';
 import { photoCaptureService } from './photoCapture';
 
 
-export let sources = writable([
+export interface Source {
+    id: string;
+    name: string;
+    enabled: boolean;
+    requests: number[];
+    color: string;
+}
+
+export let sources = writable<Source[]>([
     {id: 'hillview', name: 'Hillview', enabled: true, requests: [], color: '#000'},
     {id: 'mapillary', name: 'Mapillary', enabled: false, requests: [], color: '#888'},
     {id: 'device', name: 'My Device', enabled: true, requests: [], color: '#4a90e2'},
@@ -42,7 +50,7 @@ export async function fetch_photos() {
         }
 
         console.log('parse_photo_data...');
-        const ph = res.map(item => parse_photo_data(item));
+        const ph: PhotoData[] = res.map((item: any) => parse_photo_data(item));
         let src = get(sources).find(s => s.id === 'hillview');
         ph.map(p => p.source = src);
         
@@ -117,18 +125,18 @@ export async function fetch_photos() {
         hillview_photos.set(ph);
     } catch (err) {
         console.error('Error fetching photos:', err);
-        app.update(state => ({ ...state, error: err.message }));
+        app.update(state => ({ ...state, error: err instanceof Error ? err.message : 'Unknown error' }));
     } finally {
         app.update(state => ({ ...state, loading: false }));
     }
 }
 
-export function fixup_bearings(photos) {
+export function fixup_bearings(photos: PhotoData[]) {
     // Sort photos by bearing, spreading out photos with the same bearing
     if (photos.length < 2) return;
     let moved = true;
     while (moved) {
-        photos.sort((a, b) => a.bearing - b.bearing);
+        photos.sort((a: PhotoData, b: PhotoData) => a.bearing - b.bearing);
         moved = false;
         for (let index = 0; index < photos.length + 1; index++) {
             //console.log('Index:', index);
@@ -144,10 +152,10 @@ export function fixup_bearings(photos) {
     }
 }
 
-export function parseCoordinate(coord) {
+export function parseCoordinate(coord: string) {
     try {
         // Convert something like "[51, 30, 20]" or "[51,30,20/1]" into decimal
-        const parts = coord.replace('[', '').replace(']', '').split(',').map(p => p.trim());
+        const parts = coord.replace('[', '').replace(']', '').split(',').map((p: string) => p.trim());
         const degrees = parseFloat(parts[0]);
         const minutes = parseFloat(parts[1]);
         let seconds = 0;
@@ -164,20 +172,42 @@ export function parseCoordinate(coord) {
     }
 }
 
-function parseFraction(value) {
+function parseFraction(value: string | number) {
     if (!value) return 0;
-    if (value.includes('/')) {
+    if (typeof value === 'string' && value.includes('/')) {
         const [numerator, denominator] = value.split('/').map(Number);
         return numerator / denominator;
     }
-    return parseFloat(value) || 0;
+    return typeof value === 'string' ? parseFloat(value) || 0 : value;
 }
 
-function parse_photo_data(item) {
+export interface PhotoSize {
+    url: string;
+    width: number;
+    height: number;
+}
+
+export interface PhotoData {
+    id: string;
+    source_type: string;
+    file: string;
+    url: string;
+    coord: LatLng;
+    bearing: number;
+    altitude: number;
+    source?: any;
+    sizes?: Record<string, PhotoSize>;
+    isUserPhoto?: boolean;
+    isDevicePhoto?: boolean;
+    timestamp?: number;
+    accuracy?: number;
+}
+
+function parse_photo_data(item: any): PhotoData {
     let latitude = parseCoordinate(item.latitude);
     let longitude = parseCoordinate(item.longitude);
 
-    let photo = {
+    let photo: PhotoData = {
         id: 'hillview_' + item.file,
         source_type: 'hillview',
         file: item.file,
@@ -199,7 +229,7 @@ function parse_photo_data(item) {
         }
     }
 
-    if (latitude.isNaN || longitude.isNaN) {
+    if (isNaN(latitude) || isNaN(longitude)) {
         console.error('Invalid coordinates:', photo);
     }
     if (photo.bearing < 0 || photo.bearing > 360) {

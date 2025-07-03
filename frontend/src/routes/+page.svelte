@@ -1,20 +1,20 @@
-<script>
+<script lang="ts">
     import {onDestroy, onMount, tick} from 'svelte';
     import PhotoGallery from '../components/Gallery.svelte';
     import Map from '../components/Map.svelte';
     import UploadDialog from '../components/UploadDialog.svelte';
     import {Camera, Compass, User, LogOut, Upload, Menu, Download, Maximize2, Minimize2} from 'lucide-svelte';
-    import {fetch_photos} from "$lib/sources.js";
-    import {dms} from "$lib/utils.js";
-    import {app, pos, bearing, turn_to_photo_to, update_bearing, update_pos} from "$lib/data.svelte.js";
+    import {fetch_photos} from "$lib/sources";
+    import {dms} from "$lib/utils";
+    import {app, pos, bearing, turn_to_photo_to, update_bearing, update_pos} from "$lib/data.svelte";
     import {LatLng} from 'leaflet';
     import { goto, replaceState } from "$app/navigation";
     import {get, writable} from "svelte/store";
-    import { auth, logout, checkAuth } from "$lib/auth.svelte.ts";
+    import { auth, logout, checkAuth } from "$lib/auth.svelte";
     import PhotoCaptureModal from '../components/PhotoCaptureModal.svelte';
     import DebugOverlay from '../components/DebugOverlay.svelte';
 
-    let map = null;
+    let map: any = null;
     let update_url = false;
     let menuOpen = false;
     let showUploadDialog = false;
@@ -71,10 +71,10 @@
         if (!update_url) {
             return;
         }
-        const url = new URL(window.location);
-        url.searchParams.set('lat', p.center.lat);
-        url.searchParams.set('lon', p.center.lng);
-        url.searchParams.set('zoom', p.zoom);
+        const url = new URL(window.location.href);
+        url.searchParams.set('lat', String(p.center.lat));
+        url.searchParams.set('lon', String(p.center.lng));
+        url.searchParams.set('zoom', String(p.zoom));
         console.log('Setting URL to', url.toString());
         replaceState2(url.toString());
     });
@@ -83,24 +83,24 @@
         if (!update_url) {
             return;
         }
-        const url = new URL(window.location);
-        url.searchParams.set('bearing', b);
+        const url = new URL(window.location.href);
+        url.searchParams.set('bearing', String(b));
         console.log('Setting URL to', url.toString());
         setTimeout(() => {
             replaceState2(url.toString());
         }, 1000);
     });
 
-    let desiredUrl = null;
+    let desiredUrl: string | null = null;
 
-    function replaceState2(url) {
+    function replaceState2(url: string) {
         desiredUrl = url;
         try {
-            replaceState(url);
+            replaceState(url, {});
         } catch (e) {
             console.error('Failed to update URL', e);
             setTimeout(() => {
-                replaceState(desiredUrl);
+                if (desiredUrl) replaceState(desiredUrl, {});
             }, 1000);
         }
     }
@@ -110,7 +110,7 @@
         window.removeEventListener('keydown', handleKeyDown);
     });
 
-    async function handleKeyDown(e) {
+    async function handleKeyDown(e: KeyboardEvent) {
         if (!e.ctrlKey && !e.altKey && !e.metaKey) {
             if (e.key === 'z') {
                 e.preventDefault();
@@ -162,7 +162,7 @@
     let debugOpen = false;
     const toggleDebug = () => {
         app.update(a => {
-            a.debug = !a.debug;
+            a.debug = a.debug ? 0 : 1;
             return a;
         });
     }
@@ -178,7 +178,7 @@
         isAuthenticated = value.isAuthenticated;
     });
 
-    function handlePhotoCaptured(event) {
+    function handlePhotoCaptured(event: CustomEvent) {
         console.log('Photo captured:', event.detail);
         // Refresh photos to show the new device photo
         fetch_photos();

@@ -42,7 +42,7 @@
 
 	async function startLocationWatch() {
 		// Watch position for continuous updates
-		watchId = geolocation.watchPosition(
+		watchId = await geolocation.watchPosition(
 			(position) => {
 				currentLocation = position;
 				locationError = null;
@@ -159,7 +159,7 @@
 		bind:this={fileInput}
 		type="file"
 		accept="image/*"
-		capture="camera"
+		capture={true}
 		on:change={handleFileSelect}
 		style="display: none;"
 		data-testid="photo-input"
@@ -208,10 +208,10 @@
 		<div class="location-info {locationReady ? 'active' : ''}" data-testid="location-info">
 			<div>📍 Lat: {currentLocation.coords.latitude.toFixed(6)}</div>
 			<div>📍 Lng: {currentLocation.coords.longitude.toFixed(6)}</div>
-			{#if currentLocation.coords.heading !== null}
+			{#if currentLocation.coords.heading !== null && currentLocation.coords.heading !== undefined}
 				<div>🧭 Bearing: {currentLocation.coords.heading.toFixed(1)}°</div>
 			{/if}
-			{#if currentLocation.coords.altitude !== null}
+			{#if currentLocation.coords.altitude !== null && currentLocation.coords.altitude !== undefined}
 				<div>⛰️ Alt: {currentLocation.coords.altitude.toFixed(1)}m</div>
 			{/if}
 			<div>🎯 Accuracy: ±{currentLocation.coords.accuracy.toFixed(1)}m</div>

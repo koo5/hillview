@@ -1,4 +1,7 @@
-<script>
+<script lang="ts">
+    import { app, photos_in_range, pos, bearing } from '$lib/data.svelte';
+    import { Camera, Compass } from 'lucide-svelte';
+    import { goto } from '$app/navigation';
 </script>    <!-- Header -->
 
 {#if $app.error}
@@ -64,7 +67,7 @@
     </header>
 
 <!-- Debug sidebar -->
-{#if show_debug}
+{#if $app.debug}
     <div class="w-64 bg-white overflow-y-auto border-l">
         <div class="p-3 bg-gray-50 border-b sticky top-0">
             <h3 class="font-medium">Debug Information</h3>

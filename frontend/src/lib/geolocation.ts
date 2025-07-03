@@ -23,6 +23,12 @@ export interface GeolocationError {
     message: string;
 }
 
+export interface PositionOptions {
+    enableHighAccuracy?: boolean;
+    timeout?: number;
+    maximumAge?: number;
+}
+
 export const geolocation = {
     getCurrentPosition: async (
         successCallback: (position: GeolocationPosition) => void,
@@ -32,10 +38,10 @@ export const geolocation = {
         if (isTauri()) {
             try {
                 const position = await getCurrentPosition({
-                    enableHighAccuracy: options?.enableHighAccuracy,
-                    timeout: options?.timeout,
-                    maximumAge: options?.maximumAge
-                });
+                    enableHighAccuracy: options?.enableHighAccuracy ?? true,
+                    timeout: options?.timeout ?? 10000,
+                    maximumAge: options?.maximumAge ?? 0
+                } as any);
                 
                 // Convert Tauri position to browser-like GeolocationPosition
                 const geoPosition: GeolocationPosition = {
@@ -89,11 +95,20 @@ export const geolocation = {
             try {
                 const watchId = await watchPosition(
                     {
-                        enableHighAccuracy: options?.enableHighAccuracy,
-                        timeout: options?.timeout,
-                        maximumAge: options?.maximumAge
-                    },
-                    (position: Position) => {
+                        enableHighAccuracy: options?.enableHighAccuracy ?? true,
+                        timeout: options?.timeout ?? 10000,
+                        maximumAge: options?.maximumAge ?? 0
+                    } as any,
+                    (position: Position | null, error?: string) => {
+                        if (!position) {
+                            if (errorCallback && error) {
+                                errorCallback({
+                                    code: 1,
+                                    message: error
+                                });
+                            }
+                            return;
+                        }
                         // Convert Tauri position to browser-like GeolocationPosition
                         const geoPosition: GeolocationPosition = {
                             coords: {

@@ -1,8 +1,8 @@
-<script>
+<script lang="ts">
     import { onMount } from 'svelte';
     import { goto } from '$app/navigation';
     import { User, Lock, Mail, Github } from 'lucide-svelte';
-    import { login, register, oauthLogin, auth } from '$lib/auth.svelte.ts';
+    import { login, register, oauthLogin, auth } from '$lib/auth.svelte';
 
     let username = '';
     let password = '';
@@ -14,7 +14,7 @@
     let usernameGenerated = false;
 
     // OAuth configuration
-    const oauthProviders = {
+    const oauthProviders: Record<string, {clientId: string; redirectUri: string; authUrl: string; scope: string}> = {
         google: {
             clientId: import.meta.env.VITE_GOOGLE_CLIENT_ID || '',
             redirectUri: import.meta.env.VITE_GOOGLE_REDIRECT_URI || `${window.location.origin}/oauth/callback`,
@@ -68,13 +68,13 @@
             }
         } catch (error) {
             console.error('Form submission error:', error);
-            errorMessage = error.message;
+            errorMessage = error instanceof Error ? error.message : 'An error occurred';
         } finally {
             isLoading = false;
         }
     }
 
-    function handleOAuthLogin(provider) {
+    function handleOAuthLogin(provider: string) {
         const config = oauthProviders[provider];
         if (!config) return;
         

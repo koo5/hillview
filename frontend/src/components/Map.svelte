@@ -6,7 +6,7 @@
     import L from 'leaflet';
     import 'leaflet/dist/leaflet.css';
     import Spinner from './Spinner.svelte';
-    import { geolocation } from '$lib/geolocation';
+    import { geolocation, type GeolocationPosition } from '$lib/geolocation';
 
     import {
         app,
@@ -20,36 +20,36 @@
         photo_to_right,
         update_bearing,
         turn_to_photo_to, update_pos2
-    } from "$lib/data.svelte.js";
-    import {sources} from "$lib/sources.ts";
+    } from "$lib/data.svelte";
+    import {sources} from "$lib/sources";
 
     import {get} from "svelte/store";
 
     let flying = false;
     let programmaticMove = false; // Flag to prevent position sync conflicts
     let locationTrackingLoading = false;
-    let locationApiEventFlashTimer = null;
+    let locationApiEventFlashTimer: any = null;
     let locationApiEventFlash = false;
-    let map;
-    let elMap;
+    let map: any;
+    let elMap: any;
     const fov_circle_radius_px = 70;
     
     // Slideshow variables
     let slideshowActive = false;
-    let slideshowDirection = null; // 'left' or 'right'
-    let slideshowTimer = null;
+    let slideshowDirection: 'left' | 'right' | null = null;
+    let slideshowTimer: any = null;
     let slideshowInterval = 5000; // 5 seconds
-    let longPressTimeout = null;
+    let longPressTimeout: any = null;
     const longPressDelay = 500; // 500ms for long press detection
     
     // Location tracking variables
     let locationTracking = false;
-    let watchId = null;
-    let userLocationMarker = null;
-    let accuracyCircle = null;
-    let userHeading = null;
+    let watchId: number | null = null;
+    let userLocationMarker: any = null;
+    let accuracyCircle: any = null;
+    let userHeading: number | null = null;
 
-    function createDirectionalArrow(photo) {
+    function createDirectionalArrow(photo: any) {
         let bearing = Math.round(photo.bearing);
         let color = photo.source.color;
         let frc = '';
@@ -132,7 +132,7 @@
         }
     });
 
-    async function mapStateUserEvent(event) {
+    async function mapStateUserEvent(event: any) {
 
         if (!flying) {
             let _center = map.getCenter();
@@ -148,7 +148,7 @@
     }
 
 
-    async function onMapStateChange(force, reason) {
+    async function onMapStateChange(force: boolean, reason: string) {
         await tick();
         let _center = map.getCenter();
         let _zoom = map.getZoom();
@@ -180,7 +180,7 @@
     }
 
     // Handle button clicks and prevent map interaction
-    async function handleButtonClick(action, event) {
+    async function handleButtonClick(action: string, event: Event) {
         event.preventDefault();
         event.stopPropagation();
 
@@ -209,7 +209,7 @@
     }
     
     // Start slideshow in the specified direction
-    function startSlideshow(direction) {
+    function startSlideshow(direction: 'left' | 'right') {
         if (slideshowActive && slideshowDirection === direction) {
             // If already running in this direction, stop it
             stopSlideshow();
@@ -254,7 +254,7 @@
     }
     
     // Handle mouse down for long press detection
-    function handleMouseDown(direction, event) {
+    function handleMouseDown(direction: 'left' | 'right', event: MouseEvent) {
         event.preventDefault();
         
         // Set timeout for long press
@@ -264,7 +264,7 @@
     }
     
     // Handle mouse up to cancel long press if released early
-    function handleMouseUp(event) {
+    function handleMouseUp(event: MouseEvent) {
         event.preventDefault();
         if (longPressTimeout) {
             clearTimeout(longPressTimeout);
@@ -279,7 +279,7 @@
     }
     
     // Move in a direction relative to current bearing
-    function move(direction) {
+    function move(direction: string) {
         // Ensure we have the latest map state
         if (!map) return;
         
@@ -393,7 +393,7 @@
     }
     
     // Update user location on the map
-    async function updateUserLocation(position) {
+    async function updateUserLocation(position: GeolocationPosition) {
         const { latitude, longitude, accuracy, heading } = position.coords;
 
         console.log("updateUserLocation:", latitude, longitude, accuracy, heading);
@@ -458,7 +458,7 @@
         await console.log('Map component mounted - after onMapStateChange');
     });
 
-    export function setView(center, zoom) {
+    export function setView(center: any, zoom: number) {
         if (map) {
             map.setView(center, zoom);
         }
@@ -484,7 +484,7 @@
         }
     });
 
-    function toggleSourceVisibility(sourceId) {
+    function toggleSourceVisibility(sourceId: string) {
         sources.update(sources => {
             const source = sources.find(s => s.id === sourceId);
             if (source) {
@@ -494,13 +494,13 @@
         });
     }
 
-    let width;
-    let height;
+    let width: number;
+    let height: number;
 
     // For the bearing overlay arrow:
-    let centerX;
+    let centerX: number;
     $: centerX = width / 2;
-    let centerY;
+    let centerY: number;
     $: centerY = height / 2;
     let arrowLength = fov_circle_radius_px + 150;
 

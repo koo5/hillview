@@ -1,16 +1,16 @@
-<script>
+<script lang="ts">
     import { createEventDispatcher, onMount } from 'svelte';
     import { Upload, X, Image, MapPin, Compass, Info, Smartphone, FolderSync, ExternalLink } from 'lucide-svelte';
-    import { auth, debugAuth } from '$lib/auth.svelte.ts';
+    import { auth, debugAuth } from '$lib/auth.svelte';
     import { get } from 'svelte/store';
-    import { app } from '$lib/data.svelte.js';
+    import { app } from '$lib/data.svelte';
     import { autoUploadSettings, deviceInfo } from '$lib/stores';
 
     export let show = false;
     
     // Subscribe to auth store
     let isAuthenticated = false;
-    let authToken = null;
+    let authToken: string | null = null;
     let authUser = null;
     
     // Mobile detection
@@ -45,7 +45,7 @@
             // Update auth store if token exists but auth state is not set
             if (!get(auth).isAuthenticated) {
                 const tokenExpires = localStorage.getItem('token_expires') 
-                    ? new Date(localStorage.getItem('token_expires')) 
+                    ? new Date(localStorage.getItem('token_expires') as string) 
                     : null;
                 
                 // Check if token is expired
@@ -72,7 +72,7 @@
     });
     
     // Function to fetch user info using the token
-    async function fetchUserInfo(token) {
+    async function fetchUserInfo(token: string) {
         try {
             const response = await fetch('http://localhost:8089/api/users/me', {
                 headers: {
@@ -131,7 +131,7 @@
                     ...state,
                     token: storedToken,
                     tokenExpires: localStorage.getItem('token_expires') 
-                        ? new Date(localStorage.getItem('token_expires')) 
+                        ? new Date(localStorage.getItem('token_expires') as string) 
                         : null
                 }));
             }
@@ -145,13 +145,13 @@
     
     const dispatch = createEventDispatcher();
     
-    let files = [];
+    let files: File[] = [];
     let isUploading = false;
     let uploadProgress = 0;
     let description = '';
     let isPublic = true;
-    let error = null;
-    let success = null;
+    let error: string | null = null;
+    let success: string | null = null;
     
     // Reset form when dialog is opened
     $: if (show) {
@@ -173,26 +173,26 @@
         dispatch('close');
     }
     
-    function handleDragOver(e) {
+    function handleDragOver(e: DragEvent) {
         e.preventDefault();
-        e.dataTransfer.dropEffect = 'copy';
+        if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
     }
     
-    function handleDrop(e) {
+    function handleDrop(e: DragEvent) {
         e.preventDefault();
         if (isUploading) return;
         
-        const droppedFiles = Array.from(e.dataTransfer.files);
+        const droppedFiles = Array.from(e.dataTransfer?.files || []);
         handleFiles(droppedFiles);
     }
     
-    function handleFileInput(e) {
+    function handleFileInput(e: Event) {
         if (isUploading) return;
-        const selectedFiles = Array.from(e.target.files);
+        const selectedFiles = Array.from((e.target as HTMLInputElement).files || []);
         handleFiles(selectedFiles);
     }
     
-    function handleFiles(newFiles) {
+    function handleFiles(newFiles: File[]) {
         // Filter for image files
         const imageFiles = newFiles.filter(file => file.type.startsWith('image/'));
         
@@ -205,7 +205,7 @@
         error = null;
     }
     
-    function removeFile(index) {
+    function removeFile(index: number) {
         if (isUploading) return;
         files = files.filter((_, i) => i !== index);
     }
@@ -245,7 +245,7 @@
                 auth.update(state => ({
                     ...state,
                     token: storedToken,
-                    tokenExpires: localStorage.getItem('token_expires') ? new Date(localStorage.getItem('token_expires')) : null
+                    tokenExpires: localStorage.getItem('token_expires') ? new Date(localStorage.getItem('token_expires') as string) : null
                 }));
             } else {
                 error = 'Authentication token not found. Please log in again.';
@@ -263,7 +263,7 @@
                 const formData = new FormData();
                 formData.append('file', file);
                 formData.append('description', description);
-                formData.append('is_public', isPublic);
+                formData.append('is_public', String(isPublic));
                 
                 const xhr = new XMLHttpRequest();
                 
@@ -315,7 +315,7 @@
             
         } catch (err) {
             console.error('Error uploading photos:', err);
-            error = err.message || 'Failed to upload photos';
+            error = err instanceof Error ? err.message : 'Failed to upload photos';
         } finally {
             isUploading = false;
         }
@@ -414,7 +414,7 @@
                                     multiple 
                                     on:change={handleFileInput}
                                 />
-                                <button class="browse-button" on:click={() => document.getElementById('file-input').click()}>
+                                <button class="browse-button" on:click={() => document.getElementById('file-input')?.click()}>
                                     <Image size={20} />
                                     Select Photos
                                 </button>
@@ -514,7 +514,7 @@
                                 multiple 
                                 on:change={handleFileInput}
                             />
-                            <button class="browse-button" on:click={() => document.getElementById('file-input').click()}>
+                            <button class="browse-button" on:click={() => document.getElementById('file-input')?.click()}>
                                 Browse Files
                             </button>
                         </div>

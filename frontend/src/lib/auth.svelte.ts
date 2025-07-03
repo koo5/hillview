@@ -6,6 +6,8 @@ export interface User {
     id: string;
     username: string;
     email: string;
+    auto_upload_enabled?: boolean;
+    auto_upload_folder?: string;
     [key: string]: unknown;
 }
 
@@ -19,7 +21,7 @@ export interface AuthState {
 // Check for existing token
 const token = typeof localStorage !== 'undefined' ? localStorage.getItem('token') : null;
 const tokenExpires = typeof localStorage !== 'undefined' ? localStorage.getItem('token_expires') : null;
-const isAuthenticated = token && tokenExpires && new Date(tokenExpires as string) > new Date();
+const isAuthenticated = !!(token && tokenExpires && new Date(tokenExpires as string) > new Date());
 
 console.log('Auth initialization:');
 console.log('- Token exists:', !!token);

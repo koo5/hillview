@@ -8,5 +8,5 @@ formatter.setSeparator(", ")
     .setUnits(DMS.UNITS_ASCII);
 
 export function dms(coord: Coordinate): string {
-    return formatter.format(new Coordinate(coord.lat, coord.lon));
+    return formatter.format(new Coordinate(coord.getLat(), coord.getLng()));
 }

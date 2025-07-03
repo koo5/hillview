@@ -52,7 +52,7 @@
 			});
 
 			// Start watching position with frequent updates for bearing
-			watchId = geolocation.watchPosition(
+			watchId = await geolocation.watchPosition(
 				(position) => {
 					currentLocation = position;
 					locationError = null;
@@ -208,7 +208,7 @@
 				bind:this={fileInput}
 				type="file"
 				accept="image/*"
-				capture="camera"
+				capture={true}
 				on:change={handleFileSelect}
 				style="display: none;"
 				data-testid="photo-input"

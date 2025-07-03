@@ -1,4 +1,4 @@
-<script>
+<script lang="ts">
     import {
         app,
         pos,
@@ -13,14 +13,15 @@
         photo_to_right,
         update_bearing,
         turn_to_photo_to, reversed
-    } from "$lib/data.svelte.ts";
-    import {dms} from "$lib/utils.ts";
+    } from "$lib/data.svelte";
+    import {dms} from "$lib/utils";
     import Photo from "./Photo.svelte";
     import { getDevicePhotoUrl } from '$lib/devicePhotoHelper';
+    import type { PhotoData } from '$lib/sources';
 
-    let clientWidth;
+    let clientWidth: number;
     
-    function handleThumbnailClick(photo) {
+    function handleThumbnailClick(photo: PhotoData) {
         bearing.set(photo.bearing);
     }
 </script>

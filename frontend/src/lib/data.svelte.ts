@@ -1,4 +1,4 @@
-import {type Photo} from "./types.ts";
+import {type Photo} from "./types";
 import {Coordinate} from "tsgeo/Coordinate";
 import {Vincenty} from "tsgeo/Distance/Vincenty";
 import Angles from 'angles';
@@ -10,10 +10,10 @@ import {
     localStorageReadOnceSharedStore,
     localStorageSharedStore,
     localStorageStaggeredStore
-} from './svelte-shared-store.ts';
-import { fixup_bearings, sources } from './sources.ts';
+} from './svelte-shared-store';
+import { fixup_bearings, sources, type PhotoData, type Source } from './sources';
 import {tick} from "svelte";
-import { auth } from './auth.svelte.ts';
+import { auth } from './auth.svelte';
 import { userPhotos } from './stores';
 
 export const geoPicsUrl = import.meta.env.VITE_REACT_APP_GEO_PICS_URL; //+'2'
@@ -22,7 +22,14 @@ let client_id = localStorageSharedStore('client_id', Math.random().toString(36))
 
 let calculator = new Vincenty();
 
-export let app = writable({
+export let app = writable<{
+    error: string | null;
+    debug: number;
+    displayMode: 'split' | 'max';
+    loading?: boolean;
+    isAuthenticated?: boolean;
+    userPhotos?: any[];
+}>({
     error: null,
     debug: 0,
     displayMode: 'split', // 'split' or 'max'
@@ -45,7 +52,7 @@ userPhotos.subscribe(photos => {
 });
 
 
-function source_by_id(id) {
+function source_by_id(id: string) {
     return get(sources).find(s => s.id === id);
 }
 
@@ -56,7 +63,7 @@ export let pos = localStorageReadOnceSharedStore('pos', {
     reason: 'default'
 });
 
-export function update_pos(cb)
+export function update_pos(cb: (pos: any) => any)
 {
     let v = get(pos);
     let n = cb(v);
@@ -70,7 +77,7 @@ export let pos2 = writable({
     bottom_right: new LatLng(10, 10),
     range: 1,
 });
-export function update_pos2(cb)
+export function update_pos2(cb: (pos2: any) => any)
 {
     let v = get(pos2);
     let n = cb(v);
@@ -80,20 +87,20 @@ export function update_pos2(cb)
 
 export let bearing = localStorageSharedStore('bearing', 0);
 
-export let hillview_photos = writable([]);
-export let hillview_photos_in_area = writable([]);
+export let hillview_photos = writable<PhotoData[]>([]);
+export let hillview_photos_in_area = writable<PhotoData[]>([]);
 export let mapillary_photos = writable(new Map());
-export let mapillary_photos_in_area = writable([]);
-export let photos_in_area = writable([]);
-export let photos_in_range = writable([]);
+export let mapillary_photos_in_area = writable<any[]>([]);
+export let photos_in_area = writable<any[]>([]);
+export let photos_in_range = writable<any[]>([]);
 
-export let photo_in_front = writable(null);
-export let photos_to_left = writable([]);
-export let photos_to_right = writable([]);
-export let photo_to_left = writable(null);
-export let photo_to_right = writable(null);
+export let photo_in_front = writable<any | null>(null);
+export let photos_to_left = writable<any[]>([]);
+export let photos_to_right = writable<any[]>([]);
+export let photo_to_left = writable<any | null>(null);
+export let photo_to_right = writable<any | null>(null);
 
-function dist(coord1, coord2) {
+function dist(coord1: any, coord2: any) {
     return calculator.getDistance(new Coordinate(coord1.lat, coord1.lng), new Coordinate(coord2.lat, coord2.lng));
 }
 
@@ -182,7 +189,7 @@ hillview_photos_in_area.subscribe(collect_photos_in_area);
 mapillary_photos_in_area.subscribe(collect_photos_in_area);
 
 let last_mapillary_request = 0;
-let mapillary_request_timer = null;
+let mapillary_request_timer: any = null;
 
 async function get_mapillary_photos() {
 
@@ -275,15 +282,15 @@ async function get_mapillary_photos() {
 pos2.subscribe(get_mapillary_photos);
 
 
-let old_sources = JSON.parse(JSON.stringify(get(sources)));
-sources.subscribe(async s => {
+let old_sources: Source[] = JSON.parse(JSON.stringify(get(sources)));
+sources.subscribe(async (s: Source[]) => {
     console.log('sources changed:', s);
     let old = JSON.parse(JSON.stringify(old_sources));
     old_sources = JSON.parse(JSON.stringify(s));
-    if (old.find(s => s.id === 'hillview')?.enabled !== s.find(s => s.id === 'hillview')?.enabled) {
+    if (old.find((src: Source) => src.id === 'hillview')?.enabled !== s.find((src: Source) => src.id === 'hillview')?.enabled) {
         filter_hillview_photos_by_area();
     }
-    if (old.find(s => s.id === 'mapillary')?.enabled !== s.find(s => s.id === 'mapillary')?.enabled) {
+    if (old.find((src: Source) => src.id === 'mapillary')?.enabled !== s.find((src: Source) => src.id === 'mapillary')?.enabled) {
         console.log('get_mapillary_photos');
         await get_mapillary_photos();
     }
@@ -399,9 +406,14 @@ function update_view() {
 bearing.subscribe(update_view);
 photos_in_range.subscribe(update_view);
 
-let events = [];
+interface TurnEvent {
+    type: string;
+    dir: string;
+}
 
-export async function turn_to_photo_to(dir) {
+let events: TurnEvent[] = [];
+
+export async function turn_to_photo_to(dir: string) {
     events.push({type: 'turn_to_photo_to', dir: dir});
     await handle_events();
 }
@@ -428,18 +440,18 @@ async function handle_events() {
     }
 }
 
-export function update_bearing(diff) {
+export function update_bearing(diff: number) {
     let b = get(bearing);
     bearing.set(b + diff);
 }
 
-function get_bearing_color(photo) {
+function get_bearing_color(photo: any) {
     if (photo.abs_bearing_diff === null) return '#9E9E9E'; // grey
     return 'hsl(' + Math.round(100 - photo.abs_bearing_diff/2) + ', 100%, 70%)';
 }
 
 
-function RGB2HTML(red, green, blue)
+function RGB2HTML(red: number, green: number, blue: number)
 {
     red = Math.min(255, Math.max(0, Math.round(red)));
     green = Math.min(255, Math.max(0, Math.round(green)));
@@ -453,7 +465,7 @@ function RGB2HTML(red, green, blue)
     return '#' + r + g + b;
 }
 
-export function reversed(list)
+export function reversed<T>(list: T[]): T[]
 {
     let res = [];
     for (let i = list.length - 1; i >= 0; i--) {

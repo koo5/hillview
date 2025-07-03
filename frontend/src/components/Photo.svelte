@@ -1,28 +1,29 @@
-<script>
+<script lang="ts">
     import { onMount, onDestroy } from 'svelte';
-    import { app } from '$lib/data.svelte.js';
+    import { app } from '$lib/data.svelte';
     import { getDevicePhotoUrl } from '$lib/devicePhotoHelper';
+    import type { PhotoData } from '$lib/sources';
 
-    export let photo = null;
+    export let photo: PhotoData | null = null;
     export let className = '';
-    export let clientWidth;
+    export let clientWidth: number | undefined = undefined;
 
-    let clientWidth2;
+    let clientWidth2: number | undefined;
 
     let fetchPriority = className === 'front' ? 'high' : 'auto';
     
-    let containerElement;
-    let selectedUrl;
-    let selectedSize;
+    let containerElement: HTMLElement | undefined;
+    let selectedUrl: string | undefined;
+    let selectedSize: any;
     let width = 100;
     let height = 100;
-    let devicePhotoUrl = null;
+    let devicePhotoUrl: string | null = null;
 
     let border_style;
-    $: border_style = className === 'front' ? 'border: 4px dotted '+ photo?.bearing_color +';' : '';
+    $: border_style = className === 'front' && photo ? 'border: 4px dotted #4a90e2;' : '';
     console.log('border_style:', border_style);
 
-    $: updateSelectedUrl(photo, clientWidth, containerElement);
+    $: if (photo || clientWidth || containerElement) updateSelectedUrl();
     
     async function updateSelectedUrl() {
 
@@ -63,12 +64,12 @@
         }
 
         // Find the best scaled version based on container width. Take the 'full' size if this fails
-        const sizes = Object.keys(photo.sizes).filter(size => size !== 'full').sort((a, b) => a - b);
-        let p;
+        const sizes = Object.keys(photo.sizes).filter(size => size !== 'full').sort((a, b) => Number(a) - Number(b));
+        let p: any;
         for (let i = 0; i < sizes.length; i++) {
             const size = sizes[i];
             //console.log('size:', size);
-            if (size >= clientWidth2) {
+            if (Number(size) >= clientWidth2) {
                 p = photo.sizes[sizes[i]];
                 selectedSize = size;
                 width = p.width;
@@ -116,7 +117,7 @@
             alt={photo.file}
             class="{className} photo"
             style="{photo.sizes && photo.sizes[50] ? `background-image: url(${photo.sizes[50].url});` : ''} {border_style}"
-            fetchpriority={fetchPriority}
+            fetchpriority={fetchPriority as any}
         />
         {/key}
     {/if}
