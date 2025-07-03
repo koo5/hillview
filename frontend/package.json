@@ -7,6 +7,7 @@
 		"@sveltejs/kit": "^2.17.2",
 		"@sveltejs/vite-plugin-svelte": "^5.0.3",
 		"@tauri-apps/cli": "^2.6.2",
+		"@types/leaflet": "^1.9.19",
 		"@wdio/appium-service": "^9.16.2",
 		"@wdio/cli": "^9.16.2",
 		"@wdio/local-runner": "^9.16.2",

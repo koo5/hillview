@@ -19,8 +19,8 @@ export function localStorageSharedStore<T>(name: string, default_: T): Writable<
    console.error('trying to parse: "' + item + '"');
    console.error(e);
   }
-  if (typeof result === 'object' && Object.hasOwnProperty.call(result, 'reason')) {
-   result.reason = 'getStorage';
+  if (result && typeof result === 'object' && 'reason' in result) {
+   (result as any).reason = 'getStorage';
   }
   return result;
  }
@@ -85,8 +85,8 @@ export function localStorageStaggeredStore<T>(name: string, default_: T): Writab
    console.error('trying to parse: "' + item + '"');
    console.error(e);
   }
-  if (typeof result === 'object' && Object.hasOwnProperty.call(result, 'reason')) {
-   result.reason = 'getStorage';
+  if (result && typeof result === 'object' && 'reason' in result) {
+   (result as any).reason = 'getStorage';
   }
   return result;
  }

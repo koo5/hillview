@@ -1,11 +1,25 @@
-import { writable, get } from 'svelte/store';
+import { writable, type Writable, get } from 'svelte/store';
 import { goto } from "$app/navigation";
 import { userPhotos } from './stores';
+
+export interface User {
+    id: string;
+    username: string;
+    email: string;
+    [key: string]: unknown;
+}
+
+export interface AuthState {
+    isAuthenticated: boolean;
+    token: string | null;
+    tokenExpires: Date | null;
+    user: User | null;
+}
 
 // Check for existing token
 const token = typeof localStorage !== 'undefined' ? localStorage.getItem('token') : null;
 const tokenExpires = typeof localStorage !== 'undefined' ? localStorage.getItem('token_expires') : null;
-const isAuthenticated = token && tokenExpires && new Date(tokenExpires) > new Date();
+const isAuthenticated = token && tokenExpires && new Date(tokenExpires as string) > new Date();
 
 console.log('Auth initialization:');
 console.log('- Token exists:', !!token);
@@ -16,10 +30,10 @@ if (token) {
 }
 
 // Auth store
-export const auth = writable({
-    isAuthenticated: isAuthenticated,
-    token: token,
-    tokenExpires: tokenExpires ? new Date(tokenExpires) : null,
+export const auth: Writable<AuthState> = writable({
+    isAuthenticated,
+    token,
+    tokenExpires: tokenExpires ? new Date(tokenExpires as string) : null,
     user: null
 });
 
@@ -27,7 +41,7 @@ export const auth = writable({
 // Let's check the token validity immediately
 if (token && !isAuthenticated && tokenExpires) {
     console.log('Token exists but isAuthenticated is false, checking token validity');
-    const expiry = new Date(tokenExpires);
+    const expiry = new Date(tokenExpires as string);
     const now = new Date();
     console.log('- Token expiry:', expiry);
     console.log('- Current time:', now);
@@ -270,7 +284,7 @@ export async function fetchUserData() {
                 ...a,
                 isAuthenticated: true,
                 token: tokenToUse,
-                tokenExpires: localStorage.getItem('token_expires') ? new Date(localStorage.getItem('token_expires')) : null,
+                tokenExpires: localStorage.getItem('token_expires') ? new Date(localStorage.getItem('token_expires') as string) : null,
                 user: userData
             };
         });
@@ -325,7 +339,7 @@ export async function fetchUserPhotos() {
             auth.update(state => ({
                 ...state,
                 token: tokenToUse,
-                tokenExpires: localStorage.getItem('token_expires') ? new Date(localStorage.getItem('token_expires')) : null
+                tokenExpires: localStorage.getItem('token_expires') ? new Date(localStorage.getItem('token_expires') as string) : null
             }));
         }
         
