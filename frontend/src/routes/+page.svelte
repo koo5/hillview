@@ -21,6 +21,7 @@
     let menuOpen = false;
     let showUploadDialog = false;
     let showCameraView = false;
+    let debugOverlay: any = null;
 
     onMount(async () => {
         console.log('Page mounted');
@@ -250,6 +251,16 @@
     <Camera size={24} />
 </button>
 
+<button
+    on:click={debugOverlay.toggleDebug}
+    class="debug-toggle"
+    on:keydown={(e) => e.key === 'Enter' && debugOverlay.toggleDebug()}
+    aria-label="Toggle debug overlay"
+    title="Toggle debug overlay"
+    >
+    Debug
+</button>
+
 {#if menuOpen}
 
     <nav class="nav-menu">
@@ -343,7 +354,7 @@
 />
 
 <!-- Debug Overlay -->
-<DebugOverlay />
+<DebugOverlay bind:this={debugOverlay} />
 
 <style>
     /* Reset default margin, padding and prevent body scroll */
@@ -453,7 +464,26 @@
         padding: 0;
         transition: all 0.2s ease;
     }
-    
+
+    .debug-toggle {
+        position: absolute;
+        top: 10px;
+        left: 160px;
+        z-index: 30001;
+        background: white;
+        border-radius: 50%;
+        width: 40px;
+        height: 40px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        cursor: pointer;
+        border: none;
+        padding: 0;
+        transition: all 0.2s ease;
+    }
+
     .camera-button.active {
         background: #4a90e2;
         color: white;
@@ -587,4 +617,5 @@
             height: 48px;
         }
     }
+
 </style>

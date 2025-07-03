@@ -19,14 +19,14 @@
         const debugParam = urlParams.get('debug');
         const storedDebug = localStorage.getItem('debugMode');
         
-        showDebug = debugParam === 'true' || storedDebug === 'true' || buildInfo.debugMode;
+        showDebug = debugParam === 'true' || storedDebug === 'true';
         
         return () => {
             clearInterval(interval);
         };
     });
     
-    function toggleDebug() {
+    export function toggleDebug() {
         showDebug = !showDebug;
         localStorage.setItem('debugMode', showDebug.toString());
     }
