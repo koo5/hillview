@@ -52,6 +52,8 @@ export function updateGpsLocation(position: GeolocationPosition | null) {
         // No change in coordinates, do not update
         return;
     }
+
+    console.debug('Updating GPS location store:', position);
     gpsLocation.set(position);
     
     // Also update capture location when GPS updates

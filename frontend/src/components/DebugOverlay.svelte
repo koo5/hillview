@@ -99,11 +99,11 @@
                     <div>Lat: {$captureLocation.latitude.toFixed(6)}</div>
                     <div>Lng: {$captureLocation.longitude.toFixed(6)}</div>
                     {#if $captureLocation.altitude !== undefined}
-                        <div>Alt: {$captureLocation.altitude.toFixed(1)}m</div>
+                        <div>Alt: {$captureLocation?.altitude?.toFixed(1)}m</div>
                     {/if}
-                    <div>Heading: {$captureLocation.heading.toFixed(1)}°</div>
-                    <div>Accuracy: ±{$captureLocation.accuracy.toFixed(1)}m</div>
-                    <div class="timestamp">Updated: {new Date($captureLocation.timestamp).toLocaleTimeString()}</div>
+                    <div>Heading: {$captureLocation?.heading?.toFixed(1)}°</div>
+                    <div>Accuracy: ±{$captureLocation?.accuracy?.toFixed(1)}m</div>
+                    <div class="timestamp">Updated: {new Date($captureLocation?.timestamp).toLocaleTimeString()}</div>
                 </div>
             {:else}
                 <div class="debug-section">
