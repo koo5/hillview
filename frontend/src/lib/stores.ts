@@ -38,3 +38,8 @@ export const deviceInfo = writable({
     isIOS: false,
     isAndroid: false
 });
+
+// Store for photo capture settings
+export const photoCaptureSettings = localStorageSharedStore('photoCaptureSettings', {
+    saveToGallery: true // Default to true for saving to gallery
+});

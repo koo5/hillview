@@ -1,3 +1,4 @@
+mod commands;
 mod photo_exif;
 mod device_photos;
 
@@ -7,6 +8,11 @@ pub fn run() {
     .plugin(tauri_plugin_geolocation::init())
     .plugin(tauri_plugin_fs::init())
     .invoke_handler(tauri::generate_handler![
+            commands::log,
+            commands::is_debug_mode,
+            commands::get_build_commit_hash,
+            commands::get_build_branch,
+            commands::get_build_ts,
       photo_exif::embed_photo_metadata,
       photo_exif::save_photo_with_metadata,
       photo_exif::read_device_photo,

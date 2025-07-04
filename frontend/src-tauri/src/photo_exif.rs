@@ -239,12 +239,42 @@ pub async fn embed_photo_metadata(
     })
 }
 
+#[cfg(target_os = "android")]
+fn save_to_android_gallery(image_data: &[u8], filename: &str, _metadata: &PhotoMetadata) -> Result<(), std::io::Error> {
+    use std::os::unix::fs::PermissionsExt;
+    
+    // Get the Pictures directory path
+    // On Android, this typically maps to /storage/emulated/0/Pictures
+    let pictures_dir = std::env::var("EXTERNAL_STORAGE")
+        .unwrap_or_else(|_| "/storage/emulated/0".to_string());
+    let pictures_path = std::path::Path::new(&pictures_dir).join("Pictures").join("Hillview");
+    
+    // Create the Hillview subdirectory in Pictures
+    std::fs::create_dir_all(&pictures_path)?;
+    
+    // Save the file
+    let gallery_path = pictures_path.join(filename);
+    std::fs::write(&gallery_path, image_data)?;
+    
+    // Set readable permissions for other apps
+    let mut perms = std::fs::metadata(&gallery_path)?.permissions();
+    perms.set_mode(0o644); // rw-r--r--
+    std::fs::set_permissions(&gallery_path, perms)?;
+    
+    // Note: On newer Android versions (API 29+), we would need to use MediaStore API
+    // through JNI for proper gallery integration. This direct file approach works
+    // for Android 9 and below, or with legacy storage permissions.
+    
+    Ok(())
+}
+
 #[command]
 pub async fn save_photo_with_metadata(
     app_handle: tauri::AppHandle,
     image_data: Vec<u8>,
     metadata: PhotoMetadata,
     filename: String,
+    save_to_gallery: bool,
 ) -> Result<crate::device_photos::DevicePhotoMetadata, String> {
         
     // Process the photo with EXIF data
@@ -259,10 +289,17 @@ pub async fn save_photo_with_metadata(
     std::fs::create_dir_all(&photos_dir)
         .map_err(|e| format!("Failed to create photos directory: {}", e))?;
     
-    // Save the file
+    // Save the file to app directory
     let file_path = photos_dir.join(&filename);
-    std::fs::write(&file_path, processed.data)
+    std::fs::write(&file_path, &processed.data)
         .map_err(|e| format!("Failed to save photo: {}", e))?;
+    
+    // Save to Android gallery if requested
+    #[cfg(target_os = "android")]
+    if save_to_gallery {
+        save_to_android_gallery(&processed.data, &filename, &metadata)
+            .map_err(|e| format!("Failed to save to gallery: {}", e))?;
+    }
     
     // Add to device photos database with dimensions
     let device_photo = crate::device_photos::add_device_photo_to_db(

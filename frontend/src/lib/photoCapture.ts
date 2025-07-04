@@ -1,5 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { generateUnicodeGuid } from './unicodeGuid';
+import { get } from 'svelte/store';
+import { photoCaptureSettings } from './stores';
 
 export interface PhotoMetadata {
 	latitude: number;
@@ -77,11 +79,15 @@ class PhotoCaptureService {
 		const filename = `${year}-${month}-${day}-${hours}-${minutes}-${seconds}_${unicodeGuid}.jpg`;
 
 		try {
+			// Get current settings
+			const settings = get(photoCaptureSettings);
+			
 			// Call Rust backend to embed EXIF and save
 			const devicePhoto = await invoke<DevicePhotoMetadata>('save_photo_with_metadata', {
 				imageData,
 				metadata,
-				filename
+				filename,
+				saveToGallery: settings.saveToGallery
 			});
 
 			return devicePhoto;
