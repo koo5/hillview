@@ -487,21 +487,78 @@
         const mapContainer = map.getContainer();
         
         // Remove any existing wheel listeners first
-        mapContainer.removeEventListener('wheel', handleAndroidWheel);
+        mapContainer.removeEventListener('wheel', handleAndroidWheel, true);
+        mapContainer.removeEventListener('wheel', handleAndroidWheel, false);
+        mapContainer.removeEventListener('mousewheel', handleAndroidWheel, true);
+        mapContainer.removeEventListener('DOMMouseScroll', handleAndroidWheel, true);
         
-        // Add our custom wheel handler
-        mapContainer.addEventListener('wheel', handleAndroidWheel, { passive: false });
+        // Add our custom wheel handler with capture to intercept early
+        mapContainer.addEventListener('wheel', handleAndroidWheel, { 
+            passive: false, 
+            capture: true 
+        });
+        mapContainer.addEventListener('mousewheel', handleAndroidWheel, { 
+            passive: false, 
+            capture: true 
+        });
+        mapContainer.addEventListener('DOMMouseScroll', handleAndroidWheel, { 
+            passive: false, 
+            capture: true 
+        });
+        
+        // Also prevent default on the parent div
+        const mapDiv = mapContainer.parentElement;
+        if (mapDiv) {
+            mapDiv.addEventListener('wheel', (e) => e.preventDefault(), { passive: false });
+        }
+        
+        // Disable Leaflet's built-in scroll wheel zoom since we're handling it manually
+        map.scrollWheelZoom.disable();
     }
     
+    let wheelTimeout: any = null;
+    
     function handleAndroidWheel(e: WheelEvent) {
-        e.preventDefault();
+        console.log('Android wheel event:', { deltaY: e.deltaY, wheelDelta: e.wheelDelta, detail: e.detail });
         
-        const delta = e.deltaY || e.wheelDelta;
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        
+        // Temporarily disable dragging to prevent pan
+        if (map && map.dragging.enabled()) {
+            map.dragging.disable();
+            
+            // Clear any existing timeout
+            if (wheelTimeout) {
+                clearTimeout(wheelTimeout);
+            }
+            
+            // Re-enable dragging after a short delay
+            wheelTimeout = setTimeout(() => {
+                if (map) {
+                    map.dragging.enable();
+                }
+                wheelTimeout = null;
+            }, 100);
+        }
+        
+        const delta = e.deltaY || e.wheelDelta || -e.detail;
         if (delta && map) {
             const zoom = map.getZoom();
-            const newZoom = delta > 0 ? zoom - 0.5 : zoom + 0.5;
-            map.setZoom(newZoom);
+            const zoomDelta = delta > 0 ? -0.5 : 0.5;
+            const newZoom = Math.max(map.getMinZoom(), Math.min(map.getMaxZoom(), zoom + zoomDelta));
+            
+            console.log('Zooming from', zoom, 'to', newZoom);
+            
+            // Get the mouse position relative to the map
+            const containerPoint = map.mouseEventToContainerPoint(e);
+            
+            // Zoom to the mouse position
+            map.setZoomAround(containerPoint, newZoom, { animate: false });
         }
+        
+        return false;
     }
 
     onMount(async () => {
@@ -535,10 +592,21 @@
             clearTimeout(longPressTimeout);
         }
         
+        // Clean up wheel timeout if active
+        if (wheelTimeout) {
+            clearTimeout(wheelTimeout);
+        }
+        
         // Clean up Android wheel event listener
         if (map && /Android/i.test(navigator.userAgent)) {
             const mapContainer = map.getContainer();
-            mapContainer.removeEventListener('wheel', handleAndroidWheel);
+            mapContainer.removeEventListener('wheel', handleAndroidWheel, true);
+            mapContainer.removeEventListener('wheel', handleAndroidWheel, false);
+            
+            const mapDiv = mapContainer.parentElement;
+            if (mapDiv) {
+                mapDiv.removeEventListener('wheel', (e) => e.preventDefault());
+            }
         }
     });
 

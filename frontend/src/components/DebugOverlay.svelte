@@ -64,15 +64,19 @@
                     <div><strong>GPS Location:</strong> {$locationTracking ? '📍 Active' : '⭕ Inactive'}</div>
                     <div>Lat: {$gpsCoordinates.latitude.toFixed(6)}</div>
                     <div>Lng: {$gpsCoordinates.longitude.toFixed(6)}</div>
+
                     {#if $gpsCoordinates.altitude !== null && $gpsCoordinates.altitude !== undefined}
-                        <div>Alt: {$gpsCoordinates.altitude.toFixed(1)}m</div>
+                        <div>Alt: {$gpsCoordinates.altitude?.toFixed(1)}m</div>
                     {/if}
-                    <div>Accuracy: ±{$gpsCoordinates.accuracy.toFixed(1)}m</div>
+
+                    <div>Accuracy: ±{$gpsCoordinates.accuracy?.toFixed(1)}m</div>
+
                     {#if $gpsCoordinates.heading !== null && $gpsCoordinates.heading !== undefined}
                         <div>GPS Heading: {$gpsCoordinates.heading.toFixed(1)}°</div>
                     {:else}
                         <div>GPS Heading: N/A</div>
                     {/if}
+
                     {#if $gpsCoordinates.speed !== null && $gpsCoordinates.speed !== undefined}
                         <div>Speed: {($gpsCoordinates.speed * 3.6).toFixed(1)} km/h</div>
                     {/if}
@@ -94,7 +98,7 @@
                     <div><strong>Capture Location:</strong> <span class="source-badge">{$captureLocation.source.toUpperCase()}</span></div>
                     <div>Lat: {$captureLocation.latitude.toFixed(6)}</div>
                     <div>Lng: {$captureLocation.longitude.toFixed(6)}</div>
-                    {#if $captureLocation.altitude !== null}
+                    {#if $captureLocation.altitude !== undefined}
                         <div>Alt: {$captureLocation.altitude.toFixed(1)}m</div>
                     {/if}
                     <div>Heading: {$captureLocation.heading.toFixed(1)}°</div>

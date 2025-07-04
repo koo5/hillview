@@ -1,4 +1,4 @@
-import { writable, derived } from 'svelte/store';
+import {writable, derived, get} from 'svelte/store';
 import type { GeolocationPosition } from '$lib/geolocation';
 import { updateCaptureLocationFromGps } from './captureLocation';
 
@@ -43,6 +43,15 @@ export const gpsLocationString = derived(
 
 // Helper function to update location
 export function updateGpsLocation(position: GeolocationPosition | null) {
+    const old = get(gpsLocation);
+    if (old?.coords.latitude === position?.coords.latitude &&
+        old?.coords.longitude === position?.coords.longitude &&
+        old?.coords.altitude === position?.coords.altitude &&
+        old?.coords.accuracy === position?.coords.accuracy &&
+        old?.coords.heading === position?.coords.heading) {
+        // No change in coordinates, do not update
+        return;
+    }
     gpsLocation.set(position);
     
     // Also update capture location when GPS updates
@@ -50,9 +59,9 @@ export function updateGpsLocation(position: GeolocationPosition | null) {
         updateCaptureLocationFromGps({
             latitude: position.coords.latitude,
             longitude: position.coords.longitude,
-            altitude: position.coords.altitude ?? null,
+            altitude: position.coords.altitude,
             accuracy: position.coords.accuracy,
-            heading: position.coords.heading ?? null
+            heading: position.coords.heading
         });
     }
 }

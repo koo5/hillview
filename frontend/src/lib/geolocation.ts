@@ -10,10 +10,10 @@ export interface GeolocationPosition {
         latitude: number;
         longitude: number;
         accuracy: number;
-        altitude?: number | null;
-        altitudeAccuracy?: number | null;
-        heading?: number | null;
-        speed?: number | null;
+        altitude?: number;
+        altitudeAccuracy?: number;
+        heading?: number;
+        speed?: number;
     };
     timestamp: number;
 }

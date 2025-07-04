@@ -1,13 +1,13 @@
-import { writable } from 'svelte/store';
+import {get, writable} from 'svelte/store';
 
 export interface CaptureLocation {
     latitude: number;
     longitude: number;
-    altitude: number | null;
-    accuracy: number;
-    heading: number;
-    source: 'gps' | 'map';
-    timestamp: number;
+    altitude?: number;
+    accuracy?: number;
+    heading?: number;
+    source?: 'gps' | 'map';
+    timestamp?: number;
 }
 
 // Store that holds the current capture location
@@ -18,19 +18,21 @@ export const captureLocation = writable<CaptureLocation | null>(null);
 export function updateCaptureLocationFromGps(coords: { 
     latitude: number;
     longitude: number;
-    altitude: number | null;
-    accuracy: number;
-    heading?: number | null;
-}, heading?: number | null) {
-    captureLocation.set({
-        latitude: coords.latitude,
-        longitude: coords.longitude,
-        altitude: coords.altitude,
-        accuracy: coords.accuracy,
-        heading: heading ?? coords.heading ?? 0,
-        source: 'gps',
-        timestamp: Date.now()
-    });
+    altitude?: number;
+    accuracy?: number;
+    heading?: number;
+}) {
+    const old = get(captureLocation);
+    const v = { ...(old || {}), ...coords, source: 'gps'}
+    if (v.latitude !== old?.latitude ||
+        v.longitude !== old?.longitude ||
+        v.altitude !== old?.altitude ||
+        v.accuracy !== old?.accuracy ||
+        v.heading !== old?.heading ||
+        v.source !== old?.source)
+    {
+        captureLocation.set({...v, timestamp: Date.now()});
+    }
 }
 
 // Helper function to update capture location from map
@@ -38,8 +40,8 @@ export function updateCaptureLocationFromMap(lat: number, lng: number, mapBearin
     captureLocation.set({
         latitude: lat,
         longitude: lng,
-        altitude: null,
-        accuracy: 10, // Default accuracy for map-based location
+        altitude: undefined, // No altitude from map
+        accuracy: 1,
         heading: mapBearing,
         source: 'map',
         timestamp: Date.now()

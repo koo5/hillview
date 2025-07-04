@@ -95,7 +95,7 @@ class PhotoCaptureService {
 		try {
 			return await invoke<DevicePhotosDb>('load_device_photos_db');
 		} catch (error) {
-			console.error('Failed to load device photos:', error);
+			console.debug('Failed to load device photos:', error.message);
 			return { photos: [], last_updated: 0 };
 		}
 	}
