@@ -552,10 +552,10 @@
     <LeafletMap
             bind:this={elMap}
             events={{moveend: mapStateUserEvent, zoomend: mapStateUserEvent}}
-            options={{center: [$pos.center.lat, $pos.center.lng], zoom: $pos.zoom}}
+            options={{center: [$pos.center.lat, $pos.center.lng], zoom: $pos.zoom, zoomControl: true}}
     >
 
-        <ScaleControl options={{maxWidth: 100}} position="bottomleft"/>
+        <ScaleControl options={{maxWidth: 100, imperial: false}} position="bottomleft"/>
 
         <!-- Base map tiles -->
         <TileLayer
@@ -947,5 +947,14 @@
         border-color: #555 !important;
     }
 
+    /* Ensure zoom controls have higher z-index than scale control */
+    :global(.leaflet-control-zoom-in) {
+        background-color: rgba(255, 255, 255, 0.5) !important;
+    }
+
+    /* Ensure zoom controls have higher z-index than scale control */
+    :global(.leaflet-control-zoom-out) {
+        background-color: rgba(255, 255, 255, 0.5) !important;
+    }
 
 </style>

@@ -12,6 +12,7 @@
 		altitude?: number | null;
 		accuracy?: number;
 		heading?: number | null;
+		source?: 'gps' | 'map';
 	} | null = null;
 	export let locationError: string | null = null;
 	export let locationReady = false;
@@ -182,6 +183,9 @@
 							<div class="location-row">
 								<span class="icon">📍</span>
 								<span>{locationData.latitude?.toFixed(6)}°, {locationData.longitude?.toFixed(6)}°</span>
+								{#if locationData.source}
+									<span class="source-badge">{locationData.source === 'gps' ? 'GPS' : 'Map'}</span>
+								{/if}
 							</div>
 							{#if locationData.heading !== null && locationData.heading !== undefined}
 								<div class="location-row">
@@ -417,6 +421,16 @@
 		font-size: 1rem;
 		width: 1.2rem;
 		text-align: center;
+	}
+	
+	.source-badge {
+		background: rgba(255, 255, 255, 0.2);
+		padding: 0.1rem 0.4rem;
+		border-radius: 4px;
+		font-size: 0.7rem;
+		margin-left: 0.5rem;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
 	}
 	
 	.spinner {

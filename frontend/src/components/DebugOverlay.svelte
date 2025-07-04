@@ -6,7 +6,7 @@
     
     let showDebug = false;
     let buildInfo = getBuildInfo();
-    let currentTime;
+    let currentTime: string | undefined;
     
     onMount(() => {
         // Update time every second
@@ -63,16 +63,16 @@
                     <div><strong>GPS Location:</strong> {$locationTracking ? '📍 Active' : '⭕ Inactive'}</div>
                     <div>Lat: {$gpsCoordinates.latitude.toFixed(6)}</div>
                     <div>Lng: {$gpsCoordinates.longitude.toFixed(6)}</div>
-                    {#if $gpsCoordinates.altitude !== null}
+                    {#if $gpsCoordinates.altitude !== null && $gpsCoordinates.altitude !== undefined}
                         <div>Alt: {$gpsCoordinates.altitude.toFixed(1)}m</div>
                     {/if}
                     <div>Accuracy: ±{$gpsCoordinates.accuracy.toFixed(1)}m</div>
-                    {#if $gpsCoordinates.heading !== null}
+                    {#if $gpsCoordinates.heading !== null && $gpsCoordinates.heading !== undefined}
                         <div>GPS Heading: {$gpsCoordinates.heading.toFixed(1)}°</div>
                     {:else}
                         <div>GPS Heading: N/A</div>
                     {/if}
-                    {#if $gpsCoordinates.speed !== null}
+                    {#if $gpsCoordinates.speed !== null && $gpsCoordinates.speed !== undefined}
                         <div>Speed: {($gpsCoordinates.speed * 3.6).toFixed(1)} km/h</div>
                     {/if}
                     {#if $locationError}

@@ -15,6 +15,7 @@ import { fixup_bearings, sources, type PhotoData, type Source } from './sources'
 import {tick} from "svelte";
 import { auth } from './auth.svelte';
 import { userPhotos } from './stores';
+import { updateCaptureLocationFromMap } from './captureLocation';
 
 export const geoPicsUrl = import.meta.env.VITE_REACT_APP_GEO_PICS_URL; //+'2'
 
@@ -63,12 +64,19 @@ export let pos = localStorageReadOnceSharedStore('pos', {
     reason: 'default'
 });
 
+// Initialize capture location with default map position
+const initialPos = get(pos);
+updateCaptureLocationFromMap(initialPos.center.lat, initialPos.center.lng, 0);
+
 export function update_pos(cb: (pos: any) => any)
 {
     let v = get(pos);
     let n = cb(v);
     if (n.center.lat == v.center.lat && n.center.lng == v.center.lng && n.zoom == v.zoom) return;
     pos.set(n);
+    
+    // Update capture location when map position changes
+    updateCaptureLocationFromMap(n.center.lat, n.center.lng, get(bearing));
 }
 
 
@@ -109,6 +117,10 @@ bearing.subscribe(b => {
     if (b2 !== b) {
         bearing.set(b2);
     }
+    
+    // Update capture location when bearing changes
+    const p = get(pos);
+    updateCaptureLocationFromMap(p.center.lat, p.center.lng, b2);
 });
 
 pos.subscribe(p => {
@@ -443,6 +455,10 @@ async function handle_events() {
 export function update_bearing(diff: number) {
     let b = get(bearing);
     bearing.set(b + diff);
+    
+    // Update capture location when bearing changes
+    const p = get(pos);
+    updateCaptureLocationFromMap(p.center.lat, p.center.lng, b + diff);
 }
 
 function get_bearing_color(photo: any) {

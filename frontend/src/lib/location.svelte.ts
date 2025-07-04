@@ -1,5 +1,6 @@
 import { writable, derived } from 'svelte/store';
 import type { GeolocationPosition } from '$lib/geolocation';
+import { updateCaptureLocationFromGps } from './captureLocation';
 
 // Store for current GPS location from device
 export const gpsLocation = writable<GeolocationPosition | null>(null);
@@ -43,6 +44,11 @@ export const gpsLocationString = derived(
 // Helper function to update location
 export function updateGpsLocation(position: GeolocationPosition | null) {
     gpsLocation.set(position);
+    
+    // Also update capture location when GPS updates
+    if (position) {
+        updateCaptureLocationFromGps(position.coords);
+    }
 }
 
 // Helper function to update tracking status

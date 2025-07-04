@@ -14,6 +14,9 @@
     import CameraCapture from '../components/CameraCapture.svelte';
     import DebugOverlay from '../components/DebugOverlay.svelte';
     import { gpsLocation } from '$lib/location.svelte';
+    import { photoCaptureService } from '$lib/photoCapture';
+    import { devicePhotos } from '$lib/stores';
+    import { captureLocation } from '$lib/captureLocation';
 
     let map: any = null;
     let mapComponent: any = null;
@@ -176,10 +179,44 @@
     }
 
     async function handlePhotoCaptured(event: CustomEvent<{ file: File }>) {
-        // Process the captured photo
-        // Keep camera view open
-        // Refresh photos after capture
-        await fetch_photos();
+        const { file } = event.detail;
+        const captureLoc = $captureLocation;
+        
+        if (!captureLoc) {
+            alert('Location not available. Please wait for GPS or move the map.');
+            return;
+        }
+        
+        try {
+            // Prepare photo data with capture location (either GPS or map position)
+            const photoData = {
+                image: file,
+                location: {
+                    latitude: captureLoc.latitude,
+                    longitude: captureLoc.longitude,
+                    altitude: captureLoc.altitude,
+                    accuracy: captureLoc.accuracy
+                },
+                bearing: captureLoc.heading,
+                timestamp: Date.now()
+            };
+            
+            console.log(`Saving photo with ${captureLoc.source} location:`, captureLoc);
+            
+            // Save photo with EXIF metadata
+            const savedPhoto = await photoCaptureService.savePhotoWithExif(photoData);
+            
+            // Update device photos store
+            devicePhotos.update(photos => [...photos, savedPhoto]);
+            
+            // Refresh photos to show on map
+            await fetch_photos();
+            
+            // Keep camera view open for continuous capture
+        } catch (error) {
+            console.error('Failed to save captured photo:', error);
+            alert('Failed to save photo. Please try again.');
+        }
     }
 
     function toggleCamera() {
@@ -324,15 +361,16 @@
                 show={true}
                 on:close={() => showCameraView = false}
                 on:photoCaptured={handlePhotoCaptured}
-                locationData={{
-                    latitude: $pos.center.lat,
-                    longitude: $pos.center.lng,
-                    altitude: currentLocation?.coords.altitude || null,
-                    accuracy: currentLocation?.coords.accuracy || 10,
-                    heading: $bearing
-                }}
+                locationData={$captureLocation ? {
+                    latitude: $captureLocation.latitude,
+                    longitude: $captureLocation.longitude,
+                    altitude: $captureLocation.altitude,
+                    accuracy: $captureLocation.accuracy,
+                    heading: $captureLocation.heading,
+                    source: $captureLocation.source
+                } : null}
                 locationError={null}
-                locationReady={true}
+                locationReady={!!$captureLocation}
             />
         {:else}
             <PhotoGallery/>
