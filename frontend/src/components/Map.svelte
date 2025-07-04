@@ -481,6 +481,28 @@
     }
 
     $: map = elMap?.getMap();
+    
+    // Fix Android mouse wheel behavior when map is ready
+    $: if (map && /Android/i.test(navigator.userAgent)) {
+        const mapContainer = map.getContainer();
+        
+        // Remove any existing wheel listeners first
+        mapContainer.removeEventListener('wheel', handleAndroidWheel);
+        
+        // Add our custom wheel handler
+        mapContainer.addEventListener('wheel', handleAndroidWheel, { passive: false });
+    }
+    
+    function handleAndroidWheel(e: WheelEvent) {
+        e.preventDefault();
+        
+        const delta = e.deltaY || e.wheelDelta;
+        if (delta && map) {
+            const zoom = map.getZoom();
+            const newZoom = delta > 0 ? zoom - 0.5 : zoom + 0.5;
+            map.setZoom(newZoom);
+        }
+    }
 
     onMount(async () => {
         await console.log('Map component mounted');
@@ -511,6 +533,12 @@
         // Clean up long press timeout if active
         if (longPressTimeout) {
             clearTimeout(longPressTimeout);
+        }
+        
+        // Clean up Android wheel event listener
+        if (map && /Android/i.test(navigator.userAgent)) {
+            const mapContainer = map.getContainer();
+            mapContainer.removeEventListener('wheel', handleAndroidWheel);
         }
     });
 
@@ -552,7 +580,17 @@
     <LeafletMap
             bind:this={elMap}
             events={{moveend: mapStateUserEvent, zoomend: mapStateUserEvent}}
-            options={{center: [$pos.center.lat, $pos.center.lng], zoom: $pos.zoom, zoomControl: true}}
+            options={{
+                center: [$pos.center.lat, $pos.center.lng], 
+                zoom: $pos.zoom,
+                minZoom: 3,
+                zoomControl: true, 
+                scrollWheelZoom: !/Android/i.test(navigator.userAgent), // Disable on Android, we'll handle it manually
+                touchZoom: true,
+                dragging: true,
+                tap: true,
+                bounceAtZoomLimits: true
+            }}
     >
 
         <ScaleControl options={{maxWidth: 100, imperial: false}} position="bottomleft"/>
@@ -773,7 +811,7 @@
     .buttons {
         display: flex;
         gap: 0.5rem;
-        background-color: rgba(255, 255, 255, 0.9);
+        background-color: rgba(255, 255, 255, 0.1);
         padding: 0.15rem;
         border-radius: 0.5rem 0 0 0;
         box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
@@ -782,7 +820,7 @@
 
     .buttons button {
         cursor: pointer;
-        background-color: white;
+        background-color: rgba(255, 255, 255, 0.5) !important;
         border: 1px solid #ccc;
         border-radius: 0.25rem;
         padding: 0.5rem;

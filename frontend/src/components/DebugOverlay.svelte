@@ -3,6 +3,7 @@
     import { onMount } from 'svelte';
     import { pos, bearing } from '$lib/data.svelte';
     import { gpsLocation, gpsCoordinates, locationTracking, locationError } from '$lib/location.svelte';
+    import { captureLocation } from '$lib/captureLocation';
     
     let showDebug = false;
     let buildInfo = getBuildInfo();
@@ -87,18 +88,28 @@
                     {/if}
                 </div>
             {/if}
+            
+            {#if $captureLocation}
+                <div class="debug-section">
+                    <div><strong>Capture Location:</strong> <span class="source-badge">{$captureLocation.source.toUpperCase()}</span></div>
+                    <div>Lat: {$captureLocation.latitude.toFixed(6)}</div>
+                    <div>Lng: {$captureLocation.longitude.toFixed(6)}</div>
+                    {#if $captureLocation.altitude !== null}
+                        <div>Alt: {$captureLocation.altitude.toFixed(1)}m</div>
+                    {/if}
+                    <div>Heading: {$captureLocation.heading.toFixed(1)}°</div>
+                    <div>Accuracy: ±{$captureLocation.accuracy.toFixed(1)}m</div>
+                    <div class="timestamp">Updated: {new Date($captureLocation.timestamp).toLocaleTimeString()}</div>
+                </div>
+            {:else}
+                <div class="debug-section">
+                    <div><strong>Capture Location:</strong> Not initialized</div>
+                </div>
+            {/if}
+            
             <div class="debug-note">Press Ctrl+Shift+D to toggle</div>
         </div>
     </div>
-{:else}
-    <button 
-        class="debug-toggle-button" 
-        on:click={toggleDebug}
-        aria-label="Show debug info"
-        title="Show debug info (Ctrl+Shift+D)"
-    >
-        🐛
-    </button>
 {/if}
 
 <style>
@@ -182,6 +193,7 @@
         font-style: italic;
     }
     
+
     .debug-toggle-button {
         position: fixed;
         bottom: 10px;

@@ -47,7 +47,13 @@ export function updateGpsLocation(position: GeolocationPosition | null) {
     
     // Also update capture location when GPS updates
     if (position) {
-        updateCaptureLocationFromGps(position.coords);
+        updateCaptureLocationFromGps({
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            altitude: position.coords.altitude ?? null,
+            accuracy: position.coords.accuracy,
+            heading: position.coords.heading ?? null
+        });
     }
 }
 
