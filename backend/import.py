@@ -64,8 +64,9 @@ def geo_and_bearing_exif(filepath):
 
     # Fallback to exiftool
     try:
-        print(f"Trying exiftool fallback for {filepath}")
         cmd = ['exiftool', '-json', '-GPS*', filepath]
+        print(f"Trying exiftool fallback: {shlex.join(cmd)}")
+
         result = subprocess.run(cmd, capture_output=True, text=True)
         
         if result.returncode != 0:
