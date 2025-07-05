@@ -59,7 +59,7 @@ fn create_exif_segment_simple(metadata: &PhotoMetadata) -> Vec<u8> {
         gps_entry_count += 2; // AltRef, Alt
     }
     if metadata.bearing.is_some() {
-        gps_entry_count += 2; // ImgDirectionRef, ImgDirection
+        gps_entry_count += 4; // ImgDirectionRef, ImgDirection, DestBearingRef, DestBearing
     }
     exif_data.extend_from_slice(&gps_entry_count.to_le_bytes());
     
@@ -147,7 +147,20 @@ fn create_exif_segment_simple(metadata: &PhotoMetadata) -> Vec<u8> {
         exif_data.extend_from_slice(b"T\0\0\0"); // True North
         
         // GPSImgDirection
-        exif_data.extend_from_slice(&[0x11, 0x00]); // Tag
+        exif_data.extend_from_slice(&[0x11, 0x00]); // Tag 0x0011
+        exif_data.extend_from_slice(&[0x05, 0x00]); // Type: RATIONAL
+        exif_data.extend_from_slice(&[0x01, 0x00, 0x00, 0x00]); // Count: 1
+        exif_data.extend_from_slice(&next_offset.to_le_bytes());
+        next_offset += 8;
+        
+        // GPSDestBearingRef
+        exif_data.extend_from_slice(&[0x17, 0x00]); // Tag 0x0017
+        exif_data.extend_from_slice(&[0x02, 0x00]); // Type: ASCII
+        exif_data.extend_from_slice(&[0x02, 0x00, 0x00, 0x00]); // Count: 2
+        exif_data.extend_from_slice(b"T\0\0\0"); // True North
+        
+        // GPSDestBearing
+        exif_data.extend_from_slice(&[0x18, 0x00]); // Tag 0x0018
         exif_data.extend_from_slice(&[0x05, 0x00]); // Type: RATIONAL
         exif_data.extend_from_slice(&[0x01, 0x00, 0x00, 0x00]); // Count: 1
         exif_data.extend_from_slice(&next_offset.to_le_bytes());
@@ -185,9 +198,13 @@ fn create_exif_segment_simple(metadata: &PhotoMetadata) -> Vec<u8> {
         exif_data.extend_from_slice(&1000u32.to_le_bytes());
     }
     
-    // Bearing rational
+    // Bearing rationals (both ImgDirection and DestBearing)
     if let Some(bearing) = metadata.bearing {
         let bearing_num = (bearing * 100.0) as u32;
+        // ImgDirection
+        exif_data.extend_from_slice(&bearing_num.to_le_bytes());
+        exif_data.extend_from_slice(&100u32.to_le_bytes());
+        // DestBearing (same value)
         exif_data.extend_from_slice(&bearing_num.to_le_bytes());
         exif_data.extend_from_slice(&100u32.to_le_bytes());
     }
@@ -333,17 +350,17 @@ fn create_exif_segment(metadata: &PhotoMetadata) -> Vec<u8> {
         exif_data.extend_from_slice(&alt_offset.to_le_bytes());
     }
     
-    // Optional: GPSImgDirectionRef (tag 0x000E) - True/Magnetic North
+    // Optional: GPSImgDirectionRef (tag 0x0010) - True/Magnetic North
     if metadata.bearing.is_some() {
-        exif_data.extend_from_slice(&[0x0E, 0x00]); // Tag
+        exif_data.extend_from_slice(&[0x10, 0x00]); // Tag
         exif_data.extend_from_slice(&[0x02, 0x00]); // Type: ASCII
         exif_data.extend_from_slice(&[0x02, 0x00, 0x00, 0x00]); // Count
         exif_data.extend_from_slice(b"T\0\0\0"); // True North (use "M" for Magnetic)
     }
     
-    // Optional: GPSImgDirection (tag 0x0010) for bearing
+    // Optional: GPSImgDirection (tag 0x0011) for bearing
     if let Some(_bearing) = metadata.bearing {
-        exif_data.extend_from_slice(&[0x10, 0x00]); // Tag
+        exif_data.extend_from_slice(&[0x11, 0x00]); // Tag
         exif_data.extend_from_slice(&[0x05, 0x00]); // Type: RATIONAL
         exif_data.extend_from_slice(&[0x01, 0x00, 0x00, 0x00]); // Count
         let bearing_offset: u32 = 0x150;
@@ -614,7 +631,7 @@ pub async fn read_photo_exif(path: String) -> Result<PhotoMetadata, String> {
         accuracy: 0.0,
     };
     
-    // Read GPS coordinates
+    // Read GPS coordinates - try PRIMARY first (GPS IFD is usually linked from PRIMARY)
     if let Some(lat_field) = exif_reader.get_field(exif::Tag::GPSLatitude, exif::In::PRIMARY) {
         if let Some(lat_ref_field) = exif_reader.get_field(exif::Tag::GPSLatitudeRef, exif::In::PRIMARY) {
             if let exif::Value::Rational(ref coords) = &lat_field.value {

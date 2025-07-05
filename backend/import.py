@@ -30,17 +30,25 @@ def geo_and_bearing_exif(filepath):
 
     try:
         with open(filepath, 'rb') as f:
-            tags = exifread.process_file(f, details=False)
+            tags = exifread.process_file(f, details=True)
+
+        print(f"Processing EXIF data from {filepath}")
+        print("EXIF tags found:", tags.keys())
 
         bearing = None
         latitude = tags.get('GPS GPSLatitude')
         longitude = tags.get('GPS GPSLongitude')
+        if not latitude or not longitude:
+            print(f"No GPS data found in {filepath}")
+            return False
 
         # Check bearing data (any one of the possible keys)
         bearing_keys = ['GPS GPSImgDirection', 'GPS GPSTrack', 'GPS GPSDestBearing']
         has_bearing = any(key in tags for key in bearing_keys)
         if has_bearing:
             bearing = tags.get(bearing_keys[0])
+        else:
+            print(f"No bearing data found in {filepath}")
 
         altitude = tags.get('GPS GPSAltitude')
 
@@ -48,8 +56,8 @@ def geo_and_bearing_exif(filepath):
             return latitude, longitude, bearing, altitude
         else:
             return False
-    except:
-        # If there's an error reading EXIF or opening the file
+    except Exception as e:
+        print(f"Error reading EXIF data from {filepath}: {e}")
         return False
 
 def copy_photos_with_bearing_and_gps(source_dir, dest_dir, extensions=None):
