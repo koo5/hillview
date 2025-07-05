@@ -52,7 +52,7 @@
     let userLocation: GeolocationPosition | null = null;
     
     // Source buttons display mode
-    let compactSourceButtons = false;
+    let compactSourceButtons = true;
     
     // Export location tracking functions for use by parent
     export function enableLocationTracking() {
@@ -427,7 +427,7 @@
             old?.coords.altitude === position?.coords.altitude &&
             old?.coords.accuracy === position?.coords.accuracy &&
             old?.coords.heading === position?.coords.heading) {
-            console.log("updateUserLocation(GPS): No change in position, skipping update");
+            //console.log("updateUserLocation(GPS): No change in position, skipping update");
             return;
         }
 

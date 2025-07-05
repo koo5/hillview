@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tauri::{command, Manager};
 use image::GenericImageView;
+use log::info;
+
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DevicePhotoMetadata {
@@ -114,6 +116,11 @@ pub async fn add_device_photo_to_db(
     db.last_updated = chrono::Utc::now().timestamp();
     
     save_device_photos_db(app_handle, db).await?;
+
+    info!("Added device photo to database: id: {}, path: {}, filename: {}, dimensions: {}x{}, size: {} bytes, lat: {}, lon: {}, alt: {:?}, bearing: {:?}, timestamp: {}, accuracy: {}",
+          device_photo.id, device_photo.path, device_photo.filename, device_photo.width, device_photo.height,
+          device_photo.file_size, device_photo.latitude, device_photo.longitude, device_photo.altitude,
+          device_photo.bearing, device_photo.timestamp, device_photo.accuracy);
     
     Ok(device_photo)
 }

@@ -1,8 +1,8 @@
 [package]
-name = "app"
+name = "hillview"
 version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
+description = "HillView - map with directional photos"
+authors = ["koo5"]
 license = ""
 repository = ""
 edition = "2021"
@@ -32,3 +32,4 @@ chrono = "0.4"
 image = "0.24"
 uuid = { version = "1.6", features = ["v4"] }
 kamadak-exif = "0.5"
+android_logger = "0.15.1"

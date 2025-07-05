@@ -120,7 +120,7 @@ export async function fetch_photos() {
         
         console.log('fixup_bearings...');
         fixup_bearings(ph)
-        console.log('Photos loaded:', ph);
+        console.log('Photos loaded:', ph.length);
         app.update(state => ({ ...state, error: null }));
         hillview_photos.set(ph);
     } catch (err) {
@@ -148,7 +148,7 @@ export function fixup_bearings(photos: PhotoData[]) {
                 moved = true;
             }
         }
-        console.log('Moved:', moved);
+        //console.log('Moved:', moved);
     }
 }
 
