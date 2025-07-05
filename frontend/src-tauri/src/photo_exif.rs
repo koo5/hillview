@@ -54,7 +54,7 @@ fn create_exif_segment_simple(metadata: &PhotoMetadata) -> Vec<u8> {
     }
     
     // Count GPS entries
-    let mut gps_entry_count = 4u16; // LatRef, Lat, LonRef, Lon
+    let mut gps_entry_count = 5u16; // VersionID, LatRef, Lat, LonRef, Lon
     if metadata.altitude.is_some() {
         gps_entry_count += 2; // AltRef, Alt
     }
@@ -63,7 +63,15 @@ fn create_exif_segment_simple(metadata: &PhotoMetadata) -> Vec<u8> {
     }
     exif_data.extend_from_slice(&gps_entry_count.to_le_bytes());
     
-    // GPSLatitudeRef
+    // GPS entries must be in ascending tag order
+    
+    // GPSVersionID (tag 0x0000) - required by some parsers
+    exif_data.extend_from_slice(&[0x00, 0x00]); // Tag
+    exif_data.extend_from_slice(&[0x01, 0x00]); // Type: BYTE
+    exif_data.extend_from_slice(&[0x04, 0x00, 0x00, 0x00]); // Count: 4
+    exif_data.extend_from_slice(&[0x02, 0x03, 0x00, 0x00]); // Version 2.3.0.0
+    
+    // GPSLatitudeRef (tag 0x0001)
     exif_data.extend_from_slice(&[0x01, 0x00]); // Tag
     exif_data.extend_from_slice(&[0x02, 0x00]); // Type: ASCII
     exif_data.extend_from_slice(&[0x02, 0x00, 0x00, 0x00]); // Count: 2

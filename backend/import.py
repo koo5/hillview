@@ -11,6 +11,10 @@ import exifread
 import shlex
 import subprocess
 
+from exifread.exif_log import setup_logger
+
+setup_logger(debug=True, color=False)
+
 from anonymize import anonymize_image
 
 extensions = ['.jpg', '.jpeg', '.tiff', '.png', '.heic', '.heif']
@@ -28,34 +32,69 @@ def geo_and_bearing_exif(filepath):
     # Some cameras might use different or additional tags,
     # but these are the common ones.
 
+    print()
+    print(f"Processing EXIF data from {filepath}")
+
+    # First try exifread
     try:
         with open(filepath, 'rb') as f:
-            tags = exifread.process_file(f, details=True)
+            tags = exifread.process_file(f, details=True, debug=False)
 
-        print(f"Processing EXIF data from {filepath}")
-        print("EXIF tags found:", tags.keys())
+        if len(tags) > 0:
+            print("EXIF tags found:", len(tags), "tags")
 
-        bearing = None
-        latitude = tags.get('GPS GPSLatitude')
-        longitude = tags.get('GPS GPSLongitude')
+            bearing = None
+            latitude = tags.get('GPS GPSLatitude')
+            longitude = tags.get('GPS GPSLongitude')
+            
+            if latitude and longitude:
+                # Check bearing data (any one of the possible keys)
+                bearing_keys = ['GPS GPSImgDirection', 'GPS GPSTrack', 'GPS GPSDestBearing']
+                for key in bearing_keys:
+                    if key in tags:
+                        bearing = tags.get(key)
+                        break
+
+                if bearing:
+                    altitude = tags.get('GPS GPSAltitude')
+                    print(f"Found GPS data via exifread")
+                    return latitude, longitude, bearing, altitude
+    except:
+        pass
+
+    # Fallback to exiftool
+    try:
+        print(f"Trying exiftool fallback for {filepath}")
+        cmd = ['exiftool', '-json', '-GPS*', filepath]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            print(f"Error running exiftool")
+            return False
+            
+        data = json.loads(result.stdout)[0]
+        
+        # Check for required GPS data
+        latitude = data.get('GPSLatitude')
+        longitude = data.get('GPSLongitude')
+        
         if not latitude or not longitude:
-            print(f"No GPS data found in {filepath}")
+            print(f"No GPS data found.")
             return False
-
-        # Check bearing data (any one of the possible keys)
-        bearing_keys = ['GPS GPSImgDirection', 'GPS GPSTrack', 'GPS GPSDestBearing']
-        has_bearing = any(key in tags for key in bearing_keys)
-        if has_bearing:
-            bearing = tags.get(bearing_keys[0])
-        else:
+            
+        # Check bearing data
+        bearing = data.get('GPSImgDirection') or data.get('GPSTrack') or data.get('GPSDestBearing')
+        
+        if not bearing:
             print(f"No bearing data found in {filepath}")
-
-        altitude = tags.get('GPS GPSAltitude')
-
-        if latitude and longitude and bearing:
-            return latitude, longitude, bearing, altitude
-        else:
             return False
+            
+        altitude = data.get('GPSAltitude')
+        
+        # Return in format similar to exifread (as strings)
+        print(f"Found GPS data via exiftool")
+        return str(latitude), str(longitude), str(bearing), str(altitude) if altitude else None
+        
     except Exception as e:
         print(f"Error reading EXIF data from {filepath}: {e}")
         return False
