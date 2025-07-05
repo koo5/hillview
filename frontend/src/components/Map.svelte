@@ -387,8 +387,27 @@
             updateUserLocation,
             (error) => {
                 console.error("Error getting location:", error);
+                console.error("Error code:", error.code);
+                console.error("Error message:", error.message);
+                console.error("Full error object:", JSON.stringify(error));
                 setLocationError(error.message);
-                alert(`Unable to get your location: ${error.message}`);
+                
+                let errorMessage = "Unable to get your location: ";
+                switch(error.code) {
+                    case 1:
+                        errorMessage += "Permission denied. Please allow location access.";
+                        break;
+                    case 2:
+                        errorMessage += "Position unavailable. Please check if location services are enabled.";
+                        break;
+                    case 3:
+                        errorMessage += "Request timed out.";
+                        break;
+                    default:
+                        errorMessage += error.message;
+                }
+                
+                alert(errorMessage);
                 locationTracking = false;
                 setLocationTracking(false);
                 locationTrackingLoading = false;
@@ -401,6 +420,8 @@
             updateUserLocation,
             (error) => {
                 console.error("Error watching location:", error);
+                console.error("Watch error code:", error.code);
+                console.error("Watch error message:", error.message);
             },
             { enableHighAccuracy: true }
         );

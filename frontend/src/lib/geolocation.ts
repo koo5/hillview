@@ -1,4 +1,4 @@
-import { getCurrentPosition, watchPosition, clearWatch, type Position } from '@tauri-apps/plugin-geolocation';
+import { getCurrentPosition, watchPosition, clearWatch, checkPermissions, requestPermissions, type Position } from '@tauri-apps/plugin-geolocation';
 
 // Check if we're running in Tauri
 const isTauri = () => {
@@ -30,6 +30,36 @@ export interface PositionOptions {
 }
 
 export const geolocation = {
+    requestPermissions: async (): Promise<boolean> => {
+        if (isTauri()) {
+            try {
+                const result = await requestPermissions();
+                console.log('Geolocation permission result:', result);
+                return result.location === 'granted' || result.location === 'prompt';
+            } catch (error) {
+                console.error('Failed to request geolocation permissions:', error);
+                return false;
+            }
+        }
+        // Browser API doesn't have explicit permission request
+        return true;
+    },
+    
+    checkPermissions: async (): Promise<boolean> => {
+        if (isTauri()) {
+            try {
+                const result = await checkPermissions();
+                console.log('Current geolocation permissions:', result);
+                return result.location === 'granted';
+            } catch (error) {
+                console.error('Failed to check geolocation permissions:', error);
+                return false;
+            }
+        }
+        // Browser API doesn't have permission check
+        return true;
+    },
+    
     getCurrentPosition: async (
         successCallback: (position: GeolocationPosition) => void,
         errorCallback?: (error: GeolocationError) => void,
@@ -37,6 +67,20 @@ export const geolocation = {
     ): Promise<void> => {
         if (isTauri()) {
             try {
+                // Check and request permissions first
+                const hasPermission = await geolocation.checkPermissions();
+                if (!hasPermission) {
+                    const granted = await geolocation.requestPermissions();
+                    if (!granted) {
+                        if (errorCallback) {
+                            errorCallback({
+                                code: 1, // PERMISSION_DENIED
+                                message: 'Location permission denied'
+                            });
+                        }
+                        return;
+                    }
+                }
                 const position = await getCurrentPosition({
                     enableHighAccuracy: options?.enableHighAccuracy ?? true,
                     timeout: options?.timeout ?? 10000,
@@ -93,6 +137,20 @@ export const geolocation = {
     ): Promise<number> => {
         if (isTauri()) {
             try {
+                // Check and request permissions first
+                const hasPermission = await geolocation.checkPermissions();
+                if (!hasPermission) {
+                    const granted = await geolocation.requestPermissions();
+                    if (!granted) {
+                        if (errorCallback) {
+                            errorCallback({
+                                code: 1, // PERMISSION_DENIED
+                                message: 'Location permission denied'
+                            });
+                        }
+                        return -1;
+                    }
+                }
                 const watchId = await watchPosition(
                     {
                         enableHighAccuracy: options?.enableHighAccuracy ?? true,
