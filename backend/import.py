@@ -13,7 +13,7 @@ import subprocess
 
 from exifread.exif_log import setup_logger
 
-setup_logger(debug=True, color=False)
+#setup_logger(debug=True, color=False)
 
 from anonymize import anonymize_image
 
