@@ -33,7 +33,7 @@ export const geolocation = {
     requestPermissions: async (): Promise<boolean> => {
         if (isTauri()) {
             try {
-                const result = await requestPermissions();
+                const result = await requestPermissions(['location']);
                 console.log('Geolocation permission result:', result);
                 return result.location === 'granted' || result.location === 'prompt';
             } catch (error) {
@@ -93,10 +93,10 @@ export const geolocation = {
                         latitude: position.coords.latitude,
                         longitude: position.coords.longitude,
                         accuracy: position.coords.accuracy,
-                        altitude: position.coords.altitude,
-                        altitudeAccuracy: position.coords.altitudeAccuracy,
-                        heading: position.coords.heading,
-                        speed: position.coords.speed
+                        altitude: position.coords.altitude ?? undefined,
+                        altitudeAccuracy: position.coords.altitudeAccuracy ?? undefined,
+                        heading: position.coords.heading ?? undefined,
+                        speed: position.coords.speed ?? undefined
                     },
                     timestamp: position.timestamp
                 };
@@ -123,7 +123,22 @@ export const geolocation = {
             }
             
             navigator.geolocation.getCurrentPosition(
-                successCallback,
+                (position) => {
+                    // Convert browser GeolocationPosition to our interface
+                    const geoPosition: GeolocationPosition = {
+                        coords: {
+                            latitude: position.coords.latitude,
+                            longitude: position.coords.longitude,
+                            accuracy: position.coords.accuracy,
+                            altitude: position.coords.altitude ?? undefined,
+                            altitudeAccuracy: position.coords.altitudeAccuracy ?? undefined,
+                            heading: position.coords.heading ?? undefined,
+                            speed: position.coords.speed ?? undefined
+                        },
+                        timestamp: position.timestamp
+                    };
+                    successCallback(geoPosition);
+                },
                 errorCallback,
                 options
             );
@@ -173,10 +188,10 @@ export const geolocation = {
                                 latitude: position.coords.latitude,
                                 longitude: position.coords.longitude,
                                 accuracy: position.coords.accuracy,
-                                altitude: position.coords.altitude,
-                                altitudeAccuracy: position.coords.altitudeAccuracy,
-                                heading: position.coords.heading,
-                                speed: position.coords.speed
+                                altitude: position.coords.altitude ?? undefined,
+                                altitudeAccuracy: position.coords.altitudeAccuracy ?? undefined,
+                                heading: position.coords.heading ?? undefined,
+                                speed: position.coords.speed ?? undefined
                             },
                             timestamp: position.timestamp
                         };
@@ -208,7 +223,22 @@ export const geolocation = {
             }
             
             return navigator.geolocation.watchPosition(
-                successCallback,
+                (position) => {
+                    // Convert browser GeolocationPosition to our interface
+                    const geoPosition: GeolocationPosition = {
+                        coords: {
+                            latitude: position.coords.latitude,
+                            longitude: position.coords.longitude,
+                            accuracy: position.coords.accuracy,
+                            altitude: position.coords.altitude ?? undefined,
+                            altitudeAccuracy: position.coords.altitudeAccuracy ?? undefined,
+                            heading: position.coords.heading ?? undefined,
+                            speed: position.coords.speed ?? undefined
+                        },
+                        timestamp: position.timestamp
+                    };
+                    successCallback(geoPosition);
+                },
                 errorCallback,
                 options
             );

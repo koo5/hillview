@@ -3,7 +3,9 @@
     import {onMount} from 'svelte';
     import {bearing, pos} from '$lib/data.svelte';
     import {gpsCoordinates, locationError, locationTracking} from '$lib/location.svelte';
-    import {captureLocation} from '$lib/captureLocation';
+    import {captureLocation, captureLocationWithFusedBearing} from '$lib/captureLocation';
+    import {compassData, deviceOrientation, compassAvailable, compassPermission} from '$lib/compass.svelte';
+    import {fusedBearing} from '$lib/sensorFusion.svelte';
     import {invoke} from '@tauri-apps/api/core';
 
     let showDebug = false;
@@ -12,6 +14,7 @@
     let buildCommitHash: string | undefined;
     let buildBranch: string | undefined;
     let buildTimestamp: string | undefined;
+    let debugPosition: 'left' | 'right' = 'left'; // Default to left to avoid photo thumbnails
 
     onMount(() => {
         // Update time every second
@@ -25,6 +28,12 @@
         const storedDebug = localStorage.getItem('debugMode');
 
         showDebug = debugParam === 'true' || storedDebug === 'true';
+        
+        // Load saved position preference
+        const savedPosition = localStorage.getItem('debugPosition');
+        if (savedPosition === 'left' || savedPosition === 'right') {
+            debugPosition = savedPosition;
+        }
 
         // Fetch build information from Tauri commands
         invoke<string>('get_build_commit_hash').then((hash) => {
@@ -60,65 +69,61 @@
         if (e.ctrlKey && e.shiftKey && e.key === 'D') {
             toggleDebug();
         }
+        // Ctrl+Shift+L to toggle position
+        if (e.ctrlKey && e.shiftKey && e.key === 'L' && showDebug) {
+            debugPosition = debugPosition === 'left' ? 'right' : 'left';
+            localStorage.setItem('debugPosition', debugPosition);
+        }
     }
 </script>
 
 <svelte:window on:keydown={handleKeydown}/>
 
 {#if showDebug}
-    <div class="debug-overlay">
+    <div class="debug-overlay" class:left-position={debugPosition === 'left'}>
         <div class="debug-header">
             <span>Debug Info</span>
             <button on:click={toggleDebug} aria-label="Close debug">×</button>
         </div>
         <div class="debug-content">
-            <div><strong>Build Time:</strong> {buildInfo.formattedTime}</div>
-            <div><strong>Current Time:</strong> {currentTime}</div>
+            <div class="compact-row">
+                <span><strong>Build:</strong> {buildInfo.formattedTime}</span>
+                <span><strong>Now:</strong> {currentTime}</span>
+            </div>
 
-            {#if buildCommitHash || buildBranch || buildTimestamp}
-                <div class="debug-section">
-                    <div><strong>Build Info:</strong></div>
-                    <div>Commit: {buildCommitHash || 'Loading...'}</div>
-                    <div>Branch: {buildBranch || 'Loading...'}</div>
-                    <div>Timestamp: {buildTimestamp || 'Loading...'}</div>
+            {#if buildCommitHash || buildBranch}
+                <div class="compact-row">
+                    <span>{buildBranch || 'Loading...'} @ {buildCommitHash?.slice(0, 7) || '...'}</span>
                 </div>
             {/if}
 
             <div class="debug-section">
-                <div><strong>Map Position:</strong></div>
-                <div>Lat: {$pos.center.lat.toFixed(6)}, Lng: {$pos.center.lng.toFixed(6)}</div>
-                <div>Zoom: {$pos.zoom.toFixed(1)}</div>
-                <div>Bearing: {$bearing.toFixed(1)}°</div>
+                <div><strong>Map View:</strong></div>
+                <div>Center: {$pos.center.lat.toFixed(4)}, {$pos.center.lng.toFixed(4)}</div>
+                <div>Zoom: {$pos.zoom.toFixed(1)} | Bearing: {$bearing.toFixed(0)}°</div>
             </div>
 
             {#if $gpsCoordinates}
                 <div class="debug-section">
-                    <div><strong>GPS Location:</strong> {$locationTracking ? '📍 Active' : '⭕ Inactive'}</div>
-                    <div>Lat: {$gpsCoordinates.latitude.toFixed(6)}</div>
-                    <div>Lng: {$gpsCoordinates.longitude.toFixed(6)}</div>
-
-                    {#if $gpsCoordinates.altitude !== null && $gpsCoordinates.altitude !== undefined}
-                        <div>Alt: {$gpsCoordinates.altitude?.toFixed(1)}m</div>
-                    {/if}
-
-                    <div>Accuracy: ±{$gpsCoordinates.accuracy?.toFixed(1)}m</div>
-
-                    {#if $gpsCoordinates.heading !== null && $gpsCoordinates.heading !== undefined}
-                        <div>GPS Heading: {$gpsCoordinates.heading.toFixed(1)}°</div>
-                    {:else}
-                        <div>GPS Heading: N/A</div>
-                    {/if}
-
-                    {#if $gpsCoordinates.speed !== null && $gpsCoordinates.speed !== undefined}
-                        <div>Speed: {($gpsCoordinates.speed * 3.6).toFixed(1)} km/h</div>
-                    {/if}
+                    <div><strong>GPS Location {$locationTracking ? '📍 Active' : '⭕ Inactive'}:</strong></div>
+                    <div>Position: {$gpsCoordinates.latitude.toFixed(4)}, {$gpsCoordinates.longitude.toFixed(4)}</div>
+                    <div>Accuracy: ±{$gpsCoordinates.accuracy?.toFixed(0)}m
+                        {#if $gpsCoordinates.altitude !== null && $gpsCoordinates.altitude !== undefined}
+                            | Altitude: {$gpsCoordinates.altitude?.toFixed(0)}m
+                        {/if}
+                    </div>
+                    <div>GPS Heading: {$gpsCoordinates.heading?.toFixed(0) || 'No movement'}°
+                        {#if $gpsCoordinates.speed !== null && $gpsCoordinates.speed !== undefined}
+                            | Speed: {($gpsCoordinates.speed * 3.6).toFixed(1)}km/h
+                        {/if}
+                    </div>
                     {#if $locationError}
                         <div class="error">Error: {$locationError}</div>
                     {/if}
                 </div>
             {:else}
                 <div class="debug-section">
-                    <div><strong>GPS:</strong> {$locationTracking ? 'Acquiring...' : 'Not available'}</div>
+                    <div><strong>GPS Location:</strong> {$locationTracking ? 'Waiting for signal...' : 'Disabled'}</div>
                     {#if $locationError}
                         <div class="error">Error: {$locationError}</div>
                     {/if}
@@ -127,24 +132,64 @@
 
             {#if $captureLocation}
                 <div class="debug-section">
-                    <div><strong>Capture Location:</strong> <span
-                            class="source-badge">{$captureLocation.source.toUpperCase()}</span></div>
-                    <div>Lat: {$captureLocation.latitude.toFixed(6)}</div>
-                    <div>Lng: {$captureLocation.longitude.toFixed(6)}</div>
-                    {#if $captureLocation.altitude !== undefined}
-                        <div>Alt: {$captureLocation?.altitude?.toFixed(1)}m</div>
-                    {/if}
-                    <div>Heading: {$captureLocation?.heading?.toFixed(1)}°</div>
-                    <div>Accuracy: ±{$captureLocation?.accuracy?.toFixed(1)}m</div>
-                    <div class="timestamp">Updated: {new Date($captureLocation?.timestamp).toLocaleTimeString()}</div>
-                </div>
-            {:else}
-                <div class="debug-section">
-                    <div><strong>Capture Location:</strong> Not initialized</div>
+                    <div><strong>Capture Location (Source: <span class="source-badge">{$captureLocation.source}</span>):</strong></div>
+                    <div>Position: {$captureLocation.latitude.toFixed(4)}, {$captureLocation.longitude.toFixed(4)}</div>
+                    <div>Raw Heading: {$captureLocation?.heading?.toFixed(1) || 'None'}° | Accuracy: ±{$captureLocation?.accuracy?.toFixed(0)}m
+                        {#if $captureLocation.altitude !== undefined}
+                            | Alt: {$captureLocation?.altitude?.toFixed(0)}m
+                        {/if}
+                    </div>
+                    <div style="font-size: 9px; opacity: 0.7">Updated: {new Date($captureLocation.timestamp || 0).toLocaleTimeString()}</div>
                 </div>
             {/if}
 
-            <div class="debug-note">Press Ctrl+Shift+D to toggle</div>
+            <div class="debug-section">
+                <div><strong>Compass/Magnetometer:</strong> {$compassAvailable ? '✓ Available' : '✗ Not Available'}</div>
+                {#if $compassAvailable}
+                    <div>Permission: {$compassPermission || 'Unknown'}</div>
+                {/if}
+                {#if $compassData}
+                    <div>Magnetic Heading: {$compassData.magneticHeading?.toFixed(0) || 'N/A'}°</div>
+                    <div>True Heading: {$compassData.trueHeading?.toFixed(0) || 'N/A'}° | Accuracy: ±{$compassData.headingAccuracy?.toFixed(0) || 'N/A'}°</div>
+                {:else if $compassAvailable}
+                    <div>No compass data received</div>
+                {/if}
+            </div>
+
+            {#if $deviceOrientation}
+                <div class="debug-section">
+                    <div><strong>Device Orientation (Gyroscope):</strong></div>
+                    <div>Alpha (Z-axis): {$deviceOrientation.alpha?.toFixed(0) || 'N/A'}° | Beta (X-axis): {$deviceOrientation.beta?.toFixed(0) || 'N/A'}°</div>
+                    <div>Gamma (Y-axis): {$deviceOrientation.gamma?.toFixed(0) || 'N/A'}° | Type: {$deviceOrientation.absolute ? 'Absolute' : 'Relative'}</div>
+                </div>
+            {/if}
+
+            {#if $fusedBearing}
+                <div class="debug-section fused-bearing">
+                    <div><strong>🎯 Sensor Fusion Result:</strong></div>
+                    <div>Fused Bearing: <span class="highlight">{$fusedBearing.bearing.toFixed(1)}°</span></div>
+                    <div>Source: {$fusedBearing.source === 'gps' ? 'GPS Only' : $fusedBearing.source === 'compass' ? 'Compass Only' : 'GPS + Compass Fusion'}</div>
+                    <div>Confidence: {($fusedBearing.confidence * 100).toFixed(0)}% | Accuracy: {$fusedBearing.accuracy?.toFixed(0) || 'N/A'}°</div>
+                </div>
+            {/if}
+
+            {#if $captureLocationWithFusedBearing}
+                <div class="debug-section photo-bearing">
+                    <div><strong>📸 Photo Capture Data (Final):</strong></div>
+                    <div>Bearing to be saved: <span class="highlight">{$captureLocationWithFusedBearing.heading?.toFixed(1) || 'None'}°</span></div>
+                    {#if $captureLocationWithFusedBearing.headingSource}
+                        <div>Data source: {$captureLocationWithFusedBearing.headingSource === 'gps' ? 'GPS' : $captureLocationWithFusedBearing.headingSource === 'compass' ? 'Compass' : 'Fused'}</div>
+                        <div>Confidence: {(($captureLocationWithFusedBearing.headingConfidence || 0) * 100).toFixed(0)}%</div>
+                    {:else}
+                        <div>Using raw {$captureLocationWithFusedBearing.source} heading</div>
+                    {/if}
+                </div>
+            {/if}
+
+            <div class="debug-note">
+                Press Ctrl+Shift+D to toggle<br/>
+                Press Ctrl+Shift+L to move {debugPosition === 'left' ? 'right' : 'left'}
+            </div>
         </div>
     </div>
 {/if}
@@ -157,21 +202,27 @@
         background: rgba(0, 0, 0, 0.9);
         color: #0f0;
         font-family: monospace;
-        font-size: 12px;
+        font-size: 11px;
         padding: 0;
         border-radius: 5px;
-        z-index: 10000;
-        min-width: 300px;
+        z-index: 999999;
+        min-width: 280px;
         box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+    }
+    
+    .debug-overlay.left-position {
+        left: 10px;
+        right: auto;
     }
 
     .debug-header {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        padding: 8px 12px;
+        padding: 4px 8px;
         background: rgba(0, 255, 0, 0.1);
         border-bottom: 1px solid #0f0;
+        font-size: 10px;
     }
 
     .debug-header button {
@@ -194,12 +245,24 @@
     }
 
     .debug-content {
-        padding: 12px;
+        padding: 6px;
     }
 
     .debug-content div {
-        margin: 4px 0;
+        margin: 2px 0;
         word-break: break-all;
+        line-height: 1.3;
+    }
+    
+    .compact-row {
+        display: flex;
+        gap: 8px;
+        font-size: 10px;
+        opacity: 0.9;
+    }
+    
+    .compact-row span {
+        white-space: nowrap;
     }
 
     .debug-content strong {
@@ -207,16 +270,17 @@
     }
 
     .debug-note {
-        margin-top: 8px;
-        padding-top: 8px;
+        margin-top: 4px;
+        padding-top: 4px;
         border-top: 1px solid rgba(0, 255, 0, 0.3);
-        font-size: 11px;
-        opacity: 0.7;
+        font-size: 9px;
+        opacity: 0.6;
+        line-height: 1.2;
     }
 
     .debug-section {
-        margin: 8px 0;
-        padding: 8px 0;
+        margin: 4px 0;
+        padding: 4px 0;
         border-top: 1px solid rgba(0, 255, 0, 0.2);
     }
 
@@ -230,6 +294,32 @@
         font-style: italic;
     }
 
+    .source-badge {
+        background: rgba(0, 255, 0, 0.2);
+        padding: 1px 4px;
+        border-radius: 2px;
+        font-size: 9px;
+        margin-left: 2px;
+        text-transform: uppercase;
+    }
+
+
+    .highlight {
+        color: #4fc3f7;
+        font-weight: bold;
+    }
+
+    .fused-bearing {
+        border-color: #4fc3f7;
+        background: rgba(79, 195, 247, 0.05);
+        padding: 2px 0;
+    }
+    
+    .photo-bearing {
+        border-color: #81c784;
+        background: rgba(129, 199, 132, 0.05);
+        padding: 2px 0;
+    }
 
     @media (max-width: 600px) {
         .debug-overlay {
@@ -237,6 +327,11 @@
             right: 5px;
             left: 5px;
             min-width: auto;
+        }
+        
+        .debug-overlay.left-position {
+            left: 5px;
+            right: 5px;
         }
     }
 </style>

@@ -571,7 +571,7 @@
         // Also prevent default on the parent div
         const mapDiv = mapContainer.parentElement;
         if (mapDiv) {
-            mapDiv.addEventListener('wheel', (e) => e.preventDefault(), { passive: false });
+            mapDiv.addEventListener('wheel', (e: Event) => e.preventDefault(), { passive: false });
         }
         
         // Disable Leaflet's built-in scroll wheel zoom since we're handling it manually
@@ -581,7 +581,7 @@
     let wheelTimeout: any = null;
     
     function handleAndroidWheel(e: WheelEvent) {
-        console.log('Android wheel event:', { deltaY: e.deltaY, wheelDelta: e.wheelDelta, detail: e.detail });
+        console.log('Android wheel event:', { deltaY: e.deltaY, wheelDelta: (e as any).wheelDelta, detail: e.detail });
         
         e.preventDefault();
         e.stopPropagation();
@@ -605,7 +605,7 @@
             }, 100);
         }
         
-        const delta = e.deltaY || e.wheelDelta || -e.detail;
+        const delta = e.deltaY || (e as any).wheelDelta || -e.detail;
         if (delta && map) {
             const zoom = map.getZoom();
             const zoomDelta = delta > 0 ? -0.5 : 0.5;
@@ -673,7 +673,7 @@
             
             const mapDiv = mapContainer.parentElement;
             if (mapDiv) {
-                mapDiv.removeEventListener('wheel', (e) => e.preventDefault());
+                mapDiv.removeEventListener('wheel', (e: Event) => e.preventDefault());
             }
         }
     });
@@ -725,13 +725,9 @@
                 scrollWheelZoom: !/Android/i.test(navigator.userAgent), // Disable on Android, we'll handle it manually
                 touchZoom: true,
                 dragging: true,
-                tap: true,
                 bounceAtZoomLimits: true,
                 // Memory optimization settings
                 preferCanvas: true, // Use Canvas renderer for better performance
-                updateWhenIdle: true, // Only update tiles when map movement stops
-                updateWhenZooming: false, // Don't update tiles during zoom animation
-                keepBuffer: 1, // Reduce tile buffer from default 2 to 1
                 maxBoundsViscosity: 1.0 // Prevent excessive panning
             }}
     >
@@ -760,8 +756,7 @@
                     zoomReverse: false,
                     opacity: 1,
                     zIndex: 1,
-                    unloadInvisibleTiles: true, // Aggressively unload tiles
-                    bounds: null, // No bounds restriction
+                    bounds: undefined, // No bounds restriction
                     className: 'map-tiles'
                     }}
                 url={tileUrl}

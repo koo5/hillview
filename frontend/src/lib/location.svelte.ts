@@ -1,6 +1,8 @@
 import {writable, derived, get} from 'svelte/store';
 import type { GeolocationPosition } from '$lib/geolocation';
 import { updateCaptureLocationFromGps } from './captureLocation';
+import { startCompassWatch, stopCompassWatch } from './compass.svelte';
+import { fusedBearing, getInstantBearing } from './sensorFusion.svelte';
 
 // Store for current GPS location from device
 export const gpsLocation = writable<GeolocationPosition | null>(null);
@@ -56,21 +58,21 @@ export function updateGpsLocation(position: GeolocationPosition | null) {
     console.debug('Updating GPS location store:', position);
     gpsLocation.set(position);
     
-    // Also update capture location when GPS updates
-    if (position) {
-        updateCaptureLocationFromGps({
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-            altitude: position.coords.altitude,
-            accuracy: position.coords.accuracy,
-            heading: position.coords.heading
-        });
-    }
+    // Capture location updates are now handled by captureLocationManager.ts
 }
 
 // Helper function to update tracking status
 export function setLocationTracking(isTracking: boolean) {
     locationTracking.set(isTracking);
+    
+    // Start/stop compass when location tracking changes
+    if (isTracking) {
+        startCompassWatch().catch(error => {
+            console.error('Failed to start compass:', error);
+        });
+    } else {
+        stopCompassWatch();
+    }
 }
 
 // Helper function to set location error

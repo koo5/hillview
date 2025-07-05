@@ -16,7 +16,9 @@
     import { gpsLocation } from '$lib/location.svelte';
     import { photoCaptureService } from '$lib/photoCapture';
     import { devicePhotos } from '$lib/stores';
-    import { captureLocation } from '$lib/captureLocation';
+    import { captureLocation, captureLocationWithFusedBearing } from '$lib/captureLocation';
+    import '$lib/captureLocationManager'; // Activate capture location management
+    import '$lib/mapBearingSync'; // Sync map bearing with sensors
 
     let map: any = null;
     let mapComponent: any = null;
@@ -180,7 +182,7 @@
 
     async function handlePhotoCaptured(event: CustomEvent<{ file: File }>) {
         const { file } = event.detail;
-        const captureLoc = $captureLocation;
+        const captureLoc = $captureLocationWithFusedBearing;
         
         if (!captureLoc) {
             alert('Location not available. Please wait for GPS or move the map.');
@@ -195,7 +197,7 @@
                     latitude: captureLoc.latitude,
                     longitude: captureLoc.longitude,
                     altitude: captureLoc.altitude,
-                    accuracy: captureLoc.accuracy
+                    accuracy: captureLoc.accuracy || 1 // Default to 1m if undefined
                 },
                 bearing: captureLoc.heading,
                 timestamp: Date.now()
@@ -361,16 +363,16 @@
                 show={true}
                 on:close={() => showCameraView = false}
                 on:photoCaptured={handlePhotoCaptured}
-                locationData={$captureLocation ? {
-                    latitude: $captureLocation.latitude,
-                    longitude: $captureLocation.longitude,
-                    altitude: $captureLocation.altitude,
-                    accuracy: $captureLocation.accuracy,
-                    heading: $captureLocation.heading,
-                    source: $captureLocation.source
+                locationData={$captureLocationWithFusedBearing ? {
+                    latitude: $captureLocationWithFusedBearing.latitude,
+                    longitude: $captureLocationWithFusedBearing.longitude,
+                    altitude: $captureLocationWithFusedBearing.altitude,
+                    accuracy: $captureLocationWithFusedBearing.accuracy,
+                    heading: $captureLocationWithFusedBearing.heading,
+                    source: $captureLocationWithFusedBearing.source
                 } : null}
                 locationError={null}
-                locationReady={!!$captureLocation}
+                locationReady={!!$captureLocationWithFusedBearing}
             />
         {:else}
             <PhotoGallery/>
@@ -390,6 +392,7 @@
         fetch_photos();
     }}
 />
+
 
 <!-- Debug Overlay -->
 <DebugOverlay bind:this={debugOverlay} />
@@ -655,5 +658,5 @@
             height: 48px;
         }
     }
-
+    
 </style>
