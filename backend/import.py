@@ -64,7 +64,8 @@ def geo_and_bearing_exif(filepath):
 
     # Fallback to exiftool
     try:
-        cmd = ['exiftool', '-json', '-GPS*', filepath]
+        # Use -n flag to get raw numeric values instead of formatted strings
+        cmd = ['exiftool', '-json', '-n', '-GPS*', filepath]
         print(f"Trying exiftool fallback: {shlex.join(cmd)}")
 
         result = subprocess.run(cmd, capture_output=True, text=True)
@@ -78,11 +79,34 @@ def geo_and_bearing_exif(filepath):
         # Check for required GPS data
         latitude = data.get('GPSLatitude')
         longitude = data.get('GPSLongitude')
+        lat_ref = data.get('GPSLatitudeRef')
+        lon_ref = data.get('GPSLongitudeRef')
         
-        if not latitude or not longitude:
+        if latitude is None or longitude is None:
             print(f"No GPS data found.")
             return False
             
+        # Convert decimal degrees to [deg, min, sec] format like exifread expects
+        def decimal_to_dms(decimal):
+            abs_decimal = abs(decimal)
+            deg = int(abs_decimal)
+            min_decimal = (abs_decimal - deg) * 60
+            min_int = int(min_decimal)
+            sec_decimal = (min_decimal - min_int) * 60
+            # Return as rational - use exifread's Ratio class
+            from exifread.classes import Ratio
+            sec_rational = Ratio(int(sec_decimal * 1000), 1000)
+            return [deg, min_int, sec_rational]
+        
+        # Apply sign based on reference
+        if lat_ref == 'S':
+            latitude = -abs(latitude)
+        if lon_ref == 'W':
+            longitude = -abs(longitude)
+            
+        lat_dms = decimal_to_dms(latitude)
+        lon_dms = decimal_to_dms(longitude)
+        
         # Check bearing data
         bearing = data.get('GPSImgDirection') or data.get('GPSTrack') or data.get('GPSDestBearing')
         
@@ -92,9 +116,9 @@ def geo_and_bearing_exif(filepath):
             
         altitude = data.get('GPSAltitude')
         
-        # Return in format similar to exifread (as strings)
+        # Return in format similar to exifread
         print(f"Found GPS data via exiftool")
-        return str(latitude), str(longitude), str(bearing), str(altitude) if altitude else None
+        return lat_dms, lon_dms, bearing, altitude
         
     except Exception as e:
         print(f"Error reading EXIF data from {filepath}: {e}")
@@ -190,13 +214,16 @@ class Geo:
                 tags = geo_and_bearing_exif(filepath)
                 if tags:
                     latitude, longitude, bearing, altitude = tags
-                    database.append({
+                    entry = {
                         'file': file,
                         'latitude': str(latitude),
                         'longitude': str(longitude),
-                        'bearing': str(bearing),
-                        'altitude': str(altitude)
-                    })
+                        'bearing': str(bearing)
+                    }
+                    # Only add altitude if it exists
+                    if altitude is not None:
+                        entry['altitude'] = str(altitude)
+                    database.append(entry)
                     print(f'Added "{file}" ({len(database)} entries..)')
                 else:
                     print(f'Skipping non-geo "{file}"')
