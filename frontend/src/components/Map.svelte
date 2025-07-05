@@ -158,6 +158,9 @@
         }
     });
 
+    let moveEventCount = 0;
+    let lastPruneTime = Date.now();
+    
     async function mapStateUserEvent(event: any) {
 
         if (!flying) {
@@ -171,6 +174,15 @@
             }
         }
         await onMapStateChange(true, 'mapStateUserEvent');
+        
+        // Prune tiles after significant movement or every 10 move events
+        moveEventCount++;
+        const timeSinceLastPrune = Date.now() - lastPruneTime;
+        if (moveEventCount >= 10 || timeSinceLastPrune > 10000) {
+            pruneTiles();
+            moveEventCount = 0;
+            lastPruneTime = Date.now();
+        }
     }
 
 
@@ -514,6 +526,24 @@
 
     $: map = elMap?.getMap();
     
+    // Add tile pruning function for memory management
+    function pruneTiles() {
+        if (map && map.eachLayer) {
+            map.eachLayer((layer: any) => {
+                if (layer._tiles && layer._pruneTiles) {
+                    layer._pruneTiles();
+                }
+            });
+        }
+    }
+    
+    // Periodically prune tiles to free memory
+    let tilePruneInterval: any = null;
+    $: if (map && !tilePruneInterval) {
+        // Prune tiles every 30 seconds
+        tilePruneInterval = setInterval(pruneTiles, 30000);
+    }
+    
     // Fix Android mouse wheel behavior when map is ready
     $: if (map && /Android/i.test(navigator.userAgent)) {
         const mapContainer = map.getContainer();
@@ -629,6 +659,12 @@
             clearTimeout(wheelTimeout);
         }
         
+        // Clean up tile pruning interval
+        if (tilePruneInterval) {
+            clearInterval(tilePruneInterval);
+            tilePruneInterval = null;
+        }
+        
         // Clean up Android wheel event listener
         if (map && /Android/i.test(navigator.userAgent)) {
             const mapContainer = map.getContainer();
@@ -684,12 +720,19 @@
                 center: [$pos.center.lat, $pos.center.lng], 
                 zoom: $pos.zoom,
                 minZoom: 3,
+                maxZoom: 20, // Limit max zoom to prevent excessive tile loading
                 zoomControl: true, 
                 scrollWheelZoom: !/Android/i.test(navigator.userAgent), // Disable on Android, we'll handle it manually
                 touchZoom: true,
                 dragging: true,
                 tap: true,
-                bounceAtZoomLimits: true
+                bounceAtZoomLimits: true,
+                // Memory optimization settings
+                preferCanvas: true, // Use Canvas renderer for better performance
+                updateWhenIdle: true, // Only update tiles when map movement stops
+                updateWhenZooming: false, // Don't update tiles during zoom animation
+                keepBuffer: 1, // Reduce tile buffer from default 2 to 1
+                maxBoundsViscosity: 1.0 // Prevent excessive panning
             }}
     >
 
@@ -699,8 +742,27 @@
         <TileLayer
                 {...{ attribution: "&copy; OpenStreetMap contributors" }}
                 options={{
-                    maxZoom: 23,
+                    maxZoom: 20, // Match map maxZoom to prevent over-zooming
                     maxNativeZoom: 19,
+                    minZoom: 3,
+                    // Memory optimization for tiles
+                    keepBuffer: 1, // Keep fewer tiles in memory (default is 2)
+                    updateWhenIdle: true, // Update tiles only when panning ends
+                    updateWhenZooming: false, // Don't update during zoom animation
+                    tileSize: 256, // Standard tile size
+                    zoomOffset: 0,
+                    detectRetina: false, // Disable retina tiles to save memory
+                    crossOrigin: true, // Enable CORS for better caching
+                    // Additional performance options
+                    updateInterval: 200, // Throttle tile updates
+                    tms: false,
+                    noWrap: false,
+                    zoomReverse: false,
+                    opacity: 1,
+                    zIndex: 1,
+                    unloadInvisibleTiles: true, // Aggressively unload tiles
+                    bounds: null, // No bounds restriction
+                    className: 'map-tiles'
                     }}
                 url={tileUrl}
         />
