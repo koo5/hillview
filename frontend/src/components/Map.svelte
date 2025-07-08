@@ -48,6 +48,9 @@
     let watchId: number | null = null;
     let userLocationMarker: any = null;
     let accuracyCircle: any = null;
+    
+    // Debug bounds rectangle
+    let boundsRectangle: any = null;
     let userHeading: number | null = null;
     let userLocation: GeolocationPosition | null = null;
     
@@ -76,13 +79,24 @@
     }
 
     function createDirectionalArrow(photo: any) {
+        const zoomLevel = $pos.zoom;
+        const isZoomedOut = zoomLevel < 10;
+        
+        // Completely separate implementation for zoomed out
+        if (isZoomedOut) {
+            return createSimpleTriangle(photo);
+        }
+        
+        // Original implementation for zoomed in
         let bearing = Math.round(photo.bearing);
         let color = photo.source.color;
         let frc = '';
         let arrow_color = color;
+        
         let size = 100;
         let inner_size = $pos.zoom * 3;
         let outer_size = 100;
+        
         /*if ($photo_to_left === photo || $photo_to_right === photo) {
             size = 55;
             //arrow_color = '#88f';
@@ -93,7 +107,7 @@
         if ($photo_in_front === photo) {
             //dashes = 'stroke-dasharray="20 4"'
             dashes = 'stroke-dasharray="1 10"'
-            frc = photo.bearing_color;
+            frc = photo.bearing_color || color;
             fill = `fill="${color}"`;
             stroke_width = 6
             //arrow_color = 'blue';
@@ -111,23 +125,25 @@
 
         let svg = `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" fill="none" xmlns="http://www.w3.org/2000/svg">`;
 
-        if (photo === $photo_in_front) {
-            svg += `<polygon transform="rotate(${bearing} ${half} ${half})"
+        // Outer arrow with bearing color fill
+        svg += `<polygon transform="rotate(${bearing} ${half} ${half})"
                points="
                  ${half},${arrowTipY_outer}
                  ${half + arrowWidth_outer},${arrowBaseY_outer}
                  ${half - arrowWidth_outer},${arrowBaseY_outer}"
-               stroke="${frc}" stroke-linecap="round" stroke-width="${stroke_width}"   />`
-        //      <line x1="${half}" y1="${arrowTipY_outer * 4}" x2="${half}" y2="${arrowBaseY_outer}" stroke="${frc}" stroke-width="${stroke_width}" ${dashes} />
-        }
+               fill="${photo.bearing_color || '#9E9E9E'}" 
+               fill-opacity="0.6"
+               stroke="${photo === $photo_in_front ? frc : 'none'}" 
+               stroke-width="${photo === $photo_in_front ? stroke_width : 0}" />`
 
+        // Inner arrow with source color stroke only
         svg += `<polygon transform="rotate(${bearing} ${half} ${half})"
                points="
                  ${half},${arrowTipY_inner}
                  ${half + arrowWidth_inner},${arrowBaseY_inner}
                  ${half - arrowWidth_inner},${arrowBaseY_inner}"
-                 ${fill} fill-opacity=0.8
-               stroke="${color}" stroke-width="1" />`
+                 fill="none"
+               stroke="${color}" stroke-width="2" />`
 
         svg += '</svg>';
 
@@ -138,23 +154,67 @@
             iconAnchor: [half, half]
         });
     }
+    
+    function createSimpleTriangle(photo: any) {
+        const size = 16; // Small fixed size
+        const center = size / 2;
+        const color = photo.source.color;
+        const bearing = Math.round(photo.bearing);
+        const isSelected = photo === $photo_in_front;
+        
+        // Simple triangle pointing up (will be rotated by bearing)
+        const svg = `
+            <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg">
+                <g transform="rotate(${bearing} ${center} ${center})">
+                    <path d="M ${center} 2 L ${size-2} ${size-2} L 2 ${size-2} Z" 
+                          fill="${color}" 
+                          fill-opacity="${isSelected ? 1 : 0.7}"
+                          stroke="${photo.bearing_color || color}"
+                          stroke-width="1"/>
+                </g>
+            </svg>
+        `;
+        
+        return L.divIcon({
+            className: 'photo-simple-triangle',
+            html: svg,
+            iconSize: [size, size],
+            iconAnchor: [center, center] // Exactly centered
+        });
+    }
 
     // Calculate how many km are "visible" based on the current zoom/center
     function get_range(_center: LatLng) {
-        const pointC = map.latLngToContainerPoint(_center);
-        // Move 100px to the right
-        const pointR = L.point(pointC.x + fov_circle_radius_px, pointC.y);
-        const latLngR = map.containerPointToLatLng(pointR);
-        // distanceTo returns meters
-        return _center.distanceTo(latLngR);
+        if (!map) {
+            console.warn('get_range called before map is ready');
+            return 1000; // Default 1km
+        }
+        try {
+            const pointC = map.latLngToContainerPoint(_center);
+            // Move 100px to the right
+            const pointR = L.point(pointC.x + fov_circle_radius_px, pointC.y);
+            const latLngR = map.containerPointToLatLng(pointR);
+            // distanceTo returns meters
+            return _center.distanceTo(latLngR);
+        } catch (e) {
+            console.warn('Error calculating range:', e);
+            return 1000; // Default 1km
+        }
     }
 
     pos.subscribe((v) => {
         if (!map || programmaticMove) return;
-        if (map.getCenter() !== v.center || map.getZoom() !== v.zoom) {
-            console.log('setView', v.center, v.zoom);
-            map.setView(new LatLng(v.center.lat, v.center.lng), v.zoom);
-            onMapStateChange(true, 'pos.subscribe');
+        try {
+            const currentCenter = map.getCenter();
+            const currentZoom = map.getZoom();
+            if (!currentCenter || currentCenter.lat !== v.center.lat || currentCenter.lng !== v.center.lng || currentZoom !== v.zoom) {
+                console.log('setView', v.center, v.zoom);
+                map.setView(new LatLng(v.center.lat, v.center.lng), v.zoom);
+                onMapStateChange(true, 'pos.subscribe');
+            }
+        } catch (e) {
+            // Map not ready yet, ignore
+            console.log('Map not ready for pos update:', e);
         }
     });
 
@@ -188,16 +248,21 @@
 
     async function onMapStateChange(force: boolean, reason: string) {
         await tick();
-        let _center = map.getCenter();
-        let _zoom = map.getZoom();
-        console.log('onMapStateChange force:', force, 'reason:', reason, 'center:', _center, '_zoom:', _zoom);
-        let p = get(pos);
-        let new_v = {
-            ...p,
-            center: new LatLng(_center.lat, _center.lng),
-            zoom: _zoom,
-            reason: `onMapStateChange(${force}, ${reason})`,
-        };
+        if (!map) {
+            console.warn('onMapStateChange called before map is ready');
+            return;
+        }
+        try {
+            let _center = map.getCenter();
+            let _zoom = map.getZoom();
+            console.log('onMapStateChange force:', force, 'reason:', reason, 'center:', _center, '_zoom:', _zoom);
+            let p = get(pos);
+            let new_v = {
+                ...p,
+                center: new LatLng(_center.lat, _center.lng),
+                zoom: _zoom,
+                reason: `onMapStateChange(${force}, ${reason})`,
+            };
 
         // Remove obsolete event check
 
@@ -206,13 +271,26 @@
                 return new_v;
             });
             update_pos2((value) => {
-                return {
+                const bounds = map.getBounds();
+                const newBounds = {
                     ...value,
                     range: get_range(_center),
-                    top_left: map.getBounds().getNorthWest(),
-                    bottom_right: map.getBounds().getSouthEast()
+                    top_left: bounds.getNorthWest(),
+                    bottom_right: bounds.getSouthEast()
                 };
+                console.log('Map bounds updated:', {
+                    nw: `${bounds.getNorthWest().lat}, ${bounds.getNorthWest().lng}`,
+                    se: `${bounds.getSouthEast().lat}, ${bounds.getSouthEast().lng}`,
+                    ne: `${bounds.getNorthEast().lat}, ${bounds.getNorthEast().lng}`,
+                    sw: `${bounds.getSouthWest().lat}, ${bounds.getSouthWest().lng}`,
+                    center: `${_center.lat}, ${_center.lng}`,
+                    zoom: _zoom
+                });
+                return newBounds;
             });
+        }
+        } catch (e) {
+            console.error('Error in onMapStateChange:', e);
         }
     }
 
@@ -781,6 +859,23 @@
             <!-- arrow -->
         {/if}
 
+        <!-- Debug bounds rectangle -->
+        {#if $app.debug > 0 && $pos2.top_left && $pos2.bottom_right}
+            <Polygon
+                    latLngs={[
+                        [$pos2.top_left.lat, $pos2.top_left.lng],
+                        [$pos2.top_left.lat, $pos2.bottom_right.lng],
+                        [$pos2.bottom_right.lat, $pos2.bottom_right.lng],
+                        [$pos2.bottom_right.lat, $pos2.top_left.lng]
+                    ]}
+                    color="#FF0000"
+                    fillColor="#FF0000"
+                    fillOpacity={0.1}
+                    weight={2}
+                    dashArray="5, 10"
+                />
+        {/if}
+
         <!-- Markers for photos -->
         {#key photosUpdateKey}
             {#each $photos_in_area as photo (photo.id)}
@@ -846,6 +941,17 @@
     </LeafletMap>
 
 </div>
+
+<!-- Debug bounds info -->
+{#if $app.debug > 0 && $pos2.top_left && $pos2.bottom_right}
+    <div class="debug-bounds-info">
+        <div>Bounds:</div>
+        <div>NW: {$pos2.top_left.lat.toFixed(6)}, {$pos2.top_left.lng.toFixed(6)}</div>
+        <div>SE: {$pos2.bottom_right.lat.toFixed(6)}, {$pos2.bottom_right.lng.toFixed(6)}</div>
+        <div>Width: {($pos2.bottom_right.lng - $pos2.top_left.lng).toFixed(6)}°</div>
+        <div>Height: {($pos2.top_left.lat - $pos2.bottom_right.lat).toFixed(6)}°</div>
+    </div>
+{/if}
 
 <!-- Rotation / navigation buttons -->
 <div class="control-buttons-container">
@@ -963,6 +1069,24 @@
         width: 100%;
         height: 100%;
         position: relative;
+    }
+
+    .debug-bounds-info {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        background-color: rgba(255, 255, 255, 0.9);
+        padding: 10px;
+        border-radius: 5px;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        z-index: 30000;
+        font-family: monospace;
+        font-size: 12px;
+        line-height: 1.4;
+    }
+
+    .debug-bounds-info div {
+        margin: 2px 0;
     }
 
     .control-buttons-container {

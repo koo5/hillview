@@ -31,6 +31,7 @@
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"test:android": "wdio run wdio.conf.ts",
+		"test:android:permissions": "wdio run wdio.permissions.conf.ts",
 		"test:android:build": "./scripts/tauri-android.sh android build --apk",
 		"appium": "appium",
 		"appium:doctor": "appium doctor --android",

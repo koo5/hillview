@@ -8,14 +8,15 @@ import {LatLng} from 'leaflet';
 import {get, writable} from "svelte/store";
 import {
     localStorageReadOnceSharedStore,
-    localStorageSharedStore,
-    localStorageStaggeredStore
+    localStorageSharedStore
 } from './svelte-shared-store';
 import { fixup_bearings, sources, type PhotoData, type Source } from './sources';
 import {tick} from "svelte";
 import { auth } from './auth.svelte';
 import { userPhotos } from './stores';
 import { updateCaptureLocationFromMap } from './captureLocation';
+import { photoProcessingService } from './photoProcessingService';
+import type { AreaFilterResult, DistanceResult, BearingResult } from './photoProcessingService';
 
 export const geoPicsUrl = import.meta.env.VITE_REACT_APP_GEO_PICS_URL; //+'2'
 
@@ -127,11 +128,12 @@ pos.subscribe(p => {
 
     console.log('pos changed:', p);
 
-    if (p.center.lng > 360) {
+    // Keep longitude in -180 to 180 range instead of 0-360
+    if (p.center.lng > 180) {
         p.center.lng -= 360;
         pos.set({...p, reason: 'wrap'})
     }
-    if (p.center.lng < 0) {
+    if (p.center.lng < -180) {
         p.center.lng += 360;
         pos.set({...p, reason: 'wrap'})
     }
@@ -187,8 +189,9 @@ function filter_hillview_photos_by_area() {
     hillview_photos_in_area.set(res);
 }
 
-pos2.subscribe(filter_hillview_photos_by_area);
-hillview_photos.subscribe(filter_hillview_photos_by_area);
+// Now handled by photoProcessingService
+// pos2.subscribe(filter_hillview_photos_by_area);
+// hillview_photos.subscribe(filter_hillview_photos_by_area);
 
 function collect_photos_in_area() {
     let phs = [...get(hillview_photos_in_area), ...get(mapillary_photos_in_area)];
@@ -197,8 +200,9 @@ function collect_photos_in_area() {
     photos_in_area.set(phs);
 }
 
-hillview_photos_in_area.subscribe(collect_photos_in_area);
-mapillary_photos_in_area.subscribe(collect_photos_in_area);
+// Now handled by photoProcessingService
+// hillview_photos_in_area.subscribe(collect_photos_in_area);
+// mapillary_photos_in_area.subscribe(collect_photos_in_area);
 
 let last_mapillary_request = 0;
 let mapillary_request_timer: any = null;
@@ -299,14 +303,25 @@ sources.subscribe(async (s: Source[]) => {
     console.log('sources changed:', s);
     let old = JSON.parse(JSON.stringify(old_sources));
     old_sources = JSON.parse(JSON.stringify(s));
-    if (old.find((src: Source) => src.id === 'hillview')?.enabled !== s.find((src: Source) => src.id === 'hillview')?.enabled) {
-        filter_hillview_photos_by_area();
+    
+    // Check if any source enabled state changed
+    const hillviewChanged = old.find((src: Source) => src.id === 'hillview')?.enabled !== s.find((src: Source) => src.id === 'hillview')?.enabled;
+    const mapillaryChanged = old.find((src: Source) => src.id === 'mapillary')?.enabled !== s.find((src: Source) => src.id === 'mapillary')?.enabled;
+    
+    if (hillviewChanged || mapillaryChanged) {
+        // Re-filter with new source states
+        const p2 = get(pos2);
+        photoProcessingService.queueAreaFilter(
+            { top_left: p2.top_left, bottom_right: p2.bottom_right },
+            p2.range,
+            s
+        );
     }
-    if (old.find((src: Source) => src.id === 'mapillary')?.enabled !== s.find((src: Source) => src.id === 'mapillary')?.enabled) {
+    
+    if (mapillaryChanged && s.find((src: Source) => src.id === 'mapillary')?.enabled) {
         console.log('get_mapillary_photos');
         await get_mapillary_photos();
     }
-
 });
 
 
@@ -335,9 +350,10 @@ function filter_mapillary_photos_by_area() {
     mapillary_photos_in_area.set(res);
 }
 
-pos2.subscribe(filter_mapillary_photos_by_area);
-mapillary_photos.subscribe(filter_mapillary_photos_by_area);
-sources.subscribe(filter_mapillary_photos_by_area);
+// Now handled by photoProcessingService
+// pos2.subscribe(filter_mapillary_photos_by_area);
+// mapillary_photos.subscribe(filter_mapillary_photos_by_area);
+// sources.subscribe(filter_mapillary_photos_by_area);
 
 function update_bearing_diff() {
     let b = get(bearing);
@@ -349,6 +365,7 @@ function update_bearing_diff() {
     }
 };
 
+// Keep this subscription to update bearing colors on all photos in area
 bearing.subscribe(update_bearing_diff);
 photos_in_area.subscribe(update_bearing_diff);
 
@@ -367,7 +384,8 @@ function filter_photos_in_range() {
     photos_in_range.set(res);
 };
 
-photos_in_area.subscribe(filter_photos_in_range);
+// Now handled by photoProcessingService
+// photos_in_area.subscribe(filter_photos_in_range);
 
 function update_view() {
     let b = get(bearing);
@@ -415,8 +433,9 @@ function update_view() {
     photos_to_right.set(phsr);
 }
 
-bearing.subscribe(update_view);
-photos_in_range.subscribe(update_view);
+// Now handled by photoProcessingService
+// bearing.subscribe(update_view);
+// photos_in_range.subscribe(update_view);
 
 interface TurnEvent {
     type: string;
@@ -437,17 +456,31 @@ async function handle_events() {
     events = [];
     let dir = e.dir;
     console.log('turn_to_photo_to:', dir);
+    
+    // Get current state
+    const currentPhotosInRange = get(photos_in_range);
+    const currentPhotoToLeft = get(photo_to_left);
+    const currentPhotoToRight = get(photo_to_right);
+    
+    console.log('Current state:', {
+        photosInRangeCount: currentPhotosInRange.length,
+        hasPhotoToLeft: !!currentPhotoToLeft,
+        hasPhotoToRight: !!currentPhotoToRight
+    });
+    
     if (dir === 'left') {
-        let phl = get(photo_to_left);
-        //console.log('phl:', phl);
-        if (phl) {
-            bearing.set(phl.bearing);
+        if (currentPhotoToLeft) {
+            console.log('Turning to left photo:', currentPhotoToLeft.bearing);
+            bearing.set(currentPhotoToLeft.bearing);
+        } else {
+            console.warn('No photo to left available');
         }
     } else if (dir === 'right') {
-        let phr = get(photo_to_right);
-        //console.log('phr:', phr);
-        if (phr) {
-            bearing.set(phr.bearing);
+        if (currentPhotoToRight) {
+            console.log('Turning to right photo:', currentPhotoToRight.bearing);
+            bearing.set(currentPhotoToRight.bearing);
+        } else {
+            console.warn('No photo to right available');
         }
     }
 }
@@ -489,3 +522,92 @@ export function reversed<T>(list: T[]): T[]
     }
     return res;
 }
+
+// Initialize photo processing service
+function initializePhotoProcessing() {
+    // Register result handlers
+    photoProcessingService.onResult('filter_area', (result: AreaFilterResult) => {
+        hillview_photos_in_area.set(result.hillviewPhotosInArea);
+        mapillary_photos_in_area.set(result.mapillaryPhotosInArea);
+        photos_in_area.set(result.photosInArea);
+        
+        // Queue distance calculation
+        const p2 = get(pos2);
+        const center = {
+            lat: (p2.top_left.lat + p2.bottom_right.lat) / 2,
+            lng: (p2.top_left.lng + p2.bottom_right.lng) / 2
+        };
+        const photoIds = result.photosInArea.map(p => p.id);
+        photoProcessingService.queueDistanceCalculation(photoIds, center, p2.range);
+    });
+    
+    photoProcessingService.onResult('calculate_distances', (result: DistanceResult) => {
+        photos_in_range.set(result.photosInRange);
+    });
+    
+    photoProcessingService.onResult('update_bearings', (result: BearingResult) => {
+        // Only update photos_in_area if we were processing photos_in_area
+        // photos_in_area.set(result.photosInArea);
+        photo_in_front.set(result.photoInFront);
+        photo_to_left.set(result.photoToLeft);
+        photo_to_right.set(result.photoToRight);
+        photos_to_left.set(result.photosToLeft);
+        photos_to_right.set(result.photosToRight);
+    });
+    
+    // Update photo store when photos change
+    let hasInitialPhotosLoaded = false;
+    hillview_photos.subscribe(photos => {
+        const allPhotos = [
+            ...photos,
+            ...Array.from(get(mapillary_photos).values())
+        ];
+        photoProcessingService.updatePhotoStore(allPhotos);
+        
+        // Trigger initial filtering when photos first load
+        if (!hasInitialPhotosLoaded && photos.length > 0) {
+            hasInitialPhotosLoaded = true;
+            const p2 = get(pos2);
+            const srcs = get(sources);
+            
+            console.log('Initial photos loaded, triggering filter');
+            photoProcessingService.queueAreaFilter(
+                { top_left: p2.top_left, bottom_right: p2.bottom_right },
+                p2.range,
+                srcs
+            );
+        }
+    });
+    
+    mapillary_photos.subscribe(photos => {
+        const allPhotos = [
+            ...get(hillview_photos),
+            ...Array.from(photos.values())
+        ];
+        photoProcessingService.updatePhotoStore(allPhotos);
+    });
+    
+    // Replace direct subscriptions with queued operations
+    pos2.subscribe(p2 => {
+        photoProcessingService.queueAreaFilter(
+            { top_left: p2.top_left, bottom_right: p2.bottom_right },
+            p2.range,
+            get(sources)
+        );
+    });
+    
+    bearing.subscribe(b => {
+        const photosInRange = get(photos_in_range);
+        const photoIds = photosInRange.map(p => p.id);
+        photoProcessingService.queueBearingUpdate(b, photoIds);
+    });
+    
+    photos_in_range.subscribe(photos => {
+        const b = get(bearing);
+        const photoIds = photos.map(p => p.id);
+        photoProcessingService.queueBearingUpdate(b, photoIds);
+    });
+}
+
+// Initialize on module load
+initializePhotoProcessing();

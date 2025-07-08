@@ -7,7 +7,7 @@ import { bearing as mapBearing } from './data.svelte';
 
 let isTracking = false;
 let lastBearing: number | null = null;
-const SMOOTHING_FACTOR = 0.7; // 0 = no smoothing, 1 = no change
+const SMOOTHING_FACTOR = 0.9; // 0 = no smoothing, 1 = no change
 
 // Subscribe to location tracking status
 locationTracking.subscribe(tracking => {

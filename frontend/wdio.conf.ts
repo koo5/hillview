@@ -34,7 +34,17 @@ export const config: Options.Testrunner = {
         'appium:appActivity': '.MainActivity',
         'appium:appWaitActivity': '.MainActivity',
         'appium:autoLaunch': true,
-        'appium:appWaitDuration': 20000
+        'appium:appWaitDuration': 20000,
+        // Permission handling capabilities
+        'appium:autoGrantPermissions': false, // Don't auto-grant to test permission flows
+        'appium:autoAcceptAlerts': false, // Don't auto-accept alerts
+        'appium:permissions': {
+            'io.github.koo5.hillview': {
+                'android.permission.CAMERA': 'unset',
+                'android.permission.ACCESS_FINE_LOCATION': 'unset',
+                'android.permission.ACCESS_COARSE_LOCATION': 'unset'
+            }
+        }
     }],
     
     logLevel: 'info',
