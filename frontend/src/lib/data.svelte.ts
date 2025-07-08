@@ -293,6 +293,14 @@ async function get_mapillary_photos() {
         src.requests.splice(src.requests.indexOf(ts), 1);
         return s;
     });
+    
+    // Trigger area filter after mapillary photos are loaded
+    const p2 = get(pos2);
+    photoProcessingService.queueAreaFilter(
+        { top_left: p2.top_left, bottom_right: p2.bottom_right },
+        p2.range,
+        get(sources)
+    );
 }
 
 pos2.subscribe(get_mapillary_photos);
@@ -307,9 +315,12 @@ sources.subscribe(async (s: Source[]) => {
     // Check if any source enabled state changed
     const hillviewChanged = old.find((src: Source) => src.id === 'hillview')?.enabled !== s.find((src: Source) => src.id === 'hillview')?.enabled;
     const mapillaryChanged = old.find((src: Source) => src.id === 'mapillary')?.enabled !== s.find((src: Source) => src.id === 'mapillary')?.enabled;
+    const mapillaryEnabled = s.find((src: Source) => src.id === 'mapillary')?.enabled;
     
-    if (hillviewChanged || mapillaryChanged) {
+    if (hillviewChanged || (mapillaryChanged && !mapillaryEnabled)) {
         // Re-filter with new source states
+        // Only queue immediately if Hillview changed or Mapillary was disabled
+        // If Mapillary was enabled, the filter will be queued after photos load
         const p2 = get(pos2);
         photoProcessingService.queueAreaFilter(
             { top_left: p2.top_left, bottom_right: p2.bottom_right },
@@ -318,7 +329,7 @@ sources.subscribe(async (s: Source[]) => {
         );
     }
     
-    if (mapillaryChanged && s.find((src: Source) => src.id === 'mapillary')?.enabled) {
+    if (mapillaryChanged && mapillaryEnabled) {
         console.log('get_mapillary_photos');
         await get_mapillary_photos();
     }
