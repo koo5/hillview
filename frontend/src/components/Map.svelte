@@ -726,7 +726,8 @@
                 center: [$pos.center.lat, $pos.center.lng], 
                 zoom: $pos.zoom,
                 minZoom: 3,
-                maxZoom: 22,
+                maxZoom: 23,
+                maxNativeZoom: 19,
                 zoomControl: true, 
                 scrollWheelZoom: !/Android/i.test(navigator.userAgent), // Disable on Android, we'll handle it manually
                 touchZoom: true,
@@ -744,7 +745,7 @@
         <TileLayer
                 {...{ attribution: "&copy; OpenStreetMap contributors" }}
                 options={{
-                    maxZoom: 20, // Match map maxZoom to prevent over-zooming
+                    maxZoom: 23,
                     maxNativeZoom: 19,
                     minZoom: 3,
                     // Memory optimization for tiles
