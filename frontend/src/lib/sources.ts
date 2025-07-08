@@ -25,8 +25,25 @@ export let sources = writable<Source[]>([
 
 export async function fetch_photos() {
     console.log('Fetching photos...');
+    const requestId = Date.now();
+    
     try {
         app.update(state => ({ ...state, loading: true, error: null }));
+        
+        // Add loading indicators for enabled sources
+        sources.update(srcs => {
+            const hillviewSrc = srcs.find(s => s.id === 'hillview');
+            const deviceSrc = srcs.find(s => s.id === 'device');
+            
+            if (hillviewSrc && hillviewSrc.enabled) {
+                hillviewSrc.requests.push(requestId);
+            }
+            if (deviceSrc && deviceSrc.enabled) {
+                deviceSrc.requests.push(requestId + 1); // Unique ID for device
+            }
+            
+            return srcs;
+        });
         
         // Load device photos from backend
         try {
@@ -128,6 +145,21 @@ export async function fetch_photos() {
         app.update(state => ({ ...state, error: err instanceof Error ? err.message : 'Unknown error' }));
     } finally {
         app.update(state => ({ ...state, loading: false }));
+        
+        // Clear loading indicators for both sources
+        sources.update(srcs => {
+            const hillviewSrc = srcs.find(s => s.id === 'hillview');
+            const deviceSrc = srcs.find(s => s.id === 'device');
+            
+            if (hillviewSrc) {
+                hillviewSrc.requests = hillviewSrc.requests.filter(id => id !== requestId);
+            }
+            if (deviceSrc) {
+                deviceSrc.requests = deviceSrc.requests.filter(id => id !== requestId + 1);
+            }
+            
+            return srcs;
+        });
     }
 }
 

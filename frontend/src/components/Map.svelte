@@ -707,6 +707,12 @@
     $: arrowY = centerY + Math.sin(arrow_radians) * arrowLength;
 
     const tileUrl = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+    
+    // Create a reactive key that changes whenever photos change
+    let photosUpdateKey = 0;
+    $: if ($photos_in_area) {
+        photosUpdateKey = Date.now();
+    }
 
 </script>
 
@@ -720,7 +726,7 @@
                 center: [$pos.center.lat, $pos.center.lng], 
                 zoom: $pos.zoom,
                 minZoom: 3,
-                maxZoom: 20, // Limit max zoom to prevent excessive tile loading
+                maxZoom: 22,
                 zoomControl: true, 
                 scrollWheelZoom: !/Android/i.test(navigator.userAgent), // Disable on Android, we'll handle it manually
                 touchZoom: true,
@@ -775,15 +781,16 @@
         {/if}
 
         <!-- Markers for photos -->
-        {#each $photos_in_area as photo (photo.id)}
-            <Marker
-                    zIndexOffset={10000*180-photo.abs_bearing_diff*10000}
-                    latLng={photo.coord}
-                    icon={createDirectionalArrow(photo)}
-                    {...{ title: `Photo at ${photo.coord.lat.toFixed(6)}, ${photo.coord.lng.toFixed(6)}\nDirection: ${photo.bearing.toFixed(1)}°\n(Relative: ${(photo.bearing - $bearing).toFixed(1)}°)` }}
-            />
-
-        {/each}
+        {#key photosUpdateKey}
+            {#each $photos_in_area as photo (photo.id)}
+                <Marker
+                        zIndexOffset={10000*180-photo.abs_bearing_diff*10000}
+                        latLng={photo.coord}
+                        icon={createDirectionalArrow(photo)}
+                        {...{ title: `Photo at ${photo.coord.lat.toFixed(6)}, ${photo.coord.lng.toFixed(6)}\nDirection: ${photo.bearing.toFixed(1)}°\n(Relative: ${(photo.bearing - $bearing).toFixed(1)}°)` }}
+                />
+            {/each}
+        {/key}
 
         <div class="svg-overlay">
             <svg

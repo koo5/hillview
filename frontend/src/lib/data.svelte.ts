@@ -193,7 +193,7 @@ hillview_photos.subscribe(filter_hillview_photos_by_area);
 function collect_photos_in_area() {
     let phs = [...get(hillview_photos_in_area), ...get(mapillary_photos_in_area)];
     fixup_bearings(phs);
-    //console.log('collect_photos_in_area:', phs);
+    console.log('collect_photos_in_area:', phs.length, 'photos (hillview:', get(hillview_photos_in_area).length, ', mapillary:', get(mapillary_photos_in_area).length, ')');
     photos_in_area.set(phs);
 }
 
