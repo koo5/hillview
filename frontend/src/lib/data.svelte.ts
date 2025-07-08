@@ -295,7 +295,6 @@ async function get_mapillary_photos() {
     });
     
     // Trigger area filter after mapillary photos are loaded
-    const p2 = get(pos2);
     photoProcessingService.queueAreaFilter(
         { top_left: p2.top_left, bottom_right: p2.bottom_right },
         p2.range,

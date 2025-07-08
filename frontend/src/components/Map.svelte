@@ -805,7 +805,6 @@
                 zoom: $pos.zoom,
                 minZoom: 3,
                 maxZoom: 23,
-                maxNativeZoom: 19,
                 zoomControl: true, 
                 scrollWheelZoom: !/Android/i.test(navigator.userAgent), // Disable on Android, we'll handle it manually
                 touchZoom: true,
