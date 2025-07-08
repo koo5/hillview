@@ -13,6 +13,7 @@
     import { auth, logout, checkAuth } from "$lib/auth.svelte";
     import CameraCapture from '../components/CameraCapture.svelte';
     import DebugOverlay from '../components/DebugOverlay.svelte';
+    import MapillaryCacheStatus from '../components/MapillaryCacheStatus.svelte';
     import { gpsLocation } from '$lib/location.svelte';
     import { photoCaptureService } from '$lib/photoCapture';
     import { devicePhotos } from '$lib/stores';
@@ -396,6 +397,9 @@
 
 <!-- Debug Overlay -->
 <DebugOverlay bind:this={debugOverlay} />
+
+<!-- Mapillary Cache Status -->
+<MapillaryCacheStatus />
 
 <style>
     /* Reset default margin, padding and prevent body scroll */

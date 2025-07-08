@@ -10,3 +10,5 @@ python-dotenv==1.0.0
 fire
 ultralytics
 opencv-python
+geoalchemy2==0.14.2
+shapely==2.0.2

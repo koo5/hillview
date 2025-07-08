@@ -1,6 +1,7 @@
-from sqlalchemy import Boolean, Column, ForeignKey, Integer, String, Float, DateTime, Text
+from sqlalchemy import Boolean, Column, ForeignKey, Integer, String, Float, DateTime, Text, JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
+from geoalchemy2 import Geometry
 from .database import Base
 import uuid
 
@@ -53,3 +54,45 @@ class Photo(Base):
     # Relationships
     owner_id = Column(String, ForeignKey("users.id"))
     owner = relationship("User", back_populates="photos")
+
+class CachedRegion(Base):
+    __tablename__ = "cached_regions"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    bbox = Column(Geometry('POLYGON', srid=4326))  # WGS84 bounding box
+    last_updated = Column(DateTime(timezone=True), server_default=func.now())
+    is_complete = Column(Boolean, default=False)  # True if entire region is cached
+    photo_count = Column(Integer, default=0)
+    total_requests = Column(Integer, default=1)  # How many times this region was requested
+    
+    # Mapillary pagination info
+    last_cursor = Column(String, nullable=True)  # Last pagination cursor processed
+    has_more = Column(Boolean, default=True)  # Whether more data exists from Mapillary
+    
+    # Relationships
+    cached_photos = relationship("MapillaryPhotoCache", back_populates="region")
+
+class MapillaryPhotoCache(Base):
+    __tablename__ = "mapillary_photo_cache"
+
+    mapillary_id = Column(String, primary_key=True)  # Mapillary's photo ID
+    geometry = Column(Geometry('POINT', srid=4326))  # WGS84 point location
+    
+    # Mapillary data fields
+    compass_angle = Column(Float, nullable=True)
+    computed_compass_angle = Column(Float, nullable=True)
+    computed_rotation = Column(Float, nullable=True)
+    computed_altitude = Column(Float, nullable=True)
+    captured_at = Column(DateTime(timezone=True), nullable=True)
+    is_pano = Column(Boolean, default=False)
+    thumb_1024_url = Column(String, nullable=True)
+    
+    # Cache metadata
+    cached_at = Column(DateTime(timezone=True), server_default=func.now())
+    region_id = Column(String, ForeignKey("cached_regions.id"))
+    
+    # Store full Mapillary response for future compatibility
+    raw_data = Column(JSON, nullable=True)
+    
+    # Relationships
+    region = relationship("CachedRegion", back_populates="cached_photos")
