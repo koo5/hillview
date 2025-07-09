@@ -155,41 +155,76 @@ class MapillaryCacheService:
         bottom_right_lat: float,
         bottom_right_lon: float
     ) -> CachedRegion:
-        """Create a new cached region"""
+        """Create a new cached region with race condition protection"""
         
         bbox_wkt = f"POLYGON(({top_left_lon} {top_left_lat}, {bottom_right_lon} {top_left_lat}, {bottom_right_lon} {bottom_right_lat}, {top_left_lon} {bottom_right_lat}, {top_left_lon} {top_left_lat}))"
         
-        region = CachedRegion(
-            bbox=func.ST_GeomFromText(bbox_wkt, 4326),
-            is_complete=False,
-            photo_count=0,
-            has_more=True
+        # Check if region already exists (race condition protection)
+        existing_query = select(CachedRegion).where(
+            geo_func.ST_Equals(
+                CachedRegion.bbox,
+                func.ST_GeomFromText(bbox_wkt, 4326)
+            )
         )
+        result = await self.db.execute(existing_query)
+        existing_region = result.scalars().first()
         
-        self.db.add(region)
-        await self.db.commit()
-        await self.db.refresh(region)
+        if existing_region:
+            return existing_region
         
-        return region
+        # Create new region with retry logic
+        try:
+            region = CachedRegion(
+                bbox=func.ST_GeomFromText(bbox_wkt, 4326),
+                is_complete=False,
+                photo_count=0,
+                has_more=True
+            )
+            
+            self.db.add(region)
+            await self.db.commit()
+            await self.db.refresh(region)
+            
+            return region
+            
+        except Exception as e:
+            # Handle potential unique constraint violations
+            await self.db.rollback()
+            
+            # Try to find the region that was created by another request
+            result = await self.db.execute(existing_query)
+            existing_region = result.scalars().first()
+            
+            if existing_region:
+                return existing_region
+            else:
+                # Re-raise if it's not a race condition
+                raise e
     
     async def cache_photos(
         self,
         photos_data: List[Dict[str, Any]],
         region: CachedRegion
     ) -> int:
-        """Cache photos from Mapillary API response"""
+        """Cache photos from Mapillary API response using batch operations"""
         
+        if not photos_data:
+            return 0
+        
+        # Get existing photo IDs in batch
+        photo_ids = [photo_data['id'] for photo_data in photos_data]
+        existing_query = select(MapillaryPhotoCache.mapillary_id).where(
+            MapillaryPhotoCache.mapillary_id.in_(photo_ids)
+        )
+        result = await self.db.execute(existing_query)
+        existing_ids = set(result.scalars().all())
+        
+        # Prepare batch insert data
+        photos_to_insert = []
         cached_count = 0
         
         for photo_data in photos_data:
-            # Check if photo already exists
-            existing = await self.db.execute(
-                select(MapillaryPhotoCache).where(
-                    MapillaryPhotoCache.mapillary_id == photo_data['id']
-                )
-            )
-            
-            if existing.scalars().first():
+            if photo_data['id'] in existing_ids:
                 continue  # Skip if already cached
             
             # Extract coordinates from geometry
@@ -204,29 +239,37 @@ class MapillaryCacheService:
                 except:
                     pass
             
-            # Create cached photo
-            cached_photo = MapillaryPhotoCache(
-                mapillary_id=photo_data['id'],
-                geometry=from_shape(point, srid=4326),
-                compass_angle=photo_data.get('compass_angle'),
-                computed_compass_angle=photo_data.get('computed_compass_angle'),
-                computed_rotation=photo_data.get('computed_rotation'),
-                computed_altitude=photo_data.get('computed_altitude'),
-                captured_at=captured_at,
-                is_pano=photo_data.get('is_pano', False),
-                thumb_1024_url=photo_data.get('thumb_1024_url'),
-                region_id=region.id,
-                raw_data=photo_data
-            )
+            # Prepare insert data
+            photo_dict = {
+                'mapillary_id': photo_data['id'],
+                'geometry': from_shape(point, srid=4326),
+                'compass_angle': photo_data.get('compass_angle'),
+                'computed_compass_angle': photo_data.get('computed_compass_angle'),
+                'computed_rotation': photo_data.get('computed_rotation'),
+                'computed_altitude': photo_data.get('computed_altitude'),
+                'captured_at': captured_at,
+                'is_pano': photo_data.get('is_pano', False),
+                'thumb_1024_url': photo_data.get('thumb_1024_url'),
+                'region_id': region.id,
+                'raw_data': photo_data,
+                'cached_at': datetime.datetime.utcnow()
+            }
             
-            self.db.add(cached_photo)
+            photos_to_insert.append(photo_dict)
             cached_count += 1
         
-        # Update region stats
-        region.photo_count += cached_count
-        region.last_updated = datetime.datetime.utcnow()
+        # Batch insert
+        if photos_to_insert:
+            from sqlalchemy import insert
+            stmt = insert(MapillaryPhotoCache).values(photos_to_insert)
+            await self.db.execute(stmt)
+            
+            # Update region stats
+            region.photo_count += cached_count
+            region.last_updated = datetime.datetime.utcnow()
+            
+            await self.db.commit()
         
-        await self.db.commit()
         return cached_count
     
     async def mark_region_complete(self, region: CachedRegion, last_cursor: Optional[str] = None):

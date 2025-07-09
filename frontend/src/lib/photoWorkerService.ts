@@ -1,4 +1,5 @@
-import { photoWorker, type PhotoData, type Bounds, type SourceConfig } from './photoWorker';
+import { photoWorker } from './photoWorker';
+import type { PhotoData, Bounds, SourceConfig, PhotosUpdateData, BearingUpdateData, WorkerError } from './photoWorkerTypes';
 import { 
   updatePhotoBearings, 
   sortPhotosByAngularDistance,
@@ -20,7 +21,9 @@ export class PhotoWorkerService {
   private currentCenter: { lat: number; lng: number } = { lat: 0, lng: 0 };
   private onPhotosUpdateCallback: ((photos: PhotoData[]) => void) | null = null;
   private onBearingUpdateCallback: ((result: BearingResult) => void) | null = null;
-  private lastBearingData: any = null;
+  private onErrorCallback: ((error: WorkerError) => void) | null = null;
+  private lastBearingData: BearingUpdateData | null = null;
+  private lastPhotosData: PhotosUpdateData | null = null;
 
   constructor() {
     this.setupWorkerCallbacks();
@@ -28,14 +31,16 @@ export class PhotoWorkerService {
 
   private setupWorkerCallbacks(): void {
     // Handle photos update from worker
-    photoWorker.onPhotosUpdate((photos: PhotoData[]) => {
+    photoWorker.onPhotosUpdate((data: PhotosUpdateData) => {
+      this.lastPhotosData = data;
+      
       if (this.onPhotosUpdateCallback) {
-        this.onPhotosUpdateCallback(photos);
+        this.onPhotosUpdateCallback(data.photos);
       }
     });
 
     // Handle bearing update from worker
-    photoWorker.onBearingUpdate((data: any) => {
+    photoWorker.onBearingUpdate((data: BearingUpdateData) => {
       this.lastBearingData = data;
       
       if (this.onBearingUpdateCallback) {
@@ -44,6 +49,42 @@ export class PhotoWorkerService {
         this.onBearingUpdateCallback(result);
       }
     });
+
+    // Handle worker errors
+    photoWorker.onError((error: WorkerError) => {
+      console.error('PhotoWorkerService: Worker error', error);
+      
+      if (this.onErrorCallback) {
+        this.onErrorCallback(error);
+      }
+      
+      // Attempt recovery on certain errors
+      if (error.operation === 'runtime') {
+        this.handleWorkerCrash();
+      }
+    });
+  }
+
+  private async handleWorkerCrash(): Promise<void> {
+    console.log('PhotoWorkerService: Handling worker crash...');
+    
+    this.initialized = false;
+    
+    // Give worker time to restart
+    setTimeout(async () => {
+      try {
+        await this.initialize();
+        
+        // Reload data if we have it
+        if (this.lastPhotosData) {
+          await this.loadPhotos(this.lastPhotosData.photos);
+        }
+        
+        console.log('PhotoWorkerService: Recovery successful');
+      } catch (error) {
+        console.error('PhotoWorkerService: Recovery failed', error);
+      }
+    }, 2000);
   }
 
   private processBearingData(photosInRange: PhotoData[], bearing: number): BearingResult {
@@ -153,15 +194,37 @@ export class PhotoWorkerService {
     this.onBearingUpdateCallback = callback;
   }
 
+  onError(callback: (error: WorkerError) => void): void {
+    this.onErrorCallback = callback;
+  }
+
   // Get current state (for components that need immediate data)
   getCurrentBearingData(): BearingResult | null {
     if (!this.lastBearingData) return null;
     return this.processBearingData(this.lastBearingData.photosInRange, this.lastBearingData.bearing);
   }
 
+  getCurrentPhotosData(): PhotosUpdateData | null {
+    return this.lastPhotosData;
+  }
+
+  getWorkerStatus(): {
+    initialized: boolean;
+    pendingOperations: number;
+    ready: boolean;
+  } {
+    return photoWorker.getStatus();
+  }
+
+  isReady(): boolean {
+    return this.initialized && photoWorker.isReady();
+  }
+
   terminate(): void {
     photoWorker.terminate();
     this.initialized = false;
+    this.lastBearingData = null;
+    this.lastPhotosData = null;
   }
 }
 

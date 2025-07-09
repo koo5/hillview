@@ -40,6 +40,7 @@ export class MapillaryStreamService {
     private eventSource: EventSource | null = null;
     private callbacks: MapillaryStreamCallbacks = {};
     private isStreaming = false;
+    private cleanupTimeout: number | null = null;
     
     constructor(callbacks: MapillaryStreamCallbacks) {
         this.callbacks = callbacks;
@@ -139,6 +140,16 @@ export class MapillaryStreamService {
             this.eventSource = null;
         }
         this.isStreaming = false;
+        
+        // Clear any pending cleanup timeouts
+        if (this.cleanupTimeout) {
+            clearTimeout(this.cleanupTimeout);
+            this.cleanupTimeout = null;
+        }
+    }
+    
+    private cleanup(): void {
+        this.stopStream();
     }
     
     getIsStreaming(): boolean {

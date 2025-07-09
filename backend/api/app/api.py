@@ -18,7 +18,7 @@ import aiofiles
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
-from .database import get_db, Base, engine
+from .database import get_db, Base, engine, SessionLocal
 from .models import User, Photo, CachedRegion, MapillaryPhotoCache
 from .auth import (
     authenticate_user, create_access_token, get_current_active_user,
@@ -628,8 +628,7 @@ async def stream_mapillary_images(
     top_left_lon: float = Query(..., description="Top left longitude"),
     bottom_right_lat: float = Query(..., description="Bottom right latitude"),
     bottom_right_lon: float = Query(..., description="Bottom right longitude"),
-    client_id: str = Query(..., description="Client ID"),
-    db: AsyncSession = Depends(get_db)
+    client_id: str = Query(..., description="Client ID")
 ):
     """Stream Mapillary images with Server-Sent Events"""
     
@@ -637,94 +636,102 @@ async def stream_mapillary_images(
         request_id = datetime.datetime.now().strftime("%Y%m%d%H%M%S.%f")
         log.info(f"Stream request {request_id} from client {client_id}")
         
-        cache_service = MapillaryCacheService(db)
-        
-        # Send initial response with cached data
-        cached_photos = await cache_service.get_cached_photos_in_bbox(
-            top_left_lat, top_left_lon, bottom_right_lat, bottom_right_lon
-        )
-        
-        if cached_photos:
-            sorted_cached = sorted(cached_photos, key=lambda x: x.get('compass_angle', 0))
-            yield f"data: {json.dumps({'type': 'cached_photos', 'photos': sorted_cached, 'count': len(sorted_cached)})}\n\n"
-        else:
-            yield f"data: {json.dumps({'type': 'cached_photos', 'photos': [], 'count': 0})}\n\n"
-        
-        # Calculate uncached regions
-        uncached_regions = await cache_service.calculate_uncached_regions(
-            top_left_lat, top_left_lon, bottom_right_lat, bottom_right_lon
-        )
-        
-        yield f"data: {json.dumps({'type': 'cache_status', 'uncached_regions': len(uncached_regions)})}\n\n"
-        
-        # Stream live data from uncached regions
-        if uncached_regions:
-            # Rate limiting
-            now = datetime.datetime.now()
-            if client_id in clients:
-                while True:
+        # Create a new database session for the stream
+        async with SessionLocal() as db:
+            cache_service = MapillaryCacheService(db)
+            total_live_photos = []  # Initialize here to avoid scope issues
+            
+            try:
+                # Send initial response with cached data
+                cached_photos = await cache_service.get_cached_photos_in_bbox(
+                    top_left_lat, top_left_lon, bottom_right_lat, bottom_right_lon
+                )
+                
+                if cached_photos:
+                    sorted_cached = sorted(cached_photos, key=lambda x: x.get('compass_angle', 0))
+                    yield f"data: {json.dumps({'type': 'cached_photos', 'photos': sorted_cached, 'count': len(sorted_cached)})}\n\n"
+                else:
+                    yield f"data: {json.dumps({'type': 'cached_photos', 'photos': [], 'count': 0})}\n\n"
+                
+                # Calculate uncached regions
+                uncached_regions = await cache_service.calculate_uncached_regions(
+                    top_left_lat, top_left_lon, bottom_right_lat, bottom_right_lon
+                )
+                
+                yield f"data: {json.dumps({'type': 'cache_status', 'uncached_regions': len(uncached_regions)})}\n\n"
+                
+                # Stream live data from uncached regions
+                if uncached_regions:
+                    # Rate limiting
                     now = datetime.datetime.now()
-                    if now - clients[client_id] < datetime.timedelta(seconds=1):
-                        await asyncio.sleep(1)
-                    else:
-                        break
-            clients[client_id] = now
-            
-            total_live_photos = []
-            
-            for region_bbox in uncached_regions:
-                try:
-                    # Create cache region
-                    region = await cache_service.create_cached_region(
-                        region_bbox[0], region_bbox[1], region_bbox[2], region_bbox[3]
-                    )
-                    
-                    cursor = None
-                    region_photos = []
-                    
-                    # Stream all pages for this region
+                    if client_id in clients:
                     while True:
-                        mapillary_response = await fetch_mapillary_data(
-                            region_bbox[0], region_bbox[1], region_bbox[2], region_bbox[3], cursor
-                        )
-                        
-                        photos_data = mapillary_response["data"]
-                        paging = mapillary_response["paging"]
-                        
-                        if not photos_data:
-                            break
-                        
-                        region_photos.extend(photos_data)
-                        total_live_photos.extend(photos_data)
-                        
-                        # Cache the photos
-                        await cache_service.cache_photos(photos_data, region)
-                        
-                        # Stream this batch
-                        sorted_batch = sorted(photos_data, key=lambda x: x.get('compass_angle', 0))
-                        yield f"data: {json.dumps({'type': 'live_photos_batch', 'photos': sorted_batch, 'region': region.id})}\n\n"
-                        
-                        # Check for more pages
-                        if paging.get("next"):
-                            cursor = paging.get("cursors", {}).get("after")
-                            if cursor:
-                                await cache_service.update_region_cursor(region, cursor)
-                            else:
-                                break
+                        now = datetime.datetime.now()
+                        if now - clients[client_id] < datetime.timedelta(seconds=1):
+                            await asyncio.sleep(1)
                         else:
                             break
+                clients[client_id] = now
+                
+                # total_live_photos already initialized above
+                
+                for region_bbox in uncached_regions:
+                    try:
+                        # Create cache region
+                        region = await cache_service.create_cached_region(
+                            region_bbox[0], region_bbox[1], region_bbox[2], region_bbox[3]
+                        )
                     
-                    # Mark region as complete
-                    await cache_service.mark_region_complete(region, cursor)
+                        cursor = None
+                        region_photos = []
                     
-                    yield f"data: {json.dumps({'type': 'region_complete', 'region': region.id, 'photos_count': len(region_photos)})}\n\n"
+                        # Stream all pages for this region
+                        while True:
+                            mapillary_response = await fetch_mapillary_data(
+                                region_bbox[0], region_bbox[1], region_bbox[2], region_bbox[3], cursor
+                            )
+                            
+                            photos_data = mapillary_response["data"]
+                            paging = mapillary_response["paging"]
+                            
+                            if not photos_data:
+                                break
+                            
+                            region_photos.extend(photos_data)
+                            total_live_photos.extend(photos_data)
+                            
+                            # Cache the photos
+                            await cache_service.cache_photos(photos_data, region)
+                            
+                            # Stream this batch
+                            sorted_batch = sorted(photos_data, key=lambda x: x.get('compass_angle', 0))
+                            yield f"data: {json.dumps({'type': 'live_photos_batch', 'photos': sorted_batch, 'region': region.id})}\n\n"
+                            
+                            # Check for more pages
+                            if paging.get("next"):
+                                cursor = paging.get("cursors", {}).get("after")
+                                if cursor:
+                                    await cache_service.update_region_cursor(region, cursor)
+                                else:
+                                    break
+                            else:
+                                break
                     
-                except Exception as e:
-                    log.error(f"Error streaming region {region_bbox}: {str(e)}")
-                    yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+                        # Mark region as complete
+                        await cache_service.mark_region_complete(region, cursor)
+                        
+                        yield f"data: {json.dumps({'type': 'region_complete', 'region': region.id, 'photos_count': len(region_photos)})}\n\n"
+                        
+                    except Exception as e:
+                        log.error(f"Error streaming region {region_bbox}: {str(e)}")
+                        yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+            
+            # Send final summary
+            yield f"data: {json.dumps({'type': 'stream_complete', 'total_live_photos': len(total_live_photos)})}\n\n"
         
-        # Send final summary
-        yield f"data: {json.dumps({'type': 'stream_complete', 'total_live_photos': len(total_live_photos) if 'total_live_photos' in locals() else 0})}\n\n"
+        except Exception as e:
+            log.error(f"Stream error: {str(e)}")
+            yield f"data: {json.dumps({'type': 'error', 'message': f'Stream error: {str(e)}'})}\n\n"
     
     return StreamingResponse(
         generate_stream(),

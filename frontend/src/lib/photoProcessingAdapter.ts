@@ -24,34 +24,42 @@ class PhotoProcessingAdapter implements PhotoProcessingServiceInterface {
   }
   
   private updateService(): void {
-    this.isWebWorkerMode = get(USE_WEBWORKER);
+    const newMode = get(USE_WEBWORKER);
+    const switching = newMode !== this.isWebWorkerMode;
     
-    if (this.isWebWorkerMode) {
-      // Terminate old service if switching
+    if (switching) {
+      console.log(`PhotoProcessingAdapter: Switching from ${this.isWebWorkerMode ? 'WebWorker' : 'MainThread'} to ${newMode ? 'WebWorker' : 'MainThread'} mode`);
+      
+      // Clean up current service
       if (this.currentService === photoProcessingService) {
         this.currentService?.cancelOperations?.();
+      } else if (this.currentService === photoWorkerService) {
+        this.currentService?.terminate?.();
       }
       
+      // Clean up adapter state
+      this.cleanup();
+    }
+    
+    this.isWebWorkerMode = newMode;
+    
+    if (this.isWebWorkerMode) {
       this.currentService = photoWorkerService;
-      console.log('Switched to PhotoWorkerService');
+      console.log('Using PhotoWorkerService');
       
       // Set up web worker callbacks
       this.setupWebWorkerCallbacks();
     } else {
-      // Terminate web worker if switching
-      if (this.currentService === photoWorkerService) {
-        this.currentService?.terminate?.();
-      }
-      
       this.currentService = photoProcessingService;
-      console.log('Switched to PhotoProcessingService');
+      console.log('Using PhotoProcessingService');
     }
-    
-    this.isInitialized = false;
   }
   
   private setupWebWorkerCallbacks(): void {
     if (this.currentService !== photoWorkerService) return;
+    
+    // Clear previous callbacks to avoid memory leaks
+    this.webWorkerCallbacks.clear();
     
     // Set up callbacks for web worker mode
     this.currentService.onPhotosUpdate((photos: any[]) => {
@@ -62,9 +70,17 @@ class PhotoProcessingAdapter implements PhotoProcessingServiceInterface {
         photosInArea: photos
       };
       
-      const callback = this.webWorkerCallbacks.get('filter_area');
-      if (callback) {
-        callback(result);
+      // Trigger area filter callback
+      const areaCallback = this.webWorkerCallbacks.get('filter_area');
+      if (areaCallback) {
+        areaCallback(result);
+      }
+      
+      // Also trigger distance calculation callback since web worker includes distance data
+      const distanceCallback = this.webWorkerCallbacks.get('calculate_distances');
+      if (distanceCallback) {
+        const photosInRange = photos.filter(p => p.range_distance !== null && p.range_distance !== undefined);
+        distanceCallback({ photosInRange });
       }
     });
     
@@ -74,17 +90,10 @@ class PhotoProcessingAdapter implements PhotoProcessingServiceInterface {
         callback(result);
       }
     });
-    
-    // Also handle distance updates from web worker
-    this.currentService.onPhotosUpdate((photos: any[]) => {
-      const callback = this.webWorkerCallbacks.get('calculate_distances');
-      if (callback) {
-        // Web worker includes distance data in photos
-        const result = {
-          photosInRange: photos.filter(p => p.range_distance !== null && p.range_distance !== undefined)
-        };
-        callback(result);
-      }
+
+    // Handle worker errors
+    this.currentService.onError?.((error: any) => {
+      console.error('PhotoProcessingAdapter: Worker error', error);
     });
   }
   
@@ -194,7 +203,22 @@ class PhotoProcessingAdapter implements PhotoProcessingServiceInterface {
   }
   
   terminate(): void {
-    this.currentService.terminate?.();
+    // Clean up callbacks
+    this.webWorkerCallbacks.clear();
+    
+    // Terminate current service
+    if (this.currentService?.terminate) {
+      this.currentService.terminate();
+    }
+    
+    this.isInitialized = false;
+  }
+
+  // Clean up method for mode switches
+  private cleanup(): void {
+    this.webWorkerCallbacks.clear();
+    this.isInitialized = false;
+    this.currentCenter = { lat: 0, lng: 0 };
   }
   
   // Utility methods
