@@ -168,7 +168,7 @@
                 <div class="debug-section fused-bearing">
                     <div><strong>🎯 Sensor Fusion Result:</strong></div>
                     <div>Fused Bearing: <span class="highlight">{$fusedBearing.bearing.toFixed(1)}°</span></div>
-                    <div>Source: {$fusedBearing.source === 'gps' ? 'GPS Only' : $fusedBearing.source === 'compass' ? 'Compass Only' : 'GPS + Compass Fusion'}</div>
+                    <div>Source: Compass Only</div>
                     <div>Confidence: {($fusedBearing.confidence * 100).toFixed(0)}% | Accuracy: {$fusedBearing.accuracy?.toFixed(0) || 'N/A'}°</div>
                 </div>
             {/if}
@@ -178,7 +178,7 @@
                     <div><strong>📸 Photo Capture Data (Final):</strong></div>
                     <div>Bearing to be saved: <span class="highlight">{$captureLocationWithFusedBearing.heading?.toFixed(1) || 'None'}°</span></div>
                     {#if $captureLocationWithFusedBearing.headingSource}
-                        <div>Data source: {$captureLocationWithFusedBearing.headingSource === 'gps' ? 'GPS' : $captureLocationWithFusedBearing.headingSource === 'compass' ? 'Compass' : 'Fused'}</div>
+                        <div>Data source: Compass</div>
                         <div>Confidence: {(($captureLocationWithFusedBearing.headingConfidence || 0) * 100).toFixed(0)}%</div>
                     {:else}
                         <div>Using raw {$captureLocationWithFusedBearing.source} heading</div>

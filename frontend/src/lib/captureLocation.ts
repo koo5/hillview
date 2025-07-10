@@ -13,7 +13,7 @@ export interface CaptureLocation {
 }
 
 export interface CaptureLocationWithFusedBearing extends CaptureLocation {
-    headingSource?: 'gps' | 'compass' | 'fused';
+    headingSource?: 'compass';
     headingConfidence?: number;
 }
 
