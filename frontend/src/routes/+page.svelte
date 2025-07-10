@@ -17,7 +17,7 @@
     import { gpsLocation } from '$lib/location.svelte';
     import { photoCaptureService } from '$lib/photoCapture';
     import { devicePhotos } from '$lib/stores';
-    import { captureLocation, captureLocationWithFusedBearing } from '$lib/captureLocation';
+    import { captureLocation, captureLocationWithCompassBearing } from '$lib/captureLocation';
     import '$lib/captureLocationManager'; // Activate capture location management
     import '$lib/mapBearingSync'; // Sync map bearing with sensors
 
@@ -183,7 +183,7 @@
 
     async function handlePhotoCaptured(event: CustomEvent<{ file: File }>) {
         const { file } = event.detail;
-        const captureLoc = $captureLocationWithFusedBearing;
+        const captureLoc = $captureLocationWithCompassBearing;
         
         if (!captureLoc) {
             alert('Location not available. Please wait for GPS or move the map.');
@@ -364,16 +364,16 @@
                 show={true}
                 on:close={() => showCameraView = false}
                 on:photoCaptured={handlePhotoCaptured}
-                locationData={$captureLocationWithFusedBearing ? {
-                    latitude: $captureLocationWithFusedBearing.latitude,
-                    longitude: $captureLocationWithFusedBearing.longitude,
-                    altitude: $captureLocationWithFusedBearing.altitude,
-                    accuracy: $captureLocationWithFusedBearing.accuracy,
-                    heading: $captureLocationWithFusedBearing.heading,
-                    source: $captureLocationWithFusedBearing.source
+                locationData={$captureLocationWithCompassBearing ? {
+                    latitude: $captureLocationWithCompassBearing.latitude,
+                    longitude: $captureLocationWithCompassBearing.longitude,
+                    altitude: $captureLocationWithCompassBearing.altitude,
+                    accuracy: $captureLocationWithCompassBearing.accuracy,
+                    heading: $captureLocationWithCompassBearing.heading,
+                    source: $captureLocationWithCompassBearing.source
                 } : null}
                 locationError={null}
-                locationReady={!!$captureLocationWithFusedBearing}
+                locationReady={!!$captureLocationWithCompassBearing}
             />
         {:else}
             <PhotoGallery/>

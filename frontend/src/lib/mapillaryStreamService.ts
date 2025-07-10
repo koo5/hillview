@@ -59,7 +59,7 @@ export class MapillaryStreamService {
         const backendUrl = import.meta.env.VITE_BACKEND || 'http://localhost:8000';
         const clientId = get(client_id);
         
-        const url = `${backendUrl}/api/mapillary/stream` +
+        const url = `${backendUrl}/api/mapillary` +
             `?top_left_lat=${topLeftLat}` +
             `&top_left_lon=${topLeftLon}` +
             `&bottom_right_lat=${bottomRightLat}` +

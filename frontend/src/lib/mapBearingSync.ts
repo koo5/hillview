@@ -1,6 +1,6 @@
 import { get } from 'svelte/store';
 import { locationTracking } from './location.svelte';
-import { fusedBearing } from './sensorFusion.svelte';
+import { compassHeading } from './compass.svelte';
 import { bearing as mapBearing } from './data.svelte';
 
 // This module syncs the map arrow bearing with sensor data when GPS tracking is active
@@ -28,13 +28,13 @@ function lerpAngle(current: number, target: number, factor: number): number {
     return (result + 360) % 360;
 }
 
-// Subscribe to fused bearing changes
-fusedBearing.subscribe(fused => {
-    if (!fused || !isTracking) return;
+// Subscribe to compass heading changes
+compassHeading.subscribe(compass => {
+    if (!compass || !isTracking) return;
     
     // Negate the compass bearing for map view
     // When device rotates clockwise, map should rotate counter-clockwise
-    const targetBearing = (360 - fused.bearing) % 360;
+    const targetBearing = (360 - compass.heading) % 360;
     
     // Apply smoothing
     let smoothedBearing: number;
@@ -54,7 +54,7 @@ fusedBearing.subscribe(fused => {
     // Log only significant changes
     if (Math.random() < 0.1) { // Log ~10% of updates
         console.log('Map bearing synced:',
-            `compass=${fused.bearing.toFixed(1)}°`,
+            `compass=${compass.heading.toFixed(1)}°`,
             `target=${targetBearing.toFixed(1)}°`, 
             `smoothed=${smoothedBearing.toFixed(1)}°`
         );
@@ -63,9 +63,9 @@ fusedBearing.subscribe(fused => {
 
 // Export function to manually sync bearings
 export function syncMapBearing() {
-    const fused = get(fusedBearing);
-    if (fused && isTracking) {
-        const targetBearing = (360 - fused.bearing) % 360;
+    const compass = get(compassHeading);
+    if (compass && isTracking) {
+        const targetBearing = (360 - compass.heading) % 360;
         lastBearing = targetBearing;
         mapBearing.set(targetBearing);
     }

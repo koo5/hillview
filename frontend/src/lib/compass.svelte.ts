@@ -26,8 +26,8 @@ export const compassAvailable = writable<boolean>(false);
 // Store for compass permission status
 export const compassPermission = writable<'granted' | 'denied' | 'prompt' | null>(null);
 
-// Derived store for best available heading (fused from multiple sources)
-export const fusedHeading = derived(
+// Derived store for best available heading (prefers true over magnetic)
+export const compassHeading = derived(
     [compassData],
     ([$compassData]) => {
         if ($compassData && $compassData.trueHeading !== null) {

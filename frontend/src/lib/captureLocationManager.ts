@@ -1,6 +1,6 @@
 import { get } from 'svelte/store';
 import { gpsCoordinates } from './location.svelte';
-import { fusedBearing } from './sensorFusion.svelte';
+import { compassHeading } from './compass.svelte';
 import { captureLocation } from './captureLocation';
 
 // This module manages the capture location by subscribing to both GPS and compass changes
@@ -22,31 +22,31 @@ gpsCoordinates.subscribe(coords => {
             acc: coords.accuracy
         };
         
-        // ALWAYS use the fused bearing, never GPS bearing
-        const fused = get(fusedBearing);
+        // Use compass heading for bearing, never GPS bearing
+        const compass = get(compassHeading);
         
         captureLocation.set({
             latitude: coords.latitude,
             longitude: coords.longitude,
             altitude: coords.altitude,
             accuracy: coords.accuracy,
-            heading: fused ? fused.bearing : undefined, // Only use fused bearing
+            heading: compass ? compass.heading : undefined, // Only use compass bearing
             source: 'gps',
             timestamp: Date.now()
         });
         
         console.log('Capture location updated from GPS:', 
             `pos=${coords.latitude.toFixed(4)}, ${coords.longitude.toFixed(4)}`,
-            `heading=${fused ? fused.bearing.toFixed(1) + '°' : 'none'}`,
-            'source=fused'
+            `heading=${compass ? compass.heading.toFixed(1) + '°' : 'none'}`,
+            'source=compass'
         );
     }
 });
 
-// Subscribe to fused bearing changes
-fusedBearing.subscribe(fused => {
-    if (!fused) {
-        console.log('No fused bearing data');
+// Subscribe to compass heading changes
+compassHeading.subscribe(compass => {
+    if (!compass) {
+        console.log('No compass heading data');
         return;
     }
     
@@ -54,18 +54,18 @@ fusedBearing.subscribe(fused => {
     
     // Only update heading if we have a capture location (from either GPS or map)
     if (currentCapture) {
-        // Always update with the latest fused bearing
+        // Always update with the latest compass heading
         captureLocation.set({
             ...currentCapture,
-            heading: fused.bearing,
+            heading: compass.heading,
             timestamp: Date.now()
         });
         
         console.log('✅ Capture heading updated:', 
-            `bearing=${fused.bearing.toFixed(1)}°`,
+            `bearing=${compass.heading.toFixed(1)}°`,
             `source=${currentCapture.source}`,
-            `fusedSource=${fused.source}`,
-            `confidence=${(fused.confidence * 100).toFixed(0)}%`
+            `compassSource=${compass.source}`,
+            `accuracy=${compass.accuracy?.toFixed(0) || 'N/A'}°`
         );
     } else {
         console.log('❌ No capture location available');
@@ -75,7 +75,7 @@ fusedBearing.subscribe(fused => {
 // Export a function to force refresh from current sensors
 export function refreshCaptureLocation() {
     const coords = get(gpsCoordinates);
-    const fused = get(fusedBearing);
+    const compass = get(compassHeading);
     const currentCapture = get(captureLocation);
     
     if (coords && (!currentCapture || currentCapture.source === 'gps')) {
@@ -84,7 +84,7 @@ export function refreshCaptureLocation() {
             longitude: coords.longitude,
             altitude: coords.altitude,
             accuracy: coords.accuracy,
-            heading: fused ? fused.bearing : undefined, // Only use fused bearing
+            heading: compass ? compass.heading : undefined, // Only use compass bearing
             source: 'gps',
             timestamp: Date.now()
         });

@@ -182,8 +182,15 @@ function loadPhotos(photos: PhotoData[]): void {
 
 function updateBounds(bounds: Bounds): void {
   try {
-    currentBounds = bounds;
-    recalculateVisiblePhotos();
+    // Only recalculate if bounds actually changed
+    if (!currentBounds || 
+        currentBounds.north !== bounds.north ||
+        currentBounds.south !== bounds.south ||
+        currentBounds.east !== bounds.east ||
+        currentBounds.west !== bounds.west) {
+      currentBounds = bounds;
+      recalculateVisiblePhotos();
+    }
   } catch (error) {
     console.error('Worker: Error updating bounds:', error);
     postError('updateBounds', error);
@@ -192,8 +199,11 @@ function updateBounds(bounds: Bounds): void {
 
 function updateRange(range: number): void {
   try {
-    currentRange = range;
-    recalculateVisiblePhotos();
+    // Only recalculate if range actually changed
+    if (currentRange !== range) {
+      currentRange = range;
+      recalculateVisiblePhotos();
+    }
   } catch (error) {
     console.error('Worker: Error updating range:', error);
     postError('updateRange', error);
@@ -202,8 +212,15 @@ function updateRange(range: number): void {
 
 function updateSources(sources: SourceConfig[]): void {
   try {
-    sourcesConfig = sources;
-    recalculateVisiblePhotos();
+    // Only recalculate if sources actually changed
+    const sourcesChanged = !sourcesConfig || 
+      sourcesConfig.length !== sources.length ||
+      sourcesConfig.some((s, i) => s.id !== sources[i]?.id || s.enabled !== sources[i]?.enabled);
+    
+    if (sourcesChanged) {
+      sourcesConfig = sources;
+      recalculateVisiblePhotos();
+    }
   } catch (error) {
     console.error('Worker: Error updating sources:', error);
     postError('updateSources', error);
@@ -296,7 +313,11 @@ function recalculateVisiblePhotos(): void {
   
   lastVisiblePhotos = visiblePhotos;
   
-  console.log(`Worker: Filtered ${visiblePhotos.length} photos in ${performance.now() - startTime}ms`);
+  // Only log when we have results or significant processing time
+  const processingTime = performance.now() - startTime;
+  if (visiblePhotos.length > 0 || processingTime > 10) {
+    console.log(`Worker: Filtered ${visiblePhotos.length} photos in ${processingTime.toFixed(1)}ms`);
+  }
   
   // Send update to main thread
   postMessage({

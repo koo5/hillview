@@ -27,11 +27,18 @@ python -c "from app.database import Base, engine; import asyncio; from app.model
 
 ### Dependencies
 ```bash
-# Install Python dependencies
+# Install Python dependencies (fix NumPy compatibility issues)
 pip install -r requirements.txt
 
 # App-specific dependencies
 pip install -r api/app/requirements.txt
+
+# Create database (run as postgres user)
+sudo -u postgres psql -f create_database.sql
+
+# OR manually create database
+sudo -u postgres createdb hillview
+sudo -u postgres psql -d hillview -c "CREATE EXTENSION IF NOT EXISTS postgis;"
 
 # Setup PostGIS extension and spatial indexes
 python setup_postgis.py
@@ -75,7 +82,7 @@ backend/
 #### API Endpoints (api.py)
 - `/api/auth/*` - Authentication endpoints (register, login, OAuth)
 - `/api/photos/*` - Photo management (upload, delete, thumbnails)
-- `/api/mapillary` - Mapillary API proxy with rate limiting
+- `/api/mapillary` - Mapillary API with intelligent caching and streaming support
 
 ### Configuration
 Environment variables required:
@@ -83,6 +90,9 @@ Environment variables required:
 - `SECRET_KEY` - JWT signing key
 - `MAPILLARY_CLIENT_TOKEN_FILE` - Path to Mapillary API token
 - OAuth credentials for Google/GitHub (`*_CLIENT_ID`, `*_CLIENT_SECRET`)
+
+Optional configuration:
+- `DISABLE_MAPILLARY_CACHE` - Set to "true", "1", or "yes" to disable caching and fetch directly from Mapillary API
 
 ### Key Features
 - **Intelligent Caching**: PostGIS-powered spatial caching of Mapillary photos

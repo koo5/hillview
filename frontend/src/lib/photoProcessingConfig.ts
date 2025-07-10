@@ -1,7 +1,7 @@
 import { localStorageSharedStore } from './svelte-shared-store';
 
 // Configuration for photo processing
-export const USE_WEBWORKER = localStorageSharedStore('use_webworker', false);
+export const USE_WEBWORKER = localStorageSharedStore('use_webworker', true);
 
 // Common interface for both services
 export interface PhotoProcessingServiceInterface {

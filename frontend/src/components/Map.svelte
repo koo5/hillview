@@ -531,22 +531,17 @@
     
     // Update user location on the map
     async function updateUserLocation(position: GeolocationPosition) {
-
-        const old = get(gpsLocation);
-        if (old?.coords.latitude === position?.coords.latitude &&
-            old?.coords.longitude === position?.coords.longitude &&
-            old?.coords.altitude === position?.coords.altitude &&
-            old?.coords.accuracy === position?.coords.accuracy &&
-            old?.coords.heading === position?.coords.heading) {
+        // Check if position changed and update global store
+        const updated = updateGpsLocation(position);
+        if (!updated) {
             //console.log("updateUserLocation(GPS): No change in position, skipping update");
             return;
         }
 
         const { latitude, longitude, accuracy, heading } = position.coords;
         
-        // Store the location data in both local and global store
+        // Store the location data locally
         userLocation = position;
-        updateGpsLocation(position);
 
         console.log("updateUserLocation:", latitude, longitude, accuracy, heading);
         locationTrackingLoading = false;

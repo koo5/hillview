@@ -2,7 +2,6 @@ import {writable, derived, get} from 'svelte/store';
 import type { GeolocationPosition } from '$lib/geolocation';
 import { updateCaptureLocationFromGps } from './captureLocation';
 import { startCompassWatch, stopCompassWatch } from './compass.svelte';
-import { fusedBearing, getInstantBearing } from './sensorFusion.svelte';
 
 // Store for current GPS location from device
 export const gpsLocation = writable<GeolocationPosition | null>(null);
@@ -43,22 +42,33 @@ export const gpsLocationString = derived(
     }
 );
 
+// Helper function to check if position has changed
+export function hasPositionChanged(oldPosition: GeolocationPosition | null, newPosition: GeolocationPosition | null): boolean {
+    if (!oldPosition && !newPosition) return false;
+    if (!oldPosition || !newPosition) return true;
+    
+    return (
+        oldPosition.coords.latitude !== newPosition.coords.latitude ||
+        oldPosition.coords.longitude !== newPosition.coords.longitude ||
+        oldPosition.coords.altitude !== newPosition.coords.altitude ||
+        oldPosition.coords.accuracy !== newPosition.coords.accuracy ||
+        oldPosition.coords.heading !== newPosition.coords.heading
+    );
+}
+
 // Helper function to update location
 export function updateGpsLocation(position: GeolocationPosition | null) {
     const old = get(gpsLocation);
-    if (old?.coords.latitude === position?.coords.latitude &&
-        old?.coords.longitude === position?.coords.longitude &&
-        old?.coords.altitude === position?.coords.altitude &&
-        old?.coords.accuracy === position?.coords.accuracy &&
-        old?.coords.heading === position?.coords.heading) {
+    if (!hasPositionChanged(old, position)) {
         // No change in coordinates, do not update
-        return;
+        return false;
     }
 
     console.debug('Updating GPS location store:', position);
     gpsLocation.set(position);
     
     // Capture location updates are now handled by captureLocationManager.ts
+    return true;
 }
 
 // Helper function to update tracking status

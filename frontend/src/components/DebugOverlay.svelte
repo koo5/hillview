@@ -3,9 +3,8 @@
     import {onMount} from 'svelte';
     import {bearing, pos} from '$lib/data.svelte';
     import {gpsCoordinates, locationError, locationTracking} from '$lib/location.svelte';
-    import {captureLocation, captureLocationWithFusedBearing} from '$lib/captureLocation';
-    import {compassData, deviceOrientation, compassAvailable, compassPermission} from '$lib/compass.svelte';
-    import {fusedBearing} from '$lib/sensorFusion.svelte';
+    import {captureLocation, captureLocationWithCompassBearing} from '$lib/captureLocation';
+    import {compassData, deviceOrientation, compassAvailable, compassPermission, compassHeading} from '$lib/compass.svelte';
     import {invoke} from '@tauri-apps/api/core';
 
     let showDebug = false;
@@ -164,24 +163,24 @@
                 </div>
             {/if}
 
-            {#if $fusedBearing}
-                <div class="debug-section fused-bearing">
-                    <div><strong>🎯 Sensor Fusion Result:</strong></div>
-                    <div>Fused Bearing: <span class="highlight">{$fusedBearing.bearing.toFixed(1)}°</span></div>
-                    <div>Source: Compass Only</div>
-                    <div>Confidence: {($fusedBearing.confidence * 100).toFixed(0)}% | Accuracy: {$fusedBearing.accuracy?.toFixed(0) || 'N/A'}°</div>
+            {#if $compassHeading}
+                <div class="debug-section compass-bearing">
+                    <div><strong>🎯 Compass Bearing:</strong></div>
+                    <div>Heading: <span class="highlight">{$compassHeading.heading.toFixed(1)}°</span></div>
+                    <div>Source: {$compassHeading.source}</div>
+                    <div>Accuracy: {$compassHeading.accuracy?.toFixed(0) || 'N/A'}°</div>
                 </div>
             {/if}
 
-            {#if $captureLocationWithFusedBearing}
+            {#if $captureLocationWithCompassBearing}
                 <div class="debug-section photo-bearing">
                     <div><strong>📸 Photo Capture Data (Final):</strong></div>
-                    <div>Bearing to be saved: <span class="highlight">{$captureLocationWithFusedBearing.heading?.toFixed(1) || 'None'}°</span></div>
-                    {#if $captureLocationWithFusedBearing.headingSource}
+                    <div>Bearing to be saved: <span class="highlight">{$captureLocationWithCompassBearing.heading?.toFixed(1) || 'None'}°</span></div>
+                    {#if $captureLocationWithCompassBearing.headingSource}
                         <div>Data source: Compass</div>
-                        <div>Confidence: {(($captureLocationWithFusedBearing.headingConfidence || 0) * 100).toFixed(0)}%</div>
+                        <div>Accuracy: {$captureLocationWithCompassBearing.headingAccuracy?.toFixed(0) || 'N/A'}°</div>
                     {:else}
-                        <div>Using raw {$captureLocationWithFusedBearing.source} heading</div>
+                        <div>Using raw {$captureLocationWithCompassBearing.source} heading</div>
                     {/if}
                 </div>
             {/if}
@@ -309,7 +308,7 @@
         font-weight: bold;
     }
 
-    .fused-bearing {
+    .compass-bearing {
         border-color: #4fc3f7;
         background: rgba(79, 195, 247, 0.05);
         padding: 2px 0;

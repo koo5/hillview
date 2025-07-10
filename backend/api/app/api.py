@@ -2,7 +2,7 @@ import asyncio
 import datetime
 import shutil
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 import os
 import json
 import requests
@@ -33,6 +33,9 @@ log = logging.getLogger(__name__)
 
 TOKEN = open(os.path.expanduser(os.environ['MAPILLARY_CLIENT_TOKEN_FILE'])).read().strip()
 url = "https://graph.mapillary.com/images"
+
+# Configuration
+DISABLE_MAPILLARY_CACHE = os.getenv("DISABLE_MAPILLARY_CACHE", "false").lower() in ("true", "1", "yes")
 
 clients = {}
 
@@ -534,95 +537,6 @@ async def populate_cache_background(
         log.error(f"Error in background cache population: {str(e)}")
 
 @app.get("/api/mapillary")
-async def get_images(
-    top_left_lat: float = Query(..., description="Top left latitude"),
-    top_left_lon: float = Query(..., description="Top left longitude"),
-    bottom_right_lat: float = Query(..., description="Bottom right latitude"),
-    bottom_right_lon: float = Query(..., description="Bottom right longitude"),
-    client_id: str = Query(..., description="Client ID"),
-    db: AsyncSession = Depends(get_db)
-):
-    """Get Mapillary images with intelligent caching"""
-    
-    request_id = datetime.datetime.now().strftime("%Y%m%d%H%M%S.%f")
-    log.info(f"Mapillary request {request_id} from client {client_id}")
-    
-    # Initialize cache service
-    cache_service = MapillaryCacheService(db)
-    
-    # Get cached photos immediately
-    cached_photos = await cache_service.get_cached_photos_in_bbox(
-        top_left_lat, top_left_lon, bottom_right_lat, bottom_right_lon
-    )
-    
-    # Calculate uncached regions
-    uncached_regions = await cache_service.calculate_uncached_regions(
-        top_left_lat, top_left_lon, bottom_right_lat, bottom_right_lon
-    )
-    
-    # Start with cached data
-    all_photos = cached_photos.copy()
-    
-    # If we have uncached regions, fetch from Mapillary API
-    if uncached_regions:
-        log.info(f"Found {len(uncached_regions)} uncached regions for request {request_id}")
-        
-        # Rate limiting
-        now = datetime.datetime.now()
-        if client_id in clients:
-            while True:
-                now = datetime.datetime.now()
-                if now - clients[client_id] < datetime.timedelta(seconds=1):
-                    log.info(f"Client {client_id} request {request_id} rate limited")
-                    await asyncio.sleep(1)
-                else:
-                    break
-        clients[client_id] = now
-        
-        # Fetch from the first uncached region (for immediate response)
-        if uncached_regions:
-            region_bbox = uncached_regions[0]
-            mapillary_response = await fetch_mapillary_data(
-                region_bbox[0], region_bbox[1], region_bbox[2], region_bbox[3]
-            )
-            
-            live_photos = mapillary_response["data"]
-            paging = mapillary_response["paging"]
-            
-            if live_photos:
-                all_photos.extend(live_photos)
-                
-                # Create cache region and start background caching
-                region = await cache_service.create_cached_region(
-                    region_bbox[0], region_bbox[1], region_bbox[2], region_bbox[3]
-                )
-                
-                # Cache these photos immediately
-                await cache_service.cache_photos(live_photos, region)
-                
-                # Check if there's more data and start background task
-                if paging.get("next"):
-                    cursor = paging.get("cursors", {}).get("after")
-                    if cursor:
-                        await cache_service.update_region_cursor(region, cursor)
-                        # Start background task for continued caching
-                        asyncio.create_task(populate_cache_background(
-                            cache_service, region, region_bbox[0], region_bbox[1], region_bbox[2], region_bbox[3]
-                        ))
-                else:
-                    await cache_service.mark_region_complete(region)
-    
-    # Sort by compass angle (preserve existing behavior)
-    if all_photos:
-        sorted_photos = sorted(all_photos, key=lambda x: x.get('compass_angle', 0))
-    else:
-        sorted_photos = []
-    
-    log.info(f"Request {request_id} returning {len(sorted_photos)} photos ({len(cached_photos)} cached, {len(all_photos) - len(cached_photos)} live)")
-    
-    return sorted_photos
-
-@app.get("/api/mapillary/stream")
 async def stream_mapillary_images(
     top_left_lat: float = Query(..., description="Top left latitude"),
     top_left_lon: float = Query(..., description="Top left longitude"),
@@ -634,18 +548,71 @@ async def stream_mapillary_images(
     
     async def generate_stream():
         request_id = datetime.datetime.now().strftime("%Y%m%d%H%M%S.%f")
-        log.info(f"Stream request {request_id} from client {client_id}")
+        log.info(f"Stream request {request_id} from client {client_id} (cache_disabled={DISABLE_MAPILLARY_CACHE})")
         
-        # Create a new database session for the stream
-        async with SessionLocal() as db:
-            cache_service = MapillaryCacheService(db)
-            total_live_photos = []  # Initialize here to avoid scope issues
-            
-            try:
-                # Send initial response with cached data
-                cached_photos = await cache_service.get_cached_photos_in_bbox(
-                    top_left_lat, top_left_lon, bottom_right_lat, bottom_right_lon
-                )
+        total_live_photos = []  # Initialize here to avoid scope issues
+        
+        try:
+            if DISABLE_MAPILLARY_CACHE:
+                # Non-cached mode - stream directly from Mapillary API
+                log.info(f"Mapillary cache disabled, streaming directly from API for request {request_id}")
+                
+                # Send cache status indicating no cache
+                yield f"data: {json.dumps({'type': 'cache_status', 'cache_disabled': True, 'uncached_regions': 1})}\n\n"
+                
+                # Rate limiting
+                now = datetime.datetime.now()
+                if client_id in clients:
+                    while True:
+                        now = datetime.datetime.now()
+                        if now - clients[client_id] < datetime.timedelta(seconds=1):
+                            await asyncio.sleep(1)
+                        else:
+                            break
+                clients[client_id] = now
+                
+                # Stream all pages directly from Mapillary
+                cursor = None
+                while True:
+                    mapillary_response = await fetch_mapillary_data(
+                        top_left_lat, top_left_lon, bottom_right_lat, bottom_right_lon, cursor
+                    )
+                    
+                    photos_data = mapillary_response["data"]
+                    paging = mapillary_response["paging"]
+                    
+                    if not photos_data:
+                        break
+                    
+                    total_live_photos.extend(photos_data)
+                    
+                    # Stream this batch
+                    sorted_batch = sorted(photos_data, key=lambda x: x.get('compass_angle', 0))
+                    yield f"data: {json.dumps({'type': 'live_photos_batch', 'photos': sorted_batch, 'region': 'direct'})}\n\n"
+                    
+                    # Check for more pages
+                    if paging.get("next"):
+                        cursor = paging.get("cursors", {}).get("after")
+                        if cursor:
+                            # Rate limit between pages
+                            await asyncio.sleep(1)
+                        else:
+                            break
+                    else:
+                        break
+                
+                # Send completion
+                yield f"data: {json.dumps({'type': 'stream_complete', 'total_live_photos': len(total_live_photos)})}\n\n"
+                
+            else:
+                # Cached mode - use cache service
+                async with SessionLocal() as db:
+                    cache_service = MapillaryCacheService(db)
+                    
+                    # Send initial response with cached data
+                    cached_photos = await cache_service.get_cached_photos_in_bbox(
+                        top_left_lat, top_left_lon, bottom_right_lat, bottom_right_lon
+                    )
                 
                 if cached_photos:
                     sorted_cached = sorted(cached_photos, key=lambda x: x.get('compass_angle', 0))
@@ -665,13 +632,13 @@ async def stream_mapillary_images(
                     # Rate limiting
                     now = datetime.datetime.now()
                     if client_id in clients:
-                    while True:
-                        now = datetime.datetime.now()
-                        if now - clients[client_id] < datetime.timedelta(seconds=1):
-                            await asyncio.sleep(1)
-                        else:
-                            break
-                clients[client_id] = now
+                        while True:
+                            now = datetime.datetime.now()
+                            if now - clients[client_id] < datetime.timedelta(seconds=1):
+                                await asyncio.sleep(1)
+                            else:
+                                break
+                    clients[client_id] = now
                 
                 # total_live_photos already initialized above
                 

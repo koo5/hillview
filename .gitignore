@@ -4,3 +4,4 @@ backend/uploads/
 backend/__pycache__/
 backend/yolov5su.pt
 frontend/src-tauri/gen/
+__pycache__

@@ -1,5 +1,5 @@
 import {get, writable, derived} from 'svelte/store';
-import { fusedBearing } from './sensorFusion.svelte';
+import { compassHeading } from './compass.svelte';
 import { gpsCoordinates } from './location.svelte';
 
 export interface CaptureLocation {
@@ -12,9 +12,9 @@ export interface CaptureLocation {
     timestamp?: number;
 }
 
-export interface CaptureLocationWithFusedBearing extends CaptureLocation {
+export interface CaptureLocationWithCompassBearing extends CaptureLocation {
     headingSource?: 'compass';
-    headingConfidence?: number;
+    headingAccuracy?: number;
 }
 
 // Store that holds the current capture location
@@ -22,20 +22,20 @@ export interface CaptureLocationWithFusedBearing extends CaptureLocation {
 export const captureLocation = writable<CaptureLocation | null>(null);
 
 
-// Derived store that combines capture location with fused bearing
-export const captureLocationWithFusedBearing = derived(
-    [captureLocation, fusedBearing],
-    ([$captureLocation, $fusedBearing]): CaptureLocationWithFusedBearing | null => {
+// Derived store that combines capture location with compass bearing
+export const captureLocationWithCompassBearing = derived(
+    [captureLocation, compassHeading],
+    ([$captureLocation, $compassHeading]): CaptureLocationWithCompassBearing | null => {
         if (!$captureLocation) return null;
         
-        // If we have a fused bearing and the capture location is from GPS,
-        // use the fused bearing instead of GPS heading
-        if ($fusedBearing && $captureLocation.source === 'gps') {
+        // If we have a compass heading and the capture location is from GPS,
+        // use the compass heading instead of GPS heading
+        if ($compassHeading && $captureLocation.source === 'gps') {
             return {
                 ...$captureLocation,
-                heading: $fusedBearing.bearing,
-                headingSource: $fusedBearing.source,
-                headingConfidence: $fusedBearing.confidence
+                heading: $compassHeading.heading,
+                headingSource: 'compass',
+                headingAccuracy: $compassHeading.accuracy ?? undefined
             };
         }
         
