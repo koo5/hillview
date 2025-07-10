@@ -200,6 +200,176 @@ class Geo:
         os.system('fdupes -S -r --delete --noprompt ' + destination_directory)
 
     @staticmethod
+    def process(*source_directories, directory, overwrite=False):
+        """Process photos from multiple directories: index and optimize in one pass
+        
+        Args:
+            *source_directories: One or more source directories to process
+            directory: Output directory for processed files and JSON index
+            overwrite: Whether to reprocess existing files
+        """
+        
+        os.makedirs(directory, exist_ok=True)
+        
+        # Load existing processed files
+        have_files = {}
+        try:
+            files_path = os.path.join(directory, 'files.json')
+            with open(files_path, 'r') as f:
+                old = json.load(f)
+                for file in old:
+                    have_files[file['filepath']] = file
+            print(f'Loaded {len(have_files)} existing files from files.json')
+        except FileNotFoundError:
+            print('No existing files.json found, starting fresh')
+            
+        database = []
+        errors = []
+        total_scanned = 0
+        total_skipped = 0
+        
+        for source_directory in source_directories:
+            source_directory = os.path.abspath(source_directory)
+            if not os.path.exists(source_directory):
+                print(f'Warning: Source directory "{source_directory}" does not exist, skipping...')
+                continue
+                
+            print(f'\nProcessing directory: {source_directory}')
+            source_name = os.path.basename(source_directory.rstrip('/'))
+            
+            for root, dirs, files in os.walk(source_directory):
+                for filename in sorted(files):
+                    if not is_pic(filename):
+                        continue
+                        
+                    filepath = os.path.abspath(os.path.join(root, filename))
+                    total_scanned += 1
+                    
+                    # Skip if already processed
+                    if filepath in have_files and not overwrite:
+                        database.append(have_files[filepath])
+                        total_skipped += 1
+                        continue
+                    
+                    # Check file size
+                    try:
+                        size = os.path.getsize(filepath)
+                        if size < 1000:
+                            print(f"Skipping empty {filepath}")
+                            continue
+                        if size > 50000000:
+                            print(f"Skipping large {filepath}")
+                            continue
+                    except:
+                        continue
+                    
+                    # Check EXIF for GPS + bearing
+                    tags = geo_and_bearing_exif(filepath)
+                    if not tags:
+                        print(f'Skipping non-geo "{filepath}"')
+                        continue
+                        
+                    latitude, longitude, bearing, altitude = tags
+                    
+                    # Create entry
+                    entry = {
+                        'filepath': filepath,
+                        'file': filename,  # Keep for frontend
+                        'source_name': source_name,
+                        'latitude': str(latitude),
+                        'longitude': str(longitude),
+                        'bearing': str(bearing),
+                        'sizes': {}
+                    }
+                    if altitude is not None:
+                        entry['altitude'] = str(altitude)
+                    
+                    # Process image sizes
+                    try:
+                        print(f'\nProcessing: {filepath}')
+                        width, height = imgsize(filepath)
+                        
+                        # Anonymize
+                        input_file_path = filepath
+                        anon_dir = '/tmp/geo_anon'
+                        anon_file_path = os.path.join(anon_dir, filename)
+                        os.makedirs(anon_dir, exist_ok=True)
+                        
+                        input_dir = os.path.dirname(filepath)
+                        if anonymize_image(input_dir, anon_dir, filename):
+                            input_file_path = anon_file_path
+                            print('anonymized')
+                        
+                        # Create optimized versions
+                        for size in ['full', 50, 320, 640, 1024, 1600, 2048, 2560, 3072]:
+                            size_dir = os.path.join('opt', str(size), source_name)
+                            size_path = os.path.join(size_dir, filename)
+                            output_file_path = os.path.join(directory, size_path)
+                            os.makedirs(os.path.join(directory, size_dir), exist_ok=True)
+                            
+                            if size == 'full':
+                                shutil.copy2(input_file_path, output_file_path)
+                                entry['sizes'][size] = {
+                                    'width': width,
+                                    'height': height,
+                                    'path': size_path
+                                }
+                            else:
+                                if size > width:
+                                    break
+                                shutil.copy2(input_file_path, output_file_path)
+                                cmd = ['mogrify', '-resize', str(size), output_file_path]
+                                subprocess.run(cmd, capture_output=True)
+                                w, h = imgsize(output_file_path)
+                                entry['sizes'][size] = {
+                                    'width': w,
+                                    'height': h,
+                                    'path': size_path
+                                }
+                            
+                            cmd = ['jpegoptim', '--all-progressive', '--overwrite', output_file_path]
+                            subprocess.run(cmd, capture_output=True)
+                            
+                    except Exception as e:
+                        errors.append({
+                            'filepath': filepath,
+                            'file': filename,
+                            'error': str(e)
+                        })
+                        print(f'Error: {e}')
+                        continue
+                    
+                    database.append(entry)
+                    print(f'Processed ({len(database)} total)')
+                    
+                    # Save progress periodically
+                    if len(database) % 10 == 0:
+                        sorted_db = sorted(database, key=lambda x: x.get('bearing', ''))
+                        with open(os.path.join(directory, 'files_temp.json'), 'w') as f:
+                            json.dump(sorted_db, f, indent=4)
+        
+        # Final save
+        database.sort(key=lambda x: x.get('bearing', ''))
+        
+        files0_path = os.path.join(directory, 'files0.json')
+        files_path = os.path.join(directory, 'files.json')
+        
+        with open(files0_path, 'w') as f:
+            json.dump(database, f, indent=4)
+        shutil.copy2(files0_path, files_path)
+        
+        if errors:
+            with open(os.path.join(directory, 'errors.json'), 'w') as f:
+                json.dump(errors, f, indent=4)
+        
+        print(f'\nProcessing complete:')
+        print(f'- Scanned: {total_scanned} files')
+        print(f'- Skipped (already done): {total_skipped} files')
+        print(f'- Processed: {len(database) - total_skipped} new files')
+        print(f'- Total in database: {len(database)} files')
+        print(f'- Errors: {len(errors)}')
+    
+    @staticmethod
     def index(source_directory, directory):
         """iterate all files and create a json list of files with geo and bearing exif data"""
 
