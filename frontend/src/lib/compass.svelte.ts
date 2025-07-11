@@ -1,4 +1,6 @@
 import { writable, derived, get } from 'svelte/store';
+import { androidSensor } from './androidSensor';
+import { gpsCoordinates } from './location.svelte';
 
 export interface CompassData {
     magneticHeading: number | null;  // 0-360 degrees from magnetic north
@@ -50,9 +52,17 @@ export const compassHeading = derived(
 
 let compassWatchId: number | null = null;
 let orientationHandler: ((event: DeviceOrientationEvent) => void) | null = null;
+let androidSensorCallback: ((data: any) => void) | null = null;
 
 // Check if compass/orientation APIs are available
 export function checkCompassAvailability(): boolean {
+    // Check for Android sensor first
+    if (androidSensor.isAvailable()) {
+        compassAvailable.set(true);
+        return true;
+    }
+    
+    // Fall back to DeviceOrientation API
     const available = 'DeviceOrientationEvent' in window;
     compassAvailable.set(available);
     return available;
@@ -80,19 +90,80 @@ export async function requestCompassPermission(): Promise<boolean> {
 // Start watching compass/orientation
 export async function startCompassWatch(): Promise<boolean> {
     if (!checkCompassAvailability()) {
-        console.warn('Device orientation API not available');
+        console.warn('No compass API available');
         return false;
     }
 
+    // Stop any existing watch
+    stopCompassWatch();
+
+    // Try Android sensor first
+    if (androidSensor.isAvailable()) {
+        console.log('Using Android native sensor');
+        
+        // Update sensor with current location if available
+        const coords = get(gpsCoordinates);
+        if (coords) {
+            androidSensor.updateLocation(coords.latitude, coords.longitude);
+        }
+        
+        // Subscribe to GPS updates to keep sensor declination accurate
+        const unsubscribe = gpsCoordinates.subscribe(coords => {
+            if (coords) {
+                androidSensor.updateLocation(coords.latitude, coords.longitude);
+            }
+        });
+        
+        // Create callback
+        androidSensorCallback = (data) => {
+            const compassUpdate = {
+                magneticHeading: data.magneticHeading,
+                trueHeading: data.trueHeading,
+                headingAccuracy: data.headingAccuracy,
+                timestamp: data.timestamp
+            };
+            
+            compassData.set(compassUpdate);
+            
+            // Also update device orientation for compatibility
+            deviceOrientation.set({
+                alpha: data.magneticHeading,
+                beta: data.pitch,
+                gamma: data.roll,
+                absolute: true
+            });
+            
+            // Log every ~10th update
+            if (Math.random() < 0.1) {
+                console.log('Android sensor update:', {
+                    magnetic: compassUpdate.magneticHeading?.toFixed(1),
+                    true: compassUpdate.trueHeading?.toFixed(1),
+                    accuracy: compassUpdate.headingAccuracy?.toFixed(1),
+                    pitch: data.pitch?.toFixed(1),
+                    roll: data.roll?.toFixed(1)
+                });
+            }
+        };
+        
+        const started = androidSensor.start(androidSensorCallback);
+        if (started) {
+            return true;
+        }
+        
+        // Clean up if failed to start
+        unsubscribe();
+        androidSensorCallback = null;
+    }
+
+    // Fall back to DeviceOrientation API
+    console.log('Falling back to DeviceOrientation API');
+    
     // Request permission if needed
     const hasPermission = await requestCompassPermission();
     if (!hasPermission) {
         console.warn('Compass permission denied');
         return false;
     }
-
-    // Stop any existing watch
-    stopCompassWatch();
 
     // Set up orientation handler
     orientationHandler = (event: DeviceOrientationEvent) => {
@@ -142,6 +213,13 @@ export async function startCompassWatch(): Promise<boolean> {
 
 // Stop watching compass/orientation
 export function stopCompassWatch() {
+    // Stop Android sensor if active
+    if (androidSensorCallback) {
+        androidSensor.stop(androidSensorCallback);
+        androidSensorCallback = null;
+    }
+    
+    // Stop DeviceOrientation if active
     if (orientationHandler) {
         window.removeEventListener('deviceorientation', orientationHandler);
         if ('ondeviceorientationabsolute' in window) {
