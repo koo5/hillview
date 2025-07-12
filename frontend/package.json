@@ -52,7 +52,7 @@
 		"leaflet": "^1.9.4",
 		"lucide-svelte": "^0.476.0",
 		"svelte-leafletjs": "^2.0.0",
-		"tsgeo": "^1.2.2",
-		"vite-plugin-terminal": "^1.2.0"
+		"tauri-plugin-hillview-api": "file:./tauri-plugin-hillview",
+		"tsgeo": "^1.2.2"
 	}
 }

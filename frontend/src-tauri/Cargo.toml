@@ -27,6 +27,7 @@ tauri = { version = "2.6.2", features = [] }
 tauri-plugin-log = "2"
 tauri-plugin-geolocation = "2"
 tauri-plugin-fs = "2"
+tauri-plugin-hillview = { path = "../tauri-plugin-hillview" }
 img-parts = "0.3"
 chrono = "0.4"
 image = "0.24"

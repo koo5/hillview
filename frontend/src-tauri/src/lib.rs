@@ -1,7 +1,6 @@
 mod commands;
 mod photo_exif;
 mod device_photos;
-mod sensor_plugin;
 use log::info;
 
 /*
@@ -57,7 +56,7 @@ pub fn run() {
   tauri::Builder::default()
     .plugin(tauri_plugin_geolocation::init())
     .plugin(tauri_plugin_fs::init())
-    .plugin(sensor_plugin::init())
+    .plugin(tauri_plugin_hillview::init())
     .invoke_handler(tauri::generate_handler![
             commands::log,
             commands::is_debug_mode,

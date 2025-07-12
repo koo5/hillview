@@ -1,6 +1,30 @@
 import { writable, derived, get } from 'svelte/store';
-import { androidSensor } from './androidSensor';
 import { gpsCoordinates } from './location.svelte';
+import type { UnlistenFn } from '@tauri-apps/api/event';
+
+// Import sensor functions directly
+const TauriSensor = window.__TAURI__ ? {
+    startSensor: async () => {
+        const { invoke } = await import('@tauri-apps/api/core');
+        return invoke('plugin:hillview|start_sensor');
+    },
+    stopSensor: async () => {
+        const { invoke } = await import('@tauri-apps/api/core');
+        return invoke('plugin:hillview|stop_sensor');
+    },
+    updateSensorLocation: async (latitude: number, longitude: number) => {
+        const { invoke } = await import('@tauri-apps/api/core');
+        return invoke('plugin:hillview|update_sensor_location', {
+            location: { latitude, longitude }
+        });
+    },
+    onSensorData: async (callback: (data: any) => void) => {
+        const { listen } = await import('@tauri-apps/api/event');
+        return listen<any>('plugin:hillview:sensor-data', (event) => {
+            callback(event.payload);
+        });
+    }
+} : null;
 
 export interface CompassData {
     magneticHeading: number | null;  // 0-360 degrees from magnetic north
@@ -52,12 +76,14 @@ export const compassHeading = derived(
 
 let compassWatchId: number | null = null;
 let orientationHandler: ((event: DeviceOrientationEvent) => void) | null = null;
-let androidSensorCallback: ((data: any) => void) | null = null;
+let tauriSensorUnlisten: UnlistenFn | null = null;
 
 // Check if compass/orientation APIs are available
 export function checkCompassAvailability(): boolean {
-    // Check for Android sensor first
-    if (androidSensor.isAvailable()) {
+    // Check if we're on Android via Tauri
+    const isTauriAndroid = window.__TAURI__ && /Android/i.test(navigator.userAgent);
+    
+    if (isTauriAndroid) {
         compassAvailable.set(true);
         return true;
     }
@@ -97,66 +123,84 @@ export async function startCompassWatch(): Promise<boolean> {
     // Stop any existing watch
     stopCompassWatch();
 
-    // Try Android sensor first
-    if (androidSensor.isAvailable()) {
-        console.log('Using Android native sensor');
+    // Try Tauri sensor plugin first
+    const isTauriAndroid = window.__TAURI__ && TauriSensor && /Android/i.test(navigator.userAgent);
+    console.log('🔍 Checking Tauri sensor availability:', {
+        hasTauri: !!window.__TAURI__,
+        hasTauriSensor: !!TauriSensor,
+        isAndroid: /Android/i.test(navigator.userAgent),
+        isTauriAndroid
+    });
+    
+    if (isTauriAndroid) {
+        console.log('✅ Using Tauri Android sensor plugin (TYPE_ROTATION_VECTOR)');
         
-        // Update sensor with current location if available
-        const coords = get(gpsCoordinates);
-        if (coords) {
-            androidSensor.updateLocation(coords.latitude, coords.longitude);
-        }
-        
-        // Subscribe to GPS updates to keep sensor declination accurate
-        const unsubscribe = gpsCoordinates.subscribe(coords => {
+        try {
+            // Update sensor with current location if available
+            const coords = get(gpsCoordinates);
             if (coords) {
-                androidSensor.updateLocation(coords.latitude, coords.longitude);
+                await TauriSensor.updateSensorLocation(coords.latitude, coords.longitude);
             }
-        });
-        
-        // Create callback
-        androidSensorCallback = (data) => {
-            const compassUpdate = {
-                magneticHeading: data.magneticHeading,
-                trueHeading: data.trueHeading,
-                headingAccuracy: data.headingAccuracy,
-                timestamp: data.timestamp
-            };
             
-            compassData.set(compassUpdate);
-            
-            // Also update device orientation for compatibility
-            deviceOrientation.set({
-                alpha: data.magneticHeading,
-                beta: data.pitch,
-                gamma: data.roll,
-                absolute: true
+            // Subscribe to GPS updates to keep sensor declination accurate
+            const unsubscribe = gpsCoordinates.subscribe(async coords => {
+                if (coords) {
+                    try {
+                        await TauriSensor.updateSensorLocation(coords.latitude, coords.longitude);
+                    } catch (error) {
+                        console.error('Failed to update sensor location:', error);
+                    }
+                }
             });
             
-            // Log every ~10th update
-            if (Math.random() < 0.1) {
-                console.log('Android sensor update:', {
-                    magnetic: compassUpdate.magneticHeading?.toFixed(1),
-                    true: compassUpdate.trueHeading?.toFixed(1),
-                    accuracy: compassUpdate.headingAccuracy?.toFixed(1),
-                    pitch: data.pitch?.toFixed(1),
-                    roll: data.roll?.toFixed(1)
+            // Set up sensor data listener
+            tauriSensorUnlisten = await TauriSensor.onSensorData((data) => {
+                const compassUpdate = {
+                    magneticHeading: data.magneticHeading,
+                    trueHeading: data.trueHeading,
+                    headingAccuracy: data.headingAccuracy,
+                    timestamp: data.timestamp
+                };
+                
+                compassData.set(compassUpdate);
+                
+                // Also update device orientation for compatibility
+                deviceOrientation.set({
+                    alpha: data.magneticHeading,
+                    beta: data.pitch,
+                    gamma: data.roll,
+                    absolute: true
                 });
-            }
-        };
-        
-        const started = androidSensor.start(androidSensorCallback);
-        if (started) {
+                
+                // Log every ~10th update
+                if (Math.random() < 0.1) {
+                    console.log('🧭 Tauri TYPE_ROTATION_VECTOR update:', {
+                        magnetic: compassUpdate.magneticHeading?.toFixed(1) + '°',
+                        true: compassUpdate.trueHeading?.toFixed(1) + '°',
+                        accuracy: '±' + compassUpdate.headingAccuracy?.toFixed(1) + '°',
+                        pitch: data.pitch?.toFixed(1) + '°',
+                        roll: data.roll?.toFixed(1) + '°',
+                        timestamp: new Date(data.timestamp).toLocaleTimeString()
+                    });
+                }
+            });
+            
+            // Start the sensor
+            await TauriSensor.startSensor();
+            
             return true;
+        } catch (error) {
+            console.error('Failed to start Tauri sensor:', error);
+            // Clean up
+            if (tauriSensorUnlisten) {
+                tauriSensorUnlisten();
+                tauriSensorUnlisten = null;
+            }
         }
-        
-        // Clean up if failed to start
-        unsubscribe();
-        androidSensorCallback = null;
     }
 
     // Fall back to DeviceOrientation API
-    console.log('Falling back to DeviceOrientation API');
+    console.log('⚠️ Falling back to DeviceOrientation API (magnetometer)');
     
     // Request permission if needed
     const hasPermission = await requestCompassPermission();
@@ -213,10 +257,17 @@ export async function startCompassWatch(): Promise<boolean> {
 
 // Stop watching compass/orientation
 export function stopCompassWatch() {
-    // Stop Android sensor if active
-    if (androidSensorCallback) {
-        androidSensor.stop(androidSensorCallback);
-        androidSensorCallback = null;
+    // Stop Tauri sensor if active
+    if (tauriSensorUnlisten) {
+        tauriSensorUnlisten();
+        tauriSensorUnlisten = null;
+        
+        // Try to stop the sensor service
+        if (TauriSensor) {
+            TauriSensor.stopSensor().catch(error => {
+                console.error('Failed to stop Tauri sensor:', error);
+            });
+        }
     }
     
     // Stop DeviceOrientation if active
@@ -288,5 +339,9 @@ declare global {
         webkitCompassHeading?: number;
         webkitCompassAccuracy?: number;
         compassHeading?: number;
+    }
+    
+    interface Window {
+        __TAURI__?: any;
     }
 }
