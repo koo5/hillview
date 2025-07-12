@@ -71,8 +71,11 @@ class PhotoSpatialIndex {
     const seen = new Set<string>();
     
     if (this.photoLocations.size === 0) {
+      console.log('PhotoSpatialIndex: No photos in index');
       return results;
     }
+    
+    console.log(`PhotoSpatialIndex: Searching bounds`, bounds, `in ${this.photoLocations.size} photos`);
     
     const minLat = Math.floor(bounds.bottom_right.lat / this.gridSize) * this.gridSize;
     const maxLat = Math.ceil(bounds.top_left.lat / this.gridSize) * this.gridSize;
@@ -182,14 +185,18 @@ function loadPhotos(photos: PhotoData[]): void {
 
 function updateBounds(bounds: Bounds): void {
   try {
+    console.log('Worker: updateBounds called with:', bounds);
     // Only recalculate if bounds actually changed
     if (!currentBounds || 
-        currentBounds.north !== bounds.north ||
-        currentBounds.south !== bounds.south ||
-        currentBounds.east !== bounds.east ||
-        currentBounds.west !== bounds.west) {
+        currentBounds.top_left.lat !== bounds.top_left.lat ||
+        currentBounds.top_left.lng !== bounds.top_left.lng ||
+        currentBounds.bottom_right.lat !== bounds.bottom_right.lat ||
+        currentBounds.bottom_right.lng !== bounds.bottom_right.lng) {
       currentBounds = bounds;
+      console.log('Worker: Bounds updated, triggering recalculation');
       recalculateVisiblePhotos();
+    } else {
+      console.log('Worker: Bounds unchanged, skipping recalculation');
     }
   } catch (error) {
     console.error('Worker: Error updating bounds:', error);
@@ -229,9 +236,11 @@ function updateSources(sources: SourceConfig[]): void {
 
 function recalculateVisiblePhotos(): void {
   if (!currentBounds) {
+    console.log('Worker: No bounds set, skipping recalculation. Photos loaded:', photoStore.size);
     return;
   }
   
+  console.log('Worker: Recalculating visible photos with bounds:', currentBounds, 'Photos:', photoStore.size);
   const startTime = performance.now();
   
   const hillviewEnabled = sourcesConfig.find(s => s.id === 'hillview')?.enabled ?? false;

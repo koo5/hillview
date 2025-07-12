@@ -46,6 +46,7 @@
 	},
 	"type": "module",
 	"dependencies": {
+		"@sentry/sveltekit": "^9",
 		"@tauri-apps/plugin-geolocation": "^2.3.0",
 		"angles": "^0.3.0",
 		"dexie": "^4.0.11",

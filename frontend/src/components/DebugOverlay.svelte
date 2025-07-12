@@ -6,6 +6,10 @@
     import {captureLocation, captureLocationWithCompassBearing} from '$lib/captureLocation';
     import {compassData, deviceOrientation, compassAvailable, compassPermission, compassHeading} from '$lib/compass.svelte';
     import {invoke} from '@tauri-apps/api/core';
+    
+    // Detect sensor type
+    let sensorType: 'tauri-rotation-vector' | 'device-orientation' | 'none' = 'none';
+    let isTauriAndroid = false;
 
     let showDebug = false;
     let buildInfo = getBuildInfo();
@@ -16,6 +20,20 @@
     let debugPosition: 'left' | 'right' = 'left'; // Default to left to avoid photo thumbnails
 
     onMount(() => {
+        // Detect sensor type
+        isTauriAndroid = !!window.__TAURI__ && /Android/i.test(navigator.userAgent);
+        
+        // Subscribe to compass data to detect which sensor is active
+        const unsubscribe = compassData.subscribe(data => {
+            if (data && isTauriAndroid) {
+                sensorType = 'tauri-rotation-vector';
+            } else if (data && !isTauriAndroid) {
+                sensorType = 'device-orientation';
+            } else if (!$compassAvailable) {
+                sensorType = 'none';
+            }
+        });
+        
         // Update time every second
         const interval = setInterval(() => {
             currentTime = new Date().toLocaleTimeString(undefined, {hour12: false});
@@ -55,6 +73,7 @@
 
         return () => {
             clearInterval(interval);
+            unsubscribe();
         };
     });
 
@@ -142,16 +161,27 @@
                 </div>
             {/if}
 
-            <div class="debug-section">
-                <div><strong>Compass/Magnetometer:</strong> {$compassAvailable ? '✓ Available' : '✗ Not Available'}</div>
+            <div class="debug-section sensor-section">
+                <div><strong>🧭 Sensor API:</strong> 
+                    {#if sensorType === 'tauri-rotation-vector'}
+                        <span class="sensor-type tauri">Android TYPE_ROTATION_VECTOR</span>
+                    {:else if sensorType === 'device-orientation'}
+                        <span class="sensor-type web">Web DeviceOrientation API</span>
+                    {:else}
+                        <span class="sensor-type none">Not Available</span>
+                    {/if}
+                </div>
                 {#if $compassAvailable}
-                    <div>Permission: {$compassPermission || 'Unknown'}</div>
+                    <div>Permission: {$compassPermission || 'Unknown'} | Platform: {isTauriAndroid ? 'Tauri Android' : 'Web'}</div>
                 {/if}
                 {#if $compassData}
-                    <div>Magnetic Heading: {$compassData.magneticHeading?.toFixed(0) || 'N/A'}°</div>
-                    <div>True Heading: {$compassData.trueHeading?.toFixed(0) || 'N/A'}° | Accuracy: ±{$compassData.headingAccuracy?.toFixed(0) || 'N/A'}°</div>
+                    <div>Magnetic: {$compassData.magneticHeading?.toFixed(1) || 'N/A'}° | True: {$compassData.trueHeading?.toFixed(1) || 'N/A'}°</div>
+                    <div>Accuracy: ±{$compassData.headingAccuracy?.toFixed(0) || 'N/A'}° | Updated: {new Date($compassData.timestamp).toLocaleTimeString()}</div>
+                    {#if sensorType === 'tauri-rotation-vector' && $deviceOrientation}
+                        <div style="font-size: 10px; opacity: 0.8">Pitch: {$deviceOrientation.beta?.toFixed(1)}° | Roll: {$deviceOrientation.gamma?.toFixed(1)}°</div>
+                    {/if}
                 {:else if $compassAvailable}
-                    <div>No compass data received</div>
+                    <div style="opacity: 0.6">Waiting for sensor data...</div>
                 {/if}
             </div>
 
@@ -300,6 +330,38 @@
         font-size: 9px;
         margin-left: 2px;
         text-transform: uppercase;
+    }
+    
+    .sensor-type {
+        display: inline-block;
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-size: 10px;
+        margin-left: 4px;
+        font-weight: bold;
+    }
+    
+    .sensor-type.tauri {
+        background: rgba(76, 175, 80, 0.3);
+        color: #81c784;
+        border: 1px solid #4caf50;
+    }
+    
+    .sensor-type.web {
+        background: rgba(255, 152, 0, 0.3);
+        color: #ffb74d;
+        border: 1px solid #ff9800;
+    }
+    
+    .sensor-type.none {
+        background: rgba(244, 67, 54, 0.3);
+        color: #ef5350;
+        border: 1px solid #f44336;
+    }
+    
+    .sensor-section {
+        border-color: rgba(79, 195, 247, 0.5);
+        background: rgba(3, 169, 244, 0.05);
     }
 
 

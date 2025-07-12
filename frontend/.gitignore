@@ -33,3 +33,5 @@ keystore.properties
 logs
 Hillview
 __pycache__
+# Sentry Config File
+.env.sentry-build-plugin

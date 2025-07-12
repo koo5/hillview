@@ -630,6 +630,11 @@ export function reversed<T>(list: T[]): T[]
 function initializePhotoProcessing() {
     // Register result handlers
     photoProcessingAdapter.onResult('filter_area', (result: AreaFilterResult) => {
+        console.log('📍 Filter area result:', {
+            hillview: result.hillviewPhotosInArea.length,
+            mapillary: result.mapillaryPhotosInArea.length,
+            total: result.photosInArea.length
+        });
         hillview_photos_in_area.set(result.hillviewPhotosInArea);
         mapillary_photos_in_area.set(result.mapillaryPhotosInArea);
         photos_in_area.set(result.photosInArea);
@@ -673,7 +678,11 @@ function initializePhotoProcessing() {
             const p2 = get(pos2);
             const srcs = get(sources);
             
-            console.log('Initial photos loaded, triggering filter');
+            console.log('Initial photos loaded, triggering filter', {
+                bounds: { top_left: p2.top_left, bottom_right: p2.bottom_right },
+                range: p2.range,
+                sources: srcs.map(s => ({ id: s.id, enabled: s.enabled }))
+            });
             photoProcessingAdapter.queueAreaFilter(
                 { top_left: p2.top_left, bottom_right: p2.bottom_right },
                 p2.range,

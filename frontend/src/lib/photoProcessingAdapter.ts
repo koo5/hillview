@@ -109,6 +109,7 @@ class PhotoProcessingAdapter implements PhotoProcessingServiceInterface {
   
   // Legacy PhotoProcessingService methods
   queueAreaFilter(bounds: any, range: number, sourcesConfig: any[]): void {
+    console.log('PhotoProcessingAdapter: queueAreaFilter called', { bounds, range, sourcesConfig: sourcesConfig.map(s => ({ id: s.id, enabled: s.enabled })) });
     if (this.isWebWorkerMode) {
       // Update current center for bearing calculations
       this.currentCenter = {
@@ -117,6 +118,7 @@ class PhotoProcessingAdapter implements PhotoProcessingServiceInterface {
       };
       
       this.ensureInitialized().then(() => {
+        console.log('PhotoProcessingAdapter: Calling worker updateMapBounds');
         this.currentService.updateMapBounds?.(bounds);
         this.currentService.updateRange?.(range);
         this.currentService.updateSources?.(sourcesConfig);
