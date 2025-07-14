@@ -18,6 +18,7 @@
     import { photoCaptureService } from '$lib/photoCapture';
     import { devicePhotos } from '$lib/stores';
     import { captureLocation, captureLocationWithCompassBearing } from '$lib/captureLocation';
+    import { compassActive, stopCompass } from '$lib/compass.svelte';
     import '$lib/captureLocationManager'; // Activate capture location management
     import '$lib/mapBearingSync'; // Sync map bearing with sensors
     import '$lib/debugTauri'; // Debug Tauri availability
@@ -124,15 +125,35 @@
         if (!e.ctrlKey && !e.altKey && !e.metaKey) {
             if (e.key === 'z') {
                 e.preventDefault();
+                // Disable compass tracking when manually rotating
+                if (get(compassActive)) {
+                    console.log('🧭 Disabling compass tracking due to manual rotation (z key)');
+                    await stopCompass();
+                }
                 update_bearing(-5);
             } else if (e.key === 'x') {
                 e.preventDefault();
+                // Disable compass tracking when manually rotating
+                if (get(compassActive)) {
+                    console.log('🧭 Disabling compass tracking due to manual rotation (x key)');
+                    await stopCompass();
+                }
                 update_bearing(5);
             } else if (e.key === 'c') {
                 e.preventDefault();
+                // Disable compass tracking when manually turning
+                if (get(compassActive)) {
+                    console.log('🧭 Disabling compass tracking due to manual turn (c key)');
+                    await stopCompass();
+                }
                 await turn_to_photo_to('left');
             } else if (e.key === 'v') {
                 e.preventDefault();
+                // Disable compass tracking when manually turning
+                if (get(compassActive)) {
+                    console.log('🧭 Disabling compass tracking due to manual turn (v key)');
+                    await stopCompass();
+                }
                 await turn_to_photo_to('right');
             } else if (e.key === 'd') {
                 e.preventDefault();

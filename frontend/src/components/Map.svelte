@@ -322,6 +322,15 @@
             stopSlideshow();
         }
 
+        // Disable compass tracking when any turn button is clicked
+        if (action === 'left' || action === 'right' || action === 'rotate-ccw' || action === 'rotate-cw') {
+            if (compassTrackingEnabled) {
+                console.log('🧭 Disabling compass tracking due to manual turn');
+                await stopCompass();
+                compassTrackingEnabled = false;
+            }
+        }
+
         if (action === 'left') {
             await turn_to_photo_to('left');
         } else if (action === 'right') {

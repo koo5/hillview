@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-update-sensor-location"
+description = "Enables the update_sensor_location command without any pre-configured scope."
+commands.allow = ["update_sensor_location"]
+
+[[permission]]
+identifier = "deny-update-sensor-location"
+description = "Denies the update_sensor_location command without any pre-configured scope."
+commands.deny = ["update_sensor_location"]

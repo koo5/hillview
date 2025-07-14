@@ -10,7 +10,12 @@ export default defineConfig({
         }
     }), sveltekit()],
 	server: {
-		host: true
+		host: true,
+		hmr: {
+			protocol: 'ws',
+			host: process.env.TAURI_DEV_HOST || 'localhost',
+			port: 8212
+		}
 	},
 	define: {
 		__BUILD_TIME__: JSON.stringify(new Date().toISOString()),

@@ -19,6 +19,7 @@
     "fs:allow-read-dir",
     "fs:allow-appdata-write-recursive",
     "fs:allow-appdata-read-recursive",
-    "os:default"
+    "os:default",
+    "hillview:default"
   ]
 }

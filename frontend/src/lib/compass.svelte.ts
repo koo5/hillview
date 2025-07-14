@@ -48,7 +48,7 @@ export const currentHeading = derived(
         if ($compassData && $compassData.magneticHeading !== null) {
             return {
                 heading: $compassData.magneticHeading,
-                source: $compassData.source + '-compass-magnetic' as const,
+                source: ($compassData.source + '-compass-magnetic') as 'tauri-compass-magnetic' | 'web-compass-magnetic' | string,
                 accuracy: $compassData.headingAccuracy
             };
         }
@@ -129,8 +129,9 @@ async function startTauriSensor(): Promise<boolean> {
         });
         
         // Set up sensor data listener
+        console.log('🔍 About to set up sensor data listener...');
         tauriSensorUnlisten = await sensor.onSensorData((data: SensorData) => {
-            console.debug('🔍📡 Tauri sensor data received:', data);
+            console.log('🔍📡 Tauri sensor data received:', data);
 
             const compassUpdate = {
                 magneticHeading: data.magneticHeading,
@@ -169,11 +170,11 @@ async function startTauriSensor(): Promise<boolean> {
         return true;
     } catch (error) {
         console.error('🔍❌ Failed to start Tauri sensor:', error);
-        console.error('🔍 Error details:', {
+        console.error('🔍 Error details:', JSON.stringify( {
             message: error instanceof Error ? error.message : String(error),
             stack: error instanceof Error ? error.stack : undefined,
             type: error instanceof Error ? error.constructor.name : typeof error
-        });
+        }));
         // Clean up
         if (tauriSensorUnlisten) {
             tauriSensorUnlisten();
@@ -214,7 +215,8 @@ async function startWebCompass(): Promise<boolean> {
                 magneticHeading: magneticHeading !== null ? normalizeHeading(magneticHeading) : null,
                 trueHeading: trueHeading !== null ? normalizeHeading(trueHeading) : null,
                 headingAccuracy: accuracy,
-                timestamp: Date.now()
+                timestamp: Date.now(),
+                source: 'web'
             };
             
             compassData.set(data);
@@ -276,7 +278,8 @@ export function stopCompass() {
         magneticHeading: null,
         trueHeading: null,
         headingAccuracy: null,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        source: 'unknown'
     });
     
     deviceOrientation.set({

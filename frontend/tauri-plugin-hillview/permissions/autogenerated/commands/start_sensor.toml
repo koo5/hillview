@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-start-sensor"
+description = "Enables the start_sensor command without any pre-configured scope."
+commands.allow = ["start_sensor"]
+
+[[permission]]
+identifier = "deny-start-sensor"
+description = "Denies the start_sensor command without any pre-configured scope."
+commands.deny = ["start_sensor"]
