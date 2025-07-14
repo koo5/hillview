@@ -14,11 +14,11 @@ pub(crate) async fn ping<R: Runtime>(
 
 #[command]
 pub(crate) async fn start_sensor<R: Runtime>(
-    app: AppHandle<R>,
+    _app: AppHandle<R>,
 ) -> Result<()> {
     #[cfg(mobile)]
     {
-        app.hillview().start_sensor()?;
+        _app.hillview().start_sensor()?;
         return Ok(());
     }
     
@@ -30,11 +30,11 @@ pub(crate) async fn start_sensor<R: Runtime>(
 
 #[command]
 pub(crate) async fn stop_sensor<R: Runtime>(
-    app: AppHandle<R>,
+    _app: AppHandle<R>,
 ) -> Result<()> {
     #[cfg(mobile)]
     {
-        app.hillview().stop_sensor()?;
+        _app.hillview().stop_sensor()?;
     }
     
     Ok(())
@@ -42,12 +42,12 @@ pub(crate) async fn stop_sensor<R: Runtime>(
 
 #[command]
 pub(crate) async fn update_sensor_location<R: Runtime>(
-    app: AppHandle<R>,
-    location: LocationUpdate,
+    _app: AppHandle<R>,
+    _location: LocationUpdate,
 ) -> Result<()> {
     #[cfg(mobile)]
     {
-        app.hillview().update_sensor_location(location)?;
+        _app.hillview().update_sensor_location(_location)?;
     }
     
     Ok(())

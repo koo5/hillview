@@ -1,6 +1,6 @@
 import { get } from 'svelte/store';
 import { gpsCoordinates } from './location.svelte';
-import { compassHeading } from './compass.svelte';
+import { currentHeading } from './compass.svelte';
 import { captureLocation } from './captureLocation';
 
 // This module manages the capture location by subscribing to both GPS and compass changes
@@ -23,29 +23,29 @@ gpsCoordinates.subscribe(coords => {
         };
         
         // Use compass heading for bearing, never GPS bearing
-        const compass = get(compassHeading);
+        const compass = get(currentHeading);
         
         captureLocation.set({
             latitude: coords.latitude,
             longitude: coords.longitude,
             altitude: coords.altitude,
             accuracy: coords.accuracy,
-            heading: compass ? compass.heading : undefined, // Only use compass bearing
+            heading: compass && compass.heading !== null ? compass.heading : undefined, // Only use compass bearing
             source: 'gps',
             timestamp: Date.now()
         });
         
         console.log('Capture location updated from GPS:', 
             `pos=${coords.latitude.toFixed(4)}, ${coords.longitude.toFixed(4)}`,
-            `heading=${compass ? compass.heading.toFixed(1) + '°' : 'none'}`,
+            `heading=${compass && compass.heading !== null ? compass.heading.toFixed(1) + '°' : 'none'}`,
             'source=compass'
         );
     }
 });
 
 // Subscribe to compass heading changes
-compassHeading.subscribe(compass => {
-    if (!compass) {
+currentHeading.subscribe(compass => {
+    if (!compass || compass.heading === null) {
         console.log('No compass heading data');
         return;
     }
@@ -75,7 +75,7 @@ compassHeading.subscribe(compass => {
 // Export a function to force refresh from current sensors
 export function refreshCaptureLocation() {
     const coords = get(gpsCoordinates);
-    const compass = get(compassHeading);
+    const compass = get(currentHeading);
     const currentCapture = get(captureLocation);
     
     if (coords && (!currentCapture || currentCapture.source === 'gps')) {
@@ -84,7 +84,7 @@ export function refreshCaptureLocation() {
             longitude: coords.longitude,
             altitude: coords.altitude,
             accuracy: coords.accuracy,
-            heading: compass ? compass.heading : undefined, // Only use compass bearing
+            heading: compass && compass.heading !== null ? compass.heading : undefined, // Only use compass bearing
             source: 'gps',
             timestamp: Date.now()
         });

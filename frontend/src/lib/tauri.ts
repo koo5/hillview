@@ -8,14 +8,7 @@ import { platform } from '@tauri-apps/plugin-os';
 // Check if window is defined (tests/SSR may not have window)
 const hasWindow = typeof window !== 'undefined';
 
-// Extend the global Window interface to include Tauri properties
-declare global {
-    interface Window {
-        __TAURI__?: any;
-        __TAURI_INTERNALS__?: any;
-        __TAURI_OS_PLUGIN_INTERNALS__?: any;
-    }
-}
+// Avoid conflicts with other type declarations by not extending Window
 
 // Core constants for platform detection
 export const TAURI = hasWindow && Object.prototype.hasOwnProperty.call(window, '__TAURI__');

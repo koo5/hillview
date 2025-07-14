@@ -1,5 +1,5 @@
 import {get, writable, derived} from 'svelte/store';
-import { compassHeading } from './compass.svelte';
+import { currentHeading } from './compass.svelte';
 import { gpsCoordinates } from './location.svelte';
 
 export interface CaptureLocation {
@@ -24,18 +24,18 @@ export const captureLocation = writable<CaptureLocation | null>(null);
 
 // Derived store that combines capture location with compass bearing
 export const captureLocationWithCompassBearing = derived(
-    [captureLocation, compassHeading],
-    ([$captureLocation, $compassHeading]): CaptureLocationWithCompassBearing | null => {
+    [captureLocation, currentHeading],
+    ([$captureLocation, $currentHeading]): CaptureLocationWithCompassBearing | null => {
         if (!$captureLocation) return null;
         
         // If we have a compass heading and the capture location is from GPS,
         // use the compass heading instead of GPS heading
-        if ($compassHeading && $captureLocation.source === 'gps') {
+        if ($currentHeading && $currentHeading.heading !== null && $captureLocation.source === 'gps') {
             return {
                 ...$captureLocation,
-                heading: $compassHeading.heading,
+                heading: $currentHeading.heading,
                 headingSource: 'compass',
-                headingAccuracy: $compassHeading.accuracy ?? undefined
+                headingAccuracy: $currentHeading.accuracy ?? undefined
             };
         }
         

@@ -25,5 +25,4 @@ fn main() {
     println!("cargo:rustc-env=GIT_HASH=\"{}\"", git_hash.trim());
     println!("cargo:rustc-env=GIT_BRANCH=\"{}\"", git_branch.trim());
     println!("cargo:rustc-env=BUILD_TIME=\"{}\"", build_time);
-
 }

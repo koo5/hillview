@@ -18,18 +18,6 @@ export function debugTauriStatus() {
             console.log(`  - ${key}:`, typeof (window as any).__TAURI__[key]);
         }
     }
-    
-    // Check if we can import Tauri modules
-    if (isTauriAvailable()) {
-        import('@tauri-apps/api/core').then(module => {
-            console.log('✅ @tauri-apps/api/core imported successfully');
-            console.log('Available functions:', Object.keys(module));
-        }).catch(err => {
-            console.error('❌ Failed to import @tauri-apps/api/core:', err);
-        });
-    } else {
-        console.log('ℹ️ Tauri not available - running in browser mode');
-    }
 }
 
 // Run debug on page load

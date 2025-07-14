@@ -356,10 +356,6 @@ declare global {
         webkitCompassAccuracy?: number;
         compassHeading?: number;
     }
-    
-    interface Window {
-        __TAURI__?: any;
-    }
 }
 
 // Export a function to get compass availability

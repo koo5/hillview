@@ -4,8 +4,9 @@
     import {bearing, pos} from '$lib/data.svelte';
     import {gpsCoordinates, locationError, locationTracking} from '$lib/location.svelte';
     import {captureLocation, captureLocationWithCompassBearing} from '$lib/captureLocation';
-    import {compassData, deviceOrientation, compassAvailable, compassPermission, compassHeading} from '$lib/compass.svelte';
+    import {compassData, deviceOrientation, compassAvailable, currentHeading} from '$lib/compass.svelte';
     import {invoke} from '@tauri-apps/api/core';
+    import {TAURI} from '$lib/tauri';
     
     // Detect sensor type
     let sensorType: 'tauri-rotation-vector' | 'device-orientation' | 'none' = 'none';
@@ -21,7 +22,7 @@
 
     onMount(() => {
         // Detect sensor type
-        isTauriAndroid = !!window.__TAURI__ && /Android/i.test(navigator.userAgent);
+        isTauriAndroid = TAURI && /Android/i.test(navigator.userAgent);
         
         // Subscribe to compass data to detect which sensor is active
         const unsubscribe = compassData.subscribe(data => {
@@ -172,7 +173,7 @@
                     {/if}
                 </div>
                 {#if $compassAvailable}
-                    <div>Permission: {$compassPermission || 'Unknown'} | Platform: {isTauriAndroid ? 'Tauri Android' : 'Web'}</div>
+                    <div>Platform: {isTauriAndroid ? 'Tauri Android' : 'Web'}</div>
                 {/if}
                 {#if $compassData}
                     <div>Magnetic: {$compassData.magneticHeading?.toFixed(1) || 'N/A'}° | True: {$compassData.trueHeading?.toFixed(1) || 'N/A'}°</div>
@@ -193,12 +194,12 @@
                 </div>
             {/if}
 
-            {#if $compassHeading}
+            {#if $currentHeading.heading !== null}
                 <div class="debug-section compass-bearing">
                     <div><strong>🎯 Compass Bearing:</strong></div>
-                    <div>Heading: <span class="highlight">{$compassHeading.heading.toFixed(1)}°</span></div>
-                    <div>Source: {$compassHeading.source}</div>
-                    <div>Accuracy: {$compassHeading.accuracy?.toFixed(0) || 'N/A'}°</div>
+                    <div>Heading: <span class="highlight">{$currentHeading.heading.toFixed(1)}°</span></div>
+                    <div>Source: {$currentHeading.source}</div>
+                    <div>Accuracy: {$currentHeading.accuracy?.toFixed(0) || 'N/A'}°</div>
                 </div>
             {/if}
 

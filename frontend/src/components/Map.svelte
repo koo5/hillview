@@ -23,7 +23,7 @@
     } from "$lib/data.svelte";
     import {sources} from "$lib/sources";
     import { updateGpsLocation, setLocationTracking, setLocationError, gpsLocation } from "$lib/location.svelte";
-    import { compassActive, isCompassAvailable } from "$lib/compass.svelte";
+    import { compassActive, compassAvailable } from "$lib/compass.svelte";
 
     import {get} from "svelte/store";
 
@@ -111,12 +111,15 @@
         let dashes = '';
         let fill = '';
         let stroke_width = 1;
-        if ($photo_in_front === photo) {
+
+        //console.log('createDirectionalArrow:', photo.id, $photo_in_front?.id, '$photo_in_front === photo', $photo_in_front?.id === photo.id);
+
+        if ($photo_in_front?.id === photo.id) {
             //dashes = 'stroke-dasharray="20 4"'
             dashes = 'stroke-dasharray="1 10"'
             frc = photo.bearing_color || color;
             fill = `fill="${color}"`;
-            stroke_width = 6
+            stroke_width = 2
             //arrow_color = 'blue';
         }
         const half = Math.round(size / 2);
@@ -132,7 +135,7 @@
 
         let svg = `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" fill="none" xmlns="http://www.w3.org/2000/svg">`;
 
-        // Outer arrow with bearing color fill
+        // inner arrow with bearing color fill
         svg += `<polygon transform="rotate(${bearing} ${half} ${half})"
                points="
                  ${half},${arrowTipY_outer}
@@ -143,14 +146,14 @@
                stroke="${photo === $photo_in_front ? frc : 'none'}" 
                stroke-width="${photo === $photo_in_front ? stroke_width : 0}" />`
 
-        // Inner arrow with source color stroke only
+        // outer arrow with source color stroke only
         svg += `<polygon transform="rotate(${bearing} ${half} ${half})"
                points="
                  ${half},${arrowTipY_inner}
                  ${half + arrowWidth_inner},${arrowBaseY_inner}
                  ${half - arrowWidth_inner},${arrowBaseY_inner}"
                  fill="none"
-               stroke="${color}" stroke-width="2" />`
+               stroke="${color}" stroke-width="${stroke_width}" />`
 
         svg += '</svg>';
 
@@ -715,8 +718,7 @@
         await onMapStateChange(true, 'mount');
         await console.log('Map component mounted - after onMapStateChange');
         
-        // Check compass availability on mount
-        isCompassAvailable();
+        // Compass availability is automatically tracked by the store
     });
 
     export function setView(center: any, zoom: number) {
@@ -1050,7 +1052,7 @@
         class={compassTrackingEnabled ? 'active' : ''}
         on:click={(e) => handleButtonClick('compass', e)}
         title="Track compass bearing"
-        disabled={!isCompassAvailable()}
+        disabled={!$compassAvailable}
     >
         <Compass />
     </button>

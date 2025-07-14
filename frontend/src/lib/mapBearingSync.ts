@@ -1,6 +1,6 @@
 import { get } from 'svelte/store';
 import { locationTracking } from './location.svelte';
-import { compassHeading } from './compass.svelte';
+import { currentHeading } from './compass.svelte';
 import { bearing as mapBearing } from './data.svelte';
 
 // This module syncs the map arrow bearing with sensor data when GPS tracking is active
@@ -29,8 +29,8 @@ function lerpAngle(current: number, target: number, factor: number): number {
 }
 
 // Subscribe to compass heading changes
-compassHeading.subscribe(compass => {
-    if (!compass || !isTracking) return;
+currentHeading.subscribe(compass => {
+    if (!compass || compass.heading === null || !isTracking) return;
     
     // Negate the compass bearing for map view
     // When device rotates clockwise, map should rotate counter-clockwise
@@ -63,8 +63,8 @@ compassHeading.subscribe(compass => {
 
 // Export function to manually sync bearings
 export function syncMapBearing() {
-    const compass = get(compassHeading);
-    if (compass && isTracking) {
+    const compass = get(currentHeading);
+    if (compass && compass.heading !== null && isTracking) {
         const targetBearing = (360 - compass.heading) % 360;
         lastBearing = targetBearing;
         mapBearing.set(targetBearing);
