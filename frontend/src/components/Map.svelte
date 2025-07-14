@@ -2,7 +2,7 @@
     import {onMount, onDestroy, tick} from 'svelte';
     import {Polygon, LeafletMap, TileLayer, Marker, Circle, ScaleControl} from 'svelte-leafletjs';
     import {LatLng} from 'leaflet';
-    import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle, MapPin, Pause, ArrowUp, ArrowDown, Layers, Eye} from 'lucide-svelte';
+    import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle, MapPin, Pause, ArrowUp, ArrowDown, Layers, Eye, Compass} from 'lucide-svelte';
     import L from 'leaflet';
     import 'leaflet/dist/leaflet.css';
     import Spinner from './Spinner.svelte';
@@ -23,6 +23,7 @@
     } from "$lib/data.svelte";
     import {sources} from "$lib/sources";
     import { updateGpsLocation, setLocationTracking, setLocationError, gpsLocation } from "$lib/location.svelte";
+    import { compassActive, isCompassAvailable } from "$lib/compass.svelte";
 
     import {get} from "svelte/store";
 
@@ -48,6 +49,12 @@
     let watchId: number | null = null;
     let userLocationMarker: any = null;
     let accuracyCircle: any = null;
+    
+    // Compass tracking variables
+    let compassTrackingEnabled = false;
+    
+    // Subscribe to compass tracking state
+    $: compassTrackingEnabled = $compassActive;
     
     // Debug bounds rectangle
     let boundsRectangle: any = null;
@@ -318,6 +325,8 @@
             moveBackward();
         } else if (action === 'location') {
             toggleLocationTracking();
+        } else if (action === 'compass') {
+            toggleCompassTracking();
         }
 
         return false;
@@ -466,6 +475,11 @@
         }
         locationTracking = !locationTracking;
         setLocationTracking(locationTracking);
+    }
+    
+    function toggleCompassTracking() {
+        compassTrackingEnabled = !compassTrackingEnabled;
+        compassActive.set(compassTrackingEnabled);
     }
     
     // Start tracking user location
@@ -700,6 +714,9 @@
         await console.log('Map component mounted');
         await onMapStateChange(true, 'mount');
         await console.log('Map component mounted - after onMapStateChange');
+        
+        // Check compass availability on mount
+        isCompassAvailable();
     });
 
     export function setView(center: any, zoom: number) {
@@ -1016,7 +1033,7 @@
     </div>
 </div>
 
-<!-- Location tracking button -->
+<!-- Location tracking buttons -->
 <div class="location-button-container">
     <button 
         class={locationTracking ? 'active' : ''}
@@ -1028,6 +1045,14 @@
         {#if locationTrackingLoading}
             <Spinner show={true} color="#4285F4"></Spinner>
         {/if}
+    </button>
+    <button 
+        class={compassTrackingEnabled ? 'active' : ''}
+        on:click={(e) => handleButtonClick('compass', e)}
+        title="Track compass bearing"
+        disabled={!isCompassAvailable()}
+    >
+        <Compass />
     </button>
 </div>
 
@@ -1145,6 +1170,8 @@
         top: 0px;
         right: 10px;
         z-index: 30000;
+        display: flex;
+        gap: 8px;
     }
     
     .location-button-container button {
@@ -1172,6 +1199,15 @@
 
     .location-button-container button.flash {
         border-radius: 100%;
+    }
+    
+    .location-button-container button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+    
+    .location-button-container button:disabled:hover {
+        background-color: white;
     }
 
 

@@ -1,8 +1,9 @@
 <script lang="ts">
     import {createEventDispatcher, onDestroy} from 'svelte';
-    import {Camera, X} from 'lucide-svelte';
+    import {X} from 'lucide-svelte';
     import {photoCaptureSettings} from '$lib/stores';
     import {app} from "$lib/data.svelte";
+    import CaptureButton from './CaptureButton.svelte';
 
     const dispatch = createEventDispatcher();
 
@@ -29,6 +30,7 @@
     let minZoom = 1;
     let maxZoom = 1;
     let videoTrack: MediaStreamTrack | null = null;
+    let captureButton: CaptureButton;
 
     async function startCamera() {
         try {
@@ -98,27 +100,45 @@
         setZoom(parseFloat(target.value));
     }
 
-    function capturePhoto() {
-        if (!video || !canvas || !cameraReady) return;
+    async function capturePhoto() {
+        if (!video || !canvas || !cameraReady) {
+            captureButton?.captureComplete();
+            return;
+        }
 
         const context = canvas.getContext('2d');
-        if (!context) return;
+        if (!context) {
+            captureButton?.captureComplete();
+            return;
+        }
 
-        // Set canvas size to match video
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
+        try {
+            // Set canvas size to match video
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
 
-        // Draw video frame to canvas
-        context.drawImage(video, 0, 0);
+            // Draw video frame to canvas
+            context.drawImage(video, 0, 0);
 
-        // Convert canvas to blob
-        canvas.toBlob((blob) => {
-            if (blob) {
-                // Create a File object from the blob
-                const file = new File([blob], `photo_${Date.now()}.jpg`, {type: 'image/jpeg'});
-                dispatch('photoCaptured', {file});
-            }
-        }, 'image/jpeg', 0.9);
+            // Convert canvas to blob
+            await new Promise((resolve, reject) => {
+                canvas.toBlob((blob) => {
+                    if (blob) {
+                        // Create a File object from the blob
+                        const file = new File([blob], `photo_${Date.now()}.jpg`, {type: 'image/jpeg'});
+                        dispatch('photoCaptured', {file});
+                        resolve(blob);
+                    } else {
+                        reject(new Error('Failed to create blob'));
+                    }
+                }, 'image/jpeg', 0.9);
+            });
+        } catch (error) {
+            console.error('Capture error:', error);
+        } finally {
+            // Always signal completion
+            captureButton?.captureComplete();
+        }
     }
 
     function close() {
@@ -250,14 +270,11 @@
             {/if}
 
             <div class="camera-controls">
-                <button
-                        class="capture-button"
-                        on:click={capturePhoto}
-                        disabled={!cameraReady}
-                        aria-label="Capture photo"
-                >
-                    <Camera size={32}/>
-                </button>
+                <CaptureButton
+                    bind:this={captureButton}
+                    disabled={!cameraReady}
+                    on:capture={capturePhoto}
+                />
             </div>
         </div>
     </div>
@@ -371,33 +388,6 @@
         background: linear-gradient(to top, rgba(0, 0, 0, 0.8), transparent);
     }
 
-    .capture-button {
-        width: 72px;
-        height: 72px;
-        border-radius: 50%;
-        background: white;
-        border: 4px solid rgba(255, 255, 255, 0.3);
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        transition: all 0.2s;
-        color: black;
-    }
-
-    .capture-button:hover:not(:disabled) {
-        transform: scale(1.1);
-        border-color: rgba(255, 255, 255, 0.5);
-    }
-
-    .capture-button:active:not(:disabled) {
-        transform: scale(0.95);
-    }
-
-    .capture-button:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-    }
 
     .location-overlay {
         position: absolute;
@@ -568,12 +558,6 @@
             padding: 1rem;
             gap: 1rem;
         }
-
-        .capture-button {
-            width: 60px;
-            height: 60px;
-        }
-
 
         .zoom-control {
             right: 0.5rem;

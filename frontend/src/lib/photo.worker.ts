@@ -382,8 +382,7 @@ function getBearingPhotos(bearing: number, center: { lat: number; lng: number })
       }
     }
     
-    // Sort by distance and limit
-    photosWithDistance.sort((a, b) => (a.range_distance || 0) - (b.range_distance || 0));
+    // Limit photos (preserve bearing order from lastVisiblePhotos)
     const photosInRange = photosWithDistance.slice(0, MAX_PHOTOS_IN_RANGE);
     
     // Update bearing colors (but don't sort - leave that to main thread)

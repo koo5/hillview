@@ -1,70 +1,21 @@
-import { get } from 'svelte/store';
-import { USE_WEBWORKER, type PhotoProcessingServiceInterface } from './photoProcessingConfig';
-import { photoProcessingService } from './photoProcessingService';
 import { photoWorkerService } from './photoWorkerService';
-import type { AreaFilterResult, DistanceResult, BearingResult } from './photoProcessingService';
+import type { BearingResult } from './photoWorkerService';
 
-// Adapter that wraps both services with a unified interface
-class PhotoProcessingAdapter implements PhotoProcessingServiceInterface {
-  private isWebWorkerMode = false;
-  private currentService: any;
+// Simplified adapter that only uses the web worker service
+class PhotoProcessingAdapter {
   private webWorkerCallbacks: Map<string, (result: any) => void> = new Map();
   private isInitialized = false;
   private currentCenter = { lat: 0, lng: 0 };
   
   constructor() {
-    this.updateService();
-    
-    // Watch for configuration changes
-    USE_WEBWORKER.subscribe(useWebWorker => {
-      if (useWebWorker !== this.isWebWorkerMode) {
-        this.updateService();
-      }
-    });
-  }
-  
-  private updateService(): void {
-    const newMode = get(USE_WEBWORKER);
-    const switching = newMode !== this.isWebWorkerMode;
-    
-    if (switching) {
-      console.log(`PhotoProcessingAdapter: Switching from ${this.isWebWorkerMode ? 'WebWorker' : 'MainThread'} to ${newMode ? 'WebWorker' : 'MainThread'} mode`);
-      
-      // Clean up current service
-      if (this.currentService === photoProcessingService) {
-        this.currentService?.cancelOperations?.();
-      } else if (this.currentService === photoWorkerService) {
-        this.currentService?.terminate?.();
-      }
-      
-      // Clean up adapter state
-      this.cleanup();
-    }
-    
-    this.isWebWorkerMode = newMode;
-    
-    if (this.isWebWorkerMode) {
-      this.currentService = photoWorkerService;
-      console.log('Using PhotoWorkerService');
-      
-      // Set up web worker callbacks
-      this.setupWebWorkerCallbacks();
-    } else {
-      this.currentService = photoProcessingService;
-      console.log('Using PhotoProcessingService');
-    }
+    this.setupWebWorkerCallbacks();
   }
   
   private setupWebWorkerCallbacks(): void {
-    if (this.currentService !== photoWorkerService) return;
-    
-    // Clear previous callbacks to avoid memory leaks
-    this.webWorkerCallbacks.clear();
-    
     // Set up callbacks for web worker mode
-    this.currentService.onPhotosUpdate((photos: any[]) => {
+    photoWorkerService.onPhotosUpdate((photos: any[]) => {
       // Convert to legacy format for compatibility
-      const result: AreaFilterResult = {
+      const result = {
         hillviewPhotosInArea: photos.filter(p => p.source?.id === 'hillview'),
         mapillaryPhotosInArea: photos.filter(p => p.source?.id === 'mapillary'),
         photosInArea: photos
@@ -84,7 +35,7 @@ class PhotoProcessingAdapter implements PhotoProcessingServiceInterface {
       }
     });
     
-    this.currentService.onBearingUpdate((result: any) => {
+    photoWorkerService.onBearingUpdate((result: any) => {
       const callback = this.webWorkerCallbacks.get('update_bearings');
       if (callback) {
         callback(result);
@@ -92,7 +43,7 @@ class PhotoProcessingAdapter implements PhotoProcessingServiceInterface {
     });
 
     // Handle worker errors
-    this.currentService.onError?.((error: any) => {
+    photoWorkerService.onError?.((error: any) => {
       console.error('PhotoProcessingAdapter: Worker error', error);
     });
   }
@@ -100,146 +51,78 @@ class PhotoProcessingAdapter implements PhotoProcessingServiceInterface {
   async ensureInitialized(): Promise<void> {
     if (this.isInitialized) return;
     
-    if (this.isWebWorkerMode && this.currentService.initialize) {
-      await this.currentService.initialize();
-    }
-    
+    await photoWorkerService.initialize();
     this.isInitialized = true;
   }
   
-  // Legacy PhotoProcessingService methods
+  // Legacy API methods for compatibility
   queueAreaFilter(bounds: any, range: number, sourcesConfig: any[]): void {
     console.log('PhotoProcessingAdapter: queueAreaFilter called', { bounds, range, sourcesConfig: sourcesConfig.map(s => ({ id: s.id, enabled: s.enabled })) });
-    if (this.isWebWorkerMode) {
-      // Update current center for bearing calculations
-      this.currentCenter = {
-        lat: (bounds.top_left.lat + bounds.bottom_right.lat) / 2,
-        lng: (bounds.top_left.lng + bounds.bottom_right.lng) / 2
-      };
-      
-      this.ensureInitialized().then(() => {
-        console.log('PhotoProcessingAdapter: Calling worker updateMapBounds');
-        this.currentService.updateMapBounds?.(bounds);
-        this.currentService.updateRange?.(range);
-        this.currentService.updateSources?.(sourcesConfig);
-      });
-    } else {
-      this.currentService.queueAreaFilter?.(bounds, range, sourcesConfig);
-    }
+    
+    // Update current center for bearing calculations
+    this.currentCenter = {
+      lat: (bounds.top_left.lat + bounds.bottom_right.lat) / 2,
+      lng: (bounds.top_left.lng + bounds.bottom_right.lng) / 2
+    };
+    
+    this.ensureInitialized().then(() => {
+      console.log('PhotoProcessingAdapter: Calling worker updateMapBounds');
+      photoWorkerService.updateMapBounds(bounds);
+      photoWorkerService.updateRange(range);
+      photoWorkerService.updateSources(sourcesConfig);
+    });
   }
   
   queueBearingUpdate(bearing: number, photoIds: string[], priority: string = 'high'): void {
-    if (this.isWebWorkerMode) {
-      this.ensureInitialized().then(() => {
-        this.currentService.updateBearing?.(bearing, this.currentCenter);
-      });
-    } else {
-      this.currentService.queueBearingUpdate?.(bearing, photoIds, priority);
-    }
+    this.ensureInitialized().then(() => {
+      photoWorkerService.updateBearing(bearing, this.currentCenter);
+    });
   }
   
   queueDistanceCalculation(photoIds: string[], center: any, range: number): void {
-    if (this.isWebWorkerMode) {
-      this.ensureInitialized().then(() => {
-        this.currentService.updateRange?.(range);
-        // Distance calculation is handled automatically in web worker
-      });
-    } else {
-      this.currentService.queueDistanceCalculation?.(photoIds, center, range);
-    }
+    this.ensureInitialized().then(() => {
+      photoWorkerService.updateRange(range);
+      // Distance calculation is handled automatically in web worker
+    });
   }
   
   onResult(type: string, callback: (result: any) => void): void {
-    if (this.isWebWorkerMode) {
-      this.webWorkerCallbacks.set(type, callback);
-    } else {
-      this.currentService.onResult?.(type, callback);
-    }
+    this.webWorkerCallbacks.set(type, callback);
   }
   
   updatePhotoStore(photos: any[]): void {
-    if (this.isWebWorkerMode) {
-      this.ensureInitialized().then(() => {
-        this.currentService.loadPhotos?.(photos);
-      });
-    } else {
-      this.currentService.updatePhotoStore?.(photos);
-    }
+    this.ensureInitialized().then(() => {
+      photoWorkerService.loadPhotos(photos);
+    });
   }
   
-  // New PhotoWorkerService methods (passthrough)
-  async initialize(): Promise<void> {
-    return this.currentService.initialize?.();
-  }
-  
-  async loadPhotos(photos: any[]): Promise<void> {
-    return this.currentService.loadPhotos?.(photos);
-  }
-  
-  async updateMapBounds(bounds: any): Promise<void> {
-    return this.currentService.updateMapBounds?.(bounds);
-  }
-  
-  async updateRange(range: number): Promise<void> {
-    return this.currentService.updateRange?.(range);
-  }
-  
-  async updateSources(sources: any[]): Promise<void> {
-    return this.currentService.updateSources?.(sources);
-  }
-  
-  async updateBearing(bearing: number, center: any): Promise<void> {
-    return this.currentService.updateBearing?.(bearing, center);
-  }
-  
-  onPhotosUpdate(callback: (photos: any[]) => void): void {
-    return this.currentService.onPhotosUpdate?.(callback);
-  }
-  
-  onBearingUpdate(callback: (result: any) => void): void {
-    return this.currentService.onBearingUpdate?.(callback);
+  updateBearing(bearing: number, center: any): void {
+    this.ensureInitialized().then(() => {
+      photoWorkerService.updateBearing(bearing, center);
+    });
   }
   
   getCurrentBearingData(): any | null {
-    return this.currentService.getCurrentBearingData?.() || null;
+    return photoWorkerService.getCurrentBearingData() || null;
   }
   
   terminate(): void {
     // Clean up callbacks
     this.webWorkerCallbacks.clear();
     
-    // Terminate current service
-    if (this.currentService?.terminate) {
-      this.currentService.terminate();
-    }
+    // Terminate worker service
+    photoWorkerService.terminate();
     
     this.isInitialized = false;
-  }
-
-  // Clean up method for mode switches
-  private cleanup(): void {
-    this.webWorkerCallbacks.clear();
-    this.isInitialized = false;
-    this.currentCenter = { lat: 0, lng: 0 };
   }
   
   // Utility methods
   isUsingWebWorker(): boolean {
-    return this.isWebWorkerMode;
+    return true; // Always true now
   }
   
   getQueueStatus(): any {
-    if (this.isWebWorkerMode) {
-      return { isWebWorker: true, initialized: this.isInitialized };
-    } else {
-      return this.currentService.getQueueStatus?.() || {};
-    }
-  }
-  
-  cancelOperations(type?: string): void {
-    if (!this.isWebWorkerMode) {
-      this.currentService.cancelOperations?.(type);
-    }
+    return { isWebWorker: true, initialized: this.isInitialized };
   }
 }
 

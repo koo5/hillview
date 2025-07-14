@@ -16,8 +16,26 @@ import { auth } from './auth.svelte';
 import { userPhotos } from './stores';
 import { updateCaptureLocationFromMap } from './captureLocation';
 import { photoProcessingAdapter } from './photoProcessingAdapter';
-import type { AreaFilterResult, DistanceResult, BearingResult } from './photoProcessingService';
 import { createMapillaryStreamService, type MapillaryStreamCallbacks } from './mapillaryStreamService';
+
+// Define types locally since we removed photoProcessingService
+export interface AreaFilterResult {
+    hillviewPhotosInArea: PhotoData[];
+    mapillaryPhotosInArea: PhotoData[];
+    photosInArea: PhotoData[];
+}
+
+export interface DistanceResult {
+    photosInRange: PhotoData[];
+}
+
+export interface BearingResult {
+    photoInFront: PhotoData | null;
+    photoToLeft: PhotoData | null;
+    photoToRight: PhotoData | null;
+    photosToLeft: PhotoData[];
+    photosToRight: PhotoData[];
+}
 
 export const geoPicsUrl = import.meta.env.VITE_REACT_APP_GEO_PICS_URL; //+'2'
 
@@ -709,37 +727,24 @@ function initializePhotoProcessing() {
     });
     
     bearing.subscribe(b => {
-        const photosInRange = get(photos_in_range);
-        const photoIds = photosInRange.map(p => p.id);
         const p2 = get(pos2);
         const center = {
             lat: (p2.top_left.lat + p2.bottom_right.lat) / 2,
             lng: (p2.top_left.lng + p2.bottom_right.lng) / 2
         };
         
-        // Pass center for web worker mode
-        if (photoProcessingAdapter.isUsingWebWorker()) {
-            photoProcessingAdapter.updateBearing(b, center);
-        } else {
-            photoProcessingAdapter.queueBearingUpdate(b, photoIds);
-        }
+        photoProcessingAdapter.updateBearing(b, center);
     });
     
     photos_in_range.subscribe(photos => {
         const b = get(bearing);
-        const photoIds = photos.map(p => p.id);
         const p2 = get(pos2);
         const center = {
             lat: (p2.top_left.lat + p2.bottom_right.lat) / 2,
             lng: (p2.top_left.lng + p2.bottom_right.lng) / 2
         };
         
-        // Pass center for web worker mode
-        if (photoProcessingAdapter.isUsingWebWorker()) {
-            photoProcessingAdapter.updateBearing(b, center);
-        } else {
-            photoProcessingAdapter.queueBearingUpdate(b, photoIds);
-        }
+        photoProcessingAdapter.updateBearing(b, center);
     });
 }
 

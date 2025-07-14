@@ -20,6 +20,7 @@
     import { captureLocation, captureLocationWithCompassBearing } from '$lib/captureLocation';
     import '$lib/captureLocationManager'; // Activate capture location management
     import '$lib/mapBearingSync'; // Sync map bearing with sensors
+    import '$lib/debugTauri'; // Debug Tauri availability
 
     let map: any = null;
     let mapComponent: any = null;
@@ -661,6 +662,11 @@
             width: 48px;
             height: 48px;
         }
+    }
+
+    :global(#sentry-feedback) {
+        --trigger-background: #00ff00;
+        --inset: auto auto 0 0;
     }
     
 </style>
