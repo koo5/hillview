@@ -40,9 +40,10 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     
     @Command
     fun startSensor(invoke: Invoke) {
-        Log.d(TAG, "Starting sensor service")
+        Log.d(TAG, "🔍 Starting sensor service")
         
         if (sensorService == null) {
+            Log.d(TAG, "🔍 Creating new SensorService instance")
             sensorService = SensorService(activity) { sensorData ->
                 // Emit sensor data event
                 val data = JSObject()
@@ -52,12 +53,18 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                 data.put("pitch", sensorData.pitch)
                 data.put("roll", sensorData.roll)
                 data.put("timestamp", sensorData.timestamp)
+                data.put("sensorSource", sensorData.sensorSource)
                 
+                Log.v(TAG, "🔍 Emitting sensor data event: magnetic=${sensorData.magneticHeading}, source=${sensorData.sensorSource}")
                 trigger("plugin:hillview:sensor-data", data)
             }
+        } else {
+            Log.d(TAG, "🔍 SensorService already exists")
         }
         
+        Log.d(TAG, "🔍 Calling sensorService.startSensor()")
         sensorService?.startSensor()
+        Log.d(TAG, "🔍 startSensor command completed")
         invoke.resolve()
     }
     

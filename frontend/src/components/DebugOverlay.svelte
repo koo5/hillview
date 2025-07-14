@@ -10,6 +10,7 @@
     
     // Detect sensor type
     let sensorType: 'tauri-rotation-vector' | 'device-orientation' | 'none' = 'none';
+    let actualSensorSource: string | null = null;
     let isTauriAndroid = false;
 
     let showDebug = false;
@@ -28,10 +29,14 @@
         const unsubscribe = compassData.subscribe(data => {
             if (data && isTauriAndroid) {
                 sensorType = 'tauri-rotation-vector';
+                // Extract sensor source from the data if available
+                actualSensorSource = (data as any).sensorSource || null;
             } else if (data && !isTauriAndroid) {
                 sensorType = 'device-orientation';
+                actualSensorSource = null;
             } else if (!$compassAvailable) {
                 sensorType = 'none';
+                actualSensorSource = null;
             }
         });
         
@@ -164,8 +169,10 @@
 
             <div class="debug-section sensor-section">
                 <div><strong>🧭 Sensor API:</strong> 
-                    {#if sensorType === 'tauri-rotation-vector'}
-                        <span class="sensor-type tauri">Android TYPE_ROTATION_VECTOR</span>
+                    {#if actualSensorSource}
+                        <span class="sensor-type tauri">{actualSensorSource}</span>
+                    {:else if sensorType === 'tauri-rotation-vector'}
+                        <span class="sensor-type tauri">Android Sensor (waiting...)</span>
                     {:else if sensorType === 'device-orientation'}
                         <span class="sensor-type web">Web DeviceOrientation API</span>
                     {:else}
@@ -176,11 +183,12 @@
                     <div>Platform: {isTauriAndroid ? 'Tauri Android' : 'Web'}</div>
                 {/if}
                 {#if $compassData}
-                    <div>Magnetic: {$compassData.magneticHeading?.toFixed(1) || 'N/A'}° | True: {$compassData.trueHeading?.toFixed(1) || 'N/A'}°</div>
-                    <div>Accuracy: ±{$compassData.headingAccuracy?.toFixed(0) || 'N/A'}° | Updated: {new Date($compassData.timestamp).toLocaleTimeString()}</div>
+                    <div><strong>Compass Bearing:</strong> {$compassData.magneticHeading?.toFixed(1) || 'N/A'}°</div>
+                    <div style="font-size: 10px; opacity: 0.8">True bearing: {$compassData.trueHeading?.toFixed(1) || 'N/A'}° | Accuracy: ±{$compassData.headingAccuracy?.toFixed(0) || 'N/A'}°</div>
                     {#if sensorType === 'tauri-rotation-vector' && $deviceOrientation}
-                        <div style="font-size: 10px; opacity: 0.8">Pitch: {$deviceOrientation.beta?.toFixed(1)}° | Roll: {$deviceOrientation.gamma?.toFixed(1)}°</div>
+                        <div style="font-size: 10px; opacity: 0.8">Device tilt - Pitch: {$deviceOrientation.beta?.toFixed(1)}° | Roll: {$deviceOrientation.gamma?.toFixed(1)}°</div>
                     {/if}
+                    <div style="font-size: 9px; opacity: 0.7">Updated: {new Date($compassData.timestamp).toLocaleTimeString()}</div>
                 {:else if $compassAvailable}
                     <div style="opacity: 0.6">Waiting for sensor data...</div>
                 {/if}
@@ -227,9 +235,9 @@
 <style>
     .debug-overlay {
         position: fixed;
-        top: 10px;
+        top: 100px;
         right: 10px;
-        background: rgba(0, 0, 0, 0.9);
+        background: rgba(0, 0, 0, 0.7);
         color: #0f0;
         font-family: monospace;
         font-size: 11px;
@@ -241,6 +249,7 @@
     }
     
     .debug-overlay.left-position {
+        top: 100px;
         left: 10px;
         right: auto;
     }
@@ -385,13 +394,14 @@
 
     @media (max-width: 600px) {
         .debug-overlay {
-            top: 5px;
+            top: 50px;
             right: 5px;
             left: 5px;
             min-width: auto;
         }
         
         .debug-overlay.left-position {
+            top: 50px;
             left: 5px;
             right: 5px;
         }

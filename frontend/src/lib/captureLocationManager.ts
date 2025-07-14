@@ -61,12 +61,12 @@ currentHeading.subscribe(compass => {
             timestamp: Date.now()
         });
         
-        console.log('✅ Capture heading updated:', 
-            `bearing=${compass.heading.toFixed(1)}°`,
+        /*console.log('✅ Capture heading updated:',
+            `bearing=${compass.heading.toFixed(4)}°`,
             `source=${currentCapture.source}`,
             `compassSource=${compass.source}`,
             `accuracy=${compass.accuracy?.toFixed(0) || 'N/A'}°`
-        );
+        );*/
     } else {
         console.log('❌ No capture location available');
     }

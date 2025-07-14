@@ -12,12 +12,13 @@ import android.util.Log
 import kotlin.math.abs
 
 data class SensorData(
-    val magneticHeading: Float,
-    val trueHeading: Float,
+    val magneticHeading: Float,  // Compass bearing in degrees from magnetic north (0-360°)
+    val trueHeading: Float,       // Compass bearing corrected for magnetic declination
     val headingAccuracy: Float,
     val pitch: Float,
     val roll: Float,
-    val timestamp: Long
+    val timestamp: Long,
+    val sensorSource: String      // Identifies which sensor provided the data
 )
 
 class SensorService(
@@ -26,7 +27,7 @@ class SensorService(
 ) : SensorEventListener {
     companion object {
         private const val TAG = "SensorService"
-        private const val UPDATE_RATE_MS = 100 // Update every 100ms
+        private const val UPDATE_RATE_MS = 300 // Update every 100ms
     }
 
     private val sensorManager: SensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
@@ -58,6 +59,7 @@ class SensorService(
         
         // Fallback sensors if rotation vector not available
         if (rotationVectorSensor == null) {
+            Log.w(TAG, "⚠️ TYPE_ROTATION_VECTOR sensor not available, falling back to TYPE_MAGNETIC_FIELD + TYPE_ACCELEROMETER")
             magneticSensor = sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
             accelerometerSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
         }
@@ -72,32 +74,36 @@ class SensorService(
     }
     
     fun startSensor() {
-        Log.d(TAG, "Starting sensor service")
+        Log.d(TAG, "🔍 Starting sensor service")
         
         if (isRunning) {
-            Log.w(TAG, "Sensor already running")
+            Log.w(TAG, "🔍 Sensor already running")
             return
         }
         
         // Register for sensor updates
         rotationVectorSensor?.let {
+            Log.d(TAG, "🔍 Registering listener for TYPE_ROTATION_VECTOR sensor")
             sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
             isRunning = true
-            Log.i(TAG, "✅ Registered for TYPE_ROTATION_VECTOR sensor")
+            Log.i(TAG, "🔍✅ Registered for TYPE_ROTATION_VECTOR sensor")
         } ?: run {
             // Fallback to magnetic + accelerometer
             magneticSensor?.let { mag ->
                 accelerometerSensor?.let { acc ->
+                    Log.d(TAG, "🔍 Registering listeners for fallback sensors")
                     sensorManager.registerListener(this, mag, SensorManager.SENSOR_DELAY_UI)
                     sensorManager.registerListener(this, acc, SensorManager.SENSOR_DELAY_UI)
                     isRunning = true
-                    Log.w(TAG, "⚠️ Falling back to TYPE_MAGNETIC_FIELD + TYPE_ACCELEROMETER sensors")
+                    Log.w(TAG, "🔍⚠️ Falling back to TYPE_MAGNETIC_FIELD + TYPE_ACCELEROMETER sensors")
                 }
             }
         }
         
         if (!isRunning) {
-            Log.e(TAG, "No orientation sensors available")
+            Log.e(TAG, "🔍❌ No orientation sensors available")
+        } else {
+            Log.d(TAG, "🔍✅ Sensor service started successfully, isRunning=$isRunning")
         }
     }
     
@@ -121,7 +127,7 @@ class SensorService(
     override fun onSensorChanged(event: SensorEvent) {
         when (event.sensor.type) {
             Sensor.TYPE_ROTATION_VECTOR -> {
-                Log.v(TAG, "📡 Received TYPE_ROTATION_VECTOR data")
+                Log.v(TAG, "🔍📡 Received TYPE_ROTATION_VECTOR data")
                 handleRotationVector(event)
             }
             Sensor.TYPE_ACCELEROMETER -> {
@@ -136,6 +142,7 @@ class SensorService(
                 geomagnetic = event.values.clone()
                 hasGeomagnetic = true
                 if (hasGravity) {
+                    Log.v(TAG, "📡 Using TYPE_MAGNETIC_FIELD + TYPE_ACCELEROMETER fallback")
                     calculateOrientation()
                 }
             }
@@ -187,7 +194,8 @@ class SensorService(
             trueHeading = trueHeading,
             accuracy = getAccuracyEstimate(pitch, roll),
             pitch = pitch,
-            roll = roll
+            roll = roll,
+            sensorSource = "TYPE_ROTATION_VECTOR"
         )
     }
     
@@ -212,7 +220,8 @@ class SensorService(
                 trueHeading = trueHeading,
                 accuracy = getAccuracyEstimate(pitch, roll) + 5, // Less accurate than rotation vector
                 pitch = pitch,
-                roll = roll
+                roll = roll,
+                sensorSource = "TYPE_MAGNETIC_FIELD + TYPE_ACCELEROMETER"
             )
         }
     }
@@ -247,7 +256,8 @@ class SensorService(
         trueHeading: Float,
         accuracy: Float,
         pitch: Float,
-        roll: Float
+        roll: Float,
+        sensorSource: String
     ) {
         val data = SensorData(
             magneticHeading = magneticHeading,
@@ -255,7 +265,8 @@ class SensorService(
             headingAccuracy = accuracy,
             pitch = pitch,
             roll = roll,
-            timestamp = System.currentTimeMillis()
+            timestamp = System.currentTimeMillis(),
+            sensorSource = sensorSource
         )
         
         onSensorUpdate(data)

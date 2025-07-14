@@ -23,7 +23,7 @@
     } from "$lib/data.svelte";
     import {sources} from "$lib/sources";
     import { updateGpsLocation, setLocationTracking, setLocationError, gpsLocation } from "$lib/location.svelte";
-    import { compassActive, compassAvailable, startCompass, stopCompass } from "$lib/compass.svelte";
+    import { compassActive, compassAvailable, startCompass, stopCompass, currentHeading } from "$lib/compass.svelte";
 
     import {get} from "svelte/store";
 
@@ -55,6 +55,14 @@
     
     // Subscribe to compass tracking state
     $: compassTrackingEnabled = $compassActive;
+    
+    // Update bearing from compass when tracking is enabled
+    $: if (compassTrackingEnabled && $currentHeading) {
+        const newBearing = $currentHeading.heading;
+        if (newBearing !== null && !isNaN(newBearing)) {
+            bearing.set(newBearing);
+        }
+    }
     
     // Debug bounds rectangle
     let boundsRectangle: any = null;

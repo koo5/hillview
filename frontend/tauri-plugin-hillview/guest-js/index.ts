@@ -2,12 +2,13 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 
 export interface SensorData {
-  magneticHeading: number
-  trueHeading: number
+  magneticHeading: number  // Compass bearing in degrees from magnetic north (0-360°)
+  trueHeading: number      // Compass bearing corrected for magnetic declination
   headingAccuracy: number
   pitch: number
   roll: number
   timestamp: number
+  sensorSource?: string    // Identifies which sensor provided the data
 }
 
 export async function ping(value: string): Promise<string | null> {

@@ -19,33 +19,59 @@ let platformName = 'browser';
 if (TAURI && hasWindow) {
     try {
         platformName = platform();
+        console.log('🔍 Platform detected:', platformName);
     } catch (error) {
-        console.warn('Failed to detect Tauri platform:', error);
+        console.warn('🔍 Failed to detect Tauri platform:', error);
     }
+} else {
+    console.log('🔍 Not running in Tauri, platform:', platformName);
 }
 
 export const TAURI_MOBILE = TAURI && (platformName === 'android' || platformName === 'ios');
 export const TAURI_DESKTOP = TAURI && !TAURI_MOBILE;
 
+console.log('🔍 Tauri environment:', {
+    TAURI,
+    TAURI_MOBILE,
+    TAURI_DESKTOP,
+    platformName,
+    hasTauriSensor: !!tauriSensor
+});
+
 // Type definitions for sensor data
 export interface SensorData {
-    magneticHeading: number;
-    trueHeading: number;
+    magneticHeading: number;  // Compass bearing in degrees from magnetic north (0-360°)
+    trueHeading: number;      // Compass bearing corrected for magnetic declination
     headingAccuracy: number;
     pitch: number;
     roll: number;
     timestamp: number;
+    sensorSource?: string;    // Identifies which sensor provided the data
 }
 
 // Conditional Tauri sensor API
 export const tauriSensor = TAURI ? {
     startSensor: async () => {
-        console.log('📱 Starting Tauri sensor service');
-        return invoke('plugin:hillview|start_sensor');
+        console.log('🔍📱 Starting Tauri sensor service');
+        try {
+            const result = await invoke('plugin:hillview|start_sensor');
+            console.log('🔍✅ Tauri invoke start_sensor succeeded:', result);
+            return result;
+        } catch (error) {
+            console.error('🔍❌ Tauri invoke start_sensor failed:', error);
+            throw error;
+        }
     },
     stopSensor: async () => {
-        console.log('📱 Stopping Tauri sensor service');
-        return invoke('plugin:hillview|stop_sensor');
+        console.log('🔍📱 Stopping Tauri sensor service');
+        try {
+            const result = await invoke('plugin:hillview|stop_sensor');
+            console.log('🔍✅ Tauri invoke stop_sensor succeeded:', result);
+            return result;
+        } catch (error) {
+            console.error('🔍❌ Tauri invoke stop_sensor failed:', error);
+            throw error;
+        }
     },
     updateSensorLocation: async (latitude: number, longitude: number) => {
         return invoke('plugin:hillview|update_sensor_location', {
@@ -53,10 +79,18 @@ export const tauriSensor = TAURI ? {
         });
     },
     onSensorData: async (callback: (data: SensorData) => void) => {
-        console.log('👂 Setting up sensor data listener');
-        return listen<SensorData>('plugin:hillview:sensor-data', (event) => {
-            callback(event.payload);
-        });
+        console.log('🔍👂 Setting up sensor data listener');
+        try {
+            const unlisten = await listen<SensorData>('plugin:hillview:sensor-data', (event) => {
+                console.log('🔍📡 Received sensor event:', event.payload);
+                callback(event.payload);
+            });
+            console.log('🔍✅ Sensor listener setup complete');
+            return unlisten;
+        } catch (error) {
+            console.error('🔍❌ Failed to setup sensor listener:', error);
+            throw error;
+        }
     }
 } : null;
 
@@ -67,5 +101,7 @@ export function isTauriAvailable(): boolean {
 
 // Utility function to check if sensor APIs are available
 export function isSensorAvailable(): boolean {
-    return TAURI_MOBILE && tauriSensor !== null;
+    const available = TAURI_MOBILE && tauriSensor !== null;
+    console.log('🔍 isSensorAvailable():', available, { TAURI_MOBILE, hasTauriSensor: !!tauriSensor });
+    return available;
 }

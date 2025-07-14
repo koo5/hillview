@@ -8,6 +8,7 @@ export interface CompassData {
     trueHeading: number | null;       // 0-360 degrees from true north
     headingAccuracy: number | null;   // Accuracy in degrees
     timestamp: number;
+    source: string;
 }
 
 export interface DeviceOrientation {
@@ -22,7 +23,8 @@ export const compassData = writable<CompassData>({
     magneticHeading: null,
     trueHeading: null,
     headingAccuracy: null,
-    timestamp: Date.now()
+    timestamp: Date.now(),
+    source: 'unknown'
 });
 
 export const deviceOrientation = writable<DeviceOrientation>({
@@ -46,7 +48,7 @@ export const currentHeading = derived(
         if ($compassData && $compassData.magneticHeading !== null) {
             return {
                 heading: $compassData.magneticHeading,
-                source: 'compass-magnetic' as const,
+                source: $compassData.source + '-compass-magnetic' as const,
                 accuracy: $compassData.headingAccuracy
             };
         }
@@ -94,26 +96,33 @@ if (TAURI_MOBILE) {
 async function startTauriSensor(): Promise<boolean> {
     try {
         if (!isSensorAvailable()) {
-            console.warn('Tauri sensor not available');
+            console.warn('🔍 Tauri sensor not available');
             return false;
         }
         
         const sensor = tauriSensor!;
         
-        console.log('🔄 Starting Tauri TYPE_ROTATION_VECTOR sensor');
-        await sensor.startSensor();
+        console.log('🔍🔄 Starting Tauri TYPE_ROTATION_VECTOR sensor');
+        console.log('🔍 About to call sensor.startSensor()...');
+        try {
+            await sensor.startSensor();
+            console.log('🔍✅ sensor.startSensor() completed successfully');
+        } catch (startError) {
+            console.error('🔍❌ sensor.startSensor() threw error:', startError);
+            throw startError;
+        }
         
         // Set up location update listener
         const unsubscribe = gpsCoordinates.subscribe(coords => {
             if (coords && coords.latitude !== null && coords.longitude !== null) {
                 if (Math.random() < 0.1) { // Log 10% of updates
-                    console.log('📍 Updating sensor location:', coords.latitude.toFixed(6), coords.longitude.toFixed(6));
+                    console.log('🔍📍 Updating sensor location:', coords.latitude.toFixed(6), coords.longitude.toFixed(6));
                 }
                 
                 // Update sensor location (fire and forget)
                 if (sensor) {
                     sensor.updateSensorLocation(coords.latitude, coords.longitude).catch(error => {
-                        console.error('Failed to update sensor location:', error);
+                        console.error('🔍 Failed to update sensor location:', error);
                     });
                 }
             }
@@ -121,12 +130,15 @@ async function startTauriSensor(): Promise<boolean> {
         
         // Set up sensor data listener
         tauriSensorUnlisten = await sensor.onSensorData((data: SensorData) => {
+            console.debug('🔍📡 Tauri sensor data received:', data);
+
             const compassUpdate = {
                 magneticHeading: data.magneticHeading,
                 trueHeading: data.trueHeading,
                 headingAccuracy: data.headingAccuracy,
-                timestamp: data.timestamp
-            };
+                timestamp: data.timestamp,
+                sensorSource: data.sensorSource
+            } as any;
             
             compassData.set(compassUpdate);
             
@@ -140,9 +152,9 @@ async function startTauriSensor(): Promise<boolean> {
             
             // Log every ~10th update
             if (Math.random() < 0.1) {
-                console.log('🧭 Tauri TYPE_ROTATION_VECTOR update:', {
-                    magnetic: compassUpdate.magneticHeading?.toFixed(1) + '°',
-                    true: compassUpdate.trueHeading?.toFixed(1) + '°',
+                console.log(`🔍🧭 Compass update from ${data.sensorSource || 'Unknown'}:`, {
+                    'compass bearing (magnetic)': compassUpdate.magneticHeading?.toFixed(1) + '°',
+                    'compass bearing (true)': compassUpdate.trueHeading?.toFixed(1) + '°',
                     accuracy: '±' + compassUpdate.headingAccuracy?.toFixed(1) + '°',
                     pitch: data.pitch?.toFixed(1) + '°',
                     roll: data.roll?.toFixed(1) + '°',
@@ -156,8 +168,8 @@ async function startTauriSensor(): Promise<boolean> {
         
         return true;
     } catch (error) {
-        console.error('❌ Failed to start Tauri sensor:', error);
-        console.error('Error details:', {
+        console.error('🔍❌ Failed to start Tauri sensor:', error);
+        console.error('🔍 Error details:', {
             message: error instanceof Error ? error.message : String(error),
             stack: error instanceof Error ? error.stack : undefined,
             type: error instanceof Error ? error.constructor.name : typeof error
@@ -209,12 +221,8 @@ async function startWebCompass(): Promise<boolean> {
             lastSensorUpdate.set(Date.now());
             
             // Log occasional updates
-            if (Math.random() < 0.1) {
-                console.log('Compass update:', {
-                    magnetic: data.magneticHeading?.toFixed(1),
-                    true: data.trueHeading?.toFixed(1),
-                    accuracy: data.headingAccuracy?.toFixed(1)
-                });
+            if (Math.random() < 1.1) {
+                console.log('Web Compass update:',JSON.stringify( data ));
             }
         };
 
@@ -249,7 +257,7 @@ export function stopCompass() {
         // Try to stop the sensor service
         if (tauriSensor) {
             tauriSensor.stopSensor().catch((error: unknown) => {
-                console.error('Failed to stop Tauri sensor:', error);
+                console.error('🔍 Failed to stop Tauri sensor:', error);
             });
         }
     }
@@ -320,12 +328,12 @@ export async function startCompass() {
         console.log('🔍 Tauri sensor API available, attempting to start...');
         const success = await startTauriSensor();
         if (success) {
-            console.log('✅ Tauri sensor started successfully');
+            console.log('🔍✅ Tauri sensor started successfully');
             compassActive.set(true);
             compassError.set(null);
             return true;
         }
-        console.warn('⚠️ Tauri sensor failed, falling back to web APIs');
+        console.warn('🔍⚠️ Tauri sensor failed, falling back to web APIs');
     }
     
     // Check permission for web APIs
