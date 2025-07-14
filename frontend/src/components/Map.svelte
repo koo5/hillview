@@ -23,7 +23,7 @@
     } from "$lib/data.svelte";
     import {sources} from "$lib/sources";
     import { updateGpsLocation, setLocationTracking, setLocationError, gpsLocation } from "$lib/location.svelte";
-    import { compassActive, compassAvailable } from "$lib/compass.svelte";
+    import { compassActive, compassAvailable, startCompass, stopCompass } from "$lib/compass.svelte";
 
     import {get} from "svelte/store";
 
@@ -480,9 +480,20 @@
         setLocationTracking(locationTracking);
     }
     
-    function toggleCompassTracking() {
+    async function toggleCompassTracking() {
         compassTrackingEnabled = !compassTrackingEnabled;
-        compassActive.set(compassTrackingEnabled);
+        
+        if (compassTrackingEnabled) {
+            console.log('🧭 Starting compass tracking...');
+            const success = await startCompass();
+            if (!success) {
+                console.error('Failed to start compass');
+                compassTrackingEnabled = false;
+            }
+        } else {
+            console.log('🧭 Stopping compass tracking...');
+            stopCompass();
+        }
     }
     
     // Start tracking user location

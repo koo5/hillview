@@ -154,6 +154,8 @@ class SensorService(
         }
         lastUpdateTime = currentTime
         
+        Log.d(TAG, "🔵 TYPE_ROTATION_VECTOR raw values: ${event.values.contentToString()}")
+        
         // Get rotation matrix from rotation vector
         SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
         
@@ -163,6 +165,8 @@ class SensorService(
         // Convert radians to degrees
         val azimuthRad = orientation[0]
         val azimuthDeg = Math.toDegrees(azimuthRad.toDouble()).toFloat()
+        
+        Log.d(TAG, "🔵 Orientation values: azimuth=$azimuthRad rad (${azimuthDeg}°), pitch=${orientation[1]}, roll=${orientation[2]}")
         
         // Normalize to 0-360
         var heading = if (azimuthDeg < 0) azimuthDeg + 360 else azimuthDeg
@@ -174,6 +178,8 @@ class SensorService(
         // Calculate device tilt (pitch and roll)
         val pitch = Math.toDegrees(orientation[1].toDouble()).toFloat()
         val roll = Math.toDegrees(orientation[2].toDouble()).toFloat()
+        
+        Log.d(TAG, "🔵 Sending bearing data: magnetic=$heading°, true=$trueHeading°, declination=$declination°")
         
         // Send data callback
         sendSensorData(
