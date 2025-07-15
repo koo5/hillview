@@ -27,7 +27,7 @@ class SensorService(
 ) : SensorEventListener {
     companion object {
         private const val TAG = "SensorService"
-        private const val UPDATE_RATE_MS = 300 // Update every 100ms
+        private const val UPDATE_RATE_MS = 1000
     }
 
     private val sensorManager: SensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager

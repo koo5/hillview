@@ -40,12 +40,22 @@ export interface SensorData {
     source?: string;    // Identifies which sensor provided the data
 }
 
+// Sensor modes for enhanced sensor service
+export enum SensorMode {
+    ROTATION_VECTOR = 0,
+    GAME_ROTATION_VECTOR = 1,  // Better for upright phone
+    MADGWICK_AHRS = 2,         // Advanced sensor fusion
+    COMPLEMENTARY_FILTER = 3,
+    UPRIGHT_ROTATION_VECTOR = 4, // Optimized for portrait/upright orientation
+    WEB_DEVICE_ORIENTATION = 5   // Force web DeviceOrientation API
+}
+
 // Conditional Tauri sensor API
 export const tauriSensor = TAURI ? {
-    startSensor: async () => {
-        console.log('🔍📱 Starting Tauri sensor service');
+    startSensor: async (mode: SensorMode = SensorMode.UPRIGHT_ROTATION_VECTOR) => {
+        console.log('🔍📱 Starting Tauri sensor service with mode:', mode, `(${SensorMode[mode]})`);
         try {
-            const result = await invoke('plugin:hillview|start_sensor');
+            const result = await invoke('plugin:hillview|start_sensor', { mode });
             console.log('🔍✅ Tauri invoke start_sensor succeeded:', result);
             return result;
         } catch (error) {
@@ -74,7 +84,7 @@ export const tauriSensor = TAURI ? {
         try {
             // Use addPluginListener as per Tauri mobile plugin documentation
             const unlisten = await addPluginListener('hillview', 'sensor-data', (data: any) => {
-                console.log('🔍📡 Received sensor event from plugin:', JSON.stringify(data));
+                //console.log('🔍📡 Received sensor event from plugin:', JSON.stringify(data));
                 callback(data as SensorData);
             });
             console.log('🔍✅ Sensor listener setup complete, unlisten function:', typeof unlisten);

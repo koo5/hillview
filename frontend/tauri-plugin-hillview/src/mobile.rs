@@ -32,10 +32,15 @@ impl<R: Runtime> Hillview<R> {
       .map_err(Into::into)
   }
   
-  pub fn start_sensor(&self) -> crate::Result<()> {
+  pub fn start_sensor(&self, mode: Option<i32>) -> crate::Result<()> {
+    #[derive(serde::Serialize)]
+    struct Args {
+      mode: Option<i32>,
+    }
+    
     self
       .0
-      .run_mobile_plugin("startSensor", ())
+      .run_mobile_plugin("startSensor", Args { mode })
       .map_err(Into::into)
   }
   

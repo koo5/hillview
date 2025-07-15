@@ -245,9 +245,11 @@ function recalculateVisiblePhotos(): void {
   
   const hillviewEnabled = sourcesConfig.find(s => s.id === 'hillview')?.enabled ?? false;
   const mapillaryEnabled = sourcesConfig.find(s => s.id === 'mapillary')?.enabled ?? false;
+  const deviceEnabled = sourcesConfig.find(s => s.id === 'device')?.enabled ?? false;
   
   let hillviewFiltered: PhotoData[] = [];
   let mapillaryFiltered: PhotoData[] = [];
+  let deviceFiltered: PhotoData[] = [];
   
   // Get photo IDs in spatial bounds first
   const photoIdsInBounds = spatialIndex.getPhotoIdsInBounds(currentBounds, MAX_PHOTOS_IN_AREA * 2);
@@ -302,6 +304,19 @@ function recalculateVisiblePhotos(): void {
     mapillaryFiltered = mapillaryInBounds;
   }
   
+  if (deviceEnabled) {
+    const deviceInBounds: PhotoData[] = [];
+    
+    for (const photoId of photoIdsInBounds) {
+      const photo = photoStore.get(photoId);
+      if (photo && photo.source?.id === 'device') {
+        deviceInBounds.push(photo);
+      }
+    }
+    
+    deviceFiltered = deviceInBounds;
+  }
+  
   // Combine and deduplicate
   const combinedMap = new Map<string, PhotoData>();
   
@@ -310,6 +325,12 @@ function recalculateVisiblePhotos(): void {
   }
   
   for (const photo of mapillaryFiltered) {
+    if (!combinedMap.has(photo.id)) {
+      combinedMap.set(photo.id, photo);
+    }
+  }
+  
+  for (const photo of deviceFiltered) {
     if (!combinedMap.has(photo.id)) {
       combinedMap.set(photo.id, photo);
     }

@@ -52,7 +52,9 @@
         dispatch('captureStop');
     }
 
-    function handlePointerDown() {
+    function handlePointerDown(event: PointerEvent) {
+        console.log('CaptureButton: pointerdown event', event.type, event.pointerId);
+        
         // Clear any existing timer
         if (longPressTimer) {
             clearTimeout(longPressTimer);
@@ -60,11 +62,14 @@
         
         // Start a timer for long press detection (500ms)
         longPressTimer = setTimeout(() => {
+            console.log('CaptureButton: long press detected, starting continuous capture');
             startContinuousCapture();
         }, 500);
     }
 
-    function handlePointerUp() {
+    function handlePointerUp(event: PointerEvent) {
+        console.log('CaptureButton: pointerup event', event.type, 'isCapturing:', isCapturing);
+        
         // Clear the long press timer
         if (longPressTimer) {
             clearTimeout(longPressTimer);

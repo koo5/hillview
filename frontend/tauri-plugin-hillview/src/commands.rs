@@ -15,10 +15,11 @@ pub(crate) async fn ping<R: Runtime>(
 #[command]
 pub(crate) async fn start_sensor<R: Runtime>(
     _app: AppHandle<R>,
+    mode: Option<i32>,
 ) -> Result<()> {
     #[cfg(mobile)]
     {
-        _app.hillview().start_sensor()?;
+        _app.hillview().start_sensor(mode)?;
         return Ok(());
     }
     

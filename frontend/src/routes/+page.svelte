@@ -86,7 +86,7 @@
         url.searchParams.set('lat', String(p.center.lat));
         url.searchParams.set('lon', String(p.center.lng));
         url.searchParams.set('zoom', String(p.zoom));
-        console.log('Setting URL to', url.toString());
+        //console.log('Setting URL to', url.toString());
         replaceState2(url.toString());
     });
 
@@ -96,7 +96,7 @@
         }
         const url = new URL(window.location.href);
         url.searchParams.set('bearing', String(b));
-        console.log('Setting URL to', url.toString());
+        //console.log('Setting URL to', url.toString());
         setTimeout(() => {
             replaceState2(url.toString());
         }, 1000);

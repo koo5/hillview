@@ -20,6 +20,11 @@ class LocationUpdateArgs {
   var longitude: Double = 0.0
 }
 
+@InvokeArg
+class SensorModeArgs {
+  var mode: Int? = null
+}
+
 @TauriPlugin
 class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     companion object {
@@ -27,7 +32,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         private var pluginInstance: ExamplePlugin? = null
     }
     
-    private var sensorService: SensorService? = null
+    private var sensorService: EnhancedSensorService? = null
     
     init {
         pluginInstance = this
@@ -35,11 +40,32 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     
     @Command
     fun startSensor(invoke: Invoke) {
-        Log.d(TAG, "🔍 Starting sensor service")
+        val mode = try {
+            val args = invoke.parseArgs(SensorModeArgs::class.java)
+            if (args != null) {
+                Log.d(TAG, "🔄 Successfully parsed args with mode=${args.mode}")
+                args.mode ?: EnhancedSensorService.MODE_UPRIGHT_ROTATION_VECTOR
+            } else {
+                Log.d(TAG, "🔄 Args parsed as null, using default mode")
+                EnhancedSensorService.MODE_UPRIGHT_ROTATION_VECTOR
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "🔄 Failed to parse args, using default mode. Error: ${e.message}")
+            EnhancedSensorService.MODE_UPRIGHT_ROTATION_VECTOR
+        }
+        
+        Log.d(TAG, "🔄 Starting enhanced sensor service with mode: $mode (${when(mode) {
+            EnhancedSensorService.MODE_ROTATION_VECTOR -> "ROTATION_VECTOR"
+            EnhancedSensorService.MODE_GAME_ROTATION_VECTOR -> "GAME_ROTATION_VECTOR"
+            EnhancedSensorService.MODE_MADGWICK_AHRS -> "MADGWICK_AHRS"
+            EnhancedSensorService.MODE_COMPLEMENTARY_FILTER -> "COMPLEMENTARY_FILTER"
+            EnhancedSensorService.MODE_UPRIGHT_ROTATION_VECTOR -> "UPRIGHT_ROTATION_VECTOR"
+            else -> "UNKNOWN"
+        }})")
         
         if (sensorService == null) {
-            Log.d(TAG, "🔍 Creating new SensorService instance")
-            sensorService = SensorService(activity) { sensorData ->
+            Log.d(TAG, "🔍 Creating new EnhancedSensorService instance")
+            sensorService = EnhancedSensorService(activity) { sensorData ->
                 // Emit sensor data event
                 val data = JSObject()
                 data.put("magneticHeading", sensorData.magneticHeading)
@@ -56,7 +82,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                 try {
                     // Use just the event name (without plugin: prefix) for plugin events
                     trigger("sensor-data", data)
-                    Log.v(TAG, "🔍 Emitted sensor data event: source=${sensorData.source}, magnetic=${sensorData.magneticHeading}")
+                    //Log.v(TAG, "🔍 Emitted sensor data event: source=${sensorData.source}, magnetic=${sensorData.magneticHeading}")
 
                 } catch (e: Exception) {
                     Log.e(TAG, "🔍 Error triggering event: ${e.message}", e)
@@ -66,9 +92,9 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             Log.d(TAG, "🔍 SensorService already exists")
         }
         
-        Log.d(TAG, "🔍 Calling sensorService.startSensor()")
-        sensorService?.startSensor()
-        Log.d(TAG, "🔍 startSensor command completed")
+        Log.d(TAG, "🔄 Calling sensorService.startSensor(mode=$mode)")
+        sensorService?.startSensor(mode)
+        Log.d(TAG, "🔄 startSensor command completed")
         invoke.resolve()
     }
     

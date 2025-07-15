@@ -1,104 +1,111 @@
 <script lang="ts">
-    import {getBuildInfo} from '$lib/build-info';
-    import {onMount} from 'svelte';
-    import {bearing, pos} from '$lib/data.svelte';
-    import {gpsCoordinates, locationError, locationTracking} from '$lib/location.svelte';
-    import {captureLocation, captureLocationWithCompassBearing} from '$lib/captureLocation';
-    import {compassData, deviceOrientation, compassAvailable, currentHeading} from '$lib/compass.svelte';
-    import {invoke} from '@tauri-apps/api/core';
-    import {TAURI} from '$lib/tauri';
-    
-    // Detect sensor type
-    let sensorType: 'tauri-rotation-vector' | 'device-orientation' | 'none' = 'none';
-    let actualSensorSource: string | null = null;
-    let isTauriAndroid = false;
+	import {getBuildInfo} from '$lib/build-info';
+	import {onMount} from 'svelte';
+	import {bearing, pos} from '$lib/data.svelte';
+	import {gpsCoordinates, locationError, locationTracking} from '$lib/location.svelte';
+	import {captureLocation, captureLocationWithCompassBearing} from '$lib/captureLocation';
+	import {
+		compassData,
+		deviceOrientation,
+		compassAvailable,
+		currentHeading,
+		switchSensorMode,
+		currentSensorMode
+	} from '$lib/compass.svelte';
+	import {invoke} from '@tauri-apps/api/core';
+	import {TAURI, SensorMode} from '$lib/tauri';
 
-    let showDebug = false;
-    let buildInfo = getBuildInfo();
-    let currentTime: string | undefined;
-    let buildCommitHash: string | undefined;
-    let buildBranch: string | undefined;
-    let buildTimestamp: string | undefined;
-    let debugPosition: 'left' | 'right' = 'left'; // Default to left to avoid photo thumbnails
+	// Detect sensor type
+	let sensorType: 'tauri-rotation-vector' | 'device-orientation' | 'none' = 'none';
+	let actualSensorSource: string | null = null;
+	let isTauriAndroid = false;
 
-    onMount(() => {
-        // Detect sensor type
-        isTauriAndroid = TAURI && /Android/i.test(navigator.userAgent);
-        
-        // Subscribe to compass data to detect which sensor is active
-        const unsubscribe = compassData.subscribe(data => {
-            if (data && isTauriAndroid) {
-                sensorType = 'tauri-rotation-vector';
-                // Extract sensor source from the data if available
-                actualSensorSource = data.source || null;
-            } else if (data && !isTauriAndroid) {
-                sensorType = 'device-orientation';
-                actualSensorSource = null;
-            } else if (!$compassAvailable) {
-                sensorType = 'none';
-                actualSensorSource = null;
-            }
-        });
-        
-        // Update time every second
-        const interval = setInterval(() => {
-            currentTime = new Date().toLocaleTimeString(undefined, {hour12: false});
-        }, 1000);
+	let showDebug = false;
+	let buildInfo = getBuildInfo();
+	let currentTime: string | undefined;
+	let buildCommitHash: string | undefined;
+	let buildBranch: string | undefined;
+	let buildTimestamp: string | undefined;
+	let debugPosition: 'left' | 'right' = 'left'; // Default to left to avoid photo thumbnails
 
-        // Check for debug mode in localStorage or URL params
-        const urlParams = new URLSearchParams(window.location.search);
-        const debugParam = urlParams.get('debug');
-        const storedDebug = localStorage.getItem('debugMode');
+	onMount(() => {
+		// Detect sensor type
+		isTauriAndroid = TAURI && /Android/i.test(navigator.userAgent);
 
-        showDebug = debugParam === 'true' || storedDebug === 'true';
-        
-        // Load saved position preference
-        const savedPosition = localStorage.getItem('debugPosition');
-        if (savedPosition === 'left' || savedPosition === 'right') {
-            debugPosition = savedPosition;
-        }
+		// Subscribe to compass data to detect which sensor is active
+		const unsubscribe = compassData.subscribe(data => {
+			if (data && isTauriAndroid) {
+				sensorType = 'tauri-rotation-vector';
+				// Extract sensor source from the data if available
+				actualSensorSource = data.source || null;
+			} else if (data && !isTauriAndroid) {
+				sensorType = 'device-orientation';
+				actualSensorSource = null;
+			} else if (!$compassAvailable) {
+				sensorType = 'none';
+				actualSensorSource = null;
+			}
+		});
 
-        // Fetch build information from Tauri commands
-        invoke<string>('get_build_commit_hash').then((hash) => {
-            buildCommitHash = hash;
-        }).catch((err) => {
-            console.log('Failed to get build commit hash:', err.message);
-        });
+		// Update time every second
+		const interval = setInterval(() => {
+			currentTime = new Date().toLocaleTimeString(undefined, {hour12: false});
+		}, 1000);
 
-        invoke<string>('get_build_branch').then((branch) => {
-            buildBranch = branch;
-        }).catch((err) => {
-            console.log('Failed to get build branch:', err.message);
-        });
+		// Check for debug mode in localStorage or URL params
+		const urlParams = new URLSearchParams(window.location.search);
+		const debugParam = urlParams.get('debug');
+		const storedDebug = localStorage.getItem('debugMode');
 
-        invoke<string>('get_build_ts').then((ts) => {
-            buildTimestamp = ts;
-        }).catch((err) => {
-            console.log('Failed to get build timestamp:', err.message);
-        });
+		showDebug = debugParam === 'true' || storedDebug === 'true';
 
-        return () => {
-            clearInterval(interval);
-            unsubscribe();
-        };
-    });
+		// Load saved position preference
+		const savedPosition = localStorage.getItem('debugPosition');
+		if (savedPosition === 'left' || savedPosition === 'right') {
+			debugPosition = savedPosition;
+		}
 
-    export function toggleDebug() {
-        showDebug = !showDebug;
-        localStorage.setItem('debugMode', showDebug.toString());
-    }
+		// Fetch build information from Tauri commands
+		invoke<string>('get_build_commit_hash').then((hash) => {
+			buildCommitHash = hash;
+		}).catch((err) => {
+			console.log('Failed to get build commit hash:', err.message);
+		});
 
-    // Keyboard shortcut to toggle debug
-    function handleKeydown(e: KeyboardEvent) {
-        if (e.ctrlKey && e.shiftKey && e.key === 'D') {
-            toggleDebug();
-        }
-        // Ctrl+Shift+L to toggle position
-        if (e.ctrlKey && e.shiftKey && e.key === 'L' && showDebug) {
-            debugPosition = debugPosition === 'left' ? 'right' : 'left';
-            localStorage.setItem('debugPosition', debugPosition);
-        }
-    }
+		invoke<string>('get_build_branch').then((branch) => {
+			buildBranch = branch;
+		}).catch((err) => {
+			console.log('Failed to get build branch:', err.message);
+		});
+
+		invoke<string>('get_build_ts').then((ts) => {
+			buildTimestamp = ts;
+		}).catch((err) => {
+			console.log('Failed to get build timestamp:', err.message);
+		});
+
+		return () => {
+			clearInterval(interval);
+			unsubscribe();
+		};
+	});
+
+	export function toggleDebug() {
+		showDebug = !showDebug;
+		localStorage.setItem('debugMode', showDebug.toString());
+	}
+
+	// Keyboard shortcut to toggle debug
+	function handleKeydown(e: KeyboardEvent) {
+		if (e.ctrlKey && e.shiftKey && e.key === 'D') {
+			toggleDebug();
+		}
+		// Ctrl+Shift+L to toggle position
+		if (e.ctrlKey && e.shiftKey && e.key === 'L' && showDebug) {
+			debugPosition = debugPosition === 'left' ? 'right' : 'left';
+			localStorage.setItem('debugPosition', debugPosition);
+		}
+	}
 </script>
 
 <svelte:window on:keydown={handleKeydown}/>
@@ -156,53 +163,71 @@
 
             {#if $captureLocation}
                 <div class="debug-section">
-                    <div><strong>Capture Location (Source: <span class="source-badge">{$captureLocation.source}</span>):</strong></div>
+                    <div><strong>Capture Location (Source: <span class="source-badge">{$captureLocation.source}</span>):</strong>
+                    </div>
                     <div>Position: {$captureLocation.latitude.toFixed(4)}, {$captureLocation.longitude.toFixed(4)}</div>
-                    <div>Raw Heading: {$captureLocation?.heading?.toFixed(1) || 'None'}° | Accuracy: ±{$captureLocation?.accuracy?.toFixed(0)}m
+                    <div>Raw Heading: {$captureLocation?.heading?.toFixed(1) || 'None'}° | Accuracy:
+                        ±{$captureLocation?.accuracy?.toFixed(0)}m
                         {#if $captureLocation.altitude !== undefined}
                             | Alt: {$captureLocation?.altitude?.toFixed(0)}m
                         {/if}
                     </div>
-                    <div style="font-size: 9px; opacity: 0.7">Updated: {new Date($captureLocation.timestamp || 0).toLocaleTimeString()}</div>
+                    <div style="font-size: 9px; opacity: 0.7">
+                        Updated: {new Date($captureLocation.timestamp || 0).toLocaleTimeString()}</div>
                 </div>
             {/if}
 
             <div class="debug-section sensor-section">
-                <div><strong>🧭 Sensor API:</strong> 
-                    {#if actualSensorSource && actualSensorSource.includes('TYPE_')}
+
+                {#if isTauriAndroid && $compassAvailable}
+                    <div class="sensor-mode-switcher">
+                        <div><strong>Sensor Mode:</strong></div>
+                        <select
+                                value={$currentSensorMode}
+                                on:change={(e) => switchSensorMode(Number(e.currentTarget.value))}
+                                class="sensor-mode-select"
+                        >
+                            <option value={SensorMode.ROTATION_VECTOR}>Rotation Vector</option>
+                            <option value={SensorMode.GAME_ROTATION_VECTOR}>Game Rotation Vector</option>
+                            <option value={SensorMode.MADGWICK_AHRS}>Madgwick AHRS</option>
+                            <option value={SensorMode.COMPLEMENTARY_FILTER}>Complementary Filter</option>
+                            <option value={SensorMode.UPRIGHT_ROTATION_VECTOR}>Upright Mode (Portrait)</option>
+                            <option value={SensorMode.WEB_DEVICE_ORIENTATION}>Web DeviceOrientation API</option>
+                        </select>
+                    </div>
+                {/if}
+
+                <div><strong>🧭 Sensor API:</strong>
+                    {actualSensorSource} - {sensorType}
+                    {#if actualSensorSource}
                         <span class="sensor-type tauri">{actualSensorSource}</span>
-                    {:else if sensorType === 'tauri-rotation-vector' && !actualSensorSource}
+                    {:else if sensorType === 'tauri-rotation-vector'}
                         <span class="sensor-type tauri">Android Sensor (waiting...)</span>
                     {:else if sensorType === 'device-orientation'}
                         <span class="sensor-type web">Web DeviceOrientation API</span>
-                    {:else if actualSensorSource}
-                        <span class="sensor-type tauri">{actualSensorSource}</span>
                     {:else}
                         <span class="sensor-type none">Not Available</span>
                     {/if}
                 </div>
-                {#if $compassAvailable}
-                    <div>Platform: {isTauriAndroid ? 'Tauri Android' : 'Web'}</div>
-                {/if}
                 {#if $compassData}
                     <div><strong>Compass Bearing:</strong> {$compassData.magneticHeading?.toFixed(1) || 'N/A'}°</div>
-                    <div style="font-size: 10px; opacity: 0.8">True bearing: {$compassData.trueHeading?.toFixed(1) || 'N/A'}° | Accuracy: ±{$compassData.headingAccuracy?.toFixed(0) || 'N/A'}°</div>
+                    <div style="font-size: 10px; opacity: 0.8">True
+                        bearing: {$compassData.trueHeading?.toFixed(1) || 'N/A'}° | Accuracy:
+                        ±{$compassData.headingAccuracy?.toFixed(0) || 'N/A'}°
+                    </div>
                     {#if sensorType === 'tauri-rotation-vector' && $deviceOrientation}
-                        <div style="font-size: 10px; opacity: 0.8">Device tilt - Pitch: {$deviceOrientation.beta?.toFixed(1)}° | Roll: {$deviceOrientation.gamma?.toFixed(1)}°</div>
+                        <div style="font-size: 10px; opacity: 0.8">Device tilt -
+                            Pitch: {$deviceOrientation.beta?.toFixed(1)}° | Roll: {$deviceOrientation.gamma?.toFixed(1)}
+                            °
+                        </div>
                     {/if}
-                    <div style="font-size: 9px; opacity: 0.7">Updated: {new Date($compassData.timestamp).toLocaleTimeString()}</div>
+                    <div style="font-size: 9px; opacity: 0.7">
+                        Updated: {new Date($compassData.timestamp).toLocaleTimeString()}</div>
                 {:else if $compassAvailable}
                     <div style="opacity: 0.6">Waiting for sensor data...</div>
                 {/if}
-            </div>
 
-            {#if $deviceOrientation}
-                <div class="debug-section">
-                    <div><strong>Device Orientation (Gyroscope):</strong></div>
-                    <div>Alpha (Z-axis): {$deviceOrientation.alpha?.toFixed(0) || 'N/A'}° | Beta (X-axis): {$deviceOrientation.beta?.toFixed(0) || 'N/A'}°</div>
-                    <div>Gamma (Y-axis): {$deviceOrientation.gamma?.toFixed(0) || 'N/A'}° | Type: {$deviceOrientation.absolute ? 'Absolute' : 'Relative'}</div>
-                </div>
-            {/if}
+            </div>
 
             {#if $currentHeading.heading !== null}
                 <div class="debug-section compass-bearing">
@@ -216,7 +241,9 @@
             {#if $captureLocationWithCompassBearing}
                 <div class="debug-section photo-bearing">
                     <div><strong>📸 Photo Capture Data (Final):</strong></div>
-                    <div>Bearing to be saved: <span class="highlight">{$captureLocationWithCompassBearing.heading?.toFixed(1) || 'None'}°</span></div>
+                    <div>Bearing to be saved: <span
+                            class="highlight">{$captureLocationWithCompassBearing.heading?.toFixed(1) || 'None'}°</span>
+                    </div>
                     {#if $captureLocationWithCompassBearing.headingSource}
                         <div>Data source: Compass</div>
                         <div>Accuracy: {$captureLocationWithCompassBearing.headingAccuracy?.toFixed(0) || 'N/A'}°</div>
@@ -249,7 +276,7 @@
         min-width: 280px;
         box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
     }
-    
+
     .debug-overlay.left-position {
         top: 100px;
         left: 10px;
@@ -294,14 +321,14 @@
         word-break: break-all;
         line-height: 1.3;
     }
-    
+
     .compact-row {
         display: flex;
         gap: 8px;
         font-size: 10px;
         opacity: 0.9;
     }
-    
+
     .compact-row span {
         white-space: nowrap;
     }
@@ -343,7 +370,7 @@
         margin-left: 2px;
         text-transform: uppercase;
     }
-    
+
     .sensor-type {
         display: inline-block;
         padding: 2px 6px;
@@ -352,25 +379,25 @@
         margin-left: 4px;
         font-weight: bold;
     }
-    
+
     .sensor-type.tauri {
         background: rgba(76, 175, 80, 0.3);
         color: #81c784;
         border: 1px solid #4caf50;
     }
-    
+
     .sensor-type.web {
         background: rgba(255, 152, 0, 0.3);
         color: #ffb74d;
         border: 1px solid #ff9800;
     }
-    
+
     .sensor-type.none {
         background: rgba(244, 67, 54, 0.3);
         color: #ef5350;
         border: 1px solid #f44336;
     }
-    
+
     .sensor-section {
         border-color: rgba(79, 195, 247, 0.5);
         background: rgba(3, 169, 244, 0.05);
@@ -387,11 +414,39 @@
         background: rgba(79, 195, 247, 0.05);
         padding: 2px 0;
     }
-    
+
     .photo-bearing {
         border-color: #81c784;
         background: rgba(129, 199, 132, 0.05);
         padding: 2px 0;
+    }
+
+    .sensor-mode-switcher {
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px solid rgba(79, 195, 247, 0.3);
+    }
+
+    .sensor-mode-select {
+        margin-top: 4px;
+        background: rgba(0, 0, 0, 0.5);
+        color: #0f0;
+        border: 1px solid #0f0;
+        border-radius: 3px;
+        padding: 4px 8px;
+        font-size: 11px;
+        font-family: monospace;
+        width: 100%;
+        cursor: pointer;
+    }
+
+    .sensor-mode-select:hover {
+        background: rgba(0, 255, 0, 0.1);
+    }
+
+    .sensor-mode-select:focus {
+        outline: 1px solid #4fc3f7;
+        outline-offset: 1px;
     }
 
     @media (max-width: 600px) {
@@ -401,7 +456,7 @@
             left: 5px;
             min-width: auto;
         }
-        
+
         .debug-overlay.left-position {
             top: 50px;
             left: 5px;
