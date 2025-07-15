@@ -1,7 +1,7 @@
 // Tauri platform detection and utilities
 // Based on pattern from yellow-dev project
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke, addPluginListener } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { platform } from '@tauri-apps/plugin-os';
 
@@ -71,12 +71,11 @@ export const tauriSensor = TAURI ? {
         });
     },
     onSensorData: async (callback: (data: SensorData) => void) => {
-        console.log('🔍👂 Setting up sensor data listener for event: plugin:hillview:sensor-data');
+        console.log('🔍👂 Setting up sensor data listener using addPluginListener');
         try {
-            const unlisten = await listen<SensorData>('plugin:hillview:sensor-data', (event) => {
-                console.log('🔍📡 Received sensor event:', event);
-                console.log('🔍📡 Event payload:', event.payload);
-                callback(event.payload);
+            const unlisten = await addPluginListener('hillview', 'sensor-data', (data: any) => {
+                console.log('🔍📡 Received sensor event from plugin:', data);
+                callback(data as SensorData);
             });
             console.log('🔍✅ Sensor listener setup complete, unlisten function:', typeof unlisten);
             return unlisten;

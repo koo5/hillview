@@ -62,21 +62,12 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                 
                 Log.v(TAG, "🔍 Emitting sensor data event: magnetic=${sensorData.magneticHeading}, source=${sensorData.sensorSource}")
                 
-                // Try triggering directly without runOnUiThread
+                // Trigger the sensor-data event as per Tauri plugin documentation
                 try {
-                    trigger("test-event", data)
-                    Log.v(TAG, "🔍 Event triggered directly as test-event")
+                    trigger("sensor-data", data)
+                    Log.v(TAG, "🔍 Event triggered: sensor-data")
                 } catch (e: Exception) {
                     Log.e(TAG, "🔍 Error triggering event: ${e.message}", e)
-                    // If that fails, try on UI thread
-                    activity.runOnUiThread {
-                        try {
-                            trigger("test-event", data)
-                            Log.v(TAG, "🔍 Event triggered on UI thread as test-event")
-                        } catch (e2: Exception) {
-                            Log.e(TAG, "🔍 Error triggering on UI thread: ${e2.message}", e2)
-                        }
-                    }
                 }
             }
         } else {

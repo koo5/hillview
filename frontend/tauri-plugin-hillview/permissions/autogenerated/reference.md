@@ -8,6 +8,7 @@ Default permissions for the plugin
 - `allow-start-sensor`
 - `allow-stop-sensor`
 - `allow-update-sensor-location`
+- `allow-register-listener`
 
 ## Permission Table
 
@@ -40,6 +41,32 @@ Enables the ping command without any pre-configured scope.
 <td>
 
 Denies the ping command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:allow-register-listener`
+
+</td>
+<td>
+
+Enables the register_listener command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:deny-register-listener`
+
+</td>
+<td>
+
+Denies the register_listener command without any pre-configured scope.
 
 </td>
 </tr>

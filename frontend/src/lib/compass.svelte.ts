@@ -131,18 +131,6 @@ async function startTauriSensor(): Promise<boolean> {
         // Set up sensor data listener
         console.log('🔍 About to set up sensor data listener...');
         
-        // Also listen directly for the sensor-data event
-        const { listen } = await import('@tauri-apps/api/event');
-        const directListener = await listen('sensor-data', (event) => {
-            console.log('🔍⭐ SENSOR EVENT RECEIVED DIRECTLY:', event);
-        });
-        
-        // Listen for test-event which we know works
-        const testListener = await listen('test-event', (event) => {
-            console.log('🔍🎯 TEST EVENT FROM PLUGIN:', event);
-            console.log('🔍🎯 SENSOR DATA:', event.payload);
-        });
-        
         tauriSensorUnlisten = await sensor.onSensorData((data: SensorData) => {
             console.log('🔍📡 Tauri sensor data received:', data);
 
@@ -201,8 +189,14 @@ async function startTauriSensor(): Promise<boolean> {
 async function startWebCompass(): Promise<boolean> {
     return new Promise((resolve) => {
         let hasResolved = false;
-        
+        let lastUpdate = 0;
+        const THROTTLE_MS = 300; // Minimum ms between updates
+
         orientationHandler = (event: DeviceOrientationEvent) => {
+            const now = Date.now();
+            if (now - lastUpdate < THROTTLE_MS) return;
+            lastUpdate = now;
+
             if (!hasResolved) {
                 hasResolved = true;
                 console.log('✅ DeviceOrientation API is working');

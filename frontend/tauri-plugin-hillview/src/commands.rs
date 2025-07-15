@@ -52,3 +52,13 @@ pub(crate) async fn update_sensor_location<R: Runtime>(
     
     Ok(())
 }
+
+#[command]
+pub(crate) async fn register_listener<R: Runtime>(
+    _app: AppHandle<R>,
+    _event: String,
+) -> Result<()> {
+    // This command is required for addPluginListener to work
+    // The actual event registration is handled by Tauri internally
+    Ok(())
+}
