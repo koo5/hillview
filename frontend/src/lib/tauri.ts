@@ -2,7 +2,6 @@
 // Based on pattern from yellow-dev project
 
 import { invoke, addPluginListener } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
 import { platform } from '@tauri-apps/plugin-os';
 
 // Check if window is defined (tests/SSR may not have window)
@@ -38,7 +37,7 @@ export interface SensorData {
     pitch: number;
     roll: number;
     timestamp: number;
-    sensorSource?: string;    // Identifies which sensor provided the data
+    source?: string;    // Identifies which sensor provided the data
 }
 
 // Conditional Tauri sensor API

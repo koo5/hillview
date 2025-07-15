@@ -27,20 +27,10 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         private var pluginInstance: ExamplePlugin? = null
     }
     
-    private val implementation = Example()
     private var sensorService: SensorService? = null
     
     init {
         pluginInstance = this
-    }
-
-    @Command
-    fun ping(invoke: Invoke) {
-        val args = invoke.parseArgs(PingArgs::class.java)
-
-        val ret = JSObject()
-        ret.put("value", implementation.pong(args.value ?: "default value :("))
-        invoke.resolve(ret)
     }
     
     @Command
@@ -58,15 +48,16 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                 data.put("pitch", sensorData.pitch)
                 data.put("roll", sensorData.roll)
                 data.put("timestamp", sensorData.timestamp)
-                data.put("sensorSource", sensorData.sensorSource)
+                data.put("source", sensorData.source)
                 
-                Log.v(TAG, "🔍 Emitting sensor data event: magnetic=${sensorData.magneticHeading}, source=${sensorData.sensorSource}")
+                //Log.v(TAG, "🔍 Emitting sensor data event: magnetic=${sensorData.magneticHeading}, source=${sensorData.source}")
                 
                 // Trigger the sensor-data event as per Tauri plugin documentation
                 try {
                     // Use just the event name (without plugin: prefix) for plugin events
                     trigger("sensor-data", data)
-                    Log.v(TAG, "🔍 Event triggered: sensor-data")
+                    Log.v(TAG, "🔍 Emitted sensor data event: source=${sensorData.source}, magnetic=${sensorData.magneticHeading}")
+
                 } catch (e: Exception) {
                     Log.e(TAG, "🔍 Error triggering event: ${e.message}", e)
                 }

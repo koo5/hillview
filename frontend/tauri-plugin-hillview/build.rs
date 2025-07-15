@@ -1,4 +1,4 @@
-const COMMANDS: &[&str] = &["ping", "start_sensor", "stop_sensor", "update_sensor_location"];
+const COMMANDS: &[&str] = &["start_sensor", "stop_sensor", "update_sensor_location"];
 
 fn main() {
   tauri_plugin::Builder::new(COMMANDS)

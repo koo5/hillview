@@ -40,8 +40,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
       commands::start_sensor,
       commands::stop_sensor,
       commands::update_sensor_location,
-      commands::register_listener
-    ])
+      ])
     .setup(|app, api| {
       #[cfg(mobile)]
       let hillview = mobile::init(app, api)?;

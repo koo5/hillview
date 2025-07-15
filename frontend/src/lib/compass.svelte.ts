@@ -2,6 +2,7 @@ import { writable, derived, get } from 'svelte/store';
 import { gpsCoordinates } from './location.svelte';
 import type { UnlistenFn } from '@tauri-apps/api/event';
 import { TAURI, TAURI_MOBILE, tauriSensor, isSensorAvailable, type SensorData } from './tauri';
+import {PluginListener} from "@tauri-apps/api/core";
 
 export interface CompassData {
     magneticHeading: number | null;  // 0-360 degrees from magnetic north
@@ -41,14 +42,14 @@ export const currentHeading = derived(
         if ($compassData && $compassData.trueHeading !== null) {
             return {
                 heading: $compassData.trueHeading,
-                source: 'compass-true' as const,
+                source: ($compassData.source + '-compass-true') as string,
                 accuracy: $compassData.headingAccuracy
             };
         }
         if ($compassData && $compassData.magneticHeading !== null) {
             return {
                 heading: $compassData.magneticHeading,
-                source: ($compassData.source + '-compass-magnetic') as 'tauri-compass-magnetic' | 'web-compass-magnetic' | string,
+                source: ($compassData.source + '-compass-magnetic') as string,
                 accuracy: $compassData.headingAccuracy
             };
         }
@@ -74,7 +75,7 @@ let permissionGranted = false;
 
 // Track active listeners
 let orientationHandler: ((event: DeviceOrientationEvent) => void) | null = null;
-let tauriSensorUnlisten: UnlistenFn | null = null;
+let tauriSensorListener: PluginListener | null = null;
 
 // Helper to normalize heading to 0-360 range
 function normalizeHeading(heading: number): number {
@@ -111,53 +112,29 @@ async function startTauriSensor(): Promise<boolean> {
             console.error('🔍❌ sensor.startSensor() threw error:', startError);
             throw startError;
         }
-        
-        // Set up location update listener
-        const unsubscribe = gpsCoordinates.subscribe(coords => {
-            if (coords && coords.latitude !== null && coords.longitude !== null) {
-                if (Math.random() < 0.1) { // Log 10% of updates
-                    console.log('🔍📍 Updating sensor location:', coords.latitude.toFixed(6), coords.longitude.toFixed(6));
-                }
-                
-                // Update sensor location (fire and forget)
-                if (sensor) {
-                    sensor.updateSensorLocation(coords.latitude, coords.longitude).catch(error => {
-                        console.error('🔍 Failed to update sensor location:', error);
-                    });
-                }
-            }
-        });
-        
+
         // Set up sensor data listener
         console.log('🔍 About to set up sensor data listener...');
         
-        tauriSensorUnlisten = await sensor.onSensorData((data: SensorData) => {
-            console.log('🔍📡 Tauri sensor data received:', data);
+        tauriSensorListener = await sensor.onSensorData((data: SensorData) => {
+            console.log('🔍📡 Native sensor data received:', JSON.stringify(data, null, 2));
 
             // Handle potentially different event formats
-            const sensorData = data.magneticHeading !== undefined ? data : (data.payload || data);
+            const sensorData = data;
 
             const compassUpdate = {
                 magneticHeading: sensorData.magneticHeading,
                 trueHeading: sensorData.trueHeading,
                 headingAccuracy: sensorData.headingAccuracy,
                 timestamp: sensorData.timestamp,
-                source: sensorData.sensorSource || 'tauri'
+                source: sensorData.source || 'tauri'
             };
             
             compassData.set(compassUpdate);
-            
-            // Also update device orientation for compatibility
-            deviceOrientation.set({
-                alpha: data.magneticHeading,
-                beta: data.pitch,
-                gamma: data.roll,
-                absolute: true
-            });
-            
+
             // Log every ~10th update
-            if (Math.random() < 0.1) {
-                console.log(`🔍🧭 Compass update from ${data.sensorSource || 'Unknown'}:`, {
+            if (Math.random() < 1.1) {
+                console.log(`🔍🧭 Compass update from ${data.source || 'Unknown'}:`, {
                     'compass bearing (magnetic)': compassUpdate.magneticHeading?.toFixed(1) + '°',
                     'compass bearing (true)': compassUpdate.trueHeading?.toFixed(1) + '°',
                     accuracy: '±' + compassUpdate.headingAccuracy?.toFixed(1) + '°',
@@ -167,9 +144,9 @@ async function startTauriSensor(): Promise<boolean> {
                 });
             }
         });
-        
-        // No need to call startSensor again as it was already called at the beginning
-        
+
+        console.log('🔍✅ Tauri sensor listener:', JSON.stringify(tauriSensorListener, null, 2));
+
         return true;
     } catch (error) {
         console.error('🔍❌ Failed to start Tauri sensor:', error);
@@ -178,11 +155,6 @@ async function startTauriSensor(): Promise<boolean> {
             stack: error instanceof Error ? error.stack : undefined,
             type: error instanceof Error ? error.constructor.name : typeof error
         }));
-        // Clean up
-        if (tauriSensorUnlisten) {
-            tauriSensorUnlisten();
-            tauriSensorUnlisten = null;
-        }
         return false;
     }
 }
@@ -239,16 +211,16 @@ async function startWebCompass(): Promise<boolean> {
 
         // Try absolute orientation first
         if ('ondeviceorientationabsolute' in window) {
-            window.addEventListener('deviceorientationabsolute', orientationHandler as any);
+            window.addEventListener('deviceorientationabsolute', (e) => {orientationHandler?.({...e, source: 'ondeviceorientationabsolute'})});
         }
         // Fall back to regular orientation
-        window.addEventListener('deviceorientation', orientationHandler);
+        window.addEventListener('deviceorientation', (e) => {orientationHandler?.({...e, source: 'deviceorientation'})});
 
         // Set a timeout to check if we received any events
         setTimeout(() => {
             if (!hasResolved) {
                 hasResolved = true;
-                console.warn('⚠️ No DeviceOrientation events received');
+                console.warn('⚠️ No DeviceOrientation events received after 3 seconds');
                 resolve(false);
             }
         }, 3000);
@@ -261,9 +233,9 @@ export function stopCompass() {
     compassActive.set(false);
     
     // Stop Tauri sensor if active
-    if (tauriSensorUnlisten) {
-        tauriSensorUnlisten();
-        tauriSensorUnlisten = null;
+    if (tauriSensorListener) {
+        tauriSensorListener.unregister();
+        tauriSensorListener = null;
         
         // Try to stop the sensor service
         if (tauriSensor) {
@@ -375,6 +347,7 @@ declare global {
         webkitCompassHeading?: number;
         webkitCompassAccuracy?: number;
         compassHeading?: number;
+        source?: string;
     }
 }
 

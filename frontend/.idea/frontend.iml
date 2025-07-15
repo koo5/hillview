@@ -8,6 +8,9 @@
       <excludeFolder url="file://$MODULE_DIR$/tmp" />
       <excludeFolder url="file://$MODULE_DIR$/src-tauri/gen" />
       <excludeFolder url="file://$MODULE_DIR$/src-tauri/target" />
+      <excludeFolder url="file://$MODULE_DIR$/tauri-plugin-hillview/android/.tauri" />
+      <excludeFolder url="file://$MODULE_DIR$/tauri-plugin-hillview/android/build" />
+      <excludeFolder url="file://$MODULE_DIR$/tauri-plugin-hillview/target" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />

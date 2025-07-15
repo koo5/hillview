@@ -18,7 +18,7 @@ data class SensorData(
     val pitch: Float,
     val roll: Float,
     val timestamp: Long,
-    val sensorSource: String      // Identifies which sensor provided the data
+    val source: String      // Identifies which sensor provided the data
 )
 
 class SensorService(
@@ -195,7 +195,7 @@ class SensorService(
             accuracy = getAccuracyEstimate(pitch, roll),
             pitch = pitch,
             roll = roll,
-            sensorSource = "TYPE_ROTATION_VECTOR"
+            source = "TYPE_ROTATION_VECTOR"
         )
     }
     
@@ -221,7 +221,7 @@ class SensorService(
                 accuracy = getAccuracyEstimate(pitch, roll) + 5, // Less accurate than rotation vector
                 pitch = pitch,
                 roll = roll,
-                sensorSource = "TYPE_MAGNETIC_FIELD + TYPE_ACCELEROMETER"
+                source = "TYPE_MAGNETIC_FIELD + TYPE_ACCELEROMETER"
             )
         }
     }
@@ -257,7 +257,7 @@ class SensorService(
         accuracy: Float,
         pitch: Float,
         roll: Float,
-        sensorSource: String
+        source: String
     ) {
         val data = SensorData(
             magneticHeading = magneticHeading,
@@ -266,7 +266,7 @@ class SensorService(
             pitch = pitch,
             roll = roll,
             timestamp = System.currentTimeMillis(),
-            sensorSource = sensorSource
+            source = source
         )
         
         onSensorUpdate(data)

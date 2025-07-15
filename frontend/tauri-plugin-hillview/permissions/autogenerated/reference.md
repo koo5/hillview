@@ -48,32 +48,6 @@ Denies the ping command without any pre-configured scope.
 <tr>
 <td>
 
-`hillview:allow-register-listener`
-
-</td>
-<td>
-
-Enables the register_listener command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`hillview:deny-register-listener`
-
-</td>
-<td>
-
-Denies the register_listener command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
 `hillview:allow-start-sensor`
 
 </td>
