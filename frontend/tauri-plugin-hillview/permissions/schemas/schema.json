@@ -307,6 +307,18 @@
           "markdownDescription": "Denies the ping command without any pre-configured scope."
         },
         {
+          "description": "Enables the registerListener command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-registerListener",
+          "markdownDescription": "Enables the registerListener command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the registerListener command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-registerListener",
+          "markdownDescription": "Denies the registerListener command without any pre-configured scope."
+        },
+        {
           "description": "Enables the start_sensor command without any pre-configured scope.",
           "type": "string",
           "const": "allow-start-sensor",
@@ -343,10 +355,10 @@
           "markdownDescription": "Denies the update_sensor_location command without any pre-configured scope."
         },
         {
-          "description": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-ping`\n- `allow-start-sensor`\n- `allow-stop-sensor`\n- `allow-update-sensor-location`\n- `allow-register-listener`",
+          "description": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-ping`\n- `allow-start-sensor`\n- `allow-stop-sensor`\n- `allow-update-sensor-location`\n- `allow-registerListener`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-ping`\n- `allow-start-sensor`\n- `allow-stop-sensor`\n- `allow-update-sensor-location`\n- `allow-register-listener`"
+          "markdownDescription": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-ping`\n- `allow-start-sensor`\n- `allow-stop-sensor`\n- `allow-update-sensor-location`\n- `allow-registerListener`"
         }
       ]
     }

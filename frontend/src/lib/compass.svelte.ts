@@ -117,7 +117,7 @@ async function startTauriSensor(): Promise<boolean> {
         console.log('🔍 About to set up sensor data listener...');
         
         tauriSensorListener = await sensor.onSensorData((data: SensorData) => {
-            console.log('🔍📡 Native sensor data received:', JSON.stringify(data, null, 2));
+            console.log('🔍📡 Native sensor data received:', JSON.stringify(data));
 
             // Handle potentially different event formats
             const sensorData = data;
@@ -134,18 +134,18 @@ async function startTauriSensor(): Promise<boolean> {
 
             // Log every ~10th update
             if (Math.random() < 1.1) {
-                console.log(`🔍🧭 Compass update from ${data.source || 'Unknown'}:`, {
+                console.log(`🔍🧭 Compass update from ${data.source || 'Unknown'}:`, JSON.stringify({
                     'compass bearing (magnetic)': compassUpdate.magneticHeading?.toFixed(1) + '°',
                     'compass bearing (true)': compassUpdate.trueHeading?.toFixed(1) + '°',
                     accuracy: '±' + compassUpdate.headingAccuracy?.toFixed(1) + '°',
                     pitch: data.pitch?.toFixed(1) + '°',
                     roll: data.roll?.toFixed(1) + '°',
                     timestamp: new Date(data.timestamp).toLocaleTimeString()
-                });
+                }));
             }
         });
 
-        console.log('🔍✅ Tauri sensor listener:', JSON.stringify(tauriSensorListener, null, 2));
+        console.log('🔍✅ Tauri sensor listener:', JSON.stringify(tauriSensorListener));
 
         return true;
     } catch (error) {
