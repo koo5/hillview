@@ -103,6 +103,11 @@ export async function fetch_photos() {
         // Add device photos
         const devicePhotosList = get(devicePhotos);
         const deviceSource = get(sources).find(s => s.id === 'device');
+        console.log('Device photos check:', {
+            deviceSource: deviceSource?.id,
+            enabled: deviceSource?.enabled,
+            devicePhotosCount: devicePhotosList?.length
+        });
         if (deviceSource && deviceSource.enabled && devicePhotosList && devicePhotosList.length > 0) {
             console.log('Adding device photos:', devicePhotosList.length);
             for (let photo of devicePhotosList) {

@@ -15,7 +15,7 @@
     import DebugOverlay from '../components/DebugOverlay.svelte';
     import MapillaryCacheStatus from '../components/MapillaryCacheStatus.svelte';
     import { gpsLocation } from '$lib/location.svelte';
-    import { photoCaptureService } from '$lib/photoCapture';
+    import { photoCaptureService, type DevicePhotoMetadata } from '$lib/photoCapture';
     import { devicePhotos } from '$lib/stores';
     import { captureLocation, captureLocationWithCompassBearing } from '$lib/captureLocation';
     import { compassActive, stopCompass } from '$lib/compass.svelte';
@@ -212,7 +212,39 @@
             return;
         }
         
+        // Generate a temporary ID for the placeholder
+        const tempId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        const timestamp = Date.now();
+        
         try {
+            // Create a minimal placeholder photo entry for map display
+            const placeholderPhoto: DevicePhotoMetadata = {
+                id: tempId,
+                filename: 'processing.jpg',
+                path: '', // Empty path - won't be rendered
+                latitude: captureLoc.latitude,
+                longitude: captureLoc.longitude,
+                altitude: captureLoc.altitude,
+                bearing: captureLoc.heading,
+                timestamp: timestamp,
+                accuracy: captureLoc.accuracy || 1,
+                width: 0,
+                height: 0,
+                file_size: 0,
+                created_at: timestamp
+            };
+            
+            // Add placeholder to device photos immediately
+            devicePhotos.update(photos => {
+                const updated = [...photos, placeholderPhoto];
+                console.log('Added placeholder to devicePhotos:', placeholderPhoto.id, 'Total device photos:', updated.length);
+                return updated;
+            });
+            
+            // Trigger photo worker update to show the new photo on map immediately
+            console.log('Calling fetch_photos to update map...');
+            await fetch_photos();
+            
             // Prepare photo data with capture location (either GPS or map position)
             const photoData = {
                 image: file,
@@ -223,23 +255,32 @@
                     accuracy: captureLoc.accuracy || 1 // Default to 1m if undefined
                 },
                 bearing: captureLoc.heading,
-                timestamp: Date.now()
+                timestamp: timestamp
             };
             
             console.log(`Saving photo with ${captureLoc.source} location:`, captureLoc);
             
-            // Save photo with EXIF metadata
+            // Save photo with EXIF metadata (this takes time)
             const savedPhoto = await photoCaptureService.savePhotoWithExif(photoData);
             
-            // Update device photos store
-            devicePhotos.update(photos => [...photos, savedPhoto]);
+            // Update the placeholder with real photo data
+            devicePhotos.update(photos => {
+                // Remove the placeholder
+                const filteredPhotos = photos.filter(p => p.id !== tempId);
+                // Add the real photo
+                return [...filteredPhotos, savedPhoto];
+            });
             
-            // Refresh photos to show on map
+            // Refresh photos again to update with real data
             await fetch_photos();
             
             // Keep camera view open for continuous capture
         } catch (error) {
             console.error('Failed to save captured photo:', error);
+            
+            // Remove placeholder if save failed
+            devicePhotos.update(photos => photos.filter(p => p.id !== tempId));
+            
             alert('Failed to save photo. Please try again.');
         }
     }

@@ -112,6 +112,12 @@
             return;
         }
 
+        // Dispatch capture started event immediately
+        dispatch('captureStarted', { 
+            location: locationData,
+            timestamp: Date.now()
+        });
+
         try {
             // Set canvas size to match video
             canvas.width = video.videoWidth;

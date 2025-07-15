@@ -1,119 +1,130 @@
 <script lang="ts">
-    import { createEventDispatcher } from 'svelte';
-    import { Camera } from 'lucide-svelte';
+	import {createEventDispatcher} from 'svelte';
+	import {Camera} from 'lucide-svelte';
 
-    export let disabled = false;
-    export let size = 32;
-    export let captureInterval = 500;
+	export let disabled = false;
+	export let size = 32;
+	export let captureInterval = 500;
 
-    const dispatch = createEventDispatcher();
+	const dispatch = createEventDispatcher();
 
-    let isCapturing = false;
-    let longPressTimer: ReturnType<typeof setTimeout> | null = null;
-    let continuousCaptureInterval: ReturnType<typeof setInterval> | null = null;
-    let isCaptureInProgress = false;
+	let isCapturing = false;
+	let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+	let continuousCaptureInterval: ReturnType<typeof setInterval> | null = null;
+	let isCaptureInProgress = false;
 
-    function startContinuousCapture() {
-        if (isCapturing) return;
-        
-        isCapturing = true;
-        dispatch('captureStart');
-        
-        // Capture immediately
-        triggerCapture();
-        
-        // Then capture at specified interval
-        continuousCaptureInterval = setInterval(() => {
-            if (isCapturing && !isCaptureInProgress) {
-                triggerCapture();
-            }
-        }, captureInterval);
-    }
+	function startContinuousCapture() {
+		if (isCapturing) {
+			console.log('CaptureButton: already capturing');
+			return;
+		}
 
-    function triggerCapture() {
-        if (isCaptureInProgress) return;
-        
-        isCaptureInProgress = true;
-        dispatch('capture');
-        
-        // Reset the flag after a reasonable timeout (2 seconds)
-        // This prevents permanent blocking if capture callback doesn't complete
-        setTimeout(() => {
-            isCaptureInProgress = false;
-        }, 2000);
-    }
+		isCapturing = true;
+		dispatch('captureStart');
 
-    function stopContinuousCapture() {
-        isCapturing = false;
-        if (continuousCaptureInterval) {
-            clearInterval(continuousCaptureInterval);
-            continuousCaptureInterval = null;
-        }
-        dispatch('captureStop');
-    }
+		// Capture immediately
+		triggerCapture();
 
-    function handlePointerDown(event: PointerEvent) {
-        console.log('CaptureButton: pointerdown event', event.type, event.pointerId);
-        
-        // Clear any existing timer
-        if (longPressTimer) {
-            clearTimeout(longPressTimer);
-        }
-        
-        // Start a timer for long press detection (500ms)
-        longPressTimer = setTimeout(() => {
-            console.log('CaptureButton: long press detected, starting continuous capture');
-            startContinuousCapture();
-        }, 500);
-    }
+		// Then capture at specified interval
+		continuousCaptureInterval = setInterval(() => {
+			console.log('CaptureButton: continuous capture interval, isCapturing:', isCapturing, 'isCaptureInProgress:', isCaptureInProgress);
+			if (isCapturing && !isCaptureInProgress) {
+				triggerCapture();
+			}
+		}, captureInterval);
+	}
 
-    function handlePointerUp(event: PointerEvent) {
-        console.log('CaptureButton: pointerup event', event.type, 'isCapturing:', isCapturing);
-        
-        // Clear the long press timer
-        if (longPressTimer) {
-            clearTimeout(longPressTimer);
-            longPressTimer = null;
-        }
-        
-        if (isCapturing) {
-            // Stop continuous capture
-            stopContinuousCapture();
-        } else {
-            // It was a short press, take single photo
-            triggerCapture();
-        }
-    }
+	function triggerCapture() {
+		console.log('CaptureButton: trigger capture, isCapturing:', isCapturing, 'isCaptureInProgress:', isCaptureInProgress);
 
-    function handlePointerLeave() {
-        // Clean up if pointer leaves the button
-        if (longPressTimer) {
-            clearTimeout(longPressTimer);
-            longPressTimer = null;
-        }
-        if (isCapturing) {
-            stopContinuousCapture();
-        }
-    }
+		if (isCaptureInProgress) return;
 
-    // Cleanup
-    $: if (disabled && isCapturing) {
-        stopContinuousCapture();
-    }
+		isCaptureInProgress = true;
+		dispatch('capture');
 
-    // Allow parent to signal when capture is complete
-    export function captureComplete() {
-        isCaptureInProgress = false;
-    }
+		// Reset the flag after a reasonable timeout (2 seconds)
+		// This prevents permanent blocking if capture callback doesn't complete
+		setTimeout(() => {
+			isCaptureInProgress = false;
+		}, 2000);
+	}
+
+	function stopContinuousCapture() {
+		console.log('CaptureButton: stop continuous capture, isCapturing:', isCapturing, 'isCaptureInProgress:', isCaptureInProgress);
+		isCapturing = false;
+		if (continuousCaptureInterval) {
+			clearInterval(continuousCaptureInterval);
+			continuousCaptureInterval = null;
+		}
+		dispatch('captureStop');
+	}
+
+	function handlePointerDown(event: PointerEvent) {
+		console.log('CaptureButton: pointerdown event', event.type, event.pointerId);
+		event.preventDefault();
+
+		if (isCapturing) {
+			stopContinuousCapture();
+		} else {
+		}
+
+		// Clear any existing timer
+		if (longPressTimer) {
+			clearTimeout(longPressTimer);
+		}
+
+		// Start a timer for long press detection (500ms)
+		longPressTimer = setTimeout(() => {
+			console.log('CaptureButton: long press detected, starting continuous capture');
+			startContinuousCapture();
+		}, 500);
+	}
+
+	function handlePointerUp(event: PointerEvent) {
+		console.log('CaptureButton: pointerup event', event.type, 'isCapturing:', isCapturing);
+
+		// Clear the long press timer
+		if (longPressTimer) {
+			clearTimeout(longPressTimer);
+			longPressTimer = null;
+		}
+
+		if (isCapturing) {
+		} else {
+			// It was a short press, take single photo
+			triggerCapture();
+		}
+	}
+
+	function handlePointerLeave() {
+		// Clean up if pointer leaves the button
+		if (longPressTimer) {
+			clearTimeout(longPressTimer);
+			longPressTimer = null;
+		}
+		if (isCapturing) {
+			//    stopContinuousCapture();
+		}
+	}
+
+	// Cleanup
+	$: if (disabled && isCapturing) {
+		stopContinuousCapture();
+	}
+
+	// Allow parent to signal when capture is complete
+	export function captureComplete() {
+		isCaptureInProgress = false;
+	}
 </script>
 
 <button
-    class="capture-button {isCapturing ? 'capturing' : ''}"
-    on:pointerdown={handlePointerDown}
-    on:pointerup={handlePointerUp}
-    on:pointerleave={handlePointerLeave}
-    {disabled}
-    aria-label="{isCapturing ? 'Stop continuous capture' : 'Capture photo (hold for continuous)'}"
+        class="capture-button {isCapturing ? 'capturing' : ''}"
+        on:pointerdown={handlePointerDown}
+        on:pointerup={handlePointerUp}
+        on:pointerleave={handlePointerLeave}
+        {disabled}
+        aria-label="{isCapturing ? 'Stop continuous capture' : 'Capture photo (hold for continuous)'}"
 >
     <Camera {size}/>
 </button>
@@ -132,6 +143,10 @@
         transition: all 0.2s;
         color: black;
         position: relative;
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-touch-callout: none;
     }
 
     .capture-button:hover:not(:disabled) {
