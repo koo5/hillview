@@ -76,7 +76,6 @@ export const tauriSensor = TAURI ? {
             const unlisten = await listen<SensorData>('plugin:hillview:sensor-data', (event) => {
                 console.log('🔍📡 Received sensor event:', event);
                 console.log('🔍📡 Event payload:', event.payload);
-                console.log('🔍📡 Calling callback with data');
                 callback(event.payload);
             });
             console.log('🔍✅ Sensor listener setup complete, unlisten function:', typeof unlisten);

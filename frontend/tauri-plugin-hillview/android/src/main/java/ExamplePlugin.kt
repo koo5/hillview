@@ -24,10 +24,15 @@ class LocationUpdateArgs {
 class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     companion object {
         private const val TAG = "HillviewPlugin"
+        private var pluginInstance: ExamplePlugin? = null
     }
     
     private val implementation = Example()
     private var sensorService: SensorService? = null
+    
+    init {
+        pluginInstance = this
+    }
 
     @Command
     fun ping(invoke: Invoke) {
@@ -56,7 +61,23 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                 data.put("sensorSource", sensorData.sensorSource)
                 
                 Log.v(TAG, "🔍 Emitting sensor data event: magnetic=${sensorData.magneticHeading}, source=${sensorData.sensorSource}")
-                trigger("plugin:hillview:sensor-data", data)
+                
+                // Try triggering directly without runOnUiThread
+                try {
+                    trigger("test-event", data)
+                    Log.v(TAG, "🔍 Event triggered directly as test-event")
+                } catch (e: Exception) {
+                    Log.e(TAG, "🔍 Error triggering event: ${e.message}", e)
+                    // If that fails, try on UI thread
+                    activity.runOnUiThread {
+                        try {
+                            trigger("test-event", data)
+                            Log.v(TAG, "🔍 Event triggered on UI thread as test-event")
+                        } catch (e2: Exception) {
+                            Log.e(TAG, "🔍 Error triggering on UI thread: ${e2.message}", e2)
+                        }
+                    }
+                }
             }
         } else {
             Log.d(TAG, "🔍 SensorService already exists")

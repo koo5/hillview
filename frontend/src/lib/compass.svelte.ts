@@ -130,6 +130,19 @@ async function startTauriSensor(): Promise<boolean> {
         
         // Set up sensor data listener
         console.log('🔍 About to set up sensor data listener...');
+        
+        // Also listen directly for the sensor-data event
+        const { listen } = await import('@tauri-apps/api/event');
+        const directListener = await listen('sensor-data', (event) => {
+            console.log('🔍⭐ SENSOR EVENT RECEIVED DIRECTLY:', event);
+        });
+        
+        // Listen for test-event which we know works
+        const testListener = await listen('test-event', (event) => {
+            console.log('🔍🎯 TEST EVENT FROM PLUGIN:', event);
+            console.log('🔍🎯 SENSOR DATA:', event.payload);
+        });
+        
         tauriSensorUnlisten = await sensor.onSensorData((data: SensorData) => {
             console.log('🔍📡 Tauri sensor data received:', data);
 
@@ -138,8 +151,8 @@ async function startTauriSensor(): Promise<boolean> {
                 trueHeading: data.trueHeading,
                 headingAccuracy: data.headingAccuracy,
                 timestamp: data.timestamp,
-                sensorSource: data.sensorSource
-            } as any;
+                source: data.sensorSource || 'tauri'
+            };
             
             compassData.set(compassUpdate);
             

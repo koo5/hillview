@@ -30,7 +30,7 @@
             if (data && isTauriAndroid) {
                 sensorType = 'tauri-rotation-vector';
                 // Extract sensor source from the data if available
-                actualSensorSource = (data as any).sensorSource || null;
+                actualSensorSource = data.source || null;
             } else if (data && !isTauriAndroid) {
                 sensorType = 'device-orientation';
                 actualSensorSource = null;
@@ -169,12 +169,14 @@
 
             <div class="debug-section sensor-section">
                 <div><strong>🧭 Sensor API:</strong> 
-                    {#if actualSensorSource}
+                    {#if actualSensorSource && actualSensorSource.includes('TYPE_')}
                         <span class="sensor-type tauri">{actualSensorSource}</span>
-                    {:else if sensorType === 'tauri-rotation-vector'}
+                    {:else if sensorType === 'tauri-rotation-vector' && !actualSensorSource}
                         <span class="sensor-type tauri">Android Sensor (waiting...)</span>
                     {:else if sensorType === 'device-orientation'}
                         <span class="sensor-type web">Web DeviceOrientation API</span>
+                    {:else if actualSensorSource}
+                        <span class="sensor-type tauri">{actualSensorSource}</span>
                     {:else}
                         <span class="sensor-type none">Not Available</span>
                     {/if}
