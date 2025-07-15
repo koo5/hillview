@@ -73,6 +73,7 @@ export const tauriSensor = TAURI ? {
     onSensorData: async (callback: (data: SensorData) => void) => {
         console.log('🔍👂 Setting up sensor data listener using addPluginListener');
         try {
+            // Use addPluginListener as per Tauri mobile plugin documentation
             const unlisten = await addPluginListener('hillview', 'sensor-data', (data: any) => {
                 console.log('🔍📡 Received sensor event from plugin:', data);
                 callback(data as SensorData);

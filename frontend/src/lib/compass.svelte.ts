@@ -134,12 +134,15 @@ async function startTauriSensor(): Promise<boolean> {
         tauriSensorUnlisten = await sensor.onSensorData((data: SensorData) => {
             console.log('🔍📡 Tauri sensor data received:', data);
 
+            // Handle potentially different event formats
+            const sensorData = data.magneticHeading !== undefined ? data : (data.payload || data);
+
             const compassUpdate = {
-                magneticHeading: data.magneticHeading,
-                trueHeading: data.trueHeading,
-                headingAccuracy: data.headingAccuracy,
-                timestamp: data.timestamp,
-                source: data.sensorSource || 'tauri'
+                magneticHeading: sensorData.magneticHeading,
+                trueHeading: sensorData.trueHeading,
+                headingAccuracy: sensorData.headingAccuracy,
+                timestamp: sensorData.timestamp,
+                source: sensorData.sensorSource || 'tauri'
             };
             
             compassData.set(compassUpdate);
@@ -165,8 +168,7 @@ async function startTauriSensor(): Promise<boolean> {
             }
         });
         
-        // Start the sensor
-        await sensor.startSensor();
+        // No need to call startSensor again as it was already called at the beginning
         
         return true;
     } catch (error) {

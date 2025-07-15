@@ -64,6 +64,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                 
                 // Trigger the sensor-data event as per Tauri plugin documentation
                 try {
+                    // Use just the event name (without plugin: prefix) for plugin events
                     trigger("sensor-data", data)
                     Log.v(TAG, "🔍 Event triggered: sensor-data")
                 } catch (e: Exception) {
