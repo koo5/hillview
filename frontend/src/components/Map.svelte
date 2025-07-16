@@ -14,13 +14,13 @@
         update_pos,
         pos2,
         bearing,
-        photos_in_area,
         photo_in_front,
         photo_to_left,
         photo_to_right,
         update_bearing,
         turn_to_photo_to, update_pos2
     } from "$lib/data.svelte";
+    import { combinedPhotosInArea } from '$lib/combinedPhotos';
     import {sources} from "$lib/sources";
     import { updateGpsLocation, setLocationTracking, setLocationError, gpsLocation } from "$lib/location.svelte";
     import { compassActive, compassAvailable, startCompass, stopCompass, currentHeading } from "$lib/compass.svelte";
@@ -830,7 +830,7 @@
     
     // Create a reactive key that changes whenever photos change
     let photosUpdateKey = 0;
-    $: if ($photos_in_area) {
+    $: if ($combinedPhotosInArea) {
         photosUpdateKey = Date.now();
     }
 
@@ -919,7 +919,7 @@
 
         <!-- Markers for photos -->
         {#key photosUpdateKey}
-            {#each $photos_in_area as photo (photo.id)}
+            {#each $combinedPhotosInArea as photo (photo.id)}
                 <Marker
                         zIndexOffset={10000*180-photo.abs_bearing_diff*10000}
                         latLng={photo.coord}

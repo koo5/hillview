@@ -3,7 +3,11 @@
     import {X} from 'lucide-svelte';
     import {photoCaptureSettings} from '$lib/stores';
     import {app} from "$lib/data.svelte";
-    import CaptureButton from './CaptureButton.svelte';
+    import DualCaptureButton from './DualCaptureButton.svelte';
+    import CaptureQueueStatus from './CaptureQueueStatus.svelte';
+    import { captureQueue } from '$lib/captureQueue';
+    import { injectPlaceholder } from '$lib/placeholderInjector';
+    import { devicePhotos } from '$lib/stores';
 
     const dispatch = createEventDispatcher();
 
@@ -30,7 +34,7 @@
     let minZoom = 1;
     let maxZoom = 1;
     let videoTrack: MediaStreamTrack | null = null;
-    let captureButton: CaptureButton;
+    let debugMode = false;
 
     async function startCamera() {
         try {
@@ -100,23 +104,29 @@
         setZoom(parseFloat(target.value));
     }
 
-    async function capturePhoto() {
-        if (!video || !canvas || !cameraReady) {
-            captureButton?.captureComplete();
+    async function handleCapture(event: CustomEvent<{ mode: 'slow' | 'fast' }>) {
+        if (!video || !canvas || !cameraReady || !locationData) {
+            console.warn('Cannot capture: camera not ready or no location');
             return;
         }
+
+        const { mode } = event.detail;
+        const timestamp = Date.now();
+        const tempId = `temp_${timestamp}_${Math.random().toString(36).substr(2, 9)}`;
+
+        // Inject placeholder for immediate display
+        injectPlaceholder(locationData, tempId);
+
+        // Dispatch capture start event
+        dispatch('captureStart', {
+            location: locationData,
+            timestamp,
+            mode,
+            tempId
+        });
 
         const context = canvas.getContext('2d');
-        if (!context) {
-            captureButton?.captureComplete();
-            return;
-        }
-
-        // Dispatch capture started event immediately
-        dispatch('captureStarted', { 
-            location: locationData,
-            timestamp: Date.now()
-        });
+        if (!context) return;
 
         try {
             // Set canvas size to match video
@@ -126,24 +136,32 @@
             // Draw video frame to canvas
             context.drawImage(video, 0, 0);
 
-            // Convert canvas to blob
-            await new Promise((resolve, reject) => {
-                canvas.toBlob((blob) => {
-                    if (blob) {
-                        // Create a File object from the blob
-                        const file = new File([blob], `photo_${Date.now()}.jpg`, {type: 'image/jpeg'});
+            // Convert canvas to blob with quality based on mode
+            const quality = mode === 'fast' ? 0.7 : 0.9;
+            
+            canvas.toBlob(async (blob) => {
+                if (blob) {
+                    // Add to capture queue
+                    await captureQueue.add({
+                        id: `capture_${timestamp}`,
+                        blob,
+                        location: locationData,
+                        timestamp,
+                        mode,
+                        placeholderId: tempId
+                    });
+
+                    // For slow mode, also dispatch the full capture event
+                    if (mode === 'slow') {
+                        const file = new File([blob], `photo_${timestamp}.jpg`, {type: 'image/jpeg'});
                         dispatch('photoCaptured', {file});
-                        resolve(blob);
-                    } else {
-                        reject(new Error('Failed to create blob'));
                     }
-                }, 'image/jpeg', 0.9);
-            });
+                }
+            }, 'image/jpeg', quality);
         } catch (error) {
             console.error('Capture error:', error);
-        } finally {
-            // Always signal completion
-            captureButton?.captureComplete();
+            // Remove placeholder on error
+            removePlaceholder(tempId);
         }
     }
 
@@ -276,12 +294,17 @@
             {/if}
 
             <div class="camera-controls">
-                <CaptureButton
-                    bind:this={captureButton}
-                    disabled={!cameraReady}
-                    on:capture={capturePhoto}
+                <DualCaptureButton
+                    disabled={!cameraReady || !locationData}
+                    on:capture={handleCapture}
                 />
             </div>
+            
+            {#if debugMode || $app.debugMode}
+                <div class="queue-status-overlay">
+                    <CaptureQueueStatus />
+                </div>
+            {/if}
         </div>
     </div>
 {/if}
@@ -574,5 +597,12 @@
             width: 100px;
             margin: 40px 0;
         }
+    }
+    
+    .queue-status-overlay {
+        position: absolute;
+        top: 80px;
+        right: 20px;
+        z-index: 1001;
     }
 </style>

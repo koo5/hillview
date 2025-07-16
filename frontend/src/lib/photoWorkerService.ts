@@ -19,6 +19,7 @@ export class PhotoWorkerService {
   private initialized = false;
   private currentBearing: number = 0;
   private currentCenter: { lat: number; lng: number } = { lat: 0, lng: 0 };
+  private currentBounds: Bounds | null = null;
   private onPhotosUpdateCallback: ((photos: PhotoData[]) => void) | null = null;
   private onBearingUpdateCallback: ((result: BearingResult) => void) | null = null;
   private onErrorCallback: ((error: WorkerError) => void) | null = null;
@@ -165,7 +166,12 @@ export class PhotoWorkerService {
 
   async updateMapBounds(bounds: Bounds): Promise<void> {
     await this.initialize();
+    this.currentBounds = bounds;
     await photoWorker.updateBounds(bounds);
+  }
+
+  getCurrentBounds(): Bounds | null {
+    return this.currentBounds;
   }
 
   async updateRange(range: number): Promise<void> {
