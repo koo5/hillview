@@ -244,9 +244,13 @@ function processMapillaryPhotos(photos: any[], src: any) {
         let bearing = photo.compass_angle;
         let processed_photo = {
             source: src,
+            source_type: 'mapillary',
             id: id,
+            file: photo.id + '.jpg',
+            url: photo.thumb_1024_url,
             coord: coord,
             bearing: bearing,
+            altitude: 0,
             sizes: {
                 1024: {width: 1024, height: 768, url: photo.thumb_1024_url},
                 50: {width: 50, height: 50, url: photo.thumb_1024_url},
