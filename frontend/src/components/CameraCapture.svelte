@@ -5,9 +5,9 @@
     import {app} from "$lib/data.svelte";
     import DualCaptureButton from './DualCaptureButton.svelte';
     import CaptureQueueStatus from './CaptureQueueStatus.svelte';
-    import { captureQueue } from '$lib/captureQueue';
-    import { injectPlaceholder } from '$lib/placeholderInjector';
-    import { devicePhotos } from '$lib/stores';
+    import { captureQueue, type CaptureLocation } from '$lib/captureQueue';
+    import { injectPlaceholder, removePlaceholder } from '$lib/placeholderInjector';
+    import { generateTempId, type PlaceholderLocation } from '$lib/utils/placeholderUtils';
 
     const dispatch = createEventDispatcher();
 
@@ -105,17 +105,27 @@
     }
 
     async function handleCapture(event: CustomEvent<{ mode: 'slow' | 'fast' }>) {
-        if (!video || !canvas || !cameraReady || !locationData) {
+        if (!video || !canvas || !cameraReady || !locationData || 
+            locationData.latitude === undefined || locationData.longitude === undefined) {
             console.warn('Cannot capture: camera not ready or no location');
             return;
         }
 
         const { mode } = event.detail;
         const timestamp = Date.now();
-        const tempId = `temp_${timestamp}_${Math.random().toString(36).substr(2, 9)}`;
+        const tempId = generateTempId();
 
         // Inject placeholder for immediate display
-        injectPlaceholder(locationData, tempId);
+        // We've already checked that locationData has required fields
+        const validLocation: CaptureLocation = {
+            latitude: locationData.latitude!,
+            longitude: locationData.longitude!,
+            altitude: locationData.altitude,
+            accuracy: locationData.accuracy || 1,
+            heading: locationData.heading,
+            source: locationData.source || 'gps'
+        };
+        injectPlaceholder(validLocation, tempId);
 
         // Dispatch capture start event
         dispatch('captureStart', {
@@ -145,7 +155,7 @@
                     await captureQueue.add({
                         id: `capture_${timestamp}`,
                         blob,
-                        location: locationData,
+                        location: validLocation,
                         timestamp,
                         mode,
                         placeholderId: tempId
@@ -300,7 +310,7 @@
                 />
             </div>
             
-            {#if debugMode || $app.debugMode}
+            {#if debugMode || $app.debug > 0}
                 <div class="queue-status-overlay">
                     <CaptureQueueStatus />
                 </div>

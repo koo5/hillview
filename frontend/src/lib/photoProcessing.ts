@@ -2,33 +2,11 @@ import { LatLng } from 'leaflet';
 import { Coordinate } from "tsgeo/Coordinate";
 import { Vincenty } from "tsgeo/Distance/Vincenty";
 import Angles from 'angles';
+import { getBearingColor, getAbsBearingDiff } from './utils/bearingUtils';
+import type { PhotoData, PhotoSize, PhotoWithBearing } from './types/photoTypes';
 
-// Re-declare PhotoData interface to avoid circular dependencies
-export interface PhotoData {
-  id: string;
-  source_type: string;
-  file: string;
-  url: string;
-  coord: LatLng;
-  bearing: number;
-  altitude: number;
-  source?: any;
-  sizes?: Record<string, PhotoSize>;
-  isUserPhoto?: boolean;
-  isDevicePhoto?: boolean;
-  timestamp?: number;
-  accuracy?: number;
-  abs_bearing_diff?: number;
-  bearing_color?: string;
-  range_distance?: number | null;
-  angular_distance_abs?: number;
-}
-
-export interface PhotoSize {
-  url: string;
-  width: number;
-  height: number;
-}
+// Re-export for modules that import from here
+export type { PhotoWithBearing };
 
 const calculator = new Vincenty();
 
@@ -39,12 +17,6 @@ export interface Bounds {
 
 export interface PhotoWithDistance extends PhotoData {
   range_distance: number | null;
-}
-
-export interface PhotoWithBearing extends PhotoData {
-  abs_bearing_diff: number;
-  bearing_color: string;
-  angular_distance_abs?: number;
 }
 
 // Heavy computation functions extracted from data.svelte.ts
@@ -92,7 +64,7 @@ export function updatePhotoBearings(
   currentBearing: number
 ): PhotoWithBearing[] {
   return photos.map(photo => {
-    const abs_bearing_diff = Math.abs(Angles.distance(currentBearing, photo.bearing));
+    const abs_bearing_diff = getAbsBearingDiff(currentBearing, photo.bearing);
     const bearing_color = getBearingColor(abs_bearing_diff);
     
     return {
@@ -115,10 +87,6 @@ export function sortPhotosByAngularDistance(
     .sort((a, b) => a.angular_distance_abs - b.angular_distance_abs);
 }
 
-function getBearingColor(abs_bearing_diff: number): string {
-  if (abs_bearing_diff === null) return '#9E9E9E'; // grey
-  return 'hsl(' + Math.round(100 - abs_bearing_diff/2) + ', 100%, 70%)';
-}
 
 export function fixupBearings(photos: PhotoData[]) {
   // Sort photos by bearing, spreading out photos with the same bearing

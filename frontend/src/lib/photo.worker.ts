@@ -1,6 +1,7 @@
 /// <reference lib="webworker" />
 
 import type { WorkerMessage, WorkerResponse, PhotoData, Bounds, SourceConfig } from './photoWorkerTypes';
+import { getBearingColor, getAbsBearingDiff } from './utils/bearingUtils';
 
 // Distance calculation utilities
 class Coordinate {
@@ -408,7 +409,7 @@ function getBearingPhotos(bearing: number, center: { lat: number; lng: number })
     
     // Update bearing colors (but don't sort - leave that to main thread)
     const photosWithBearings = photosInRange.map(photo => {
-      const absBearingDiff = Math.abs(angleDifference(bearing, photo.bearing));
+      const absBearingDiff = getAbsBearingDiff(bearing, photo.bearing);
       const bearingColor = getBearingColor(absBearingDiff);
       
       return {
@@ -432,15 +433,6 @@ function getBearingPhotos(bearing: number, center: { lat: number; lng: number })
   }
 }
 
-function angleDifference(a: number, b: number): number {
-  const diff = Math.abs(a - b);
-  return diff > 180 ? 360 - diff : diff;
-}
-
-function getBearingColor(absBearingDiff: number | null): string {
-  if (absBearingDiff === null) return '#9E9E9E';
-  return 'hsl(' + Math.round(100 - absBearingDiff/2) + ', 100%, 70%)';
-}
 
 function postError(operation: string, error: any): void {
   postMessage({

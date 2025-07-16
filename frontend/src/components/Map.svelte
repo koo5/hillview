@@ -921,7 +921,7 @@
         {#key photosUpdateKey}
             {#each $combinedPhotosInArea as photo (photo.id)}
                 <Marker
-                        zIndexOffset={10000*180-photo.abs_bearing_diff*10000}
+                        zIndexOffset={10000*180-(photo.abs_bearing_diff || 0)*10000}
                         latLng={photo.coord}
                         icon={createDirectionalArrow(photo)}
                         {...{ title: `Photo at ${photo.coord.lat.toFixed(6)}, ${photo.coord.lng.toFixed(6)}\nDirection: ${photo.bearing.toFixed(1)}°\n(Relative: ${(photo.bearing - $bearing).toFixed(1)}°)` }}

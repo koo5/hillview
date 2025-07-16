@@ -1,12 +1,7 @@
 import { writable, get } from 'svelte/store';
-import type { PhotoData } from './sources';
+import type { PlaceholderPhoto } from './types/photoTypes';
 import { sources } from './sources';
-import { LatLng } from 'leaflet';
-
-export interface PlaceholderPhoto extends PhotoData {
-    isPlaceholder: true;
-    tempId: string;
-}
+import { createPlaceholderPhoto, type PlaceholderLocation } from './utils/placeholderUtils';
 
 // Store for placeholder photos that need immediate display
 export const placeholderPhotos = writable<PlaceholderPhoto[]>([]);
@@ -17,7 +12,7 @@ export class PlaceholderInjector {
      * bypassing normal filtering and processing
      */
     static injectPlaceholder(
-        location: { latitude: number; longitude: number; altitude?: number | null; heading?: number | null; accuracy: number },
+        location: PlaceholderLocation,
         tempId: string
     ): void {
         const deviceSource = get(sources).find(s => s.id === 'device');
@@ -26,21 +21,7 @@ export class PlaceholderInjector {
             return;
         }
 
-        const placeholderPhoto: PlaceholderPhoto = {
-            id: tempId,
-            source_type: 'device',
-            file: 'placeholder.jpg',
-            url: 'placeholder://arrow',
-            coord: new LatLng(location.latitude, location.longitude),
-            bearing: location.heading || 0,
-            altitude: location.altitude || 0,
-            source: deviceSource,
-            isDevicePhoto: true,
-            isPlaceholder: true,
-            tempId: tempId,
-            timestamp: Date.now(),
-            accuracy: location.accuracy
-        };
+        const placeholderPhoto = createPlaceholderPhoto(location, tempId, deviceSource);
 
         // Add to our placeholder store
         placeholderPhotos.update(photos => [...photos, placeholderPhoto]);

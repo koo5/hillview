@@ -6,6 +6,7 @@ import {writable, get} from "svelte/store";
 import { auth } from "$lib/auth.svelte";
 import { userPhotos, devicePhotos } from './stores';
 import { photoCaptureService } from './photoCapture';
+import type { PhotoData, PhotoSize } from './types/photoTypes';
 
 
 export interface Source {
@@ -218,27 +219,8 @@ function parseFraction(value: string | number) {
     return typeof value === 'string' ? parseFloat(value) || 0 : value;
 }
 
-export interface PhotoSize {
-    url: string;
-    width: number;
-    height: number;
-}
-
-export interface PhotoData {
-    id: string;
-    source_type: string;
-    file: string;
-    url: string;
-    coord: LatLng;
-    bearing: number;
-    altitude: number;
-    source?: any;
-    sizes?: Record<string, PhotoSize>;
-    isUserPhoto?: boolean;
-    isDevicePhoto?: boolean;
-    timestamp?: number;
-    accuracy?: number;
-}
+// Re-export for backward compatibility
+export type { PhotoData, PhotoSize };
 
 function parse_photo_data(item: any): PhotoData {
     let latitude = parseCoordinate(item.latitude);

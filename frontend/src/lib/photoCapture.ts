@@ -3,46 +3,18 @@ import { generateUnicodeGuid } from './unicodeGuid';
 import { get } from 'svelte/store';
 import { photoCaptureSettings } from './stores';
 
-export interface PhotoMetadata {
-	latitude: number;
-	longitude: number;
-	altitude?: number | null;
-	bearing?: number | null;
-	timestamp: number;
-	accuracy: number;
-}
+import type { 
+	PhotoMetadata, 
+	CapturedPhotoData, 
+	DevicePhotoMetadata 
+} from './types/photoTypes';
 
-export interface CapturedPhotoData {
-	image: File;
-	location: {
-		latitude: number;
-		longitude: number;
-		altitude?: number | null;
-		accuracy: number;
-	};
-	bearing?: number | null;
-	timestamp: number;
-}
+// Re-export for modules that import from here
+export type { DevicePhotoMetadata, CapturedPhotoData, PhotoMetadata };
 
 export interface ProcessedPhoto {
 	data: number[];
 	metadata: PhotoMetadata;
-}
-
-export interface DevicePhotoMetadata {
-	id: string;
-	filename: string;
-	path: string;
-	latitude: number;
-	longitude: number;
-	altitude?: number | null;
-	bearing?: number | null;
-	timestamp: number;
-	accuracy: number;
-	width: number;
-	height: number;
-	file_size: number;
-	created_at: number;
 }
 
 export interface DevicePhotosDb {

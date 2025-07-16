@@ -4,6 +4,7 @@ import {Vincenty} from "tsgeo/Distance/Vincenty";
 import Angles from 'angles';
 //import {DMS} from "tsgeo/Formatter/Coordinate/DMS";
 import {space_db} from "./debug_server.js";
+import { getBearingColor, getAbsBearingDiff } from './utils/bearingUtils';
 import {LatLng} from 'leaflet';
 import {get, writable} from "svelte/store";
 import {
@@ -480,8 +481,8 @@ function update_bearing_diff() {
     let b = get(bearing);
     let res = get(photos_in_area);
     for (let photo of res) {
-        photo.abs_bearing_diff = Math.abs(Angles.distance(b, photo.bearing));
-        photo.bearing_color = get_bearing_color(photo);
+        photo.abs_bearing_diff = getAbsBearingDiff(b, photo.bearing);
+        photo.bearing_color = getBearingColor(photo.abs_bearing_diff);
         photo.range_distance = null;
     }
 };
@@ -615,10 +616,6 @@ export function update_bearing(diff: number) {
     updateCaptureLocationFromMap(p.center.lat, p.center.lng, b + diff);
 }
 
-function get_bearing_color(photo: any) {
-    if (photo.abs_bearing_diff === null) return '#9E9E9E'; // grey
-    return 'hsl(' + Math.round(100 - photo.abs_bearing_diff/2) + ', 100%, 70%)';
-}
 
 
 function RGB2HTML(red: number, green: number, blue: number)

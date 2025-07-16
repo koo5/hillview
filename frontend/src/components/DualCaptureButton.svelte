@@ -94,7 +94,7 @@
         <span class="mode-label">Slow</span>
     </button>
     
-    <div class="button-divider" />
+    <div class="button-divider"></div>
     
     <button
         class="capture-button fast-mode"

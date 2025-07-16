@@ -1,8 +1,8 @@
 import { derived } from 'svelte/store';
 import { photos_in_area, bearing } from './data.svelte';
 import { placeholderPhotos } from './placeholderInjector';
-import type { PhotoData } from './sources';
-import Angles from 'angles';
+import type { PhotoData } from './types/photoTypes';
+import { calculateBearingData } from './utils/bearingUtils';
 
 /**
  * Combined store that merges photos_in_area with active placeholders
@@ -21,10 +21,10 @@ export const combinedPhotosInArea = derived(
         
         // Add placeholders with calculated abs_bearing_diff
         $placeholderPhotos.forEach(placeholder => {
+            const bearingData = calculateBearingData(placeholder.bearing, $bearing);
             const photoWithBearing = {
                 ...placeholder,
-                abs_bearing_diff: Math.abs(Angles.distance($bearing, placeholder.bearing)),
-                bearing_color: getBearingColor(Math.abs(Angles.distance($bearing, placeholder.bearing)))
+                ...bearingData
             };
             photoMap.set(placeholder.id, photoWithBearing);
         });
@@ -40,8 +40,3 @@ export const combinedPhotosInArea = derived(
         return combined;
     }
 );
-
-function getBearingColor(abs_bearing_diff: number): string {
-    if (abs_bearing_diff === null) return '#9E9E9E'; // grey
-    return 'hsl(' + Math.round(100 - abs_bearing_diff/2) + ', 100%, 70%)';
-}

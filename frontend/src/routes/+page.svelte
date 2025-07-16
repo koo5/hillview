@@ -15,7 +15,8 @@
     import DebugOverlay from '../components/DebugOverlay.svelte';
     import MapillaryCacheStatus from '../components/MapillaryCacheStatus.svelte';
     import { gpsLocation } from '$lib/location.svelte';
-    import { photoCaptureService, type DevicePhotoMetadata } from '$lib/photoCapture';
+    import { photoCaptureService } from '$lib/photoCapture';
+    import type { DevicePhotoMetadata } from '$lib/types/photoTypes';
     import { devicePhotos } from '$lib/stores';
     import { captureLocation, captureLocationWithCompassBearing } from '$lib/captureLocation';
     import { compassActive, stopCompass } from '$lib/compass.svelte';
@@ -221,9 +222,9 @@
         };
     }
 
-    function createPhotoData(captureLoc: any, timestamp: number) {
+    function createPhotoData(captureLoc: any, timestamp: number, file: File) {
         return {
-            image: null, // Will be set by caller
+            image: file,
             location: {
                 latitude: captureLoc.latitude,
                 longitude: captureLoc.longitude,
@@ -272,8 +273,7 @@
         const timestamp = Date.now();
 
         try {
-            const photoData = createPhotoData(captureLoc, timestamp);
-            photoData.image = file;
+            const photoData = createPhotoData(captureLoc, timestamp, file);
 
             const savedPhoto = await photoCaptureService.savePhotoWithExif(photoData);
 
