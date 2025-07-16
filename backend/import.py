@@ -274,7 +274,7 @@ class Geo:
                     # Create entry
                     entry = {
                         'filepath': filepath,
-                        'file': source_name / filename,
+                        'file': source_name + '/' + filename,
                         'dir_name': source_name,
                         'latitude': str(latitude),
                         'longitude': str(longitude),
