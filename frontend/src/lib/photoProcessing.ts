@@ -75,31 +75,6 @@ export function sortPhotosByAngularDistance(
 }
 
 
-export function fixupBearings(photos: PhotoData[]) {
-  // Sort photos by bearing, spreading out photos with the same bearing
-  if (photos.length < 2) return;
-  
-  // For large photo sets, limit iterations to prevent freezing
-  const maxIterations = photos.length > 100 ? 5 : 10;
-  let iterations = 0;
-  let moved = true;
-  
-  while (moved && iterations < maxIterations) {
-    photos.sort((a: PhotoData, b: PhotoData) => a.bearing - b.bearing);
-    moved = false;
-    iterations++;
-    
-    for (let index = 0; index < photos.length; index++) {
-      const next = photos[(index + 1) % photos.length];
-      const photo = photos[index];
-      let diff = next.bearing - photo.bearing;
-      if (diff === 0) {
-        next.bearing = (next.bearing + 0.01 * iterations) % 360;
-        moved = true;
-      }
-    }
-  }
-}
 
 // Spatial indexing for efficient area queries - stores only IDs
 export class PhotoSpatialIndex {

@@ -114,7 +114,7 @@ export function update_pos2(cb: (pos2: any) => any)
 }
 
 export let bearing = localStorageSharedStore('bearing', 0);
-export let recalculateBearingDistances = localStorageSharedStore('recalculateBearingDistances', false);
+export let recalculateBearingDiffForAllPhotosInArea = localStorageSharedStore('recalculateBearingDiffForAllPhotosInArea', false);
 
 export let hillview_photos = writable<PhotoData[]>([]);
 export let hillview_photos_in_area = writable<PhotoData[]>([]);
@@ -476,12 +476,9 @@ function filter_mapillary_photos_by_area() {
     mapillary_photos_in_area.set(res);
 }
 
-// Now handled by photoProcessingService
-// pos2.subscribe(filter_mapillary_photos_by_area);
-// mapillary_photos.subscribe(filter_mapillary_photos_by_area);
-// sources.subscribe(filter_mapillary_photos_by_area);
-
 function update_bearing_diff() {
+    if (!get(recalculateBearingDiffForAllPhotosInArea))
+        return;
     let b = get(bearing);
     let res = get(photos_in_area);
     for (let i = 0; i < res.length; i++) {
@@ -639,12 +636,12 @@ function getCurrentCenter() {
 function triggerBearingUpdate() {
     const b = get(bearing);
     const center = getCurrentCenter();
-    photoProcessingAdapter.updateBearing(b, center);
+    photoProcessingAdapter.updateBearingAndCenter(b, center);
 }
 
-// Subscribe to recalculateBearingDistances setting
-recalculateBearingDistances.subscribe(value => {
-    photoProcessingAdapter.updateConfig({ recalculateBearingDistances: value });
+// Subscribe to recalculateBearingDiffForAllPhotosInArea setting
+recalculateBearingDiffForAllPhotosInArea.subscribe(value => {
+    photoProcessingAdapter.updateConfig({ recalculateBearingDiffForAllPhotosInArea: value });
 });
 
 // Initialize photo processing service
@@ -671,7 +668,7 @@ function initializePhotoProcessing() {
         photos_in_range.set(result.photosInRange);
     });
     
-    photoProcessingAdapter.onResult('update_bearings', (result: BearingResult) => {
+    photoProcessingAdapter.onResult('update_bearing_and_center', (result: BearingResult) => {
         // Only update photos_in_area if we were processing photos_in_area
         // photos_in_area.set(result.photosInArea);
         photo_in_front.set(result.photoInFront);

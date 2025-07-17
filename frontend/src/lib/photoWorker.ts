@@ -254,17 +254,17 @@ class PhotoWorkerManager {
     }
   }
 
-  async getBearingPhotos(bearing: number, center: { lat: number; lng: number }): Promise<void> {
+  async getPhotosInRange(bearing: number, center: { lat: number; lng: number }): Promise<void> {
     try {
       await this.ensureInitialized();
-      await this.sendMessage('getBearingPhotos', { bearing, center }, 'getBearingPhotos');
+      await this.sendMessage('getPhotosInRange', { bearing, center }, 'getPhotosInRange');
     } catch (error) {
       console.error('PhotoWorker: Failed to get bearing photos', error);
       throw error;
     }
   }
 
-  async updateConfig(config: { recalculateBearingDistances?: boolean }): Promise<void> {
+  async updateConfig(config: { recalculateBearingDiffForAllPhotosInArea?: boolean }): Promise<void> {
     try {
       await this.ensureInitialized();
       await this.sendMessage('updateConfig', { config }, 'updateConfig');

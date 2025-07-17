@@ -18,8 +18,12 @@
     let width = 100;
     let height = 100;
     let devicePhotoUrl: string | null = null;
-
+    let bg_style_stretched_photo;
     let border_style;
+
+    // enable for stretched backdrop
+    //$: bg_style_stretched_photo = photo.sizes?.[50] ? `background-image: url(${photo.sizes[50].url});` : ''
+
     $: border_style = className === 'front' && photo ? 'border: 4px dotted #4a90e2;' : '';
     console.log('border_style:', border_style);
 
@@ -95,6 +99,9 @@
             selectedUrl = photo.sizes.full?.url || '';
         }
     }
+
+
+
 </script>
 
 {#if $app.debug === 2}
@@ -116,7 +123,7 @@
             src={selectedUrl}
             alt={photo.file}
             class="{className} photo"
-            style="{photo.sizes && photo.sizes[50] ? `background-image: url(${photo.sizes[50].url});` : ''} {border_style}"
+            style="{bg_style_stretched_photo} {border_style}"
             fetchpriority={fetchPriority as any}
         />
         {/key}

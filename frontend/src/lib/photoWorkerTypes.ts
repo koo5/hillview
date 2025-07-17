@@ -44,7 +44,7 @@ export type WorkerMessageType =
   | 'updateBounds' 
   | 'updateRange' 
   | 'updateSources' 
-  | 'getBearingPhotos' 
+  | 'getPhotosInRange'
   | 'updateConfig'
   | 'terminate';
 
@@ -66,7 +66,7 @@ export interface WorkerMessage {
     bearing?: number;
     center?: { lat: number; lng: number };
     config?: {
-      recalculateBearingDistances?: boolean;
+      recalculateBearingDiffForAllPhotosInArea?: boolean;
     };
   };
 }

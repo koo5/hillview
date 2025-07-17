@@ -4,6 +4,7 @@ import type { WorkerMessage, WorkerResponse, PhotoData, Bounds, SourceConfig } f
 import { updatePhotoBearingData } from './utils/bearingUtils';
 import { SimpleDistanceCalculator, calculateCenterFromBounds, isInBounds } from './utils/distanceUtils';
 
+
 // Distance calculator instance
 const calculator = new SimpleDistanceCalculator();
 
@@ -13,11 +14,11 @@ let currentBounds: Bounds | null = null;
 let currentRange = 5000; // Default 5km range
 let sourcesConfig: SourceConfig[] = [];
 let lastVisiblePhotos: PhotoData[] = [];
+let recalculateBearingDiffForAllPhotosInArea;
 
 // Configuration
 const MAX_PHOTOS_IN_AREA = 500;
 const MAX_PHOTOS_IN_RANGE = 100;
-let recalculateBearingDistances = false;
 
 // Spatial indexing for efficient queries
 class PhotoSpatialIndex {
@@ -298,14 +299,20 @@ function recalculateVisiblePhotos(): void {
   
   const visiblePhotos = Array.from(combinedMap.values());
   
-  // Apply bearing fixup
-  fixupBearings(visiblePhotos);
+  // Sort by bearing, then by ID for stable ordering
+  visiblePhotos.sort((a, b) => {
+    if (a.bearing !== b.bearing) {
+      return a.bearing - b.bearing;
+    }
+    return a.id.localeCompare(b.id);
+  });
   
   // Calculate distances from center of bounds
   const center = calculateCenterFromBounds(currentBounds);
   
   for (const photo of visiblePhotos) {
     const distance = calculator.getDistance(center, photo.coord);
+    console.log(`Worker: Photo ${photo.id} distance from center: ${distance.toFixed(2)}m`);
     photo.range_distance = distance <= currentRange ? distance : null;
   }
   
@@ -329,63 +336,31 @@ function recalculateVisiblePhotos(): void {
   } as WorkerResponse);
 }
 
-function fixupBearings(photos: PhotoData[]): void {
-  if (photos.length < 2) return;
-  
-  const maxIterations = photos.length > 100 ? 5 : 10;
-  let iterations = 0;
-  let moved = true;
-  
-  while (moved && iterations < maxIterations) {
-    photos.sort((a, b) => a.bearing - b.bearing);
-    moved = false;
-    iterations++;
-    
-    for (let index = 0; index < photos.length; index++) {
-      const next = photos[(index + 1) % photos.length];
-      const photo = photos[index];
-      const diff = next.bearing - photo.bearing;
-      if (diff === 0) {
-        next.bearing = (next.bearing + 0.01 * iterations) % 360;
-        moved = true;
-      }
-    }
-  }
-}
 
-function getBearingPhotos(bearing: number, center: { lat: number; lng: number }): void {
+function getPhotosInRange(bearing: number, center: { lat: number; lng: number }): void {
   try {
     let photosWithDistance: PhotoData[] = [];
     
-    if (recalculateBearingDistances) {
-      // Recalculate distances for current visible photos
-      for (const photo of lastVisiblePhotos) {
-        const distance = calculator.getDistance(center, photo.coord);
-        
-        if (distance <= currentRange) {
-          photosWithDistance.push({
-            ...photo,
-            range_distance: distance
-          });
-        }
+    console.log('Worker: Recalculating distances for bearing photos, bearing:', bearing, 'lastVisiblePhotos:', lastVisiblePhotos.length);
+    for (const photo of lastVisiblePhotos) {
+      const distance = calculator.getDistance(center, photo.coord);
+
+      if (distance <= currentRange) {
+        photosWithDistance.push({
+          ...photo,
+          range_distance: distance
+        });
       }
-      
-      // Limit photos (preserve bearing order from lastVisiblePhotos)
-      photosWithDistance = photosWithDistance.slice(0, MAX_PHOTOS_IN_RANGE);
-    } else {
-      // Use existing distances from lastVisiblePhotos
-      photosWithDistance = lastVisiblePhotos.filter(photo => 
-        photo.range_distance !== null && 
-        photo.range_distance !== undefined && 
-        photo.range_distance <= currentRange
-      ).slice(0, MAX_PHOTOS_IN_RANGE);
     }
-    
-    // Update bearing colors (but don't sort - leave that to main thread)
-    const photosWithBearings = photosWithDistance.map(photo => 
-      updatePhotoBearingData(photo, bearing)
+
+    // Limit photos (preserve bearing order from lastVisiblePhotos)
+    photosWithDistance = photosWithDistance.slice(0, MAX_PHOTOS_IN_RANGE);
+
+    // Update bearing colors (but don't sort - leave that to main thread) // fixme - this should provide bearing diff coloring for photos in range, but it's not making it through.
+    const photosWithBearings = photosWithDistance.map(photo =>
+        updatePhotoBearingData(photo, bearing)
     );
-    
+
     postMessage({
       id: 'auto',
       type: 'bearingUpdate',
@@ -396,7 +371,7 @@ function getBearingPhotos(bearing: number, center: { lat: number; lng: number })
     } as WorkerResponse);
   } catch (error) {
     console.error('Worker: Error getting bearing photos:', error);
-    postError('getBearingPhotos', error);
+    postError('getPhotosInRange', error);
   }
 }
 
@@ -452,18 +427,18 @@ self.onmessage = function(e: MessageEvent<WorkerMessage>) {
         postMessage({ id, type: 'success' } as WorkerResponse);
         break;
         
-      case 'getBearingPhotos':
+      case 'getPhotosInRange':
         if (data?.bearing !== undefined && data?.center) {
-          getBearingPhotos(data.bearing, data.center);
+          getPhotosInRange(data.bearing, data.center);
         }
         postMessage({ id, type: 'success' } as WorkerResponse);
         break;
         
       case 'updateConfig':
         if (data?.config) {
-          if (data.config.recalculateBearingDistances !== undefined) {
-            recalculateBearingDistances = data.config.recalculateBearingDistances;
-            console.log('Worker: Updated recalculateBearingDistances to', recalculateBearingDistances);
+          if (data.config.recalculateBearingDiffForAllPhotosInArea !== undefined) {
+            recalculateBearingDiffForAllPhotosInArea = data.config.recalculateBearingDiffForAllPhotosInArea;
+            console.log('Worker: Updated recalculateBearingDiffForAllPhotosInArea to', recalculateBearingDiffForAllPhotosInArea);
           }
         }
         postMessage({ id, type: 'success' } as WorkerResponse);

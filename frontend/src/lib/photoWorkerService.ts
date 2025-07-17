@@ -147,14 +147,14 @@ export class PhotoWorkerService {
     await photoWorker.updateSources(sources);
   }
 
-  async updateBearing(bearing: number, center: { lat: number; lng: number }): Promise<void> {
+  async updateBearingAndCenter(bearing: number, center: { lat: number; lng: number }): Promise<void> {
     await this.initialize();
     this.currentBearing = bearing;
     this.currentCenter = center;
-    await photoWorker.getBearingPhotos(bearing, center);
+    await photoWorker.getPhotosInRange(bearing, center);
   }
 
-  async updateConfig(config: { recalculateBearingDistances?: boolean }): Promise<void> {
+  async updateConfig(config: { recalculateBearingDiffForAllPhotosInArea?: boolean }): Promise<void> {
     await this.initialize();
     await photoWorker.updateConfig(config);
   }

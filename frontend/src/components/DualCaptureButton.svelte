@@ -17,8 +17,8 @@
         const interval = mode === 'slow' ? slowInterval : fastInterval;
         
         // Capture immediately
-        dispatch('capture', { mode });
-        captureCount++;
+        /*dispatch('capture', { mode });
+        captureCount++;*/
         
         // Start interval for continuous capture
         captureInterval = window.setInterval(() => {

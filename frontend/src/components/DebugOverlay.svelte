@@ -1,7 +1,7 @@
 <script lang="ts">
 	import {getBuildInfo} from '$lib/build-info';
 	import {onMount} from 'svelte';
-	import {bearing, pos, recalculateBearingDistances} from '$lib/data.svelte';
+	import {bearing, pos, recalculateBearingDiffForAllPhotosInArea} from '$lib/data.svelte';
 	import {gpsCoordinates, locationError, locationTracking} from '$lib/location.svelte';
 	import {captureLocation, captureLocationWithCompassBearing} from '$lib/captureLocation';
 	import {
@@ -258,13 +258,13 @@
                 <label class="checkbox-label">
                     <input 
                         type="checkbox" 
-                        bind:checked={$recalculateBearingDistances}
+                        bind:checked={$recalculateBearingDiffForAllPhotosInArea}
                         data-testid="recalculate-bearing-distances-toggle"
                     />
                     <span>Recalculate bearing distances</span>
                 </label>
                 <div style="font-size: 9px; opacity: 0.7; margin-left: 20px;">
-                    {$recalculateBearingDistances ? 'Distances recalculated on bearing change' : 'Using cached distances (faster)'}
+                    {$recalculateBearingDiffForAllPhotosInArea ? 'Distances recalculated on bearing change' : 'Using cached distances (faster)'}
                 </div>
             </div>
 

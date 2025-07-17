@@ -4,7 +4,7 @@ import { MinHeap } from './priorityQueue';
 export type ProcessingEventType = 
   | 'filter_area'
   | 'calculate_distances' 
-  | 'update_bearings'
+  | 'update_bearing_and_center'
   | 'fetch_mapillary';
 
 export interface ProcessingEvent {
@@ -31,7 +31,7 @@ const PRIORITY_VALUES = {
 } as const;
 
 // Operations that should not be preempted
-const NON_PREEMPTABLE_TYPES: ProcessingEventType[] = ['filter_area', 'update_bearings'];
+const NON_PREEMPTABLE_TYPES: ProcessingEventType[] = ['filter_area', 'update_bearing_and_center'];
 
 export class PhotoProcessingQueue {
   private priorityQueue: MinHeap<ProcessingEvent>;
@@ -109,7 +109,7 @@ export class PhotoProcessingQueue {
       
       // For high-frequency events like bearing updates, skip if too recent
       const lastProcessed = this.lastProcessedTime.get(type);
-      if (type === 'update_bearings' && lastProcessed && Date.now() - lastProcessed < 16) {
+      if (type === 'update_bearing_and_center' && lastProcessed && Date.now() - lastProcessed < 32) {
         // Skip if processed within last frame (60fps = 16ms)
         return;
       }
@@ -340,8 +340,8 @@ export class PhotoProcessingQueue {
 
 // Event type configurations
 export const EVENT_CONFIGS: Record<ProcessingEventType, { debounceMs: number; mode: 'replace' | 'queue' }> = {
-  filter_area: { debounceMs: 300, mode: 'replace' },  // Increased for heavy operation
+  filter_area: { debounceMs: 500, mode: 'replace' },  // Increased for heavy operation
   calculate_distances: { debounceMs: 100, mode: 'replace' },
-  update_bearings: { debounceMs: 16, mode: 'replace' }, // One frame at 60fps
+  update_bearing_and_center: { debounceMs: 16, mode: 'replace' }, // One frame at 60fps
   fetch_mapillary: { debounceMs: 1000, mode: 'replace' }
 };

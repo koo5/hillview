@@ -44,15 +44,15 @@
     {/if}
 
     <div class="photo-container" bind:clientWidth >
-        {#if $photo_to_left}
-            <Photo photo={$photo_to_left} className="left" />
-        {/if}
+        <!--{#if $photo_to_left}-->
+        <!--    <Photo photo={$photo_to_left} className="left" />-->
+        <!--{/if}-->
         {#if $photo_in_front}
             <Photo photo={$photo_in_front} className="front" {clientWidth} />
         {/if}
-        {#if $photo_to_right}
-            <Photo photo={$photo_to_right} className="right" />
-        {/if}
+        <!--{#if $photo_to_right}-->
+        <!--    <Photo photo={$photo_to_right} className="right" />-->
+        <!--{/if}-->
     </div>
 
     {#if $app.displayMode !== 'max'}

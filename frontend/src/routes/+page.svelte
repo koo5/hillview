@@ -261,38 +261,6 @@
         });
     }
 
-    async function handlePhotoCaptured(event: CustomEvent<{ file: File }>) {
-        const { file } = event.detail;
-        const captureLoc = $captureLocationWithCompassBearing;
-        if (!captureLoc) {
-            alert('Location not available. Please wait for GPS or move the map.');
-            return;
-        }
-
-        const tempId = currentPlaceholderId;
-        const timestamp = Date.now();
-
-        try {
-            const photoData = createPhotoData(captureLoc, timestamp, file);
-
-            const savedPhoto = await photoCaptureService.savePhotoWithExif(photoData);
-
-            updateDevicePhotos(photos => {
-                const filteredPhotos = tempId ? photos.filter(p => p.id !== tempId) : photos;
-                return [...filteredPhotos, savedPhoto];
-            });
-
-            currentPlaceholderId = null;
-        } catch (error) {
-            console.error('Failed to save captured photo:', error);
-            if (tempId) {
-                updateDevicePhotos(photos => photos.filter(p => p.id !== tempId));
-            }
-            alert('Failed to save photo. Please try again.');
-            currentPlaceholderId = null;
-        }
-    }
-
     function toggleCamera() {
         showCameraView = !showCameraView;
         if (showCameraView && mapComponent) {
@@ -434,8 +402,6 @@
             <CameraCapture 
                 show={true}
                 on:close={() => showCameraView = false}
-                on:photoCaptured={handlePhotoCaptured}
-                on:captureStart={() => addPlaceholder()}
                 locationData={$captureLocationWithCompassBearing ? {
                     latitude: $captureLocationWithCompassBearing.latitude,
                     longitude: $captureLocationWithCompassBearing.longitude,

@@ -112,6 +112,8 @@
             return;
         }
 
+        console.log('Capture event:', event.detail);
+
         const { mode } = event.detail;
         const timestamp = Date.now();
         const tempId = generateTempId();

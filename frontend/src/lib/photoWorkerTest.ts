@@ -86,7 +86,7 @@ export async function testPhotoWorker() {
     
     // Test bearing update
     const testCenter = { lat: 50.0617, lng: 14.5146 };
-    await photoWorkerService.updateBearing(45, testCenter);
+    await photoWorkerService.updateBearingAndCenter(45, testCenter);
     console.log('✓ Bearing updated');
     
     // Give web worker a moment to process

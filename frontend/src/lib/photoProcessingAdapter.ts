@@ -43,17 +43,17 @@ class PhotoProcessingAdapter {
             await photoWorkerService.updateSources(sourcesConfig);
             break;
             
-          case 'update_bearings':
+          case 'update_bearing_and_center':
             const { bearing, center, photoIds } = event.data;
             await this.ensureInitialized();
             
             // Check if operation was aborted
             if (event.abortSignal?.aborted) {
-              console.log('PhotoProcessingAdapter: update_bearings aborted');
+              console.log('PhotoProcessingAdapter: update_bearing_and_center aborted');
               return;
             }
             
-            await photoWorkerService.updateBearing(bearing, center);
+            await photoWorkerService.updateBearingAndCenter(bearing, center);
             break;
             
           case 'calculate_distances':
@@ -98,7 +98,7 @@ class PhotoProcessingAdapter {
     });
     
     photoWorkerService.onBearingUpdate((result: any) => {
-      const callback = this.webWorkerCallbacks.get('update_bearings');
+      const callback = this.webWorkerCallbacks.get('update_bearing_and_center');
       if (callback) {
         callback(result);
       }
@@ -134,7 +134,7 @@ class PhotoProcessingAdapter {
   
   queueBearingUpdate(bearing: number, photoIds: string[], priority: 'high' | 'normal' | 'low' = 'high'): void {
     // Use the queue with proper debouncing
-    this.processingQueue.enqueue('update_bearings', {
+    this.processingQueue.enqueue('update_bearing_and_center', {
       bearing,
       center: this.currentCenter,
       photoIds
@@ -166,12 +166,12 @@ class PhotoProcessingAdapter {
     });
   }
   
-  updateBearing(bearing: number, center: any): void {
+  updateBearingAndCenter(bearing: number, center: any): void {
     // Store current center
     this.currentCenter = center;
     
     // Use the queue to debounce bearing updates
-    this.processingQueue.enqueue('update_bearings', {
+    this.processingQueue.enqueue('update_bearing_and_center', {
       bearing,
       center,
       photoIds: []
@@ -181,7 +181,7 @@ class PhotoProcessingAdapter {
     });
   }
   
-  async updateConfig(config: { recalculateBearingDistances?: boolean }): Promise<void> {
+  async updateConfig(config: { recalculateBearingDiffForAllPhotosInArea?: boolean }): Promise<void> {
     await this.ensureInitialized();
     await photoWorkerService.updateConfig(config);
   }
