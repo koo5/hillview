@@ -64,7 +64,7 @@ class PhotoCaptureService {
 
 			return devicePhoto;
 		} catch (error) {
-			console.error('Failed to save photo with EXIF:', error);
+			//console.error('Failed to save photo with EXIF:', error);
 			throw error;
 		}
 	}

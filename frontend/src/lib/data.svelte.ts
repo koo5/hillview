@@ -50,10 +50,12 @@ export let app = writable<{
     loading?: boolean;
     isAuthenticated?: boolean;
     userPhotos?: any[];
+    activity: 'capture' | 'view';
 }>({
     error: null,
     debug: 0,
     displayMode: 'split', // 'split' or 'max'
+    activity: 'view',
 })
 
 // Subscribe to auth store to keep app state in sync
@@ -479,6 +481,9 @@ function filter_mapillary_photos_by_area() {
 function update_bearing_diff() {
     if (!get(recalculateBearingDiffForAllPhotosInArea))
         return;
+    // Skip bearing diff updates when in capture mode
+    if (get(app).activity === 'capture')
+        return;
     let b = get(bearing);
     let res = get(photos_in_area);
     for (let i = 0; i < res.length; i++) {
@@ -511,6 +516,11 @@ function filter_photos_in_range() {
 // photos_in_area.subscribe(filter_photos_in_range);
 
 function update_view() {
+    // Suspend updates when in capture mode
+    if (get(app).activity === 'capture') {
+        return;
+    }
+    
     let b = get(bearing);
     let ph = get(photos_in_range);
     if (ph.length === 0) {
@@ -634,6 +644,10 @@ function getCurrentCenter() {
 
 // Helper function to trigger bearing update with current position
 function triggerBearingUpdate() {
+    // Skip bearing updates when in capture mode
+    if (get(app).activity === 'capture') {
+        return;
+    }
     const b = get(bearing);
     const center = getCurrentCenter();
     photoProcessingAdapter.updateBearingAndCenter(b, center);
@@ -657,11 +671,13 @@ function initializePhotoProcessing() {
         mapillary_photos_in_area.set(result.mapillaryPhotosInArea);
         photos_in_area.set(result.photosInArea);
         
-        // Queue distance calculation
-        const p2 = get(pos2);
-        const center = getCurrentCenter();
-        const photoIds = result.photosInArea.map(p => p.id);
-        photoProcessingAdapter.queueDistanceCalculation(photoIds, center, p2.range);
+        // Queue distance calculation (skip when in capture mode)
+        if (get(app).activity !== 'capture') {
+            const p2 = get(pos2);
+            const center = getCurrentCenter();
+            const photoIds = result.photosInArea.map(p => p.id);
+            photoProcessingAdapter.queueDistanceCalculation(photoIds, center, p2.range);
+        }
     });
     
     photoProcessingAdapter.onResult('calculate_distances', (result: DistanceResult) => {
@@ -671,6 +687,12 @@ function initializePhotoProcessing() {
     photoProcessingAdapter.onResult('update_bearing_and_center', (result: BearingResult) => {
         // Only update photos_in_area if we were processing photos_in_area
         // photos_in_area.set(result.photosInArea);
+        
+        // Suspend updates when in capture mode
+        if (get(app).activity === 'capture') {
+            return;
+        }
+        
         photo_in_front.set(result.photoInFront);
         photo_to_left.set(result.photoToLeft);
         photo_to_right.set(result.photoToRight);
@@ -731,6 +753,23 @@ function initializePhotoProcessing() {
     
     bearing.subscribe(b => {
         triggerBearingUpdate();
+    });
+    
+    // Watch for activity changes to trigger updates when switching back to view mode
+    let previousActivity: string | null = null;
+    app.subscribe(appState => {
+        if (previousActivity === 'capture' && appState.activity === 'view') {
+            // Switching from capture to view, trigger updates
+            const p2 = get(pos2);
+            const center = getCurrentCenter();
+            const photosInArea = get(photos_in_area);
+            if (photosInArea.length > 0) {
+                const photoIds = photosInArea.map((p: any) => p.id);
+                photoProcessingAdapter.queueDistanceCalculation(photoIds, center, p2.range);
+            }
+            triggerBearingUpdate();
+        }
+        previousActivity = appState.activity;
     });
     
     // REMOVED: Redundant subscription that was causing excessive re-renders

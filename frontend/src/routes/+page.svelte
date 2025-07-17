@@ -29,7 +29,7 @@
     let update_url = false;
     let menuOpen = false;
     let showUploadDialog = false;
-    let showCameraView = false;
+    $: showCameraView = $app.activity === 'capture';
     let debugOverlay: any = null;
 
     onMount(async () => {
@@ -262,7 +262,10 @@
     }
 
     function toggleCamera() {
-        showCameraView = !showCameraView;
+        app.update(a => ({
+            ...a,
+            activity: a.activity === 'capture' ? 'view' : 'capture'
+        }));
         if (showCameraView && mapComponent) {
             // Enable location tracking when camera opens
             mapComponent.enableLocationTracking();
@@ -401,7 +404,7 @@
         {#if showCameraView}
             <CameraCapture 
                 show={true}
-                on:close={() => showCameraView = false}
+                on:close={() => app.update(a => ({...a, activity: 'view'}))}
                 locationData={$captureLocationWithCompassBearing ? {
                     latitude: $captureLocationWithCompassBearing.latitude,
                     longitude: $captureLocationWithCompassBearing.longitude,
