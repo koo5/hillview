@@ -181,6 +181,11 @@ class PhotoProcessingAdapter {
     });
   }
   
+  async updateConfig(config: { recalculateBearingDistances?: boolean }): Promise<void> {
+    await this.ensureInitialized();
+    await photoWorkerService.updateConfig(config);
+  }
+  
   getCurrentBearingData(): any | null {
     return photoWorkerService.getCurrentBearingData() || null;
   }
@@ -189,10 +194,8 @@ class PhotoProcessingAdapter {
     // Clean up callbacks
     this.webWorkerCallbacks.clear();
     
-    // Cancel all pending operations in the queue
-    this.processingQueue.cancel('filter_area');
-    this.processingQueue.cancel('update_bearings');
-    this.processingQueue.cancel('calculate_distances');
+    // Destroy the processing queue (cleans up timers and pending tasks)
+    this.processingQueue.destroy();
     
     // Terminate worker service
     photoWorkerService.terminate();
@@ -215,6 +218,12 @@ class PhotoProcessingAdapter {
       queue: queueStatus,
       worker: workerStatus
     };
+  }
+  
+  // Emergency queue clear for debugging
+  clearQueue(): void {
+    console.warn('PhotoProcessingAdapter: Emergency queue clear requested');
+    this.processingQueue.clearQueue();
   }
 }
 

@@ -264,6 +264,16 @@ class PhotoWorkerManager {
     }
   }
 
+  async updateConfig(config: { recalculateBearingDistances?: boolean }): Promise<void> {
+    try {
+      await this.ensureInitialized();
+      await this.sendMessage('updateConfig', { config }, 'updateConfig');
+    } catch (error) {
+      console.error('PhotoWorker: Failed to update config', error);
+      throw error;
+    }
+  }
+
   private async ensureInitialized(): Promise<void> {
     if (!this.isInitialized) {
       await this.initialize();

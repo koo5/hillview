@@ -40,6 +40,9 @@ export class PhotoProcessingQueue {
   private currentTask: ProcessingEvent | null = null;
   private abortController: AbortController | null = null;
   private eventCounter = 0;
+  private lastProcessedTime: Map<ProcessingEventType, number> = new Map();
+  private queueSizeWarningThreshold = 5; // Warn earlier
+  private maxEventAge = 2000; // Drop events older than 2 seconds
   
   constructor(private options: QueueOptions) {
     this.options.maxQueueSize = options.maxQueueSize || 100;
@@ -51,9 +54,38 @@ export class PhotoProcessingQueue {
       const priorityDiff = PRIORITY_VALUES[a.priority] - PRIORITY_VALUES[b.priority];
       return priorityDiff !== 0 ? priorityDiff : a.timestamp - b.timestamp;
     });
+    
+    // Start periodic cleanup
+    this.startPeriodicCleanup();
+  }
+  
+  private cleanupInterval: NodeJS.Timeout | null = null;
+  
+  private startPeriodicCleanup(): void {
+    // Run cleanup every second
+    this.cleanupInterval = setInterval(() => {
+      this.cullStaleEvents();
+      
+      // Emergency clear if queue is too large
+      if (this.priorityQueue.size > this.options.maxQueueSize! * 0.8) {
+        console.error(`PhotoProcessingQueue: Emergency clear - queue size ${this.priorityQueue.size}`);
+        this.logQueueStatus();
+        
+        // Remove oldest half of events
+        const events = this.priorityQueue.toArray();
+        events.sort((a, b) => a.timestamp - b.timestamp);
+        const toRemove = events.slice(0, Math.floor(events.length / 2));
+        toRemove.forEach(event => {
+          this.priorityQueue.removeWhere(e => e.id === event.id);
+        });
+      }
+    }, 1000);
   }
 
   enqueue(type: ProcessingEventType, data: any, options: Partial<ProcessingEvent> = {}) {
+    // First, clean up stale events
+    this.cullStaleEvents();
+    
     const event: ProcessingEvent = {
       id: `${type}_${++this.eventCounter}`,
       type,
@@ -65,13 +97,21 @@ export class PhotoProcessingQueue {
     };
 
     if (event.mode === 'replace') {
-      // Remove existing events of this type from queue
+      // Remove existing events of this type from queue AND timers
       this.priorityQueue.removeWhere(e => e.type === type);
       
       // Cancel existing timer
       const existingTimer = this.timers.get(type);
       if (existingTimer) {
         clearTimeout(existingTimer);
+        this.timers.delete(type);
+      }
+      
+      // For high-frequency events like bearing updates, skip if too recent
+      const lastProcessed = this.lastProcessedTime.get(type);
+      if (type === 'update_bearings' && lastProcessed && Date.now() - lastProcessed < 16) {
+        // Skip if processed within last frame (60fps = 16ms)
+        return;
       }
       
       // Set debounce timer using event-specific config or fallback to default
@@ -79,12 +119,21 @@ export class PhotoProcessingQueue {
       const debounceTime = eventConfig?.debounceMs ?? this.options.debounceMs;
       
       const timer = setTimeout(() => {
-        this.priorityQueue.insert(event, PRIORITY_VALUES[event.priority]);
+        // Double-check event isn't stale before inserting
+        if (Date.now() - event.timestamp < this.maxEventAge) {
+          this.priorityQueue.insert(event, PRIORITY_VALUES[event.priority]);
+          this.processNext();
+        }
         this.timers.delete(type);
-        this.processNext();
       }, debounceTime);
       
       this.timers.set(type, timer);
+      
+      // Warn if queue is getting large
+      if (this.priorityQueue.size > this.queueSizeWarningThreshold) {
+        console.warn(`PhotoProcessingQueue: Queue size (${this.priorityQueue.size}) exceeds warning threshold`);
+        this.logQueueStatus();
+      }
     } else {
       // For queue mode, add immediately if under limit
       if (this.priorityQueue.size < this.options.maxQueueSize!) {
@@ -110,19 +159,41 @@ export class PhotoProcessingQueue {
       return;
     }
     
+    // Clean up stale events before processing
+    this.cullStaleEvents();
+    
     const nextEvent = this.priorityQueue.extractMin();
     if (!nextEvent) return;
+    
+    // Skip if event is too old
+    if (Date.now() - nextEvent.timestamp > this.maxEventAge) {
+      console.log(`Dropping stale ${nextEvent.type} event (age: ${Date.now() - nextEvent.timestamp}ms)`);
+      // Try next event
+      setTimeout(() => this.processNext(), 0);
+      return;
+    }
     
     this.currentTask = nextEvent;
     this.abortController = new AbortController();
     this.processing.add(nextEvent.id);
     
     try {
+      // Track processing time
+      const startTime = Date.now();
+      
       // Pass abort signal to processor
       await this.options.onProcess({
         ...nextEvent,
         abortSignal: this.abortController.signal
       } as any);
+      
+      // Record successful processing
+      this.lastProcessedTime.set(nextEvent.type, Date.now());
+      
+      const processingTime = Date.now() - startTime;
+      if (processingTime > 100) {
+        console.warn(`Slow processing for ${nextEvent.type}: ${processingTime}ms`);
+      }
     } catch (error) {
       if (error instanceof Error && error.name !== 'AbortError') {
         console.error(`Error processing ${nextEvent.type}:`, error);
@@ -189,8 +260,81 @@ export class PhotoProcessingQueue {
       queueSize: this.priorityQueue.size,
       processing: this.processing.size,
       currentTask: this.currentTask?.type || null,
-      hasPendingTimers: this.timers.size > 0
+      hasPendingTimers: this.timers.size > 0,
+      lastProcessedTimes: Object.fromEntries(this.lastProcessedTime)
     };
+  }
+  
+  // Aggressively remove stale events
+  private cullStaleEvents(): void {
+    const now = Date.now();
+    const removed = this.priorityQueue.removeWhere(event => {
+      const age = now - event.timestamp;
+      if (age > this.maxEventAge) {
+        console.log(`Culling stale ${event.type} event (age: ${age}ms)`);
+        return true;
+      }
+      return false;
+    });
+    
+    if (removed.length > 0) {
+      console.log(`Culled ${removed.length} stale events from queue`);
+    }
+  }
+  
+  // Log detailed queue status for debugging
+  private logQueueStatus(): void {
+    const events = this.priorityQueue.toArray();
+    const now = Date.now();
+    
+    console.group('PhotoProcessingQueue Status');
+    console.log('Queue size:', this.priorityQueue.size);
+    console.log('Current task:', this.currentTask?.type || 'none');
+    console.log('Pending timers:', Array.from(this.timers.keys()));
+    
+    console.log('Queued events:');
+    events.forEach(event => {
+      console.log(`  - ${event.type} (priority: ${event.priority}, age: ${now - event.timestamp}ms)`);
+    });
+    
+    console.log('Last processed times:');
+    this.lastProcessedTime.forEach((time, type) => {
+      console.log(`  - ${type}: ${now - time}ms ago`);
+    });
+    console.groupEnd();
+  }
+  
+  // Clear entire queue (emergency reset)
+  clearQueue(): void {
+    console.warn('PhotoProcessingQueue: Clearing entire queue!');
+    
+    // Cancel all timers
+    this.timers.forEach(timer => clearTimeout(timer));
+    this.timers.clear();
+    
+    // Abort current task
+    if (this.abortController) {
+      this.abortController.abort();
+    }
+    
+    // Clear the queue
+    while (!this.priorityQueue.isEmpty()) {
+      this.priorityQueue.extractMin();
+    }
+    
+    // Reset state
+    this.processing.clear();
+    this.currentTask = null;
+    this.abortController = null;
+  }
+  
+  // Clean up resources
+  destroy(): void {
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = null;
+    }
+    this.clearQueue();
   }
 }
 
@@ -198,6 +342,6 @@ export class PhotoProcessingQueue {
 export const EVENT_CONFIGS: Record<ProcessingEventType, { debounceMs: number; mode: 'replace' | 'queue' }> = {
   filter_area: { debounceMs: 300, mode: 'replace' },  // Increased for heavy operation
   calculate_distances: { debounceMs: 100, mode: 'replace' },
-  update_bearings: { debounceMs: 50, mode: 'replace' },
+  update_bearings: { debounceMs: 16, mode: 'replace' }, // One frame at 60fps
   fetch_mapillary: { debounceMs: 1000, mode: 'replace' }
 };

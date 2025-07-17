@@ -45,6 +45,7 @@ export type WorkerMessageType =
   | 'updateRange' 
   | 'updateSources' 
   | 'getBearingPhotos' 
+  | 'updateConfig'
   | 'terminate';
 
 export type WorkerResponseType = 
@@ -64,6 +65,9 @@ export interface WorkerMessage {
     sources?: SourceConfig[];
     bearing?: number;
     center?: { lat: number; lng: number };
+    config?: {
+      recalculateBearingDistances?: boolean;
+    };
   };
 }
 

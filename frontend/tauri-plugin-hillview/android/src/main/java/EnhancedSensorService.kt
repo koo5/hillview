@@ -369,13 +369,8 @@ class EnhancedSensorService(
         // Normalize heading
         val heading = if (azimuth < 0) azimuth + 360 else azimuth
         
-        // Apply declination
-        // Note: GAME_ROTATION_VECTOR already provides true north, so skip declination for it
-        val declination = if (source == "TYPE_GAME_ROTATION_VECTOR" && currentMode == MODE_UPRIGHT_ROTATION_VECTOR) {
-            0f
-        } else {
-            getMagneticDeclination()
-        }
+        // Apply magnetic declination to convert from magnetic north to true north
+        val declination = getMagneticDeclination()
         val trueHeading = (heading + declination + 360) % 360
         
         // Calculate accuracy based on sensor type and device orientation

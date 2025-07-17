@@ -37,6 +37,7 @@ let lastVisiblePhotos: PhotoData[] = [];
 // Configuration
 const MAX_PHOTOS_IN_AREA = 500;
 const MAX_PHOTOS_IN_RANGE = 100;
+let recalculateBearingDistances = false;
 
 // Spatial indexing for efficient queries
 class PhotoSpatialIndex {
@@ -342,6 +343,17 @@ function recalculateVisiblePhotos(): void {
   // Apply bearing fixup
   fixupBearings(visiblePhotos);
   
+  // Calculate distances from center of bounds
+  const centerLat = (currentBounds.top_left.lat + currentBounds.bottom_right.lat) / 2;
+  const centerLng = (currentBounds.top_left.lng + currentBounds.bottom_right.lng) / 2;
+  const centerCoord = new Coordinate(centerLat, centerLng);
+  
+  for (const photo of visiblePhotos) {
+    const photoCoord = new Coordinate(photo.coord.lat, photo.coord.lng);
+    const distance = calculator.getDistance(centerCoord, photoCoord);
+    photo.range_distance = distance <= currentRange ? distance : null;
+  }
+  
   lastVisiblePhotos = visiblePhotos;
   
   // Only log when we have results or significant processing time
@@ -388,27 +400,37 @@ function fixupBearings(photos: PhotoData[]): void {
 
 function getBearingPhotos(bearing: number, center: { lat: number; lng: number }): void {
   try {
-    // Calculate distances for current visible photos
-    const photosWithDistance: PhotoData[] = [];
-    const centerCoord = new Coordinate(center.lat, center.lng);
+    let photosWithDistance: PhotoData[] = [];
     
-    for (const photo of lastVisiblePhotos) {
-      const photoCoord = new Coordinate(photo.coord.lat, photo.coord.lng);
-      const distance = calculator.getDistance(centerCoord, photoCoord);
+    if (recalculateBearingDistances) {
+      // Recalculate distances for current visible photos
+      const centerCoord = new Coordinate(center.lat, center.lng);
       
-      if (distance <= currentRange) {
-        photosWithDistance.push({
-          ...photo,
-          range_distance: distance
-        });
+      for (const photo of lastVisiblePhotos) {
+        const photoCoord = new Coordinate(photo.coord.lat, photo.coord.lng);
+        const distance = calculator.getDistance(centerCoord, photoCoord);
+        
+        if (distance <= currentRange) {
+          photosWithDistance.push({
+            ...photo,
+            range_distance: distance
+          });
+        }
       }
+      
+      // Limit photos (preserve bearing order from lastVisiblePhotos)
+      photosWithDistance = photosWithDistance.slice(0, MAX_PHOTOS_IN_RANGE);
+    } else {
+      // Use existing distances from lastVisiblePhotos
+      photosWithDistance = lastVisiblePhotos.filter(photo => 
+        photo.range_distance !== null && 
+        photo.range_distance !== undefined && 
+        photo.range_distance <= currentRange
+      ).slice(0, MAX_PHOTOS_IN_RANGE);
     }
     
-    // Limit photos (preserve bearing order from lastVisiblePhotos)
-    const photosInRange = photosWithDistance.slice(0, MAX_PHOTOS_IN_RANGE);
-    
     // Update bearing colors (but don't sort - leave that to main thread)
-    const photosWithBearings = photosInRange.map(photo => {
+    const photosWithBearings = photosWithDistance.map(photo => {
       const absBearingDiff = getAbsBearingDiff(bearing, photo.bearing);
       const bearingColor = getBearingColor(absBearingDiff);
       
@@ -488,6 +510,16 @@ self.onmessage = function(e: MessageEvent<WorkerMessage>) {
       case 'getBearingPhotos':
         if (data?.bearing !== undefined && data?.center) {
           getBearingPhotos(data.bearing, data.center);
+        }
+        postMessage({ id, type: 'success' } as WorkerResponse);
+        break;
+        
+      case 'updateConfig':
+        if (data?.config) {
+          if (data.config.recalculateBearingDistances !== undefined) {
+            recalculateBearingDistances = data.config.recalculateBearingDistances;
+            console.log('Worker: Updated recalculateBearingDistances to', recalculateBearingDistances);
+          }
         }
         postMessage({ id, type: 'success' } as WorkerResponse);
         break;

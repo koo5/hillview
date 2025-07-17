@@ -1,7 +1,7 @@
 <script lang="ts">
 	import {getBuildInfo} from '$lib/build-info';
 	import {onMount} from 'svelte';
-	import {bearing, pos} from '$lib/data.svelte';
+	import {bearing, pos, recalculateBearingDistances} from '$lib/data.svelte';
 	import {gpsCoordinates, locationError, locationTracking} from '$lib/location.svelte';
 	import {captureLocation, captureLocationWithCompassBearing} from '$lib/captureLocation';
 	import {
@@ -253,6 +253,21 @@
                 </div>
             {/if}
 
+            <div class="debug-section">
+                <div><strong>Performance Settings:</strong></div>
+                <label class="checkbox-label">
+                    <input 
+                        type="checkbox" 
+                        bind:checked={$recalculateBearingDistances}
+                        data-testid="recalculate-bearing-distances-toggle"
+                    />
+                    <span>Recalculate bearing distances</span>
+                </label>
+                <div style="font-size: 9px; opacity: 0.7; margin-left: 20px;">
+                    {$recalculateBearingDistances ? 'Distances recalculated on bearing change' : 'Using cached distances (faster)'}
+                </div>
+            </div>
+
             <div class="debug-note">
                 Press Ctrl+Shift+D to toggle<br/>
                 Press Ctrl+Shift+L to move {debugPosition === 'left' ? 'right' : 'left'}
@@ -447,6 +462,23 @@
     .sensor-mode-select:focus {
         outline: 1px solid #4fc3f7;
         outline-offset: 1px;
+    }
+
+    .checkbox-label {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        cursor: pointer;
+        margin: 4px 0;
+    }
+
+    .checkbox-label input[type="checkbox"] {
+        cursor: pointer;
+        accent-color: #0f0;
+    }
+
+    .checkbox-label span {
+        font-size: 11px;
     }
 
     @media (max-width: 600px) {

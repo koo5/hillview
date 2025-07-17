@@ -115,6 +115,7 @@ export function update_pos2(cb: (pos2: any) => any)
 }
 
 export let bearing = localStorageSharedStore('bearing', 0);
+export let recalculateBearingDistances = localStorageSharedStore('recalculateBearingDistances', false);
 
 export let hillview_photos = writable<PhotoData[]>([]);
 export let hillview_photos_in_area = writable<PhotoData[]>([]);
@@ -665,6 +666,11 @@ function triggerBearingUpdate() {
     photoProcessingAdapter.updateBearing(b, center);
 }
 
+// Subscribe to recalculateBearingDistances setting
+recalculateBearingDistances.subscribe(value => {
+    photoProcessingAdapter.updateConfig({ recalculateBearingDistances: value });
+});
+
 // Initialize photo processing service
 function initializePhotoProcessing() {
     // Register result handlers
@@ -761,3 +767,13 @@ function initializePhotoProcessing() {
 
 // Initialize on module load
 initializePhotoProcessing();
+
+// Expose debugging utilities globally
+if (typeof window !== 'undefined') {
+    (window as any).photoQueue = {
+        getStatus: () => photoProcessingAdapter.getQueueStatus(),
+        clearQueue: () => photoProcessingAdapter.clearQueue(),
+        adapter: photoProcessingAdapter
+    };
+    console.log('Photo queue debugging available: window.photoQueue.getStatus(), window.photoQueue.clearQueue()');
+}

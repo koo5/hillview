@@ -191,6 +191,11 @@ export class PhotoWorkerService {
     await photoWorker.getBearingPhotos(bearing, center);
   }
 
+  async updateConfig(config: { recalculateBearingDistances?: boolean }): Promise<void> {
+    await this.initialize();
+    await photoWorker.updateConfig(config);
+  }
+
   // Event handlers
   onPhotosUpdate(callback: (photos: PhotoData[]) => void): void {
     this.onPhotosUpdateCallback = callback;
