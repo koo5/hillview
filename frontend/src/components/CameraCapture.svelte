@@ -1,5 +1,5 @@
 <script lang="ts">
-    import {createEventDispatcher, onDestroy} from 'svelte';
+    import {createEventDispatcher, onDestroy, onMount} from 'svelte';
     import {X} from 'lucide-svelte';
     import {photoCaptureSettings} from '$lib/stores';
     import {app} from "$lib/data.svelte";
@@ -35,6 +35,7 @@
     let maxZoom = 1;
     let videoTrack: MediaStreamTrack | null = null;
     let debugMode = false;
+    let wasShowingBeforeHidden = false;
 
     async function startCamera() {
         try {
@@ -160,12 +161,6 @@
                         mode,
                         placeholderId: tempId
                     });
-
-                    // For slow mode, also dispatch the full capture event
-                    if (mode === 'slow') {
-                        const file = new File([blob], `photo_${timestamp}.jpg`, {type: 'image/jpeg'});
-                        dispatch('photoCaptured', {file});
-                    }
                 }
             }, 'image/jpeg', quality);
         } catch (error) {
@@ -186,6 +181,26 @@
         dispatch('close');
     }
 
+    function handleVisibilityChange() {
+        if (document.hidden) {
+            // App is going to background
+            wasShowingBeforeHidden = show && !!stream;
+            if (stream) {
+                console.log('App going to background, stopping camera');
+                stream.getTracks().forEach(track => track.stop());
+                stream = null;
+                cameraReady = false;
+            }
+        } else {
+            // App is coming back to foreground
+            if (wasShowingBeforeHidden && show) {
+                console.log('App returning to foreground, restarting camera');
+                startCamera();
+            }
+            wasShowingBeforeHidden = false;
+        }
+    }
+
     // Start camera when modal opens
     $: if (show && !stream) {
         startCamera();
@@ -196,10 +211,15 @@
         cameraReady = false;
     }
 
+    onMount(() => {
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+    });
+
     onDestroy(() => {
         if (stream) {
             stream.getTracks().forEach(track => track.stop());
         }
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
     });
 </script>
 
