@@ -65,7 +65,6 @@
 
 		if (isCapturing) {
 			stopContinuousCapture();
-		} else {
 		}
 
 		// Clear any existing timer
@@ -90,6 +89,8 @@
 		}
 
 		if (isCapturing) {
+			// Stop continuous capture when button is released
+			stopContinuousCapture();
 		} else {
 			// It was a short press, take single photo
 			triggerCapture();
@@ -103,7 +104,7 @@
 			longPressTimer = null;
 		}
 		if (isCapturing) {
-			//    stopContinuousCapture();
+			stopContinuousCapture();
 		}
 	}
 
