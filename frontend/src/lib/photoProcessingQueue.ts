@@ -74,12 +74,15 @@ export class PhotoProcessingQueue {
         clearTimeout(existingTimer);
       }
       
-      // Set debounce timer
+      // Set debounce timer using event-specific config or fallback to default
+      const eventConfig = EVENT_CONFIGS[type];
+      const debounceTime = eventConfig?.debounceMs ?? this.options.debounceMs;
+      
       const timer = setTimeout(() => {
         this.priorityQueue.insert(event, PRIORITY_VALUES[event.priority]);
         this.timers.delete(type);
         this.processNext();
-      }, this.options.debounceMs);
+      }, debounceTime);
       
       this.timers.set(type, timer);
     } else {

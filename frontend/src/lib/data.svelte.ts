@@ -358,6 +358,9 @@ async function get_mapillary_photos() {
                 p2.range,
                 get(sources)
             );
+            
+            // Also trigger bearing update
+            triggerBearingUpdate();
         },
         
         onRegionComplete: (region, photosCount) => {
@@ -498,8 +501,9 @@ photos_in_area.subscribe(update_bearing_diff);
 function filter_photos_in_range() {
     let p2 = get(pos2);
     let ph = get(photos_in_area);
+    const center = getCurrentCenter();
     let res = ph.filter(photo => {
-        photo.range_distance = dist(photo.coord, new LatLng((p2.top_left.lat + p2.bottom_right.lat) / 2, (p2.top_left.lng + p2.bottom_right.lng) / 2));
+        photo.range_distance = dist(photo.coord, new LatLng(center.lat, center.lng));
         //console.log('photo.range_distance:', photo.range_distance, 'p2.range:', p2.range);
         if (photo.range_distance > p2.range) {
             photo.range_distance = null;
@@ -645,6 +649,22 @@ export function reversed<T>(list: T[]): T[]
     return res;
 }
 
+// Helper function to get center coordinates from current position
+function getCurrentCenter() {
+    const p2 = get(pos2);
+    return {
+        lat: (p2.top_left.lat + p2.bottom_right.lat) / 2,
+        lng: (p2.top_left.lng + p2.bottom_right.lng) / 2
+    };
+}
+
+// Helper function to trigger bearing update with current position
+function triggerBearingUpdate() {
+    const b = get(bearing);
+    const center = getCurrentCenter();
+    photoProcessingAdapter.updateBearing(b, center);
+}
+
 // Initialize photo processing service
 function initializePhotoProcessing() {
     // Register result handlers
@@ -660,10 +680,7 @@ function initializePhotoProcessing() {
         
         // Queue distance calculation
         const p2 = get(pos2);
-        const center = {
-            lat: (p2.top_left.lat + p2.bottom_right.lat) / 2,
-            lng: (p2.top_left.lng + p2.bottom_right.lng) / 2
-        };
+        const center = getCurrentCenter();
         const photoIds = result.photosInArea.map(p => p.id);
         photoProcessingAdapter.queueDistanceCalculation(photoIds, center, p2.range);
     });
@@ -707,6 +724,9 @@ function initializePhotoProcessing() {
                 p2.range,
                 srcs
             );
+            
+            // Also trigger bearing update to select initial photo
+            triggerBearingUpdate();
         }
     });
     
@@ -725,28 +745,18 @@ function initializePhotoProcessing() {
             p2.range,
             get(sources)
         );
+        
+        // Also trigger bearing update to select photo in front
+        triggerBearingUpdate();
     });
     
     bearing.subscribe(b => {
-        const p2 = get(pos2);
-        const center = {
-            lat: (p2.top_left.lat + p2.bottom_right.lat) / 2,
-            lng: (p2.top_left.lng + p2.bottom_right.lng) / 2
-        };
-        
-        photoProcessingAdapter.updateBearing(b, center);
+        triggerBearingUpdate();
     });
     
-    photos_in_range.subscribe(photos => {
-        const b = get(bearing);
-        const p2 = get(pos2);
-        const center = {
-            lat: (p2.top_left.lat + p2.bottom_right.lat) / 2,
-            lng: (p2.top_left.lng + p2.bottom_right.lng) / 2
-        };
-        
-        photoProcessingAdapter.updateBearing(b, center);
-    });
+    // REMOVED: Redundant subscription that was causing excessive re-renders
+    // The bearing subscription above already handles updates when bearing changes
+    // Photos in range updates are handled by the worker callbacks
 }
 
 // Initialize on module load
