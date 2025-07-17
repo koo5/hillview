@@ -256,7 +256,7 @@
         console.log('🔍📍 Adding placeholder photo:', placeholderPhoto.id, 'at location:', captureLoc);
         updateDevicePhotos(photos => {
             const updated = [...photos, placeholderPhoto];
-            console.log('🔍📊 Device photos updated, total count:', updated.length);
+            console.log('🔍📊 Device photos updated with placeholder, total count:', updated.length);
             return updated;
         });
     }

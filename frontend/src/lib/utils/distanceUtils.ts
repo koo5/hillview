@@ -29,6 +29,7 @@ export function calculateCenterFromBounds(bounds: Bounds): { lat: number; lng: n
  * Simple distance calculator for use in web workers (where tsgeo might not be available)
  * Uses Haversine formula
  */
+/*
 export class SimpleDistanceCalculator {
     getDistance(coord1: { lat: number; lng: number }, coord2: { lat: number; lng: number }): number {
         const R = 6371000; // Earth's radius in meters
@@ -43,6 +44,14 @@ export class SimpleDistanceCalculator {
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
         
         return R * c;
+    }
+}
+*/
+export class SimpleDistanceCalculator {
+    getDistance(coord1: { lat: number; lng: number }, coord2: { lat: number; lng: number }): number {
+        const deltaLat = coord2.lat - coord1.lat;
+        const deltaLng = coord2.lng - coord1.lng;
+        return Math.sqrt(deltaLat * deltaLat + deltaLng * deltaLng);
     }
 }
 
