@@ -1,31 +1,11 @@
 /// <reference lib="webworker" />
 
 import type { WorkerMessage, WorkerResponse, PhotoData, Bounds, SourceConfig } from './photoWorkerTypes';
-import { getBearingColor, getAbsBearingDiff } from './utils/bearingUtils';
+import { updatePhotoBearingData } from './utils/bearingUtils';
+import { SimpleDistanceCalculator, calculateCenterFromBounds, isInBounds } from './utils/distanceUtils';
 
-// Distance calculation utilities
-class Coordinate {
-  constructor(public lat: number, public lng: number) {}
-}
-
-class DistanceCalculator {
-  getDistance(coord1: Coordinate, coord2: Coordinate): number {
-    const R = 6371000; // Earth's radius in meters
-    const lat1Rad = coord1.lat * Math.PI / 180;
-    const lat2Rad = coord2.lat * Math.PI / 180;
-    const deltaLat = (coord2.lat - coord1.lat) * Math.PI / 180;
-    const deltaLng = (coord2.lng - coord1.lng) * Math.PI / 180;
-    
-    const a = Math.sin(deltaLat/2) * Math.sin(deltaLat/2) +
-             Math.cos(lat1Rad) * Math.cos(lat2Rad) *
-             Math.sin(deltaLng/2) * Math.sin(deltaLng/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    
-    return R * c;
-  }
-}
-
-const calculator = new DistanceCalculator();
+// Distance calculator instance
+const calculator = new SimpleDistanceCalculator();
 
 // Photo data store - source of truth
 const photoStore = new Map<string, PhotoData>();
@@ -133,29 +113,7 @@ class PhotoSpatialIndex {
   }
   
   private isInBounds(location: { lat: number; lng: number }, bounds: Bounds): boolean {
-    const normalizeLng = (lng: number): number => {
-      while (lng > 180) lng -= 360;
-      while (lng < -180) lng += 360;
-      return lng;
-    };
-    
-    const photoLng = normalizeLng(location.lng);
-    const leftLng = normalizeLng(bounds.top_left.lng);
-    const rightLng = normalizeLng(bounds.bottom_right.lng);
-    
-    const inLat = location.lat <= bounds.top_left.lat && 
-                 location.lat >= bounds.bottom_right.lat;
-    
-    let inLng: boolean;
-    if (leftLng > rightLng) {
-      // Bounds cross the date line
-      inLng = photoLng >= leftLng || photoLng <= rightLng;
-    } else {
-      // Normal bounds
-      inLng = photoLng >= leftLng && photoLng <= rightLng;
-    }
-    
-    return inLat && inLng;
+    return isInBounds(location, bounds);
   }
   
   clear(): void {
@@ -344,13 +302,10 @@ function recalculateVisiblePhotos(): void {
   fixupBearings(visiblePhotos);
   
   // Calculate distances from center of bounds
-  const centerLat = (currentBounds.top_left.lat + currentBounds.bottom_right.lat) / 2;
-  const centerLng = (currentBounds.top_left.lng + currentBounds.bottom_right.lng) / 2;
-  const centerCoord = new Coordinate(centerLat, centerLng);
+  const center = calculateCenterFromBounds(currentBounds);
   
   for (const photo of visiblePhotos) {
-    const photoCoord = new Coordinate(photo.coord.lat, photo.coord.lng);
-    const distance = calculator.getDistance(centerCoord, photoCoord);
+    const distance = calculator.getDistance(center, photo.coord);
     photo.range_distance = distance <= currentRange ? distance : null;
   }
   
@@ -404,11 +359,8 @@ function getBearingPhotos(bearing: number, center: { lat: number; lng: number })
     
     if (recalculateBearingDistances) {
       // Recalculate distances for current visible photos
-      const centerCoord = new Coordinate(center.lat, center.lng);
-      
       for (const photo of lastVisiblePhotos) {
-        const photoCoord = new Coordinate(photo.coord.lat, photo.coord.lng);
-        const distance = calculator.getDistance(centerCoord, photoCoord);
+        const distance = calculator.getDistance(center, photo.coord);
         
         if (distance <= currentRange) {
           photosWithDistance.push({
@@ -430,16 +382,9 @@ function getBearingPhotos(bearing: number, center: { lat: number; lng: number })
     }
     
     // Update bearing colors (but don't sort - leave that to main thread)
-    const photosWithBearings = photosWithDistance.map(photo => {
-      const absBearingDiff = getAbsBearingDiff(bearing, photo.bearing);
-      const bearingColor = getBearingColor(absBearingDiff);
-      
-      return {
-        ...photo,
-        abs_bearing_diff: absBearingDiff,
-        bearing_color: bearingColor
-      };
-    });
+    const photosWithBearings = photosWithDistance.map(photo => 
+      updatePhotoBearingData(photo, bearing)
+    );
     
     postMessage({
       id: 'auto',

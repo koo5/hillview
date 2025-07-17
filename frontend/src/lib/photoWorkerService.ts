@@ -5,6 +5,7 @@ import {
   sortPhotosByAngularDistance,
   type PhotoWithBearing
 } from './photoProcessing';
+import { buildNavigationStructure } from './utils/photoNavigationUtils';
 
 export interface BearingResult {
   photoInFront: PhotoData | null;
@@ -104,51 +105,13 @@ export class PhotoWorkerService {
     const withBearings = updatePhotoBearings(photosInRange, bearing);
     const sorted = sortPhotosByAngularDistance(withBearings as PhotoWithBearing[], bearing);
     
-    const front = sorted[0];
-    const idx = withBearings.findIndex(p => p.id === front.id);
+    // Use the navigation utility to build the structure
+    const navigationResult = buildNavigationStructure(sorted, withBearings);
     
-    let result: BearingResult = {
-      photoInFront: null,
-      photoToLeft: null,
-      photoToRight: null,
-      photosToLeft: [],
-      photosToRight: [],
+    return {
+      ...navigationResult,
       photosInRange: photosInRange
     };
-    
-    if (idx !== -1) {
-      const leftIdx = (idx - 1 + withBearings.length) % withBearings.length;
-      const rightIdx = (idx + 1) % withBearings.length;
-      
-      result.photoInFront = front;
-      result.photoToLeft = withBearings[leftIdx];
-      result.photoToRight = withBearings[rightIdx];
-      
-      // Build arrays for left and right navigation
-      const phsl: PhotoData[] = [];
-      const phsr: PhotoData[] = [];
-      
-      for (let i = 1; i < 8 && i < withBearings.length / 2; i++) {
-        const leftPhotoIdx = (idx - i + withBearings.length * 2) % withBearings.length;
-        const rightPhotoIdx = (idx + i) % withBearings.length;
-        
-        const leftPhoto = withBearings[leftPhotoIdx];
-        const rightPhoto = withBearings[rightPhotoIdx];
-        
-        if (leftPhoto && !phsl.includes(leftPhoto) && !phsr.includes(leftPhoto)) {
-          phsl.push(leftPhoto);
-        }
-        if (rightPhoto && !phsl.includes(rightPhoto) && !phsr.includes(rightPhoto)) {
-          phsr.push(rightPhoto);
-        }
-      }
-      
-      phsl.reverse();
-      result.photosToLeft = phsl;
-      result.photosToRight = phsr;
-    }
-    
-    return result;
   }
 
   async initialize(): Promise<void> {

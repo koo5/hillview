@@ -1,14 +1,11 @@
 import { LatLng } from 'leaflet';
-import { Coordinate } from "tsgeo/Coordinate";
-import { Vincenty } from "tsgeo/Distance/Vincenty";
-import Angles from 'angles';
-import { getBearingColor, getAbsBearingDiff } from './utils/bearingUtils';
+import { updatePhotoBearingData, calculateAngularDistance } from './utils/bearingUtils';
+import { calculateDistance, isInBounds } from './utils/distanceUtils';
 import type { PhotoData, PhotoSize, PhotoWithBearing } from './types/photoTypes';
 
 // Re-export for modules that import from here
 export type { PhotoWithBearing };
 
-const calculator = new Vincenty();
 
 export interface Bounds {
   top_left: LatLng;
@@ -46,11 +43,8 @@ export function calculatePhotoDistances(
   center: { lat: number; lng: number },
   maxRange: number
 ): PhotoWithDistance[] {
-  const centerCoord = new Coordinate(center.lat, center.lng);
-  
   return photos.map(photo => {
-    const photoCoord = new Coordinate(photo.coord.lat, photo.coord.lng);
-    const distance = calculator.getDistance(centerCoord, photoCoord);
+    const distance = calculateDistance(photo.coord, center);
     
     return {
       ...photo,
@@ -63,16 +57,9 @@ export function updatePhotoBearings(
   photos: PhotoData[],
   currentBearing: number
 ): PhotoWithBearing[] {
-  return photos.map(photo => {
-    const abs_bearing_diff = getAbsBearingDiff(currentBearing, photo.bearing);
-    const bearing_color = getBearingColor(abs_bearing_diff);
-    
-    return {
-      ...photo,
-      abs_bearing_diff,
-      bearing_color
-    } as PhotoWithBearing;
-  });
+  return photos.map(photo => 
+    updatePhotoBearingData(photo, currentBearing) as PhotoWithBearing
+  );
 }
 
 export function sortPhotosByAngularDistance(
@@ -82,7 +69,7 @@ export function sortPhotosByAngularDistance(
   return photos
     .map(photo => ({
       ...photo,
-      angular_distance_abs: Math.abs(Angles.distance(currentBearing, photo.bearing))
+      angular_distance_abs: calculateAngularDistance(currentBearing, photo.bearing)
     }))
     .sort((a, b) => a.angular_distance_abs - b.angular_distance_abs);
 }
@@ -218,10 +205,7 @@ export class PhotoSpatialIndex {
   }
   
   private isInBounds(location: { lat: number; lng: number }, bounds: Bounds): boolean {
-    return location.lat <= bounds.top_left.lat && 
-           location.lat >= bounds.bottom_right.lat &&
-           location.lng >= bounds.top_left.lng && 
-           location.lng <= bounds.bottom_right.lng;
+    return isInBounds(location, bounds);
   }
   
   clear() {

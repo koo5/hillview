@@ -53,3 +53,30 @@ export function getAngularDistance(from: number, to: number): number {
     const diff = (to - from + 180) % 360 - 180;
     return diff < -180 ? diff + 360 : diff;
 }
+
+/**
+ * Calculate absolute angular distance for sorting
+ * @param bearing1 - First bearing in degrees
+ * @param bearing2 - Second bearing in degrees
+ * @returns Absolute angular distance (0-180)
+ */
+export function calculateAngularDistance(bearing1: number, bearing2: number): number {
+    return Math.abs(Angles.distance(bearing1, bearing2));
+}
+
+/**
+ * Update photo with bearing-related data
+ * @param photo - Photo object
+ * @param currentBearing - Current view bearing
+ * @returns Photo with updated bearing data
+ */
+export function updatePhotoBearingData<T extends { bearing: number }>(
+    photo: T,
+    currentBearing: number
+): T & { abs_bearing_diff: number; bearing_color: string; angular_distance_abs?: number } {
+    const bearingData = calculateBearingData(photo.bearing, currentBearing);
+    return {
+        ...photo,
+        ...bearingData
+    };
+}

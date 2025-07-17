@@ -1,10 +1,10 @@
 import {type Photo} from "./types";
-import {Coordinate} from "tsgeo/Coordinate";
-import {Vincenty} from "tsgeo/Distance/Vincenty";
 import Angles from 'angles';
 //import {DMS} from "tsgeo/Formatter/Coordinate/DMS";
 import {space_db} from "./debug_server.js";
-import { getBearingColor, getAbsBearingDiff } from './utils/bearingUtils';
+import { updatePhotoBearingData, calculateAngularDistance } from './utils/bearingUtils';
+import { calculateDistance, calculateCenterFromBounds } from './utils/distanceUtils';
+import { buildNavigationStructure } from './utils/photoNavigationUtils';
 import {LatLng} from 'leaflet';
 import {get, writable} from "svelte/store";
 import {
@@ -42,7 +42,6 @@ export const geoPicsUrl = import.meta.env.VITE_REACT_APP_GEO_PICS_URL; //+'2'
 
 export let client_id = localStorageSharedStore('client_id', Math.random().toString(36));
 
-let calculator = new Vincenty();
 
 export let app = writable<{
     error: string | null;
@@ -131,9 +130,6 @@ export let photos_to_right = writable<any[]>([]);
 export let photo_to_left = writable<any | null>(null);
 export let photo_to_right = writable<any | null>(null);
 
-function dist(coord1: any, coord2: any) {
-    return calculator.getDistance(new Coordinate(coord1.lat, coord1.lng), new Coordinate(coord2.lat, coord2.lng));
-}
 
 bearing.subscribe(b => {
     let b2 = (b + 360) % 360;
@@ -488,10 +484,9 @@ function filter_mapillary_photos_by_area() {
 function update_bearing_diff() {
     let b = get(bearing);
     let res = get(photos_in_area);
-    for (let photo of res) {
-        photo.abs_bearing_diff = getAbsBearingDiff(b, photo.bearing);
-        photo.bearing_color = getBearingColor(photo.abs_bearing_diff);
-        photo.range_distance = null;
+    for (let i = 0; i < res.length; i++) {
+        const updated = updatePhotoBearingData(res[i], b);
+        res[i] = { ...updated, range_distance: null };
     }
 };
 
@@ -504,7 +499,7 @@ function filter_photos_in_range() {
     let ph = get(photos_in_area);
     const center = getCurrentCenter();
     let res = ph.filter(photo => {
-        photo.range_distance = dist(photo.coord, new LatLng(center.lat, center.lng));
+        photo.range_distance = calculateDistance(photo.coord, center);
         //console.log('photo.range_distance:', photo.range_distance, 'p2.range:', p2.range);
         if (photo.range_distance > p2.range) {
             photo.range_distance = null;
@@ -529,39 +524,23 @@ function update_view() {
         photos_to_right.set([]);
         return;
     }
+    
+    // Add angular distance to photos
     ph.map(photo => {
-        photo.angular_distance_abs = Math.abs(Angles.distance(b, photo.bearing));
+        photo.angular_distance_abs = calculateAngularDistance(b, photo.bearing);
     });
+    
+    // Sort by angular distance
     let phs = ph.slice().sort((a, b) => a.angular_distance_abs - b.angular_distance_abs);
-    let fr = phs[0];
-    let idx = ph.indexOf(fr);
-    let phl = ph[(idx - 1 + ph.length) % ph.length];
-    let phr = ph[(idx + 1) % ph.length];
-    photo_to_left.set(phl);
-    photo_to_right.set(phr);
-    photo_in_front.set(fr);
-    let phsl = [];
-    let phsr = [];
-    if (idx !== -1 && ph.length > 1) {
-        for (let i = 1; i < 8; i++) {
-            let phl_idx = (idx - i + ph.length*2) % ph.length;
-            //console.log('phl_idx:', phl_idx);
-            let phl = ph[phl_idx];
-            //console.log('phl:', phl);
-            let phr = ph[(idx + i) % ph.length];
-            if (phl && phsl.indexOf(phl) === -1 && phsr.indexOf(phl) === -1)
-                phsl.push(phl);
-            if (phr && phsl.indexOf(phr) === -1 && phsr.indexOf(phr) === -1)
-                phsr.push(phr);
-        }
-        phsl.reverse();
-    }
-    // console.log('ph:', ph);
-    // console.log('phs:', phs);
-    // console.log('phsl:', phsl);
-    // console.log('phsr:', phsr);
-    photos_to_left.set(phsl);
-    photos_to_right.set(phsr);
+    
+    // Use navigation utility to build structure
+    const navResult = buildNavigationStructure(phs, ph);
+    
+    photo_in_front.set(navResult.photoInFront);
+    photo_to_left.set(navResult.photoToLeft);
+    photo_to_right.set(navResult.photoToRight);
+    photos_to_left.set(navResult.photosToLeft);
+    photos_to_right.set(navResult.photosToRight);
 }
 
 // Now handled by photoProcessingService
@@ -653,10 +632,7 @@ export function reversed<T>(list: T[]): T[]
 // Helper function to get center coordinates from current position
 function getCurrentCenter() {
     const p2 = get(pos2);
-    return {
-        lat: (p2.top_left.lat + p2.bottom_right.lat) / 2,
-        lng: (p2.top_left.lng + p2.bottom_right.lng) / 2
-    };
+    return calculateCenterFromBounds(p2);
 }
 
 // Helper function to trigger bearing update with current position
