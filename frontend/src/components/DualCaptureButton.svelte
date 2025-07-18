@@ -34,7 +34,8 @@
         }
     }
     
-    function handleSlowStart() {
+    function handleSlowStart(e?: Event) {
+        if (e) e.preventDefault();
         if (disabled) return;
         slowPressed = true;
         dispatch('captureStart', { mode: 'slow' });
@@ -48,7 +49,8 @@
         captureCount = 0;
     }
     
-    function handleFastStart() {
+    function handleFastStart(e?: Event) {
+        if (e) e.preventDefault();
         if (disabled) return;
         fastPressed = true;
         dispatch('captureStart', { mode: 'fast' });
@@ -72,6 +74,11 @@
         dispatch('capture', { mode: 'fast' });
     }
     
+    function handleSingleCapture() {
+        if (disabled) return;
+        dispatch('capture', { mode: 'single' });
+    }
+    
     onDestroy(() => {
         stopCapture();
     });
@@ -92,6 +99,18 @@
     >
         <Turtle size={24} />
         <span class="mode-label">Slow</span>
+    </button>
+    
+    <div class="button-divider"></div>
+    
+    <button
+        class="capture-button single-mode"
+        {disabled}
+        on:click={handleSingleCapture}
+        data-testid="single-capture-button"
+    >
+        <Camera size={24} />
+        <span class="mode-label">Single</span>
     </button>
     
     <div class="button-divider"></div>
@@ -143,6 +162,10 @@
         transition: all 0.2s ease;
         color: white;
         position: relative;
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-touch-callout: none;
     }
     
     .capture-button:disabled {
@@ -174,6 +197,19 @@
     .fast-mode.pressed {
         transform: scale(0.9);
         background: linear-gradient(135deg, #ff4141, #ff3030);
+    }
+    
+    .single-mode {
+        background: linear-gradient(135deg, #2196F3, #1976D2);
+    }
+    
+    .single-mode:hover:not(:disabled) {
+        background: linear-gradient(135deg, #1976D2, #1565C0);
+    }
+    
+    .single-mode:active {
+        transform: scale(0.9);
+        background: linear-gradient(135deg, #1565C0, #0D47A1);
     }
     
     .button-divider {

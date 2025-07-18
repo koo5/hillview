@@ -36,8 +36,46 @@
     let videoTrack: MediaStreamTrack | null = null;
     let debugMode = false;
     let wasShowingBeforeHidden = false;
+    let permissionCheckInterval: number | null = null;
+    let hasRequestedPermission = false;
+
+    async function checkCameraPermission(): Promise<PermissionState | null> {
+        try {
+            if ('permissions' in navigator && 'query' in navigator.permissions) {
+                const result = await navigator.permissions.query({ name: 'camera' as PermissionName });
+                return result.state;
+            }
+        } catch (error) {
+            console.log('Permission API not supported or error:', error);
+        }
+        return null;
+    }
+
+    async function startPermissionMonitoring() {
+        // Clear any existing interval
+        if (permissionCheckInterval) {
+            clearInterval(permissionCheckInterval);
+        }
+
+        // Check permission state periodically when we have an error
+        permissionCheckInterval = window.setInterval(async () => {
+            if (cameraError && hasRequestedPermission) {
+                const state = await checkCameraPermission();
+                console.log('Checking camera permission:', state);
+                
+                if (state === 'granted') {
+                    console.log('Camera permission granted, retrying...');
+                    clearInterval(permissionCheckInterval!);
+                    permissionCheckInterval = null;
+                    hasRequestedPermission = false;
+                    startCamera();
+                }
+            }
+        }, 1000);
+    }
 
     async function startCamera() {
+        console.log('Starting camera...');
         try {
             // Check for camera support
             if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -46,8 +84,13 @@
 
             // Stop any existing stream
             if (stream) {
+                console.log('Stopping existing stream');
                 stream.getTracks().forEach(track => track.stop());
+                stream = null;
             }
+            
+            // Clear any previous errors
+            cameraError = null;
 
 
             // Request camera access
@@ -58,11 +101,25 @@
                     height: {ideal: 1080}
                 }
             };
+            
+            console.log('Requesting camera with constraints:', constraints);
             stream = await navigator.mediaDevices.getUserMedia(constraints);
+            console.log('Got media stream:', stream);
 
             if (video) {
+                console.log('Setting video source');
                 video.srcObject = stream;
+                
+                // Wait for metadata to load
+                await new Promise((resolve) => {
+                    video.onloadedmetadata = () => {
+                        console.log('Video metadata loaded');
+                        resolve(undefined);
+                    };
+                });
+                
                 await video.play();
+                console.log('Video playing');
                 cameraReady = true;
                 cameraError = null;
 
@@ -83,6 +140,14 @@
             console.error('Camera error:', error);
             cameraError = error instanceof Error ? error.message : 'Failed to access camera';
             cameraReady = false;
+            
+            // Check if this is a permission error
+            if (error instanceof DOMException && 
+                (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError')) {
+                hasRequestedPermission = true;
+                // Start monitoring permission changes
+                startPermissionMonitoring();
+            }
         }
     }
 
@@ -179,6 +244,14 @@
         }
         cameraReady = false;
         cameraError = null;
+        
+        // Clear permission monitoring
+        if (permissionCheckInterval) {
+            clearInterval(permissionCheckInterval);
+            permissionCheckInterval = null;
+        }
+        hasRequestedPermission = false;
+        
         show = false;
         dispatch('close');
     }
@@ -204,13 +277,23 @@
     }
 
     // Start camera when modal opens
-    $: if (show && !stream) {
-        startCamera();
+    $: if (show) {
+        if (!stream && !cameraError) {
+            console.log('Modal shown, starting camera');
+            startCamera();
+        }
     } else if (!show && stream) {
         // Stop camera when modal closes
+        console.log('Modal hidden, stopping camera');
         stream.getTracks().forEach(track => track.stop());
         stream = null;
         cameraReady = false;
+        cameraError = null;
+        hasRequestedPermission = false;
+        if (permissionCheckInterval) {
+            clearInterval(permissionCheckInterval);
+            permissionCheckInterval = null;
+        }
     }
 
     onMount(() => {
@@ -220,6 +303,9 @@
     onDestroy(() => {
         if (stream) {
             stream.getTracks().forEach(track => track.stop());
+        }
+        if (permissionCheckInterval) {
+            clearInterval(permissionCheckInterval);
         }
         document.removeEventListener('visibilitychange', handleVisibilityChange);
     });
@@ -239,7 +325,15 @@
                 {#if cameraError}
                     <div class="camera-error">
                         <p>⚠️ {cameraError}</p>
-                        <button class="retry-button" on:click={startCamera}>
+                        <button class="retry-button" on:click={() => {
+                            cameraError = null;
+                            hasRequestedPermission = false;
+                            if (permissionCheckInterval) {
+                                clearInterval(permissionCheckInterval);
+                                permissionCheckInterval = null;
+                            }
+                            startCamera();
+                        }}>
                             Try Again
                         </button>
                     </div>

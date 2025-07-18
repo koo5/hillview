@@ -4,7 +4,7 @@
     import Map from '../components/Map.svelte';
     import UploadDialog from '../components/UploadDialog.svelte';
     import {Camera, Compass, User, LogOut, Upload, Menu, Download, Maximize2, Minimize2} from 'lucide-svelte';
-    import {fetch_photos} from "$lib/sources";
+    import {fetch_photos, sources} from "$lib/sources";
     import {dms} from "$lib/utils";
     import {app, pos, bearing, turn_to_photo_to, update_bearing, update_pos} from "$lib/data.svelte";
     import {LatLng} from 'leaflet';
@@ -262,17 +262,35 @@
     }
 
     function toggleCamera() {
+        const newActivity = get(app).activity === 'capture' ? 'view' : 'capture';
+        
         app.update(a => ({
             ...a,
-            activity: a.activity === 'capture' ? 'view' : 'capture'
+            activity: newActivity
         }));
-        if (showCameraView && mapComponent) {
+        
+        if (newActivity === 'capture') {
+            // Entering capture mode - disable all photo sources
+            sources.update(srcs => {
+                return srcs.map(src => ({
+                    ...src,
+                    enabled: false
+                }));
+            });
+            
             // Enable location tracking when camera opens
-            mapComponent.enableLocationTracking();
-        } else if (!showCameraView && mapComponent) {
-            // Optionally disable location tracking when camera closes
-            // Commenting out to let user control via location button
-            // mapComponent.disableLocationTracking();
+            if (mapComponent) {
+                mapComponent.enableLocationTracking();
+            }
+        } else {
+            // Exiting capture mode - re-enable previously enabled sources
+            // For now, we'll re-enable hillview and device sources by default
+            sources.update(srcs => {
+                return srcs.map(src => ({
+                    ...src,
+                    enabled: src.id === 'hillview' || src.id === 'device'
+                }));
+            });
         }
     }
     
@@ -548,6 +566,10 @@
         cursor: pointer;
         border: none;
         padding: 0;
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-touch-callout: none;
         transition: all 0.2s ease;
     }
 

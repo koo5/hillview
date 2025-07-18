@@ -3,6 +3,7 @@ import { gpsCoordinates } from './location.svelte';
 import type { UnlistenFn } from '@tauri-apps/api/event';
 import { TAURI, TAURI_MOBILE, tauriSensor, isSensorAvailable, type SensorData, SensorMode } from './tauri';
 import {PluginListener} from "@tauri-apps/api/core";
+import { startPreciseLocationUpdates, stopPreciseLocationUpdates } from './preciseLocation';
 
 export interface CompassData {
     magneticHeading: number | null;  // 0-360 degrees from magnetic north
@@ -248,6 +249,12 @@ export function stopCompass() {
                 console.error('🔍 Failed to stop Tauri sensor:', error);
             });
         }
+        
+        // Also stop precise location updates on Android
+        if (TAURI_MOBILE) {
+            console.log('📍 Stopping precise location updates');
+            stopPreciseLocationUpdates();
+        }
     }
     
     // Stop DeviceOrientation if active
@@ -319,6 +326,15 @@ export async function startCompass(mode?: SensorMode) {
             compassActive.set(true);
             compassError.set(null);
             currentSensorMode.set(sensorMode);
+            
+            // Also start precise location updates on Android
+            if (TAURI_MOBILE) {
+                console.log('📍 Starting precise location updates');
+                startPreciseLocationUpdates().catch(err => 
+                    console.error('📍 Failed to start precise location:', err)
+                );
+            }
+            
             return true;
         }
         console.warn('🔍⚠️ Tauri sensor failed, falling back to web APIs');
