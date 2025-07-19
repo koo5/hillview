@@ -17,7 +17,7 @@ let lastVisiblePhotos: PhotoData[] = [];
 let recalculateBearingDiffForAllPhotosInArea;
 
 // Configuration
-const MAX_PHOTOS_IN_AREA = 500;
+const MAX_PHOTOS_IN_AREA = 200;
 const MAX_PHOTOS_IN_RANGE = 100;
 
 // Spatial indexing for efficient queries
