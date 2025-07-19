@@ -30,8 +30,8 @@ export function calculateCenterFromBounds(bounds: Bounds): { lat: number; lng: n
  * Uses Haversine formula
  */
 
-export class SimpleDistanceCalculator {
-    getDistance(coord1: { lat: number; lng: number }, coord2: { lat: number; lng: number }): number {
+
+export function getDistance(coord1: { lat: number; lng: number }, coord2: { lat: number; lng: number }): number {
         const R = 6371000; // Earth's radius in meters
         const lat1Rad = coord1.lat * Math.PI / 180;
         const lat2Rad = coord2.lat * Math.PI / 180;
@@ -45,16 +45,6 @@ export class SimpleDistanceCalculator {
         
         return R * c;
     }
-}/*
-attempted optimization, we dont need exactly GIS-precision, but this dosent quite match the range circle:
-export class SimpleDistanceCalculator {
-    getDistance(coord1: { lat: number; lng: number }, coord2: { lat: number; lng: number }): number {
-        const R = 6371000; // Earth's radius in meters
-        const deltaLat = R * (coord2.lat - coord1.lat) * Math.PI / 180;
-        const deltaLng = R * (coord2.lng - coord1.lng) * Math.PI / 180;
-        return Math.sqrt(deltaLat * deltaLat + deltaLng * deltaLng);
-    }
-}*/
 
 /**
  * Check if a coordinate is within bounds

@@ -41,8 +41,7 @@ export interface SourceConfig {
 export type WorkerMessageType = 
   | 'init' 
   | 'loadPhotos' 
-  | 'updateBounds' 
-  | 'updateRange' 
+  | 'updateBounds'
   | 'updateSources' 
   | 'getPhotosInRange'
   | 'updateConfig'

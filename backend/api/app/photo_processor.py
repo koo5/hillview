@@ -20,7 +20,7 @@ import numpy as np
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import AsyncSessionLocal
+from app.database import SessionLocal
 from app.models import Photo, User
 from app.anonymize import anonymize_image
 
@@ -290,7 +290,7 @@ class PhotoProcessor:
                 sizes_info = self.create_optimized_sizes(file_path, unique_id, filename, width, height)
             
             # Create database record
-            async with AsyncSessionLocal() as db:
+            async with SessionLocal() as db:
                 gps = exif_data.get('gps', {})
                 
                 photo = Photo(

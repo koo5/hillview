@@ -262,15 +262,6 @@ class PhotoWorkerManager {
     }
   }
 
-  async updateRange(range: number): Promise<void> {
-    try {
-      await this.ensureInitialized();
-      await this.sendMessage('updateRange', { range }, 'updateRange');
-    } catch (error) {
-      console.error('PhotoWorker: Failed to update range', error);
-      throw error;
-    }
-  }
 
   async updateSources(sources: SourceConfig[]): Promise<void> {
     try {

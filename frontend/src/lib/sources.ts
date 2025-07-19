@@ -437,3 +437,13 @@ function parse_photo_data(item: any): PhotoData {
     return photo;
 }
 
+
+
+
+
+
+
+export function source_by_id(id: string) {
+    return get(sources).find(s => s.id === id);
+}
+

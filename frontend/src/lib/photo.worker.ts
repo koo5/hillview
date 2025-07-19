@@ -8,11 +8,7 @@ export const WORKER_VERSION = __WORKER_VERSION__;
 
 console.log(`PhotoWorker: Worker script loaded with version: ${WORKER_VERSION}`);
 import { updatePhotoBearingData } from './utils/bearingUtils';
-import { SimpleDistanceCalculator, calculateCenterFromBounds, isInBounds } from './utils/distanceUtils';
-
-
-// Distance calculator instance
-const calculator = new SimpleDistanceCalculator();
+import { getDistance, calculateCenterFromBounds, isInBounds } from './utils/distanceUtils';
 
 // Photo data store - source of truth
 const photoStore = new Map<string, PhotoData>();
@@ -20,7 +16,6 @@ let currentBounds: Bounds | null = null;
 let currentRange = 5000; // Default 5km range
 let sourcesConfig: SourceConfig[] = [];
 let lastVisiblePhotos: PhotoData[] = [];
-let recalculateBearingDiffForAllPhotosInArea;
 
 // Configuration
 const MAX_PHOTOS_IN_AREA = 200;
@@ -171,19 +166,6 @@ function updateBounds(bounds: Bounds): void {
   }
 }
 
-function updateRange(range: number): void {
-  try {
-    // Only recalculate if range actually changed
-    if (currentRange !== range) {
-      currentRange = range;
-      recalculateVisiblePhotos();
-    }
-  } catch (error) {
-    console.error('Worker: Error updating range:', error);
-    postError('updateRange', error);
-  }
-}
-
 function updateSources(sources: SourceConfig[]): void {
   try {
     // Only recalculate if sources actually changed
@@ -317,8 +299,8 @@ function recalculateVisiblePhotos(): void {
   const center = calculateCenterFromBounds(currentBounds);
   
   for (const photo of visiblePhotos) {
-    const distance = calculator.getDistance(center, photo.coord);
-    console.log(`Worker: Photo ${photo.id} distance from center: ${distance.toFixed(2)}m`);
+    const distance = getDistance(center, photo.coord);
+    //console.log(`Worker: Photo ${photo.id} distance from center: ${distance.toFixed(2)}m`);
     photo.range_distance = distance <= currentRange ? distance : null;
   }
   
@@ -349,7 +331,7 @@ function getPhotosInRange(bearing: number, center: { lat: number; lng: number })
     
     console.log('Worker: Recalculating distances for bearing photos, bearing:', bearing, 'lastVisiblePhotos:', lastVisiblePhotos.length);
     for (const photo of lastVisiblePhotos) {
-      const distance = calculator.getDistance(center, photo.coord);
+      const distance = getDistance(center, photo.coord);
 
       if (distance <= currentRange) {
         photosWithDistance.push({
@@ -416,13 +398,6 @@ self.onmessage = function(e: MessageEvent<WorkerMessage>) {
       case 'updateBounds':
         if (data?.bounds) {
           updateBounds(data.bounds);
-        }
-        postMessage({ id, type: 'success' } as WorkerResponse);
-        break;
-        
-      case 'updateRange':
-        if (data?.range !== undefined) {
-          updateRange(data.range);
         }
         postMessage({ id, type: 'success' } as WorkerResponse);
         break;

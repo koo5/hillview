@@ -25,7 +25,13 @@ from .auth import (
     OAUTH_PROVIDERS, ACCESS_TOKEN_EXPIRE_MINUTES
 )
 from .cache_service import MapillaryCacheService
-from .worker import celery_app, process_uploaded_photo
+# Celery task queue for async processing
+import redis
+from celery import Celery
+
+# Initialize Celery app
+redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+celery_app = Celery('hillview', broker=redis_url, backend=redis_url)
 
 load_dotenv()
 logging.basicConfig(level=logging.DEBUG)
@@ -433,12 +439,13 @@ async def upload_photo(
     
     # Queue the photo for processing
     try:
-        task = process_uploaded_photo.delay(
-            file_path=str(file_path),
-            filename=file.filename,
-            user_id=str(current_user.id),
-            description=description,
-            is_public=is_public
+        task = celery_app.send_task('app.worker.process_uploaded_photo', args=[
+            str(file_path),
+            file.filename,
+            str(current_user.id),
+            description,
+            is_public
+        ]
         )
         
         log.info(f"Queued photo processing task {task.id} for file {unique_filename}")

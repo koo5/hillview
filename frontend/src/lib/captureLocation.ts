@@ -65,7 +65,7 @@ export function updateCaptureLocationFromGps(coords: {
 }
 
 // Helper function to update capture location from map
-export function updateCaptureLocationFromMap(lat: number, lng: number, mapBearing: number) {
+export function updateCaptureLocation(lat: number, lng: number, mapBearing: number) {
     captureLocation.set({
         latitude: lat,
         longitude: lng,

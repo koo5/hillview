@@ -3,7 +3,6 @@ import { MinHeap } from './priorityQueue';
 
 export type ProcessingEventType = 
   | 'filter_area'
-  | 'calculate_distances' 
   | 'update_bearing_and_center'
   | 'fetch_mapillary';
 
@@ -341,7 +340,6 @@ export class PhotoProcessingQueue {
 // Event type configurations
 export const EVENT_CONFIGS: Record<ProcessingEventType, { debounceMs: number; mode: 'replace' | 'queue' }> = {
   filter_area: { debounceMs: 500, mode: 'replace' },  // Increased for heavy operation
-  calculate_distances: { debounceMs: 100, mode: 'replace' },
   update_bearing_and_center: { debounceMs: 16, mode: 'replace' }, // One frame at 60fps
   fetch_mapillary: { debounceMs: 1000, mode: 'replace' }
 };

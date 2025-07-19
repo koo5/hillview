@@ -39,7 +39,6 @@ class PhotoProcessingAdapter {
             }
             
             await photoWorkerService.updateMapBounds(bounds);
-            await photoWorkerService.updateRange(range);
             await photoWorkerService.updateSources(sourcesConfig);
             break;
             
@@ -54,19 +53,6 @@ class PhotoProcessingAdapter {
             }
             
             await photoWorkerService.updateBearingAndCenter(bearing, center);
-            break;
-            
-          case 'calculate_distances':
-            // Distance calculation is handled automatically in web worker
-            const { center: distCenter, range: distRange } = event.data;
-            await this.ensureInitialized();
-            
-            if (event.abortSignal?.aborted) {
-              console.log('PhotoProcessingAdapter: calculate_distances aborted');
-              return;
-            }
-            
-            await photoWorkerService.updateRange(distRange);
             break;
         }
       }
@@ -87,13 +73,6 @@ class PhotoProcessingAdapter {
       const areaCallback = this.webWorkerCallbacks.get('filter_area');
       if (areaCallback) {
         areaCallback(result);
-      }
-      
-      // Also trigger distance calculation callback since web worker includes distance data
-      const distanceCallback = this.webWorkerCallbacks.get('calculate_distances');
-      if (distanceCallback) {
-        const photosInRange = photos.filter(p => p.range_distance !== null && p.range_distance !== undefined);
-        distanceCallback({ photosInRange });
       }
     });
     
@@ -143,19 +122,7 @@ class PhotoProcessingAdapter {
       mode: 'replace' // Replace previous bearing update requests
     });
   }
-  
-  queueDistanceCalculation(photoIds: string[], center: any, range: number): void {
-    // Use the queue with proper debouncing
-    this.processingQueue.enqueue('calculate_distances', {
-      photoIds,
-      center,
-      range
-    }, {
-      priority: 'normal',
-      mode: 'replace'
-    });
-  }
-  
+
   onResult(type: string, callback: (result: any) => void): void {
     this.webWorkerCallbacks.set(type, callback);
   }
@@ -186,7 +153,7 @@ class PhotoProcessingAdapter {
     await photoWorkerService.updateConfig(config);
   }
   
-  getCurrentBearingData(): any | null {
+  getCurrentData(): any | null {
     return photoWorkerService.getCurrentBearingData() || null;
   }
   

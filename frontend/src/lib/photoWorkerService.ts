@@ -145,11 +145,6 @@ export class PhotoWorkerService {
     return this.currentBounds;
   }
 
-  async updateRange(range: number): Promise<void> {
-    await this.initialize();
-    await photoWorker.updateRange(range);
-  }
-
   async updateSources(sources: SourceConfig[]): Promise<void> {
     await this.initialize();
     await photoWorker.updateSources(sources);

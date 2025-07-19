@@ -15,9 +15,10 @@ import {tick} from "svelte";
 import { geoPicsUrl } from './config';
 import { auth } from './auth.svelte';
 import { userPhotos } from './stores';
-import { updateCaptureLocationFromMap } from './captureLocation';
+import { updateCaptureLocation } from './captureLocation';
 import { photoProcessingAdapter } from './photoProcessingAdapter';
 import { createMapillaryStreamService, type MapillaryStreamCallbacks } from './mapillaryStreamService';
+import {triggerPhotosBearingDiffRecalculator} from "$lib/photosBearingDiffRecalculator";
 
 // Source interface and store moved here to avoid circular dependency
 export interface Source {
@@ -91,56 +92,8 @@ userPhotos.subscribe(photos => {
     }));
 });
 
-
-function source_by_id(id: string) {
-    return get(sources).find(s => s.id === id);
-}
-
-export let pos = localStorageReadOnceSharedStore('pos', {
-    center: new LatLng(50.06173640462974,
-        14.514600411057472),
-    zoom: 20,
-    reason: 'default'
-});
-
-// Initialize capture location with default map position
-const initialPos = get(pos);
-updateCaptureLocationFromMap(initialPos.center.lat, initialPos.center.lng, 0);
-
-export function update_pos(cb: (pos: any) => any)
-{
-    let v = get(pos);
-    let n = cb(v);
-    if (n.center.lat == v.center.lat && n.center.lng == v.center.lng && n.zoom == v.zoom) return;
-    pos.set(n);
-    
-    // Update capture location when map position changes
-    updateCaptureLocationFromMap(n.center.lat, n.center.lng, get(bearing));
-}
-
-
-export let pos2 = writable({
-    top_left: new LatLng(0, 0),
-    bottom_right: new LatLng(10, 10),
-    range: 1,
-});
-export function update_pos2(cb: (pos2: any) => any)
-{
-    let v = get(pos2);
-    let n = cb(v);
-    if (n.top_left.lat == v.top_left.lat && n.top_left.lng == v.top_left.lng && n.bottom_right.lat == v.bottom_right.lat && n.bottom_right.lng == v.bottom_right.lng && n.range == v.range) return;
-    pos2.set(n);
-}
-
-export let bearing = localStorageSharedStore('bearing', 0);
-export let recalculateBearingDiffForAllPhotosInArea = localStorageSharedStore('recalculateBearingDiffForAllPhotosInArea', false);
-
-export let hillview_photos = writable<PhotoData[]>([]);
-export let hillview_photos_in_area = writable<PhotoData[]>([]);
-export let mapillary_photos = writable(new Map());
-export let mapillary_photos_in_area = writable<any[]>([]);
-export let mapillary_cache_status = writable({ uncached_regions: 0, is_streaming: false, total_live_photos: 0 });
 export let photos_in_area = writable<any[]>([]);
+export let photos_in_range = writable<any[]>([]);
 
 export let photo_in_front = writable<any | null>(null);
 export let photos_to_left = writable<any[]>([]);
@@ -149,31 +102,7 @@ export let photo_to_left = writable<any | null>(null);
 export let photo_to_right = writable<any | null>(null);
 
 
-bearing.subscribe(b => {
-    let b2 = (b + 360) % 360;
-    if (b2 !== b) {
-        bearing.set(b2);
-    }
-    
-    // Update capture location when bearing changes
-    const p = get(pos);
-    updateCaptureLocationFromMap(p.center.lat, p.center.lng, b2);
-});
 
-pos.subscribe(p => {
-
-    console.log('pos changed:', p);
-
-    // Keep longitude in -180 to 180 range instead of 0-360
-    if (p.center.lng > 180) {
-        p.center.lng -= 360;
-        pos.set({...p, reason: 'wrap'})
-    }
-    if (p.center.lng < -180) {
-        p.center.lng += 360;
-        pos.set({...p, reason: 'wrap'})
-    }
-});
 
 
 
@@ -313,8 +242,8 @@ async function get_mapillary_photos() {
                 get(sources)
             );
             
-            // Also trigger bearing update
-            triggerBearingUpdate();
+            // Also trigger area update since new photos were added
+            triggerAreaUpdate();
         },
         
         onRegionComplete: (region, photosCount) => {
@@ -518,7 +447,7 @@ export function update_bearing(diff: number) {
     
     // Update capture location when bearing changes
     const p = get(pos);
-    updateCaptureLocationFromMap(p.center.lat, p.center.lng, b + diff);
+    updateCaptureLocation(p.center.lat, p.center.lng, b + diff);
 }
 
 
@@ -539,21 +468,38 @@ function getCurrentCenter() {
     return calculateCenterFromBounds(p2);
 }
 
-// Helper function to trigger bearing update with current position
+// Helper function to trigger bearing update for bearing-only changes (user rotation)
 function triggerBearingUpdate() {
-    // Skip bearing updates when in capture mode
     if (get(app).activity === 'capture') {
         return;
     }
     const b = get(bearing);
+    const photosInArea = get(photos_in_area);
     
-    // For bearing-only changes, use the current bearing data if available
-    const currentBearingData = photoProcessingAdapter.getCurrentBearingData();
-    if (currentBearingData && currentBearingData.photosInRange.length > 0) {
+    console.log('🔄 triggerBearingUpdate:', {
+        bearing: b,
+        photosInArea: photosInArea.length
+    });
+    
+    // For bearing-only changes, use current photos in range if available
+    const data = photoProcessingAdapter.getCurrentData();
+    if (data && data.photosInRange.length > 0) {
+        console.log('🔄 Using cached photos for bearing update:', {
+            photosInRange: data.photosInRange.length
+        });
+        
         // Recalculate navigation structure with new bearing but same photos
-        const withBearings = updatePhotoBearings(currentBearingData.photosInRange, b);
+        const withBearings = updatePhotoBearings(data.photosInRange, b);
         const sorted = sortPhotosByAngularDistance(withBearings, b);
         const navResult = buildNavigationStructure(sorted, withBearings);
+        
+        console.log('🔄 Navigation result:', {
+            photoInFront: !!navResult.photoInFront,
+            photoToLeft: !!navResult.photoToLeft,
+            photoToRight: !!navResult.photoToRight,
+            photosToLeft: navResult.photosToLeft.length,
+            photosToRight: navResult.photosToRight.length
+        });
         
         // Update navigation directly
         photo_in_front.set(navResult.photoInFront);
@@ -562,10 +508,31 @@ function triggerBearingUpdate() {
         photos_to_left.set(navResult.photosToLeft);
         photos_to_right.set(navResult.photosToRight);
     } else {
+        console.log('🔄 No cached data, falling back to full update');
         // Fall back to full update if no current data
         const center = getCurrentCenter();
         photoProcessingAdapter.updateBearingAndCenter(b, center);
     }
+}
+
+// Helper function to trigger area update after photo filtering completes (map movement)
+function triggerAreaUpdate() {
+    if (get(app).activity === 'capture') {
+        return;
+    }
+    const b = get(bearing);
+    const center = getCurrentCenter();
+    const photosInArea = get(photos_in_area);
+    
+    console.log('🗺️ triggerAreaUpdate:', {
+        bearing: b,
+        photosInArea: photosInArea.length,
+        center: `${center.lat.toFixed(6)}, ${center.lng.toFixed(6)}`
+    });
+    
+    // After area update, we need to recalculate navigation with new photos in area
+    // Use full update since photo set has changed
+    photoProcessingAdapter.updateBearingAndCenter(b, center);
 }
 
 // Subscribe to recalculateBearingDiffForAllPhotosInArea setting
@@ -585,21 +552,17 @@ function initializePhotoProcessing() {
         hillview_photos_in_area.set(result.hillviewPhotosInArea);
         mapillary_photos_in_area.set(result.mapillaryPhotosInArea);
         photos_in_area.set(result.photosInArea);
-        
-        // Queue distance calculation (skip when in capture mode)
-        if (get(app).activity !== 'capture') {
-            const p2 = get(pos2);
-            const center = getCurrentCenter();
-            const photoIds = result.photosInArea.map(p => p.id);
-            photoProcessingAdapter.queueDistanceCalculation(photoIds, center, p2.range);
-        }
+
+        console.log('📍 Updated photos_in_area store:', {
+            newLength: result.photosInArea.length,
+            storeLength: get(photos_in_area).length
+        });
+
+        // Trigger area update after area filter completes to update navigation photos
+        // This ensures photos_to_left/photos_to_right are recalculated with new photos in area
+        triggerAreaUpdate();
     });
-    
-    photoProcessingAdapter.onResult('calculate_distances', (result: DistanceResult) => {
-        // Distance calculation result - not currently used for navigation
-        console.log('Distance calculation result:', result.photosInRange.length, 'photos in range');
-    });
-    
+
     photoProcessingAdapter.onResult('update_bearing_and_center', (result: BearingResult) => {
         // Only update photos_in_area if we were processing photos_in_area
         // photos_in_area.set(result.photosInArea);
@@ -609,7 +572,9 @@ function initializePhotoProcessing() {
             return;
         }
         
-        console.log('Navigation update - photos available:', {
+        const currentPhotosInArea = get(photos_in_area);
+        console.log('🧭 Navigation update - photos available:', {
+            photosInArea: currentPhotosInArea.length,
             photoInFront: !!result.photoInFront,
             photoToLeft: !!result.photoToLeft,  
             photoToRight: !!result.photoToRight,
@@ -622,6 +587,11 @@ function initializePhotoProcessing() {
         photo_to_right.set(result.photoToRight);
         photos_to_left.set(result.photosToLeft);
         photos_to_right.set(result.photosToRight);
+        
+        console.log('🧭 Updated navigation stores:', {
+            photos_to_left: get(photos_to_left).length,
+            photos_to_right: get(photos_to_right).length
+        });
     });
     
     // Update photo store when photos change
@@ -650,8 +620,8 @@ function initializePhotoProcessing() {
                 srcs
             );
             
-            // Also trigger bearing update to select initial photo
-            triggerBearingUpdate();
+            // Also trigger area update to select initial photo after photos load
+            triggerAreaUpdate();
         }
     });
     
@@ -665,18 +635,67 @@ function initializePhotoProcessing() {
     
     // Replace direct subscriptions with queued operations
     pos2.subscribe(p2 => {
+        const photosInArea = get(photos_in_area);
+        console.log('🗺️ Map position changed:', {
+            bounds: {
+                nw: `${p2.top_left.lat.toFixed(6)}, ${p2.top_left.lng.toFixed(6)}`,
+                se: `${p2.bottom_right.lat.toFixed(6)}, ${p2.bottom_right.lng.toFixed(6)}`
+            },
+            range: p2.range,
+            currentPhotosInArea: photosInArea.length
+        });
+        
         photoProcessingAdapter.queueAreaFilter(
             { top_left: p2.top_left, bottom_right: p2.bottom_right },
             p2.range,
             get(sources)
         );
         
-        // Also trigger bearing update to select photo in front
-        triggerBearingUpdate();
+        // Note: triggerBearingUpdate() moved to area filter completion callback
+        // to avoid race condition with async photo processing
     });
     
+    // When bearing changes (user turns), update navigation using photos in range
     bearing.subscribe(b => {
-        triggerBearingUpdate();
+        // Skip bearing updates when in capture mode
+        if (get(app).activity === 'capture') {
+            return;
+        }
+        
+        const photosInArea = get(photos_in_area);
+        console.log('🧭 Bearing changed:', {
+            newBearing: b,
+            photosInArea: photosInArea.length
+        });
+        
+        // Get current data which contains photos in range
+        const data = photoProcessingAdapter.getCurrentData();
+        if (data && data.photosInRange.length > 0) {
+            console.log('🧭 Using direct bearing update with cached data:', {
+                photosInRange: data.photosInRange.length
+            });
+            
+            const withBearings = updatePhotoBearings(data.photosInRange, b);
+            const sorted = sortPhotosByAngularDistance(withBearings, b);
+            const navResult = buildNavigationStructure(sorted, withBearings);
+            
+            console.log('🧭 Direct bearing update result:', {
+                photoInFront: !!navResult.photoInFront,
+                photoToLeft: !!navResult.photoToLeft,
+                photoToRight: !!navResult.photoToRight,
+                photosToLeft: navResult.photosToLeft.length,
+                photosToRight: navResult.photosToRight.length
+            });
+            
+            // Update navigation pointers
+            photo_in_front.set(navResult.photoInFront);
+            photo_to_left.set(navResult.photoToLeft);
+            photo_to_right.set(navResult.photoToRight);
+            photos_to_left.set(navResult.photosToLeft);
+            photos_to_right.set(navResult.photosToRight);
+        } else {
+            console.log('🧭 No cached data for bearing update');
+        }
     });
     
     // Watch for activity changes to trigger updates when switching back to view mode
@@ -687,10 +706,6 @@ function initializePhotoProcessing() {
             const p2 = get(pos2);
             const center = getCurrentCenter();
             const photosInArea = get(photos_in_area);
-            if (photosInArea.length > 0) {
-                const photoIds = photosInArea.map((p: any) => p.id);
-                photoProcessingAdapter.queueDistanceCalculation(photoIds, center, p2.range);
-            }
             triggerBearingUpdate();
         }
         previousActivity = appState.activity;
