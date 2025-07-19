@@ -43,13 +43,23 @@ class Photo(Base):
     latitude = Column(Float, nullable=True)
     longitude = Column(Float, nullable=True)
     altitude = Column(Float, nullable=True)
-    compass_angle = Column(Float, nullable=True)
+    compass_angle = Column(Float, nullable=True)  # Same as bearing
+    
+    # Image dimensions
+    width = Column(Integer, nullable=True)
+    height = Column(Integer, nullable=True)
     
     # Metadata
     captured_at = Column(DateTime(timezone=True), nullable=True)
     uploaded_at = Column(DateTime(timezone=True), server_default=func.now())
     description = Column(Text, nullable=True)
     is_public = Column(Boolean, default=True)
+    
+    # Processing status and data
+    processing_status = Column(String, default="pending")  # pending, processing, completed, failed
+    exif_data = Column(JSON, nullable=True)
+    detected_objects = Column(JSON, nullable=True)
+    sizes = Column(JSON, nullable=True)  # Store the sizes array like in files.json
     
     # Relationships
     owner_id = Column(String, ForeignKey("users.id"))

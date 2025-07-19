@@ -21,7 +21,7 @@
         turn_to_photo_to, update_pos2
     } from "$lib/data.svelte";
     import { combinedPhotosInArea } from '$lib/combinedPhotos';
-    import {sources} from "$lib/sources";
+    import {sources} from "$lib/data.svelte";
     import { updateGpsLocation, setLocationTracking, setLocationError, gpsLocation } from "$lib/location.svelte";
     import { compassActive, compassAvailable, startCompass, stopCompass, currentHeading } from "$lib/compass.svelte";
 

@@ -1,4 +1,5 @@
-import {app, hillview_photos, geoPicsUrl} from "$lib/data.svelte";
+import {app, hillview_photos, sources, type Source} from "$lib/data.svelte";
+import { geoPicsUrl } from './config';
 //import { APIPhotoData, Photo} from "./types.ts";
 //import { Coordinate } from "tsgeo/Coordinate";
 import { LatLng } from 'leaflet';
@@ -6,26 +7,231 @@ import {writable, get} from "svelte/store";
 import { auth } from "$lib/auth.svelte";
 import { userPhotos, devicePhotos } from './stores';
 import { photoCaptureService } from './photoCapture';
-import type { PhotoData, PhotoSize } from './types/photoTypes';
+import type { PhotoData, PhotoSize, DevicePhotoMetadata } from './types/photoTypes';
 
 
-export interface Source {
-    id: string;
-    name: string;
-    enabled: boolean;
-    requests: number[];
-    color: string;
+
+// Fetch photos from a specific source
+export async function fetchSourcePhotos(sourceId: string) {
+    const source = get(sources).find(s => s.id === sourceId);
+    if (!source || !source.enabled) return;
+    
+    console.log(`Fetching photos from source: ${source.name}`);
+    
+    switch (source.type) {
+        case 'json':
+            await fetchJsonSource(source);
+            break;
+        case 'device':
+            await fetchDeviceSource(source);
+            break;
+        case 'directory':
+            await fetchDirectorySource(source);
+            break;
+        // Mapillary is handled separately through streaming
+    }
 }
 
-export let sources = writable<Source[]>([
-    {id: 'hillview', name: 'Hillview', enabled: true, requests: [], color: '#000'},
-    {id: 'mapillary', name: 'Mapillary', enabled: false, requests: [], color: '#888'},
-    {id: 'device', name: 'My Device', enabled: true, requests: [], color: '#4a90e2'},
-]);
+async function fetchJsonSource(source: Source) {
+    if (!source.url) return;
+    
+    const requestId = Date.now();
+    try {
+        // Add loading indicator
+        sources.update(srcs => {
+            const src = srcs.find(s => s.id === source.id);
+            if (src) src.requests.push(requestId);
+            return srcs;
+        });
+        
+        const response = await fetch(source.url, {
+            headers: { Accept: 'application/json' }
+        });
 
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const res = await response.json();
+        if (!Array.isArray(res)) {
+            throw new Error('Expected an array of photo data');
+        }
+
+        const newPhotos: PhotoData[] = res.map((item: any) => {
+            const photo = parse_photo_data(item);
+            photo.source = source;
+            return photo;
+        });
+
+        // Update hillview_photos by replacing photos from this source
+        hillview_photos.update(photos => {
+            // Remove old photos from this source
+            const otherPhotos = photos.filter(p => p.source?.id !== source.id);
+            // Add new photos
+            return [...otherPhotos, ...newPhotos];
+        });
+        
+    } catch (error) {
+        console.error(`Error fetching from ${source.name}:`, error);
+        app.update(state => ({ 
+            ...state, 
+            error: `Failed to load ${source.name}: ${error instanceof Error ? error.message : 'Unknown error'}` 
+        }));
+    } finally {
+        // Clear loading indicator
+        sources.update(srcs => {
+            const src = srcs.find(s => s.id === source.id);
+            if (src) src.requests = src.requests.filter(id => id !== requestId);
+            return srcs;
+        });
+    }
+}
+
+async function fetchDeviceSource(source: Source) {
+    const requestId = Date.now();
+    try {
+        // Add loading indicator
+        sources.update(srcs => {
+            const src = srcs.find(s => s.id === source.id);
+            if (src) src.requests.push(requestId);
+            return srcs;
+        });
+        
+        const devicePhotosDb = await photoCaptureService.loadDevicePhotos();
+        devicePhotos.set(devicePhotosDb.photos);
+        
+        const devicePhotosList = devicePhotosDb.photos;
+        const newPhotos: PhotoData[] = [];
+        
+        if (devicePhotosList && devicePhotosList.length > 0) {
+            for (let photo of devicePhotosList) {
+                let devicePhoto: PhotoData = {
+                    id: photo.id,
+                    source_type: 'device',
+                    file: photo.filename,
+                    url: photo.path,
+                    coord: new LatLng(photo.latitude, photo.longitude),
+                    bearing: photo.bearing || 0,
+                    altitude: photo.altitude || 0,
+                    source: source,
+                    isDevicePhoto: true,
+                    timestamp: photo.timestamp,
+                    accuracy: photo.accuracy,
+                    sizes: {
+                        full: {
+                            url: photo.path,
+                            width: photo.width,
+                            height: photo.height
+                        }
+                    }
+                };
+                
+                if (devicePhoto.bearing < 0 || devicePhoto.bearing > 360) {
+                    devicePhoto.bearing = 0;
+                }
+                
+                newPhotos.push(devicePhoto);
+            }
+        }
+        
+        // Update hillview_photos by replacing device photos
+        hillview_photos.update(photos => {
+            // Remove old device photos
+            const otherPhotos = photos.filter(p => p.source?.id !== 'device');
+            // Add new device photos
+            return [...otherPhotos, ...newPhotos];
+        });
+        
+    } catch (error) {
+        console.error('Failed to load device photos:', error);
+    } finally {
+        // Clear loading indicator
+        sources.update(srcs => {
+            const src = srcs.find(s => s.id === source.id);
+            if (src) src.requests = src.requests.filter(id => id !== requestId);
+            return srcs;
+        });
+    }
+}
+
+async function fetchDirectorySource(source: Source) {
+    if (!source.path) {
+        console.warn('Directory source has no path specified');
+        return;
+    }
+
+    const requestId = Date.now();
+    try {
+        // Add loading indicator
+        sources.update(srcs => {
+            const src = srcs.find(s => s.id === source.id);
+            if (src) src.requests.push(requestId);
+            return srcs;
+        });
+        
+        // Use photoCaptureService pattern but for directory scanning
+        const directoryPhotosDb = await photoCaptureService.loadDirectoryPhotos(source.path);
+        
+        const directoryPhotosList = directoryPhotosDb.photos;
+        const newPhotos: PhotoData[] = [];
+        
+        if (directoryPhotosList && directoryPhotosList.length > 0) {
+            for (let photo of directoryPhotosList) {
+                let directoryPhoto: PhotoData = {
+                    id: `${source.id}_${photo.id}`,
+                    source_type: 'directory',
+                    file: photo.filename,
+                    url: photo.path,
+                    coord: new LatLng(photo.latitude, photo.longitude),
+                    bearing: photo.bearing || 0,
+                    altitude: photo.altitude || 0,
+                    source: source,
+                    isDirectoryPhoto: true,
+                    timestamp: photo.timestamp,
+                    accuracy: photo.accuracy,
+                    sizes: {
+                        full: {
+                            url: photo.path,
+                            width: photo.width,
+                            height: photo.height
+                        }
+                    }
+                };
+                
+                if (directoryPhoto.bearing < 0 || directoryPhoto.bearing > 360) {
+                    directoryPhoto.bearing = 0;
+                }
+                
+                newPhotos.push(directoryPhoto);
+            }
+        }
+        
+        // Update hillview_photos by replacing photos from this source
+        hillview_photos.update(photos => {
+            // Remove old photos from this source
+            const otherPhotos = photos.filter(p => p.source?.id !== source.id);
+            // Add new photos
+            return [...otherPhotos, ...newPhotos];
+        });
+        
+    } catch (error) {
+        console.error(`Failed to load directory photos from ${source.path}:`, error);
+        app.update(state => ({ 
+            ...state, 
+            error: `Failed to load directory ${source.name}: ${error instanceof Error ? error.message : 'Unknown error'}` 
+        }));
+    } finally {
+        // Clear loading indicator
+        sources.update(srcs => {
+            const src = srcs.find(s => s.id === source.id);
+            if (src) src.requests = src.requests.filter(id => id !== requestId);
+            return srcs;
+        });
+    }
+}
 
 export async function fetch_photos() {
-    console.log('Fetching photos...');
+    console.log('Fetching all photos...');
     const requestId = Date.now();
     
     try {
@@ -33,16 +239,11 @@ export async function fetch_photos() {
         
         // Add loading indicators for enabled sources
         sources.update(srcs => {
-            const hillviewSrc = srcs.find(s => s.id === 'hillview');
-            const deviceSrc = srcs.find(s => s.id === 'device');
-            
-            if (hillviewSrc && hillviewSrc.enabled) {
-                hillviewSrc.requests.push(requestId);
-            }
-            if (deviceSrc && deviceSrc.enabled) {
-                deviceSrc.requests.push(requestId + 1); // Unique ID for device
-            }
-            
+            srcs.forEach((src, index) => {
+                if (src.enabled) {
+                    src.requests.push(requestId + index);
+                }
+            });
             return srcs;
         });
         
@@ -141,8 +342,7 @@ export async function fetch_photos() {
             }
         }
         
-        console.log('fixup_bearings...');
-        fixup_bearings(ph)
+        
         console.log('Photos loaded:', ph.length);
         app.update(state => ({ ...state, error: null }));
         hillview_photos.set(ph);
@@ -169,26 +369,6 @@ export async function fetch_photos() {
     }
 }
 
-export function fixup_bearings(photos: PhotoData[]) {
-    // Sort photos by bearing, spreading out photos with the same bearing
-    if (photos.length < 2) return;
-    let moved = true;
-    while (moved) {
-        photos.sort((a: PhotoData, b: PhotoData) => a.bearing - b.bearing);
-        moved = false;
-        for (let index = 0; index < photos.length + 1; index++) {
-            //console.log('Index:', index);
-            const next = photos[(index + 1) % photos.length];
-            const photo = photos[index % photos.length];
-            let diff = next.bearing - photo.bearing;
-            if (diff === 0) {
-                next.bearing = (next.bearing + 0.01) % 360;
-                moved = true;
-            }
-        }
-        //console.log('Moved:', moved);
-    }
-}
 
 export function parseCoordinate(coord: string) {
     try {

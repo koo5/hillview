@@ -27,8 +27,15 @@ class PhotoWorkerManager {
   private isInitialized = false;
   private initializationPromise: Promise<void> | null = null;
   private workerUrl: string | null = null;
+  private workerVersion: string | null = null;
+  private expectedVersion: string;
 
-  constructor() {}
+  constructor() {
+    // Get expected version from build-time constant
+    declare const __WORKER_VERSION__: string;
+    this.expectedVersion = __WORKER_VERSION__;
+    console.log(`PhotoWorker: Manager created with expected version: ${this.expectedVersion}`);
+  }
 
   async initialize(): Promise<void> {
     // Return existing initialization if in progress
@@ -69,10 +76,31 @@ class PhotoWorkerManager {
 
       this.setupWorkerHandlers();
 
-      // Initialize worker
-      await this.sendMessage('init', undefined, 'initialize');
-      this.isInitialized = true;
+      // Initialize worker and get version
+      console.log(`PhotoWorker: Sending init message, expecting version: ${this.expectedVersion}`);
+      const initResponse = await this.sendMessage('init', undefined, 'initialize');
+      console.log('PhotoWorker: Init response received:', initResponse);
       
+      // Check worker version
+      if (initResponse?.version) {
+        this.workerVersion = initResponse.version;
+        console.log(`PhotoWorker: Worker reported version: ${this.workerVersion}`);
+        console.log(`PhotoWorker: Expected version: ${this.expectedVersion}`);
+        
+        if (this.workerVersion !== this.expectedVersion) {
+          console.error(
+            `PhotoWorker: VERSION MISMATCH! Expected: ${this.expectedVersion}, Got: ${this.workerVersion}`
+          );
+          throw new Error(
+            `Worker version mismatch. Expected ${this.expectedVersion} but got ${this.workerVersion}. Please refresh the page.`
+          );
+        }
+        console.log(`✅ PhotoWorker: Version verification PASSED: ${this.workerVersion}`);
+      } else {
+        console.warn('PhotoWorker: No version information received from worker - init response:', initResponse);
+      }
+      
+      this.isInitialized = true;
       console.log('PhotoWorker: Initialized successfully');
     } catch (error) {
       console.error('PhotoWorker: Failed to initialize', error);
@@ -319,11 +347,33 @@ class PhotoWorkerManager {
     initialized: boolean;
     pendingOperations: number;
     ready: boolean;
+    version?: {
+      expected: string;
+      actual: string | null;
+      valid: boolean;
+    };
   } {
     return {
       initialized: this.isInitialized,
       pendingOperations: this.pendingMessages.size,
-      ready: this.isReady()
+      ready: this.isReady(),
+      version: {
+        expected: this.expectedVersion,
+        actual: this.workerVersion,
+        valid: this.workerVersion === this.expectedVersion
+      }
+    };
+  }
+
+  getVersionInfo(): {
+    expected: string;
+    actual: string | null;
+    valid: boolean;
+  } {
+    return {
+      expected: this.expectedVersion,
+      actual: this.workerVersion,
+      valid: this.workerVersion === this.expectedVersion
     };
   }
 }

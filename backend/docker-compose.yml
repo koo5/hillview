@@ -1,22 +1,94 @@
-version: '3.8'
-
 services:
+  postgres:
+    image: postgis/postgis:15-3.3
+    container_name: hillview_postgres
+    restart: always
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-hillview}
+      POSTGRES_USER: ${POSTGRES_USER:-hillview}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hillview}
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-hillview} -d ${POSTGRES_DB:-hillview}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: hillview_redis
+    restart: always
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   api:
     restart: always
     build:
       context: api
       dockerfile: app/Dockerfile
-    container_name: api
-    network_mode: host
+    container_name: hillview_api
+    ports:
+      - "${API_PORT:-8089}:8000"
     volumes:
-      - ./secrets:/secrets:ro
+      - ./uploads:/app/uploads
     environment:
-      - MAPILLARY_CLIENT_TOKEN_FILE=/secrets/MAPILLARY_CLIENT_TOKEN
-    command: uvicorn app.api:app --host 0.0.0.0 --port 8089 --reload
-#    secrets:
-#      - MAPILLARY_CLIENT_TOKEN
-#
-#secrets:
-#    MAPILLARY_CLIENT_TOKEN:
-#        file: secrets/MAPILLARY_CLIENT_TOKEN
-#
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-hillview}:${POSTGRES_PASSWORD:-hillview}@postgres:5432/${POSTGRES_DB:-hillview}
+      - REDIS_URL=redis://redis:6379/0
+      - MAPILLARY_CLIENT_TOKEN_FILE=/run/secrets/mapillary_token
+      - SECRET_KEY=${SECRET_KEY:-your-secret-key-change-in-production}
+      - UPLOAD_DIR=/app/uploads
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-}
+      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET:-}
+    secrets:
+      - mapillary_token
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: uvicorn app.api:app --host 0.0.0.0 --port 8000 --reload
+
+  worker:
+    restart: always
+    build:
+      context: api
+      dockerfile: app/Dockerfile.worker
+    container_name: hillview_worker
+    volumes:
+      - ./uploads:/app/uploads
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-hillview}:${POSTGRES_PASSWORD:-hillview}@postgres:5432/${POSTGRES_DB:-hillview}
+      - REDIS_URL=redis://redis:6379/0
+      - UPLOAD_DIR=/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: python -m app.worker
+
+volumes:
+  postgres_data:
+  redis_data:
+
+secrets:
+  mapillary_token:
+    file: ./secrets/MAPILLARY_CLIENT_TOKEN
+
+networks:
+  default:
+    name: hillview_network

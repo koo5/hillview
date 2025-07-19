@@ -1,13 +1,12 @@
 import asyncio
 import datetime
-import shutil
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 import os
 import json
 import requests
 import logging
-from fastapi import FastAPI, Query, Depends, HTTPException, status, UploadFile, File, Form, BackgroundTasks
+from fastapi import FastAPI, Query, Depends, HTTPException, status, UploadFile, File, Form
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,6 +25,7 @@ from .auth import (
     OAUTH_PROVIDERS, ACCESS_TOKEN_EXPIRE_MINUTES
 )
 from .cache_service import MapillaryCacheService
+from .worker import celery_app, process_uploaded_photo
 
 load_dotenv()
 logging.basicConfig(level=logging.DEBUG)
@@ -323,73 +323,183 @@ async def get_user_photos(
     photos = result.scalars().all()
     return photos
 
-async def process_photo(
-    file_path: str,
-    thumbnail_path: str,
-    photo_id: str,
-    db: AsyncSession
+@app.get("/api/hillview_photos_by_area")
+async def get_hillview_photos_by_area(
+    min_lat: float = Query(..., description="Minimum latitude"),
+    max_lat: float = Query(..., description="Maximum latitude"), 
+    min_lon: float = Query(..., description="Minimum longitude"),
+    max_lon: float = Query(..., description="Maximum longitude"),
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
 ):
-    """Background task to process uploaded photos"""
-    # Here you would extract EXIF data, create thumbnails, etc.
-    # For now, just create a simple thumbnail
+    """
+    Get photos within a geographic area in files.json compatible format.
+    Returns photos that have GPS coordinates and bearing data.
+    """
     try:
-        # This is a placeholder - in a real app you'd use PIL or similar
-        # to create proper thumbnails and extract EXIF data
-        shutil.copy(file_path, thumbnail_path)
+        # Query photos within the bounding box that have required GPS data
+        result = await db.execute(
+            select(Photo).where(
+                Photo.latitude.between(min_lat, max_lat),
+                Photo.longitude.between(min_lon, max_lon),
+                Photo.latitude.isnot(None),
+                Photo.longitude.isnot(None),
+                Photo.compass_angle.isnot(None),  # Must have bearing
+                Photo.processing_status == "completed",
+                Photo.is_public == True  # Only public photos for now
+            ).order_by(Photo.compass_angle)  # Sort by bearing like files.json
+        )
         
-        # Update the photo record with extracted data
-        async with db.begin():
-            result = await db.execute(select(Photo).where(Photo.id == photo_id))
-            photo = result.scalars().first()
-            if photo:
-                # Here you would set latitude, longitude, etc. from EXIF
-                photo.thumbnail_path = thumbnail_path
-                await db.commit()
+        photos = result.scalars().all()
+        
+        # Convert to files.json format
+        files_data = []
+        for photo in photos:
+            entry = {
+                'file': f"uploads/{photo.filename}",  # Match original format  
+                'filepath': photo.filepath,
+                'dir_name': 'uploads',  # Add missing dir_name field
+                'latitude': str(photo.latitude),
+                'longitude': str(photo.longitude),
+                'bearing': str(photo.compass_angle),  # Map compass_angle to bearing
+                'sizes': photo.sizes or {}  # Use stored sizes from database
+            }
+            
+            # Add optional fields
+            if photo.altitude is not None:
+                entry['altitude'] = str(photo.altitude)
+            
+            if photo.description:
+                entry['description'] = photo.description
+            
+            files_data.append(entry)
+        
+        logger.info(f"Found {len(files_data)} photos in area ({min_lat},{min_lon}) to ({max_lat},{max_lon})")
+        
+        return {
+            "photos": files_data,
+            "count": len(files_data),
+            "bbox": {
+                "min_lat": min_lat,
+                "max_lat": max_lat,
+                "min_lon": min_lon,
+                "max_lon": max_lon
+            }
+        }
+        
     except Exception as e:
-        log.error(f"Error processing photo {photo_id}: {e}")
-#
-# @app.post("/api/photos/upload", response_model=PhotoResponse)
-# async def upload_photo(
-#     background_tasks: BackgroundTasks,
-#     file: UploadFile = File(...),
-#     description: str = Form(None),
-#     is_public: bool = Form(True),
-#     current_user: User = Depends(get_current_active_user),
-#     db: AsyncSession = Depends(get_db)
-# ):
-#     # Create a unique filename
-#     file_ext = os.path.splitext(file.filename)[1]
-#     unique_filename = f"{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{current_user.id}{file_ext}"
-#     file_path = UPLOAD_DIR / unique_filename
-#     thumbnail_path = THUMBNAIL_DIR / unique_filename
-#
-#     # Save the uploaded file
-#     async with aiofiles.open(file_path, 'wb') as out_file:
-#         content = await file.read()
-#         await out_file.write(content)
-#
-#     # Create photo record
-#     photo = Photo(
-#         filename=file.filename,
-#         filepath=str(file_path),
-#         description=description,
-#         is_public=is_public,
-#         owner_id=current_user.id
-#     )
-#     db.add(photo)
-#     await db.commit()
-#     await db.refresh(photo)
-#
-#     # Process the photo in the background
-#     background_tasks.add_task(
-#         process_photo,
-#         str(file_path),
-#         str(thumbnail_path),
-#         photo.id,
-#         db
-#     )
-#
-#     return photo
+        logger.error(f"Error getting photos by area: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve photos")
+
+class PhotoUploadResponse(BaseModel):
+    task_id: str
+    message: str
+    filename: str
+
+@app.post("/api/photos/upload", response_model=PhotoUploadResponse)
+async def upload_photo(
+    file: UploadFile = File(...),
+    description: str = Form(None),
+    is_public: bool = Form(True),
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Upload a photo and queue it for processing."""
+    # Validate file type
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No filename provided")
+    
+    file_ext = os.path.splitext(file.filename)[1].lower()
+    supported_extensions = ['.jpg', '.jpeg', '.tiff', '.png', '.heic', '.heif']
+    
+    if file_ext not in supported_extensions:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Unsupported file type. Supported: {', '.join(supported_extensions)}"
+        )
+    
+    # Create a unique filename
+    unique_filename = f"{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{current_user.id}{file_ext}"
+    file_path = UPLOAD_DIR / unique_filename
+    
+    # Save the uploaded file
+    try:
+        async with aiofiles.open(file_path, 'wb') as out_file:
+            content = await file.read()
+            await out_file.write(content)
+    except Exception as e:
+        log.error(f"Error saving uploaded file: {e}")
+        raise HTTPException(status_code=500, detail="Failed to save uploaded file")
+    
+    # Queue the photo for processing
+    try:
+        task = process_uploaded_photo.delay(
+            file_path=str(file_path),
+            filename=file.filename,
+            user_id=str(current_user.id),
+            description=description,
+            is_public=is_public
+        )
+        
+        log.info(f"Queued photo processing task {task.id} for file {unique_filename}")
+        
+        return PhotoUploadResponse(
+            task_id=task.id,
+            message="Photo uploaded and queued for processing",
+            filename=file.filename
+        )
+        
+    except Exception as e:
+        # Clean up uploaded file if task creation fails
+        try:
+            os.remove(file_path)
+        except:
+            pass
+        log.error(f"Error creating processing task: {e}")
+        raise HTTPException(status_code=500, detail="Failed to queue photo for processing")
+
+@app.get("/api/photos/upload/status/{task_id}")
+async def get_upload_status(
+    task_id: str,
+    current_user: User = Depends(get_current_active_user)
+):
+    """Get the status of a photo upload task."""
+    try:
+        task_result = celery_app.AsyncResult(task_id)
+        
+        if task_result.state == 'PENDING':
+            response = {
+                'task_id': task_id,
+                'state': task_result.state,
+                'status': 'Task is waiting to be processed'
+            }
+        elif task_result.state == 'PROGRESS':
+            response = {
+                'task_id': task_id,
+                'state': task_result.state,
+                'status': task_result.info.get('status', 'Processing...'),
+                'meta': task_result.info
+            }
+        elif task_result.state == 'SUCCESS':
+            response = {
+                'task_id': task_id,
+                'state': task_result.state,
+                'status': 'Task completed successfully',
+                'result': task_result.result
+            }
+        else:  # FAILURE
+            response = {
+                'task_id': task_id,
+                'state': task_result.state,
+                'status': 'Task failed',
+                'error': str(task_result.info)
+            }
+        
+        return response
+        
+    except Exception as e:
+        log.error(f"Error getting task status for {task_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get task status")
 
 @app.delete("/api/photos/{photo_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_photo(

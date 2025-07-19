@@ -90,7 +90,9 @@ export class PhotoWorkerService {
   }
 
   private processBearingData(photosInRange: PhotoData[], bearing: number): BearingResult {
+    console.log('processBearingData called with:', photosInRange.length, 'photos, bearing:', bearing);
     if (photosInRange.length === 0) {
+      console.log('processBearingData: returning null navigation (no photos in range)');
       return {
         photoInFront: null,
         photoToLeft: null,
@@ -117,9 +119,15 @@ export class PhotoWorkerService {
   async initialize(): Promise<void> {
     if (this.initialized) return;
     
+    console.log('PhotoWorkerService: Starting initialization...');
     await photoWorker.initialize();
+    
+    // Log version info after successful initialization
+    const versionInfo = photoWorker.getVersionInfo();
+    console.log('PhotoWorkerService: Version check complete:', versionInfo);
+    
     this.initialized = true;
-    console.log('PhotoWorkerService initialized');
+    console.log('PhotoWorkerService initialized successfully');
   }
 
   async loadPhotos(photos: PhotoData[]): Promise<void> {
@@ -186,8 +194,21 @@ export class PhotoWorkerService {
     initialized: boolean;
     pendingOperations: number;
     ready: boolean;
+    version?: {
+      expected: string;
+      actual: string | null;
+      valid: boolean;
+    };
   } {
     return photoWorker.getStatus();
+  }
+
+  getVersionInfo(): {
+    expected: string;
+    actual: string | null;
+    valid: boolean;
+  } {
+    return photoWorker.getVersionInfo();
   }
 
   isReady(): boolean {

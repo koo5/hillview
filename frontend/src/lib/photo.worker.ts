@@ -1,6 +1,12 @@
 /// <reference lib="webworker" />
 
 import type { WorkerMessage, WorkerResponse, PhotoData, Bounds, SourceConfig } from './photoWorkerTypes';
+
+// Webworker version for runtime checking
+declare const __WORKER_VERSION__: string;
+export const WORKER_VERSION = __WORKER_VERSION__;
+
+console.log(`PhotoWorker: Worker script loaded with version: ${WORKER_VERSION}`);
 import { updatePhotoBearingData } from './utils/bearingUtils';
 import { SimpleDistanceCalculator, calculateCenterFromBounds, isInBounds } from './utils/distanceUtils';
 
@@ -396,7 +402,8 @@ self.onmessage = function(e: MessageEvent<WorkerMessage>) {
     switch (type) {
       case 'init':
         // Worker initialized
-        postMessage({ id, type: 'ready' } as WorkerResponse);
+        console.log(`PhotoWorker: Init request received, responding with version: ${WORKER_VERSION}`);
+        postMessage({ id, type: 'ready', data: { version: WORKER_VERSION } } as WorkerResponse);
         break;
         
       case 'loadPhotos':

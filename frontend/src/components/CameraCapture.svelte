@@ -38,6 +38,10 @@
     let wasShowingBeforeHidden = false;
     let permissionCheckInterval: number | null = null;
     let hasRequestedPermission = false;
+    let retryCount = 0;
+    let maxRetries = 5;
+    let retryDelay = 1000; // Start with 1 second
+    let retryTimeout: number | null = null;
 
     async function checkCameraPermission(): Promise<PermissionState | null> {
         try {
@@ -72,6 +76,24 @@
                 }
             }
         }, 1000);
+    }
+
+    function scheduleRetry() {
+        if (retryTimeout) {
+            clearTimeout(retryTimeout);
+        }
+        
+        if (retryCount < maxRetries && show) {
+            retryCount++;
+            const delay = Math.min(retryDelay * retryCount, 5000); // Cap at 5 seconds
+            console.log(`Scheduling camera retry ${retryCount}/${maxRetries} in ${delay}ms`);
+            
+            retryTimeout = window.setTimeout(() => {
+                if (show && !stream) {
+                    startCamera();
+                }
+            }, delay);
+        }
     }
 
     async function startCamera() {
@@ -122,17 +144,26 @@
                 console.log('Video playing');
                 cameraReady = true;
                 cameraError = null;
+                retryCount = 0; // Reset retry count on success
+                
+                // Clear any pending retries
+                if (retryTimeout) {
+                    clearTimeout(retryTimeout);
+                    retryTimeout = null;
+                }
 
                 // Check zoom support
-                videoTrack = stream.getVideoTracks()[0];
-                if (videoTrack) {
-                    const capabilities = videoTrack.getCapabilities() as any;
-                    if ('zoom' in capabilities && capabilities.zoom) {
-                        zoomSupported = true;
-                        minZoom = capabilities.zoom.min || 1;
-                        maxZoom = capabilities.zoom.max || 1;
-                        const settings = videoTrack.getSettings() as any;
-                        zoomLevel = settings.zoom || 1;
+                if (stream && stream.getVideoTracks) {
+                    videoTrack = stream.getVideoTracks()[0];
+                    if (videoTrack) {
+                        const capabilities = videoTrack.getCapabilities() as any;
+                        if ('zoom' in capabilities && capabilities.zoom) {
+                            zoomSupported = true;
+                            minZoom = capabilities.zoom.min || 1;
+                            maxZoom = capabilities.zoom.max || 1;
+                            const settings = videoTrack.getSettings() as any;
+                            zoomLevel = settings.zoom || 1;
+                        }
                     }
                 }
             }
@@ -147,6 +178,9 @@
                 hasRequestedPermission = true;
                 // Start monitoring permission changes
                 startPermissionMonitoring();
+            } else {
+                // For non-permission errors, schedule a retry
+                scheduleRetry();
             }
         }
     }
@@ -252,6 +286,13 @@
         }
         hasRequestedPermission = false;
         
+        // Clear retry timeout
+        if (retryTimeout) {
+            clearTimeout(retryTimeout);
+            retryTimeout = null;
+        }
+        retryCount = 0;
+        
         show = false;
         dispatch('close');
     }
@@ -266,10 +307,18 @@
                 stream = null;
                 cameraReady = false;
             }
+            // Clear any pending retries when going to background
+            if (retryTimeout) {
+                clearTimeout(retryTimeout);
+                retryTimeout = null;
+            }
         } else {
             // App is coming back to foreground
             if (wasShowingBeforeHidden && show) {
                 console.log('App returning to foreground, restarting camera');
+                // Reset retry count for fresh attempt when returning from background
+                retryCount = 0;
+                cameraError = null;
                 startCamera();
             }
             wasShowingBeforeHidden = false;
@@ -280,6 +329,7 @@
     $: if (show) {
         if (!stream && !cameraError) {
             console.log('Modal shown, starting camera');
+            retryCount = 0; // Reset retry count when modal opens
             startCamera();
         }
     } else if (!show && stream) {
@@ -294,6 +344,11 @@
             clearInterval(permissionCheckInterval);
             permissionCheckInterval = null;
         }
+        if (retryTimeout) {
+            clearTimeout(retryTimeout);
+            retryTimeout = null;
+        }
+        retryCount = 0;
     }
 
     onMount(() => {
@@ -306,6 +361,9 @@
         }
         if (permissionCheckInterval) {
             clearInterval(permissionCheckInterval);
+        }
+        if (retryTimeout) {
+            clearTimeout(retryTimeout);
         }
         document.removeEventListener('visibilitychange', handleVisibilityChange);
     });

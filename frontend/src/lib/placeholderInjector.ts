@@ -1,6 +1,6 @@
 import { writable, get } from 'svelte/store';
 import type { PlaceholderPhoto } from './types/photoTypes';
-import { sources } from './sources';
+import { sources } from './data.svelte';
 import { createPlaceholderPhoto, type PlaceholderLocation } from './utils/placeholderUtils';
 
 // Store for placeholder photos that need immediate display

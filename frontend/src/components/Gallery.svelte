@@ -5,7 +5,6 @@
         pos2,
         bearing,
         photos_in_area,
-        photos_in_range,
         photos_to_left,
         photos_to_right,
         photo_in_front,
@@ -81,13 +80,6 @@
             <b>Right:</b>  {$photo_to_right?.file}<br>
             <b>Photos in area:</b> {$photos_in_area.length}<br>
             <b>Range:</b> {$pos2.range / 1000} km<br>
-            <b>Photos in range count:</b> {$photos_in_range.length}<br>
-            <b>Photos in range:</b>
-            <ul>
-            {#each $photos_in_range as photo}
-                <li>{photo.id},{photo.file}</li>
-            {/each}
-                </ul>
             <b>Photos to left:</b>
             {JSON.stringify($photos_to_left, null, 2)}
 <!--            <ul>-->

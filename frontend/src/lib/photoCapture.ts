@@ -96,6 +96,15 @@ class PhotoCaptureService {
 		}
 	}
 
+	async loadDirectoryPhotos(directoryPath: string): Promise<DevicePhotosDb> {
+		try {
+			return await invoke<DevicePhotosDb>('scan_directory_for_photos', { directoryPath });
+		} catch (error) {
+			console.debug('Failed to load directory photos:', error instanceof Error ? error.message : String(error));
+			return { photos: [], last_updated: 0 };
+		}
+	}
+
 	async embedExifMetadata(photoData: CapturedPhotoData): Promise<Blob> {
 		// Convert File to array buffer
 		const arrayBuffer = await photoData.image.arrayBuffer();

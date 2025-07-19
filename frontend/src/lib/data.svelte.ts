@@ -1,23 +1,41 @@
 import {type Photo} from "./types";
-import Angles from 'angles';
-//import {DMS} from "tsgeo/Formatter/Coordinate/DMS";
 import {space_db} from "./debug_server.js";
 import { updatePhotoBearingData, calculateAngularDistance } from './utils/bearingUtils';
 import { calculateDistance, calculateCenterFromBounds } from './utils/distanceUtils';
 import { buildNavigationStructure } from './utils/photoNavigationUtils';
+import { updatePhotoBearings, sortPhotosByAngularDistance } from './photoProcessing';
 import {LatLng} from 'leaflet';
 import {get, writable} from "svelte/store";
 import {
     localStorageReadOnceSharedStore,
     localStorageSharedStore
 } from './svelte-shared-store';
-import { fixup_bearings, sources, type PhotoData, type Source } from './sources';
+import type { PhotoData } from './sources';
 import {tick} from "svelte";
+import { geoPicsUrl } from './config';
 import { auth } from './auth.svelte';
 import { userPhotos } from './stores';
 import { updateCaptureLocationFromMap } from './captureLocation';
 import { photoProcessingAdapter } from './photoProcessingAdapter';
 import { createMapillaryStreamService, type MapillaryStreamCallbacks } from './mapillaryStreamService';
+
+// Source interface and store moved here to avoid circular dependency
+export interface Source {
+    id: string;
+    name: string;
+    type: 'json' | 'mapillary' | 'device' | 'directory';
+    enabled: boolean;
+    requests: number[];
+    color: string;
+    url?: string; // For JSON sources (both built-in and custom)
+    path?: string; // For directory sources
+}
+
+export const sources = writable<Source[]>([
+    {id: 'hillview', name: 'Hillview', type: 'json', enabled: true, requests: [], color: '#000', url: `${geoPicsUrl}/files.json`},
+    {id: 'mapillary', name: 'Mapillary', type: 'mapillary', enabled: false, requests: [], color: '#888'},
+    {id: 'device', name: 'My Device', type: 'device', enabled: true, requests: [], color: '#4a90e2'},
+]);
 
 // Define types locally since we removed photoProcessingService
 export interface AreaFilterResult {
@@ -38,7 +56,6 @@ export interface BearingResult {
     photosToRight: PhotoData[];
 }
 
-export const geoPicsUrl = import.meta.env.VITE_REACT_APP_GEO_PICS_URL; //+'2'
 
 export let client_id = localStorageSharedStore('client_id', Math.random().toString(36));
 
@@ -124,7 +141,6 @@ export let mapillary_photos = writable(new Map());
 export let mapillary_photos_in_area = writable<any[]>([]);
 export let mapillary_cache_status = writable({ uncached_regions: 0, is_streaming: false, total_live_photos: 0 });
 export let photos_in_area = writable<any[]>([]);
-export let photos_in_range = writable<any[]>([]);
 
 export let photo_in_front = writable<any | null>(null);
 export let photos_to_left = writable<any[]>([]);
@@ -159,70 +175,9 @@ pos.subscribe(p => {
     }
 });
 
-async function share_state() {
-    let p = get(pos);
-    let p2 = get(pos2);
-    await space_db.transaction('rw', 'state', async () => {
-        await space_db.state.clear();
-        let state = {
-            ts: Date.now(),
-            center: p.center,
-            zoom: p.zoom,
-            top_left: p2.top_left,
-            bottom_right: p2.bottom_right,
-            range: p2.range,
-            bearing: get(bearing)
-        }
-        //console.log('Saving state:', state);
-        space_db.state.add(state);
-    });
-};
 
-//pos.subscribe(share_state);
-//bearing.subscribe(share_state);
 
-const area_tolerance = 0.1;
 
-function filter_hillview_photos_by_area() {
-
-    if (!get(sources).find(s => s.id === 'hillview')?.enabled) {
-        hillview_photos_in_area.set([]);
-        return;
-    }
-
-    let p2 = get(pos2);
-    let b = get(bearing);
-    let ph = get(hillview_photos);
-    //console.log('filter_hillview_photos_by_area: p2.top_left:', p2.top_left, 'p2.bottom_right:', p2.bottom_right);
-
-    let window_x = p2.bottom_right.lng - p2.top_left.lng;
-    let window_y = p2.top_left.lat - p2.bottom_right.lat;
-
-    let res = ph.filter(photo => {
-        //console.log('photo:', photo);
-        let yes = photo.coord.lat < p2.top_left.lat + window_y && photo.coord.lat > p2.bottom_right.lat - window_y &&
-            photo.coord.lng > p2.top_left.lng - window_x && photo.coord.lng < p2.bottom_right.lng + window_x;
-        //console.log('yes:', yes);
-        return yes;
-    });
-    console.log('hillview photos in area:', res.length);
-    hillview_photos_in_area.set(res);
-}
-
-// Now handled by photoProcessingService
-// pos2.subscribe(filter_hillview_photos_by_area);
-// hillview_photos.subscribe(filter_hillview_photos_by_area);
-
-function collect_photos_in_area() {
-    let phs = [...get(hillview_photos_in_area), ...get(mapillary_photos_in_area)];
-    fixup_bearings(phs);
-    console.log('collect_photos_in_area:', phs.length, 'photos (hillview:', get(hillview_photos_in_area).length, ', mapillary:', get(mapillary_photos_in_area).length, ')');
-    photos_in_area.set(phs);
-}
-
-// Now handled by photoProcessingService
-// hillview_photos_in_area.subscribe(collect_photos_in_area);
-// mapillary_photos_in_area.subscribe(collect_photos_in_area);
 
 let last_mapillary_request = 0;
 let mapillary_request_timer: any = null;
@@ -429,26 +384,37 @@ sources.subscribe(async (s: Source[]) => {
     let old = JSON.parse(JSON.stringify(old_sources));
     old_sources = JSON.parse(JSON.stringify(s));
     
-    // Check if any source enabled state changed
-    const hillviewChanged = old.find((src: Source) => src.id === 'hillview')?.enabled !== s.find((src: Source) => src.id === 'hillview')?.enabled;
-    const mapillaryChanged = old.find((src: Source) => src.id === 'mapillary')?.enabled !== s.find((src: Source) => src.id === 'mapillary')?.enabled;
-    const mapillaryEnabled = s.find((src: Source) => src.id === 'mapillary')?.enabled;
+    // Check if any source enabled state changed or new sources were added
+    const changedSources = s.filter((src, i) => {
+        const oldSrc = old.find((o: Source) => o.id === src.id);
+        // Source changed if it's new (not in old) or if enabled state changed
+        return !oldSrc || oldSrc.enabled !== src.enabled;
+    });
     
-    if (hillviewChanged || (mapillaryChanged && !mapillaryEnabled)) {
-        // Re-filter with new source states
-        // Only queue immediately if Hillview changed or Mapillary was disabled
-        // If Mapillary was enabled, the filter will be queued after photos load
-        const p2 = get(pos2);
-        photoProcessingAdapter.queueAreaFilter(
-            { top_left: p2.top_left, bottom_right: p2.bottom_right },
-            p2.range,
-            s
-        );
-    }
-    
-    if (mapillaryChanged && mapillaryEnabled) {
-        console.log('get_mapillary_photos');
-        await get_mapillary_photos();
+    if (changedSources.length > 0) {
+        console.log('Source enabled states changed:', changedSources.map(s => ({ id: s.id, enabled: s.enabled })));
+        
+        // Handle Mapillary separately (it has its own streaming logic)
+        const mapillaryChanged = changedSources.find(s => s.id === 'mapillary');
+        const otherSourcesChanged = changedSources.filter(s => s.id !== 'mapillary');
+        
+        // Trigger filter update if:
+        // 1. Non-Mapillary sources changed, OR
+        // 2. Mapillary was disabled (need to remove its photos)
+        if (otherSourcesChanged.length > 0 || (mapillaryChanged && !mapillaryChanged.enabled)) {
+            const p2 = get(pos2);
+            photoProcessingAdapter.queueAreaFilter(
+                { top_left: p2.top_left, bottom_right: p2.bottom_right },
+                p2.range,
+                s
+            );
+        }
+        
+        // If Mapillary was enabled, start streaming
+        if (mapillaryChanged && mapillaryChanged.enabled) {
+            console.log('get_mapillary_photos');
+            await get_mapillary_photos();
+        }
     }
 });
 
@@ -496,63 +462,8 @@ function update_bearing_diff() {
 bearing.subscribe(update_bearing_diff);
 photos_in_area.subscribe(update_bearing_diff);
 
-function filter_photos_in_range() {
-    let p2 = get(pos2);
-    let ph = get(photos_in_area);
-    const center = getCurrentCenter();
-    let res = ph.filter(photo => {
-        photo.range_distance = calculateDistance(photo.coord, center);
-        //console.log('photo.range_distance:', photo.range_distance, 'p2.range:', p2.range);
-        if (photo.range_distance > p2.range) {
-            photo.range_distance = null;
-        }
-        return photo.range_distance !== null;
-    });
-    console.log('Photos in range:', res.length);
-    photos_in_range.set(res);
-};
 
-// Now handled by photoProcessingService
-// photos_in_area.subscribe(filter_photos_in_range);
 
-function update_view() {
-    // Suspend updates when in capture mode
-    if (get(app).activity === 'capture') {
-        return;
-    }
-    
-    let b = get(bearing);
-    let ph = get(photos_in_range);
-    if (ph.length === 0) {
-        photo_in_front.set(null);
-        photo_to_left.set(null);
-        photo_to_right.set(null);
-        photos_to_left.set([]);
-        photos_to_right.set([]);
-        return;
-    }
-    
-    // Add angular distance to photos
-    ph.map(photo => {
-        photo.angular_distance_abs = calculateAngularDistance(b, photo.bearing);
-    });
-    
-    // Sort by angular distance
-    let phs = ph.slice().sort((a, b) => a.angular_distance_abs - b.angular_distance_abs);
-    
-    // Use navigation utility to build structure
-    const navResult = buildNavigationStructure(phs, ph);
-    
-    photo_in_front.set(navResult.photoInFront);
-    photo_to_left.set(navResult.photoToLeft);
-    photo_to_right.set(navResult.photoToRight);
-    photos_to_left.set(navResult.photosToLeft);
-    photos_to_right.set(navResult.photosToRight);
-}
-
-// Now handled by photoProcessingService
-// bearing.subscribe(update_view);
-// photos_in_range.subscribe(update_view);
 
 interface TurnEvent {
     type: string;
@@ -574,27 +485,26 @@ async function handle_events() {
     let dir = e.dir;
     console.log('turn_to_photo_to:', dir);
     
-    // Get current state
-    const currentPhotosInRange = get(photos_in_range);
+    // Get current state  
     const currentPhotoToLeft = get(photo_to_left);
     const currentPhotoToRight = get(photo_to_right);
     
     console.log('Current state:', {
-        photosInRangeCount: currentPhotosInRange.length,
         hasPhotoToLeft: !!currentPhotoToLeft,
         hasPhotoToRight: !!currentPhotoToRight
     });
     
     if (dir === 'left') {
         if (currentPhotoToLeft) {
-            console.log('Turning to left photo:', currentPhotoToLeft.bearing);
+            console.log('Turning to left photo:', currentPhotoToLeft.id, 'bearing:', currentPhotoToLeft.bearing);
             bearing.set(currentPhotoToLeft.bearing);
         } else {
             console.warn('No photo to left available');
         }
     } else if (dir === 'right') {
         if (currentPhotoToRight) {
-            console.log('Turning to right photo:', currentPhotoToRight.bearing);
+            console.log('Turning to right photo:', currentPhotoToRight.id, 'bearing:', currentPhotoToRight.bearing);
+            console.log('Current bearing:', get(bearing), 'New bearing:', currentPhotoToRight.bearing);
             bearing.set(currentPhotoToRight.bearing);
         } else {
             console.warn('No photo to right available');
@@ -613,19 +523,6 @@ export function update_bearing(diff: number) {
 
 
 
-function RGB2HTML(red: number, green: number, blue: number)
-{
-    red = Math.min(255, Math.max(0, Math.round(red)));
-    green = Math.min(255, Math.max(0, Math.round(green)));
-    blue = Math.min(255, Math.max(0, Math.round(blue)));
-    let r = red.toString(16);
-    let g = green.toString(16);
-    let b = blue.toString(16);
-    if (r.length == 1) r = '0' + r;
-    if (g.length == 1) g = '0' + g;
-    if (b.length == 1) b = '0' + b;
-    return '#' + r + g + b;
-}
 
 export function reversed<T>(list: T[]): T[]
 {
@@ -649,8 +546,26 @@ function triggerBearingUpdate() {
         return;
     }
     const b = get(bearing);
-    const center = getCurrentCenter();
-    photoProcessingAdapter.updateBearingAndCenter(b, center);
+    
+    // For bearing-only changes, use the current bearing data if available
+    const currentBearingData = photoProcessingAdapter.getCurrentBearingData();
+    if (currentBearingData && currentBearingData.photosInRange.length > 0) {
+        // Recalculate navigation structure with new bearing but same photos
+        const withBearings = updatePhotoBearings(currentBearingData.photosInRange, b);
+        const sorted = sortPhotosByAngularDistance(withBearings, b);
+        const navResult = buildNavigationStructure(sorted, withBearings);
+        
+        // Update navigation directly
+        photo_in_front.set(navResult.photoInFront);
+        photo_to_left.set(navResult.photoToLeft);
+        photo_to_right.set(navResult.photoToRight);
+        photos_to_left.set(navResult.photosToLeft);
+        photos_to_right.set(navResult.photosToRight);
+    } else {
+        // Fall back to full update if no current data
+        const center = getCurrentCenter();
+        photoProcessingAdapter.updateBearingAndCenter(b, center);
+    }
 }
 
 // Subscribe to recalculateBearingDiffForAllPhotosInArea setting
@@ -681,7 +596,8 @@ function initializePhotoProcessing() {
     });
     
     photoProcessingAdapter.onResult('calculate_distances', (result: DistanceResult) => {
-        photos_in_range.set(result.photosInRange);
+        // Distance calculation result - not currently used for navigation
+        console.log('Distance calculation result:', result.photosInRange.length, 'photos in range');
     });
     
     photoProcessingAdapter.onResult('update_bearing_and_center', (result: BearingResult) => {
@@ -692,6 +608,14 @@ function initializePhotoProcessing() {
         if (get(app).activity === 'capture') {
             return;
         }
+        
+        console.log('Navigation update - photos available:', {
+            photoInFront: !!result.photoInFront,
+            photoToLeft: !!result.photoToLeft,  
+            photoToRight: !!result.photoToRight,
+            leftCount: result.photosToLeft.length,
+            rightCount: result.photosToRight.length
+        });
         
         photo_in_front.set(result.photoInFront);
         photo_to_left.set(result.photoToLeft);

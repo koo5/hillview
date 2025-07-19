@@ -1,2 +1,22 @@
 add ability to mark other user as trusted. Photos of trusted users will appear instantly without any approval.
 
+sync state with second phone for comfortable photo/map split viewing:
+async function share_state() {
+    let p = get(pos);
+    let p2 = get(pos2);
+    await space_db.transaction('rw', 'state', async () => {
+        await space_db.state.clear();
+        let state = {
+            ts: Date.now(),
+            center: p.center,
+            zoom: p.zoom,
+            top_left: p2.top_left,
+            bottom_right: p2.bottom_right,
+            range: p2.range,
+            bearing: get(bearing)
+        }
+        //console.log('Saving state:', state);
+        space_db.state.add(state);
+    });
+};
+

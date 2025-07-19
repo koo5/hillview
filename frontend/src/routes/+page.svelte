@@ -4,7 +4,8 @@
     import Map from '../components/Map.svelte';
     import UploadDialog from '../components/UploadDialog.svelte';
     import {Camera, Compass, User, LogOut, Upload, Menu, Download, Maximize2, Minimize2} from 'lucide-svelte';
-    import {fetch_photos, sources} from "$lib/sources";
+    import {fetch_photos} from "$lib/sources";
+    import {sources} from "$lib/data.svelte";
     import {dms} from "$lib/utils";
     import {app, pos, bearing, turn_to_photo_to, update_bearing, update_pos} from "$lib/data.svelte";
     import {LatLng} from 'leaflet';
@@ -390,8 +391,7 @@
                     My Photos
                 </a></li>
             {/if}
-            <li><a href="/upload" on:click={() => menuOpen = false}>Sources</a></li>
-            <li><a href="/about" on:click={() => menuOpen = false}>About</a></li>
+            <li><a href="/sources" on:click={() => menuOpen = false}>Sources</a></li>
             <li>
                 <a href="/hillview.apk" download on:click={() => menuOpen = false}>
                     <Download size={18} />
@@ -413,6 +413,7 @@
                     </a>
                 </li>
             {/if}
+            <li><a href="/about" on:click={() => menuOpen = false}>About</a></li>
         </ul>
     </nav>
 {/if}
