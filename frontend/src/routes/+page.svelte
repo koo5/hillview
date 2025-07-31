@@ -7,7 +7,8 @@
     import {fetch_photos} from "$lib/sources";
     import {sources} from "$lib/data.svelte";
     import {dms} from "$lib/utils";
-    import {app, pos, bearing, turn_to_photo_to, update_bearing, update_pos} from "$lib/data.svelte";
+    import {app, turn_to_photo_to, update_bearing} from "$lib/data.svelte";
+    import {spatialState, visualState, updateSpatialState} from "$lib/mapState";
     import {LatLng} from 'leaflet';
     import { goto, replaceState } from "$app/navigation";
     import {get, writable} from "svelte/store";
@@ -46,7 +47,7 @@
         const zoom = urlParams.get('zoom');
         const bearingParam = urlParams.get('bearing');
 
-        let p = get(pos);
+        let p = get(spatialState);
         let update = false;
 
         if (lat && lon) {
@@ -62,13 +63,13 @@
         }
 
         if (update) {
-            update_pos((v) => {return {...p, reason: 'url'}});
+            updateSpatialState({...p, reason: 'url'});
             map?.setView(p.center, p.zoom);
         }
 
         if (bearingParam) {
             console.log('Setting bearing to', bearingParam, 'from URL');
-            bearing.set(parseFloat(bearingParam));
+            update_bearing(parseFloat(bearingParam));
         }
 
         await fetch_photos();
@@ -80,7 +81,7 @@
 
     });
 
-    pos.subscribe(p => {
+    spatialState.subscribe(p => {
         if (!update_url) {
             return;
         }
@@ -92,7 +93,8 @@
         replaceState2(url.toString());
     });
 
-    bearing.subscribe(b => {
+    visualState.subscribe(visual => {
+        const b = visual.bearing;
         if (!update_url) {
             return;
         }

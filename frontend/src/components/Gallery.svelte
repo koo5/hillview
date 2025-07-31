@@ -1,18 +1,18 @@
 <script lang="ts">
     import {
         app,
-        pos,
-        pos2,
-        bearing,
-        photos_in_area,
-        photos_to_left,
-        photos_to_right,
-        photo_in_front,
-        photo_to_left,
-        photo_to_right,
-        update_bearing,
-        turn_to_photo_to, reversed
+        turn_to_photo_to, 
+        reversed
     } from "$lib/data.svelte";
+    import {
+        spatialState,
+        visualState,
+        photosInArea,
+        photoInFront,
+        photoToLeft,
+        photoToRight,
+        updateBearing
+    } from "$lib/mapState";
     import {dms} from "$lib/utils";
     import Photo from "./Photo.svelte";
     import { getDevicePhotoUrl } from '$lib/devicePhotoHelper';
@@ -21,14 +21,14 @@
     let clientWidth: number;
     
     function handleThumbnailClick(photo: PhotoData) {
-        bearing.set(photo.bearing);
+        updateBearing(photo.bearing);
     }
 </script>
 
 <div class="gallery-wrapper">
     {#if $app.displayMode !== 'max'}
         <div class="thumbnails-top">
-            {#each $photos_to_left as photo}
+            {#each [] as photo}
                 <div class="thumbnail" on:click={() => handleThumbnailClick(photo)} role="button" tabindex="0" on:keydown={e => e.key === 'Enter' && handleThumbnailClick(photo)}>
                     {#if photo.isDevicePhoto}
                         {#await getDevicePhotoUrl(photo.url) then url}
@@ -46,8 +46,8 @@
         <!--{#if $photo_to_left}-->
         <!--    <Photo photo={$photo_to_left} className="left" />-->
         <!--{/if}-->
-        {#if $photo_in_front}
-            <Photo photo={$photo_in_front} className="front" {clientWidth} />
+        {#if $photoInFront}
+            <Photo photo={$photoInFront} className="front" {clientWidth} />
         {/if}
         <!--{#if $photo_to_right}-->
         <!--    <Photo photo={$photo_to_right} className="right" />-->
@@ -56,7 +56,7 @@
 
     {#if $app.displayMode !== 'max'}
         <div class="thumbnails-bottom">
-            {#each reversed($photos_to_right) as photo}
+            {#each [] as photo}
                 <div class="thumbnail" on:click={() => handleThumbnailClick(photo)} role="button" tabindex="0" on:keydown={e => e.key === 'Enter' && handleThumbnailClick(photo)}>
                     {#if photo.isDevicePhoto}
                         {#await getDevicePhotoUrl(photo.url) then url}
@@ -73,17 +73,17 @@
     {#if $app.debug === 1}
         <div class="debug">
             <b>Debug Information</b><br>
-            <b>Bearing:</b>  {$bearing}<br>
-            <b>Pos.center:</b> {$pos.center}<br>
-            <b>Left:</b>  {$photo_to_left?.file}<br>
-            <b>Front:</b> {$photo_in_front?.file}<br>
-            <b>Right:</b>  {$photo_to_right?.file}<br>
-            <b>Photos in area:</b> {$photos_in_area.length}<br>
-            <b>Range:</b> {$pos2.range / 1000} km<br>
+            <b>Bearing:</b>  {$visualState.bearing}<br>
+            <b>Pos.center:</b> {$spatialState.center}<br>
+            <b>Left:</b>  {$photoToLeft?.file}<br>
+            <b>Front:</b> {$photoInFront?.file}<br>
+            <b>Right:</b>  {$photoToRight?.file}<br>
+            <b>Photos in area:</b> {$photosInArea.length}<br>
+            <b>Range:</b> {$spatialState.range / 1000} km<br>
             <b>Photos to left:</b>
-            {JSON.stringify($photos_to_left, null, 2)}
+            {JSON.stringify([], null, 2)}
 <!--            <ul>-->
-<!--            {#each $photos_to_left as photo}-->
+<!--            {#each [] as photo}-->
 <!--                <li>{photo.id},{photo.file}-->
 <!--                    {JSON.stringify(photo.sizes, null, 2)}-->
 <!--                </li>-->
@@ -91,7 +91,7 @@
 <!--            </ul>-->
             <b>Photos to right:</b>
             <ul>
-            {#each $photos_to_right as photo}
+            {#each [] as photo}
                 <li>{photo.id},{photo.file}
                     {JSON.stringify(photo.sizes, null, 2)}
                 </li>

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import {getBuildInfo} from '$lib/build-info';
 	import {onMount} from 'svelte';
-	import {bearing, pos, recalculateBearingDiffForAllPhotosInArea} from '$lib/data.svelte';
+	import {visualState, spatialState} from '$lib/mapState';
 	import {gpsCoordinates, locationError, locationTracking} from '$lib/location.svelte';
 	import {captureLocation, captureLocationWithCompassBearing} from '$lib/captureLocation';
 	import {
@@ -130,8 +130,8 @@
 
             <div class="debug-section">
                 <div><strong>Map View:</strong></div>
-                <div>Center: {$pos.center.lat.toFixed(4)}, {$pos.center.lng.toFixed(4)}</div>
-                <div>Zoom: {$pos.zoom.toFixed(1)} | Bearing: {$bearing.toFixed(0)}°</div>
+                <div>Center: {$spatialState.center.lat.toFixed(4)}, {$spatialState.center.lng.toFixed(4)}</div>
+                <div>Zoom: {$spatialState.zoom.toFixed(1)} | Bearing: {$visualState.bearing.toFixed(0)}°</div>
             </div>
 
             {#if $gpsCoordinates}
@@ -253,20 +253,6 @@
                 </div>
             {/if}
 
-            <div class="debug-section">
-                <div><strong>Performance Settings:</strong></div>
-                <label class="checkbox-label">
-                    <input 
-                        type="checkbox" 
-                        bind:checked={$recalculateBearingDiffForAllPhotosInArea}
-                        data-testid="recalculate-bearing-distances-toggle"
-                    />
-                    <span>Recalculate bearing distances</span>
-                </label>
-                <div style="font-size: 9px; opacity: 0.7; margin-left: 20px;">
-                    {$recalculateBearingDiffForAllPhotosInArea ? 'Distances recalculated on bearing change' : 'Using cached distances (faster)'}
-                </div>
-            </div>
 
             <div class="debug-note">
                 Press Ctrl+Shift+D to toggle<br/>

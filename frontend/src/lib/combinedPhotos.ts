@@ -1,5 +1,5 @@
 import { derived } from 'svelte/store';
-import { photos_in_area, bearing } from './data.svelte';
+import { photosInArea, visualState } from './mapState';
 import { placeholderPhotos } from './placeholderInjector';
 import type { PhotoData } from './types/photoTypes';
 import { calculateBearingData } from './utils/bearingUtils';
@@ -9,19 +9,19 @@ import { calculateBearingData } from './utils/bearingUtils';
  * This provides immediate display of placeholders without waiting for the photo pipeline
  */
 export const combinedPhotosInArea = derived(
-    [photos_in_area, placeholderPhotos, bearing],
-    ([$photos_in_area, $placeholderPhotos, $bearing]) => {
+    [photosInArea, placeholderPhotos, visualState],
+    ([$photosInArea, $placeholderPhotos, $visualState]) => {
         // Create a map to track photo IDs and avoid duplicates
         const photoMap = new Map<string, PhotoData>();
         
         // Add all regular photos (they already have abs_bearing_diff)
-        $photos_in_area.forEach(photo => {
+        $photosInArea.forEach(photo => {
             photoMap.set(photo.id, photo);
         });
         
         // Add placeholders with calculated abs_bearing_diff
         $placeholderPhotos.forEach(placeholder => {
-            const bearingData = calculateBearingData(placeholder.bearing, $bearing);
+            const bearingData = calculateBearingData(placeholder.bearing, $visualState.bearing);
             const photoWithBearing = {
                 ...placeholder,
                 ...bearingData

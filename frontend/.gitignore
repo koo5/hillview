@@ -36,3 +36,6 @@ __pycache__
 # Sentry Config File
 .env.sentry-build-plugin
 ../backend/api/app/yolov5su.pt
+
+playwright-report/
+test-results/

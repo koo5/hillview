@@ -1,7 +1,7 @@
 import { get } from 'svelte/store';
 import { locationTracking } from './location.svelte';
 import { currentHeading } from './compass.svelte';
-import { bearing as mapBearing } from './data.svelte';
+import { updateBearing } from './mapState';
 
 // This module syncs the map arrow bearing with sensor data when GPS tracking is active
 
@@ -49,7 +49,7 @@ currentHeading.subscribe(compass => {
     lastBearing = smoothedBearing;
     
     // Update map bearing
-    mapBearing.set(smoothedBearing);
+    updateBearing(smoothedBearing);
     
     // Log only significant changes
     if (Math.random() < 0.1) { // Log ~10% of updates
@@ -67,7 +67,7 @@ export function syncMapBearing() {
     if (compass && compass.heading !== null && isTracking) {
         const targetBearing = (360 - compass.heading) % 360;
         lastBearing = targetBearing;
-        mapBearing.set(targetBearing);
+        updateBearing(targetBearing);
     }
 }
 

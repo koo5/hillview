@@ -2,6 +2,7 @@
 	"name": "hillview",
 	"version": "0.0.1",
 	"devDependencies": {
+		"@playwright/test": "^1.54.1",
 		"@sveltejs/adapter-auto": "^4.0.0",
 		"@sveltejs/adapter-static": "^3.0.8",
 		"@sveltejs/kit": "^2.17.2",
@@ -35,6 +36,10 @@
 		"test:android:build": "./scripts/tauri-android.sh android build --apk",
 		"appium": "appium",
 		"appium:doctor": "appium doctor --android",
+		"test": "playwright test",
+		"test:ui": "playwright test --ui",
+		"test:debug": "playwright test --debug",
+		"test:headed": "playwright test --headed",
 		"validate": "./scripts/validate.sh",
 		"validate:quick": "./scripts/validate.sh --skip-android",
 		"validate:android": "./scripts/validate-android.sh",

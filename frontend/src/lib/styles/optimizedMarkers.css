@@ -1,0 +1,117 @@
+/* Optimized photo markers with separated visual elements */
+
+.optimized-photo-marker {
+  /* Remove default leaflet marker styles */
+  background: none !important;
+  border: none !important;
+  /* Enable GPU acceleration */
+  transform: translateZ(0);
+  will-change: transform;
+}
+
+.marker-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* GPU acceleration */
+  transform: translateZ(0);
+}
+
+.bearing-circle {
+  position: absolute;
+  border-radius: 50%;
+  /* Smooth transitions for color changes */
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+  /* Center the circle */
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  /* GPU acceleration */
+  will-change: background-color, border-color;
+  /* Subtle shadow for depth */
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.bearing-circle.selected {
+  /* Pulsing animation for selected photo */
+  animation: selectedPulse 2s infinite;
+  /* Stronger shadow when selected */
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+
+.direction-arrow {
+  position: relative;
+  background-repeat: no-repeat;
+  /* Smooth scaling transitions */
+  transition: transform 0.2s ease;
+  /* GPU acceleration */
+  will-change: transform;
+  /* Ensure arrow appears above circle */
+  z-index: 2;
+  /* Image rendering optimization */
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
+}
+
+/* Selection pulse animation */
+@keyframes selectedPulse {
+  0% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.1);
+    opacity: 0.8;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+  }
+}
+
+/* Hover effects for interactivity */
+.optimized-photo-marker:hover .bearing-circle {
+  transform: translate(-50%, -50%) scale(1.1);
+  transition: transform 0.1s ease;
+}
+
+.optimized-photo-marker:hover .direction-arrow {
+  transform: scale(1.1);
+  transition: transform 0.1s ease;
+}
+
+/* Performance optimizations for large numbers of markers */
+@media (min-resolution: 2dppx) {
+  .direction-arrow {
+    /* Better image scaling on high-DPI displays */
+    image-rendering: -webkit-optimize-contrast;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .bearing-circle,
+  .direction-arrow {
+    transition: none;
+  }
+  
+  .bearing-circle.selected {
+    animation: none;
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .bearing-circle {
+    border-width: 2px !important;
+  }
+}
+
+/* Performance hint for browsers */
+.optimized-photo-marker * {
+  /* Prevent text selection on markers */
+  user-select: none;
+  /* Prevent pointer events on child elements */
+  pointer-events: none;
+}

@@ -9,21 +9,24 @@
     import { geolocation, type GeolocationPosition } from '$lib/geolocation';
 
     import {
-        app,
-        pos,
-        update_pos,
-        pos2,
-        bearing,
-        photo_in_front,
-        photo_to_left,
-        photo_to_right,
-        update_bearing,
-        turn_to_photo_to, update_pos2
-    } from "$lib/data.svelte";
-    import { combinedPhotosInArea } from '$lib/combinedPhotos';
-    import {sources} from "$lib/data.svelte";
+        spatialState,
+        visualState,
+        visiblePhotos,
+        photoInFront,
+        photoToLeft,
+        photoToRight,
+        sources,
+        updateSpatialState,
+        updateBearing,
+        updateBearingDiff,
+        updateBounds
+    } from "$lib/mapState";
+    import { simplePhotoWorker } from '$lib/simplePhotoWorker';
+    import { turn_to_photo_to, app } from "$lib/data.svelte";
     import { updateGpsLocation, setLocationTracking, setLocationError, gpsLocation } from "$lib/location.svelte";
     import { compassActive, compassAvailable, startCompass, stopCompass, currentHeading } from "$lib/compass.svelte";
+    import { optimizedMarkerSystem } from '$lib/optimizedMarkers';
+    import '$lib/styles/optimizedMarkers.css';
 
     import {get} from "svelte/store";
 
@@ -53,6 +56,10 @@
     // Compass tracking variables
     let compassTrackingEnabled = false;
     
+    // Optimized marker system variables
+    let currentMarkers: L.Marker[] = [];
+    let lastPhotosUpdate = 0;
+    
     // Subscribe to compass tracking state
     $: compassTrackingEnabled = $compassActive;
     
@@ -60,7 +67,7 @@
     $: if (compassTrackingEnabled && $currentHeading) {
         const newBearing = $currentHeading.heading;
         if (newBearing !== null && !isNaN(newBearing)) {
-            bearing.set(newBearing);
+            updateBearing(newBearing);
         }
     }
     
@@ -93,112 +100,28 @@
         return userLocation;
     }
 
-    function createDirectionalArrow(photo: any) {
-        const zoomLevel = $pos.zoom;
-        const isZoomedOut = zoomLevel < 10;
+    // Optimized marker management functions
+    function updateOptimizedMarkers(photos: any[]) {
+        if (!map) return;
         
-        // Completely separate implementation for zoomed out
-        if (isZoomedOut) {
-            return createSimpleTriangle(photo);
+        const updateId = Date.now();
+        lastPhotosUpdate = updateId;
+        
+        // Use the optimized marker system
+        const updatedMarkers = optimizedMarkerSystem.updateMarkers(map, photos);
+        if (updatedMarkers) {
+            currentMarkers = updatedMarkers;
+            console.log(`Updated ${currentMarkers.length} optimized markers`);
+        } else {
+            console.warn('optimizedMarkerSystem.updateMarkers returned undefined');
         }
-        
-        // Original implementation for zoomed in
-        let bearing = Math.round(photo.bearing);
-        let color = photo.source.color;
-        let frc = '';
-        let arrow_color = color;
-        
-        let size = 100;
-        let inner_size = $pos.zoom * 3;
-        let outer_size = 100;
-        
-        /*if ($photo_to_left === photo || $photo_to_right === photo) {
-            size = 55;
-            //arrow_color = '#88f';
-        } else*/
-        let dashes = '';
-        let fill = '';
-        let stroke_width = 1;
-
-        //console.log('createDirectionalArrow:', photo.id, $photo_in_front?.id, '$photo_in_front === photo', $photo_in_front?.id === photo.id);
-
-        if ($photo_in_front?.id === photo.id) {
-            //dashes = 'stroke-dasharray="20 4"'
-            dashes = 'stroke-dasharray="1 10"'
-            frc = photo.bearing_color || color;
-            fill = `fill="${color}"`;
-            stroke_width = 2
-            //arrow_color = 'blue';
-        }
-        const half = Math.round(size / 2);
-
-        // Define arrow dimensions relative to the size.
-        // Adjust these variables to easily control the arrow's shape.
-        const arrowTipY_inner = inner_size * 0.1;      // Y coordinate for the arrow tip (top)
-        const arrowBaseY_inner = inner_size * 0.8;    // Y coordinate for the arrow base
-        const arrowWidth_inner = inner_size * 0.15;    // Horizontal offset from center (controls thinness)
-        const arrowTipY_outer = outer_size * 0.12;
-        const arrowBaseY_outer = inner_size * 0.82;
-        const arrowWidth_outer = outer_size * 0.16;
-
-        let svg = `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" fill="none" xmlns="http://www.w3.org/2000/svg">`;
-
-        // inner arrow with bearing color fill
-        svg += `<polygon transform="rotate(${bearing} ${half} ${half})"
-               points="
-                 ${half},${arrowTipY_outer}
-                 ${half + arrowWidth_outer},${arrowBaseY_outer}
-                 ${half - arrowWidth_outer},${arrowBaseY_outer}"
-               fill="${photo.bearing_color || '#9E9E9E'}" 
-               fill-opacity="0.6"
-               stroke="${photo === $photo_in_front ? frc : 'none'}" 
-               stroke-width="${photo === $photo_in_front ? stroke_width : 0}" />`
-
-        // outer arrow with source color stroke only
-        svg += `<polygon transform="rotate(${bearing} ${half} ${half})"
-               points="
-                 ${half},${arrowTipY_inner}
-                 ${half + arrowWidth_inner},${arrowBaseY_inner}
-                 ${half - arrowWidth_inner},${arrowBaseY_inner}"
-                 fill="none"
-               stroke="${color}" stroke-width="${stroke_width}" />`
-
-        svg += '</svg>';
-
-        return L.divIcon({
-            className: 'photo-direction-arrow',
-            html: svg,
-            iconSize: [size, size],
-            iconAnchor: [half, half]
-        });
     }
     
-    function createSimpleTriangle(photo: any) {
-        const size = 16; // Small fixed size
-        const center = size / 2;
-        const color = photo.source.color;
-        const bearing = Math.round(photo.bearing);
-        const isSelected = photo === $photo_in_front;
+    function updateMarkerBearingColors() {
+        if (!currentMarkers || currentMarkers.length === 0) return;
         
-        // Simple triangle pointing up (will be rotated by bearing)
-        const svg = `
-            <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg">
-                <g transform="rotate(${bearing} ${center} ${center})">
-                    <path d="M ${center} 2 L ${size-2} ${size-2} L 2 ${size-2} Z" 
-                          fill="${color}" 
-                          fill-opacity="${isSelected ? 1 : 0.7}"
-                          stroke="${photo.bearing_color || color}"
-                          stroke-width="1"/>
-                </g>
-            </svg>
-        `;
-        
-        return L.divIcon({
-            className: 'photo-simple-triangle',
-            html: svg,
-            iconSize: [size, size],
-            iconAnchor: [center, center] // Exactly centered
-        });
+        // Efficiently update only the bearing colors
+        optimizedMarkerSystem.updateMarkerColors(currentMarkers, $visualState.bearing);
     }
 
     // Calculate how many km are "visible" based on the current zoom/center
@@ -220,19 +143,19 @@
         }
     }
 
-    pos.subscribe((v) => {
+    spatialState.subscribe((spatial) => {
         if (!map || programmaticMove) return;
         try {
             const currentCenter = map.getCenter();
             const currentZoom = map.getZoom();
-            if (!currentCenter || currentCenter.lat !== v.center.lat || currentCenter.lng !== v.center.lng || currentZoom !== v.zoom) {
-                console.log('setView', v.center, v.zoom);
-                map.setView(new LatLng(v.center.lat, v.center.lng), v.zoom);
-                onMapStateChange(true, 'pos.subscribe');
+            if (!currentCenter || currentCenter.lat !== spatial.center.lat || currentCenter.lng !== spatial.center.lng || currentZoom !== spatial.zoom) {
+                console.log('setView', spatial.center, spatial.zoom);
+                map.setView(new LatLng(spatial.center.lat, spatial.center.lng), spatial.zoom);
+                onMapStateChange(true, 'spatialState.subscribe');
             }
         } catch (e) {
             // Map not ready yet, ignore
-            console.log('Map not ready for pos update:', e);
+            console.log('Map not ready for spatialState update:', e);
         }
     });
 
@@ -243,7 +166,7 @@
 
         if (!flying) {
             let _center = map.getCenter();
-            let p = get(pos);
+            let p = get(spatialState);
             console.log('mapStateUserEvent:', event);
             if (p.center.lat != _center.lat || p.center.lng != _center.lng) {
                 console.log('p.center:', p.center, '_center:', _center);
@@ -274,28 +197,28 @@
             let _center = map.getCenter();
             let _zoom = map.getZoom();
             console.log('onMapStateChange force:', force, 'reason:', reason, 'center:', _center, '_zoom:', _zoom);
-            let p = get(pos);
-            let new_v = {
-                ...p,
+            
+            const currentSpatial = get(spatialState);
+            const bounds = map.getBounds();
+            const range = get_range(_center);
+            
+            const newSpatialState = {
                 center: new LatLng(_center.lat, _center.lng),
                 zoom: _zoom,
-                reason: `onMapStateChange(${force}, ${reason})`,
-            };
-
-        // Remove obsolete event check
-
-        if (force === true || p.center.lat !== new_v.center.lat || p.center.lng !== new_v.center.lng || p.zoom !== new_v.zoom) {
-            update_pos((value) => {
-                return new_v;
-            });
-            update_pos2((value) => {
-                const bounds = map.getBounds();
-                const newBounds = {
-                    ...value,
-                    range: get_range(_center),
+                bounds: {
                     top_left: bounds.getNorthWest(),
                     bottom_right: bounds.getSouthEast()
-                };
+                },
+                range: range
+            };
+
+            if (force === true || 
+                currentSpatial.center.lat !== newSpatialState.center.lat || 
+                currentSpatial.center.lng !== newSpatialState.center.lng || 
+                currentSpatial.zoom !== newSpatialState.zoom) {
+                
+                updateSpatialState(newSpatialState);
+                
                 console.log('Map bounds updated:', {
                     nw: `${bounds.getNorthWest().lat}, ${bounds.getNorthWest().lng}`,
                     se: `${bounds.getSouthEast().lat}, ${bounds.getSouthEast().lng}`,
@@ -304,9 +227,7 @@
                     center: `${_center.lat}, ${_center.lng}`,
                     zoom: _zoom
                 });
-                return newBounds;
-            });
-        }
+            }
         } catch (e) {
             console.error('Error in onMapStateChange:', e);
         }
@@ -336,9 +257,9 @@
         } else if (action === 'right') {
             await turn_to_photo_to('right');
         } else if (action === 'rotate-ccw') {
-            update_bearing(-15);
+            updateBearingDiff(-15);
         } else if (action === 'rotate-cw') {
-            update_bearing(15);
+            updateBearingDiff(15);
         } else if (action === 'forward') {
             moveForward();
         } else if (action === 'backward') {
@@ -387,9 +308,9 @@
     
     // Perform the slideshow action based on current direction
     async function performSlideshowAction() {
-        if (slideshowDirection === 'left' && $photo_to_left) {
+        if (slideshowDirection === 'left' && $photoToLeft) {
             await turn_to_photo_to('left');
-        } else if (slideshowDirection === 'right' && $photo_to_right) {
+        } else if (slideshowDirection === 'right' && $photoToRight) {
             await turn_to_photo_to('right');
         } else {
             // If no more photos in this direction, stop slideshow
@@ -422,7 +343,7 @@
         // Ensure we have the latest map state
         if (!map) return;
         
-        const currentBearing = get(bearing);
+        const currentBearing = get(visualState).bearing;
         const _center = map.getCenter();
         
         // Use the same approach as get_range function
@@ -465,12 +386,13 @@
         // Fly to new position
         map.flyTo(newCenter, map.getZoom());
         
-        // Update the position state
-        update_pos((p) => ({
-            ...p,
+        // Update the spatial state
+        updateSpatialState({
             center: newCenter,
-            reason: direction
-        }));
+            zoom: map.getZoom(),
+            bounds: null, // Will be updated by onMapStateChange
+            range: get_range(newCenter)
+        });
         
         // Reset flag after the movement is complete
         setTimeout(() => {
@@ -603,7 +525,7 @@
             userHeading = heading;
             // Optionally update the app bearing based on user heading
             if (locationTracking) {
-                update_bearing(userHeading);
+                updateBearing(userHeading);
             }
         }
         
@@ -613,12 +535,11 @@
             // Center map on user location if tracking is active
             if (locationTracking) {
                 flying = true;
-                update_pos((value) => {
-                    return {
-                        ...value,
-                        center: new LatLng(latitude, longitude),
-                        reason: 'updateUserLocation'
-                    };
+                updateSpatialState({
+                    center: new LatLng(latitude, longitude),
+                    zoom: map.getZoom(),
+                    bounds: null, // Will be updated by onMapStateChange  
+                    range: get_range(new LatLng(latitude, longitude))
                 });
                 await tick();
                 map.flyTo(latLng);
@@ -627,13 +548,12 @@
                     flying = false;
                 }, 500);
 
-                // Update the app position
-                update_pos((value) => {
-                    return {
-                        ...value,
-                        center: new LatLng(latitude, longitude),
-                        reason: 'updateUserLocation'
-                    };
+                // Update the spatial state
+                updateSpatialState({
+                    center: new LatLng(latitude, longitude),
+                    zoom: map.getZoom(),
+                    bounds: null, // Will be updated by onMapStateChange
+                    range: get_range(new LatLng(latitude, longitude))
                 });
                 
                 // Update other state as needed
@@ -742,9 +662,18 @@
     }
 
     onMount(async () => {
-        await console.log('Map component mounted');
+        console.log('Map component mounted');
+        
+        // Initialize the simplified photo worker
+        try {
+            await simplePhotoWorker.initialize();
+            console.log('SimplePhotoWorker initialized successfully');
+        } catch (error) {
+            console.error('Failed to initialize SimplePhotoWorker:', error);
+        }
+        
         await onMapStateChange(true, 'mount');
-        await console.log('Map component mounted - after onMapStateChange');
+        console.log('Map component mounted - after onMapStateChange');
         
         // Compass availability is automatically tracked by the store
     });
@@ -778,6 +707,14 @@
         if (wheelTimeout) {
             clearTimeout(wheelTimeout);
         }
+        
+        // Clean up bearing update timeout
+        if (bearingUpdateTimeout) {
+            clearTimeout(bearingUpdateTimeout);
+        }
+        
+        // Clean up optimized marker system
+        optimizedMarkerSystem.destroy();
         
         // Clean up tile pruning interval
         if (tilePruneInterval) {
@@ -822,16 +759,20 @@
     let arrowX;
     let arrowY;
 
-    $: arrow_radians = ($bearing - 90) * Math.PI / 180; // shift so 0° points "up"
+    $: arrow_radians = ($visualState.bearing - 90) * Math.PI / 180; // shift so 0° points "up"
     $: arrowX = centerX + Math.cos(arrow_radians) * arrowLength;
     $: arrowY = centerY + Math.sin(arrow_radians) * arrowLength;
 
     const tileUrl = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
     
-    // Create a reactive key that changes whenever photos change
-    let photosUpdateKey = 0;
-    $: if ($combinedPhotosInArea) {
-        photosUpdateKey = Date.now();
+    // Reactive updates for spatial changes (new photos from worker)
+    $: if ($visiblePhotos && map) {
+        updateOptimizedMarkers($visiblePhotos);
+    }
+    
+    // Ultra-fast bearing color updates (no worker communication)
+    $: if ($visualState && currentMarkers && currentMarkers.length > 0) {
+        optimizedMarkerSystem.scheduleColorUpdate($visualState.bearing);
     }
 
 </script>
@@ -843,8 +784,8 @@
             bind:this={elMap}
             events={{moveend: mapStateUserEvent, zoomend: mapStateUserEvent}}
             options={{
-                center: [$pos.center.lat, $pos.center.lng], 
-                zoom: $pos.zoom,
+                center: [$spatialState.center.lat, $spatialState.center.lng], 
+                zoom: $spatialState.zoom,
                 minZoom: 3,
                 maxZoom: 23,
                 zoomControl: true, 
@@ -889,10 +830,10 @@
         />
 
 
-        {#if $pos.center}
+        {#if $spatialState.center}
             <Circle
-                    latLng={$pos.center}
-                    radius={$pos2.range}
+                    latLng={$spatialState.center}
+                    radius={$spatialState.range}
                     color="#4AE092"
                     fillColor="#4A90E2"
                     weight={1.8}
@@ -901,13 +842,13 @@
         {/if}
 
         <!-- Debug bounds rectangle -->
-        {#if $app.debug > 0 && $pos2.top_left && $pos2.bottom_right}
+        {#if $app.debug > 0 && $spatialState.bounds}
             <Polygon
                     latLngs={[
-                        [$pos2.top_left.lat, $pos2.top_left.lng],
-                        [$pos2.top_left.lat, $pos2.bottom_right.lng],
-                        [$pos2.bottom_right.lat, $pos2.bottom_right.lng],
-                        [$pos2.bottom_right.lat, $pos2.top_left.lng]
+                        [$spatialState.bounds.top_left.lat, $spatialState.bounds.top_left.lng],
+                        [$spatialState.bounds.top_left.lat, $spatialState.bounds.bottom_right.lng],
+                        [$spatialState.bounds.bottom_right.lat, $spatialState.bounds.bottom_right.lng],
+                        [$spatialState.bounds.bottom_right.lat, $spatialState.bounds.top_left.lng]
                     ]}
                     color="#FF0000"
                     fillColor="#FF0000"
@@ -917,17 +858,7 @@
                 />
         {/if}
 
-        <!-- Markers for photos -->
-        {#key photosUpdateKey}
-            {#each $combinedPhotosInArea as photo (photo.id)}
-                <Marker
-                        zIndexOffset={10000*180-(photo.abs_bearing_diff || 0)*10000}
-                        latLng={photo.coord}
-                        icon={createDirectionalArrow(photo)}
-                        {...{ title: `Photo at ${photo.coord.lat.toFixed(6)}, ${photo.coord.lng.toFixed(6)}\nDirection: ${photo.bearing.toFixed(1)}°\n(Relative: ${(photo.bearing - $bearing).toFixed(1)}°)` }}
-                />
-            {/each}
-        {/key}
+        <!-- Markers are now handled programmatically by optimizedMarkerSystem -->
 
         <div class="svg-overlay">
             <svg
@@ -984,13 +915,13 @@
 </div>
 
 <!-- Debug bounds info -->
-{#if $app.debug > 0 && $pos2.top_left && $pos2.bottom_right}
+{#if $app.debug > 0 && $spatialState.bounds}
     <div class="debug-bounds-info">
         <div>Bounds:</div>
-        <div>NW: {$pos2.top_left.lat.toFixed(6)}, {$pos2.top_left.lng.toFixed(6)}</div>
-        <div>SE: {$pos2.bottom_right.lat.toFixed(6)}, {$pos2.bottom_right.lng.toFixed(6)}</div>
-        <div>Width: {($pos2.bottom_right.lng - $pos2.top_left.lng).toFixed(6)}°</div>
-        <div>Height: {($pos2.top_left.lat - $pos2.bottom_right.lat).toFixed(6)}°</div>
+        <div>NW: {$spatialState.bounds.top_left.lat.toFixed(6)}, {$spatialState.bounds.top_left.lng.toFixed(6)}</div>
+        <div>SE: {$spatialState.bounds.bottom_right.lat.toFixed(6)}, {$spatialState.bounds.bottom_right.lng.toFixed(6)}</div>
+        <div>Width: {($spatialState.bounds.bottom_right.lng - $spatialState.bounds.top_left.lng).toFixed(6)}°</div>
+        <div>Height: {($spatialState.bounds.top_left.lat - $spatialState.bounds.bottom_right.lat).toFixed(6)}°</div>
     </div>
 {/if}
 
@@ -1005,7 +936,7 @@
                 title={slideshowActive && slideshowDirection === 'left' ? 
                       "Stop slideshow" : 
                       "Rotate to next photo on the left (long press for slideshow)"}
-                disabled={!$photo_to_left}
+                disabled={!$photoToLeft}
                 class:slideshow-active={slideshowActive && slideshowDirection === 'left'}
         >
             {#if slideshowActive && slideshowDirection === 'left'}
@@ -1051,7 +982,7 @@
                 title={slideshowActive && slideshowDirection === 'right' ? 
                       "Stop slideshow" : 
                       "Rotate to next photo on the right (long press for slideshow)"}
-                disabled={!$photo_to_right}
+                disabled={!$photoToRight}
                 class:slideshow-active={slideshowActive && slideshowDirection === 'right'}
         >
             {#if slideshowActive && slideshowDirection === 'right'}
@@ -1101,7 +1032,7 @@
                 title={`Toggle ${source.name} visibility`}
         >
             <div class="source-icon-wrapper">
-                <Spinner show={source.enabled && !!source.requests.length} color="#fff"></Spinner>
+                <Spinner show={source.enabled && !!(source.requests && source.requests.length)} color="#fff"></Spinner>
                 <div class="source-icon" style="background-color: {source.color}"></div>
             </div>
             {#if !compactSourceButtons}
