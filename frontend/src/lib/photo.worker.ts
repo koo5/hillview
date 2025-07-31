@@ -1,6 +1,7 @@
 /// <reference lib="webworker" />
 
 import type { WorkerMessage, WorkerResponse, PhotoData, Bounds, SourceConfig } from './photoWorkerTypes';
+import { LatLng } from 'leaflet';
 
 // Webworker version for runtime checking
 declare const __WORKER_VERSION__: string;

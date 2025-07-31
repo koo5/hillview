@@ -35,12 +35,17 @@ export interface Bounds {
 export interface SourceConfig {
   id: string;
   enabled: boolean;
+  type?: string;
+  url?: string;
+  path?: string;
+  name?: string;
 }
 
 // Worker message types
 export type WorkerMessageType = 
   | 'init' 
   | 'loadPhotos' 
+  | 'loadFromSources'
   | 'updateBounds'
   | 'updateSources' 
   | 'getPhotosInRange'
