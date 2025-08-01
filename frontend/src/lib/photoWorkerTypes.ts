@@ -34,11 +34,13 @@ export interface Bounds {
 
 export interface SourceConfig {
   id: string;
+  name: string;
+  type: 'json' | 'mapillary' | 'device' | 'directory';
   enabled: boolean;
-  type?: string;
+  requests?: number[];
+  color?: string;
   url?: string;
   path?: string;
-  name?: string;
 }
 
 // Worker message types
@@ -48,7 +50,9 @@ export type WorkerMessageType =
   | 'loadFromSources'
   | 'updateBounds'
   | 'updateSources' 
+  | 'updateRange'
   | 'getPhotosInRange'
+  | 'updateBearingColors'
   | 'updateConfig'
   | 'terminate';
 
@@ -56,7 +60,8 @@ export type WorkerResponseType =
   | 'ready' 
   | 'success' 
   | 'photosUpdate' 
-  | 'bearingUpdate' 
+  | 'rangeUpdate' 
+  | 'bearingUpdate'
   | 'error';
 
 export interface WorkerMessage {
@@ -71,6 +76,7 @@ export interface WorkerMessage {
     center?: { lat: number; lng: number };
     config?: {
       recalculateBearingDiffForAllPhotosInArea?: boolean;
+      geoPicsUrl?: string;
     };
   };
 }

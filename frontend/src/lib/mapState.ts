@@ -30,7 +30,7 @@ export interface SourceConfig {
 
 // Spatial state - triggers photo filtering in worker
 export const spatialState = localStorageReadOnceSharedStore<SpatialState>('spatialState', {
-  center: new LatLng(50.06173640462974, 14.514600411057472),
+  center: new LatLng(50.114429599683604, 14.523528814315798),
   zoom: 20,
   bounds: null,
   range: 1000
@@ -38,7 +38,7 @@ export const spatialState = localStorageReadOnceSharedStore<SpatialState>('spati
 
 // Visual state - only affects rendering, optimized with debounced writes
 export const visualState = staggeredLocalStorageSharedStore<VisualState>('visualState', {
-  bearing: 0
+  bearing: 230
 }, 250); // 250ms debounce for smooth bearing updates
 
 // Source configuration - triggers photo filtering
@@ -54,10 +54,80 @@ export const photosInArea = writable<PhotoData[]>([]);
 // Photos in range for navigation (from worker)
 export const photosInRange = writable<PhotoData[]>([]);
 
-// Navigation photos (front, left, right)
-export const photoInFront = writable<PhotoData | null>(null);
-export const photoToLeft = writable<PhotoData | null>(null);
-export const photoToRight = writable<PhotoData | null>(null);
+// Navigation photos (front, left, right) - derived from bearing-sorted photosInRange (within spatialState.range)
+export const photoInFront = derived(
+  [photosInRange, visualState],
+  ([photos, visual]) => {
+    if (photos.length === 0) {
+      console.log('Navigation: No photos available for photoInFront');
+      return null;
+    }
+    
+    // Find photo closest to current bearing
+    const currentBearing = visual.bearing;
+    let closestIndex = 0;
+    let smallestDiff = calculateAbsBearingDiff(photos[0].bearing, currentBearing);
+    
+    for (let i = 1; i < photos.length; i++) {
+      const diff = calculateAbsBearingDiff(photos[i].bearing, currentBearing);
+      if (diff < smallestDiff) {
+        smallestDiff = diff;
+        closestIndex = i;
+      }
+    }
+    
+    console.log(`Navigation: photoInFront selected from ${photos.length} photos in range`);
+    return photos[closestIndex];
+  }
+);
+
+export const photoToLeft = derived(
+  [photosInRange, visualState],
+  ([photos, visual]) => {
+    if (photos.length === 0) return null;
+    
+    // Find photo closest to current bearing
+    const currentBearing = visual.bearing;
+    let closestIndex = 0;
+    let smallestDiff = calculateAbsBearingDiff(photos[0].bearing, currentBearing);
+    
+    for (let i = 1; i < photos.length; i++) {
+      const diff = calculateAbsBearingDiff(photos[i].bearing, currentBearing);
+      if (diff < smallestDiff) {
+        smallestDiff = diff;
+        closestIndex = i;
+      }
+    }
+    
+    // Return the photo to the left (counter-clockwise) from front photo
+    const leftIndex = closestIndex > 0 ? closestIndex - 1 : photos.length - 1;
+    return photos[leftIndex];
+  }
+);
+
+export const photoToRight = derived(
+  [photosInRange, visualState],
+  ([photos, visual]) => {
+    if (photos.length === 0) return null;
+    
+    // Find photo closest to current bearing
+    const currentBearing = visual.bearing;
+    let closestIndex = 0;
+    let smallestDiff = calculateAbsBearingDiff(photos[0].bearing, currentBearing);
+    
+    for (let i = 1; i < photos.length; i++) {
+      const diff = calculateAbsBearingDiff(photos[i].bearing, currentBearing);
+      if (diff < smallestDiff) {
+        smallestDiff = diff;
+        closestIndex = i;
+      }
+    }
+    
+    // Return the photo to the right (clockwise) from front photo
+    const rightIndex = closestIndex < photos.length - 1 ? closestIndex + 1 : 0;
+    return photos[rightIndex];
+  }
+);
 
 // Combined photos for rendering (includes placeholders)
 export const visiblePhotos = derived(

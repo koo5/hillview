@@ -1,13 +1,42 @@
 import {app, hillview_photos, sources, type Source} from "$lib/data.svelte";
 import { geoPicsUrl } from './config';
-//import { APIPhotoData, Photo} from "./types.ts";
-//import { Coordinate } from "tsgeo/Coordinate";
 import { LatLng } from 'leaflet';
 import {writable, get} from "svelte/store";
 import { auth } from "$lib/auth.svelte";
 import { userPhotos, devicePhotos } from './stores';
 import { photoCaptureService } from './photoCapture';
 import type { PhotoData, PhotoSize, DevicePhotoMetadata } from './types/photoTypes';
+import { parsePhotoData, loadJsonPhotos, parseCoordinate, parseFraction } from './utils/photoParser';
+
+// Frontend-specific photo parser that uses proper LatLng objects
+function parsePhotoDataForFrontend(item: any): PhotoData {
+    const latitude = parseCoordinate(item.latitude);
+    const longitude = parseCoordinate(item.longitude);
+
+    const photo: PhotoData = {
+        id: 'hillview_' + item.file,
+        source_type: 'hillview',
+        file: item.file,
+        url: `${geoPicsUrl}/${encodeURIComponent(item.file)}`,
+        coord: new LatLng(latitude, longitude), // Use proper LatLng for frontend
+        bearing: parseFraction(item.bearing),
+        altitude: parseFraction(item.altitude),
+    };
+
+    if (item.sizes) {
+        photo.sizes = {};
+        for (const size in item.sizes) {
+            const s = item.sizes[size];
+            photo.sizes[size] = {
+                url: `${geoPicsUrl}/${s.path}`,
+                width: s.width,
+                height: s.height
+            };
+        }
+    }
+
+    return photo;
+}
 
 
 
@@ -44,23 +73,12 @@ async function fetchJsonSource(source: Source) {
             return srcs;
         });
         
-        const response = await fetch(source.url, {
-            headers: { Accept: 'application/json' }
-        });
-
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const res = await response.json();
-        if (!Array.isArray(res)) {
-            throw new Error('Expected an array of photo data');
-        }
-
-        const newPhotos: PhotoData[] = res.map((item: any) => {
-            const photo = parse_photo_data(item);
+        // Use shared photo loading utility
+        const newPhotos = await loadJsonPhotos(source.url, geoPicsUrl);
+        
+        // Set source reference on each photo
+        newPhotos.forEach(photo => {
             photo.source = source;
-            return photo;
         });
 
         // Update hillview_photos by replacing photos from this source
@@ -269,7 +287,7 @@ export async function fetch_photos() {
         }
 
         console.log('parse_photo_data...');
-        const ph: PhotoData[] = res.map((item: any) => parse_photo_data(item));
+        const ph: PhotoData[] = res.map((item: any) => parsePhotoDataForFrontend(item));
         let src = get(sources).find(s => s.id === 'hillview');
         ph.map(p => p.source = src);
         
@@ -370,72 +388,10 @@ export async function fetch_photos() {
 }
 
 
-export function parseCoordinate(coord: string) {
-    try {
-        // Convert something like "[51, 30, 20]" or "[51,30,20/1]" into decimal
-        const parts = coord.replace('[', '').replace(']', '').split(',').map((p: string) => p.trim());
-        const degrees = parseFloat(parts[0]);
-        const minutes = parseFloat(parts[1]);
-        let seconds = 0;
-        if (parts[2].includes('/')) {
-            const [num, denom] = parts[2].split('/').map(Number);
-            seconds = num / denom;
-        } else {
-            seconds = parseFloat(parts[2]);
-        }
-        return degrees + minutes / 60 + seconds / 3600;
-    } catch (error) {
-        console.error('Error parsing coordinate:', coord, error);
-        return 0;
-    }
-}
-
-function parseFraction(value: string | number) {
-    if (!value) return 0;
-    if (typeof value === 'string' && value.includes('/')) {
-        const [numerator, denominator] = value.split('/').map(Number);
-        return numerator / denominator;
-    }
-    return typeof value === 'string' ? parseFloat(value) || 0 : value;
-}
-
-// Re-export for backward compatibility
+// Re-export utilities and types for backward compatibility
+export { parseCoordinate, parseFraction } from './utils/photoParser';
+export { parsePhotoDataForFrontend as parse_photo_data };
 export type { PhotoData, PhotoSize };
-
-function parse_photo_data(item: any): PhotoData {
-    let latitude = parseCoordinate(item.latitude);
-    let longitude = parseCoordinate(item.longitude);
-
-    let photo: PhotoData = {
-        id: 'hillview_' + item.file,
-        source_type: 'hillview',
-        file: item.file,
-        url: `${geoPicsUrl}/${encodeURIComponent(item.file)}`,
-        coord: new LatLng(latitude, longitude),
-        bearing: parseFraction(item.bearing),
-        altitude: parseFraction(item.altitude),
-    };
-
-    if (item.sizes) {
-        photo.sizes = {}
-        for (let size in item.sizes) {
-            let s = item.sizes[size];
-            photo.sizes[size] = {
-                url: `${geoPicsUrl}/${s.path}`,
-                width: s.width,
-                height: s.height
-            }
-        }
-    }
-
-    if (isNaN(latitude) || isNaN(longitude)) {
-        console.error('Invalid coordinates:', photo);
-    }
-    if (photo.bearing < 0 || photo.bearing > 360) {
-        console.error('Invalid bearing:', photo);
-    }
-    return photo;
-}
 
 
 

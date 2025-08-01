@@ -22,9 +22,10 @@ test.describe('Photo Loading and Display', () => {
     // Wait for photo loading
     await page.waitForTimeout(5000);
 
-    // Check console messages for photo loading indicators
+    // Check console messages for photo loading indicators (now from worker)
     const photoLoadMessages = consoleMessages.filter(msg => 
-      msg.includes('Photos loaded:') || 
+      msg.includes('Worker: Loaded') && msg.includes('photos from') || 
+      msg.includes('Worker: Total loaded') ||
       msg.includes('Updated') && msg.includes('markers') ||
       msg.includes('parse_photo_data')
     );
@@ -32,17 +33,19 @@ test.describe('Photo Loading and Display', () => {
     console.log('📸 Photo loading messages:');
     photoLoadMessages.forEach(msg => console.log(`  ${msg}`));
 
-    // Check if photos were actually loaded
-    const photosLoadedMessage = consoleMessages.find(msg => msg.includes('Photos loaded:'));
+    // Check if photos were actually loaded by worker
+    const workerLoadedMessage = consoleMessages.find(msg => 
+      msg.includes('Worker: Loaded') && msg.includes('photos from')
+    );
     
-    if (photosLoadedMessage) {
-      const photosCount = parseInt(photosLoadedMessage.match(/Photos loaded: (\d+)/)?.[1] || '0');
-      console.log(`📊 Photos loaded: ${photosCount}`);
+    if (workerLoadedMessage) {
+      const photosCount = parseInt(workerLoadedMessage.match(/(\d+) photos from/)?.[1] || '0');
+      console.log(`📊 Worker loaded: ${photosCount} photos`);
       
-      expect(photosCount, 'Expected photos to be loaded from data sources').toBeGreaterThan(0);
+      expect(photosCount, 'Expected photos to be loaded by worker from data sources').toBeGreaterThan(0);
     } else {
-      console.log('❌ No "Photos loaded:" message found');
-      expect(false, 'No photos loading message found in console').toBe(true);
+      console.log('❌ No worker photo loading message found');
+      expect(false, 'No worker photo loading message found in console').toBe(true);
     }
 
     // Check marker updates

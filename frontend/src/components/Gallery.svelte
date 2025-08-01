@@ -7,7 +7,7 @@
     import {
         spatialState,
         visualState,
-        photosInArea,
+        photosInRange,
         photoInFront,
         photoToLeft,
         photoToRight,
@@ -23,12 +23,17 @@
     function handleThumbnailClick(photo: PhotoData) {
         updateBearing(photo.bearing);
     }
+    
+    // Log photo count changes
+    $: if ($photosInRange) {
+        console.log(`Gallery: Displaying ${$photosInRange.length} photos in range`);
+    }
 </script>
 
 <div class="gallery-wrapper">
     {#if $app.displayMode !== 'max'}
         <div class="thumbnails-top">
-            {#each [] as photo}
+            {#each $photosInRange as photo}
                 <div class="thumbnail" on:click={() => handleThumbnailClick(photo)} role="button" tabindex="0" on:keydown={e => e.key === 'Enter' && handleThumbnailClick(photo)}>
                     {#if photo.isDevicePhoto}
                         {#await getDevicePhotoUrl(photo.url) then url}
@@ -56,7 +61,7 @@
 
     {#if $app.displayMode !== 'max'}
         <div class="thumbnails-bottom">
-            {#each [] as photo}
+            {#each $photosInRange as photo}
                 <div class="thumbnail" on:click={() => handleThumbnailClick(photo)} role="button" tabindex="0" on:keydown={e => e.key === 'Enter' && handleThumbnailClick(photo)}>
                     {#if photo.isDevicePhoto}
                         {#await getDevicePhotoUrl(photo.url) then url}
@@ -78,7 +83,7 @@
             <b>Left:</b>  {$photoToLeft?.file}<br>
             <b>Front:</b> {$photoInFront?.file}<br>
             <b>Right:</b>  {$photoToRight?.file}<br>
-            <b>Photos in area:</b> {$photosInArea.length}<br>
+            <b>Photos in range:</b> {$photosInRange.length}<br>
             <b>Range:</b> {$spatialState.range / 1000} km<br>
             <b>Photos to left:</b>
             {JSON.stringify([], null, 2)}

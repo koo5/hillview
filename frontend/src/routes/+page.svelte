@@ -72,7 +72,8 @@
             update_bearing(parseFloat(bearingParam));
         }
 
-        await fetch_photos();
+        // Photo loading is now handled by the worker when sources change
+        // await fetch_photos();
         window.addEventListener('keydown', handleKeyDown);
 
         setTimeout(() => {
@@ -451,8 +452,8 @@
     show={showUploadDialog} 
     on:close={() => showUploadDialog = false} 
     on:uploaded={() => {
-        // Refresh photos after upload
-        fetch_photos();
+        // Refresh photos after upload - worker will handle this automatically
+        // fetch_photos();
     }}
 />
 

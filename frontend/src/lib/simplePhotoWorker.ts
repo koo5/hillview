@@ -1,5 +1,7 @@
-import type { PhotoData, Bounds, SourceConfig } from './types/photoTypes';
-import { spatialState, sources, photosInArea, photosInRange, photoInFront, photoToLeft, photoToRight } from './mapState';
+import type { PhotoData, Bounds, SourceConfig } from './photoWorkerTypes';
+import { spatialState, visualState, photosInArea, photosInRange, photoInFront, photoToLeft, photoToRight } from './mapState';
+import { sources } from './data.svelte';
+import { geoPicsUrl } from './config';
 import { get } from 'svelte/store';
 
 /**
@@ -28,10 +30,28 @@ class SimplePhotoWorker {
       await this.sendMessage('init', undefined);
       this.isInitialized = true;
       
-      console.log('SimplePhotoWorker: Initialized successfully');
+      // Send configuration including geoPicsUrl
+      await this.sendMessage('updateConfig', { 
+        config: { 
+          geoPicsUrl: geoPicsUrl || 'http://localhost:8212' 
+        } 
+      });
+      
+      console.log('SimplePhotoWorker: Initialized successfully with geoPicsUrl:', geoPicsUrl);
       
       // Set up reactive subscriptions
       this.setupReactivity();
+      
+      // Test: Check initial sources
+      const initialSources = get(sources);
+      console.log('SimplePhotoWorker: Initial sources on startup:', initialSources.map(s => ({ 
+        id: s.id, 
+        type: s.type, 
+        enabled: s.enabled, 
+        url: s.url,
+        keys: Object.keys(s),
+        JSON: JSON.stringify(s)
+      })));
       
     } catch (error) {
       console.error('SimplePhotoWorker: Failed to initialize', error);
@@ -80,19 +100,23 @@ class SimplePhotoWorker {
     switch (response.type) {
       case 'photosUpdate':
         // Update photos in area (spatial filtering result)
-        photosInArea.set(response.data.photos || []);
+        const areaPhotos = response.data.photos || [];
+        console.log(`SimplePhotoWorker: Updated photosInArea count: ${areaPhotos.length}`);
+        photosInArea.set(areaPhotos);
+        break;
+        
+      case 'rangeUpdate':
+        // Update navigation photos (range-based filtering result)
+        const rangePhotos = response.data.photosInRange || [];
+        console.log(`SimplePhotoWorker: Updated photosInRange count: ${rangePhotos.length}`);
+        photosInRange.set(rangePhotos);
         break;
         
       case 'bearingUpdate':
-        // Update navigation photos (bearing-based filtering result)
-        photosInRange.set(response.data.photosInRange || []);
-        
-        // Update navigation structure
-        if (response.data.navigation) {
-          photoInFront.set(response.data.navigation.photoInFront || null);
-          photoToLeft.set(response.data.navigation.photoToLeft || null);
-          photoToRight.set(response.data.navigation.photoToRight || null);
-        }
+        // Update photos with bearing colors
+        const photosWithColors = response.data.photos || [];
+        console.log(`SimplePhotoWorker: Updated bearing colors for ${photosWithColors.length} photos`);
+        photosInArea.set(photosWithColors);
         break;
         
       case 'error':
@@ -114,15 +138,83 @@ class SimplePhotoWorker {
       }
     });
 
-    // React to source changes - triggers photo filtering  
+    // React to source changes - triggers photo loading and filtering  
     sources.subscribe(async (sourceList) => {
       if (!this.isInitialized) return;
       
       try {
-        await this.sendMessage('updateSources', { sources: sourceList });
+        // Convert to plain objects for worker serialization
+        const plainSources = sourceList.map(s => {
+          console.log('SimplePhotoWorker: Source before conversion:', { id: s.id, type: s.type, enabled: s.enabled, url: s.url });
+          const plain = {
+            id: s.id,
+            name: s.name,
+            type: s.type,
+            enabled: s.enabled,
+            url: s.url,
+            path: s.path,
+            color: s.color
+          };
+          console.log('SimplePhotoWorker: Plain source after conversion:', JSON.stringify(plain));
+          return plain;
+        });
+        
+        // First load photos from sources
+        const enabledSources = plainSources.filter(s => s.enabled);
+        if (enabledSources.length > 0) {
+          console.log('SimplePhotoWorker: Loading photos from sources:', enabledSources.map(s => s.id));
+          console.log('SimplePhotoWorker: Sending plain sources to worker:', plainSources);
+          await this.loadFromSources(plainSources);
+        }
+        
+        // Then update source configuration for filtering
+        await this.sendMessage('updateSources', { sources: plainSources });
         console.log('SimplePhotoWorker: Updated sources');
+        
+        // Trigger initial range update after sources are loaded
+        const currentSpatial = get(spatialState);
+        if (currentSpatial.center) {
+          console.log('SimplePhotoWorker: Triggering initial range update');
+          // First set the range in the worker
+          await this.updateRange(currentSpatial.range);
+          // Then update photos in range
+          await this.updatePhotosInRange({
+            lat: currentSpatial.center.lat,
+            lng: currentSpatial.center.lng
+          });
+        }
       } catch (error) {
         console.error('SimplePhotoWorker: Failed to update sources', error);
+      }
+    });
+
+    // React to spatial state changes (map center/range) - triggers range updates
+    spatialState.subscribe(async (spatial) => {
+      if (!this.isInitialized || !spatial.center) return;
+      
+      try {
+        console.log(`SimplePhotoWorker: Spatial state changed, updating range with center: ${spatial.center.lat.toFixed(4)}, ${spatial.center.lng.toFixed(4)}, range: ${spatial.range}m`);
+        // First update the range in the worker
+        await this.updateRange(spatial.range);
+        // Then update photos in range with new center
+        await this.updatePhotosInRange({ 
+          lat: spatial.center.lat, 
+          lng: spatial.center.lng 
+        });
+      } catch (error) {
+        console.error('SimplePhotoWorker: Failed to update photos in range after spatial change', error);
+      }
+    });
+
+    // React to visual state changes (bearing) - triggers bearing color updates
+    visualState.subscribe(async (visual) => {
+      if (!this.isInitialized) return;
+      
+      try {
+        console.log(`SimplePhotoWorker: Bearing changed to ${visual.bearing}°, updating colors`);
+        await this.updateBearingColors(visual.bearing);
+      } catch (error) {
+        console.error('SimplePhotoWorker: Failed to update bearing colors', error);
       }
     });
   }
@@ -150,8 +242,20 @@ class SimplePhotoWorker {
     await this.sendMessage('loadPhotos', { photos });
   }
 
-  async updateBearingAndCenter(bearing: number, center: { lat: number; lng: number }): Promise<void> {
-    await this.sendMessage('getPhotosInRange', { bearing, center });
+  async loadFromSources(sources: SourceConfig[]): Promise<void> {
+    await this.sendMessage('loadFromSources', { sources });
+  }
+
+  async updateRange(range: number): Promise<void> {
+    await this.sendMessage('updateRange', { range });
+  }
+
+  async updatePhotosInRange(center: { lat: number; lng: number }): Promise<void> {
+    await this.sendMessage('getPhotosInRange', { center });
+  }
+
+  async updateBearingColors(bearing: number): Promise<void> {
+    await this.sendMessage('updateBearingColors', { bearing });
   }
 
   terminate(): void {

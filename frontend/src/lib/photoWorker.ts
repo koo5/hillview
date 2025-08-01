@@ -273,10 +273,10 @@ class PhotoWorkerManager {
     }
   }
 
-  async getPhotosInRange(bearing: number, center: { lat: number; lng: number }): Promise<void> {
+  async getPhotosInRange(center: { lat: number; lng: number }): Promise<void> {
     try {
       await this.ensureInitialized();
-      await this.sendMessage('getPhotosInRange', { bearing, center }, 'getPhotosInRange');
+      await this.sendMessage('getPhotosInRange', { center }, 'getPhotosInRange');
     } catch (error) {
       console.error('PhotoWorker: Failed to get bearing photos', error);
       throw error;

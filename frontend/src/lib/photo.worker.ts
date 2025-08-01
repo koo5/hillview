@@ -1,7 +1,9 @@
 /// <reference lib="webworker" />
 
 import type { WorkerMessage, WorkerResponse, PhotoData, Bounds, SourceConfig } from './photoWorkerTypes';
-import { LatLng } from 'leaflet';
+// Note: Cannot import Leaflet in worker context (window is not defined)
+// import { LatLng } from 'leaflet';
+import { loadJsonPhotos } from './utils/photoParser';
 
 // Webworker version for runtime checking
 declare const __WORKER_VERSION__: string;
@@ -17,9 +19,11 @@ let currentBounds: Bounds | null = null;
 let currentRange = 5000; // Default 5km range
 let sourcesConfig: SourceConfig[] = [];
 let lastVisiblePhotos: PhotoData[] = [];
+let geoPicsUrl = 'http://localhost:8212'; // Default fallback
+let recalculateBearingDiffForAllPhotosInArea = false;
 
 // Configuration
-const MAX_PHOTOS_IN_AREA = 200;
+const MAX_PHOTOS_IN_AREA = 1800;
 const MAX_PHOTOS_IN_RANGE = 100;
 
 // Spatial indexing for efficient queries
@@ -72,6 +76,17 @@ class PhotoSpatialIndex {
     const totalCells = latCells * lngCells;
     
     if (totalCells > 100000) {
+      console.log(`PhotoSpatialIndex: Too many cells (${totalCells}), using fallback method`);
+      // For very large bounds, sample photos more sparsely
+      const samplingRate = Math.ceil(this.photoLocations.size / maxResults);
+      let index = 0;
+      for (const [photoId, location] of this.photoLocations.entries()) {
+        if (index % samplingRate === 0 && this.isInBounds(location, bounds)) {
+          results.push(photoId);
+          if (results.length >= maxResults) break;
+        }
+        index++;
+      }
       return results;
     }
     
@@ -127,6 +142,139 @@ class PhotoSpatialIndex {
 
 const spatialIndex = new PhotoSpatialIndex();
 
+// Grid-based photo sampling
+function samplePhotosInGrid(photos: PhotoData[], maxPhotos: number): PhotoData[] {
+  if (photos.length <= maxPhotos) return photos;
+
+  console.log(`Worker: Sampling ${photos.length} photos down to ${maxPhotos} using grid sampling`);
+  
+  // Create a 10x10 grid
+  const gridSize = 10;
+  const totalCells = gridSize * gridSize;
+  
+  // Find bounds of all photos
+  let minLat = Infinity, maxLat = -Infinity;
+  let minLng = Infinity, maxLng = -Infinity;
+  
+  for (const photo of photos) {
+    minLat = Math.min(minLat, photo.coord.lat);
+    maxLat = Math.max(maxLat, photo.coord.lat);
+    minLng = Math.min(minLng, photo.coord.lng);
+    maxLng = Math.max(maxLng, photo.coord.lng);
+  }
+  
+  const latStep = (maxLat - minLat) / gridSize;
+  const lngStep = (maxLng - minLng) / gridSize;
+  
+  // Create grid cells
+  const grid = new Map<string, PhotoData[]>();
+  
+  // Assign photos to grid cells
+  for (const photo of photos) {
+    const gridLat = Math.floor((photo.coord.lat - minLat) / latStep);
+    const gridLng = Math.floor((photo.coord.lng - minLng) / lngStep);
+    const cellKey = `${Math.min(gridLat, gridSize - 1)},${Math.min(gridLng, gridSize - 1)}`;
+    
+    if (!grid.has(cellKey)) {
+      grid.set(cellKey, []);
+    }
+    grid.get(cellKey)!.push(photo);
+  }
+  
+  // Sample photos from grid cells
+  const sampledPhotos: PhotoData[] = [];
+  const photosPerCell = Math.ceil(maxPhotos / totalCells);
+  
+  for (const cellPhotos of grid.values()) {
+    if (cellPhotos.length <= photosPerCell) {
+      sampledPhotos.push(...cellPhotos);
+    } else {
+      // Sample evenly from cell
+      const step = cellPhotos.length / photosPerCell;
+      for (let i = 0; i < photosPerCell; i++) {
+        const index = Math.floor(i * step);
+        sampledPhotos.push(cellPhotos[index]);
+      }
+    }
+    
+    if (sampledPhotos.length >= maxPhotos) break;
+  }
+
+  console.log(`Worker: Sampled down to ${sampledPhotos.length} photos from ${photos.length}, slicing to max ${maxPhotos}`);
+  return sampledPhotos.slice(0, maxPhotos);
+}
+
+// Photo loading from sources
+async function loadFromSources(sources: SourceConfig[]): Promise<void> {
+  try {
+    console.log('Worker: Loading photos from sources', sources.map(s => ({ id: s.id, enabled: s.enabled, type: s.type, url: s.url })));
+    console.log('Worker: Full source objects:', sources);
+    try {
+      console.log('Worker: First source JSON:', JSON.stringify(sources[0]));
+      console.log('Worker: First source type directly:', sources[0].type);
+      console.log('Worker: Sources array JSON:', JSON.stringify(sources));
+    } catch (e) {
+      console.log('Worker: JSON serialization failed:', e);
+    }
+    
+    photoStore.clear();
+    spatialIndex.clear();
+    
+    const allPhotos: PhotoData[] = [];
+    
+    for (const source of sources) {
+      if (!source.enabled) {
+        console.log(`Worker: Skipping disabled source: ${source.id}`);
+        continue;
+      }
+      
+      try {
+        let sourcePhotos: PhotoData[] = [];
+        
+        switch (source.type) {
+          case 'json':
+            if (source.url) {
+              sourcePhotos = await loadJsonPhotos(source.url, geoPicsUrl);
+              
+              // Set source reference on each photo
+              sourcePhotos.forEach(photo => {
+                photo.source = source;
+              });
+            }
+            break;
+          case 'device':
+            console.log('Worker: Device photo loading not yet implemented in worker');
+            break;
+          case 'directory':
+            console.log('Worker: Directory photo loading not yet implemented in worker');
+            break;
+          default:
+            console.log(`Worker: Unknown source type: ${source.type} for source ${source.id}`);
+        }
+        
+        console.log(`Worker: Loaded ${sourcePhotos.length} photos from ${source.id}`);
+        allPhotos.push(...sourcePhotos);
+        
+      } catch (error) {
+        console.error(`Worker: Error loading from source ${source.id}:`, error);
+      }
+    }
+    
+    // Load photos into worker stores
+    for (const photo of allPhotos) {
+      photoStore.set(photo.id, photo);
+      spatialIndex.addPhoto(photo.id, photo.coord.lat, photo.coord.lng);
+    }
+    
+    console.log(`Worker: Total loaded ${allPhotos.length} photos from ${sources.length} sources`);
+    recalculatePhotosInArea();
+    
+  } catch (error) {
+    console.error('Worker: Error in loadFromSources:', error);
+    postError('loadFromSources', error);
+  }
+}
+
 // Photo processing functions
 function loadPhotos(photos: PhotoData[]): void {
   try {
@@ -139,7 +287,7 @@ function loadPhotos(photos: PhotoData[]): void {
     }
     
     console.log(`Worker: Loaded ${photos.length} photos`);
-    recalculateVisiblePhotos();
+    recalculatePhotosInArea();
   } catch (error) {
     console.error('Worker: Error loading photos:', error);
     postError('loadPhotos', error);
@@ -157,7 +305,7 @@ function updateBounds(bounds: Bounds): void {
         currentBounds.bottom_right.lng !== bounds.bottom_right.lng) {
       currentBounds = bounds;
       console.log('Worker: Bounds updated, triggering recalculation');
-      recalculateVisiblePhotos();
+      recalculatePhotosInArea();
     } else {
       console.log('Worker: Bounds unchanged, skipping recalculation');
     }
@@ -167,16 +315,19 @@ function updateBounds(bounds: Bounds): void {
   }
 }
 
-function updateSources(sources: SourceConfig[]): void {
+async function updateSources(sources: SourceConfig[]): Promise<void> {
   try {
-    // Only recalculate if sources actually changed
+    // Only reload if sources actually changed
     const sourcesChanged = !sourcesConfig || 
       sourcesConfig.length !== sources.length ||
       sourcesConfig.some((s, i) => s.id !== sources[i]?.id || s.enabled !== sources[i]?.enabled);
     
     if (sourcesChanged) {
+      console.log('Worker: Source configuration changed, reloading photos');
       sourcesConfig = sources;
-      recalculateVisiblePhotos();
+      
+      // Reload photos with new source configuration
+      await loadFromSources(sources);
     }
   } catch (error) {
     console.error('Worker: Error updating sources:', error);
@@ -184,109 +335,32 @@ function updateSources(sources: SourceConfig[]): void {
   }
 }
 
-function recalculateVisiblePhotos(): void {
+function recalculatePhotosInArea(): void {
   if (!currentBounds) {
-    console.log('Worker: No bounds set, skipping recalculation. Photos loaded:', photoStore.size);
+    console.log('Worker: recalculatePhotosInArea: No bounds set, skipping recalculation. Photos loaded:', photoStore.size);
     return;
   }
   
-  console.log('Worker: Recalculating visible photos with bounds:', currentBounds, 'Photos:', photoStore.size);
+  console.log('Worker: recalculatePhotosInArea: bounds:', currentBounds, 'input Photos:', photoStore.size);
   const startTime = performance.now();
   
-  const hillviewEnabled = sourcesConfig.find(s => s.id === 'hillview')?.enabled ?? false;
-  const mapillaryEnabled = sourcesConfig.find(s => s.id === 'mapillary')?.enabled ?? false;
-  const deviceEnabled = sourcesConfig.find(s => s.id === 'device')?.enabled ?? false;
-  
-  let hillviewFiltered: PhotoData[] = [];
-  let mapillaryFiltered: PhotoData[] = [];
-  let deviceFiltered: PhotoData[] = [];
-  
-  // Get photo IDs in spatial bounds first
+  // Get photo IDs in spatial bounds first  
   const photoIdsInBounds = spatialIndex.getPhotoIdsInBounds(currentBounds, MAX_PHOTOS_IN_AREA * 2);
   
-  // Filter by source and apply limits
-  if (hillviewEnabled) {
-    const hillviewInBounds: PhotoData[] = [];
-    
-    for (const photoId of photoIdsInBounds) {
-      const photo = photoStore.get(photoId);
-      if (photo && photo.source?.id === 'hillview') {
-        hillviewInBounds.push(photo);
-      }
-    }
-    
-    // Prioritize user and device photos
-    const userPhotos = hillviewInBounds.filter(p => p.isUserPhoto);
-    const devicePhotos = hillviewInBounds.filter(p => p.isDevicePhoto);
-    const regularPhotos = hillviewInBounds.filter(p => !p.isUserPhoto && !p.isDevicePhoto);
-    
-    hillviewFiltered = [...userPhotos, ...devicePhotos];
-    
-    const remainingSlots = MAX_PHOTOS_IN_AREA - hillviewFiltered.length;
-    if (remainingSlots > 0 && regularPhotos.length > 0) {
-      if (regularPhotos.length <= remainingSlots) {
-        hillviewFiltered.push(...regularPhotos);
-      } else {
-        // Sample evenly by bearing
-        regularPhotos.sort((a, b) => a.bearing - b.bearing);
-        const step = regularPhotos.length / remainingSlots;
-        for (let i = 0; i < remainingSlots; i++) {
-          const index = Math.floor(i * step);
-          hillviewFiltered.push(regularPhotos[index]);
-        }
-      }
+  // Get all photos in bounds (source filtering already done at load time)
+  const photosInBounds: PhotoData[] = [];
+  
+  for (const photoId of photoIdsInBounds) {
+    const photo = photoStore.get(photoId);
+    if (photo) {
+      photosInBounds.push(photo);
     }
   }
   
-  if (mapillaryEnabled) {
-    const mapillaryInBounds: PhotoData[] = [];
-    
-    for (const photoId of photoIdsInBounds) {
-      const photo = photoStore.get(photoId);
-      if (photo && photo.source?.id === 'mapillary') {
-        mapillaryInBounds.push(photo);
-        if (mapillaryInBounds.length >= MAX_PHOTOS_IN_AREA) {
-          break;
-        }
-      }
-    }
-    
-    mapillaryFiltered = mapillaryInBounds;
-  }
-  
-  if (deviceEnabled) {
-    const deviceInBounds: PhotoData[] = [];
-    
-    for (const photoId of photoIdsInBounds) {
-      const photo = photoStore.get(photoId);
-      if (photo && photo.source?.id === 'device') {
-        deviceInBounds.push(photo);
-      }
-    }
-    
-    deviceFiltered = deviceInBounds;
-  }
-  
-  // Combine and deduplicate
-  const combinedMap = new Map<string, PhotoData>();
-  
-  for (const photo of hillviewFiltered) {
-    combinedMap.set(photo.id, photo);
-  }
-  
-  for (const photo of mapillaryFiltered) {
-    if (!combinedMap.has(photo.id)) {
-      combinedMap.set(photo.id, photo);
-    }
-  }
-  
-  for (const photo of deviceFiltered) {
-    if (!combinedMap.has(photo.id)) {
-      combinedMap.set(photo.id, photo);
-    }
-  }
-  
-  const visiblePhotos = Array.from(combinedMap.values());
+  // Apply grid-based sampling if too many photos
+  const visiblePhotos = photosInBounds.length <= MAX_PHOTOS_IN_AREA 
+    ? photosInBounds 
+    : samplePhotosInGrid(photosInBounds, MAX_PHOTOS_IN_AREA);
   
   // Sort by bearing, then by ID for stable ordering
   visiblePhotos.sort((a, b) => {
@@ -309,9 +383,9 @@ function recalculateVisiblePhotos(): void {
   
   // Only log when we have results or significant processing time
   const processingTime = performance.now() - startTime;
-  if (visiblePhotos.length > 0 || processingTime > 10) {
-    console.log(`Worker: Filtered ${visiblePhotos.length} photos in ${processingTime.toFixed(1)}ms`);
-  }
+  //if (visiblePhotos.length > 0 || processingTime > 10) {
+    console.log(`Worker: recalculatePhotosInArea: Filtered down to ${visiblePhotos.length} photos in ${processingTime.toFixed(1)}ms`);
+  //}
   
   // Send update to main thread
   postMessage({
@@ -319,20 +393,22 @@ function recalculateVisiblePhotos(): void {
     type: 'photosUpdate',
     data: {
       photos: visiblePhotos,
-      hillviewCount: hillviewFiltered.length,
-      mapillaryCount: mapillaryFiltered.length
+      hillviewCount: 0,
+      mapillaryCount: 0
     }
   } as WorkerResponse);
 }
 
 
-function getPhotosInRange(bearing: number, center: { lat: number; lng: number }): void {
+function getPhotosInRange(center: { lat: number; lng: number }): void {
   try {
     let photosWithDistance: PhotoData[] = [];
     
-    console.log('Worker: Recalculating distances for bearing photos, bearing:', bearing, 'lastVisiblePhotos:', lastVisiblePhotos.length);
+    console.log('Worker: Recalculating distances for photos, lastVisiblePhotos:', lastVisiblePhotos.length);
     for (const photo of lastVisiblePhotos) {
       const distance = getDistance(center, photo.coord);
+
+      //console.log(`Worker: Photo ${photo.id} distance from center: ${distance.toFixed(2)}m, limit: ${currentRange}m`);
 
       if (distance <= currentRange) {
         photosWithDistance.push({
@@ -344,23 +420,41 @@ function getPhotosInRange(bearing: number, center: { lat: number; lng: number })
 
     // Limit photos (preserve bearing order from lastVisiblePhotos)
     photosWithDistance = photosWithDistance.slice(0, MAX_PHOTOS_IN_RANGE);
+    console.log(`Worker: getPhotosInRange filtered ${photosWithDistance.length} photos within range`);
 
-    // Update bearing colors (but don't sort - leave that to main thread) // fixme - this should provide bearing diff coloring for photos in range, but it's not making it through.
-    const photosWithBearings = photosWithDistance.map(photo =>
-        updatePhotoBearingData(photo, bearing)
+    postMessage({
+      id: 'auto',
+      type: 'rangeUpdate',
+      data: {
+        photosInRange: photosWithDistance
+      }
+    } as WorkerResponse);
+  } catch (error) {
+    console.error('Worker: Error filtering photos by range:', error);
+    postError('getPhotosInRange', error);
+  }
+}
+
+function updateBearingColors(bearing: number): void {
+  try {
+    console.log(`Worker: Updating bearing colors for ${lastVisiblePhotos.length} photos, bearing: ${bearing}`);
+    
+    // Update bearing colors for all visible photos
+    const photosWithColors = lastVisiblePhotos.map(photo =>
+      updatePhotoBearingData(photo, bearing)
     );
-
+    
     postMessage({
       id: 'auto',
       type: 'bearingUpdate',
       data: {
-        photosInRange: photosWithBearings,
+        photos: photosWithColors,
         bearing: bearing
       }
     } as WorkerResponse);
   } catch (error) {
-    console.error('Worker: Error getting bearing photos:', error);
-    postError('getPhotosInRange', error);
+    console.error('Worker: Error updating bearing colors:', error);
+    postError('updateBearingColors', error);
   }
 }
 
@@ -378,7 +472,7 @@ function postError(operation: string, error: any): void {
 }
 
 // Message handler
-self.onmessage = function(e: MessageEvent<WorkerMessage>) {
+self.onmessage = async function(e: MessageEvent<WorkerMessage>) {
   const { id, type, data } = e.data;
   
   try {
@@ -396,6 +490,17 @@ self.onmessage = function(e: MessageEvent<WorkerMessage>) {
         postMessage({ id, type: 'success' } as WorkerResponse);
         break;
         
+      case 'loadFromSources':
+        console.log('Worker: loadFromSources message received, data:', data);
+        if (data?.sources) {
+          console.log('Worker: data.sources is valid, length:', data.sources.length);
+          await loadFromSources(data.sources);
+        } else {
+          console.log('Worker: data.sources is invalid:', data?.sources);
+        }
+        postMessage({ id, type: 'success' } as WorkerResponse);
+        break;
+        
       case 'updateBounds':
         if (data?.bounds) {
           updateBounds(data.bounds);
@@ -405,14 +510,29 @@ self.onmessage = function(e: MessageEvent<WorkerMessage>) {
         
       case 'updateSources':
         if (data?.sources) {
-          updateSources(data.sources);
+          await updateSources(data.sources);
+        }
+        postMessage({ id, type: 'success' } as WorkerResponse);
+        break;
+        
+      case 'updateRange':
+        if (data?.range !== undefined) {
+          console.log(`Worker: Updating range from ${currentRange} to ${data.range}`);
+          currentRange = data.range;
         }
         postMessage({ id, type: 'success' } as WorkerResponse);
         break;
         
       case 'getPhotosInRange':
-        if (data?.bearing !== undefined && data?.center) {
-          getPhotosInRange(data.bearing, data.center);
+        if (data?.center) {
+          getPhotosInRange(data.center);
+        }
+        postMessage({ id, type: 'success' } as WorkerResponse);
+        break;
+        
+      case 'updateBearingColors':
+        if (data?.bearing !== undefined) {
+          updateBearingColors(data.bearing);
         }
         postMessage({ id, type: 'success' } as WorkerResponse);
         break;
@@ -422,6 +542,10 @@ self.onmessage = function(e: MessageEvent<WorkerMessage>) {
           if (data.config.recalculateBearingDiffForAllPhotosInArea !== undefined) {
             recalculateBearingDiffForAllPhotosInArea = data.config.recalculateBearingDiffForAllPhotosInArea;
             console.log('Worker: Updated recalculateBearingDiffForAllPhotosInArea to', recalculateBearingDiffForAllPhotosInArea);
+          }
+          if (data.config.geoPicsUrl !== undefined) {
+            geoPicsUrl = data.config.geoPicsUrl;
+            console.log('Worker: Updated geoPicsUrl to', geoPicsUrl);
           }
         }
         postMessage({ id, type: 'success' } as WorkerResponse);
