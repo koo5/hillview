@@ -86,22 +86,26 @@ export const photoToLeft = derived(
   ([photos, visual]) => {
     if (photos.length === 0) return null;
     
-    // Find photo closest to current bearing
-    const currentBearing = visual.bearing;
-    let closestIndex = 0;
-    let smallestDiff = calculateAbsBearingDiff(photos[0].bearing, currentBearing);
+    // Sort photos by bearing for proper navigation
+    const sortedPhotos = [...photos].sort((a, b) => a.bearing - b.bearing);
     
-    for (let i = 1; i < photos.length; i++) {
-      const diff = calculateAbsBearingDiff(photos[i].bearing, currentBearing);
-      if (diff < smallestDiff) {
-        smallestDiff = diff;
-        closestIndex = i;
+    // Find the next photo counter-clockwise from current bearing
+    const currentBearing = visual.bearing;
+    let bestPhoto = null;
+    let bestDiff = Infinity;
+    
+    for (const photo of sortedPhotos) {
+      // Calculate counter-clockwise difference
+      let diff = currentBearing - photo.bearing;
+      if (diff <= 0) diff += 360; // Handle wraparound
+      
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        bestPhoto = photo;
       }
     }
     
-    // Return the photo to the left (counter-clockwise) from front photo
-    const leftIndex = closestIndex > 0 ? closestIndex - 1 : photos.length - 1;
-    return photos[leftIndex];
+    return bestPhoto;
   }
 );
 
@@ -110,22 +114,26 @@ export const photoToRight = derived(
   ([photos, visual]) => {
     if (photos.length === 0) return null;
     
-    // Find photo closest to current bearing
-    const currentBearing = visual.bearing;
-    let closestIndex = 0;
-    let smallestDiff = calculateAbsBearingDiff(photos[0].bearing, currentBearing);
+    // Sort photos by bearing for proper navigation
+    const sortedPhotos = [...photos].sort((a, b) => a.bearing - b.bearing);
     
-    for (let i = 1; i < photos.length; i++) {
-      const diff = calculateAbsBearingDiff(photos[i].bearing, currentBearing);
-      if (diff < smallestDiff) {
-        smallestDiff = diff;
-        closestIndex = i;
+    // Find the next photo clockwise from current bearing
+    const currentBearing = visual.bearing;
+    let bestPhoto = null;
+    let bestDiff = Infinity;
+    
+    for (const photo of sortedPhotos) {
+      // Calculate clockwise difference
+      let diff = photo.bearing - currentBearing;
+      if (diff <= 0) diff += 360; // Handle wraparound
+      
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        bestPhoto = photo;
       }
     }
     
-    // Return the photo to the right (clockwise) from front photo
-    const rightIndex = closestIndex < photos.length - 1 ? closestIndex + 1 : 0;
-    return photos[rightIndex];
+    return bestPhoto;
   }
 );
 

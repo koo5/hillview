@@ -13,6 +13,7 @@ class SimplePhotoWorker {
   private messageId = 0;
   private pendingMessages = new Map<string, { resolve: Function; reject: Function; timeout: NodeJS.Timeout }>();
   private isInitialized = false;
+  private lastBearing: number | null = null;
 
   async initialize(): Promise<void> {
     if (this.worker && this.isInitialized) return;
@@ -210,8 +211,14 @@ class SimplePhotoWorker {
     visualState.subscribe(async (visual) => {
       if (!this.isInitialized) return;
       
+      // Skip update if bearing hasn't changed
+      if (this.lastBearing === visual.bearing) {
+        return;
+      }
+      
       try {
-        console.log(`SimplePhotoWorker: Bearing changed to ${visual.bearing}°, updating colors`);
+        console.log(`SimplePhotoWorker: Bearing changed from ${this.lastBearing}° to ${visual.bearing}°, updating colors`);
+        this.lastBearing = visual.bearing;
         await this.updateBearingColors(visual.bearing);
       } catch (error) {
         console.error('SimplePhotoWorker: Failed to update bearing colors', error);
@@ -263,6 +270,7 @@ class SimplePhotoWorker {
       this.worker.terminate();
       this.worker = null;
       this.isInitialized = false;
+      this.lastBearing = null;
     }
     
     // Clear pending messages
