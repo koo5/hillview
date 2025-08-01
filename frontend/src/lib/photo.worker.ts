@@ -23,7 +23,7 @@ let geoPicsUrl = 'http://localhost:8212'; // Default fallback
 let recalculateBearingDiffForAllPhotosInArea = false;
 
 // Configuration
-const MAX_PHOTOS_IN_AREA = 1800;
+const MAX_PHOTOS_IN_AREA = 400;
 const MAX_PHOTOS_IN_RANGE = 100;
 
 // Spatial indexing for efficient queries
@@ -55,66 +55,30 @@ class PhotoSpatialIndex {
     this.photoLocations.delete(photoId);
   }
   
-  getPhotoIdsInBounds(bounds: Bounds, maxResults = 2000): string[] {
+  getPhotoIdsInBounds(bounds: Bounds): string[] {
     const results: string[] = [];
-    const seen = new Set<string>();
     
     if (this.photoLocations.size === 0) {
       console.log('PhotoSpatialIndex: No photos in index');
       return results;
     }
     
-    console.log(`PhotoSpatialIndex: Searching bounds`, bounds, `in ${this.photoLocations.size} photos`);
-    
     const minLat = Math.floor(bounds.bottom_right.lat / this.gridSize) * this.gridSize;
     const maxLat = Math.ceil(bounds.top_left.lat / this.gridSize) * this.gridSize;
     const minLng = Math.floor(bounds.top_left.lng / this.gridSize) * this.gridSize;
     const maxLng = Math.ceil(bounds.bottom_right.lng / this.gridSize) * this.gridSize;
     
-    const latCells = Math.ceil((maxLat - minLat) / this.gridSize);
-    const lngCells = Math.ceil((maxLng - minLng) / this.gridSize);
-    const totalCells = latCells * lngCells;
-    
-    if (totalCells > 100000) {
-      console.log(`PhotoSpatialIndex: Too many cells (${totalCells}), using fallback method`);
-      // For very large bounds, sample photos more sparsely
-      const samplingRate = Math.ceil(this.photoLocations.size / maxResults);
-      let index = 0;
-      for (const [photoId, location] of this.photoLocations.entries()) {
-        if (index % samplingRate === 0 && this.isInBounds(location, bounds)) {
-          results.push(photoId);
-          if (results.length >= maxResults) break;
-        }
-        index++;
-      }
-      return results;
-    }
-    
-    let latStep = this.gridSize;
-    let lngStep = this.gridSize;
-    
-    if (totalCells > 1000) {
-      const samplingFactor = Math.ceil(Math.sqrt(totalCells / 1000));
-      latStep = this.gridSize * samplingFactor;
-      lngStep = this.gridSize * samplingFactor;
-    }
-    
-    outer: for (let lat = minLat; lat <= maxLat; lat += latStep) {
-      for (let lng = minLng; lng <= maxLng; lng += lngStep) {
+    // Simple grid traversal - get all photos in bounds
+    for (let lat = minLat; lat <= maxLat; lat += this.gridSize) {
+      for (let lng = minLng; lng <= maxLng; lng += this.gridSize) {
         const key = this.getGridKey(lat, lng);
         const photoIds = this.grid.get(key);
         
         if (photoIds) {
           for (const id of photoIds) {
-            if (!seen.has(id)) {
-              seen.add(id);
-              const location = this.photoLocations.get(id);
-              if (location && this.isInBounds(location, bounds)) {
-                results.push(id);
-                if (results.length >= maxResults) {
-                  break outer;
-                }
-              }
+            const location = this.photoLocations.get(id);
+            if (location && this.isInBounds(location, bounds)) {
+              results.push(id);
             }
           }
         }
@@ -345,7 +309,8 @@ function recalculatePhotosInArea(): void {
   const startTime = performance.now();
   
   // Get photo IDs in spatial bounds first  
-  const photoIdsInBounds = spatialIndex.getPhotoIdsInBounds(currentBounds, MAX_PHOTOS_IN_AREA * 2);
+  const photoIdsInBounds = spatialIndex.getPhotoIdsInBounds(currentBounds);
+  console.log(`Worker: recalculatePhotosInArea: Found ${photoIdsInBounds.length} photos in bounds`);
   
   // Get all photos in bounds (source filtering already done at load time)
   const photosInBounds: PhotoData[] = [];
