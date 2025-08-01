@@ -235,9 +235,9 @@ class SimplePhotoWorker {
     
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
-        this.pendingMessages.delete(id);
-        reject(new Error(`Worker timeout: ${type}`));
-      }, 10000); // 10 second timeout
+        console.warn(`⚠️ SimplePhotoWorker: Operation '${type}' is taking longer than expected (30s). Worker is still processing...`);
+        // Don't delete the pending message or reject - just warn and keep waiting
+      }, 30000); // 30 second warning threshold
 
       this.pendingMessages.set(id, { resolve, reject, timeout });
       this.worker!.postMessage({ id, type, data });

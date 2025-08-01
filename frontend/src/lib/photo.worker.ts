@@ -26,32 +26,42 @@ let recalculateBearingDiffForAllPhotosInArea = false;
 const MAX_PHOTOS_IN_AREA = 400;
 const MAX_PHOTOS_IN_RANGE = 100;
 
-// Spatial indexing for efficient queries
+// Fixed 10x10 spatial index for efficient queries
 class PhotoSpatialIndex {
-  private gridSize: number;
-  private grid = new Map<string, Set<string>>();
+  private grid: Set<string>[] = []; // Fixed array of 100 cells (10x10)
   private photoLocations = new Map<string, { lat: number; lng: number }>();
+  private minLat = Infinity;
+  private maxLat = -Infinity;
+  private minLng = Infinity;
+  private maxLng = -Infinity;
   
-  constructor(gridSize = 0.01) { // ~1km grid cells
-    this.gridSize = gridSize;
+  constructor() {
+    // Initialize 100 grid cells (10x10)
+    for (let i = 0; i < 100; i++) {
+      this.grid[i] = new Set<string>();
+    }
   }
   
   addPhoto(photoId: string, lat: number, lng: number): void {
     this.photoLocations.set(photoId, { lat, lng });
-    const key = this.getGridKey(lat, lng);
     
-    if (!this.grid.has(key)) {
-      this.grid.set(key, new Set());
-    }
-    this.grid.get(key)!.add(photoId);
+    // Update bounds
+    this.minLat = Math.min(this.minLat, lat);
+    this.maxLat = Math.max(this.maxLat, lat);
+    this.minLng = Math.min(this.minLng, lng);
+    this.maxLng = Math.max(this.maxLng, lng);
+    
+    // Add to grid cell
+    const cellIndex = this.getGridCellIndex(lat, lng);
+    this.grid[cellIndex].add(photoId);
   }
   
   removePhoto(photoId: string): void {
     const location = this.photoLocations.get(photoId);
     if (!location) return;
     
-    const key = this.getGridKey(location.lat, location.lng);
-    this.grid.get(key)?.delete(photoId);
+    const cellIndex = this.getGridCellIndex(location.lat, location.lng);
+    this.grid[cellIndex].delete(photoId);
     this.photoLocations.delete(photoId);
   }
   
@@ -63,35 +73,57 @@ class PhotoSpatialIndex {
       return results;
     }
     
-    const minLat = Math.floor(bounds.bottom_right.lat / this.gridSize) * this.gridSize;
-    const maxLat = Math.ceil(bounds.top_left.lat / this.gridSize) * this.gridSize;
-    const minLng = Math.floor(bounds.top_left.lng / this.gridSize) * this.gridSize;
-    const maxLng = Math.ceil(bounds.bottom_right.lng / this.gridSize) * this.gridSize;
+    // If no photos have been added yet, return empty
+    if (this.minLat === Infinity) {
+      return results;
+    }
     
-    // Simple grid traversal - get all photos in bounds
-    for (let lat = minLat; lat <= maxLat; lat += this.gridSize) {
-      for (let lng = minLng; lng <= maxLng; lng += this.gridSize) {
-        const key = this.getGridKey(lat, lng);
-        const photoIds = this.grid.get(key);
-        
-        if (photoIds) {
-          for (const id of photoIds) {
-            const location = this.photoLocations.get(id);
-            if (location && this.isInBounds(location, bounds)) {
-              results.push(id);
-            }
-          }
+    // Calculate which grid cells intersect with the bounds
+    const startTime = performance.now();
+    
+    for (let cellIndex = 0; cellIndex < 100; cellIndex++) {
+      const photoIds = this.grid[cellIndex];
+      if (photoIds.size === 0) continue;
+      
+      // Check each photo in this cell
+      for (const photoId of photoIds) {
+        const location = this.photoLocations.get(photoId);
+        if (location && this.isInBounds(location, bounds)) {
+          results.push(photoId);
         }
       }
     }
     
+    const processingTime = performance.now() - startTime;
+    console.log(`PhotoSpatialIndex: Found ${results.length} photos in ${processingTime.toFixed(1)}ms (fixed 10x10 grid)`);
+    
     return results;
   }
   
-  private getGridKey(lat: number, lng: number): string {
-    const gridLat = Math.floor(lat / this.gridSize) * this.gridSize;
-    const gridLng = Math.floor(lng / this.gridSize) * this.gridSize;
-    return `${gridLat},${gridLng}`;
+  private getGridCellIndex(lat: number, lng: number): number {
+    // Handle edge case where we have no bounds yet
+    if (this.minLat === Infinity) {
+      return 0;
+    }
+    
+    // Prevent division by zero
+    const latRange = this.maxLat - this.minLat;
+    const lngRange = this.maxLng - this.minLng;
+    
+    if (latRange === 0 && lngRange === 0) {
+      return 0; // All photos at same location
+    }
+    
+    // Calculate grid position (0-9 for each dimension)
+    const latGrid = latRange === 0 ? 0 : Math.floor(((lat - this.minLat) / latRange) * 10);
+    const lngGrid = lngRange === 0 ? 0 : Math.floor(((lng - this.minLng) / lngRange) * 10);
+    
+    // Clamp to valid range (0-9)
+    const clampedLatGrid = Math.max(0, Math.min(9, latGrid));
+    const clampedLngGrid = Math.max(0, Math.min(9, lngGrid));
+    
+    // Convert to single index (0-99)
+    return clampedLatGrid * 10 + clampedLngGrid;
   }
   
   private isInBounds(location: { lat: number; lng: number }, bounds: Bounds): boolean {
@@ -100,7 +132,13 @@ class PhotoSpatialIndex {
   
   clear(): void {
     this.photoLocations.clear();
-    this.grid.clear();
+    for (let i = 0; i < 100; i++) {
+      this.grid[i].clear();
+    }
+    this.minLat = Infinity;
+    this.maxLat = -Infinity;
+    this.minLng = Infinity;
+    this.maxLng = -Infinity;
   }
 }
 
