@@ -450,22 +450,6 @@
         outline-offset: 1px;
     }
 
-    .checkbox-label {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        cursor: pointer;
-        margin: 4px 0;
-    }
-
-    .checkbox-label input[type="checkbox"] {
-        cursor: pointer;
-        accent-color: #0f0;
-    }
-
-    .checkbox-label span {
-        font-size: 11px;
-    }
 
     @media (max-width: 600px) {
         .debug-overlay {

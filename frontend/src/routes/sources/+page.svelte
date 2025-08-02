@@ -167,7 +167,7 @@
                         <div class="source-header">
                             <div class="source-info">
                                 <div class="source-icon" style="background-color: {sourceInfo.color}20">
-                                    <svelte:component this={sourceInfo.icon} class="icon" style="color: {sourceInfo.color}" />
+                                    <svelte:component this={sourceInfo.icon} style="color: {sourceInfo.color}" />
                                 </div>
                                 <div class="source-details">
                                     <h3>{sourceInfo.name}</h3>
@@ -201,14 +201,14 @@
                     on:click={() => {newSourceType = 'json'; showAddForm = true;}}
                     class="add-button"
                 >
-                    <Globe class="icon-small" />
+                    <Globe />
                     Add URL Source
                 </button>
                 <button
                     on:click={() => {newSourceType = 'directory'; showAddForm = true;}}
                     class="add-button secondary"
                 >
-                    <MapPin class="icon-small" />
+                    <MapPin />
                     Add Folder Source
                 </button>
             </div>
@@ -301,7 +301,7 @@
                                     class="remove-button"
                                     title="Remove source"
                                 >
-                                    <Trash2 class="icon-small" />
+                                    <Trash2 />
                                 </button>
                             </div>
                         </div>
@@ -648,12 +648,13 @@
         margin-top: 32px;
     }
 
-    .icon {
+    .source-icon :global(svg) {
         width: 20px;
         height: 20px;
     }
 
-    .icon-small {
+    .add-button :global(svg),
+    .remove-button :global(svg) {
         width: 16px;
         height: 16px;
     }
