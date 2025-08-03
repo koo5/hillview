@@ -15,6 +15,7 @@
     import { auth, logout, checkAuth } from "$lib/auth.svelte";
     import CameraCapture from '../components/CameraCapture.svelte';
     import DebugOverlay from '../components/DebugOverlay.svelte';
+    import { FEATURE_USER_ACCOUNTS } from '$lib/config';
     import { gpsLocation } from '$lib/location.svelte';
     import { photoCaptureService } from '$lib/photoCapture';
     import type { DevicePhotoMetadata } from '$lib/types/photoTypes';
@@ -304,8 +305,8 @@
     });
 </script>
 
-<!-- Upload button (visible when authenticated) -->
-{#if isAuthenticated}
+<!-- Upload button (visible when authenticated and user accounts feature is enabled) -->
+{#if FEATURE_USER_ACCOUNTS && isAuthenticated}
     <div class="upload-button-container">
         <button class="floating-upload-button" on:click={() => showUploadDialog = true}>
             <Upload size={24} />
@@ -375,20 +376,22 @@
 
         <ul>
             <li><a href="/" on:click={() => menuOpen = false}>Map</a></li>
-            <li>
-                <button class="menu-button" on:click={() => {
-                    showUploadDialog = true;
-                    menuOpen = false;
-                }}>
-                    <Upload size={18} />
-                    Upload Photos
-                </button>
-            </li>
-            {#if isAuthenticated}
-                <li><a href="/photos" on:click={() => menuOpen = false}>
-                    <Upload size={18} />
-                    My Photos
-                </a></li>
+            {#if FEATURE_USER_ACCOUNTS}
+                <li>
+                    <button class="menu-button" on:click={() => {
+                        showUploadDialog = true;
+                        menuOpen = false;
+                    }}>
+                        <Upload size={18} />
+                        Upload Photos
+                    </button>
+                </li>
+                {#if isAuthenticated}
+                    <li><a href="/photos" on:click={() => menuOpen = false}>
+                        <Upload size={18} />
+                        My Photos
+                    </a></li>
+                {/if}
             {/if}
             <li><a href="/sources" on:click={() => menuOpen = false}>Sources</a></li>
             <li>
@@ -397,20 +400,22 @@
                     Download Android App
                 </a>
             </li>
-            {#if isAuthenticated}
-                <li>
-                    <button class="menu-button logout" on:click={handleLogout}>
-                        <LogOut size={18} />
-                        Logout
-                    </button>
-                </li>
-            {:else}
-                <li>
-                    <a href="/login" on:click={() => menuOpen = false}>
-                        <User size={18} />
-                        Login / Register
-                    </a>
-                </li>
+            {#if FEATURE_USER_ACCOUNTS}
+                {#if isAuthenticated}
+                    <li>
+                        <button class="menu-button logout" on:click={handleLogout}>
+                            <LogOut size={18} />
+                            Logout
+                        </button>
+                    </li>
+                {:else}
+                    <li>
+                        <a href="/login" on:click={() => menuOpen = false}>
+                            <User size={18} />
+                            Login / Register
+                        </a>
+                    </li>
+                {/if}
             {/if}
             <li><a href="/about" on:click={() => menuOpen = false}>About</a></li>
         </ul>
