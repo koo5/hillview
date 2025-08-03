@@ -15,7 +15,6 @@
     import { auth, logout, checkAuth } from "$lib/auth.svelte";
     import CameraCapture from '../components/CameraCapture.svelte';
     import DebugOverlay from '../components/DebugOverlay.svelte';
-    import MapillaryCacheStatus from '../components/MapillaryCacheStatus.svelte';
     import { gpsLocation } from '$lib/location.svelte';
     import { photoCaptureService } from '$lib/photoCapture';
     import type { DevicePhotoMetadata } from '$lib/types/photoTypes';
@@ -163,10 +162,7 @@
             } else if (e.key === 'd') {
                 e.preventDefault();
                 app.update(a => {
-                    a.debug = a.debug + 1;
-                    if (a.debug > 5) {
-                        a.debug = 0;
-                    }
+                    a.debug = (a.debug + 1) % 3;
                     return a;
                 });
             } else if (e.key === 'm') {
@@ -460,9 +456,6 @@
 
 <!-- Debug Overlay -->
 <DebugOverlay bind:this={debugOverlay} />
-
-<!-- Mapillary Cache Status -->
-<MapillaryCacheStatus />
 
 <style>
     /* Reset default margin, padding and prevent body scroll */

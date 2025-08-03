@@ -1,261 +1,345 @@
 <script lang="ts">
-	import {getBuildInfo} from '$lib/build-info';
-	import {onMount} from 'svelte';
-	import {visualState, spatialState} from '$lib/mapState';
-	import {gpsCoordinates, locationError, locationTracking} from '$lib/location.svelte';
-	import {captureLocation, captureLocationWithCompassBearing} from '$lib/captureLocation';
-	import {
-		compassData,
-		deviceOrientation,
-		compassAvailable,
-		currentHeading,
-		switchSensorMode,
-		currentSensorMode
-	} from '$lib/compass.svelte';
-	import {invoke} from '@tauri-apps/api/core';
-	import {TAURI, SensorMode} from '$lib/tauri';
+    import {getBuildInfo} from '$lib/build-info';
+    import {onMount} from 'svelte';
+    import {photoInFront, photosInRange, photoToLeft, photoToRight, spatialState, visualState} from '$lib/mapState';
+    import {gpsCoordinates, locationError, locationTracking} from '$lib/location.svelte';
+    import {captureLocation, captureLocationWithCompassBearing} from '$lib/captureLocation';
+    import {app, mapillary_cache_status} from '$lib/data.svelte';
+    import {
+        compassAvailable,
+        compassData,
+        currentHeading,
+        currentSensorMode,
+        deviceOrientation,
+        switchSensorMode
+    } from '$lib/compass.svelte';
+    import {invoke} from '@tauri-apps/api/core';
+    import {SensorMode, TAURI} from '$lib/tauri';
 
-	// Detect sensor type
-	let sensorType: 'tauri-rotation-vector' | 'device-orientation' | 'none' = 'none';
-	let actualSensorSource: string | null = null;
-	let isTauriAndroid = false;
+    // Detect sensor type
+    let sensorType: 'tauri-rotation-vector' | 'device-orientation' | 'none' = 'none';
+    let actualSensorSource: string | null = null;
+    let isTauriAndroid = false;
 
-	let showDebug = false;
-	let buildInfo = getBuildInfo();
-	let currentTime: string | undefined;
-	let buildCommitHash: string | undefined;
-	let buildBranch: string | undefined;
-	let buildTimestamp: string | undefined;
-	let debugPosition: 'left' | 'right' = 'left'; // Default to left to avoid photo thumbnails
+    let buildInfo = getBuildInfo();
+    let currentTime: string | undefined;
+    let buildCommitHash: string | undefined;
+    let buildBranch: string | undefined;
+    let buildTimestamp: string | undefined;
+    let debugPosition: 'left' | 'right' = 'left'; // Default to left to avoid photo thumbnails
 
-	onMount(() => {
-		// Detect sensor type
-		isTauriAndroid = TAURI && /Android/i.test(navigator.userAgent);
+    onMount(() => {
+        // Detect sensor type
+        isTauriAndroid = TAURI && /Android/i.test(navigator.userAgent);
 
-		// Subscribe to compass data to detect which sensor is active
-		const unsubscribe = compassData.subscribe(data => {
-			if (data && isTauriAndroid) {
-				sensorType = 'tauri-rotation-vector';
-				// Extract sensor source from the data if available
-				actualSensorSource = data.source || null;
-			} else if (data && !isTauriAndroid) {
-				sensorType = 'device-orientation';
-				actualSensorSource = null;
-			} else if (!$compassAvailable) {
-				sensorType = 'none';
-				actualSensorSource = null;
-			}
-		});
+        // Subscribe to compass data to detect which sensor is active
+        const unsubscribe = compassData.subscribe(data => {
+            if (data && isTauriAndroid) {
+                sensorType = 'tauri-rotation-vector';
+                // Extract sensor source from the data if available
+                actualSensorSource = data.source || null;
+            } else if (data && !isTauriAndroid) {
+                sensorType = 'device-orientation';
+                actualSensorSource = null;
+            } else if (!$compassAvailable) {
+                sensorType = 'none';
+                actualSensorSource = null;
+            }
+        });
 
-		// Update time every second
-		const interval = setInterval(() => {
-			currentTime = new Date().toLocaleTimeString(undefined, {hour12: false});
-		}, 1000);
+        // Update time every second
+        const interval = setInterval(() => {
+            currentTime = new Date().toLocaleTimeString(undefined, {hour12: false});
+        }, 1000);
 
-		// Check for debug mode in localStorage or URL params
-		const urlParams = new URLSearchParams(window.location.search);
-		const debugParam = urlParams.get('debug');
-		const storedDebug = localStorage.getItem('debugMode');
+        // Check for debug mode in localStorage or URL params
+        const urlParams = new URLSearchParams(window.location.search);
+        const debugParam = urlParams.get('debug');
+        const storedDebug = localStorage.getItem('debugMode');
 
-		showDebug = debugParam === 'true' || storedDebug === 'true';
+        if (!!storedDebug) {
+            app.update(a => ({...a, debug: parseInt(storedDebug)}));
+        }
 
-		// Load saved position preference
-		const savedPosition = localStorage.getItem('debugPosition');
-		if (savedPosition === 'left' || savedPosition === 'right') {
-			debugPosition = savedPosition;
-		}
+        if (!!debugParam) {
+            app.update(a => ({...a, debug: parseInt(debugParam)}));
+        }
 
-		// Fetch build information from Tauri commands
-		invoke<string>('get_build_commit_hash').then((hash) => {
-			buildCommitHash = hash;
-		}).catch((err) => {
-			console.log('Failed to get build commit hash:', err.message);
-		});
+        // Load saved position preference
+        const savedPosition = localStorage.getItem('debugPosition');
+        if (savedPosition === 'left' || savedPosition === 'right') {
+            debugPosition = savedPosition;
+        }
 
-		invoke<string>('get_build_branch').then((branch) => {
-			buildBranch = branch;
-		}).catch((err) => {
-			console.log('Failed to get build branch:', err.message);
-		});
+        // Fetch build information from Tauri commands
+        invoke<string>('get_build_commit_hash').then((hash) => {
+            buildCommitHash = hash;
+        }).catch((err) => {
+            console.log('Failed to get build commit hash:', err.message);
+        });
 
-		invoke<string>('get_build_ts').then((ts) => {
-			buildTimestamp = ts;
-		}).catch((err) => {
-			console.log('Failed to get build timestamp:', err.message);
-		});
+        invoke<string>('get_build_branch').then((branch) => {
+            buildBranch = branch;
+        }).catch((err) => {
+            console.log('Failed to get build branch:', err.message);
+        });
 
-		return () => {
-			clearInterval(interval);
-			unsubscribe();
-		};
-	});
+        invoke<string>('get_build_ts').then((ts) => {
+            buildTimestamp = ts;
+        }).catch((err) => {
+            console.log('Failed to get build timestamp:', err.message);
+        });
 
-	export function toggleDebug() {
-		showDebug = !showDebug;
-		localStorage.setItem('debugMode', showDebug.toString());
-	}
+        return () => {
+            clearInterval(interval);
+            unsubscribe();
+        };
+    });
 
-	// Keyboard shortcut to toggle debug
-	function handleKeydown(e: KeyboardEvent) {
-		if (e.ctrlKey && e.shiftKey && e.key === 'D') {
-			toggleDebug();
-		}
-		// Ctrl+Shift+L to toggle position
-		if (e.ctrlKey && e.shiftKey && e.key === 'L' && showDebug) {
-			debugPosition = debugPosition === 'left' ? 'right' : 'left';
-			localStorage.setItem('debugPosition', debugPosition);
-		}
-	}
+    export function toggleDebug() {
+        app.update(a => {
+            const newDebug = ((a.debug || 0) + 1) % 4;
+            return {...a, debug: newDebug};
+        });
+        console.log(`Debug mode toggled to ${app.debug}`);
+    }
+
+    // Keyboard shortcut to toggle debug
+    function handleKeydown(e: KeyboardEvent) {
+        if (e.ctrlKey && e.shiftKey && e.key === 'D') {
+            toggleDebug();
+        }
+        // Ctrl+Shift+L to toggle position
+        if (e.ctrlKey && e.shiftKey && e.key === 'L' && $app.debug > 0) {
+            debugPosition = debugPosition === 'left' ? 'right' : 'left';
+            localStorage.setItem('debugPosition', debugPosition);
+        }
+    }
 </script>
 
 <svelte:window on:keydown={handleKeydown}/>
 
-{#if showDebug}
+{#if $app.debug > 0}
     <div class="debug-overlay" class:left-position={debugPosition === 'left'}>
         <div class="debug-header">
             <span>Debug Info</span>
             <button on:click={toggleDebug} aria-label="Close debug">×</button>
         </div>
         <div class="debug-content">
-            <div class="compact-row">
-                <span><strong>Build:</strong> {buildInfo.formattedTime}</span>
-                <span><strong>Now:</strong> {currentTime}</span>
-            </div>
+            {#if $app.debug === 1}
 
-            {#if buildCommitHash || buildBranch}
                 <div class="compact-row">
-                    <span>{buildBranch || 'Loading...'} @ {buildCommitHash?.slice(0, 7) || '...'}</span>
+                    <span><strong>Build:</strong> {buildInfo.formattedTime}</span>
+                    <span><strong>Now:</strong> {currentTime}</span>
                 </div>
-            {/if}
 
-            <div class="debug-section">
-                <div><strong>Map View:</strong></div>
-                <div>Center: {$spatialState.center.lat.toFixed(4)}, {$spatialState.center.lng.toFixed(4)}</div>
-                <div>Zoom: {$spatialState.zoom.toFixed(1)} | Bearing: {$visualState.bearing.toFixed(0)}°</div>
-            </div>
-
-            {#if $gpsCoordinates}
-                <div class="debug-section">
-                    <div><strong>GPS Location {$locationTracking ? '📍 Active' : '⭕ Inactive'}:</strong></div>
-                    <div>Position: {$gpsCoordinates.latitude.toFixed(4)}, {$gpsCoordinates.longitude.toFixed(4)}</div>
-                    <div>Accuracy: ±{$gpsCoordinates.accuracy?.toFixed(0)}m
-                        {#if $gpsCoordinates.altitude !== null && $gpsCoordinates.altitude !== undefined}
-                            | Altitude: {$gpsCoordinates.altitude?.toFixed(0)}m
-                        {/if}
-                    </div>
-                    <div>GPS Heading: {$gpsCoordinates.heading?.toFixed(0) || 'No movement'}°
-                        {#if $gpsCoordinates.speed !== null && $gpsCoordinates.speed !== undefined}
-                            | Speed: {($gpsCoordinates.speed * 3.6).toFixed(1)}km/h
-                        {/if}
-                    </div>
-                    {#if $locationError}
-                        <div class="error">Error: {$locationError}</div>
-                    {/if}
-                </div>
-            {:else}
-                <div class="debug-section">
-                    <div><strong>GPS Location:</strong> {$locationTracking ? 'Waiting for signal...' : 'Disabled'}</div>
-                    {#if $locationError}
-                        <div class="error">Error: {$locationError}</div>
-                    {/if}
-                </div>
-            {/if}
-
-            {#if $captureLocation}
-                <div class="debug-section">
-                    <div><strong>Capture Location (Source: <span class="source-badge">{$captureLocation.source}</span>):</strong>
-                    </div>
-                    <div>Position: {$captureLocation.latitude.toFixed(4)}, {$captureLocation.longitude.toFixed(4)}</div>
-                    <div>Raw Heading: {$captureLocation?.heading?.toFixed(1) || 'None'}° | Accuracy:
-                        ±{$captureLocation?.accuracy?.toFixed(0)}m
-                        {#if $captureLocation.altitude !== undefined}
-                            | Alt: {$captureLocation?.altitude?.toFixed(0)}m
-                        {/if}
-                    </div>
-                    <div style="font-size: 9px; opacity: 0.7">
-                        Updated: {new Date($captureLocation.timestamp || 0).toLocaleTimeString()}</div>
-                </div>
-            {/if}
-
-            <div class="debug-section sensor-section">
-
-                {#if isTauriAndroid && $compassAvailable}
-                    <div class="sensor-mode-switcher">
-                        <div><strong>Sensor Mode:</strong></div>
-                        <select
-                                value={$currentSensorMode}
-                                on:change={(e) => switchSensorMode(Number(e.currentTarget.value))}
-                                class="sensor-mode-select"
-                        >
-                            <option value={SensorMode.ROTATION_VECTOR}>Rotation Vector</option>
-                            <option value={SensorMode.GAME_ROTATION_VECTOR}>Game Rotation Vector</option>
-                            <option value={SensorMode.MADGWICK_AHRS}>Madgwick AHRS</option>
-                            <option value={SensorMode.COMPLEMENTARY_FILTER}>Complementary Filter</option>
-                            <option value={SensorMode.UPRIGHT_ROTATION_VECTOR}>Upright Mode (Portrait)</option>
-                            <option value={SensorMode.WEB_DEVICE_ORIENTATION}>Web DeviceOrientation API</option>
-                        </select>
+                {#if buildCommitHash || buildBranch}
+                    <div class="compact-row">
+                        <span>{buildBranch || 'Loading...'} @ {buildCommitHash?.slice(0, 7) || '...'}</span>
                     </div>
                 {/if}
 
-                <div><strong>🧭 Sensor API:</strong>
-                    {actualSensorSource} - {sensorType}
-                    {#if actualSensorSource}
-                        <span class="sensor-type tauri">{actualSensorSource}</span>
-                    {:else if sensorType === 'tauri-rotation-vector'}
-                        <span class="sensor-type tauri">Android Sensor (waiting...)</span>
-                    {:else if sensorType === 'device-orientation'}
-                        <span class="sensor-type web">Web DeviceOrientation API</span>
-                    {:else}
-                        <span class="sensor-type none">Not Available</span>
-                    {/if}
+                <div class="debug-section">
+                    <div><strong>Map View:</strong></div>
+                    <div>Center: {$spatialState.center.lat.toFixed(4)}, {$spatialState.center.lng.toFixed(4)}</div>
+                    <div>Zoom: {$spatialState.zoom.toFixed(1)} | Bearing: {$visualState.bearing.toFixed(0)}°</div>
                 </div>
-                {#if $compassData}
-                    <div><strong>Compass Bearing:</strong> {$compassData.magneticHeading?.toFixed(1) || 'N/A'}°</div>
-                    <div style="font-size: 10px; opacity: 0.8">True
-                        bearing: {$compassData.trueHeading?.toFixed(1) || 'N/A'}° | Accuracy:
-                        ±{$compassData.headingAccuracy?.toFixed(0) || 'N/A'}°
+
+                {#if $gpsCoordinates}
+                    <div class="debug-section">
+                        <div><strong>GPS Location {$locationTracking ? '📍 Active' : '⭕ Inactive'}:</strong></div>
+                        <div>Position: {$gpsCoordinates.latitude.toFixed(4)}
+                            , {$gpsCoordinates.longitude.toFixed(4)}</div>
+                        <div>Accuracy: ±{$gpsCoordinates.accuracy?.toFixed(0)}m
+                            {#if $gpsCoordinates.altitude !== null && $gpsCoordinates.altitude !== undefined}
+                                | Altitude: {$gpsCoordinates.altitude?.toFixed(0)}m
+                            {/if}
+                        </div>
+                        <div>GPS Heading: {$gpsCoordinates.heading?.toFixed(0) || 'No movement'}°
+                            {#if $gpsCoordinates.speed !== null && $gpsCoordinates.speed !== undefined}
+                                | Speed: {($gpsCoordinates.speed * 3.6).toFixed(1)}km/h
+                            {/if}
+                        </div>
+                        {#if $locationError}
+                            <div class="error">Error: {$locationError}</div>
+                        {/if}
                     </div>
-                    {#if sensorType === 'tauri-rotation-vector' && $deviceOrientation}
-                        <div style="font-size: 10px; opacity: 0.8">Device tilt -
-                            Pitch: {$deviceOrientation.beta?.toFixed(1)}° | Roll: {$deviceOrientation.gamma?.toFixed(1)}
-                            °
+                {:else}
+                    <div class="debug-section">
+                        <div><strong>GPS Location:</strong> {$locationTracking ? 'Waiting for signal...' : 'Disabled'}
+                        </div>
+                        {#if $locationError}
+                            <div class="error">Error: {$locationError}</div>
+                        {/if}
+                    </div>
+                {/if}
+
+                {#if $captureLocation}
+                    <div class="debug-section">
+                        <div><strong>Capture Location (Source: <span
+                                class="source-badge">{$captureLocation.source}</span>):</strong>
+                        </div>
+                        <div>Position: {$captureLocation.latitude.toFixed(4)}
+                            , {$captureLocation.longitude.toFixed(4)}</div>
+                        <div>Raw Heading: {$captureLocation?.heading?.toFixed(1) || 'None'}° | Accuracy:
+                            ±{$captureLocation?.accuracy?.toFixed(0)}m
+                            {#if $captureLocation.altitude !== undefined}
+                                | Alt: {$captureLocation?.altitude?.toFixed(0)}m
+                            {/if}
+                        </div>
+                        <div style="font-size: 9px; opacity: 0.7">
+                            Updated: {new Date($captureLocation.timestamp || 0).toLocaleTimeString()}</div>
+                    </div>
+                {/if}
+
+                <div class="debug-section sensor-section">
+
+                    {#if isTauriAndroid && $compassAvailable}
+                        <div class="sensor-mode-switcher">
+                            <div><strong>Sensor Mode:</strong></div>
+                            <select
+                                    value={$currentSensorMode}
+                                    on:change={(e) => switchSensorMode(Number(e.currentTarget.value))}
+                                    class="sensor-mode-select"
+                            >
+                                <option value={SensorMode.ROTATION_VECTOR}>Rotation Vector</option>
+                                <option value={SensorMode.GAME_ROTATION_VECTOR}>Game Rotation Vector</option>
+                                <option value={SensorMode.MADGWICK_AHRS}>Madgwick AHRS</option>
+                                <option value={SensorMode.COMPLEMENTARY_FILTER}>Complementary Filter</option>
+                                <option value={SensorMode.UPRIGHT_ROTATION_VECTOR}>Upright Mode (Portrait)</option>
+                                <option value={SensorMode.WEB_DEVICE_ORIENTATION}>Web DeviceOrientation API</option>
+                            </select>
                         </div>
                     {/if}
-                    <div style="font-size: 9px; opacity: 0.7">
-                        Updated: {new Date($compassData.timestamp).toLocaleTimeString()}</div>
-                {:else if $compassAvailable}
-                    <div style="opacity: 0.6">Waiting for sensor data...</div>
+
+                    <div><strong>🧭 Sensor API:</strong>
+                        {actualSensorSource} - {sensorType}
+                        {#if actualSensorSource}
+                            <span class="sensor-type tauri">{actualSensorSource}</span>
+                        {:else if sensorType === 'tauri-rotation-vector'}
+                            <span class="sensor-type tauri">Android Sensor (waiting...)</span>
+                        {:else if sensorType === 'device-orientation'}
+                            <span class="sensor-type web">Web DeviceOrientation API</span>
+                        {:else}
+                            <span class="sensor-type none">Not Available</span>
+                        {/if}
+                    </div>
+                    {#if $compassData}
+                        <div><strong>Compass Bearing:</strong> {$compassData.magneticHeading?.toFixed(1) || 'N/A'}°
+                        </div>
+                        <div style="font-size: 10px; opacity: 0.8">True
+                            bearing: {$compassData.trueHeading?.toFixed(1) || 'N/A'}° | Accuracy:
+                            ±{$compassData.headingAccuracy?.toFixed(0) || 'N/A'}°
+                        </div>
+                        {#if sensorType === 'tauri-rotation-vector' && $deviceOrientation}
+                            <div style="font-size: 10px; opacity: 0.8">Device tilt -
+                                Pitch: {$deviceOrientation.beta?.toFixed(1)}° |
+                                Roll: {$deviceOrientation.gamma?.toFixed(1)}
+                                °
+                            </div>
+                        {/if}
+                        <div style="font-size: 9px; opacity: 0.7">
+                            Updated: {new Date($compassData.timestamp).toLocaleTimeString()}</div>
+                    {:else if $compassAvailable}
+                        <div style="opacity: 0.6">Waiting for sensor data...</div>
+                    {/if}
+
+                </div>
+
+                {#if $currentHeading.heading !== null}
+                    <div class="debug-section compass-bearing">
+                        <div><strong>🎯 Compass Bearing:</strong></div>
+                        <div>Heading: <span class="highlight">{$currentHeading.heading.toFixed(1)}°</span></div>
+                        <div>Source: {$currentHeading.source}</div>
+                        <div>Accuracy: {$currentHeading.accuracy?.toFixed(0) || 'N/A'}°</div>
+                    </div>
                 {/if}
 
-            </div>
-
-            {#if $currentHeading.heading !== null}
-                <div class="debug-section compass-bearing">
-                    <div><strong>🎯 Compass Bearing:</strong></div>
-                    <div>Heading: <span class="highlight">{$currentHeading.heading.toFixed(1)}°</span></div>
-                    <div>Source: {$currentHeading.source}</div>
-                    <div>Accuracy: {$currentHeading.accuracy?.toFixed(0) || 'N/A'}°</div>
-                </div>
+                {#if $captureLocationWithCompassBearing}
+                    <div class="debug-section photo-bearing">
+                        <div><strong>📸 Photo Capture Data (Final):</strong></div>
+                        <div>Bearing to be saved: <span
+                                class="highlight">{$captureLocationWithCompassBearing.heading?.toFixed(1) || 'None'}
+                            °</span>
+                        </div>
+                        {#if $captureLocationWithCompassBearing.headingSource}
+                            <div>Data source: Compass</div>
+                            <div>Accuracy: {$captureLocationWithCompassBearing.headingAccuracy?.toFixed(0) || 'N/A'}°
+                            </div>
+                        {:else}
+                            <div>Using raw {$captureLocationWithCompassBearing.source} heading</div>
+                        {/if}
+                    </div>
+                {/if}
             {/if}
 
-            {#if $captureLocationWithCompassBearing}
-                <div class="debug-section photo-bearing">
-                    <div><strong>📸 Photo Capture Data (Final):</strong></div>
-                    <div>Bearing to be saved: <span
-                            class="highlight">{$captureLocationWithCompassBearing.heading?.toFixed(1) || 'None'}°</span>
-                    </div>
-                    {#if $captureLocationWithCompassBearing.headingSource}
-                        <div>Data source: Compass</div>
-                        <div>Accuracy: {$captureLocationWithCompassBearing.headingAccuracy?.toFixed(0) || 'N/A'}°</div>
+            {#if $app.debug === 2}
+                <div class="debug-section mapillary-section">
+                    {JSON.stringify($mapillary_cache_status, null, 2)}
+                    <div><strong>🗺️ Mapillary Cache:</strong></div>
+                    {#if $mapillary_cache_status.is_streaming}
+                        <div class="cache-streaming">
+                            <span class="spinner"></span>
+                            Streaming ({$mapillary_cache_status.uncached_regions} regions)
+                        </div>
+                    {:else if $mapillary_cache_status.uncached_regions > 0}
+                        <div class="cache-partial">Partial ({$mapillary_cache_status.uncached_regions} uncached)</div>
                     {:else}
-                        <div>Using raw {$captureLocationWithCompassBearing.source} heading</div>
+                        <div class="cache-complete">Complete</div>
+                    {/if}
+
+                    {#if $mapillary_cache_status.total_live_photos > 0}
+                        <div class="live-photos-count">
+                            +{$mapillary_cache_status.total_live_photos} live photos loaded
+                        </div>
                     {/if}
                 </div>
             {/if}
 
+            {#if $app.debug === 3}
+
+                <div class="debug">
+                    <b>Debug Information</b><br>
+                    <b>Bearing:</b>  {$visualState.bearing}<br>
+                    <b>Pos.center:</b> {$spatialState.center}<br>
+                    <b>Left:</b>  {$photoToLeft?.file}<br>
+                    <b>Front:</b> {$photoInFront?.file}<br>
+                    <b>Right:</b>  {$photoToRight?.file}<br>
+                    <b>Photos in range:</b> {$photosInRange.length}<br>
+                    <b>Range:</b> {$spatialState.range / 1000} km<br>
+                    <b>Photos to left:</b>
+                    {JSON.stringify([], null, 2)}
+                    <!--            <ul>-->
+                    <!--            {#each [] as photo}-->
+                    <!--                <li>{photo.id},{photo.file}-->
+                    <!--                    {JSON.stringify(photo.sizes, null, 2)}-->
+                    <!--                </li>-->
+                    <!--            {/each}-->
+                    <!--            </ul>-->
+                    <b>Photos to right:</b>
+                    <ul>
+                        {#each [] as photo}
+                            <li>{photo.id},{photo.file}
+                                {JSON.stringify(photo.sizes, null, 2)}
+                            </li>
+                        {/each}
+                    </ul>
+
+                    <!--            <details>-->
+                    <!--                <summary><b>photos_to_left:</b></summary>-->
+                    <!--                <pre>{JSON.stringify($photos_to_left, null, 2)}</pre>-->
+                    <!--                >-->
+                    <!--            </details>-->
+                    <!--            <details>-->
+                    <!--                <summary><b>photos_to_right:</b></summary>-->
+                    <!--                <pre>{JSON.stringify($photos_to_right, null, 2)}</pre>-->
+                    <!--            </details>-->
+                </div>
+
+            {/if}
 
             <div class="debug-note">
-                Press Ctrl+Shift+D to toggle<br/>
+                Press Ctrl+Shift+D to cycle debug (State {$app.debug}/2)<br/>
                 Press Ctrl+Shift+L to move {debugPosition === 'left' ? 'right' : 'left'}
             </div>
         </div>
@@ -450,6 +534,49 @@
         outline-offset: 1px;
     }
 
+    .mapillary-section {
+        border-color: rgba(255, 165, 0, 0.5);
+        background: rgba(255, 165, 0, 0.05);
+    }
+
+    .cache-streaming {
+        color: #ffa500;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+
+    .cache-partial {
+        color: #ffff00;
+    }
+
+    .cache-complete {
+        color: #00ff00;
+    }
+
+    .live-photos-count {
+        font-size: 10px;
+        color: #aaa;
+        margin-top: 2px;
+    }
+
+    .spinner {
+        width: 10px;
+        height: 10px;
+        border: 2px solid transparent;
+        border-top: 2px solid #ffa500;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+        0% {
+            transform: rotate(0deg);
+        }
+        100% {
+            transform: rotate(360deg);
+        }
+    }
 
     @media (max-width: 600px) {
         .debug-overlay {

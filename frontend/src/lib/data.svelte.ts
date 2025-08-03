@@ -26,6 +26,14 @@ export const sources = writable<Source[]>([
 
 export let client_id = staggeredLocalStorageSharedStore('client_id', Math.random().toString(36));
 
+// Separate persisted app settings from session-specific state
+export let appSettings = staggeredLocalStorageSharedStore('appSettings', {
+    debug: 0,
+    displayMode: 'split' as 'split' | 'max',
+    activity: 'view' as 'capture' | 'view',
+});
+
+// Main app store with both persisted and session-specific fields
 export let app = writable<{
     error: string | null;
     debug: number;
@@ -39,7 +47,39 @@ export let app = writable<{
     debug: 0,
     displayMode: 'split',
     activity: 'view',
-})
+});
+
+// Sync persisted settings with main app store
+appSettings.subscribe(settings => {
+    const currentApp = get(app);
+    // Only update if values have actually changed
+    if (currentApp.debug !== settings.debug || 
+        currentApp.displayMode !== settings.displayMode || 
+        currentApp.activity !== settings.activity) {
+        app.update(a => ({
+            ...a,
+            debug: settings.debug,
+            displayMode: settings.displayMode,
+            activity: settings.activity
+        }));
+    }
+});
+
+// Also sync changes back to persisted settings when app store changes
+app.subscribe(appState => {
+    const currentSettings = get(appSettings);
+    // Only update if values have actually changed
+    if (currentSettings.debug !== appState.debug || 
+        currentSettings.displayMode !== appState.displayMode || 
+        currentSettings.activity !== appState.activity) {
+        appSettings.update(settings => ({
+            ...settings,
+            debug: appState.debug,
+            displayMode: appState.displayMode,
+            activity: appState.activity
+        }));
+    }
+});
 
 // Subscribe to auth store to keep app state in sync
 auth.subscribe(authState => {
@@ -61,7 +101,35 @@ userPhotos.subscribe(photos => {
 export let hillview_photos = writable<any[]>([]);
 // Mapillary photos now handled by worker
 // export let mapillary_photos = writable<Map<string, any>>(new Map());
-export let mapillary_cache_status = writable<any>({ uncached_regions: 0, is_streaming: false, total_live_photos: 0 });
+// Unified Mapillary debug status store
+export interface MapillaryDebugStatus {
+  // Legacy fields (keep for compatibility)
+  uncached_regions: number;
+  is_streaming: boolean;
+  total_live_photos: number;
+  
+  // New detailed status fields
+  stream_phase: 'idle' | 'connecting' | 'receiving_cached' | 'receiving_live' | 'complete' | 'error';
+  completed_regions: number;
+  last_request_time?: number;
+  last_response_time?: number;
+  current_url?: string;
+  last_error?: string;
+  last_bounds?: {
+    topLeftLat: number;
+    topLeftLon: number;
+    bottomRightLat: number;
+    bottomRightLon: number;
+  };
+}
+
+export let mapillary_cache_status = writable<MapillaryDebugStatus>({ 
+  uncached_regions: 0, 
+  is_streaming: false, 
+  total_live_photos: 0,
+  stream_phase: 'idle',
+  completed_regions: 0
+});
 
 // Import new mapState for legacy compatibility only
 import { 

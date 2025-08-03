@@ -64,6 +64,7 @@ export type WorkerResponseType =
   | 'photosUpdate' 
   | 'rangeUpdate' 
   | 'bearingUpdate'
+  | 'statusUpdate'
   | 'error';
 
 export interface WorkerMessage {

@@ -34,7 +34,6 @@
     let minZoom = 1;
     let maxZoom = 1;
     let videoTrack: MediaStreamTrack | null = null;
-    let debugMode = false;
     let wasShowingBeforeHidden = false;
     let permissionCheckInterval: number | null = null;
     let hasRequestedPermission = false;
@@ -484,7 +483,7 @@
                 />
             </div>
             
-            {#if debugMode || $app.debug > 0}
+            {#if $app.debug === 5}
                 <div class="queue-status-overlay">
                     <CaptureQueueStatus />
                 </div>

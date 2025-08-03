@@ -75,46 +75,6 @@
         </div>
     {/if}
 
-    {#if $app.debug === 1}
-        <div class="debug">
-            <b>Debug Information</b><br>
-            <b>Bearing:</b>  {$visualState.bearing}<br>
-            <b>Pos.center:</b> {$spatialState.center}<br>
-            <b>Left:</b>  {$photoToLeft?.file}<br>
-            <b>Front:</b> {$photoInFront?.file}<br>
-            <b>Right:</b>  {$photoToRight?.file}<br>
-            <b>Photos in range:</b> {$photosInRange.length}<br>
-            <b>Range:</b> {$spatialState.range / 1000} km<br>
-            <b>Photos to left:</b>
-            {JSON.stringify([], null, 2)}
-<!--            <ul>-->
-<!--            {#each [] as photo}-->
-<!--                <li>{photo.id},{photo.file}-->
-<!--                    {JSON.stringify(photo.sizes, null, 2)}-->
-<!--                </li>-->
-<!--            {/each}-->
-<!--            </ul>-->
-            <b>Photos to right:</b>
-            <ul>
-            {#each [] as photo}
-                <li>{photo.id},{photo.file}
-                    {JSON.stringify(photo.sizes, null, 2)}
-                </li>
-            {/each}
-            </ul>
-
-<!--            <details>-->
-<!--                <summary><b>photos_to_left:</b></summary>-->
-<!--                <pre>{JSON.stringify($photos_to_left, null, 2)}</pre>-->
-<!--                >-->
-<!--            </details>-->
-<!--            <details>-->
-<!--                <summary><b>photos_to_right:</b></summary>-->
-<!--                <pre>{JSON.stringify($photos_to_right, null, 2)}</pre>-->
-<!--            </details>-->
-        </div>
-    {/if}
-
 </div>
 
 

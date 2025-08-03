@@ -104,7 +104,7 @@
 
 </script>
 
-{#if $app.debug === 2}
+{#if $app.debug === 4}
 <div class="debug">
     <b>Debug Information</b><br>
     <b>clientWidth2:</b> {clientWidth2}<br>

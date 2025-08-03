@@ -52,6 +52,30 @@ const mapillaryHandler = new MapillaryWorkerHandler({
   },
   onError: (error: string) => {
     console.error('Worker: Mapillary error:', error);
+  },
+  onStatusUpdate: (status) => {
+    // Send unified status update to main thread for debug panel
+    postMessage({
+      id: 'auto',
+      type: 'statusUpdate',
+      data: { 
+        mapillaryStatus: {
+          // Legacy compatibility fields
+          uncached_regions: status.uncachedRegions || 0,
+          is_streaming: status.isStreaming,
+          total_live_photos: status.totalPhotos,
+          
+          // New detailed fields
+          stream_phase: status.streamPhase,
+          completed_regions: status.completedRegions?.length || 0,
+          last_request_time: status.lastRequestTime,
+          last_response_time: status.lastResponseTime,
+          current_url: status.currentUrl,
+          last_error: status.lastError,
+          last_bounds: status.lastBounds
+        }
+      }
+    } as WorkerResponse);
   }
 });
 let lastVisiblePhotos: PhotoData[] = [];

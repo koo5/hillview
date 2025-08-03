@@ -1,6 +1,6 @@
 import type { PhotoData, Bounds, SourceConfig } from './photoWorkerTypes';
 import { spatialState, visualState, photosInArea, photosInRange, photoInFront, photoToLeft, photoToRight } from './mapState';
-import { sources, client_id } from './data.svelte';
+import { sources, client_id, mapillary_cache_status } from './data.svelte';
 import { geoPicsUrl } from './config';
 import { get } from 'svelte/store';
 
@@ -118,6 +118,23 @@ class SimplePhotoWorker {
         const photosWithColors = response.data.photos || [];
         console.log(`SimplePhotoWorker: Updated bearing colors for ${photosWithColors.length} photos`);
         photosInArea.set(photosWithColors);
+        break;
+        
+      case 'statusUpdate':
+        // Handle unified status updates (Mapillary for now, could extend to other sources)
+        if (response.data.mapillaryStatus) {
+          const status = response.data.mapillaryStatus;
+          console.log(`SimplePhotoWorker: Mapillary status update:`, {
+            phase: status.stream_phase,
+            photos: status.total_live_photos,
+            streaming: status.is_streaming,
+            regions: status.completed_regions,
+            uncached: status.uncached_regions
+          });
+          
+          // Update the unified mapillary_cache_status store
+          mapillary_cache_status.set(status);
+        }
         break;
         
       case 'error':

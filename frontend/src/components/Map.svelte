@@ -842,21 +842,21 @@
         {/if}
 
         <!-- Debug bounds rectangle -->
-        {#if $app.debug > 0 && $spatialState.bounds}
-            <Polygon
-                    latLngs={[
-                        [$spatialState.bounds.top_left.lat, $spatialState.bounds.top_left.lng],
-                        [$spatialState.bounds.top_left.lat, $spatialState.bounds.bottom_right.lng],
-                        [$spatialState.bounds.bottom_right.lat, $spatialState.bounds.bottom_right.lng],
-                        [$spatialState.bounds.bottom_right.lat, $spatialState.bounds.top_left.lng]
-                    ]}
-                    color="#FF0000"
-                    fillColor="#FF0000"
-                    fillOpacity={0.1}
-                    weight={2}
-                    dashArray="5, 10"
-                />
-        {/if}
+        <!--{#if $app.debug > 0 && $spatialState.bounds}-->
+        <!--    <Polygon-->
+        <!--            latLngs={[-->
+        <!--                [$spatialState.bounds.top_left.lat, $spatialState.bounds.top_left.lng],-->
+        <!--                [$spatialState.bounds.top_left.lat, $spatialState.bounds.bottom_right.lng],-->
+        <!--                [$spatialState.bounds.bottom_right.lat, $spatialState.bounds.bottom_right.lng],-->
+        <!--                [$spatialState.bounds.bottom_right.lat, $spatialState.bounds.top_left.lng]-->
+        <!--            ]}-->
+        <!--            color="#FF0000"-->
+        <!--            fillColor="#FF0000"-->
+        <!--            fillOpacity={0.1}-->
+        <!--            weight={2}-->
+        <!--            dashArray="5, 10"-->
+        <!--        />-->
+        <!--{/if}-->
 
         <!-- Markers are now handled programmatically by optimizedMarkerSystem -->
 
@@ -915,15 +915,15 @@
 </div>
 
 <!-- Debug bounds info -->
-{#if $app.debug > 0 && $spatialState.bounds}
-    <div class="debug-bounds-info">
-        <div>Bounds:</div>
-        <div>NW: {$spatialState.bounds.top_left.lat.toFixed(6)}, {$spatialState.bounds.top_left.lng.toFixed(6)}</div>
-        <div>SE: {$spatialState.bounds.bottom_right.lat.toFixed(6)}, {$spatialState.bounds.bottom_right.lng.toFixed(6)}</div>
-        <div>Width: {($spatialState.bounds.bottom_right.lng - $spatialState.bounds.top_left.lng).toFixed(6)}°</div>
-        <div>Height: {($spatialState.bounds.top_left.lat - $spatialState.bounds.bottom_right.lat).toFixed(6)}°</div>
-    </div>
-{/if}
+<!--{#if $app.debug > 0 && $spatialState.bounds}-->
+<!--    <div class="debug-bounds-info">-->
+<!--        <div>Bounds:</div>-->
+<!--        <div>NW: {$spatialState.bounds.top_left.lat.toFixed(6)}, {$spatialState.bounds.top_left.lng.toFixed(6)}</div>-->
+<!--        <div>SE: {$spatialState.bounds.bottom_right.lat.toFixed(6)}, {$spatialState.bounds.bottom_right.lng.toFixed(6)}</div>-->
+<!--        <div>Width: {($spatialState.bounds.bottom_right.lng - $spatialState.bounds.top_left.lng).toFixed(6)}°</div>-->
+<!--        <div>Height: {($spatialState.bounds.top_left.lat - $spatialState.bounds.bottom_right.lat).toFixed(6)}°</div>-->
+<!--    </div>-->
+<!--{/if}-->
 
 <!-- Rotation / navigation buttons -->
 <div class="control-buttons-container">
