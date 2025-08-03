@@ -1,5 +1,99 @@
 import { test, expect } from '@playwright/test';
 
+// Helper function to set map location
+async function setMapLocation(page: any, lat: number, lng: number, zoom: number = 18, locationName?: string) {
+  if (locationName) {
+    console.log(`🗺️ Moving map to ${locationName}...`);
+  }
+  
+  // Ensure map container is visible
+  const mapContainer = page.locator('.leaflet-container').first();
+  await mapContainer.waitFor({ state: 'visible', timeout: 10000 });
+  
+  await page.evaluate(([lat, lng, zoom, locationName]) => {
+    // Try multiple ways to access the Leaflet map
+    const maps = [
+      (window as any).map,
+      (window as any).leafletMap,
+      (document.querySelector('.leaflet-container') as any)?._leaflet_map
+    ];
+    
+    for (const mapComponent of maps) {
+      if (mapComponent && mapComponent.setView) {
+        console.log(`📍 Setting map view to ${locationName || `${lat}, ${lng}`}`);
+        mapComponent.setView([lat, lng], zoom);
+        return;
+      }
+    }
+    console.log('Could not find map component to set view');
+  }, [lat, lng, zoom, locationName]);
+  
+  // Wait a moment for the map to update
+  await page.waitForTimeout(500);
+}
+
+// Helper function to manage source states
+async function configureSources(page: any, config: { [sourceName: string]: boolean }) {
+  console.log('🔧 Configuring sources:', config);
+  
+  // Wait for initial load
+  await page.waitForTimeout(1000);
+  
+  // Find source buttons container
+  const sourceButtonsContainer = page.locator('.source-buttons-container');
+  await sourceButtonsContainer.waitFor({ state: 'visible', timeout: 5000 });
+  
+  // First, make sure buttons show labels by clicking the compact toggle if needed
+  try {
+    const compactToggle = sourceButtonsContainer.locator('button.toggle-compact');
+    await compactToggle.waitFor({ state: 'visible', timeout: 2000 });
+    
+    // Check if we're in compact mode (labels hidden)
+    const isCompact = await compactToggle.evaluate(el => el.classList.contains('active'));
+    if (isCompact) {
+      await compactToggle.click();
+      await page.waitForTimeout(500);
+      console.log('🔄 Expanded source buttons to show labels');
+    }
+  } catch (e) {
+    console.log('⚠️ Could not find compact toggle, trying hover method');
+    try {
+      await sourceButtonsContainer.hover();
+      await page.waitForSelector('.source-buttons-container:not(.compact)', { timeout: 2000 });
+      console.log('🔄 Expanded source buttons via hover');
+    } catch (e2) {
+      console.log('⚠️ Source buttons remain compact, using icons');
+    }
+  }
+  
+  // Configure each source
+  for (const [sourceName, shouldBeEnabled] of Object.entries(config)) {
+    try {
+      // Find button using flexible selectors (text or title attribute)
+      const sourceButton = sourceButtonsContainer
+        .locator('button')
+        .filter({ hasText: new RegExp(sourceName, 'i') })
+        .or(sourceButtonsContainer.locator(`button[title*="${sourceName}"]`));
+      
+      const isCurrentlyActive = await sourceButton.locator('.active').count() > 0;
+      
+      if (isCurrentlyActive !== shouldBeEnabled) {
+        await sourceButton.click();
+        const action = shouldBeEnabled ? 'Enabled' : 'Disabled';
+        console.log(`${action === 'Enabled' ? '🌍' : '🔘'} ${action} ${sourceName} source`);
+      } else {
+        console.log(`✓ ${sourceName} source already ${shouldBeEnabled ? 'enabled' : 'disabled'}`);
+      }
+    } catch (e) {
+      console.log(`⚠️ Could not configure ${sourceName} source: ${e.message}`);
+    }
+  }
+  
+  // Wait for source state changes to propagate to worker
+  await page.waitForTimeout(2000);
+  console.log('⏳ Waiting for source configuration to propagate...');
+}
+
 test.describe('Source Buttons Toggle', () => {
   test.beforeEach(async ({ page }) => {
     // Navigate to the main page
@@ -88,31 +182,8 @@ test.describe('Source Buttons Toggle', () => {
     await expect(hillviewButton).not.toHaveClass(/active/);
     await expect(deviceButton).not.toHaveClass(/active/);
 
-    console.log('🗺️ Moving map to a location with Mapillary photos...');
-    
     // Pan to a known location with Mapillary photos (Times Square, NYC)
-    const mapContainer = page.locator('.leaflet-container').first();
-    await expect(mapContainer).toBeVisible();
-    
-    // Use JavaScript to set the map view to Times Square  
-    await page.evaluate(() => {
-      // Try multiple ways to access the Leaflet map
-      const maps = [
-        (window as any).map,
-        (window as any).leafletMap,
-        (document.querySelector('.leaflet-container') as any)?._leaflet_map
-      ];
-      
-      for (const mapComponent of maps) {
-        if (mapComponent && mapComponent.setView) {
-          console.log('Setting map view to Times Square');
-          // Times Square coordinates with high zoom to get street-level photos
-          mapComponent.setView([40.7580, -73.9855], 18);
-          return;
-        }
-      }
-      console.log('Could not find map component to set view');
-    });
+    await setMapLocation(page, 40.7580, -73.9855, 18, 'Times Square');
     
     await page.waitForTimeout(2000);
     console.log('⏳ Waiting for Mapillary photos to load and display...');
@@ -216,5 +287,90 @@ test.describe('Source Buttons Toggle', () => {
     expect(afterHillviewToggle.device).toBe(afterMapillaryToggle.device);
 
     console.log('✅ Hillview toggle worked independently');
+  });
+
+  test('should load new Mapillary photos when map is panned', async ({ page }) => {
+    console.log('🗺️ Testing Mapillary photo loading after map panning...');
+    
+    // Enable console logging to track photo loading
+    page.on('console', (msg) => {
+      if (msg.text().includes('Mapillary') || msg.text().includes('photos') || msg.text().includes('Worker:')) {
+        console.log(`[BROWSER LOG] ${msg.text()}`);
+      }
+    });
+
+    // Configure sources: only Mapillary enabled
+    await configureSources(page, {
+      'Hillview': false,
+      'Mapillary': true,
+      'My Device': false
+    });
+    
+    // Move to first location (Prague city center)
+    await setMapLocation(page, 50.0755, 14.4378, 18, 'Prague city center');
+    
+    // Wait for initial photos to load
+    await page.waitForTimeout(3000);
+    
+    // Capture first photo data
+    const firstMainPhoto = page.locator('[data-testid="main-photo"]');
+    await firstMainPhoto.waitFor({ state: 'visible', timeout: 10000 });
+    
+    const firstPhotoData = await firstMainPhoto.evaluate((img) => {
+      const photoAttr = img.getAttribute('data-photo');
+      return photoAttr ? JSON.parse(photoAttr) : null;
+    });
+    
+    console.log('📸 First location photo:', {
+      id: firstPhotoData?.id,
+      lat: firstPhotoData?.lat?.toFixed(6),
+      lng: firstPhotoData?.lng?.toFixed(6),
+      source_type: firstPhotoData?.source_type
+    });
+    
+    expect(firstPhotoData).toBeTruthy();
+    expect(firstPhotoData.source_type).toBe('mapillary');
+    
+    // Move to second location (different area of Prague)
+    await setMapLocation(page, 50.0875, 14.4205, 18, 'Prague Castle area');
+    
+    // Wait for new photos to load after panning
+    await page.waitForTimeout(4000);
+    
+    // Check if new photos are loaded
+    const secondMainPhoto = page.locator('[data-testid="main-photo"]');
+    await secondMainPhoto.waitFor({ state: 'visible', timeout: 10000 });
+    
+    const secondPhotoData = await secondMainPhoto.evaluate((img) => {
+      const photoAttr = img.getAttribute('data-photo');
+      return photoAttr ? JSON.parse(photoAttr) : null;
+    });
+    
+    console.log('📸 Second location photo:', {
+      id: secondPhotoData?.id,
+      lat: secondPhotoData?.lat?.toFixed(6),
+      lng: secondPhotoData?.lng?.toFixed(6),
+      source_type: secondPhotoData?.source_type
+    });
+    
+    expect(secondPhotoData).toBeTruthy();
+    expect(secondPhotoData.source_type).toBe('mapillary');
+    
+    // Verify photos are different (different location should have different photos)
+    const photosAreDifferent = firstPhotoData.id !== secondPhotoData.id || 
+                              Math.abs(firstPhotoData.lat - secondPhotoData.lat) > 0.001 ||
+                              Math.abs(firstPhotoData.lng - secondPhotoData.lng) > 0.001;
+    
+    console.log('🔍 Photos comparison:', {
+      firstId: firstPhotoData.id,
+      secondId: secondPhotoData.id,
+      differentIds: firstPhotoData.id !== secondPhotoData.id,
+      coordinatesDifferent: Math.abs(firstPhotoData.lat - secondPhotoData.lat) > 0.001,
+      photosAreDifferent
+    });
+    
+    expect(photosAreDifferent, 'New location should show different Mapillary photos').toBe(true);
+    
+    console.log('✅ Map panning successfully loaded new Mapillary photos');
   });
 });
