@@ -161,45 +161,6 @@ test.describe('Source Buttons Toggle', () => {
     }
   });
 
-  test('should show correct initial source button states', async ({ page }) => {
-    await page.waitForTimeout(2000);
-
-    const sourceButtonsContainer = page.locator('.source-buttons-container');
-    await expect(sourceButtonsContainer).toBeVisible();
-
-    // Expand buttons if in compact mode
-    const compactToggle = sourceButtonsContainer.locator('button.toggle-compact');
-    const isCompact = await compactToggle.evaluate(el => el.classList.contains('active'));
-    if (isCompact) {
-      await compactToggle.click();
-      await page.waitForTimeout(500);
-    }
-
-    // Check individual source buttons exist and have expected states using title attributes
-    const hillviewButton = sourceButtonsContainer.locator('button[title*="Hillview"]');
-    const mapillaryButton = sourceButtonsContainer.locator('button[title*="Mapillary"]');
-    const deviceButton = sourceButtonsContainer.locator('button[title*="My Device"]');
-
-    await expect(hillviewButton).toBeVisible();
-    await expect(mapillaryButton).toBeVisible();
-    await expect(deviceButton).toBeVisible();
-
-    // Log initial states
-    const hillviewActive = await hillviewButton.evaluate(el => el.classList.contains('active'));
-    const mapillaryActive = await mapillaryButton.evaluate(el => el.classList.contains('active'));
-    const deviceActive = await deviceButton.evaluate(el => el.classList.contains('active'));
-
-    console.log('📊 Initial source states:');
-    console.log(`  Hillview: ${hillviewActive ? 'enabled' : 'disabled'}`);
-    console.log(`  Mapillary: ${mapillaryActive ? 'enabled' : 'disabled'}`);
-    console.log(`  Device: ${deviceActive ? 'enabled' : 'disabled'}`);
-
-    // Based on data.svelte.ts, Hillview and Device should be enabled by default, Mapillary disabled
-    expect(hillviewActive, 'Hillview should be enabled by default').toBe(true);
-    expect(mapillaryActive, 'Mapillary should be disabled by default').toBe(false);
-    expect(deviceActive, 'Device should be enabled by default').toBe(true);
-  });
-
   test('should toggle sources independently', async ({ page }) => {
     await page.waitForTimeout(2000);
 

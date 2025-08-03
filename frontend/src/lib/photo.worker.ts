@@ -40,7 +40,11 @@ const mapillaryHandler = new MapillaryWorkerHandler({
     
     // Trigger recalculation if we have bounds
     if (currentBounds) {
-      recalculatePhotosInArea(currentBounds);
+      recalculatePhotosInArea();
+      
+      // Also trigger range update for navigation using bounds center
+      const center = calculateCenterFromBounds(currentBounds);
+      getPhotosInRange(center);
     }
   },
   onStreamComplete: () => {
