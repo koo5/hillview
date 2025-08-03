@@ -49,6 +49,15 @@ export class MapillaryWorkerHandler {
   private uncachedRegions?: number;
   private completedRegions: string[] = [];
   
+  // Photo culling settings
+  private readonly MAX_PHOTOS = 2000;
+  private currentBounds?: {
+    topLeftLat: number;
+    topLeftLon: number;
+    bottomRightLat: number;
+    bottomRightLon: number;
+  };
+  
   constructor(callbacks: MapillaryWorkerCallbacks) {
     this.callbacks = callbacks;
   }
@@ -86,6 +95,7 @@ export class MapillaryWorkerHandler {
     
     // Update status tracking
     this.lastBounds = { topLeftLat, topLeftLon, bottomRightLat, bottomRightLon };
+    this.currentBounds = { topLeftLat, topLeftLon, bottomRightLat, bottomRightLon };
     this.lastRequestTime = Date.now();
     this.lastResponseTime = undefined;
     this.lastError = undefined;
@@ -226,12 +236,62 @@ export class MapillaryWorkerHandler {
     // Add to our local photos array
     this.photos.push(...convertedPhotos);
     
-    console.log(`Worker: Added ${convertedPhotos.length} Mapillary photos, total: ${this.photos.length}`);
+    // Cull photos if we have too many
+    const culledCount = this.cullPhotosIfNeeded();
+    
+    console.log(`Worker: Added ${convertedPhotos.length} Mapillary photos, total: ${this.photos.length}${culledCount > 0 ? `, culled ${culledCount} photos outside visible area` : ''}`);
     
     // Notify the worker about new photos
     this.callbacks.onPhotosAdded(convertedPhotos);
     
     // Status is updated by caller
+  }
+  
+  private isPhotoInBounds(photo: PhotoData, bounds: { topLeftLat: number; topLeftLon: number; bottomRightLat: number; bottomRightLon: number }): boolean {
+    return photo.lat <= bounds.topLeftLat &&
+           photo.lat >= bounds.bottomRightLat &&
+           photo.lng >= bounds.topLeftLon &&
+           photo.lng <= bounds.bottomRightLon;
+  }
+  
+  private cullPhotosIfNeeded(): number {
+    if (this.photos.length <= this.MAX_PHOTOS || !this.currentBounds) {
+      return 0;
+    }
+    
+    console.log(`Worker: Culling Mapillary photos (${this.photos.length} > ${this.MAX_PHOTOS})`);
+    
+    // Keep photos that are within current visible bounds
+    const photosInBounds: PhotoData[] = [];
+    const photosOutsideBounds: PhotoData[] = [];
+    
+    for (const photo of this.photos) {
+      if (this.isPhotoInBounds(photo, this.currentBounds)) {
+        photosInBounds.push(photo);
+      } else {
+        photosOutsideBounds.push(photo);
+      }
+    }
+    
+    // If we still have too many photos, keep recent ones within bounds and some outside
+    let finalPhotos = [...photosInBounds];
+    
+    if (finalPhotos.length > this.MAX_PHOTOS * 0.8) {
+      // Keep 80% from visible area
+      finalPhotos = photosInBounds.slice(-Math.floor(this.MAX_PHOTOS * 0.8));
+    }
+    
+    // Add some photos from outside bounds to reach target count
+    const remainingSlots = this.MAX_PHOTOS - finalPhotos.length;
+    if (remainingSlots > 0 && photosOutsideBounds.length > 0) {
+      // Keep most recent photos from outside bounds
+      finalPhotos.push(...photosOutsideBounds.slice(-remainingSlots));
+    }
+    
+    const culledCount = this.photos.length - finalPhotos.length;
+    this.photos = finalPhotos;
+    
+    return culledCount;
   }
   
   stopStream(): void {
@@ -276,5 +336,17 @@ export class MapillaryWorkerHandler {
       uncachedRegions: this.uncachedRegions,
       completedRegions: [...this.completedRegions]
     };
+  }
+  
+  updateBounds(bounds: { topLeftLat: number; topLeftLon: number; bottomRightLat: number; bottomRightLon: number }): void {
+    this.currentBounds = bounds;
+    
+    // Cull photos if we have too many now that bounds changed
+    const culledCount = this.cullPhotosIfNeeded();
+    
+    if (culledCount > 0) {
+      console.log(`Worker: Bounds updated, culled ${culledCount} Mapillary photos outside new visible area`);
+      this.emitStatusUpdate();
+    }
   }
 }
