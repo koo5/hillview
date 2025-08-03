@@ -125,6 +125,8 @@
             class="{className} photo"
             style="{bg_style_stretched_photo} {border_style}"
             fetchpriority={fetchPriority as any}
+            data-testid="main-photo"
+            data-photo={JSON.stringify(photo)}
         />
         {/key}
     {/if}

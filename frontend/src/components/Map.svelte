@@ -15,12 +15,12 @@
         photoInFront,
         photoToLeft,
         photoToRight,
-        sources,
         updateSpatialState,
         updateBearing,
         updateBearingDiff,
         updateBounds
     } from "$lib/mapState";
+    import { sources } from "$lib/data.svelte";
     import { simplePhotoWorker } from '$lib/simplePhotoWorker';
     import { turn_to_photo_to, app } from "$lib/data.svelte";
     import { updateGpsLocation, setLocationTracking, setLocationError, gpsLocation } from "$lib/location.svelte";

@@ -1,5 +1,5 @@
 """
-Unified photo processing service that handles both directory imports and user uploads.
+photo processing service
 """
 import os
 import json

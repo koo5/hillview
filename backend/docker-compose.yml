@@ -40,9 +40,10 @@ services:
       dockerfile: app/Dockerfile
     container_name: hillview_api
     ports:
-      - "${API_PORT:-8089}:8000"
+      - "${API_PORT:-8055}:8055"
     volumes:
       - ./uploads:/app/uploads
+      - ./api/app:/app/app
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-hillview}:${POSTGRES_PASSWORD:-hillview}@postgres:5432/${POSTGRES_DB:-hillview}
       - REDIS_URL=redis://redis:6379/0
@@ -60,7 +61,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: uvicorn app.api:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn app.api:app --host 0.0.0.0 --port 8055 --reload
 
   worker:
     restart: always
@@ -70,6 +71,7 @@ services:
     container_name: hillview_worker
     volumes:
       - ./uploads:/app/uploads
+      - ./api/app:/app/app
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-hillview}:${POSTGRES_PASSWORD:-hillview}@postgres:5432/${POSTGRES_DB:-hillview}
       - REDIS_URL=redis://redis:6379/0
@@ -79,7 +81,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: python -m app.worker
+    command: celery -A app.worker worker --loglevel=info
 
 volumes:
   postgres_data:

@@ -107,6 +107,3 @@ def cleanup_temp_files(file_paths: list):
         logger.error(f"Error during cleanup: {e}")
         raise
 
-if __name__ == "__main__":
-    # Start Celery worker
-    celery_app.start()

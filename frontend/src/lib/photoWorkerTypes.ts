@@ -41,6 +41,8 @@ export interface SourceConfig {
   color?: string;
   url?: string;
   path?: string;
+  backendUrl?: string;  // For Mapillary API
+  clientId?: string;    // For Mapillary API
 }
 
 // Worker message types

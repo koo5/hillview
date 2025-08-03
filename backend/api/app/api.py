@@ -61,7 +61,7 @@ async def global_exception_handler(request, exc):
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:5000", "http://localhost:8089"],  # Add your frontend URLs
+    allow_origins=["http://localhost:5173", "http://localhost:5000", "http://localhost:8089", "http://localhost:8212"],  # Add your frontend URLs
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization", "Accept"],
@@ -329,73 +329,73 @@ async def get_user_photos(
     photos = result.scalars().all()
     return photos
 
-@app.get("/api/hillview_photos_by_area")
-async def get_hillview_photos_by_area(
-    min_lat: float = Query(..., description="Minimum latitude"),
-    max_lat: float = Query(..., description="Maximum latitude"), 
-    min_lon: float = Query(..., description="Minimum longitude"),
-    max_lon: float = Query(..., description="Maximum longitude"),
-    current_user: User = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    Get photos within a geographic area in files.json compatible format.
-    Returns photos that have GPS coordinates and bearing data.
-    """
-    try:
-        # Query photos within the bounding box that have required GPS data
-        result = await db.execute(
-            select(Photo).where(
-                Photo.latitude.between(min_lat, max_lat),
-                Photo.longitude.between(min_lon, max_lon),
-                Photo.latitude.isnot(None),
-                Photo.longitude.isnot(None),
-                Photo.compass_angle.isnot(None),  # Must have bearing
-                Photo.processing_status == "completed",
-                Photo.is_public == True  # Only public photos for now
-            ).order_by(Photo.compass_angle)  # Sort by bearing like files.json
-        )
-        
-        photos = result.scalars().all()
-        
-        # Convert to files.json format
-        files_data = []
-        for photo in photos:
-            entry = {
-                'file': f"uploads/{photo.filename}",  # Match original format  
-                'filepath': photo.filepath,
-                'dir_name': 'uploads',  # Add missing dir_name field
-                'latitude': str(photo.latitude),
-                'longitude': str(photo.longitude),
-                'bearing': str(photo.compass_angle),  # Map compass_angle to bearing
-                'sizes': photo.sizes or {}  # Use stored sizes from database
-            }
-            
-            # Add optional fields
-            if photo.altitude is not None:
-                entry['altitude'] = str(photo.altitude)
-            
-            if photo.description:
-                entry['description'] = photo.description
-            
-            files_data.append(entry)
-        
-        logger.info(f"Found {len(files_data)} photos in area ({min_lat},{min_lon}) to ({max_lat},{max_lon})")
-        
-        return {
-            "photos": files_data,
-            "count": len(files_data),
-            "bbox": {
-                "min_lat": min_lat,
-                "max_lat": max_lat,
-                "min_lon": min_lon,
-                "max_lon": max_lon
-            }
-        }
-        
-    except Exception as e:
-        logger.error(f"Error getting photos by area: {e}")
-        raise HTTPException(status_code=500, detail="Failed to retrieve photos")
+# @app.get("/api/hillview_photos_by_area")
+# async def get_hillview_photos_by_area(
+#     min_lat: float = Query(..., description="Minimum latitude"),
+#     max_lat: float = Query(..., description="Maximum latitude"),
+#     min_lon: float = Query(..., description="Minimum longitude"),
+#     max_lon: float = Query(..., description="Maximum longitude"),
+#     current_user: User = Depends(get_current_active_user),
+#     db: AsyncSession = Depends(get_db)
+# ):
+#     """
+#     Get photos within a geographic area in files.json compatible format.
+#     Returns photos that have GPS coordinates and bearing data.
+#     """
+#     try:
+#         # Query photos within the bounding box that have required GPS data
+#         result = await db.execute(
+#             select(Photo).where(
+#                 Photo.latitude.between(min_lat, max_lat),
+#                 Photo.longitude.between(min_lon, max_lon),
+#                 Photo.latitude.isnot(None),
+#                 Photo.longitude.isnot(None),
+#                 Photo.compass_angle.isnot(None),  # Must have bearing
+#                 Photo.processing_status == "completed",
+#                 Photo.is_public == True
+#             ).order_by(Photo.compass_angle)  # Sort by bearing like files.json
+#         )
+#
+#         photos = result.scalars().all()
+#
+#         # Convert to files.json format
+#         files_data = []
+#         for photo in photos:
+#             entry = {
+#                 'file': f"uploads/{photo.filename}",  # Match original format
+#                 'filepath': photo.filepath,
+#                 'dir_name': 'uploads',  # Add missing dir_name field
+#                 'latitude': str(photo.latitude),
+#                 'longitude': str(photo.longitude),
+#                 'bearing': str(photo.compass_angle),  # Map compass_angle to bearing
+#                 'sizes': photo.sizes or {}  # Use stored sizes from database
+#             }
+#
+#             # Add optional fields
+#             if photo.altitude is not None:
+#                 entry['altitude'] = str(photo.altitude)
+#
+#             if photo.description:
+#                 entry['description'] = photo.description
+#
+#             files_data.append(entry)
+#
+#         logger.info(f"Found {len(files_data)} photos in area ({min_lat},{min_lon}) to ({max_lat},{max_lon})")
+#
+#         return {
+#             "photos": files_data,
+#             "count": len(files_data),
+#             "bbox": {
+#                 "min_lat": min_lat,
+#                 "max_lat": max_lat,
+#                 "min_lon": min_lon,
+#                 "max_lon": max_lon
+#             }
+#         }
+#
+#     except Exception as e:
+#         logger.error(f"Error getting photos by area: {e}")
+#         raise HTTPException(status_code=500, detail="Failed to retrieve photos")
 
 class PhotoUploadResponse(BaseModel):
     task_id: str

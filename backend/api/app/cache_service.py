@@ -239,13 +239,22 @@ class MapillaryCacheService:
                 except:
                     pass
             
+            # Handle computed_rotation - it may be a list/array
+            computed_rotation = photo_data.get('computed_rotation')
+            if isinstance(computed_rotation, list) and len(computed_rotation) > 0:
+                # Take the first value if it's a list
+                computed_rotation = computed_rotation[0]
+            elif not isinstance(computed_rotation, (int, float, type(None))):
+                # Set to None if it's not a valid numeric type
+                computed_rotation = None
+            
             # Prepare insert data
             photo_dict = {
                 'mapillary_id': photo_data['id'],
                 'geometry': from_shape(point, srid=4326),
                 'compass_angle': photo_data.get('compass_angle'),
                 'computed_compass_angle': photo_data.get('computed_compass_angle'),
-                'computed_rotation': photo_data.get('computed_rotation'),
+                'computed_rotation': computed_rotation,
                 'computed_altitude': photo_data.get('computed_altitude'),
                 'captured_at': captured_at,
                 'is_pano': photo_data.get('is_pano', False),

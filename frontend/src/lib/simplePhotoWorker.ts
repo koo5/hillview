@@ -1,6 +1,6 @@
 import type { PhotoData, Bounds, SourceConfig } from './photoWorkerTypes';
 import { spatialState, visualState, photosInArea, photosInRange, photoInFront, photoToLeft, photoToRight } from './mapState';
-import { sources } from './data.svelte';
+import { sources, client_id } from './data.svelte';
 import { geoPicsUrl } from './config';
 import { get } from 'svelte/store';
 
@@ -147,7 +147,7 @@ class SimplePhotoWorker {
         // Convert to plain objects for worker serialization
         const plainSources = sourceList.map(s => {
           console.log('SimplePhotoWorker: Source before conversion:', { id: s.id, type: s.type, enabled: s.enabled, url: s.url });
-          const plain = {
+          const plain: any = {
             id: s.id,
             name: s.name,
             type: s.type,
@@ -156,6 +156,13 @@ class SimplePhotoWorker {
             path: s.path,
             color: s.color
           };
+          
+          // Add Mapillary-specific configuration
+          if (s.type === 'mapillary') {
+            plain.backendUrl = import.meta.env.VITE_BACKEND || 'http://localhost:8000';
+            plain.clientId = get(client_id);
+          }
+          
           console.log('SimplePhotoWorker: Plain source after conversion:', JSON.stringify(plain));
           return plain;
         });

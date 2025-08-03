@@ -29,11 +29,7 @@ COPY app/requirements.worker.txt /app/requirements.txt
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r /app/requirements.txt
 
-# Copy application code
-COPY app /app/app
-
-# Copy YOLO model file for anonymization
-COPY app/yolov5su.pt /app/yolov5su.pt
+# Application code and YOLO model will be mounted via bind mount
 
 # Create uploads directory structure
 RUN mkdir -p /app/uploads/opt

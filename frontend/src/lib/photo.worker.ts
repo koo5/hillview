@@ -4,6 +4,7 @@ import type { WorkerMessage, WorkerResponse, PhotoData, Bounds, SourceConfig } f
 // Note: Cannot import Leaflet in worker context (window is not defined)
 // import { LatLng } from 'leaflet';
 import { loadJsonPhotos } from './utils/photoParser';
+import { MapillaryWorkerHandler } from './mapillaryWorkerHandler';
 
 // Webworker version for runtime checking
 declare const __WORKER_VERSION__: string;
@@ -18,6 +19,37 @@ const photoStore = new Map<string, PhotoData>();
 let currentBounds: Bounds | null = null;
 let currentRange = 5000; // Default 5km range
 let sourcesConfig: SourceConfig[] = [];
+
+// Initialize Mapillary handler
+const mapillaryHandler = new MapillaryWorkerHandler({
+  onPhotosAdded: (photos: PhotoData[]) => {
+    // Add photos to store and spatial index
+    photos.forEach(photo => {
+      photoStore.set(photo.id, photo);
+      if (spatialIndex) {
+        // Handle different PhotoData formats
+        if (photo.lat !== undefined && photo.lng !== undefined) {
+          // Mapillary format with lat/lng properties
+          spatialIndex.addPhoto(photo.id, photo.lat, photo.lng);
+        } else if (photo.coord) {
+          // Traditional format with coord property
+          spatialIndex.addPhoto(photo.id, photo.coord.lat, photo.coord.lng);
+        }
+      }
+    });
+    
+    // Trigger recalculation if we have bounds
+    if (currentBounds) {
+      recalculatePhotosInArea(currentBounds);
+    }
+  },
+  onStreamComplete: () => {
+    console.log('Worker: Mapillary streaming completed');
+  },
+  onError: (error: string) => {
+    console.error('Worker: Mapillary error:', error);
+  }
+});
 let lastVisiblePhotos: PhotoData[] = [];
 let geoPicsUrl = 'http://localhost:8212'; // Default fallback
 let recalculateBearingDiffForAllPhotosInArea = false;
@@ -219,6 +251,14 @@ async function loadFromSources(sources: SourceConfig[]): Promise<void> {
       console.log('Worker: JSON serialization failed:', e);
     }
     
+    // Check if Mapillary is disabled and stop stream if needed
+    const mapillarySource = sources.find(s => s.id === 'mapillary');
+    if (!mapillarySource || !mapillarySource.enabled) {
+      console.log('Worker: Mapillary disabled or not found, stopping stream');
+      mapillaryHandler.stopStream();
+      mapillaryHandler.clearPhotos();
+    }
+    
     photoStore.clear();
     spatialIndex.clear();
     
@@ -243,6 +283,23 @@ async function loadFromSources(sources: SourceConfig[]): Promise<void> {
                 photo.source = source;
               });
             }
+            break;
+          case 'mapillary':
+            console.log('Worker: Starting Mapillary streaming for source:', source.id);
+            // Start Mapillary streaming - photos will be added via callback
+            if (currentBounds && source.backendUrl && source.clientId) {
+              await mapillaryHandler.startStream(
+                currentBounds.top_left.lat,
+                currentBounds.top_left.lng,
+                currentBounds.bottom_right.lat,
+                currentBounds.bottom_right.lng,
+                source.clientId,
+                source.backendUrl
+              );
+            } else {
+              console.log('Worker: Cannot start Mapillary stream - missing bounds or config');
+            }
+            // Note: sourcePhotos remains empty here, photos are added via callback
             break;
           case 'device':
             console.log('Worker: Device photo loading not yet implemented in worker');

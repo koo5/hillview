@@ -22,12 +22,6 @@ export interface VisualState {
   bearing: number;
 }
 
-// Source configuration
-export interface SourceConfig {
-  id: string;
-  enabled: boolean;
-}
-
 // Spatial state - triggers photo filtering in worker
 export const spatialState = localStorageReadOnceSharedStore<SpatialState>('spatialState', {
   center: new LatLng(50.114429599683604, 14.523528814315798),
@@ -40,13 +34,6 @@ export const spatialState = localStorageReadOnceSharedStore<SpatialState>('spati
 export const visualState = staggeredLocalStorageSharedStore<VisualState>('visualState', {
   bearing: 230
 }, 250); // 250ms debounce for smooth bearing updates
-
-// Source configuration - triggers photo filtering
-export const sources = writable<SourceConfig[]>([
-  { id: 'hillview', enabled: true },
-  { id: 'mapillary', enabled: true },
-  { id: 'device', enabled: true }
-]);
 
 // Photos filtered by spatial criteria (from worker)
 export const photosInArea = writable<PhotoData[]>([]);
