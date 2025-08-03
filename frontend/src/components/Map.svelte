@@ -22,7 +22,7 @@
     } from "$lib/mapState";
     import { sources } from "$lib/data.svelte";
     import { simplePhotoWorker } from '$lib/simplePhotoWorker';
-    import { turn_to_photo_to, app } from "$lib/data.svelte";
+    import { turn_to_photo_to, app, mapillary_cache_status } from "$lib/data.svelte";
     import { updateGpsLocation, setLocationTracking, setLocationError, gpsLocation } from "$lib/location.svelte";
     import { compassActive, compassAvailable, startCompass, stopCompass, currentHeading } from "$lib/compass.svelte";
     import { optimizedMarkerSystem } from '$lib/optimizedMarkers';
@@ -1032,7 +1032,7 @@
                 title={`Toggle ${source.name} visibility`}
         >
             <div class="source-icon-wrapper">
-                <Spinner show={source.enabled && !!(source.requests && source.requests.length)} color="#fff"></Spinner>
+                <Spinner show={source.enabled && (source.id === 'mapillary' ? $mapillary_cache_status.is_streaming : !!(source.requests && source.requests.length))} color="#fff"></Spinner>
                 <div class="source-icon" style="background-color: {source.color}"></div>
             </div>
             {#if !compactSourceButtons}

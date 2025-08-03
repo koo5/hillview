@@ -392,6 +392,21 @@ function updateBounds(bounds: Bounds): void {
         currentBounds.bottom_right.lng !== bounds.bottom_right.lng) {
       currentBounds = bounds;
       console.log('Worker: Bounds updated, triggering recalculation');
+      
+      // For Mapillary, restart streaming with new bounds
+      const mapillarySource = sourcesConfig.find(s => s.id === 'mapillary' && s.enabled);
+      if (mapillarySource && mapillarySource.backendUrl && mapillarySource.clientId) {
+        console.log('Worker: Restarting Mapillary stream for new bounds');
+        mapillaryHandler.startStream(
+          currentBounds.top_left.lat,
+          currentBounds.top_left.lng,
+          currentBounds.bottom_right.lat,
+          currentBounds.bottom_right.lng,
+          mapillarySource.clientId,
+          mapillarySource.backendUrl
+        );
+      }
+      
       recalculatePhotosInArea();
     } else {
       console.log('Worker: Bounds unchanged, skipping recalculation');

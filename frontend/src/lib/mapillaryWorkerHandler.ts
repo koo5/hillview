@@ -105,6 +105,7 @@ export class MapillaryWorkerHandler {
     
     this.eventSource = new EventSource(url);
     this.isStreaming = true;
+    this.emitStatusUpdate(); // Emit status update immediately when streaming starts
     
     this.eventSource.onmessage = (event) => {
       try {
