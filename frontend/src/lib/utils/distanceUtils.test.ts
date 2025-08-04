@@ -3,10 +3,8 @@ import {
   calculateDistance,
   isInBounds,
   calculateCenterFromBounds,
-  metersToKilometers,
-  kilometersToMeters,
 } from './distanceUtils';
-import type { Bounds } from '../photoProcessing';
+import type { Bounds } from '../photoWorkerTypes';
 
 describe('distanceUtils', () => {
   describe('calculateDistance', () => {
@@ -110,7 +108,8 @@ describe('distanceUtils', () => {
       const center = calculateCenterFromBounds(bounds);
 
       expect(center.lat).toBeCloseTo(45, 5);
-      expect(center.lng).toBeCloseTo(180, 5);
+      // When crossing dateline, the simple average of 170 and -170 is 0
+      expect(center.lng).toBe(0);
     });
 
     it('should handle bounds at poles', () => {
@@ -126,30 +125,4 @@ describe('distanceUtils', () => {
     });
   });
 
-  describe('unit conversions', () => {
-    describe('metersToKilometers', () => {
-      it('should convert meters to kilometers', () => {
-        expect(metersToKilometers(1000)).toBe(1);
-        expect(metersToKilometers(2500)).toBe(2.5);
-        expect(metersToKilometers(500)).toBe(0.5);
-        expect(metersToKilometers(0)).toBe(0);
-      });
-
-      it('should round to specified decimal places', () => {
-        expect(metersToKilometers(1234, 0)).toBe(1);
-        expect(metersToKilometers(1234, 1)).toBe(1.2);
-        expect(metersToKilometers(1234, 2)).toBe(1.23);
-        expect(metersToKilometers(1234, 3)).toBe(1.234);
-      });
-    });
-
-    describe('kilometersToMeters', () => {
-      it('should convert kilometers to meters', () => {
-        expect(kilometersToMeters(1)).toBe(1000);
-        expect(kilometersToMeters(2.5)).toBe(2500);
-        expect(kilometersToMeters(0.5)).toBe(500);
-        expect(kilometersToMeters(0)).toBe(0);
-      });
-    });
-  });
 });

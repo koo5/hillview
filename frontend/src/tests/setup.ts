@@ -1,6 +1,31 @@
 import '@testing-library/jest-dom';
 import { vi } from 'vitest';
 
+// Mock localStorage
+const localStorageMock = {
+  getItem: vi.fn(),
+  setItem: vi.fn(),
+  removeItem: vi.fn(),
+  clear: vi.fn(),
+  length: 0,
+  key: vi.fn(),
+};
+global.localStorage = localStorageMock as any;
+
+// Set default localStorage values to prevent JSON parse errors
+localStorageMock.getItem.mockImplementation((key) => {
+  const defaults: Record<string, string> = {
+    'sources': JSON.stringify([
+      { id: 'hillview', enabled: true },
+      { id: 'mapillary', enabled: true }
+    ]),
+    'client_id': 'test-client-id',
+    'bearingAdjustmentMax': '10',
+    'bearingAdjustmentExponent': '2',
+  };
+  return defaults[key] || null;
+});
+
 // Mock window.matchMedia
 Object.defineProperty(window, 'matchMedia', {
   writable: true,
