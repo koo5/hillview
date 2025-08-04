@@ -282,8 +282,7 @@ async def get_user_photos(
 async def process_photo(
     file_path: str,
     thumbnail_path: str,
-    photo_id: str,
-    db: AsyncSession
+    photo_id: str
 ):
     """Background task to process uploaded photos"""
     # Here you would extract EXIF data, create thumbnails, etc.
@@ -293,8 +292,10 @@ async def process_photo(
         # to create proper thumbnails and extract EXIF data
         shutil.copy(file_path, thumbnail_path)
         
-        # Update the photo record with extracted data
-        async with db.begin():
+        # Create a new database session for the background task
+        from .database import SessionLocal
+        async with SessionLocal() as db:
+            # Update the photo record with extracted data
             result = await db.execute(select(Photo).where(Photo.id == photo_id))
             photo = result.scalars().first()
             if photo:
