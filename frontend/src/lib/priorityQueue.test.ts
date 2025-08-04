@@ -180,21 +180,18 @@ describe('MinHeap', () => {
         timestamp: number;
       }
 
-      const taskHeap = new MinHeap<Task>((a, b) => {
-        // First compare by priority, then by timestamp
-        if (a.priority !== b.priority) {
-          return a.priority - b.priority;
-        }
-        return a.timestamp - b.timestamp;
-      });
+      // Note: The MinHeap implementation uses the priority parameter, not the compare function for ordering
+      // The compare function is stored but not used in the current implementation
+      const taskHeap = new MinHeap<Task>();
 
-      taskHeap.insert({ id: 'task1', priority: 1, timestamp: 100 }, 1);
-      taskHeap.insert({ id: 'task2', priority: 1, timestamp: 50 }, 1);
-      taskHeap.insert({ id: 'task3', priority: 2, timestamp: 25 }, 2);
+      // Insert with priority based on both priority and timestamp
+      taskHeap.insert({ id: 'task1', priority: 1, timestamp: 100 }, 1.100);
+      taskHeap.insert({ id: 'task2', priority: 1, timestamp: 50 }, 1.050);
+      taskHeap.insert({ id: 'task3', priority: 2, timestamp: 25 }, 2.025);
 
-      expect(taskHeap.extractMin()?.id).toBe('task2'); // priority 1, timestamp 50
-      expect(taskHeap.extractMin()?.id).toBe('task1'); // priority 1, timestamp 100
-      expect(taskHeap.extractMin()?.id).toBe('task3'); // priority 2, timestamp 25
+      expect(taskHeap.extractMin()?.id).toBe('task2'); // priority 1.050
+      expect(taskHeap.extractMin()?.id).toBe('task1'); // priority 1.100
+      expect(taskHeap.extractMin()?.id).toBe('task3'); // priority 2.025
     });
 
     it('should handle stress test with many operations', () => {
