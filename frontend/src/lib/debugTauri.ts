@@ -4,6 +4,7 @@ import { TAURI, TAURI_MOBILE, TAURI_DESKTOP, isTauriAvailable } from './tauri';
 // Debug helper to check Tauri availability
 export function debugTauriStatus() {
     console.log('=== TAURI DEBUG INFO ===');
+    console.log('window:', window, 'window.__TAURI__:', (window as any).__TAURI__);
     console.log('TAURI available:', TAURI);
     console.log('TAURI_MOBILE:', TAURI_MOBILE);
     console.log('TAURI_DESKTOP:', TAURI_DESKTOP);

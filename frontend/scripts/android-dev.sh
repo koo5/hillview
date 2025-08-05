@@ -1,12 +1,3 @@
-#!/bin/bash
+#!/bin/fish
 
-# Get the local IP address
-LOCAL_IP=$(hostname -I | awk '{print $1}')
-
-echo "Starting Tauri Android dev with host IP: $LOCAL_IP"
-
-# Export the environment variable for Tauri
-export TAURI_DEV_HOST=$LOCAL_IP
-
-# Run the Tauri Android dev command
-bun run tauri android dev "$@"
+TAURI_DEV_HOST=(hostname -I | awk '{print $1}') JAVA_HOME=/snap/android-studio/current/jbr/  CMAKE_MAKE_PROGRAM=/bin/make ANDROID_NDK_HOME=/home/koom/Android/Sdk/ndk/29.0.13113456/   NDK_HOME=/home/koom/Android/Sdk/ndk/29.0.13113456/  ANDROID_HOME=/home/koom/Android/Sdk/ bun run tauri android dev --verbose

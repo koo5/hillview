@@ -1,6 +1,3 @@
-// Tauri platform detection and utilities
-// Based on pattern from yellow-dev project
-
 import { invoke, addPluginListener } from '@tauri-apps/api/core';
 import { platform } from '@tauri-apps/plugin-os';
 
@@ -10,7 +7,7 @@ const hasWindow = typeof window !== 'undefined';
 // Avoid conflicts with other type declarations by not extending Window
 
 // Core constants for platform detection
-export const TAURI = hasWindow && Object.prototype.hasOwnProperty.call(window, '__TAURI__');
+export const TAURI = hasWindow && Object.prototype.hasOwnProperty.call(window, '__TAURI_INTERNALS__');
 export const BROWSER = !TAURI;
 
 // Platform detection
@@ -96,13 +93,13 @@ export const tauriSensor = TAURI ? {
     }
 } : null;
 
-console.log('🔍 Tauri environment:', {
+console.log('🔍 Tauri environment:', JSON.stringify({
     TAURI,
     TAURI_MOBILE,
     TAURI_DESKTOP,
     platformName,
     hasTauriSensor: !!tauriSensor
-});
+}));
 
 // Utility function to check if Tauri APIs are available
 export function isTauriAvailable(): boolean {

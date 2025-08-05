@@ -53,9 +53,9 @@ export let app = writable<{
 appSettings.subscribe(settings => {
     const currentApp = get(app);
     // Only update if values have actually changed
-    if (currentApp.debug !== settings.debug || 
-        currentApp.displayMode !== settings.displayMode || 
-        currentApp.activity !== settings.activity) {
+    if (currentApp.debug != settings.debug ||
+        currentApp.displayMode != settings.displayMode ||
+        currentApp.activity != settings.activity) {
         app.update(a => ({
             ...a,
             debug: settings.debug,
@@ -69,15 +69,19 @@ appSettings.subscribe(settings => {
 app.subscribe(appState => {
     const currentSettings = get(appSettings);
     // Only update if values have actually changed
-    if (currentSettings.debug !== appState.debug || 
-        currentSettings.displayMode !== appState.displayMode || 
-        currentSettings.activity !== appState.activity) {
-        appSettings.update(settings => ({
-            ...settings,
-            debug: appState.debug,
-            displayMode: appState.displayMode,
-            activity: appState.activity
-        }));
+    if ((!isNaN(currentSettings.debug && !isNaN(appState.debug)) && currentSettings.debug != appState.debug) ||
+        currentSettings.displayMode != appState.displayMode ||
+        currentSettings.activity != appState.activity) {
+        console.log('currentSettings.debug:', currentSettings.debug, 'appState.debug:', appState.debug, 'currentSettings.displayMode:', currentSettings.displayMode, 'appState.displayMode:', appState.displayMode, 'currentSettings.activity:', currentSettings.activity, 'appState.activity:', appState.activity);
+        setTimeout(() => {
+            console.log('Updating appSettings from app state:', JSON.stringify(appState));
+            appSettings.update(settings => ({
+                ...settings,
+                debug: appState.debug,
+                displayMode: appState.displayMode,
+                activity: appState.activity
+            }));
+        }, 500);
     }
 });
 
