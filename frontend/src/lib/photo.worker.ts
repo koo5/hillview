@@ -82,6 +82,10 @@ let lastVisiblePhotos: PhotoData[] = [];
 let geoPicsUrl = 'http://localhost:8212'; // Default fallback
 let recalculateBearingDiffForAllPhotosInArea = false;
 
+// Debouncing and guard variables for recalculatePhotosInArea
+let recalculateTimeout: ReturnType<typeof setTimeout> | null = null;
+let isRecalculating = false;
+
 // Configuration
 const MAX_PHOTOS_IN_AREA = 400;
 const MAX_PHOTOS_IN_RANGE = 100;
@@ -448,11 +452,30 @@ async function updateSources(sources: SourceConfig[]): Promise<void> {
   }
 }
 
-function recalculatePhotosInArea(): void {
+// Debounced version of recalculatePhotosInArea to prevent cascading updates
+function debouncedRecalculatePhotosInArea(): void {
+  if (recalculateTimeout) {
+    clearTimeout(recalculateTimeout);
+  }
+  recalculateTimeout = setTimeout(() => {
+    recalculatePhotosInAreaInternal();
+    recalculateTimeout = null;
+  }, 100); // 100ms debounce
+}
+
+function recalculatePhotosInAreaInternal(): void {
   if (!currentBounds) {
     console.log('Worker: recalculatePhotosInArea: No bounds set, skipping recalculation. Photos loaded:', photoStore.size);
     return;
   }
+  
+  // Guard against duplicate operations
+  if (isRecalculating) {
+    console.log('Worker: recalculatePhotosInArea: Already recalculating, skipping');
+    return;
+  }
+  
+  isRecalculating = true;
   
   console.log('Worker: recalculatePhotosInArea: bounds:', currentBounds, 'input Photos:', photoStore.size);
   const startTime = performance.now();
@@ -502,15 +525,24 @@ function recalculatePhotosInArea(): void {
   //}
   
   // Send update to main thread
-  postMessage({
-    id: 'auto',
-    type: 'photosUpdate',
-    data: {
-      photos: visiblePhotos,
-      hillviewCount: 0,
-      mapillaryCount: 0
-    }
-  } as WorkerResponse);
+  try {
+    postMessage({
+      id: 'auto',
+      type: 'photosUpdate',
+      data: {
+        photos: visiblePhotos,
+        hillviewCount: 0,
+        mapillaryCount: 0
+      }
+    } as WorkerResponse);
+  } finally {
+    isRecalculating = false;
+  }
+}
+
+// Backward compatibility wrapper
+function recalculatePhotosInArea(): void {
+  debouncedRecalculatePhotosInArea();
 }
 
 

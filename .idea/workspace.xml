@@ -5,13 +5,7 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="c3ae2355-73fb-46d1-a1a2-144c561d3c87" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/bun.lock" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/bun.lock" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/package.json" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/package.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/scripts/android-dev.sh" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/scripts/android-dev.sh" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/lib/data.svelte.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/lib/data.svelte.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/lib/debugTauri.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/lib/debugTauri.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/src/lib/tauri.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/lib/tauri.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/lib/captureQueue.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/lib/captureQueue.ts" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />

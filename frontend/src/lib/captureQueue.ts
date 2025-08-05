@@ -80,7 +80,7 @@ class CaptureQueueManager {
                 await this.processNext();
             } else {
                 // Wait a bit before checking again
-                await new Promise(resolve => setTimeout(resolve, 100));
+                await new Promise(resolve => setTimeout(resolve, 250));
             }
         }
     }
