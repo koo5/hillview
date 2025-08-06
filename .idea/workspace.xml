@@ -6,6 +6,7 @@
   <component name="ChangeListManager">
     <list default="true" id="c3ae2355-73fb-46d1-a1a2-144c561d3c87" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+<<<<<<< HEAD
       <change beforePath="$PROJECT_DIR$/frontend/src/components/DebugOverlay.svelte" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/components/DebugOverlay.svelte" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/frontend/src/components/Map.svelte" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/components/Map.svelte" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/frontend/src/lib/captureQueue.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/lib/captureQueue.test.ts" afterDir="false" />
@@ -23,6 +24,9 @@
       <change beforePath="$PROJECT_DIR$/frontend/src/routes/+page.svelte" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/routes/+page.svelte" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/frontend/tests/photo-navigation.spec.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/tests/photo-navigation.spec.ts" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/frontend/tests/source-buttons.spec.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/tests/source-buttons.spec.ts" afterDir="false" />
+=======
+      <change beforePath="$PROJECT_DIR$/frontend/src/lib/simplePhotoWorker.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/lib/simplePhotoWorker.ts" afterDir="false" />
+>>>>>>> da1d9b3124fa090109e57a601850a2bfb7ee8624
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -65,22 +69,23 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent">{
-  &quot;keyToString&quot;: {
-    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;dev2025-07-19__11-28-29&quot;,
-    &quot;junie.onboarding.icon.badge.shown&quot;: &quot;true&quot;,
-    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
-    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
-    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
-    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
-    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
-    &quot;to.speed.mode.migration.done&quot;: &quot;true&quot;,
-    &quot;ts.external.directory.path&quot;: &quot;/home/koom/repos/koo5/hillview/0/hillview/frontend/node_modules/typescript/lib&quot;,
-    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "app.teamhub.selectedTeam": "https://github.com/koo5/hillview",
+    "git-widget-placeholder": "dev2025-07-19__11-28-29",
+    "junie.onboarding.icon.badge.shown": "true",
+    "node.js.detected.package.eslint": "true",
+    "node.js.detected.package.tslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "node.js.selected.package.tslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm",
+    "to.speed.mode.migration.done": "true",
+    "ts.external.directory.path": "/home/koom/repos/koo5/hillview/0/hillview/frontend/node_modules/typescript/lib",
+    "vue.rearranger.settings.migration": "true"
   }
-}</component>
+}]]></component>
   <component name="RecentsManager">
     <key name="MoveFile.RECENT_KEYS">
       <recent name="$PROJECT_DIR$" />
