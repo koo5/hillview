@@ -10,7 +10,7 @@ async function setMapLocation(page: any, lat: number, lng: number, zoom: number 
   const mapContainer = page.locator('.leaflet-container').first();
   await mapContainer.waitFor({ state: 'visible', timeout: 10000 });
   
-  await page.evaluate(([lat, lng, zoom, locationName]) => {
+  await page.evaluate(([lat, lng, zoom, locationName]: [number, number, number, string]) => {
     // Try multiple ways to access the Leaflet map
     const maps = [
       (window as any).map,
@@ -49,7 +49,7 @@ async function configureSources(page: any, config: { [sourceName: string]: boole
     await compactToggle.waitFor({ state: 'visible', timeout: 2000 });
     
     // Check if we're in compact mode (labels hidden)
-    const isCompact = await compactToggle.evaluate(el => el.classList.contains('active'));
+    const isCompact = await compactToggle.evaluate((el: HTMLElement) => el.classList.contains('active'));
     if (isCompact) {
       await compactToggle.click();
       await page.waitForTimeout(500);
@@ -85,7 +85,7 @@ async function configureSources(page: any, config: { [sourceName: string]: boole
         console.log(`✓ ${sourceName} source already ${shouldBeEnabled ? 'enabled' : 'disabled'}`);
       }
     } catch (e) {
-      console.log(`⚠️ Could not configure ${sourceName} source: ${e.message}`);
+      console.log(`⚠️ Could not configure ${sourceName} source: ${(e as Error).message}`);
     }
   }
   
@@ -132,7 +132,7 @@ test.describe('Source Buttons Toggle', () => {
     await expect(compactToggle).toBeVisible();
     
     // Check if we're in compact mode (labels hidden)
-    const isCompact = await compactToggle.evaluate(el => el.classList.contains('active'));
+    const isCompact = await compactToggle.evaluate((el: HTMLElement) => el.classList.contains('active'));
     if (isCompact) {
       await compactToggle.click();
       await page.waitForTimeout(500);
@@ -239,7 +239,7 @@ test.describe('Source Buttons Toggle', () => {
     
     // Expand buttons if in compact mode
     const compactToggle = sourceButtonsContainer.locator('button.toggle-compact');
-    const isCompact = await compactToggle.evaluate(el => el.classList.contains('active'));
+    const isCompact = await compactToggle.evaluate((el: HTMLElement) => el.classList.contains('active'));
     if (isCompact) {
       await compactToggle.click();
       await page.waitForTimeout(500);

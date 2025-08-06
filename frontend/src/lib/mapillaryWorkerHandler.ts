@@ -208,9 +208,7 @@ export class MapillaryWorkerHandler {
       
       return {
         id: photo.id,
-        lat: lat,
-        lng: lng,
-        coord: { lat: lat, lng: lng }, // Add coord property for compatibility
+        coord: { lat: lat, lng: lng },
         bearing: photo.computed_compass_angle || photo.compass_angle || 0,
         url: photo.thumb_1024_url || '',
         file: `mapillary_${photo.id}`,
@@ -248,10 +246,10 @@ export class MapillaryWorkerHandler {
   }
   
   private isPhotoInBounds(photo: PhotoData, bounds: { topLeftLat: number; topLeftLon: number; bottomRightLat: number; bottomRightLon: number }): boolean {
-    return photo.lat <= bounds.topLeftLat &&
-           photo.lat >= bounds.bottomRightLat &&
-           photo.lng >= bounds.topLeftLon &&
-           photo.lng <= bounds.bottomRightLon;
+    return photo.coord.lat <= bounds.topLeftLat &&
+           photo.coord.lat >= bounds.bottomRightLat &&
+           photo.coord.lng >= bounds.topLeftLon &&
+           photo.coord.lng <= bounds.bottomRightLon;
   }
   
   private cullPhotosIfNeeded(): number {

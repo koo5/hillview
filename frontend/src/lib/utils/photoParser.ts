@@ -1,4 +1,4 @@
-import type { PhotoData, PhotoSize } from '../types/photoTypes';
+import type { PhotoSize } from '../types/photoTypes';
 
 // Simple coordinate interface for worker compatibility
 export interface SimpleLatLng {
@@ -37,11 +37,24 @@ export function parseFraction(value: string | number): number {
     return typeof value === 'string' ? parseFloat(value) || 0 : value;
 }
 
-export function parsePhotoData(item: any, geoPicsUrl: string): PhotoData {
+// Worker-compatible PhotoData with simple coordinate object
+export interface WorkerPhotoData {
+    id: string;
+    source_type: string;
+    file: string;
+    url: string;
+    coord: SimpleLatLng; // Simple object for worker compatibility
+    bearing: number;
+    altitude: number;
+    source?: any;
+    sizes?: Record<string, PhotoSize>;
+}
+
+export function parsePhotoData(item: any, geoPicsUrl: string): WorkerPhotoData {
     const latitude = parseCoordinate(item.latitude);
     const longitude = parseCoordinate(item.longitude);
 
-    const photo: PhotoData = {
+    const photo: WorkerPhotoData = {
         id: 'hillview_' + item.file,
         source_type: 'hillview',
         file: item.file,
@@ -73,7 +86,7 @@ export function parsePhotoData(item: any, geoPicsUrl: string): PhotoData {
 }
 
 // Source loading functions that can be used by both frontend and worker
-export async function loadJsonPhotos(url: string, geoPicsUrl: string): Promise<PhotoData[]> {
+export async function loadJsonPhotos(url: string, geoPicsUrl: string): Promise<WorkerPhotoData[]> {
     console.log(`Loading JSON photos from ${url}`);
     
     const response = await fetch(url, {

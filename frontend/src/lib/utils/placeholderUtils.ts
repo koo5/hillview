@@ -1,6 +1,6 @@
 import { LatLng } from 'leaflet';
 import type { PlaceholderPhoto, DevicePhotoMetadata } from '../types/photoTypes';
-import type { Source } from '../sources';
+import type { Source } from '../data.svelte';
 
 export interface PlaceholderLocation {
     latitude: number;

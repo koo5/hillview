@@ -101,7 +101,7 @@
             const newDebug = ((a.debug || 0) + 1) % 4;
             return {...a, debug: newDebug};
         });
-        console.log(`Debug mode toggled to ${app.debug}`);
+        console.log(`Debug mode toggled to ${$app.debug}`);
     }
 
     // Keyboard shortcut to toggle debug
@@ -318,7 +318,7 @@
                     <!--            </ul>-->
                     <b>Photos to right:</b>
                     <ul>
-                        {#each [] as photo}
+                        {#each $photoToRight ? [$photoToRight] : [] as photo}
                             <li>{photo.id},{photo.file}
                                 {JSON.stringify(photo.sizes, null, 2)}
                             </li>

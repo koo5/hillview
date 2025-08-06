@@ -3,7 +3,7 @@ import {
   getAbsBearingDiff,
   getAngularDistance,
   getBearingColor,
-  updatePhotoBearingData,
+  updatePhotoBearingDiffData,
   calculateAngularDistance,
   normalizeBearing,
   calculateBearingData,
@@ -85,7 +85,7 @@ describe('bearingUtils', () => {
     });
   });
 
-  describe('updatePhotoBearingData', () => {
+  describe('updatePhotoBearingDiffData', () => {
     it('should update photo with bearing data', () => {
       const photo: PhotoData = {
         id: 'test1',
@@ -97,7 +97,7 @@ describe('bearingUtils', () => {
         altitude: 100,
       };
 
-      const updated = updatePhotoBearingData(photo, 90);
+      const updated = updatePhotoBearingDiffData(photo, 90);
 
       expect(updated.abs_bearing_diff).toBe(45);
       expect(updated.bearing_color).toBe('hsl(78, 100%, 70%)'); // Based on the actual implementation
@@ -114,7 +114,7 @@ describe('bearingUtils', () => {
         altitude: 100,
       };
 
-      const updated = updatePhotoBearingData(photo, 10);
+      const updated = updatePhotoBearingDiffData(photo, 10);
 
       expect(updated.abs_bearing_diff).toBe(20);
       expect(updated.bearing_color).toBe('hsl(90, 100%, 70%)'); // Based on the actual implementation
@@ -133,7 +133,7 @@ describe('bearingUtils', () => {
         accuracy: 10,
       };
 
-      const updated = updatePhotoBearingData(photo, 0);
+      const updated = updatePhotoBearingDiffData(photo, 0);
 
       expect(updated.id).toBe(photo.id);
       expect(updated.timestamp).toBe(photo.timestamp);

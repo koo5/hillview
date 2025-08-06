@@ -1,4 +1,8 @@
-import type { LatLng } from 'leaflet';
+// Simple coordinate interface for worker compatibility (can't import leaflet in workers)
+export interface SimpleCoord {
+  lat: number;
+  lng: number;
+}
 
 // Photo data types
 export interface PhotoData {
@@ -6,7 +10,7 @@ export interface PhotoData {
   source_type: string;
   file: string;
   url: string;
-  coord: LatLng;
+  coord: SimpleCoord;
   bearing: number;
   altitude: number;
   source?: any;
@@ -28,8 +32,8 @@ export interface PhotoSize {
 }
 
 export interface Bounds {
-  top_left: LatLng;
-  bottom_right: LatLng;
+  top_left: SimpleCoord;
+  bottom_right: SimpleCoord;
 }
 
 export interface SourceConfig {

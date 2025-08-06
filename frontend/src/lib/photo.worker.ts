@@ -3,81 +3,24 @@
 import type { WorkerMessage, WorkerResponse, PhotoData, Bounds, SourceConfig } from './photoWorkerTypes';
 import { loadJsonPhotos } from './utils/photoParser';
 import { MapillaryWorkerHandler } from './mapillaryWorkerHandler';
+import { geoPicsUrl } from './config';
 
-// Webworker version for runtime checking
 declare const __WORKER_VERSION__: string;
 export const WORKER_VERSION = __WORKER_VERSION__;
 
 console.log(`PhotoWorker: Worker script loaded with version: ${WORKER_VERSION}`);
-import { updatePhotoBearingData } from './utils/bearingUtils';
+import { updatePhotoBearingDiffData } from './utils/bearingUtils';
 import { getDistance, calculateCenterFromBounds, isInBounds } from './utils/distanceUtils';
+
+let sourcesConfig: SourceConfig[] = [];
 
 // Photo data store - source of truth
 const photoStore = new Map<string, PhotoData>();
+let lastVisiblePhotos: PhotoData[] = [];
+
 let currentBounds: Bounds | null = null;
 let currentRange = 5000; // Default 5km range
-let sourcesConfig: SourceConfig[] = [];
 
-// Initialize Mapillary handler
-const mapillaryHandler = new MapillaryWorkerHandler({
-  onPhotosAdded: (photos: PhotoData[]) => {
-    // Add photos to store and spatial index
-    photos.forEach(photo => {
-      photoStore.set(photo.id, photo);
-      if (spatialIndex) {
-        // Handle different PhotoData formats
-        if (photo.lat !== undefined && photo.lng !== undefined) {
-          // Mapillary format with lat/lng properties
-          spatialIndex.addPhoto(photo.id, photo.lat, photo.lng);
-        } else if (photo.coord) {
-          // Traditional format with coord property
-          spatialIndex.addPhoto(photo.id, photo.coord.lat, photo.coord.lng);
-        }
-      }
-    });
-    
-    // Trigger recalculation if we have bounds
-    if (currentBounds) {
-      recalculatePhotosInArea();
-      
-      // Also trigger range update for navigation using bounds center
-      const center = calculateCenterFromBounds(currentBounds);
-      getPhotosInRange(center);
-    }
-  },
-  onStreamComplete: () => {
-    console.log('Worker: Mapillary streaming completed');
-  },
-  onError: (error: string) => {
-    console.error('Worker: Mapillary error:', error);
-  },
-  onStatusUpdate: (status) => {
-    // Send unified status update to main thread for debug panel
-    postMessage({
-      id: 'auto',
-      type: 'statusUpdate',
-      data: { 
-        mapillaryStatus: {
-          // Legacy compatibility fields
-          uncached_regions: status.uncachedRegions || 0,
-          is_streaming: status.isStreaming,
-          total_live_photos: status.totalPhotos,
-          
-          // New detailed fields
-          stream_phase: status.streamPhase,
-          completed_regions: status.completedRegions?.length || 0,
-          last_request_time: status.lastRequestTime,
-          last_response_time: status.lastResponseTime,
-          current_url: status.currentUrl,
-          last_error: status.lastError,
-          last_bounds: status.lastBounds
-        }
-      }
-    } as WorkerResponse);
-  }
-});
-let lastVisiblePhotos: PhotoData[] = [];
-let geoPicsUrl = 'http://localhost:8212'; // Default fallback
 let recalculateBearingDiffForAllPhotosInArea = false;
 
 // Debouncing and guard variables for recalculatePhotosInArea
@@ -585,7 +528,7 @@ function updateBearingColors(bearing: number): void {
     
     // Update bearing colors for all visible photos
     const photosWithColors = lastVisiblePhotos.map(photo =>
-      updatePhotoBearingData(photo, bearing)
+      updatePhotoBearingDiffData(photo, bearing)
     );
     
     postMessage({
@@ -687,10 +630,6 @@ self.onmessage = async function(e: MessageEvent<WorkerMessage>) {
             recalculateBearingDiffForAllPhotosInArea = data.config.recalculateBearingDiffForAllPhotosInArea;
             console.log('Worker: Updated recalculateBearingDiffForAllPhotosInArea to', recalculateBearingDiffForAllPhotosInArea);
           }
-          if (data.config.geoPicsUrl !== undefined) {
-            geoPicsUrl = data.config.geoPicsUrl;
-            console.log('Worker: Updated geoPicsUrl to', geoPicsUrl);
-          }
         }
         postMessage({ id, type: 'success' } as WorkerResponse);
         break;
@@ -710,6 +649,67 @@ self.onmessage = async function(e: MessageEvent<WorkerMessage>) {
     } as WorkerResponse);
   }
 };
+
+
+function onPhotoStoreChange() {
+  // Trigger recalculation if we have bounds
+  if (currentBounds) {
+    recalculatePhotosInArea();
+
+    // Also trigger range update for navigation using bounds center
+    const center = calculateCenterFromBounds(currentBounds);
+    getPhotosInRange(center);
+  }
+}
+
+
+// Initialize Mapillary handler
+const mapillaryHandler = new MapillaryWorkerHandler({
+  onPhotosAdded: (photos: PhotoData[]) => {
+    console.log(`Worker: Mapillary adding ${photos.length} photos`);
+    // Add photos to store and spatial index
+    photos.forEach(photo => {
+      photoStore.set(photo.id, photo);
+      if (spatialIndex) {
+        // All photos now use coord property consistently
+        if (photo.coord) {
+          spatialIndex.addPhoto(photo.id, photo.coord.lat, photo.coord.lng);
+        }
+      }
+    });
+    onPhotoStoreChange();
+  },
+  onStreamComplete: () => {
+    console.log('Worker: Mapillary streaming completed');
+  },
+  onError: (error: string) => {
+    console.error('Worker: Mapillary error:', error);
+  },
+  onStatusUpdate: (status) => {
+    // Send unified status update to main thread for debug panel
+    postMessage({
+      id: 'auto',
+      type: 'statusUpdate',
+      data: {
+        mapillaryStatus: {
+          // Legacy compatibility fields
+          uncached_regions: status.uncachedRegions || 0,
+          is_streaming: status.isStreaming,
+          total_live_photos: status.totalPhotos,
+
+          // New detailed fields
+          stream_phase: status.streamPhase,
+          completed_regions: status.completedRegions?.length || 0,
+          last_request_time: status.lastRequestTime,
+          last_response_time: status.lastResponseTime,
+          current_url: status.currentUrl,
+          last_error: status.lastError,
+          last_bounds: status.lastBounds
+        }
+      }
+    } as WorkerResponse);
+  }
+});
 
 // Export for TypeScript
 export {};

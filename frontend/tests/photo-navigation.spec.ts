@@ -32,10 +32,7 @@ test.describe('Photo Navigation and Image URLs', () => {
         
         console.log(`🔗 Image ${i} URL: ${src}`);
         
-        // Should include geoPicsUrl (localhost:8212 or the configured URL)
         const hasCorrectPrefix = src && (
-          src.includes('localhost:8212') || 
-          src.includes('iot.ueueeu.eu') ||
           src.startsWith('http')
         );
         

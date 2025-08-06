@@ -1,28 +1,30 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { CaptureQueue } from './captureQueue';
+import { captureQueue } from './captureQueue';
 import type { CapturedPhotoData } from './types/photoTypes';
 
 // Mock the photoCapture module
 vi.mock('./photoCapture', () => ({
-  captureAndSavePhoto: vi.fn().mockResolvedValue({
-    id: 'mocked-photo-id',
-    filename: 'mocked-photo.jpg',
-    path: '/path/to/mocked-photo.jpg',
-    latitude: 50.0617,
-    longitude: 14.5146,
-    altitude: 100,
-    bearing: 45,
-    timestamp: Date.now(),
-    accuracy: 10,
-    width: 1920,
-    height: 1080,
-    file_size: 1000000,
-    created_at: Date.now(),
-  }),
+  photoCaptureService: {
+    savePhotoWithExif: vi.fn().mockResolvedValue({
+      id: 'mocked-photo-id',
+      filename: 'mocked-photo.jpg',
+      path: '/path/to/mocked-photo.jpg',
+      latitude: 50.0617,
+      longitude: 14.5146,
+      altitude: 100,
+      bearing: 45,
+      timestamp: Date.now(),
+      accuracy: 10,
+      width: 1920,
+      height: 1080,
+      file_size: 1000000,
+      created_at: Date.now(),
+    })
+  }
 }));
 
 describe('CaptureQueue', () => {
-  let queue: CaptureQueue;
+  let queue: typeof captureQueue;
   const mockOnProgress = vi.fn();
   const mockOnComplete = vi.fn();
   const mockOnError = vi.fn();
@@ -41,11 +43,11 @@ describe('CaptureQueue', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    queue = new CaptureQueue({
-      onProgress: mockOnProgress,
-      onComplete: mockOnComplete,
-      onError: mockOnError,
-    });
+    queue = captureQueue;
+    // Set up callbacks
+    queue.onProgress = mockOnProgress;
+    queue.onComplete = mockOnComplete;
+    queue.onError = mockOnError;
   });
 
   describe('queue management', () => {
@@ -104,9 +106,9 @@ describe('CaptureQueue', () => {
 
   describe('error handling', () => {
     it('should handle processing errors', async () => {
-      // Mock captureAndSavePhoto to throw an error
-      const { captureAndSavePhoto } = await import('./photoCapture');
-      vi.mocked(captureAndSavePhoto).mockRejectedValueOnce(new Error('Processing failed'));
+      // Mock savePhotoWithExif to throw an error
+      const { photoCaptureService } = await import('./photoCapture');
+      vi.mocked(photoCaptureService.savePhotoWithExif).mockRejectedValueOnce(new Error('Processing failed'));
 
       const photo = createCapturedPhoto('error-photo');
       await queue.add(photo);
@@ -124,8 +126,8 @@ describe('CaptureQueue', () => {
     });
 
     it('should continue processing after error', async () => {
-      const { captureAndSavePhoto } = await import('./photoCapture');
-      vi.mocked(captureAndSavePhoto)
+      const { photoCaptureService } = await import('./photoCapture');
+      vi.mocked(photoCaptureService.savePhotoWithExif)
         .mockRejectedValueOnce(new Error('First photo failed'))
         .mockResolvedValueOnce({
           id: 'success-photo',

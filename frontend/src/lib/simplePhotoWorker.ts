@@ -34,7 +34,7 @@ class SimplePhotoWorker {
       // Send configuration including geoPicsUrl
       await this.sendMessage('updateConfig', { 
         config: { 
-          geoPicsUrl: geoPicsUrl || 'http://localhost:8212' 
+
         } 
       });
       

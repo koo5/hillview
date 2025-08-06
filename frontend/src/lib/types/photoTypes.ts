@@ -1,5 +1,5 @@
 import { LatLng } from 'leaflet';
-import type { Source } from '../sources';
+import type { Source } from '../data.svelte';
 
 /**
  * Base photo size information
@@ -26,6 +26,7 @@ export interface PhotoData {
     isUserPhoto?: boolean;
     isDevicePhoto?: boolean;
     isPlaceholder?: boolean;
+    isDirectoryPhoto?: boolean;
     timestamp?: number;
     accuracy?: number;
     // Computed properties (added by processing)

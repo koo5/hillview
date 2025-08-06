@@ -6,7 +6,23 @@
   <component name="ChangeListManager">
     <list default="true" id="c3ae2355-73fb-46d1-a1a2-144c561d3c87" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/components/DebugOverlay.svelte" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/components/DebugOverlay.svelte" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/components/Map.svelte" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/components/Map.svelte" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/lib/captureQueue.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/lib/captureQueue.test.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/lib/data.svelte.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/lib/data.svelte.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/lib/mapillaryWorkerHandler.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/lib/mapillaryWorkerHandler.ts" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/frontend/src/lib/photo.worker.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/lib/photo.worker.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/lib/photoProcessing.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/lib/photoProcessing.test.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/lib/photoWorkerTypes.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/lib/photoWorkerTypes.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/lib/simplePhotoWorker.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/lib/simplePhotoWorker.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/lib/types/photoTypes.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/lib/types/photoTypes.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/lib/utils/bearingUtils.test.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/lib/utils/bearingUtils.test.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/lib/utils/bearingUtils.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/lib/utils/bearingUtils.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/lib/utils/photoParser.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/lib/utils/photoParser.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/lib/utils/placeholderUtils.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/lib/utils/placeholderUtils.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/routes/+page.svelte" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/routes/+page.svelte" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/tests/photo-navigation.spec.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/tests/photo-navigation.spec.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/tests/source-buttons.spec.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/tests/source-buttons.spec.ts" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />

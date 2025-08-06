@@ -71,7 +71,7 @@ export function calculateAngularDistance(bearing1: number, bearing2: number): nu
  * @param currentBearing - Current view bearing
  * @returns Photo with updated bearing data
  */
-export function updatePhotoBearingData<T extends { bearing: number }>(
+export function updatePhotoBearingDiffData<T extends { bearing: number }>(
     photo: T,
     currentBearing: number
 ): T & { abs_bearing_diff: number; bearing_color: string; angular_distance_abs?: number } {

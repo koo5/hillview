@@ -617,6 +617,7 @@
     }
     
     let wheelTimeout: any = null;
+    let bearingUpdateTimeout: any = null;
     
     function handleAndroidWheel(e: WheelEvent) {
         console.log('Android wheel event:', { deltaY: e.deltaY, wheelDelta: (e as any).wheelDelta, detail: e.detail });

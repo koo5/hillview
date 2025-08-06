@@ -69,7 +69,7 @@ appSettings.subscribe(settings => {
 app.subscribe(appState => {
     const currentSettings = get(appSettings);
     // Only update if values have actually changed
-    if ((!isNaN(currentSettings.debug && !isNaN(appState.debug)) && currentSettings.debug != appState.debug) ||
+    if (((!isNaN(currentSettings.debug) && !isNaN(appState.debug)) && currentSettings.debug != appState.debug) ||
         currentSettings.displayMode != appState.displayMode ||
         currentSettings.activity != appState.activity) {
         console.log('currentSettings.debug:', currentSettings.debug, 'appState.debug:', appState.debug, 'currentSettings.displayMode:', currentSettings.displayMode, 'appState.displayMode:', appState.displayMode, 'currentSettings.activity:', currentSettings.activity, 'appState.activity:', appState.activity);

@@ -63,7 +63,7 @@
         }
 
         if (update) {
-            updateSpatialState({...p, reason: 'url'});
+            updateSpatialState({...p});
             map?.setView(p.center, p.zoom);
         }
 
