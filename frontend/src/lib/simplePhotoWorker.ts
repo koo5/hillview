@@ -4,10 +4,7 @@ import { sources, client_id, mapillary_cache_status } from './data.svelte';
 import { geoPicsUrl } from './config';
 import { get } from 'svelte/store';
 
-/**
- * Simplified direct worker communication
- * No adapter layers - just direct message passing
- */
+
 class SimplePhotoWorker {
   private worker: Worker | null = null;
   private messageId = 0;
@@ -34,11 +31,11 @@ class SimplePhotoWorker {
       // Send configuration including geoPicsUrl
       await this.sendMessage('updateConfig', { 
         config: { 
-          geoPicsUrl: geoPicsUrl || 'http://localhost:8212' 
+          geoPicsUrl
         } 
       });
       
-      console.log('SimplePhotoWorker: Initialized successfully with geoPicsUrl:', geoPicsUrl);
+      console.log('SimplePhotoWorker: Initialized with geoPicsUrl:', geoPicsUrl);
       
       // Set up reactive subscriptions
       this.setupReactivity();
@@ -149,8 +146,8 @@ class SimplePhotoWorker {
       if (!this.isInitialized || !spatial.bounds) return;
       
       try {
+        console.log('SimplePhotoWorker: send updateBounds..');
         await this.sendMessage('updateBounds', { bounds: spatial.bounds });
-        console.log('SimplePhotoWorker: Updated spatial bounds');
       } catch (error) {
         console.error('SimplePhotoWorker: Failed to update bounds', error);
       }
@@ -176,7 +173,7 @@ class SimplePhotoWorker {
           
           // Add Mapillary-specific configuration
           if (s.type === 'mapillary') {
-            plain.backendUrl = import.meta.env.VITE_BACKEND || 'http://localhost:8000';
+            plain.backendUrl = import.meta.env.VITE_BACKEND;
             plain.clientId = get(client_id);
           }
           
@@ -187,7 +184,6 @@ class SimplePhotoWorker {
         // First load photos from sources
         const enabledSources = plainSources.filter(s => s.enabled);
         if (enabledSources.length > 0) {
-          console.log('SimplePhotoWorker: Loading photos from sources:', enabledSources.map(s => s.id));
           console.log('SimplePhotoWorker: Sending plain sources to worker:', plainSources);
           await this.loadFromSources(plainSources);
         }
