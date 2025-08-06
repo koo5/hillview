@@ -1,8 +1,6 @@
 /// <reference lib="webworker" />
 
 import type { WorkerMessage, WorkerResponse, PhotoData, Bounds, SourceConfig } from './photoWorkerTypes';
-// Note: Cannot import Leaflet in worker context (window is not defined)
-// import { LatLng } from 'leaflet';
 import { loadJsonPhotos } from './utils/photoParser';
 import { MapillaryWorkerHandler } from './mapillaryWorkerHandler';
 
