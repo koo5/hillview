@@ -57,7 +57,6 @@ export interface SourceConfig {
 // Worker message types
 export type WorkerMessageType = 
   | 'init' 
-  | 'loadPhotos' 
   | 'loadFromSources'
   | 'updateBounds'
   | 'updateSources' 

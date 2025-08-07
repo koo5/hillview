@@ -53,6 +53,10 @@
         <!--{/if}-->
         {#if $photoInFront}
             <Photo photo={$photoInFront} className="front" {clientWidth} />
+            {:else}
+            <div class="no-photo">
+                <p>No photos in range</p>
+            </div>
         {/if}
         <!--{#if $photo_to_right}-->
         <!--    <Photo photo={$photo_to_right} className="right" />-->
@@ -86,52 +90,48 @@
         width: 100%;
         height: 100%;
         max-height: 100%;
+        background-color: rgba(100, 105, 105);
     }
 
-    .thumbnails-top, .thumbnails-bottom {
-        display: flex;
-        overflow-x: auto;
-        padding: 1px;
-        background-color: rgba(0, 0, 0, 0.5);
-        height: 50px;
-        z-index: 30000;
-    }
+    /*.thumbnails-top, .thumbnails-bottom {*/
+    /*    display: flex;*/
+    /*    overflow-x: auto;*/
+    /*    padding: 1px;*/
+    /*    background-color: rgba(0, 0, 0, 0.5);*/
+    /*    height: 50px;*/
+    /*    z-index: 30000;*/
+    /*}*/
 
-    .thumbnails-bottom {
-        flex-direction: row-reverse;
-    }
+    /*.thumbnails-bottom {*/
+    /*    flex-direction: row-reverse;*/
+    /*}*/
 
-    .thumbnail {
-        flex: 0 0 auto;
-        margin: 0 5px;
-        cursor: pointer;
-        transition: transform 0.2s;
-    }
+    /*.thumbnail {*/
+    /*    flex: 0 0 auto;*/
+    /*    margin: 0 5px;*/
+    /*    cursor: pointer;*/
+    /*    transition: transform 0.2s;*/
+    /*}*/
 
-    .thumbnail:hover {
-        transform: scale(1.1);
-    }
+    /*.thumbnail:hover {*/
+    /*    transform: scale(1.1);*/
+    /*}*/
 
-    .thumbnail img {
-        height: 50px;
-        width: 50px;
-        object-fit: cover;
-        border: 2px solid;
-        border-radius: 4px;
-    }
+    /*.thumbnail img {*/
+    /*    height: 50px;*/
+    /*    width: 50px;*/
+    /*    object-fit: cover;*/
+    /*    border: 2px solid;*/
+    /*    border-radius: 4px;*/
+    /*}*/
 
-    .debug {
-        overflow: auto;
-        position: absolute;
-        top: 0;
-        left: 0;
-        padding: 0.5rem;
-        background: white;
-        border: 1px solid black;
-        z-index: 31000;
-        width: 90%;
-        height: 90%;
-    }
+    /*ul {*/
+    /*    margin: 0.3em;*/
+    /*}*/
+
+    /*.no-photo {*/
+    /*    */
+    /*}*/
 
     .photo-container {
         position: relative;
@@ -143,7 +143,5 @@
         overflow: hidden;
     }
 
-    ul {
-        margin: 0.3em;
-    }
+
 </style>

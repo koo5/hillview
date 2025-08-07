@@ -22,7 +22,8 @@ Sentry.init({
         Sentry.consoleLoggingIntegration({}),
         Sentry.feedbackIntegration({
             // Additional SDK configuration goes in here, for example:
-            colorScheme: "light",
+            colorScheme: "system",
+            triggerLabel: "Bug",
         }),
     ],
 });

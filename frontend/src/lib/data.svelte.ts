@@ -19,7 +19,7 @@ export interface Source {
 }
 
 export const sources = writable<Source[]>([
-    {id: 'hillview', name: 'Hillview', type: 'json', enabled: false, requests: [], color: '#000', url: `${geoPicsUrl}/files.json`},
+    {id: 'hillview', name: 'Hillview', type: 'json', enabled: false, requests: [], color: '#000', url: `${geoPicsUrl}`},
     {id: 'mapillary', name: 'Mapillary', type: 'mapillary', enabled: true, requests: [], color: '#888'},
     {id: 'device', name: 'My Device', type: 'device', enabled: true, requests: [], color: '#4a90e2'},
 ]);

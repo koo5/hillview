@@ -260,10 +260,6 @@ class SimplePhotoWorker {
     });
   }
 
-  // Public API
-  async loadPhotos(photos: PhotoData[]): Promise<void> {
-    await this.sendMessage('loadPhotos', { photos });
-  }
 
   async loadFromSources(sources: SourceConfig[]): Promise<void> {
     await this.sendMessage('loadFromSources', { sources });
