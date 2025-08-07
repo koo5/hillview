@@ -31,21 +31,21 @@
 </script>
 
 <div class="gallery-wrapper">
-    {#if $app.displayMode !== 'max'}
-        <div class="thumbnails-top">
-            {#each $photosInRange as photo}
-                <div class="thumbnail" on:click={() => handleThumbnailClick(photo)} role="button" tabindex="0" on:keydown={e => e.key === 'Enter' && handleThumbnailClick(photo)}>
-                    {#if photo.isDevicePhoto}
-                        {#await getDevicePhotoUrl(photo.url) then url}
-                            <img src={url} alt="Thumbnail" style:border-color={photo.bearing_color || '#ccc'}/>
-                        {/await}
-                    {:else if photo.sizes && photo.sizes[50]}
-                        <img src={photo.sizes[50].url} alt="Thumbnail" style:border-color={photo.bearing_color || '#ccc'}/>
-                    {/if}
-                </div>
-            {/each}
-        </div>
-    {/if}
+    <!--{#if $app.displayMode !== 'max'}-->
+    <!--    <div class="thumbnails-top">-->
+    <!--        {#each $photosInRange as photo}-->
+    <!--            <div class="thumbnail" on:click={() => handleThumbnailClick(photo)} role="button" tabindex="0" on:keydown={e => e.key === 'Enter' && handleThumbnailClick(photo)}>-->
+    <!--                {#if photo.isDevicePhoto}-->
+    <!--                    {#await getDevicePhotoUrl(photo.url) then url}-->
+    <!--                        <img src={url} alt="Thumbnail" style:border-color={photo.bearing_color || '#ccc'}/>-->
+    <!--                    {/await}-->
+    <!--                {:else if photo.sizes && photo.sizes[50]}-->
+    <!--                    <img src={photo.sizes[50].url} alt="Thumbnail" style:border-color={photo.bearing_color || '#ccc'}/>-->
+    <!--                {/if}-->
+    <!--            </div>-->
+    <!--        {/each}-->
+    <!--    </div>-->
+    <!--{/if}-->
 
     <div class="photo-container" bind:clientWidth >
         <!--{#if $photo_to_left}-->
@@ -59,21 +59,22 @@
         <!--{/if}-->
     </div>
 
-    {#if $app.displayMode !== 'max'}
-        <div class="thumbnails-bottom">
-            {#each $photosInRange as photo}
-                <div class="thumbnail" on:click={() => handleThumbnailClick(photo)} role="button" tabindex="0" on:keydown={e => e.key === 'Enter' && handleThumbnailClick(photo)}>
-                    {#if photo.isDevicePhoto}
-                        {#await getDevicePhotoUrl(photo.url) then url}
-                            <img src={url} alt="Thumbnail" style="border-color: {photo.bearing_color || '#ccc'}"/>
-                        {/await}
-                    {:else if photo.sizes && photo.sizes[50]}
-                        <img src={photo.sizes[50].url} alt="Thumbnail" style="border-color: {photo.bearing_color || '#ccc'}"/>
-                    {/if}
-                </div>
-            {/each}
-        </div>
-    {/if}
+    <!--{#if $app.displayMode !== 'max'}-->
+    <!--    <div class="thumbnails-bottom">-->
+    <!--        {#each $photosInRange as photo}-->
+    <!--            <div class="thumbnail" on:click={() => handleThumbnailClick(photo)} role="button" tabindex="0" on:keydown={e => e.key === 'Enter' && handleThumbnailClick(photo)}>-->
+    <!--                {#if photo.isDevicePhoto}-->
+    <!--                    {#await getDevicePhotoUrl(photo.url) then url}-->
+    <!--                        <img src={url} alt="Thumbnail" style="border-color: {photo.bearing_color || '#ccc'}"/>-->
+    <!--                    {/await}-->
+    <!--                {:else if photo.sizes && photo.sizes[50]}-->
+    <!--                    <img src={photo.sizes[50].url} alt="Thumbnail" style="border-color: {photo.bearing_color || '#ccc'}"/>-->
+    <!--                {/if}-->
+    <!--            </div>-->
+    <!--        {/each}-->
+    <!--    </div>-->
+    <!--{/if}-->
+
 
 </div>
 

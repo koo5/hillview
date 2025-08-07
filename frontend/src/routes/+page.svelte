@@ -729,7 +729,7 @@
     }
 
     :global(#sentry-feedback) {
-        --trigger-background: #00ff00;
+        --trigger-background: rgba(74, 144, 226, 0.6);
         --inset: auto auto 0 0;
     }
     

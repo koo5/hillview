@@ -2,6 +2,11 @@ import { LatLng } from 'leaflet';
 import type { Source } from '../data.svelte';
 
 /**
+ * Unique identifier for photos
+ */
+export type PhotoId = string;
+
+/**
  * Base photo size information
  */
 export interface PhotoSize {
@@ -14,7 +19,7 @@ export interface PhotoSize {
  * Base photo data structure used throughout the application
  */
 export interface PhotoData {
-    id: string;
+    id: PhotoId;
     source_type: string;
     file: string;
     url: string;
@@ -49,7 +54,7 @@ export interface PhotoWithBearing extends PhotoData {
  * Device photo metadata stored in the backend
  */
 export interface DevicePhotoMetadata {
-    id: string;
+    id: PhotoId;
     filename: string;
     path: string;
     latitude: number;

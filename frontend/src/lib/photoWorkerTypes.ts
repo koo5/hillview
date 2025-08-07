@@ -1,3 +1,8 @@
+import type { PhotoId } from './types/photoTypes';
+
+// Re-export PhotoId for use in other worker files
+export type { PhotoId };
+
 // Simple coordinate interface for worker compatibility (can't import leaflet in workers)
 export interface SimpleCoord {
   lat: number;
@@ -6,7 +11,7 @@ export interface SimpleCoord {
 
 // Photo data types
 export interface PhotoData {
-  id: string;
+  id: PhotoId;
   source_type: string;
   file: string;
   url: string;

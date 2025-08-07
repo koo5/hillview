@@ -18,11 +18,11 @@ Sentry.init({
 
     // If you don't want to use Session Replay, just remove the line below:
     integrations: [
-        replayIntegration(),
+        // replayIntegration(),
         Sentry.consoleLoggingIntegration({}),
         Sentry.feedbackIntegration({
             // Additional SDK configuration goes in here, for example:
-            colorScheme: "system",
+            colorScheme: "light",
         }),
     ],
 });

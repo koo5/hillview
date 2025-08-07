@@ -14,10 +14,10 @@ import {
   PhotoSpatialIndex,
   type Bounds
 } from './photoProcessingUtils';
-import type { PhotoData, PhotoWithBearing } from './types/photoTypes';
+import type { PhotoData, PhotoWithBearing, PhotoId } from './types/photoTypes';
 
 describe('photoProcessingUtils', () => {
-  const createTestPhoto = (id: string, lat: number, lng: number, bearing: number = 0): PhotoData => ({
+  const createTestPhoto = (id: PhotoId, lat: number, lng: number, bearing: number = 0): PhotoData => ({
     id,
     source_type: 'test',
     file: `${id}.jpg`,

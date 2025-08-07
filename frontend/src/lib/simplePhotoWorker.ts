@@ -1,4 +1,4 @@
-import type { PhotoData, Bounds, SourceConfig } from './photoWorkerTypes';
+import type { PhotoData, Bounds, SourceConfig, PhotoId } from './photoWorkerTypes';
 import { spatialState, visualState, photosInArea, photosInRange, photoInFront, photoToLeft, photoToRight } from './mapState';
 import { sources, client_id, mapillary_cache_status } from './data.svelte';
 import { geoPicsUrl } from './config';
@@ -28,14 +28,11 @@ class SimplePhotoWorker {
       await this.sendMessage('init', undefined);
       this.isInitialized = true;
       
-      // Send configuration including geoPicsUrl
-      await this.sendMessage('updateConfig', { 
+      await this.sendMessage('updateConfig', {
         config: { 
         }
       });
-      
-      console.log('SimplePhotoWorker: Initialized with geoPicsUrl:', geoPicsUrl);
-      
+
       // Set up reactive subscriptions
       this.setupReactivity();
       

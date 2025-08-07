@@ -1,5 +1,5 @@
 import { LatLng } from 'leaflet';
-import type { PhotoData, PhotoWithBearing } from './types/photoTypes';
+import type { PhotoData, PhotoWithBearing, PhotoId } from './types/photoTypes';
 
 /**
  * Simple bounds interface for photo filtering
@@ -129,8 +129,8 @@ export function sortPhotosByAngularDistance(photos: PhotoWithBearing[], viewBear
  */
 export class PhotoSpatialIndex {
   private gridSize: number;
-  private photoGrid: Map<string, Set<string>> = new Map();
-  private photoLocations: Map<string, { lat: number; lng: number }> = new Map();
+  private photoGrid: Map<string, Set<PhotoId>> = new Map();
+  private photoLocations: Map<PhotoId, { lat: number; lng: number }> = new Map();
 
   constructor(gridSize: number = 0.001) {
     this.gridSize = gridSize;
@@ -142,18 +142,18 @@ export class PhotoSpatialIndex {
     return `${gridLat},${gridLng}`;
   }
 
-  addPhoto(photoId: string, lat: number, lng: number): void {
+  addPhoto(photoId: PhotoId, lat: number, lng: number): void {
     const gridKey = this.getGridKey(lat, lng);
     
     if (!this.photoGrid.has(gridKey)) {
-      this.photoGrid.set(gridKey, new Set());
+      this.photoGrid.set(gridKey, new Set<PhotoId>());
     }
     
     this.photoGrid.get(gridKey)!.add(photoId);
     this.photoLocations.set(photoId, { lat, lng });
   }
 
-  removePhoto(photoId: string): void {
+  removePhoto(photoId: PhotoId): void {
     const location = this.photoLocations.get(photoId);
     if (!location) return;
 
@@ -169,8 +169,8 @@ export class PhotoSpatialIndex {
     this.photoLocations.delete(photoId);
   }
 
-  getPhotosInBounds(bounds: Bounds): string[] {
-    const results: string[] = [];
+  getPhotosInBounds(bounds: Bounds): PhotoId[] {
+    const results: PhotoId[] = [];
     const topLat = bounds.top_left.lat;
     const leftLng = bounds.top_left.lng;
     const bottomLat = bounds.bottom_right.lat;
