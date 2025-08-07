@@ -91,7 +91,7 @@ class SimplePhotoWorker {
     private handleWorkerUpdate(response: any): void {
         switch (response.type) {
             case 'photosUpdate':
-                // Update photos in area (spatial filtering result)
+                // worker recalculated photos in area (spatial filtering result)
                 const areaPhotos = response.data.photos || [];
                 console.log(`SimplePhotoWorker: Updated photosInArea count: ${areaPhotos.length}`);
                 photosInArea.set(areaPhotos);

@@ -234,6 +234,8 @@ async function loadFromSources(sources: SourceConfig[]): Promise<void> {
                             sourcePhotos.forEach(photo => {
                                 photo.source = source;
                             });
+
+                            allPhotos.push(...sourcePhotos);
                         }
                         break;
                     case 'mapillary':
@@ -251,7 +253,6 @@ async function loadFromSources(sources: SourceConfig[]): Promise<void> {
                         } else {
                             console.log('Photo.Worker: Cannot start Mapillary stream - missing bounds or config');
                         }
-                        // Note: sourcePhotos remains empty here, photos are added via callback
                         break;
                     case 'device':
                         console.log('Photo.Worker: Device photo loading not yet implemented in worker');
@@ -260,12 +261,8 @@ async function loadFromSources(sources: SourceConfig[]): Promise<void> {
                         console.log('Photo.Worker: Directory photo loading not yet implemented in worker');
                         break;
                     default:
-                        console.log(`Photo.Worker: Unknown source type: ${source.type} for source ${source.id}`);
+                        console.error(`Photo.Worker: Unknown source type: ${source.type} for source ${source.id}`);
                 }
-
-                console.log(`Photo.Worker: Loaded ${sourcePhotos.length} photos from ${source.id}`);
-                allPhotos.push(...sourcePhotos);
-
             } catch (error) {
                 console.error(`Photo.Worker: Error loading from source ${source.id}:`, error);
             }
@@ -277,7 +274,7 @@ async function loadFromSources(sources: SourceConfig[]): Promise<void> {
             spatialIndex.addPhoto(photo.id, photo.coord.lat, photo.coord.lng);
         }
 
-        console.log(`Photo.Worker: Total loaded ${allPhotos.length} photos from ${sources.length} sources`);
+        console.log(`Photo.Worker: Total immediately loaded ${allPhotos.length} photos from ${sources.length} sources`);
         recalculatePhotosInArea();
 
     } catch (error) {
@@ -354,15 +351,23 @@ async function updateSources(sources: SourceConfig[]): Promise<void> {
     }
 }
 
-// Debounced version of recalculatePhotosInArea to prevent cascading updates
-function debouncedRecalculatePhotosInArea(): void {
+function recalculatePhotosInArea(): void {
+    // Debounce
     if (recalculateTimeout) {
         clearTimeout(recalculateTimeout);
     }
     recalculateTimeout = setTimeout(() => {
+// Guard against duplicate operations
+        if (isRecalculating) {
+            console.log('Photo.Worker: recalculatePhotosInArea: Already recalculating, skipping');
+            return;
+        }
+
+        isRecalculating = true;
         recalculatePhotosInAreaInternal();
         recalculateTimeout = null;
-    }, 100); // 100ms debounce
+        isRecalculating = false;
+    }, 100);
 }
 
 function recalculatePhotosInAreaInternal(): void {
@@ -371,14 +376,6 @@ function recalculatePhotosInAreaInternal(): void {
         return;
     }
 
-    // Guard against duplicate operations
-    if (isRecalculating) {
-        console.log('Photo.Worker: recalculatePhotosInArea: Already recalculating, skipping');
-        return;
-    }
-
-    isRecalculating = true;
-
     console.log('Photo.Worker: recalculatePhotosInArea: bounds:', currentBounds, 'input Photos:', photoStore.size);
     const startTime = performance.now();
 
@@ -386,7 +383,6 @@ function recalculatePhotosInAreaInternal(): void {
     const photoIdsInBounds = spatialIndex.getPhotoIdsInBounds(currentBounds);
     console.log(`Photo.Worker: recalculatePhotosInArea: Found ${photoIdsInBounds.length} photos in bounds`);
 
-    // Get all photos in bounds (source filtering already done at load time)
     const photosInBounds: PhotoData[] = [];
 
     for (const photoId of photoIdsInBounds) {
@@ -426,25 +422,13 @@ function recalculatePhotosInAreaInternal(): void {
     console.log(`Photo.Worker: recalculatePhotosInArea: Filtered down to ${visiblePhotos.length} photos in ${processingTime.toFixed(1)}ms`);
     //}
 
-    // Send update to main thread
-    try {
-        postMessage({
-            id: 'auto',
-            type: 'photosUpdate',
-            data: {
-                photos: visiblePhotos,
-                hillviewCount: 0,
-                mapillaryCount: 0
-            }
-        } as WorkerResponse);
-    } finally {
-        isRecalculating = false;
-    }
-}
-
-// Backward compatibility wrapper
-function recalculatePhotosInArea(): void {
-    debouncedRecalculatePhotosInArea();
+    postMessage({
+        id: 'auto',
+        type: 'photosUpdate',
+        data: {
+            photos: visiblePhotos,
+        }
+    } as WorkerResponse);
 }
 
 
