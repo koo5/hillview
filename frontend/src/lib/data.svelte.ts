@@ -1,10 +1,10 @@
-import {LatLng} from 'leaflet';
 import {get, writable} from "svelte/store";
-import { staggeredLocalStorageSharedStore } from './svelte-shared-store';
-import type { PhotoData } from './sources';
-import { geoPicsUrl } from './config';
-import { auth } from './auth.svelte';
-import { userPhotos } from './stores';
+import {staggeredLocalStorageSharedStore} from './svelte-shared-store';
+import {geoPicsUrl} from './config';
+import {auth} from './auth.svelte';
+import {userPhotos} from './stores';
+// Import new mapState for legacy compatibility only
+import {photoInFront, photoToLeft, photoToRight, updateBearing as mapStateUpdateBearing, visualState} from './mapState';
 
 // Source interface for compatibility
 export interface Source {
@@ -107,48 +107,38 @@ export let hillview_photos = writable<any[]>([]);
 // export let mapillary_photos = writable<Map<string, any>>(new Map());
 // Unified Mapillary debug status store
 export interface MapillaryDebugStatus {
-  // Legacy fields (keep for compatibility)
-  uncached_regions: number;
-  is_streaming: boolean;
-  total_live_photos: number;
-  
-  // New detailed status fields
-  stream_phase: 'idle' | 'connecting' | 'receiving_cached' | 'receiving_live' | 'complete' | 'error';
-  completed_regions: number;
-  last_request_time?: number;
-  last_response_time?: number;
-  current_url?: string;
-  last_error?: string;
-  last_bounds?: {
-    topLeftLat: number;
-    topLeftLon: number;
-    bottomRightLat: number;
-    bottomRightLon: number;
-  };
+    // Legacy fields (keep for compatibility)
+    uncached_regions: number;
+    is_streaming: boolean;
+    total_live_photos: number;
+
+    // New detailed status fields
+    stream_phase: 'idle' | 'connecting' | 'receiving_cached' | 'receiving_live' | 'complete' | 'error';
+    completed_regions: number;
+    last_request_time?: number;
+    last_response_time?: number;
+    current_url?: string;
+    last_error?: string;
+    last_bounds?: {
+        topLeftLat: number;
+        topLeftLon: number;
+        bottomRightLat: number;
+        bottomRightLon: number;
+    };
 }
 
-export let mapillary_cache_status = writable<MapillaryDebugStatus>({ 
-  uncached_regions: 0, 
-  is_streaming: false, 
-  total_live_photos: 0,
-  stream_phase: 'idle',
-  completed_regions: 0
+export let mapillary_cache_status = writable<MapillaryDebugStatus>({
+    uncached_regions: 0,
+    is_streaming: false,
+    total_live_photos: 0,
+    stream_phase: 'idle',
+    completed_regions: 0
 });
 
-// Import new mapState for legacy compatibility only
-import { 
-    spatialState, 
-    visualState, 
-    photoInFront, 
-    photoToLeft, 
-    photoToRight, 
-    updateBearing as mapStateUpdateBearing
-} from './mapState';
-
 // Essential exports still used by components
-export { photoInFront as photo_in_front };
-export { photoToLeft as photo_to_left };
-export { photoToRight as photo_to_right };
+export {photoInFront as photo_in_front};
+export {photoToLeft as photo_to_left};
+export {photoToRight as photo_to_right};
 
 // Mapillary functionality moved to worker
 let old_sources: Source[] = JSON.parse(JSON.stringify(get(sources)));
@@ -157,15 +147,15 @@ sources.subscribe(async (s: Source[]) => {
     console.log('sources changed:', s);
     let old = JSON.parse(JSON.stringify(old_sources));
     old_sources = JSON.parse(JSON.stringify(s));
-    
+
     const changedSources = s.filter((src, i) => {
         const oldSrc = old.find((o: Source) => o.id === src.id);
         return !oldSrc || oldSrc.enabled !== src.enabled;
     });
-    
+
     if (changedSources.length > 0) {
-        console.log('Source enabled states changed:', changedSources.map(s => ({ id: s.id, enabled: s.enabled })));
-        
+        console.log('Source enabled states changed:', changedSources.map(s => ({id: s.id, enabled: s.enabled})));
+
         // Mapillary source changes now handled by worker
     }
 });
@@ -174,12 +164,12 @@ sources.subscribe(async (s: Source[]) => {
 export async function turn_to_photo_to(dir: string) {
     const currentPhotoToLeft = get(photoToLeft);
     const currentPhotoToRight = get(photoToRight);
-    
+
     console.log('turn_to_photo_to:', dir, {
         hasPhotoToLeft: !!currentPhotoToLeft,
         hasPhotoToRight: !!currentPhotoToRight
     });
-    
+
     if (dir === 'left' && currentPhotoToLeft) {
         console.log('Turning to left photo:', currentPhotoToLeft.id, 'bearing:', currentPhotoToLeft.bearing);
         mapStateUpdateBearing(currentPhotoToLeft.bearing);

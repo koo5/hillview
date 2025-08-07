@@ -5,9 +5,9 @@
     import {app} from "$lib/data.svelte";
     import DualCaptureButton from './DualCaptureButton.svelte';
     import CaptureQueueStatus from './CaptureQueueStatus.svelte';
-    import { captureQueue, type CaptureLocation } from '$lib/captureQueue';
-    import { injectPlaceholder, removePlaceholder } from '$lib/placeholderInjector';
-    import { generateTempId, type PlaceholderLocation } from '$lib/utils/placeholderUtils';
+    import {captureQueue, type CaptureLocation} from '$lib/captureQueue';
+    import {injectPlaceholder, removePlaceholder} from '$lib/placeholderInjector';
+    import {generateTempId, type PlaceholderLocation} from '$lib/utils/placeholderUtils';
 
     const dispatch = createEventDispatcher();
 
@@ -45,7 +45,7 @@
     async function checkCameraPermission(): Promise<PermissionState | null> {
         try {
             if ('permissions' in navigator && 'query' in navigator.permissions) {
-                const result = await navigator.permissions.query({ name: 'camera' as PermissionName });
+                const result = await navigator.permissions.query({name: 'camera' as PermissionName});
                 return result.state;
             }
         } catch (error) {
@@ -65,7 +65,7 @@
             if (cameraError && hasRequestedPermission) {
                 const state = await checkCameraPermission();
                 console.log('Checking camera permission:', state);
-                
+
                 if (state === 'granted') {
                     console.log('Camera permission granted, retrying...');
                     clearInterval(permissionCheckInterval!);
@@ -81,12 +81,12 @@
         if (retryTimeout) {
             clearTimeout(retryTimeout);
         }
-        
+
         if (retryCount < maxRetries && show) {
             retryCount++;
             const delay = Math.min(retryDelay * retryCount, 5000); // Cap at 5 seconds
             console.log(`Scheduling camera retry ${retryCount}/${maxRetries} in ${delay}ms`);
-            
+
             retryTimeout = window.setTimeout(() => {
                 if (show && !stream) {
                     startCamera();
@@ -109,7 +109,7 @@
                 stream.getTracks().forEach(track => track.stop());
                 stream = null;
             }
-            
+
             // Clear any previous errors
             cameraError = null;
 
@@ -122,7 +122,7 @@
                     height: {ideal: 1080}
                 }
             };
-            
+
             console.log('Requesting camera with constraints:', constraints);
             stream = await navigator.mediaDevices.getUserMedia(constraints);
             console.log('Got media stream:', stream);
@@ -130,7 +130,7 @@
             if (video) {
                 console.log('Setting video source');
                 video.srcObject = stream;
-                
+
                 // Wait for metadata to load
                 await new Promise((resolve) => {
                     video.onloadedmetadata = () => {
@@ -138,13 +138,13 @@
                         resolve(undefined);
                     };
                 });
-                
+
                 await video.play();
                 console.log('Video playing');
                 cameraReady = true;
                 cameraError = null;
                 retryCount = 0; // Reset retry count on success
-                
+
                 // Clear any pending retries
                 if (retryTimeout) {
                     clearTimeout(retryTimeout);
@@ -170,9 +170,9 @@
             console.error('Camera error:', error);
             cameraError = error instanceof Error ? error.message : 'Failed to access camera';
             cameraReady = false;
-            
+
             // Check if this is a permission error
-            if (error instanceof DOMException && 
+            if (error instanceof DOMException &&
                 (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError')) {
                 hasRequestedPermission = true;
                 // Start monitoring permission changes
@@ -204,7 +204,7 @@
     }
 
     async function handleCapture(event: CustomEvent<{ mode: 'slow' | 'fast' }>) {
-        if (!video || !canvas || !cameraReady || !locationData || 
+        if (!video || !canvas || !cameraReady || !locationData ||
             locationData.latitude === undefined || locationData.longitude === undefined) {
             console.warn('Cannot capture: camera not ready or no location');
             return;
@@ -212,7 +212,7 @@
 
         console.log('Capture event:', event.detail);
 
-        const { mode } = event.detail;
+        const {mode} = event.detail;
         const timestamp = Date.now();
         const tempId = generateTempId();
 
@@ -249,7 +249,7 @@
 
             // Convert canvas to blob with quality based on mode
             const quality = mode === 'fast' ? 0.7 : 0.9;
-            
+
             canvas.toBlob(async (blob) => {
                 if (blob) {
                     // Add to capture queue
@@ -277,21 +277,21 @@
         }
         cameraReady = false;
         cameraError = null;
-        
+
         // Clear permission monitoring
         if (permissionCheckInterval) {
             clearInterval(permissionCheckInterval);
             permissionCheckInterval = null;
         }
         hasRequestedPermission = false;
-        
+
         // Clear retry timeout
         if (retryTimeout) {
             clearTimeout(retryTimeout);
             retryTimeout = null;
         }
         retryCount = 0;
-        
+
         show = false;
         dispatch('close');
     }
@@ -408,25 +408,25 @@
                                 <span>{locationError}</span>
                             </div>
                         {:else if locationData}
-<!--                            <div class="location-row">-->
-<!--                                <span class="icon">📍</span>-->
-<!--                                <span>{locationData.latitude?.toFixed(6)}°, {locationData.longitude?.toFixed(6)}°</span>-->
-<!--                                {#if locationData.source}-->
-<!--                                    <span class="source-badge">{locationData.source === 'gps' ? 'GPS' : 'Map'}</span>-->
-<!--                                {/if}-->
-<!--                            </div>-->
-<!--                            {#if locationData.heading !== null && locationData.heading !== undefined}-->
-<!--                                <div class="location-row">-->
-<!--                                    <span class="icon">🧭</span>-->
-<!--                                    <span>{locationData.heading.toFixed(1)}°</span>-->
-<!--                                </div>-->
-<!--                            {/if}-->
-<!--                            {#if locationData.altitude !== null && locationData.altitude !== undefined}-->
-<!--                                <div class="location-row">-->
-<!--                                    <span class="icon">⛰️</span>-->
-<!--                                    <span>{locationData.altitude.toFixed(1)}m</span>-->
-<!--                                </div>-->
-<!--                            {/if}-->
+                            <!--                            <div class="location-row">-->
+                            <!--                                <span class="icon">📍</span>-->
+                            <!--                                <span>{locationData.latitude?.toFixed(6)}°, {locationData.longitude?.toFixed(6)}°</span>-->
+                            <!--                                {#if locationData.source}-->
+                            <!--                                    <span class="source-badge">{locationData.source === 'gps' ? 'GPS' : 'Map'}</span>-->
+                            <!--                                {/if}-->
+                            <!--                            </div>-->
+                            <!--                            {#if locationData.heading !== null && locationData.heading !== undefined}-->
+                            <!--                                <div class="location-row">-->
+                            <!--                                    <span class="icon">🧭</span>-->
+                            <!--                                    <span>{locationData.heading.toFixed(1)}°</span>-->
+                            <!--                                </div>-->
+                            <!--                            {/if}-->
+                            <!--                            {#if locationData.altitude !== null && locationData.altitude !== undefined}-->
+                            <!--                                <div class="location-row">-->
+                            <!--                                    <span class="icon">⛰️</span>-->
+                            <!--                                    <span>{locationData.altitude.toFixed(1)}m</span>-->
+                            <!--                                </div>-->
+                            <!--                            {/if}-->
                             {#if locationData.accuracy}
                                 <div class="location-row">
                                     <span class="icon">🎯</span>
@@ -478,14 +478,14 @@
 
             <div class="camera-controls">
                 <DualCaptureButton
-                    disabled={!cameraReady || !locationData}
-                    on:capture={handleCapture}
+                        disabled={!cameraReady || !locationData}
+                        on:capture={handleCapture}
                 />
             </div>
-            
+
             {#if $app.debug === 5}
                 <div class="queue-status-overlay">
-                    <CaptureQueueStatus />
+                    <CaptureQueueStatus/>
                 </div>
             {/if}
         </div>
@@ -780,7 +780,7 @@
             margin: 40px 0;
         }
     }
-    
+
     .queue-status-overlay {
         position: absolute;
         top: 80px;

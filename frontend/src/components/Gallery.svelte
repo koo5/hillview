@@ -1,29 +1,14 @@
 <script lang="ts">
-    import {
-        app,
-        turn_to_photo_to, 
-        reversed
-    } from "$lib/data.svelte";
-    import {
-        spatialState,
-        visualState,
-        photosInRange,
-        photoInFront,
-        photoToLeft,
-        photoToRight,
-        updateBearing
-    } from "$lib/mapState";
-    import {dms} from "$lib/utils";
+    import {photoInFront, photosInRange, updateBearing} from "$lib/mapState";
     import Photo from "./Photo.svelte";
-    import { getDevicePhotoUrl } from '$lib/devicePhotoHelper';
-    import type { PhotoData } from '$lib/sources';
+    import type {PhotoData} from '$lib/sources';
 
     let clientWidth: number;
-    
+
     function handleThumbnailClick(photo: PhotoData) {
         updateBearing(photo.bearing);
     }
-    
+
     // Log photo count changes
     $: if ($photosInRange) {
         console.log(`Gallery: Displaying ${$photosInRange.length} photos in range`);
@@ -47,13 +32,13 @@
     <!--    </div>-->
     <!--{/if}-->
 
-    <div class="photo-container" bind:clientWidth >
+    <div bind:clientWidth class="photo-container">
         <!--{#if $photo_to_left}-->
         <!--    <Photo photo={$photo_to_left} className="left" />-->
         <!--{/if}-->
         {#if $photoInFront}
-            <Photo photo={$photoInFront} className="front" {clientWidth} />
-            {:else}
+            <Photo photo={$photoInFront} className="front" {clientWidth}/>
+        {:else}
             <div class="no-photo">
                 <p>No photos in range</p>
             </div>

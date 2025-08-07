@@ -1,4 +1,4 @@
-import type { PhotoSize } from '../types/photoTypes';
+import type {PhotoSize} from '../types/photoTypes';
 
 // Simple coordinate interface for worker compatibility
 export interface SimpleLatLng {
@@ -59,7 +59,7 @@ export function parsePhotoData(item: any, geoPicsUrl: string): WorkerPhotoData {
         source_type: 'hillview',
         file: item.file,
         url: `${geoPicsUrl}/${encodeURIComponent(item.file)}`,
-        coord: { lat: latitude, lng: longitude }, // Simple object for worker compatibility
+        coord: {lat: latitude, lng: longitude}, // Simple object for worker compatibility
         bearing: parseFraction(item.bearing),
         altitude: parseFraction(item.altitude),
     };
@@ -88,9 +88,9 @@ export function parsePhotoData(item: any, geoPicsUrl: string): WorkerPhotoData {
 // Source loading functions that can be used by both frontend and worker
 export async function loadJsonPhotos(url: string): Promise<WorkerPhotoData[]> {
     console.log(`Loading JSON photos from ${url}`);
-    
-    const response = await fetch(url+'/files.json', {
-        headers: { Accept: 'application/json' }
+
+    const response = await fetch(url + '/files.json', {
+        headers: {Accept: 'application/json'}
     });
 
     if (!response.ok) {
