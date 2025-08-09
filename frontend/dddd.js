@@ -4,8 +4,10 @@ It will have async processor functions for individual message types. make sure t
 Effectively, it could be implemented something like this:
 */
 
+messageIdCounter = 0;
+
 function enqueueInternal(messageType) {
-	messageQueue.addMessage({ type: messageType, internal: true });
+	handleMessage({ type: messageType, internal: true});
 }
 
 const processors = new Processors(enqueueInternal);
@@ -16,8 +18,9 @@ let currentProcessor = null;
 
 function handleMessage(message) {
 	// Add the message to the queue
-	messageQueue.addMessage(message);
+	messageQueue.addMessage({...message, id: messageIdCounter++});
 }
+
 
 
 async function loop() {
@@ -49,6 +52,7 @@ async function loop() {
 				if (message.type === 'configUpdated') {
 					if (p === 'configUpdated' || p === 'sourcesUpdated' || p === 'areaUpdated' || p === 'bearingUpdated') {
 						await abortCurrentProcessor();
+						if (!message.internal)
 						processors.data.config.current = message.data.config;
 						processors.data.config.lastUpdateId = message.data.id;
 					}
@@ -56,18 +60,21 @@ async function loop() {
 				else if (message.type === 'sourcesUpdated') {
 					if (p === 'sourcesUpdated' || p === 'areaUpdated' || p === 'bearingUpdated') {
 						await abortCurrentProcessor();
+						if (!message.internal)
 						processors.data.sources.current = message.data.sources;
 						processors.data.sources.lastUpdateId = message.data.id;
 					}
 				} else if (message.type === 'areaUpdated') {
 					if (p === 'areaUpdated' || p === 'bearingUpdated') {
 						await abortCurrentProcessor();
+						if (!message.internal)
 						processors.data.area.current = message.data.area;
 						processors.data.area.lastUpdateId = message.data.id;
 					}
 				} else if (message.type === 'bearingUpdated') {
 					if (p === 'bearingUpdated') {
 						await abortCurrentProcessor();
+						if (!message.internal)
 						processors.data.bearing.current = message.data.bearing;
 						processors.data.bearing.lastUpdateId = message.data.id;
 					}
