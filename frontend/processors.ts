@@ -1,34 +1,41 @@
+
+const    MAX_PHOTOS_IN_AREA = 700;
+const    MAX_PHOTOS_IN_RANGE = 200;
+
+
 class Processors {
-    const    data = {
-        config: {
-            recalculateBearingDiffForAllPhotosInArea: false,
-        },
-        sources: [],
-        area: {},
-        bearing: {},
-    };
-    aborted: boolean = false;
+	enqueueInternal = null;
 
-    // Configuration
-    const    MAX_PHOTOS_IN_AREA = 700;
-    const    MAX_PHOTOS_IN_RANGE = 200;
+	data = {
+		config: {
+			recalculateBearingDiffForAllPhotosInArea: false,
+		},
+		sources: [],
+		area: {},
+		bearing: {},
+	};
+	aborted: boolean = false;
+
+	// Configuration
+
+	public async configUpdated() {
+		//...
 
 
-    public async configUpdated() {
+		enqueueInternal('sourcesUpdated');
+	}
 
-    }
+	public async sourcesUpdated() {
 
-    public async sourcesUpdated() {
+	}
 
-    }
+	public async areaUpdated() {
 
-    public async areaUpdated() {
+	}
 
-    }
+	public async bearingUpdated() {
 
-    public async bearingUpdated() {
-
-    }
+	}
 
 
 }

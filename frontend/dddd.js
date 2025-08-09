@@ -4,124 +4,128 @@ It will have async processor functions for individual message types. make sure t
 Effectively, it could be implemented something like this:
 */
 
+function enqueueInternal(messageType) {
+	messageQueue.addMessage({ type: messageType, internal: true });
+}
 
-
-const processors = new Processors();
+const processors = new Processors(enqueueInternal);
 
 const endings = new MessageQueue();
 const messageQueue = new MessageQueue();
 let currentProcessor = null;
 
 function handleMessage(message) {
-    // Add the message to the queue
-    messageQueue.addMessage(message);
+	// Add the message to the queue
+	messageQueue.addMessage(message);
 }
 
 
 async function loop() {
-    while (true) {
-        // sleep until next message
+	while (true) {
+		// sleep until next message
 
-        while (true) {
-            // process abortions and data updates for all accumulated messages
+		while (true) {
+			// process abortions and data updates for all accumulated messages
 
-            let message;
+			let message;
 
-            if (processors.data.config.lastUpdateId !== processors.data.config.lastProcessedId &&
-                processors.data.sources.lastUpdateId === processors.data.sources.lastProcessedId && processors.data.area.lastUpdateId === processors.data.area.lastProcessedId && processors.data.bearing.lastUpdateId === processors.data.bearing.lastProcessedId) {
-                // nothing to do, sleep until next message
-                message = await messageQueue.getNextMessage();
-            }
-            else {
-                if (messageQueue.hasMore()) {
-                    message = await messageQueue.getNextMessage();
-                } else {
-                    break;
-                }
-            }
+			if (processors.data.config.lastUpdateId === processors.data.config.lastProcessedId &&
+				processors.data.sources.lastUpdateId === processors.data.sources.lastProcessedId &&
+                processors.data.area.lastUpdateId === processors.data.area.lastProcessedId &&
+                processors.data.bearing.lastUpdateId === processors.data.bearing.lastProcessedId) {
+				// nothing to do, sleep until next message
+				message = await messageQueue.getNextMessage();
+			}
+			else {
+				if (messageQueue.hasMore()) {
+					message = await messageQueue.getNextMessage();
+				} else {
+					break;
+				}
+			}
 
-            const p = currentProcessor;
-            if (p) {
-                if (message.type === 'configUpdated') {
-                    if (p === 'configUpdated' || p === 'sourcesUpdated' || p === 'areaUpdated' || p === 'bearingUpdated') {
-                        await abortCurrentProcessor();
-                        processors.data.config.current = message.data.config;
-                        processors.data.config.lastUpdateId = message.data.id;
-                    }
-                }
-                else if (message.type === 'sourcesUpdated') {
-                    if (p === 'sourcesUpdated' || p === 'areaUpdated' || p === 'bearingUpdated') {
-                        await abortCurrentProcessor();
-                        processors.data.sources.current = message.data.sources;
-                        processors.data.sources.lastUpdateId = message.data.id;
-                    }
-                } else if (message.type === 'areaUpdated') {
-                    if (p === 'areaUpdated' || p === 'bearingUpdated') {
-                        await abortCurrentProcessor();
-                        processors.data.area.current = message.data.area;
-                        processors.data.area.lastUpdateId = message.data.id;
-                    }
-                } else if (message.type === 'bearingUpdated') {
-                    if (p === 'bearingUpdated') {
-                        await abortCurrentProcessor();
-                        processors.data.bearing.current = message.data.bearing;
-                        processors.data.bearing.lastUpdateId = message.data.id;
-                    }
-                } else if (message.type === 'exit') {
-                    return;
-                }
-            }
-            if (!messageQueue.hasMore()) {
-                break;
-            }
-        }
+			const p = currentProcessor;
+			if (p) {
+				if (message.type === 'configUpdated') {
+					if (p === 'configUpdated' || p === 'sourcesUpdated' || p === 'areaUpdated' || p === 'bearingUpdated') {
+						await abortCurrentProcessor();
+						processors.data.config.current = message.data.config;
+						processors.data.config.lastUpdateId = message.data.id;
+					}
+				}
+				else if (message.type === 'sourcesUpdated') {
+					if (p === 'sourcesUpdated' || p === 'areaUpdated' || p === 'bearingUpdated') {
+						await abortCurrentProcessor();
+						processors.data.sources.current = message.data.sources;
+						processors.data.sources.lastUpdateId = message.data.id;
+					}
+				} else if (message.type === 'areaUpdated') {
+					if (p === 'areaUpdated' || p === 'bearingUpdated') {
+						await abortCurrentProcessor();
+						processors.data.area.current = message.data.area;
+						processors.data.area.lastUpdateId = message.data.id;
+					}
+				} else if (message.type === 'bearingUpdated') {
+					if (p === 'bearingUpdated') {
+						await abortCurrentProcessor();
+						processors.data.bearing.current = message.data.bearing;
+						processors.data.bearing.lastUpdateId = message.data.id;
+					}
+				} else if (message.type === 'exit') {
+					return;
+				}
+			}
+			if (!messageQueue.hasMore()) {
+				break;
+			}
+		}
 
-        endings.clear();
-        assert(!currentProcessor, 'There should be no current processor at this point');
+		endings.clear();
+		assert(!currentProcessor, 'There should be no current processor at this point');
 
-        // run the relevant processors by priority
-        if (processors.data.config.lastUpdateId !== processors.data.config.lastProcessedId) {
-            await startProcessor('configUpdated', processors.data.config.lastUpdateId);
-        } else if (processors.data.sources.lastUpdateId !== processors.data.sources.lastProcessedId) {
-            await startProcessor('sourcesUpdated', processors.data.sources.lastUpdateId);
-        } else if (processors.data.area.lastUpdateId !== processors.data.area.lastProcessedId) {
-            await startProcessor('areaUpdated', processors.data.area.lastUpdateId);
-        } else if (processors.data.bearing.lastUpdateId !== processors.data.bearing.lastProcessedId) {
-            await startProcessor('bearingUpdated', processors.data.bearing.lastUpdateId);
-        }
-    }
+		// run the relevant processors by priority
+		if (processors.data.config.lastUpdateId !== processors.data.config.lastProcessedId) {
+			await startProcessor('configUpdated', processors.data.config.lastUpdateId);
+		} else if (processors.data.sources.lastUpdateId !== processors.data.sources.lastProcessedId) {
+			await startProcessor('sourcesUpdated', processors.data.sources.lastUpdateId);
+		} else if (processors.data.area.lastUpdateId !== processors.data.area.lastProcessedId) {
+			await startProcessor('areaUpdated', processors.data.area.lastUpdateId);
+		} else if (processors.data.bearing.lastUpdateId !== processors.data.bearing.lastProcessedId) {
+			await startProcessor('bearingUpdated', processors.data.bearing.lastUpdateId);
+		}
+	}
 }
 
 async function abortCurrentProcessor() {
-    processors.aborted = true;
-    await endings.getNextMessage();
-    processors.aborted = false;
+	processors.aborted = true;
+	await endings.getNextMessage();
+	processors.aborted = false;
 }
 
 async function startProcessor(type, messageId) {
-    currentProcessor = type;
-    startProcessor2(type, messageId);
+	currentProcessor = type;
+	startProcessor2(type, messageId);
 }
 
 async function startProcessor2(type, messageId) {
-    try {
-        if (type === 'configUpdated') {
-            await processors.configUpdated();
-        if (type === 'sourcesUpdated') {
-            await processors.sourcesUpdated();
-        } else if (type === 'areaUpdated') {
-            await processors.areaUpdated();
-        } else if (type === 'bearingUpdated') {
-            await processors.bearingUpdated();
-        }
-        else {
-            throw new Error(`Unknown processor type: ${type}`);
-        }
-        processors.data.sources.lastProcessedId = messageId;
-    } catch (error) {
-        console.error('Error processing sourcesUpdated message:', error);
-    } finally {
-        currentProcessor = null;
-        endings.addMessage(true);
-    }
+	try {
+		if (type === 'configUpdated') {
+			await processors.configUpdated();
+		if (type === 'sourcesUpdated') {
+			await processors.sourcesUpdated();
+		} else if (type === 'areaUpdated') {
+			await processors.areaUpdated();
+		} else if (type === 'bearingUpdated') {
+			await processors.bearingUpdated();
+		}
+		else {
+			throw new Error(`Unknown processor type: ${type}`);
+		}
+		processors.data.sources.lastProcessedId = messageId;
+	} catch (error) {
+		console.error('Error processing sourcesUpdated message:', error);
+	} finally {
+		currentProcessor = null;
+		endings.addMessage(true);
+	}
 }
