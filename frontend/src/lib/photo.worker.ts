@@ -6,84 +6,10 @@ import {MapillaryWorkerHandler} from './mapillaryWorkerHandler';
 import {updatePhotoBearingDiffData} from './utils/bearingUtils';
 import {calculateCenterFromBounds, getDistance, isInBounds} from './utils/distanceUtils';
 
-declare const __WORKER_VERSION__: string;
-export const WORKER_VERSION = __WORKER_VERSION__;
-
-console.log(`Photo.Worker: Worker script loaded with version: ${WORKER_VERSION}`);
-
-let sourcesConfig: SourceConfig[] = [];
 
 // Photo data store - source of truth
 const photoStore = new Map<PhotoId, PhotoData>();
-let lastVisiblePhotos: PhotoData[] = [];
 
-let currentBounds: Bounds | null = null;
-let currentRange = 5000; // Default 5km range
-
-
-
-
-// Grid-based photo sampling
-function samplePhotosInGrid(photos: PhotoData[], maxPhotos: number): PhotoData[] {
-    if (photos.length <= maxPhotos) return photos;
-
-    console.log(`Photo.Worker: Sampling ${photos.length} photos down to ${maxPhotos} using grid sampling`);
-
-    // Create a 10x10 grid
-    const gridSize = 10;
-    const totalCells = gridSize * gridSize;
-
-    // Find bounds of all photos
-    let minLat = Infinity, maxLat = -Infinity;
-    let minLng = Infinity, maxLng = -Infinity;
-
-    for (const photo of photos) {
-        minLat = Math.min(minLat, photo.coord.lat);
-        maxLat = Math.max(maxLat, photo.coord.lat);
-        minLng = Math.min(minLng, photo.coord.lng);
-        maxLng = Math.max(maxLng, photo.coord.lng);
-    }
-
-    const latStep = (maxLat - minLat) / gridSize;
-    const lngStep = (maxLng - minLng) / gridSize;
-
-    // Create grid cells
-    const grid = new Map<string, PhotoData[]>();
-
-    // Assign photos to grid cells
-    for (const photo of photos) {
-        const gridLat = Math.floor((photo.coord.lat - minLat) / latStep);
-        const gridLng = Math.floor((photo.coord.lng - minLng) / lngStep);
-        const cellKey = `${Math.min(gridLat, gridSize - 1)},${Math.min(gridLng, gridSize - 1)}`;
-
-        if (!grid.has(cellKey)) {
-            grid.set(cellKey, []);
-        }
-        grid.get(cellKey)!.push(photo);
-    }
-
-    // Sample photos from grid cells
-    const sampledPhotos: PhotoData[] = [];
-    const photosPerCell = Math.ceil(maxPhotos / totalCells);
-
-    for (const cellPhotos of grid.values()) {
-        if (cellPhotos.length <= photosPerCell) {
-            sampledPhotos.push(...cellPhotos);
-        } else {
-            // Sample evenly from cell
-            const step = cellPhotos.length / photosPerCell;
-            for (let i = 0; i < photosPerCell; i++) {
-                const index = Math.floor(i * step);
-                sampledPhotos.push(cellPhotos[index]);
-            }
-        }
-
-        if (sampledPhotos.length >= maxPhotos) break;
-    }
-
-    console.log(`Photo.Worker: Sampled down to ${sampledPhotos.length} photos from ${photos.length}, slicing to max ${maxPhotos}`);
-    return sampledPhotos.slice(0, maxPhotos);
-}
 
 // Photo loading from sources
 async function loadFromSources(sources: SourceConfig[]): Promise<void> {
@@ -104,7 +30,6 @@ async function loadFromSources(sources: SourceConfig[]): Promise<void> {
         }
 
         photoStore.clear();
-        spatialIndex.clear();
 
         const allPhotos: PhotoData[] = [];
 
@@ -166,7 +91,6 @@ async function loadFromSources(sources: SourceConfig[]): Promise<void> {
         // Load photos into worker stores
         for (const photo of allPhotos) {
             photoStore.set(photo.id, photo);
-            spatialIndex.addPhoto(photo.id, photo.coord.lat, photo.coord.lng);
         }
 
         console.log(`Photo.Worker: Total immediately loaded ${allPhotos.length} photos from ${sources.length} sources`);

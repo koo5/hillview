@@ -1,10 +1,16 @@
-/*let's design a new photo.worker.ts.
+/*new photo.worker.ts.
 It will have async processor functions for individual message types. make sure to use photoProcessingUtils.ts in it. It will have a loop, and will store the last data received (such as the current state of sources, current bearing, current area), and it will ensure that: when handleMessage is called, if the processor function is not currently running, the current data will be updated from the message, and it will be started immediately. If a processor is running, the worker will set its aborted state to true (which the processor function can optionally read to abort itself), and then, when the processor message is finished, it will run it again if there is new data. The priorities will be: 1) sources update 2) area update 3) bearing update. It must ensure that at all times, only one instance of the async processor funnction is running, it must always wait for it to end before updating current data or running any processor function. It must not run it if it was already ran with the same data (each message can be assigned a sequential ID). It must ensure that if it was not ran with the latest data, it will be ran as soon as the current instance finishes. Only the latest data matters, intermediate values will be overwritten, but we must not overwrite the current valuee while any processor function is running. We must ensure that only one processor function is processing at a time. Multiple async processor functions cannot run concurrently.
 
-Effectively, it could be implemented something like this:
+
 */
 
-messageIdCounter = 0;
+
+declare const __WORKER_VERSION__: string;
+export const WORKER_VERSION = __WORKER_VERSION__;
+console.log(`Photo.Worker: Worker script loaded with version: ${WORKER_VERSION}`);
+
+
+let messageIdCounter = 0;
 
 function enqueueInternal(messageType) {
 	handleMessage({ type: messageType, internal: true});

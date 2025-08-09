@@ -193,88 +193,102 @@ describe('photoProcessingUtils', () => {
   });
 
   describe('PhotoSpatialIndex', () => {
-    let index: PhotoSpatialIndex;
 
-    beforeEach(() => {
-      index = new PhotoSpatialIndex(0.001); // ~100m grid
-    });
-
-    it('should add and index photos by location', () => {
-      index.addPhoto('photo1', 50.0617, 14.5146);
-      
-      const bounds: Bounds = {
-        top_left: new LatLng(50.0620, 14.5145),
-        bottom_right: new LatLng(50.0615, 14.5148)
-      };
-
-      const results = index.getPhotosInBounds(bounds);
-      expect(results).toContain('photo1');
-    });
-
-    it('should find photos within bounds', () => {
-      testPhotos.forEach(photo => {
-        index.addPhoto(photo.id, photo.coord.lat, photo.coord.lng);
-      });
-
+    it('should create grid index from photos and bounds', () => {
       const bounds: Bounds = {
         top_left: new LatLng(50.0640, 14.5140),
         bottom_right: new LatLng(50.0600, 14.5180)
       };
 
-      const results = index.getPhotosInBounds(bounds);
-      expect(results.length).toBeGreaterThan(0);
-      expect(results).toContain('photo1');
+      const index = new PhotoSpatialIndex(testPhotos, bounds);
+      
+      // Test that we can get photos from a cell
+      // Cell 00 would be top-left corner
+      const cellPhotos = index.getPhotosInCell('00');
+      expect(cellPhotos).toBeDefined();
     });
 
-    it('should remove photos from index', () => {
-      index.addPhoto('photo1', 50.0617, 14.5146);
-      index.removePhoto('photo1');
-
+    it('should return empty array for empty cells', () => {
       const bounds: Bounds = {
-        top_left: new LatLng(50.0620, 14.5145),
-        bottom_right: new LatLng(50.0615, 14.5148)
+        top_left: new LatLng(50.0640, 14.5140),
+        bottom_right: new LatLng(50.0600, 14.5180)
       };
 
-      const results = index.getPhotosInBounds(bounds);
-      expect(results).not.toContain('photo1');
+      const index = new PhotoSpatialIndex(testPhotos, bounds);
+      
+      // Test a cell that likely has no photos
+      const cellPhotos = index.getPhotosInCell('99');
+      expect(cellPhotos).toEqual([]);
     });
 
-    it('should handle empty bounds queries', () => {
+    it('should distribute photos across grid cells', () => {
+      const bounds: Bounds = {
+        top_left: new LatLng(50.0640, 14.5140),
+        bottom_right: new LatLng(50.0600, 14.5180)
+      };
+
+      const index = new PhotoSpatialIndex(testPhotos, bounds);
+      
+      // Check that at least some cells have photos
+      let foundPhotos = false;
+      for (let lat = 0; lat < 10; lat++) {
+        for (let lng = 0; lng < 10; lng++) {
+          const cellKey = `${lat}${lng}`;
+          const photos = index.getPhotosInCell(cellKey);
+          if (photos.length > 0) {
+            foundPhotos = true;
+            break;
+          }
+        }
+        if (foundPhotos) break;
+      }
+      
+      expect(foundPhotos).toBe(true);
+    });
+
+    it('should skip photos outside bounds', () => {
       const bounds: Bounds = {
         top_left: new LatLng(60.0, 20.0),
         bottom_right: new LatLng(59.0, 21.0)
       };
 
-      const results = index.getPhotosInBounds(bounds);
-      expect(results).toHaveLength(0);
+      const index = new PhotoSpatialIndex(testPhotos, bounds);
+      
+      // All test photos are outside these bounds, so all cells should be empty
+      let totalPhotos = 0;
+      for (let lat = 0; lat < 10; lat++) {
+        for (let lng = 0; lng < 10; lng++) {
+          const cellKey = `${lat}${lng}`;
+          totalPhotos += index.getPhotosInCell(cellKey).length;
+        }
+      }
+      
+      expect(totalPhotos).toBe(0);
     });
 
-    it('should clear all photos', () => {
-      testPhotos.forEach(photo => {
-        index.addPhoto(photo.id, photo.coord.lat, photo.coord.lng);
-      });
-
-      index.clear();
-
-      const bounds: Bounds = {
-        top_left: new LatLng(50.1, 14.5),
-        bottom_right: new LatLng(50.0, 14.6)
-      };
-
-      const results = index.getPhotosInBounds(bounds);
-      expect(results).toHaveLength(0);
-    });
-
-    it('should handle single photo edge case', () => {
-      index.addPhoto('single', 50.0617, 14.5146);
-
+    it('should handle single photo case', () => {
+      const singlePhoto = [testPhotos[0]];
       const bounds: Bounds = {
         top_left: new LatLng(50.0618, 14.5145),
         bottom_right: new LatLng(50.0616, 14.5147)
       };
 
-      const results = index.getPhotosInBounds(bounds);
-      expect(results.filter((id: string) => id === 'single')).toHaveLength(1);
+      const index = new PhotoSpatialIndex(singlePhoto, bounds);
+      
+      // Should find the photo in at least one cell
+      let found = false;
+      for (let lat = 0; lat < 10; lat++) {
+        for (let lng = 0; lng < 10; lng++) {
+          const cellKey = `${lat}${lng}`;
+          if (index.getPhotosInCell(cellKey).length > 0) {
+            found = true;
+            break;
+          }
+        }
+        if (found) break;
+      }
+      
+      expect(found).toBe(true);
     });
   });
 });

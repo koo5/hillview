@@ -125,87 +125,42 @@ export function sortPhotosByAngularDistance(photos: PhotoWithBearing[], viewBear
 }
 
 /**
- * Simple spatial index for photo locations using a grid-based approach
+ * Simple spatial index for photo locations using a 10x10 grid
  */
 export class PhotoSpatialIndex {
-    private gridSize: number;
-    private photoGrid: Map<string, Set<PhotoId>> = new Map();
-    private photoLocations: Map<PhotoId, { lat: number; lng: number }> = new Map();
+    private photoGrid: Map<string, PhotoId[]> = new Map();
 
-    constructor(gridSize: number = 0.001) {
-        this.gridSize = gridSize;
-    }
+    constructor(photos: PhotoData[], bounds: Bounds) {
+        const latRange = bounds.top_left.lat - bounds.bottom_right.lat;
+        const lngRange = bounds.bottom_right.lng - bounds.top_left.lng;
 
-    private getGridKey(lat: number, lng: number): string {
-        const gridLat = Math.floor(lat / this.gridSize);
-        const gridLng = Math.floor(lng / this.gridSize);
-        return `${gridLat},${gridLng}`;
-    }
-
-    addPhoto(photoId: PhotoId, lat: number, lng: number): void {
-        const gridKey = this.getGridKey(lat, lng);
-
-        if (!this.photoGrid.has(gridKey)) {
-            this.photoGrid.set(gridKey, new Set<PhotoId>());
-        }
-
-        this.photoGrid.get(gridKey)!.add(photoId);
-        this.photoLocations.set(photoId, {lat, lng});
-    }
-
-    removePhoto(photoId: PhotoId): void {
-        const location = this.photoLocations.get(photoId);
-        if (!location) return;
-
-        const gridKey = this.getGridKey(location.lat, location.lng);
-        const gridSet = this.photoGrid.get(gridKey);
-        if (gridSet) {
-            gridSet.delete(photoId);
-            if (gridSet.size === 0) {
-                this.photoGrid.delete(gridKey);
-            }
-        }
-
-        this.photoLocations.delete(photoId);
-    }
-
-    getPhotosInBounds(bounds: Bounds): PhotoId[] {
-        const results: PhotoId[] = [];
-        const topLat = bounds.top_left.lat;
-        const leftLng = bounds.top_left.lng;
-        const bottomLat = bounds.bottom_right.lat;
-        const rightLng = bounds.bottom_right.lng;
-
-        // Calculate grid range
-        const minGridLat = Math.floor(bottomLat / this.gridSize);
-        const maxGridLat = Math.ceil(topLat / this.gridSize);
-        const minGridLng = Math.floor(leftLng / this.gridSize);
-        const maxGridLng = Math.ceil(rightLng / this.gridSize);
-
-        // Check each grid cell in range
-        for (let gridLat = minGridLat; gridLat <= maxGridLat; gridLat++) {
-            for (let gridLng = minGridLng; gridLng <= maxGridLng; gridLng++) {
-                const gridKey = `${gridLat},${gridLng}`;
-                const photosInGrid = this.photoGrid.get(gridKey);
-
-                if (photosInGrid) {
-                    for (const photoId of photosInGrid) {
-                        const location = this.photoLocations.get(photoId);
-                        if (location &&
-                            location.lat <= topLat && location.lat >= bottomLat &&
-                            location.lng >= leftLng && location.lng <= rightLng) {
-                            results.push(photoId);
-                        }
-                    }
+        for (const photo of photos) {
+            // Calculate position within bounds (0-1)
+            const latPos = (bounds.top_left.lat - photo.coord.lat) / latRange;
+            const lngPos = (photo.coord.lng - bounds.top_left.lng) / lngRange;
+            
+            // Debug assertion - would only run in development
+            if (process.env.NODE_ENV !== 'production') {
+                if (latPos < 0 || latPos > 1 || lngPos < 0 || lngPos > 1) {
+                    console.warn(`Photo ${photo.photo_id} outside bounds: latPos=${latPos}, lngPos=${lngPos}`);
                 }
             }
+            
+            // Convert to 0-9 grid cells (clamp to ensure valid range)
+            const gridLat = Math.min(9, Math.max(0, Math.floor(latPos * 10)));
+            const gridLng = Math.min(9, Math.max(0, Math.floor(lngPos * 10)));
+            
+            const gridKey = `${gridLat}${gridLng}`;
+            
+            if (!this.photoGrid.has(gridKey)) {
+                this.photoGrid.set(gridKey, []);
+            }
+            this.photoGrid.get(gridKey)!.push(photo.photo_id);
         }
-
-        return results;
     }
 
-    clear(): void {
-        this.photoGrid.clear();
-        this.photoLocations.clear();
+    getPhotosInCell(cellKey: string): PhotoId[] {
+        return this.photoGrid.get(cellKey) || [];
     }
 }
+
