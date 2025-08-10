@@ -76,6 +76,9 @@ const currentState = {
     sourcesPhotosInArea: { data: null, lastUpdateId: -1, lastProcessedId: -1 }
 };
 
+// Track if we're blocked by running processes
+let isBlocked = false;
+
 // Photo arrays - per-source tracking for smart culling
 const photosInAreaPerSource = new Map<string, PhotoData[]>();
 let cullingGrid: CullingGrid | null = null;
@@ -317,11 +320,19 @@ async function loop(): Promise<void> {
 				console.log('NewWorker: Waiting for next message...');
 				message = await messageQueue.getNextMessage();
 				console.log('NewWorker: Got message from queue:', message?.type);
+				isBlocked = false; // Clear blocked flag when we get a new message
 			} else if (hasQueuedMessages) {
 				// Process queued messages first
 				console.log('NewWorker: Processing queued message...');
 				message = await messageQueue.getNextMessage();
 				console.log('NewWorker: Got queued message:', message?.type);
+				isBlocked = false; // Clear blocked flag when we get a new message
+			} else if (isBlocked) {
+				// We're blocked by running processes, sleep instead of spinning
+				console.log('NewWorker: Blocked by running processes, waiting for next message...');
+				message = await messageQueue.getNextMessage();
+				console.log('NewWorker: Unblocked by message:', message?.type);
+				isBlocked = false; // Clear blocked flag
 			} else {
 				// No more messages but we have unprocessed updates
 				console.log('NewWorker: No more messages, processing pending updates...');
@@ -400,7 +411,19 @@ async function loop(): Promise<void> {
 		}
 		
 		// Start new processes for unprocessed updates (by priority)
-		await startPendingProcesses();
+		const canProcess = await startPendingProcesses();
+		
+		// If we're blocked by running processes, sleep instead of spinning
+		if (!canProcess) {
+			console.log('NewWorker: Blocked by running processes, waiting for next message...');
+			// Wait for a message (like processComplete) to wake us up
+			const message = await messageQueue.getNextMessage();
+			if (message) {
+				console.log('NewWorker: Woken up by message:', message.type);
+				// Process this message in the next iteration
+				continue;
+			}
+		}
 	}
 }
 
@@ -471,11 +494,11 @@ function getProcessPriority(type: 'config' | 'area' | 'sourcesPhotosInArea'): nu
 	return 0;
 }
 
-async function startPendingProcesses(): Promise<void> {
+async function startPendingProcesses(): Promise<boolean> {
 	// Only start processes if no active process is running
 	if (hasRunningProcess()) {
 		console.log('NewWorker: Process already running, waiting for completion');
-		return;
+		return false; // Return false to indicate we're blocked
 	}
 
 	// Start processes by priority - higher priority first
@@ -491,6 +514,8 @@ async function startPendingProcesses(): Promise<void> {
 	} else {
 		console.log('NewWorker: No pending processes to start');
 	}
+	
+	return true; // Return true to indicate we successfully started or completed processing
 }
 
 // Set up message handler from main thread
