@@ -86,7 +86,7 @@ const MAX_PHOTOS_IN_AREA = 700;
 const MAX_PHOTOS_IN_RANGE = 200;
 
 // Current range and center for range filtering
-let currentRange = 1000; // Default range in meters
+let currentRange = 1000; // Default range in meters, updated from area updates
 
 function calculateCenterFromBounds(bounds: Bounds): { lat: number; lng: number } {
     return {
@@ -225,10 +225,11 @@ async function startProcess(type: 'config' | 'area', messageId: number): Promise
 
     // Start the actual business logic operations
     if (type === 'config') {
-        photoOperations.processConfig(processId, currentState.config.data, operationCallbacks);
+        photoOperations.processConfig(processId, messageId, currentState.config.data, operationCallbacks);
     } else if (type === 'area') {
         photoOperations.processArea(
             processId, 
+            messageId,
             currentState.area.data, 
             currentState.config.data?.sources || [], 
             operationCallbacks
@@ -240,6 +241,9 @@ function handleMessage(message: any): void {
 	// Add the message to the queue with unique ID
 	messageQueue.addMessage({...message, id: messageIdCounter++});
 }
+
+// Export handleMessage for testing
+export { handleMessage };
 
 
 
@@ -307,8 +311,15 @@ function hasUnprocessedUpdates(): boolean {
 function updateState(type: 'config' | 'area', message: any): void {
 	if (!message.internal && message.data) {
 		// Update state immediately - no waiting
-		currentState[type].data = message.data[type] || message.data;
+		currentState[type].data = message.data[type] || message.data.area || message.data;
 		currentState[type].lastUpdateId = message.id;
+		
+		// Update range if provided in area updates
+		if (type === 'area' && message.data.range) {
+			currentRange = message.data.range;
+			console.log(`NewWorker: Updated range to ${currentRange}m`);
+		}
+		
 		console.log(`NewWorker: Updated ${type} state (id: ${message.id})`);
 	}
 }

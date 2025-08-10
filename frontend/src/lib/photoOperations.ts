@@ -1,11 +1,5 @@
 /**
  * Photo Operations - Pure Business Logic
- * 
- * Simplified to handle only:
- * 1. Config processing (includes sources loading, JSON caching, stream management)
- * 2. Area processing (filtering cached photos by bounds)
- * 
- * Frontend handles: bearing colors, range filtering, visual presentation
  */
 
 import type { PhotoData, SourceConfig, Bounds } from './photoWorkerTypes';
@@ -51,6 +45,7 @@ export class PhotoOperations {
 
     async processConfig(
         processId: string,
+        messageId: number,
         config: { sources: SourceConfig[]; [key: string]: any },
         callbacks: OperationCallbacks
     ): Promise<void> {
@@ -64,7 +59,7 @@ export class PhotoOperations {
                 type: 'processComplete',
                 processId,
                 processType: 'config',
-                messageId: undefined
+                messageId
             });
             return;
         }
@@ -129,6 +124,7 @@ export class PhotoOperations {
 
     async processArea(
         processId: string,
+        messageId: number,
         area: Bounds,
         sources: SourceConfig[],
         callbacks: OperationCallbacks
@@ -143,7 +139,7 @@ export class PhotoOperations {
                 type: 'processComplete',
                 processId,
                 processType: 'area',
-                messageId: undefined
+                messageId
             });
             return;
         }
