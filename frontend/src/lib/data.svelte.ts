@@ -10,7 +10,7 @@ import {photoInFront, photoToLeft, photoToRight, updateBearing as mapStateUpdate
 export interface Source {
     id: string;
     name: string;
-    type: 'json' | 'mapillary' | 'device' | 'directory';
+    type: 'json' | 'stream' | 'device';
     enabled: boolean;
     requests: number[];
     color: string;
@@ -20,7 +20,7 @@ export interface Source {
 
 export const sources = writable<Source[]>([
     {id: 'hillview', name: 'Hillview', type: 'json', enabled: false, requests: [], color: '#000', url: `${geoPicsUrl}`},
-    {id: 'mapillary', name: 'Mapillary', type: 'mapillary', enabled: true, requests: [], color: '#888'},
+    {id: 'mapillary', name: 'Mapillary', type: 'stream', enabled: true, requests: [], color: '#888'},
     {id: 'device', name: 'My Device', type: 'device', enabled: true, requests: [], color: '#4a90e2'},
 ]);
 

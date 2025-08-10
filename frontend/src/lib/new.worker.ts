@@ -72,8 +72,8 @@ let messageIdCounter = 0;
 
 // Current state - only the latest data matters  
 const currentState = {
-    config: { data: null as { sources: SourceConfig[]; [key: string]: any } | null, lastUpdateId: 0, lastProcessedId: 0 },
-    area: { data: null as Bounds | null, lastUpdateId: 0, lastProcessedId: 0 }
+    config: { data: null as { sources: SourceConfig[]; [key: string]: any } | null, lastUpdateId: -1, lastProcessedId: -1 },
+    area: { data: null as Bounds | null, lastUpdateId: -1, lastProcessedId: -1 }
 };
 
 // Photo arrays - per-source tracking for smart culling
@@ -216,11 +216,40 @@ async function startProcess(type: 'config' | 'area', messageId: number): Promise
     const operationCallbacks = {
         shouldAbort: (id: string) => shouldAbortProcess(id),
         postMessage: (message: any) => messageQueue.addMessage(message),
-        updatePhotosInAreaForSource: (sourceId: string, photos: PhotoData[]) => { 
-            photosInAreaPerSource.set(sourceId, photos);
+        updatePhotosInArea: (photos: PhotoData[]) => { 
+            // For config updates, distribute photos across per-source tracking
+            if (photos.length > 0) {
+                // Group by source if available, otherwise use 'default'
+                const photosBySource = new Map<string, PhotoData[]>();
+                for (const photo of photos) {
+                    const sourceId = photo.source?.id || 'default';
+                    if (!photosBySource.has(sourceId)) {
+                        photosBySource.set(sourceId, []);
+                    }
+                    photosBySource.get(sourceId)!.push(photo);
+                }
+                // Update per-source tracking
+                for (const [sourceId, sourcePhotos] of photosBySource.entries()) {
+                    photosInAreaPerSource.set(sourceId, sourcePhotos);
+                }
+            }
         },
-        getPhotosInAreaPerSource: () => new Map(photosInAreaPerSource),
-        sendPhotosUpdate: () => sendPhotosUpdate()
+        updatePhotosInRange: (photos: PhotoData[]) => { 
+            // Not used in current implementation - range calculation is done in mergeAndCullPhotos
+        },
+        getPhotosInArea: () => {
+            const allPhotos: PhotoData[] = [];
+            for (const photos of photosInAreaPerSource.values()) {
+                allPhotos.push(...photos);
+            }
+            return allPhotos;
+        },
+        getPhotosInRange: () => {
+            // Not used in current implementation
+            return [];
+        },
+        sendPhotosInAreaUpdate: () => sendPhotosUpdate(),
+        sendPhotosInRangeUpdate: () => sendPhotosUpdate()
     };
 
     // Start the actual business logic operations
@@ -257,19 +286,30 @@ async function loop(): Promise<void> {
 			
 			// Check if we need to process anything
 			const needsProcessing = hasUnprocessedUpdates();
+			const hasQueuedMessages = messageQueue.hasMore();
 			
-			if (!needsProcessing && !messageQueue.hasMore()) {
+			console.log(`NewWorker: Loop iteration - needsProcessing: ${needsProcessing}, hasQueuedMessages: ${hasQueuedMessages}`);
+			
+			if (!needsProcessing && !hasQueuedMessages) {
 				// Nothing to do, wait for next message
+				console.log('NewWorker: Waiting for next message...');
 				message = await messageQueue.getNextMessage();
-			} else if (messageQueue.hasMore()) {
+				console.log('NewWorker: Got message from queue:', message?.type);
+			} else if (hasQueuedMessages) {
 				// Process queued messages first
+				console.log('NewWorker: Processing queued message...');
 				message = await messageQueue.getNextMessage();
+				console.log('NewWorker: Got queued message:', message?.type);
 			} else {
 				// No more messages but we have unprocessed updates
+				console.log('NewWorker: No more messages, processing pending updates...');
 				break;
 			}
 			
-			if (!message) continue; // Handle queue cancellation
+			if (!message) {
+				console.log('NewWorker: Got null message, continuing...');
+				continue; // Handle queue cancellation
+			}
 			
 			console.log(`NewWorker: Processing message ${message.type} (id: ${message.id})`);
 			
@@ -287,6 +327,27 @@ async function loop(): Promise<void> {
 					handleProcessCompletion(message);
 					break;
 					
+				case 'loadError':
+					// Handle loading errors from PhotoLoadingProcess
+					console.error('NewWorker: Load error from process:', message);
+					// Mark the process as failed but continue processing
+					if (message.processId) {
+						cleanupProcess(message.processId);
+					}
+					break;
+				
+				case 'loadProgress':
+					// Handle loading progress updates from PhotoLoadingProcess
+					console.log(`NewWorker: Load progress from ${message.sourceId}: ${message.loaded}${message.total ? `/${message.total}` : ''}`);
+					// Just log progress, no action needed
+					break;
+				
+				case 'photosLoaded':
+					// Handle photo loading completion from PhotoLoadingProcess
+					console.log(`NewWorker: Photos loaded from ${message.sourceId}: ${message.photos?.length || 0} photos (${message.fromCache ? 'cached' : 'fresh'})`);
+					// Photos are already processed by PhotoOperations, no additional action needed
+					break;
+					
 				case 'exit':
 					console.log('NewWorker: Exit requested');
 					return;
@@ -302,10 +363,15 @@ async function loop(): Promise<void> {
 }
 
 function hasUnprocessedUpdates(): boolean {
-	return (
-		currentState.config.lastUpdateId !== currentState.config.lastProcessedId ||
-		currentState.area.lastUpdateId !== currentState.area.lastProcessedId
-	);
+	const configUnprocessed = currentState.config.lastUpdateId !== currentState.config.lastProcessedId;
+	const areaUnprocessed = currentState.area.lastUpdateId !== currentState.area.lastProcessedId;
+	const result = configUnprocessed || areaUnprocessed;
+	
+	if (result) {
+		console.log(`NewWorker: hasUnprocessedUpdates - config: ${configUnprocessed} (update=${currentState.config.lastUpdateId}, processed=${currentState.config.lastProcessedId}), area: ${areaUnprocessed} (update=${currentState.area.lastUpdateId}, processed=${currentState.area.lastProcessedId})`);
+	}
+	
+	return result;
 }
 
 function updateState(type: 'config' | 'area', message: any): void {
@@ -348,9 +414,13 @@ function handleProcessCompletion(message: any): void {
 async function startPendingProcesses(): Promise<void> {
 	// Start processes by priority - higher priority first
 	if (currentState.config.lastUpdateId !== currentState.config.lastProcessedId) {
+		console.log(`NewWorker: Starting config process for message ${currentState.config.lastUpdateId}`);
 		await startProcess('config', currentState.config.lastUpdateId);
 	} else if (currentState.area.lastUpdateId !== currentState.area.lastProcessedId) {
+		console.log(`NewWorker: Starting area process for message ${currentState.area.lastUpdateId}`);
 		await startProcess('area', currentState.area.lastUpdateId);
+	} else {
+		console.log('NewWorker: No pending processes to start');
 	}
 }
 

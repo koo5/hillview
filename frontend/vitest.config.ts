@@ -1,9 +1,11 @@
 import { defineConfig } from 'vitest/config';
 import { sveltekit } from '@sveltejs/kit/vite';
 import path from 'path';
+import { sharedDefines } from './config/shared';
 
 export default defineConfig({
   plugins: [sveltekit()],
+  define: sharedDefines,
   test: {
     globals: true,
     environment: 'happy-dom',

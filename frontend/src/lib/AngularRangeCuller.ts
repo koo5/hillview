@@ -8,7 +8,7 @@
  */
 
 import type { PhotoData } from './photoWorkerTypes';
-import { calculateDistance } from './photoProcessingUtils';
+import { calculateDistance } from './workerUtils';
 
 interface AngularBucket {
     photos: PhotoData[];

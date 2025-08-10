@@ -1,5 +1,5 @@
 import type { PhotoData, SourceConfig, Bounds } from './photoWorkerTypes';
-import { filterPhotosByArea } from './photoProcessingUtils';
+import { filterPhotosByArea } from './workerUtils';
 
 export interface PhotoLoadingCallbacks {
     onProgress?: (loaded: number, total?: number) => void;
@@ -68,13 +68,25 @@ export class PhotoLoadingProcess {
 
         this.abortController = new AbortController();
         console.log(`PhotoLoadingProcess: Loading JSON from ${this.source.url}`);
+        console.log(`PhotoLoadingProcess: Source config:`, JSON.stringify({
+            id: this.source.id,
+            name: this.source.name,
+            type: this.source.type,
+            enabled: this.source.enabled,
+            url: this.source.url,
+            clientId: this.source.clientId
+        }));
 
         const response = await fetch(this.source.url, {
             signal: this.abortController.signal
         });
 
+        console.log(`PhotoLoadingProcess: Response status: ${response.status} ${response.statusText}`);
+        console.log(`PhotoLoadingProcess: Response headers:`, Object.fromEntries([...response.headers.entries()]));
+
         if (!response.ok) {
-            throw new Error(`Failed to fetch from ${this.source.url}: ${response.statusText}`);
+            console.error(`PhotoLoadingProcess: HTTP error ${response.status} ${response.statusText} for ${this.source.url}`);
+            throw new Error(`Failed to fetch from ${this.source.url}: ${response.status} ${response.statusText}`);
         }
 
         const contentLength = response.headers.get('content-length');
