@@ -16,7 +16,11 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
 
     async start(bounds?: Bounds): Promise<void> {
         if (!bounds) {
-            throw new Error('Stream source requires bounds');
+            // Stream sources without bounds are valid during config setup
+            // They will be started with bounds later when area is updated
+            console.log(`StreamSourceLoader: Started ${this.source.id} without bounds - waiting for area update`);
+            this.isComplete = true;
+            return;
         }
 
         if (!this.source.url) {

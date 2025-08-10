@@ -175,14 +175,16 @@ function shouldAbortProcess(processId: string): boolean {
 }
 
 function markConflictingProcessesForAbortion(newProcessType: 'config' | 'area'): void {
-    const newPriority = PROCESS_PRIORITY[newProcessType];
+    const newPriority = getProcessPriority(newProcessType);
     
     for (const [processId, processInfo] of processTable.entries()) {
-        const existingPriority = PROCESS_PRIORITY[processInfo.type];
+        const existingPriority = getProcessPriority(processInfo.type);
         
-        // Mark for abortion if new process has higher priority (lower number)
-        if (newPriority <= existingPriority) {
-            console.log(`NewWorker: Marking process ${processId} (${processInfo.type}) for abortion due to ${newProcessType} update`);
+        // Only abort existing processes if new process has HIGHER priority
+        // Config (priority 2) can abort Area (priority 1)
+        // Area (priority 1) cannot abort Config (priority 2)
+        if (newPriority > existingPriority) {
+            console.log(`NewWorker: Marking process ${processId} (${processInfo.type}) for abortion due to higher priority ${newProcessType} update`);
             processInfo.shouldAbort = true;
         }
     }
@@ -346,6 +348,25 @@ async function loop(): Promise<void> {
 					console.log(`NewWorker: Photos loaded from ${message.sourceId}: ${message.photos?.length || 0} photos (${message.fromCache ? 'cached' : 'fresh'})`);
 					// Photos are already processed by PhotoOperations, no additional action needed
 					break;
+				
+				case 'photosAdded':
+					// Handle streaming photo updates from StreamSourceLoader
+					console.log(`NewWorker: Photos updated from stream ${message.sourceId}: ${message.photos?.length || 0} photos`);
+					if (message.photos && Array.isArray(message.photos)) {
+						// Replace the photo array for this source (source handles accumulation)
+						photosInAreaPerSource.set(message.sourceId, message.photos);
+						console.log(`NewWorker: Source ${message.sourceId} set to ${message.photos.length} photos`);
+						
+						// Send updated photos to frontend
+						sendPhotosUpdate();
+					}
+					break;
+				
+				case 'streamComplete':
+					// Handle stream completion from StreamSourceLoader
+					console.log(`NewWorker: Stream completed for ${message.sourceId}: ${message.totalPhotos || 0} total photos`);
+					// Stream is complete, no additional action needed
+					break;
 					
 				case 'exit':
 					console.log('NewWorker: Exit requested');
@@ -410,7 +431,27 @@ function handleProcessCompletion(message: any): void {
 	cleanupProcess(processId);
 }
 
+function hasRunningProcess(): boolean {
+	for (const [processId, processInfo] of processTable.entries()) {
+		if (!processInfo.shouldAbort) {
+			return true;
+		}
+	}
+	return false;
+}
+
+function getProcessPriority(type: 'config' | 'area'): number {
+	// Higher number = higher priority
+	return type === 'config' ? 2 : 1;
+}
+
 async function startPendingProcesses(): Promise<void> {
+	// Only start processes if no active process is running
+	if (hasRunningProcess()) {
+		console.log('NewWorker: Process already running, waiting for completion');
+		return;
+	}
+
 	// Start processes by priority - higher priority first
 	if (currentState.config.lastUpdateId !== currentState.config.lastProcessedId) {
 		console.log(`NewWorker: Starting config process for message ${currentState.config.lastUpdateId}`);

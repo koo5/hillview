@@ -16,20 +16,19 @@ const mockSelf = {
 (globalThis as any).self = mockSelf;
 (globalThis as any).postMessage = mockPostMessage;
 
-// Mock fetch globally
-const mockFetch = vi.fn();
-global.fetch = mockFetch;
+// No longer need fetch mock since we're using EventSource
 
 // Mock EventSource for streaming tests
 const mockEventSourceInstances = new Map<string, any>();
 const MockEventSource = vi.fn().mockImplementation((url: string) => {
+  console.log(`MockEventSource: Creating new instance for ${url}`);
   const instance = {
     url,
     readyState: 1, // OPEN
     onopen: null,
     onmessage: null,
     onerror: null,
-    close: vi.fn(),
+    close: vi.fn(() => console.log(`MockEventSource: Closed ${url}`)),
     addEventListener: vi.fn(),
     removeEventListener: vi.fn(),
     dispatchEvent: vi.fn()
@@ -39,6 +38,7 @@ const MockEventSource = vi.fn().mockImplementation((url: string) => {
   
   // Simulate connection opening after a short delay
   setTimeout(() => {
+    console.log(`MockEventSource: Opening connection for ${url}`);
     if (instance.onopen) {
       instance.onopen(new Event('open'));
     }
@@ -73,6 +73,7 @@ const MockEventSource = vi.fn().mockImplementation((url: string) => {
     
     // Send photos as stream message
     if (testData.length > 0 && instance.onmessage) {
+      console.log(`MockEventSource: Sending ${testData.length} photos for ${url}`);
       instance.onmessage({
         data: JSON.stringify({
           type: 'cached_photos',
@@ -83,6 +84,7 @@ const MockEventSource = vi.fn().mockImplementation((url: string) => {
     
     // Send completion message
     if (instance.onmessage) {
+      console.log(`MockEventSource: Sending completion for ${url}`);
       instance.onmessage({
         data: JSON.stringify({
           type: 'stream_complete'
@@ -96,11 +98,11 @@ const MockEventSource = vi.fn().mockImplementation((url: string) => {
 
 global.EventSource = MockEventSource;
 
-// Mock console to reduce test noise
+// Keep console logging for debugging infinite loop
 const originalConsole = console.log;
 beforeEach(() => {
-  console.log = vi.fn();
-  mockFetch.mockClear();
+  // Don't mock console.log for debugging
+  // console.log = vi.fn();
   mockPostMessage.mockClear();
   MockEventSource.mockClear();
   mockEventSourceInstances.clear();
@@ -163,6 +165,7 @@ describe('New Worker Integration Tests', () => {
 
   const sendMessage = async (type: string, data: any): Promise<any> => {
     const id = messageId++;
+    console.log(`TEST: Sending message ${type} with id ${id}`);
     
     // Send message to worker
     worker.handleMessage({
@@ -172,6 +175,7 @@ describe('New Worker Integration Tests', () => {
       id
     });
 
+    console.log(`TEST: Message sent, waiting for response...`);
     // Wait for processing to complete
     await waitForPhotosUpdate();
 
@@ -267,16 +271,7 @@ describe('New Worker Integration Tests', () => {
   });
 
   it('should apply smart culling for many photos', async () => {
-    // Create many photos to trigger culling
-    const manyPhotos = Array.from({ length: 1000 }, (_, i) => 
-      createTestPhoto(`bulk${i}`, 50 + (i % 10) * 0.01, 10 + (i % 10) * 0.01, i % 360)
-    );
-    
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve(manyPhotos)
-    });
-    
+    // The MockEventSource will automatically create 1000 bulk photos for bulk-source URL
     const sources = [createStreamSource('bulk-source')];
     const response = await sendMessage('configUpdated', {
       config: { sources }
@@ -289,18 +284,7 @@ describe('New Worker Integration Tests', () => {
   });
 
   it('should sort photosInRange by bearing', async () => {
-    const photosWithBearings = [
-      createTestPhoto('north', 50.1, 10.1, 0),
-      createTestPhoto('south', 50.1, 10.1, 180), 
-      createTestPhoto('east', 50.1, 10.1, 90),
-      createTestPhoto('west', 50.1, 10.1, 270)
-    ];
-    
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve(photosWithBearings)
-    });
-    
+    // The MockEventSource will automatically create bearing-test photos with bearings 0, 90, 180, 270
     const sources = [createStreamSource('bearing-test')];
     const response = await sendMessage('configUpdated', {
       config: { sources }
@@ -328,7 +312,7 @@ describe('New Worker Integration Tests', () => {
     // Should only have photos from enabled source
     const photoIds = response.photosInArea.map((p: PhotoData) => p.id);
     expect(photoIds).toContain('photo1'); // From enabled source
-    expect(mockFetch).toHaveBeenCalledTimes(1); // Only called for enabled source
+    expect(MockEventSource).toHaveBeenCalledTimes(1); // Only called for enabled source
   });
 
   it('should update range dynamically', async () => {

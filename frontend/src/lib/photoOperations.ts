@@ -83,7 +83,10 @@ export class PhotoOperations {
             }
         }
         
-        if (callbacks.shouldAbort(processId)) return;
+        if (callbacks.shouldAbort(processId)) {
+            console.log(`PhotoOperations: Config process ${processId} aborted before completion`);
+            return;
+        }
         
         // Update photosInArea with all loaded photos
         // (Stream and device sources add their photos via callbacks)
