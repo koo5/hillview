@@ -802,7 +802,9 @@
 
         <ScaleControl options={{maxWidth: 100, imperial: false}} position="bottomleft"/>
 
-        <!-- Base map tiles -->
+        <!-- Base map tiles
+         -->
+
         <TileLayer
                 {...{ attribution: "&copy; OpenStreetMap contributors" }}
                 options={{
@@ -811,14 +813,14 @@
                     minZoom: 3,
                     // Memory optimization for tiles
                     keepBuffer: 1, // Keep fewer tiles in memory (default is 2)
-                    updateWhenIdle: true, // Update tiles only when panning ends
+                    updateWhenIdle: false, // Update tiles only when panning ends
                     updateWhenZooming: false, // Don't update during zoom animation
                     tileSize: 256, // Standard tile size
                     zoomOffset: 0,
-                    detectRetina: false, // Disable retina tiles to save memory
+                    detectRetina: true, // Disable retina tiles to save memory
                     crossOrigin: true, // Enable CORS for better caching
                     // Additional performance options
-                    updateInterval: 200, // Throttle tile updates
+                    updateInterval: 100, // Throttle tile updates
                     tms: false,
                     noWrap: false,
                     zoomReverse: false,
@@ -841,25 +843,6 @@
             />
             <!-- arrow -->
         {/if}
-
-        <!-- Debug bounds rectangle -->
-        <!--{#if $app.debug > 0 && $spatialState.bounds}-->
-        <!--    <Polygon-->
-        <!--            latLngs={[-->
-        <!--                [$spatialState.bounds.top_left.lat, $spatialState.bounds.top_left.lng],-->
-        <!--                [$spatialState.bounds.top_left.lat, $spatialState.bounds.bottom_right.lng],-->
-        <!--                [$spatialState.bounds.bottom_right.lat, $spatialState.bounds.bottom_right.lng],-->
-        <!--                [$spatialState.bounds.bottom_right.lat, $spatialState.bounds.top_left.lng]-->
-        <!--            ]}-->
-        <!--            color="#FF0000"-->
-        <!--            fillColor="#FF0000"-->
-        <!--            fillOpacity={0.1}-->
-        <!--            weight={2}-->
-        <!--            dashArray="5, 10"-->
-        <!--        />-->
-        <!--{/if}-->
-
-        <!-- Markers are now handled programmatically by optimizedMarkerSystem -->
 
         <div class="svg-overlay">
             <svg
@@ -909,6 +892,24 @@
                 <!--                    />-->
             </svg>
         </div>
+
+
+    <!-- Debug bounds rectangle -->
+    <!--{#if $app.debug > 0 && $spatialState.bounds}-->
+    <!--    <Polygon-->
+    <!--            latLngs={[-->
+    <!--                [$spatialState.bounds.top_left.lat, $spatialState.bounds.top_left.lng],-->
+    <!--                [$spatialState.bounds.top_left.lat, $spatialState.bounds.bottom_right.lng],-->
+    <!--                [$spatialState.bounds.bottom_right.lat, $spatialState.bounds.bottom_right.lng],-->
+    <!--                [$spatialState.bounds.bottom_right.lat, $spatialState.bounds.top_left.lng]-->
+    <!--            ]}-->
+    <!--            color="#FF0000"-->
+    <!--            fillColor="#FF0000"-->
+    <!--            fillOpacity={0.1}-->
+    <!--            weight={2}-->
+    <!--            dashArray="5, 10"-->
+    <!--        />-->
+    <!--{/if}-->
 
 
     </LeafletMap>
