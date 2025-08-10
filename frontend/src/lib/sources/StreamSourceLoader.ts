@@ -98,9 +98,10 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
                     this.callbacks.enqueueMessage({
                         type: 'photosAdded',
                         sourceId: this.source.id,
-                        photos: convertedPhotos,
+                        photos: this.streamPhotos, // Send accumulated photos (growing list)
                         batchType: data.type,
-                        region: data.region
+                        region: data.region,
+                        hasNext: !!data.next // Track if stream indicates more photos available
                     });
                 }
                 break;

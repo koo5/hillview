@@ -72,13 +72,18 @@ let messageIdCounter = 0;
 // Current state - only the latest data matters  
 const currentState = {
     config: { data: null as { sources: SourceConfig[]; [key: string]: any } | null, lastUpdateId: -1, lastProcessedId: -1 },
-    area: { data: null as Bounds | null, lastUpdateId: -1, lastProcessedId: -1 }
+    area: { data: null as Bounds | null, lastUpdateId: -1, lastProcessedId: -1 },
+    sourcesPhotosInArea: { data: null, lastUpdateId: -1, lastProcessedId: -1 }
 };
 
 // Photo arrays - per-source tracking for smart culling
 const photosInAreaPerSource = new Map<string, PhotoData[]>();
 let cullingGrid: CullingGrid | null = null;
 const angularRangeCuller = new AngularRangeCuller();
+
+// Version tracking for sourcesPhotosInArea state
+let sourcesPhotosInAreaVersion = 0;
+let lastProcessedSourcesPhotosInAreaVersion = -1;
 
 // Configuration
 const MAX_PHOTOS_IN_AREA = 700;
@@ -174,7 +179,7 @@ function shouldAbortProcess(processId: string): boolean {
     return processInfo?.shouldAbort || false;
 }
 
-function markConflictingProcessesForAbortion(newProcessType: 'config' | 'area'): void {
+function markConflictingProcessesForAbortion(newProcessType: 'config' | 'area' | 'sourcesPhotosInArea'): void {
     const newPriority = getProcessPriority(newProcessType);
     
     for (const [processId, processInfo] of processTable.entries()) {
@@ -195,7 +200,7 @@ function cleanupProcess(processId: string): void {
     console.log(`NewWorker: Cleaned up process ${processId}`);
 }
 
-async function startProcess(type: 'config' | 'area', messageId: number): Promise<void> {
+async function startProcess(type: 'config' | 'area' | 'sourcesPhotosInArea', messageId: number): Promise<void> {
     const processId = createProcessId();
     
     // Mark conflicting processes for abortion
@@ -254,16 +259,32 @@ async function startProcess(type: 'config' | 'area', messageId: number): Promise
     };
 
     // Start the actual business logic operations
-    if (type === 'config') {
-        photoOperations.processConfig(processId, messageId, currentState.config.data, operationCallbacks);
-    } else if (type === 'area') {
-        photoOperations.processArea(
-            processId, 
-            messageId,
-            currentState.area.data, 
-            currentState.config.data?.sources || [], 
-            operationCallbacks
-        );
+    try {
+        if (type === 'config') {
+            console.log(`NewWorker: Calling processConfig for ${processId}`);
+            photoOperations.processConfig(processId, messageId, currentState.config.data, operationCallbacks);
+        } else if (type === 'area') {
+            console.log(`NewWorker: About to call processArea with area:`, currentState.area.data, 'sources:', currentState.config.data?.sources?.length || 0);
+            photoOperations.processArea(
+                processId, 
+                messageId,
+                currentState.area.data, 
+                currentState.config.data?.sources || [], 
+                operationCallbacks
+            );
+        } else if (type === 'sourcesPhotosInArea') {
+            console.log(`NewWorker: Calling processCombinePhotos for ${processId}`);
+            photoOperations.processCombinePhotos(
+                processId,
+                messageId,
+                currentState.area.data,
+                currentState.config.data?.sources || [],
+                operationCallbacks
+            );
+        }
+    } catch (error) {
+        console.error(`NewWorker: Error in startProcess ${type}:`, error);
+        cleanupProcess(processId);
     }
 }
 
@@ -357,8 +378,9 @@ async function loop(): Promise<void> {
 						photosInAreaPerSource.set(message.sourceId, message.photos);
 						console.log(`NewWorker: Source ${message.sourceId} set to ${message.photos.length} photos`);
 						
-						// Send updated photos to frontend
-						sendPhotosUpdate();
+						// Update sourcesPhotosInArea version to trigger combine operation
+						sourcesPhotosInAreaVersion++;
+						updateState('sourcesPhotosInArea', { id: sourcesPhotosInAreaVersion });
 					}
 					break;
 				
@@ -385,16 +407,17 @@ async function loop(): Promise<void> {
 function hasUnprocessedUpdates(): boolean {
 	const configUnprocessed = currentState.config.lastUpdateId !== currentState.config.lastProcessedId;
 	const areaUnprocessed = currentState.area.lastUpdateId !== currentState.area.lastProcessedId;
-	const result = configUnprocessed || areaUnprocessed;
+	const sourcesPhotosInAreaUnprocessed = currentState.sourcesPhotosInArea.lastUpdateId !== currentState.sourcesPhotosInArea.lastProcessedId;
+	const result = configUnprocessed || areaUnprocessed || sourcesPhotosInAreaUnprocessed;
 	
 	if (result) {
-		console.log(`NewWorker: hasUnprocessedUpdates - config: ${configUnprocessed} (update=${currentState.config.lastUpdateId}, processed=${currentState.config.lastProcessedId}), area: ${areaUnprocessed} (update=${currentState.area.lastUpdateId}, processed=${currentState.area.lastProcessedId})`);
+		console.log(`NewWorker: hasUnprocessedUpdates - config: ${configUnprocessed} (update=${currentState.config.lastUpdateId}, processed=${currentState.config.lastProcessedId}), area: ${areaUnprocessed} (update=${currentState.area.lastUpdateId}, processed=${currentState.area.lastProcessedId}), sourcesPhotosInArea: ${sourcesPhotosInAreaUnprocessed} (update=${currentState.sourcesPhotosInArea.lastUpdateId}, processed=${currentState.sourcesPhotosInArea.lastProcessedId})`);
 	}
 	
 	return result;
 }
 
-function updateState(type: 'config' | 'area', message: any): void {
+function updateState(type: 'config' | 'area' | 'sourcesPhotosInArea', message: any): void {
 	if (!message.internal && message.data) {
 		// Update state immediately - no waiting
 		currentState[type].data = message.data[type] || message.data.area || message.data;
@@ -440,9 +463,12 @@ function hasRunningProcess(): boolean {
 	return false;
 }
 
-function getProcessPriority(type: 'config' | 'area'): number {
+function getProcessPriority(type: 'config' | 'area' | 'sourcesPhotosInArea'): number {
 	// Higher number = higher priority
-	return type === 'config' ? 2 : 1;
+	if (type === 'config') return 3;
+	if (type === 'area') return 2;
+	if (type === 'sourcesPhotosInArea') return 1;
+	return 0;
 }
 
 async function startPendingProcesses(): Promise<void> {
@@ -459,6 +485,9 @@ async function startPendingProcesses(): Promise<void> {
 	} else if (currentState.area.lastUpdateId !== currentState.area.lastProcessedId) {
 		console.log(`NewWorker: Starting area process for message ${currentState.area.lastUpdateId}`);
 		await startProcess('area', currentState.area.lastUpdateId);
+	} else if (currentState.sourcesPhotosInArea.lastUpdateId !== currentState.sourcesPhotosInArea.lastProcessedId) {
+		console.log(`NewWorker: Starting sourcesPhotosInArea process for message ${currentState.sourcesPhotosInArea.lastUpdateId}`);
+		await startProcess('sourcesPhotosInArea', currentState.sourcesPhotosInArea.lastUpdateId);
 	} else {
 		console.log('NewWorker: No pending processes to start');
 	}

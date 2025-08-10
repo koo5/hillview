@@ -18,19 +18,16 @@ export interface OperationCallbacks {
     sendPhotosInRangeUpdate: () => void;
 }
 
+interface SourceCache {
+    photos: PhotoData[];
+    isComplete: boolean; // true = no more photos available, false = partial load (stream has "next" link)
+}
+
 export class PhotoOperations {
     private loadingProcesses = new Map<string, PhotoSourceLoader>();
+    private sourceCache = new Map<string, SourceCache>(); // Cache for each source
 
     constructor() {}
-
-    clearCache(): void {
-        // Cancel any ongoing loading processes
-        for (const process of this.loadingProcesses.values()) {
-            process.cancel();
-        }
-        this.loadingProcesses.clear();
-        console.log('PhotoOperations: Cancelled loading processes');
-    }
 
     async processConfig(
         processId: string,
@@ -66,20 +63,30 @@ export class PhotoOperations {
             }
         }
 
-        // Process each enabled source
+        // Process each enabled source - perform global preloading for cache
         for (const source of sources.filter(s => s.enabled)) {
             if (callbacks.shouldAbort(processId)) return;
             
             console.log(`PhotoOperations: Processing source ${source.id} (${processId})`);
             
-            if (source.type === 'stream') {
-                // For stream sources, the loading process will add photos via callbacks as they arrive
-                console.log(`PhotoOperations: Starting stream source ${source.id}`);
-                await this.loadSource(source, processId, callbacks);
-            } else if (source.type === 'device') {
-                // For device sources, load locally available photos
-                console.log(`PhotoOperations: Starting device source ${source.id}`);
-                await this.loadSource(source, processId, callbacks);
+            // Check if we already have a cache for this source
+            const existingCache = this.sourceCache.get(source.id);
+            if (!existingCache) {
+                console.log(`PhotoOperations: No cache for ${source.id}, performing global preload`);
+                
+                // Perform global load with full globe bounds
+                const globalBounds: Bounds = {
+                    top_left: { lat: 90, lng: -180 },
+                    bottom_right: { lat: -90, lng: 180 }
+                };
+                await this.loadSource(source, processId, callbacks, globalBounds);
+            } else {
+                console.log(`PhotoOperations: Using existing cache for ${source.id} (${existingCache.photos.length} photos, complete: ${existingCache.isComplete})`);
+                
+                // Add cached photos to the current operation
+                if (existingCache.photos.length > 0) {
+                    callbacks.updatePhotosInArea(existingCache.photos);
+                }
             }
         }
         
@@ -109,7 +116,7 @@ export class PhotoOperations {
         sources: SourceConfig[],
         callbacks: OperationCallbacks
     ): Promise<void> {
-        console.log(`PhotoOperations: Processing area update (${processId})`);
+        console.log(`PhotoOperations: Processing area update (${processId}) with ${sources.length} sources`);
         
         if (callbacks.shouldAbort(processId)) return;
         
@@ -132,14 +139,25 @@ export class PhotoOperations {
             for (const source of sources.filter(s => s.enabled)) {
                 if (callbacks.shouldAbort(processId)) return;
                 
-                if (source.type === 'stream') {
-                    // For stream sources, start new stream with bounds
-                    // Photos will be added as they arrive via callbacks
-                    console.log(`PhotoOperations: Restarting stream source ${source.id} with new bounds`);
+                const cache = this.sourceCache.get(source.id);
+                console.log(`PhotoOperations: Checking cache for ${source.id} - cache exists: ${!!cache}, isComplete: ${cache?.isComplete}`);
+                
+                if (cache && cache.isComplete) {
+                    // Cache is complete - filter cached photos by area instead of new load
+                    console.log(`PhotoOperations: Using complete cache for ${source.id}, filtering by area`);
+                    const filteredPhotos = filterPhotosByArea(cache.photos, area);
+                    console.log(`PhotoOperations: Filtered ${filteredPhotos.length} photos from ${cache.photos.length} cached for ${source.id}`);
+                    
+                    if (filteredPhotos.length > 0) {
+                        newPhotosInArea.push(...filteredPhotos);
+                    }
+                } else if (cache && !cache.isComplete) {
+                    // Cache is partial - need to perform bounded load
+                    console.log(`PhotoOperations: Cache for ${source.id} is partial, performing bounded load`);
                     await this.loadSource(source, processId, callbacks, area);
-                } else if (source.type === 'device') {
-                    // For device sources, reload with new bounds if needed
-                    console.log(`PhotoOperations: Restarting device source ${source.id} with new bounds`);
+                } else {
+                    // No cache - perform bounded load
+                    console.log(`PhotoOperations: No cache for ${source.id}, performing bounded load`);
                     await this.loadSource(source, processId, callbacks, area);
                 }
             }
@@ -159,6 +177,7 @@ export class PhotoOperations {
             messageId
         });
     }
+
 
     private async loadSource(
         source: SourceConfig,
@@ -189,7 +208,35 @@ export class PhotoOperations {
                     error: error.message
                 });
             },
-            enqueueMessage: callbacks.postMessage
+            enqueueMessage: (message) => {
+                // Intercept messages to populate cache when doing global loads
+                const isGlobalLoad = bounds && 
+                    bounds.top_left.lat === 90 && bounds.top_left.lng === -180 &&
+                    bounds.bottom_right.lat === -90 && bounds.bottom_right.lng === 180;
+                
+                if (isGlobalLoad) { // Global load - update cache
+                    if (message.type === 'photosAdded') {
+                        // Replace cache with latest photo list (source accumulates internally)
+                        // Check if stream indicates no more photos (no "next" link)
+                        const isComplete = !message.hasNext;
+                        this.sourceCache.set(source.id, {
+                            photos: [...message.photos],
+                            isComplete
+                        });
+                        console.log(`PhotoOperations: Cache updated for ${source.id} (${message.photos.length} photos, hasNext: ${message.hasNext})`);
+                    } else if (message.type === 'streamComplete') {
+                        // Mark cache as complete
+                        const cache = this.sourceCache.get(source.id);
+                        if (cache) {
+                            cache.isComplete = true;
+                            console.log(`PhotoOperations: Cache complete for ${source.id} (${cache.photos.length} photos)`);
+                        }
+                    }
+                }
+                
+                // Forward message to worker queue
+                callbacks.postMessage(message);
+            }
         };
 
         const loader = PhotoSourceFactory.createLoader(source, sourceCallbacks);
@@ -204,6 +251,37 @@ export class PhotoOperations {
         } finally {
             this.loadingProcesses.delete(source.id);
         }
+    }
+
+    async processCombinePhotos(
+        processId: string,
+        messageId: number,
+        areaBounds: Bounds | null,
+        sources: SourceConfig[],
+        callbacks: OperationCallbacks
+    ): Promise<void> {
+        console.log(`PhotoOperations: Processing combinePhotos (${processId})`);
+        
+        if (callbacks.shouldAbort(processId)) {
+            console.log(`PhotoOperations: CombinePhotos process ${processId} aborted before processing`);
+            return;
+        }
+        
+        // This operation combines and culls existing photos from all sources
+        // No new loading - just processing current data using existing culling logic
+        
+        // The worker has the sophisticated culling logic (mergeAndCullPhotos)
+        // Just trigger the standard photo update pipeline
+        callbacks.sendPhotosInAreaUpdate();
+        callbacks.sendPhotosInRangeUpdate();
+        
+        console.log(`PhotoOperations: CombinePhotos processing complete (${processId}) - triggered photo updates`);
+        callbacks.postMessage({
+            type: 'processComplete',
+            processId,
+            processType: 'sourcesPhotosInArea',
+            messageId
+        });
     }
 
     private async simulateWork(
