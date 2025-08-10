@@ -79,7 +79,9 @@ export class PhotoOperations {
                     top_left: { lat: 90, lng: -180 },
                     bottom_right: { lat: -90, lng: 180 }
                 };
+                console.log(`PhotoOperations: About to await loadSource for global preload of ${source.id}`);
                 await this.loadSource(source, processId, callbacks, globalBounds);
+                console.log(`PhotoOperations: Completed loadSource for global preload of ${source.id}`);
             } else {
                 console.log(`PhotoOperations: Using existing cache for ${source.id} (${existingCache.photos.length} photos, complete: ${existingCache.isComplete})`);
                 

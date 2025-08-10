@@ -36,8 +36,10 @@ const MockEventSource = vi.fn().mockImplementation((url: string) => {
   
   mockEventSourceInstances.set(url, instance);
   
-  // Simulate connection opening after a short delay
-  setTimeout(() => {
+  // Use queueMicrotask for test-friendly async handling
+  console.log(`MockEventSource: Setting up queueMicrotask callback for ${url}`);
+  queueMicrotask(() => {
+    console.log(`MockEventSource: queueMicrotask callback executing for ${url}`);
     console.log(`MockEventSource: Opening connection for ${url}`);
     if (instance.onopen) {
       instance.onopen(new Event('open'));
@@ -91,7 +93,7 @@ const MockEventSource = vi.fn().mockImplementation((url: string) => {
         })
       });
     }
-  }, 10);
+  });
   
   return instance;
 });

@@ -9,6 +9,8 @@ import { BasePhotoSourceLoader, type PhotoSourceCallbacks } from './PhotoSourceL
 export class StreamSourceLoader extends BasePhotoSourceLoader {
     private eventSource?: EventSource;
     private streamPhotos: PhotoData[] = [];
+    private completionPromise?: Promise<void>;
+    private completionResolve?: () => void;
 
     constructor(source: any, callbacks: PhotoSourceCallbacks) {
         super(source, callbacks);
@@ -41,6 +43,12 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
             url.searchParams.set('client_id', this.source.clientId);
         }
 
+        // Create completion promise
+        this.completionPromise = new Promise<void>((resolve) => {
+            this.completionResolve = resolve;
+            console.log(`StreamSourceLoader: Created completion promise for ${this.source.id}`);
+        });
+
         this.eventSource = new EventSource(url.toString());
 
         this.eventSource.onmessage = (event) => {
@@ -61,6 +69,10 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
         this.eventSource.onopen = () => {
             console.log('StreamSourceLoader: Stream opened');
         };
+
+        // Return the completion promise
+        console.log(`StreamSourceLoader: Returning completion promise for ${this.source.id}`);
+        return this.completionPromise;
     }
 
     private handleStreamMessage(data: any): void {
@@ -107,7 +119,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
                 break;
 
             case 'stream_complete':
-                console.log('StreamSourceLoader: Stream complete');
+                console.log(`StreamSourceLoader: Stream complete for ${this.source.id}`);
                 this.isComplete = true;
                 const duration = Date.now() - this.startTime;
                 
@@ -118,11 +130,22 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
                     totalPhotos: this.streamPhotos.length,
                     duration
                 });
+
+                // Resolve the completion promise
+                console.log(`StreamSourceLoader: About to resolve completion promise for ${this.source.id}, resolve function exists: ${!!this.completionResolve}`);
+                if (this.completionResolve) {
+                    this.completionResolve();
+                    console.log(`StreamSourceLoader: Resolved completion promise for ${this.source.id}`);
+                }
                 break;
 
             case 'error':
                 console.error('StreamSourceLoader: Stream error:', data.message);
                 this.callbacks.onError?.(new Error(data.message || 'Unknown stream error'));
+                // Resolve the completion promise even on error
+                if (this.completionResolve) {
+                    this.completionResolve();
+                }
                 break;
 
             default:
