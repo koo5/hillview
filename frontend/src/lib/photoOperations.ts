@@ -79,9 +79,7 @@ export class PhotoOperations {
                     top_left: { lat: 90, lng: -180 },
                     bottom_right: { lat: -90, lng: 180 }
                 };
-                console.log(`PhotoOperations: About to await loadSource for global preload of ${source.id}`);
                 await this.loadSource(source, processId, callbacks, globalBounds);
-                console.log(`PhotoOperations: Completed loadSource for global preload of ${source.id}`);
             } else {
                 console.log(`PhotoOperations: Using existing cache for ${source.id} (${existingCache.photos.length} photos, complete: ${existingCache.isComplete})`);
                 
@@ -142,7 +140,6 @@ export class PhotoOperations {
                 if (callbacks.shouldAbort(processId)) return;
                 
                 const cache = this.sourceCache.get(source.id);
-                console.log(`PhotoOperations: Checking cache for ${source.id} - cache exists: ${!!cache}, isComplete: ${cache?.isComplete}`);
                 
                 if (cache && cache.isComplete) {
                     // Cache is complete - filter cached photos by area instead of new load

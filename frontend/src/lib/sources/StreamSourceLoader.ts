@@ -46,7 +46,6 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
         // Create completion promise
         this.completionPromise = new Promise<void>((resolve) => {
             this.completionResolve = resolve;
-            console.log(`StreamSourceLoader: Created completion promise for ${this.source.id}`);
         });
 
         this.eventSource = new EventSource(url.toString());
@@ -71,7 +70,6 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
         };
 
         // Return the completion promise
-        console.log(`StreamSourceLoader: Returning completion promise for ${this.source.id}`);
         return this.completionPromise;
     }
 
@@ -132,10 +130,8 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
                 });
 
                 // Resolve the completion promise
-                console.log(`StreamSourceLoader: About to resolve completion promise for ${this.source.id}, resolve function exists: ${!!this.completionResolve}`);
                 if (this.completionResolve) {
                     this.completionResolve();
-                    console.log(`StreamSourceLoader: Resolved completion promise for ${this.source.id}`);
                 }
                 break;
 
