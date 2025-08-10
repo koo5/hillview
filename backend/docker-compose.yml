@@ -50,6 +50,7 @@ services:
       - MAPILLARY_CLIENT_TOKEN_FILE=/run/secrets/mapillary_token
       - SECRET_KEY=${SECRET_KEY:-your-secret-key-change-in-production}
       - UPLOAD_DIR=/app/uploads
+      - GEO_PICS_URL=${GEO_PICS_URL:-}
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
       - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-}

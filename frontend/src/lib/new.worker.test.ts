@@ -20,12 +20,90 @@ const mockSelf = {
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
 
+// Mock EventSource for streaming tests
+const mockEventSourceInstances = new Map<string, any>();
+const MockEventSource = vi.fn().mockImplementation((url: string) => {
+  const instance = {
+    url,
+    readyState: 1, // OPEN
+    onopen: null,
+    onmessage: null,
+    onerror: null,
+    close: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn()
+  };
+  
+  mockEventSourceInstances.set(url, instance);
+  
+  // Simulate connection opening after a short delay
+  setTimeout(() => {
+    if (instance.onopen) {
+      instance.onopen(new Event('open'));
+    }
+    
+    // Send test data based on URL
+    let testData: any[] = [];
+    if (url.includes('source1')) {
+      testData = testPhotosSource1;
+    } else if (url.includes('source2')) {
+      testData = testPhotosSource2;
+    } else if (url.includes('bulk-source') || url.includes('city-photos')) {
+      const count = url.includes('city-photos') ? 500 : 1000;
+      testData = [];
+      for (let i = 0; i < count; i++) {
+        const lat = 50.0 + (i % 20) * 0.01;
+        const lng = 10.0 + Math.floor(i / 20) * 0.01;
+        testData.push(createTestPhoto(`${url.includes('city-photos') ? 'city' : 'bulk'}${i}`, lat, lng, i % 360));
+      }
+    } else if (url.includes('bearing-test')) {
+      testData = [
+        createTestPhoto('bearing1', 50.1, 10.1, 0),
+        createTestPhoto('bearing2', 50.1, 10.1, 90),
+        createTestPhoto('bearing3', 50.1, 10.1, 180),
+        createTestPhoto('bearing4', 50.1, 10.1, 270)
+      ];
+    } else if (url.includes('range-test')) {
+      testData = [
+        createTestPhoto('range1', 50.1, 10.1, 45),
+        createTestPhoto('range2', 50.1, 10.1, 135)
+      ];
+    }
+    
+    // Send photos as stream message
+    if (testData.length > 0 && instance.onmessage) {
+      instance.onmessage({
+        data: JSON.stringify({
+          type: 'cached_photos',
+          photos: testData
+        })
+      });
+    }
+    
+    // Send completion message
+    if (instance.onmessage) {
+      instance.onmessage({
+        data: JSON.stringify({
+          type: 'stream_complete'
+        })
+      });
+    }
+  }, 10);
+  
+  return instance;
+});
+
+global.EventSource = MockEventSource;
+
 // Mock console to reduce test noise
 const originalConsole = console.log;
 beforeEach(() => {
   console.log = vi.fn();
   mockFetch.mockClear();
   mockPostMessage.mockClear();
+  MockEventSource.mockClear();
+  mockEventSourceInstances.clear();
 });
 
 afterEach(() => {
@@ -48,12 +126,12 @@ const createTestBounds = (north: number, south: number, west: number, east: numb
   bottom_right: { lat: south, lng: east }
 });
 
-const createJsonSource = (id: string, enabled: boolean = true): SourceConfig => ({
+const createStreamSource = (id: string, enabled: boolean = true): SourceConfig => ({
   id,
   name: `Test ${id}`,
-  type: 'json',
+  type: 'stream',
   enabled,
-  url: `https://example.com/${id}.json`,
+  url: `https://example.com/${id}`,
   color: '#ff0000'
 });
 
@@ -77,49 +155,7 @@ describe('New Worker Integration Tests', () => {
     // Reset message ID counter
     messageId = 1;
     
-    // Setup fetch mocks - generic mock that handles any .json URL
-    mockFetch.mockImplementation((url: string) => {
-      let testData: any[] = [];
-      
-      // Determine what test data to use based on URL
-      if (url.includes('source1.json')) {
-        testData = testPhotosSource1;
-      } else if (url.includes('source2.json')) {
-        testData = testPhotosSource2;
-      } else if (url.includes('bulk-source.json') || url.includes('city-photos.json')) {
-        // Create bulk test data for culling tests and realistic city data
-        testData = [];
-        const count = url.includes('city-photos') ? 500 : 1000; // Smaller dataset for city-photos to speed up tests
-        for (let i = 0; i < count; i++) {
-          // Distribute photos across a realistic city grid
-          const lat = 50.0 + (i % 20) * 0.01; // 20x25 grid
-          const lng = 10.0 + Math.floor(i / 20) * 0.01;
-          testData.push(createTestPhoto(`${url.includes('city-photos') ? 'city' : 'bulk'}${i}`, lat, lng, i % 360));
-        }
-      } else if (url.includes('stream')) {
-        testData = [
-          createTestPhoto('stream1', 50.05, 10.05, 270),
-          createTestPhoto('stream2', 50.35, 10.35, 315)
-        ];
-      } else {
-        // Default empty data for any other .json URL
-        testData = [];
-      }
-      
-      const jsonData = JSON.stringify(testData);
-      const stream = new ReadableStream({
-        start(controller) {
-          controller.enqueue(new TextEncoder().encode(jsonData));
-          controller.close();
-        }
-      });
-      
-      return Promise.resolve({
-        ok: true,
-        headers: new Headers({ 'content-length': jsonData.length.toString() }),
-        body: stream
-      });
-    });
+    // No need for fetch mocks since we're using EventSource for streams
 
     // Dynamically import the worker after setting up mocks
     worker = await import('./new.worker');
@@ -169,10 +205,10 @@ describe('New Worker Integration Tests', () => {
     throw new Error('Timeout waiting for photosUpdate');
   };
 
-  it('should handle config updates with JSON sources', async () => {
+  it('should handle config updates with stream sources', async () => {
     const sources = [
-      createJsonSource('source1'),
-      createJsonSource('source2')
+      createStreamSource('source1'),
+      createStreamSource('source2')
     ];
     
     // Send config update
@@ -202,7 +238,7 @@ describe('New Worker Integration Tests', () => {
 
   it('should handle area updates with range', async () => {
     // First send config
-    const sources = [createJsonSource('source1')];
+    const sources = [createStreamSource('source1')];
     await sendMessage('configUpdated', {
       config: { sources }
     });
@@ -241,7 +277,7 @@ describe('New Worker Integration Tests', () => {
       json: () => Promise.resolve(manyPhotos)
     });
     
-    const sources = [createJsonSource('bulk-source')];
+    const sources = [createStreamSource('bulk-source')];
     const response = await sendMessage('configUpdated', {
       config: { sources }
     });
@@ -265,7 +301,7 @@ describe('New Worker Integration Tests', () => {
       json: () => Promise.resolve(photosWithBearings)
     });
     
-    const sources = [createJsonSource('bearing-test')];
+    const sources = [createStreamSource('bearing-test')];
     const response = await sendMessage('configUpdated', {
       config: { sources }
     });
@@ -279,8 +315,8 @@ describe('New Worker Integration Tests', () => {
 
   it('should handle disabled sources', async () => {
     const sources = [
-      createJsonSource('enabled', true),
-      createJsonSource('disabled', false)
+      createStreamSource('enabled', true),
+      createStreamSource('disabled', false)
     ];
     
     const response = await sendMessage('configUpdated', {
@@ -296,7 +332,7 @@ describe('New Worker Integration Tests', () => {
   });
 
   it('should update range dynamically', async () => {
-    const sources = [createJsonSource('range-test')];
+    const sources = [createStreamSource('range-test')];
     const bounds = createTestBounds(50.2, 50.0, 10.0, 10.2);
     
     // Send config first
@@ -335,9 +371,9 @@ describe('New Worker Integration Tests', () => {
   it('should handle rapid area updates like real-world map panning', async () => {
     // Set up multiple sources with realistic photo distributions
     const sources = [
-      createJsonSource('city-photos'),    // Will have 1000 photos (bulk data)
-      createJsonSource('source1'),        // Will have 3 photos (existing test data)
-      createJsonSource('source2')         // Will have 2 photos (existing test data)
+      createStreamSource('city-photos'),    // Will have 1000 photos (bulk data)
+      createStreamSource('source1'),        // Will have 3 photos (existing test data)
+      createStreamSource('source2')         // Will have 2 photos (existing test data)
     ];
 
     // Initial config
@@ -395,7 +431,7 @@ describe('New Worker Integration Tests', () => {
 
   it('should handle overlapping area updates gracefully', async () => {
     // Test rapid-fire area updates without waiting between them
-    const sources = [createJsonSource('source1'), createJsonSource('source2')];
+    const sources = [createStreamSource('source1'), createStreamSource('source2')];
     await sendMessage('configUpdated', {
       config: { sources }
     });
@@ -437,7 +473,7 @@ describe('New Worker Integration Tests', () => {
   it('should prioritize config updates over area updates', async () => {
     // Start with one source
     await sendMessage('configUpdated', {
-      config: { sources: [createJsonSource('source1')] }
+      config: { sources: [createStreamSource('source1')] }
     });
 
     // Send area update
@@ -448,7 +484,7 @@ describe('New Worker Integration Tests', () => {
 
     // Immediately send config update (should interrupt area processing)
     const configPromise = sendMessage('configUpdated', {
-      config: { sources: [createJsonSource('source2')] }
+      config: { sources: [createStreamSource('source2')] }
     });
 
     const [areaResult, configResult] = await Promise.all([areaPromise, configPromise]);

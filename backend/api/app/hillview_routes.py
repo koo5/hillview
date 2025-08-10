@@ -23,15 +23,25 @@ def parse_dms_coordinate(dms_str: str) -> float:
         # Remove brackets and split
         coords = dms_str.strip('[]').split(', ')
         degrees = int(coords[0])
-        minutes = int(coords[1])
         
-        # Handle fractional seconds
-        seconds_str = coords[2]
-        if '/' in seconds_str:
-            num, den = seconds_str.split('/')
-            seconds = float(num) / float(den)
+        # Handle fractional minutes
+        minutes_str = coords[1]
+        if '/' in minutes_str:
+            num, den = minutes_str.split('/')
+            minutes = float(num) / float(den)
         else:
-            seconds = float(seconds_str)
+            minutes = float(minutes_str)
+        
+        # Handle fractional seconds if present
+        if len(coords) > 2:
+            seconds_str = coords[2]
+            if '/' in seconds_str:
+                num, den = seconds_str.split('/')
+                seconds = float(num) / float(den)
+            else:
+                seconds = float(seconds_str)
+        else:
+            seconds = 0
         
         # Convert to decimal degrees
         decimal = degrees + minutes/60 + seconds/3600
@@ -83,8 +93,13 @@ async def get_hillview_images(
                 
                 if is_point_in_bbox(lat, lon, top_left_lat, top_left_lon, 
                                   bottom_right_lat, bottom_right_lon):
-                    # Get bearing (compass angle)
-                    bearing = float(file_info.get('bearing', 0))
+                    # Get bearing (compass angle) - handle fractional format
+                    bearing_str = file_info.get('bearing', '0')
+                    if '/' in bearing_str:
+                        num, den = bearing_str.split('/')
+                        bearing = float(num) / float(den)
+                    else:
+                        bearing = float(bearing_str)
                     
                     # Transform to match Mapillary-like structure
                     photo_data = {
