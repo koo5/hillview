@@ -50,12 +50,7 @@ import { MessageQueue } from './MessageQueue';
 import { PhotoOperations } from './photoOperations';
 import { CullingGrid } from './CullingGrid';
 import { AngularRangeCuller } from './AngularRangeCuller';
-import { 
-    filterPhotosByArea, 
-    updatePhotoBearings, 
-    sortPhotosByAngularDistance,
-    calculateDistance 
-} from './photoProcessingUtils';
+// Note: Using CullingGrid and AngularRangeCuller instead of photoProcessingUtils functions
 
 declare const __WORKER_VERSION__: string;
 export const WORKER_VERSION = __WORKER_VERSION__;
@@ -77,8 +72,8 @@ let messageIdCounter = 0;
 
 // Current state - only the latest data matters  
 const currentState = {
-    config: { data: null as { sources: SourceConfig[]; [key: string]: any }, lastUpdateId: 0, lastProcessedId: 0 },
-    area: { data: null as Bounds, lastUpdateId: 0, lastProcessedId: 0 }
+    config: { data: null as { sources: SourceConfig[]; [key: string]: any } | null, lastUpdateId: 0, lastProcessedId: 0 },
+    area: { data: null as Bounds | null, lastUpdateId: 0, lastProcessedId: 0 }
 };
 
 // Photo arrays - per-source tracking for smart culling
@@ -126,6 +121,14 @@ function mergeAndCullPhotos(): { photosInArea: PhotoData[], photosInRange: Photo
         MAX_PHOTOS_IN_RANGE
     );
     
+    // Sort photos in range by bearing for consistent navigation order
+    photosInRange.sort((a, b) => {
+        if (a.bearing !== b.bearing) {
+            return a.bearing - b.bearing;
+        }
+        return a.id.localeCompare(b.id); // Stable sort with ID as tiebreaker
+    });
+    
     console.log(`NewWorker: Merged ${photosInAreaPerSource.size} sources → ${photosInArea.length} in area → ${photosInRange.length} in range with angular coverage`);
     
     return { 
@@ -134,41 +137,25 @@ function mergeAndCullPhotos(): { photosInArea: PhotoData[], photosInRange: Photo
     };
 }
 
-// Transferable ArrayBuffer utilities
+// Direct photo array transfer (no serialization needed)
 function sendPhotosUpdate(): void {
     // Merge and cull photos from all sources
     const { photosInArea, photosInRange } = mergeAndCullPhotos();
     
-    // Create transferable buffers for both arrays
-    const { buffer: areaBuffer, transfer: areaTransfer } = createTransferablePhotoArray([...photosInArea]);
-    const { buffer: rangeBuffer, transfer: rangeTransfer } = createTransferablePhotoArray([...photosInRange]);
-    
+    // Send raw arrays directly - structured clone algorithm handles transfer efficiently
     postMessage({
         type: 'photosUpdate',
-        photosInAreaBuffer: areaBuffer,
-        photosInRangeBuffer: rangeBuffer,
-        photosInAreaCount: photosInArea.length,
-        photosInRangeCount: photosInRange.length,
+        photosInArea: [...photosInArea],
+        photosInRange: [...photosInRange],
         currentRange: currentRange,
         timestamp: Date.now()
-    }, [...areaTransfer, ...rangeTransfer]);
+    });
     
-    console.log(`NewWorker: Sent ${photosInArea.length} area photos + ${photosInRange.length} range photos via Transferable ArrayBuffers`);
+    console.log(`NewWorker: Sent ${photosInArea.length} area photos + ${photosInRange.length} range photos directly`);
 }
 
 
-function createTransferablePhotoArray(photos: PhotoData[]): { buffer: ArrayBuffer; transfer: ArrayBuffer[] } {
-    // Simple approach: JSON stringify into ArrayBuffer
-    // TODO: Optimize with structured binary format later
-    const jsonString = JSON.stringify(photos);
-    const encoder = new TextEncoder();
-    const buffer = encoder.encode(jsonString).buffer.slice();
-    
-    return {
-        buffer,
-        transfer: [buffer] // ArrayBuffer to transfer ownership
-    };
-}
+// No longer needed - using direct array transfer via structured clone algorithm
 
 const messageQueue = new MessageQueue();
 const photoOperations = new PhotoOperations();
