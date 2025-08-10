@@ -46,6 +46,10 @@ if USER_ACCOUNTS:
 from .mapillary_routes import router as mapillary_router
 app.include_router(mapillary_router)
 
+# Include Hillview routes
+from .hillview_routes import router as hillview_router
+app.include_router(hillview_router)
+
 # Initialize database
 @app.on_event("startup")
 async def startup():

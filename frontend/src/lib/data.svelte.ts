@@ -1,6 +1,6 @@
 import {get, writable} from "svelte/store";
 import {staggeredLocalStorageSharedStore} from './svelte-shared-store';
-import {geoPicsUrl} from './config';
+import {geoPicsUrl, backendUrl} from './config';
 import {auth} from './auth.svelte';
 import {userPhotos} from './stores';
 // Import new mapState for legacy compatibility only
@@ -10,7 +10,7 @@ import {photoInFront, photoToLeft, photoToRight, updateBearing as mapStateUpdate
 export interface Source {
     id: string;
     name: string;
-    type: 'json' | 'stream' | 'device';
+    type: 'stream' | 'device';
     enabled: boolean;
     requests: number[];
     color: string;
@@ -19,8 +19,8 @@ export interface Source {
 }
 
 export const sources = writable<Source[]>([
-    {id: 'hillview', name: 'Hillview', type: 'json', enabled: false, requests: [], color: '#000', url: `${geoPicsUrl}`},
-    {id: 'mapillary', name: 'Mapillary', type: 'stream', enabled: true, requests: [], color: '#888'},
+    {id: 'hillview', name: 'Hillview', type: 'stream', enabled: false, requests: [], color: '#000', url: `${backendUrl}/hillview`},
+    {id: 'mapillary', name: 'Mapillary', type: 'stream', enabled: true, requests: [], color: '#888', url: `${backendUrl}/mapillary`},
     {id: 'device', name: 'My Device', type: 'device', enabled: true, requests: [], color: '#4a90e2'},
 ]);
 

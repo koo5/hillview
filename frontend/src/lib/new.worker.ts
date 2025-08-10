@@ -45,7 +45,6 @@
 /// <reference lib="webworker" />
 
 import type { PhotoData, SourceConfig, Bounds } from './photoWorkerTypes';
-import { PhotoLoadingProcess, type PhotoLoadingCallbacks } from './PhotoLoadingProcess';
 import { MessageQueue } from './MessageQueue';
 import { PhotoOperations } from './photoOperations';
 import { CullingGrid } from './CullingGrid';

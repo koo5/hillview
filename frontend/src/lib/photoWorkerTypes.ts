@@ -44,7 +44,7 @@ export interface Bounds {
 export interface SourceConfig {
     id: string;
     name: string;
-    type: 'json' | 'stream' | 'device';
+    type: 'stream' | 'device';
     enabled: boolean;
     requests?: number[];
     color?: string;

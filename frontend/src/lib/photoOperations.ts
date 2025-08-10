@@ -5,7 +5,6 @@
 import type { PhotoData, SourceConfig, Bounds } from './photoWorkerTypes';
 import { PhotoSourceFactory } from './sources/PhotoSourceFactory';
 import type { PhotoSourceLoader, PhotoSourceCallbacks } from './sources/PhotoSourceLoader';
-import type { JsonSourceCallbacks } from './sources/JsonSourceLoader';
 import { filterPhotosByArea } from './workerUtils';
 
 export interface OperationCallbacks {
@@ -20,29 +19,17 @@ export interface OperationCallbacks {
 }
 
 export class PhotoOperations {
-    private jsonCache = new Map<string, PhotoData[]>();
     private loadingProcesses = new Map<string, PhotoSourceLoader>();
 
     constructor() {}
 
-    // Cache management
-    getCachedJson(sourceId: string): PhotoData[] | undefined {
-        return this.jsonCache.get(sourceId);
-    }
-
-    setCachedJson(sourceId: string, photos: PhotoData[]): void {
-        this.jsonCache.set(sourceId, photos);
-        console.log(`PhotoOperations: Cached ${photos.length} photos for source ${sourceId}`);
-    }
-
     clearCache(): void {
-        this.jsonCache.clear();
         // Cancel any ongoing loading processes
         for (const process of this.loadingProcesses.values()) {
             process.cancel();
         }
         this.loadingProcesses.clear();
-        console.log('PhotoOperations: Cleared cache and cancelled loading processes');
+        console.log('PhotoOperations: Cancelled loading processes');
     }
 
     async processConfig(
@@ -85,35 +72,25 @@ export class PhotoOperations {
             
             console.log(`PhotoOperations: Processing source ${source.id} (${processId})`);
             
-            if (source.type === 'json') {
-                // For JSON sources, load once into cache if not already cached
-                let cachedPhotos = this.getCachedJson(source.id);
-                
-                if (!cachedPhotos) {
-                    console.log(`PhotoOperations: Loading JSON source ${source.id}`);
-                    await this.loadSource(source, processId, callbacks);
-                    cachedPhotos = this.getCachedJson(source.id);
-                }
-                
-                if (cachedPhotos) {
-                    allLoadedPhotos.push(...cachedPhotos);
-                }
-                
-            } else if (source.type === 'stream') {
+            if (source.type === 'stream') {
                 // For stream sources, the loading process will add photos via callbacks as they arrive
                 console.log(`PhotoOperations: Starting stream source ${source.id}`);
+                await this.loadSource(source, processId, callbacks);
+            } else if (source.type === 'device') {
+                // For device sources, load locally available photos
+                console.log(`PhotoOperations: Starting device source ${source.id}`);
                 await this.loadSource(source, processId, callbacks);
             }
         }
         
         if (callbacks.shouldAbort(processId)) return;
         
-        // Update photosInArea with all loaded photos from JSON sources
-        // (Stream sources add their photos via callbacks)
+        // Update photosInArea with all loaded photos
+        // (Stream and device sources add their photos via callbacks)
         callbacks.updatePhotosInArea(allLoadedPhotos);
         callbacks.sendPhotosInAreaUpdate();
         
-        console.log(`PhotoOperations: Config processing complete (${processId}) - loaded ${allLoadedPhotos.length} photos from JSON sources`);
+        console.log(`PhotoOperations: Config processing complete (${processId}) - loaded ${allLoadedPhotos.length} photos`);
         callbacks.postMessage({
             type: 'processComplete',
             processId,
@@ -152,23 +129,14 @@ export class PhotoOperations {
             for (const source of sources.filter(s => s.enabled)) {
                 if (callbacks.shouldAbort(processId)) return;
                 
-                if (source.type === 'json') {
-                    // Filter cached data by area
-                    const cachedPhotos = this.getCachedJson(source.id);
-                    if (cachedPhotos) {
-                        console.log(`PhotoOperations: Filtering ${cachedPhotos.length} cached photos for source ${source.id}`);
-                        const filteredPhotos = filterPhotosByArea(cachedPhotos, area);
-                        newPhotosInArea.push(...filteredPhotos);
-                        
-                        // Small delay for large datasets to allow abortion checks
-                        if (filteredPhotos.length > 1000) {
-                            await this.simulateWork(processId, callbacks, 10);
-                        }
-                    }
-                } else if (source.type === 'stream') {
+                if (source.type === 'stream') {
                     // For stream sources, start new stream with bounds
                     // Photos will be added as they arrive via callbacks
                     console.log(`PhotoOperations: Restarting stream source ${source.id} with new bounds`);
+                    await this.loadSource(source, processId, callbacks, area);
+                } else if (source.type === 'device') {
+                    // For device sources, reload with new bounds if needed
+                    console.log(`PhotoOperations: Restarting device source ${source.id} with new bounds`);
                     await this.loadSource(source, processId, callbacks, area);
                 }
             }
@@ -201,53 +169,25 @@ export class PhotoOperations {
             existingProcess.cancel();
         }
 
-        // Create appropriate callbacks based on source type
-        let sourceCallbacks: PhotoSourceCallbacks;
-        
-        if (source.type === 'json') {
-            // JSON sources need caching callbacks
-            const jsonCallbacks: JsonSourceCallbacks = {
-                onProgress: (loaded, total) => {
-                    callbacks.postMessage({
-                        type: 'loadProgress',
-                        sourceId: source.id,
-                        loaded,
-                        total
-                    });
-                },
-                onError: (error) => {
-                    callbacks.postMessage({
-                        type: 'loadError',
-                        sourceId: source.id,
-                        error: error.message
-                    });
-                },
-                enqueueMessage: callbacks.postMessage,
-                getCachedJson: (sourceId) => this.getCachedJson(sourceId),
-                setCachedJson: (sourceId, photos) => this.setCachedJson(sourceId, photos)
-            };
-            sourceCallbacks = jsonCallbacks;
-        } else {
-            // Other source types only need basic callbacks
-            sourceCallbacks = {
-                onProgress: (loaded, total) => {
-                    callbacks.postMessage({
-                        type: 'loadProgress',
-                        sourceId: source.id,
-                        loaded,
-                        total
-                    });
-                },
-                onError: (error) => {
-                    callbacks.postMessage({
-                        type: 'loadError',
-                        sourceId: source.id,
-                        error: error.message
-                    });
-                },
-                enqueueMessage: callbacks.postMessage
-            };
-        }
+        // Create callbacks for all source types
+        const sourceCallbacks: PhotoSourceCallbacks = {
+            onProgress: (loaded, total) => {
+                callbacks.postMessage({
+                    type: 'loadProgress',
+                    sourceId: source.id,
+                    loaded,
+                    total
+                });
+            },
+            onError: (error) => {
+                callbacks.postMessage({
+                    type: 'loadError',
+                    sourceId: source.id,
+                    error: error.message
+                });
+            },
+            enqueueMessage: callbacks.postMessage
+        };
 
         const loader = PhotoSourceFactory.createLoader(source, sourceCallbacks);
         this.loadingProcesses.set(source.id, loader);
