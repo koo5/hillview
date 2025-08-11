@@ -45,7 +45,6 @@
 /// <reference lib="webworker" />
 
 import type { PhotoData, SourceConfig, Bounds } from './photoWorkerTypes';
-import { PhotoLoadingProcess, type PhotoLoadingCallbacks } from './PhotoLoadingProcess';
 import { MessageQueue } from './MessageQueue';
 import { PhotoOperations } from './photoOperations';
 import { CullingGrid } from './CullingGrid';
@@ -72,14 +71,25 @@ let messageIdCounter = 0;
 
 // Current state - only the latest data matters  
 const currentState = {
-    config: { data: null as { sources: SourceConfig[]; [key: string]: any } | null, lastUpdateId: 0, lastProcessedId: 0 },
-    area: { data: null as Bounds | null, lastUpdateId: 0, lastProcessedId: 0 }
+    config: { data: null as { sources: SourceConfig[]; [key: string]: any } | null, lastUpdateId: -1, lastProcessedId: -1 },
+    area: { data: null as Bounds | null, lastUpdateId: -1, lastProcessedId: -1 },
+    sourcesPhotosInArea: { data: null, lastUpdateId: -1, lastProcessedId: -1 }
 };
+
+// Track if we're blocked by running processes
+let isBlocked = false;
+
+// Debug timer for monitoring running processes
+let processMonitorInterval: NodeJS.Timeout | null = null;
 
 // Photo arrays - per-source tracking for smart culling
 const photosInAreaPerSource = new Map<string, PhotoData[]>();
 let cullingGrid: CullingGrid | null = null;
 const angularRangeCuller = new AngularRangeCuller();
+
+// Version tracking for sourcesPhotosInArea state
+let sourcesPhotosInAreaVersion = 0;
+let lastProcessedSourcesPhotosInAreaVersion = -1;
 
 // Configuration
 const MAX_PHOTOS_IN_AREA = 700;
@@ -175,15 +185,17 @@ function shouldAbortProcess(processId: string): boolean {
     return processInfo?.shouldAbort || false;
 }
 
-function markConflictingProcessesForAbortion(newProcessType: 'config' | 'area'): void {
-    const newPriority = PROCESS_PRIORITY[newProcessType];
+function markConflictingProcessesForAbortion(newProcessType: 'config' | 'area' | 'sourcesPhotosInArea'): void {
+    const newPriority = getProcessPriority(newProcessType);
     
     for (const [processId, processInfo] of processTable.entries()) {
-        const existingPriority = PROCESS_PRIORITY[processInfo.type];
+        const existingPriority = getProcessPriority(processInfo.type);
         
-        // Mark for abortion if new process has higher priority (lower number)
-        if (newPriority <= existingPriority) {
-            console.log(`NewWorker: Marking process ${processId} (${processInfo.type}) for abortion due to ${newProcessType} update`);
+        // Only abort existing processes if new process has HIGHER priority
+        // Config (priority 2) can abort Area (priority 1)
+        // Area (priority 1) cannot abort Config (priority 2)
+        if (newPriority > existingPriority) {
+            console.log(`NewWorker: Marking process ${processId} (${processInfo.type}) for abortion due to higher priority ${newProcessType} update`);
             processInfo.shouldAbort = true;
         }
     }
@@ -194,7 +206,7 @@ function cleanupProcess(processId: string): void {
     console.log(`NewWorker: Cleaned up process ${processId}`);
 }
 
-async function startProcess(type: 'config' | 'area', messageId: number): Promise<void> {
+async function startProcess(type: 'config' | 'area' | 'sourcesPhotosInArea', messageId: number): Promise<void> {
     const processId = createProcessId();
     
     // Mark conflicting processes for abortion
@@ -216,24 +228,69 @@ async function startProcess(type: 'config' | 'area', messageId: number): Promise
     const operationCallbacks = {
         shouldAbort: (id: string) => shouldAbortProcess(id),
         postMessage: (message: any) => messageQueue.addMessage(message),
-        updatePhotosInAreaForSource: (sourceId: string, photos: PhotoData[]) => { 
-            photosInAreaPerSource.set(sourceId, photos);
+        updatePhotosInArea: (photos: PhotoData[]) => { 
+            // For config updates, distribute photos across per-source tracking
+            if (photos.length > 0) {
+                // Group by source if available, otherwise use 'default'
+                const photosBySource = new Map<string, PhotoData[]>();
+                for (const photo of photos) {
+                    const sourceId = photo.source?.id || 'default';
+                    if (!photosBySource.has(sourceId)) {
+                        photosBySource.set(sourceId, []);
+                    }
+                    photosBySource.get(sourceId)!.push(photo);
+                }
+                // Update per-source tracking
+                for (const [sourceId, sourcePhotos] of photosBySource.entries()) {
+                    photosInAreaPerSource.set(sourceId, sourcePhotos);
+                }
+            }
         },
-        getPhotosInAreaPerSource: () => new Map(photosInAreaPerSource),
-        sendPhotosUpdate: () => sendPhotosUpdate()
+        updatePhotosInRange: (photos: PhotoData[]) => { 
+            // Not used in current implementation - range calculation is done in mergeAndCullPhotos
+        },
+        getPhotosInArea: () => {
+            const allPhotos: PhotoData[] = [];
+            for (const photos of photosInAreaPerSource.values()) {
+                allPhotos.push(...photos);
+            }
+            return allPhotos;
+        },
+        getPhotosInRange: () => {
+            // Not used in current implementation
+            return [];
+        },
+        sendPhotosInAreaUpdate: () => sendPhotosUpdate(),
+        sendPhotosInRangeUpdate: () => sendPhotosUpdate()
     };
 
     // Start the actual business logic operations
-    if (type === 'config') {
-        photoOperations.processConfig(processId, messageId, currentState.config.data, operationCallbacks);
-    } else if (type === 'area') {
-        photoOperations.processArea(
-            processId, 
-            messageId,
-            currentState.area.data, 
-            currentState.config.data?.sources || [], 
-            operationCallbacks
-        );
+    try {
+        if (type === 'config') {
+            console.log(`NewWorker: Calling processConfig for ${processId}`);
+            photoOperations.processConfig(processId, messageId, currentState.config.data, operationCallbacks);
+        } else if (type === 'area') {
+            console.log(`NewWorker: About to call processArea with area:`, currentState.area.data, 'sources:', currentState.config.data?.sources?.length || 0);
+            photoOperations.processArea(
+                processId, 
+                messageId,
+                currentState.area.data, 
+                currentState.config.data?.sources || [], 
+                operationCallbacks
+            );
+        } else if (type === 'sourcesPhotosInArea') {
+            console.log(`NewWorker: Calling processCombinePhotos for ${processId}`);
+            photoOperations.processCombinePhotos(
+                processId,
+                messageId,
+                currentState.area.data,
+                currentState.config.data?.sources || [],
+                operationCallbacks
+            );
+        }
+    } catch (error) {
+        console.error(`NewWorker: Error in startProcess ${type}:`, error);
+        cleanupProcess(processId);
     }
 }
 
@@ -247,8 +304,27 @@ export { handleMessage };
 
 
 
+function startProcessMonitor(): void {
+	// Start periodic process monitoring (every 10 seconds)
+	processMonitorInterval = setInterval(() => {
+		listRunningProcesses();
+	}, 10000);
+	console.log('NewWorker: Process monitor started (10s interval)');
+}
+
+function stopProcessMonitor(): void {
+	if (processMonitorInterval) {
+		clearInterval(processMonitorInterval);
+		processMonitorInterval = null;
+		console.log('NewWorker: Process monitor stopped');
+	}
+}
+
 async function loop(): Promise<void> {
 	console.log('NewWorker: Starting main event loop');
+	
+	// Start the process monitor
+	startProcessMonitor();
 	
 	while (true) {
 		// Process all messages from the queue
@@ -257,19 +333,38 @@ async function loop(): Promise<void> {
 			
 			// Check if we need to process anything
 			const needsProcessing = hasUnprocessedUpdates();
+			const hasQueuedMessages = messageQueue.hasMore();
 			
-			if (!needsProcessing && !messageQueue.hasMore()) {
+			console.log(`NewWorker: Loop iteration - needsProcessing: ${needsProcessing}, hasQueuedMessages: ${hasQueuedMessages}`);
+			
+			if (!needsProcessing && !hasQueuedMessages) {
 				// Nothing to do, wait for next message
+				console.log('NewWorker: Waiting for next message...');
 				message = await messageQueue.getNextMessage();
-			} else if (messageQueue.hasMore()) {
+				console.log('NewWorker: Got message from queue:', message?.type);
+				isBlocked = false; // Clear blocked flag when we get a new message
+			} else if (hasQueuedMessages) {
 				// Process queued messages first
+				console.log('NewWorker: Processing queued message...');
 				message = await messageQueue.getNextMessage();
+				console.log('NewWorker: Got queued message:', message?.type);
+				isBlocked = false; // Clear blocked flag when we get a new message
+			} else if (isBlocked) {
+				// We're blocked by running processes, sleep instead of spinning
+				console.log('NewWorker: Blocked by running processes, waiting for next message...');
+				message = await messageQueue.getNextMessage();
+				console.log('NewWorker: Unblocked by message:', message?.type);
+				isBlocked = false; // Clear blocked flag
 			} else {
 				// No more messages but we have unprocessed updates
+				console.log('NewWorker: No more messages, processing pending updates...');
 				break;
 			}
 			
-			if (!message) continue; // Handle queue cancellation
+			if (!message) {
+				console.log('NewWorker: Got null message, continuing...');
+				continue; // Handle queue cancellation
+			}
 			
 			console.log(`NewWorker: Processing message ${message.type} (id: ${message.id})`);
 			
@@ -287,8 +382,50 @@ async function loop(): Promise<void> {
 					handleProcessCompletion(message);
 					break;
 					
+				case 'loadError':
+					// Handle loading errors from PhotoLoadingProcess
+					console.error('NewWorker: Load error from process:', message);
+					// Mark the process as failed but continue processing
+					if (message.processId) {
+						cleanupProcess(message.processId);
+					}
+					break;
+				
+				case 'loadProgress':
+					// Handle loading progress updates from PhotoLoadingProcess
+					console.log(`NewWorker: Load progress from ${message.sourceId}: ${message.loaded}${message.total ? `/${message.total}` : ''}`);
+					// Just log progress, no action needed
+					break;
+				
+				case 'photosLoaded':
+					// Handle photo loading completion from PhotoLoadingProcess
+					console.log(`NewWorker: Photos loaded from ${message.sourceId}: ${message.photos?.length || 0} photos (${message.fromCache ? 'cached' : 'fresh'})`);
+					// Photos are already processed by PhotoOperations, no additional action needed
+					break;
+				
+				case 'photosAdded':
+					// Handle streaming photo updates from StreamSourceLoader
+					console.log(`NewWorker: Photos updated from stream ${message.sourceId}: ${message.photos?.length || 0} photos`);
+					if (message.photos && Array.isArray(message.photos)) {
+						// Replace the photo array for this source (source handles accumulation)
+						photosInAreaPerSource.set(message.sourceId, message.photos);
+						console.log(`NewWorker: Source ${message.sourceId} set to ${message.photos.length} photos`);
+						
+						// Update sourcesPhotosInArea version to trigger combine operation
+						sourcesPhotosInAreaVersion++;
+						updateState('sourcesPhotosInArea', { id: sourcesPhotosInAreaVersion });
+					}
+					break;
+				
+				case 'streamComplete':
+					// Handle stream completion from StreamSourceLoader
+					console.log(`NewWorker: Stream completed for ${message.sourceId}: ${message.totalPhotos || 0} total photos`);
+					// Stream is complete, no additional action needed
+					break;
+					
 				case 'exit':
 					console.log('NewWorker: Exit requested');
+					stopProcessMonitor();
 					return;
 					
 				default:
@@ -297,18 +434,30 @@ async function loop(): Promise<void> {
 		}
 		
 		// Start new processes for unprocessed updates (by priority)
-		await startPendingProcesses();
+		const canProcess = await startPendingProcesses();
+		
+		// If we're blocked by running processes, set blocked flag and continue loop
+		if (!canProcess) {
+			isBlocked = true;
+			console.log('NewWorker: Cannot process - setting blocked flag');
+		}
 	}
 }
 
 function hasUnprocessedUpdates(): boolean {
-	return (
-		currentState.config.lastUpdateId !== currentState.config.lastProcessedId ||
-		currentState.area.lastUpdateId !== currentState.area.lastProcessedId
-	);
+	const configUnprocessed = currentState.config.lastUpdateId !== currentState.config.lastProcessedId;
+	const areaUnprocessed = currentState.area.lastUpdateId !== currentState.area.lastProcessedId;
+	const sourcesPhotosInAreaUnprocessed = currentState.sourcesPhotosInArea.lastUpdateId !== currentState.sourcesPhotosInArea.lastProcessedId;
+	const result = configUnprocessed || areaUnprocessed || sourcesPhotosInAreaUnprocessed;
+	
+	if (result) {
+		console.log(`NewWorker: hasUnprocessedUpdates - config: ${configUnprocessed} (update=${currentState.config.lastUpdateId}, processed=${currentState.config.lastProcessedId}), area: ${areaUnprocessed} (update=${currentState.area.lastUpdateId}, processed=${currentState.area.lastProcessedId}), sourcesPhotosInArea: ${sourcesPhotosInAreaUnprocessed} (update=${currentState.sourcesPhotosInArea.lastUpdateId}, processed=${currentState.sourcesPhotosInArea.lastProcessedId})`);
+	}
+	
+	return result;
 }
 
-function updateState(type: 'config' | 'area', message: any): void {
+function updateState(type: 'config' | 'area' | 'sourcesPhotosInArea', message: any): void {
 	if (!message.internal && message.data) {
 		// Update state immediately - no waiting
 		currentState[type].data = message.data[type] || message.data.area || message.data;
@@ -345,13 +494,84 @@ function handleProcessCompletion(message: any): void {
 	cleanupProcess(processId);
 }
 
-async function startPendingProcesses(): Promise<void> {
+function hasRunningProcess(): boolean {
+	for (const [processId, processInfo] of processTable.entries()) {
+		if (!processInfo.shouldAbort) {
+			return true;
+		}
+	}
+	return false;
+}
+
+function listRunningProcesses(): void {
+	const runningProcesses = [];
+	const abortedProcesses = [];
+	
+	for (const [processId, processInfo] of processTable.entries()) {
+		const duration = Date.now() - processInfo.startTime;
+		const processData = {
+			id: processId,
+			type: processInfo.type,
+			messageId: processInfo.messageId,
+			duration: `${duration}ms`,
+			shouldAbort: processInfo.shouldAbort
+		};
+		
+		if (processInfo.shouldAbort) {
+			abortedProcesses.push(processData);
+		} else {
+			runningProcesses.push(processData);
+		}
+	}
+	
+	if (runningProcesses.length > 0 || abortedProcesses.length > 0) {
+		console.log(`NewWorker: Process Monitor - Running: ${runningProcesses.length}, Aborting: ${abortedProcesses.length}`);
+		
+		if (runningProcesses.length > 0) {
+			console.log('  Active processes:', runningProcesses);
+		}
+		
+		if (abortedProcesses.length > 0) {
+			console.log('  Aborting processes:', abortedProcesses);
+		}
+		
+		// Also log current state for context
+		console.log(`  State - Config: update=${currentState.config.lastUpdateId}/processed=${currentState.config.lastProcessedId}, Area: update=${currentState.area.lastUpdateId}/processed=${currentState.area.lastProcessedId}, isBlocked: ${isBlocked}`);
+	} else {
+		console.log('NewWorker: Process Monitor - No active processes');
+	}
+}
+
+function getProcessPriority(type: 'config' | 'area' | 'sourcesPhotosInArea'): number {
+	// Higher number = higher priority
+	if (type === 'config') return 3;
+	if (type === 'area') return 2;
+	if (type === 'sourcesPhotosInArea') return 1;
+	return 0;
+}
+
+async function startPendingProcesses(): Promise<boolean> {
+	// Only start processes if no active process is running
+	if (hasRunningProcess()) {
+		console.log('NewWorker: Process already running, waiting for completion');
+		return false; // Return false to indicate we're blocked
+	}
+
 	// Start processes by priority - higher priority first
 	if (currentState.config.lastUpdateId !== currentState.config.lastProcessedId) {
+		console.log(`NewWorker: Starting config process for message ${currentState.config.lastUpdateId}`);
 		await startProcess('config', currentState.config.lastUpdateId);
 	} else if (currentState.area.lastUpdateId !== currentState.area.lastProcessedId) {
+		console.log(`NewWorker: Starting area process for message ${currentState.area.lastUpdateId}`);
 		await startProcess('area', currentState.area.lastUpdateId);
+	} else if (currentState.sourcesPhotosInArea.lastUpdateId !== currentState.sourcesPhotosInArea.lastProcessedId) {
+		console.log(`NewWorker: Starting sourcesPhotosInArea process for message ${currentState.sourcesPhotosInArea.lastUpdateId}`);
+		await startProcess('sourcesPhotosInArea', currentState.sourcesPhotosInArea.lastUpdateId);
+	} else {
+		console.log('NewWorker: No pending processes to start');
 	}
+	
+	return true; // Return true to indicate we successfully started or completed processing
 }
 
 // Set up message handler from main thread
@@ -363,6 +583,7 @@ self.onmessage = function(e: MessageEvent) {
 // Start the main loop
 loop().catch(error => {
 	console.error('NewWorker: Fatal error in main loop:', error);
+	stopProcessMonitor();
 	postMessage({
 		type: 'error',
 		error: {

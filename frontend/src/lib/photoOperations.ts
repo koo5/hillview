@@ -3,8 +3,12 @@
  */
 
 import type { PhotoData, SourceConfig, Bounds } from './photoWorkerTypes';
-import { PhotoLoadingProcess, type PhotoLoadingCallbacks } from './PhotoLoadingProcess';
-import { filterPhotosByArea } from './photoProcessingUtils';
+import { PhotoSourceFactory } from './sources/PhotoSourceFactory';
+import type { PhotoSourceLoader, PhotoSourceCallbacks } from './sources/PhotoSourceLoader';
+import { filterPhotosByArea } from './workerUtils';
+
+// Import worker version for validation
+declare const __WORKER_VERSION__: string;
 
 export interface OperationCallbacks {
     shouldAbort: (processId: string) => boolean;
@@ -17,41 +21,31 @@ export interface OperationCallbacks {
     sendPhotosInRangeUpdate: () => void;
 }
 
+interface SourceCache {
+    photos: PhotoData[];
+    isComplete: boolean; // true = no more photos available, false = partial load (stream has "next" link)
+}
+
 export class PhotoOperations {
-    private jsonCache = new Map<string, PhotoData[]>();
-    private loadingProcesses = new Map<string, PhotoLoadingProcess>();
+    private loadingProcesses = new Map<string, PhotoSourceLoader>();
+    private sourceCache = new Map<string, SourceCache>(); // Cache for each source
 
     constructor() {}
-
-    // Cache management
-    getCachedJson(sourceId: string): PhotoData[] | undefined {
-        return this.jsonCache.get(sourceId);
-    }
-
-    setCachedJson(sourceId: string, photos: PhotoData[]): void {
-        this.jsonCache.set(sourceId, photos);
-        console.log(`PhotoOperations: Cached ${photos.length} photos for source ${sourceId}`);
-    }
-
-    clearCache(): void {
-        this.jsonCache.clear();
-        // Cancel any ongoing loading processes
-        for (const process of this.loadingProcesses.values()) {
-            process.cancel();
-        }
-        this.loadingProcesses.clear();
-        console.log('PhotoOperations: Cleared cache and cancelled loading processes');
-    }
 
     async processConfig(
         processId: string,
         messageId: number,
-        config: { sources: SourceConfig[]; [key: string]: any },
+        config: { sources: SourceConfig[]; expectedWorkerVersion?: string; [key: string]: any },
         callbacks: OperationCallbacks
     ): Promise<void> {
         console.log(`PhotoOperations: Processing config update (${processId})`);
         
         if (callbacks.shouldAbort(processId)) return;
+
+        // Check worker version if provided
+        if (config.expectedWorkerVersion && config.expectedWorkerVersion !== __WORKER_VERSION__) {
+            throw new Error(`Worker version mismatch! Expected: ${config.expectedWorkerVersion}, Actual: ${__WORKER_VERSION__}`);
+        }
         
         if (!config?.sources) {
             console.log(`PhotoOperations: No sources in config (${processId})`);
@@ -77,48 +71,49 @@ export class PhotoOperations {
             }
         }
 
-        // Process each enabled source
+        // Process each enabled source - perform global preloading for cache
         for (const source of sources.filter(s => s.enabled)) {
             if (callbacks.shouldAbort(processId)) return;
             
             console.log(`PhotoOperations: Processing source ${source.id} (${processId})`);
             
-            if (source.type === 'json') {
-                // For JSON sources, load once into cache if not already cached
-                let cachedPhotos = this.getCachedJson(source.id);
+            // Check if we already have a cache for this source
+            const existingCache = this.sourceCache.get(source.id);
+            if (!existingCache) {
+                console.log(`PhotoOperations: No cache for ${source.id}, performing global preload`);
                 
-                if (!cachedPhotos) {
-                    console.log(`PhotoOperations: Loading JSON source ${source.id}`);
-                    await this.loadJsonSource(source, processId, callbacks);
-                    cachedPhotos = this.getCachedJson(source.id);
+                // Perform global load with full globe bounds
+                const globalBounds: Bounds = {
+                    top_left: { lat: 90, lng: -180 },
+                    bottom_right: { lat: -90, lng: 180 }
+                };
+                await this.loadSource(source, processId, callbacks, globalBounds);
+            } else {
+                console.log(`PhotoOperations: Using existing cache for ${source.id} (${existingCache.photos.length} photos, complete: ${existingCache.isComplete})`);
+                
+                // Add cached photos to the current operation
+                if (existingCache.photos.length > 0) {
+                    callbacks.updatePhotosInArea(existingCache.photos);
                 }
-                
-                if (cachedPhotos) {
-                    allLoadedPhotos.push(...cachedPhotos);
-                }
-                
-            } else if (source.type === 'stream') {
-                // For stream sources, the loading process will add photos via callbacks as they arrive
-                console.log(`PhotoOperations: Starting stream source ${source.id}`);
-                await this.startStreamSource(source, processId, callbacks);
             }
         }
         
-        if (callbacks.shouldAbort(processId)) return;
-        
-        // Update photosInArea with all loaded photos from JSON sources
-        // (Stream sources add their photos via callbacks)
-        if (allLoadedPhotos.length > 0) {
-            callbacks.updatePhotosInArea(allLoadedPhotos);
-            callbacks.sendPhotosInAreaUpdate();
+        if (callbacks.shouldAbort(processId)) {
+            console.log(`PhotoOperations: Config process ${processId} aborted before completion`);
+            return;
         }
         
-        console.log(`PhotoOperations: Config processing complete (${processId}) - loaded ${allLoadedPhotos.length} photos from JSON sources`);
+        // Update photosInArea with all loaded photos
+        // (Stream and device sources add their photos via callbacks)
+        callbacks.updatePhotosInArea(allLoadedPhotos);
+        callbacks.sendPhotosInAreaUpdate();
+        
+        console.log(`PhotoOperations: Config processing complete (${processId}) - loaded ${allLoadedPhotos.length} photos`);
         callbacks.postMessage({
             type: 'processComplete',
             processId,
             processType: 'config',
-            messageId: undefined
+            messageId
         });
     }
 
@@ -129,7 +124,7 @@ export class PhotoOperations {
         sources: SourceConfig[],
         callbacks: OperationCallbacks
     ): Promise<void> {
-        console.log(`PhotoOperations: Processing area update (${processId})`);
+        console.log(`PhotoOperations: Processing area update (${processId}) with ${sources.length} sources`);
         
         if (callbacks.shouldAbort(processId)) return;
         
@@ -152,24 +147,25 @@ export class PhotoOperations {
             for (const source of sources.filter(s => s.enabled)) {
                 if (callbacks.shouldAbort(processId)) return;
                 
-                if (source.type === 'json') {
-                    // Filter cached data by area
-                    const cachedPhotos = this.getCachedJson(source.id);
-                    if (cachedPhotos) {
-                        console.log(`PhotoOperations: Filtering ${cachedPhotos.length} cached photos for source ${source.id}`);
-                        const filteredPhotos = filterPhotosByArea(cachedPhotos, area);
+                const cache = this.sourceCache.get(source.id);
+                
+                if (cache && cache.isComplete) {
+                    // Cache is complete - filter cached photos by area instead of new load
+                    console.log(`PhotoOperations: Using complete cache for ${source.id}, filtering by area`);
+                    const filteredPhotos = filterPhotosByArea(cache.photos, area);
+                    console.log(`PhotoOperations: Filtered ${filteredPhotos.length} photos from ${cache.photos.length} cached for ${source.id}`);
+                    
+                    if (filteredPhotos.length > 0) {
                         newPhotosInArea.push(...filteredPhotos);
-                        
-                        // Small delay for large datasets to allow abortion checks
-                        if (filteredPhotos.length > 1000) {
-                            await this.simulateWork(processId, callbacks, 10);
-                        }
                     }
-                } else if (source.type === 'stream') {
-                    // For stream sources, start new stream with bounds
-                    // Photos will be added as they arrive via callbacks
-                    console.log(`PhotoOperations: Restarting stream source ${source.id} with new bounds`);
-                    await this.startStreamSource(source, processId, callbacks, area);
+                } else if (cache && !cache.isComplete) {
+                    // Cache is partial - need to perform bounded load
+                    console.log(`PhotoOperations: Cache for ${source.id} is partial, performing bounded load`);
+                    await this.loadSource(source, processId, callbacks, area);
+                } else {
+                    // No cache - perform bounded load
+                    console.log(`PhotoOperations: No cache for ${source.id}, performing bounded load`);
+                    await this.loadSource(source, processId, callbacks, area);
                 }
             }
         }
@@ -185,63 +181,25 @@ export class PhotoOperations {
             type: 'processComplete',
             processId,
             processType: 'area',
-            messageId: undefined
+            messageId
         });
     }
 
-    private async loadJsonSource(
-        source: SourceConfig,
-        processId: string,
-        callbacks: OperationCallbacks
-    ): Promise<void> {
-        const loadingCallbacks: PhotoLoadingCallbacks = {
-            onProgress: (loaded, total) => {
-                callbacks.postMessage({
-                    type: 'loadProgress',
-                    sourceId: source.id,
-                    loaded,
-                    total
-                });
-            },
-            onError: (error) => {
-                callbacks.postMessage({
-                    type: 'loadError',
-                    sourceId: source.id,
-                    error: error.message
-                });
-            },
-            enqueueMessage: callbacks.postMessage,
-            getCachedJson: (sourceId) => this.getCachedJson(sourceId),
-            setCachedJson: (sourceId, photos) => this.setCachedJson(sourceId, photos)
-        };
 
-        const loadingProcess = new PhotoLoadingProcess(source, loadingCallbacks);
-        this.loadingProcesses.set(source.id, loadingProcess);
-        
-        try {
-            await loadingProcess.start();
-        } catch (error) {
-            if (!loadingProcess.isAborted() && !callbacks.shouldAbort(processId)) {
-                console.error(`PhotoOperations: Error loading JSON source ${source.id}:`, error);
-            }
-        } finally {
-            this.loadingProcesses.delete(source.id);
-        }
-    }
-
-    private async startStreamSource(
+    private async loadSource(
         source: SourceConfig,
         processId: string,
         callbacks: OperationCallbacks,
         bounds?: Bounds
     ): Promise<void> {
-        // Cancel existing stream for this source if any
+        // Cancel existing loader for this source if any
         const existingProcess = this.loadingProcesses.get(source.id);
         if (existingProcess) {
             existingProcess.cancel();
         }
 
-        const loadingCallbacks: PhotoLoadingCallbacks = {
+        // Create callbacks for all source types
+        const sourceCallbacks: PhotoSourceCallbacks = {
             onProgress: (loaded, total) => {
                 callbacks.postMessage({
                     type: 'loadProgress',
@@ -257,23 +215,80 @@ export class PhotoOperations {
                     error: error.message
                 });
             },
-            enqueueMessage: callbacks.postMessage,
-            getCachedJson: (sourceId) => this.getCachedJson(sourceId),
-            setCachedJson: (sourceId, photos) => this.setCachedJson(sourceId, photos)
+            enqueueMessage: (message) => {
+                // Intercept messages to populate cache when doing global loads
+                const isGlobalLoad = bounds && 
+                    bounds.top_left.lat === 90 && bounds.top_left.lng === -180 &&
+                    bounds.bottom_right.lat === -90 && bounds.bottom_right.lng === 180;
+                
+                if (isGlobalLoad) { // Global load - update cache
+                    if (message.type === 'photosAdded') {
+                        // Replace cache with latest photo list (source accumulates internally)
+                        // Check if stream indicates no more photos (no "next" link)
+                        const isComplete = !message.hasNext;
+                        this.sourceCache.set(source.id, {
+                            photos: [...message.photos],
+                            isComplete
+                        });
+                        console.log(`PhotoOperations: Cache updated for ${source.id} (${message.photos.length} photos, hasNext: ${message.hasNext})`);
+                    } else if (message.type === 'streamComplete') {
+                        // Mark cache as complete
+                        const cache = this.sourceCache.get(source.id);
+                        if (cache) {
+                            cache.isComplete = true;
+                            console.log(`PhotoOperations: Cache complete for ${source.id} (${cache.photos.length} photos)`);
+                        }
+                    }
+                }
+                
+                // Forward message to worker queue
+                callbacks.postMessage(message);
+            }
         };
 
-        const loadingProcess = new PhotoLoadingProcess(source, loadingCallbacks);
-        this.loadingProcesses.set(source.id, loadingProcess);
+        const loader = PhotoSourceFactory.createLoader(source, sourceCallbacks);
+        this.loadingProcesses.set(source.id, loader);
         
         try {
-            await loadingProcess.start(bounds);
+            await loader.start(bounds);
         } catch (error) {
-            if (!loadingProcess.isAborted() && !callbacks.shouldAbort(processId)) {
-                console.error(`PhotoOperations: Error loading stream source ${source.id}:`, error);
+            if (!loader.isAborted() && !callbacks.shouldAbort(processId)) {
+                console.error(`PhotoOperations: Error loading source ${source.id}:`, error);
             }
         } finally {
             this.loadingProcesses.delete(source.id);
         }
+    }
+
+    async processCombinePhotos(
+        processId: string,
+        messageId: number,
+        areaBounds: Bounds | null,
+        sources: SourceConfig[],
+        callbacks: OperationCallbacks
+    ): Promise<void> {
+        console.log(`PhotoOperations: Processing combinePhotos (${processId})`);
+        
+        if (callbacks.shouldAbort(processId)) {
+            console.log(`PhotoOperations: CombinePhotos process ${processId} aborted before processing`);
+            return;
+        }
+        
+        // This operation combines and culls existing photos from all sources
+        // No new loading - just processing current data using existing culling logic
+        
+        // The worker has the sophisticated culling logic (mergeAndCullPhotos)
+        // Just trigger the standard photo update pipeline
+        callbacks.sendPhotosInAreaUpdate();
+        callbacks.sendPhotosInRangeUpdate();
+        
+        console.log(`PhotoOperations: CombinePhotos processing complete (${processId}) - triggered photo updates`);
+        callbacks.postMessage({
+            type: 'processComplete',
+            processId,
+            processType: 'sourcesPhotosInArea',
+            messageId
+        });
     }
 
     private async simulateWork(
