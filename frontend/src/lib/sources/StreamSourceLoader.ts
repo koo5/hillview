@@ -11,6 +11,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
     private streamPhotos: PhotoData[] = [];
     private completionPromise?: Promise<void>;
     private completionResolve?: () => void;
+    private timeoutId?: NodeJS.Timeout;
 
     constructor(source: any, callbacks: PhotoSourceCallbacks) {
         super(source, callbacks);
@@ -31,22 +32,27 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
 
         console.log(`StreamSourceLoader: Starting stream from ${this.source.url}`);
 
-        // Build URL with bounds parameters
+        // Build URL with bounds parameters (using server-expected parameter names)
         const url = new URL(this.source.url);
         url.searchParams.set('top_left_lat', bounds.top_left.lat.toString());
-        url.searchParams.set('top_left_lng', bounds.top_left.lng.toString());
+        url.searchParams.set('top_left_lon', bounds.top_left.lng.toString()); // Changed from top_left_lng
         url.searchParams.set('bottom_right_lat', bounds.bottom_right.lat.toString());
-        url.searchParams.set('bottom_right_lng', bounds.bottom_right.lng.toString());
+        url.searchParams.set('bottom_right_lon', bounds.bottom_right.lng.toString()); // Changed from bottom_right_lng
 
-        // Add any additional parameters
-        if (this.source.clientId) {
-            url.searchParams.set('client_id', this.source.clientId);
-        }
+        // Add client_id parameter (required by server)
+        const clientId = this.source.clientId || 'default'; // Provide default if not specified
+        url.searchParams.set('client_id', clientId);
 
-        // Create completion promise
+        // Create completion promise with timeout
         this.completionPromise = new Promise<void>((resolve) => {
             this.completionResolve = resolve;
         });
+
+        // Add timeout to prevent hanging forever (30 seconds)
+        this.timeoutId = setTimeout(() => {
+            console.warn(`StreamSourceLoader: Timeout waiting for ${this.source.url} - resolving anyway`);
+            this.resolveCompletion();
+        }, 30000);
 
         this.eventSource = new EventSource(url.toString());
 
@@ -63,6 +69,8 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
         this.eventSource.onerror = (error) => {
             console.error('StreamSourceLoader: Stream error:', error);
             this.callbacks.onError?.(new Error('Stream connection error'));
+            // Resolve the completion promise even on error to prevent hanging
+            this.resolveCompletion();
         };
 
         this.eventSource.onopen = () => {
@@ -71,6 +79,18 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
 
         // Return the completion promise
         return this.completionPromise;
+    }
+
+    private resolveCompletion(): void {
+        // Clear timeout and resolve promise
+        if (this.timeoutId) {
+            clearTimeout(this.timeoutId);
+            this.timeoutId = undefined;
+        }
+        if (this.completionResolve) {
+            this.completionResolve();
+            this.completionResolve = undefined;
+        }
     }
 
     private handleStreamMessage(data: any): void {
@@ -130,18 +150,14 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
                 });
 
                 // Resolve the completion promise
-                if (this.completionResolve) {
-                    this.completionResolve();
-                }
+                this.resolveCompletion();
                 break;
 
             case 'error':
                 console.error('StreamSourceLoader: Stream error:', data.message);
                 this.callbacks.onError?.(new Error(data.message || 'Unknown stream error'));
                 // Resolve the completion promise even on error
-                if (this.completionResolve) {
-                    this.completionResolve();
-                }
+                this.resolveCompletion();
                 break;
 
             default:
@@ -156,6 +172,9 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
         if (this.eventSource) {
             this.eventSource.close();
         }
+
+        // Clear timeout and resolve completion promise if still pending
+        this.resolveCompletion();
     }
 
     getAllPhotos(): PhotoData[] {

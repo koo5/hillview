@@ -79,6 +79,9 @@ const currentState = {
 // Track if we're blocked by running processes
 let isBlocked = false;
 
+// Debug timer for monitoring running processes
+let processMonitorInterval: NodeJS.Timeout | null = null;
+
 // Photo arrays - per-source tracking for smart culling
 const photosInAreaPerSource = new Map<string, PhotoData[]>();
 let cullingGrid: CullingGrid | null = null;
@@ -301,8 +304,27 @@ export { handleMessage };
 
 
 
+function startProcessMonitor(): void {
+	// Start periodic process monitoring (every 10 seconds)
+	processMonitorInterval = setInterval(() => {
+		listRunningProcesses();
+	}, 10000);
+	console.log('NewWorker: Process monitor started (10s interval)');
+}
+
+function stopProcessMonitor(): void {
+	if (processMonitorInterval) {
+		clearInterval(processMonitorInterval);
+		processMonitorInterval = null;
+		console.log('NewWorker: Process monitor stopped');
+	}
+}
+
 async function loop(): Promise<void> {
 	console.log('NewWorker: Starting main event loop');
+	
+	// Start the process monitor
+	startProcessMonitor();
 	
 	while (true) {
 		// Process all messages from the queue
@@ -403,6 +425,7 @@ async function loop(): Promise<void> {
 					
 				case 'exit':
 					console.log('NewWorker: Exit requested');
+					stopProcessMonitor();
 					return;
 					
 				default:
@@ -413,16 +436,10 @@ async function loop(): Promise<void> {
 		// Start new processes for unprocessed updates (by priority)
 		const canProcess = await startPendingProcesses();
 		
-		// If we're blocked by running processes, sleep instead of spinning
+		// If we're blocked by running processes, set blocked flag and continue loop
 		if (!canProcess) {
-			console.log('NewWorker: Blocked by running processes, waiting for next message...');
-			// Wait for a message (like processComplete) to wake us up
-			const message = await messageQueue.getNextMessage();
-			if (message) {
-				console.log('NewWorker: Woken up by message:', message.type);
-				// Process this message in the next iteration
-				continue;
-			}
+			isBlocked = true;
+			console.log('NewWorker: Cannot process - setting blocked flag');
 		}
 	}
 }
@@ -486,6 +503,45 @@ function hasRunningProcess(): boolean {
 	return false;
 }
 
+function listRunningProcesses(): void {
+	const runningProcesses = [];
+	const abortedProcesses = [];
+	
+	for (const [processId, processInfo] of processTable.entries()) {
+		const duration = Date.now() - processInfo.startTime;
+		const processData = {
+			id: processId,
+			type: processInfo.type,
+			messageId: processInfo.messageId,
+			duration: `${duration}ms`,
+			shouldAbort: processInfo.shouldAbort
+		};
+		
+		if (processInfo.shouldAbort) {
+			abortedProcesses.push(processData);
+		} else {
+			runningProcesses.push(processData);
+		}
+	}
+	
+	if (runningProcesses.length > 0 || abortedProcesses.length > 0) {
+		console.log(`NewWorker: Process Monitor - Running: ${runningProcesses.length}, Aborting: ${abortedProcesses.length}`);
+		
+		if (runningProcesses.length > 0) {
+			console.log('  Active processes:', runningProcesses);
+		}
+		
+		if (abortedProcesses.length > 0) {
+			console.log('  Aborting processes:', abortedProcesses);
+		}
+		
+		// Also log current state for context
+		console.log(`  State - Config: update=${currentState.config.lastUpdateId}/processed=${currentState.config.lastProcessedId}, Area: update=${currentState.area.lastUpdateId}/processed=${currentState.area.lastProcessedId}, isBlocked: ${isBlocked}`);
+	} else {
+		console.log('NewWorker: Process Monitor - No active processes');
+	}
+}
+
 function getProcessPriority(type: 'config' | 'area' | 'sourcesPhotosInArea'): number {
 	// Higher number = higher priority
 	if (type === 'config') return 3;
@@ -527,6 +583,7 @@ self.onmessage = function(e: MessageEvent) {
 // Start the main loop
 loop().catch(error => {
 	console.error('NewWorker: Fatal error in main loop:', error);
+	stopProcessMonitor();
 	postMessage({
 		type: 'error',
 		error: {

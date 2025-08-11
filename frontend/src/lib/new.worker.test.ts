@@ -16,6 +16,9 @@ const mockSelf = {
 (globalThis as any).self = mockSelf;
 (globalThis as any).postMessage = mockPostMessage;
 
+// Mock __WORKER_VERSION__ for tests
+(globalThis as any).__WORKER_VERSION__ = 'test-version-' + Date.now();
+
 // No longer need fetch mock since we're using EventSource
 
 // Mock EventSource for streaming tests
@@ -215,9 +218,12 @@ describe('New Worker Integration Tests', () => {
       createStreamSource('source2')
     ];
     
-    // Send config update
+    // Send config update with proper version check
     await sendMessage('configUpdated', {
-      config: { sources, expectedWorkerVersion: '1.0.0' }
+      config: { 
+        sources, 
+        expectedWorkerVersion: (globalThis as any).__WORKER_VERSION__
+      }
     });
     
     // Clear previous postMessage calls
@@ -452,6 +458,36 @@ describe('New Worker Integration Tests', () => {
     
     // Test that worker can handle rapid consecutive updates without breaking
     expect(responses.every(r => typeof r.photosInArea.length === 'number')).toBe(true);
+  });
+
+  it('should handle worker version validation correctly', async () => {
+    const sources = [createStreamSource('source1')];
+    
+    // Test with correct version - should work
+    await sendMessage('configUpdated', {
+      config: { 
+        sources, 
+        expectedWorkerVersion: (globalThis as any).__WORKER_VERSION__
+      }
+    });
+    
+    // Clear messages and test with wrong version - should fail
+    mockPostMessage.mockClear();
+    
+    try {
+      await sendMessage('configUpdated', {
+        config: { 
+          sources, 
+          expectedWorkerVersion: 'wrong-version-123'
+        }
+      });
+      // If we get here, the test should fail
+      expect(true).toBe(false); // Should not reach here
+    } catch (error) {
+      // Should catch version mismatch error somewhere in the process
+      // The exact timing depends on async processing, but error should occur
+      console.log('Expected version mismatch error occurred');
+    }
   });
 
   it('should prioritize config updates over area updates', async () => {

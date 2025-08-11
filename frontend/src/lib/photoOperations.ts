@@ -7,6 +7,9 @@ import { PhotoSourceFactory } from './sources/PhotoSourceFactory';
 import type { PhotoSourceLoader, PhotoSourceCallbacks } from './sources/PhotoSourceLoader';
 import { filterPhotosByArea } from './workerUtils';
 
+// Import worker version for validation
+declare const __WORKER_VERSION__: string;
+
 export interface OperationCallbacks {
     shouldAbort: (processId: string) => boolean;
     postMessage: (message: any) => void;
@@ -32,12 +35,17 @@ export class PhotoOperations {
     async processConfig(
         processId: string,
         messageId: number,
-        config: { sources: SourceConfig[]; [key: string]: any },
+        config: { sources: SourceConfig[]; expectedWorkerVersion?: string; [key: string]: any },
         callbacks: OperationCallbacks
     ): Promise<void> {
         console.log(`PhotoOperations: Processing config update (${processId})`);
         
         if (callbacks.shouldAbort(processId)) return;
+
+        // Check worker version if provided
+        if (config.expectedWorkerVersion && config.expectedWorkerVersion !== __WORKER_VERSION__) {
+            throw new Error(`Worker version mismatch! Expected: ${config.expectedWorkerVersion}, Actual: ${__WORKER_VERSION__}`);
+        }
         
         if (!config?.sources) {
             console.log(`PhotoOperations: No sources in config (${processId})`);
