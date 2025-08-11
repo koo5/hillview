@@ -36,8 +36,8 @@ services:
   api:
     restart: always
     build:
-      context: api
-      dockerfile: app/Dockerfile
+      context: .
+      dockerfile: api/app/Dockerfile
     container_name: hillview_api
     ports:
       - "${API_PORT:-8055}:8055"
@@ -67,22 +67,19 @@ services:
   worker:
     restart: always
     build:
-      context: api
-      dockerfile: app/Dockerfile.worker
+      context: .
+      dockerfile: worker/Dockerfile
     container_name: hillview_worker
     volumes:
       - ./uploads:/app/uploads
-      - ./api/app:/app/app
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-hillview}:${POSTGRES_PASSWORD:-hillview}@postgres:5432/${POSTGRES_DB:-hillview}
-      - REDIS_URL=redis://redis:6379/0
       - UPLOAD_DIR=/app/uploads
+      - SCAN_INTERVAL_SECONDS=${WORKER_SCAN_INTERVAL:-60}
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
-        condition: service_healthy
-    command: celery -A app.worker worker --loglevel=info
+    command: python photo_processor_service.py
 
 volumes:
   postgres_data:

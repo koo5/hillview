@@ -11,8 +11,8 @@ from typing import Optional
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import SessionLocal
-from app.models import Photo
+from common.database import SessionLocal
+from common.models import Photo
 from app.photo_processor import photo_processor
 
 # Configure logging

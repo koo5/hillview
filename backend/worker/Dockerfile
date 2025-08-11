@@ -25,11 +25,15 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # Copy requirements and install Python dependencies
-COPY app/requirements.worker.txt /app/requirements.txt
+COPY worker/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r /app/requirements.txt
 
-# Application code and YOLO model will be mounted via bind mount
+# Copy application code
+COPY worker /app/
+
+# Copy common directory  
+COPY common /app/common
 
 # Create uploads directory structure
 RUN mkdir -p /app/uploads/opt

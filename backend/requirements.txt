@@ -9,9 +9,7 @@ aiofiles==23.2.1
 python-dotenv==1.0.0
 fire
 ultralytics
-opencv-python
 geoalchemy2==0.14.2
 shapely==2.0.2
-numpy<2
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
