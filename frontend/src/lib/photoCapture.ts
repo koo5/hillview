@@ -59,7 +59,7 @@ class PhotoCaptureService {
 				imageData,
 				metadata,
 				filename,
-				saveToGallery: settings.saveToGallery
+				hideFromGallery: settings.hideFromGallery
 			});
 
 			return devicePhoto;

@@ -267,67 +267,55 @@ pub async fn embed_photo_metadata(
 }
 
 #[cfg(target_os = "android")]
-fn save_to_android_gallery(
-    image_data: &[u8],
+fn save_to_pictures_directory(
     filename: &str,
-    _metadata: &PhotoMetadata,
+    image_data: &[u8],
+    hide_from_gallery: bool,
 ) -> Result<std::path::PathBuf, std::io::Error> {
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
     // Get the Pictures directory path
-    // On Android, this typically maps to /storage/emulated/0/Pictures
-    let pictures_dir =
-        std::env::var("EXTERNAL_STORAGE").unwrap_or_else(|_| "/storage/emulated/0".to_string());
+    let pictures_dir = if cfg!(target_os = "android") {
+        // On Android, this typically maps to /storage/emulated/0/Pictures
+        std::env::var("EXTERNAL_STORAGE").unwrap_or_else(|_| "/storage/emulated/0".to_string())
+    } else {
+        // On desktop, use the standard Pictures directory
+        dirs::picture_dir()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|| std::env::var("HOME").unwrap_or("/tmp".to_string()) + "/Pictures")
+    };
+
+    // Use dot folder if hiding from gallery
+    let folder_name = if hide_from_gallery { ".Hillview" } else { "Hillview" };
     let pictures_path = std::path::Path::new(&pictures_dir)
-        .join("Pictures")
-        .join("Hillview");
+        .join(folder_name);
 
     // Create the Hillview subdirectory in Pictures
     std::fs::create_dir_all(&pictures_path)?;
 
-    // Save the file
-    let gallery_path = pictures_path.join(filename);
-    std::fs::write(&gallery_path, image_data)?;
-    info!("Saved photo to gallery: {:?}", gallery_path);
-
-    // Set readable permissions for other apps
-    let mut perms = std::fs::metadata(&gallery_path)?.permissions();
-    perms.set_mode(0o644); // rw-r--r--
-    std::fs::set_permissions(&gallery_path, perms)?;
-
-    // Note: On newer Android versions (API 29+), we would need to use MediaStore API
-    // through JNI for proper gallery integration. This direct file approach works
-    // for Android 9 and below, or with legacy storage permissions.
-
-    // Trigger media scan to make the photo appear in gallery
-    // This is a workaround - ideally we'd use MediaScannerConnection through JNI
-    info!("Photo saved to gallery at: {:?}", gallery_path);
-
-    Ok(gallery_path)
-}
-
-fn save_to_app_storage(
-    app_handle: &tauri::AppHandle,
-    filename: &str,
-    data: &[u8],
-) -> Result<std::path::PathBuf, String> {
-    // Get app data directory
-    let app_dir = app_handle
-        .path()
-        .app_data_dir()
-        .map_err(|_| "Failed to get app data directory".to_string())?;
-
-    // Create photos directory
-    let photos_dir = app_dir.join("captured_photos");
-    std::fs::create_dir_all(&photos_dir)
-        .map_err(|e| format!("Failed to create photos directory: {}", e))?;
+    // Create .nomedia file if hiding from gallery
+    if hide_from_gallery {
+        let nomedia_file = pictures_path.join(".nomedia");
+        let _ = std::fs::write(nomedia_file, ""); // Empty file signals to skip this folder
+    }
 
     // Save the file
-    let file_path = photos_dir.join(filename);
-    std::fs::write(&file_path, data).map_err(|e| format!("Failed to save photo: {}", e))?;
+    let photo_path = pictures_path.join(filename);
+    std::fs::write(&photo_path, image_data)?;
+    info!("Saved photo to Pictures directory: {:?} (hidden: {})", photo_path, hide_from_gallery);
 
-    Ok(file_path)
+    // Set readable permissions for other apps on Unix systems
+    #[cfg(unix)]
+    {
+        let mut perms = std::fs::metadata(&photo_path)?.permissions();
+        perms.set_mode(0o644); // rw-r--r--
+        std::fs::set_permissions(&photo_path, perms)?;
+    }
+
+    Ok(photo_path)
 }
+
 
 #[command]
 pub async fn save_photo_with_metadata(
@@ -335,7 +323,7 @@ pub async fn save_photo_with_metadata(
     image_data: Vec<u8>,
     metadata: PhotoMetadata,
     filename: String,
-    save_to_gallery: bool,
+    hide_from_gallery: bool,
 ) -> Result<crate::device_photos::DevicePhotoMetadata, String> {
     // Process the photo with EXIF data
     let processed = embed_photo_metadata(image_data, metadata.clone()).await?;
@@ -347,24 +335,9 @@ pub async fn save_photo_with_metadata(
     );
 
     // Determine where to save the photo
-    let file_path = if cfg!(target_os = "android") && save_to_gallery {
-        // On Android with save_to_gallery enabled, save directly to gallery
-        info!("Saving directly to Android gallery with metadata: lat={}, lon={}, alt={:?}, bearing={:?}", 
-              metadata.latitude, metadata.longitude, metadata.altitude, metadata.bearing);
-
-        #[cfg(target_os = "android")]
-        {
-            save_to_android_gallery(&processed.data, &filename, &metadata)
-                .map_err(|e| format!("Failed to save to gallery: {}", e))?
-        }
-        #[cfg(not(target_os = "android"))]
-        {
-            unreachable!("This branch should never be reached on non-Android platforms")
-        }
-    } else {
-        // Save to app private storage
-        save_to_app_storage(&app_handle, &filename, &processed.data)?
-    };
+    // Always save to Pictures directory - use dot folder if hiding from gallery
+    let file_path = save_to_pictures_directory(&filename, &processed.data, hide_from_gallery)
+        .map_err(|e| format!("Failed to save to Pictures directory: {}", e))?;
 
     // Verify EXIF can be read back
     #[cfg(debug_assertions)]

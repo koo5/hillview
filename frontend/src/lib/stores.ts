@@ -41,5 +41,5 @@ export const deviceInfo = writable({
 
 // Store for photo capture settings
 export const photoCaptureSettings = localStorageSharedStore('photoCaptureSettings', {
-    saveToGallery: true // Default to true for saving to gallery
+    hideFromGallery: false // Default to false (photos visible in gallery)
 });

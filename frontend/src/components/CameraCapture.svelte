@@ -468,10 +468,10 @@
                     <label class="toggle-label">
                         <input
                                 type="checkbox"
-                                bind:checked={$photoCaptureSettings.saveToGallery}
+                                bind:checked={$photoCaptureSettings.hideFromGallery}
                                 class="toggle-checkbox"
                         />
-                        <span class="toggle-text">Save to Gallery</span>
+                        <span class="toggle-text">Hide from Gallery</span>
                     </label>
                 </div>
             {/if}
