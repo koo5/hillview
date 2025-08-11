@@ -106,3 +106,16 @@ class MapillaryPhotoCache(Base):
     
     # Relationships
     region = relationship("CachedRegion", back_populates="cached_photos")
+
+class TokenBlacklist(Base):
+    __tablename__ = "token_blacklist"
+    
+    id = Column(String, primary_key=True, default=generate_uuid)
+    token = Column(String, unique=True, index=True, nullable=False)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    blacklisted_at = Column(DateTime(timezone=True), server_default=func.now())
+    expires_at = Column(DateTime(timezone=True), nullable=False)  # When the token would naturally expire
+    reason = Column(String, nullable=True)  # logout, password_change, account_disabled, etc.
+    
+    # Relationship
+    user = relationship("User")

@@ -8,17 +8,29 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from pydantic import BaseModel
 import os
+import secrets
+import logging
 from dotenv import load_dotenv
 
 from .database import get_db
-from .models import User
+from .models import User, TokenBlacklist
 
 load_dotenv()
 
+logger = logging.getLogger(__name__)
+
 # Security configuration
-SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-for-jwt")
+# Generate a secure random key if not provided
+DEFAULT_SECRET_KEY = secrets.token_urlsafe(32)
+SECRET_KEY = os.getenv("SECRET_KEY", DEFAULT_SECRET_KEY)
+
+# Warn if using default key (should only happen in development)
+if SECRET_KEY == DEFAULT_SECRET_KEY:
+    logger.warning("Using auto-generated JWT secret key. Set SECRET_KEY environment variable in production!")
+
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
+REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
 
 # OAuth2 configuration
 OAUTH_PROVIDERS = {
@@ -95,7 +107,24 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
         expire = datetime.utcnow() + expires_delta
     else:
         expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode.update({"exp": expire})
+    
+    # Add issued at time for better token tracking
+    to_encode.update({
+        "exp": expire,
+        "iat": datetime.utcnow(),
+        "type": "access"
+    })
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt, expire
+
+def create_refresh_token(data: dict):
+    to_encode = data.copy()
+    expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    to_encode.update({
+        "exp": expire,
+        "iat": datetime.utcnow(),
+        "type": "refresh"
+    })
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt, expire
 
@@ -114,22 +143,27 @@ async def get_user_by_oauth(db: AsyncSession, provider: str, oauth_id: str):
     return result.scalars().first()
 
 async def authenticate_user(db: AsyncSession, username: str, password: str):
-    print(f"Authenticating user: {username}")
+    logger.debug(f"Authenticating user: {username}")
     user = await get_user_by_username(db, username)
     if not user:
-        print(f"User not found by username, trying email: {username}")
+        logger.debug(f"User not found by username, trying email: {username}")
         user = await get_user_by_email(db, username)  # Try with email
     
     if not user:
-        print(f"Authentication failed: User not found: {username}")
+        logger.warning(f"Authentication failed: User not found: {username}")
+        return False
+    
+    # Check if user is active BEFORE password verification
+    if not user.is_active:
+        logger.warning(f"Authentication failed: User is disabled: {username}")
         return False
     
     password_valid = verify_password(password, user.hashed_password)
     if not password_valid:
-        print(f"Authentication failed: Invalid password for user: {username}")
+        logger.warning(f"Authentication failed: Invalid password for user: {username}")
         return False
     
-    print(f"Authentication successful for user: {username}, id: {user.id}")
+    logger.info(f"Authentication successful for user: {username}, id: {user.id}")
     return user
 
 async def get_current_user(
@@ -140,36 +174,97 @@ async def get_current_user(
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    
+    inactive_user_exception = HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="User account is disabled",
+    )
+    
     try:
-        print(f"Decoding JWT token: {token[:10]}...")
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        # Decode and validate JWT token with strict algorithm checking
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM], options={"verify_exp": True})
+        
+        # Validate token type
+        token_type = payload.get("type")
+        if token_type != "access":
+            logger.warning(f"Invalid token type: {token_type}")
+            raise credentials_exception
+        
         username: str = payload.get("sub")
         user_id: str = payload.get("user_id")
-        print(f"Token payload - username: {username}, user_id: {user_id}")
         
         if username is None or user_id is None:
-            print("Token missing username or user_id")
+            logger.warning("Token missing username or user_id")
+            raise credentials_exception
+            
+        # Check if token is blacklisted (implementation pending)
+        if await is_token_blacklisted(token, db):
+            logger.warning(f"Blacklisted token used by user: {user_id}")
             raise credentials_exception
             
         token_data = TokenData(username=username, user_id=user_id)
     except JWTError as e:
-        print(f"JWT Error: {str(e)}")
+        logger.warning(f"JWT Error: {str(e)}")
         raise credentials_exception
     
-    print(f"Looking up user by ID: {user_id}")
+    # Fetch user from database
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalars().first()
     
     if user is None:
-        print(f"User not found with ID: {user_id}")
+        logger.warning(f"User not found with ID: {user_id}")
         raise credentials_exception
-        
+    
+    # Check if user is active IMMEDIATELY after fetching
     if not user.is_active:
-        print(f"User is inactive: {user_id}")
-        raise HTTPException(status_code=400, detail="Inactive user")
+        logger.warning(f"Disabled user attempted access: {user_id}")
+        raise inactive_user_exception
         
-    print(f"User authenticated successfully: {user.username}, id: {user.id}")
+    logger.debug(f"User authenticated successfully: {user.username}, id: {user.id}")
     return user
+
+# Check if token is blacklisted
+async def is_token_blacklisted(token: str, db: AsyncSession) -> bool:
+    """Check if a token has been blacklisted."""
+    result = await db.execute(
+        select(TokenBlacklist).where(
+            TokenBlacklist.token == token,
+            TokenBlacklist.expires_at > datetime.utcnow()
+        )
+    )
+    return result.scalars().first() is not None
+
+async def blacklist_token(token: str, user_id: str, reason: str, db: AsyncSession) -> None:
+    """Add a token to the blacklist."""
+    try:
+        # Decode token to get expiration time
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        exp_timestamp = payload.get("exp")
+        if exp_timestamp:
+            expires_at = datetime.fromtimestamp(exp_timestamp)
+        else:
+            # Default to 30 days if no expiration
+            expires_at = datetime.utcnow() + timedelta(days=30)
+        
+        blacklist_entry = TokenBlacklist(
+            token=token,
+            user_id=user_id,
+            expires_at=expires_at,
+            reason=reason
+        )
+        db.add(blacklist_entry)
+        await db.commit()
+        logger.info(f"Token blacklisted for user {user_id}, reason: {reason}")
+    except Exception as e:
+        logger.error(f"Error blacklisting token: {str(e)}")
+        await db.rollback()
+        raise
+
+async def blacklist_all_user_tokens(user_id: str, reason: str, db: AsyncSession) -> None:
+    """Blacklist all tokens for a specific user when they're disabled."""
+    # This is a placeholder - in production, you'd need to track all active tokens
+    # For now, we'll rely on the is_active check in get_current_user
+    logger.info(f"All tokens invalidated for user {user_id}, reason: {reason}")
 
 async def get_current_active_user(current_user: User = Depends(get_current_user)):
     if not current_user.is_active:

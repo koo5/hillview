@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import SessionLocal
 from app.models import Photo, User
 from app.anonymize import anonymize_image
+from app.security_utils import sanitize_filename, validate_file_path, check_file_content
 
 logger = logging.getLogger(__name__)
 
@@ -107,8 +108,8 @@ class PhotoProcessor:
     def get_image_dimensions(self, filepath: str) -> Tuple[int, int]:
         """Get image dimensions using ImageMagick identify."""
         try:
-            cmd = ['identify', '-format', '%w %h', filepath]
-            result = subprocess.check_output(cmd, text=True)
+            cmd = ['identify', '-format', '%w %h', shlex.quote(filepath)]
+            result = subprocess.check_output(cmd, text=True, timeout=10)
             width, height = map(int, result.strip().split())
             return width, height
         except Exception as e:
@@ -177,17 +178,18 @@ class PhotoProcessor:
                     size_dir = os.path.join(output_base, 'opt', str(size))
                     os.makedirs(size_dir, exist_ok=True)
                     
-                    # Output file path for this size using unique ID
-                    unique_filename = f"{unique_id}{file_ext}"
-                    output_file_path = os.path.join(size_dir, unique_filename)
+                    # Output file path for this size using unique ID - sanitize first
+                    unique_filename = sanitize_filename(f"{unique_id}{file_ext}")
+                    output_file_path = validate_file_path(os.path.join(size_dir, unique_filename), output_base)
                     size_relative_path = os.path.join('opt', str(size), unique_filename)
                     
                     # Copy and resize the image (use anonymized version)
                     shutil.copy2(input_file_path, output_file_path)
                     
                     # Resize using ImageMagick mogrify (matching original)
-                    cmd = ['mogrify', '-resize', str(size), output_file_path]
-                    result = subprocess.run(cmd, capture_output=True)
+                    # Use absolute path and validate inputs
+                    cmd = ['mogrify', '-resize', str(int(size)), shlex.quote(output_file_path)]
+                    result = subprocess.run(cmd, capture_output=True, timeout=30)
                     
                     if result.returncode == 0:
                         # Get new dimensions after resize
@@ -200,10 +202,10 @@ class PhotoProcessor:
                         }
                         
                         # Optimize with jpegoptim (matching original)
-                        cmd = ['jpegoptim', '--all-progressive', '--overwrite', output_file_path]
-                        subprocess.run(cmd, capture_output=True)
+                        cmd = ['jpegoptim', '--all-progressive', '--overwrite', shlex.quote(output_file_path)]
+                        subprocess.run(cmd, capture_output=True, timeout=30)
                         
-                        logger.info(f"Created size {size} for {filename}: {new_width}x{new_height}")
+                        logger.info(f"Created size {size} for {unique_id}: {new_width}x{new_height}")
                     else:
                         logger.warning(f"Failed to resize {filename} to size {size}")
                         # Clean up failed file
@@ -272,6 +274,14 @@ class PhotoProcessor:
     ) -> Optional[Photo]:
         """Process a user-uploaded photo and store it in the database."""
         try:
+            # Sanitize filename
+            safe_filename = sanitize_filename(filename)
+            
+            # Verify file content matches image type
+            if not check_file_content(file_path, "image"):
+                logger.error(f"File content verification failed for {safe_filename}")
+                raise ValueError("Invalid image file content")
+            
             # Extract EXIF data
             exif_data = self.extract_exif_data(file_path)
             
@@ -294,7 +304,7 @@ class PhotoProcessor:
                 gps = exif_data.get('gps', {})
                 
                 photo = Photo(
-                    filename=filename,
+                    filename=safe_filename,
                     filepath=file_path,
                     description=description,
                     is_public=is_public,

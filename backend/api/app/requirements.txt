@@ -15,10 +15,6 @@ shapely==2.0.2
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 
-# Task queue
-celery==5.3.4
-redis==5.0.1
-
 # Basic photo metadata
 exifread
 Pillow==10.1.0

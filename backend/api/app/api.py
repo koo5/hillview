@@ -1,7 +1,8 @@
 import logging
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, status, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from dotenv import load_dotenv
 import os
@@ -16,6 +17,38 @@ log = logging.getLogger(__name__)
 USER_ACCOUNTS = os.getenv("USER_ACCOUNTS", "false").lower() in ("true", "1", "yes")
 
 app = FastAPI(title="Hillview API", description="API for Hillview application")
+
+# Security Headers Middleware
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        
+        # Security headers
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "geolocation=(self), camera=(self), microphone=()"
+        
+        # Remove server header
+        response.headers.pop("Server", None)
+        
+        # Content Security Policy (adjust based on your needs)
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline'; "  # Adjust as needed
+            "style-src 'self' 'unsafe-inline'; "  # Adjust as needed
+            "img-src 'self' data: https:; "
+            "font-src 'self' data:; "
+            "connect-src 'self'; "
+            "frame-ancestors 'none';"
+        )
+        
+        return response
+
+# Add security headers middleware
+app.add_middleware(SecurityHeadersMiddleware)
 
 # Add exception handlers
 @app.exception_handler(Exception)
@@ -41,6 +74,10 @@ app.add_middleware(
 if USER_ACCOUNTS:
     from .user_routes import router as user_router
     app.include_router(user_router)
+    
+    # Include photo routes (only with user accounts)
+    from .photo_routes import router as photo_router
+    app.include_router(photo_router)
 
 # Include Mapillary routes
 from .mapillary_routes import router as mapillary_router

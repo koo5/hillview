@@ -1,44 +1,43 @@
 import datetime
 import os
-import shutil
-from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 import logging
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, BackgroundTasks
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import or_
-import aiofiles
 from pydantic import BaseModel
 import requests
 
 from .database import get_db
-from .models import User, Photo
+from .models import User
 from .auth import (
     authenticate_user, create_access_token, get_current_active_user,
     get_password_hash, Token, UserCreate, UserLogin, UserOut, UserOAuth,
-    OAUTH_PROVIDERS, ACCESS_TOKEN_EXPIRE_MINUTES
+    OAUTH_PROVIDERS, ACCESS_TOKEN_EXPIRE_MINUTES,
+    blacklist_token, get_current_user
 )
+from .rate_limiter import auth_rate_limiter, check_auth_rate_limit
+from .security_utils import validate_username, validate_email, validate_oauth_redirect_uri
 
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["users"])
 
-# Create upload directories
-UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "./uploads"))
-UPLOAD_DIR.mkdir(exist_ok=True)
-
 # Authentication routes
 @router.post("/auth/register", response_model=UserOut)
 async def register_user(user: UserCreate, db: AsyncSession = Depends(get_db)):
-    log.info(f"Registration attempt for user: {user.username}, email: {user.email}")
+    # Validate input
+    validated_username = validate_username(user.username)
+    validated_email = validate_email(user.email)
+    
+    log.info(f"Registration attempt for user: {validated_username}, email: {validated_email}")
     
     # Check if username or email already exists
     result = await db.execute(
         select(User).where(
-            or_(User.username == user.username, User.email == user.email)
+            or_(User.username == validated_username, User.email == validated_email)
         )
     )
     existing_user = result.scalars().first()
@@ -51,10 +50,17 @@ async def register_user(user: UserCreate, db: AsyncSession = Depends(get_db)):
     
     # Create new user
     try:
+        # Validate password strength (min 8 chars)
+        if len(user.password) < 8:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Password must be at least 8 characters long"
+            )
+        
         hashed_password = get_password_hash(user.password)
         db_user = User(
-            email=user.email,
-            username=user.username,
+            email=validated_email,
+            username=validated_username,
             hashed_password=hashed_password
         )
         db.add(db_user)
@@ -62,6 +68,8 @@ async def register_user(user: UserCreate, db: AsyncSession = Depends(get_db)):
         await db.refresh(db_user)
         log.info(f"User registered successfully: {user.username}, ID: {db_user.id}")
         return db_user
+    except HTTPException:
+        raise
     except Exception as e:
         log.error(f"Error during user registration: {str(e)}")
         raise HTTPException(
@@ -71,16 +79,26 @@ async def register_user(user: UserCreate, db: AsyncSession = Depends(get_db)):
 
 @router.post("/auth/token", response_model=Token)
 async def login_for_access_token(
-        form_data: OAuth2PasswordRequestForm = Depends(),
+    request: Request,
+    form_data: OAuth2PasswordRequestForm = Depends(),
     db: AsyncSession = Depends(get_db)
 ):
+    # Check rate limit before attempting authentication
+    identifier = auth_rate_limiter.get_identifier(request, form_data.username)
+    await check_auth_rate_limit(request, form_data.username)
+    
     user = await authenticate_user(db, form_data.username, form_data.password)
     if not user:
+        # Record failed attempt for rate limiting
+        await auth_rate_limiter.record_failed_attempt(identifier)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    
+    # Clear failed attempts on successful login
+    await auth_rate_limiter.clear_failed_attempts(identifier)
     
     access_token, expires = create_access_token(
         data={"sub": user.username, "user_id": user.id},
@@ -93,11 +111,33 @@ async def login_for_access_token(
         "expires_at": expires
     }
 
+@router.post("/auth/logout")
+async def logout(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Logout user by blacklisting their current token."""
+    try:
+        # Extract token from Authorization header
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header[7:]  # Remove "Bearer " prefix
+            await blacklist_token(token, current_user.id, "logout", db)
+        return {"message": "Successfully logged out"}
+    except Exception as e:
+        log.error(f"Error during logout: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Logout failed"
+        )
+
 @router.post("/auth/oauth", response_model=Token)
 async def oauth_login(
         oauth_data: UserOAuth,
     db: AsyncSession = Depends(get_db)
 ):
+    # Validate provider
     provider = oauth_data.provider
     if provider not in OAUTH_PROVIDERS:
         raise HTTPException(
@@ -107,13 +147,27 @@ async def oauth_login(
     
     provider_config = OAUTH_PROVIDERS[provider]
     
+    # Validate redirect URI to prevent open redirect attacks
+    redirect_uri = oauth_data.redirect_uri or provider_config["redirect_uri"]
+    if redirect_uri:
+        # Define allowed domains for OAuth redirects
+        allowed_domains = {'localhost', '127.0.0.1', 'hillview.ueueeu.eu'}  # Add your production domain
+        redirect_uri = validate_oauth_redirect_uri(redirect_uri, allowed_domains)
+    
+    # Validate OAuth code (basic check)
+    if not oauth_data.code or len(oauth_data.code) > 500:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid OAuth authorization code"
+        )
+    
     # Exchange code for token (implementation depends on provider)
     # This is a simplified example
     token_data = {
         "client_id": provider_config["client_id"],
         "client_secret": provider_config["client_secret"],
         "code": oauth_data.code,
-        "redirect_uri": oauth_data.redirect_uri or provider_config["redirect_uri"],
+        "redirect_uri": redirect_uri,
         "grant_type": "authorization_code"
     }
     
@@ -238,131 +292,21 @@ async def oauth_login(
 async def read_users_me(current_user: User = Depends(get_current_active_user)):
     return current_user
 
+class UserSettingsUpdate(BaseModel):
+    auto_upload_enabled: Optional[bool] = None
+    auto_upload_folder: Optional[str] = None
+
 @router.put("/auth/settings", response_model=UserOut)
 async def update_user_settings(
-    auto_upload_enabled: bool = Form(...),
-    auto_upload_folder: str = Form(None),
+    settings: UserSettingsUpdate,
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
-    current_user.auto_upload_enabled = auto_upload_enabled
-    if auto_upload_folder:
-        current_user.auto_upload_folder = auto_upload_folder
+    if settings.auto_upload_enabled is not None:
+        current_user.auto_upload_enabled = settings.auto_upload_enabled
+    if settings.auto_upload_folder is not None:
+        current_user.auto_upload_folder = settings.auto_upload_folder
     
     await db.commit()
     await db.refresh(current_user)
     return current_user
-
-# Photo management routes
-class PhotoResponse(BaseModel):
-    id: str
-    filename: str
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
-    compass_angle: Optional[float] = None
-    captured_at: Optional[datetime.datetime] = None
-    uploaded_at: datetime.datetime
-    thumbnail_url: Optional[str] = None
-    is_public: bool
-    
-    class Config:
-        from_attributes = True
-
-@router.get("/photos", response_model=List[PhotoResponse])
-async def get_user_photos(
-    current_user: User = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db)
-):
-    result = await db.execute(
-        select(Photo).where(Photo.owner_id == current_user.id)
-    )
-    photos = result.scalars().all()
-    return photos
-
-async def process_photo(
-    file_path: str,
-    thumbnail_path: str,
-    photo_id: str
-):
-    """Background task to process uploaded photos"""
-    # Here you would extract EXIF data, create thumbnails, etc.
-    # For now, just create a simple thumbnail
-    try:
-        # This is a placeholder - in a real app you'd use PIL or similar
-        # to create proper thumbnails and extract EXIF data
-        shutil.copy(file_path, thumbnail_path)
-        
-        # Create a new database session for the background task
-        from .database import SessionLocal
-        async with SessionLocal() as db:
-            # Update the photo record with extracted data
-            result = await db.execute(select(Photo).where(Photo.id == photo_id))
-            photo = result.scalars().first()
-            if photo:
-                # Here you would set latitude, longitude, etc. from EXIF
-                photo.thumbnail_path = thumbnail_path
-                await db.commit()
-    except Exception as e:
-        log.error(f"Error processing photo {photo_id}: {e}")
-
-@router.delete("/photos/{photo_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_photo(
-    photo_id: str,
-    current_user: User = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db)
-):
-    result = await db.execute(
-        select(Photo).where(Photo.id == photo_id, Photo.owner_id == current_user.id)
-    )
-    photo = result.scalars().first()
-    
-    if not photo:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Photo not found or you don't have permission to delete it"
-        )
-    
-    # Delete the files
-    if os.path.exists(photo.filepath):
-        os.remove(photo.filepath)
-    if photo.thumbnail_path and os.path.exists(photo.thumbnail_path):
-        os.remove(photo.thumbnail_path)
-    
-    # Delete the database record
-    await db.delete(photo)
-    await db.commit()
-    
-    return None
-
-@router.get("/photos/{photo_id}/thumbnail")
-async def get_photo_thumbnail(
-    photo_id: str,
-    current_user: User = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db)
-):
-    result = await db.execute(
-        select(Photo).where(
-            (Photo.id == photo_id) & 
-            ((Photo.owner_id == current_user.id) | (Photo.is_public == True))
-        )
-    )
-    photo = result.scalars().first()
-    
-    if not photo:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Photo not found or you don't have permission to view it"
-        )
-    
-    # If thumbnail exists, return it
-    if photo.thumbnail_path and os.path.exists(photo.thumbnail_path):
-        return FileResponse(photo.thumbnail_path)
-    
-    # If no thumbnail, return the original image
-    if os.path.exists(photo.filepath):
-        return FileResponse(photo.filepath)
-    
-    raise HTTPException(
-        status_code=status.HTTP_404_NOT_FOUND,
-        detail="Photo file not found"
-    )

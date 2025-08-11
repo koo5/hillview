@@ -27,7 +27,7 @@ Photo Sources → State Management → Processing Layer → Presentation Layer
 
 ### 2. Processing Layer (Web Workers)
 
-#### Photo Worker (`photo.worker.ts`)
+#### Photo Worker (`new.worker.ts`)
 **Responsibilities:**
 - Load photos from all configured sources
 - Spatial indexing and filtering

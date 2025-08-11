@@ -9,10 +9,6 @@ asyncpg==0.28.0
 geoalchemy2==0.14.2
 shapely==2.0.2
 
-# Task queue
-celery==5.3.4
-redis==5.0.1
-
 # Image processing and ML dependencies
 numpy<2
 opencv-python==4.8.1.78

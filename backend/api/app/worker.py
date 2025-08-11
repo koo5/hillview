@@ -1,109 +1,184 @@
 """
-Celery worker for background photo processing tasks.
+Photo processing worker that polls for unprocessed photos.
 """
+import asyncio
 import os
 import logging
-from celery import Celery
-from uuid import UUID
+import time
+from datetime import datetime, timedelta
 from typing import Optional
 
+from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.database import SessionLocal
+from app.models import Photo
 from app.photo_processor import photo_processor
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Initialize Celery
-redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-celery_app = Celery("hillview_worker", broker=redis_url, backend=redis_url)
+# Worker configuration
+POLL_INTERVAL = int(os.getenv("WORKER_POLL_INTERVAL", "10"))  # seconds
+BATCH_SIZE = int(os.getenv("WORKER_BATCH_SIZE", "5"))  # photos per batch
+STALE_TIMEOUT = int(os.getenv("WORKER_STALE_TIMEOUT", "300"))  # seconds (5 minutes)
 
-# Celery configuration
-celery_app.conf.update(
-    task_serializer="json",
-    accept_content=["json"],
-    result_serializer="json",
-    timezone="UTC",
-    enable_utc=True,
-    task_track_started=True,
-    task_time_limit=300,  # 5 minutes
-    worker_prefetch_multiplier=1,
-    worker_max_tasks_per_child=50,
-)
-
-@celery_app.task(bind=True)
-def process_uploaded_photo(
-    self, 
-    file_path: str, 
-    filename: str, 
-    user_id: str,
-    description: Optional[str] = None,
-    is_public: bool = True
-):
-    """
-    Process uploaded photo: extract EXIF data, create thumbnail, store in database.
-    """
+async def get_pending_photos(db: AsyncSession, batch_size: int = BATCH_SIZE):
+    """Get pending photos for processing."""
     try:
-        logger.info(f"Processing uploaded photo {filename} for user {user_id}")
+        # Find photos that are pending or have been processing for too long (stale)
+        stale_time = datetime.utcnow() - timedelta(seconds=STALE_TIMEOUT)
         
-        # Update task progress
-        self.update_state(state="PROGRESS", meta={"status": "Processing photo"})
-        
-        # Process the photo using shared processor (needs to be awaited)
-        import asyncio
-        photo = asyncio.run(photo_processor.process_uploaded_photo(
-            file_path=file_path,
-            filename=filename,
-            user_id=UUID(user_id),
-            description=description,
-            is_public=is_public
-        ))
-        
-        if photo:
-            logger.info(f"Successfully processed uploaded photo {filename}")
-            return {
-                "photo_id": str(photo.id),
-                "filename": filename,
-                "status": "completed",
-                "has_gps": photo.latitude is not None and photo.longitude is not None,
-                "has_bearing": photo.bearing is not None
-            }
-        else:
-            logger.error(f"Failed to process uploaded photo {filename}")
-            self.update_state(
-                state="FAILURE",
-                meta={"error": "Failed to process photo", "filename": filename}
+        result = await db.execute(
+            select(Photo)
+            .where(
+                (Photo.processing_status == "pending") |
+                ((Photo.processing_status == "processing") & (Photo.uploaded_at < stale_time))
             )
-            return {"status": "failed", "filename": filename}
-        
-    except Exception as exc:
-        logger.error(f"Error processing uploaded photo {filename}: {str(exc)}")
-        self.update_state(
-            state="FAILURE",
-            meta={"error": str(exc), "filename": filename}
+            .limit(batch_size)
+            .order_by(Photo.uploaded_at.asc())  # Process oldest first
         )
-        raise exc
+        return result.scalars().all()
+    except Exception as e:
+        logger.error(f"Error fetching pending photos: {str(e)}")
+        return []
 
-
-@celery_app.task
-def cleanup_temp_files(file_paths: list):
-    """
-    Clean up temporary files after processing.
-    """
+async def mark_photo_processing(db: AsyncSession, photo_id: str):
+    """Mark a photo as being processed."""
     try:
-        import os
-        cleaned = 0
-        for file_path in file_paths:
-            try:
-                if os.path.exists(file_path):
-                    os.remove(file_path)
-                    cleaned += 1
-            except Exception as e:
-                logger.warning(f"Could not clean up {file_path}: {e}")
+        await db.execute(
+            update(Photo)
+            .where(Photo.id == photo_id)
+            .values(processing_status="processing")
+        )
+        await db.commit()
+    except Exception as e:
+        logger.error(f"Error marking photo {photo_id} as processing: {str(e)}")
+        await db.rollback()
+
+async def mark_photo_completed(db: AsyncSession, photo_id: str, success: bool = True):
+    """Mark a photo as completed or failed."""
+    try:
+        status = "completed" if success else "failed"
+        await db.execute(
+            update(Photo)
+            .where(Photo.id == photo_id)
+            .values(processing_status=status)
+        )
+        await db.commit()
+    except Exception as e:
+        logger.error(f"Error marking photo {photo_id} as {status}: {str(e)}")
+        await db.rollback()
+
+async def process_photo(photo: Photo):
+    """Process a single photo."""
+    try:
+        logger.info(f"Processing photo {photo.id}: {photo.filename}")
         
-        logger.info(f"Cleaned up {cleaned} temporary files")
-        return {"cleaned": cleaned, "total": len(file_paths)}
+        # Extract EXIF data
+        exif_data = photo_processor.extract_exif_data(photo.filepath)
+        gps = exif_data.get('gps', {})
+        
+        # Get image dimensions
+        width, height = photo_processor.get_image_dimensions(photo.filepath)
+        
+        # Create optimized sizes
+        sizes_info = {}
+        if width and height:
+            sizes_info = photo_processor.create_optimized_sizes(
+                photo.filepath, 
+                photo.id, 
+                photo.filename, 
+                width, 
+                height
+            )
+        
+        # Detect objects (optional)
+        detected_objects = None
+        try:
+            detected_objects = photo_processor.detect_objects(photo.filepath)
+        except Exception as e:
+            logger.warning(f"Object detection failed for photo {photo.id}: {str(e)}")
+        
+        # Update photo record with processed data
+        async with SessionLocal() as db:
+            await db.execute(
+                update(Photo)
+                .where(Photo.id == photo.id)
+                .values(
+                    latitude=gps.get('latitude'),
+                    longitude=gps.get('longitude'),
+                    compass_angle=gps.get('bearing'),
+                    altitude=gps.get('altitude'),
+                    width=width,
+                    height=height,
+                    captured_at=exif_data.get('datetime'),
+                    exif_data=exif_data.get('exif', {}),
+                    detected_objects=detected_objects,
+                    sizes=sizes_info,
+                    processing_status="completed"
+                )
+            )
+            await db.commit()
+            
+        logger.info(f"Successfully processed photo {photo.id}")
+        return True
         
     except Exception as e:
-        logger.error(f"Error during cleanup: {e}")
+        logger.error(f"Error processing photo {photo.id}: {str(e)}")
+        return False
+
+async def process_batch(photos: list):
+    """Process a batch of photos."""
+    for photo in photos:
+        async with SessionLocal() as db:
+            # Mark as processing
+            await mark_photo_processing(db, photo.id)
+        
+        # Process the photo
+        success = await process_photo(photo)
+        
+        # Mark as completed or failed
+        async with SessionLocal() as db:
+            await mark_photo_completed(db, photo.id, success)
+
+async def worker_loop():
+    """Main worker loop that polls for unprocessed photos."""
+    logger.info(f"Starting photo processing worker (poll interval: {POLL_INTERVAL}s, batch size: {BATCH_SIZE})")
+    
+    while True:
+        try:
+            async with SessionLocal() as db:
+                # Get pending photos
+                photos = await get_pending_photos(db, BATCH_SIZE)
+                
+                if photos:
+                    logger.info(f"Found {len(photos)} photos to process")
+                    await process_batch(photos)
+                else:
+                    logger.debug("No pending photos found")
+            
+            # Wait before next poll
+            await asyncio.sleep(POLL_INTERVAL)
+            
+        except KeyboardInterrupt:
+            logger.info("Worker interrupted by user")
+            break
+        except Exception as e:
+            logger.error(f"Error in worker loop: {str(e)}")
+            # Wait a bit longer on error to avoid rapid retries
+            await asyncio.sleep(POLL_INTERVAL * 2)
+
+def main():
+    """Entry point for the worker."""
+    try:
+        asyncio.run(worker_loop())
+    except KeyboardInterrupt:
+        logger.info("Worker shutdown requested")
+    except Exception as e:
+        logger.error(f"Worker crashed: {str(e)}")
         raise
 
+if __name__ == "__main__":
+    main()

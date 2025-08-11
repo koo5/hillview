@@ -65,8 +65,14 @@ async def fetch_mapillary_data(
     if cursor:
         params["after"] = cursor
     
-    resp = requests.get(url, params=params)
-    rr = resp.json()
+    # Make API call with simple error handling
+    try:
+        resp = requests.get(url, params=params)
+        resp.raise_for_status()
+        rr = resp.json()
+    except requests.exceptions.RequestException as e:
+        log.error(f"Mapillary API request failed: {e}")
+        return {"data": [], "paging": {}}  # Return empty data on error
     
     if 'data' in rr:
         return {
@@ -139,7 +145,8 @@ async def stream_mapillary_images(
         request_id = datetime.datetime.now().strftime("%Y%m%d%H%M%S.%f")
         log.info(f"Stream request {request_id} from client {client_id} (cache_disabled={DISABLE_MAPILLARY_CACHE})")
         
-        total_live_photos = []  # Initialize here to avoid scope issues
+        # Don't accumulate all photos - just count them to avoid memory issues
+        total_photo_count = 0
         
         try:
             if DISABLE_MAPILLARY_CACHE:
@@ -173,7 +180,7 @@ async def stream_mapillary_images(
                     if not photos_data:
                         break
                     
-                    total_live_photos.extend(photos_data)
+                    total_photo_count += len(photos_data)
                     
                     # Stream this batch
                     sorted_batch = sorted(photos_data, key=lambda x: x.get('compass_angle', 0))
@@ -191,7 +198,7 @@ async def stream_mapillary_images(
                         break
                 
                 # Send completion
-                yield f"data: {json.dumps({'type': 'stream_complete', 'total_live_photos': len(total_live_photos)})}\n\n"
+                yield f"data: {json.dumps({'type': 'stream_complete', 'total_live_photos': total_photo_count})}\n\n"
                 
             else:
                 # Cached mode - use cache service
@@ -228,7 +235,7 @@ async def stream_mapillary_images(
                                 break
                     clients[client_id] = now
                 
-                # total_live_photos already initialized above
+                # Count photos instead of accumulating them in memory
                 
                 for region_bbox in uncached_regions:
                     try:
@@ -253,7 +260,7 @@ async def stream_mapillary_images(
                                 break
                             
                             region_photos.extend(photos_data)
-                            total_live_photos.extend(photos_data)
+                            total_photo_count += len(photos_data)
                             
                             # Cache the photos
                             await cache_service.cache_photos(photos_data, region)
@@ -282,7 +289,7 @@ async def stream_mapillary_images(
                         yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
             
             # Send final summary
-            yield f"data: {json.dumps({'type': 'stream_complete', 'total_live_photos': len(total_live_photos)})}\n\n"
+            yield f"data: {json.dumps({'type': 'stream_complete', 'total_live_photos': total_photo_count})}\n\n"
         
         except Exception as e:
             log.error(f"Stream error: {str(e)}")
