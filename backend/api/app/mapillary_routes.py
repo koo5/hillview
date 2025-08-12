@@ -10,8 +10,11 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from dotenv import load_dotenv
 
-from .database import get_db, SessionLocal
-from .models import CachedRegion, MapillaryPhotoCache
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
+from common.database import get_db, SessionLocal
+from common.models import CachedRegion, MapillaryPhotoCache
 from .cache_service import MapillaryCacheService
 
 load_dotenv()

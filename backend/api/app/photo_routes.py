@@ -11,8 +11,11 @@ from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from .database import get_db
-from .models import Photo, User
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
+from common.database import get_db
+from common.models import Photo, User
 from .auth import get_current_active_user
 from .security_utils import (
     validate_file_upload, 

@@ -12,8 +12,11 @@ import secrets
 import logging
 from dotenv import load_dotenv
 
-from .database import get_db
-from .models import User, TokenBlacklist
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
+from common.database import get_db
+from common.models import User, TokenBlacklist
 
 load_dotenv()
 

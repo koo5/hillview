@@ -10,8 +10,11 @@ from geoalchemy2.shape import from_shape, to_shape
 from shapely.geometry import Point, Polygon
 from shapely.ops import unary_union
 
-from .models import CachedRegion, MapillaryPhotoCache
-from .database import get_db
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
+from common.models import CachedRegion, MapillaryPhotoCache
+from common.database import get_db
 
 log = logging.getLogger(__name__)
 

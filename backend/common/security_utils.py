@@ -1,11 +1,10 @@
-"""Security utilities for file handling and input validation."""
+"""Shared security utilities for file handling and input validation (no FastAPI dependencies)."""
 import os
 import re
 import hashlib
 import mimetypes
 from pathlib import Path
 from typing import Optional, Set, Tuple
-from fastapi import HTTPException, status
 import logging
 
 logger = logging.getLogger(__name__)
@@ -22,6 +21,10 @@ MAX_FILENAME_LENGTH = 255
 SAFE_FILENAME_PATTERN = re.compile(r'^[a-zA-Z0-9_\-\.]+$')
 USERNAME_PATTERN = re.compile(r'^[a-zA-Z0-9_\-]{3,30}$')
 EMAIL_PATTERN = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
+
+class SecurityValidationError(Exception):
+    """Exception raised when security validation fails."""
+    pass
 
 def sanitize_filename(filename: str) -> str:
     """Sanitize a filename to prevent path traversal and other attacks."""
@@ -64,54 +67,39 @@ def validate_file_path(file_path: str, base_directory: str) -> str:
         requested_path.relative_to(base_path)
     except ValueError:
         logger.warning(f"Path traversal attempt detected: {file_path}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid file path"
-        )
+        raise SecurityValidationError("Invalid file path - path traversal detected")
     
     # Additional checks for suspicious patterns
     path_str = str(requested_path)
     if '..' in path_str or '~' in path_str:
         logger.warning(f"Suspicious path pattern detected: {file_path}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid file path"
-        )
+        raise SecurityValidationError("Invalid file path - suspicious pattern detected")
     
     return str(requested_path)
 
-def validate_file_upload(
+def validate_file_upload_basic(
     filename: str,
     file_size: int,
     content_type: Optional[str] = None,
     allowed_extensions: Set[str] = ALLOWED_IMAGE_EXTENSIONS
 ) -> Tuple[str, str]:
-    """Validate an uploaded file for security issues."""
+    """Validate an uploaded file for basic security issues (no FastAPI dependencies)."""
     # Sanitize filename
     safe_filename = sanitize_filename(filename)
     
     # Check file extension
     _, ext = os.path.splitext(safe_filename.lower())
     if ext not in allowed_extensions:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"File type not allowed. Allowed types: {', '.join(allowed_extensions)}"
-        )
+        raise SecurityValidationError(f"File type not allowed. Allowed types: {', '.join(allowed_extensions)}")
     
     # Check file size
     if file_size > MAX_FILE_SIZE:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=f"File too large. Maximum size: {MAX_FILE_SIZE // (1024*1024)}MB"
-        )
+        raise SecurityValidationError(f"File too large. Maximum size: {MAX_FILE_SIZE // (1024*1024)}MB")
     
     # Validate MIME type if provided
     if content_type:
         if content_type not in ALLOWED_MIME_TYPES:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid content type: {content_type}"
-            )
+            raise SecurityValidationError(f"Invalid content type: {content_type}")
         
         # Check MIME type matches extension
         expected_mime = mimetypes.guess_type(safe_filename)[0]
@@ -120,39 +108,27 @@ def validate_file_upload(
     
     return safe_filename, ext
 
-def validate_username(username: str) -> str:
-    """Validate username format."""
+def validate_username_basic(username: str) -> str:
+    """Validate username format (no FastAPI dependencies)."""
     if not username or not USERNAME_PATTERN.match(username):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid username. Use 3-30 alphanumeric characters, hyphens, or underscores."
-        )
+        raise SecurityValidationError("Invalid username. Use 3-30 alphanumeric characters, hyphens, or underscores.")
     return username
 
-def validate_email(email: str) -> str:
-    """Validate email format."""
+def validate_email_basic(email: str) -> str:
+    """Validate email format (no FastAPI dependencies)."""
     if not email or not EMAIL_PATTERN.match(email.lower()):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid email address format"
-        )
+        raise SecurityValidationError("Invalid email address format")
     return email.lower()
 
-def validate_oauth_redirect_uri(uri: str, allowed_domains: Optional[Set[str]] = None) -> str:
-    """Validate OAuth redirect URI to prevent open redirect attacks."""
+def validate_oauth_redirect_uri_basic(uri: str, allowed_domains: Optional[Set[str]] = None) -> str:
+    """Validate OAuth redirect URI to prevent open redirect attacks (no FastAPI dependencies)."""
     if not uri:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Redirect URI is required"
-        )
+        raise SecurityValidationError("Redirect URI is required")
     
     # Check for common bypass attempts
     if any(pattern in uri.lower() for pattern in ['@', '//', '\\', '%0d', '%0a', '\r', '\n']):
         logger.warning(f"Suspicious redirect URI pattern: {uri}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid redirect URI"
-        )
+        raise SecurityValidationError("Invalid redirect URI")
     
     # If allowed domains are specified, validate against them
     if allowed_domains:
@@ -160,10 +136,7 @@ def validate_oauth_redirect_uri(uri: str, allowed_domains: Optional[Set[str]] = 
         parsed = urlparse(uri)
         if parsed.netloc and parsed.netloc not in allowed_domains:
             logger.warning(f"Redirect URI domain not allowed: {parsed.netloc}")
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Redirect URI domain not allowed"
-            )
+            raise SecurityValidationError("Redirect URI domain not allowed")
     
     return uri
 

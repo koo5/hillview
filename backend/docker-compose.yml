@@ -19,20 +19,6 @@ services:
       timeout: 5s
       retries: 5
 
-  redis:
-    image: redis:7-alpine
-    container_name: hillview_redis
-    restart: always
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   api:
     restart: always
     build:
@@ -46,7 +32,7 @@ services:
       - ./api/app:/app/app
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-hillview}:${POSTGRES_PASSWORD:-hillview}@postgres:5432/${POSTGRES_DB:-hillview}
-      - REDIS_URL=redis://redis:6379/0
+      #- REDIS_URL=redis://redis:6379/0
       - MAPILLARY_CLIENT_TOKEN_FILE=/run/secrets/mapillary_token
       - SECRET_KEY=${SECRET_KEY:-your-secret-key-change-in-production}
       - UPLOAD_DIR=/app/uploads
@@ -59,8 +45,6 @@ services:
       - mapillary_token
     depends_on:
       postgres:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     command: uvicorn app.api:app --host 0.0.0.0 --port 8055 --reload
 
@@ -83,7 +67,6 @@ services:
 
 volumes:
   postgres_data:
-  redis_data:
 
 secrets:
   mapillary_token:

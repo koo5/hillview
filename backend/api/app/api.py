@@ -6,8 +6,9 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from dotenv import load_dotenv
 import os
-
-from .database import Base, engine
+import sys
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
+from common.database import Base, engine
 
 load_dotenv()
 logging.basicConfig(level=logging.DEBUG)
@@ -32,7 +33,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["Permissions-Policy"] = "geolocation=(self), camera=(self), microphone=()"
         
         # Remove server header
-        response.headers.pop("Server", None)
+        if "Server" in response.headers:
+            del response.headers["Server"]
         
         # Content Security Policy (adjust based on your needs)
         response.headers["Content-Security-Policy"] = (
@@ -58,7 +60,7 @@ async def global_exception_handler(request, exc):
     log.error(traceback.format_exc())
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        #content={"detail": str(exc)},
+        content={"detail": "Internal server error"}
     )
 
 # CORS configuration

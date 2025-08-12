@@ -10,8 +10,11 @@ from sqlalchemy import or_
 from pydantic import BaseModel
 import requests
 
-from .database import get_db
-from .models import User
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
+from common.database import get_db
+from common.models import User
 from .auth import (
     authenticate_user, create_access_token, get_current_active_user,
     get_password_hash, Token, UserCreate, UserLogin, UserOut, UserOAuth,

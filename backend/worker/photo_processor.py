@@ -20,10 +20,10 @@ import numpy as np
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import SessionLocal
-from app.models import Photo, User
-from app.anonymize import anonymize_image
-from app.security_utils import sanitize_filename, validate_file_path, check_file_content
+from common.database import SessionLocal
+from common.models import Photo, User
+from common.security_utils import sanitize_filename, validate_file_path, check_file_content, SecurityValidationError
+from anonymize import anonymize_image
 
 logger = logging.getLogger(__name__)
 
@@ -40,59 +40,115 @@ class PhotoProcessor:
         return any(filename.lower().endswith(ext) for ext in self.SUPPORTED_EXTENSIONS)
     
     def extract_exif_data(self, filepath: str) -> Dict[str, Any]:
-        """Extract EXIF data including GPS and bearing information."""
+        """Extract EXIF data including GPS and bearing information using known-good implementation."""
+        print(f"Processing EXIF data from {filepath}")
+        
+        # First try exifread
         try:
             with open(filepath, 'rb') as f:
                 tags = exifread.process_file(f, details=True, debug=False)
-            
-            exif_dict = {}
-            gps_data = {}
-            
-            # Extract basic EXIF data
-            for tag in tags.keys():
-                if tag not in ('JPEGThumbnail', 'TIFFThumbnail', 'Filename', 'EXIF MakerNote'):
-                    exif_dict[tag] = str(tags[tag])
-            
-            # Extract GPS coordinates
-            latitude = tags.get('GPS GPSLatitude')
-            longitude = tags.get('GPS GPSLongitude')
-            lat_ref = tags.get('GPS GPSLatitudeRef')
-            lon_ref = tags.get('GPS GPSLongitudeRef')
-            
-            if latitude and longitude and lat_ref and lon_ref:
-                lat = self._convert_to_degrees(latitude)
-                if lat_ref.values[0] != 'N':
-                    lat = -lat
+
+            if len(tags) > 0:
+                print("EXIF tags found:", len(tags), "tags")
+
+                # Extract basic EXIF data
+                exif_dict = {}
+                for tag in tags.keys():
+                    if tag not in ('JPEGThumbnail', 'TIFFThumbnail', 'Filename', 'EXIF MakerNote'):
+                        exif_dict[tag] = str(tags[tag])
+
+                gps_data = {}
+                bearing = None
+                latitude = tags.get('GPS GPSLatitude')
+                longitude = tags.get('GPS GPSLongitude')
                 
-                lon = self._convert_to_degrees(longitude)
-                if lon_ref.values[0] != 'E':
-                    lon = -lon
+                if latitude and longitude:
+                    # Check bearing data (any one of the possible keys)
+                    bearing_keys = ['GPS GPSImgDirection', 'GPS GPSTrack', 'GPS GPSDestBearing']
+                    for key in bearing_keys:
+                        if key in tags:
+                            bearing = tags.get(key)
+                            break
+
+                    if bearing:
+                        altitude = tags.get('GPS GPSAltitude')
+                        print(f"Found GPS data via exifread")
+                        
+                        # Convert coordinates to decimal degrees
+                        lat = self._convert_to_degrees(latitude)
+                        lon = self._convert_to_degrees(longitude)
+                        
+                        # Apply hemisphere corrections
+                        lat_ref = tags.get('GPS GPSLatitudeRef')
+                        lon_ref = tags.get('GPS GPSLongitudeRef')
+                        if lat_ref and str(lat_ref).upper().startswith('S'):
+                            lat = -lat
+                        if lon_ref and str(lon_ref).upper().startswith('W'):
+                            lon = -lon
+                        
+                        gps_data['latitude'] = lat
+                        gps_data['longitude'] = lon
+                        gps_data['bearing'] = float(str(bearing).split('/')[0]) if '/' in str(bearing) else float(str(bearing))
+                        if altitude:
+                            gps_data['altitude'] = float(str(altitude).split('/')[0]) if '/' in str(altitude) else float(str(altitude))
+                        
+                        return {'exif': exif_dict, 'gps': gps_data}
+        except Exception as e:
+            print(f"exifread failed: {e}")
+
+        # Fallback to exiftool
+        try:
+            # Use -n flag to get raw numeric values instead of formatted strings
+            cmd = ['exiftool', '-json', '-n', '-GPS*', filepath]
+            print(f"Trying exiftool fallback: {shlex.join(cmd)}")
+
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            
+            if result.returncode != 0:
+                print(f"Error running exiftool")
+                return {'exif': {}, 'gps': {}}
                 
-                gps_data['latitude'] = lat
-                gps_data['longitude'] = lon
+            data = json.loads(result.stdout)[0]
             
-            # Extract bearing/direction
-            bearing_keys = ['GPS GPSImgDirection', 'GPS GPSTrack', 'GPS GPSDestBearing']
-            for key in bearing_keys:
-                if key in tags:
-                    bearing_val = tags[key]
-                    if hasattr(bearing_val, 'values') and bearing_val.values:
-                        gps_data['bearing'] = float(bearing_val.values[0])
-                        break
+            # Check for required GPS data
+            latitude = data.get('GPSLatitude')
+            longitude = data.get('GPSLongitude')
+            lat_ref = data.get('GPSLatitudeRef')
+            lon_ref = data.get('GPSLongitudeRef')
             
-            # Extract altitude
-            altitude = tags.get('GPS GPSAltitude')
-            if altitude and hasattr(altitude, 'values'):
-                gps_data['altitude'] = float(altitude.values[0])
+            if latitude is None or longitude is None:
+                print(f"No GPS data found.")
+                return {'exif': {}, 'gps': {}}
             
-            return {
-                'exif': exif_dict,
-                'gps': gps_data
+            # Apply sign based on reference
+            if lat_ref == 'S':
+                latitude = -abs(latitude)
+            if lon_ref == 'W':
+                longitude = -abs(longitude)
+            
+            # Check bearing data
+            bearing = data.get('GPSImgDirection') or data.get('GPSTrack') or data.get('GPSDestBearing')
+            
+            if not bearing:
+                print(f"No bearing data found in {filepath}")
+                return {'exif': {}, 'gps': {}}
+                
+            altitude = data.get('GPSAltitude')
+            
+            print(f"Found GPS data via exiftool")
+            gps_data = {
+                'latitude': latitude,
+                'longitude': longitude,
+                'bearing': bearing
             }
+            if altitude:
+                gps_data['altitude'] = altitude
+                
+            return {'exif': {}, 'gps': gps_data}
             
         except Exception as e:
-            logger.warning(f"Could not extract EXIF data from {filepath}: {str(e)}")
-            return {}
+            print(f"Error reading EXIF data from {filepath}: {e}")
+            return {'exif': {}, 'gps': {}}
     
     def _convert_to_degrees(self, value):
         """Convert GPS coordinates to decimal degrees."""
@@ -106,14 +162,15 @@ class PhotoProcessor:
     
     
     def get_image_dimensions(self, filepath: str) -> Tuple[int, int]:
-        """Get image dimensions using ImageMagick identify."""
+        """Get image dimensions using ImageMagick identify (known-good implementation)."""
+        cmd = ['identify', '-format', '%w %h', filepath]
         try:
-            cmd = ['identify', '-format', '%w %h', shlex.quote(filepath)]
-            result = subprocess.check_output(cmd, text=True, timeout=10)
-            width, height = map(int, result.strip().split())
-            return width, height
-        except Exception as e:
-            logger.warning(f"Could not get dimensions for {filepath}: {e}")
+            output = subprocess.check_output(cmd).decode('utf-8')
+            dimensions = [int(x) for x in output.split()]
+            print('Image dimensions:', dimensions)
+            return dimensions[0], dimensions[1]
+        except subprocess.CalledProcessError as e:
+            print(f"Error getting image size for {filepath}: {e}")
             return 0, 0
     
     def detect_objects(self, filepath: str) -> List[Dict[str, Any]]:
@@ -179,8 +236,12 @@ class PhotoProcessor:
                     os.makedirs(size_dir, exist_ok=True)
                     
                     # Output file path for this size using unique ID - sanitize first
-                    unique_filename = sanitize_filename(f"{unique_id}{file_ext}")
-                    output_file_path = validate_file_path(os.path.join(size_dir, unique_filename), output_base)
+                    try:
+                        unique_filename = sanitize_filename(f"{unique_id}{file_ext}")
+                        output_file_path = validate_file_path(os.path.join(size_dir, unique_filename), output_base)
+                    except SecurityValidationError as e:
+                        logger.error(f"Security validation failed for {unique_id}: {e}")
+                        continue
                     size_relative_path = os.path.join('opt', str(size), unique_filename)
                     
                     # Copy and resize the image (use anonymized version)
@@ -275,7 +336,11 @@ class PhotoProcessor:
         """Process a user-uploaded photo and store it in the database."""
         try:
             # Sanitize filename
-            safe_filename = sanitize_filename(filename)
+            try:
+                safe_filename = sanitize_filename(filename)
+            except SecurityValidationError as e:
+                logger.error(f"Filename sanitization failed for {filename}: {e}")
+                raise ValueError(f"Invalid filename: {e}")
             
             # Verify file content matches image type
             if not check_file_content(file_path, "image"):

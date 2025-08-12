@@ -19,6 +19,8 @@ from typing import Optional, Dict, Any, List, Tuple
 from datetime import datetime
 
 import exifread
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 # Add common directory to path
 sys.path.append('/app/common')
@@ -26,8 +28,8 @@ sys.path.append('/app/common')
 from common.database import SessionLocal
 from common.models import Photo
 
-# Import processing functions from import.py
-from import import geo_and_bearing_exif, imgsize
+# Import processing functions from photo_processor.py
+from photo_processor import photo_processor
 from anonymize import anonymize_image
 
 # Setup logging
@@ -77,17 +79,17 @@ class PhotoProcessorService:
                 return
             
             # Extract EXIF data
-            exif_result = geo_and_bearing_exif(photo.filepath)
-            if not exif_result:
+            exif_data = photo_processor.extract_exif_data(photo.filepath)
+            gps_data = exif_data.get('gps', {})
+            
+            if not photo_processor.has_required_gps_data(exif_data):
                 logger.warning(f"No GPS/bearing data found in {photo.filename}")
                 photo.processing_status = "error"
                 await db.commit()
                 return
             
-            latitude, longitude, bearing, altitude = exif_result
-            
             # Get image dimensions
-            width, height = imgsize(photo.filepath)
+            width, height = photo_processor.get_image_dimensions(photo.filepath)
             
             # Generate unique ID for processed files
             unique_id = str(uuid.uuid4())
@@ -98,10 +100,10 @@ class PhotoProcessorService:
             )
             
             # Update photo with processed data
-            photo.latitude = self._convert_coordinate_to_decimal(latitude)
-            photo.longitude = self._convert_coordinate_to_decimal(longitude)
-            photo.compass_angle = self._convert_bearing_to_float(bearing)
-            photo.altitude = self._convert_altitude_to_float(altitude)
+            photo.latitude = gps_data.get('latitude')
+            photo.longitude = gps_data.get('longitude')
+            photo.compass_angle = gps_data.get('bearing')
+            photo.altitude = gps_data.get('altitude')
             photo.width = width
             photo.height = height
             photo.sizes = sizes_info
@@ -115,36 +117,6 @@ class PhotoProcessorService:
             photo.processing_status = "error"
             await db.commit()
     
-    def _convert_coordinate_to_decimal(self, coord) -> Optional[float]:
-        """Convert coordinate from EXIF format to decimal degrees."""
-        try:
-            if hasattr(coord, 'values'):
-                d, m, s = coord.values
-                return float(d) + float(m)/60 + float(s)/3600
-            else:
-                return float(coord)
-        except:
-            return None
-    
-    def _convert_bearing_to_float(self, bearing) -> Optional[float]:
-        """Convert bearing to float."""
-        try:
-            if hasattr(bearing, 'values'):
-                return float(bearing.values[0])
-            else:
-                return float(str(bearing).split()[0])
-        except:
-            return None
-    
-    def _convert_altitude_to_float(self, altitude) -> Optional[float]:
-        """Convert altitude to float."""
-        try:
-            if hasattr(altitude, 'values'):
-                return float(altitude.values[0])
-            else:
-                return float(str(altitude).split()[0])
-        except:
-            return None
     
     async def create_optimized_sizes(
         self, source_path: str, filename: str, unique_id: str, width: int, height: int
