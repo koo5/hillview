@@ -92,7 +92,7 @@ let sourcesPhotosInAreaVersion = 0;
 let lastProcessedSourcesPhotosInAreaVersion = -1;
 
 // Configuration
-const MAX_PHOTOS_IN_AREA = 3000;
+const MAX_PHOTOS_IN_AREA = 1000;
 const MAX_PHOTOS_IN_RANGE = 300;
 
 // Current range and center for range filtering
@@ -409,13 +409,7 @@ async function loop(): Promise<void> {
 					console.log(`NewWorker: Load progress from ${message.sourceId}: ${message.loaded}${message.total ? `/${message.total}` : ''}`);
 					// Just log progress, no action needed
 					break;
-				
-				case 'photosLoaded':
-					// Handle photo loading completion from PhotoLoadingProcess
-					console.log(`NewWorker: Photos loaded from ${message.sourceId}: ${message.photos?.length || 0} photos (${message.fromCache ? 'cached' : 'fresh'})`);
-					// Photos are already processed by PhotoOperations, no additional action needed
-					break;
-				
+
 				case 'photosAdded':
 					// Handle streaming photo updates from StreamSourceLoader
 					console.log(`NewWorker: Photos updated from stream ${message.sourceId}: ${message.photos?.length || 0} photos`);

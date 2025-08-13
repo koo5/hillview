@@ -24,6 +24,7 @@ export interface OperationCallbacks {
 interface SourceCache {
     photos: PhotoData[];
     isComplete: boolean; // true = no more photos available, false = partial load (stream has "next" link)
+    cachedBounds?: Bounds; // The geographic bounds that were completely cached
 }
 
 export class PhotoOperations {
@@ -31,6 +32,14 @@ export class PhotoOperations {
     private sourceCache = new Map<string, SourceCache>(); // Cache for each source
 
     constructor() {}
+
+    // Check if requestedBounds is completely contained within cachedBounds
+    private isAreaWithinCachedBounds(requestedBounds: Bounds, cachedBounds: Bounds): boolean {
+        return requestedBounds.top_left.lat <= cachedBounds.top_left.lat &&
+               requestedBounds.top_left.lng >= cachedBounds.top_left.lng &&
+               requestedBounds.bottom_right.lat >= cachedBounds.bottom_right.lat &&
+               requestedBounds.bottom_right.lng <= cachedBounds.bottom_right.lng;
+    }
 
     async processConfig(
         processId: string,
@@ -149,9 +158,9 @@ export class PhotoOperations {
                 
                 const cache = this.sourceCache.get(source.id);
                 
-                if (cache && cache.isComplete) {
-                    // Cache is complete - filter cached photos by area instead of new load
-                    console.log(`PhotoOperations: Using complete cache for ${source.id}, filtering by area`);
+                if (cache && cache.isComplete && cache.cachedBounds && this.isAreaWithinCachedBounds(area, cache.cachedBounds)) {
+                    // Cache is complete AND current area is within cached bounds - use cache
+                    console.log(`PhotoOperations: Current area is within cached bounds for ${source.id}, filtering cached photos`);
                     const filteredPhotos = filterPhotosByArea(cache.photos, area);
                     console.log(`PhotoOperations: Filtered ${filteredPhotos.length} photos from ${cache.photos.length} cached for ${source.id}`);
                     
@@ -232,13 +241,6 @@ export class PhotoOperations {
                             isComplete
                         });
                         console.log(`PhotoOperations: Cache updated for ${source.id} (${message.photos.length} photos, hasNext: ${message.hasNext})`);
-                    } else if (message.type === 'streamComplete') {
-                        // Mark cache as complete
-                        const cache = this.sourceCache.get(source.id);
-                        if (cache) {
-                            cache.isComplete = true;
-                            console.log(`PhotoOperations: Cache complete for ${source.id} (${cache.photos.length} photos)`);
-                        }
                     }
                 }
                 

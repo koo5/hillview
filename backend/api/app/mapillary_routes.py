@@ -44,7 +44,8 @@ def get_mapillary_token():
 
 # Configuration
 ENABLE_MAPILLARY_CACHE = os.getenv("ENABLE_MAPILLARY_CACHE", "false").lower() in ("true", "1", "yes")
-MAX_PHOTOS_PER_REQUEST = int(os.getenv("MAX_MAPILLARY_PHOTOS", "3000"))
+ENABLE_MAPILLARY_LIVE = os.getenv("ENABLE_MAPILLARY_LIVE", "false").lower() in ("true", "1", "yes")
+MAX_PHOTOS_PER_REQUEST = int(os.getenv("MAX_MAPILLARY_PHOTOS", "1000"))
 
 clients = {}
 
@@ -60,7 +61,7 @@ async def fetch_mapillary_data(
     """Fetch data from Mapillary API with optional cursor for pagination"""
     
     params = {
-        "limit": 3000,
+        "limit": 250,
         "bbox": ",".join(map(str, [round(top_left_lon, 7), round(bottom_right_lat,7), round(bottom_right_lon,7), round(top_left_lat,7)])),
         "fields": "id,geometry,compass_angle,thumb_1024_url,computed_rotation,computed_compass_angle,computed_altitude,captured_at,is_pano",
         "access_token": get_mapillary_token(),
@@ -72,7 +73,7 @@ async def fetch_mapillary_data(
     # Make API call with detailed error handling
     try:
         log.info(f"Making Mapillary API call to {url} with params: {params}")
-        resp = requests.get(url, params=params, timeout=30)
+        resp = requests.get(url, params=params, timeout=60)
         log.info(f"Mapillary API response status: {resp.status_code}")
         resp.raise_for_status()
         rr = resp.json()
@@ -104,62 +105,6 @@ async def fetch_mapillary_data(
         log.error(f"Mapillary API error: {rr}")
         return {"data": [], "paging": {}}
 
-async def populate_cache_background(
-    cache_service: MapillaryCacheService,
-    region: CachedRegion,
-    top_left_lat: float,
-    top_left_lon: float,
-    bottom_right_lat: float,
-    bottom_right_lon: float
-):
-    """Background task to populate cache for a region"""
-    
-    try:
-        cursor = region.last_cursor
-        total_cached = 0
-        
-        while region.has_more:
-            # Check if we've already reached reasonable limit before making API call
-            if total_cached >= MAX_PHOTOS_PER_REQUEST:
-                log.info(f"Background cache: Photo limit of {MAX_PHOTOS_PER_REQUEST} reached, stopping new API calls")
-                break
-                
-            # Fetch data from Mapillary
-            mapillary_response = await fetch_mapillary_data(
-                top_left_lat, top_left_lon, bottom_right_lat, bottom_right_lon, cursor
-            )
-            
-            photos_data = mapillary_response["data"]
-            paging = mapillary_response["paging"]
-            
-            if not photos_data:
-                break
-            
-            # Cache all photos from this batch (no truncation)
-            cached_count = await cache_service.cache_photos(photos_data, region)
-            total_cached += cached_count
-            
-            # If this batch put us over the limit, cache it all but stop making new requests
-            if total_cached >= MAX_PHOTOS_PER_REQUEST:
-                log.info(f"Background cache: Photo limit reached after caching {total_cached} photos, stopping API calls")
-                break
-            
-            # Update cursor for next iteration
-            if paging.get("next"):
-                cursor = paging.get("cursors", {}).get("after")
-                if cursor:
-                    await cache_service.update_region_cursor(region, cursor)
-                else:
-                    break
-            else:
-                # No more data
-                await cache_service.mark_region_complete(region, cursor)
-                break
-        
-        log.info(f"Background cache population completed for region {region.id}: {total_cached} photos cached")
-        
-    except Exception as e:
-        log.error(f"Error in background cache population: {str(e)}")
 
 @router.get("")
 async def stream_mapillary_images(
@@ -175,16 +120,23 @@ async def stream_mapillary_images(
     
     async def generate_stream(db_session: AsyncSession):
         request_id = datetime.datetime.now().strftime("%Y%m%d%H%M%S.%f")
-        log.info(f"Stream generator started for request {request_id} from client {client_id} (cache_enabled={ENABLE_MAPILLARY_CACHE})")
+        log.info(f"Stream generator started for request {request_id} from client {client_id} (cache_enabled={ENABLE_MAPILLARY_CACHE}, live_enabled={ENABLE_MAPILLARY_LIVE})")
+        
+        # Check if any Mapillary functionality is enabled
+        if not ENABLE_MAPILLARY_CACHE and not ENABLE_MAPILLARY_LIVE:
+            log.info(f"Mapillary functionality disabled - both cache and live API are disabled")
+            yield f"data: {json.dumps({'type': 'photos', 'photos': [], 'hasNext': False})}\n\n"
+            yield f"data: {json.dumps({'type': 'stream_complete', 'total_live_photos': 0, 'total_cached_photos': 0, 'total_all_photos': 0})}\n\n"
+            return
         
         # Track all photos (cached + live) to avoid memory issues
         total_photo_count = 0
         cached_photo_count = 0
         
         try:
-            if not ENABLE_MAPILLARY_CACHE:
-                # Non-cached mode - stream directly from Mapillary API
-                log.info(f"Mapillary cache disabled, streaming directly from API for request {request_id}")
+            if not ENABLE_MAPILLARY_CACHE and ENABLE_MAPILLARY_LIVE:
+                # Live-only mode - stream directly from Mapillary API
+                log.info(f"Live-only mode: cache disabled, streaming directly from API for request {request_id}")
                 
                 # Cache disabled - proceeding with live API calls
                 
@@ -251,8 +203,9 @@ async def stream_mapillary_images(
                 log.info(f"Direct stream complete for client {client_id}: {total_photo_count} total photos streamed from Mapillary API")
                 yield f"data: {json.dumps({'type': 'stream_complete', 'total_live_photos': total_photo_count, 'total_cached_photos': 0, 'total_all_photos': total_photo_count})}\n\n"
                 
-            else:
-                # Cached mode - use cache service
+            elif ENABLE_MAPILLARY_CACHE:
+                # Cache-enabled mode - use cache service and optionally live API for uncached regions
+                log.info(f"Cache-enabled mode: using cache service (live_api_for_uncached={ENABLE_MAPILLARY_LIVE})")
                 cache_service = MapillaryCacheService(db_session)
                 
                 # Send initial response with cached data
@@ -290,8 +243,8 @@ async def stream_mapillary_images(
                 log.info(f"Cache analysis: Found {len(uncached_regions)} uncached regions for bbox")
 # Cache analysis complete - proceeding with any missing data fetch
                 
-                # Stream live data from uncached regions
-                if uncached_regions:
+                # Stream live data from uncached regions (only if live API is enabled)
+                if uncached_regions and ENABLE_MAPILLARY_LIVE:
                     log.info(f"Need to fetch data from Mapillary API for {len(uncached_regions)} uncached regions")
                     # Rate limiting
                     now = datetime.datetime.now()
@@ -303,14 +256,21 @@ async def stream_mapillary_images(
                             else:
                                 break
                     clients[client_id] = now
+                elif uncached_regions and not ENABLE_MAPILLARY_LIVE:
+                    log.info(f"Found {len(uncached_regions)} uncached regions but live API is disabled - skipping live data fetch")
                 
                 # Count photos instead of accumulating them in memory
                 
                 for region_idx, region_bbox in enumerate(uncached_regions):
+                    # Skip processing if live API is disabled
+                    if not ENABLE_MAPILLARY_LIVE:
+                        break
+                        
                     log.info(f"Processing uncached region {region_idx + 1}/{len(uncached_regions)}: {region_bbox}")
-                    # Check if we've already reached the photo limit
-                    if total_photo_count >= MAX_PHOTOS_PER_REQUEST:
-                        log.info(f"Photo limit of {MAX_PHOTOS_PER_REQUEST} reached, skipping remaining regions")
+                    # Check if we've already reached the photo limit (including cached photos)
+                    total_photos_so_far = cached_photo_count + total_photo_count
+                    if total_photos_so_far >= MAX_PHOTOS_PER_REQUEST:
+                        log.info(f"Photo limit of {MAX_PHOTOS_PER_REQUEST} reached (cached: {cached_photo_count}, live: {total_photo_count}), skipping remaining regions")
                         break
                         
                     try:
@@ -323,6 +283,7 @@ async def stream_mapillary_images(
                         region_photos = []
                     
                         # Stream all pages for this region
+                        region_fully_fetched = False
                         while True:
                             log.info(f"Fetching data from Mapillary API for region {region.id} with cursor: {cursor}")
                             mapillary_response = await fetch_mapillary_data(
@@ -334,24 +295,27 @@ async def stream_mapillary_images(
                             
                             if not photos_data:
                                 log.info(f"No more photos returned from Mapillary API for region {region.id}")
+                                region_fully_fetched = True
                                 break
                             
                             # Cache all photos we received (no limit for caching current batch)
                             region_photos.extend(photos_data)
                             await cache_service.cache_photos(photos_data, region)
                             
-                            # Apply photo limit only for streaming
+                            # Apply photo limit only for streaming (accounting for cached photos)
                             stream_photos = photos_data
-                            if total_photo_count + len(photos_data) > MAX_PHOTOS_PER_REQUEST:
+                            total_photos_so_far = cached_photo_count + total_photo_count
+                            if total_photos_so_far + len(photos_data) > MAX_PHOTOS_PER_REQUEST:
                                 # Truncate stream batch to stay within limit
-                                remaining_slots = MAX_PHOTOS_PER_REQUEST - total_photo_count
-                                stream_photos = photos_data[:remaining_slots]
-                                log.info(f"Photo limit reached, streaming only {remaining_slots} photos (but caching all {len(photos_data)} from this batch)")
+                                remaining_slots = MAX_PHOTOS_PER_REQUEST - total_photos_so_far
+                                stream_photos = photos_data[:remaining_slots] if remaining_slots > 0 else []
+                                log.info(f"Photo limit reached, streaming only {len(stream_photos)} photos (but caching all {len(photos_data)} from this batch)")
                             else:
                                 log.info(f"Streaming {len(stream_photos)} live photos from region {region.id} (cached {len(photos_data)})")
                             
                             total_photo_count += len(stream_photos)
-                            log.info(f"Total photos streamed so far: {total_photo_count}/{MAX_PHOTOS_PER_REQUEST}")
+                            total_photos_so_far = cached_photo_count + total_photo_count
+                            log.info(f"Total photos streamed so far: {total_photos_so_far}/{MAX_PHOTOS_PER_REQUEST} (cached: {cached_photo_count}, live: {total_photo_count})")
                             
                             # Stream this batch (limited)
                             sorted_batch = sorted(stream_photos, key=lambda x: x.get('compass_angle', 0))
@@ -360,8 +324,8 @@ async def stream_mapillary_images(
                             yield f"data: {json.dumps({'type': 'photos', 'photos': sorted_batch, 'hasNext': region_has_next})}\n\n"
                             
                             # Check if we've reached the photo limit for streaming
-                            if total_photo_count >= MAX_PHOTOS_PER_REQUEST:
-                                log.info(f"Photo limit of {MAX_PHOTOS_PER_REQUEST} reached, stopping fetch")
+                            if total_photos_so_far >= MAX_PHOTOS_PER_REQUEST:
+                                log.info(f"Photo limit of {MAX_PHOTOS_PER_REQUEST} reached, stopping fetch (region may have more data)")
                                 break
                             
                             # Check for more pages
@@ -370,19 +334,36 @@ async def stream_mapillary_images(
                                 if cursor:
                                     await cache_service.update_region_cursor(region, cursor)
                                 else:
+                                    log.info(f"Mapillary indicated more data but no cursor provided for region {region.id}")
                                     break
                             else:
-                                break
+                                # When no "next" is indicated, check if we got exactly the limit
+                                # If so, there might still be more data (Mapillary API behavior)
+                                if len(photos_data) >= 250:  # Got full batch, likely more data exists
+                                    log.info(f"Got full batch ({len(photos_data)} photos) but no 'next' indicator - may be Mapillary API pagination issue")
+                                    log.info(f"Marking region {region.id} as incomplete due to potential pagination issue")
+                                    break  # Don't mark as complete, there might be more
+                                else:
+                                    log.info(f"Got partial batch ({len(photos_data)} photos) with no 'next' - region {region.id} appears complete")
+                                    region_fully_fetched = True
+                                    break
                     
-                        # Mark region as complete
-                        await cache_service.mark_region_complete(region, cursor)
-                        log.info(f"Region {region.id} completed: cached {len(region_photos)} total photos")
+                        # Only mark region as complete if we actually fetched all available data from Mapillary
+                        if region_fully_fetched:
+                            await cache_service.mark_region_complete(region, cursor)
+                            log.info(f"Region {region.id} marked as complete: cached {len(region_photos)} total photos")
+                        else:
+                            log.info(f"Region {region.id} processing stopped due to limits but may have more data: cached {len(region_photos)} photos so far")
                         
                         yield f"data: {json.dumps({'type': 'region_complete', 'region': region.id, 'photos_count': len(region_photos)})}\n\n"
                         
                     except Exception as e:
                         log.error(f"Error streaming region {region_bbox}: {str(e)}", exc_info=True)
                         yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+            
+            else:
+                # This should not happen due to early return, but handle gracefully
+                log.warning(f"Invalid configuration state: cache={ENABLE_MAPILLARY_CACHE}, live={ENABLE_MAPILLARY_LIVE}")
             
             # Send final summary
             total_all_photos = cached_photo_count + total_photo_count

@@ -101,23 +101,25 @@ class SimplePhotoWorker {
     }
 
     private boundsChangeSignificant(oldBounds: any, newBounds: any): number {
-        // Calculate area of old bounds
-        const oldArea = Math.abs(
-            (oldBounds.top_left.lat - oldBounds.bottom_right.lat) * 
-            (oldBounds.bottom_right.lng - oldBounds.top_left.lng)
-        );
+        // Calculate old area dimensions
+        const oldHeight = Math.abs(oldBounds.top_left.lat - oldBounds.bottom_right.lat);
+        const oldWidth = Math.abs(oldBounds.bottom_right.lng - oldBounds.top_left.lng);
         
-        // Calculate intersection area
-        const intersectionTop = Math.min(oldBounds.top_left.lat, newBounds.top_left.lat);
-        const intersectionBottom = Math.max(oldBounds.bottom_right.lat, newBounds.bottom_right.lat);
-        const intersectionLeft = Math.max(oldBounds.top_left.lng, newBounds.top_left.lng);
-        const intersectionRight = Math.min(oldBounds.bottom_right.lng, newBounds.bottom_right.lng);
+        // 10% threshold distances
+        const latThreshold = oldHeight * 0.1;
+        const lngThreshold = oldWidth * 0.1;
         
-        const intersectionArea = Math.max(0, (intersectionTop - intersectionBottom)) * 
-                               Math.max(0, (intersectionRight - intersectionLeft));
+        // Check if both corners are within threshold distances
+        const topLeftLatDiff = Math.abs(newBounds.top_left.lat - oldBounds.top_left.lat);
+        const topLeftLngDiff = Math.abs(newBounds.top_left.lng - oldBounds.top_left.lng);
+        const bottomRightLatDiff = Math.abs(newBounds.bottom_right.lat - oldBounds.bottom_right.lat);
+        const bottomRightLngDiff = Math.abs(newBounds.bottom_right.lng - oldBounds.bottom_right.lng);
         
-        // Return the fraction of old area that is NOT covered by intersection
-        return oldArea > 0 ? 1 - (intersectionArea / oldArea) : 1;
+        const topLeftWithinThreshold = topLeftLatDiff <= latThreshold && topLeftLngDiff <= lngThreshold;
+        const bottomRightWithinThreshold = bottomRightLatDiff <= latThreshold && bottomRightLngDiff <= lngThreshold;
+        
+        // Return 0 if both corners are within threshold (no significant change), 1 otherwise
+        return (topLeftWithinThreshold && bottomRightWithinThreshold) ? 0 : 1;
     }
 
     private setupReactivity(): void {
@@ -126,8 +128,8 @@ class SimplePhotoWorker {
             if (!this.isInitialized || !spatial.bounds) return;
 
             // Skip update if bounds haven't changed significantly (hysteresis)
-            if (this.lastBounds && this.boundsChangeSignificant(this.lastBounds, spatial.bounds) < 0.1) {
-                console.log('SimplePhotoWorker: Skipping area update - bounds change < 10%');
+            if (this.lastBounds && this.boundsChangeSignificant(this.lastBounds, spatial.bounds) < 0.03) {
+                console.log('SimplePhotoWorker: Skipping area update - bounds change too small');
                 return;
             }
 

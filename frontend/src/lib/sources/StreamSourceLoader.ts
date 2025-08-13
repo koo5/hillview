@@ -238,8 +238,6 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
                 this.resolveCompletion();
                 break;
 
-            // Removed cache_status handling - server no longer sends cache implementation details
-
             case 'error':
                 console.error('StreamSourceLoader: Stream error:', data.message);
                 this.updateLoadingStatus(false, undefined, data.message || 'Unknown stream error');

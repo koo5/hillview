@@ -30,7 +30,7 @@ export class DeviceSourceLoader extends BasePhotoSourceLoader {
             const duration = Date.now() - this.startTime;
             
             this.callbacks.enqueueMessage({
-                type: 'photosLoaded',
+                type: 'photosAdded',
                 sourceId: this.source.id,
                 photos: this.photos,
                 duration,

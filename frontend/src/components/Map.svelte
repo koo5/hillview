@@ -146,6 +146,9 @@
     spatialState.subscribe((spatial) => {
         if (!map || programmaticMove) return;
         try {
+            // Check if map is fully initialized with container
+            if (!map.getContainer() || !map._loaded) return;
+            
             const currentCenter = map.getCenter();
             const currentZoom = map.getZoom();
             if (!currentCenter || currentCenter.lat !== spatial.center.lat || currentCenter.lng !== spatial.center.lng || currentZoom !== spatial.zoom) {
@@ -202,15 +205,31 @@
             const bounds = map.getBounds();
             const range = get_range(_center);
             
+            // Normalize coordinates to valid lat/lng ranges
+            const normalizeLng = (lng: number) => ((lng % 360) + 540) % 360 - 180;
+            const normalizeLat = (lat: number) => Math.max(-90, Math.min(90, lat));
+            
+            const topLeft = bounds.getNorthWest();
+            const bottomRight = bounds.getSouthEast();
+            
             const newSpatialState = {
                 center: new LatLng(_center.lat, _center.lng),
                 zoom: _zoom,
                 bounds: {
-                    top_left: bounds.getNorthWest(),
-                    bottom_right: bounds.getSouthEast()
+                    top_left: new LatLng(
+                        normalizeLat(topLeft.lat), 
+                        normalizeLng(topLeft.lng)
+                    ),
+                    bottom_right: new LatLng(
+                        normalizeLat(bottomRight.lat), 
+                        normalizeLng(bottomRight.lng)
+                    )
                 },
                 range: range
             };
+            
+            // Debug log to verify normalization
+            console.log(`Map: Normalized bounds - TL: [${newSpatialState.bounds.top_left.lat.toFixed(6)}, ${newSpatialState.bounds.top_left.lng.toFixed(6)}], BR: [${newSpatialState.bounds.bottom_right.lat.toFixed(6)}, ${newSpatialState.bounds.bottom_right.lng.toFixed(6)}]`);
 
             if (force === true || 
                 currentSpatial.center.lat !== newSpatialState.center.lat || 
