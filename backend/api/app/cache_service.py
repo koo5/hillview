@@ -44,15 +44,16 @@ class MapillaryCacheService:
         photos_per_cell = max(1, max_photos // (grid_size * grid_size))  # Distribute photos across cells
         
         # Use raw SQL for spatial sampling with grid-based distribution
+        # Grid coordinates should be 0-9 for both x and y
         query = text("""
             WITH cell_photos AS (
                 SELECT p.*,
-                       FLOOR((ST_X(p.geometry) - :bbox_min_x) / :cell_width * :grid_size) as grid_x,
-                       FLOOR((ST_Y(p.geometry) - :bbox_max_y) / :cell_height * :grid_size) as grid_y,
+                       LEAST(GREATEST(FLOOR((ST_X(p.geometry) - :bbox_min_x) / :cell_width * :grid_size), 0), :grid_size - 1) as grid_x,
+                       LEAST(GREATEST(FLOOR((ST_Y(p.geometry) - :bbox_min_y) / :cell_height * :grid_size), 0), :grid_size - 1) as grid_y,
                        ROW_NUMBER() OVER (
                            PARTITION BY 
-                               FLOOR((ST_X(p.geometry) - :bbox_min_x) / :cell_width * :grid_size),
-                               FLOOR((ST_Y(p.geometry) - :bbox_max_y) / :cell_height * :grid_size)
+                               LEAST(GREATEST(FLOOR((ST_X(p.geometry) - :bbox_min_x) / :cell_width * :grid_size), 0), :grid_size - 1),
+                               LEAST(GREATEST(FLOOR((ST_Y(p.geometry) - :bbox_min_y) / :cell_height * :grid_size), 0), :grid_size - 1)
                            ORDER BY random()
                        ) as row_num
                 FROM mapillary_photo_cache p
@@ -70,7 +71,6 @@ class MapillaryCacheService:
         result = await self.db.execute(query, {
             'bbox_wkt': bbox_wkt,
             'bbox_min_x': top_left_lon,
-            'bbox_max_y': top_left_lat,
             'bbox_min_y': bottom_right_lat,
             'cell_width': cell_width,
             'cell_height': cell_height,

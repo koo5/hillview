@@ -128,7 +128,7 @@ class SimplePhotoWorker {
             if (!this.isInitialized || !spatial.bounds) return;
 
             // Skip update if bounds haven't changed significantly (hysteresis)
-            if (this.lastBounds && this.boundsChangeSignificant(this.lastBounds, spatial.bounds) < 0.03) {
+            if (this.lastBounds && this.boundsChangeSignificant(this.lastBounds, spatial.bounds) < 0.003) {
                 console.log('SimplePhotoWorker: Skipping area update - bounds change too small');
                 return;
             }
@@ -152,6 +152,16 @@ class SimplePhotoWorker {
                     sources: sourceList
                 }
             });
+            
+            // Also trigger area update after config to ensure streaming sources load with current bounds
+            const currentSpatial = get(spatialState);
+            if (currentSpatial.bounds) {
+                console.log('SimplePhotoWorker: Sending area update after config to trigger streaming sources...');
+                this.sendMessage('areaUpdated', {
+                    area: currentSpatial.bounds,
+                    range: currentSpatial.range
+                });
+            }
         });
     }
 

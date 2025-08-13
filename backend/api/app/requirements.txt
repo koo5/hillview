@@ -19,6 +19,7 @@ passlib[bcrypt]==1.7.4
 exifread
 Pillow==10.1.0
 requests
+httpx[http2]==0.27.0
 
 # NumPy constraint for shapely compatibility
 numpy<2

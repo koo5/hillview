@@ -3,12 +3,14 @@ import datetime
 import json
 import os
 from typing import Optional, Dict, Any
-import requests
 import logging
 from fastapi import APIRouter, Query, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from dotenv import load_dotenv
+import httpx
+from asyncio import Lock, Queue
+import time
 
 import sys
 import os
@@ -23,6 +25,163 @@ log = logging.getLogger(__name__)
 # Lazy load token to avoid crash on import
 TOKEN = None
 url = "https://graph.mapillary.com/images"
+
+class TokenBucketRateLimiter:
+    """Token bucket rate limiter for API calls"""
+    
+    def __init__(self, max_tokens: int, refill_period: float, refill_amount: int = 1):
+        self.max_tokens = max_tokens
+        self.tokens = max_tokens
+        self.refill_period = refill_period
+        self.refill_amount = refill_amount
+        self.last_refill = time.time()
+        self.lock = Lock()
+    
+    async def acquire(self, tokens_needed: int = 1) -> bool:
+        """Acquire tokens from the bucket. Returns True if successful."""
+        async with self.lock:
+            now = time.time()
+            
+            # Refill tokens based on time elapsed
+            if now > self.last_refill:
+                time_passed = now - self.last_refill
+                tokens_to_add = int(time_passed / self.refill_period) * self.refill_amount
+                self.tokens = min(self.max_tokens, self.tokens + tokens_to_add)
+                self.last_refill = now
+            
+            # Check if we have enough tokens
+            if self.tokens >= tokens_needed:
+                self.tokens -= tokens_needed
+                return True
+            return False
+    
+    async def wait_for_tokens(self, tokens_needed: int = 1):
+        """Wait until tokens are available"""
+        while not await self.acquire(tokens_needed):
+            await asyncio.sleep(0.1)  # Check every 100ms
+
+class MapillaryAPIManager:
+    """Manages Mapillary API connections with rate limiting and connection pooling"""
+    
+    def __init__(self):
+        # Rate limiter: 10 requests per second max, with burst capacity of 20
+        self.rate_limiter = TokenBucketRateLimiter(max_tokens=20, refill_period=0.1, refill_amount=1)
+        
+        # HTTP client with connection pooling
+        self.client = httpx.AsyncClient(
+            limits=httpx.Limits(
+                max_keepalive_connections=10,
+                max_connections=20,
+                keepalive_expiry=30
+            ),
+            timeout=httpx.Timeout(60.0),
+            http2=True
+        )
+        
+        # Request queue for backpressure
+        self.request_queue: Queue = Queue(maxsize=100)
+        self.queue_worker_running = False
+        self.stats = {
+            'total_requests': 0,
+            'successful_requests': 0,
+            'failed_requests': 0,
+            'rate_limited_requests': 0,
+            'retry_attempts': 0
+        }
+    
+    async def start_queue_worker(self):
+        """Start the background queue worker if not already running"""
+        if not self.queue_worker_running:
+            self.queue_worker_running = True
+            asyncio.create_task(self._queue_worker())
+    
+    async def _queue_worker(self):
+        """Background worker to process queued requests"""
+        while self.queue_worker_running:
+            try:
+                await asyncio.sleep(0.01)  # Small delay to prevent busy waiting
+            except Exception as e:
+                log.error(f"Queue worker error: {e}")
+    
+    async def make_request(self, params: Dict[str, Any], max_retries: int = 3) -> Dict[str, Any]:
+        """Make a rate-limited request to Mapillary API with retries"""
+        self.stats['total_requests'] += 1
+        
+        for attempt in range(max_retries + 1):
+            try:
+                # Wait for rate limit
+                await self.rate_limiter.wait_for_tokens(1)
+                
+                log.info(f"Making Mapillary API call (attempt {attempt + 1}/{max_retries + 1})")
+                
+                response = await self.client.get(url, params=params)
+                
+                # Handle rate limiting
+                if response.status_code == 429:
+                    self.stats['rate_limited_requests'] += 1
+                    retry_after = int(response.headers.get('Retry-After', 60))
+                    log.warning(f"Rate limited by Mapillary API, waiting {retry_after} seconds")
+                    await asyncio.sleep(retry_after)
+                    continue
+                
+                # Handle other HTTP errors
+                response.raise_for_status()
+                
+                result = response.json()
+                self.stats['successful_requests'] += 1
+                log.info(f"Mapillary API returned {len(result.get('data', []))} photos")
+                return result
+                
+            except httpx.TimeoutException as e:
+                log.error(f"Mapillary API request timed out (attempt {attempt + 1}): {e}")
+                if attempt < max_retries:
+                    self.stats['retry_attempts'] += 1
+                    await asyncio.sleep(min(2 ** attempt, 30))  # Exponential backoff, max 30s
+                    continue
+                
+            except httpx.HTTPStatusError as e:
+                log.error(f"Mapillary API HTTP error {e.response.status_code} (attempt {attempt + 1}): {e}")
+                if e.response.status_code >= 500 and attempt < max_retries:
+                    # Retry on server errors
+                    self.stats['retry_attempts'] += 1
+                    await asyncio.sleep(min(2 ** attempt, 30))
+                    continue
+                break  # Don't retry on client errors (4xx)
+                
+            except Exception as e:
+                log.error(f"Unexpected error in Mapillary API call (attempt {attempt + 1}): {e}")
+                if attempt < max_retries:
+                    self.stats['retry_attempts'] += 1
+                    await asyncio.sleep(min(2 ** attempt, 30))
+                    continue
+                break
+        
+        # All retries failed
+        self.stats['failed_requests'] += 1
+        return {"data": [], "paging": {}}
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """Get API usage statistics"""
+        return {
+            **self.stats,
+            'success_rate': (self.stats['successful_requests'] / max(1, self.stats['total_requests'])) * 100,
+            'current_tokens': self.rate_limiter.tokens,
+            'max_tokens': self.rate_limiter.max_tokens
+        }
+    
+    async def close(self):
+        """Close the HTTP client and cleanup"""
+        self.queue_worker_running = False
+        await self.client.aclose()
+
+# Global API manager instance
+api_manager = MapillaryAPIManager()
+
+# Initialize the API manager
+async def init_mapillary_api():
+    """Initialize the Mapillary API manager"""
+    await api_manager.start_queue_worker()
+    log.info("Mapillary API manager initialized with rate limiting and connection pooling")
 
 def get_mapillary_token():
     global TOKEN
@@ -70,39 +229,16 @@ async def fetch_mapillary_data(
     if cursor:
         params["after"] = cursor
     
-    # Make API call with detailed error handling
-    try:
-        log.info(f"Making Mapillary API call to {url} with params: {params}")
-        resp = requests.get(url, params=params, timeout=60)
-        log.info(f"Mapillary API response status: {resp.status_code}")
-        resp.raise_for_status()
-        rr = resp.json()
-        log.info(f"Mapillary API returned {len(rr.get('data', []))} photos")
-    except requests.exceptions.Timeout as e:
-        log.error(f"Mapillary API request timed out: {e}")
-        return {"data": [], "paging": {}}
-    except requests.exceptions.HTTPError as e:
-        log.error(f"Mapillary API HTTP error {resp.status_code}: {e}")
-        try:
-            error_body = resp.text
-            log.error(f"Mapillary API error response body: {error_body}")
-        except:
-            pass
-        return {"data": [], "paging": {}}
-    except requests.exceptions.RequestException as e:
-        log.error(f"Mapillary API request failed: {e}")
-        return {"data": [], "paging": {}}
-    except Exception as e:
-        log.error(f"Unexpected error in Mapillary API call: {e}")
-        return {"data": [], "paging": {}}
+    # Use the new API manager with rate limiting and connection pooling
+    result = await api_manager.make_request(params)
     
-    if 'data' in rr:
+    if 'data' in result:
         return {
-            "data": rr['data'],
-            "paging": rr.get('paging', {})
+            "data": result['data'],
+            "paging": result.get('paging', {})
         }
     else:
-        log.error(f"Mapillary API error: {rr}")
+        log.error(f"Mapillary API error: {result}")
         return {"data": [], "paging": {}}
 
 
@@ -138,18 +274,7 @@ async def stream_mapillary_images(
                 # Live-only mode - stream directly from Mapillary API
                 log.info(f"Live-only mode: cache disabled, streaming directly from API for request {request_id}")
                 
-                # Cache disabled - proceeding with live API calls
-                
-                # Rate limiting
-                now = datetime.datetime.now()
-                if client_id in clients:
-                    while True:
-                        now = datetime.datetime.now()
-                        if now - clients[client_id] < datetime.timedelta(seconds=1):
-                            await asyncio.sleep(1)
-                        else:
-                            break
-                clients[client_id] = now
+                # Cache disabled - proceeding with live API calls (rate limiting handled by API manager)
                 
                 # Stream all pages directly from Mapillary
                 cursor = None
@@ -191,10 +316,7 @@ async def stream_mapillary_images(
                     # Check for more pages
                     if paging.get("next"):
                         cursor = paging.get("cursors", {}).get("after")
-                        if cursor:
-                            # Rate limit between pages
-                            await asyncio.sleep(1)
-                        else:
+                        if not cursor:
                             break
                     else:
                         break
@@ -220,7 +342,7 @@ async def stream_mapillary_images(
                     
                     # Check spatial distribution of cached photos
                     distribution_score = cache_service.calculate_spatial_distribution(cached_photos)
-                    min_distribution_threshold = 0.1  # Require at least 10% of grid cells to have photos
+                    min_distribution_threshold = 0.9
                     
                     if distribution_score < min_distribution_threshold:
                         log.info(f"Cached photos poorly distributed (score: {distribution_score:.2%} < {min_distribution_threshold:.2%}), ignoring cache and using live API")
@@ -269,17 +391,7 @@ async def stream_mapillary_images(
                 
                 # Stream live data from uncached regions (only if live API is enabled)
                 if uncached_regions and ENABLE_MAPILLARY_LIVE:
-                    log.info(f"Need to fetch data from Mapillary API for {len(uncached_regions)} uncached regions")
-                    # Rate limiting
-                    now = datetime.datetime.now()
-                    if client_id in clients:
-                        while True:
-                            now = datetime.datetime.now()
-                            if now - clients[client_id] < datetime.timedelta(seconds=1):
-                                await asyncio.sleep(1)
-                            else:
-                                break
-                    clients[client_id] = now
+                    log.info(f"Need to fetch data from Mapillary API for {len(uncached_regions)} uncached regions (rate limiting handled by API manager)")
                 elif uncached_regions and not ENABLE_MAPILLARY_LIVE:
                     log.info(f"Found {len(uncached_regions)} uncached regions but live API is disabled - skipping live data fetch")
                 
@@ -430,4 +542,20 @@ async def stream_mapillary_images(
 async def get_cache_stats(db: AsyncSession = Depends(get_db)):
     """Get cache statistics"""
     cache_service = MapillaryCacheService(db)
-    return await cache_service.get_cache_stats()
+    cache_stats = await cache_service.get_cache_stats()
+    api_stats = api_manager.get_stats()
+    
+    return {
+        "cache": cache_stats,
+        "api": api_stats
+    }
+
+@router.get("/api-stats")
+async def get_api_stats():
+    """Get Mapillary API usage statistics"""
+    return api_manager.get_stats()
+
+# Cleanup function for graceful shutdown
+async def cleanup_mapillary_resources():
+    """Cleanup Mapillary API resources"""
+    await api_manager.close()
