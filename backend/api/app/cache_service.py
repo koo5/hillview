@@ -29,45 +29,99 @@ class MapillaryCacheService:
         top_left_lat: float,
         top_left_lon: float,
         bottom_right_lat: float,
-        bottom_right_lon: float
+        bottom_right_lon: float,
+        max_photos: int = 3000
     ) -> List[Dict[str, Any]]:
-        """Get cached photos within bounding box"""
+        """Get cached photos within bounding box with spatial sampling for even distribution"""
         
         # Create bbox polygon
         bbox_wkt = f"POLYGON(({top_left_lon} {top_left_lat}, {bottom_right_lon} {top_left_lat}, {bottom_right_lon} {bottom_right_lat}, {top_left_lon} {bottom_right_lat}, {top_left_lon} {top_left_lat}))"
         
-        # Query cached photos within bbox
-        query = select(MapillaryPhotoCache).where(
-            geo_func.ST_Within(
-                MapillaryPhotoCache.geometry,
-                func.ST_GeomFromText(bbox_wkt, 4326)
-            )
-        )
+        # Calculate grid dimensions (10x10 = 100 cells)
+        grid_size = 10
+        cell_width = (bottom_right_lon - top_left_lon) / grid_size
+        cell_height = (top_left_lat - bottom_right_lat) / grid_size
+        photos_per_cell = max(1, max_photos // (grid_size * grid_size))  # Distribute photos across cells
         
-        result = await self.db.execute(query)
-        cached_photos = result.scalars().all()
+        # Use raw SQL for spatial sampling with grid-based distribution
+        query = text("""
+            WITH cell_photos AS (
+                SELECT p.*,
+                       FLOOR((ST_X(p.geometry) - :bbox_min_x) / :cell_width * :grid_size) as grid_x,
+                       FLOOR((ST_Y(p.geometry) - :bbox_max_y) / :cell_height * :grid_size) as grid_y,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY 
+                               FLOOR((ST_X(p.geometry) - :bbox_min_x) / :cell_width * :grid_size),
+                               FLOOR((ST_Y(p.geometry) - :bbox_max_y) / :cell_height * :grid_size)
+                           ORDER BY random()
+                       ) as row_num
+                FROM mapillary_photo_cache p
+                WHERE ST_Within(p.geometry, ST_GeomFromText(:bbox_wkt, 4326))
+            )
+            SELECT mapillary_id, ST_X(geometry) as lon, ST_Y(geometry) as lat, 
+                   compass_angle, computed_compass_angle, computed_rotation, computed_altitude,
+                   captured_at, is_pano, thumb_1024_url, grid_x, grid_y
+            FROM cell_photos 
+            WHERE row_num <= :photos_per_cell
+            ORDER BY grid_x, grid_y, row_num
+            LIMIT :max_photos
+        """)
+        
+        result = await self.db.execute(query, {
+            'bbox_wkt': bbox_wkt,
+            'bbox_min_x': top_left_lon,
+            'bbox_max_y': top_left_lat,
+            'bbox_min_y': bottom_right_lat,
+            'cell_width': cell_width,
+            'cell_height': cell_height,
+            'grid_size': grid_size,
+            'photos_per_cell': photos_per_cell,
+            'max_photos': max_photos
+        })
+        
+        cached_photos = result.fetchall()
         
         # Convert to Mapillary API format
         photos = []
-        for photo in cached_photos:
-            point = to_shape(photo.geometry)
+        for row in cached_photos:
             photo_data = {
-                "id": photo.mapillary_id,
+                "id": row.mapillary_id,
                 "geometry": {
                     "type": "Point",
-                    "coordinates": [point.x, point.y]
+                    "coordinates": [row.lon, row.lat]
                 },
-                "compass_angle": photo.compass_angle,
-                "computed_compass_angle": photo.computed_compass_angle,
-                "computed_rotation": photo.computed_rotation,
-                "computed_altitude": photo.computed_altitude,
-                "captured_at": photo.captured_at.isoformat() if photo.captured_at else None,
-                "is_pano": photo.is_pano,
-                "thumb_1024_url": photo.thumb_1024_url
+                "compass_angle": row.compass_angle,
+                "computed_compass_angle": row.computed_compass_angle,
+                "computed_rotation": row.computed_rotation,
+                "computed_altitude": row.computed_altitude,
+                "captured_at": row.captured_at.isoformat() if row.captured_at else None,
+                "is_pano": row.is_pano,
+                "thumb_1024_url": row.thumb_1024_url,
+                # Include grid info for distribution analysis
+                "_grid_x": row.grid_x,
+                "_grid_y": row.grid_y
             }
             photos.append(photo_data)
         
+        log.info(f"Spatial sampling returned {len(photos)} photos distributed across grid cells")
         return photos
+    
+    def calculate_spatial_distribution(self, photos: List[Dict[str, Any]], grid_size: int = 10) -> float:
+        """Calculate spatial distribution score (0.0 = all clustered, 1.0 = perfectly distributed)"""
+        if not photos:
+            return 0.0
+        
+        # Count occupied grid cells
+        occupied_cells = set()
+        for photo in photos:
+            if '_grid_x' in photo and '_grid_y' in photo:
+                occupied_cells.add((photo['_grid_x'], photo['_grid_y']))
+        
+        total_cells = grid_size * grid_size
+        occupied_ratio = len(occupied_cells) / total_cells
+        
+        log.info(f"Distribution analysis: {len(occupied_cells)}/{total_cells} cells occupied ({occupied_ratio:.2%})")
+        return occupied_ratio
     
     async def get_cached_regions_for_bbox(
         self,

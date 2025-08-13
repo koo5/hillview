@@ -208,26 +208,45 @@ async def stream_mapillary_images(
                 log.info(f"Cache-enabled mode: using cache service (live_api_for_uncached={ENABLE_MAPILLARY_LIVE})")
                 cache_service = MapillaryCacheService(db_session)
                 
-                # Send initial response with cached data
+                # Send initial response with cached data using spatial sampling
                 cached_photos = await cache_service.get_cached_photos_in_bbox(
-                    top_left_lat, top_left_lon, bottom_right_lat, bottom_right_lon
+                    top_left_lat, top_left_lon, bottom_right_lat, bottom_right_lon, 
+                    max_photos=MAX_PHOTOS_PER_REQUEST
                 )
                 
+                cache_ignored_due_to_distribution = False
                 if cached_photos:
                     log.info(f"Cache hit: Found {len(cached_photos)} cached photos for bbox")
-                    sorted_cached = sorted(cached_photos, key=lambda x: x.get('compass_angle', 0))
                     
-                    # Apply photo limit to cached photos
-                    if len(sorted_cached) > MAX_PHOTOS_PER_REQUEST:
-                        sorted_cached = sorted_cached[:MAX_PHOTOS_PER_REQUEST]
-                        log.info(f"Limiting cached photos from {len(cached_photos)} to {MAX_PHOTOS_PER_REQUEST} due to MAX_PHOTOS_PER_REQUEST")
+                    # Check spatial distribution of cached photos
+                    distribution_score = cache_service.calculate_spatial_distribution(cached_photos)
+                    min_distribution_threshold = 0.1  # Require at least 10% of grid cells to have photos
                     
-                    cached_photo_count = len(sorted_cached)
-                    log.info(f"Streaming {cached_photo_count} cached photos to client {client_id}")
-                    # For cached photos from complete cache, region is exhausted if we have fewer than limit
-                    # (assuming cache service marks regions as complete when no more data available)
-                    region_exhausted = len(cached_photos) < MAX_PHOTOS_PER_REQUEST
-                    yield f"data: {json.dumps({'type': 'photos', 'photos': sorted_cached, 'hasNext': not region_exhausted})}\n\n"
+                    if distribution_score < min_distribution_threshold:
+                        log.info(f"Cached photos poorly distributed (score: {distribution_score:.2%} < {min_distribution_threshold:.2%}), ignoring cache and using live API")
+                        cache_ignored_due_to_distribution = True
+                        cached_photo_count = 0
+                        yield f"data: {json.dumps({'type': 'photos', 'photos': [], 'hasNext': True})}\n\n"
+                    else:
+                        log.info(f"Cached photos well distributed (score: {distribution_score:.2%}), using cache")
+                        sorted_cached = sorted(cached_photos, key=lambda x: x.get('compass_angle', 0))
+                        
+                        # Apply photo limit to cached photos (already limited by spatial sampling)
+                        if len(sorted_cached) > MAX_PHOTOS_PER_REQUEST:
+                            sorted_cached = sorted_cached[:MAX_PHOTOS_PER_REQUEST]
+                            log.info(f"Limiting cached photos from {len(cached_photos)} to {MAX_PHOTOS_PER_REQUEST} due to MAX_PHOTOS_PER_REQUEST")
+                        
+                        # Clean up grid info before sending to client
+                        for photo in sorted_cached:
+                            photo.pop('_grid_x', None)
+                            photo.pop('_grid_y', None)
+                        
+                        cached_photo_count = len(sorted_cached)
+                        log.info(f"Streaming {cached_photo_count} cached photos to client {client_id}")
+                        # For cached photos from complete cache, region is exhausted if we have fewer than limit
+                        # (assuming cache service marks regions as complete when no more data available)
+                        region_exhausted = len(cached_photos) < MAX_PHOTOS_PER_REQUEST
+                        yield f"data: {json.dumps({'type': 'photos', 'photos': sorted_cached, 'hasNext': not region_exhausted})}\n\n"
                 else:
                     cached_photo_count = 0
                     log.info(f"Cache miss: No cached photos found for bbox")
@@ -235,10 +254,15 @@ async def stream_mapillary_images(
                     # No cached photos means we haven't checked this region yet
                     yield f"data: {json.dumps({'type': 'photos', 'photos': [], 'hasNext': True})}\n\n"
                 
-                # Calculate uncached regions
-                uncached_regions = await cache_service.calculate_uncached_regions(
-                    top_left_lat, top_left_lon, bottom_right_lat, bottom_right_lon
-                )
+                # Calculate uncached regions (or use full area if cache was ignored due to poor distribution)
+                if cache_ignored_due_to_distribution:
+                    # Cache was ignored due to poor distribution, fetch entire area
+                    log.info("Using entire requested area for live API due to poor cache distribution")
+                    uncached_regions = [(top_left_lat, top_left_lon, bottom_right_lat, bottom_right_lon)]
+                else:
+                    uncached_regions = await cache_service.calculate_uncached_regions(
+                        top_left_lat, top_left_lon, bottom_right_lat, bottom_right_lon
+                    )
                 
                 log.info(f"Cache analysis: Found {len(uncached_regions)} uncached regions for bbox")
 # Cache analysis complete - proceeding with any missing data fetch
