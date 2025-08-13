@@ -16,6 +16,9 @@
       <excludeFolder url="file://$MODULE_DIR$/backend/uploads" />
       <excludeFolder url="file://$MODULE_DIR$/backend/venv" />
       <excludeFolder url="file://$MODULE_DIR$/frontend/.svelte-kit" />
+      <excludeFolder url="file://$MODULE_DIR$/frontend/logs" />
+      <excludeFolder url="file://$MODULE_DIR$/frontend/src-tauri/gen/android" />
+      <excludeFolder url="file://$MODULE_DIR$/frontend/src-tauri/target" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />

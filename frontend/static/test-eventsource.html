@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>EventSource Test</title>
+</head>
+<body>
+    <h1>EventSource Test</h1>
+    <div id="status">Initializing...</div>
+    <div id="messages"></div>
+    <button onclick="testEventSource()">Test EventSource</button>
+    <button onclick="stopEventSource()">Stop EventSource</button>
+
+    <script>
+        let eventSource = null;
+        
+        function updateStatus(message) {
+            document.getElementById('status').innerHTML = message;
+            console.log(message);
+        }
+        
+        function addMessage(message) {
+            const div = document.createElement('div');
+            div.innerHTML = `${new Date().toISOString()}: ${message}`;
+            document.getElementById('messages').appendChild(div);
+            console.log(message);
+        }
+        
+        function testEventSource() {
+            stopEventSource(); // Stop any existing connection
+            
+            const url = 'http://jj.local:8055/api/mapillary?top_left_lat=45&top_left_lon=-122&bottom_right_lat=44&bottom_right_lon=-121&client_id=test_html';
+            updateStatus(`Creating EventSource to: ${url}`);
+            
+            try {
+                eventSource = new EventSource(url);
+                updateStatus(`EventSource created, initial readyState: ${eventSource.readyState}`);
+                
+                // Monitor readyState changes
+                let lastReadyState = eventSource.readyState;
+                const monitor = setInterval(() => {
+                    if (eventSource && eventSource.readyState !== lastReadyState) {
+                        addMessage(`ReadyState changed from ${lastReadyState} to ${eventSource.readyState}`);
+                        lastReadyState = eventSource.readyState;
+                        if (eventSource.readyState === EventSource.CLOSED) {
+                            clearInterval(monitor);
+                        }
+                    }
+                }, 100);
+                
+                eventSource.onopen = (event) => {
+                    addMessage(`EventSource opened successfully (readyState: ${eventSource.readyState})`);
+                    updateStatus('Connected');
+                };
+                
+                let streamComplete = false;
+                
+                eventSource.onmessage = (event) => {
+                    addMessage(`Message received: ${event.data}`);
+                    try {
+                        const data = JSON.parse(event.data);
+                        if (data.type === 'photos') {
+                            addMessage(`📸 Received ${data.photos.length} photos (hasNext: ${data.hasNext})`);
+                        } else if (data.type === 'stream_complete') {
+                            streamComplete = true;
+                            addMessage('✅ Stream marked as complete - connection will close normally');
+                            updateStatus('Stream completed successfully');
+                            // Close EventSource to prevent automatic reconnection
+                            setTimeout(() => {
+                                if (eventSource) {
+                                    addMessage('🔒 Manually closing EventSource to prevent auto-reconnect');
+                                    eventSource.close();
+                                    eventSource = null;
+                                }
+                            }, 100);
+                        }
+                    } catch (e) {
+                        // Ignore JSON parse errors
+                    }
+                };
+                
+                eventSource.onerror = (error) => {
+                    if (streamComplete) {
+                        addMessage('✅ EventSource connection closed normally after stream completion');
+                        updateStatus('Stream completed successfully - this is normal behavior');
+                    } else {
+                        addMessage(`❌ EventSource error: ${JSON.stringify(error, Object.getOwnPropertyNames(error))}`);
+                        addMessage(`ReadyState: ${eventSource ? eventSource.readyState : 'null'}`);
+                        addMessage(`URL: ${eventSource ? eventSource.url : 'null'}`);
+                        addMessage(`Navigator online: ${navigator.onLine}`);
+                        updateStatus('Actual error occurred');
+                    }
+                    clearInterval(monitor);
+                };
+                
+            } catch (error) {
+                addMessage(`Failed to create EventSource: ${error.message}`);
+                updateStatus('Failed to create EventSource');
+            }
+        }
+        
+        function stopEventSource() {
+            if (eventSource) {
+                addMessage('Closing EventSource');
+                eventSource.close();
+                eventSource = null;
+                updateStatus('Stopped');
+            }
+        }
+        
+        // Test automatically on page load
+        window.onload = function() {
+            updateStatus('Page loaded - ready to test');
+        };
+    </script>
+</body>
+</html>

@@ -92,7 +92,7 @@ Environment variables required:
 - OAuth credentials for Google/GitHub (`*_CLIENT_ID`, `*_CLIENT_SECRET`)
 
 Optional configuration:
-- `DISABLE_MAPILLARY_CACHE` - Set to "true", "1", or "yes" to disable caching and fetch directly from Mapillary API
+- `ENABLE_MAPILLARY_CACHE` - Set to "true", "1", or "yes" to enable caching (disabled by default)
 
 ### Key Features
 - **Intelligent Caching**: PostGIS-powered spatial caching of Mapillary photos

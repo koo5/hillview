@@ -1,6 +1,6 @@
 import type {SourceConfig} from './photoWorkerTypes';
 import {photosInArea, photosInRange, spatialState, visualState} from './mapState';
-import {client_id, mapillary_cache_status, sources} from './data.svelte';
+import {client_id, mapillary_cache_status, sources, sourceLoadingStatus} from './data.svelte';
 import {get} from 'svelte/store';
 
 declare const __WORKER_VERSION__: string;
@@ -77,6 +77,18 @@ class SimplePhotoWorker {
                 
                 photosInArea.set(areaPhotos);
                 photosInRange.set(rangePhotos);
+                break;
+
+            case 'sourceLoadingStatus':
+                // Handle loading status updates from worker
+                sourceLoadingStatus.update(status => ({
+                    ...status,
+                    [message.sourceId]: {
+                        isLoading: message.isLoading,
+                        progress: message.progress,
+                        error: message.error
+                    }
+                }));
                 break;
 
             case 'error':

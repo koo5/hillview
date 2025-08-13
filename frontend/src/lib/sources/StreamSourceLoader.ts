@@ -17,6 +17,20 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
         super(source, callbacks);
     }
 
+    private updateLoadingStatus(isLoading: boolean, progress?: string, error?: string): void {
+        // StreamSourceLoader runs only in worker context
+        // Send loading status updates via postMessage to main thread
+        if (typeof postMessage === 'function') {
+            postMessage({
+                type: 'sourceLoadingStatus',
+                sourceId: this.source.id,
+                isLoading,
+                progress,
+                error
+            });
+        }
+    }
+
     async start(bounds?: Bounds): Promise<void> {
         if (!bounds) {
             // Stream sources without bounds are valid during config setup
@@ -31,6 +45,12 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
         }
 
         console.log(`StreamSourceLoader: Starting stream from ${this.source.url}`);
+        
+        // Create abort controller for this request
+        this.abortController = new AbortController();
+
+        // Set loading status
+        this.updateLoadingStatus(true, 'Connecting...');
 
         // Build URL with bounds parameters (using server-expected parameter names)
         const url = new URL(this.source.url);
@@ -55,6 +75,17 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
         }, 30000);
 
         this.eventSource = new EventSource(url.toString());
+        console.log(`StreamSourceLoader: Created EventSource for ${this.source.id} with URL:`, url.toString());
+        console.log(`StreamSourceLoader: Initial EventSource readyState: ${this.eventSource.readyState}`);
+        
+        // Connect abort signal to EventSource
+        this.abortController.signal.addEventListener('abort', () => {
+            console.log(`StreamSourceLoader: Abort signal received, closing EventSource for ${this.source.id}`);
+            if (this.eventSource) {
+                this.eventSource.close();
+            }
+            this.resolveCompletion();
+        });
 
         this.eventSource.onmessage = (event) => {
             try {
@@ -67,15 +98,63 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
         };
 
         this.eventSource.onerror = (error) => {
-            console.error('StreamSourceLoader: Stream error:', error);
-            this.callbacks.onError?.(new Error('Stream connection error'));
+            // Check if stream is already complete - if so, this is normal connection closure
+            if (this.isComplete) {
+                console.log(`StreamSourceLoader: EventSource connection closed normally after stream completion for ${this.source.id}`);
+                return;
+            }
+            
+            // Extract more meaningful error information
+            let errorMessage = 'Stream connection error';
+            if (error instanceof ErrorEvent) {
+                errorMessage = `Stream error: ${error.message || error.type || 'Unknown error'}`;
+            } else if (error && typeof error === 'object') {
+                errorMessage = `Stream error: ${JSON.stringify(error, Object.getOwnPropertyNames(error))}`;
+            }
+            
+            console.error('StreamSourceLoader: Stream error details:', {
+                error,
+                errorType: error?.constructor?.name,
+                errorMessage,
+                readyState: this.eventSource?.readyState,
+                url: this.eventSource?.url,
+                timeFromCreation: Date.now() - this.startTime,
+                connectionState: navigator.onLine ? 'online' : 'offline',
+                isComplete: this.isComplete
+            });
+            
+            // Check if this is an immediate connection failure
+            if (this.eventSource?.readyState === EventSource.CLOSED && Date.now() - this.startTime < 1000) {
+                console.error('StreamSourceLoader: EventSource failed immediately after creation - possible network/CORS/URL issue');
+            }
+            
+            this.updateLoadingStatus(false, undefined, errorMessage);
+            this.callbacks.onError?.(new Error(errorMessage));
             // Resolve the completion promise even on error to prevent hanging
             this.resolveCompletion();
         };
 
         this.eventSource.onopen = () => {
-            console.log('StreamSourceLoader: Stream opened');
+            console.log(`StreamSourceLoader: Stream opened for ${this.source.id} (readyState: ${this.eventSource?.readyState})`);
+            this.updateLoadingStatus(true, 'Loading photos...');
         };
+
+        // Monitor readyState changes
+        let lastReadyState = this.eventSource.readyState;
+        const readyStateMonitor = setInterval(() => {
+            if (this.eventSource && this.eventSource.readyState !== lastReadyState) {
+                console.log(`StreamSourceLoader: ReadyState changed from ${lastReadyState} to ${this.eventSource.readyState} for ${this.source.id}`);
+                lastReadyState = this.eventSource.readyState;
+                if (this.eventSource.readyState === EventSource.CLOSED) {
+                    clearInterval(readyStateMonitor);
+                }
+            }
+        }, 100);
+
+        // Clear monitor on abort
+        this.abortController.signal.addEventListener('abort', () => {
+            clearInterval(readyStateMonitor);
+        });
 
         // Return the completion promise
         return this.completionPromise;
@@ -95,8 +174,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
 
     private handleStreamMessage(data: any): void {
         switch (data.type) {
-            case 'cached_photos':
-            case 'live_photos_batch':
+            case 'photos':
                 if (data.photos && Array.isArray(data.photos)) {
                     console.log(`StreamSourceLoader: Received ${data.photos.length} photos`);
                     
@@ -129,9 +207,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
                         type: 'photosAdded',
                         sourceId: this.source.id,
                         photos: this.streamPhotos, // Send accumulated photos (growing list)
-                        batchType: data.type,
-                        region: data.region,
-                        hasNext: !!data.next // Track if stream indicates more photos available
+                        hasNext: !!data.hasNext // Preserve hasNext for client caching decisions
                     });
                 }
                 break;
@@ -141,6 +217,9 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
                 this.isComplete = true;
                 const duration = Date.now() - this.startTime;
                 
+                // Update loading status to complete
+                this.updateLoadingStatus(false, `Loaded ${this.streamPhotos.length} photos`);
+                
                 // Send completion message to worker queue
                 this.callbacks.enqueueMessage({
                     type: 'streamComplete',
@@ -149,12 +228,21 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
                     duration
                 });
 
+                // Close EventSource since stream is complete
+                if (this.eventSource) {
+                    console.log(`StreamSourceLoader: Closing EventSource after stream completion for ${this.source.id}`);
+                    this.eventSource.close();
+                }
+
                 // Resolve the completion promise
                 this.resolveCompletion();
                 break;
 
+            // Removed cache_status handling - server no longer sends cache implementation details
+
             case 'error':
                 console.error('StreamSourceLoader: Stream error:', data.message);
+                this.updateLoadingStatus(false, undefined, data.message || 'Unknown stream error');
                 this.callbacks.onError?.(new Error(data.message || 'Unknown stream error'));
                 // Resolve the completion promise even on error
                 this.resolveCompletion();
@@ -166,10 +254,14 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
     }
 
     cancel(): void {
-        console.log(`StreamSourceLoader: Cancelling stream for ${this.source.id}`);
+        console.log(`StreamSourceLoader: Cancelling stream for ${this.source.id} - called from:`, new Error().stack?.split('\n')[2]);
         super.cancel();
         
+        // Clear loading status
+        this.updateLoadingStatus(false, 'Cancelled');
+        
         if (this.eventSource) {
+            console.log(`StreamSourceLoader: Closing EventSource for ${this.source.id} (readyState: ${this.eventSource.readyState})`);
             this.eventSource.close();
         }
 

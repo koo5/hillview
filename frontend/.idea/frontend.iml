@@ -11,6 +11,8 @@
       <excludeFolder url="file://$MODULE_DIR$/tauri-plugin-hillview/android/.tauri" />
       <excludeFolder url="file://$MODULE_DIR$/tauri-plugin-hillview/android/build" />
       <excludeFolder url="file://$MODULE_DIR$/tauri-plugin-hillview/target" />
+      <excludeFolder url="file://$MODULE_DIR$/logs" />
+      <excludeFolder url="file://$MODULE_DIR$/playwright-report" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />

@@ -163,12 +163,20 @@ export class OptimizedMarkerSystem {
     this.returnMarkersToPool();
     
     // Create/reuse markers for new photos
-    this.activeMarkers = photos.map(photo => {
+    this.activeMarkers = photos.map((photo, index) => {
       const marker = this.createOptimizedMarker(photo);
       marker.addTo(map);
+      
+      // Debug: Log first few markers
+      if (index < 3) {
+        console.log(`Created marker ${index} at [${photo.coord.lat}, ${photo.coord.lng}]`, marker);
+        console.log('Marker element after addTo:', marker.getElement());
+      }
+      
       return marker;
     });
     
+    console.log(`OptimizedMarkerSystem: Created ${this.activeMarkers.length} markers, added to map`);
     return this.activeMarkers;
   }
 

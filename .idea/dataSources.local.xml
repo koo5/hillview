@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="dataSourceStorageLocal" created-in="WS-251.27812.50">
+    <data-source name="hillview@localhost" uuid="ed84ae19-d516-4ae4-bd42-48c474561487">
+      <database-info product="" version="" jdbc-version="" driver-name="" driver-version="" dbms="POSTGRES" exact-version="15" />
+      <secret-storage>master_key</secret-storage>
+      <user-name>hillview</user-name>
+      <schema-mapping />
+    </data-source>
+  </component>
+</project>

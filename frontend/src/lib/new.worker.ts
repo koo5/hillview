@@ -92,8 +92,8 @@ let sourcesPhotosInAreaVersion = 0;
 let lastProcessedSourcesPhotosInAreaVersion = -1;
 
 // Configuration
-const MAX_PHOTOS_IN_AREA = 700;
-const MAX_PHOTOS_IN_RANGE = 200;
+const MAX_PHOTOS_IN_AREA = 3000;
+const MAX_PHOTOS_IN_RANGE = 300;
 
 // Current range and center for range filtering
 let currentRange = 1000; // Default range in meters, updated from area updates
@@ -108,17 +108,30 @@ function calculateCenterFromBounds(bounds: Bounds): { lat: number; lng: number }
 // Merge and cull photos from all sources, calculate range
 function mergeAndCullPhotos(): { photosInArea: PhotoData[], photosInRange: PhotoData[] } {
     if (!currentState.area.data || photosInAreaPerSource.size === 0) {
+        console.log(`NewWorker: mergeAndCullPhotos early return - area.data:`, currentState.area.data, 'sources:', photosInAreaPerSource.size);
         return { photosInArea: [], photosInRange: [] };
     }
+
+    console.log(`NewWorker: mergeAndCullPhotos - area bounds:`, currentState.area.data);
+    console.log(`NewWorker: mergeAndCullPhotos - source photos counts:`, 
+        Array.from(photosInAreaPerSource.entries()).map(([id, photos]) => `${id}: ${photos.length}`));
 
     // Create/update culling grid for current area
     if (!cullingGrid || currentState.area.lastUpdateId > (cullingGrid as any).lastUpdateId) {
         cullingGrid = new CullingGrid(currentState.area.data);
         (cullingGrid as any).lastUpdateId = currentState.area.lastUpdateId;
+        console.log(`NewWorker: Created new culling grid for area bounds:`, currentState.area.data);
     }
 
     // Apply smart culling for uniform screen coverage
     const photosInArea = cullingGrid.cullPhotos(photosInAreaPerSource, MAX_PHOTOS_IN_AREA);
+    console.log(`NewWorker: After culling - ${photosInArea.length} photos in area (max: ${MAX_PHOTOS_IN_AREA})`);
+    
+    // Log a few photo locations for debugging
+    if (photosInArea.length > 0) {
+        console.log(`NewWorker: First few photo locations:`, 
+            photosInArea.slice(0, 3).map(p => `[${p.coord.lat.toFixed(4)}, ${p.coord.lng.toFixed(4)}]`));
+    }
     
     // Calculate center for range filtering
     const center = calculateCenterFromBounds(currentState.area.data);

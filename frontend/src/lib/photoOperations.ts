@@ -195,6 +195,7 @@ export class PhotoOperations {
         // Cancel existing loader for this source if any
         const existingProcess = this.loadingProcesses.get(source.id);
         if (existingProcess) {
+            console.log(`PhotoOperations: Cancelling existing loader for source ${source.id} (process: ${processId})`);
             existingProcess.cancel();
         }
 

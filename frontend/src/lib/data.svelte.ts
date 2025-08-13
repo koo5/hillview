@@ -135,6 +135,17 @@ export let mapillary_cache_status = writable<MapillaryDebugStatus>({
     completed_regions: 0
 });
 
+// Generic source loading status for all stream sources
+export interface SourceLoadingStatus {
+    [sourceId: string]: {
+        isLoading: boolean;
+        progress?: string;
+        error?: string;
+    };
+}
+
+export let sourceLoadingStatus = writable<SourceLoadingStatus>({});
+
 // Essential exports still used by components
 export {photoInFront as photo_in_front};
 export {photoToLeft as photo_to_left};
