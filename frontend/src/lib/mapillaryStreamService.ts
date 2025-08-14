@@ -56,7 +56,7 @@ export class MapillaryStreamService {
             this.stopStream();
         }
         
-        const backendUrl = import.meta.env.VITE_BACKEND || 'http://localhost:8000';
+        const backendUrl = import.meta.env.VITE_BACKEND || 'http://localhost:8055';
         const clientId = get(client_id);
         
         const url = `${backendUrl}/mapillary` +

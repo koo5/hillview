@@ -413,7 +413,7 @@
             range: get_range(newCenter)
         });
         
-        // Reset flag after the movement is complete
+        // Reset flag after the movement is complete    
         setTimeout(() => {
             programmaticMove = false;
         }, 1000); // Allow time for flyTo animation
@@ -783,7 +783,10 @@
     $: arrowX = centerX + Math.cos(arrow_radians) * arrowLength;
     $: arrowY = centerY + Math.sin(arrow_radians) * arrowLength;
 
-    const tileUrl = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+    // CartoDB Voyager has larger, more readable place labels than standard OSM
+    //const tileUrl = "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
+    //const tileUrl = "https://tile.tracestrack.com/topo_auto/{z}/{x}/{y}.webp?key=262a38b16c187cfca361f1776efb9421&style=contrast+";
+    const tileUrl = 'https://tile.tracestrack.com/_/{z}/{x}/{y}.webp?key=262a38b16c187cfca361f1776efb9421';
     
     // Reactive updates for spatial changes (new photos from worker)
     $: if ($visiblePhotos && map) {
@@ -826,23 +829,23 @@
          -->
 
         <TileLayer
-                {...{ attribution: "&copy; OpenStreetMap contributors" }}
+                {...{ attribution: "&copy; OpenStreetMap contributors &copy; CartoDB" }}
                 options={{
                     maxZoom: 23,
                     maxNativeZoom: 19,
                     minZoom: 3,
                     // Memory optimization for tiles
-                    keepBuffer: 1, // Keep fewer tiles in memory (default is 2)
-                    updateWhenIdle: false, // Update tiles only when panning ends
-                    updateWhenZooming: false, // Don't update during zoom animation
+                    //keepBuffer: 1, // Keep fewer tiles in memory (default is 2)
+                    //updateWhenIdle: false, // Update tiles only when panning ends
+                    //updateWhenZooming: false, // Don't update during zoom animation
                     tileSize: 256, // Standard tile size
                     zoomOffset: 0,
-                    detectRetina: true, // Disable retina tiles to save memory
+                    detectRetina: false, // Disable retina tiles for larger text labels
                     crossOrigin: true, // Enable CORS for better caching
                     // Additional performance options
                     updateInterval: 100, // Throttle tile updates
                     tms: false,
-                    noWrap: false,
+                    noWrap: true,
                     zoomReverse: false,
                     opacity: 1,
                     zIndex: 1,

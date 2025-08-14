@@ -52,7 +52,7 @@
         if (!authValue.isAuthenticated || !authValue.token) return;
         
         try {
-            const response = await fetch('http://localhost:8089/api/photos', {
+            const response = await fetch(import.meta.env.VITE_BACKEND+'/photos', {
                 headers: {
                     'Authorization': `Bearer ${authValue.token}`
                 }
@@ -110,7 +110,7 @@
             });
             
             // Set up and send the request
-            xhr.open('POST', 'http://localhost:8089/api/photos/upload');
+            xhr.open('POST', import.meta.env.VITE_BACKEND+'/photos/upload');
             xhr.setRequestHeader('Authorization', `Bearer ${authValue.token}`);
             xhr.send(formData);
             
@@ -172,7 +172,7 @@
                 formData.append('auto_upload_folder', autoUploadFolder);
             }
             
-            const response = await fetch('http://localhost:8089/api/auth/settings', {
+            const response = await fetch(import.meta.env.VITE_BACKEND+'/auth/settings', {
                 method: 'PUT',
                 headers: {
                     'Authorization': `Bearer ${authValue.token}`

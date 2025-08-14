@@ -125,8 +125,13 @@ def validate_oauth_redirect_uri_basic(uri: str, allowed_domains: Optional[Set[st
     if not uri:
         raise SecurityValidationError("Redirect URI is required")
     
-    # Check for common bypass attempts
-    if any(pattern in uri.lower() for pattern in ['@', '//', '\\', '%0d', '%0a', '\r', '\n']):
+    # Check for common bypass attempts (but allow // in http://)
+    suspicious_patterns = ['@', '\\', '%0d', '%0a', '\r', '\n']
+    # Check for double slash outside of protocol (http:// is valid)
+    if '//' in uri and not uri.lower().startswith(('http://', 'https://')):
+        suspicious_patterns.append('//')
+    
+    if any(pattern in uri.lower() for pattern in suspicious_patterns):
         logger.warning(f"Suspicious redirect URI pattern: {uri}")
         raise SecurityValidationError("Invalid redirect URI")
     

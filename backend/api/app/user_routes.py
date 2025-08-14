@@ -153,8 +153,8 @@ async def oauth_login(
     # Validate redirect URI to prevent open redirect attacks
     redirect_uri = oauth_data.redirect_uri or provider_config["redirect_uri"]
     if redirect_uri:
-        # Define allowed domains for OAuth redirects
-        allowed_domains = {'localhost', '127.0.0.1', 'hillview.ueueeu.eu'}  # Add your production domain
+        # Define allowed domains for OAuth redirects (include port for localhost)
+        allowed_domains = {'localhost:8212', 'localhost', '127.0.0.1', 'hillview.ueueeu.eu'}
         redirect_uri = validate_oauth_redirect_uri(redirect_uri, allowed_domains)
     
     # Validate OAuth code (basic check)

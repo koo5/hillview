@@ -71,7 +71,7 @@ async def global_exception_handler(request, exc):
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:5000", "http://localhost:8089", "http://localhost:8212"],  # Add your frontend URLs
+    allow_origins=["http://localhost:8212"],  # Add your frontend URLs
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization", "Accept"],

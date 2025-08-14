@@ -74,7 +74,7 @@
     // Function to fetch user info using the token
     async function fetchUserInfo(token: string) {
         try {
-            const response = await fetch('http://localhost:8089/api/users/me', {
+            const response = await fetch(import.meta.env.VITE_BACKEND+'/users/me', {
                 headers: {
                     'Authorization': `Bearer ${token}`
                 }
@@ -289,7 +289,7 @@
                 });
                 
                 // Set up and send the request
-                xhr.open('POST', 'http://localhost:8089/api/photos/upload');
+                xhr.open('POST', import.meta.env.VITE_BACKEND+'/photos/upload');
                 
                 // Use token from localStorage if authToken is still null
                 const tokenToUse = authToken || localStorage.getItem('token');
