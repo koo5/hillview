@@ -2,8 +2,7 @@
     import {onDestroy, onMount, tick} from 'svelte';
     import PhotoGallery from '../components/Gallery.svelte';
     import Map from '../components/Map.svelte';
-    import UploadDialog from '../components/UploadDialog.svelte';
-    import {Camera, Compass, User, LogOut, Upload, Menu, Download, Maximize2, Minimize2} from 'lucide-svelte';
+    import {Camera, Compass, User, LogOut, Menu, Download, Maximize2, Minimize2} from 'lucide-svelte';
     import {fetch_photos} from "$lib/sources";
     import {sources} from "$lib/data.svelte";
     import {dms} from "$lib/utils";
@@ -30,7 +29,6 @@
     let mapComponent: any = null;
     let update_url = false;
     let menuOpen = false;
-    let showUploadDialog = false;
     $: showCameraView = $app.activity === 'capture';
     let debugOverlay: any = null;
 
@@ -305,14 +303,6 @@
     });
 </script>
 
-<!-- Upload button (visible when authenticated and user accounts feature is enabled) -->
-{#if FEATURE_USER_ACCOUNTS && isAuthenticated}
-    <div class="upload-button-container">
-        <button class="floating-upload-button" on:click={() => showUploadDialog = true}>
-            <Upload size={24} />
-        </button>
-    </div>
-{/if}
 
 <!-- Hamburger icon -->
 <button 
@@ -377,18 +367,8 @@
         <ul>
             <li><a href="/" on:click={() => menuOpen = false}>Map</a></li>
             {#if FEATURE_USER_ACCOUNTS}
-                <li>
-                    <button class="menu-button" on:click={() => {
-                        showUploadDialog = true;
-                        menuOpen = false;
-                    }}>
-                        <Upload size={18} />
-                        Upload Photos
-                    </button>
-                </li>
                 {#if isAuthenticated}
                     <li><a href="/photos" on:click={() => menuOpen = false}>
-                        <Upload size={18} />
                         My Photos
                     </a></li>
                 {/if}
@@ -448,15 +428,6 @@
     </div>
 </div>
 
-<!-- Upload Dialog -->
-<UploadDialog 
-    show={showUploadDialog} 
-    on:close={() => showUploadDialog = false} 
-    on:uploaded={() => {
-        // Refresh photos after upload - worker will handle this automatically
-        // fetch_photos();
-    }}
-/>
 
 
 <!-- Debug Overlay -->
@@ -685,48 +656,6 @@
         word-break: break-all;
     }
     
-    .upload-button-container {
-        position: fixed;
-        bottom: 20px;
-        right: 20px;
-        z-index: 1000;
-    }
-    
-    .floating-upload-button {
-        width: 56px;
-        height: 56px;
-        border-radius: 50%;
-        background-color: #4a90e2;
-        color: white;
-        border: none;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-        cursor: pointer;
-        transition: background-color 0.3s, transform 0.2s;
-    }
-    
-    .floating-upload-button:hover {
-        background-color: #3a7bc8;
-        transform: translateY(-2px);
-    }
-    
-    .floating-upload-button:active {
-        transform: translateY(0);
-    }
-    
-    @media (max-width: 768px) {
-        .upload-button-container {
-            bottom: 16px;
-            right: 16px;
-        }
-        
-        .floating-upload-button {
-            width: 48px;
-            height: 48px;
-        }
-    }
 
     :global(#sentry-feedback) {
         --trigger-background: rgba(74, 144, 226, 0.6);

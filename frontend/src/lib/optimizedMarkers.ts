@@ -110,6 +110,7 @@ export class OptimizedMarkerSystem {
     let updatedCount = 0;
 
     markers.forEach(marker => {
+      if (!marker) return; // Skip undefined/null markers
       const photoData = (marker as any)._photoData as PhotoData;
       if (!photoData) return;
 

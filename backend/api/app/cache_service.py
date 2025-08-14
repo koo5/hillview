@@ -43,6 +43,9 @@ class MapillaryCacheService:
         cell_height = (top_left_lat - bottom_right_lat) / grid_size
         photos_per_cell = max(1, max_photos // (grid_size * grid_size))  # Distribute photos across cells
         
+        log.info(f"Grid calculation: bbox=({top_left_lat}, {top_left_lon}) to ({bottom_right_lat}, {bottom_right_lon})")
+        log.info(f"Grid dimensions: cell_width={cell_width:.6f}, cell_height={cell_height:.6f}, photos_per_cell={photos_per_cell}")
+        
         # Use raw SQL for spatial sampling with grid-based distribution
         # Grid coordinates should be 0-9 for both x and y
         query = text("""
@@ -103,6 +106,16 @@ class MapillaryCacheService:
             }
             photos.append(photo_data)
         
+        # Debug: Check actual grid coordinates being returned
+        if photos:
+            grid_coords = [(photo.get('_grid_x'), photo.get('_grid_y')) for photo in photos[:10]]
+            log.info(f"Debug: First 10 grid coordinates: {grid_coords}")
+            
+            # Check for invalid coordinates
+            invalid_coords = [(x, y) for x, y in grid_coords if x is None or y is None or x < 0 or x >= grid_size or y < 0 or y >= grid_size]
+            if invalid_coords:
+                log.warning(f"Found invalid grid coordinates: {invalid_coords}")
+        
         log.info(f"Spatial sampling returned {len(photos)} photos distributed across grid cells")
         return photos
     
@@ -113,14 +126,27 @@ class MapillaryCacheService:
         
         # Count occupied grid cells
         occupied_cells = set()
+        valid_photos = 0
+        invalid_coords = []
+        
         for photo in photos:
             if '_grid_x' in photo and '_grid_y' in photo:
-                occupied_cells.add((photo['_grid_x'], photo['_grid_y']))
+                x, y = photo['_grid_x'], photo['_grid_y']
+                if x is not None and y is not None:
+                    if 0 <= x < grid_size and 0 <= y < grid_size:
+                        occupied_cells.add((x, y))
+                        valid_photos += 1
+                    else:
+                        invalid_coords.append((x, y))
         
         total_cells = grid_size * grid_size
         occupied_ratio = len(occupied_cells) / total_cells
         
         log.info(f"Distribution analysis: {len(occupied_cells)}/{total_cells} cells occupied ({occupied_ratio:.2%})")
+        log.info(f"Debug: {valid_photos} valid photos, {len(invalid_coords)} invalid coordinates")
+        if invalid_coords:
+            log.warning(f"Invalid grid coordinates found: {invalid_coords[:10]}...")  # Show first 10
+        
         return occupied_ratio
     
     async def get_cached_regions_for_bbox(
