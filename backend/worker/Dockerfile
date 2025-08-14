@@ -1,7 +1,8 @@
 FROM python:3.9-slim
 
 # Install system dependencies for image processing and geospatial operations
-RUN apt-get update && apt-get install -y \
+RUN apt-get update
+RUN apt-get install -y \
     gcc \
     g++ \
     libpq-dev \
@@ -11,7 +12,7 @@ RUN apt-get update && apt-get install -y \
     libproj-dev \
     libspatialindex-dev \
     pkg-config \
-    libgl1-mesa-glx \
+    libgl1 \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
