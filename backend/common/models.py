@@ -42,7 +42,8 @@ class Photo(Base):
     __tablename__ = "photos"
 
     id = Column(String, primary_key=True, default=generate_uuid)
-    filename = Column(String)
+    filename = Column(String)  # Secure filename for storage
+    original_filename = Column(String)  # Original filename for display
     filepath = Column(String)
     thumbnail_path = Column(String, nullable=True)
     

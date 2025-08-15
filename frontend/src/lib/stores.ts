@@ -4,7 +4,8 @@ import type { DevicePhotoMetadata } from './photoCapture';
 
 export interface UserPhoto {
     id: number;
-    filename: string;
+    filename: string;  // Secure filename for storage
+    original_filename: string;  // Original filename for display
     latitude: number;
     longitude: number;
     compass_angle?: number;

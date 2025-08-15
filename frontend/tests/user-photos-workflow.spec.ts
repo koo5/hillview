@@ -52,20 +52,33 @@ test.describe('User Photos Workflow', () => {
       // Select file
       await page.locator('[data-testid="photo-file-input"]').setInputFiles(photoPath);
       
-      // Wait for file to be selected
-      await page.waitForTimeout(500);
+      // Wait for upload button to be enabled (file selected)
+      await page.waitForFunction(() => {
+        const uploadButton = document.querySelector('[data-testid="upload-submit-button"]') as HTMLButtonElement;
+        return uploadButton && !uploadButton.disabled;
+      }, { timeout: 5000 });
       
       // Click upload button
       await page.locator('[data-testid="upload-submit-button"]').click();
       
-      // Wait for upload to complete - look for success indicators
+      // Wait for upload to complete - button should show "Upload Photo" not "Uploading..."
+      await page.waitForFunction(() => {
+        const uploadButton = document.querySelector('[data-testid="upload-submit-button"]') as HTMLButtonElement;
+        return uploadButton && uploadButton.textContent?.includes('Upload Photo');
+      }, { timeout: 15000 });
+      
+      // Wait for file input to be cleared (indicating upload completed)
       await page.waitForFunction(() => {
         const input = document.querySelector('[data-testid="photo-file-input"]') as HTMLInputElement;
         return input && input.value === '';
-      }, { timeout: 10000 });
+      }, { timeout: 5000 });
       
-      // Wait a bit more for the photo to appear in the list
-      await page.waitForTimeout(2000);
+      // Wait for photo count to increase (new photo added to list)
+      const expectedPhotoCount = initialCount + i + 1;
+      await page.waitForFunction((expectedCount) => {
+        const photoCards = document.querySelectorAll('[data-testid="photo-card"]');
+        return photoCards.length >= expectedCount;
+      }, expectedPhotoCount, { timeout: 10000 });
     }
 
     // Verify all photos are uploaded and visible in the My Photos page

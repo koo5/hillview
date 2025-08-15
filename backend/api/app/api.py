@@ -71,7 +71,7 @@ async def global_exception_handler(request, exc):
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8212"],  # Add your frontend URLs
+    allow_origins=["http://localhost:8212", "http://127.0.0.1:8212"],  # Add your frontend URLs
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization", "Accept"],
@@ -101,7 +101,7 @@ def run_migrations():
     from alembic import command
     import os
     
-    alembic_cfg = Config("/app/alembic.ini")
+    alembic_cfg = Config("/app/app/alembic.ini")
     # Set the database URL from environment variable
     database_url = os.getenv('DATABASE_URL', 'postgresql://hillview:hillview@postgres:5432/hillview')
     # Convert asyncpg to psycopg2 for Alembic

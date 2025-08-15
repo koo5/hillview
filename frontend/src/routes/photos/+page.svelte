@@ -21,6 +21,7 @@
     let autoUploadFolder = '';
     let showSettings = false;
     let user: User | null = null;
+    let expandDescription = false;
 
     onMount(async () => {
         // Check if user is authenticated
@@ -120,6 +121,14 @@
             // Reset form and refresh photos
             uploadFile = null;
             description = '';
+            expandDescription = false;
+            
+            // Clear the file input
+            const fileInput = document.getElementById('photo-file') as HTMLInputElement;
+            if (fileInput) {
+                fileInput.value = '';
+            }
+            
             await fetchPhotos();
             
         } catch (err) {
@@ -267,11 +276,35 @@
             
             <div class="form-group">
                 <label for="description">Description (optional):</label>
-                <textarea 
-                    id="description" 
-                    bind:value={description} 
-                    placeholder="Enter a description for this photo"
-                ></textarea>
+                {#if expandDescription}
+                    <textarea 
+                        id="description" 
+                        bind:value={description} 
+                        placeholder="Enter a description for this photo"
+                        rows="3"
+                    ></textarea>
+                    <button 
+                        type="button" 
+                        class="expand-button" 
+                        on:click={() => expandDescription = false}
+                    >
+                        Collapse
+                    </button>
+                {:else}
+                    <input 
+                        type="text" 
+                        id="description" 
+                        bind:value={description} 
+                        placeholder="Enter a description for this photo"
+                    />
+                    <button 
+                        type="button" 
+                        class="expand-button" 
+                        on:click={() => expandDescription = true}
+                    >
+                        Expand
+                    </button>
+                {/if}
             </div>
             
             <div class="form-group">
@@ -285,7 +318,7 @@
                 type="submit" 
                 class="primary-button" 
                 data-testid="upload-submit-button"
-                disabled={isUploading || !uploadFile}
+                disabled={!uploadFile || isUploading}
             >
                 <Upload size={20} />
                 {isUploading ? 'Uploading...' : 'Upload Photo'}
@@ -420,6 +453,21 @@
     
     .form-group {
         margin-bottom: 16px;
+    }
+    
+    .expand-button {
+        margin-top: 8px;
+        padding: 4px 8px;
+        font-size: 12px;
+        background-color: #f0f0f0;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: background-color 0.3s;
+    }
+    
+    .expand-button:hover {
+        background-color: #e0e0e0;
     }
     
     label {

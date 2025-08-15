@@ -80,7 +80,8 @@ async def upload_photo(
         
         # Create database record immediately with pending status
         photo = Photo(
-            filename=secure_filename,
+            filename=secure_filename,  # Secure filename for storage
+            original_filename=safe_filename,  # Original filename for display
             filepath=str(file_path),
             description=description,
             is_public=is_public,
