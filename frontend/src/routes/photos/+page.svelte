@@ -8,11 +8,12 @@
     import { get } from 'svelte/store';
     import type { UserPhoto } from '$lib/stores';
     import type { User } from '$lib/auth.svelte';
+    import { TAURI } from '$lib/tauri';
 
     let photos: UserPhoto[] = [];
     let isLoading = true;
     let error: string | null = null;
-    let uploadFile: File | null = null;
+    let uploadFiles: File[] = [];
     let description = '';
     let isPublic = true;
     let isUploading = false;
@@ -21,7 +22,25 @@
     let autoUploadFolder = '';
     let showSettings = false;
     let user: User | null = null;
-    let expandDescription = false;
+    let activityLog: Array<{timestamp: Date, message: string, type: 'success' | 'warning' | 'error' | 'info'}> = [];
+
+    function addLogEntry(message: string, type: 'success' | 'warning' | 'error' | 'info' = 'info') {
+        activityLog = [{
+            timestamp: new Date(),
+            message,
+            type
+        }, ...activityLog.slice(0, 9)]; // Keep only last 10 entries
+    }
+
+    function formatLogTime(timestamp: Date): string {
+        return timestamp.toLocaleTimeString();
+    }
+
+    function autoResizeTextarea(event: Event) {
+        const textarea = event.target as HTMLTextAreaElement;
+        textarea.style.height = 'auto';
+        textarea.style.height = `${textarea.scrollHeight}px`;
+    }
 
     onMount(async () => {
         // Check if user is authenticated
@@ -76,52 +95,83 @@
         }
     }
 
+    async function uploadSingleFile(file: File, authValue: any): Promise<any> {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('description', description);
+        formData.append('is_public', String(isPublic));
+        
+        const xhr = new XMLHttpRequest();
+        
+        // Create a promise to handle the XHR request
+        const uploadPromise = new Promise((resolve, reject) => {
+            xhr.onload = () => {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    resolve(JSON.parse(xhr.responseText));
+                } else {
+                    reject(new Error('Upload failed'));
+                }
+            };
+            xhr.onerror = () => reject(new Error('Network error'));
+        });
+        
+        // Set up and send the request
+        xhr.open('POST', import.meta.env.VITE_BACKEND+'/photos/upload');
+        xhr.setRequestHeader('Authorization', `Bearer ${authValue.token}`);
+        xhr.send(formData);
+        
+        return uploadPromise;
+    }
+
     async function handleUpload() {
-        if (!uploadFile) return;
+        if (!uploadFiles.length) return;
         
         isUploading = true;
         uploadProgress = 0;
         const authValue = get(auth);
         
+        const totalFiles = uploadFiles.length;
+        addLogEntry(`Starting batch upload: ${totalFiles} file${totalFiles > 1 ? 's' : ''}`, 'info');
+        
         try {
-            const formData = new FormData();
-            formData.append('file', uploadFile);
-            formData.append('description', description);
-            formData.append('is_public', String(isPublic));
+            let successCount = 0;
+            let skipCount = 0;
+            let errorCount = 0;
             
-            const xhr = new XMLHttpRequest();
-            
-            // Track upload progress
-            xhr.upload.addEventListener('progress', (event) => {
-                if (event.lengthComputable) {
-                    uploadProgress = Math.round((event.loaded / event.total) * 100);
-                }
-            });
-            
-            // Create a promise to handle the XHR request
-            const uploadPromise = new Promise((resolve, reject) => {
-                xhr.onload = () => {
-                    if (xhr.status >= 200 && xhr.status < 300) {
-                        resolve(JSON.parse(xhr.responseText));
+            for (let i = 0; i < uploadFiles.length; i++) {
+                const file = uploadFiles[i];
+                uploadProgress = Math.round(((i + 1) / totalFiles) * 100);
+                
+                try {
+                    addLogEntry(`Uploading ${i + 1}/${totalFiles}: ${file.name}`, 'info');
+                    const result = await uploadSingleFile(file, authValue);
+                    
+                    // Log the result
+                    if (result.skipped) {
+                        addLogEntry(`Skipped: ${result.original_filename} (already exists)`, 'warning');
+                        skipCount++;
                     } else {
-                        reject(new Error('Upload failed'));
+                        addLogEntry(`Uploaded: ${result.original_filename || file.name}`, 'success');
+                        successCount++;
                     }
-                };
-                xhr.onerror = () => reject(new Error('Network error'));
-            });
+                } catch (err) {
+                    console.error('Error uploading file:', file.name, err);
+                    addLogEntry(`Failed: ${file.name} - ${err instanceof Error ? err.message : 'Unknown error'}`, 'error');
+                    errorCount++;
+                }
+            }
             
-            // Set up and send the request
-            xhr.open('POST', import.meta.env.VITE_BACKEND+'/photos/upload');
-            xhr.setRequestHeader('Authorization', `Bearer ${authValue.token}`);
-            xhr.send(formData);
+            // Summary log
+            const summaryParts = [];
+            if (successCount > 0) summaryParts.push(`${successCount} uploaded`);
+            if (skipCount > 0) summaryParts.push(`${skipCount} skipped`);
+            if (errorCount > 0) summaryParts.push(`${errorCount} failed`);
             
-            // Wait for the upload to complete
-            const result = await uploadPromise;
+            addLogEntry(`Batch complete: ${summaryParts.join(', ')}`, errorCount > 0 ? 'warning' : 'success');
             
             // Reset form and refresh photos
-            uploadFile = null;
+            uploadFiles = [];
             description = '';
-            expandDescription = false;
             
             // Clear the file input
             const fileInput = document.getElementById('photo-file') as HTMLInputElement;
@@ -132,29 +182,47 @@
             await fetchPhotos();
             
         } catch (err) {
-            console.error('Error uploading photo:', err);
+            console.error('Error in batch upload:', err);
+            addLogEntry(`Batch upload failed: ${err instanceof Error ? err.message : 'Unknown error'}`, 'error');
             error = err instanceof Error ? err.message : 'Upload failed';
         } finally {
             isUploading = false;
+            uploadProgress = 0;
         }
     }
 
     async function deletePhoto(photoId: number) {
-        if (!confirm('Are you sure you want to delete this photo?')) return;
+        console.log(`DEBUG: deletePhoto called with photoId: ${photoId}`);
+        if (!confirm('Are you sure you want to delete this photo?')) {
+            console.log('DEBUG: User cancelled delete');
+            return;
+        }
         
         const authValue = get(auth);
+        const deleteUrl = `${import.meta.env.VITE_BACKEND}/photos/${photoId}`;
+        console.log(`DEBUG: Attempting to delete photo at: ${deleteUrl}`);
         
         try {
-            const response = await fetch(`http://localhost:8089/api/photos/${photoId}`, {
+            const response = await fetch(deleteUrl, {
                 method: 'DELETE',
                 headers: {
                     'Authorization': `Bearer ${authValue.token}`
                 }
             });
             
+            console.log(`DEBUG: Delete response status: ${response.status}`);
+            
             if (!response.ok) {
-                throw new Error('Failed to delete photo');
+                const errorText = await response.text();
+                console.log(`DEBUG: Delete failed with response: ${errorText}`);
+                throw new Error(`Failed to delete photo: ${response.status} ${errorText}`);
             }
+            
+            console.log('DEBUG: Delete successful, removing from UI');
+            
+            // Find the photo name for logging
+            const deletedPhoto = photos.find(photo => photo.id === photoId);
+            const photoName = deletedPhoto?.original_filename || `Photo ${photoId}`;
             
             // Remove the photo from the list
             photos = photos.filter(photo => photo.id !== photoId);
@@ -165,8 +233,11 @@
                 userPhotos: photos
             }));
             
+            addLogEntry(`Deleted: ${photoName}`, 'success');
+            
         } catch (err) {
             console.error('Error deleting photo:', err);
+            addLogEntry(`Delete failed: ${err instanceof Error ? err.message : 'Unknown error'}`, 'error');
             error = err instanceof Error ? err.message : 'Delete failed';
         }
     }
@@ -194,9 +265,11 @@
             }
             
             showSettings = false;
+            addLogEntry('Settings saved successfully', 'success');
             
         } catch (err) {
             console.error('Error saving settings:', err);
+            addLogEntry(`Settings save failed: ${err instanceof Error ? err.message : 'Unknown error'}`, 'error');
             error = err instanceof Error ? err.message : 'Failed to save settings';
         }
     }
@@ -216,17 +289,19 @@
 <div class="photos-container">
     <header>
         <h1>My Photos</h1>
-        <button class="settings-button" on:click={() => showSettings = !showSettings}>
-            <Settings size={20} />
-            Settings
-        </button>
+        {#if TAURI}
+            <button class="settings-button" on:click={() => showSettings = !showSettings}>
+                <Settings size={20} />
+                Settings
+            </button>
+        {/if}
     </header>
     
     {#if error}
         <div class="error-message">{error}</div>
     {/if}
     
-    {#if showSettings}
+    {#if TAURI && showSettings}
         <div class="settings-panel">
             <h2>Auto-Upload Settings</h2>
             <div class="form-group">
@@ -246,7 +321,6 @@
                         placeholder="Enter folder path"
                     />
                     <p class="help-text">
-                        This setting is primarily for desktop and mobile apps. 
                         The app will monitor this folder and automatically upload new photos.
                     </p>
                 </div>
@@ -260,51 +334,34 @@
     {/if}
     
     <div class="upload-section" data-testid="upload-section">
-        <h2>Upload New Photo</h2>
+        <h2>Upload Photos</h2>
         <form on:submit|preventDefault={handleUpload} data-testid="upload-form">
             <div class="form-group">
-                <label for="photo-file">Select photo:</label>
+                <label for="photo-file">Select photos:</label>
                 <input 
                     type="file" 
                     id="photo-file" 
                     accept="image/*" 
+                    multiple
                     data-testid="photo-file-input"
-                    on:change={(e) => uploadFile = (e.target as HTMLInputElement).files?.[0] || null} 
+                    on:change={(e) => {
+                        const files = (e.target as HTMLInputElement).files;
+                        uploadFiles = files ? Array.from(files) : [];
+                    }} 
                     required
                 />
             </div>
             
             <div class="form-group">
                 <label for="description">Description (optional):</label>
-                {#if expandDescription}
-                    <textarea 
-                        id="description" 
-                        bind:value={description} 
-                        placeholder="Enter a description for this photo"
-                        rows="3"
-                    ></textarea>
-                    <button 
-                        type="button" 
-                        class="expand-button" 
-                        on:click={() => expandDescription = false}
-                    >
-                        Collapse
-                    </button>
-                {:else}
-                    <input 
-                        type="text" 
-                        id="description" 
-                        bind:value={description} 
-                        placeholder="Enter a description for this photo"
-                    />
-                    <button 
-                        type="button" 
-                        class="expand-button" 
-                        on:click={() => expandDescription = true}
-                    >
-                        Expand
-                    </button>
-                {/if}
+                <textarea 
+                    id="description" 
+                    bind:value={description} 
+                    placeholder="Optional description for this photo"
+                    rows="1"
+                    class="auto-resize-textarea"
+                    on:input={autoResizeTextarea}
+                ></textarea>
             </div>
             
             <div class="form-group">
@@ -314,14 +371,33 @@
                 </label>
             </div>
             
+            {#if uploadFiles.length > 0}
+                <div class="selected-files">
+                    <p>Selected files: {uploadFiles.length}</p>
+                    <ul class="file-list">
+                        {#each uploadFiles as file}
+                            <li class="file-item">{file.name}</li>
+                        {/each}
+                    </ul>
+                </div>
+            {/if}
+            
             <button 
                 type="submit" 
                 class="primary-button" 
                 data-testid="upload-submit-button"
-                disabled={!uploadFile || isUploading}
+                disabled={!uploadFiles.length || isUploading}
             >
                 <Upload size={20} />
-                {isUploading ? 'Uploading...' : 'Upload Photo'}
+                {#if isUploading}
+                    Uploading... ({uploadProgress}%)
+                {:else if uploadFiles.length > 1}
+                    Upload {uploadFiles.length} Photos
+                {:else if uploadFiles.length === 1}
+                    Upload Photo
+                {:else}
+                    Select Photos
+                {/if}
             </button>
             
             {#if isUploading}
@@ -332,6 +408,20 @@
             {/if}
         </form>
     </div>
+    
+    {#if activityLog.length > 0}
+        <div class="activity-log">
+            <h2>Recent Activity</h2>
+            <div class="log-entries">
+                {#each activityLog as entry (entry.timestamp)}
+                    <div class="log-entry log-{entry.type}">
+                        <span class="log-time">{formatLogTime(entry.timestamp)}</span>
+                        <span class="log-message">{entry.message}</span>
+                    </div>
+                {/each}
+            </div>
+        </div>
+    {/if}
     
     <div class="photos-grid" data-testid="photos-grid">
         <h2>My Photos ({photos.length})</h2>
@@ -346,16 +436,16 @@
         {:else}
             <div class="grid" data-testid="photos-list">
                 {#each photos as photo (photo.id)}
-                    <div class="photo-card" data-testid="photo-card" data-photo-id={photo.id} data-filename={photo.filename}>
+                    <div class="photo-card" data-testid="photo-card" data-photo-id={photo.id} data-filename={photo.original_filename}>
                         <div class="photo-image">
                             <img 
                                 src={photo.thumbnail_url || `http://localhost:8089/api/photos/${photo.id}/thumbnail`} 
-                                alt={photo.description || photo.filename}
+                                alt={photo.description || photo.original_filename}
                                 data-testid="photo-thumbnail"
                             />
                         </div>
                         <div class="photo-info">
-                            <h3 data-testid="photo-filename">{photo.filename}</h3>
+                            <h3 data-testid="photo-filename">{photo.original_filename}</h3>
                             {#if photo.description}
                                 <p class="description">{photo.description}</p>
                             {/if}
@@ -455,19 +545,40 @@
         margin-bottom: 16px;
     }
     
-    .expand-button {
-        margin-top: 8px;
-        padding: 4px 8px;
-        font-size: 12px;
-        background-color: #f0f0f0;
-        border: 1px solid #ccc;
-        border-radius: 4px;
-        cursor: pointer;
-        transition: background-color 0.3s;
+    .auto-resize-textarea {
+        resize: none;
+        min-height: 40px;
+        overflow: hidden;
+        transition: height 0.2s ease;
     }
     
-    .expand-button:hover {
-        background-color: #e0e0e0;
+    .selected-files {
+        margin-bottom: 16px;
+        padding: 12px;
+        background-color: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 4px;
+    }
+    
+    .selected-files p {
+        margin: 0 0 8px 0;
+        font-weight: 500;
+        color: #374151;
+    }
+    
+    .file-list {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        max-height: 120px;
+        overflow-y: auto;
+    }
+    
+    .file-item {
+        padding: 4px 0;
+        font-size: 14px;
+        color: #6b7280;
+        word-break: break-all;
     }
     
     label {
@@ -554,6 +665,72 @@
         margin-top: 8px;
         font-size: 14px;
         color: #666;
+    }
+    
+    .activity-log {
+        background-color: white;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        padding: 24px;
+        margin-bottom: 32px;
+    }
+    
+    .activity-log h2 {
+        margin-top: 0;
+        margin-bottom: 16px;
+        color: #444;
+        font-size: 18px;
+    }
+    
+    .log-entries {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+    
+    .log-entry {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 8px 12px;
+        border-radius: 4px;
+        font-size: 14px;
+        border-left: 4px solid;
+    }
+    
+    .log-entry.log-success {
+        background-color: #f0f9ff;
+        border-left-color: #10b981;
+        color: #064e3b;
+    }
+    
+    .log-entry.log-warning {
+        background-color: #fffbeb;
+        border-left-color: #f59e0b;
+        color: #92400e;
+    }
+    
+    .log-entry.log-error {
+        background-color: #fef2f2;
+        border-left-color: #ef4444;
+        color: #991b1b;
+    }
+    
+    .log-entry.log-info {
+        background-color: #f8fafc;
+        border-left-color: #6b7280;
+        color: #374151;
+    }
+    
+    .log-time {
+        font-family: monospace;
+        font-size: 12px;
+        opacity: 0.7;
+        min-width: 80px;
+    }
+    
+    .log-message {
+        flex: 1;
     }
     
     .photos-grid {

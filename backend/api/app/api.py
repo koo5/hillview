@@ -54,7 +54,16 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         
         return response
 
-# Add security headers middleware
+# Request logging middleware
+class RequestLoggingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        log.error(f"DEBUG: Request {request.method} {request.url}")
+        response = await call_next(request)
+        log.error(f"DEBUG: Response {response.status_code}")
+        return response
+
+# Add middlewares
+app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 
 # Add exception handlers
@@ -115,23 +124,38 @@ def run_migrations():
 # Initialize database
 @app.on_event("startup")
 async def startup():
-    # Run database migrations first
-    try:
-        run_migrations()
-        log.info("Database migrations completed successfully")
-    except Exception as e:
-        log.error(f"Error running migrations: {e}")
-        # Fallback to create_all for backward compatibility
-        log.info("Falling back to create_all")
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+    log.error("DEBUG: Starting startup function")
+    # Skip migrations for now to test if they're causing the hang
+    log.error("DEBUG: Skipping migrations temporarily")
     
+    log.error("DEBUG: About to check USER_ACCOUNTS")
     # Create test users if enabled
     if USER_ACCOUNTS:
-        from .auth import ensure_test_users
-        await ensure_test_users()
+        log.error("DEBUG: USER_ACCOUNTS is enabled, creating test users")
+        try:
+            from .auth import ensure_test_users
+            await ensure_test_users()
+            log.error("DEBUG: Test users created successfully")
+        except Exception as e:
+            log.error(f"DEBUG: Error creating test users: {e}")
+    
+    log.error("DEBUG: Startup function completed")
 
 @app.get("/api/debug")
 async def debug_endpoint():
     """Debug endpoint to check if the API is working properly"""
     return {"status": "ok", "message": "API is working properly"}
+
+@app.post("/api/debug/recreate-test-users")
+async def recreate_test_users():
+    """Debug endpoint to delete and recreate test users"""
+    if not USER_ACCOUNTS:
+        return {"error": "User accounts are not enabled"}
+    
+    try:
+        from .auth import ensure_test_users
+        result = await ensure_test_users()
+        return {"status": "success", "message": "Test users recreated", "details": result}
+    except Exception as e:
+        log.error(f"Error recreating test users: {e}")
+        return {"status": "error", "message": str(e)}

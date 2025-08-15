@@ -329,13 +329,51 @@ def require_moderator():
     
     return moderator_checker
 
-async def recreate_test_users(db: AsyncSession) -> dict:
-    """Recreate test users with fresh passwords. Returns summary of actions taken."""
+async def delete_users_by_usernames(db: AsyncSession, usernames: list[str]) -> dict:
+    """Delete users by usernames, including their owned photos. Returns summary of deletions."""
     from sqlalchemy import delete, select
     from common.models import Photo
     
-    # Hardcoded test users with roles
+    summary = {
+        "photos_deleted": 0,
+        "users_deleted": 0
+    }
+    
+    try:
+        # First, get user IDs for the specified usernames
+        user_ids_query = select(User.id).where(User.username.in_(usernames))
+        user_ids_result = await db.execute(user_ids_query)
+        user_ids = [row[0] for row in user_ids_result.fetchall()]
+        
+        if user_ids:
+            # Delete photos owned by these users
+            photo_delete_stmt = delete(Photo).where(Photo.owner_id.in_(user_ids))
+            photo_result = await db.execute(photo_delete_stmt)
+            summary["photos_deleted"] = photo_result.rowcount
+            if photo_result.rowcount > 0:
+                logger.info(f"Deleted {photo_result.rowcount} photos owned by users: {usernames}")
+        
+        # Delete the users
+        user_delete_stmt = delete(User).where(User.username.in_(usernames))
+        user_result = await db.execute(user_delete_stmt)
+        summary["users_deleted"] = user_result.rowcount
+        if user_result.rowcount > 0:
+            logger.info(f"Deleted {user_result.rowcount} users: {usernames}")
+        
+        await db.commit()
+        return summary
+        
+    except Exception as e:
+        logger.error(f"Error deleting users {usernames}: {str(e)}")
+        await db.rollback()
+        raise
+
+
+async def recreate_test_users(db: AsyncSession) -> dict:
+    """Recreate test users with fresh passwords. Returns summary of actions taken."""
     from common.models import UserRole
+    
+    # Hardcoded test users with roles
     test_user_data = [
         ("test", "test123", UserRole.USER),
         ("admin", "admin123", UserRole.ADMIN)
@@ -351,25 +389,10 @@ async def recreate_test_users(db: AsyncSession) -> dict:
     try:
         test_usernames = [username for username, _, _ in test_user_data]
         
-        # First, get test user IDs
-        user_ids_query = select(User.id).where(User.username.in_(test_usernames))
-        user_ids_result = await db.execute(user_ids_query)
-        user_ids = [row[0] for row in user_ids_result.fetchall()]
-        
-        if user_ids:
-            # Delete photos owned by test users
-            photo_delete_stmt = delete(Photo).where(Photo.owner_id.in_(user_ids))
-            photo_result = await db.execute(photo_delete_stmt)
-            summary["photos_deleted"] = photo_result.rowcount
-            if photo_result.rowcount > 0:
-                logger.info(f"Deleted {photo_result.rowcount} photos owned by test users")
-        
-        # Delete the test users
-        user_delete_stmt = delete(User).where(User.username.in_(test_usernames))
-        user_result = await db.execute(user_delete_stmt)
-        summary["users_deleted"] = user_result.rowcount
-        if user_result.rowcount > 0:
-            logger.info(f"Deleted {user_result.rowcount} existing test users")
+        # Delete existing test users and their photos
+        delete_summary = await delete_users_by_usernames(db, test_usernames)
+        summary["photos_deleted"] = delete_summary["photos_deleted"]
+        summary["users_deleted"] = delete_summary["users_deleted"]
         
         # Create fresh test users
         for username, password, role in test_user_data:

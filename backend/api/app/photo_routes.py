@@ -41,6 +41,7 @@ async def upload_photo(
     db: AsyncSession = Depends(get_db)
 ):
     """Upload a photo with security validation and immediate database record creation."""
+    logger.error(f"DEBUG: Upload request received for user {current_user.id}: {file.filename}")
     try:
         # Get file size
         file.file.seek(0, 2)  # Seek to end
@@ -78,10 +79,34 @@ async def upload_photo(
                 detail="Invalid image file content"
             )
         
+        # Check if photo with same original_filename already exists for this user
+        original_filename = file.filename or "unknown.jpg"
+        existing_result = await db.execute(
+            select(Photo).where(
+                Photo.owner_id == str(current_user.id),
+                Photo.original_filename == original_filename
+            )
+        )
+        existing_photo = existing_result.scalars().first()
+        
+        if existing_photo:
+            logger.info(f"Photo with original filename '{original_filename}' already exists for user {current_user.id}. Skipping upload.")
+            # Remove the newly uploaded file since we're skipping
+            os.remove(file_path)
+            return {
+                "message": "Photo with this filename already exists - skipped",
+                "photo_id": existing_photo.id,
+                "filename": existing_photo.filename,
+                "original_filename": existing_photo.original_filename,
+                "processing_status": existing_photo.processing_status,
+                "skipped": True
+            }
+        
         # Create database record immediately with pending status
+        logger.error(f"DEBUG: Creating photo record: secure_filename={secure_filename}, original_filename={original_filename}")
         photo = Photo(
             filename=secure_filename,  # Secure filename for storage
-            original_filename=safe_filename,  # Original filename for display
+            original_filename=original_filename,  # Original filename for display
             filepath=str(file_path),
             description=description,
             is_public=is_public,
@@ -109,7 +134,7 @@ async def upload_photo(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error uploading photo: {str(e)}")
+        logger.error(f"Error uploading photo: {str(e)}", exc_info=True)
         # Clean up file if it was saved
         if 'file_path' in locals() and os.path.exists(file_path):
             try:
@@ -146,6 +171,7 @@ async def list_photos(
         return [{
             "id": photo.id,
             "filename": photo.filename,
+            "original_filename": photo.original_filename,
             "description": photo.description,
             "is_public": photo.is_public,
             "latitude": photo.latitude,
@@ -189,6 +215,7 @@ async def get_photo(
         return {
             "id": photo.id,
             "filename": photo.filename,
+            "original_filename": photo.original_filename,
             "filepath": photo.filepath,
             "description": photo.description,
             "is_public": photo.is_public,

@@ -15,6 +15,13 @@ test.describe('User Photos Workflow', () => {
   ];
 
   test.beforeEach(async ({ page }) => {
+    // Clean up test users and photos before each test
+    const response = await fetch('http://localhost:8055/api/debug/recreate-test-users', {
+      method: 'POST'
+    });
+    const result = await response.json();
+    console.log('Test cleanup result:', result);
+    
     // Login with test user before each test
     await page.goto('/login');
     await page.waitForLoadState('networkidle');
@@ -142,15 +149,16 @@ test.describe('User Photos Workflow', () => {
       if (await photoCard.isVisible()) {
         console.log(`Deleting photo: ${photoName}`);
         
-        // Click delete button for this specific photo
-        const deleteButton = photoCard.locator('[data-testid="delete-photo-button"]');
-        await deleteButton.click();
-        
-        // Handle confirmation dialog
+        // Set up dialog handler before clicking
         page.once('dialog', dialog => {
+          console.log(`Dialog message: ${dialog.message()}`);
           expect(dialog.message()).toContain('Are you sure you want to delete this photo?');
           dialog.accept();
         });
+        
+        // Click delete button for this specific photo
+        const deleteButton = photoCard.locator('[data-testid="delete-photo-button"]');
+        await deleteButton.click();
         
         // Wait for deletion to complete
         await page.waitForTimeout(1000);
