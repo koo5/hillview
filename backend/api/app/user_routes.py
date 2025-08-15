@@ -313,3 +313,6 @@ async def update_user_settings(
     await db.commit()
     await db.refresh(current_user)
     return current_user
+
+# TODO: Admin endpoints temporarily disabled until role system is working
+# Will be re-enabled after database migration and proper role handling

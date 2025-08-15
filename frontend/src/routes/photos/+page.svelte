@@ -250,15 +250,16 @@
         </div>
     {/if}
     
-    <div class="upload-section">
+    <div class="upload-section" data-testid="upload-section">
         <h2>Upload New Photo</h2>
-        <form on:submit|preventDefault={handleUpload}>
+        <form on:submit|preventDefault={handleUpload} data-testid="upload-form">
             <div class="form-group">
                 <label for="photo-file">Select photo:</label>
                 <input 
                     type="file" 
                     id="photo-file" 
                     accept="image/*" 
+                    data-testid="photo-file-input"
                     on:change={(e) => uploadFile = (e.target as HTMLInputElement).files?.[0] || null} 
                     required
                 />
@@ -283,6 +284,7 @@
             <button 
                 type="submit" 
                 class="primary-button" 
+                data-testid="upload-submit-button"
                 disabled={isUploading || !uploadFile}
             >
                 <Upload size={20} />
@@ -298,28 +300,29 @@
         </form>
     </div>
     
-    <div class="photos-grid">
+    <div class="photos-grid" data-testid="photos-grid">
         <h2>My Photos ({photos.length})</h2>
         
         {#if isLoading}
-            <div class="loading-container">
+            <div class="loading-container" data-testid="loading-container">
                 <Spinner />
                 <p>Loading your photos...</p>
             </div>
         {:else if photos.length === 0}
-            <p class="no-photos">You haven't uploaded any photos yet.</p>
+            <p class="no-photos" data-testid="no-photos-message">You haven't uploaded any photos yet.</p>
         {:else}
-            <div class="grid">
+            <div class="grid" data-testid="photos-list">
                 {#each photos as photo (photo.id)}
-                    <div class="photo-card">
+                    <div class="photo-card" data-testid="photo-card" data-photo-id={photo.id} data-filename={photo.filename}>
                         <div class="photo-image">
                             <img 
                                 src={photo.thumbnail_url || `http://localhost:8089/api/photos/${photo.id}/thumbnail`} 
-                                alt={photo.description || photo.filename} 
+                                alt={photo.description || photo.filename}
+                                data-testid="photo-thumbnail"
                             />
                         </div>
                         <div class="photo-info">
-                            <h3>{photo.filename}</h3>
+                            <h3 data-testid="photo-filename">{photo.filename}</h3>
                             {#if photo.description}
                                 <p class="description">{photo.description}</p>
                             {/if}
@@ -334,7 +337,7 @@
                                         View on Map
                                     </button>
                                 {/if}
-                                <button class="action-button delete" on:click={() => deletePhoto(photo.id)}>
+                                <button class="action-button delete" data-testid="delete-photo-button" data-photo-id={photo.id} on:click={() => deletePhoto(photo.id)}>
                                     <Trash2 size={16} />
                                     Delete
                                 </button>

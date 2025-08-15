@@ -94,12 +94,37 @@ app.include_router(mapillary_router)
 from .hillview_routes import router as hillview_router
 app.include_router(hillview_router)
 
+# Database migration function
+def run_migrations():
+    """Run Alembic migrations on startup"""
+    from alembic.config import Config
+    from alembic import command
+    import os
+    
+    alembic_cfg = Config("/app/alembic.ini")
+    # Set the database URL from environment variable
+    database_url = os.getenv('DATABASE_URL', 'postgresql://hillview:hillview@postgres:5432/hillview')
+    # Convert asyncpg to psycopg2 for Alembic
+    if database_url.startswith('postgresql+asyncpg://'):
+        database_url = database_url.replace('postgresql+asyncpg://', 'postgresql://')
+    alembic_cfg.set_main_option('sqlalchemy.url', database_url)
+    
+    # Run migrations
+    command.upgrade(alembic_cfg, "head")
+
 # Initialize database
 @app.on_event("startup")
 async def startup():
-    async with engine.begin() as conn:
-        # Create tables on startup
-        await conn.run_sync(Base.metadata.create_all)
+    # Run database migrations first
+    try:
+        run_migrations()
+        log.info("Database migrations completed successfully")
+    except Exception as e:
+        log.error(f"Error running migrations: {e}")
+        # Fallback to create_all for backward compatibility
+        log.info("Falling back to create_all")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
     
     # Create test users if enabled
     if USER_ACCOUNTS:

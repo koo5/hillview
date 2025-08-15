@@ -1,9 +1,15 @@
-from sqlalchemy import Boolean, Column, ForeignKey, Integer, String, Float, DateTime, Text, JSON
+from sqlalchemy import Boolean, Column, ForeignKey, Integer, String, Float, DateTime, Text, JSON, Enum
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from geoalchemy2 import Geometry
 from .database import Base
 import uuid
+import enum
+
+class UserRole(enum.Enum):
+    USER = "user"
+    ADMIN = "admin"
+    MODERATOR = "moderator"
 
 def generate_uuid():
     return str(uuid.uuid4())
@@ -17,6 +23,7 @@ class User(Base):
     hashed_password = Column(String, nullable=True)
     is_active = Column(Boolean, default=True)
     is_verified = Column(Boolean, default=False)
+    role = Column(Enum(UserRole), default=UserRole.USER)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     

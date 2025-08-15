@@ -5,3 +5,6 @@ RUN pip install --no-cache-dir --upgrade -r /app/requirements.txt
 # Copy common directory
 COPY common /app/common
 
+# Copy API app directory
+COPY api/app /app/app
+

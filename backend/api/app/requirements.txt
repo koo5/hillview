@@ -24,3 +24,7 @@ httpx[http2]==0.27.0
 
 # NumPy constraint for shapely compatibility
 numpy<2
+
+# Database migrations
+alembic==1.13.1
+psycopg2-binary==2.9.9

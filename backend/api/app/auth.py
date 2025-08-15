@@ -281,46 +281,129 @@ async def get_current_active_user(current_user: User = Depends(get_current_user)
         raise HTTPException(status_code=400, detail="Inactive user")
     return current_user
 
+def require_role(required_role: str):
+    """Dependency factory for role-based access control."""
+    async def role_checker(current_user: User = Depends(get_current_active_user)):
+        from common.models import UserRole
+        
+        # Convert string to enum if needed
+        if isinstance(required_role, str):
+            try:
+                required_role_enum = UserRole(required_role)
+            except ValueError:
+                raise HTTPException(status_code=400, detail=f"Invalid role: {required_role}")
+        else:
+            required_role_enum = required_role
+        
+        # Check if user has the required role
+        if current_user.role != required_role_enum:
+            # Allow admin to access all endpoints
+            if current_user.role != UserRole.ADMIN:
+                raise HTTPException(
+                    status_code=403, 
+                    detail=f"Access denied. Required role: {required_role_enum.value}, your role: {current_user.role.value}"
+                )
+        
+        return current_user
+    
+    return role_checker
+
+# Convenience functions for common roles
+def require_admin():
+    """Require admin role."""
+    from common.models import UserRole
+    return require_role(UserRole.ADMIN)
+
+def require_moderator():
+    """Require moderator role (admins also have access)."""
+    async def moderator_checker(current_user: User = Depends(get_current_active_user)):
+        from common.models import UserRole
+        
+        if current_user.role not in [UserRole.ADMIN, UserRole.MODERATOR]:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Access denied. Required role: moderator or admin, your role: {current_user.role.value}"
+            )
+        
+        return current_user
+    
+    return moderator_checker
+
+async def recreate_test_users(db: AsyncSession) -> dict:
+    """Recreate test users with fresh passwords. Returns summary of actions taken."""
+    from sqlalchemy import delete, select
+    from common.models import Photo
+    
+    # Hardcoded test users with roles
+    from common.models import UserRole
+    test_user_data = [
+        ("test", "test123", UserRole.USER),
+        ("admin", "admin123", UserRole.ADMIN)
+    ]
+    
+    summary = {
+        "photos_deleted": 0,
+        "users_deleted": 0,
+        "users_created": 0,
+        "created_users": []
+    }
+    
+    try:
+        test_usernames = [username for username, _, _ in test_user_data]
+        
+        # First, get test user IDs
+        user_ids_query = select(User.id).where(User.username.in_(test_usernames))
+        user_ids_result = await db.execute(user_ids_query)
+        user_ids = [row[0] for row in user_ids_result.fetchall()]
+        
+        if user_ids:
+            # Delete photos owned by test users
+            photo_delete_stmt = delete(Photo).where(Photo.owner_id.in_(user_ids))
+            photo_result = await db.execute(photo_delete_stmt)
+            summary["photos_deleted"] = photo_result.rowcount
+            if photo_result.rowcount > 0:
+                logger.info(f"Deleted {photo_result.rowcount} photos owned by test users")
+        
+        # Delete the test users
+        user_delete_stmt = delete(User).where(User.username.in_(test_usernames))
+        user_result = await db.execute(user_delete_stmt)
+        summary["users_deleted"] = user_result.rowcount
+        if user_result.rowcount > 0:
+            logger.info(f"Deleted {user_result.rowcount} existing test users")
+        
+        # Create fresh test users
+        for username, password, role in test_user_data:
+            hashed_password = get_password_hash(password)
+            logger.info(f"Creating test user {username} with role {role.value} and password hash: {hashed_password[:50]}...")
+            new_user = User(
+                username=username,
+                email=f"{username}@test.local",
+                hashed_password=hashed_password,
+                role=role,
+                is_active=True
+            )
+            
+            db.add(new_user)
+            summary["created_users"].append(username)
+            summary["users_created"] += 1
+            
+        await db.commit()
+        logger.info(f"Created {len(test_user_data)} fresh test users")
+        
+        return summary
+            
+    except Exception as e:
+        logger.error(f"Error recreating test users: {str(e)}")
+        await db.rollback()
+        raise
+
 async def ensure_test_users() -> None:
     """Create test users if TEST_USERS is enabled. Delete and recreate if they exist."""
     if not TEST_USERS:
         return
     
     from common.database import SessionLocal
-    from sqlalchemy import delete
-    
-    # Hardcoded test users
-    test_user_data = [
-        ("test", "test123"),
-        ("admin", "admin123")
-    ]
     
     async with SessionLocal() as db:
-        try:
-            # Delete existing test users first
-            test_usernames = [username for username, _ in test_user_data]
-            delete_stmt = delete(User).where(User.username.in_(test_usernames))
-            result = await db.execute(delete_stmt)
-            if result.rowcount > 0:
-                logger.info(f"Deleted {result.rowcount} existing test users")
-            
-            # Create fresh test users
-            for username, password in test_user_data:
-                hashed_password = get_password_hash(password)
-                logger.info(f"Creating test user {username} with password hash: {hashed_password[:50]}...")
-                new_user = User(
-                    username=username,
-                    email=f"{username}@test.local",
-                    hashed_password=hashed_password,
-                    is_active=True
-                )
-                
-                db.add(new_user)
-                
-            await db.commit()
-            logger.info(f"Created {len(test_user_data)} fresh test users")
-                
-        except Exception as e:
-            logger.error(f"Error creating test users: {str(e)}")
-            await db.rollback()
-            raise
+        summary = await recreate_test_users(db)
+        logger.info(f"Test users recreation complete: {summary}")
