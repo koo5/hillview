@@ -57,4 +57,49 @@ impl<R: Runtime> Hillview<R> {
       .run_mobile_plugin("updateSensorLocation", location)
       .map_err(Into::into)
   }
+  
+  pub fn set_auto_upload_enabled(&self, enabled: bool) -> crate::Result<AutoUploadResponse> {
+    #[derive(serde::Serialize)]
+    struct Args {
+      enabled: bool,
+    }
+    
+    self
+      .0
+      .run_mobile_plugin("setAutoUploadEnabled", Args { enabled })
+      .map_err(Into::into)
+  }
+  
+  pub fn get_upload_status(&self) -> crate::Result<UploadStatusResponse> {
+    self
+      .0
+      .run_mobile_plugin("getUploadStatus", ())
+      .map_err(Into::into)
+  }
+  
+  pub fn set_upload_config(&self, config: UploadConfig) -> crate::Result<BasicResponse> {
+    self
+      .0
+      .run_mobile_plugin("setUploadConfig", config)
+      .map_err(Into::into)
+  }
+  
+  pub fn upload_photo(&self, photo_id: String) -> crate::Result<PhotoUploadResponse> {
+    #[derive(serde::Serialize)]
+    struct Args {
+      photo_id: String,
+    }
+    
+    self
+      .0
+      .run_mobile_plugin("uploadPhoto", Args { photo_id })
+      .map_err(Into::into)
+  }
+  
+  pub fn retry_failed_uploads(&self) -> crate::Result<BasicResponse> {
+    self
+      .0
+      .run_mobile_plugin("retryFailedUploads", ())
+      .map_err(Into::into)
+  }
 }

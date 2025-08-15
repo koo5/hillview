@@ -198,13 +198,14 @@ export class OptimizedMarkerSystem {
   private returnMarkersToPool(): void {
     if (!this.options.enablePooling) {
       // If not pooling, just remove markers
-      this.activeMarkers.forEach(marker => marker.remove());
+      this.activeMarkers.forEach(marker => marker && marker.remove());
       this.activeMarkers = [];
       return;
     }
 
     // Move active markers back to pool
     this.activeMarkers.forEach(marker => {
+      if (!marker) return;
       marker.remove();
       
       // Clean up marker state
@@ -249,7 +250,7 @@ export class OptimizedMarkerSystem {
    */
   destroy(): void {
     this.returnMarkersToPool();
-    this.markerPool.forEach(marker => marker.remove());
+    this.markerPool.forEach(marker => marker && marker.remove());
     this.markerPool = [];
   }
 

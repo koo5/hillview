@@ -1,6 +1,7 @@
 plugins {
     id("com.android.library")
     id("org.jetbrains.kotlin.android")
+    id("kotlin-kapt")
 }
 
 android {
@@ -40,6 +41,23 @@ dependencies {
     
     // Google Play Services for Fused Location Provider
     implementation("com.google.android.gms:play-services-location:21.0.1")
+    
+    // Room database
+    implementation("androidx.room:room-runtime:2.5.0")
+    implementation("androidx.room:room-ktx:2.5.0")
+    kapt("androidx.room:room-compiler:2.5.0")
+    
+    // WorkManager for background tasks
+    implementation("androidx.work:work-runtime-ktx:2.8.1")
+    
+    // HTTP client for uploads
+    implementation("com.squareup.okhttp3:okhttp:4.11.0")
+    
+    // Coroutines
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.6.4")
+    
+    // ExifInterface for EXIF data extraction
+    implementation("androidx.exifinterface:exifinterface:1.3.6")
     
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")

@@ -35,6 +35,9 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
 REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
 
+# Test users configuration
+TEST_USERS = os.getenv("TEST_USERS", "false").lower() in ("true", "1", "yes")
+
 # OAuth2 configuration
 OAUTH_PROVIDERS = {
     "google": {
@@ -161,7 +164,11 @@ async def authenticate_user(db: AsyncSession, username: str, password: str):
         logger.warning(f"Authentication failed: User is disabled: {username}")
         return False
     
+    logger.debug(f"Verifying password for user {username}")
+    logger.debug(f"Stored hash: {user.hashed_password[:50]}...")
+    logger.debug(f"Password to verify: {password}")
     password_valid = verify_password(password, user.hashed_password)
+    logger.debug(f"Password verification result: {password_valid}")
     if not password_valid:
         logger.warning(f"Authentication failed: Invalid password for user: {username}")
         return False
@@ -273,3 +280,47 @@ async def get_current_active_user(current_user: User = Depends(get_current_user)
     if not current_user.is_active:
         raise HTTPException(status_code=400, detail="Inactive user")
     return current_user
+
+async def ensure_test_users() -> None:
+    """Create test users if TEST_USERS is enabled. Delete and recreate if they exist."""
+    if not TEST_USERS:
+        return
+    
+    from common.database import SessionLocal
+    from sqlalchemy import delete
+    
+    # Hardcoded test users
+    test_user_data = [
+        ("test", "test123"),
+        ("admin", "admin123")
+    ]
+    
+    async with SessionLocal() as db:
+        try:
+            # Delete existing test users first
+            test_usernames = [username for username, _ in test_user_data]
+            delete_stmt = delete(User).where(User.username.in_(test_usernames))
+            result = await db.execute(delete_stmt)
+            if result.rowcount > 0:
+                logger.info(f"Deleted {result.rowcount} existing test users")
+            
+            # Create fresh test users
+            for username, password in test_user_data:
+                hashed_password = get_password_hash(password)
+                logger.info(f"Creating test user {username} with password hash: {hashed_password[:50]}...")
+                new_user = User(
+                    username=username,
+                    email=f"{username}@test.local",
+                    hashed_password=hashed_password,
+                    is_active=True
+                )
+                
+                db.add(new_user)
+                
+            await db.commit()
+            logger.info(f"Created {len(test_user_data)} fresh test users")
+                
+        except Exception as e:
+            logger.error(f"Error creating test users: {str(e)}")
+            await db.rollback()
+            raise

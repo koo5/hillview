@@ -1,13 +1,19 @@
 package io.github.koo5.hillview.plugin
 
 import android.app.Activity
+import android.content.Context
 import android.util.Log
+import androidx.work.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 import app.tauri.plugin.Invoke
+import java.util.concurrent.TimeUnit
 
 @InvokeArg
 class PingArgs {
@@ -25,6 +31,22 @@ class SensorModeArgs {
   var mode: Int? = null
 }
 
+@InvokeArg
+class AutoUploadArgs {
+  var enabled: Boolean = false
+}
+
+@InvokeArg
+class UploadConfigArgs {
+  var serverUrl: String? = null
+  var authToken: String? = null
+}
+
+@InvokeArg
+class PhotoUploadArgs {
+  var photoId: String? = null
+}
+
 @TauriPlugin
 class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     companion object {
@@ -34,9 +56,13 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     
     private var sensorService: EnhancedSensorService? = null
     private var preciseLocationService: PreciseLocationService? = null
+    private lateinit var uploadManager: UploadManager
+    private lateinit var database: PhotoDatabase
     
     init {
         pluginInstance = this
+        uploadManager = UploadManager(activity)
+        database = PhotoDatabase.getDatabase(activity)
     }
     
     @Command
@@ -174,5 +200,231 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         
         // Start location updates automatically
         preciseLocationService?.startLocationUpdates()
+    }
+    
+    @Command
+    fun setAutoUploadEnabled(invoke: Invoke) {
+        try {
+            val args = invoke.parseArgs(AutoUploadArgs::class.java)
+            val enabled = args?.enabled ?: false
+            
+            Log.d(TAG, "📤 Setting auto upload enabled: $enabled")
+            
+            // Update shared preferences
+            val prefs = activity.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
+            prefs.edit().putBoolean("auto_upload_enabled", enabled).apply()
+            
+            // Schedule or cancel the upload worker
+            val workManager = WorkManager.getInstance(activity)
+            
+            if (enabled) {
+                scheduleUploadWorker(workManager, enabled)
+                Log.d(TAG, "📤 Auto upload worker scheduled")
+            } else {
+                workManager.cancelUniqueWork(PhotoUploadWorker.WORK_NAME)
+                Log.d(TAG, "📤 Auto upload worker cancelled")
+            }
+            
+            val result = JSObject()
+            result.put("success", true)
+            result.put("enabled", enabled)
+            invoke.resolve(result)
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "📤 Error setting auto upload enabled", e)
+            val error = JSObject()
+            error.put("success", false)
+            error.put("error", e.message)
+            invoke.resolve(error)
+        }
+    }
+    
+    @Command
+    fun getUploadStatus(invoke: Invoke) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val photoDao = database.photoDao()
+                val pendingCount = photoDao.getPendingUploadCount()
+                val failedCount = photoDao.getFailedUploadCount()
+                
+                val prefs = activity.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
+                val autoUploadEnabled = prefs.getBoolean("auto_upload_enabled", false)
+                
+                val result = JSObject()
+                result.put("autoUploadEnabled", autoUploadEnabled)
+                result.put("pendingUploads", pendingCount)
+                result.put("failedUploads", failedCount)
+                
+                CoroutineScope(Dispatchers.Main).launch {
+                    invoke.resolve(result)
+                }
+                
+            } catch (e: Exception) {
+                Log.e(TAG, "📤 Error getting upload status", e)
+                CoroutineScope(Dispatchers.Main).launch {
+                    val error = JSObject()
+                    error.put("error", e.message)
+                    invoke.resolve(error)
+                }
+            }
+        }
+    }
+    
+    @Command
+    fun setUploadConfig(invoke: Invoke) {
+        try {
+            val args = invoke.parseArgs(UploadConfigArgs::class.java)
+            
+            args?.serverUrl?.let { uploadManager.setServerUrl(it) }
+            args?.authToken?.let { uploadManager.setAuthToken(it) }
+            
+            Log.d(TAG, "📤 Upload config updated")
+            
+            val result = JSObject()
+            result.put("success", true)
+            invoke.resolve(result)
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "📤 Error setting upload config", e)
+            val error = JSObject()
+            error.put("success", false)
+            error.put("error", e.message)
+            invoke.resolve(error)
+        }
+    }
+    
+    @Command
+    fun uploadPhoto(invoke: Invoke) {
+        try {
+            val args = invoke.parseArgs(PhotoUploadArgs::class.java)
+            val photoId = args?.photoId
+            
+            if (photoId.isNullOrEmpty()) {
+                val error = JSObject()
+                error.put("success", false)
+                error.put("error", "Photo ID is required")
+                invoke.resolve(error)
+                return
+            }
+            
+            Log.d(TAG, "📤 Manual upload requested for photo: $photoId")
+            
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val photoDao = database.photoDao()
+                    val photo = photoDao.getPhotoById(photoId)
+                    
+                    if (photo == null) {
+                        CoroutineScope(Dispatchers.Main).launch {
+                            val error = JSObject()
+                            error.put("success", false)
+                            error.put("error", "Photo not found")
+                            invoke.resolve(error)
+                        }
+                        return@launch
+                    }
+                    
+                    // Update status to uploading
+                    photoDao.updateUploadStatus(photoId, "uploading", null)
+                    
+                    // Attempt upload
+                    val success = uploadManager.uploadPhoto(photo)
+                    
+                    if (success) {
+                        photoDao.updateUploadStatus(photoId, "completed", System.currentTimeMillis())
+                        Log.d(TAG, "📤 Manual upload successful for photo: $photoId")
+                    } else {
+                        photoDao.updateUploadFailure(
+                            photoId,
+                            "failed",
+                            photo.retryCount + 1,
+                            System.currentTimeMillis(),
+                            "Manual upload failed"
+                        )
+                        Log.e(TAG, "📤 Manual upload failed for photo: $photoId")
+                    }
+                    
+                    CoroutineScope(Dispatchers.Main).launch {
+                        val result = JSObject()
+                        result.put("success", success)
+                        result.put("photoId", photoId)
+                        invoke.resolve(result)
+                    }
+                    
+                } catch (e: Exception) {
+                    Log.e(TAG, "📤 Error during manual upload", e)
+                    CoroutineScope(Dispatchers.Main).launch {
+                        val error = JSObject()
+                        error.put("success", false)
+                        error.put("error", e.message)
+                        invoke.resolve(error)
+                    }
+                }
+            }
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "📤 Error parsing upload photo args", e)
+            val error = JSObject()
+            error.put("success", false)
+            error.put("error", e.message)
+            invoke.resolve(error)
+        }
+    }
+    
+    @Command
+    fun retryFailedUploads(invoke: Invoke) {
+        try {
+            Log.d(TAG, "📤 Retrying failed uploads")
+            
+            // Trigger the upload worker immediately
+            val workManager = WorkManager.getInstance(activity)
+            val prefs = activity.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
+            val autoUploadEnabled = prefs.getBoolean("auto_upload_enabled", false)
+            
+            val workRequest = OneTimeWorkRequestBuilder<PhotoUploadWorker>()
+                .setInputData(
+                    Data.Builder()
+                        .putBoolean(PhotoUploadWorker.KEY_AUTO_UPLOAD_ENABLED, autoUploadEnabled)
+                        .build()
+                )
+                .build()
+            
+            workManager.enqueue(workRequest)
+            
+            val result = JSObject()
+            result.put("success", true)
+            invoke.resolve(result)
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "📤 Error retrying failed uploads", e)
+            val error = JSObject()
+            error.put("success", false)
+            error.put("error", e.message)
+            invoke.resolve(error)
+        }
+    }
+    
+    private fun scheduleUploadWorker(workManager: WorkManager, autoUploadEnabled: Boolean) {
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .setRequiresBatteryNotLow(true)
+            .build()
+        
+        val uploadWorkRequest = PeriodicWorkRequestBuilder<PhotoUploadWorker>(
+            15, TimeUnit.MINUTES // Run every 15 minutes
+        )
+            .setConstraints(constraints)
+            .setInputData(
+                Data.Builder()
+                    .putBoolean(PhotoUploadWorker.KEY_AUTO_UPLOAD_ENABLED, autoUploadEnabled)
+                    .build()
+            )
+            .build()
+        
+        workManager.enqueueUniquePeriodicWork(
+            PhotoUploadWorker.WORK_NAME,
+            ExistingPeriodicWorkPolicy.REPLACE,
+            uploadWorkRequest
+        )
     }
 }

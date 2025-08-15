@@ -44,6 +44,7 @@ services:
       - ENABLE_MAPILLARY_CACHE=${ENABLE_MAPILLARY_CACHE:-true}
       - ENABLE_MAPILLARY_LIVE=${ENABLE_MAPILLARY_LIVE:-true}
       - USER_ACCOUNTS=${USER_ACCOUNTS:-true}
+      - TEST_USERS=${TEST_USERS:-false}
     secrets:
       - mapillary_token
     depends_on:

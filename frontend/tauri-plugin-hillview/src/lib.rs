@@ -40,6 +40,11 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
       commands::start_sensor,
       commands::stop_sensor,
       commands::update_sensor_location,
+      commands::set_auto_upload_enabled,
+      commands::get_upload_status,
+      commands::set_upload_config,
+      commands::upload_photo,
+      commands::retry_failed_uploads,
       ])
     .setup(|app, api| {
       #[cfg(mobile)]

@@ -100,6 +100,11 @@ async def startup():
     async with engine.begin() as conn:
         # Create tables on startup
         await conn.run_sync(Base.metadata.create_all)
+    
+    # Create test users if enabled
+    if USER_ACCOUNTS:
+        from .auth import ensure_test_users
+        await ensure_test_users()
 
 @app.get("/api/debug")
 async def debug_endpoint():
