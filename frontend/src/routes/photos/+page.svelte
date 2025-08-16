@@ -20,7 +20,6 @@
     let isUploading = false;
     let uploadProgress = 0;
     let autoUploadEnabled = false;
-    let autoUploadFolder = '';
     let showSettings = false;
     let user: User | null = null;
     let activityLog: Array<{timestamp: Date, message: string, type: 'success' | 'warning' | 'error' | 'info'}> = [];
@@ -53,7 +52,6 @@
             user = value.user;
             if (user) {
                 autoUploadEnabled = user.auto_upload_enabled || false;
-                autoUploadFolder = user.auto_upload_folder || '';
             }
         });
 
@@ -218,9 +216,6 @@
         try {
             const formData = new FormData();
             formData.append('auto_upload_enabled', String(autoUploadEnabled));
-            if (autoUploadFolder) {
-                formData.append('auto_upload_folder', autoUploadFolder);
-            }
             
             const response = await http.put('/auth/settings', formData);
             
@@ -275,29 +270,17 @@
             <h2>Auto-Upload Settings</h2>
             <div class="form-group">
                 <label>
-                    <input type="checkbox" bind:checked={autoUploadEnabled}>
+                    <input type="checkbox" bind:checked={autoUploadEnabled} data-testid="auto-upload-checkbox">
                     Enable auto-upload
                 </label>
+                <p class="help-text">
+                    Automatically upload photos taken with the app's camera to your account.
+                </p>
             </div>
-            
-            {#if autoUploadEnabled}
-                <div class="form-group">
-                    <label for="auto-upload-folder">Auto-upload folder path:</label>
-                    <input 
-                        type="text" 
-                        id="auto-upload-folder" 
-                        bind:value={autoUploadFolder} 
-                        placeholder="Enter folder path"
-                    />
-                    <p class="help-text">
-                        The app will monitor this folder and automatically upload new photos.
-                    </p>
-                </div>
-            {/if}
             
             <div class="button-group">
                 <button class="secondary-button" on:click={() => showSettings = false}>Cancel</button>
-                <button class="primary-button" on:click={saveSettings}>Save Settings</button>
+                <button class="primary-button" on:click={saveSettings} data-testid="save-settings-button">Save Settings</button>
             </div>
         </div>
     {/if}
@@ -561,7 +544,6 @@
         color: #555;
     }
     
-    input[type="text"],
     textarea {
         width: 100%;
         padding: 10px;

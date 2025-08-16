@@ -159,15 +159,19 @@ test.describe('Map Panning Operations', () => {
     await expect(mapContainer).toBeVisible();
   });
 
-  test('should handle touch-based panning on mobile viewport', async ({ page }) => {
+  test('should handle touch-based panning on mobile viewport', async ({ browser }) => {
+    // Create a new context with touch support enabled
+    const context = await browser.newContext({ hasTouch: true });
+    const newPage = await context.newPage();
+    
     // Set mobile viewport
-    await page.setViewportSize({ width: 375, height: 667 });
-    await page.goto('/');
+    await newPage.setViewportSize({ width: 375, height: 667 });
+    await newPage.goto('/');
     
-    await page.waitForSelector('.leaflet-container', { timeout: 10000 });
-    await page.waitForTimeout(2000);
+    await newPage.waitForSelector('.leaflet-container', { timeout: 10000 });
+    await newPage.waitForTimeout(2000);
     
-    const mapContainer = page.locator('.leaflet-container');
+    const mapContainer = newPage.locator('.leaflet-container');
     const mapBounds = await mapContainer.boundingBox();
     expect(mapBounds).not.toBeNull();
     
@@ -188,18 +192,21 @@ test.describe('Map Panning Operations', () => {
       console.log(`Testing touch ${pan.name}...`);
       
       // Use touch API for more realistic mobile interaction
-      await page.touchscreen.tap(pan.startX, pan.startY);
-      await page.waitForTimeout(50);
+      await newPage.touchscreen.tap(pan.startX, pan.startY);
+      await newPage.waitForTimeout(50);
       
       // Simulate drag
-      await page.mouse.move(pan.startX, pan.startY);
-      await page.mouse.down();
-      await page.mouse.move(pan.endX, pan.endY, { steps: 10 });
-      await page.mouse.up();
+      await newPage.mouse.move(pan.startX, pan.startY);
+      await newPage.mouse.down();
+      await newPage.mouse.move(pan.endX, pan.endY, { steps: 10 });
+      await newPage.mouse.up();
       
-      await page.waitForTimeout(300);
+      await newPage.waitForTimeout(300);
       await expect(mapContainer).toBeVisible();
     }
+    
+    // Clean up the context
+    await context.close();
   });
 
   test('should maintain map responsiveness during extended panning session', async ({ page }) => {

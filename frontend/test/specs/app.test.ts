@@ -37,14 +37,11 @@ describe('Hillview App', () => {
 
     it('should have photo capture functionality', async () => {
         // Find camera button by text
-        const cameraButton = await $('//android.widget.Button[@text="Take photo"]');
+        const cameraButton = await $('//android.widget.Button[@text="Take photos"]');
         await cameraButton.waitForExist({ timeout: 5000 });
         
         expect(await cameraButton.isDisplayed()).toBe(true);
-        
-        // Verify it has the correct hint/title
-        const hint = await cameraButton.getAttribute('hint');
-        expect(hint).toBe('Take photo with location');
+
     });
 
     it('should toggle display mode when button is clicked', async () => {

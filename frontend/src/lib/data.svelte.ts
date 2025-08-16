@@ -1,6 +1,7 @@
 import {get, writable} from "svelte/store";
 import {staggeredLocalStorageSharedStore} from './svelte-shared-store';
 import {geoPicsUrl, backendUrl} from './config';
+import {MAX_DEBUG_MODES} from './constants';
 import {auth} from './auth.svelte';
 import {userPhotos} from './stores';
 // Import new mapState for legacy compatibility only
@@ -211,9 +212,11 @@ export function reversed<T>(list: T[]): T[] {
     return res;
 }
 
+// Debug modes constants
+
 export function toggleDebug() {
     app.update(a => {
-        const newDebug = ((a.debug || 0) + 1) % 5;
+        const newDebug = ((a.debug || 0) + 1) % (MAX_DEBUG_MODES + 1);
         return {...a, debug: newDebug};
     });
     console.log(`Debug mode toggled to ${get(app).debug}`);

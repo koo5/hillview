@@ -36,6 +36,17 @@ class CaptureQueueManager {
     private slowModeCount = 0;
     private fastModeCount = 0;
     
+    // Logging constants for greppability
+    private readonly LOG_PREFIX = '[CAPTURE_QUEUE]';
+    private readonly LOG_TAGS = {
+        QUEUE_ADD: 'QUEUE_ADD',
+        QUEUE_FULL: 'QUEUE_FULL',
+        QUEUE_PROCESS: 'QUEUE_PROCESS',
+        PHOTO_SAVE: 'PHOTO_SAVE',
+        PHOTO_ERROR: 'PHOTO_ERROR',
+        STATS_UPDATE: 'STATS_UPDATE'
+    };
+    
     // Store for queue statistics
     public stats = writable<QueueStats>({
         size: 0,
@@ -48,6 +59,18 @@ class CaptureQueueManager {
     constructor() {
         // Start processing loop
         this.processLoop();
+        this.log(this.LOG_TAGS.QUEUE_ADD, 'Capture queue manager initialized');
+    }
+
+    private log(tag: string, message: string, data?: any): void {
+        const timestamp = new Date().toISOString();
+        const logMessage = `${this.LOG_PREFIX} [${tag}] ${timestamp} ${message}`;
+        
+        if (data) {
+            console.log(logMessage, data);
+        } else {
+            console.log(logMessage);
+        }
     }
 
     setMaxQueueSize(size: number): void {
@@ -57,7 +80,11 @@ class CaptureQueueManager {
     async add(item: CaptureQueueItem): Promise<boolean> {
         // Check queue size limit
         if (this.queue.length >= this.maxQueueSize) {
-            console.warn('Capture queue full, dropping oldest item');
+            this.log(this.LOG_TAGS.QUEUE_FULL, 'Capture queue full, dropping oldest item', {
+                maxSize: this.maxQueueSize,
+                currentSize: this.queue.length,
+                droppedItemId: this.queue[0]?.id
+            });
             this.queue.shift(); // Remove oldest
         }
 
@@ -69,6 +96,13 @@ class CaptureQueueManager {
         } else {
             this.fastModeCount++;
         }
+
+        this.log(this.LOG_TAGS.QUEUE_ADD, 'Photo added to capture queue', {
+            itemId: item.id,
+            mode: item.mode,
+            queueSize: this.queue.length,
+            placeholderId: item.placeholderId
+        });
 
         this.updateStats();
         return true;
@@ -91,6 +125,13 @@ class CaptureQueueManager {
 
         this.processing = true;
         this.updateStats();
+
+        this.log(this.LOG_TAGS.QUEUE_PROCESS, 'Processing queued photo', {
+            itemId: item.id,
+            mode: item.mode,
+            placeholderId: item.placeholderId,
+            timestamp: item.timestamp
+        });
 
         try {
             // Convert blob to File
@@ -121,9 +162,22 @@ class CaptureQueueManager {
             // Remove from placeholder store
             removePlaceholder(item.placeholderId);
 
-            console.log(`Processed ${item.mode} mode photo:`, savedPhoto.id);
+            this.log(this.LOG_TAGS.PHOTO_SAVE, 'Photo processed successfully', {
+                itemId: item.id,
+                mode: item.mode,
+                savedPhotoId: savedPhoto.id,
+                filename: savedPhoto.filename,
+                placeholderReplaced: item.placeholderId
+            });
         } catch (error) {
-            console.error('Failed to process queued photo:', error);
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            
+            this.log(this.LOG_TAGS.PHOTO_ERROR, 'Failed to process queued photo', {
+                itemId: item.id,
+                mode: item.mode,
+                placeholderId: item.placeholderId,
+                error: errorMessage
+            });
             
             // Remove placeholder on error
             devicePhotos.update(photos => photos.filter(p => p.id !== item.placeholderId));

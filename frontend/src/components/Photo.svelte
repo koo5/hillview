@@ -103,20 +103,20 @@
 
 
 </script>
-
-{#if $app.debug === 4}
-<div class="debug">
-    <b>Debug Information</b><br>
-    <b>clientWidth2:</b> {clientWidth2}<br>
-    <b>Selected URL:</b> {selectedUrl}
-    <b>Selected Size:</b> {selectedSize}
-    <b>Width:</b> {width}
-    <b>Height:</b> {height}
-
-</div>
+{#if $app.debug === 5}
+    <div class="debug">
+        <b>Debug Information</b><br>
+        <b>clientWidth2:</b> {clientWidth2}<br>
+        <b>Selected URL:</b> {selectedUrl}
+        <b>Selected Size:</b> {selectedSize}
+        <b>Width:</b> {width}
+        <b>Height:</b> {height}
+    </div>
 {/if}
 
+
 <div bind:this={containerElement} class="photo-wrapper" >
+
     {#if photo}
         {#key selectedUrl}
         <img
@@ -136,14 +136,14 @@
     .debug {
         overflow: auto;
         position: absolute;
-        top: 0;
-        left: 0;
+        top: 130;
+        left: 100;
         padding: 0.5rem;
-        background: white;
+        background: #f0f070;
         border: 1px solid black;
-        z-index: 31000;
-        width: 300px; /* Fixed width */
-        height: 400px; /* Fixed height */
+        z-index: 1000;
+        width: 320px; /* Fixed width */
+        height: 320px; /* Fixed height */
     }
     .photo-wrapper {
         display: flex;

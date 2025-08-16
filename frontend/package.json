@@ -42,6 +42,7 @@
 		"test:run": "vitest run",
 		"test:android": "wdio run wdio.conf.ts",
 		"test:android:permissions": "wdio run wdio.permissions.conf.ts",
+		"test:android:comprehensive": "wdio run wdio.conf.ts --spec ./test/specs/comprehensive-photo-capture.test.ts",
 		"test:android:build": "./scripts/tauri-android.sh android build --apk",
 		"appium": "appium",
 		"appium:doctor": "echo 'Use: npx appium driver list --installed to check drivers'",

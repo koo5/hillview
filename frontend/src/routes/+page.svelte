@@ -2,7 +2,7 @@
     import {onDestroy, onMount, tick} from 'svelte';
     import PhotoGallery from '../components/Gallery.svelte';
     import Map from '../components/Map.svelte';
-    import {Camera, Compass, User, LogOut, Menu, Download, Maximize2, Minimize2} from 'lucide-svelte';
+    import {Camera, Compass, User, LogOut, Menu, Download, Maximize2, Minimize2, Database, Info} from 'lucide-svelte';
     import {sources, toggleDebug} from "$lib/data.svelte";
     import {dms} from "$lib/utils";
     import {app, turn_to_photo_to, update_bearing} from "$lib/data.svelte";
@@ -324,7 +324,7 @@
     on:click={toggleCamera}
     on:keydown={(e) => e.key === 'Enter' && toggleCamera()}
     aria-label="{showCameraView ? 'Close camera' : 'Take photo'}"
-    title="{showCameraView ? 'Close camera' : 'Take photo with location'}"
+    title="{showCameraView ? 'Close camera' : 'Take photos'}"
     data-testid="camera-button"
 >
     <Camera size={24} />
@@ -360,13 +360,11 @@
                     </a></li>
                 {/if}
             {/if}
-            <li><a href="/sources" on:click={() => menuOpen = false}>Sources</a></li>
-            <li>
-                <a href="/hillview.apk" download on:click={() => menuOpen = false}>
-                    <Download size={18} />
-                    Download Android App
-                </a>
-            </li>
+            <li><a href="/sources" on:click={() => menuOpen = false}>
+                <Database size={18} />
+                Sources
+            </a></li>
+
             {#if FEATURE_USER_ACCOUNTS}
                 {#if isAuthenticated}
                     <li>
@@ -383,8 +381,20 @@
                         </a>
                     </li>
                 {/if}
+            {:else}
+                FEATURE_USER_ACCOUNTS off
             {/if}
-            <li><a href="/about" on:click={() => menuOpen = false}>About</a></li>
+
+            <li><a href="/about" on:click={() => menuOpen = false}>
+                <Info size={18} />
+                About
+            </a></li>
+            <li>
+                <a href="/hillview.apk" download on:click={() => menuOpen = false}>
+                    <Download size={18} />
+                    Download Android App
+                </a>
+            </li>
         </ul>
     </nav>
 {/if}

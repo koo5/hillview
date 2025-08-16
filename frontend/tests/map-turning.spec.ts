@@ -14,8 +14,8 @@ test.describe('Map Turning and Rotation Operations', () => {
 
   test('should rotate view using control buttons', async ({ page }) => {
     // Look for rotation control buttons
-    const rotateCcwButton = page.locator('button[title*="counterclockwise"], button[title*="Rotate view 15° counterclockwise"]');
-    const rotateCwButton = page.locator('button[title*="clockwise"], button[title*="Rotate view 15° clockwise"]');
+    const rotateCcwButton = page.locator('button[title*="Rotate view 15° counterclockwise"]');
+    const rotateCwButton = page.locator('button[title*="Rotate view 15° clockwise"]');
     
     // Test counterclockwise rotation if button exists
     if (await rotateCcwButton.count() > 0) {

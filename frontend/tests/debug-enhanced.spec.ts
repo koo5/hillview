@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { MAX_DEBUG_MODES } from '../src/lib/constants';
 
 test.describe('Enhanced Debug Page', () => {
   test.beforeEach(async ({ page }) => {
@@ -134,7 +135,15 @@ test.describe('Enhanced Debug Page', () => {
     const captureSystemSection = page.locator('.capture-system-section');
     await expect(captureSystemSection).toBeVisible();
 
-    await debugButton.click(); // Back to Mode 0 (off) - this is the 5th click
+    await debugButton.click(); // Mode 5 (front photo debug)
+    await page.waitForTimeout(300);
+    await expect(debugOverlay).toBeVisible();
+    
+    // Check for photo management section (which contains front photo debug)
+    const photoManagementSection = page.locator('.photo-management-section');
+    await expect(photoManagementSection).toBeVisible();
+
+    await debugButton.click(); // Back to Mode 0 (off) - this is the 6th click
     await page.waitForTimeout(500); // Give it more time to hide
     await expect(debugOverlay).not.toBeVisible();
   });

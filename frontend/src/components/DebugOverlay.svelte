@@ -2,6 +2,7 @@
     import {onMount} from 'svelte';
     import {photoInFront, photosInRange, photoToLeft, photoToRight, spatialState, visualState, visiblePhotos} from '$lib/mapState';
     import {app, mapillary_cache_status, sources, sourceLoadingStatus, toggleDebug, closeDebug} from '$lib/data.svelte';
+    import {MAX_DEBUG_MODES} from '$lib/config';
     import {captureQueue, type QueueStats} from '$lib/captureQueue';
     
     // Access the stats store properly
@@ -347,8 +348,14 @@
                 </div>
             {/if}
 
+            {#if $app.debug === 5}
+                <div class="debug-section photo-management-section">
+                    <div><strong>📂 Front Photo Debug.</strong></div>
+                </div>
+            {/if}
+
             <div class="debug-note">
-                Press 'd' to cycle debug (State {$app.debug}/4)<br/>
+                Press 'd' to cycle debug (State {$app.debug}/{MAX_DEBUG_MODES})<br/>
                 Press Ctrl+Shift+L to move {debugPosition === 'left' ? 'right' : 'left'}
             </div>
         </div>
@@ -887,6 +894,12 @@
     .activity-indicator {
         font-weight: bold;
         color: #ffc107;
+    }
+
+    /* Photo Management Section */
+    .photo-management-section {
+        border-color: rgba(233, 30, 99, 0.5);
+        background: rgba(233, 30, 99, 0.05);
     }
 
 
