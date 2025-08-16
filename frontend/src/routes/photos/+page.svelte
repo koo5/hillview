@@ -5,9 +5,9 @@
     import Spinner from '../../components/Spinner.svelte';
     import { auth } from '$lib/auth.svelte';
     import { app } from '$lib/data.svelte';
-    import { get } from 'svelte/store';
     import type { UserPhoto } from '$lib/stores';
     import type { User } from '$lib/auth.svelte';
+    import { http, handleApiError, TokenExpiredError } from '$lib/http';
     import { TAURI } from '$lib/tauri';
 
     let photos: UserPhoto[] = [];
@@ -68,15 +68,8 @@
     });
 
     async function fetchPhotos() {
-        const authValue = get(auth);
-        if (!authValue.isAuthenticated || !authValue.token) return;
-        
         try {
-            const response = await fetch(import.meta.env.VITE_BACKEND+'/photos', {
-                headers: {
-                    'Authorization': `Bearer ${authValue.token}`
-                }
-            });
+            const response = await http.get('/photos');
             
             if (!response.ok) {
                 throw new Error('Failed to fetch photos');
@@ -91,36 +84,19 @@
             }));
         } catch (err) {
             console.error('Error fetching photos:', err);
-            error = err instanceof Error ? err.message : 'Failed to fetch photos';
+            const errorMessage = handleApiError(err);
+            addLogEntry(errorMessage, 'error');
+            error = errorMessage;
         }
     }
 
-    async function uploadSingleFile(file: File, authValue: any): Promise<any> {
+    async function uploadSingleFile(file: File): Promise<any> {
         const formData = new FormData();
         formData.append('file', file);
         formData.append('description', description);
         formData.append('is_public', String(isPublic));
         
-        const xhr = new XMLHttpRequest();
-        
-        // Create a promise to handle the XHR request
-        const uploadPromise = new Promise((resolve, reject) => {
-            xhr.onload = () => {
-                if (xhr.status >= 200 && xhr.status < 300) {
-                    resolve(JSON.parse(xhr.responseText));
-                } else {
-                    reject(new Error('Upload failed'));
-                }
-            };
-            xhr.onerror = () => reject(new Error('Network error'));
-        });
-        
-        // Set up and send the request
-        xhr.open('POST', import.meta.env.VITE_BACKEND+'/photos/upload');
-        xhr.setRequestHeader('Authorization', `Bearer ${authValue.token}`);
-        xhr.send(formData);
-        
-        return uploadPromise;
+        return http.uploadWithProgress('/photos/upload', formData);
     }
 
     async function handleUpload() {
@@ -128,7 +104,6 @@
         
         isUploading = true;
         uploadProgress = 0;
-        const authValue = get(auth);
         
         const totalFiles = uploadFiles.length;
         addLogEntry(`Starting batch upload: ${totalFiles} file${totalFiles > 1 ? 's' : ''}`, 'info');
@@ -144,7 +119,7 @@
                 
                 try {
                     addLogEntry(`Uploading ${i + 1}/${totalFiles}: ${file.name}`, 'info');
-                    const result = await uploadSingleFile(file, authValue);
+                    const result = await uploadSingleFile(file);
                     
                     // Log the result
                     if (result.skipped) {
@@ -156,7 +131,8 @@
                     }
                 } catch (err) {
                     console.error('Error uploading file:', file.name, err);
-                    addLogEntry(`Failed: ${file.name} - ${err instanceof Error ? err.message : 'Unknown error'}`, 'error');
+                    const errorMessage = handleApiError(err);
+                    addLogEntry(`Failed: ${file.name} - ${errorMessage}`, 'error');
                     errorCount++;
                 }
             }
@@ -183,8 +159,9 @@
             
         } catch (err) {
             console.error('Error in batch upload:', err);
-            addLogEntry(`Batch upload failed: ${err instanceof Error ? err.message : 'Unknown error'}`, 'error');
-            error = err instanceof Error ? err.message : 'Upload failed';
+            const errorMessage = handleApiError(err);
+            addLogEntry(`Batch upload failed: ${errorMessage}`, 'error');
+            error = errorMessage;
         } finally {
             isUploading = false;
             uploadProgress = 0;
@@ -198,17 +175,10 @@
             return;
         }
         
-        const authValue = get(auth);
-        const deleteUrl = `${import.meta.env.VITE_BACKEND}/photos/${photoId}`;
-        console.log(`DEBUG: Attempting to delete photo at: ${deleteUrl}`);
+        console.log(`DEBUG: Attempting to delete photo: ${photoId}`);
         
         try {
-            const response = await fetch(deleteUrl, {
-                method: 'DELETE',
-                headers: {
-                    'Authorization': `Bearer ${authValue.token}`
-                }
-            });
+            const response = await http.delete(`/photos/${photoId}`);
             
             console.log(`DEBUG: Delete response status: ${response.status}`);
             
@@ -237,14 +207,13 @@
             
         } catch (err) {
             console.error('Error deleting photo:', err);
-            addLogEntry(`Delete failed: ${err instanceof Error ? err.message : 'Unknown error'}`, 'error');
-            error = err instanceof Error ? err.message : 'Delete failed';
+            const errorMessage = handleApiError(err);
+            addLogEntry(`Delete failed: ${errorMessage}`, 'error');
+            error = errorMessage;
         }
     }
 
     async function saveSettings() {
-        const authValue = get(auth);
-        
         try {
             const formData = new FormData();
             formData.append('auto_upload_enabled', String(autoUploadEnabled));
@@ -252,13 +221,7 @@
                 formData.append('auto_upload_folder', autoUploadFolder);
             }
             
-            const response = await fetch(import.meta.env.VITE_BACKEND+'/auth/settings', {
-                method: 'PUT',
-                headers: {
-                    'Authorization': `Bearer ${authValue.token}`
-                },
-                body: formData
-            });
+            const response = await http.put('/auth/settings', formData);
             
             if (!response.ok) {
                 throw new Error('Failed to save settings');
@@ -269,8 +232,9 @@
             
         } catch (err) {
             console.error('Error saving settings:', err);
-            addLogEntry(`Settings save failed: ${err instanceof Error ? err.message : 'Unknown error'}`, 'error');
-            error = err instanceof Error ? err.message : 'Failed to save settings';
+            const errorMessage = handleApiError(err);
+            addLogEntry(`Settings save failed: ${errorMessage}`, 'error');
+            error = errorMessage;
         }
     }
 

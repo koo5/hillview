@@ -211,8 +211,11 @@ export async function oauthLogin(provider: string, code: string, redirectUri?: s
     }
 }
 
-export function logout() {
+export function logout(reason?: string) {
     console.log('[AUTH] === LOGGING OUT ===');
+    if (reason) {
+        console.log('[AUTH] - Reason:', reason);
+    }
     console.log('[AUTH] - Removing token from localStorage');
     localStorage.removeItem('token');
     localStorage.removeItem('token_expires');
@@ -233,6 +236,69 @@ export function logout() {
     console.log('[AUTH] - Redirecting to login page from auth.svelte.ts');
     goto('/login');
     console.log('[AUTH] === LOGOUT COMPLETE ===');
+}
+
+export function isTokenExpired(tokenExpires: Date | null): boolean {
+    if (!tokenExpires) return true;
+    
+    const now = new Date();
+    const expiry = new Date(tokenExpires);
+    
+    // Add 30 second buffer to handle slight time differences
+    const buffer = 30 * 1000;
+    
+    return expiry.getTime() - buffer <= now.getTime();
+}
+
+export function checkTokenValidity(): boolean {
+    const authState = get(auth);
+    
+    if (!authState.token || !authState.tokenExpires) {
+        console.log('[AUTH] No token or expiry date found');
+        return false;
+    }
+    
+    if (isTokenExpired(authState.tokenExpires)) {
+        console.log('[AUTH] Token has expired, logging out');
+        logout('Token expired');
+        return false;
+    }
+    
+    return true;
+}
+
+export async function authenticatedFetch(url: string, options: RequestInit = {}): Promise<Response> {
+    // Check token validity before making request
+    if (!checkTokenValidity()) {
+        throw new Error('Token expired. Please log in again.');
+    }
+    
+    const authState = get(auth);
+    
+    // Add authorization header
+    const headers = {
+        ...options.headers,
+        'Authorization': `Bearer ${authState.token}`
+    };
+    
+    try {
+        const response = await fetch(url, {
+            ...options,
+            headers
+        });
+        
+        // Handle 401 Unauthorized responses
+        if (response.status === 401) {
+            console.log('[AUTH] Received 401 response, token may be invalid');
+            logout('Authentication failed');
+            throw new Error('Authentication failed. Please log in again.');
+        }
+        
+        return response;
+    } catch (error) {
+        // Re-throw the error for the caller to handle
+        throw error;
+    }
 }
 
 export async function fetchUserData() {
