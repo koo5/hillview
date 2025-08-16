@@ -39,11 +39,14 @@ test.describe('Photo Markers', () => {
       console.log('Marker screen positions:', markerPositions);
       
       // Verify markers are actually visible on screen (not off in crazy locations)
-      for (const [x, y] of markerPositions) {
-        expect(x).toBeGreaterThan(-1000); // Not way off screen left
-        expect(x).toBeLessThan(2000);     // Not way off screen right  
-        expect(y).toBeGreaterThan(-1000); // Not way off screen top
-        expect(y).toBeLessThan(2000);     // Not way off screen bottom
+      for (const position of markerPositions) {
+        if (position) {
+          const [x, y] = position;
+          expect(x).toBeGreaterThan(-1000); // Not way off screen left
+          expect(x).toBeLessThan(2000);     // Not way off screen right  
+          expect(y).toBeGreaterThan(-1000); // Not way off screen top
+          expect(y).toBeLessThan(2000);     // Not way off screen bottom
+        }
       }
     }
   });

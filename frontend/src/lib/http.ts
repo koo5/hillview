@@ -33,8 +33,8 @@ export class HttpClient {
     const fullUrl = url.startsWith('http') ? url : `${this.baseURL}${url}`;
     
     // Automatically add auth header if we have a token
-    const headers: HeadersInit = {
-      ...options.headers,
+    const headers: Record<string, string> = {
+      ...(options.headers as Record<string, string> || {}),
     };
     
     if (authState.token) {

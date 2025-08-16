@@ -48,6 +48,9 @@ RUN pip install --no-cache-dir \
 COPY worker/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
+RUN apt-get update
+RUN apt-get install -y libimage-exiftool-perl
+
 # Copy application code
 COPY worker /app/
 

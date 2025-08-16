@@ -34,6 +34,7 @@ export interface PhotoData {
     isDirectoryPhoto?: boolean;
     timestamp?: number;
     accuracy?: number;
+    captured_at?: string;
     // Computed properties (added by processing)
     abs_bearing_diff?: number;
     bearing_color?: string;

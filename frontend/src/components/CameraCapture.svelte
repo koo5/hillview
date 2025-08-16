@@ -408,25 +408,25 @@
                                 <span>{locationError}</span>
                             </div>
                         {:else if locationData}
-                            <!--                            <div class="location-row">-->
-                            <!--                                <span class="icon">📍</span>-->
-                            <!--                                <span>{locationData.latitude?.toFixed(6)}°, {locationData.longitude?.toFixed(6)}°</span>-->
-                            <!--                                {#if locationData.source}-->
-                            <!--                                    <span class="source-badge">{locationData.source === 'gps' ? 'GPS' : 'Map'}</span>-->
-                            <!--                                {/if}-->
-                            <!--                            </div>-->
-                            <!--                            {#if locationData.heading !== null && locationData.heading !== undefined}-->
-                            <!--                                <div class="location-row">-->
-                            <!--                                    <span class="icon">🧭</span>-->
-                            <!--                                    <span>{locationData.heading.toFixed(1)}°</span>-->
-                            <!--                                </div>-->
-                            <!--                            {/if}-->
-                            <!--                            {#if locationData.altitude !== null && locationData.altitude !== undefined}-->
-                            <!--                                <div class="location-row">-->
-                            <!--                                    <span class="icon">⛰️</span>-->
-                            <!--                                    <span>{locationData.altitude.toFixed(1)}m</span>-->
-                            <!--                                </div>-->
-                            <!--                            {/if}-->
+                                                        <div class="location-row">
+                                                            <span class="icon">📍</span>
+                                                            <span>{locationData.latitude?.toFixed(6)}°, {locationData.longitude?.toFixed(6)}°</span>
+                                                            {#if locationData.source}
+                                                                <span class="source-badge">{locationData.source === 'gps' ? 'GPS' : 'Map'}</span>
+                                                            {/if}
+                                                        </div>
+                                                        {#if locationData.heading !== null && locationData.heading !== undefined}
+                                                            <div class="location-row">
+                                                                <span class="icon">🧭</span>
+                                                                <span>{locationData.heading.toFixed(1)}°</span>
+                                                            </div>
+                                                        {/if}
+                                                        {#if locationData.altitude !== null && locationData.altitude !== undefined}
+                                                            <div class="location-row">
+                                                                <span class="icon">⛰️</span>
+                                                                <span>{locationData.altitude.toFixed(1)}m</span>
+                                                            </div>
+                                                        {/if}
                             {#if locationData.accuracy}
                                 <div class="location-row">
                                     <span class="icon">🎯</span>
@@ -605,14 +605,14 @@
         position: absolute;
         top: 80px;
         left: 1rem;
-        background: rgba(255, 255, 255, 0.3);
+        /*background: rgba(255, 255, 255, 0.1);*/
 
         padding: 0.25rem;
         border-radius: 8px;
         font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
         font-size: 0.85rem;
         /*border: 1px solid rgba(255, 255, 255, 0.2);*/
-        backdrop-filter: blur(10px);
+        /*backdrop-filter: blur(2px);*/
         max-width: 90%;
     }
 

@@ -58,6 +58,7 @@ fn get_hillview_directories() -> Result<(PathBuf, PathBuf), String> {
 }
 
 /// Get the target directory for new photos based on user preference
+#[allow(dead_code)]
 fn get_target_directory(hide_from_gallery: bool) -> Result<PathBuf, String> {
     let (visible, hidden) = get_hillview_directories()?;
     Ok(if hide_from_gallery { hidden } else { visible })

@@ -52,11 +52,12 @@ class PhotoUploadWorker(
         }
     }
     
-    private suspend fun scanForNewPhotos() {
+    private fun scanForNewPhotos() {
         Log.d(TAG, "Scanning for new photos")
         
         val directories = getPhotoDirectories()
         var newPhotosFound = 0
+        var scanErrors = 0
         
         for (directory in directories) {
             if (!directory.exists()) {
@@ -76,7 +77,7 @@ class PhotoUploadWorker(
                     val fileHash = calculateFileHash(file)
                     if (fileHash == null) {
                         Log.w(TAG, "Failed to calculate hash for ${file.path}")
-                        scan_errors++
+                        scanErrors++
                         continue
                     }
                     
@@ -97,12 +98,12 @@ class PhotoUploadWorker(
                     
                 } catch (e: Exception) {
                     Log.w(TAG, "Failed to process photo ${file.path}: ${e.message}")
-                    scan_errors++
+                    scanErrors++
                 }
             }
         }
         
-        Log.d(TAG, "Scan complete. Added $newPhotosFound new photos")
+        Log.d(TAG, "Scan complete. Added $newPhotosFound new photos, $scanErrors errors")
     }
     
     private suspend fun processUploadQueue() {
@@ -116,12 +117,12 @@ class PhotoUploadWorker(
                 // Check if file still exists
                 if (!File(photo.path).exists()) {
                     Log.w(TAG, "Photo file no longer exists: ${photo.path}")
-                    photoDao.updateUploadStatus(photo.id, "failed", null)
+                    photoDao.updateUploadStatus(photo.id, "failed", 0L)
                     continue
                 }
                 
                 // Update status to uploading
-                photoDao.updateUploadStatus(photo.id, "uploading", null)
+                photoDao.updateUploadStatus(photo.id, "uploading", 0L)
                 
                 // Attempt upload
                 val success = uploadManager.uploadPhoto(photo)
@@ -147,7 +148,7 @@ class PhotoUploadWorker(
                     "failed", 
                     photo.retryCount + 1,
                     System.currentTimeMillis(),
-                    e.message
+                    e.message ?: "Unknown error"
                 )
             }
         }
@@ -161,7 +162,7 @@ class PhotoUploadWorker(
         
         for (photo in failedUploads) {
             // Exponential backoff: wait longer between retries
-            val timeSinceLastAttempt = System.currentTimeMillis() - (photo.lastUploadAttempt ?: 0)
+            val timeSinceLastAttempt = System.currentTimeMillis() - photo.lastUploadAttempt
             val requiredWaitTime = calculateBackoffTime(photo.retryCount)
             
             if (timeSinceLastAttempt < requiredWaitTime) {
@@ -175,7 +176,7 @@ class PhotoUploadWorker(
                     continue
                 }
                 
-                photoDao.updateUploadStatus(photo.id, "uploading", null)
+                photoDao.updateUploadStatus(photo.id, "uploading", 0L)
                 
                 val success = uploadManager.uploadPhoto(photo)
                 
@@ -200,7 +201,7 @@ class PhotoUploadWorker(
                     "failed",
                     photo.retryCount + 1,
                     System.currentTimeMillis(),
-                    e.message
+                    e.message ?: "Unknown error"
                 )
             }
         }
@@ -220,15 +221,14 @@ class PhotoUploadWorker(
         return directories
     }
     
-    private suspend fun createPhotoEntityFromFile(file: File, fileHash: String): PhotoEntity {
-        return withContext(Dispatchers.IO) {
-            var latitude = 0.0
-            var longitude = 0.0
-            var altitude: Double? = null
-            var bearing: Double? = null
-            var width = 0
-            var height = 0
-            var timestamp = file.lastModified()
+    private fun createPhotoEntityFromFile(file: File, fileHash: String): PhotoEntity {
+        var latitude = 0.0
+        var longitude = 0.0
+        var altitude = 0.0
+        var bearing = 0.0
+        var width = 0
+        var height = 0
+        var timestamp = file.lastModified()
             
             try {
                 // Extract EXIF data
@@ -240,10 +240,10 @@ class PhotoUploadWorker(
                 longitude = coords.second
                 
                 // Get altitude with multiple format support
-                altitude = extractAltitude(exif)
+                altitude = extractAltitude(exif) ?: 0.0
                 
                 // Get bearing/direction with multiple format support
-                bearing = extractBearing(exif)
+                bearing = extractBearing(exif) ?: 0.0
                 
                 // Get image dimensions from multiple sources
                 val dimensions = extractImageDimensions(exif)
@@ -255,11 +255,11 @@ class PhotoUploadWorker(
                 
                 Log.d(TAG, "Extracted EXIF data for ${file.name}: lat=$latitude, lng=$longitude, alt=$altitude, bearing=$bearing, ${width}x${height}")
                 
-            } catch (e: IOException) {
-                Log.w(TAG, "Failed to read EXIF data from ${file.path}: ${e.message}")
-            }
-            
-            PhotoEntity(
+        } catch (e: IOException) {
+            Log.w(TAG, "Failed to read EXIF data from ${file.path}: ${e.message}")
+        }
+        
+        return PhotoEntity(
                 id = "device_${System.currentTimeMillis()}_${fileHash.take(8)}",
                 filename = file.name,
                 path = file.path,
@@ -274,10 +274,9 @@ class PhotoUploadWorker(
                 fileSize = file.length(),
                 createdAt = System.currentTimeMillis(),
                 uploadStatus = "pending",
-                autoUploadEnabled = true,
-                fileHash = fileHash
-            )
-        }
+            autoUploadEnabled = true,
+            fileHash = fileHash
+        )
     }
     
     private fun calculateFileHash(file: File): String? {

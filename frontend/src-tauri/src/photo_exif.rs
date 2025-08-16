@@ -3,7 +3,7 @@ use img_parts::{jpeg::Jpeg, ImageEXIF};
 use log::info;
 use serde::{Deserialize, Serialize};
 use std::io::Cursor;
-use tauri::{command, Manager};
+use tauri::command;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PhotoMetadata {

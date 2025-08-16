@@ -325,7 +325,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                     }
                     
                     // Update status to uploading
-                    photoDao.updateUploadStatus(photoId, "uploading", null)
+                    photoDao.updateUploadStatus(photoId, "uploading", 0L)
                     
                     // Attempt upload
                     val success = uploadManager.uploadPhoto(photo)

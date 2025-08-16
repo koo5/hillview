@@ -4,7 +4,6 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
-
 @Database(
     entities = [PhotoEntity::class],
     version = 2,
@@ -12,7 +11,7 @@ import androidx.room.RoomDatabase
 )
 abstract class PhotoDatabase : RoomDatabase() {
     
-    abstract fun photoDao(): PhotoDao
+    abstract fun photoDao(): SimplePhotoDao
     
     companion object {
         @Volatile

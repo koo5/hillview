@@ -48,16 +48,15 @@ export async function fetchSourcePhotos(sourceId: string) {
     console.log(`Fetching photos from source: ${source.name}`);
     
     switch (source.type) {
-        case 'json':
-            await fetchJsonSource(source);
-            break;
         case 'device':
             await fetchDeviceSource(source);
             break;
-        case 'directory':
-            await fetchDirectorySource(source);
+        // Stream sources are handled separately through streaming
+        case 'stream':
+            console.log(`Stream source ${source.name} is handled via streaming, not fetch`);
             break;
-        // Mapillary is handled separately through streaming
+        default:
+            console.warn(`Unknown source type: ${source.type}`);
     }
 }
 
@@ -74,7 +73,7 @@ async function fetchJsonSource(source: Source) {
         });
         
         // Use shared photo loading utility
-        const newPhotos = await loadJsonPhotos(source.url, geoPicsUrl);
+        const newPhotos = await loadJsonPhotos(source.url);
         
         // Set source reference on each photo
         newPhotos.forEach(photo => {

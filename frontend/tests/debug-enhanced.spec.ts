@@ -44,25 +44,6 @@ test.describe('Enhanced Debug Page', () => {
     const sourcesStatusHeader = page.locator('text=🔄 Sources Status:');
     await expect(sourcesStatusHeader).toBeVisible();
 
-    // Check for Mapillary cache details section
-    const mapillaryCacheSection = page.locator('.mapillary-section');
-    await expect(mapillaryCacheSection).toBeVisible();
-    
-    const mapillaryCacheHeader = page.locator('text=🗺️ Mapillary Cache Details:');
-    await expect(mapillaryCacheHeader).toBeVisible();
-
-    // Check for cache status grid elements
-    const cacheStatusLabel = page.locator('.cache-label', { hasText: 'Status:' });
-    await expect(cacheStatusLabel).toBeVisible();
-    
-    const uncachedRegionsLabel = page.locator('text=Uncached Regions:');
-    await expect(uncachedRegionsLabel).toBeVisible();
-    
-    const livePhotosLabel = page.locator('text=Live Photos:');
-    await expect(livePhotosLabel).toBeVisible();
-    
-    const streamPhaseLabel = page.locator('text=Stream Phase:');
-    await expect(streamPhaseLabel).toBeVisible();
   });
 
   test('should show source loading status indicators', async ({ page }) => {

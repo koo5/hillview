@@ -33,6 +33,13 @@ android {
     }
 }
 
+kapt {
+    arguments {
+        arg("room.schemaLocation", "$projectDir/schemas")
+    }
+    correctErrorTypes = true
+}
+
 dependencies {
 
     implementation("androidx.core:core-ktx:1.9.0")
@@ -42,10 +49,11 @@ dependencies {
     // Google Play Services for Fused Location Provider
     implementation("com.google.android.gms:play-services-location:21.0.1")
     
-    // Room database
-    implementation("androidx.room:room-runtime:2.5.0")
-    implementation("androidx.room:room-ktx:2.5.0")
-    kapt("androidx.room:room-compiler:2.5.0")
+    // Room database  
+    implementation("androidx.room:room-runtime:2.6.1")
+    implementation("androidx.room:room-ktx:2.6.1")
+    implementation("androidx.room:room-common:2.6.1")
+    kapt("androidx.room:room-compiler:2.6.1")
     
     // WorkManager for background tasks
     implementation("androidx.work:work-runtime-ktx:2.8.1")

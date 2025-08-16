@@ -16,7 +16,7 @@ describe('photoProcessingUtils', () => {
     source_type: 'test',
     file: `photo_${id}.jpg`,
     url: `https://example.com/photo_${id}.jpg`,
-    coord: { lat, lng },
+    coord: new LatLng(lat, lng),
     bearing,
     altitude: 0
   });

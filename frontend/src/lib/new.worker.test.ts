@@ -23,9 +23,22 @@ const mockSelf = {
 
 // Mock EventSource for streaming tests
 const mockEventSourceInstances = new Map<string, any>();
-const MockEventSource = vi.fn().mockImplementation((url: string) => {
+
+interface MockEventSourceInstance {
+  url: string;
+  readyState: number;
+  onopen: ((event: Event) => void) | null;
+  onmessage: ((event: MessageEvent) => void) | null;
+  onerror: ((event: Event) => void) | null;
+  close: () => void;
+  addEventListener: (type: string, listener: any) => void;
+  removeEventListener: (type: string, listener: any) => void;
+  dispatchEvent: (event: Event) => boolean;
+}
+
+const MockEventSource = vi.fn().mockImplementation((url: string): MockEventSourceInstance => {
   console.log(`MockEventSource: Creating new instance for ${url}`);
-  const instance = {
+  const instance: MockEventSourceInstance = {
     url,
     readyState: 1, // OPEN
     onopen: null,
@@ -99,7 +112,15 @@ const MockEventSource = vi.fn().mockImplementation((url: string) => {
   return instance;
 });
 
-global.EventSource = MockEventSource;
+// Add EventSource static properties
+Object.assign(MockEventSource, {
+  CONNECTING: 0,
+  OPEN: 1,
+  CLOSED: 2,
+  prototype: {}
+});
+
+global.EventSource = MockEventSource as any;
 
 // Keep console logging for debugging infinite loop
 const originalConsole = console.log;

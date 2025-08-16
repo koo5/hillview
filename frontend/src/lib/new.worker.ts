@@ -59,7 +59,7 @@ console.log(`NewWorker: Worker script loaded with version: ${WORKER_VERSION}`);
 // Process tracking
 interface ProcessInfo {
     id: string;
-    type: 'config' | 'area';
+    type: 'config' | 'area' | 'sourcesPhotosInArea';
     messageId: number;
     startTime: number;
     shouldAbort: boolean;
@@ -281,16 +281,24 @@ async function startProcess(type: 'config' | 'area' | 'sourcesPhotosInArea', mes
     try {
         if (type === 'config') {
             console.log(`NewWorker: Calling processConfig for ${processId}`);
-            photoOperations.processConfig(processId, messageId, currentState.config.data, operationCallbacks);
+            if (currentState.config.data) {
+                photoOperations.processConfig(processId, messageId, currentState.config.data, operationCallbacks);
+            } else {
+                console.warn(`NewWorker: Config data is null for process ${processId}`);
+            }
         } else if (type === 'area') {
             console.log(`NewWorker: About to call processArea with area:`, currentState.area.data, 'sources:', currentState.config.data?.sources?.length || 0);
-            photoOperations.processArea(
-                processId, 
-                messageId,
-                currentState.area.data, 
-                currentState.config.data?.sources || [], 
-                operationCallbacks
-            );
+            if (currentState.area.data) {
+                photoOperations.processArea(
+                    processId, 
+                    messageId,
+                    currentState.area.data, 
+                    currentState.config.data?.sources || [], 
+                    operationCallbacks
+                );
+            } else {
+                console.warn(`NewWorker: Area data is null for process ${processId}`);
+            }
         } else if (type === 'sourcesPhotosInArea') {
             console.log(`NewWorker: Calling processCombinePhotos for ${processId}`);
             photoOperations.processCombinePhotos(
@@ -486,8 +494,9 @@ function handleProcessCompletion(message: any): void {
 	console.log(`NewWorker: Process ${processId} (${processType}) completed`);
 	
 	// Mark as processed if this is the latest version
-	if (currentState[processType].lastUpdateId === messageId) {
-		currentState[processType].lastProcessedId = messageId;
+	const validProcessType = processType as keyof typeof currentState;
+	if (currentState[validProcessType] && currentState[validProcessType].lastUpdateId === messageId) {
+		currentState[validProcessType].lastProcessedId = messageId;
 		console.log(`NewWorker: Marked ${processType} as processed (id: ${messageId})`);
 	}
 	

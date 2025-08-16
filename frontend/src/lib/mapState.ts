@@ -22,6 +22,13 @@ export interface VisualState {
   bearing: number;
 }
 
+// Bearing mode for controlling automatic bearing source
+export type BearingMode = 'car' | 'walking';
+
+export interface BearingState {
+  mode: BearingMode;
+}
+
 // Spatial state - triggers photo filtering in worker
 export const spatialState = localStorageReadOnceSharedStore<SpatialState>('spatialState', {
   center: new LatLng(50.114429599683604, 14.523528814315798),
@@ -34,6 +41,11 @@ export const spatialState = localStorageReadOnceSharedStore<SpatialState>('spati
 export const visualState = staggeredLocalStorageSharedStore<VisualState>('visualState', {
   bearing: 230
 }, 250); // 250ms debounce for smooth bearing updates
+
+// Bearing mode state - controls automatic bearing source (car = GPS, walking = compass)
+export const bearingState = staggeredLocalStorageSharedStore<BearingState>('bearingState', {
+  mode: 'walking'
+}, 100); // Fast updates for mode changes
 
 // Photos filtered by spatial criteria (from worker)
 export const photosInArea = writable<PhotoData[]>([]);
@@ -165,6 +177,14 @@ export function updateBearingDiff(diff: number) {
   const current = get(visualState);
   const newBearing = (current.bearing + diff + 360) % 360;
   updateBearing(newBearing);
+}
+
+export function updateBearingState(updates: Partial<BearingState>) {
+  bearingState.update(state => ({ ...state, ...updates }));
+}
+
+export function setBearingMode(mode: BearingMode) {
+  updateBearingState({ mode });
 }
 
 // Calculate range from map center and bounds

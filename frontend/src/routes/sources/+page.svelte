@@ -6,24 +6,14 @@
     import { onMount } from 'svelte';
     import { goto } from '$app/navigation';
 
-    interface CustomSource {
-        id: string;
-        name: string;
-        type: 'json' | 'directory';
-        url?: string;
-        path?: string;
-        enabled: boolean;
-        color: string;
-    }
-
-    // Store for custom sources
-    const customSources = localStorageSharedStore<CustomSource[]>('customSources', []);
+    // Store for custom sources - using regular Source interface
+    const customSources = localStorageSharedStore<Source[]>('customSources', []);
 
     // Form state for adding new source
     let newSourceName = '';
     let newSourceUrl = '';
     let newSourcePath = '';
-    let newSourceType: 'json' | 'directory' = 'json';
+    let newSourceType: 'stream' | 'device' = 'stream';
     let showAddForm = false;
     let formError = '';
 
@@ -64,7 +54,7 @@
         // When disabling, the data.svelte.ts subscription will handle filtering
         // When enabling a source, we need to fetch its photos
         const source = $sources.find(s => s.id === sourceId);
-        if (source && source.enabled && (source.type === 'json' || source.type === 'device')) {
+        if (source && source.enabled && source.type === 'device') {
             // Only reload this specific source when enabling
             fetchSourcePhotos(sourceId);
         }
@@ -87,7 +77,7 @@
             return;
         }
 
-        if (newSourceType === 'json') {
+        if (newSourceType === 'stream') {
             if (!newSourceUrl.trim()) {
                 formError = 'Please enter a URL for the photo source';
                 return;
@@ -97,18 +87,16 @@
                 formError = 'Please enter a valid URL';
                 return;
             }
-        } else if (newSourceType === 'directory') {
-            if (!newSourcePath.trim()) {
-                formError = 'Please enter a folder path';
-                return;
-            }
+        } else if (newSourceType === 'device') {
+            // Device sources don't need additional validation
         }
 
-        const newSource: CustomSource = {
+        const newSource: Source = {
             id: `custom_${Date.now()}`,
             name: newSourceName.trim(),
             type: newSourceType,
-            ...(newSourceType === 'json' ? { url: newSourceUrl.trim() } : { path: newSourcePath.trim() }),
+            ...(newSourceType === 'stream' ? { url: newSourceUrl.trim() } : {}),
+            requests: [],
             enabled: false,
             color: `#${Math.floor(Math.random()*16777215).toString(16)}`
         };
@@ -116,16 +104,13 @@
         customSources.update(srcs => [...srcs, newSource]);
 
         // Add to main sources store
-        sources.update(srcs => [...srcs, {
-            ...newSource,
-            requests: []
-        }]);
+        sources.update(srcs => [...srcs, newSource]);
 
         // Reset form
         newSourceName = '';
         newSourceUrl = '';
         newSourcePath = '';
-        newSourceType = 'json';
+        newSourceType = 'stream';
         showAddForm = false;
     }
 
@@ -198,25 +183,25 @@
             <h2>Custom Sources</h2>
             <div class="add-buttons">
                 <button
-                    on:click={() => {newSourceType = 'json'; showAddForm = true;}}
+                    on:click={() => {newSourceType = 'stream'; showAddForm = true;}}
                     class="add-button"
                 >
                     <Globe />
-                    Add URL Source
+                    Add Stream Source
                 </button>
                 <button
-                    on:click={() => {newSourceType = 'directory'; showAddForm = true;}}
+                    on:click={() => {newSourceType = 'device'; showAddForm = true;}}
                     class="add-button secondary"
                 >
                     <MapPin />
-                    Add Folder Source
+                    Add Device Source
                 </button>
             </div>
         </div>
 
         {#if showAddForm}
             <div class="form-container">
-                <h3>{newSourceType === 'json' ? 'Add URL Source' : 'Add Folder Source'}</h3>
+                <h3>{newSourceType === 'stream' ? 'Add Stream Source' : 'Add Device Source'}</h3>
                 <div class="form-fields">
                     <div class="field">
                         <label for="sourceName">Name</label>
@@ -224,10 +209,10 @@
                             id="sourceName"
                             type="text"
                             bind:value={newSourceName}
-                            placeholder={newSourceType === 'json' ? 'My Photo Collection' : 'My Photo Folder'}
+                            placeholder={newSourceType === 'stream' ? 'My Photo Stream' : 'My Device Photos'}
                         >
                     </div>
-                    {#if newSourceType === 'json'}
+                    {#if newSourceType === 'stream'}
                         <div class="field">
                             <label for="sourceUrl">URL</label>
                             <input
@@ -238,9 +223,9 @@
                             >
                             <p class="help-text">The URL should point to a JSON file with photo metadata</p>
                         </div>
-                    {:else if newSourceType === 'directory'}
+                    {:else if newSourceType === 'device'}
                         <div class="field">
-                            <label for="sourcePath">Folder Path</label>
+                            <label>Device Photos</label>
                             <input
                                 id="sourcePath"
                                 type="text"

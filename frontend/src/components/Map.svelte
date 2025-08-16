@@ -2,7 +2,7 @@
     import {onMount, onDestroy, tick} from 'svelte';
     import {Polygon, LeafletMap, TileLayer, Marker, Circle, ScaleControl} from 'svelte-leafletjs';
     import {LatLng} from 'leaflet';
-    import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle, MapPin, Pause, ArrowUp, ArrowDown, Layers, Eye, Compass} from 'lucide-svelte';
+    import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle, MapPin, Pause, ArrowUp, ArrowDown, Layers, Eye, Compass, Car, PersonStanding} from 'lucide-svelte';
     import L from 'leaflet';
     import 'leaflet/dist/leaflet.css';
     import Spinner from './Spinner.svelte';
@@ -18,7 +18,10 @@
         updateSpatialState,
         updateBearing,
         updateBearingDiff,
-        updateBounds
+        updateBounds,
+        bearingState,
+        setBearingMode,
+        type BearingMode
     } from "$lib/mapState";
     import { sources } from "$lib/data.svelte";
     import { simplePhotoWorker } from '$lib/simplePhotoWorker';
@@ -63,10 +66,11 @@
     // Subscribe to compass tracking state
     $: compassTrackingEnabled = $compassActive;
     
-    // Update bearing from compass when tracking is enabled
-    $: if (compassTrackingEnabled && $currentHeading) {
+    // Update bearing from compass when tracking is enabled AND in walking mode
+    $: if (compassTrackingEnabled && $bearingState.mode === 'walking' && $currentHeading) {
         const newBearing = $currentHeading.heading;
         if (newBearing !== null && !isNaN(newBearing)) {
+            console.log("Compass bearing update (walking mode):", newBearing);
             updateBearing(newBearing);
         }
     }
@@ -287,6 +291,8 @@
             toggleLocationTracking();
         } else if (action === 'compass') {
             toggleCompassTracking();
+        } else if (action === 'bearing-mode') {
+            toggleBearingMode();
         }
 
         return false;
@@ -454,13 +460,20 @@
         }
     }
     
+    function toggleBearingMode() {
+        const currentMode = $bearingState.mode;
+        const newMode: BearingMode = currentMode === 'car' ? 'walking' : 'car';
+        console.log(`🚗🚶 Switching bearing mode: ${currentMode} → ${newMode}`);
+        setBearingMode(newMode);
+    }
+    
     // Start tracking user location
     async function startLocationTracking() {
         locationTrackingLoading = true;
         
         // Get initial position
         await geolocation.getCurrentPosition(
-            updateUserLocation,
+            handleGpsUpdate,
             (error) => {
                 console.error("Error getting location:", error);
                 console.error("Error code:", error.code);
@@ -493,7 +506,7 @@
         
         // Start watching position
         watchId = await geolocation.watchPosition(
-            updateUserLocation,
+            handleGpsUpdate,
             (error) => {
                 console.error("Error watching location:", error);
                 console.error("Watch error code:", error.code);
@@ -515,21 +528,14 @@
         setLocationError(null);
     }
     
-    // Update user location on the map
-    async function updateUserLocation(position: GeolocationPosition) {
-        // Check if position changed and update global store
-        const updated = updateGpsLocation(position);
-        if (!updated) {
-            //console.log("updateUserLocation(GPS): No change in position, skipping update");
-            return;
-        }
-
-        const { latitude, longitude, accuracy, heading } = position.coords;
+    // Handle GPS location updates only (position/coordinates)
+    async function handleGpsLocationUpdate(position: GeolocationPosition) {
+        const { latitude, longitude, accuracy } = position.coords;
         
         // Store the location data locally
         userLocation = position;
 
-        console.log("updateUserLocation:", latitude, longitude, accuracy, heading);
+        console.log("handleGpsLocationUpdate:", latitude, longitude, accuracy);
         locationTrackingLoading = false;
         locationApiEventFlash = true;
         if (locationApiEventFlashTimer !== null) {
@@ -538,16 +544,7 @@
         locationApiEventFlashTimer = setTimeout(() => {
             locationApiEventFlash = false;
         }, 100);
-        
-        // Update user heading if available
-        if (heading !== null && heading !== undefined) {
-            userHeading = heading;
-            // Optionally update the app bearing based on user heading
-            if (locationTracking) {
-                updateBearing(userHeading);
-            }
-        }
-        
+
         if (map) {
             const latLng = new L.LatLng(latitude, longitude);
 
@@ -574,11 +571,36 @@
                     bounds: null, // Will be updated by onMapStateChange
                     range: get_range(new LatLng(latitude, longitude))
                 });
-                
-                // Update other state as needed
-                //onMapStateChange(true, 'updateUserLocation');
             }
         }
+    }
+
+    // Handle GPS bearing updates (only when compass button active + car mode)
+    function handleGpsBearingUpdate(position: GeolocationPosition) {
+        const { heading } = position.coords;
+        
+        // Only update bearing if compass tracking is enabled AND in car mode
+        if (compassTrackingEnabled && $bearingState.mode === 'car' && heading !== null && heading !== undefined) {
+            userHeading = heading;
+            console.log("handleGpsBearingUpdate: GPS heading", heading);
+            updateBearing(heading);
+        }
+    }
+    
+    // Main GPS update handler - orchestrates location and bearing updates
+    async function handleGpsUpdate(position: GeolocationPosition) {
+        // Check if position changed and update global store
+        const updated = updateGpsLocation(position);
+        if (!updated) {
+            //console.log("handleGpsUpdate(GPS): No change in position, skipping update");
+            return;
+        }
+
+        // Handle location updates (always)
+        await handleGpsLocationUpdate(position);
+        
+        // Handle bearing updates (conditional on compass tracking + car mode)
+        handleGpsBearingUpdate(position);
     }
 
     $: map = elMap?.getMap();
@@ -1035,10 +1057,21 @@
     <button 
         class={compassTrackingEnabled ? 'active' : ''}
         on:click={(e) => handleButtonClick('compass', e)}
-        title="Track compass bearing"
-        disabled={!$compassAvailable}
+        title="Auto bearing updates ({$bearingState.mode === 'car' ? 'GPS' : 'compass'} mode)"
+        disabled={$bearingState.mode === 'walking' && !$compassAvailable}
     >
         <Compass />
+    </button>
+    <button 
+        class="active"
+        on:click={(e) => handleButtonClick('bearing-mode', e)}
+        title={$bearingState.mode === 'car' ? 'Car mode: GPS bearing' : 'Walking mode: Compass bearing'}
+    >
+        {#if $bearingState.mode === 'car'}
+            <Car />
+        {:else}
+            <PersonStanding />
+        {/if}
     </button>
 </div>
 
@@ -1076,23 +1109,6 @@
         position: relative;
     }
 
-    .debug-bounds-info {
-        position: absolute;
-        top: 10px;
-        left: 10px;
-        background-color: rgba(255, 255, 255, 0.9);
-        padding: 10px;
-        border-radius: 5px;
-        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
-        z-index: 30000;
-        font-family: monospace;
-        font-size: 12px;
-        line-height: 1.4;
-    }
-
-    .debug-bounds-info div {
-        margin: 2px 0;
-    }
 
     .control-buttons-container {
         position: absolute;
