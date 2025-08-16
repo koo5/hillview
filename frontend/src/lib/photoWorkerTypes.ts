@@ -52,6 +52,7 @@ export interface SourceConfig {
     path?: string;
     backendUrl?: string;  // For Mapillary API
     clientId?: string;    // For Mapillary API
+    authToken?: string;   // For authentication
 }
 
 // Worker message types

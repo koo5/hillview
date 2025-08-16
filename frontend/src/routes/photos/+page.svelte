@@ -2,6 +2,7 @@
     import { onMount } from 'svelte';
     import { goto } from '$app/navigation';
     import { Upload, Trash2, Map, Settings } from 'lucide-svelte';
+    import BackButton from '../../components/BackButton.svelte';
     import Spinner from '../../components/Spinner.svelte';
     import { auth } from '$lib/auth.svelte';
     import { app } from '$lib/data.svelte';
@@ -251,6 +252,10 @@
 </script>
 
 <div class="photos-container">
+    <div class="back-button-container">
+        <BackButton title="Back to Map" />
+    </div>
+    
     <header>
         <h1>My Photos</h1>
         {#if TAURI}
@@ -442,6 +447,10 @@
         max-width: 1200px;
         margin: 0 auto;
         padding: 20px;
+    }
+    
+    .back-button-container {
+        margin-bottom: 20px;
     }
     
     header {

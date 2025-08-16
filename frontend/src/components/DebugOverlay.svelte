@@ -3,6 +3,9 @@
     import {photoInFront, photosInRange, photoToLeft, photoToRight, spatialState, visualState, visiblePhotos} from '$lib/mapState';
     import {app, mapillary_cache_status, sources, sourceLoadingStatus, toggleDebug, closeDebug} from '$lib/data.svelte';
     import {captureQueue, type QueueStats} from '$lib/captureQueue';
+    
+    // Access the stats store properly
+    $: queueStats = captureQueue.stats;
     import {devicePhotos, photoCaptureSettings} from '$lib/stores';
     import {invoke} from '@tauri-apps/api/core';
     import DebugMode1 from './DebugMode1.svelte';
@@ -252,22 +255,22 @@
                         <div class="capture-stats-grid">
                             <div class="capture-stat">
                                 <span class="capture-label">Queue Size:</span>
-                                <span class="capture-value">{captureQueue.stats ? $captureQueue.stats.size : 0}</span>
+                                <span class="capture-value">{$queueStats.size}</span>
                             </div>
                             <div class="capture-stat">
                                 <span class="capture-label">Processing:</span>
-                                <span class="capture-value" class:processing={captureQueue.stats ? $captureQueue.stats.processing : false}>
-                                    {captureQueue.stats && $captureQueue.stats.processing ? '⚡ Active' : '💤 Idle'}
+                                <span class="capture-value" class:processing={$queueStats.processing}>
+                                    {$queueStats.processing ? '⚡ Active' : '💤 Idle'}
                                 </span>
                             </div>
                             <div class="capture-stat">
                                 <span class="capture-label">Total Captured:</span>
-                                <span class="capture-value">{captureQueue.stats ? $captureQueue.stats.totalCaptured : 0}</span>
+                                <span class="capture-value">{$queueStats.totalCaptured}</span>
                             </div>
                             <div class="capture-stat">
                                 <span class="capture-label">Mode Breakdown:</span>
                                 <span class="capture-value">
-                                    🐌 {captureQueue.stats ? $captureQueue.stats.slowModeCount : 0} | ⚡ {captureQueue.stats ? $captureQueue.stats.fastModeCount : 0}
+                                    🐌 {$queueStats.slowModeCount} | ⚡ {$queueStats.fastModeCount}
                                 </span>
                             </div>
                         </div>
@@ -445,10 +448,6 @@
         padding-top: 0;
     }
 
-    .error {
-        color: #ff6666;
-        font-style: italic;
-    }
 
 
     .mapillary-section {
@@ -463,18 +462,9 @@
         gap: 4px;
     }
 
-    .cache-partial {
-        color: #ffff00;
-    }
 
     .cache-complete {
         color: #00ff00;
-    }
-
-    .live-photos-count {
-        font-size: 10px;
-        color: #aaa;
-        margin-top: 2px;
     }
 
     .spinner {

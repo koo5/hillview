@@ -3,6 +3,7 @@
     import { fetchSourcePhotos } from '$lib/sources';
     import { localStorageSharedStore } from '$lib/svelte-shared-store';
     import { Plus, Trash2, Globe, MapPin, Folder, Camera } from 'lucide-svelte';
+    import BackButton from '../../components/BackButton.svelte';
     import { onMount } from 'svelte';
     import { goto } from '$app/navigation';
 
@@ -14,7 +15,7 @@
     let newSourceUrl = '';
     let newSourcePath = '';
     let newSourceType: 'stream' | 'device' = 'stream';
-    let newsubtype: subtype = 'hillview';
+    let newsubtype: subtype = 'folder';
     let showAddForm = false;
     let formError = '';
 
@@ -119,7 +120,7 @@
         newSourceUrl = '';
         newSourcePath = '';
         newSourceType = 'stream';
-        newsubtype = 'hillview';
+        newsubtype = 'folder';
         showAddForm = false;
     }
 
@@ -145,6 +146,10 @@
 </script>
 
 <div class="sources-container">
+    <div class="back-button-container">
+        <BackButton title="Back to Map" />
+    </div>
+    
     <div class="header">
         <h1>Photo Sources</h1>
         <p>Manage where photos are loaded from</p>
@@ -200,7 +205,7 @@
                 </button>
                 <button
                     on:click={() => {newSourceType = 'device'; showAddForm = true;}}
-                    class="add-button secondary"
+                    class="add-button"
                 >
                     <MapPin />
                     Add Device Source
@@ -236,7 +241,6 @@
                         <div class="field">
                             <label for="subtype">Device Source Type</label>
                             <select id="subtype" bind:value={newsubtype}>
-                                <option value="hillview">Hillview Folder</option>
                                 <option value="folder">Custom Folder</option>
                                 <option value="gallery">Device Gallery</option>
                             </select>
@@ -252,8 +256,6 @@
                                 >
                                 <p class="help-text">Path to a folder containing photos with GPS metadata</p>
                             </div>
-                        {:else if newsubtype === 'hillview'}
-                            <p class="help-text">Uses the default Hillview folder (Pictures/Hillview or Pictures/.Hillview)</p>
                         {:else if newsubtype === 'gallery'}
                             <p class="help-text">Accesses all photos indexed by the device's media API</p>
                         {/if}
@@ -320,15 +322,6 @@
                 <p class="empty-state">No custom sources added yet</p>
             {/if}
         </div>
-    </div>
-
-    <div class="back-button-container">
-        <button
-            on:click={() => goto('/')}
-            class="button secondary"
-        >
-            Back to Map
-        </button>
     </div>
 </div>
 
@@ -525,14 +518,6 @@
         background: #1d4ed8;
     }
 
-    .add-button.secondary {
-        background: #6b7280;
-        color: white;
-    }
-
-    .add-button.secondary:hover {
-        background: #4b5563;
-    }
 
     .remove-button {
         padding: 8px;

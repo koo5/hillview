@@ -162,7 +162,7 @@
             }
         } catch (e) {
             // Map not ready yet, ignore
-            console.log('Map not ready for spatialState update:', e);
+            console.log('Map not ready for spatialState update:', e instanceof Error ? e.message : String(e));
         }
     });
 
@@ -174,7 +174,7 @@
         if (!flying) {
             let _center = map.getCenter();
             let p = get(spatialState);
-            console.log('mapStateUserEvent:', JSON.stringify(event, null, 2));
+            console.log('mapStateUserEvent:', event);
             if (p.center.lat != _center.lat || p.center.lng != _center.lng) {
                 console.log('p.center:', p.center, '_center:', _center);
                 console.log('disableLocationTracking');

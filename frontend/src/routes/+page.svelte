@@ -19,7 +19,7 @@
     import type { DevicePhotoMetadata } from '$lib/types/photoTypes';
     import { devicePhotos } from '$lib/stores';
     import { captureLocation, captureLocationWithCompassBearing } from '$lib/captureLocation';
-    import { compassActive, stopCompass } from '$lib/compass.svelte';
+    import { compassActive, stopCompass, startCompass } from '$lib/compass.svelte';
     import '$lib/captureLocationManager'; // Activate capture location management
     import '$lib/mapBearingSync'; // Sync map bearing with sensors
     import '$lib/debugTauri';
@@ -246,11 +246,7 @@
                     enabled: false
                 }));
             });
-            
-            // Enable location tracking when camera opens
-            if (mapComponent) {
-                mapComponent.enableLocationTracking();
-            }
+            // Note: Location and compass are now handled by reactive statement
         } else {
             // Exiting capture mode - re-enable previously enabled sources
             // For now, we'll re-enable hillview and device sources by default
@@ -260,6 +256,7 @@
                     enabled: src.id === 'hillview' || src.id === 'device'
                 }));
             });
+            // Note: Compass stopping is now handled by reactive statement
         }
     }
     
@@ -271,6 +268,27 @@
     auth.subscribe(value => {
         isAuthenticated = value.isAuthenticated;
     });
+
+    // Reactive statement to ensure geolocation and bearing are enabled when in capture mode
+    // This handles both toggle events and initial page load
+    $: if ($app.activity === 'capture') {
+        console.log('🎥 Capture mode detected, ensuring location and compass are enabled');
+        
+        // Enable location tracking when in capture mode
+        if (mapComponent) {
+            mapComponent.enableLocationTracking();
+        }
+        
+        // Enable compass/bearing when in capture mode
+        startCompass().catch(err => {
+            console.warn('Failed to start compass for camera capture:', err);
+        });
+    } else if ($app.activity === 'view') {
+        console.log('👁️ View mode detected, stopping compass');
+        
+        // Stop compass when exiting capture mode (optional - can be removed if you want compass to stay active)
+        stopCompass();
+    }
 </script>
 
 
@@ -335,7 +353,6 @@
         {/if}
 
         <ul>
-            <li><a href="/" on:click={() => menuOpen = false}>Map</a></li>
             {#if FEATURE_USER_ACCOUNTS}
                 {#if isAuthenticated}
                     <li><a href="/photos" on:click={() => menuOpen = false}>

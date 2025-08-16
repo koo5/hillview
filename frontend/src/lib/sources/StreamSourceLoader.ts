@@ -114,7 +114,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
             }
             
             // Extract more meaningful error information
-            let errorMessage = 'Stream connection error';
+            let errorMessage = 'Stream connection error for ' + this.source.id + ' (' + this.source.url + ')';
             if (error instanceof ErrorEvent) {
                 errorMessage = `Stream error: ${error.message || error.type || 'Unknown error'}`;
             } else if (error && typeof error === 'object') {

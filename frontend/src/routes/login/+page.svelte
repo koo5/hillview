@@ -2,6 +2,7 @@
     import { onMount } from 'svelte';
     import { goto } from '$app/navigation';
     import { User, Lock, Mail, Github } from 'lucide-svelte';
+    import BackButton from '../../components/BackButton.svelte';
     import { login, register, oauthLogin, auth } from '$lib/auth.svelte';
 
     let username = '';
@@ -110,6 +111,9 @@
 </script>
 
 <div class="login-container">
+    <div class="back-button-container">
+        <BackButton title="Back to Map" />
+    </div>
     <div class="login-card">
         <h1>{isLogin ? 'Login' : 'Register'}</h1>
         
@@ -388,5 +392,9 @@
     
     input.auto-generated {
         background-color: #f5f5f5;
+    }
+    
+    .back-button-container {
+        margin-bottom: 20px;
     }
 </style>

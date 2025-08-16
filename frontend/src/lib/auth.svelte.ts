@@ -1,6 +1,7 @@
 import { writable, type Writable, get } from 'svelte/store';
 import { goto } from "$app/navigation";
 import { userPhotos } from './stores';
+import { backendUrl } from './config';
 
 export interface User {
     id: string;
