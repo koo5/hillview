@@ -85,22 +85,3 @@ export function parsePhotoData(item: any, geoPicsUrl: string): WorkerPhotoData {
     return photo;
 }
 
-// Source loading functions that can be used by both frontend and worker
-export async function loadJsonPhotos(url: string): Promise<WorkerPhotoData[]> {
-    console.log(`Loading JSON photos from ${url}`);
-
-    const response = await fetch(url + '/files.json', {
-        headers: {Accept: 'application/json'}
-    });
-
-    if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-    }
-
-    const rawData = await response.json();
-    if (!Array.isArray(rawData)) {
-        throw new Error('Expected an array of photo data');
-    }
-
-    return rawData.map((item: any) => parsePhotoData(item, url));
-}

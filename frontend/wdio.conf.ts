@@ -24,7 +24,7 @@ export const config: Options.Testrunner = {
         'appium:deviceName': 'Android Emulator',
         'appium:platformVersion': '14',
         'appium:automationName': 'UiAutomator2',
-        'appium:app': './src-tauri/gen/android/app/build/outputs/apk/x86_64/debug/app-x86_64-debug.apk',
+        'appium:app': './src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk',
         'appium:noReset': false,
         'appium:fullReset': false,
         'appium:skipInstall': false,
@@ -34,7 +34,9 @@ export const config: Options.Testrunner = {
         'appium:appActivity': '.MainActivity',
         'appium:appWaitActivity': '.MainActivity',
         'appium:autoLaunch': true,
-        'appium:appWaitDuration': 20000,
+        'appium:appWaitDuration': 30000,
+        'appium:uiautomator2ServerInstallTimeout': 60000,
+        'appium:uiautomator2ServerLaunchTimeout': 60000,
         // Permission handling capabilities
         'appium:autoGrantPermissions': false, // Don't auto-grant to test permission flows
         'appium:autoAcceptAlerts': false, // Don't auto-accept alerts

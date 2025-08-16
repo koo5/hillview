@@ -64,7 +64,7 @@ if (token && !isAuthenticated && tokenExpires) {
 export async function login(username: string, password: string) {
     try {
         console.log('[AUTH] Logging in with:', { username });
-        const response = await fetch(import.meta.env.VITE_BACKEND+'/auth/token', {
+        const response = await fetch(backendUrl+'/auth/token', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
@@ -130,7 +130,7 @@ export async function login(username: string, password: string) {
 export async function register(email: string, username: string, password: string) {
     try {
         console.log('[AUTH] Registering user:', { email, username });
-        const response = await fetch(import.meta.env.VITE_BACKEND+'/auth/register', {
+        const response = await fetch(backendUrl+'/auth/register', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -165,7 +165,7 @@ export async function register(email: string, username: string, password: string
 
 export async function oauthLogin(provider: string, code: string, redirectUri?: string) {
     try {
-        const response = await fetch(import.meta.env.VITE_BACKEND+'/auth/oauth', {
+        const response = await fetch(backendUrl+'/auth/oauth', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -324,7 +324,7 @@ export async function fetchUserData() {
     
     try {
         console.log('[AUTH] Making API request to /api/auth/me');
-        const response = await fetch(import.meta.env.VITE_BACKEND+'/auth/me', {
+        const response = await fetch(backendUrl+'/auth/me', {
             headers: {
                 'Authorization': `Bearer ${tokenToUse}`
             }
@@ -388,7 +388,7 @@ export async function fetchUserPhotos() {
     }
     
     try {
-        const response = await fetch(import.meta.env.VITE_BACKEND+'/photos', {
+        const response = await fetch(backendUrl+'/photos', {
             headers: {
                 'Authorization': `Bearer ${tokenToUse}`
             }

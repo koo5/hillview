@@ -13,10 +13,11 @@ test.describe('Enhanced Debug Page', () => {
   });
 
   test('should show enhanced debug information in mode 2', async ({ page }) => {
-    // Enable debug mode 2 (press Ctrl+Shift+D twice)
-    await page.keyboard.press('Control+Shift+D');
+    // Enable debug mode 2 (click Debug button twice)
+    const debugButton = page.locator('button.debug-toggle');
+    await debugButton.click();
     await page.waitForTimeout(100);
-    await page.keyboard.press('Control+Shift+D');
+    await debugButton.click();
     await page.waitForTimeout(500);
 
     // Check if debug overlay is visible
@@ -48,9 +49,10 @@ test.describe('Enhanced Debug Page', () => {
 
   test('should show source loading status indicators', async ({ page }) => {
     // Enable debug mode 2
-    await page.keyboard.press('Control+Shift+D');
+    const debugButton = page.locator('button.debug-toggle');
+    await debugButton.click();
     await page.waitForTimeout(100);
-    await page.keyboard.press('Control+Shift+D');
+    await debugButton.click();
     await page.waitForTimeout(500);
 
     // Check for source status indicators
@@ -76,9 +78,10 @@ test.describe('Enhanced Debug Page', () => {
 
   test('should display photo count statistics', async ({ page }) => {
     // Enable debug mode 2
-    await page.keyboard.press('Control+Shift+D');
+    const debugButton = page.locator('button.debug-toggle');
+    await debugButton.click();
     await page.waitForTimeout(100);
-    await page.keyboard.press('Control+Shift+D');
+    await debugButton.click();
     await page.waitForTimeout(500);
 
     // Wait a bit for any photos to load
@@ -102,28 +105,37 @@ test.describe('Enhanced Debug Page', () => {
     let debugOverlay = page.locator('.debug-overlay');
     await expect(debugOverlay).not.toBeVisible();
 
-    // Cycle through debug modes
-    await page.keyboard.press('Control+Shift+D'); // Mode 1
-    await page.waitForTimeout(200);
+    // Cycle through debug modes using Debug button
+    const debugButton = page.locator('button.debug-toggle');
+    
+    await debugButton.click(); // Mode 1
+    await page.waitForTimeout(300);
     await expect(debugOverlay).toBeVisible();
 
-    await page.keyboard.press('Control+Shift+D'); // Mode 2
-    await page.waitForTimeout(200);
+    await debugButton.click(); // Mode 2
+    await page.waitForTimeout(300);
     await expect(debugOverlay).toBeVisible();
     
     // Check that we're in mode 2 (should show photo statistics)
     const photoStatsSection = page.locator('.photo-counts-section');
     await expect(photoStatsSection).toBeVisible();
 
-    await page.keyboard.press('Control+Shift+D'); // Mode 3
-    await page.waitForTimeout(200);
+    await debugButton.click(); // Mode 3
+    await page.waitForTimeout(300);
+    // In mode 3, debug overlay should still be visible but photo stats should be hidden
     await expect(debugOverlay).toBeVisible();
-    
-    // Mode 3 should not show photo statistics section
     await expect(photoStatsSection).not.toBeVisible();
 
-    await page.keyboard.press('Control+Shift+D'); // Back to Mode 0 (off)
-    await page.waitForTimeout(200);
+    await debugButton.click(); // Mode 4 (capture system)
+    await page.waitForTimeout(300);
+    await expect(debugOverlay).toBeVisible();
+    
+    // Check for capture system section
+    const captureSystemSection = page.locator('.capture-system-section');
+    await expect(captureSystemSection).toBeVisible();
+
+    await debugButton.click(); // Back to Mode 0 (off) - this is the 5th click
+    await page.waitForTimeout(500); // Give it more time to hide
     await expect(debugOverlay).not.toBeVisible();
   });
 });

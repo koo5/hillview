@@ -16,9 +16,12 @@
     let longPressTimer: number | null = null;
     let hideTimer: number | null = null;
     let isLongPress = false;
+    let isDragging = false;
     let touchStartX = 0;
     let touchStartY = 0;
-    let swipeThreshold = 50;
+    let currentDragX = 0;
+    let dragThreshold = 30;
+    let selectedMode: 'slow' | 'fast' | null = null;
     
     function startCapture(mode: 'slow' | 'fast') {
         const interval = mode === 'slow' ? slowInterval : fastInterval;
@@ -107,13 +110,15 @@
     }
 
     function handleSinglePointerDown(e: PointerEvent | MouseEvent) {
-        console.log('handleSinglePointerDown called', e.type);
         if (disabled) return;
         
         e.preventDefault();
         touchStartX = e.clientX;
         touchStartY = e.clientY;
+        currentDragX = 0;
         isLongPress = false;
+        isDragging = false;
+        selectedMode = null;
 
         // Clear any existing timer
         if (longPressTimer) {
@@ -122,13 +127,13 @@
 
         // Start long press timer
         longPressTimer = window.setTimeout(() => {
-            console.log('Long press timer triggered, showing buttons');
             isLongPress = true;
+            isDragging = true;
             showButtons();
-        }, 500); // 500ms for long press
+        }, 300); // Shorter timeout for quicker response
     }
 
-    function handleSinglePointerUp(e: PointerEvent) {
+    function handleSinglePointerUp(e: PointerEvent | MouseEvent) {
         if (disabled) return;
 
         // Clear long press timer
@@ -137,38 +142,53 @@
             longPressTimer = null;
         }
 
-        if (!isLongPress) {
+        if (isLongPress && selectedMode) {
+            // Long press with selection - start the selected mode
+            if (selectedMode === 'slow') {
+                handleSlowStart();
+            } else if (selectedMode === 'fast') {
+                handleFastStart();
+            }
+        } else if (!isLongPress) {
             // Short press - single capture
             handleSingleCapture();
         }
         
+        // Reset state
         isLongPress = false;
+        isDragging = false;
+        selectedMode = null;
+        setTimeout(() => hideButtons(), 200); // Hide buttons after a short delay
     }
 
-    function handleSinglePointerMove(e: PointerEvent) {
-        if (disabled || !longPressTimer) return;
+    function handleSinglePointerMove(e: PointerEvent | MouseEvent) {
+        if (disabled) return;
 
         const deltaX = e.clientX - touchStartX;
         const deltaY = e.clientY - touchStartY;
         const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+        
+        currentDragX = deltaX;
 
-        // If moved too much, cancel long press
-        if (distance > 20) {
-            if (longPressTimer) {
-                clearTimeout(longPressTimer);
-                longPressTimer = null;
-            }
-
-            // Check for horizontal swipe
-            if (Math.abs(deltaX) > swipeThreshold && Math.abs(deltaY) < swipeThreshold) {
-                if (deltaX > 0) {
-                    // Swipe right - fast capture
-                    handleFastClick();
+        // If we're in long press mode and dragging
+        if (isLongPress && isDragging) {
+            // Determine which mode is selected based on horizontal drag
+            if (Math.abs(deltaX) > dragThreshold) {
+                if (deltaX < 0) {
+                    // Dragging left - slow mode
+                    selectedMode = 'slow';
                 } else {
-                    // Swipe left - slow capture
-                    handleSlowClick();
+                    // Dragging right - fast mode  
+                    selectedMode = 'fast';
                 }
+            } else {
+                // In neutral zone
+                selectedMode = null;
             }
+        } else if (longPressTimer && distance > 15) {
+            // If we moved before long press activated, cancel it
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
         }
     }
 
@@ -196,6 +216,7 @@
         <button
             class="capture-button slow-mode"
             class:pressed={slowPressed}
+            class:selected={selectedMode === 'slow'}
             {disabled}
             on:mousedown={handleSlowStart}
             on:mouseup={handleSlowEnd}
@@ -220,6 +241,10 @@
         on:pointerup={handleSinglePointerUp}
         on:pointermove={handleSinglePointerMove}
         on:pointerleave={handleSinglePointerLeave}
+        on:mousedown={handleSinglePointerDown}
+        on:mouseup={handleSinglePointerUp}
+        on:mousemove={handleSinglePointerMove}
+        on:mouseleave={handleSinglePointerLeave}
         data-testid="single-capture-button"
     >
         <Camera size={24} />
@@ -232,6 +257,7 @@
         <button
             class="capture-button fast-mode"
             class:pressed={fastPressed}
+            class:selected={selectedMode === 'fast'}
             {disabled}
             on:mousedown={handleFastStart}
             on:mouseup={handleFastEnd}
@@ -311,6 +337,13 @@
         transform: scale(0.9);
         background: linear-gradient(135deg, #3d8b40, #357a38);
     }
+
+    .slow-mode.selected {
+        transform: scale(1.1);
+        background: linear-gradient(135deg, #66BB6A, #4CAF50);
+        box-shadow: 0 0 20px rgba(76, 175, 80, 0.6);
+        border: 2px solid #81C784;
+    }
     
     .fast-mode {
         background: linear-gradient(135deg, #ff6b6b, #ff5252);
@@ -323,6 +356,13 @@
     .fast-mode.pressed {
         transform: scale(0.9);
         background: linear-gradient(135deg, #ff4141, #ff3030);
+    }
+
+    .fast-mode.selected {
+        transform: scale(1.1);
+        background: linear-gradient(135deg, #FF7043, #ff6b6b);
+        box-shadow: 0 0 20px rgba(255, 107, 107, 0.6);
+        border: 2px solid #FF8A65;
     }
     
     .single-mode {

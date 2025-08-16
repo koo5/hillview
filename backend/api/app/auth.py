@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer, OAuth2AuthorizationCodeBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -93,6 +93,7 @@ class UserOut(BaseModel):
     email: str
     username: str
     is_active: bool
+    is_test: bool
     created_at: datetime
     auto_upload_enabled: bool
     auto_upload_folder: Optional[str] = None
@@ -281,6 +282,110 @@ async def get_current_active_user(current_user: User = Depends(get_current_user)
         raise HTTPException(status_code=400, detail="Inactive user")
     return current_user
 
+async def get_current_user_optional(
+    token: Optional[str] = Depends(OAuth2PasswordBearer(tokenUrl="/api/auth/token", auto_error=False)), 
+    db: AsyncSession = Depends(get_db)
+) -> Optional[User]:
+    """Get current user if authenticated, otherwise return None"""
+    if not token:
+        return None
+    
+    try:
+        # Decode and validate JWT token with strict algorithm checking
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            return None
+        
+        # Check if token is blacklisted
+        blacklist_query = select(TokenBlacklist).where(TokenBlacklist.token == token)
+        blacklist_result = await db.execute(blacklist_query)
+        blacklisted_token = blacklist_result.scalars().first()
+        
+        if blacklisted_token:
+            logger.warning(f"Blacklisted token used for user: {username}")
+            return None
+            
+    except JWTError:
+        return None
+    
+    # Get user from database
+    result = await db.execute(select(User).where(User.username == username))
+    user = result.scalars().first()
+    
+    if user is None or not user.is_active:
+        return None
+        
+    return user
+
+async def get_current_user_optional_with_query(
+    request: Request,
+    token: Optional[str] = Depends(OAuth2PasswordBearer(tokenUrl="/api/auth/token", auto_error=False)), 
+    db: AsyncSession = Depends(get_db)
+) -> Optional[User]:
+    """Get current user if authenticated, checking both header and query params"""
+    # First try header token
+    if token:
+        try:
+            # Decode and validate JWT token with strict algorithm checking
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            username: str = payload.get("sub")
+            if username is None:
+                return None
+            
+            # Check if token is blacklisted
+            blacklist_query = select(TokenBlacklist).where(TokenBlacklist.token == token)
+            blacklist_result = await db.execute(blacklist_query)
+            blacklisted_token = blacklist_result.scalars().first()
+            
+            if blacklisted_token:
+                logger.warning(f"Blacklisted token used for user: {username}")
+                return None
+                
+            # Get user from database
+            result = await db.execute(select(User).where(User.username == username))
+            user = result.scalars().first()
+            
+            if user is None or not user.is_active:
+                return None
+                
+            return user
+        except JWTError:
+            pass
+    
+    # If no header token or it failed, try query parameter
+    if request:
+        query_token = request.query_params.get('token')
+        if query_token:
+            try:
+                # Reuse the logic from get_current_user_optional
+                payload = jwt.decode(query_token, SECRET_KEY, algorithms=[ALGORITHM])
+                username: str = payload.get("sub")
+                if username is None:
+                    return None
+                
+                # Check if token is blacklisted
+                blacklist_query = select(TokenBlacklist).where(TokenBlacklist.token == query_token)
+                blacklist_result = await db.execute(blacklist_query)
+                blacklisted_token = blacklist_result.scalars().first()
+                
+                if blacklisted_token:
+                    logger.warning(f"Blacklisted token used for user: {username}")
+                    return None
+                    
+                # Get user from database
+                result = await db.execute(select(User).where(User.username == username))
+                user = result.scalars().first()
+                
+                if user is None or not user.is_active:
+                    return None
+                    
+                return user
+            except JWTError:
+                pass
+    
+    return None
+
 def require_role(required_role: str):
     """Dependency factory for role-based access control."""
     async def role_checker(current_user: User = Depends(get_current_active_user)):
@@ -403,7 +508,8 @@ async def recreate_test_users(db: AsyncSession) -> dict:
                 email=f"{username}@test.local",
                 hashed_password=hashed_password,
                 role=role,
-                is_active=True
+                is_active=True,
+                is_test=True
             )
             
             db.add(new_user)

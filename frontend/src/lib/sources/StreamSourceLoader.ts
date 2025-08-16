@@ -5,6 +5,7 @@
 
 import type { PhotoData, Bounds } from '../photoWorkerTypes';
 import { BasePhotoSourceLoader, type PhotoSourceCallbacks } from './PhotoSourceLoader';
+import { verbalizeEventSourceReadyState } from './eventSourceUtils';
 
 export class StreamSourceLoader extends BasePhotoSourceLoader {
     private eventSource?: EventSource;
@@ -62,6 +63,14 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
         // Add client_id parameter (required by server)
         const clientId = this.source.clientId || 'default'; // Provide default if not specified
         url.searchParams.set('client_id', clientId);
+        
+        // Add JWT token if provided in source configuration (for EventSource authentication)
+        if (this.source.authToken) {
+            url.searchParams.set('token', this.source.authToken);
+            console.log(`StreamSourceLoader: Adding authentication token to ${this.source.id} request`);
+        } else {
+            console.log(`StreamSourceLoader: No authentication token provided for ${this.source.id} request`);
+        }
 
         // Create completion promise with timeout
         this.completionPromise = new Promise<void>((resolve) => {
@@ -76,7 +85,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
 
         this.eventSource = new EventSource(url.toString());
         console.log(`StreamSourceLoader: Created EventSource for ${this.source.id} with URL:`, url.toString());
-        console.log(`StreamSourceLoader: Initial EventSource readyState: ${this.eventSource.readyState}`);
+        console.log(`StreamSourceLoader: Initial EventSource readyState: ${verbalizeEventSourceReadyState(this.eventSource.readyState)}`);
         
         // Connect abort signal to EventSource
         this.abortController.signal.addEventListener('abort', () => {
@@ -112,16 +121,16 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
                 errorMessage = `Stream error: ${JSON.stringify(error, Object.getOwnPropertyNames(error))}`;
             }
             
-            console.error('StreamSourceLoader: Stream error details:', {
+            console.error('StreamSourceLoader: Stream error details:', JSON.stringify({
                 error,
                 errorType: error?.constructor?.name,
                 errorMessage,
-                readyState: this.eventSource?.readyState,
+                readyState: this.eventSource?.readyState ? verbalizeEventSourceReadyState(this.eventSource.readyState) : 'undefined',
                 url: this.eventSource?.url,
                 timeFromCreation: Date.now() - this.startTime,
                 connectionState: navigator.onLine ? 'online' : 'offline',
                 isComplete: this.isComplete
-            });
+            }, null, 2));
             
             // Check if this is an immediate connection failure
             if (this.eventSource?.readyState === EventSource.CLOSED && Date.now() - this.startTime < 1000) {
@@ -135,7 +144,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
         };
 
         this.eventSource.onopen = () => {
-            console.log(`StreamSourceLoader: Stream opened for ${this.source.id} (readyState: ${this.eventSource?.readyState})`);
+            console.log(`StreamSourceLoader: Stream opened for ${this.source.id} (readyState: ${this.eventSource ? verbalizeEventSourceReadyState(this.eventSource.readyState) : 'undefined'})`);
             this.updateLoadingStatus(true, 'Loading photos...');
         };
 
@@ -143,7 +152,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
         let lastReadyState = this.eventSource.readyState;
         const readyStateMonitor = setInterval(() => {
             if (this.eventSource && this.eventSource.readyState !== lastReadyState) {
-                console.log(`StreamSourceLoader: ReadyState changed from ${lastReadyState} to ${this.eventSource.readyState} for ${this.source.id}`);
+                console.log(`StreamSourceLoader: ReadyState changed from ${verbalizeEventSourceReadyState(lastReadyState)} to ${verbalizeEventSourceReadyState(this.eventSource.readyState)} for ${this.source.id}`);
                 lastReadyState = this.eventSource.readyState;
                 if (this.eventSource.readyState === EventSource.CLOSED) {
                     clearInterval(readyStateMonitor);
@@ -259,7 +268,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
         this.updateLoadingStatus(false, 'Cancelled');
         
         if (this.eventSource) {
-            console.log(`StreamSourceLoader: Closing EventSource for ${this.source.id} (readyState: ${this.eventSource.readyState})`);
+            console.log(`StreamSourceLoader: Closing EventSource for ${this.source.id} (readyState: ${verbalizeEventSourceReadyState(this.eventSource.readyState)})`);
             this.eventSource.close();
         }
 

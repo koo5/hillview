@@ -2,7 +2,9 @@ import { test, expect } from '@playwright/test';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-test.describe('User Photos Workflow', () => {
+test.describe('Photo Upload Tests', () => {
+  test.describe.configure({ mode: 'serial' });
+  
   // Test assets and expected filenames
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = path.dirname(__filename);
@@ -33,6 +35,143 @@ test.describe('User Photos Workflow', () => {
     // Wait for login success and redirect
     await expect(page).toHaveURL('/');
     await page.waitForLoadState('networkidle');
+  });
+
+  test('should handle upload validation correctly', async ({ page }) => {
+    await page.goto('/photos');
+    await page.waitForLoadState('networkidle');
+
+    // Try to upload without selecting a file
+    const uploadButton = page.locator('[data-testid="upload-submit-button"]');
+    await expect(uploadButton).toBeDisabled();
+
+    // Select a valid file
+    const photoPath = path.join(testAssetsDir, testPhotos[0]);
+    await page.locator('[data-testid="photo-file-input"]').setInputFiles(photoPath);
+    
+    // Upload button should now be enabled
+    await expect(uploadButton).toBeEnabled();
+  });
+
+  test('debug upload - single file upload with detailed logging', async ({ page }) => {
+    const testPhoto = testPhotos[0];
+    const photoPath = path.join(testAssetsDir, testPhoto);
+
+    // Go to photos page
+    await page.goto('/photos');
+    await page.waitForLoadState('networkidle');
+    
+    console.log('Current URL:', await page.url());
+    
+    // Check if upload section exists
+    const uploadSection = page.locator('[data-testid="upload-section"]');
+    console.log('Upload section visible:', await uploadSection.isVisible());
+    
+    const fileInput = page.locator('[data-testid="photo-file-input"]');
+    const uploadButton = page.locator('[data-testid="upload-submit-button"]');
+    
+    console.log('File input visible:', await fileInput.isVisible());
+    console.log('Upload button visible:', await uploadButton.isVisible());
+    console.log('Upload button text before:', await uploadButton.textContent());
+    console.log('Upload button disabled before:', await uploadButton.isDisabled());
+    
+    // Listen to network requests
+    page.on('response', response => {
+      if (response.url().includes('/photos/upload')) {
+        console.log('Upload request:', response.status(), response.url());
+      }
+    });
+    
+    // Listen to console logs
+    page.on('console', msg => {
+      if (msg.text().includes('Error') || msg.text().includes('Upload')) {
+        console.log('BROWSER CONSOLE:', msg.text());
+      }
+    });
+    
+    // Select file
+    console.log('Setting file:', photoPath);
+    await fileInput.setInputFiles(photoPath);
+    
+    await page.waitForTimeout(1000);
+    
+    console.log('Upload button text after file select:', await uploadButton.textContent());
+    console.log('Upload button disabled after file select:', await uploadButton.isDisabled());
+    
+    // Click upload
+    console.log('Clicking upload button...');
+    await uploadButton.click();
+    
+    await page.waitForTimeout(2000);
+    
+    console.log('Upload button text after click:', await uploadButton.textContent());
+    console.log('Upload button disabled after click:', await uploadButton.isDisabled());
+    
+    // Wait and check again
+    await page.waitForTimeout(5000);
+    
+    console.log('Upload button text after wait:', await uploadButton.textContent());
+    console.log('Upload button disabled after wait:', await uploadButton.isDisabled());
+    
+    // Check for any error messages
+    const errorMessage = page.locator('.error-message');
+    if (await errorMessage.count() > 0) {
+      console.log('Error message:', await errorMessage.textContent());
+    }
+  });
+
+  test('multi-file upload should work correctly', async ({ page }) => {
+    // Navigate to photos page
+    await page.goto('/photos');
+    await page.waitForLoadState('networkidle');
+    
+    // Select multiple files
+    const fileInput = page.locator('[data-testid="photo-file-input"]');
+    await fileInput.setInputFiles([
+      path.join(testAssetsDir, testPhotos[0]),
+      path.join(testAssetsDir, testPhotos[1])
+    ]);
+    
+    // Check selected files display
+    const selectedFiles = page.locator('.selected-files');
+    await expect(selectedFiles).toBeVisible();
+    await expect(selectedFiles).toContainText('Selected files: 2');
+    
+    // Check upload button text
+    const uploadButton = page.locator('[data-testid="upload-submit-button"]');
+    await expect(uploadButton).toContainText('Upload 2 Photos');
+    await expect(uploadButton).not.toBeDisabled();
+    
+    console.log('✓ Multi-file selection UI working');
+    
+    // Start upload
+    await uploadButton.click();
+    
+    // Wait for upload to complete
+    await page.waitForFunction(() => {
+      const input = document.querySelector('[data-testid="photo-file-input"]') as HTMLInputElement;
+      return input && input.value === '';
+    }, { timeout: 15000 });
+    
+    // Check activity log for batch upload messages
+    const activityLog = page.locator('.activity-log');
+    await expect(activityLog).toBeVisible();
+    
+    const logText = await activityLog.textContent();
+    
+    // Should contain batch upload messages
+    expect(logText).toContain('Starting batch upload: 2 files');
+    expect(logText).toContain('Batch complete:');
+    
+    console.log('✓ Batch upload completed successfully');
+    
+    // Verify photos appeared in the grid
+    await page.waitForTimeout(2000); // Wait for photos to load
+    const photoCards = page.locator('[data-testid="photo-card"]');
+    const photoCount = await photoCards.count();
+    
+    expect(photoCount).toBeGreaterThanOrEqual(2);
+    console.log(`✓ Found ${photoCount} photos in grid`);
   });
 
   test('should upload photos and verify exact filenames in My Photos page', async ({ page }) => {
@@ -171,22 +310,6 @@ test.describe('User Photos Workflow', () => {
         console.log(`Photo not found for deletion: ${photoName}`);
       }
     }
-  });
-
-  test('should handle upload validation correctly', async ({ page }) => {
-    await page.goto('/photos');
-    await page.waitForLoadState('networkidle');
-
-    // Try to upload without selecting a file
-    const uploadButton = page.locator('[data-testid="upload-submit-button"]');
-    await expect(uploadButton).toBeDisabled();
-
-    // Select a valid file
-    const photoPath = path.join(testAssetsDir, testPhotos[0]);
-    await page.locator('[data-testid="photo-file-input"]').setInputFiles(photoPath);
-    
-    // Upload button should now be enabled
-    await expect(uploadButton).toBeEnabled();
   });
 
   test.afterEach(async ({ page }) => {

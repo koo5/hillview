@@ -6,6 +6,9 @@ import {userPhotos} from './stores';
 // Import new mapState for legacy compatibility only
 import {photoInFront, photoToLeft, photoToRight, updateBearing as mapStateUpdateBearing, visualState} from './mapState';
 
+// Device source subtypes
+export type subtype = 'hillview' | 'folder' | 'gallery';
+
 // Source interface for compatibility
 export interface Source {
     id: string;
@@ -16,12 +19,14 @@ export interface Source {
     color: string;
     url?: string;
     path?: string;
+    // Device-specific properties
+    subtype?: subtype;
 }
 
 export const sources = writable<Source[]>([
     {id: 'hillview', name: 'Hillview', type: 'stream', enabled: false, requests: [], color: '#000', url: `${backendUrl}/hillview`},
     {id: 'mapillary', name: 'Mapillary', type: 'stream', enabled: true, requests: [], color: '#888', url: `${backendUrl}/mapillary`},
-    {id: 'device', name: 'My Device', type: 'device', enabled: true, requests: [], color: '#4a90e2'},
+    {id: 'device', name: 'My Device', type: 'device', enabled: true, requests: [], color: '#4a90e2', subtype: 'hillview'},
 ]);
 
 export let client_id = staggeredLocalStorageSharedStore('client_id', Math.random().toString(36));
@@ -204,4 +209,17 @@ export function reversed<T>(list: T[]): T[] {
         res.push(list[i]);
     }
     return res;
+}
+
+export function toggleDebug() {
+    app.update(a => {
+        const newDebug = ((a.debug || 0) + 1) % 5;
+        return {...a, debug: newDebug};
+    });
+    console.log(`Debug mode toggled to ${get(app).debug}`);
+}
+
+export function closeDebug() {
+    app.update(a => ({...a, debug: 0}));
+    console.log('Debug mode closed');
 }

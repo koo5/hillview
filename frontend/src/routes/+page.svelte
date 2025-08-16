@@ -3,8 +3,7 @@
     import PhotoGallery from '../components/Gallery.svelte';
     import Map from '../components/Map.svelte';
     import {Camera, Compass, User, LogOut, Menu, Download, Maximize2, Minimize2} from 'lucide-svelte';
-    import {fetch_photos} from "$lib/sources";
-    import {sources} from "$lib/data.svelte";
+    import {sources, toggleDebug} from "$lib/data.svelte";
     import {dms} from "$lib/utils";
     import {app, turn_to_photo_to, update_bearing} from "$lib/data.svelte";
     import {spatialState, visualState, updateSpatialState} from "$lib/mapState";
@@ -23,7 +22,7 @@
     import { compassActive, stopCompass } from '$lib/compass.svelte';
     import '$lib/captureLocationManager'; // Activate capture location management
     import '$lib/mapBearingSync'; // Sync map bearing with sensors
-    import '$lib/debugTauri'; // Debug Tauri availability
+    import '$lib/debugTauri';
 
     let map: any = null;
     let mapComponent: any = null;
@@ -70,14 +69,18 @@
             update_bearing(parseFloat(bearingParam));
         }
 
-        // Photo loading is now handled by the worker when sources change
-        // await fetch_photos();
-        window.addEventListener('keydown', handleKeyDown);
-
         setTimeout(() => {
             update_url = true;
         }, 100);
 
+        // Add keyboard event listener for debug toggle
+        window.addEventListener('keydown', handleKeyDown);
+
+    });
+
+    onDestroy(() => {
+        console.log('Page destroyed');
+        window.removeEventListener('keydown', handleKeyDown);
     });
 
     spatialState.subscribe(p => {
@@ -119,58 +122,6 @@
         }
     }
 
-    onDestroy(() => {
-        console.log('Page destroyed');
-        window.removeEventListener('keydown', handleKeyDown);
-    });
-
-    async function handleKeyDown(e: KeyboardEvent) {
-        if (!e.ctrlKey && !e.altKey && !e.metaKey) {
-            if (e.key === 'z') {
-                e.preventDefault();
-                // Disable compass tracking when manually rotating
-                if (get(compassActive)) {
-                    console.log('🧭 Disabling compass tracking due to manual rotation (z key)');
-                    await stopCompass();
-                }
-                update_bearing(-5);
-            } else if (e.key === 'x') {
-                e.preventDefault();
-                // Disable compass tracking when manually rotating
-                if (get(compassActive)) {
-                    console.log('🧭 Disabling compass tracking due to manual rotation (x key)');
-                    await stopCompass();
-                }
-                update_bearing(5);
-            } else if (e.key === 'c') {
-                e.preventDefault();
-                // Disable compass tracking when manually turning
-                if (get(compassActive)) {
-                    console.log('🧭 Disabling compass tracking due to manual turn (c key)');
-                    await stopCompass();
-                }
-                await turn_to_photo_to('left');
-            } else if (e.key === 'v') {
-                e.preventDefault();
-                // Disable compass tracking when manually turning
-                if (get(compassActive)) {
-                    console.log('🧭 Disabling compass tracking due to manual turn (v key)');
-                    await stopCompass();
-                }
-                await turn_to_photo_to('right');
-            } else if (e.key === 'd') {
-                e.preventDefault();
-                app.update(a => {
-                    a.debug = (a.debug + 1) % 3;
-                    return a;
-                });
-            } else if (e.key === 'm') {
-                e.preventDefault();
-                toggleDisplayMode();
-            }
-        }
-    }
-
     const toggleMenu = () => {
         menuOpen = !menuOpen;
     }
@@ -190,14 +141,33 @@
         }, 100);
     }
 
-    let debugOpen = false;
-    const toggleDebug = () => {
-        app.update(a => {
-            a.debug = a.debug ? 0 : 1;
-            return a;
-        });
-    }
+    function handleKeyDown(e: KeyboardEvent) {
+        // Only handle debug toggle when no modifier keys are pressed
+        // and when not typing in an input/textarea/contenteditable element
+        if (e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) {
+            return;
+        }
 
+        // Check if we're currently typing in an input field
+        const activeElement = document.activeElement as HTMLElement;
+        const isTyping = activeElement && (
+            activeElement.tagName === 'INPUT' ||
+            activeElement.tagName === 'TEXTAREA' ||
+            activeElement.contentEditable === 'true' ||
+            activeElement.getAttribute('contenteditable') === 'true'
+        );
+
+        if (isTyping) {
+            return;
+        }
+
+        // Handle debug toggle
+        if (e.key === 'd') {
+            e.preventDefault();
+            toggleDebug();
+        }
+    }
+    
     function handleLogout() {
         logout();
         menuOpen = false;
@@ -343,9 +313,9 @@
 </button>
 
 <button
-    on:click={debugOverlay.toggleDebug}
+    on:click={toggleDebug}
     class="debug-toggle"
-    on:keydown={(e) => e.key === 'Enter' && debugOverlay.toggleDebug()}
+    on:keydown={(e) => e.key === 'Enter' && toggleDebug()}
     aria-label="Toggle debug overlay"
     title="Toggle debug overlay"
     >

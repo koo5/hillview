@@ -239,16 +239,15 @@ test.describe('Map Navigation and Photo Turning', () => {
     // Wait for page load
     await page.waitForTimeout(1000);
 
-    // Test debug key (d key)
-    await page.keyboard.press('d');
-    await page.waitForTimeout(200);
-
-    // Test debug button if visible
+    // Test debug button
     const debugButton = page.locator('button.debug-toggle');
-    if (await debugButton.isVisible()) {
-      await debugButton.click();
-      await page.waitForTimeout(200);
-    }
+    await expect(debugButton).toBeVisible();
+    await debugButton.click();
+    await page.waitForTimeout(200);
+    
+    // Test clicking again to cycle debug modes
+    await debugButton.click();
+    await page.waitForTimeout(200);
 
     // Check for debug-related errors
     const hasDebugErrors = errors.some(error => 

@@ -13,6 +13,19 @@
     <script>
         let eventSource = null;
         
+        function verbalizeEventSourceReadyState(readyState) {
+            switch (readyState) {
+                case EventSource.CONNECTING:
+                    return 'CONNECTING(0)';
+                case EventSource.OPEN:
+                    return 'OPEN(1)';
+                case EventSource.CLOSED:
+                    return 'CLOSED(2)';
+                default:
+                    return `UNKNOWN(${readyState})`;
+            }
+        }
+        
         function updateStatus(message) {
             document.getElementById('status').innerHTML = message;
             console.log(message);
@@ -33,13 +46,13 @@
             
             try {
                 eventSource = new EventSource(url);
-                updateStatus(`EventSource created, initial readyState: ${eventSource.readyState}`);
+                updateStatus(`EventSource created, initial readyState: ${verbalizeEventSourceReadyState(eventSource.readyState)}`);
                 
                 // Monitor readyState changes
                 let lastReadyState = eventSource.readyState;
                 const monitor = setInterval(() => {
                     if (eventSource && eventSource.readyState !== lastReadyState) {
-                        addMessage(`ReadyState changed from ${lastReadyState} to ${eventSource.readyState}`);
+                        addMessage(`ReadyState changed from ${verbalizeEventSourceReadyState(lastReadyState)} to ${verbalizeEventSourceReadyState(eventSource.readyState)}`);
                         lastReadyState = eventSource.readyState;
                         if (eventSource.readyState === EventSource.CLOSED) {
                             clearInterval(monitor);
@@ -48,7 +61,7 @@
                 }, 100);
                 
                 eventSource.onopen = (event) => {
-                    addMessage(`EventSource opened successfully (readyState: ${eventSource.readyState})`);
+                    addMessage(`EventSource opened successfully (readyState: ${verbalizeEventSourceReadyState(eventSource.readyState)})`);
                     updateStatus('Connected');
                 };
                 
@@ -84,7 +97,7 @@
                         updateStatus('Stream completed successfully - this is normal behavior');
                     } else {
                         addMessage(`❌ EventSource error: ${JSON.stringify(error, Object.getOwnPropertyNames(error))}`);
-                        addMessage(`ReadyState: ${eventSource ? eventSource.readyState : 'null'}`);
+                        addMessage(`ReadyState: ${eventSource ? verbalizeEventSourceReadyState(eventSource.readyState) : 'null'}`);
                         addMessage(`URL: ${eventSource ? eventSource.url : 'null'}`);
                         addMessage(`Navigator online: ${navigator.onLine}`);
                         updateStatus('Actual error occurred');

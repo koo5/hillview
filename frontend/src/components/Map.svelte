@@ -174,7 +174,7 @@
         if (!flying) {
             let _center = map.getCenter();
             let p = get(spatialState);
-            console.log('mapStateUserEvent:', event);
+            console.log('mapStateUserEvent:', JSON.stringify(event, null, 2));
             if (p.center.lat != _center.lat || p.center.lng != _center.lng) {
                 console.log('p.center:', p.center, '_center:', _center);
                 console.log('disableLocationTracking');
@@ -242,14 +242,14 @@
                 
                 updateSpatialState(newSpatialState);
                 
-                console.log('Map bounds updated:', {
+                console.log('Map bounds updated:', JSON.stringify({
                     nw: `${bounds.getNorthWest().lat}, ${bounds.getNorthWest().lng}`,
                     se: `${bounds.getSouthEast().lat}, ${bounds.getSouthEast().lng}`,
                     ne: `${bounds.getNorthEast().lat}, ${bounds.getNorthEast().lng}`,
                     sw: `${bounds.getSouthWest().lat}, ${bounds.getSouthWest().lng}`,
                     center: `${_center.lat}, ${_center.lng}`,
                     zoom: _zoom
-                });
+                }, null, 2));
             }
         } catch (e) {
             console.error('Error in onMapStateChange:', e);

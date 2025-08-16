@@ -1,8 +1,8 @@
 <script lang="ts">
-    import { sources, type Source } from '$lib/data.svelte';
+    import { sources, type Source, type subtype } from '$lib/data.svelte';
     import { fetchSourcePhotos } from '$lib/sources';
     import { localStorageSharedStore } from '$lib/svelte-shared-store';
-    import { Plus, Trash2, Globe, MapPin } from 'lucide-svelte';
+    import { Plus, Trash2, Globe, MapPin, Folder, Camera } from 'lucide-svelte';
     import { onMount } from 'svelte';
     import { goto } from '$app/navigation';
 
@@ -14,6 +14,7 @@
     let newSourceUrl = '';
     let newSourcePath = '';
     let newSourceType: 'stream' | 'device' = 'stream';
+    let newsubtype: subtype = 'hillview';
     let showAddForm = false;
     let formError = '';
 
@@ -88,7 +89,10 @@
                 return;
             }
         } else if (newSourceType === 'device') {
-            // Device sources don't need additional validation
+            if (newsubtype === 'folder' && !newSourcePath.trim()) {
+                formError = 'Please enter a folder path';
+                return;
+            }
         }
 
         const newSource: Source = {
@@ -96,6 +100,10 @@
             name: newSourceName.trim(),
             type: newSourceType,
             ...(newSourceType === 'stream' ? { url: newSourceUrl.trim() } : {}),
+            ...(newSourceType === 'device' ? { 
+                subtype: newsubtype,
+                ...(newsubtype === 'folder' ? { path: newSourcePath.trim() } : {})
+            } : {}),
             requests: [],
             enabled: false,
             color: `#${Math.floor(Math.random()*16777215).toString(16)}`
@@ -111,6 +119,7 @@
         newSourceUrl = '';
         newSourcePath = '';
         newSourceType = 'stream';
+        newsubtype = 'hillview';
         showAddForm = false;
     }
 
@@ -219,21 +228,35 @@
                                 id="sourceUrl"
                                 type="url"
                                 bind:value={newSourceUrl}
-                                placeholder="https://example.com/photos/files.json"
+                                placeholder="https://example.com/api"
                             >
                             <p class="help-text">The URL should point to a JSON file with photo metadata</p>
                         </div>
                     {:else if newSourceType === 'device'}
                         <div class="field">
-                            <label>Device Photos</label>
-                            <input
-                                id="sourcePath"
-                                type="text"
-                                bind:value={newSourcePath}
-                                placeholder="/path/to/photos"
-                            >
-                            <p class="help-text">Path to a local folder containing photos (works in Tauri desktop/mobile app)</p>
+                            <label for="subtype">Device Source Type</label>
+                            <select id="subtype" bind:value={newsubtype}>
+                                <option value="hillview">Hillview Folder</option>
+                                <option value="folder">Custom Folder</option>
+                                <option value="gallery">Device Gallery</option>
+                            </select>
                         </div>
+                        {#if newsubtype === 'folder'}
+                            <div class="field">
+                                <label for="sourcePath">Folder Path</label>
+                                <input
+                                    id="sourcePath"
+                                    type="text"
+                                    bind:value={newSourcePath}
+                                    placeholder="/path/to/photos"
+                                >
+                                <p class="help-text">Path to a folder containing photos with GPS metadata</p>
+                            </div>
+                        {:else if newsubtype === 'hillview'}
+                            <p class="help-text">Uses the default Hillview folder (Pictures/Hillview or Pictures/.Hillview)</p>
+                        {:else if newsubtype === 'gallery'}
+                            <p class="help-text">Accesses all photos indexed by the device's media API</p>
+                        {/if}
                     {/if}
                     {#if formError}
                         <p class="error">{formError}</p>
@@ -265,8 +288,8 @@
                             <div class="source-info custom">
                                 <div class="source-details">
                                     <h3>{customSource.name}</h3>
-                                    <p class="url">{customSource.type === 'json' ? customSource.url : customSource.path}</p>
-                                    <p class="source-type">{customSource.type === 'json' ? 'URL Source' : 'Folder Source'}</p>
+                                    <p class="url">{customSource.type === 'stream' ? customSource.url : (customSource.subtype === 'folder' ? customSource.path : `Device (${customSource.subtype})`)}</p>
+                                    <p class="source-type">{customSource.type === 'stream' ? 'Stream Source' : `Device Source (${customSource.subtype})`}</p>
                                     {#if source.requests.length > 0}
                                         <p class="loading">Loading...</p>
                                     {/if}

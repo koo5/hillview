@@ -172,15 +172,6 @@ test.describe('Photo Loading and Display', () => {
 
     expect(sourcesMessages.length, 'Expected photo sources to be configured').toBeGreaterThan(0);
 
-    // Check for network requests to photo data
-    const hasPhotoRequests = networkRequests.some(req => 
-      req.includes('files.json') || req.includes('.json')
-    );
-
-    if (!hasPhotoRequests) {
-      console.log('❌ No network requests found for photo data');
-    }
-
     // Log sources state for debugging
     const sourceInfo = await page.evaluate(() => {
       // Access sources if available in global scope

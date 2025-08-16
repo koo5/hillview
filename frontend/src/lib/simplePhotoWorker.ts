@@ -2,6 +2,7 @@ import type {SourceConfig} from './photoWorkerTypes';
 import {photosInArea, photosInRange, spatialState, visualState} from './mapState';
 import {client_id, mapillary_cache_status, sources, sourceLoadingStatus} from './data.svelte';
 import {get} from 'svelte/store';
+import {auth} from './auth.svelte';
 
 declare const __WORKER_VERSION__: string;
 
@@ -146,10 +147,23 @@ class SimplePhotoWorker {
             if (!this.isInitialized) return;
 
             console.log('SimplePhotoWorker: Sending config update with sources...');
+            
+            // Add auth token to sources that need it
+            const sourcesWithAuth = sourceList.map(source => {
+                if (source.type === 'stream') {
+                    const authState = get(auth);
+                    return {
+                        ...source,
+                        authToken: authState.isAuthenticated ? authState.token : null
+                    };
+                }
+                return source;
+            });
+            
             this.sendMessage('configUpdated', {
                 config: {
                     expectedWorkerVersion: __WORKER_VERSION__,
-                    sources: sourceList
+                    sources: sourcesWithAuth
                 }
             });
             

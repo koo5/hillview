@@ -90,22 +90,22 @@ const MockEventSource = vi.fn().mockImplementation((url: string): MockEventSourc
     // Send photos as stream message
     if (testData.length > 0 && instance.onmessage) {
       console.log(`MockEventSource: Sending ${testData.length} photos for ${url}`);
-      instance.onmessage({
+      instance.onmessage(new MessageEvent('message', {
         data: JSON.stringify({
           type: 'cached_photos',
           photos: testData
         })
-      });
+      }));
     }
     
     // Send completion message
     if (instance.onmessage) {
       console.log(`MockEventSource: Sending completion for ${url}`);
-      instance.onmessage({
+      instance.onmessage(new MessageEvent('message', {
         data: JSON.stringify({
           type: 'stream_complete'
         })
-      });
+      }));
     }
   });
   

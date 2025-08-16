@@ -1,5 +1,6 @@
 import { get } from 'svelte/store';
 import { auth, logout, checkTokenValidity } from './auth.svelte';
+import {backendUrl} from "$lib/config";
 
 export interface ApiError extends Error {
   status?: number;
@@ -19,8 +20,8 @@ export class TokenExpiredError extends Error implements ApiError {
 export class HttpClient {
   private baseURL: string;
   
-  constructor(baseURL?: string) {
-    this.baseURL = baseURL || import.meta.env.VITE_BACKEND || 'http://localhost:8055';
+  constructor(baseURL: string) {
+    this.baseURL = baseURL;
   }
   
   private async makeRequest(url: string, options: RequestInit = {}): Promise<Response> {
@@ -173,7 +174,7 @@ export class HttpClient {
 }
 
 // Global HTTP client instance
-export const http = new HttpClient();
+export const http = new HttpClient(backendUrl);
 
 // Helper function to handle API errors consistently
 export function handleApiError(error: unknown): string {

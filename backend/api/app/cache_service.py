@@ -46,17 +46,46 @@ class MapillaryCacheService:
         log.info(f"Grid calculation: bbox=({top_left_lat}, {top_left_lon}) to ({bottom_right_lat}, {bottom_right_lon})")
         log.info(f"Grid dimensions: cell_width={cell_width:.6f}, cell_height={cell_height:.6f}, photos_per_cell={photos_per_cell}")
         
+        # Debug: Test the grid calculation with a sample query
+        debug_query = text("""
+            SELECT 
+                ST_X(p.geometry) as lon, 
+                ST_Y(p.geometry) as lat,
+                (ST_X(p.geometry) - :bbox_min_x) / :cell_width * :grid_size as raw_grid_x,
+                (ST_Y(p.geometry) - :bbox_min_y) / :cell_height * :grid_size as raw_grid_y,
+                CAST(LEAST(GREATEST(FLOOR((ST_X(p.geometry) - :bbox_min_x) / :cell_width * :grid_size), 0), :grid_size - 1) AS INTEGER) as grid_x,
+                CAST(LEAST(GREATEST(FLOOR((ST_Y(p.geometry) - :bbox_min_y) / :cell_height * :grid_size), 0), :grid_size - 1) AS INTEGER) as grid_y
+            FROM mapillary_photo_cache p
+            WHERE ST_Within(p.geometry, ST_GeomFromText(:bbox_wkt, 4326))
+            LIMIT 5
+        """)
+        debug_result = await self.db.execute(debug_query, {
+            'bbox_wkt': bbox_wkt,
+            'bbox_min_x': top_left_lon,
+            'bbox_min_y': bottom_right_lat,
+            'cell_width': cell_width,
+            'cell_height': cell_height,
+            'grid_size': grid_size
+        })
+        debug_rows = debug_result.fetchall()
+        if debug_rows:
+            log.info("Debug: Sample coordinate calculations:")
+            for row in debug_rows:
+                log.info(f"  lon={row.lon:.6f}, lat={row.lat:.6f}, raw_x={row.raw_grid_x:.2f}, raw_y={row.raw_grid_y:.2f}, grid_x={row.grid_x}, grid_y={row.grid_y}")
+        else:
+            log.warning("Debug: No photos found in bbox for grid calculation test")
+        
         # Use raw SQL for spatial sampling with grid-based distribution
         # Grid coordinates should be 0-9 for both x and y
         query = text("""
             WITH cell_photos AS (
                 SELECT p.*,
-                       LEAST(GREATEST(FLOOR((ST_X(p.geometry) - :bbox_min_x) / :cell_width * :grid_size), 0), :grid_size - 1) as grid_x,
-                       LEAST(GREATEST(FLOOR((ST_Y(p.geometry) - :bbox_min_y) / :cell_height * :grid_size), 0), :grid_size - 1) as grid_y,
+                       CAST(LEAST(GREATEST(FLOOR((ST_X(p.geometry) - :bbox_min_x) / :cell_width * :grid_size), 0), :grid_size - 1) AS INTEGER) as grid_x,
+                       CAST(LEAST(GREATEST(FLOOR((ST_Y(p.geometry) - :bbox_min_y) / :cell_height * :grid_size), 0), :grid_size - 1) AS INTEGER) as grid_y,
                        ROW_NUMBER() OVER (
                            PARTITION BY 
-                               LEAST(GREATEST(FLOOR((ST_X(p.geometry) - :bbox_min_x) / :cell_width * :grid_size), 0), :grid_size - 1),
-                               LEAST(GREATEST(FLOOR((ST_Y(p.geometry) - :bbox_min_y) / :cell_height * :grid_size), 0), :grid_size - 1)
+                               CAST(LEAST(GREATEST(FLOOR((ST_X(p.geometry) - :bbox_min_x) / :cell_width * :grid_size), 0), :grid_size - 1) AS INTEGER),
+                               CAST(LEAST(GREATEST(FLOOR((ST_Y(p.geometry) - :bbox_min_y) / :cell_height * :grid_size), 0), :grid_size - 1) AS INTEGER)
                            ORDER BY random()
                        ) as row_num
                 FROM mapillary_photo_cache p

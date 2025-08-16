@@ -1,57 +1,15 @@
 <script lang="ts">
-    import {getBuildInfo} from '$lib/build-info';
     import {onMount} from 'svelte';
     import {photoInFront, photosInRange, photoToLeft, photoToRight, spatialState, visualState, visiblePhotos} from '$lib/mapState';
-    import {gpsCoordinates, locationError, locationTracking} from '$lib/location.svelte';
-    import {captureLocation, captureLocationWithCompassBearing} from '$lib/captureLocation';
-    import {app, mapillary_cache_status, sources, sourceLoadingStatus} from '$lib/data.svelte';
-    import {
-        compassAvailable,
-        compassData,
-        currentHeading,
-        currentSensorMode,
-        deviceOrientation,
-        switchSensorMode
-    } from '$lib/compass.svelte';
+    import {app, mapillary_cache_status, sources, sourceLoadingStatus, toggleDebug, closeDebug} from '$lib/data.svelte';
+    import {captureQueue, type QueueStats} from '$lib/captureQueue';
+    import {devicePhotos, photoCaptureSettings} from '$lib/stores';
     import {invoke} from '@tauri-apps/api/core';
-    import {SensorMode, TAURI} from '$lib/tauri';
+    import DebugMode1 from './DebugMode1.svelte';
 
-    // Detect sensor type
-    let sensorType: 'tauri-rotation-vector' | 'device-orientation' | 'none' = 'none';
-    let actualSensorSource: string | null = null;
-    let isTauriAndroid = false;
-
-    let buildInfo = getBuildInfo();
-    let currentTime: string | undefined;
-    let buildCommitHash: string | undefined;
-    let buildBranch: string | undefined;
-    let buildTimestamp: string | undefined;
     let debugPosition: 'left' | 'right' = 'left'; // Default to left to avoid photo thumbnails
 
     onMount(() => {
-        // Detect sensor type
-        isTauriAndroid = TAURI && /Android/i.test(navigator.userAgent);
-
-        // Subscribe to compass data to detect which sensor is active
-        const unsubscribe = compassData.subscribe(data => {
-            if (data && isTauriAndroid) {
-                sensorType = 'tauri-rotation-vector';
-                // Extract sensor source from the data if available
-                actualSensorSource = data.source || null;
-            } else if (data && !isTauriAndroid) {
-                sensorType = 'device-orientation';
-                actualSensorSource = null;
-            } else if (!$compassAvailable) {
-                sensorType = 'none';
-                actualSensorSource = null;
-            }
-        });
-
-        // Update time every second
-        const interval = setInterval(() => {
-            currentTime = new Date().toLocaleTimeString(undefined, {hour12: false});
-        }, 1000);
-
         // Check for debug mode in localStorage or URL params
         const urlParams = new URLSearchParams(window.location.search);
         const debugParam = urlParams.get('debug');
@@ -70,207 +28,21 @@
         if (savedPosition === 'left' || savedPosition === 'right') {
             debugPosition = savedPosition;
         }
-
-        // Fetch build information from Tauri commands
-        invoke<string>('get_build_commit_hash').then((hash) => {
-            buildCommitHash = hash;
-        }).catch((err) => {
-            console.log('Failed to get build commit hash:', err.message);
-        });
-
-        invoke<string>('get_build_branch').then((branch) => {
-            buildBranch = branch;
-        }).catch((err) => {
-            console.log('Failed to get build branch:', err.message);
-        });
-
-        invoke<string>('get_build_ts').then((ts) => {
-            buildTimestamp = ts;
-        }).catch((err) => {
-            console.log('Failed to get build timestamp:', err.message);
-        });
-
-        return () => {
-            clearInterval(interval);
-            unsubscribe();
-        };
     });
 
-    export function toggleDebug() {
-        app.update(a => {
-            const newDebug = ((a.debug || 0) + 1) % 4;
-            return {...a, debug: newDebug};
-        });
-        console.log(`Debug mode toggled to ${$app.debug}`);
-    }
-
-    // Keyboard shortcut to toggle debug
-    function handleKeydown(e: KeyboardEvent) {
-        if (e.ctrlKey && e.shiftKey && e.key === 'D') {
-            toggleDebug();
-        }
-        // Ctrl+Shift+L to toggle position
-        if (e.ctrlKey && e.shiftKey && e.key === 'L' && $app.debug > 0) {
-            debugPosition = debugPosition === 'left' ? 'right' : 'left';
-            localStorage.setItem('debugPosition', debugPosition);
-        }
-    }
 </script>
 
-<svelte:window on:keydown={handleKeydown}/>
+<svelte:window/>
 
 {#if $app.debug > 0}
     <div class="debug-overlay" class:left-position={debugPosition === 'left'}>
         <div class="debug-header">
             <span>Debug Info</span>
-            <button on:click={toggleDebug} aria-label="Close debug">×</button>
+            <button on:click={closeDebug} aria-label="Close debug">×</button>
         </div>
         <div class="debug-content">
             {#if $app.debug === 1}
-
-                <div class="compact-row">
-                    <span><strong>Build:</strong> {buildInfo.formattedTime}</span>
-                    <span><strong>Now:</strong> {currentTime}</span>
-                </div>
-
-                {#if buildCommitHash || buildBranch}
-                    <div class="compact-row">
-                        <span>{buildBranch || 'Loading...'} @ {buildCommitHash?.slice(0, 7) || '...'}</span>
-                    </div>
-                {/if}
-
-                <div class="debug-section">
-                    <div><strong>Map View:</strong></div>
-                    <div>Center: {$spatialState.center.lat.toFixed(4)}, {$spatialState.center.lng.toFixed(4)}</div>
-                    <div>Zoom: {$spatialState.zoom.toFixed(1)} | Bearing: {$visualState.bearing.toFixed(0)}°</div>
-                </div>
-
-                {#if $gpsCoordinates}
-                    <div class="debug-section">
-                        <div><strong>GPS Location {$locationTracking ? '📍 Active' : '⭕ Inactive'}:</strong></div>
-                        <div>Position: {$gpsCoordinates.latitude.toFixed(4)}
-                            , {$gpsCoordinates.longitude.toFixed(4)}</div>
-                        <div>Accuracy: ±{$gpsCoordinates.accuracy?.toFixed(0)}m
-                            {#if $gpsCoordinates.altitude !== null && $gpsCoordinates.altitude !== undefined}
-                                | Altitude: {$gpsCoordinates.altitude?.toFixed(0)}m
-                            {/if}
-                        </div>
-                        <div>GPS Heading: {$gpsCoordinates.heading?.toFixed(0) || 'No movement'}°
-                            {#if $gpsCoordinates.speed !== null && $gpsCoordinates.speed !== undefined}
-                                | Speed: {($gpsCoordinates.speed * 3.6).toFixed(1)}km/h
-                            {/if}
-                        </div>
-                        {#if $locationError}
-                            <div class="error">Error: {$locationError}</div>
-                        {/if}
-                    </div>
-                {:else}
-                    <div class="debug-section">
-                        <div><strong>GPS Location:</strong> {$locationTracking ? 'Waiting for signal...' : 'Disabled'}
-                        </div>
-                        {#if $locationError}
-                            <div class="error">Error: {$locationError}</div>
-                        {/if}
-                    </div>
-                {/if}
-
-                {#if $captureLocation}
-                    <div class="debug-section">
-                        <div><strong>Capture Location (Source: <span
-                                class="source-badge">{$captureLocation.source}</span>):</strong>
-                        </div>
-                        <div>Position: {$captureLocation.latitude.toFixed(4)}
-                            , {$captureLocation.longitude.toFixed(4)}</div>
-                        <div>Raw Heading: {$captureLocation?.heading?.toFixed(1) || 'None'}° | Accuracy:
-                            ±{$captureLocation?.accuracy?.toFixed(0)}m
-                            {#if $captureLocation.altitude !== undefined}
-                                | Alt: {$captureLocation?.altitude?.toFixed(0)}m
-                            {/if}
-                        </div>
-                        <div style="font-size: 9px; opacity: 0.7">
-                            Updated: {new Date($captureLocation.timestamp || 0).toLocaleTimeString()}</div>
-                    </div>
-                {/if}
-
-                <div class="debug-section sensor-section">
-
-                    {#if isTauriAndroid && $compassAvailable}
-                        <div class="sensor-mode-switcher">
-                            <div><strong>Sensor Mode:</strong></div>
-                            <select
-                                    value={$currentSensorMode}
-                                    on:change={(e) => switchSensorMode(Number(e.currentTarget.value))}
-                                    class="sensor-mode-select"
-                            >
-                                <option value={SensorMode.ROTATION_VECTOR}>Rotation Vector</option>
-                                <option value={SensorMode.GAME_ROTATION_VECTOR}>Game Rotation Vector</option>
-                                <option value={SensorMode.MADGWICK_AHRS}>Madgwick AHRS</option>
-                                <option value={SensorMode.COMPLEMENTARY_FILTER}>Complementary Filter</option>
-                                <option value={SensorMode.UPRIGHT_ROTATION_VECTOR}>Upright Mode (Portrait)</option>
-                                <option value={SensorMode.WEB_DEVICE_ORIENTATION}>Web DeviceOrientation API</option>
-                            </select>
-                        </div>
-                    {/if}
-
-                    <div><strong>🧭 Sensor API:</strong>
-                        {actualSensorSource} - {sensorType}
-                        {#if actualSensorSource}
-                            <span class="sensor-type tauri">{actualSensorSource}</span>
-                        {:else if sensorType === 'tauri-rotation-vector'}
-                            <span class="sensor-type tauri">Android Sensor (waiting...)</span>
-                        {:else if sensorType === 'device-orientation'}
-                            <span class="sensor-type web">Web DeviceOrientation API</span>
-                        {:else}
-                            <span class="sensor-type none">Not Available</span>
-                        {/if}
-                    </div>
-                    {#if $compassData}
-                        <div><strong>Compass Bearing:</strong> {$compassData.magneticHeading?.toFixed(1) || 'N/A'}°
-                        </div>
-                        <div style="font-size: 10px; opacity: 0.8">True
-                            bearing: {$compassData.trueHeading?.toFixed(1) || 'N/A'}° | Accuracy:
-                            ±{$compassData.headingAccuracy?.toFixed(0) || 'N/A'}°
-                        </div>
-                        {#if sensorType === 'tauri-rotation-vector' && $deviceOrientation}
-                            <div style="font-size: 10px; opacity: 0.8">Device tilt -
-                                Pitch: {$deviceOrientation.beta?.toFixed(1)}° |
-                                Roll: {$deviceOrientation.gamma?.toFixed(1)}
-                                °
-                            </div>
-                        {/if}
-                        <div style="font-size: 9px; opacity: 0.7">
-                            Updated: {new Date($compassData.timestamp).toLocaleTimeString()}</div>
-                    {:else if $compassAvailable}
-                        <div style="opacity: 0.6">Waiting for sensor data...</div>
-                    {/if}
-
-                </div>
-
-                {#if $currentHeading.heading !== null}
-                    <div class="debug-section compass-bearing">
-                        <div><strong>🎯 Compass Bearing:</strong></div>
-                        <div>Heading: <span class="highlight">{$currentHeading.heading.toFixed(1)}°</span></div>
-                        <div>Source: {$currentHeading.source}</div>
-                        <div>Accuracy: {$currentHeading.accuracy?.toFixed(0) || 'N/A'}°</div>
-                    </div>
-                {/if}
-
-                {#if $captureLocationWithCompassBearing}
-                    <div class="debug-section photo-bearing">
-                        <div><strong>📸 Photo Capture Data (Final):</strong></div>
-                        <div>Bearing to be saved: <span
-                                class="highlight">{$captureLocationWithCompassBearing.heading?.toFixed(1) || 'None'}
-                            °</span>
-                        </div>
-                        {#if $captureLocationWithCompassBearing.headingSource}
-                            <div>Data source: Compass</div>
-                            <div>Accuracy: {$captureLocationWithCompassBearing.headingAccuracy?.toFixed(0) || 'N/A'}°
-                            </div>
-                        {:else}
-                            <div>Using raw {$captureLocationWithCompassBearing.source} heading</div>
-                        {/if}
-                    </div>
-                {/if}
+                <DebugMode1 />
             {/if}
 
             {#if $app.debug === 2}
@@ -287,7 +59,7 @@
                         </div>
                         <div class="stat-item">
                             <span class="stat-label">Range Area:</span>
-                            <span class="stat-value">{($spatialState.range / 1000).toFixed(2)} km</span>
+                            <span class="stat-value">{($spatialState.range / 1000)?.toFixed(2)} km</span>
                         </div>
                     </div>
                 </div>
@@ -297,16 +69,22 @@
                     {#each $sources as source}
                         <div class="source-status">
                             <div class="source-header">
-                                <span class="source-name" style="color: {source.color}">{source.name}</span>
+                                <div class="source-name-container">
+                                    <span class="source-color-indicator" style="background-color: {source.color}"></span>
+                                    <span class="source-name">{source.name}</span>
+                                </div>
                                 <span class="source-enabled" class:enabled={source.enabled}>
-                                    {source.enabled ? '✅' : '❌'}
+                                    {source.enabled ? '●' : '○'}
                                 </span>
                             </div>
                             
                             {#if source.enabled}
                                 <div class="source-details">
                                     <div class="source-type">Type: {source.type}</div>
-                                    
+                                    {#if source.subtype}
+                                        <div class="source-url">Subtype: {source.subtype}</div>
+                                    {/if}
+
                                     {#if source.type === 'stream'}
                                         {@const loadingStatus = $sourceLoadingStatus[source.id]}
                                         {#if loadingStatus}
@@ -398,11 +176,11 @@
                                         <span class="photo-source" style="color: {photo.source?.color || '#888'}">{photo.source?.name || 'Unknown'}</span>
                                     </div>
                                     <div class="photo-location">
-                                        📍 {photo.coord.lat.toFixed(6)}, {photo.coord.lng.toFixed(6)}
+                                        📍 {photo.coord.lat?.toFixed(6)}, {photo.coord.lng?.toFixed(6)}
                                     </div>
                                     <div class="photo-details">
-                                        🧭 {photo.bearing.toFixed(1)}° 
-                                        {#if photo.altitude}| ⛰️ {photo.altitude.toFixed(0)}m{/if}
+                                        🧭 {photo.bearing?.toFixed(1)}° 
+                                        {#if photo.altitude}| ⛰️ {photo.altitude?.toFixed(0)}m{/if}
                                         {#if photo.captured_at}| 📅 {new Date(photo.captured_at).toLocaleDateString()}{/if}
                                     </div>
                                     {#if photo.file}
@@ -464,8 +242,110 @@
 
             {/if}
 
+            {#if $app.debug === 4}
+                <div class="debug-section capture-system-section">
+                    <div><strong>📸 Capture System Status:</strong></div>
+                    
+                    <!-- Capture Queue Status -->
+                    <div class="capture-subsection">
+                        <div class="subsection-header">🔄 Queue Status:</div>
+                        <div class="capture-stats-grid">
+                            <div class="capture-stat">
+                                <span class="capture-label">Queue Size:</span>
+                                <span class="capture-value">{captureQueue.stats ? $captureQueue.stats.size : 0}</span>
+                            </div>
+                            <div class="capture-stat">
+                                <span class="capture-label">Processing:</span>
+                                <span class="capture-value" class:processing={captureQueue.stats ? $captureQueue.stats.processing : false}>
+                                    {captureQueue.stats && $captureQueue.stats.processing ? '⚡ Active' : '💤 Idle'}
+                                </span>
+                            </div>
+                            <div class="capture-stat">
+                                <span class="capture-label">Total Captured:</span>
+                                <span class="capture-value">{captureQueue.stats ? $captureQueue.stats.totalCaptured : 0}</span>
+                            </div>
+                            <div class="capture-stat">
+                                <span class="capture-label">Mode Breakdown:</span>
+                                <span class="capture-value">
+                                    🐌 {captureQueue.stats ? $captureQueue.stats.slowModeCount : 0} | ⚡ {captureQueue.stats ? $captureQueue.stats.fastModeCount : 0}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Capture Settings -->
+                    <div class="capture-subsection">
+                        <div class="subsection-header">⚙️ Settings:</div>
+                        <div class="capture-settings">
+                            <div class="setting-item">
+                                <span class="setting-label">Hide from Gallery:</span>
+                                <span class="setting-value">{$photoCaptureSettings.hideFromGallery ? '✅ Yes' : '❌ No'}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Last Captured Photo -->
+                    {#if $devicePhotos.length > 0}
+                        {@const lastPhoto = $devicePhotos[$devicePhotos.length - 1]}
+                        <div class="capture-subsection">
+                            <div class="subsection-header">📷 Last Captured Photo:</div>
+                            <div class="last-photo-info">
+                                <div class="photo-basic-info">
+                                    <div class="photo-filename">📁 {lastPhoto.filename}</div>
+                                    <div class="photo-timestamp">🕒 {new Date(lastPhoto.timestamp).toLocaleString()}</div>
+                                    <div class="photo-id">🆔 {lastPhoto.id}</div>
+                                </div>
+                                
+                                <div class="photo-location-info">
+                                    <div class="photo-coordinates">
+                                        📍 {lastPhoto.latitude?.toFixed(6)}, {lastPhoto.longitude?.toFixed(6)}
+                                    </div>
+                                    {#if lastPhoto.bearing !== null && lastPhoto.bearing !== undefined}
+                                        <div class="photo-bearing">🧭 {lastPhoto.bearing?.toFixed(1)}°</div>
+                                    {/if}
+                                    {#if lastPhoto.altitude !== null && lastPhoto.altitude !== undefined}
+                                        <div class="photo-altitude">⛰️ {lastPhoto.altitude?.toFixed(1)}m</div>
+                                    {/if}
+                                    <div class="photo-accuracy">🎯 ±{lastPhoto.accuracy?.toFixed(0)}m</div>
+                                </div>
+
+                                <div class="photo-technical-info">
+                                    <div class="photo-dimensions">
+                                        📐 {lastPhoto.width}×{lastPhoto.height}px
+                                    </div>
+                                    <div class="photo-filesize">
+                                        💾 {(lastPhoto.file_size / 1024 / 1024)?.toFixed(2)}MB
+                                    </div>
+                                    <div class="photo-path">
+                                        📂 {lastPhoto.path}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    {:else}
+                        <div class="capture-subsection">
+                            <div class="subsection-header">📷 Last Captured Photo:</div>
+                            <div class="no-photos-captured">No photos captured yet</div>
+                        </div>
+                    {/if}
+
+                    <!-- Camera Activity Status -->
+                    <div class="capture-subsection">
+                        <div class="subsection-header">📹 Camera Status:</div>
+                        <div class="camera-status">
+                            <div class="camera-activity">
+                                Activity: <span class="activity-indicator">{$app.activity === 'capture' ? '🔴 Active' : '⚫ Inactive'}</span>
+                            </div>
+                            {#if $app.activity === 'capture'}
+                                <div class="camera-mode">Mode: Photo Capture</div>
+                            {/if}
+                        </div>
+                    </div>
+                </div>
+            {/if}
+
             <div class="debug-note">
-                Press Ctrl+Shift+D to cycle debug (State {$app.debug}/2)<br/>
+                Press 'd' to cycle debug (State {$app.debug}/4)<br/>
                 Press Ctrl+Shift+L to move {debugPosition === 'left' ? 'right' : 'left'}
             </div>
         </div>
@@ -540,16 +420,6 @@
         line-height: 1.3;
     }
 
-    .compact-row {
-        display: flex;
-        gap: 8px;
-        font-size: 10px;
-        opacity: 0.9;
-    }
-
-    .compact-row span {
-        white-space: nowrap;
-    }
 
     .debug-content strong {
         color: #0f0;
@@ -580,92 +450,6 @@
         font-style: italic;
     }
 
-    .source-badge {
-        background: rgba(0, 255, 0, 0.2);
-        padding: 1px 4px;
-        border-radius: 2px;
-        font-size: 9px;
-        margin-left: 2px;
-        text-transform: uppercase;
-    }
-
-    .sensor-type {
-        display: inline-block;
-        padding: 2px 6px;
-        border-radius: 3px;
-        font-size: 10px;
-        margin-left: 4px;
-        font-weight: bold;
-    }
-
-    .sensor-type.tauri {
-        background: rgba(76, 175, 80, 0.3);
-        color: #81c784;
-        border: 1px solid #4caf50;
-    }
-
-    .sensor-type.web {
-        background: rgba(255, 152, 0, 0.3);
-        color: #ffb74d;
-        border: 1px solid #ff9800;
-    }
-
-    .sensor-type.none {
-        background: rgba(244, 67, 54, 0.3);
-        color: #ef5350;
-        border: 1px solid #f44336;
-    }
-
-    .sensor-section {
-        border-color: rgba(79, 195, 247, 0.5);
-        background: rgba(3, 169, 244, 0.05);
-    }
-
-
-    .highlight {
-        color: #4fc3f7;
-        font-weight: bold;
-    }
-
-    .compass-bearing {
-        border-color: #4fc3f7;
-        background: rgba(79, 195, 247, 0.05);
-        padding: 2px 0;
-    }
-
-    .photo-bearing {
-        border-color: #81c784;
-        background: rgba(129, 199, 132, 0.05);
-        padding: 2px 0;
-    }
-
-    .sensor-mode-switcher {
-        margin-top: 8px;
-        padding-top: 8px;
-        border-top: 1px solid rgba(79, 195, 247, 0.3);
-    }
-
-    .sensor-mode-select {
-        margin-top: 4px;
-        background: rgba(0, 0, 0, 0.5);
-        color: #0f0;
-        border: 1px solid #0f0;
-        border-radius: 3px;
-        padding: 4px 8px;
-        font-size: 11px;
-        font-family: monospace;
-        width: 100%;
-        cursor: pointer;
-    }
-
-    .sensor-mode-select:hover {
-        background: rgba(0, 255, 0, 0.1);
-    }
-
-    .sensor-mode-select:focus {
-        outline: 1px solid #4fc3f7;
-        outline-offset: 1px;
-    }
 
     .mapillary-section {
         border-color: rgba(255, 165, 0, 0.5);
@@ -761,9 +545,24 @@
         margin-bottom: 2px;
     }
 
+    .source-name-container {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .source-color-indicator {
+        width: 10px;
+        height: 10px;
+        border-radius: 2px;
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        flex-shrink: 0;
+    }
+
     .source-name {
         font-weight: bold;
         font-size: 11px;
+        color: #fff;
     }
 
     .source-enabled {
@@ -959,6 +758,147 @@
         color: #666;
         font-size: 9px;
     }
+
+    /* Capture System Section */
+    .capture-system-section {
+        border-color: rgba(255, 193, 7, 0.5);
+        background: rgba(255, 193, 7, 0.05);
+    }
+
+    .capture-subsection {
+        margin: 6px 0;
+        padding: 4px 0;
+        border-top: 1px solid rgba(255, 193, 7, 0.2);
+    }
+
+    .capture-subsection:first-child {
+        border-top: none;
+    }
+
+    .subsection-header {
+        font-weight: bold;
+        color: #ffc107;
+        font-size: 10px;
+        margin-bottom: 4px;
+    }
+
+    .capture-stats-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 4px;
+        margin-top: 4px;
+    }
+
+    .capture-stat {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 9px;
+        padding: 2px;
+    }
+
+    .capture-label {
+        opacity: 0.8;
+        color: #fff3cd;
+    }
+
+    .capture-value {
+        color: #ffc107;
+        font-weight: bold;
+    }
+
+    .capture-value.processing {
+        color: #28a745;
+        animation: pulse-green 1s ease-in-out infinite;
+    }
+
+    @keyframes pulse-green {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.7; }
+    }
+
+    .capture-settings {
+        margin-top: 4px;
+    }
+
+    .setting-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 9px;
+        padding: 2px;
+    }
+
+    .setting-label {
+        opacity: 0.8;
+        color: #fff3cd;
+    }
+
+    .setting-value {
+        color: #ffc107;
+        font-weight: bold;
+    }
+
+    .last-photo-info {
+        margin-top: 4px;
+        padding: 4px;
+        border: 1px solid rgba(255, 193, 7, 0.3);
+        border-radius: 3px;
+        background: rgba(0, 0, 0, 0.2);
+    }
+
+    .photo-basic-info, .photo-location-info, .photo-technical-info {
+        margin: 4px 0;
+        padding: 2px 0;
+    }
+
+    .photo-basic-info {
+        border-bottom: 1px solid rgba(255, 193, 7, 0.2);
+        padding-bottom: 4px;
+    }
+
+    .photo-location-info {
+        border-bottom: 1px solid rgba(255, 193, 7, 0.2);
+        padding-bottom: 4px;
+    }
+
+    .photo-filename, .photo-timestamp, .photo-id,
+    .photo-coordinates, .photo-bearing, .photo-altitude, .photo-accuracy,
+    .photo-dimensions, .photo-filesize, .photo-path {
+        font-size: 8px;
+        margin: 1px 0;
+        color: #fff3cd;
+    }
+
+    .photo-path {
+        word-break: break-all;
+        font-family: monospace;
+        color: #aaa;
+    }
+
+    .no-photos-captured {
+        font-size: 9px;
+        color: #888;
+        font-style: italic;
+        text-align: center;
+        padding: 8px;
+    }
+
+    .camera-status {
+        margin-top: 4px;
+    }
+
+    .camera-activity, .camera-mode {
+        font-size: 9px;
+        margin: 2px 0;
+        color: #fff3cd;
+    }
+
+    .activity-indicator {
+        font-weight: bold;
+        color: #ffc107;
+    }
+
 
     @media (max-width: 600px) {
         .debug-overlay {

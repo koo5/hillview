@@ -405,7 +405,7 @@ async function loop(): Promise<void> {
 					
 				case 'loadError':
 					// Handle loading errors from PhotoLoadingProcess
-					console.error('NewWorker: Load error from process:', message);
+					console.error('NewWorker: Load error from process:', JSON.stringify(message));
 					// Mark the process as failed but continue processing
 					if (message.processId) {
 						cleanupProcess(message.processId);

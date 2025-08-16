@@ -14,13 +14,13 @@ export const BROWSER = !TAURI;
 let platformName = 'browser';
 if (TAURI && hasWindow) {
     try {
-        platformName = platform();
-        console.log('🔍 Platform detected:', platformName);
+        platformName = 'android' // window.__TAURI_OS_PLUGIN_INTERNALS__  //  platform(); // TypeError: Cannot read properties of undefined (reading 'platform')
+        console.log('🔍 [TAURI] Platform detected:', platformName);
     } catch (error) {
-        console.warn('🔍 Failed to detect Tauri platform:', error);
+        console.warn('🔍 [TAURI] Failed to detect Tauri platform:', error);
     }
 } else {
-    console.log('🔍 Not running in Tauri, platform:', platformName);
+    console.log('🔍 [TAURI] Not running in Tauri, platform:', platformName);
 }
 
 export const TAURI_MOBILE = TAURI && (platformName === 'android' || platformName === 'ios');
@@ -93,11 +93,12 @@ export const tauriSensor = TAURI ? {
     }
 } : null;
 
-console.log('🔍 Tauri environment:', JSON.stringify({
+console.log('🔍 TAURI environment:', JSON.stringify({
     TAURI,
+    hasWindow,
+    platformName,
     TAURI_MOBILE,
     TAURI_DESKTOP,
-    platformName,
     hasTauriSensor: !!tauriSensor
 }));
 

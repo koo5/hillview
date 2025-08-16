@@ -1,5 +1,6 @@
 import { get } from 'svelte/store';
 import { client_id } from './data.svelte';
+import {backendUrl} from "$lib/config";
 
 export interface MapillaryPhoto {
     id: string;
@@ -56,7 +57,6 @@ export class MapillaryStreamService {
             this.stopStream();
         }
         
-        const backendUrl = import.meta.env.VITE_BACKEND || 'http://localhost:8055';
         const clientId = get(client_id);
         
         const url = `${backendUrl}/mapillary` +

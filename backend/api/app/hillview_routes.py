@@ -2,7 +2,7 @@ import json
 import os
 from typing import Optional, Dict, Any
 import logging
-from fastapi import APIRouter, Query, HTTPException, status, Depends
+from fastapi import APIRouter, Query, HTTPException, status, Depends, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -12,7 +12,8 @@ import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
-from common.models import Photo
+from common.models import Photo, User
+from .auth import get_current_user_optional_with_query
 
 load_dotenv()
 log = logging.getLogger(__name__)
@@ -22,18 +23,21 @@ router = APIRouter(prefix="/api/hillview", tags=["hillview"])
 
 @router.get("")
 async def get_hillview_images(
+    request: Request,
     top_left_lat: float = Query(..., description="Top left latitude"),
     top_left_lon: float = Query(..., description="Top left longitude"),
     bottom_right_lat: float = Query(..., description="Bottom right latitude"),
     bottom_right_lon: float = Query(..., description="Bottom right longitude"),
     client_id: str = Query(..., description="Client ID"),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional_with_query)
 ):
     """Get Hillview images from database filtered by bounding box area"""
     
     try:
         # Query photos from database that fall within the bounding box
-        query = select(Photo).where(
+        # Join with User table to check if photo owner is a test user
+        query = select(Photo).join(User, Photo.owner_id == User.id).where(
             Photo.latitude.isnot(None),
             Photo.longitude.isnot(None),
             Photo.latitude >= bottom_right_lat,
@@ -42,6 +46,13 @@ async def get_hillview_images(
             Photo.longitude <= bottom_right_lon,
             Photo.is_public == True
         )
+        
+        # Filter out test user photos if user is not authenticated
+        if current_user is None:
+            query = query.where(User.is_test == False)
+            log.info("Filtering out test user photos for anonymous user")
+        else:
+            log.info(f"Authenticated user {current_user.username} requesting photos (including test user photos)")
         
         result = await db.execute(query)
         photos = result.scalars().all()

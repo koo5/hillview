@@ -152,7 +152,8 @@ test.describe('Photo Navigation and Image URLs', () => {
       }
     } else {
       // Try to enable debug mode to see the info
-      await page.keyboard.press('d');
+      const debugButton = page.locator('button.debug-toggle');
+      await debugButton.click();
       await page.waitForTimeout(1000);
       
       console.log('⚠️ Debug info not visible, tried to enable debug mode');

@@ -62,7 +62,44 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         log.error(f"DEBUG: Response {response.status_code}")
         return response
 
+# CORS request logging middleware
+class CORSLoggingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        # Log CORS-related request details
+        origin = request.headers.get("origin")
+        access_control_request_method = request.headers.get("access-control-request-method")
+        access_control_request_headers = request.headers.get("access-control-request-headers")
+        
+        if request.method == "OPTIONS" or origin:
+            log.info(f"CORS Request: {request.method} {request.url}")
+            log.info(f"  Origin: {origin}")
+            if access_control_request_method:
+                log.info(f"  Access-Control-Request-Method: {access_control_request_method}")
+            if access_control_request_headers:
+                log.info(f"  Access-Control-Request-Headers: {access_control_request_headers}")
+        
+        response = await call_next(request)
+        
+        # Log CORS-related response headers
+        if request.method == "OPTIONS" or origin:
+            access_control_allow_origin = response.headers.get("access-control-allow-origin")
+            access_control_allow_methods = response.headers.get("access-control-allow-methods")
+            access_control_allow_headers = response.headers.get("access-control-allow-headers")
+            access_control_allow_credentials = response.headers.get("access-control-allow-credentials")
+            
+            log.info(f"CORS Response: {response.status_code}")
+            log.info(f"  Access-Control-Allow-Origin: {access_control_allow_origin}")
+            if access_control_allow_methods:
+                log.info(f"  Access-Control-Allow-Methods: {access_control_allow_methods}")
+            if access_control_allow_headers:
+                log.info(f"  Access-Control-Allow-Headers: {access_control_allow_headers}")
+            if access_control_allow_credentials:
+                log.info(f"  Access-Control-Allow-Credentials: {access_control_allow_credentials}")
+        
+        return response
+
 # Add middlewares
+app.add_middleware(CORSLoggingMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 
@@ -80,7 +117,11 @@ async def global_exception_handler(request, exc):
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8212", "http://127.0.0.1:8212"],  # Add your frontend URLs
+    allow_origins=[
+        "http://localhost:8212", 
+        "http://127.0.0.1:8212",
+        "http://tauri.localhost"
+    ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization", "Accept"],
