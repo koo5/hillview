@@ -38,14 +38,15 @@ class SimplePhotoWorker {
 
             // Test: Check initial sources
             const initialSources = get(sources);
-            console.log('SimplePhotoWorker: Initial sources on startup:', initialSources.map(s => ({
+            console.log('SimplePhotoWorker: Initial sources on startup:', JSON.stringify(
+            initialSources.map(s => ({
                 id: s.id,
                 type: s.type,
                 enabled: s.enabled,
                 url: s.url,
                 keys: Object.keys(s),
                 JSON: JSON.stringify(s)
-            })));
+            })), null, 2));
 
         } catch (error) {
             console.error('SimplePhotoWorker: Failed to initialize', error);

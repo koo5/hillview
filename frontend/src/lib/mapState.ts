@@ -53,6 +53,14 @@ export const photosInArea = writable<PhotoData[]>([]);
 // Photos in range for navigation (from worker)
 export const photosInRange = writable<PhotoData[]>([]);
 
+photosInRange.subscribe(photos => {
+    console.log(`Spatial: photosInRange updated with ${photos.length} photos`);
+});
+
+visualState.subscribe(visual => {
+    console.log(`Visual: bearing updated to ${visual.bearing}`);
+});
+
 // Navigation photos (front, left, right) - derived from bearing-sorted photosInRange (within spatialState.range)
 export const photoInFront = derived(
   [photosInRange, visualState],
