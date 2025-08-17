@@ -30,7 +30,7 @@
 	},
 	"private": true,
 	"scripts": {
-		"dev": "vite dev --port 8212",
+		"dev": "vite dev --port ${VITE_DEV_PORT:-8212}",
 		"build": "vite build",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",

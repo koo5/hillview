@@ -12,10 +12,11 @@ export default defineConfig({
     }), sveltekit()],
 	server: {
 		host: true,
+		port: parseInt(process.env.VITE_DEV_PORT || '8212'),
 		hmr: {
 			protocol: 'ws',
 			host: process.env.TAURI_DEV_HOST || 'localhost',
-			port: 8212
+			port: parseInt(process.env.VITE_DEV_PORT || '8212')
 		}
 	},
 	define: sharedDefines
