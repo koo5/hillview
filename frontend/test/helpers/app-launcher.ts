@@ -1,7 +1,7 @@
 import { browser, $ } from '@wdio/globals';
 
 export async function ensureAppIsRunning() {
-    const appId = 'io.github.koo5.hillview';
+    const appId = 'io.github.koo5.hillview.dev';
     const maxRetries = 3;
     
     for (let i = 0; i < maxRetries; i++) {
@@ -64,7 +64,7 @@ export async function ensureAppIsRunning() {
 
 export async function launchAppUsingAdb() {
     // Fallback method using ADB commands directly
-    const appId = 'io.github.koo5.hillview';
+    const appId = 'io.github.koo5.hillview.dev';
     
     try {
         // Force stop the app first

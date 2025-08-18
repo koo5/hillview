@@ -30,7 +30,7 @@ export const config: Options.Testrunner = {
         'appium:skipInstall': false,
         'appium:allowTestPackages': true,
         'appium:forceAppLaunch': true,
-        'appium:appPackage': 'io.github.koo5.hillview',
+        'appium:appPackage': 'io.github.koo5.hillview.dev',
         'appium:appActivity': '.MainActivity',
         'appium:appWaitActivity': '.MainActivity',
         'appium:autoLaunch': true,
@@ -41,7 +41,7 @@ export const config: Options.Testrunner = {
         'appium:autoGrantPermissions': false, // Don't auto-grant to test permission flows
         'appium:autoAcceptAlerts': false, // Don't auto-accept alerts
         'appium:permissions': {
-            'io.github.koo5.hillview': {
+            'io.github.koo5.hillview.dev': {
                 'android.permission.CAMERA': 'unset',
                 'android.permission.ACCESS_FINE_LOCATION': 'unset',
                 'android.permission.ACCESS_COARSE_LOCATION': 'unset'
