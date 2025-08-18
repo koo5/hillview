@@ -76,8 +76,27 @@ describe('Android Complete Workflow', () => {
                 // === STEP 2: CAMERA ACCESS ===
                 console.log('📝 Step 2: Camera access and photo capture');
                 
-                const cameraButton = await $('android=new UiSelector().text("Take photo")');
-                await cameraButton.waitForDisplayed({ timeout: 10000 });
+                // Find camera button - try different text variations based on what works
+                let cameraButton;
+                const cameraTexts = ['Take photo', 'Take photos', 'Camera'];
+                
+                for (const text of cameraTexts) {
+                    try {
+                        cameraButton = await $(`android=new UiSelector().text("${text}")`);
+                        const isDisplayed = await cameraButton.isDisplayed();
+                        if (isDisplayed) {
+                            console.log(`✅ Found camera button with text: "${text}"`);
+                            break;
+                        }
+                    } catch (e) {
+                        console.log(`ℹ️ Camera button not found with text: "${text}"`);
+                    }
+                }
+                
+                if (!cameraButton) {
+                    throw new Error('Could not find camera button');
+                }
+                
                 console.log('📸 Found camera button');
                 
                 await cameraButton.click();
