@@ -24,7 +24,7 @@ export const config: Options.Testrunner = {
         'appium:deviceName': 'Android Emulator',
         'appium:platformVersion': '14',
         'appium:automationName': 'UiAutomator2',
-        'appium:app': './src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk',
+        'appium:app': './src-tauri/gen/android/app/build/outputs/apk/x86_64/debug/app-x86_64-debug.apk',
         'appium:noReset': false,
         'appium:fullReset': false,
         'appium:skipInstall': false,

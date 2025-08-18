@@ -165,22 +165,18 @@ def run_migrations():
 # Initialize database
 @app.on_event("startup")
 async def startup():
-    log.error("DEBUG: Starting startup function")
-    # Skip migrations for now to test if they're causing the hang
-    log.error("DEBUG: Skipping migrations temporarily")
+    log.info("Starting application startup")
     
-    log.error("DEBUG: About to check USER_ACCOUNTS")
     # Create test users if enabled
     if USER_ACCOUNTS:
-        log.error("DEBUG: USER_ACCOUNTS is enabled, creating test users")
         try:
             from .auth import ensure_test_users
             await ensure_test_users()
-            log.error("DEBUG: Test users created successfully")
+            log.info("Test users created successfully")
         except Exception as e:
-            log.error(f"DEBUG: Error creating test users: {e}")
+            log.error(f"Error creating test users: {e}")
     
-    log.error("DEBUG: Startup function completed")
+    log.info("Application startup completed")
 
 @app.get("/api/debug")
 async def debug_endpoint():

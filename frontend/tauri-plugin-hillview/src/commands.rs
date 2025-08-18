@@ -13,13 +13,14 @@ pub(crate) async fn ping<R: Runtime>(
 }
 
 #[command]
+#[allow(unused_variables)]
 pub(crate) async fn start_sensor<R: Runtime>(
-    _app: AppHandle<R>,
+    app: AppHandle<R>,
     mode: Option<i32>,
 ) -> Result<()> {
     #[cfg(mobile)]
     {
-        _app.hillview().start_sensor(mode)?;
+        app.hillview().start_sensor(mode)?;
         return Ok(());
     }
     
@@ -55,13 +56,14 @@ pub(crate) async fn update_sensor_location<R: Runtime>(
 }
 
 #[command]
+#[allow(unused_variables)]
 pub(crate) async fn set_auto_upload_enabled<R: Runtime>(
-    _app: AppHandle<R>,
+    app: AppHandle<R>,
     enabled: bool,
 ) -> Result<AutoUploadResponse> {
     #[cfg(mobile)]
     {
-        return _app.hillview().set_auto_upload_enabled(enabled);
+        return app.hillview().set_auto_upload_enabled(enabled);
     }
     
     #[cfg(desktop)]
@@ -86,13 +88,14 @@ pub(crate) async fn get_upload_status<R: Runtime>(
 }
 
 #[command]
+#[allow(unused_variables)]
 pub(crate) async fn set_upload_config<R: Runtime>(
-    _app: AppHandle<R>,
+    app: AppHandle<R>,
     config: UploadConfig,
 ) -> Result<BasicResponse> {
     #[cfg(mobile)]
     {
-        return _app.hillview().set_upload_config(config);
+        return app.hillview().set_upload_config(config);
     }
     
     #[cfg(desktop)]
@@ -102,13 +105,14 @@ pub(crate) async fn set_upload_config<R: Runtime>(
 }
 
 #[command]
+#[allow(unused_variables)]
 pub(crate) async fn upload_photo<R: Runtime>(
-    _app: AppHandle<R>,
+    app: AppHandle<R>,
     photo_id: String,
 ) -> Result<PhotoUploadResponse> {
     #[cfg(mobile)]
     {
-        return _app.hillview().upload_photo(photo_id);
+        return app.hillview().upload_photo(photo_id);
     }
     
     #[cfg(desktop)]

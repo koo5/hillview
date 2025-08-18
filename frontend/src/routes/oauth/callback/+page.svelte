@@ -22,9 +22,12 @@
                 throw new Error('Invalid OAuth callback parameters');
             }
             
+            // Parse provider from state (format: "provider:redirect_uri")
+            const provider = state.includes(':') ? state.split(':')[0] : state;
+            
             // Exchange code for token
             const success = await oauthLogin(
-                state, 
+                provider, 
                 code, 
                 `${window.location.origin}/oauth/callback`
             );

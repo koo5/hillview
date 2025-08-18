@@ -4,11 +4,13 @@ from typing import Optional
 import logging
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
+from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import or_
 from pydantic import BaseModel
 import requests
+from urllib.parse import urlencode, quote
 
 import sys
 import os
@@ -135,27 +137,170 @@ async def logout(
             detail="Logout failed"
         )
 
+@router.get("/auth/oauth-redirect")
+async def oauth_redirect(
+    provider: str,
+    redirect_uri: str,
+    request: Request
+):
+    """
+    Initiate OAuth flow with proper redirect URI for both web and mobile
+    """
+    log.info(f"OAuth redirect initiated - Provider: {provider}, Redirect URI: {redirect_uri}")
+    log.info(f"Request base URL: {request.base_url}")
+    
+    if provider not in OAUTH_PROVIDERS:
+        log.error(f"Unsupported OAuth provider: {provider}")
+        raise HTTPException(status_code=400, detail="Unsupported OAuth provider")
+    
+    provider_config = OAUTH_PROVIDERS[provider]
+    log.info(f"Provider config - Client ID: {provider_config['client_id'][:10]}..., Auth URL: {provider_config['auth_url']}")
+    
+    # Build OAuth URL with appropriate redirect URI
+    # For mobile: use deep link, for web: use frontend callback
+    if redirect_uri.startswith("com.hillview://"):
+        # Mobile flow: OAuth provider should redirect to API server callback
+        server_callback_uri = f"{request.base_url}auth/oauth-callback"
+        log.info(f"Mobile flow detected - Server callback URI: {server_callback_uri}")
+    else:
+        # Web flow: OAuth provider should redirect to frontend callback
+        # Extract frontend origin from the redirect_uri
+        from urllib.parse import urlparse
+        parsed = urlparse(redirect_uri)
+        frontend_origin = f"{parsed.scheme}://{parsed.netloc}"
+        server_callback_uri = f"{frontend_origin}/oauth/callback"
+        log.info(f"Web flow detected - Frontend origin: {frontend_origin}, Server callback URI: {server_callback_uri}")
+    
+    # Encode both provider and final destination in state
+    state_data = f"{provider}:{redirect_uri}"
+    oauth_params = {
+        "client_id": provider_config["client_id"],
+        "redirect_uri": server_callback_uri,  # Dynamic server callback
+        "response_type": "code",
+        "state": state_data  # Store provider and final destination in state
+    }
+    
+    # Add provider-specific scopes
+    if provider == "google":
+        oauth_params["scope"] = "email profile"
+    elif provider == "github":
+        oauth_params["scope"] = "user:email"
+    
+    auth_url = f"{provider_config['auth_url']}?{urlencode(oauth_params)}"
+    
+    log.info(f"OAuth params: {oauth_params}")
+    log.info(f"Final OAuth URL: {auth_url}")
+    log.info(f"Redirecting to OAuth provider {provider} with final destination: {redirect_uri}")
+    return RedirectResponse(auth_url)
+
+@router.get("/auth/oauth-callback")
+async def oauth_callback(
+    request: Request,
+    code: str,
+    state: Optional[str] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Enhanced OAuth callback that supports both web and mobile flows
+    """
+    log.info(f"OAuth callback received with code and state: {state}")
+    
+    # Extract provider and final destination from state
+    if state and ":" in state:
+        provider, final_redirect_uri = state.split(":", 1)
+    else:
+        # Fallback to default if state is malformed
+        provider = "google"
+        final_redirect_uri = state
+    
+    if provider not in OAUTH_PROVIDERS:
+        raise HTTPException(status_code=400, detail="Invalid OAuth provider")
+    
+    provider_config = OAUTH_PROVIDERS[provider]
+    
+    # Exchange code for JWT using existing logic
+    # Use the same redirect URI logic as the redirect endpoint
+    if final_redirect_uri and final_redirect_uri.startswith("com.hillview://"):
+        # Mobile flow: used API server callback
+        server_callback_uri = f"{request.base_url}auth/oauth-callback"
+    else:
+        # Web flow: used frontend callback
+        from urllib.parse import urlparse
+        parsed = urlparse(final_redirect_uri or "http://localhost:5173")
+        frontend_origin = f"{parsed.scheme}://{parsed.netloc}"
+        server_callback_uri = f"{frontend_origin}/oauth/callback"
+    
+    oauth_data = UserOAuth(
+        provider=provider,
+        code=code,
+        redirect_uri=server_callback_uri
+    )
+    
+    # Reuse existing OAuth login logic
+    jwt_result = await oauth_login_internal(oauth_data, db)
+    jwt_token = jwt_result["access_token"]
+    expires_at = jwt_result["expires_at"]
+    
+    # Detect if this is a mobile app request
+    if final_redirect_uri and final_redirect_uri.startswith("com.hillview://"):
+        # Mobile app: deep link back with token
+        callback_url = f"{final_redirect_uri}?token={jwt_token}&expires_at={expires_at.isoformat()}"
+        log.info(f"Mobile OAuth callback, redirecting to: {callback_url}")
+        return RedirectResponse(callback_url)
+    else:
+        # Web app: existing behavior (redirect to dashboard)
+        # Note: For web app, you might want to set cookies here
+        log.info("Web OAuth callback, redirecting to dashboard")
+        response = RedirectResponse("/dashboard")
+        response.set_cookie(
+            "auth_token", 
+            jwt_token, 
+            httponly=True,
+            secure=True,
+            samesite="lax",
+            expires=expires_at
+        )
+        return response
+
 @router.post("/auth/oauth", response_model=Token)
 async def oauth_login(
         oauth_data: UserOAuth,
     db: AsyncSession = Depends(get_db)
 ):
+    """Public OAuth endpoint for API clients"""
+    log.info(f"POST /auth/oauth called - Provider: {oauth_data.provider}, Code length: {len(oauth_data.code) if oauth_data.code else 0}, Redirect URI: {oauth_data.redirect_uri}")
+    return await oauth_login_internal(oauth_data, db)
+
+async def oauth_login_internal(
+        oauth_data: UserOAuth,
+    db: AsyncSession
+) -> dict:
     # Validate provider
     provider = oauth_data.provider
+    log.info(f"oauth_login_internal - Provider: {provider}")
+    
     if provider not in OAUTH_PROVIDERS:
+        log.error(f"Unsupported OAuth provider: {provider}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Unsupported OAuth provider: {provider}"
         )
     
     provider_config = OAUTH_PROVIDERS[provider]
+    log.info(f"Provider config loaded - Client ID: {provider_config['client_id'][:10]}..., Has client_secret: {bool(provider_config['client_secret'])}")
     
     # Validate redirect URI to prevent open redirect attacks
     redirect_uri = oauth_data.redirect_uri or provider_config["redirect_uri"]
+    log.info(f"Redirect URI resolution - oauth_data.redirect_uri: {oauth_data.redirect_uri}, provider_config redirect_uri: {provider_config['redirect_uri']}, final: {redirect_uri}")
+    
     if redirect_uri:
         # Define allowed domains for OAuth redirects (include port for localhost)
-        allowed_domains = {'localhost:8212', 'localhost', '127.0.0.1', 'hillview.ueueeu.eu'}
+        allowed_domains = {'localhost:8212', 'localhost', '127.0.0.1', 'localhost:8055', 'hillview.ueueeu.eu'}
+        log.info(f"Validating redirect URI: {redirect_uri} against allowed domains: {allowed_domains}")
         redirect_uri = validate_oauth_redirect_uri(redirect_uri, allowed_domains)
+        log.info(f"Redirect URI after validation: {redirect_uri}")
+    else:
+        log.warning("No redirect URI provided")
     
     # Validate OAuth code (basic check)
     if not oauth_data.code or len(oauth_data.code) > 500:
@@ -174,13 +319,22 @@ async def oauth_login(
         "grant_type": "authorization_code"
     }
     
+    log.info(f"Exchanging OAuth code for token with {provider}")
+    log.info(f"Token exchange data: {dict(token_data, client_secret='[REDACTED]', code='[REDACTED]')}")
+    log.info(f"Token URL: {provider_config['token_url']}")
+    
     # GitHub returns different format based on Accept header
     headers = {}
     if provider == "github":
         headers["Accept"] = "application/json"
-        
+    
+    log.info(f"Request headers: {headers}")
+    
     token_response = requests.post(provider_config["token_url"], data=token_data, headers=headers)
+    log.info(f"Token exchange response: Status {token_response.status_code}, Headers: {dict(token_response.headers)}")
+    
     if token_response.status_code != 200:
+        log.error(f"Token exchange failed: {token_response.status_code} - {token_response.text}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Failed to obtain OAuth token: {token_response.text}"

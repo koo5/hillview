@@ -68,3 +68,12 @@ pub struct PhotoUploadResponse {
   pub photo_id: String,
   pub error: Option<String>,
 }
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthTokenResponse {
+  pub token: Option<String>,
+  pub expires_at: Option<String>,
+  pub success: bool,
+  pub error: Option<String>,
+}

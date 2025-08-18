@@ -4,6 +4,8 @@
     import { User, Lock, Mail, Github } from 'lucide-svelte';
     import BackButton from '../../components/BackButton.svelte';
     import { login, register, oauthLogin, auth } from '$lib/auth.svelte';
+    import { invoke } from '@tauri-apps/api/core';
+    import { hasValidAuth, buildOAuthUrl } from '$lib/authCallback';
 
     let username = '';
     let password = '';
@@ -13,6 +15,7 @@
     let successMessage = '';
     let isLoading = false;
     let usernameGenerated = false;
+    let isMobileApp = false;
 
     // OAuth configuration
     const oauthProviders: Record<string, {clientId: string; redirectUri: string; authUrl: string; scope: string}> = {
@@ -30,8 +33,26 @@
         }
     };
 
-    onMount(() => {
-        // Check if user is already logged in
+    onMount(async () => {
+        // Detect if we're in a Tauri mobile app
+        try {
+            await invoke('get_auth_token');
+            isMobileApp = true;
+            console.log('🔐 Mobile app detected');
+            
+            // Check if user already has valid auth from previous session
+            const hasAuth = await hasValidAuth();
+            if (hasAuth) {
+                console.log('🔐 Found valid stored auth, redirecting to dashboard');
+                goto('/dashboard');
+                return;
+            }
+        } catch {
+            isMobileApp = false;
+            console.log('🔐 Web app detected');
+        }
+
+        // Check if user is already logged in (for web)
         auth.subscribe(value => {
             if (value.isAuthenticated) {
                 goto('/');
@@ -76,18 +97,16 @@
     }
 
     function handleOAuthLogin(provider: string) {
-        const config = oauthProviders[provider];
-        if (!config) return;
+        if (!oauthProviders[provider]) {
+            console.error('Unsupported OAuth provider:', provider);
+            return;
+        }
         
-        const params = new URLSearchParams({
-            client_id: config.clientId,
-            redirect_uri: config.redirectUri,
-            response_type: 'code',
-            scope: config.scope,
-            state: provider // We'll use this to identify the provider in the callback
-        });
+        console.log(`🔐 Starting ${provider} OAuth flow (${isMobileApp ? 'mobile' : 'web'} mode)`);
+        const authUrl = buildOAuthUrl(provider, isMobileApp);
+        console.log('🔐 Redirecting to:', authUrl);
         
-        window.location.href = `${config.authUrl}?${params.toString()}`;
+        window.location.href = authUrl;
     }
 
     function generateUsername() {

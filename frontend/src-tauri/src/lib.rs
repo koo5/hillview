@@ -58,6 +58,7 @@ pub fn run() {
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_geolocation::init())
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_hillview::init())
         .invoke_handler(tauri::generate_handler![
             commands::log,
@@ -65,6 +66,9 @@ pub fn run() {
             commands::get_build_commit_hash,
             commands::get_build_branch,
             commands::get_build_ts,
+            commands::store_auth_token,
+            commands::get_auth_token,
+            commands::clear_auth_token,
             photo_exif::embed_photo_metadata,
             photo_exif::save_photo_with_metadata,
             photo_exif::read_device_photo,

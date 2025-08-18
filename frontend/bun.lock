@@ -6,6 +6,7 @@
       "dependencies": {
         "@sentry/sveltekit": "^9",
         "@tauri-apps/api": "^2.7.0",
+        "@tauri-apps/plugin-deep-link": "^2.4.1",
         "@tauri-apps/plugin-geolocation": "^2.3.0",
         "@tauri-apps/plugin-os": "^2.3.0",
         "angles": "^0.3.0",
@@ -463,6 +464,8 @@
     "@tauri-apps/cli-win32-ia32-msvc": ["@tauri-apps/cli-win32-ia32-msvc@2.6.2", "", { "os": "win32", "cpu": "ia32" }, "sha512-TmD8BbzbjluBw8+QEIWUVmFa9aAluSkT1N937n1mpYLXcPbTpbunqRFiIznTwupoJNJIdtpF/t7BdZDRh5rrcg=="],
 
     "@tauri-apps/cli-win32-x64-msvc": ["@tauri-apps/cli-win32-x64-msvc@2.6.2", "", { "os": "win32", "cpu": "x64" }, "sha512-ItB8RCKk+nCmqOxOvbNtltz6x1A4QX6cSM21kj3NkpcnjT9rHSMcfyf8WVI2fkoMUJR80iqCblUX6ARxC3lj6w=="],
+
+    "@tauri-apps/plugin-deep-link": ["@tauri-apps/plugin-deep-link@2.4.1", "", { "dependencies": { "@tauri-apps/api": "^2.6.0" } }, "sha512-I8Bo+spcAKGhIIJ1qN/gapp/Ot3mosQL98znxr975Zn2ODAkUZ++BQ9FnTpR7PDwfIl5ANSGdIW/YU01zVTcJw=="],
 
     "@tauri-apps/plugin-geolocation": ["@tauri-apps/plugin-geolocation@2.3.0", "", { "dependencies": { "@tauri-apps/api": "^2.6.0" } }, "sha512-vdXGXqX3MfPdRohsQ6pc9SOSXkGE2x9e4NjVDob+mOpKfEnwSVjT4B9ndnta+dDuEVL01XdD/T2TcqLXqVGS1w=="],
 

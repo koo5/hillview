@@ -63,6 +63,7 @@
 	"dependencies": {
 		"@sentry/sveltekit": "^9",
 		"@tauri-apps/api": "^2.7.0",
+		"@tauri-apps/plugin-deep-link": "^2.4.1",
 		"@tauri-apps/plugin-geolocation": "^2.3.0",
 		"@tauri-apps/plugin-os": "^2.3.0",
 		"angles": "^0.3.0",

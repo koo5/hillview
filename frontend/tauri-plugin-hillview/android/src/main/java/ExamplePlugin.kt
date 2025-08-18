@@ -47,6 +47,12 @@ class PhotoUploadArgs {
   var photoId: String? = null
 }
 
+@InvokeArg
+class StoreAuthTokenArgs {
+  var token: String? = null
+  var expiresAt: String? = null
+}
+
 @TauriPlugin
 class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     companion object {
@@ -58,11 +64,13 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     private var preciseLocationService: PreciseLocationService? = null
     private lateinit var uploadManager: UploadManager
     private lateinit var database: PhotoDatabase
+    private lateinit var authManager: AuthenticationManager
     
     init {
         pluginInstance = this
         uploadManager = UploadManager(activity)
         database = PhotoDatabase.getDatabase(activity)
+        authManager = AuthenticationManager(activity)
     }
     
     @Command
@@ -426,5 +434,86 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             ExistingPeriodicWorkPolicy.REPLACE,
             uploadWorkRequest
         )
+    }
+    
+    // Authentication Commands
+    
+    @Command
+    fun storeAuthToken(invoke: Invoke) {
+        try {
+            val args = invoke.parseArgs(StoreAuthTokenArgs::class.java)
+            val token = args?.token
+            val expiresAt = args?.expiresAt
+            
+            if (token.isNullOrEmpty() || expiresAt.isNullOrEmpty()) {
+                val error = JSObject()
+                error.put("success", false)
+                error.put("error", "Token and expiration date are required")
+                invoke.resolve(error)
+                return
+            }
+            
+            Log.d(TAG, "🔐 Storing auth token")
+            val success = authManager.storeAuthToken(token, expiresAt)
+            
+            val result = JSObject()
+            result.put("success", success)
+            if (!success) {
+                result.put("error", "Failed to store auth token")
+            }
+            invoke.resolve(result)
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "🔐 Error storing auth token", e)
+            val error = JSObject()
+            error.put("success", false)
+            error.put("error", e.message)
+            invoke.resolve(error)
+        }
+    }
+    
+    @Command
+    fun getAuthToken(invoke: Invoke) {
+        try {
+            Log.d(TAG, "🔐 Getting auth token")
+            val (token, expiresAt) = authManager.getTokenInfo()
+            val validToken = authManager.getValidToken()
+            
+            val result = JSObject()
+            result.put("success", true)
+            result.put("token", validToken)
+            result.put("expiresAt", expiresAt)
+            
+            invoke.resolve(result)
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "🔐 Error getting auth token", e)
+            val error = JSObject()
+            error.put("success", false)
+            error.put("error", e.message)
+            invoke.resolve(error)
+        }
+    }
+    
+    @Command
+    fun clearAuthToken(invoke: Invoke) {
+        try {
+            Log.d(TAG, "🔐 Clearing auth token")
+            val success = authManager.clearAuthToken()
+            
+            val result = JSObject()
+            result.put("success", success)
+            if (!success) {
+                result.put("error", "Failed to clear auth token")
+            }
+            invoke.resolve(result)
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "🔐 Error clearing auth token", e)
+            val error = JSObject()
+            error.put("success", false)
+            error.put("error", e.message)
+            invoke.resolve(error)
+        }
     }
 }

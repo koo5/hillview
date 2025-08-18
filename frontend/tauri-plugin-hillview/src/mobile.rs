@@ -102,4 +102,33 @@ impl<R: Runtime> Hillview<R> {
       .run_mobile_plugin("retryFailedUploads", ())
       .map_err(Into::into)
   }
+  
+  // Authentication methods
+  
+  pub fn store_auth_token(&self, token: String, expires_at: String) -> crate::Result<BasicResponse> {
+    #[derive(serde::Serialize)]
+    struct Args {
+      token: String,
+      expires_at: String,
+    }
+    
+    self
+      .0
+      .run_mobile_plugin("storeAuthToken", Args { token, expires_at })
+      .map_err(Into::into)
+  }
+  
+  pub fn get_auth_token(&self) -> crate::Result<AuthTokenResponse> {
+    self
+      .0
+      .run_mobile_plugin("getAuthToken", ())
+      .map_err(Into::into)
+  }
+  
+  pub fn clear_auth_token(&self) -> crate::Result<BasicResponse> {
+    self
+      .0
+      .run_mobile_plugin("clearAuthToken", ())
+      .map_err(Into::into)
+  }
 }

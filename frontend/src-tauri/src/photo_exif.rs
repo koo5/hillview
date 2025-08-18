@@ -318,6 +318,7 @@ fn save_to_pictures_directory(
 
 
 #[command]
+#[allow(unused_variables)]
 pub async fn save_photo_with_metadata(
     app_handle: tauri::AppHandle,
     image_data: Vec<u8>,
@@ -336,11 +337,17 @@ pub async fn save_photo_with_metadata(
 
     // Determine where to save the photo
     // Always save to Pictures directory - use dot folder if hiding from gallery
+    #[cfg(target_os = "android")]
     let file_path = save_to_pictures_directory(&filename, &processed.data, hide_from_gallery)
         .map_err(|e| format!("Failed to save to Pictures directory: {}", e))?;
+    
+    #[cfg(not(target_os = "android"))]
+    {
+        return Err("Photo saving not implemented for non-Android platforms".to_string());
+    }
 
     // Verify EXIF can be read back
-    #[cfg(debug_assertions)]
+    #[cfg(all(target_os = "android", debug_assertions))]
     {
         // Try reading with img-parts first to verify structure
         if let Ok(file_data) = std::fs::read(&file_path) {
@@ -381,15 +388,18 @@ pub async fn save_photo_with_metadata(
         }
     }
 
-    // Add to device photos database with dimensions
-    let device_photo = crate::device_photos::add_device_photo_to_db(
-        app_handle,
-        file_path.to_string_lossy().to_string(),
-        metadata,
-    )
-    .await?;
+    #[cfg(target_os = "android")]
+    {
+        // Add to device photos database with dimensions
+        let device_photo = crate::device_photos::add_device_photo_to_db(
+            app_handle,
+            file_path.to_string_lossy().to_string(),
+            metadata,
+        )
+        .await?;
 
-    Ok(device_photo)
+        Ok(device_photo)
+    }
 }
 
 #[command]

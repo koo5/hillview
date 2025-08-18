@@ -1,102 +1,56 @@
-import '@testing-library/jest-dom';
-import { vi } from 'vitest';
+import { vi, beforeEach, afterEach } from 'vitest';
 
-// Mock localStorage
-const localStorageMock = {
-  getItem: vi.fn(),
-  setItem: vi.fn(),
-  removeItem: vi.fn(),
-  clear: vi.fn(),
-  length: 0,
-  key: vi.fn(),
-};
-global.localStorage = localStorageMock as any;
+// Mock Tauri APIs
+vi.mock('@tauri-apps/api/core', () => ({
+    invoke: vi.fn()
+}));
 
-// Set default localStorage values to prevent JSON parse errors
-localStorageMock.getItem.mockImplementation((key) => {
-  const defaults: Record<string, string> = {
-    'sources': JSON.stringify([
-      { id: 'hillview', enabled: true },
-      { id: 'mapillary', enabled: true }
-    ]),
-    'client_id': 'test-client-id',
-    'bearingAdjustmentMax': '10',
-    'bearingAdjustmentExponent': '2',
-  };
-  return defaults[key] || null;
+vi.mock('@tauri-apps/plugin-deep-link', () => ({
+    onOpenUrl: vi.fn()
+}));
+
+import { backendUrl } from '../lib/config';
+
+// Mock environment variables
+vi.mock('$env/static/public', () => ({
+    PUBLIC_API_URL: backendUrl
+}));
+
+// Mock SvelteKit stores
+vi.mock('$app/stores', () => ({
+    page: {
+        subscribe: vi.fn(),
+        url: {
+            pathname: '/',
+            searchParams: new URLSearchParams()
+        }
+    }
+}));
+
+// Global test utilities
+global.fetch = vi.fn();
+
+// Mock window.location
+Object.defineProperty(window, 'location', {
+    value: {
+        origin: 'http://localhost:8212',
+        href: 'http://localhost:8212/',
+        pathname: '/',
+        search: '',
+        hash: ''
+    },
+    writable: true
 });
 
-// Mock window.matchMedia
-Object.defineProperty(window, 'matchMedia', {
-  writable: true,
-  value: vi.fn().mockImplementation(query => ({
-    matches: false,
-    media: query,
-    onchange: null,
-    addListener: vi.fn(), // deprecated
-    removeListener: vi.fn(), // deprecated
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-    dispatchEvent: vi.fn(),
-  })),
+// Mock console methods in tests to reduce noise
+const originalConsole = { ...console };
+beforeEach(() => {
+    console.log = vi.fn();
+    console.error = vi.fn();
+    console.warn = vi.fn();
+    console.info = vi.fn();
 });
 
-// Mock IntersectionObserver
-global.IntersectionObserver = vi.fn().mockImplementation(() => ({
-  observe: vi.fn(),
-  unobserve: vi.fn(),
-  disconnect: vi.fn(),
-}));
-
-// Mock ResizeObserver
-global.ResizeObserver = vi.fn().mockImplementation(() => ({
-  observe: vi.fn(),
-  unobserve: vi.fn(),
-  disconnect: vi.fn(),
-}));
-
-// Mock navigator.geolocation
-Object.defineProperty(navigator, 'geolocation', {
-  value: {
-    getCurrentPosition: vi.fn(),
-    watchPosition: vi.fn(),
-    clearWatch: vi.fn(),
-  },
-  writable: true,
+afterEach(() => {
+    Object.assign(console, originalConsole);
 });
-
-// Mock Leaflet for tests
-vi.mock('leaflet', () => ({
-  LatLng: vi.fn().mockImplementation((lat, lng) => ({ lat, lng })),
-  Map: vi.fn(),
-  TileLayer: vi.fn(),
-  Marker: vi.fn(),
-  Icon: vi.fn(),
-  DivIcon: vi.fn(),
-}));
-
-// Mock Tauri API
-vi.mock('@tauri-apps/api', () => ({
-  invoke: vi.fn(),
-  app: {
-    getVersion: vi.fn().mockResolvedValue('1.0.0'),
-  },
-  window: {
-    getCurrent: vi.fn(),
-  },
-}));
-
-// Mock Tauri plugins
-vi.mock('@tauri-apps/plugin-geolocation', () => ({
-  getCurrentPosition: vi.fn(),
-  watchPosition: vi.fn(),
-  clearWatch: vi.fn(),
-}));
-
-vi.mock('tauri-plugin-hillview-api', () => ({
-  ping: vi.fn().mockResolvedValue('pong'),
-  startSensor: vi.fn().mockResolvedValue(undefined),
-  stopSensor: vi.fn().mockResolvedValue(undefined),
-  registerListener: vi.fn().mockResolvedValue(undefined),
-  updateSensorLocation: vi.fn().mockResolvedValue(undefined),
-}));

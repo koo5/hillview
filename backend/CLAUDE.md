@@ -12,6 +12,9 @@ uvicorn app.api:app --reload
 # Run with Docker Compose
 docker-compose up
 
+# Rebuild and restart API container (preferred method)
+docker compose up --build --remove-orphans -d api
+
 # Run tests
 python test_api.py
 ```

@@ -26,6 +26,7 @@ class PhotoUploadWorker(
     private val database = PhotoDatabase.getDatabase(applicationContext)
     private val photoDao = database.photoDao()
     private val uploadManager = UploadManager(applicationContext)
+    private val authManager = AuthenticationManager(applicationContext)
     
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         try {
@@ -39,6 +40,14 @@ class PhotoUploadWorker(
             
             // Then process upload queue if auto upload is enabled
             if (autoUploadEnabled) {
+                // Check authentication before proceeding with uploads
+                val authToken = authManager.getValidToken()
+                if (authToken == null) {
+                    Log.w(TAG, "🔐 No valid auth token available, skipping upload work")
+                    return@withContext Result.success()
+                }
+                
+                Log.d(TAG, "🔐 Valid auth token found, proceeding with uploads")
                 processUploadQueue()
                 retryFailedUploads()
             }

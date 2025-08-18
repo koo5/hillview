@@ -45,12 +45,18 @@ services:
       - ENABLE_MAPILLARY_LIVE=${ENABLE_MAPILLARY_LIVE:-true}
       - USER_ACCOUNTS=${USER_ACCOUNTS:-true}
       - TEST_USERS=${TEST_USERS:-false}
+      # Configure uvicorn for development with reload
+      - MODULE_NAME=app.api
+      - VARIABLE_NAME=app
+      - HOST=0.0.0.0
+      - PORT=8055
+      - RELOAD=true
     secrets:
       - mapillary_token
     depends_on:
       postgres:
         condition: service_healthy
-    command: uvicorn app.api:app --host 0.0.0.0 --port 8055 --reload
+    # Let base image handle startup and run prestart.sh automatically
 
   worker:
     restart: always

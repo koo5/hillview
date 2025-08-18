@@ -1,6 +1,7 @@
 <script lang="ts">
     import { page } from '$app/stores';
     import { onMount } from 'svelte';
+    import { setupDeepLinkListener } from '$lib/authCallback';
 
     // Log page changes
     $: {
@@ -9,8 +10,11 @@
         }
     }
 
-    onMount(() => {
+    onMount(async () => {
         console.log('Layout mounted, initial page:', $page.url.pathname);
+        
+        // Set up deep link listener for authentication callbacks
+        await setupDeepLinkListener();
     });
 </script>
 

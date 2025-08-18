@@ -19,5 +19,10 @@ export default defineConfig({
 			port: parseInt(process.env.VITE_DEV_PORT || '8212')
 		}
 	},
-	define: sharedDefines
+	define: sharedDefines,
+	test: {
+		environment: 'happy-dom',
+		globals: true,
+		setupFiles: ['src/tests/setup.ts']
+	}
 });

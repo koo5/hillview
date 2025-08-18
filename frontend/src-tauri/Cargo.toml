@@ -35,4 +35,5 @@ uuid = { version = "1.6", features = ["v4"] }
 kamadak-exif = "0.5"
 android_logger = "0.15.1"
 tauri-plugin-os = "2"
+tauri-plugin-deep-link = "2"
 dirs = "5.0"

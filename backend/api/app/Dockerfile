@@ -8,3 +8,7 @@ COPY common /app/common
 # Copy API app directory
 COPY api/app /app/app
 
+# Copy and setup prestart script
+COPY api/app/prestart.sh /app/prestart.sh
+RUN chmod +x /app/prestart.sh
+
