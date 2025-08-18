@@ -295,6 +295,7 @@
 <!-- Hamburger icon -->
 <button 
     class="hamburger" 
+    data-testid="hamburger-menu"
     on:click={toggleMenu}
     on:keydown={(e) => e.key === 'Enter' && toggleMenu()}
     aria-label="Toggle menu"
@@ -360,13 +361,19 @@
                     </a></li>
                 {/if}
             {/if}
-            <li><a href="/sources" on:click={() => menuOpen = false}>
+            <li><a href="/sources" data-testid="sources-menu-link" on:click={() => menuOpen = false}>
                 <Database size={18} />
                 Sources
             </a></li>
 
             {#if FEATURE_USER_ACCOUNTS}
                 {#if isAuthenticated}
+                    <li>
+                        <a href="/profile" on:click={() => menuOpen = false}>
+                            <User size={18} />
+                            Profile
+                        </a>
+                    </li>
                     <li>
                         <button class="menu-button logout" on:click={handleLogout}>
                             <LogOut size={18} />

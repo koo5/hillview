@@ -176,11 +176,12 @@
                                     {/if}
                                 </div>
                             </div>
-                            <label class="toggle">
+                            <label class="toggle" data-testid="source-toggle-{source.id}">
                                 <input 
                                     type="checkbox" 
                                     checked={source.enabled}
                                     on:change={() => toggleSource(source.id)}
+                                    data-testid="source-checkbox-{source.id}"
                                 >
                                 <span class="slider"></span>
                             </label>

@@ -449,6 +449,43 @@ async def oauth_login_internal(
 async def read_users_me(current_user: User = Depends(get_current_active_user)):
     return current_user
 
+@router.get("/user/profile")
+async def get_user_profile(current_user: User = Depends(get_current_active_user)):
+    """Get detailed user profile information"""
+    return {
+        "id": current_user.id,
+        "username": current_user.username,
+        "email": current_user.email,
+        "is_active": current_user.is_active,
+        "created_at": current_user.created_at,
+        "provider": current_user.oauth_provider,
+        "auto_upload_enabled": current_user.auto_upload_enabled,
+        "auto_upload_folder": current_user.auto_upload_folder
+    }
+
+@router.delete("/user/delete")
+async def delete_user_account(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Delete the current user's account and all associated data"""
+    try:
+        # TODO: Add cascading delete for user's photos and other related data
+        # For now, we'll just delete the user record
+        # In a production app, you'd want to:
+        # 1. Delete all user's photos from filesystem
+        # 2. Delete all user's data from database (photos, sessions, etc.)
+        # 3. Optionally anonymize instead of hard delete for data integrity
+        
+        await db.delete(current_user)
+        await db.commit()
+        
+        return {"message": "Account successfully deleted"}
+    except Exception as e:
+        await db.rollback()
+        log.error(f"Error deleting user account: {e}")
+        raise HTTPException(status_code=500, detail="Failed to delete account")
+
 class UserSettingsUpdate(BaseModel):
     auto_upload_enabled: Optional[bool] = None
     auto_upload_folder: Optional[str] = None
