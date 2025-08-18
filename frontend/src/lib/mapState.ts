@@ -1,6 +1,10 @@
 import { writable, derived, get } from 'svelte/store';
 import { LatLng } from 'leaflet';
-import { staggeredLocalStorageSharedStore, localStorageReadOnceSharedStore } from './svelte-shared-store';
+import {
+    staggeredLocalStorageSharedStore,
+    localStorageReadOnceSharedStore,
+    localStorageSharedStore
+} from './svelte-shared-store';
 import type { PhotoData } from './types/photoTypes';
 
 // Bounds interface
@@ -40,12 +44,12 @@ export const spatialState = localStorageReadOnceSharedStore<SpatialState>('spati
 // Visual state - only affects rendering, optimized with debounced writes
 export const visualState = staggeredLocalStorageSharedStore<VisualState>('visualState', {
   bearing: 230
-}, 250); // 250ms debounce for smooth bearing updates
+}, 500);
 
 // Bearing mode state - controls automatic bearing source (car = GPS, walking = compass)
-export const bearingState = staggeredLocalStorageSharedStore<BearingState>('bearingState', {
+export const bearingState = localStorageSharedStore<BearingState>('bearingState', {
   mode: 'walking'
-}, 100); // Fast updates for mode changes
+});
 
 // Photos filtered by spatial criteria (from worker)
 export const photosInArea = writable<PhotoData[]>([]);
@@ -171,10 +175,6 @@ function getBearingColor(absBearingDiff: number): string {
 // Update functions with selective reactivity
 export function updateSpatialState(updates: Partial<SpatialState>) {
   spatialState.update(state => ({ ...state, ...updates }));
-}
-
-export function updateVisualState(updates: Partial<VisualState>) {
-  visualState.update(state => ({ ...state, ...updates }));
 }
 
 export function updateBearing(bearing: number) {

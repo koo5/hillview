@@ -280,11 +280,11 @@ async function startProcess(type: 'config' | 'area' | 'sourcesPhotosInArea', mes
     // Start the actual business logic operations
     try {
         if (type === 'config') {
-            console.log(`NewWorker: Calling processConfig for ${processId}`);
+            console.log(`NewWorker: Calling PROCESSCONFIG for ${processId}`);
             if (currentState.config.data) {
                 photoOperations.processConfig(processId, messageId, currentState.config.data, operationCallbacks);
             } else {
-                console.warn(`NewWorker: Config data is null for process ${processId}`);
+                console.warn(`NewWorker: PROCESSCONFIG - Config data is null for process ${processId}`);
             }
         } else if (type === 'area') {
             console.log(`NewWorker: About to call processArea with area:`, currentState.area.data, 'sources:', currentState.config.data?.sources?.length || 0);
@@ -316,6 +316,31 @@ async function startProcess(type: 'config' | 'area' | 'sourcesPhotosInArea', mes
 }
 
 function handleMessage(message: any): void {
+	// Handle special cleanup message
+	if (message.type === 'cleanup' || message.type === 'terminate') {
+		console.log('NewWorker: Received cleanup/terminate message, cleaning up resources');
+		
+		// Abort all running processes
+		for (const [processId, process] of processTable.entries()) {
+			console.log(`NewWorker: Aborting process ${processId}`);
+			process.shouldAbort = true;
+		}
+		processTable.clear();
+		
+		// Clean up photo operations (cancels loaders, clears caches)
+		photoOperations.cleanup();
+		
+		// Stop process monitor
+		stopProcessMonitor();
+		
+		// Clear message queue
+		messageQueue.clear();
+		
+		// Send confirmation
+		postMessage({ type: 'cleanupComplete' });
+		return;
+	}
+	
 	// Add the message to the queue with unique ID
 	messageQueue.addMessage({...message, id: messageIdCounter++});
 }
@@ -575,13 +600,14 @@ async function startPendingProcesses(): Promise<boolean> {
 
 	// Start processes by priority - higher priority first
 	if (currentState.config.lastUpdateId !== currentState.config.lastProcessedId) {
-		console.log(`NewWorker: Starting config process for message ${currentState.config.lastUpdateId}`);
+		console.log(`NewWorker: STARTING CONFIG update PROCESS FOR MESSAGE ${currentState.config.lastUpdateId}`);
+
 		await startProcess('config', currentState.config.lastUpdateId);
 	} else if (currentState.area.lastUpdateId !== currentState.area.lastProcessedId) {
-		console.log(`NewWorker: Starting area process for message ${currentState.area.lastUpdateId}`);
+		console.log(`NewWorker: Starting area update process for message ${currentState.area.lastUpdateId}`);
 		await startProcess('area', currentState.area.lastUpdateId);
 	} else if (currentState.sourcesPhotosInArea.lastUpdateId !== currentState.sourcesPhotosInArea.lastProcessedId) {
-		console.log(`NewWorker: Starting sourcesPhotosInArea process for message ${currentState.sourcesPhotosInArea.lastUpdateId}`);
+		console.log(`NewWorker: Starting sourcesPhotosInArea update process for message ${currentState.sourcesPhotosInArea.lastUpdateId}`);
 		await startProcess('sourcesPhotosInArea', currentState.sourcesPhotosInArea.lastUpdateId);
 	} else {
 		console.log('NewWorker: No pending processes to start');
