@@ -55,6 +55,8 @@
     let watchId: number | null = null;
     let userLocationMarker: any = null;
     let accuracyCircle: any = null;
+    let wasTrackingBeforeHidden = false;
+    let orientationRestartTimer: any = null;
     
     // Compass tracking variables
     let compassTrackingEnabled = false;
@@ -69,7 +71,7 @@
     // Update bearing from compass when tracking is enabled AND in walking mode
     $: if (compassTrackingEnabled && $bearingState.mode === 'walking' && $currentHeading) {
         const newBearing = $currentHeading.heading;
-        if (newBearing !== null && !isNaN(newBearing)) {
+        if (newBearing !== null && !isNaN(newBearing) && Math.abs(newBearing - $visualState.bearing) > 1) {
             console.log("Compass bearing update (walking mode):", newBearing);
             updateBearing(newBearing);
         }
@@ -469,6 +471,13 @@
     
     // Start tracking user location
     async function startLocationTracking() {
+        // If we already have a watch ID, clear it first to avoid duplicates
+        if (watchId !== null) {
+            console.log("Clearing existing watch before starting new one");
+            await geolocation.clearWatch(watchId);
+            watchId = null;
+        }
+        
         locationTrackingLoading = true;
         
         // Get initial position
@@ -703,6 +712,50 @@
         return false;
     }
 
+    // Handle visibility changes (orientation changes, app backgrounding)
+    function handleVisibilityChange() {
+        if (document.hidden) {
+            // App is going to background or orientation change starting
+            wasTrackingBeforeHidden = locationTracking;
+            console.log('App visibility changed to hidden, was tracking:', wasTrackingBeforeHidden);
+        } else {
+            // App is coming to foreground or orientation change completed
+            console.log('App visibility changed to visible, should resume tracking:', wasTrackingBeforeHidden);
+            if (wasTrackingBeforeHidden) {
+                // Clear any existing timer
+                if (orientationRestartTimer) {
+                    clearTimeout(orientationRestartTimer);
+                }
+                // Delay restart slightly to let WebView stabilize after orientation change
+                orientationRestartTimer = setTimeout(async () => {
+                    if (wasTrackingBeforeHidden && (!locationTracking || watchId === null)) {
+                        console.log('Restarting location tracking after visibility change');
+                        locationTracking = true;
+                        setLocationTracking(true);
+                        await startLocationTracking();
+                    }
+                }, 500);
+            }
+        }
+    }
+
+    // Handle page show/hide events (iOS Safari specific)
+    function handlePageShow(event: PageTransitionEvent) {
+        if (event.persisted && wasTrackingBeforeHidden && !locationTracking) {
+            console.log('Page shown from cache, resuming location tracking');
+            locationTracking = true;
+            setLocationTracking(true);
+            startLocationTracking();
+        }
+    }
+
+    function handlePageHide(event: PageTransitionEvent) {
+        if (event.persisted) {
+            wasTrackingBeforeHidden = locationTracking;
+            console.log('Page hiding to cache, was tracking:', wasTrackingBeforeHidden);
+        }
+    }
+
     onMount(async () => {
         console.log('Map component mounted');
         
@@ -716,6 +769,17 @@
         
         await onMapStateChange(true, 'mount');
         console.log('Map component mounted - after onMapStateChange');
+        
+        // Add event listeners for visibility changes
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        window.addEventListener('pageshow', handlePageShow);
+        window.addEventListener('pagehide', handlePageHide);
+        
+        // Also listen for orientation changes directly
+        window.addEventListener('orientationchange', () => {
+            console.log('Orientation change detected');
+            // The visibility change handler will take care of restarting
+        });
         
         // Compass availability is automatically tracked by the store
     });
@@ -734,6 +798,17 @@
         if (watchId !== null) {
             await geolocation.clearWatch(watchId);
         }
+        
+        // Clear timers
+        if (orientationRestartTimer) {
+            clearTimeout(orientationRestartTimer);
+        }
+        
+        // Remove event listeners
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+        window.removeEventListener('pageshow', handlePageShow);
+        window.removeEventListener('pagehide', handlePageHide);
+        window.removeEventListener('orientationchange', () => {});
         
         // Clean up slideshow timer if active
         if (slideshowTimer) {

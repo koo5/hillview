@@ -32,6 +32,22 @@ export class PhotoOperations {
     private sourceCache = new Map<string, SourceCache>(); // Cache for each source
 
     constructor() {}
+    
+    /**
+     * Clean up all resources - call this when worker is being terminated
+     */
+    cleanup(): void {
+        console.log('PhotoOperations: Cleaning up all resources');
+        // Cancel all active loading processes
+        for (const [sourceId, process] of this.loadingProcesses.entries()) {
+            console.log(`PhotoOperations: Cancelling loader for ${sourceId}`);
+            process.cancel();
+        }
+        this.loadingProcesses.clear();
+        
+        // Clear all caches
+        this.sourceCache.clear();
+    }
 
     // Check if requestedBounds is completely contained within cachedBounds
     private isAreaWithinCachedBounds(requestedBounds: Bounds, cachedBounds: Bounds): boolean {
@@ -57,7 +73,7 @@ export class PhotoOperations {
         }
         
         if (!config?.sources) {
-            console.log(`PhotoOperations: No sources in config (${processId})`);
+            console.log(`PhotoOperations: PROCESSCONFIG: No sources in config (${processId})`);
             callbacks.postMessage({
                 type: 'processComplete',
                 processId,
@@ -72,11 +88,17 @@ export class PhotoOperations {
 
         // Cancel any existing loading processes that are no longer needed
         const enabledSourceIds = new Set(sources.filter(s => s.enabled).map(s => s.id));
+
+        console.log(`PhotoOperations: PROCESSCONFIG: enabledSourceIds: ${Array.from(enabledSourceIds).join(', ')}, loadingProcesses: ${Array.from(this.loadingProcesses.keys()).join(', ')}`);
+
         for (const [sourceId, process] of this.loadingProcesses.entries()) {
             if (!enabledSourceIds.has(sourceId)) {
-                console.log(`PhotoOperations: Cancelling loading process for disabled source ${sourceId}`);
+                console.log(`PhotoOperations: PROCESSCONFIG: Cancelling loading process for disabled source ${sourceId}`);
                 process.cancel();
                 this.loadingProcesses.delete(sourceId);
+                // Also clear the cache for disabled sources to free memory
+                this.sourceCache.delete(sourceId);
+                console.log(`PhotoOperations: PROCESSCONFIG: Cleared cache for disabled source ${sourceId}`);
             }
         }
 
@@ -84,7 +106,7 @@ export class PhotoOperations {
         for (const source of sources.filter(s => s.enabled)) {
             if (callbacks.shouldAbort(processId)) return;
             
-            console.log(`PhotoOperations: Processing source ${source.id} (${processId})`);
+            console.log(`PhotoOperations: PROCESSCONFIG: Processing enabled source ${source.id} (${processId})`);
             
             // Check if we already have a cache for this source
             const existingCache = this.sourceCache.get(source.id);
@@ -106,9 +128,9 @@ export class PhotoOperations {
                 }
             }
         }
-        
+
         if (callbacks.shouldAbort(processId)) {
-            console.log(`PhotoOperations: Config process ${processId} aborted before completion`);
+            console.log(`PhotoOperations: PROCESSCONFIG: Config process ${processId} aborted before completion`);
             return;
         }
         
@@ -117,7 +139,7 @@ export class PhotoOperations {
         callbacks.updatePhotosInArea(allLoadedPhotos);
         callbacks.sendPhotosInAreaUpdate();
         
-        console.log(`PhotoOperations: Config processing complete (${processId}) - loaded ${allLoadedPhotos.length} photos`);
+        console.log(`PhotoOperations: PROCESSCONFIG: Config processing complete (${processId}) - loaded ${allLoadedPhotos.length} photos`);
         callbacks.postMessage({
             type: 'processComplete',
             processId,
@@ -259,7 +281,10 @@ export class PhotoOperations {
                 console.error(`PhotoOperations: Error loading source ${source.id}:`, error);
             }
         } finally {
-            this.loadingProcesses.delete(source.id);
+            // Ensure loader is removed from active processes
+            if (this.loadingProcesses.get(source.id) === loader) {
+                this.loadingProcesses.delete(source.id);
+            }
         }
     }
 

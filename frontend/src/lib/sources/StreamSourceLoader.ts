@@ -13,6 +13,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
     private completionPromise?: Promise<void>;
     private completionResolve?: () => void;
     private timeoutId?: NodeJS.Timeout;
+    private readyStateMonitorId?: NodeJS.Timeout;
 
     constructor(source: any, callbacks: PhotoSourceCallbacks) {
         super(source, callbacks);
@@ -77,11 +78,19 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
             this.completionResolve = resolve;
         });
 
-        // Add timeout to prevent hanging forever (30 seconds)
+        // Add timeout to prevent hanging forever (2 minutes to match server timeouts)
         this.timeoutId = setTimeout(() => {
-            console.warn(`StreamSourceLoader: Timeout waiting for ${this.source.url} - resolving anyway`);
+            console.warn(`StreamSourceLoader: Timeout waiting for ${this.source.url} - closing connection`);
+            // Mark as complete on timeout
+            this.isComplete = true;
+            // Properly close the EventSource on timeout
+            if (this.eventSource) {
+                this.eventSource.close();
+                this.eventSource = undefined;
+            }
+            this.updateLoadingStatus(false, undefined, 'Connection timeout');
             this.resolveCompletion();
-        }, 30000);
+        }, 120000); // 2 minutes
 
         this.eventSource = new EventSource(url.toString());
         console.log(`StreamSourceLoader: Created EventSource for ${this.source.id} with URL:`, url.toString());
@@ -92,6 +101,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
             console.log(`StreamSourceLoader: Abort signal received, closing EventSource for ${this.source.id}`);
             if (this.eventSource) {
                 this.eventSource.close();
+                this.eventSource = undefined; // Clear reference to allow garbage collection
             }
             this.resolveCompletion();
         });
@@ -103,6 +113,13 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
             } catch (error) {
                 console.error('StreamSourceLoader: Error parsing stream message:', error);
                 this.callbacks.onError?.(new Error('Error parsing stream data'));
+                // Close EventSource on parsing error to prevent further errors
+                if (this.eventSource) {
+                    this.eventSource.close();
+                    this.eventSource = undefined;
+                }
+                this.updateLoadingStatus(false, undefined, 'Failed to parse stream data');
+                this.resolveCompletion();
             }
         };
 
@@ -110,6 +127,12 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
             // Check if stream is already complete - if so, this is normal connection closure
             if (this.isComplete) {
                 console.log(`StreamSourceLoader: EventSource connection closed normally after stream completion for ${this.source.id}`);
+                return;
+            }
+            
+            // Check if we've been cancelled/aborted
+            if (this.abortController?.signal.aborted) {
+                console.log(`StreamSourceLoader: EventSource error after abort for ${this.source.id} - ignoring`);
                 return;
             }
             
@@ -137,6 +160,16 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
                 console.error('StreamSourceLoader: EventSource failed immediately after creation - possible network/CORS/URL issue');
             }
             
+            // Mark as complete on error to prevent further processing
+            this.isComplete = true;
+            
+            // Clean up the EventSource on error
+            if (this.eventSource) {
+                console.log(`StreamSourceLoader: Closing EventSource on error for ${this.source.id}`);
+                this.eventSource.close();
+                this.eventSource = undefined;
+            }
+            
             this.updateLoadingStatus(false, undefined, errorMessage);
             this.callbacks.onError?.(new Error(errorMessage));
             // Resolve the completion promise even on error to prevent hanging
@@ -150,19 +183,25 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
 
         // Monitor readyState changes
         let lastReadyState = this.eventSource.readyState;
-        const readyStateMonitor = setInterval(() => {
+        this.readyStateMonitorId = setInterval(() => {
             if (this.eventSource && this.eventSource.readyState !== lastReadyState) {
                 console.log(`StreamSourceLoader: ReadyState changed from ${verbalizeEventSourceReadyState(lastReadyState)} to ${verbalizeEventSourceReadyState(this.eventSource.readyState)} for ${this.source.id}`);
                 lastReadyState = this.eventSource.readyState;
                 if (this.eventSource.readyState === EventSource.CLOSED) {
-                    clearInterval(readyStateMonitor);
+                    if (this.readyStateMonitorId) {
+                        clearInterval(this.readyStateMonitorId);
+                        this.readyStateMonitorId = undefined;
+                    }
                 }
             }
         }, 100);
 
         // Clear monitor on abort
         this.abortController.signal.addEventListener('abort', () => {
-            clearInterval(readyStateMonitor);
+            if (this.readyStateMonitorId) {
+                clearInterval(this.readyStateMonitorId);
+                this.readyStateMonitorId = undefined;
+            }
         });
 
         // Return the completion promise
@@ -175,9 +214,21 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
             clearTimeout(this.timeoutId);
             this.timeoutId = undefined;
         }
+        // Clear readyState monitor
+        if (this.readyStateMonitorId) {
+            clearInterval(this.readyStateMonitorId);
+            this.readyStateMonitorId = undefined;
+        }
         if (this.completionResolve) {
             this.completionResolve();
             this.completionResolve = undefined;
+            this.completionPromise = undefined;
+        }
+        // Ensure EventSource is cleaned up
+        if (this.eventSource) {
+            console.log(`StreamSourceLoader: Cleaning up EventSource in resolveCompletion for ${this.source.id}`);
+            this.eventSource.close();
+            this.eventSource = undefined;
         }
     }
 
@@ -241,6 +292,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
                 if (this.eventSource) {
                     console.log(`StreamSourceLoader: Closing EventSource after stream completion for ${this.source.id}`);
                     this.eventSource.close();
+                    this.eventSource = undefined; // Clear reference to allow garbage collection
                 }
 
                 // Resolve the completion promise
@@ -267,13 +319,24 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
         // Clear loading status
         this.updateLoadingStatus(false, 'Cancelled');
         
+        // Clear readyState monitor first
+        if (this.readyStateMonitorId) {
+            clearInterval(this.readyStateMonitorId);
+            this.readyStateMonitorId = undefined;
+        }
+        
         if (this.eventSource) {
             console.log(`StreamSourceLoader: Closing EventSource for ${this.source.id} (readyState: ${verbalizeEventSourceReadyState(this.eventSource.readyState)})`);
             this.eventSource.close();
+            this.eventSource = undefined; // Clear reference to allow garbage collection
         }
 
         // Clear timeout and resolve completion promise if still pending
         this.resolveCompletion();
+        
+        // Clear all data and references
+        this.streamPhotos = [];
+        this.completionPromise = undefined;
     }
 
     getAllPhotos(): PhotoData[] {
