@@ -1,8 +1,7 @@
-import { invoke } from '@tauri-apps/api/core';
 import { goto } from '$app/navigation';
 import { browser } from '$app/environment';
-import { onOpenUrl } from '@tauri-apps/plugin-deep-link';
 import { backendUrl } from './config';
+import { TAURI } from './tauri';
 
 export interface AuthToken {
     token: string;
@@ -56,10 +55,17 @@ export async function handleAuthCallback(url?: string): Promise<boolean> {
             console.log('🔐 Auth callback received, storing token');
             
             // Store token in Android SharedPreferences via Tauri command
-            const result = await invoke('store_auth_token', { 
-                token, 
-                expiresAt 
-            }) as BasicResponse;
+            let result: BasicResponse;
+            if (TAURI) {
+                const { invoke } = await import('@tauri-apps/api/core');
+                result = await invoke('store_auth_token', { 
+                    token, 
+                    expiresAt 
+                }) as BasicResponse;
+            } else {
+                // For non-Tauri environments, store in localStorage or similar
+                result = { success: false, error: 'Not running in Tauri environment' };
+            }
             
             if (result.success) {
                 console.log('🔐 Auth token stored successfully');
@@ -85,7 +91,11 @@ export async function handleAuthCallback(url?: string): Promise<boolean> {
  * Get stored authentication token
  */
 export async function getStoredToken(): Promise<string | null> {
+    if (!TAURI) {
+        return null;
+    }
     try {
+        const { invoke } = await import('@tauri-apps/api/core');
         const result = await invoke('get_auth_token') as AuthTokenResponse;
         if (result.success && result.token) {
             return result.token;
@@ -101,7 +111,11 @@ export async function getStoredToken(): Promise<string | null> {
  * Clear stored authentication token
  */
 export async function clearStoredToken(): Promise<boolean> {
+    if (!TAURI) {
+        return false;
+    }
     try {
+        const { invoke } = await import('@tauri-apps/api/core');
         const result = await invoke('clear_auth_token') as BasicResponse;
         return result.success;
     } catch (error) {
@@ -114,7 +128,11 @@ export async function clearStoredToken(): Promise<boolean> {
  * Check if user has valid stored authentication
  */
 export async function hasValidAuth(): Promise<boolean> {
+    if (!TAURI) {
+        return false;
+    }
     try {
+        const { invoke } = await import('@tauri-apps/api/core');
         const result = await invoke('get_auth_token') as AuthTokenResponse;
         if (!result.success || !result.token) {
             return false;
@@ -149,9 +167,15 @@ export async function hasValidAuth(): Promise<boolean> {
  * Should be called once when the app starts
  */
 export async function setupDeepLinkListener(): Promise<void> {
-    if (!browser) return;
+    if (!browser || !TAURI) {
+        console.log('🔗 Skipping deep link listener setup (not in Tauri environment)');
+        return;
+    }
     
     try {
+        // Dynamically import the deep-link plugin only when in Tauri
+        const { onOpenUrl } = await import('@tauri-apps/plugin-deep-link');
+        
         // Listen for deep link URLs
         const unlisten = await onOpenUrl((urls) => {
             console.log('🔗 Deep link received:', urls);
@@ -166,7 +190,7 @@ export async function setupDeepLinkListener(): Promise<void> {
         });
         
         console.log('🔗 Deep link listener set up successfully');
-        return unlisten;
+        // Store unlisten function if needed, but don't return it since function returns void
     } catch (error) {
         console.error('🔗 Error setting up deep link listener:', error);
     }

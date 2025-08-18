@@ -2,6 +2,7 @@
     import { page } from '$app/stores';
     import { onMount } from 'svelte';
     import { setupDeepLinkListener } from '$lib/authCallback';
+    import { TAURI } from '$lib/tauri';
 
     // Log page changes
     $: {
@@ -13,8 +14,10 @@
     onMount(async () => {
         console.log('Layout mounted, initial page:', $page.url.pathname);
         
-        // Set up deep link listener for authentication callbacks
-        await setupDeepLinkListener();
+        // Set up deep link listener for authentication callbacks (only in Tauri)
+        if (TAURI) {
+            await setupDeepLinkListener();
+        }
     });
 </script>
 
