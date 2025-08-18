@@ -5,7 +5,7 @@
     import BackButton from '../../components/BackButton.svelte';
     import { auth, logout } from '$lib/auth.svelte';
     import { invoke } from '@tauri-apps/api/core';
-    import { config } from '$lib/config';
+    import { http, handleApiError, TokenExpiredError } from '$lib/http';
 
     let userInfo: any = null;
     let isLoading = true;
@@ -13,25 +13,8 @@
     let successMessage = '';
     let showDeleteConfirm = false;
     let deleteConfirmText = '';
-    let isMobileApp = false;
 
     onMount(async () => {
-        // Detect if we're in a Tauri mobile app
-        try {
-            await invoke('get_auth_token');
-            isMobileApp = true;
-        } catch {
-            isMobileApp = false;
-        }
-
-        // Check authentication
-        auth.subscribe(value => {
-            if (!value.isAuthenticated) {
-                goto('/login');
-                return;
-            }
-        });
-
         await loadUserProfile();
     });
 
@@ -40,30 +23,7 @@
         errorMessage = '';
 
         try {
-            let token;
-            
-            if (isMobileApp) {
-                // Get token from mobile storage
-                const authData = await invoke('get_auth_token');
-                if (!authData.success) {
-                    throw new Error('No authentication token found');
-                }
-                token = authData.token;
-            } else {
-                // Get token from web storage
-                token = auth.token;
-            }
-
-            if (!token) {
-                throw new Error('No authentication token available');
-            }
-
-            const response = await fetch(`${config.backendUrl}/user/profile`, {
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                }
-            });
+            const response = await http.get('/user/profile');
 
             if (!response.ok) {
                 throw new Error(`Failed to load profile: ${response.status}`);
@@ -72,10 +32,11 @@
             userInfo = await response.json();
         } catch (error) {
             console.error('Error loading profile:', error);
-            errorMessage = error instanceof Error ? error.message : 'Failed to load profile';
+            errorMessage = handleApiError(error);
             
-            // If unauthorized, redirect to login
-            if (error.message.includes('401') || error.message.includes('authentication')) {
+            // TokenExpiredError is handled automatically by the http client
+            // which will call logout and redirect, but we can also check here
+            if (error instanceof TokenExpiredError) {
                 goto('/login');
             }
         } finally {
@@ -100,25 +61,7 @@
         }
 
         try {
-            let token;
-            
-            if (isMobileApp) {
-                const authData = await invoke('get_auth_token');
-                if (!authData.success) {
-                    throw new Error('No authentication token found');
-                }
-                token = authData.token;
-            } else {
-                token = auth.token;
-            }
-
-            const response = await fetch(`${config.backendUrl}/user/delete`, {
-                method: 'DELETE',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                }
-            });
+            const response = await http.delete('/user/delete');
 
             if (!response.ok) {
                 const errorData = await response.json();
@@ -135,7 +78,7 @@
 
         } catch (error) {
             console.error('Delete account error:', error);
-            errorMessage = error instanceof Error ? error.message : 'Failed to delete account';
+            errorMessage = handleApiError(error);
         }
     }
 

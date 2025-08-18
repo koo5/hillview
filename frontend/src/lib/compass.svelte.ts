@@ -240,7 +240,12 @@ export function stopCompass() {
     
     // Stop Tauri sensor if active
     if (tauriSensorListener) {
-        tauriSensorListener.unregister();
+        // Try to unregister listener (may fail if backend doesn't have remove_listener)
+        tauriSensorListener.unregister().catch((error: unknown) => {
+            // Ignore error if remove_listener command doesn't exist
+            // The listener will be cleaned up when the plugin is destroyed
+            console.debug('🧙 Could not unregister sensor listener (expected on Android):', error);
+        });
         tauriSensorListener = null;
         
         // Try to stop the sensor service

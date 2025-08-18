@@ -83,7 +83,13 @@ export async function startPreciseLocationUpdates(): Promise<void> {
 export async function stopPreciseLocationUpdates(): Promise<void> {
     if (locationListener) {
         console.log('📍 Stopping precise location listener');
-        await locationListener.unregister();
+        try {
+            await locationListener.unregister();
+        } catch (error) {
+            // Ignore error if remove_listener command doesn't exist
+            // The listener will be cleaned up when the plugin is destroyed
+            console.debug('📍 Could not unregister listener (expected on Android):', error);
+        }
         locationListener = null;
     }
 }

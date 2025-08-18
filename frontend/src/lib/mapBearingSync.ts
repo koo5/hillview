@@ -34,7 +34,7 @@ currentHeading.subscribe(compass => {
     
     // Negate the compass bearing for map view
     // When device rotates clockwise, map should rotate counter-clockwise
-    const targetBearing = (360 - compass.heading) % 360;
+    const targetBearing = (360 + compass.heading) % 360;
     
     // Apply smoothing
     let smoothedBearing: number;
