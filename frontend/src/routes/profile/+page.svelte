@@ -189,8 +189,10 @@
                 </div>
 
                 {#if showDeleteConfirm}
-                    <div class="delete-confirm-overlay" role="dialog" aria-modal="true" on:click={() => showDeleteConfirm = false} on:keydown={(e) => e.key === 'Escape' && (showDeleteConfirm = false)}>
-                        <div class="delete-confirm-modal" on:click|stopPropagation>
+                    <!-- svelte-ignore a11y-click-events-have-key-events -->
+                    <!-- svelte-ignore a11y-no-static-element-interactions -->
+                    <div class="delete-confirm-overlay" on:click={() => showDeleteConfirm = false} on:keydown={(e) => e.key === 'Escape' && (showDeleteConfirm = false)}>
+                        <div class="delete-confirm-modal" role="dialog" tabindex="-1" on:click|stopPropagation>
                             <h3><Trash2 size={24} /> Delete Account</h3>
                             <p class="warning">
                                 <strong>Warning:</strong> This action cannot be undone. 

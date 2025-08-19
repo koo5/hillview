@@ -175,7 +175,7 @@
             bearing: {$compassData.trueHeading?.toFixed(1) || 'N/A'}° | Accuracy:
             ±{$compassData.headingAccuracy?.toFixed(0) || 'N/A'}°
         </div>
-        {#if sensorType === 'tauri-rotation-vector' && $deviceOrientation}
+        {#if $deviceOrientation}
             <div style="font-size: 10px; opacity: 0.8">Device tilt -
                 Pitch: {$deviceOrientation.beta?.toFixed(1)}° |
                 Roll: {$deviceOrientation.gamma?.toFixed(1)}
@@ -228,41 +228,10 @@
         font-style: italic;
     }
 
-    .source-badge {
-        background: rgba(0, 255, 0, 0.2);
-        padding: 1px 4px;
-        border-radius: 2px;
-        font-size: 9px;
-        margin-left: 2px;
-        text-transform: uppercase;
-    }
 
-    .sensor-type {
-        display: inline-block;
-        padding: 2px 6px;
-        border-radius: 3px;
-        font-size: 10px;
-        margin-left: 4px;
-        font-weight: bold;
-    }
 
-    .sensor-type.tauri {
-        background: rgba(76, 175, 80, 0.3);
-        color: #81c784;
-        border: 1px solid #4caf50;
-    }
 
-    .sensor-type.web {
-        background: rgba(255, 152, 0, 0.3);
-        color: #ffb74d;
-        border: 1px solid #ff9800;
-    }
 
-    .sensor-type.none {
-        background: rgba(244, 67, 54, 0.3);
-        color: #ef5350;
-        border: 1px solid #f44336;
-    }
 
     .sensor-section {
         border-color: rgba(79, 195, 247, 0.5);
@@ -280,11 +249,6 @@
         padding: 2px 0;
     }
 
-    .photo-bearing {
-        border-color: #81c784;
-        background: rgba(129, 199, 132, 0.05);
-        padding: 2px 0;
-    }
 
     .sensor-mode-switcher {
         margin-top: 8px;

@@ -42,7 +42,6 @@ describe('CaptureQueueManager', () => {
       latitude: 50.0617 + Math.random() * 0.001,
       longitude: 14.5146 + Math.random() * 0.001,
       accuracy: 10,
-      source: 'gps' as const
     },
     timestamp: Date.now(),
     mode,

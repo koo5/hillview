@@ -9,7 +9,6 @@ export interface CaptureLocation {
     altitude?: number | null;
     accuracy: number;
     heading?: number | null;
-    source: 'gps' | 'map';
 }
 
 export interface CaptureQueueItem {
