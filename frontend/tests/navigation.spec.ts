@@ -80,7 +80,7 @@ test.describe('Map Navigation and Photo Turning', () => {
       error.includes('bearing is not defined') ||
       error.includes('updateBearing') ||
       error.includes('spatialState') ||
-      error.includes('visualState')
+      error.includes('bearingState')
     );
 
     expect(hasRotationErrors, `Found rotation errors: ${errors.join(', ')}`).toBe(false);
@@ -120,7 +120,7 @@ test.describe('Map Navigation and Photo Turning', () => {
       error.includes('turn_to_photo_to') ||
       error.includes('photosInArea') ||
       error.includes('spatialState') ||
-      error.includes('visualState')
+      error.includes('bearingState')
     );
 
     expect(hasNavigationErrors, `Found navigation errors: ${errors.join(', ')}`).toBe(false);
@@ -255,7 +255,7 @@ test.describe('Map Navigation and Photo Turning', () => {
       error.includes('bearing is not defined') ||
       error.includes('debugOverlay') ||
       error.includes('spatialState') ||
-      error.includes('visualState')
+      error.includes('bearingState')
     );
 
     expect(hasDebugErrors, `Found debug-related errors: ${errors.join(', ')}`).toBe(false);

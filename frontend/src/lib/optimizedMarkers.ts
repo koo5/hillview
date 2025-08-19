@@ -1,7 +1,7 @@
 import L from 'leaflet';
 import { arrowAtlas } from './markerAtlas';
 import type { PhotoData } from './types/photoTypes';
-import { photoInFront, visualState } from './mapState';
+import { photoInFront, bearingState } from './mapState';
 import { get } from 'svelte/store';
 
 export interface OptimizedMarkerOptions {

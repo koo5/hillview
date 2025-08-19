@@ -58,7 +58,7 @@ class PhotoWorker {
 ```typescript
 // Frontend derives navigation from bearing-sorted array
 const bearingSortedPhotos = photosInArea; // Already sorted by worker via sortByBearing()
-const currentBearing = visualState.bearing;
+const currentBearing = bearingState.bearing;
 
 // Find the photo closest to current bearing
 const photoInFrontIndex = findClosestPhotoIndex(bearingSortedPhotos, currentBearing);
@@ -116,7 +116,7 @@ Spatial State → Worker Filtering → Marker Creation → DOM Updates
 sources → worker loads JSON → worker filters → photosInArea → markers
 
 // Visual state for immediate updates  
-visualState → bearing → photo navigation lookups (no worker needed)
+bearingState → bearing → photo navigation lookups (no worker needed)
 ```
 
 #### Store Dependencies
@@ -129,7 +129,7 @@ sources (configuration changes)
                 └── visiblePhotos computed
                     └── map markers updated
 
-visualState (bearing)
+bearingState (bearing)
 └── immediate marker color updates
 └── photo navigation calculations (lookup into sorted array)
     └── photoInFront, photosToLeft, photosToRight derived

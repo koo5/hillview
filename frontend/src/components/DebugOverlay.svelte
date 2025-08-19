@@ -1,6 +1,6 @@
 <script lang="ts">
     import {onMount} from 'svelte';
-    import {photoInFront, photosInRange, photoToLeft, photoToRight, spatialState, visualState, visiblePhotos} from '$lib/mapState';
+    import {photoInFront, photosInRange, photoToLeft, photoToRight, spatialState, bearingState, visiblePhotos} from '$lib/mapState';
     import {app, mapillary_cache_status, sources, sourceLoadingStatus, toggleDebug, closeDebug} from '$lib/data.svelte';
     import {MAX_DEBUG_MODES} from '$lib/config';
     import {captureQueue, type QueueStats} from '$lib/captureQueue';
@@ -208,7 +208,7 @@
 
                 <div class="debug">
                     <b>Debug Information</b><br>
-                    <b>Bearing:</b>  {$visualState.bearing}<br>
+                    <b>Bearing:</b>  {$bearingState.bearing}<br>
                     <b>Pos.center:</b> {$spatialState.center}<br>
                     <b>Left:</b>  {$photoToLeft?.file}<br>
                     <b>Front:</b> {$photoInFront?.file}<br>

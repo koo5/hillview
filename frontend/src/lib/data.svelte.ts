@@ -5,7 +5,7 @@ import {MAX_DEBUG_MODES} from './constants';
 import {auth} from './auth.svelte';
 import {userPhotos} from './stores';
 // Import new mapState for legacy compatibility only
-import {photoInFront, photoToLeft, photoToRight, updateBearing as mapStateUpdateBearing, visualState} from './mapState';
+import {photoInFront, photoToLeft, photoToRight, updateBearing as mapStateUpdateBearing, bearingState} from './mapState';
 
 // Device source subtypes
 export type subtype = 'hillview' | 'folder' | 'gallery';
@@ -199,7 +199,7 @@ export async function turn_to_photo_to(dir: string) {
 }
 
 export function update_bearing(diff: number) {
-    const current = get(visualState);
+    const current = get(bearingState);
     const newBearing = (current.bearing + diff + 360) % 360;
     mapStateUpdateBearing(newBearing);
 }

@@ -7,13 +7,11 @@ import {
 } from './svelte-shared-store';
 import type { PhotoData } from './types/photoTypes';
 
-// Bounds interface
 export interface Bounds {
   top_left: LatLng;
   bottom_right: LatLng;
 }
 
-// Separate spatial state (triggers worker updates)
 export interface SpatialState {
   center: LatLng;
   zoom: number;
@@ -21,17 +19,12 @@ export interface SpatialState {
   range: number;
 }
 
-// Visual state (main thread only updates)
-export interface VisualState {
+export interface BearingState {
   bearing: number;
 }
 
 // Bearing mode for controlling automatic bearing source
 export type BearingMode = 'car' | 'walking';
-
-export interface BearingState {
-  mode: BearingMode;
-}
 
 // Spatial state - triggers photo filtering in worker
 export const spatialState = localStorageReadOnceSharedStore<SpatialState>('spatialState', {
@@ -42,14 +35,12 @@ export const spatialState = localStorageReadOnceSharedStore<SpatialState>('spati
 });
 
 // Visual state - only affects rendering, optimized with debounced writes
-export const visualState = staggeredLocalStorageSharedStore<VisualState>('visualState', {
+export const bearingState = staggeredLocalStorageSharedStore<BearingState>('bearingState', {
   bearing: 230
 }, 500);
 
 // Bearing mode state - controls automatic bearing source (car = GPS, walking = compass)
-export const bearingState = localStorageSharedStore<BearingState>('bearingState', {
-  mode: 'walking'
-});
+export const bearingMode = localStorageSharedStore<BearingMode>('bearingMode', 'walking');
 
 // Photos filtered by spatial criteria (from worker)
 export const photosInArea = writable<PhotoData[]>([]);
@@ -61,13 +52,13 @@ photosInRange.subscribe(photos => {
     console.log(`Spatial: photosInRange updated with ${photos.length} photos`);
 });
 
-visualState.subscribe(visual => {
-    console.log(`Visual: bearing updated to ${visual.bearing}`);
+bearingState.subscribe(v => {
+    console.log(`bearingState updated to ${JSON.stringify(v)}`);
 });
 
 // Navigation photos (front, left, right) - derived from bearing-sorted photosInRange (within spatialState.range)
 export const photoInFront = derived(
-  [photosInRange, visualState],
+  [photosInRange, bearingState],
   ([photos, visual]) => {
     if (photos.length === 0) {
       console.log('Navigation: No photos available for photoInFront');
@@ -93,7 +84,7 @@ export const photoInFront = derived(
 );
 
 export const photoToLeft = derived(
-  [photosInRange, visualState],
+  [photosInRange, bearingState],
   ([photos, visual]) => {
     if (photos.length === 0) return null;
     
@@ -121,7 +112,7 @@ export const photoToLeft = derived(
 );
 
 export const photoToRight = derived(
-  [photosInRange, visualState],
+  [photosInRange, bearingState],
   ([photos, visual]) => {
     if (photos.length === 0) return null;
     
@@ -150,7 +141,7 @@ export const photoToRight = derived(
 
 // Combined photos for rendering (includes placeholders)
 export const visiblePhotos = derived(
-  [photosInArea, visualState],
+  [photosInArea, bearingState],
   ([photos, visual]) => {
     // Only add bearing diff colors - no spatial filtering
     return photos.map(photo => ({
@@ -178,21 +169,13 @@ export function updateSpatialState(updates: Partial<SpatialState>) {
 }
 
 export function updateBearing(bearing: number) {
-  visualState.update(state => ({ ...state, bearing }));
+  bearingState.update(state => ({ ...state, bearing }));
 }
 
-export function updateBearingDiff(diff: number) {
-  const current = get(visualState);
+export function updateBearingByDiff(diff: number) {
+  const current = get(bearingState);
   const newBearing = (current.bearing + diff + 360) % 360;
   updateBearing(newBearing);
-}
-
-export function updateBearingState(updates: Partial<BearingState>) {
-  bearingState.update(state => ({ ...state, ...updates }));
-}
-
-export function setBearingMode(mode: BearingMode) {
-  updateBearingState({ mode });
 }
 
 // Calculate range from map center and bounds
@@ -216,10 +199,3 @@ export function updateBounds(bounds: Bounds) {
     range
   });
 }
-
-// Legacy compatibility exports (for gradual migration)
-export { spatialState as pos };
-export { spatialState as pos2 };
-export { visualState as bearing };
-export { updateSpatialState as update_pos };
-export { updateSpatialState as update_pos2 };

@@ -189,7 +189,7 @@
                 </div>
 
                 {#if showDeleteConfirm}
-                    <div class="delete-confirm-overlay" on:click={() => showDeleteConfirm = false}>
+                    <div class="delete-confirm-overlay" role="dialog" aria-modal="true" on:click={() => showDeleteConfirm = false} on:keydown={(e) => e.key === 'Escape' && (showDeleteConfirm = false)}>
                         <div class="delete-confirm-modal" on:click|stopPropagation>
                             <h3><Trash2 size={24} /> Delete Account</h3>
                             <p class="warning">

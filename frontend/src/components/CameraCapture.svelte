@@ -5,23 +5,28 @@
     import {app} from "$lib/data.svelte";
     import DualCaptureButton from './DualCaptureButton.svelte';
     import CaptureQueueStatus from './CaptureQueueStatus.svelte';
-    import {captureQueue, type CaptureLocation} from '$lib/captureQueue';
+    import {captureQueue } from '$lib/captureQueue';
     import {injectPlaceholder, removePlaceholder} from '$lib/placeholderInjector';
     import {generateTempId, type PlaceholderLocation} from '$lib/utils/placeholderUtils';
+    import {bearingState, spatialState} from '$lib/mapState';
 
     const dispatch = createEventDispatcher();
 
     export let show = false;
-    export let locationData: {
+
+
+	// TODO - add location data
+	let locationData: {
         latitude?: number;
         longitude?: number;
         altitude?: number | null;
         accuracy?: number;
         heading?: number | null;
-        source?: 'gps' | 'map';
     } | null = null;
-    export let locationError: string | null = null;
-    export let locationReady = false;
+    // TODO
+	let locationError: string | null = null;
+	// TODO
+    let locationReady = false;
 
     let video: HTMLVideoElement;
     let canvas: HTMLCanvasElement;
@@ -217,14 +222,12 @@
         const tempId = generateTempId();
 
         // Inject placeholder for immediate display
-        // We've already checked that locationData has required fields
-        const validLocation: CaptureLocation = {
+        const validLocation: PlaceholderLocation = {
             latitude: locationData.latitude!,
             longitude: locationData.longitude!,
             altitude: locationData.altitude,
             accuracy: locationData.accuracy || 1,
             heading: locationData.heading,
-            source: locationData.source || 'gps'
         };
         injectPlaceholder(validLocation, tempId);
 
@@ -350,6 +353,19 @@
         retryCount = 0;
     }
 
+    // Subscribe to bearingState and spatialState to update locationData
+    $: if ($bearingState && $spatialState) {
+        locationData = {
+            latitude: $spatialState.center.lat,
+            longitude: $spatialState.center.lng,
+            altitude: null,
+            accuracy: undefined,
+            heading: $bearingState.bearing,
+        };
+        locationReady = true;
+        locationError = null;
+    }
+
     onMount(() => {
         document.addEventListener('visibilitychange', handleVisibilityChange);
     });
@@ -411,9 +427,6 @@
                                                         <div class="location-row">
                                                             <span class="icon">📍</span>
                                                             <span>{locationData.latitude?.toFixed(6)}°, {locationData.longitude?.toFixed(6)}°</span>
-                                                            {#if locationData.source}
-                                                                <span class="source-badge">{locationData.source === 'gps' ? 'GPS' : 'Map'}</span>
-                                                            {/if}
                                                         </div>
                                                         {#if locationData.heading !== null && locationData.heading !== undefined}
                                                             <div class="location-row">
@@ -637,16 +650,6 @@
         font-size: 1rem;
         width: 1.2rem;
         text-align: center;
-    }
-
-    .source-badge {
-        background: rgba(255, 255, 255, 0.2);
-        padding: 0.1rem 0.4rem;
-        border-radius: 4px;
-        font-size: 0.7rem;
-        margin-left: 0.5rem;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
     }
 
     .spinner {

@@ -1,9 +1,8 @@
 import { writable, derived, get } from 'svelte/store';
-import { gpsCoordinates } from './location.svelte';
-import type { UnlistenFn } from '@tauri-apps/api/event';
 import { TAURI, TAURI_MOBILE, tauriSensor, isSensorAvailable, type SensorData, SensorMode } from './tauri';
 import {PluginListener} from "@tauri-apps/api/core";
 import { startPreciseLocationUpdates, stopPreciseLocationUpdates } from './preciseLocation';
+import {bearingMode, bearingState, updateBearing} from "$lib/mapState";
 
 export interface CompassData {
     magneticHeading: number | null;  // 0-360 degrees from magnetic north
@@ -20,7 +19,7 @@ export interface DeviceOrientation {
     absolute: boolean;
 }
 
-// Initialize stores
+// compassData - feeds into currentCompassHeading
 export const compassData = writable<CompassData>({
     magneticHeading: null,
     trueHeading: null,
@@ -29,6 +28,7 @@ export const compassData = writable<CompassData>({
     source: 'unknown'
 });
 
+// deviceOrientation - just for debugging
 export const deviceOrientation = writable<DeviceOrientation>({
     alpha: null,
     beta: null,
@@ -36,8 +36,8 @@ export const deviceOrientation = writable<DeviceOrientation>({
     absolute: false
 });
 
-// Derived store for current heading with source information
-export const currentHeading = derived(
+// Derived store for current heading with source information, feeds into bearingState
+export const currentCompassHeading = derived(
     [compassData],
     ([$compassData]) => {
         if ($compassData && $compassData.trueHeading !== null) {
@@ -136,8 +136,7 @@ async function startTauriSensor(mode: SensorMode = SensorMode.UPRIGHT_ROTATION_V
             
             compassData.set(compassUpdate);
 
-            // Log every ~10th update
-            if (Math.random() < 0.1) {
+            if (false) {
                 const modeStr = get(currentSensorMode);
                 console.log(`🔍🧭 Compass update from ${data.source || 'Unknown'} (Mode: ${SensorMode[modeStr]}):`, JSON.stringify({
                     'compass bearing (magnetic)': compassUpdate.magneticHeading?.toFixed(1) + '°',
@@ -201,12 +200,12 @@ async function startWebCompass(): Promise<boolean> {
             lastSensorUpdate.set(Date.now());
             
             // Log occasional updates
-            if (Math.random() < 0.1) {
+            if (false) {
                 console.log('🌐 Web Compass update:', JSON.stringify({
                     source: event.source || 'deviceorientation',
                     magneticHeading: data.magneticHeading?.toFixed(1) + '°',
                     trueHeading: data.trueHeading?.toFixed(1) + '°',
-                    accuracy: data.headingAccuracy ? '±' + data.headingAccuracy.toFixed(1) + '°' : 'unknown',
+                    accuracy: data.headingAccuracy ? '±' + data.headingAccuracy?.toFixed(1) + '°' : 'unknown',
                     alpha: event.alpha?.toFixed(1) + '°',
                     beta: event.beta?.toFixed(1) + '°',
                     gamma: event.gamma?.toFixed(1) + '°',
@@ -417,3 +416,56 @@ export async function switchSensorMode(mode: SensorMode) {
     
     return success;
 }
+
+let lastBearing: number | null = null;
+const SMOOTHING_FACTOR = 0.9; // 0 = no smoothing, 1 = no change
+
+// Helper function to calculate shortest angular distance
+function angleDifference(a: number, b: number): number {
+    const diff = ((a - b + 180) % 360) - 180;
+    return diff < -180 ? diff + 360 : diff;
+}
+
+// Helper function to interpolate between angles
+function lerpAngle(current: number, target: number, factor: number): number {
+    const diff = angleDifference(target, current);
+    const result = current + diff * (1 - factor);
+    return (result + 360) % 360;
+}
+
+// Subscribe to compass heading changes
+currentCompassHeading.subscribe(compass => {
+	if (get(bearingMode) !== 'walking') return;
+    if (!compass || compass.heading === null || !get(compassActive)) return;
+	if (isNaN(compass.heading)) return;
+
+    // Negate the compass bearing for map view
+    // When device rotates clockwise, map should rotate counter-clockwise
+    const targetBearing = (360 + compass.heading) % 360;
+
+    // Apply smoothing
+    let smoothedBearing: number;
+    if (lastBearing === null) {
+        // First update, no smoothing
+        smoothedBearing = targetBearing;
+    } else {
+        // Smooth the bearing change
+        smoothedBearing = lerpAngle(lastBearing, targetBearing, SMOOTHING_FACTOR);
+    }
+
+    lastBearing = smoothedBearing;
+
+    // Update map bearing
+	const currentBearing = get(bearingState).bearing;
+	if (isNaN(currentBearing) || currentBearing === null || (Math.abs(smoothedBearing - currentBearing) > 1)) {
+		updateBearing(smoothedBearing);
+	}
+});
+
+// Reset smoothing when tracking stops
+compassActive.subscribe(tracking => {
+    if (!tracking) {
+        lastBearing = null;
+    }
+});
+

@@ -6,7 +6,7 @@
     import {sources, toggleDebug} from "$lib/data.svelte";
     import {dms} from "$lib/utils";
     import {app, turn_to_photo_to, update_bearing} from "$lib/data.svelte";
-    import {spatialState, visualState, updateSpatialState} from "$lib/mapState";
+    import {spatialState, bearingState, updateSpatialState} from "$lib/mapState";
     import {LatLng} from 'leaflet';
     import { goto, replaceState } from "$app/navigation";
     import {get, writable} from "svelte/store";
@@ -15,12 +15,8 @@
     import DebugOverlay from '../components/DebugOverlay.svelte';
     import { FEATURE_USER_ACCOUNTS } from '$lib/config';
     import { gpsLocation } from '$lib/location.svelte';
-    import { photoCaptureService } from '$lib/photoCapture';
     import type { DevicePhotoMetadata } from '$lib/types/photoTypes';
-    import { devicePhotos } from '$lib/stores';
-    import { captureLocation, captureLocationWithCompassBearing } from '$lib/captureLocation';
-    import { compassActive, stopCompass, startCompass } from '$lib/compass.svelte';
-    import '$lib/captureLocationManager'; // Activate capture location management
+    import { stopCompass, startCompass } from '$lib/compass.svelte';
     import '$lib/mapBearingSync'; // Sync map bearing with sensors
     import '$lib/debugTauri';
 
@@ -95,7 +91,7 @@
         replaceState2(url.toString());
     });
 
-    visualState.subscribe(visual => {
+    bearingState.subscribe(visual => {
         const b = visual.bearing;
         if (!update_url) {
             return;
@@ -205,30 +201,6 @@
         };
     }
 
-    function updateDevicePhotos(callback: (photos: DevicePhotoMetadata[]) => DevicePhotoMetadata[]) {
-        devicePhotos.update(callback);
-    }
-
-    let currentPlaceholderId: string | null = null;
-
-    function addPlaceholder() {
-        const captureLoc = $captureLocationWithCompassBearing;
-        if (!captureLoc) {
-            console.log('🔍❌ addPlaceholder: No capture location available');
-            return;
-        }
-
-        currentPlaceholderId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        const timestamp = Date.now();
-        const placeholderPhoto = createPlaceholderPhoto(captureLoc, currentPlaceholderId, timestamp);
-
-        console.log('🔍📍 Adding placeholder photo:', placeholderPhoto.id, 'at location:', captureLoc);
-        updateDevicePhotos(photos => {
-            const updated = [...photos, placeholderPhoto];
-            console.log('🔍📊 Device photos updated with placeholder, total count:', updated.length);
-            return updated;
-        });
-    }
 
     function toggleCamera() {
         const newActivity = get(app).activity === 'capture' ? 'view' : 'capture';
@@ -412,16 +384,6 @@
             <CameraCapture 
                 show={true}
                 on:close={() => app.update(a => ({...a, activity: 'view'}))}
-                locationData={$captureLocationWithCompassBearing ? {
-                    latitude: $captureLocationWithCompassBearing.latitude,
-                    longitude: $captureLocationWithCompassBearing.longitude,
-                    altitude: $captureLocationWithCompassBearing.altitude,
-                    accuracy: $captureLocationWithCompassBearing.accuracy,
-                    heading: $captureLocationWithCompassBearing.heading,
-                    source: $captureLocationWithCompassBearing.source
-                } : null}
-                locationError={null}
-                locationReady={!!$captureLocationWithCompassBearing}
             />
         {:else}
             <PhotoGallery/>

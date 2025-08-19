@@ -1,19 +1,19 @@
 <script lang="ts">
     import {getBuildInfo} from '$lib/build-info';
     import {onMount} from 'svelte';
-    import {spatialState, visualState} from '$lib/mapState';
+    import {spatialState, bearingState} from '$lib/mapState';
     import {gpsCoordinates, locationError, locationTracking} from '$lib/location.svelte';
-    import {captureLocation, captureLocationWithCompassBearing} from '$lib/captureLocation';
+
     import {
         compassAvailable,
         compassData,
-        currentHeading,
+        currentCompassHeading,
         currentSensorMode,
         deviceOrientation,
         switchSensorMode
     } from '$lib/compass.svelte';
     import {invoke} from '@tauri-apps/api/core';
-    import {SensorMode, TAURI} from '$lib/tauri';
+    import {SensorMode, TAURI_MOBILE} from '$lib/tauri';
     import {backendUrl} from "$lib/config";
 
     // Build and time info
@@ -29,26 +29,8 @@
 
     // Sensor detection
     let sensorType: 'tauri-rotation-vector' | 'device-orientation' | 'none' = 'none';
-    let actualSensorSource: string | null = null;
-    let isTauriAndroid = false;
 
     onMount(() => {
-        // Detect sensor type
-        isTauriAndroid = TAURI && /Android/i.test(navigator.userAgent);
-
-        // Subscribe to compass data to detect which sensor is active
-        const unsubscribe = compassData.subscribe(data => {
-            if (data && isTauriAndroid) {
-                sensorType = 'tauri-rotation-vector';
-                actualSensorSource = data.source || null;
-            } else if (data && !isTauriAndroid) {
-                sensorType = 'device-orientation';
-                actualSensorSource = null;
-            } else if (!$compassAvailable) {
-                sensorType = 'none';
-                actualSensorSource = null;
-            }
-        });
 
         // Update time every second
         const interval = setInterval(() => {
@@ -79,7 +61,6 @@
 
         return () => {
             clearInterval(interval);
-            unsubscribe();
         };
     });
 
@@ -134,7 +115,7 @@
 <div class="debug-section">
     <div><strong>Map View:</strong></div>
     <div>Center: {$spatialState.center.lat?.toFixed(4)}, {$spatialState.center.lng?.toFixed(4)}</div>
-    <div>Zoom: {$spatialState.zoom?.toFixed(1)} | Bearing: {$visualState.bearing?.toFixed(0)}°</div>
+    <div>Zoom: {$spatialState.zoom?.toFixed(1)} | Bearing: {$bearingState.bearing?.toFixed(0)}°</div>
 </div>
 
 {#if $gpsCoordinates}
@@ -166,27 +147,10 @@
     </div>
 {/if}
 
-{#if $captureLocation}
-    <div class="debug-section">
-        <div><strong>Capture Location (Source: <span
-                class="source-badge">{$captureLocation.source}</span>):</strong>
-        </div>
-        <div>Position: {$captureLocation.latitude?.toFixed(4)}
-            , {$captureLocation.longitude?.toFixed(4)}</div>
-        <div>Raw Heading: {$captureLocation?.heading?.toFixed(1) || 'None'}° | Accuracy:
-            ±{$captureLocation?.accuracy?.toFixed(0)}m
-            {#if $captureLocation.altitude !== undefined}
-                | Alt: {$captureLocation?.altitude?.toFixed(0)}m
-            {/if}
-        </div>
-        <div style="font-size: 9px; opacity: 0.7">
-            Updated: {new Date($captureLocation.timestamp || 0).toLocaleTimeString()}</div>
-    </div>
-{/if}
 
 <div class="debug-section sensor-section">
 
-    {#if isTauriAndroid && $compassAvailable}
+    {#if TAURI_MOBILE && $compassAvailable}
         <div class="sensor-mode-switcher">
             <div><strong>Sensor Mode:</strong></div>
             <select
@@ -204,18 +168,6 @@
         </div>
     {/if}
 
-    <div><strong>🧭 Sensor API:</strong>
-        {actualSensorSource} - {sensorType}
-        {#if actualSensorSource}
-            <span class="sensor-type tauri">{actualSensorSource}</span>
-        {:else if sensorType === 'tauri-rotation-vector'}
-            <span class="sensor-type tauri">Android Sensor (waiting...)</span>
-        {:else if sensorType === 'device-orientation'}
-            <span class="sensor-type web">Web DeviceOrientation API</span>
-        {:else}
-            <span class="sensor-type none">Not Available</span>
-        {/if}
-    </div>
     {#if $compassData}
         <div><strong>Compass Bearing:</strong> {$compassData.magneticHeading?.toFixed(1) || 'N/A'}°
         </div>
@@ -238,31 +190,15 @@
 
 </div>
 
-{#if $currentHeading.heading !== null}
+{#if $currentCompassHeading.heading !== null}
     <div class="debug-section compass-bearing">
         <div><strong>🎯 Compass Bearing:</strong></div>
-        <div>Heading: <span class="highlight">{$currentHeading.heading?.toFixed(1)}°</span></div>
-        <div>Source: {$currentHeading.source}</div>
-        <div>Accuracy: {$currentHeading.accuracy?.toFixed(0) || 'N/A'}°</div>
+        <div>Heading: <span class="highlight">{$currentCompassHeading.heading?.toFixed(1)}°</span></div>
+        <div>Source: {$currentCompassHeading.source}</div>
+        <div>Accuracy: {$currentCompassHeading.accuracy?.toFixed(0) || 'N/A'}°</div>
     </div>
 {/if}
 
-{#if $captureLocationWithCompassBearing}
-    <div class="debug-section photo-bearing">
-        <div><strong>📸 Photo Capture Data (Final):</strong></div>
-        <div>Bearing to be saved: <span
-                class="highlight">{$captureLocationWithCompassBearing.heading?.toFixed(1) || 'None'}
-            °</span>
-        </div>
-        {#if $captureLocationWithCompassBearing.headingSource}
-            <div>Data source: Compass</div>
-            <div>Accuracy: {$captureLocationWithCompassBearing.headingAccuracy?.toFixed(0) || 'N/A'}°
-            </div>
-        {:else}
-            <div>Using raw {$captureLocationWithCompassBearing.source} heading</div>
-        {/if}
-    </div>
-{/if}
 
 <style>
     .compact-row {

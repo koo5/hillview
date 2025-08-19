@@ -179,13 +179,13 @@ test.describe('Runtime Error Detection', () => {
       ...errors.filter(error => 
         error.includes('pos is not defined') ||
         error.includes('spatialState') ||
-        error.includes('visualState') ||
+        error.includes('bearingState') ||
         error.includes('mapState')
       ),
       ...uncaughtExceptions.filter(error => 
         error.includes('pos is not defined') ||
         error.includes('spatialState') ||
-        error.includes('visualState') ||
+        error.includes('bearingState') ||
         error.includes('mapState')
       )
     ];

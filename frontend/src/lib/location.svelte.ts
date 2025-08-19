@@ -1,7 +1,5 @@
 import {writable, derived, get} from 'svelte/store';
 import type { GeolocationPosition } from '$lib/geolocation';
-import { updateCaptureLocationFromGps } from './captureLocation';
-import { startCompass, stopCompass } from './compass.svelte';
 
 // Store for current GPS location from device
 export const gpsLocation = writable<GeolocationPosition | null>(null);

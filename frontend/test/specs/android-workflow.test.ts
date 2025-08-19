@@ -164,21 +164,48 @@ describe('Android Complete Workflow', () => {
                 // === STEP 4: RETURN TO APP ===
                 console.log('📝 Step 4: Return to main app');
                 
+                // First try clicking camera button again to return
+                try {
+                    const returnCameraButton = await $('android=new UiSelector().text("Take photo")');
+                    if (await returnCameraButton.isDisplayed()) {
+                        await returnCameraButton.click();
+                        console.log('✅ Clicked camera button to return');
+                        await driver.pause(3000);
+                    }
+                } catch (e) {
+                    console.log('⚠️ Camera button not available for return');
+                }
+                
+                // Multiple back button attempts to get to main interface
                 let backAttempts = 0;
-                while (backAttempts < 3) {
+                let foundMainInterface = false;
+                while (backAttempts < 5 && !foundMainInterface) {
                     backAttempts++;
+                    console.log(`🔄 Return attempt ${backAttempts}/5...`);
+                    
                     await driver.back();
-                    await driver.pause(3000);
+                    await driver.pause(2000);
                     
                     try {
                         const hamburgerCheck = await $('android=new UiSelector().text("Toggle menu")');
                         if (await hamburgerCheck.isDisplayed()) {
                             console.log('✅ Successfully returned to main app');
+                            foundMainInterface = true;
                             break;
                         }
                     } catch (e) {
-                        console.log(`🔄 Return attempt ${backAttempts}...`);
+                        // Try alternative method - reactivate app if stuck
+                        if (backAttempts === 3) {
+                            console.log('🏠 Trying to reactivate app...');
+                            await driver.activateApp('io.github.koo5.hillview.dev');
+                            await driver.pause(3000);
+                        }
                     }
+                }
+                
+                if (!foundMainInterface) {
+                    console.log('⚠️ Could not return to main interface, taking screenshot for debugging');
+                    await driver.saveScreenshot('./test-results/workflow-stuck-after-camera.png');
                 }
                 
                 await driver.saveScreenshot('./test-results/workflow-05-back-to-app.png');
@@ -186,20 +213,9 @@ describe('Android Complete Workflow', () => {
                 // === STEP 5: VERIFY UPLOAD PIPELINE ===
                 console.log('📝 Step 5: Verify photo upload pipeline');
                 
-                // Wait for potential upload processing (3 minutes for full processing)
-                console.log('⏳ Waiting for photo upload processing (3 minutes)...');
-                
-                // Wait in chunks with progress updates
-                for (let i = 0; i < 18; i++) {
-                    await driver.pause(10000); // 10 seconds per chunk
-                    const elapsed = (i + 1) * 10;
-                    console.log(`⏳ Upload processing: ${elapsed}/180 seconds elapsed...`);
-                    
-                    // Take periodic screenshots to monitor any UI changes
-                    if (i % 6 === 5) { // Every minute
-                        await driver.saveScreenshot(`./test-results/workflow-processing-${elapsed}s.png`);
-                    }
-                }
+                // Wait for initial upload processing (30 seconds)
+                console.log('⏳ Waiting for photo upload processing (30 seconds)...');
+                await driver.pause(30000);
                 
                 // Check gallery for uploaded photos
                 try {

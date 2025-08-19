@@ -10,24 +10,21 @@
 
     import {
         spatialState,
-        visualState,
+        bearingState,
         visiblePhotos,
-        photoInFront,
         photoToLeft,
         photoToRight,
         updateSpatialState,
         updateBearing,
-        updateBearingDiff,
-        updateBounds,
-        bearingState,
-        setBearingMode,
-        type BearingMode
+        updateBearingByDiff,
+        type BearingMode,
+        bearingMode
     } from "$lib/mapState";
     import { sources } from "$lib/data.svelte";
     import { simplePhotoWorker } from '$lib/simplePhotoWorker';
     import { turn_to_photo_to, app, mapillary_cache_status, sourceLoadingStatus } from "$lib/data.svelte";
     import { updateGpsLocation, setLocationTracking, setLocationError, gpsLocation } from "$lib/location.svelte";
-    import { compassActive, compassAvailable, startCompass, stopCompass, currentHeading } from "$lib/compass.svelte";
+    import { compassActive, compassAvailable, startCompass, stopCompass, currentCompassHeading } from "$lib/compass.svelte";
     import { optimizedMarkerSystem } from '$lib/optimizedMarkers';
     import '$lib/styles/optimizedMarkers.css';
 
@@ -67,16 +64,7 @@
     
     // Subscribe to compass tracking state
     $: compassTrackingEnabled = $compassActive;
-    
-    // Update bearing from compass when tracking is enabled AND in walking mode
-    $: if (compassTrackingEnabled && $bearingState.mode === 'walking' && $currentHeading) {
-        const newBearing = $currentHeading.heading;
-        if (newBearing !== null && !isNaN(newBearing) && Math.abs(newBearing - $visualState.bearing) > 1) {
-            console.log("Compass bearing update (walking mode):", newBearing);
-            updateBearing(newBearing);
-        }
-    }
-    
+
     // Debug bounds rectangle
     let boundsRectangle: any = null;
     let userHeading: number | null = null;
@@ -127,7 +115,7 @@
         if (!currentMarkers || currentMarkers.length === 0) return;
         
         // Efficiently update only the bearing colors
-        optimizedMarkerSystem.updateMarkerColors(currentMarkers, $visualState.bearing);
+        optimizedMarkerSystem.updateMarkerColors(currentMarkers, $bearingState.bearing);
     }
 
     // Calculate how many km are "visible" based on the current zoom/center
@@ -282,9 +270,9 @@
         } else if (action === 'right') {
             await turn_to_photo_to('right');
         } else if (action === 'rotate-ccw') {
-            updateBearingDiff(-15);
+            updateBearingByDiff(-15);
         } else if (action === 'rotate-cw') {
-            updateBearingDiff(15);
+            updateBearingByDiff(15);
         } else if (action === 'forward') {
             moveForward();
         } else if (action === 'backward') {
@@ -370,7 +358,7 @@
         // Ensure we have the latest map state
         if (!map) return;
         
-        const currentBearing = get(visualState).bearing;
+        const currentBearing = get(bearingState).bearing;
         const _center = map.getCenter();
         
         // Use the same approach as get_range function
@@ -463,10 +451,10 @@
     }
     
     function toggleBearingMode() {
-        const currentMode = $bearingState.mode;
+        const currentMode = $bearingMode;
         const newMode: BearingMode = currentMode === 'car' ? 'walking' : 'car';
         console.log(`🚗🚶 Switching bearing mode: ${currentMode} → ${newMode}`);
-        setBearingMode(newMode);
+        bearingMode.set(newMode);
     }
     
     // Start tracking user location
@@ -589,7 +577,7 @@
         const { heading } = position.coords;
         
         // Only update bearing if compass tracking is enabled AND in car mode
-        if (compassTrackingEnabled && $bearingState.mode === 'car' && heading !== null && heading !== undefined) {
+        if (compassTrackingEnabled && $bearingMode === 'car' && heading !== null && heading !== undefined) {
             userHeading = heading;
             console.log("handleGpsBearingUpdate: GPS heading", heading);
             updateBearing(heading);
@@ -876,7 +864,7 @@
     let arrowX;
     let arrowY;
 
-    $: arrow_radians = ($visualState.bearing - 90) * Math.PI / 180; // shift so 0° points "up"
+    $: arrow_radians = ($bearingState.bearing - 90) * Math.PI / 180; // shift so 0° points "up"
     $: arrowX = centerX + Math.cos(arrow_radians) * arrowLength;
     $: arrowY = centerY + Math.sin(arrow_radians) * arrowLength;
 
@@ -892,8 +880,8 @@
     }
     
     // Ultra-fast bearing color updates (no worker communication)
-    $: if ($visualState && currentMarkers && currentMarkers.length > 0) {
-        optimizedMarkerSystem.scheduleColorUpdate($visualState.bearing);
+    $: if ($bearingState && currentMarkers && currentMarkers.length > 0) {
+        optimizedMarkerSystem.scheduleColorUpdate($bearingState.bearing);
     }
 
 </script>
@@ -1132,17 +1120,17 @@
     <button 
         class={compassTrackingEnabled ? 'active' : ''}
         on:click={(e) => handleButtonClick('compass', e)}
-        title="Auto bearing updates ({$bearingState.mode === 'car' ? 'GPS' : 'compass'} mode)"
-        disabled={$bearingState.mode === 'walking' && !$compassAvailable}
+        title="Auto bearing updates ({$bearingMode === 'car' ? 'GPS' : 'compass'} mode)"
+        disabled={$bearingMode === 'walking' && !$compassAvailable}
     >
         <Compass />
     </button>
     <button 
         class="active"
         on:click={(e) => handleButtonClick('bearing-mode', e)}
-        title={$bearingState.mode === 'car' ? 'Car mode: GPS bearing' : 'Walking mode: Compass bearing'}
+        title={$bearingMode === 'car' ? 'Car mode: GPS bearing' : 'Walking mode: Compass bearing'}
     >
-        {#if $bearingState.mode === 'car'}
+        {#if $bearingMode === 'car'}
             <Car />
         {:else}
             <PersonStanding />
