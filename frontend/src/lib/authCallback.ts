@@ -35,7 +35,8 @@ export async function handleAuthCallback(url?: string): Promise<boolean> {
         }
         
         // Check if this is an auth callback URL
-        if (!url.includes('token=') || !url.startsWith('com.hillview://auth')) {
+        const expectedScheme = import.meta.env.VITE_DEV_MODE === 'true' ? 'com.hillview.dev://auth' : 'com.hillview://auth';
+        if (!url.includes('token=') || !url.startsWith(expectedScheme)) {
             return false;
         }
         
@@ -181,7 +182,8 @@ export async function setupDeepLinkListener(): Promise<void> {
             console.log('🔗 Deep link received:', urls);
             
             for (const url of urls) {
-                if (url.startsWith('com.hillview://auth')) {
+                const expectedScheme = import.meta.env.VITE_DEV_MODE === 'true' ? 'com.hillview.dev://auth' : 'com.hillview://auth';
+                if (url.startsWith(expectedScheme)) {
                     console.log('🔐 Processing auth callback from deep link:', url);
                     handleAuthCallback(url);
                     break;
@@ -200,8 +202,9 @@ export async function setupDeepLinkListener(): Promise<void> {
  * Build OAuth URL for unified authentication flow
  */
 export function buildOAuthUrl(provider: string, isMobileApp: boolean): string {
+    const mobileScheme = import.meta.env.VITE_DEV_MODE === 'true' ? 'com.hillview.dev://auth' : 'com.hillview://auth';
     const redirectUri = isMobileApp 
-        ? "com.hillview://auth"  // Deep link for mobile
+        ? mobileScheme  // Deep link for mobile
         : `${window.location.origin}/oauth/callback`;  // Web callback
         
     // Use unified backend OAuth redirect endpoint

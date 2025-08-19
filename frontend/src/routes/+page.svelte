@@ -17,7 +17,6 @@
     import { gpsLocation } from '$lib/location.svelte';
     import type { DevicePhotoMetadata } from '$lib/types/photoTypes';
     import { stopCompass, startCompass } from '$lib/compass.svelte';
-    import '$lib/mapBearingSync'; // Sync map bearing with sensors
     import '$lib/debugTauri';
 
     let map: any = null;

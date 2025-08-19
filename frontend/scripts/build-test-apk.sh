@@ -4,8 +4,8 @@ echo "Building Hillview Android APK for testing..."
 echo "This may take 10-20 minutes on first build as it compiles all Rust dependencies."
 echo ""
 
-# Build debug APK (faster than release)
-./scripts/tauri-android.sh android build --apk --debug
+# Build debug APK (faster than release) with dev mode enabled for tests
+VITE_DEV_MODE=true ./scripts/tauri-android.sh android build --apk --debug
 
 if [ $? -eq 0 ]; then
     echo ""

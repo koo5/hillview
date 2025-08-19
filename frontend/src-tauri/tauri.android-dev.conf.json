@@ -1,3 +1,8 @@
 {
-  "identifier": "io.github.koo5.hillview.dev"
+  "identifier": "io.github.koo5.hillview.dev",
+  "plugins": {
+    "deep-link": {
+      "schemes": ["com.hillview.dev"]
+    }
+  }
 }

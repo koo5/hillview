@@ -78,7 +78,7 @@ describe('Android Authentication Workflow', () => {
             
             try {
                 // Simulate what would happen when browser redirects back to app with OAuth result
-                const testAuthDeepLink = 'com.hillview://auth?token=test.jwt.token&expires_at=2030-01-01T00:00:00Z';
+                const testAuthDeepLink = 'com.hillview.dev://auth?token=test.jwt.token&expires_at=2030-01-01T00:00:00Z';
                 
                 console.log('🔗 Simulating OAuth return via deep link...');
                 
@@ -121,7 +121,7 @@ describe('Android Authentication Workflow', () => {
             // Test deep link handling by sending a deep link intent
             // This simulates what would happen when a browser redirects back to the app
             
-            const testDeepLink = 'com.hillview://auth?token=test.jwt.token&expires_at=2030-01-01T00:00:00Z';
+            const testDeepLink = 'com.hillview.dev://auth?token=test.jwt.token&expires_at=2030-01-01T00:00:00Z';
             
             try {
                 // Open the deep link
@@ -162,9 +162,9 @@ describe('Android Authentication Workflow', () => {
             console.log('🔗 Testing malformed deep link handling...');
             
             const malformedDeepLinks = [
-                'com.hillview://auth',  // Missing parameters
-                'com.hillview://auth?invalid=params',  // Wrong parameters
-                'com.hillview://auth?token=invalid&expires_at=invalid'  // Invalid values
+                'com.hillview.dev://auth',  // Missing parameters
+                'com.hillview.dev://auth?invalid=params',  // Wrong parameters
+                'com.hillview.dev://auth?token=invalid&expires_at=invalid'  // Invalid values
             ];
             
             for (const deepLink of malformedDeepLinks) {

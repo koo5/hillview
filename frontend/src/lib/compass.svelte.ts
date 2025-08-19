@@ -121,7 +121,7 @@ async function startTauriSensor(mode: SensorMode = SensorMode.UPRIGHT_ROTATION_V
         console.log('🔍 About to set up sensor data listener...');
         
         tauriSensorListener = await sensor.onSensorData((data: SensorData) => {
-            console.log('🔍📡 Native sensor data received:', JSON.stringify(data));
+            //console.log('🔍📡 Native sensor data received:', JSON.stringify(data));
 
             // Handle potentially different event formats
             const sensorData = data;

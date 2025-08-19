@@ -49,7 +49,7 @@ describe('Authentication Integration Tests', () => {
             // Try to open an invalid URL scheme
             try {
                 await driver.execute('mobile: deepLink', {
-                    url: 'com.hillview://auth?invalid=params',
+                    url: 'com.hillview.dev://auth?invalid=params',
                     package: 'io.github.koo5.hillview.dev'
                 });
                 await driver.pause(2000);
@@ -78,7 +78,7 @@ describe('Authentication Integration Tests', () => {
             try {
                 // Simulate deep link with auth token
                 await driver.execute('mobile: deepLink', {
-                    url: `com.hillview://auth?token=${mockToken}&expires_at=${mockExpiresAt}`,
+                    url: `com.hillview.dev://auth?token=${mockToken}&expires_at=${mockExpiresAt}`,
                     package: 'io.github.koo5.hillview.dev'
                 });
                 await driver.pause(3000);
@@ -237,7 +237,7 @@ describe('Authentication Error Handling', () => {
         // Simulate malformed deep link
         try {
             await driver.execute('mobile: deepLink', {
-                url: 'com.hillview://auth?malformed=data&no_token=true',
+                url: 'com.hillview.dev://auth?malformed=data&no_token=true',
                 package: 'io.github.koo5.hillview.dev'
             });
             await driver.pause(2000);

@@ -4,8 +4,8 @@ echo "Building Hillview Android APK for x86_64 emulator..."
 echo "This will create a smaller APK specifically for x86_64 emulators."
 echo ""
 
-# Build debug APK for x86_64 only (for emulator)
-./scripts/tauri-android.sh android build --apk --debug --split-per-abi
+# Build debug APK for x86_64 only (for emulator) with dev mode enabled for tests
+VITE_DEV_MODE=true ./scripts/tauri-android.sh android build --apk --debug --split-per-abi
 
 if [ $? -eq 0 ]; then
     echo ""

@@ -4,7 +4,7 @@ import { PermissionHelper } from '../helpers/permissions';
 describe('App Permissions', () => {
     beforeEach(async () => {
         // Reset to main page before each test
-        await browser.execute('mobile: activateApp', { appId: 'io.github.koo5.hillview' });
+        await browser.execute('mobile: activateApp', { appId: 'io.github.koo5.hillview.dev' });
         await browser.pause(2000);
         
         // Wait for app to be fully loaded
