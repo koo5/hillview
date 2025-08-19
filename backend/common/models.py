@@ -128,3 +128,19 @@ class TokenBlacklist(Base):
     
     # Relationship
     user = relationship("User")
+
+class SecurityAuditLog(Base):
+    __tablename__ = "security_audit_log"
+    
+    id = Column(String, primary_key=True, default=generate_uuid)
+    event_type = Column(String, nullable=False, index=True)  # 'login_failed', 'login_success', 'password_change', etc.
+    user_identifier = Column(String, nullable=True, index=True)  # username, email, or user_id
+    ip_address = Column(String, nullable=True, index=True)
+    user_agent = Column(String, nullable=True)
+    event_details = Column(JSON, nullable=True)  # Additional context like attempt count, etc.
+    severity = Column(String, nullable=False, default='info')  # 'info', 'warning', 'critical'
+    timestamp = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    
+    # Optional user relationship for successful authentications
+    user_id = Column(String, ForeignKey("users.id"), nullable=True)
+    user = relationship("User")

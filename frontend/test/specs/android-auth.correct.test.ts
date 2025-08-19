@@ -126,9 +126,8 @@ describe('Android Authentication (Correct)', () => {
             
             // Step 3: Restart app WITHOUT clearing data
             console.log('🔄 Restarting app to test persistence...');
-            const { ensureAppIsRunning } = await import('../helpers/app-launcher');
             
-            // Force restart but don't clear app data
+            // Minimal restart without clearing data - just terminate and reactivate
             await driver.terminateApp('io.github.koo5.hillview.dev');
             await driver.pause(2000);
             await driver.activateApp('io.github.koo5.hillview.dev');

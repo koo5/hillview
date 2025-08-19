@@ -6,17 +6,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Running the Application
 ```bash
-# Start FastAPI server with auto-reload
-uvicorn app.api:app --reload
+# Start FastAPI server with auto-reload (from api/app/ directory)
+cd api/app && uvicorn api:app --reload
 
-# Run with Docker Compose
-docker-compose up
-
-# Rebuild and restart API container (preferred method)
+# Run with Docker Compose (preferred method)
 docker compose up --build --remove-orphans -d api
 
 # Run tests
-python test_api.py
+python -m pytest tests/ -v
 ```
 
 ### Database Operations
@@ -244,11 +241,14 @@ Optional configuration:
 
 #### Test Configuration
 ```bash
-# Run Android integration tests
-npm run test:android
+# Run Android integration tests (from frontend directory)
+cd ../frontend && bun run test:android
 
-# Specific test file
-npm run test:android -- --spec=test/specs/android-auth-workflow.test.ts
+# Specific test file (discovered syntax)
+cd ../frontend && bun run test:android --spec android-photo-simple.test0.ts
+
+# Alternative: Use pre-configured command
+cd ../frontend && bun run test:android:test0
 ```
 
 #### Key Testing Files
@@ -340,10 +340,10 @@ SELECT provider, provider_user_id FROM users WHERE provider IS NOT NULL;
 cd backend && python -m pytest tests/ -v
 
 # Frontend unit tests  
-cd frontend && npm test
+cd frontend && bun test
 
 # Android integration tests
-cd frontend && npm run test:android
+cd frontend && bun run test:android
 
 # Manual backend verification
 cd backend/tests && python test_auth_login.py

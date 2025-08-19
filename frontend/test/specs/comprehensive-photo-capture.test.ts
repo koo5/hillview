@@ -1,6 +1,6 @@
 import { browser, $, $$ } from '@wdio/globals';
 import { PermissionHelper } from '../helpers/permissions';
-import { ensureAppIsRunning } from '../helpers/app-launcher';
+// App lifecycle management is now handled by wdio.conf.ts session-level hooks
 
 describe('Comprehensive Photo Capture and Upload Test', () => {
     let capturedPhotoTimestamp: number;
@@ -17,8 +17,8 @@ describe('Comprehensive Photo Capture and Upload Test', () => {
         // Reset test users via API
         await resetTestUsers();
         
-        // Ensure app is running
-        await ensureAppIsRunning();
+        // App state is managed by framework - no manual management needed
+        console.log('🧪 Comprehensive test ready - app prepared by framework');
         
         // Additional pause for app to fully initialize
         await browser.pause(2000);
@@ -589,7 +589,8 @@ describe('Comprehensive Photo Capture and Upload Test', () => {
         try {
             await browser.back();
             await browser.pause(1000);
-            await ensureAppIsRunning();
+            // App state is managed by framework - no manual restart needed
+            console.log('🔄 App should be healthy from framework management');
         } catch (error) {
             console.log('Error during cleanup:', error);
         }

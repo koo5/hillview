@@ -1,5 +1,5 @@
 import { expect } from '@wdio/globals'
-import { ensureAppIsRunning, clearAppData } from '../helpers/app-launcher'
+// App lifecycle management is now handled by wdio.conf.ts session-level hooks
 
 /**
  * Android Complete Workflow Test

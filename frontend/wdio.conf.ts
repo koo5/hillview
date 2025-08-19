@@ -65,10 +65,10 @@ export const config: Options.Testrunner = {
     }],
     
     logLevel: 'info',
-    bail: 0,
-    waitforTimeout: 10000,
-    connectionRetryTimeout: 120000,
-    connectionRetryCount: 3,
+    bail: 1,  // Stop after first failure
+    waitforTimeout: 10000,  // Wait timeout for element searches
+    connectionRetryTimeout: 30000,  // Connection timeout for session creation
+    connectionRetryCount: 0,  // Disable connection retries
     
     services: [
         ['appium', {
@@ -85,7 +85,8 @@ export const config: Options.Testrunner = {
     
     mochaOpts: {
         ui: 'bdd',
-        timeout: 60000
+        timeout: 60000,
+        retries: 0  // Disable all test retries for faster failure
     },
     
     beforeSession: async function () {
@@ -93,8 +94,16 @@ export const config: Options.Testrunner = {
     },
     
     before: async function () {
-        console.log('Ensuring app is running before tests...');
-        await ensureAppIsRunning();
+        console.log('Initial session setup - preparing clean app state once...');
+        // Do a one-time clean restart at the start of the session
+        // This eliminates the need for individual test restarts
+        if (TEST_CONFIG.CLEAN_APP_STATE) {
+            console.log('🧹 Session-level clean app preparation');
+            await prepareAppForTest(true); // clearData = true
+        } else {
+            console.log('⚡ Session-level fast app preparation');
+            await prepareAppForTestFast();
+        }
     },
     
     beforeTest: async function (test, context) {
@@ -109,14 +118,22 @@ export const config: Options.Testrunner = {
             return;
         }
         
-        if (TEST_CONFIG.CLEAN_APP_STATE) {
-            // Clean app restart for proper test isolation
-            console.log('🧹 Using clean app state mode (full isolation)');
-            await prepareAppForTest(true); // clearData = true
-        } else {
-            // Fast mode for development - only restart if app appears broken
-            console.log('⚡ Using fast mode (skip data clearing)');
-            await prepareAppForTestFast();
+        // Only do a lightweight health check - app was already prepared in 'before' hook
+        console.log('🔍 Quick health check before test...');
+        try {
+            // Just verify the app is still responsive (no restart unless absolutely necessary)
+            const webView = await $('android.webkit.WebView');
+            const webViewExists = await webView.isExisting();
+            
+            if (!webViewExists) {
+                console.log('⚠️ WebView missing, doing minimal restart...');
+                await ensureAppIsRunning(false); // Don't force restart, just ensure it's running
+            } else {
+                console.log('✅ App appears healthy, proceeding with test');
+            }
+        } catch (e) {
+            console.log('⚠️ Health check failed, doing minimal restart...');
+            await ensureAppIsRunning(false); // Don't force restart, just ensure it's running
         }
     },
     

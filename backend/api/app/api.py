@@ -120,8 +120,10 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:8212", 
         "http://127.0.0.1:8212",
-        "http://tauri.localhost"
-    ],
+        "http://tauri.localhost",
+		"https://hillview.cz",
+		"https://api.hillview.cz",
+	],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization", "Accept"],

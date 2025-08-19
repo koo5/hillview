@@ -1,5 +1,5 @@
 import { expect } from '@wdio/globals'
-import { ensureAppIsRunning, prepareAppForTestFast } from '../helpers/app-launcher'
+// App lifecycle management is now handled by wdio.conf.ts session-level hooks
 
 /**
  * Quick Android Test
@@ -10,15 +10,9 @@ describe('Quick Android Test', () => {
     beforeEach(async function () {
         this.timeout(60000);
         
-        // For quick tests, we can use fast mode to skip data clearing
-        // This makes the test faster while still ensuring app health
-        console.log('⚡ Starting quick test with fast app preparation');
-        
-        // Uncomment this line to use fast mode that skips data clearing:
-        // await prepareAppForTestFast();
-        
-        // Or use default clean mode (handled by wdio.conf.ts)
-        console.log('🧪 App state prepared by framework');
+        // App lifecycle management is handled by wdio.conf.ts session-level hooks
+        // No need for manual app preparation in individual tests
+        console.log('⚡ Quick test starting - app prepared by framework');
     });
 
     describe('Quick Workflow Check', () => {

@@ -1,9 +1,10 @@
 import { expect } from '@wdio/globals';
-import { ensureAppIsRunning } from '../helpers/app-launcher';
+// App lifecycle management is now handled by wdio.conf.ts session-level hooks
 
 describe('Authentication Integration Tests', () => {
     beforeEach(async () => {
-        await ensureAppIsRunning();
+        // App state is managed by framework - no manual management needed
+        console.log('🧪 Auth test ready - app prepared by framework');
     });
 
     describe('Deep Link Authentication Flow', () => {
@@ -188,7 +189,8 @@ describe('Authentication Integration Tests', () => {
 
 describe('Authentication Error Handling', () => {
     beforeEach(async () => {
-        await ensureAppIsRunning();
+        // App state is managed by framework - no manual management needed
+        console.log('🧪 Error handling test ready - app prepared by framework');
     });
 
     it('should handle network errors during OAuth gracefully', async function () {

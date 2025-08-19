@@ -141,6 +141,25 @@ describe('Simple Android Photo Upload', () => {
                 // Take screenshot of camera interface
                 await driver.saveScreenshot('./test-results/android-camera-interface.png');
                 
+                // Check for "Enable Camera" button (app-specific) FIRST
+                console.log('📷 Checking for "Enable Camera" button...');
+                try {
+                    const enableCameraButton = await $('android=new UiSelector().text("Enable Camera")');
+                    if (await enableCameraButton.isDisplayed()) {
+                        console.log('📷 Clicking "Enable Camera" button...');
+                        await enableCameraButton.click();
+                        await driver.pause(3000);
+                        console.log('✅ Camera enabled');
+                        
+                        // Take screenshot after enabling camera
+                        await driver.saveScreenshot('./test-results/android-camera-enabled.png');
+                    } else {
+                        console.log('ℹ️ No "Enable Camera" button found - camera may already be enabled');
+                    }
+                } catch (e) {
+                    console.log('ℹ️ Could not find "Enable Camera" button:', e.message);
+                }
+                
                 // Handle camera and location permissions
                 console.log('📋 Checking for permission dialogs...');
                 
@@ -192,124 +211,86 @@ describe('Simple Android Photo Upload', () => {
                     console.log('ℹ️ No additional permission prompts');
                 }
                 
-                // Wait for camera to initialize
+                // Wait for camera to initialize and look for in-app capture button
                 await driver.pause(3000);
-                
-                // Actually capture a photo
-                console.log('📸 Attempting to capture photo...');
-                
-                // First, let's see if we're in the app's camera view or native camera
-                await driver.pause(2000);
                 
                 // Take screenshot to see current state
                 await driver.saveScreenshot('./test-results/android-before-capture.png');
                 
-                // If we're in the app's camera view, look for app-specific capture button
-                // If we're in native camera, look for native camera capture button
+                // Capture photo using in-app camera interface
+                console.log('📸 Looking for in-app capture button...');
                 
-                // Try app-specific capture first (if using in-app camera)
+                const captureButtons = [
+                    'android=new UiSelector().text("Capture")',
+                    'android=new UiSelector().text("Take Photo")', 
+                    'android=new UiSelector().text("Snap")',
+                    'android=new UiSelector().description("capture")',
+                    'android=new UiSelector().description("Take photo")',
+                    // Look for camera shutter button (usually a circle)
+                    'android=new UiSelector().className("android.widget.Button").descriptionContains("capture")',
+                    'android=new UiSelector().className("android.widget.ImageButton")'
+                ];
+                
                 let photoTaken = false;
-                
-                // Check if we're still in the app (look for app-specific elements)
-                try {
-                    const appCameraButton = await $('android=new UiSelector().text("Capture")');
-                    if (await appCameraButton.isDisplayed()) {
-                        console.log('📸 Using app camera capture button');
-                        await appCameraButton.click();
-                        photoTaken = true;
+                for (const selector of captureButtons) {
+                    try {
+                        const captureButton = await $(selector);
+                        if (await captureButton.isDisplayed()) {
+                            console.log(`📸 Found capture button: ${selector}`);
+                            await captureButton.click();
+                            await driver.pause(2000);
+                            photoTaken = true;
+                            console.log('✅ Photo captured using in-app camera');
+                            break;
+                        }
+                    } catch (e) {
+                        console.log(`ℹ️ Capture button not found: ${selector}`);
                     }
-                } catch (e) {
-                    console.log('ℹ️ App camera button not found');
-                }
-
-                if (photoTaken) {
-                    console.log('✅ Photo capture initiated');
-                } else {
-                    console.log('⚠️ Could not find capture mechanism');
                 }
                 
-                // Wait for photo capture to complete
-                await driver.pause(3000);
-                console.log('✅ Photo capture attempted');
+                if (!photoTaken) {
+                    // Fallback: try tapping in center-bottom area where camera button usually is
+                    console.log('📸 Trying fallback tap for camera capture...');
+                    const { width, height } = await driver.getWindowSize();
+                    await driver.performActions([
+                        {
+                            type: 'pointer',
+                            id: 'finger1',
+                            parameters: { pointerType: 'touch' },
+                            actions: [
+                                { type: 'pointerMove', duration: 0, x: width / 2, y: height * 0.85 },
+                                { type: 'pointerDown', button: 0 },
+                                { type: 'pause', duration: 300 },
+                                { type: 'pointerUp', button: 0 }
+                            ]
+                        }
+                    ]);
+                    await driver.pause(2000);
+                    console.log('✅ Attempted photo capture via tap');
+                }
                 
                 // Take screenshot after capture
                 await driver.saveScreenshot('./test-results/android-after-capture.png');
                 
-                // Look for confirmation buttons (OK, Save, Done)
-                console.log('✅ Looking for photo confirmation options...');
-                await driver.pause(2000); // Wait for confirmation UI to appear
+                // Wait for photo processing
+                await driver.pause(3000);
                 
-                // Take screenshot to see confirmation state
-                await driver.saveScreenshot('./test-results/android-photo-confirmation.png');
+                // Return to main view (should happen automatically with in-app camera)
+                console.log('↩️ Returning to main view...');
                 
-                let confirmed = false;
-                const confirmButtons = [
-                    'android=new UiSelector().text("OK")',
-                    'android=new UiSelector().text("Save")',
-                    'android=new UiSelector().text("Done")',
-                    'android=new UiSelector().text("Accept")',
-                    'android=new UiSelector().text("✓")', // Checkmark
-                    'android=new UiSelector().description("Done")',
-                    'android=new UiSelector().description("OK")',
-                    'android=new UiSelector().description("Save")',
-                    'android=new UiSelector().resourceId("android:id/button1")', // Standard OK button
-                ];
-                
-                for (const buttonSelector of confirmButtons) {
-                    try {
-                        const confirmButton = await $(buttonSelector);
-                        if (await confirmButton.isDisplayed()) {
-                            console.log(`✅ Confirming photo with: ${buttonSelector}`);
-                            await confirmButton.click();
-                            await driver.pause(3000);
-                            confirmed = true;
-                            break;
-                        }
-                    } catch (e) {
-                        // Continue trying other confirm buttons
-                    }
-                }
-                
-                if (!confirmed) {
-                    console.log('ℹ️ No explicit confirmation required - photo may be auto-saved');
-                }
-                
-                // Return to main app
-                console.log('↩️ Returning to main app...');
-                
-                // Try multiple ways to get back to the main app
-                let backAttempts = 0;
-                const maxBackAttempts = 3;
-                
-                while (backAttempts < maxBackAttempts) {
-                    backAttempts++;
-                    console.log(`↩️ Back attempt ${backAttempts}/${maxBackAttempts}`);
-                    
-                    await driver.back();
-                    await driver.pause(3000);
-                    
-                    // Check if we're back in the main app by looking for hamburger menu
-                    try {
-                        const hamburgerCheck = await $('android=new UiSelector().text("Toggle menu")');
-                        if (await hamburgerCheck.isDisplayed()) {
-                            console.log('✅ Successfully returned to main app');
-                            break;
-                        }
-                    } catch (e) {
-                        console.log(`ℹ️ Not back to main app yet (attempt ${backAttempts})`);
-                    }
-                    
-                    // If still not back, try different approaches
-                    if (backAttempts === 2) {
-                        // Try home button approach
-                        console.log('🏠 Trying home button...');
-                        await driver.pressKeyCode(3); // Android HOME key
+                // Check if we're already back to main view
+                try {
+                    const hamburgerCheck = await $('android=new UiSelector().text("Toggle menu")');
+                    if (await hamburgerCheck.isDisplayed()) {
+                        console.log('✅ Already back in main app view');
+                    } else {
+                        // Try back button once
+                        console.log('🔙 Using back button to return to main view');
+                        await driver.back();
                         await driver.pause(2000);
-                        
-                        // Reactivate the app
-                        await driver.activateApp('io.github.koo5.hillview.dev');
-                        await driver.pause(3000);
                     }
+                } catch (e) {
+                    console.log('ℹ️ Navigation check failed, assuming we are in main view');
                 }
                 
                 // Step 3: Verify we're back and wait for upload

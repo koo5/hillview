@@ -1,5 +1,5 @@
 import { expect } from '@wdio/globals'
-import { ensureAppIsRunning, clearAppData } from '../helpers/app-launcher'
+// App lifecycle management is now handled by wdio.conf.ts session-level hooks
 
 /**
  * Android Authentication Workflow Tests
@@ -216,9 +216,14 @@ describe('Android Authentication Workflow', () => {
                     await driver.pause(3000);
                 }
                 
-                // Restart the app WITHOUT clearing data to test auth persistence
+                // Minimal restart WITHOUT clearing data to test auth persistence
                 console.log('🔄 Restarting app to test auth persistence (no data clearing)...');
-                await ensureAppIsRunning(true); // forceRestart=true, but prepareAppForTest has clearData=false by default
+                
+                // Simple restart without framework functions
+                await driver.terminateApp('io.github.koo5.hillview.dev');
+                await driver.pause(2000);
+                await driver.activateApp('io.github.koo5.hillview.dev');
+                await driver.pause(3000);
                 
                 // Take screenshot after restart
                 await driver.saveScreenshot('./test-results/android-after-restart.png');

@@ -105,10 +105,14 @@ describe('Android Authentication', () => {
             const loginSuccess = await workflows.performCompleteLogin();
             expect(loginSuccess).toBe(true);
             
-            // Restart app WITHOUT clearing data to test persistence
+            // Minimal restart WITHOUT clearing data to test persistence
             console.log('🔄 Step 2: Restarting app to test auth persistence...');
-            const { ensureAppIsRunning } = await import('../helpers/app-launcher');
-            await ensureAppIsRunning(true); // forceRestart=true, but no data clearing
+            
+            // Simple restart without using app-launcher framework
+            await driver.terminateApp('io.github.koo5.hillview.dev');
+            await driver.pause(2000);
+            await driver.activateApp('io.github.koo5.hillview.dev');
+            await driver.pause(3000);
             
             await app.takeScreenshot('auth-after-restart');
             

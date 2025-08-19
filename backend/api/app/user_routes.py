@@ -25,6 +25,7 @@ from .auth import (
 )
 from .rate_limiter import auth_rate_limiter, check_auth_rate_limit
 from .security_utils import validate_username, validate_email, validate_oauth_redirect_uri
+from .security_audit import security_audit
 
 log = logging.getLogger(__name__)
 
@@ -94,8 +95,16 @@ async def login_for_access_token(
     
     user = await authenticate_user(db, form_data.username, form_data.password)
     if not user:
-        # Record failed attempt for rate limiting
+        # Record failed attempt for rate limiting and audit
         await auth_rate_limiter.record_failed_attempt(identifier)
+        
+        # Log failed login attempt to security audit
+        await security_audit.log_failed_login(
+            db=db,
+            request=request,
+            username=form_data.username
+        )
+        
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
@@ -104,6 +113,14 @@ async def login_for_access_token(
     
     # Clear failed attempts on successful login
     await auth_rate_limiter.clear_failed_attempts(identifier)
+    
+    # Log successful login to security audit
+    await security_audit.log_successful_login(
+        db=db,
+        request=request,
+        user=user,
+        auth_method="password"
+    )
     
     access_token, expires = create_access_token(
         data={"sub": user.username, "user_id": user.id},
@@ -141,13 +158,57 @@ async def logout(
 async def oauth_redirect(
     provider: str,
     redirect_uri: str,
-    request: Request
+    request: Request,
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Initiate OAuth flow with proper redirect URI for both web and mobile
     """
-    log.info(f"OAuth redirect initiated - Provider: {provider}, Redirect URI: {redirect_uri}")
+    # Rate limit OAuth redirects to prevent abuse
+    identifier = auth_rate_limiter.get_identifier(request)
+    if not await auth_rate_limiter.check_rate_limit(identifier, max_requests=20, window_seconds=300):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many OAuth requests. Try again later.",
+            headers={"Retry-After": "300"}
+        )
+    
+    # Validate and sanitize redirect URI  
+    # Define allowed domains for OAuth redirects (include mobile deep links)
+    if redirect_uri.startswith("com.hillview://"):
+        # Mobile deep link - allow it
+        validated_redirect_uri = redirect_uri
+    else:
+        # Web redirect - validate against allowed domains
+        allowed_domains = {
+            'localhost:8212', 'localhost', '127.0.0.1', 'localhost:8055', 
+            'hillview.cz', 'api.hillview.cz', 'tauri.localhost'
+        }
+        try:
+            validated_redirect_uri = validate_oauth_redirect_uri(redirect_uri, allowed_domains)
+        except Exception as e:
+            await security_audit.log_event(
+                db=db,
+                event_type="oauth_redirect_invalid",
+                ip_address=request.client.host if request.client else None,
+                user_agent=request.headers.get("user-agent"),
+                event_details={"provider": provider, "invalid_redirect_uri": redirect_uri, "error": str(e)},
+                severity="warning"
+            )
+            raise HTTPException(status_code=400, detail="Invalid redirect URI")
+    
+    log.info(f"OAuth redirect initiated - Provider: {provider}, Redirect URI: {validated_redirect_uri}")
     log.info(f"Request base URL: {request.base_url}")
+    
+    # Log OAuth redirect attempt for audit
+    await security_audit.log_event(
+        db=db,
+        event_type="oauth_redirect_initiated",
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        event_details={"provider": provider, "redirect_uri": validated_redirect_uri},
+        severity="info"
+    )
     
     if provider not in OAUTH_PROVIDERS:
         log.error(f"Unsupported OAuth provider: {provider}")
@@ -158,7 +219,7 @@ async def oauth_redirect(
     
     # Build OAuth URL with appropriate redirect URI
     # For mobile: use deep link, for web: use frontend callback
-    if redirect_uri.startswith("com.hillview://"):
+    if validated_redirect_uri.startswith("com.hillview://"):
         # Mobile flow: OAuth provider should redirect to API server callback
         server_callback_uri = f"{request.base_url}auth/oauth-callback"
         log.info(f"Mobile flow detected - Server callback URI: {server_callback_uri}")
@@ -166,13 +227,13 @@ async def oauth_redirect(
         # Web flow: OAuth provider should redirect to frontend callback
         # Extract frontend origin from the redirect_uri
         from urllib.parse import urlparse
-        parsed = urlparse(redirect_uri)
+        parsed = urlparse(validated_redirect_uri)
         frontend_origin = f"{parsed.scheme}://{parsed.netloc}"
         server_callback_uri = f"{frontend_origin}/oauth/callback"
         log.info(f"Web flow detected - Frontend origin: {frontend_origin}, Server callback URI: {server_callback_uri}")
     
     # Encode both provider and final destination in state
-    state_data = f"{provider}:{redirect_uri}"
+    state_data = f"{provider}:{validated_redirect_uri}"
     oauth_params = {
         "client_id": provider_config["client_id"],
         "redirect_uri": server_callback_uri,  # Dynamic server callback
@@ -190,7 +251,7 @@ async def oauth_redirect(
     
     log.info(f"OAuth params: {oauth_params}")
     log.info(f"Final OAuth URL: {auth_url}")
-    log.info(f"Redirecting to OAuth provider {provider} with final destination: {redirect_uri}")
+    log.info(f"Redirecting to OAuth provider {provider} with final destination: {validated_redirect_uri}")
     return RedirectResponse(auth_url)
 
 @router.get("/auth/oauth-callback")
@@ -203,6 +264,23 @@ async def oauth_callback(
     """
     Enhanced OAuth callback that supports both web and mobile flows
     """
+    # Rate limit OAuth callbacks to prevent abuse
+    identifier = auth_rate_limiter.get_identifier(request)
+    if not await auth_rate_limiter.check_rate_limit(identifier, max_requests=30, window_seconds=300):
+        await security_audit.log_event(
+            db=db,
+            event_type="oauth_callback_rate_limited",
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+            event_details={"code_prefix": code[:10] if code else None, "state": state},
+            severity="warning"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many OAuth callback requests.",
+            headers={"Retry-After": "300"}
+        )
+    
     log.info(f"OAuth callback received with code and state: {state}")
     
     # Extract provider and final destination from state
@@ -237,9 +315,45 @@ async def oauth_callback(
     )
     
     # Reuse existing OAuth login logic
-    jwt_result = await oauth_login_internal(oauth_data, db)
-    jwt_token = jwt_result["access_token"]
-    expires_at = jwt_result["expires_at"]
+    try:
+        jwt_result = await oauth_login_internal(oauth_data, db, request)
+        jwt_token = jwt_result["access_token"]
+        expires_at = jwt_result["expires_at"]
+        user_info = jwt_result.get("user_info", {})
+        
+        # Log successful OAuth login
+        await security_audit.log_event(
+            db=db,
+            event_type="oauth_login_success",
+            user_identifier=user_info.get("username"),
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+            event_details={
+                "provider": provider,
+                "auth_method": "oauth",
+                "user_role": user_info.get("role"),
+                "redirect_uri": final_redirect_uri
+            },
+            severity="info",
+            user_id=user_info.get("user_id")
+        )
+        
+    except Exception as e:
+        # Log failed OAuth attempt
+        await security_audit.log_event(
+            db=db,
+            event_type="oauth_login_failed",
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+            event_details={
+                "provider": provider,
+                "error": str(e),
+                "code_prefix": code[:10] if code else None,
+                "state": state
+            },
+            severity="warning"
+        )
+        raise
     
     # Detect if this is a mobile app request
     if final_redirect_uri and final_redirect_uri.startswith("com.hillview://"):
@@ -265,15 +379,26 @@ async def oauth_callback(
 @router.post("/auth/oauth", response_model=Token)
 async def oauth_login(
         oauth_data: UserOAuth,
+    request: Request,
     db: AsyncSession = Depends(get_db)
 ):
     """Public OAuth endpoint for API clients"""
+    # Rate limit OAuth API endpoint
+    identifier = auth_rate_limiter.get_identifier(request)
+    if not await auth_rate_limiter.check_rate_limit(identifier, max_requests=15, window_seconds=300):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many OAuth requests. Try again later.",
+            headers={"Retry-After": "300"}
+        )
+    
     log.info(f"POST /auth/oauth called - Provider: {oauth_data.provider}, Code length: {len(oauth_data.code) if oauth_data.code else 0}, Redirect URI: {oauth_data.redirect_uri}")
-    return await oauth_login_internal(oauth_data, db)
+    return await oauth_login_internal(oauth_data, db, request)
 
 async def oauth_login_internal(
         oauth_data: UserOAuth,
-    db: AsyncSession
+    db: AsyncSession,
+    request: Optional[Request] = None
 ) -> dict:
     # Validate provider
     provider = oauth_data.provider
@@ -442,7 +567,12 @@ async def oauth_login_internal(
     return {
         "access_token": access_token,
         "token_type": "bearer",
-        "expires_at": expires
+        "expires_at": expires,
+        "user_info": {
+            "user_id": user.id,
+            "username": user.username,
+            "role": user.role.value if user.role else "user"
+        }
     }
 
 @router.get("/auth/me", response_model=UserOut)
