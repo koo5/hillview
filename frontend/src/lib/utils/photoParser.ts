@@ -1,4 +1,3 @@
-import type {PhotoSize} from '../types/photoTypes';
 
 // Simple coordinate interface for worker compatibility
 export interface SimpleLatLng {
@@ -35,53 +34,5 @@ export function parseFraction(value: string | number): number {
         return numerator / denominator;
     }
     return typeof value === 'string' ? parseFloat(value) || 0 : value;
-}
-
-// Worker-compatible PhotoData with simple coordinate object
-export interface WorkerPhotoData {
-    id: string;
-    source_type: string;
-    file: string;
-    url: string;
-    coord: SimpleLatLng; // Simple object for worker compatibility
-    bearing: number;
-    altitude: number;
-    source?: any;
-    sizes?: Record<string, PhotoSize>;
-}
-
-export function parsePhotoData(item: any, geoPicsUrl: string): WorkerPhotoData {
-    const latitude = parseCoordinate(item.latitude);
-    const longitude = parseCoordinate(item.longitude);
-
-    const photo: WorkerPhotoData = {
-        id: 'hillview_' + item.file,
-        source_type: 'hillview',
-        file: item.file,
-        url: `${geoPicsUrl}/${encodeURIComponent(item.file)}`,
-        coord: {lat: latitude, lng: longitude}, // Simple object for worker compatibility
-        bearing: parseFraction(item.bearing),
-        altitude: parseFraction(item.altitude),
-    };
-
-    if (item.sizes) {
-        photo.sizes = {};
-        for (const size in item.sizes) {
-            const s = item.sizes[size];
-            photo.sizes[size] = {
-                url: `${geoPicsUrl}/${s.path}`,
-                width: s.width,
-                height: s.height
-            };
-        }
-    }
-
-    if (isNaN(latitude) || isNaN(longitude)) {
-        console.error('Invalid coordinates:', photo);
-    }
-    if (photo.bearing < 0 || photo.bearing > 360) {
-        console.error('Invalid bearing:', photo);
-    }
-    return photo;
 }
 

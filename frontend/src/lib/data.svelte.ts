@@ -1,6 +1,6 @@
 import {get, writable} from "svelte/store";
 import {staggeredLocalStorageSharedStore} from './svelte-shared-store';
-import {geoPicsUrl, backendUrl} from './config';
+import {backendUrl} from './config';
 import {MAX_DEBUG_MODES} from './constants';
 import {auth} from './auth.svelte';
 import {userPhotos} from './stores';

@@ -65,21 +65,23 @@
             clearInterval(permissionCheckInterval);
         }
 
+        console.log('Starting permission monitoring...');
         // Check permission state periodically when we have an error
         permissionCheckInterval = window.setInterval(async () => {
-            if (cameraError && hasRequestedPermission) {
+            if (cameraError && (hasRequestedPermission || cameraError.includes('Camera access required'))) {
                 const state = await checkCameraPermission();
-                console.log('Checking camera permission:', state);
+                console.log('Monitoring camera permission:', state, 'hasRequestedPermission:', hasRequestedPermission);
 
                 if (state === 'granted') {
-                    console.log('Camera permission granted, retrying...');
+                    console.log('Camera permission granted during monitoring, starting camera...');
                     clearInterval(permissionCheckInterval!);
                     permissionCheckInterval = null;
                     hasRequestedPermission = false;
+                    cameraError = null; // Clear the error
                     startCamera();
                 }
             }
-        }, 1000);
+        }, 500); // Check more frequently
     }
 
     function scheduleRetry() {
@@ -100,8 +102,24 @@
         }
     }
 
+    let needsPermission = false;
+
+    async function checkAndStartCamera() {
+        console.log('[CAMERA] Checking camera permission before auto-start...');
+        const permissionState = await checkCameraPermission();
+        
+        if (permissionState === 'granted') {
+            console.log('[CAMERA] Permission already granted, starting camera automatically');
+            startCamera();
+        } else {
+            console.log('[CAMERA] Permission not granted, showing enable button');
+            needsPermission = true;
+            cameraError = 'Camera access required. Tap "Enable Camera" to continue.';
+        }
+    }
+
     async function startCamera() {
-        console.log('Starting camera...');
+        console.log('[CAMERA] Starting camera...');
         try {
             // Check for camera support
             if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -110,7 +128,7 @@
 
             // Stop any existing stream
             if (stream) {
-                console.log('Stopping existing stream');
+                console.log('[CAMERA] Stopping existing stream');
                 stream.getTracks().forEach(track => track.stop());
                 stream = null;
             }
@@ -128,27 +146,30 @@
                 }
             };
 
-            console.log('Requesting camera with constraints:', constraints);
+            console.log('[CAMERA] Requesting camera with constraints:', constraints);
             stream = await navigator.mediaDevices.getUserMedia(constraints);
-            console.log('Got media stream:', stream);
+            console.log('[CAMERA] Got media stream:', stream);
 
             if (video) {
-                console.log('Setting video source');
+                console.log('[CAMERA] Setting video source');
                 video.srcObject = stream;
 
                 // Wait for metadata to load
                 await new Promise((resolve) => {
                     video.onloadedmetadata = () => {
-                        console.log('Video metadata loaded');
+                        console.log('[CAMERA] Video metadata loaded');
                         resolve(undefined);
                     };
                 });
 
                 await video.play();
-                console.log('Video playing');
+                console.log('[CAMERA] Video playing - clearing error state');
+                console.log('[CAMERA] Before clear: cameraError =', cameraError, 'needsPermission =', needsPermission, 'cameraReady =', cameraReady);
                 cameraReady = true;
                 cameraError = null;
+                needsPermission = false;
                 retryCount = 0; // Reset retry count on success
+                console.log('[CAMERA] After clear: cameraError =', cameraError, 'needsPermission =', needsPermission, 'cameraReady =', cameraReady);
 
                 // Clear any pending retries
                 if (retryTimeout) {
@@ -170,9 +191,12 @@
                         }
                     }
                 }
+            } else {
+                console.error('[CAMERA] Video element not found!');
+                throw new Error('Video element not available');
             }
         } catch (error) {
-            console.error('Camera error:', error);
+            console.error('[CAMERA] Camera error:', error);
             cameraError = error instanceof Error ? error.message : 'Failed to access camera';
             cameraReady = false;
 
@@ -180,8 +204,7 @@
             if (error instanceof DOMException &&
                 (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError')) {
                 hasRequestedPermission = true;
-                // Start monitoring permission changes
-                startPermissionMonitoring();
+                console.log('[CAMERA] Permission denied by user');
             } else {
                 // For non-permission errors, schedule a retry
                 scheduleRetry();
@@ -280,6 +303,7 @@
         }
         cameraReady = false;
         cameraError = null;
+        needsPermission = false;
 
         // Clear permission monitoring
         if (permissionCheckInterval) {
@@ -321,18 +345,19 @@
                 // Reset retry count for fresh attempt when returning from background
                 retryCount = 0;
                 cameraError = null;
+                needsPermission = false;
                 startCamera();
             }
             wasShowingBeforeHidden = false;
         }
     }
 
-    // Start camera when modal opens
+    // Check permission and conditionally start camera when modal opens
     $: if (show) {
-        if (!stream && !cameraError) {
-            console.log('Modal shown, starting camera');
+        if (!stream && !cameraError && !cameraReady) {
+            console.log('[CAMERA] Modal shown, checking camera permission');
             retryCount = 0; // Reset retry count when modal opens
-            startCamera();
+            checkAndStartCamera();
         }
     } else if (!show && stream) {
         // Stop camera when modal closes
@@ -341,6 +366,7 @@
         stream = null;
         cameraReady = false;
         cameraError = null;
+        needsPermission = false;
         hasRequestedPermission = false;
         if (permissionCheckInterval) {
             clearInterval(permissionCheckInterval);
@@ -395,29 +421,35 @@
             </div>
 
             <div class="camera-view">
+                <!-- Debug: cameraError = {cameraError}, needsPermission = {needsPermission}, cameraReady = {cameraReady} -->
+                
+                <!-- Always render video element so it's available for binding -->
+                <video bind:this={video} class="camera-video" playsinline style:display={cameraError ? 'none' : 'block'}>
+                    <track kind="captions"/>
+                </video>
+                <canvas bind:this={canvas} style="display: none;"></canvas>
+
                 {#if cameraError}
                     <div class="camera-error">
-                        <p>⚠️ {cameraError}</p>
+                        <p>📷 {cameraError}</p>
                         <button class="retry-button" on:click={() => {
                             cameraError = null;
+                            needsPermission = false;
                             hasRequestedPermission = false;
                             if (permissionCheckInterval) {
                                 clearInterval(permissionCheckInterval);
                                 permissionCheckInterval = null;
                             }
+                            retryCount = 0;
                             startCamera();
                         }}>
-                            Try Again
+                            {needsPermission ? 'Enable Camera' : 'Try Again'}
                         </button>
                     </div>
-                {:else}
-                    <video bind:this={video} class="camera-video" playsinline>
-                        <track kind="captions"/>
-                    </video>
-                    <canvas bind:this={canvas} style="display: none;"></canvas>
+                {/if}
 
-                    <!-- Location overlay -->
-                    <div class="location-overlay {locationReady ? 'ready' : ''} {locationError ? 'error' : ''}">
+                <!-- Location overlay -->
+                <div class="location-overlay {locationReady ? 'ready' : ''} {locationError ? 'error' : ''}" style:display={cameraError ? 'none' : 'block'}>
                         {#if locationError}
                             <div class="location-row">
                                 <span class="icon">⚠️</span>
@@ -453,7 +485,6 @@
                             </div>
                         {/if}
                     </div>
-                {/if}
             </div>
 
             {#if zoomSupported && cameraReady}

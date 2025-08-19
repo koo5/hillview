@@ -88,7 +88,6 @@ export interface WorkerMessage {
         center?: { lat: number; lng: number };
         config?: {
             recalculateBearingDiffForAllPhotosInArea?: boolean;
-            geoPicsUrl?: string;
         };
     };
 }

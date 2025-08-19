@@ -12,7 +12,7 @@ test.describe('Photo Navigation and Image URLs', () => {
     await page.waitForTimeout(5000);
   });
 
-  test('should have correct image URLs with geoPicsUrl prefix', async ({ page }) => {
+  test('should have correct image URLs', async ({ page }) => {
     // Wait for photos to load
     await page.waitForTimeout(3000);
     

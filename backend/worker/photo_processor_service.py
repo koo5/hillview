@@ -39,6 +39,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+PICS_URL = os.environ.get("PICS_URL")
+
 class PhotoProcessorService:
     """Independent photo processing service."""
     
@@ -153,7 +155,8 @@ class PhotoProcessorService:
                     sizes_info[size] = {
                         'width': width,
                         'height': height,
-                        'path': relative_path
+                        'path': relative_path,
+						'url': PICS_URL + relative_path
                     }
                 else:
                     # Skip if size is larger than original width

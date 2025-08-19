@@ -26,8 +26,7 @@ test.describe('Photo Loading and Display', () => {
     const photoLoadMessages = consoleMessages.filter(msg => 
       msg.includes('Worker: Loaded') && msg.includes('photos from') || 
       msg.includes('Worker: Total loaded') ||
-      msg.includes('Updated') && msg.includes('markers') ||
-      msg.includes('parse_photo_data')
+      msg.includes('Updated') && msg.includes('markers')
     );
 
     console.log('📸 Photo loading messages:');

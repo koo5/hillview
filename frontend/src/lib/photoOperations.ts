@@ -102,7 +102,7 @@ export class PhotoOperations {
             }
         }
 
-        // Process each enabled source - perform global preloading for cache
+        /*// Process each enabled source - perform global preloading for cache
         for (const source of sources.filter(s => s.enabled)) {
             if (callbacks.shouldAbort(processId)) return;
             
@@ -127,7 +127,7 @@ export class PhotoOperations {
                     callbacks.updatePhotosInArea(existingCache.photos);
                 }
             }
-        }
+        }*/
 
         if (callbacks.shouldAbort(processId)) {
             console.log(`PhotoOperations: PROCESSCONFIG: Config process ${processId} aborted before completion`);

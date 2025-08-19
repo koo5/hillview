@@ -1,42 +1,11 @@
 import {app, hillview_photos, sources, type Source} from "$lib/data.svelte";
-import { geoPicsUrl } from './config';
 import { LatLng } from 'leaflet';
 import {writable, get} from "svelte/store";
 import { auth } from "$lib/auth.svelte";
 import { userPhotos, devicePhotos } from './stores';
 import { photoCaptureService } from './photoCapture';
 import type { PhotoData, PhotoSize, DevicePhotoMetadata } from './types/photoTypes';
-import { parsePhotoData, parseCoordinate, parseFraction } from './utils/photoParser';
-
-// Frontend-specific photo parser that uses proper LatLng objects
-function parsePhotoDataForFrontend(item: any): PhotoData {
-    const latitude = parseCoordinate(item.latitude);
-    const longitude = parseCoordinate(item.longitude);
-
-    const photo: PhotoData = {
-        id: 'hillview_' + item.file,
-        source_type: 'hillview',
-        file: item.file,
-        url: `${geoPicsUrl}/${encodeURIComponent(item.file)}`,
-        coord: new LatLng(latitude, longitude), // Use proper LatLng for frontend
-        bearing: parseFraction(item.bearing),
-        altitude: parseFraction(item.altitude),
-    };
-
-    if (item.sizes) {
-        photo.sizes = {};
-        for (const size in item.sizes) {
-            const s = item.sizes[size];
-            photo.sizes[size] = {
-                url: `${geoPicsUrl}/${s.path}`,
-                width: s.width,
-                height: s.height
-            };
-        }
-    }
-
-    return photo;
-}
+import { parseCoordinate, parseFraction } from './utils/photoParser';
 
 
 
@@ -208,7 +177,6 @@ async function fetchDirectorySource(source: Source) {
 
 // Re-export utilities and types for backward compatibility
 export { parseCoordinate, parseFraction } from './utils/photoParser';
-export { parsePhotoDataForFrontend as parse_photo_data };
 export type { PhotoData, PhotoSize };
 
 
