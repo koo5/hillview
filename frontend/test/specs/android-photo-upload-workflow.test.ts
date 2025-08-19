@@ -1,4 +1,5 @@
 import { expect } from '@wdio/globals'
+import { ensureAppIsRunning, clearAppData } from '../helpers/app-launcher'
 
 /**
  * Android Photo Upload Workflow Test
@@ -15,15 +16,11 @@ describe('Android Photo Upload Workflow', () => {
     let uploadedPhotoFilename: string;
 
     beforeEach(async function () {
-        this.timeout(120000);
+        this.timeout(90000);
         
-        // Ensure app is running and ready
-        await driver.terminateApp('io.github.koo5.hillview.dev');
-        await driver.pause(2000);
-        await driver.activateApp('io.github.koo5.hillview.dev');
-        await driver.pause(5000);
-        
-        console.log('🔄 App restarted for photo upload test');
+        // Clean app state is automatically provided by wdio.conf.ts beforeTest hook
+        // Essential for upload tests to ensure clean authentication and source states
+        console.log('🧪 Starting photo upload workflow with clean app state');
     });
 
     describe('Authentication Setup', () => {

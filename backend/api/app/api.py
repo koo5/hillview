@@ -163,20 +163,9 @@ def run_migrations():
     command.upgrade(alembic_cfg, "head")
 
 # Initialize database
-@app.on_event("startup")
-async def startup():
-    log.info("Starting application startup")
-    
-    # Create test users if enabled
-    if USER_ACCOUNTS:
-        try:
-            from .auth import ensure_test_users
-            await ensure_test_users()
-            log.info("Test users created successfully")
-        except Exception as e:
-            log.error(f"Error creating test users: {e}")
-    
-    log.info("Application startup completed")
+# @app.on_event("startup")
+# async def startup():
+#     log.info("Application startup completed")
 
 @app.get("/api/debug")
 async def debug_endpoint():
@@ -190,9 +179,9 @@ async def recreate_test_users():
         return {"error": "User accounts are not enabled"}
     
     try:
-        from .auth import ensure_test_users
-        result = await ensure_test_users()
-        return {"status": "success", "message": "Test users recreated", "details": result}
+        from .auth import recreate_test_users
+        result = await recreate_test_users()
+        return {"status": "success", "message": "Test users re-created", "details": result}
     except Exception as e:
         log.error(f"Error recreating test users: {e}")
         return {"status": "error", "message": str(e)}

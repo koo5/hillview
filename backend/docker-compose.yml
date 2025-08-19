@@ -12,7 +12,6 @@ services:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./init-scripts:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-hillview} -d ${POSTGRES_DB:-hillview}"]
       interval: 10s
@@ -50,13 +49,14 @@ services:
       - VARIABLE_NAME=app
       - HOST=0.0.0.0
       - PORT=8055
-      - RELOAD=true
+      - DEV_MODE=${DEV_MODE:-true}
+    command: >
+      bash -c "/app/prestart.sh && uvicorn app.api:app --host 0.0.0.0 --port 8055 $${DEV_MODE:+--reload}"
     secrets:
       - mapillary_token
     depends_on:
       postgres:
         condition: service_healthy
-    # Let base image handle startup and run prestart.sh automatically
 
   worker:
     restart: always

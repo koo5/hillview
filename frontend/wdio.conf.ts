@@ -1,5 +1,14 @@
 import type { Options } from '@wdio/types';
-import { ensureAppIsRunning } from './test/helpers/app-launcher';
+import { ensureAppIsRunning, prepareAppForTest, prepareAppForTestFast } from './test/helpers/app-launcher';
+
+// Test configuration
+const TEST_CONFIG = {
+    // Set to false for faster development testing (skips data clearing)
+    // Set to true for proper test isolation with clean app state
+    CLEAN_APP_STATE: process.env.WDIO_CLEAN_STATE !== 'false',
+    // Set to true to only restart before describe blocks, not every test case
+    RESTART_PER_SUITE: process.env.WDIO_RESTART_PER_SUITE === 'true'
+};
 
 export const config: Options.Testrunner = {
     runner: 'local',
@@ -40,6 +49,12 @@ export const config: Options.Testrunner = {
         // Permission handling capabilities
         'appium:autoGrantPermissions': false, // Don't auto-grant to test permission flows
         'appium:autoAcceptAlerts': false, // Don't auto-accept alerts
+        // Capabilities to improve screenshot stability
+        'appium:screenshotQuality': 50, // Reduce quality for faster screenshots
+        'appium:mjpegServerScreenshotQuality': 50,
+        'appium:mjpegScalingFactor': 50,
+        // Reduce retry attempts for faster failure recovery
+        'appium:uiautomator2ServerReadTimeout': 20000,
         'appium:permissions': {
             'io.github.koo5.hillview.dev': {
                 'android.permission.CAMERA': 'unset',
@@ -82,9 +97,27 @@ export const config: Options.Testrunner = {
         await ensureAppIsRunning();
     },
     
-    beforeTest: async function () {
-        // Ensure app is in foreground for each test
-        await ensureAppIsRunning();
+    beforeTest: async function (test, context) {
+        // Check if this is the first test in a suite
+        const isFirstTestInSuite = context.specIndex === 0 || 
+                                  context.testIndex === 0 ||
+                                  !context.previousTest;
+        
+        if (TEST_CONFIG.RESTART_PER_SUITE && !isFirstTestInSuite) {
+            // Skip restart for subsequent tests in same suite
+            console.log('⚡ Skipping restart - using existing app state within suite');
+            return;
+        }
+        
+        if (TEST_CONFIG.CLEAN_APP_STATE) {
+            // Clean app restart for proper test isolation
+            console.log('🧹 Using clean app state mode (full isolation)');
+            await prepareAppForTest(true); // clearData = true
+        } else {
+            // Fast mode for development - only restart if app appears broken
+            console.log('⚡ Using fast mode (skip data clearing)');
+            await prepareAppForTestFast();
+        }
     },
     
     afterTest: async function (test, context, { error, result, duration, passed, retries }) {
@@ -107,7 +140,9 @@ export const config: Options.Testrunner = {
                 } catch (screenshotError) {
                     console.warn(`⚠️ Screenshot failed: ${screenshotError.message}`);
                     if (screenshotError.message.includes('DeadObjectException')) {
-                        console.log('🔧 Device appears to have UiAutomation issues - using fallback debugging');
+                        console.log('🔧 Device appears to have UiAutomation issues - skipping screenshot attempts');
+                        // Skip all other screenshot attempts for this test
+                        return;
                     }
                 }
                 
@@ -163,8 +198,12 @@ export const config: Options.Testrunner = {
             try {
                 await driver.saveScreenshot(`./test-results/passed-${testName}-${timestamp}.png`);
             } catch (e) {
-                // Silently ignore screenshot errors for passed tests
-                console.log('📸 Passed test screenshot skipped (device issues)');
+                // Silently ignore screenshot errors for passed tests - especially DeadObjectException
+                if (e.message && e.message.includes('DeadObjectException')) {
+                    console.log('📸 Passed test screenshot skipped (UiAutomation dead)');
+                } else {
+                    console.log('📸 Passed test screenshot skipped (device issues)');
+                }
             }
         }
     }

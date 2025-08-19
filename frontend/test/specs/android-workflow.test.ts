@@ -1,4 +1,5 @@
 import { expect } from '@wdio/globals'
+import { ensureAppIsRunning, clearAppData } from '../helpers/app-launcher'
 
 /**
  * Android Complete Workflow Test
@@ -7,19 +8,15 @@ import { expect } from '@wdio/globals'
  */
 describe('Android Complete Workflow', () => {
     beforeEach(async function () {
-        this.timeout(60000);
+        this.timeout(90000);
         
-        await driver.terminateApp('io.github.koo5.hillview.dev');
-        await driver.pause(2000);
-        await driver.activateApp('io.github.koo5.hillview.dev');
-        await driver.pause(5000);
-        
-        console.log('🔄 App restarted for complete workflow test');
+        // Clean app state is automatically provided by wdio.conf.ts beforeTest hook
+        console.log('🧪 Starting complete workflow test with clean app state');
     });
 
     describe('Full Photo Pipeline', () => {
         it('should complete login, photo capture, and upload verification', async function () {
-            this.timeout(900000); // 15 minutes total to accommodate 3-minute upload wait
+            this.timeout(300000); // FIXED: Reduced from 15 minutes to 5 minutes max
             
             console.log('🚀 Starting complete workflow test...');
             

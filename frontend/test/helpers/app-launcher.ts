@@ -3,50 +3,23 @@ import { promises as fs } from 'fs';
 import path from 'path';
 
 /**
- * Check for common error patterns that indicate a broken app
+ * Check for critical "error sending request" and fail the test immediately
+ * No more automatic restarts - if this error appears, the test should fail
  */
-async function checkForAppErrors(): Promise<boolean> {
-    const errorPatterns = [
-        'error sending request',
-        'connection failed', 
-        'network error',
-        'tauri error',
-        'backend error',
-        'failed to fetch',
-        'cannot connect'
-    ];
+async function checkForCriticalErrors(): Promise<void> {
+    console.log('🔍 Checking for critical error: "error sending request"...');
     
-    console.log('🔍 Checking for app error indicators...');
-    
-    for (const pattern of errorPatterns) {
-        try {
-            const errorEl = await $(`//*[contains(@text, "${pattern}")]`);
-            if (await errorEl.isExisting()) {
-                console.error(`❌ Found error pattern: "${pattern}"`);
-                await saveDebugScreenshot(`error-${pattern.replace(/\s+/g, '-')}`);
-                return true;
-            }
-        } catch (e) {
-            // Ignore xpath errors, continue checking
-        }
+    const errorEl = await $('//*[contains(@text, "error sending request")]');
+    if (await errorEl.isExisting()) {
+        const errorText = await errorEl.getText();
+        console.error(`❌ CRITICAL ERROR DETECTED: "${errorText}"`);
+        await saveDebugScreenshot('critical-error-sending-request');
+        
+        // Fail the test immediately - no restarts
+        throw new Error(`Test failed due to critical error in app: "${errorText}". This likely indicates backend connectivity issues that should be resolved before testing.`);
     }
     
-    // Also check for generic error elements
-    try {
-        const errorElements = await $$('//*[contains(translate(@text, "ERROR", "error"), "error")]');
-        if (errorElements.length > 0) {
-            console.error(`❌ Found ${errorElements.length} elements with "error" text`);
-            const errorTexts = await Promise.all(errorElements.map(el => el.getText().catch(() => 'N/A')));
-            console.error('Error texts:', errorTexts);
-            await saveDebugScreenshot('generic-errors');
-            return true;
-        }
-    } catch (e) {
-        // Ignore xpath errors
-    }
-    
-    console.log('✅ No error patterns detected');
-    return false;
+    console.log('✅ No critical errors detected');
 }
 
 /**
@@ -58,11 +31,8 @@ async function verifyAppHealth(): Promise<boolean> {
     // Take screenshot for debugging
     await saveDebugScreenshot('health-check');
     
-    // First check for errors
-    const hasErrors = await checkForAppErrors();
-    if (hasErrors) {
-        return false;
-    }
+    // First check for critical errors (will throw if found)
+    await checkForCriticalErrors();
     
     // Check for expected core UI elements
     const expectedElements = [
@@ -270,7 +240,7 @@ async function checkDeviceHealth(): Promise<boolean> {
     }
 }
 
-export async function ensureAppIsRunning() {
+export async function ensureAppIsRunning(forceRestart: boolean = false) {
     const appId = 'io.github.koo5.hillview.dev';
     const maxRetries = 3;
     
@@ -292,11 +262,20 @@ export async function ensureAppIsRunning() {
                 throw new Error('App is not installed!');
             }
             
-            if (state !== 4) {
+            // If forceRestart is true, always restart the app
+            if (forceRestart && state > 1) {
+                console.log('🔄 Force restart requested, terminating app...');
+                await browser.terminateApp(appId);
+                await browser.pause(2000);
+            }
+            
+            const needsLaunch = forceRestart || state !== 4;
+            
+            if (needsLaunch) {
                 console.log('App not in foreground, launching...');
                 
-                // Terminate if running in background
-                if (state === 2 || state === 3) {
+                // Terminate if running in background (only if not already terminated by forceRestart)
+                if (!forceRestart && (state === 2 || state === 3)) {
                     await browser.terminateApp(appId);
                     await browser.pause(1000);
                 }
@@ -317,13 +296,15 @@ export async function ensureAppIsRunning() {
                 }
                 
                 await browser.pause(3000);
+            } else {
+                console.log('✅ App already running in foreground, checking health...');
             }
             
             // Verify WebView is present
             const webView = await $('android.webkit.WebView');
             await webView.waitForExist({ timeout: 15000 });
             
-            // NEW: Verify app is actually functional, not just running
+            // Verify app is actually functional, not just running
             console.log('🔍 WebView found, now verifying app health...');
             const isHealthy = await verifyAppHealth();
             if (!isHealthy) {
@@ -335,7 +316,7 @@ export async function ensureAppIsRunning() {
             return true;
             
         } catch (error) {
-            console.error(`❌ Failed to launch app (attempt ${i + 1}):`, error.message);
+            console.error(`❌ Failed to ensure app is running (attempt ${i + 1}):`, error.message);
             
             // Save debug info on failure
             try {
@@ -354,6 +335,163 @@ export async function ensureAppIsRunning() {
     }
     
     return false;
+}
+
+/**
+ * Clear app data to ensure clean state for testing
+ */
+export async function clearAppData() {
+    const appId = 'io.github.koo5.hillview.dev';
+    
+    try {
+        console.log('🧹 Clearing app data...');
+        
+        // Method 1: Use appium's built-in app data clearing
+        try {
+            await browser.execute('mobile: clearApp', { appId });
+            console.log('✅ App data cleared using mobile:clearApp');
+            return true;
+        } catch (e) {
+            console.log('ℹ️ mobile:clearApp not available, trying ADB method...');
+        }
+        
+        // Method 2: Use ADB commands to clear app data
+        try {
+            await browser.execute('mobile: shell', {
+                command: `pm clear ${appId}`
+            });
+            console.log('✅ App data cleared using ADB pm clear');
+            return true;
+        } catch (e) {
+            console.log('⚠️ ADB pm clear failed:', e.message);
+        }
+        
+        // Method 3: Manual cleanup via app settings (if accessible)
+        try {
+            console.log('🔧 Attempting manual data cleanup via app settings...');
+            
+            // Force stop the app first
+            await browser.execute('mobile: shell', {
+                command: `am force-stop ${appId}`
+            });
+            await browser.pause(1000);
+            
+            // Clear specific app directories
+            const clearCommands = [
+                `rm -rf /data/data/${appId}/app_webview/`,
+                `rm -rf /data/data/${appId}/cache/`,
+                `rm -rf /data/data/${appId}/shared_prefs/`,
+                `rm -rf /data/data/${appId}/databases/`,
+                `rm -rf /data/data/${appId}/files/`
+            ];
+            
+            for (const command of clearCommands) {
+                try {
+                    await browser.execute('mobile: shell', { command });
+                } catch (e) {
+                    // Some directories might not exist or be accessible
+                    console.log(`ℹ️ Could not clear: ${command}`);
+                }
+            }
+            
+            console.log('✅ Manual data cleanup completed');
+            return true;
+            
+        } catch (e) {
+            console.warn('⚠️ Manual data cleanup failed:', e.message);
+        }
+        
+        console.warn('⚠️ All data clearing methods failed - proceeding with potential stale data');
+        return false;
+        
+    } catch (error) {
+        console.error('❌ Failed to clear app data:', error.message);
+        return false;
+    }
+}
+
+/**
+ * Prepare app for a new test with clean state
+ * Always restarts with fresh data for proper test isolation
+ */
+export async function prepareAppForTest(clearData: boolean = true) {
+    const appId = 'io.github.koo5.hillview.dev';
+    
+    try {
+        console.log('🧪 Preparing clean app state for test...');
+        
+        // Step 1: Terminate the app if running
+        const state = await browser.queryAppState(appId);
+        console.log(`📱 Current app state: ${state}`);
+        
+        if (state > 1) {
+            console.log('🛑 Terminating running app...');
+            await browser.terminateApp(appId);
+            await browser.pause(2000);
+        }
+        
+        // Step 2: Clear app data if requested
+        if (clearData) {
+            await clearAppData();
+            await browser.pause(1000);
+        }
+        
+        // Step 3: Start the app fresh
+        console.log('🚀 Starting fresh app instance...');
+        return await ensureAppIsRunning(true);
+        
+    } catch (error) {
+        console.error('❌ Failed to prepare clean app state:', error.message);
+        // Fall back to basic restart
+        return await ensureAppIsRunning(true);
+    }
+}
+
+/**
+ * Quick app preparation without data clearing (for performance-sensitive scenarios)
+ */
+export async function prepareAppForTestFast() {
+    const appId = 'io.github.koo5.hillview.dev';
+    
+    try {
+        // Check if app is running and healthy
+        const state = await browser.queryAppState(appId);
+        console.log(`📱 App state before test: ${state}`);
+        
+        if (state === 4) {
+            // App is in foreground, do a quick health check
+            console.log('🏥 App is running, performing quick health check...');
+            
+            try {
+                // Quick check for critical errors (will throw and fail test if found)
+                await checkForCriticalErrors();
+                
+                // Check if WebView is still responsive
+                const webView = await $('android.webkit.WebView');
+                const webViewExists = await webView.isExisting();
+                
+                if (webViewExists) {
+                    console.log('✅ App appears healthy, no restart needed');
+                    return true;
+                } else {
+                    console.log('⚠️ WebView missing, restarting app...');
+                    return await ensureAppIsRunning(true);
+                }
+            } catch (e) {
+                console.log('⚠️ Health check failed, restarting app...');
+                return await ensureAppIsRunning(true);
+            }
+        } else {
+            // App is not in foreground, launch it
+            console.log('📱 App not in foreground, launching...');
+            return await ensureAppIsRunning(false);
+        }
+        
+    } catch (error) {
+        console.error('❌ Failed to prepare app for test:', error.message);
+        // Fall back to full restart
+        return await ensureAppIsRunning(true);
+    }
 }
 
 export async function launchAppUsingAdb() {

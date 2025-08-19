@@ -1,4 +1,5 @@
 import { expect } from '@wdio/globals'
+import { ensureAppIsRunning, clearAppData } from '../helpers/app-launcher'
 
 /**
  * Android Upload Verification Test
@@ -7,14 +8,10 @@ import { expect } from '@wdio/globals'
  */
 describe('Android Upload Verification', () => {
     beforeEach(async function () {
-        this.timeout(60000);
+        this.timeout(90000);
         
-        await driver.terminateApp('io.github.koo5.hillview.dev');
-        await driver.pause(2000);
-        await driver.activateApp('io.github.koo5.hillview.dev');
-        await driver.pause(5000);
-        
-        console.log('🔄 App restarted for upload verification test');
+        // Clean app state is automatically provided by wdio.conf.ts beforeTest hook
+        console.log('🧪 Starting upload verification test with clean app state');
     });
 
     describe('Gallery Check', () => {

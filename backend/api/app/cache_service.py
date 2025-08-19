@@ -137,8 +137,8 @@ class MapillaryCacheService:
         
         # Debug: Check actual grid coordinates being returned
         if photos:
-            grid_coords = [(photo.get('_grid_x'), photo.get('_grid_y')) for photo in photos[:10]]
-            log.info(f"Debug: First 10 grid coordinates: {grid_coords}")
+            grid_coords = [(photo.get('_grid_x'), photo.get('_grid_y')) for photo in photos]
+            log.info(f"Debug: Grid coordinates: {grid_coords}")
             
             # Check for invalid coordinates
             invalid_coords = [(x, y) for x, y in grid_coords if x is None or y is None or x < 0 or x >= grid_size or y < 0 or y >= grid_size]

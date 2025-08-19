@@ -1,4 +1,5 @@
 import { expect } from '@wdio/globals'
+import { ensureAppIsRunning, prepareAppForTestFast } from '../helpers/app-launcher'
 
 /**
  * Quick Android Test
@@ -9,12 +10,15 @@ describe('Quick Android Test', () => {
     beforeEach(async function () {
         this.timeout(60000);
         
-        await driver.terminateApp('io.github.koo5.hillview.dev');
-        await driver.pause(2000);
-        await driver.activateApp('io.github.koo5.hillview.dev');
-        await driver.pause(5000);
+        // For quick tests, we can use fast mode to skip data clearing
+        // This makes the test faster while still ensuring app health
+        console.log('⚡ Starting quick test with fast app preparation');
         
-        console.log('🔄 App restarted for quick test');
+        // Uncomment this line to use fast mode that skips data clearing:
+        // await prepareAppForTestFast();
+        
+        // Or use default clean mode (handled by wdio.conf.ts)
+        console.log('🧪 App state prepared by framework');
     });
 
     describe('Quick Workflow Check', () => {

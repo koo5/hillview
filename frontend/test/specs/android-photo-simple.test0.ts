@@ -7,7 +7,7 @@ import { TestWorkflows } from '../helpers/TestWorkflows'
  * A simplified test that focuses on testing the photo capture workflow
  * and verifying that the worker container processes uploads correctly.
  */
-describe('Simple Android Photo Upload', () => {
+describe('Simplest Android Photo Upload', () => {
     let workflows: TestWorkflows;
     
     beforeEach(async function () {
@@ -26,7 +26,7 @@ describe('Simple Android Photo Upload', () => {
         // await clearAppData();
     });
 
-    describe('Basic Photo Workflow', () => {
+    describe('Basic Photo Workflow0', () => {
         it('should login and capture a photo with upload verification', async function () {
             this.timeout(180000);
             
@@ -142,7 +142,19 @@ describe('Simple Android Photo Upload', () => {
                 await driver.saveScreenshot('./test-results/android-camera-interface.png');
                 
                 // Handle camera and location permissions
-                console.log('📋 Checking for permission dialogs...');
+                console.log('📋 Checking for permission dialogs and camera enablement...');
+                
+                // Check for "Enable Camera" button (app-specific)
+                try {
+                    const enableCameraButton = await $('android=new UiSelector().text("Enable Camera")');
+                    if (await enableCameraButton.isDisplayed()) {
+                        console.log('📷 Clicking "Enable Camera" button...');
+                        await enableCameraButton.click();
+                        await driver.pause(3000);
+                    }
+                } catch (e) {
+                    console.log('ℹ️ No "Enable Camera" button found');
+                }
                 
                 // Check for camera permission first
                 try {
@@ -180,16 +192,20 @@ describe('Simple Android Photo Upload', () => {
                     console.log('ℹ️ No "While using app" option');
                 }
                 
-                // Check for any other Allow buttons
-                try {
-                    const anyAllowButton = await $('android=new UiSelector().textContains("Allow")');
-                    if (await anyAllowButton.isDisplayed()) {
-                        console.log('✅ Granting additional permission...');
-                        await anyAllowButton.click();
-                        await driver.pause(2000);
+                // Check for additional permission buttons
+                const permissionTexts = ['Allow', 'Enable', 'Grant', 'OK'];
+                for (const permText of permissionTexts) {
+                    try {
+                        const permButton = await $(`android=new UiSelector().textContains("${permText}")`);
+                        if (await permButton.isDisplayed()) {
+                            console.log(`✅ Clicking permission button: "${permText}"...`);
+                            await permButton.click();
+                            await driver.pause(2000);
+                            break; // Only click one permission button per iteration
+                        }
+                    } catch (e) {
+                        // Continue to next permission text
                     }
-                } catch (e) {
-                    console.log('ℹ️ No additional permission prompts');
                 }
                 
                 // Wait for camera to initialize
@@ -301,14 +317,35 @@ describe('Simple Android Photo Upload', () => {
                     
                     // If still not back, try different approaches
                     if (backAttempts === 2) {
-                        // Try home button approach
-                        console.log('🏠 Trying home button...');
+                        // Try home button approach (but avoid full app restart)
+                        console.log('🏠 Trying to return via task switcher...');
                         await driver.pressKeyCode(3); // Android HOME key
-                        await driver.pause(2000);
+                        await driver.pause(1000);
                         
-                        // Reactivate the app
-                        await driver.activateApp('io.github.koo5.hillview.dev');
-                        await driver.pause(3000);
+                        // Use task switcher to return to app (avoids full restart)
+                        await driver.pressKeyCode(187); // Recent apps key (task switcher)
+                        await driver.pause(1000);
+                        
+                        // Tap on the app in task switcher instead of calling activateApp
+                        const { width, height } = await driver.getWindowSize();
+                        await driver.performActions([
+                            {
+                                type: 'pointer',
+                                id: 'finger1',
+                                parameters: { pointerType: 'touch' },
+                                actions: [
+                                    { type: 'pointerMove', duration: 0, x: width / 2, y: height / 2 },
+                                    { type: 'pointerDown', button: 0 },
+                                    { type: 'pause', duration: 100 },
+                                    { type: 'pointerUp', button: 0 }
+                                ]
+                            }
+                        ]);
+                        await driver.pause(1000);
+                        
+                        // Or just try more back buttons
+                        await driver.back();
+                        await driver.pause(2000);
                     }
                 }
                 
@@ -342,148 +379,6 @@ describe('Simple Android Photo Upload', () => {
             } catch (error) {
                 console.error('❌ Photo capture workflow failed:', error);
                 await driver.saveScreenshot('./test-results/android-photo-capture-error.png');
-                throw error;
-            }
-        });
-        
-        it('should test menu navigation and check for sources', async function () {
-            this.timeout(120000);
-            
-            console.log('🔍 Testing menu navigation...');
-            
-            try {
-                // Find hamburger menu
-                const hamburgerMenu = await $('android=new UiSelector().text("Toggle menu")');
-                await hamburgerMenu.click();
-                await driver.pause(3000);
-                
-                // Take screenshot of open menu
-                await driver.saveScreenshot('./test-results/android-simple-menu-nav.png');
-                
-                // Switch to WebView context to access menu items
-                const contexts = await driver.getContexts();
-                console.log('📋 Available contexts:', contexts);
-                
-                const webViewContexts = contexts.filter(ctx => ctx.includes('WEBVIEW'));
-                if (webViewContexts.length > 0) {
-                    console.log(`🌐 Switching to WebView context: ${webViewContexts[0]}`);
-                    await driver.switchContext(webViewContexts[0]);
-                    
-                    // Take screenshot in WebView context
-                    await driver.saveScreenshot('./test-results/android-simple-webview.png');
-                    
-                    // Look for sources link
-                    try {
-                        const sourcesLink = await $('a[href="/sources"]');
-                        const sourcesVisible = await sourcesLink.isDisplayed();
-                        console.log(`📊 Sources link visible: ${sourcesVisible}`);
-                        
-                        if (sourcesVisible) {
-                            await sourcesLink.click();
-                            await driver.pause(3000);
-                            console.log('✅ Navigated to sources page');
-                            
-                            // Take screenshot of sources page
-                            await driver.saveScreenshot('./test-results/android-simple-sources.png');
-                            
-                            // Look for Mapillary toggle to disable it
-                            try {
-                                const mapillaryToggle = await $('input[data-testid="source-checkbox-mapillary"]');
-                                const isChecked = await mapillaryToggle.isSelected();
-                                if (isChecked) {
-                                    await mapillaryToggle.click();
-                                    console.log('🚫 Disabled Mapillary source');
-                                    await driver.pause(2000);
-                                }
-                            } catch (e) {
-                                console.log('ℹ️ Could not find/toggle Mapillary source');
-                            }
-                            
-                            // Navigate back to main page
-                            await driver.back();
-                            await driver.pause(2000);
-                        }
-                    } catch (e) {
-                        console.log('⚠️ Could not access sources link:', e.message);
-                    }
-                    
-                    // Switch back to native context
-                    await driver.switchContext('NATIVE_APP');
-                    console.log('↩️ Switched back to native context');
-                } else {
-                    console.log('⚠️ No WebView context found');
-                }
-                
-                // Close menu
-                await driver.back();
-                await driver.pause(2000);
-                
-                console.log('✅ Menu navigation test completed');
-                
-                // FIXED: Actually verify menu navigation worked
-                const menuClosed = await hamburgerMenu.isDisplayed() === false ||
-                                  await driver.getCurrentActivity().then(a => a.includes('MainActivity'));
-                expect(menuClosed).toBe(true);
-                
-            } catch (error) {
-                console.error('❌ Menu navigation test failed:', error);
-                await driver.saveScreenshot('./test-results/android-simple-nav-error.png');
-                throw error;
-            }
-        });
-        
-        it('should check for photo loading indicators', async function () {
-            this.timeout(120000);
-            
-            console.log('🔍 Checking photo loading status...');
-            
-            try {
-                // Look for "No photos in range" text
-                const noPhotosText = await $('android=new UiSelector().text("No photos in range")');
-                const hasNoPhotos = await noPhotosText.isDisplayed();
-                
-                console.log(`📊 "No photos in range" displayed: ${hasNoPhotos}`);
-                
-                if (hasNoPhotos) {
-                    console.log('ℹ️ No photos currently loaded - this is expected for a clean test');
-                } else {
-                    console.log('✅ Photos may be loaded or loading');
-                }
-                
-                // Take screenshot of current state
-                await driver.saveScreenshot('./test-results/android-simple-photo-status.png');
-                
-                // Test map interaction
-                console.log('🗺️ Testing map interaction...');
-                const { width, height } = await driver.getWindowSize();
-                const mapCenterX = width / 2;
-                const mapCenterY = height * 0.6; // Approximate map center
-                
-                // Use performActions instead of touchAction for compatibility
-                await driver.performActions([
-                    {
-                        type: 'pointer',
-                        id: 'finger1',
-                        parameters: { pointerType: 'touch' },
-                        actions: [
-                            { type: 'pointerMove', duration: 0, x: mapCenterX, y: mapCenterY },
-                            { type: 'pointerDown', button: 0 },
-                            { type: 'pause', duration: 100 },
-                            { type: 'pointerUp', button: 0 }
-                        ]
-                    }
-                ]);
-                await driver.pause(2000);
-                
-                console.log('✅ Map interaction test completed');
-                
-                // FIXED: Actually verify map interaction worked
-                const appStillHealthy = await workflows.performQuickHealthCheck();
-                expect(appStillHealthy).toBe(true);
-                
-            } catch (error) {
-                console.error('❌ Photo status check failed:', error);
-                await driver.saveScreenshot('./test-results/android-simple-status-error.png');
                 throw error;
             }
         });

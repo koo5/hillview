@@ -474,65 +474,63 @@ async def delete_users_by_usernames(db: AsyncSession, usernames: list[str]) -> d
         raise
 
 
-async def recreate_test_users(db: AsyncSession) -> dict:
+async def recreate_test_users() -> dict:
     """Recreate test users with fresh passwords. Returns summary of actions taken."""
-    from common.models import UserRole
-    
-    # Hardcoded test users with roles
-    test_user_data = [
-        ("test", "test123", UserRole.USER),
-        ("admin", "admin123", UserRole.ADMIN)
-    ]
-    
-    summary = {
-        "photos_deleted": 0,
-        "users_deleted": 0,
-        "users_created": 0,
-        "created_users": []
-    }
-    
-    try:
-        test_usernames = [username for username, _, _ in test_user_data]
-        
-        # Delete existing test users and their photos
-        delete_summary = await delete_users_by_usernames(db, test_usernames)
-        summary["photos_deleted"] = delete_summary["photos_deleted"]
-        summary["users_deleted"] = delete_summary["users_deleted"]
-        
-        # Create fresh test users
-        for username, password, role in test_user_data:
-            hashed_password = get_password_hash(password)
-            logger.info(f"Creating test user {username} with role {role.value} and password hash: {hashed_password[:50]}...")
-            new_user = User(
-                username=username,
-                email=f"{username}@test.local",
-                hashed_password=hashed_password,
-                role=role,
-                is_active=True,
-                is_test=True
-            )
-            
-            db.add(new_user)
-            summary["created_users"].append(username)
-            summary["users_created"] += 1
-            
-        await db.commit()
-        logger.info(f"Created {len(test_user_data)} fresh test users")
-        
-        return summary
-            
-    except Exception as e:
-        logger.error(f"Error recreating test users: {str(e)}")
-        await db.rollback()
-        raise
 
-async def ensure_test_users() -> None:
-    """Create test users if TEST_USERS is enabled. Delete and recreate if they exist."""
     if not TEST_USERS:
-        return
-    
+        raise ValueError("TEST_USERS is not enabled")
+
     from common.database import SessionLocal
-    
+
     async with SessionLocal() as db:
-        summary = await recreate_test_users(db)
-        logger.info(f"Test users recreation complete: {summary}")
+
+        from common.models import UserRole
+
+        # Hardcoded test users with roles
+        test_user_data = [
+            ("test", "test123", UserRole.USER),
+            ("admin", "admin123", UserRole.ADMIN)
+        ]
+
+        summary = {
+            "photos_deleted": 0,
+            "users_deleted": 0,
+            "users_created": 0,
+            "created_users": []
+        }
+
+        try:
+            test_usernames = [username for username, _, _ in test_user_data]
+
+            # Delete existing test users and their photos
+            delete_summary = await delete_users_by_usernames(db, test_usernames)
+            summary["photos_deleted"] = delete_summary["photos_deleted"]
+            summary["users_deleted"] = delete_summary["users_deleted"]
+
+            # Create fresh test users
+            for username, password, role in test_user_data:
+                hashed_password = get_password_hash(password)
+                logger.info(f"Creating test user {username} with role {role.value} and password hash: {hashed_password[:50]}...")
+                new_user = User(
+                    username=username,
+                    email=f"{username}@test.local",
+                    hashed_password=hashed_password,
+                    role=role,
+                    is_active=True,
+                    is_test=True
+                )
+
+                db.add(new_user)
+                summary["created_users"].append(username)
+                summary["users_created"] += 1
+
+            await db.commit()
+            logger.info(f"Created {len(test_user_data)} fresh test users")
+
+            return summary
+
+        except Exception as e:
+            logger.error(f"Error recreating test users: {str(e)}")
+            await db.rollback()
+            raise
+

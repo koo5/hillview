@@ -1,15 +1,20 @@
 import { expect } from '@wdio/globals'
+import { ensureAppIsRunning, clearAppData } from '../helpers/app-launcher'
 
 /**
  * Android Authentication Workflow Tests
  * Tests both username/password login and OAuth deep link handling in the actual Android app
  */
 describe('Android Authentication Workflow', () => {
-    beforeEach(async () => {
-        // Ensure we're starting with a clean app state
-        await driver.terminateApp('io.github.koo5.hillview.dev');
-        await driver.activateApp('io.github.koo5.hillview.dev');
-        await driver.pause(3000); // Allow app to fully load
+    beforeEach(async function () {
+        this.timeout(90000);
+        
+        // Clean app state is automatically provided by wdio.conf.ts beforeTest hook
+        // This is especially important for auth tests to ensure no cached credentials
+        console.log('🧪 Starting authentication test with clean app state');
+        
+        // Auth tests benefit from guaranteed clean state
+        // The framework already cleared data, but this ensures no auth tokens remain
     });
 
     describe('Browser-Based Authentication', () => {
@@ -211,12 +216,9 @@ describe('Android Authentication Workflow', () => {
                     await driver.pause(3000);
                 }
                 
-                // Restart the app
-                console.log('🔄 Restarting app to test persistence...');
-                await driver.terminateApp('io.github.koo5.hillview.dev');
-                await driver.pause(2000);
-                await driver.activateApp('io.github.koo5.hillview.dev');
-                await driver.pause(5000);
+                // Restart the app WITHOUT clearing data to test auth persistence
+                console.log('🔄 Restarting app to test auth persistence (no data clearing)...');
+                await ensureAppIsRunning(true); // forceRestart=true, but prepareAppForTest has clearData=false by default
                 
                 // Take screenshot after restart
                 await driver.saveScreenshot('./test-results/android-after-restart.png');

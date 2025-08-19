@@ -1,4 +1,5 @@
 import { expect } from '@wdio/globals'
+import { ensureAppIsRunning, clearAppData } from '../helpers/app-launcher'
 
 /**
  * Android UI Diagnostic Test
@@ -8,15 +9,10 @@ import { expect } from '@wdio/globals'
  */
 describe('Android UI Diagnostic', () => {
     beforeEach(async function () {
-        this.timeout(60000);
+        this.timeout(90000);
         
-        // Ensure app is running and ready
-        await driver.terminateApp('io.github.koo5.hillview.dev');
-        await driver.pause(2000);
-        await driver.activateApp('io.github.koo5.hillview.dev');
-        await driver.pause(5000);
-        
-        console.log('🔄 App restarted for UI diagnostic');
+        // Clean app state is automatically provided by wdio.conf.ts beforeTest hook
+        console.log('🧪 Starting UI diagnostic test with clean app state');
     });
 
     describe('UI Structure Discovery', () => {
