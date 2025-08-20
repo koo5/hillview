@@ -54,6 +54,45 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         
         return response
 
+# Global Rate Limiting Middleware
+class GlobalRateLimitMiddleware(BaseHTTPMiddleware):
+    """Global rate limiting middleware for basic protection."""
+    
+    def __init__(self, app):
+        super().__init__(app)
+        from .rate_limiter import general_rate_limiter
+        self.rate_limiter = general_rate_limiter
+        
+        # Endpoints that bypass global rate limiting (have their own specific limits)
+        self.bypass_paths = {
+            "/api/auth/token",
+            "/api/auth/register", 
+            "/api/auth/oauth-redirect",
+            "/api/auth/oauth-callback",
+            "/api/auth/oauth"
+        }
+    
+    async def dispatch(self, request: Request, call_next):
+        # Skip rate limiting for certain paths and methods
+        if (request.url.path in self.bypass_paths or 
+            request.method == "OPTIONS" or
+            request.url.path.startswith("/api/debug")):
+            return await call_next(request)
+        
+        # Apply general API rate limiting
+        try:
+            await self.rate_limiter.enforce_rate_limit(request, 'general_api')
+        except HTTPException as e:
+            # Return rate limit response
+            from fastapi.responses import JSONResponse
+            return JSONResponse(
+                status_code=e.status_code,
+                content={"detail": e.detail},
+                headers=e.headers
+            )
+        
+        return await call_next(request)
+
 # Request logging middleware
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
@@ -98,9 +137,10 @@ class CORSLoggingMiddleware(BaseHTTPMiddleware):
         
         return response
 
-# Add middlewares
+# Add middlewares (order matters - later added = executed first)
 app.add_middleware(CORSLoggingMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
+app.add_middleware(GlobalRateLimitMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 
 # Add exception handlers

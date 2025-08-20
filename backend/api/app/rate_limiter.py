@@ -2,9 +2,10 @@ import asyncio
 import datetime
 import time
 from collections import defaultdict
-from typing import Dict, Optional
+from typing import Dict, Optional, Callable
 from fastapi import HTTPException, Request, status
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -185,3 +186,124 @@ async def check_auth_rate_limit(request: Request, username: Optional[str] = None
     """Check authentication-specific rate limits."""
     identifier = auth_rate_limiter.get_identifier(request, username)
     await auth_rate_limiter.check_auth_rate_limit(identifier)
+
+class GeneralRateLimiter:
+    """General-purpose rate limiter for API endpoints with configurable limits."""
+    
+    def __init__(self):
+        # Track request history: {identifier: [(timestamp, endpoint_type)]}
+        self.request_history: Dict[str, list] = defaultdict(list)
+        self.lock = asyncio.Lock()
+        
+        # Load rate limits from environment with defaults
+        self.limits = {
+            'photo_upload': {
+                'max_requests': int(os.getenv('RATE_LIMIT_PHOTO_UPLOAD', '10')),
+                'window_hours': int(os.getenv('RATE_LIMIT_PHOTO_UPLOAD_WINDOW', '1')),
+                'per_user': True
+            },
+            'photo_operations': {
+                'max_requests': int(os.getenv('RATE_LIMIT_PHOTO_OPS', '100')),
+                'window_hours': int(os.getenv('RATE_LIMIT_PHOTO_OPS_WINDOW', '1')),
+                'per_user': True
+            },
+            'user_profile': {
+                'max_requests': int(os.getenv('RATE_LIMIT_USER_PROFILE', '50')),
+                'window_hours': int(os.getenv('RATE_LIMIT_USER_PROFILE_WINDOW', '1')),
+                'per_user': True
+            },
+            'general_api': {
+                'max_requests': int(os.getenv('RATE_LIMIT_GENERAL_API', '200')),
+                'window_hours': int(os.getenv('RATE_LIMIT_GENERAL_API_WINDOW', '1')),
+                'per_user': False  # Per IP
+            },
+            'public_read': {
+                'max_requests': int(os.getenv('RATE_LIMIT_PUBLIC_READ', '500')),
+                'window_hours': int(os.getenv('RATE_LIMIT_PUBLIC_READ_WINDOW', '1')),
+                'per_user': False  # Per IP
+            }
+        }
+    
+    def get_identifier(self, request: Request, user_id: Optional[str] = None, limit_type: str = 'general_api') -> str:
+        """Get identifier for rate limiting based on limit type."""
+        limit_config = self.limits.get(limit_type, self.limits['general_api'])
+        
+        if limit_config['per_user'] and user_id:
+            return f"user:{user_id}"
+        else:
+            # Use IP address
+            client_ip = request.client.host if request.client else "unknown"
+            return f"ip:{client_ip}"
+    
+    async def check_rate_limit(
+        self,
+        request: Request,
+        limit_type: str,
+        user_id: Optional[str] = None
+    ) -> bool:
+        """Check if request is within rate limit for the specified limit type."""
+        async with self.lock:
+            limit_config = self.limits.get(limit_type)
+            if not limit_config:
+                logger.warning(f"Unknown rate limit type: {limit_type}")
+                return True
+            
+            identifier = self.get_identifier(request, user_id, limit_type)
+            now = time.time()
+            window_seconds = limit_config['window_hours'] * 3600
+            max_requests = limit_config['max_requests']
+            
+            # Get request history for this identifier
+            history = self.request_history[identifier]
+            
+            # Remove old entries outside the time window
+            history[:] = [t for t in history if now - t < window_seconds]
+            
+            if len(history) >= max_requests:
+                logger.warning(f"Rate limit exceeded for {identifier}, limit_type: {limit_type}, count: {len(history)}")
+                return False
+            
+            # Add current request
+            history.append(now)
+            return True
+    
+    async def enforce_rate_limit(
+        self,
+        request: Request,
+        limit_type: str,
+        user_id: Optional[str] = None
+    ) -> None:
+        """Enforce rate limit and raise HTTPException if exceeded."""
+        if not await self.check_rate_limit(request, limit_type, user_id):
+            limit_config = self.limits[limit_type]
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Rate limit exceeded: {limit_config['max_requests']} requests per {limit_config['window_hours']} hour(s)",
+                headers={"Retry-After": str(limit_config['window_hours'] * 3600)}
+            )
+
+# Global rate limiter instances
+mapillary_rate_limiter = AsyncRateLimiter(rate_limit_seconds=1.0)
+auth_rate_limiter = AuthRateLimiter()
+general_rate_limiter = GeneralRateLimiter()
+
+# Dependency functions for different endpoint types
+async def rate_limit_photo_upload(request: Request, user_id: str) -> None:
+    """Rate limit photo upload endpoints."""
+    await general_rate_limiter.enforce_rate_limit(request, 'photo_upload', user_id)
+
+async def rate_limit_photo_operations(request: Request, user_id: str) -> None:
+    """Rate limit photo operation endpoints."""
+    await general_rate_limiter.enforce_rate_limit(request, 'photo_operations', user_id)
+
+async def rate_limit_user_profile(request: Request, user_id: str) -> None:
+    """Rate limit user profile endpoints."""
+    await general_rate_limiter.enforce_rate_limit(request, 'user_profile', user_id)
+
+async def rate_limit_general_api(request: Request, user_id: Optional[str] = None) -> None:
+    """Rate limit general API endpoints."""
+    await general_rate_limiter.enforce_rate_limit(request, 'general_api', user_id)
+
+async def rate_limit_public_read(request: Request) -> None:
+    """Rate limit public read endpoints."""
+    await general_rate_limiter.enforce_rate_limit(request, 'public_read')

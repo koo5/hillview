@@ -6,7 +6,7 @@ from typing import Optional
 from datetime import datetime
 import aiofiles
 
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Request
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -23,6 +23,7 @@ from .security_utils import (
     validate_file_path,
     check_file_content
 )
+from .rate_limiter import rate_limit_photo_upload, rate_limit_photo_operations
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,7 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 
 @router.post("/upload")
 async def upload_photo(
+    request: Request,
     file: UploadFile = File(...),
     description: Optional[str] = Form(None),
     is_public: bool = Form(True),
@@ -41,6 +43,9 @@ async def upload_photo(
     db: AsyncSession = Depends(get_db)
 ):
     """Upload a photo with security validation and immediate database record creation."""
+    # Apply photo upload rate limiting
+    await rate_limit_photo_upload(request, current_user.id)
+    
     logger.error(f"DEBUG: Upload request received for user {current_user.id}: {file.filename}")
     try:
         # Get file size
@@ -148,6 +153,7 @@ async def upload_photo(
 
 @router.get("/")
 async def list_photos(
+    request: Request,
     skip: int = 0,
     limit: int = 100,
     only_processed: bool = False,
@@ -155,6 +161,9 @@ async def list_photos(
     db: AsyncSession = Depends(get_db)
 ):
     """List user's photos."""
+    # Apply photo operations rate limiting
+    await rate_limit_photo_operations(request, current_user.id)
+    
     try:
         query = select(Photo).where(Photo.owner_id == str(current_user.id))
         
@@ -192,11 +201,15 @@ async def list_photos(
 
 @router.get("/{photo_id}")
 async def get_photo(
+    request: Request,
     photo_id: str,
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Get photo details."""
+    # Apply photo operations rate limiting
+    await rate_limit_photo_operations(request, current_user.id)
+    
     try:
         result = await db.execute(
             select(Photo).where(
@@ -244,12 +257,16 @@ async def get_photo(
 
 @router.get("/{photo_id}/download")
 async def download_photo(
+    request: Request,
     photo_id: str,
     size: Optional[str] = None,
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Download a photo file."""
+    # Apply photo operations rate limiting
+    await rate_limit_photo_operations(request, current_user.id)
+    
     try:
         result = await db.execute(
             select(Photo).where(
@@ -297,11 +314,15 @@ async def download_photo(
 
 @router.delete("/{photo_id}")
 async def delete_photo(
+    request: Request,
     photo_id: str,
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Delete a photo and its files."""
+    # Apply photo operations rate limiting
+    await rate_limit_photo_operations(request, current_user.id)
+    
     try:
         result = await db.execute(
             select(Photo).where(

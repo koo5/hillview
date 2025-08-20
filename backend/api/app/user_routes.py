@@ -23,7 +23,7 @@ from .auth import (
     OAUTH_PROVIDERS, ACCESS_TOKEN_EXPIRE_MINUTES,
     blacklist_token, get_current_user
 )
-from .rate_limiter import auth_rate_limiter, check_auth_rate_limit
+from .rate_limiter import auth_rate_limiter, check_auth_rate_limit, rate_limit_user_profile
 from .security_utils import validate_username, validate_email, validate_oauth_redirect_uri
 from .security_audit import security_audit
 

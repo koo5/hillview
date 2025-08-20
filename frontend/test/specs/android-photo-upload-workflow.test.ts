@@ -196,7 +196,7 @@ describe('Android Photo Upload Workflow', () => {
                 await driver.pause(5000);
                 
                 // Take screenshot of camera interface
-                await driver.saveScreenshot('./test-results/android-camera-interface.png');
+                await driver.saveScreenshot('./test-results/xxandroid-camera-interface.png');
                 
                 // Look for camera capture button (usually a circle at bottom)
                 // Try multiple possible selectors for camera capture
