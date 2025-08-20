@@ -576,12 +576,22 @@ async def oauth_login_internal(
     }
 
 @router.get("/auth/me", response_model=UserOut)
-async def read_users_me(current_user: User = Depends(get_current_active_user)):
+async def read_users_me(
+    request: Request,
+    current_user: User = Depends(get_current_active_user)
+):
+    # Apply user profile rate limiting
+    await rate_limit_user_profile(request, current_user.id)
     return current_user
 
 @router.get("/user/profile")
-async def get_user_profile(current_user: User = Depends(get_current_active_user)):
+async def get_user_profile(
+    request: Request,
+    current_user: User = Depends(get_current_active_user)
+):
     """Get detailed user profile information"""
+    # Apply user profile rate limiting
+    await rate_limit_user_profile(request, current_user.id)
     return {
         "id": current_user.id,
         "username": current_user.username,
@@ -595,10 +605,14 @@ async def get_user_profile(current_user: User = Depends(get_current_active_user)
 
 @router.delete("/user/delete")
 async def delete_user_account(
+    request: Request,
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Delete the current user's account and all associated data"""
+    # Apply user profile rate limiting
+    await rate_limit_user_profile(request, current_user.id)
+    
     try:
         # TODO: Add cascading delete for user's photos and other related data
         # For now, we'll just delete the user record
@@ -622,10 +636,14 @@ class UserSettingsUpdate(BaseModel):
 
 @router.put("/auth/settings", response_model=UserOut)
 async def update_user_settings(
+    request: Request,
     settings: UserSettingsUpdate,
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
+    # Apply user profile rate limiting
+    await rate_limit_user_profile(request, current_user.id)
+    
     if settings.auto_upload_enabled is not None:
         current_user.auto_upload_enabled = settings.auto_upload_enabled
     if settings.auto_upload_folder is not None:

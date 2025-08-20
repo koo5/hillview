@@ -14,6 +14,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
 from common.models import Photo, User
 from .auth import get_current_user_optional_with_query
+from .rate_limiter import rate_limit_public_read
 
 load_dotenv()
 log = logging.getLogger(__name__)
@@ -33,6 +34,8 @@ async def get_hillview_images(
     current_user: Optional[User] = Depends(get_current_user_optional_with_query)
 ):
     """Get Hillview images from database filtered by bounding box area"""
+    # Apply public read rate limiting
+    await rate_limit_public_read(request)
     
     try:
         # Query photos from database that fall within the bounding box

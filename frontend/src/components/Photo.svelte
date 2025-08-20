@@ -73,7 +73,7 @@
         for (let i = 0; i < sizes.length; i++) {
             const size = sizes[i];
             //console.log('size:', size);
-            if (Number(size) >= clientWidth2) {
+            if (Number(size) >= clientWidth2 || ((i === sizes.length - 1) && !photo.sizes.full)) {
                 p = photo.sizes[sizes[i]];
                 selectedSize = size;
                 width = p.width;
@@ -107,10 +107,11 @@
     <div class="debug">
         <b>Debug Information</b><br>
         <b>clientWidth2:</b> {clientWidth2}<br>
-        <b>Selected URL:</b> {selectedUrl}
+        <b>Selected URL:</b> {JSON.stringify(selectedUrl)}<br>
         <b>Selected Size:</b> {selectedSize}
         <b>Width:</b> {width}
         <b>Height:</b> {height}
+        <b>Photo:</b> <pre>{JSON.stringify(photo, null, 2)}</pre>
     </div>
 {/if}
 
