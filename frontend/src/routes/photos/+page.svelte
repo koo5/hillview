@@ -10,6 +10,7 @@
     import type { User } from '$lib/auth.svelte';
     import { http, handleApiError, TokenExpiredError } from '$lib/http';
     import { TAURI } from '$lib/tauri';
+    import { navigateWithHistory } from '$lib/navigation.svelte';
 
     let photos: UserPhoto[] = [];
     let isLoading = true;
@@ -244,11 +245,15 @@
             goto(`/?lat=${photo.latitude}&lon=${photo.longitude}&zoom=18`);
         }
     }
+
+    function goToLogin() {
+        navigateWithHistory('/login');
+    }
 </script>
 
 <div class="photos-container">
     <div class="back-button-container">
-        <BackButton title="Back to Map" />
+        <BackButton fallbackHref="/" title="Back to Map" />
     </div>
     
     <header>
@@ -270,7 +275,7 @@
             <h2>Auto-Upload Settings</h2>
             {#if !user}
                 <div class="login-notice">
-                    <p>Please <a href="/login">log in</a> to access settings.</p>
+                    <p>Please <button type="button" class="login-link" on:click={goToLogin}>log in</button> to access settings.</p>
                 </div>
             {/if}
             <div class="form-group">
@@ -294,7 +299,7 @@
         <h2>Upload Photos</h2>
         {#if !user}
             <div class="login-notice">
-                <p>Please <a href="/login">log in</a> to upload photos.</p>
+                <p>Please <button type="button" class="login-link" on:click={goToLogin}>log in</button> to upload photos.</p>
             </div>
         {/if}
         <form on:submit|preventDefault={handleUpload} data-testid="upload-form">
@@ -400,7 +405,7 @@
                 {#if user}
                     You haven't uploaded any photos yet.
                 {:else}
-                    Please <a href="/login">log in</a> to view your photos.
+                    Please <button type="button" class="login-link" on:click={goToLogin}>log in</button> to view your photos.
                 {/if}
             </p>
         {:else}
@@ -837,13 +842,20 @@
         text-align: center;
     }
     
-    .login-notice a {
+    
+    .login-link {
+        background: none;
+        border: none;
         color: #1565c0;
         text-decoration: underline;
         font-weight: 500;
+        cursor: pointer;
+        padding: 0;
+        font-size: inherit;
+        font-family: inherit;
     }
     
-    .login-notice a:hover {
+    .login-link:hover {
         color: #0d47a1;
     }
     

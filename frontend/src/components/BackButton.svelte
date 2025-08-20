@@ -1,15 +1,29 @@
 <script lang="ts">
     import { ArrowLeft } from 'lucide-svelte';
-    import { goto } from '$app/navigation';
+    import { goBack, canNavigateBack, getPreviousPath } from '$lib/navigation.svelte';
 
-    export let href: string = '/';
+    export let fallbackHref: string = '/';
     export let title: string = 'Back';
+    export let useSmartBack: boolean = true;
+
+    function handleBackClick() {
+        if (useSmartBack && canNavigateBack()) {
+            goBack(fallbackHref);
+        } else {
+            // Fallback to traditional navigation
+            import('$app/navigation').then(({ goto }) => goto(fallbackHref));
+        }
+    }
+
+    // For accessibility and SEO, provide a meaningful href
+    $: smartHref = useSmartBack ? getPreviousPath(fallbackHref) : fallbackHref;
 </script>
 
 <button
-    on:click={() => goto(href)}
+    on:click={handleBackClick}
     class="back-button"
     data-testid="back-button"
+    data-href={smartHref}
     {title}
 >
     <ArrowLeft size={24} />

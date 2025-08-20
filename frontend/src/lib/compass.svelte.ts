@@ -81,6 +81,25 @@ let permissionGranted = false;
 let orientationHandler: ((event: DeviceOrientationEvent) => void) | null = null;
 let tauriSensorListener: PluginListener | null = null;
 
+// Throttling for compass updates using requestAnimationFrame
+let pendingCompassUpdate: CompassData | null = null;
+let compassUpdateScheduled = false;
+
+function scheduleCompassUpdate(data: CompassData) {
+    pendingCompassUpdate = data;
+    
+    if (!compassUpdateScheduled) {
+        compassUpdateScheduled = true;
+        requestAnimationFrame(() => {
+            if (pendingCompassUpdate) {
+                compassData.set(pendingCompassUpdate);
+                pendingCompassUpdate = null;
+            }
+            compassUpdateScheduled = false;
+        });
+    }
+}
+
 // Helper to normalize heading to 0-360 range
 function normalizeHeading(heading: number): number {
     return ((heading % 360) + 360) % 360;
@@ -121,7 +140,7 @@ async function startTauriSensor(mode: SensorMode = SensorMode.UPRIGHT_ROTATION_V
         console.log('🔍 About to set up sensor data listener...');
         
         tauriSensorListener = await sensor.onSensorData((data: SensorData) => {
-            //console.log('🔍📡 Native sensor data received:', JSON.stringify(data));
+            console.log('🔍📡 Native sensor data received:', JSON.stringify(data));
 
             // Handle potentially different event formats
             const sensorData = data;
@@ -134,7 +153,7 @@ async function startTauriSensor(mode: SensorMode = SensorMode.UPRIGHT_ROTATION_V
                 source: sensorData.source || 'tauri'
             };
             
-            compassData.set(compassUpdate);
+            scheduleCompassUpdate(compassUpdate);
 
             if (false) {
                 const modeStr = get(currentSensorMode);
@@ -167,14 +186,8 @@ async function startTauriSensor(mode: SensorMode = SensorMode.UPRIGHT_ROTATION_V
 async function startWebCompass(): Promise<boolean> {
     return new Promise((resolve) => {
         let hasResolved = false;
-        let lastUpdate = 0;
-        const THROTTLE_MS = 300; // Minimum ms between updates
 
         orientationHandler = (event: DeviceOrientationEvent) => {
-            const now = Date.now();
-            if (now - lastUpdate < THROTTLE_MS) return;
-            lastUpdate = now;
-
             if (!hasResolved) {
                 hasResolved = true;
                 console.log('✅ DeviceOrientation API is working');
@@ -196,7 +209,7 @@ async function startWebCompass(): Promise<boolean> {
                 source: 'web'
             };
             
-            compassData.set(data);
+            scheduleCompassUpdate(data);
             lastSensorUpdate.set(Date.now());
             
             // Log occasional updates
@@ -278,6 +291,10 @@ export function stopCompass() {
         timestamp: Date.now(),
         source: 'unknown'
     });
+
+    // Reset throttling state
+    pendingCompassUpdate = null;
+    compassUpdateScheduled = false;
 
     compassError.set(null);
     lastSensorUpdate.set(null);

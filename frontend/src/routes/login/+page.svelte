@@ -6,6 +6,7 @@
     import { login, register, oauthLogin, auth } from '$lib/auth.svelte';
     import { invoke } from '@tauri-apps/api/core';
     import { hasValidAuth, buildOAuthUrl } from '$lib/authCallback';
+    import { goBack, clearNavigationHistory } from '$lib/navigation.svelte';
 
     let username = '';
     let password = '';
@@ -55,7 +56,8 @@
         // Check if user is already logged in (for web)
         auth.subscribe(value => {
             if (value.isAuthenticated) {
-                goto('/');
+                // If already authenticated, go back to where they came from
+                goBack('/');
             }
         });
     });
@@ -74,7 +76,8 @@
                     throw new Error('Login failed. Please check your credentials and try again.');
                 }
                 
-                goto('/');
+                // After successful login, go back to where user came from
+                goBack('/');
             } else {
                 // Register
                 console.log('Registering with:', { email, username, password });
