@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.database import SessionLocal
 from common.models import Photo, User
-from common.security_utils import sanitize_filename, validate_file_path, check_file_content, SecurityValidationError
+from common.security_utils import sanitize_filename, validate_file_path, check_file_content, validate_image_dimensions, SecurityValidationError
 from anonymize import anonymize_image
 
 logger = logging.getLogger(__name__)
@@ -98,11 +98,18 @@ class PhotoProcessor:
 
         # Fallback to exiftool
         try:
+            # Validate filepath before passing to external tool
+            try:
+                validated_filepath = validate_file_path(filepath, "/app")
+            except SecurityValidationError as e:
+                print(f"Path validation failed for exiftool: {e}")
+                return {'exif': {}, 'gps': {}}
+            
             # Use -n flag to get raw numeric values instead of formatted strings
-            cmd = ['exiftool', '-json', '-n', '-GPS*', filepath]
+            cmd = ['exiftool', '-json', '-n', '-GPS*', validated_filepath]
             print(f"Trying exiftool fallback: {shlex.join(cmd)}")
 
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             
             if result.returncode != 0:
                 print(f"Error running exiftool")
@@ -163,13 +170,20 @@ class PhotoProcessor:
     
     def get_image_dimensions(self, filepath: str) -> Tuple[int, int]:
         """Get image dimensions using ImageMagick identify (known-good implementation)."""
-        cmd = ['identify', '-format', '%w %h', filepath]
         try:
-            output = subprocess.check_output(cmd).decode('utf-8')
+            # Validate filepath before passing to external tool
+            validated_filepath = validate_file_path(filepath, "/app")
+        except SecurityValidationError as e:
+            print(f"Path validation failed for identify: {e}")
+            return 0, 0
+        
+        cmd = ['identify', '-format', '%w %h', validated_filepath]
+        try:
+            output = subprocess.check_output(cmd, timeout=30).decode('utf-8')
             dimensions = [int(x) for x in output.split()]
             print('Image dimensions:', dimensions)
             return dimensions[0], dimensions[1]
-        except subprocess.CalledProcessError as e:
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
             print(f"Error getting image size for {filepath}: {e}")
             return 0, 0
     
@@ -249,7 +263,7 @@ class PhotoProcessor:
                     
                     # Resize using ImageMagick mogrify (matching original)
                     # Use absolute path and validate inputs
-                    cmd = ['mogrify', '-resize', str(int(size)), shlex.quote(output_file_path)]
+                    cmd = ['mogrify', '-resize', str(int(size)), output_file_path]
                     result = subprocess.run(cmd, capture_output=True, timeout=30)
                     
                     if result.returncode == 0:
@@ -263,7 +277,7 @@ class PhotoProcessor:
                         }
                         
                         # Optimize with jpegoptim (matching original)
-                        cmd = ['jpegoptim', '--all-progressive', '--overwrite', shlex.quote(output_file_path)]
+                        cmd = ['jpegoptim', '--all-progressive', '--overwrite', output_file_path]
                         subprocess.run(cmd, capture_output=True, timeout=30)
                         
                         logger.info(f"Created size {size} for {unique_id}: {new_width}x{new_height}")
@@ -352,6 +366,11 @@ class PhotoProcessor:
             
             # Get image dimensions
             width, height = self.get_image_dimensions(file_path)
+            
+            # Validate image dimensions to prevent resource exhaustion
+            if not validate_image_dimensions(width, height):
+                logger.error(f"Image dimensions validation failed for {safe_filename}: {width}x{height}")
+                raise ValueError("Image dimensions exceed safety limits")
             
             # Detect objects (optional)
             detected_objects = self.detect_objects(file_path)

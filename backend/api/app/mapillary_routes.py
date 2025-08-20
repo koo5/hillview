@@ -4,7 +4,7 @@ import json
 import os
 from typing import Optional, Dict, Any
 import logging
-from fastapi import APIRouter, Query, Depends, HTTPException, status
+from fastapi import APIRouter, Query, Depends, HTTPException, status, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from dotenv import load_dotenv
@@ -18,6 +18,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db, SessionLocal
 from common.models import CachedRegion, MapillaryPhotoCache
 from .cache_service import MapillaryCacheService
+from .rate_limiter import rate_limit_public_read
 
 load_dotenv()
 log = logging.getLogger(__name__)
@@ -244,6 +245,7 @@ async def fetch_mapillary_data(
 
 @router.get("")
 async def stream_mapillary_images(
+    request: Request,
     top_left_lat: float = Query(..., description="Top left latitude"),
     top_left_lon: float = Query(..., description="Top left longitude"),
     bottom_right_lat: float = Query(..., description="Bottom right latitude"),
@@ -252,6 +254,9 @@ async def stream_mapillary_images(
     db: AsyncSession = Depends(get_db)
 ):
     """Stream Mapillary images with Server-Sent Events"""
+    # Apply public read rate limiting
+    await rate_limit_public_read(request)
+    
     log.info(f"EventSource connection initiated by client {client_id} for bbox: ({top_left_lat}, {top_left_lon}) to ({bottom_right_lat}, {bottom_right_lon})")
     
     async def generate_stream(db_session: AsyncSession):
@@ -539,8 +544,11 @@ async def stream_mapillary_images(
         )
 
 @router.get("/stats")
-async def get_cache_stats(db: AsyncSession = Depends(get_db)):
+async def get_cache_stats(request: Request, db: AsyncSession = Depends(get_db)):
     """Get cache statistics"""
+    # Apply public read rate limiting
+    await rate_limit_public_read(request)
+    
     cache_service = MapillaryCacheService(db)
     cache_stats = await cache_service.get_cache_stats()
     api_stats = api_manager.get_stats()
@@ -551,8 +559,11 @@ async def get_cache_stats(db: AsyncSession = Depends(get_db)):
     }
 
 @router.get("/api-stats")
-async def get_api_stats():
+async def get_api_stats(request: Request):
     """Get Mapillary API usage statistics"""
+    # Apply public read rate limiting
+    await rate_limit_public_read(request)
+    
     return api_manager.get_stats()
 
 # Cleanup function for graceful shutdown

@@ -17,6 +17,10 @@ ALLOWED_MIME_TYPES = {'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'ima
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
 MAX_FILENAME_LENGTH = 255
 
+# Image processing limits
+MAX_IMAGE_DIMENSIONS = (8192, 8192)  # Max width, height
+MAX_IMAGE_PIXELS = 67108864  # 8192 * 8192 = 64 megapixels
+
 # Regex patterns for validation
 SAFE_FILENAME_PATTERN = re.compile(r'^[a-zA-Z0-9_\-\.]+$')
 USERNAME_PATTERN = re.compile(r'^[a-zA-Z0-9_\-]{3,30}$')
@@ -193,4 +197,59 @@ def check_file_content(file_path: str, expected_type: str = "image") -> bool:
         
     except Exception as e:
         logger.error(f"Error checking file content: {str(e)}")
+        return False
+
+def verify_model_file(model_path: str, expected_hash: Optional[str] = None) -> bool:
+    """Verify ML model file integrity and existence."""
+    try:
+        # Check if file exists and is readable
+        if not os.path.exists(model_path):
+            logger.warning(f"Model file not found: {model_path}")
+            return False
+            
+        # Validate path is within expected directory
+        try:
+            validate_file_path(model_path, "/app")
+        except SecurityValidationError as e:
+            logger.error(f"Model path validation failed: {e}")
+            return False
+        
+        # Check file size (basic sanity check - models shouldn't be too small)
+        file_size = os.path.getsize(model_path)
+        if file_size < 1024:  # Less than 1KB is suspicious for ML model
+            logger.warning(f"Model file suspiciously small: {file_size} bytes")
+            return False
+            
+        # If hash provided, verify integrity
+        if expected_hash:
+            with open(model_path, 'rb') as f:
+                file_hash = hashlib.sha256(f.read()).hexdigest()
+            if file_hash != expected_hash:
+                logger.error(f"Model hash mismatch. Expected: {expected_hash}, Got: {file_hash}")
+                return False
+                
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error verifying model file: {str(e)}")
+        return False
+
+def validate_image_dimensions(width: int, height: int) -> bool:
+    """Validate image dimensions to prevent resource exhaustion attacks."""
+    try:
+        # Check individual dimension limits
+        if width > MAX_IMAGE_DIMENSIONS[0] or height > MAX_IMAGE_DIMENSIONS[1]:
+            logger.warning(f"Image dimensions too large: {width}x{height} > {MAX_IMAGE_DIMENSIONS}")
+            return False
+        
+        # Check total pixel count
+        total_pixels = width * height
+        if total_pixels > MAX_IMAGE_PIXELS:
+            logger.warning(f"Image pixel count too large: {total_pixels} > {MAX_IMAGE_PIXELS}")
+            return False
+            
+        return True
+        
+    except (ValueError, TypeError) as e:
+        logger.error(f"Invalid image dimensions: {e}")
         return False

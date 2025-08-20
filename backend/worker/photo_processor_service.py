@@ -93,6 +93,14 @@ class PhotoProcessorService:
             # Get image dimensions
             width, height = photo_processor.get_image_dimensions(photo.filepath)
             
+            # Validate image dimensions to prevent resource exhaustion
+            from common.security_utils import validate_image_dimensions
+            if not validate_image_dimensions(width, height):
+                logger.error(f"Image dimensions validation failed for {photo.filename}: {width}x{height}")
+                photo.processing_status = "error"
+                await db.commit()
+                return
+            
             # Generate unique ID for processed files
             unique_id = str(uuid.uuid4())
             
@@ -169,8 +177,15 @@ class PhotoProcessorService:
                     
                     # Output file path for this size using unique ID
                     unique_filename = f"{unique_id}{file_ext}"
-                    output_file_path = os.path.join(size_dir, unique_filename)
-                    size_relative_path = os.path.join('opt', str(size), unique_filename)
+                    # Validate path to prevent directory traversal
+                    try:
+                        from common.security_utils import validate_file_path, sanitize_filename
+                        safe_filename = sanitize_filename(unique_filename)
+                        output_file_path = validate_file_path(os.path.join(size_dir, safe_filename), self.upload_dir)
+                    except Exception as e:
+                        logger.error(f"Path validation failed for {unique_filename}: {e}")
+                        continue
+                    size_relative_path = os.path.join('opt', str(size), safe_filename)
                     
                     # Copy and resize the image
                     shutil.copy2(input_file_path, output_file_path)
@@ -180,8 +195,8 @@ class PhotoProcessorService:
                     result = subprocess.run(cmd, capture_output=True, timeout=30)
                     
                     if result.returncode == 0:
-                        # Get new dimensions after resize
-                        new_width, new_height = imgsize(output_file_path)
+                        # Get new dimensions after resize using the same method as photo_processor
+                        new_width, new_height = self._get_image_dimensions(output_file_path)
                         
                         sizes_info[size] = {
                             'width': new_width,
@@ -209,6 +224,25 @@ class PhotoProcessorService:
             if 'temp_dir' in locals():
                 shutil.rmtree(temp_dir, ignore_errors=True)
             return {}
+    
+    def _get_image_dimensions(self, filepath: str) -> tuple[int, int]:
+        """Get image dimensions using ImageMagick identify with security validation."""
+        try:
+            from common.security_utils import validate_file_path
+            # Validate filepath before passing to external tool
+            validated_filepath = validate_file_path(filepath, "/app")
+        except Exception as e:
+            logger.error(f"Path validation failed for identify: {e}")
+            return 0, 0
+        
+        cmd = ['identify', '-format', '%w %h', validated_filepath]
+        try:
+            output = subprocess.check_output(cmd, timeout=30).decode('utf-8')
+            dimensions = [int(x) for x in output.split()]
+            return dimensions[0], dimensions[1]
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+            logger.error(f"Error getting image size for {filepath}: {e}")
+            return 0, 0
     
     async def run_forever(self):
         """Main service loop."""

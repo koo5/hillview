@@ -29,10 +29,28 @@ def detect_targets(image):
     """Detect target objects in the image using YOLO."""
     global model
 
-
     if model is None:
-        from ultralytics import YOLO
-        model = YOLO("yolov5su.pt")
+        # Secure model loading with path validation
+        from common.security_utils import verify_model_file
+        model_path = "/app/models/yolov5su.pt"
+        
+        # Verify model file exists and is valid before loading
+        if not verify_model_file(model_path):
+            logging.error(f"Model verification failed for {model_path}")
+            # Fallback: try alternative path for backwards compatibility
+            fallback_path = "/app/yolov5su.pt"
+            if not verify_model_file(fallback_path):
+                logging.error("No valid YOLO model found, object detection disabled")
+                return []
+            model_path = fallback_path
+        
+        try:
+            from ultralytics import YOLO
+            model = YOLO(model_path)
+            logging.info(f"Successfully loaded YOLO model from {model_path}")
+        except Exception as e:
+            logging.error(f"Failed to load YOLO model: {e}")
+            return []
 
     results = model(image)[0]
     boxes = []
