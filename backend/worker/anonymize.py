@@ -89,9 +89,26 @@ def anonymize_image(input_dir, output_dir, filename, force_copy_all_images=False
     import cv2
 
     input_path = os.path.join(input_dir, filename)
+    
+    # Validate file size before processing to prevent memory exhaustion
+    try:
+        file_size = os.path.getsize(input_path)
+        if file_size > 50 * 1024 * 1024:  # 50MB limit
+            logging.warning(f"Image file too large for processing: {file_size} bytes")
+            return False
+    except OSError:
+        logging.warning(f"Could not access image file: {filename}")
+        return False
+    
     image = cv2.imread(input_path)
     if image is None:
         logging.warning(f"Could not read image: {filename}")
+        return False
+        
+    # Validate image dimensions to prevent memory exhaustion
+    height, width = image.shape[:2]
+    if width > 8192 or height > 8192 or (width * height) > 67108864:
+        logging.warning(f"Image dimensions too large for processing: {width}x{height}")
         return False
 
     boxes = detect_targets(image)

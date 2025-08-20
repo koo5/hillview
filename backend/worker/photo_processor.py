@@ -282,11 +282,11 @@ class PhotoProcessor:
                         
                         logger.info(f"Created size {size} for {unique_id}: {new_width}x{new_height}")
                     else:
-                        logger.warning(f"Failed to resize {filename} to size {size}")
+                        logger.warning(f"Failed to resize image to size {size}")
                         # Clean up failed file
                         try:
                             os.remove(output_file_path)
-                        except:
+                        except Exception:
                             pass
             
             logger.info(f"Created {len(sizes_info)} size variants for {unique_id}")
