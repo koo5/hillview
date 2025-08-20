@@ -13,10 +13,17 @@
     <!-- Required for accessing photos -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    
+    <!-- Required for saving photos -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+    
+    <!-- For Android 13+ (API 33+) - Granular media permissions -->
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
 
 
     <application
             android:usesCleartextTraffic="true"
+            android:requestLegacyExternalStorage="true"
             tools:replace="android:usesCleartextTraffic">
         <!-- you can keep other attributes/components here -->
     </application>

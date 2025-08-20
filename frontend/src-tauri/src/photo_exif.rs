@@ -277,13 +277,14 @@ fn save_to_pictures_directory(
 
     // Get the Pictures directory path
     let pictures_dir = if cfg!(target_os = "android") {
-        // On Android, this typically maps to /storage/emulated/0/Pictures
-        std::env::var("EXTERNAL_STORAGE").unwrap_or_else(|_| "/storage/emulated/0".to_string())
+        // On Android, use /storage/emulated/0/Pictures directly
+        // EXTERNAL_STORAGE often points to /sdcard which is a symlink but may not work properly
+        "/storage/emulated/0/Pictures".to_string()
     } else {
         // On desktop, use the standard Pictures directory
         dirs::picture_dir()
             .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_else(|| std::env::var("HOME").unwrap_or("/tmp".to_string()) + "/Pictures")
+            .unwrap_or_else(|| std::env::var("HOME").unwrap() + "/Pictures")
     };
 
     // Use dot folder if hiding from gallery
@@ -291,8 +292,12 @@ fn save_to_pictures_directory(
     let pictures_path = std::path::Path::new(&pictures_dir)
         .join(folder_name);
 
+    info!("create_dir_all: {:?}", pictures_path);
+    
     // Create the Hillview subdirectory in Pictures
     std::fs::create_dir_all(&pictures_path)?;
+
+    info!("hide_from_gallery: {}, pictures_path: {:?}", hide_from_gallery, pictures_path);
 
     // Create .nomedia file if hiding from gallery
     if hide_from_gallery {
@@ -302,12 +307,18 @@ fn save_to_pictures_directory(
 
     // Save the file
     let photo_path = pictures_path.join(filename);
+
+	info!("Saving photo to: {:?}", photo_path);
+
     std::fs::write(&photo_path, image_data)?;
+
     info!("Saved photo to Pictures directory: {:?} (hidden: {})", photo_path, hide_from_gallery);
 
     // Set readable permissions for other apps on Unix systems
     #[cfg(unix)]
     {
+
+    	info!("Setting permissions...");
         let mut perms = std::fs::metadata(&photo_path)?.permissions();
         perms.set_mode(0o644); // rw-r--r--
         std::fs::set_permissions(&photo_path, perms)?;
