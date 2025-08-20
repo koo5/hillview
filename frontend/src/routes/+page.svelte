@@ -325,13 +325,10 @@
         {/if}
 
         <ul>
-            {#if FEATURE_USER_ACCOUNTS}
-                {#if isAuthenticated}
                     <li><a href="/photos" on:click={() => menuOpen = false}>
                         My Photos
                     </a></li>
-                {/if}
-            {/if}
+
             <li><a href="/sources" data-testid="sources-menu-link" on:click={() => menuOpen = false}>
                 <Database size={18} />
                 Sources
@@ -368,7 +365,7 @@
                 About
             </a></li>
             <li>
-                <a href="/hillview.apk" download on:click={() => menuOpen = false}>
+                <a href="/download" on:click={() => menuOpen = false}>
                     <Download size={18} />
                     Download Android App
                 </a>

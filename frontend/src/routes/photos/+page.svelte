@@ -44,26 +44,26 @@
 
     onMount(async () => {
         // Check if user is authenticated
-        auth.subscribe(value => {
-            if (!value.isAuthenticated) {
-                goto('/login');
-                return;
-            }
-            user = value.user;
+        auth.subscribe(async (value) => {
+            user = value.isAuthenticated ? value.user : null;
             if (user) {
                 autoUploadEnabled = user.auto_upload_enabled || false;
+                
+                // Fetch user photos when authenticated
+                try {
+                    await fetchPhotos();
+                } catch (err) {
+                    console.error('Error loading photos:', err);
+                    error = err instanceof Error ? err.message : 'Failed to load photos';
+                } finally {
+                    isLoading = false;
+                }
+            } else {
+                // Show empty state for non-authenticated users
+                photos = [];
+                isLoading = false;
             }
         });
-
-        try {
-            // Fetch user photos
-            await fetchPhotos();
-        } catch (err) {
-            console.error('Error loading photos:', err);
-            error = err instanceof Error ? err.message : 'Failed to load photos';
-        } finally {
-            isLoading = false;
-        }
     });
 
     async function fetchPhotos() {
@@ -268,9 +268,14 @@
     {#if TAURI && showSettings}
         <div class="settings-panel">
             <h2>Auto-Upload Settings</h2>
+            {#if !user}
+                <div class="login-notice">
+                    <p>Please <a href="/login">log in</a> to access settings.</p>
+                </div>
+            {/if}
             <div class="form-group">
                 <label>
-                    <input type="checkbox" bind:checked={autoUploadEnabled} data-testid="auto-upload-checkbox">
+                    <input type="checkbox" bind:checked={autoUploadEnabled} data-testid="auto-upload-checkbox" disabled={!user}>
                     Enable auto-upload
                 </label>
                 <p class="help-text">
@@ -280,13 +285,18 @@
             
             <div class="button-group">
                 <button class="secondary-button" on:click={() => showSettings = false}>Cancel</button>
-                <button class="primary-button" on:click={saveSettings} data-testid="save-settings-button">Save Settings</button>
+                <button class="primary-button" on:click={saveSettings} data-testid="save-settings-button" disabled={!user}>Save Settings</button>
             </div>
         </div>
     {/if}
     
     <div class="upload-section" data-testid="upload-section">
         <h2>Upload Photos</h2>
+        {#if !user}
+            <div class="login-notice">
+                <p>Please <a href="/login">log in</a> to upload photos.</p>
+            </div>
+        {/if}
         <form on:submit|preventDefault={handleUpload} data-testid="upload-form">
             <div class="form-group">
                 <label for="photo-file">Select photos:</label>
@@ -296,6 +306,7 @@
                     accept="image/*" 
                     multiple
                     data-testid="photo-file-input"
+                    disabled={!user}
                     on:change={(e) => {
                         const files = (e.target as HTMLInputElement).files;
                         uploadFiles = files ? Array.from(files) : [];
@@ -312,13 +323,14 @@
                     placeholder="Optional description for this photo"
                     rows="1"
                     class="auto-resize-textarea"
+                    disabled={!user}
                     on:input={autoResizeTextarea}
                 ></textarea>
             </div>
             
             <div class="form-group">
                 <label>
-                    <input type="checkbox" bind:checked={isPublic}>
+                    <input type="checkbox" bind:checked={isPublic} disabled={!user}>
                     Make this photo public
                 </label>
             </div>
@@ -338,7 +350,7 @@
                 type="submit" 
                 class="primary-button" 
                 data-testid="upload-submit-button"
-                disabled={!uploadFiles.length || isUploading}
+                disabled={!user || !uploadFiles.length || isUploading}
             >
                 <Upload size={20} />
                 {#if isUploading}
@@ -384,7 +396,13 @@
                 <p>Loading your photos...</p>
             </div>
         {:else if photos.length === 0}
-            <p class="no-photos" data-testid="no-photos-message">You haven't uploaded any photos yet.</p>
+            <p class="no-photos" data-testid="no-photos-message">
+                {#if user}
+                    You haven't uploaded any photos yet.
+                {:else}
+                    Please <a href="/login">log in</a> to view your photos.
+                {/if}
+            </p>
         {:else}
             <div class="grid" data-testid="photos-list">
                 {#each photos as photo (photo.id)}
@@ -808,6 +826,25 @@
         padding: 12px;
         border-radius: 4px;
         margin-bottom: 20px;
+    }
+    
+    .login-notice {
+        background-color: #e3f2fd;
+        color: #1565c0;
+        padding: 12px;
+        border-radius: 4px;
+        margin-bottom: 16px;
+        text-align: center;
+    }
+    
+    .login-notice a {
+        color: #1565c0;
+        text-decoration: underline;
+        font-weight: 500;
+    }
+    
+    .login-notice a:hover {
+        color: #0d47a1;
     }
     
     /* Responsive adjustments */
