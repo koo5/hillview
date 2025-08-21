@@ -1,5 +1,5 @@
 import {writable, derived, get} from 'svelte/store';
-import type { GeolocationPosition } from '$lib/geolocation';
+import type { GeolocationPosition } from '$lib/preciseLocation';
 
 // Store for current GPS location from device
 export const gpsLocation = writable<GeolocationPosition | null>(null);

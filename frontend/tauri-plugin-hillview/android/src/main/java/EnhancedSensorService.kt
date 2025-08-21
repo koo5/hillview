@@ -38,7 +38,7 @@ class EnhancedSensorService(
         private const val SENSOR_DELAY = SensorManager.SENSOR_DELAY_GAME // Faster updates
         
         // Smoothing and filtering parameters
-        private const val EMA_ALPHA = 0.899f // EMA smoothing factor (0.1-0.3 range, lower = more smoothing)
+        private const val EMA_ALPHA = 1f // EMA smoothing factor (0.1-0.3 range, lower = more smoothing)
         private const val HEADING_THRESHOLD = 1.0f // Minimum heading change to trigger update (degrees)
         private const val PITCH_THRESHOLD = 3.0f // Minimum pitch change to trigger update (degrees) 
         private const val ROLL_THRESHOLD = 3.0f // Minimum roll change to trigger update (degrees)

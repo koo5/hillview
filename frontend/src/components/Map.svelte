@@ -6,7 +6,7 @@
     import L from 'leaflet';
     import 'leaflet/dist/leaflet.css';
     import Spinner from './Spinner.svelte';
-    import { geolocation, type GeolocationPosition } from '$lib/geolocation';
+    import { startPreciseLocationUpdates, stopPreciseLocationUpdates, getCurrentPosition, type GeolocationPosition } from '$lib/preciseLocation';
 
     import {
         spatialState,
@@ -47,8 +47,7 @@
     let longPressTimeout: any = null;
     const longPressDelay = 500; // 500ms for long press detection
     
-    // Location tracking variables
-    let watchId: number | null = null;
+    // Location tracking variables (now managed by preciseLocation module)
     let userLocationMarker: any = null;
     let accuracyCircle: any = null;
     let wasTrackingBeforeHidden = false;
@@ -456,26 +455,32 @@
     
     // Start tracking user location
     async function startLocationTracking() {
-        // If we already have a watch ID, clear it first to avoid duplicates
-        if (watchId !== null) {
-            console.log("Clearing existing watch before starting new one");
-            await geolocation.clearWatch(watchId);
-            watchId = null;
-        }
-        
         locationTrackingLoading = true;
         
-        // Get initial position
-        await geolocation.getCurrentPosition(
-            handleGpsUpdate,
-            (error) => {
-                console.error("Error getting location:", error);
-                console.error("Error code:", error.code);
-                console.error("Error message:", error.message);
-                console.error("Full error object:", JSON.stringify(error));
-                setLocationError(error.message);
-                
-                let errorMessage = "Unable to get your location: ";
+        try {
+            console.log("📍 Starting location tracking");
+            
+            // Try to get initial position first (web only, Android starts streaming immediately)
+            try {
+                const position = await getCurrentPosition();
+                await handleGpsUpdate(position);
+            } catch (error) {
+                console.debug("📍 Could not get initial position (may be normal on Android):", error);
+                // Don't fail here, continuous tracking might still work
+            }
+            
+            // Start continuous location updates
+            await startPreciseLocationUpdates();
+            
+            locationTrackingLoading = false;
+            console.log("📍 Location tracking started successfully");
+            
+        } catch (error: any) {
+            console.error("📍 Error starting location tracking:", error);
+            setLocationError(error?.message || "Unknown error");
+            
+            let errorMessage = "Unable to get your location: ";
+            if (error?.name === 'GeolocationPositionError' || error?.code) {
                 switch(error.code) {
                     case 1:
                         errorMessage += "Permission denied. Please allow location access.";
@@ -487,35 +492,29 @@
                         errorMessage += "Request timed out.";
                         break;
                     default:
-                        errorMessage += error.message;
+                        errorMessage += error?.message || "Unknown error";
                 }
-                
-                alert(errorMessage);
-                setLocationTracking(false);
-                locationTrackingLoading = false;
-            },
-            { enableHighAccuracy: true }
-        );
-        
-        // Start watching position
-        watchId = await geolocation.watchPosition(
-            handleGpsUpdate,
-            (error) => {
-                console.error("Error watching location:", error);
-                console.error("Watch error code:", error.code);
-                console.error("Watch error message:", error.message);
-            },
-            { enableHighAccuracy: true }
-        );
+            } else {
+                errorMessage += error?.message || "Unknown error";
+            }
+            
+            alert(errorMessage);
+            setLocationTracking(false);
+            locationTrackingLoading = false;
+        }
     }
     
     // Stop tracking user location
     async function stopLocationTracking() {
         locationTrackingLoading = false;
-        if (watchId !== null) {
-            await geolocation.clearWatch(watchId);
-            watchId = null;
+        
+        try {
+            console.log("📍 Stopping location tracking");
+            await stopPreciseLocationUpdates();
+        } catch (error) {
+            console.error("📍 Error stopping location tracking:", error);
         }
+        
         // Clear the location data when stopping
         updateGpsLocation(null);
         setLocationError(null);
@@ -718,7 +717,7 @@
                 }
                 // Delay restart slightly to let WebView stabilize after orientation change
                 orientationRestartTimer = setTimeout(async () => {
-                    if (wasTrackingBeforeHidden && (!get(locationTracking) || watchId === null)) {
+                    if (wasTrackingBeforeHidden && !get(locationTracking)) {
                         console.log('Restarting location tracking after visibility change');
                         setLocationTracking(true);
                         await startLocationTracking();
@@ -782,9 +781,11 @@
 
     onDestroy(async () => {
         console.log('Map component destroyed');
-        // Clean up geolocation watcher if active
-        if (watchId !== null) {
-            await geolocation.clearWatch(watchId);
+        // Clean up location tracking if active
+        try {
+            await stopPreciseLocationUpdates();
+        } catch (error) {
+            console.debug('Error stopping location updates on destroy:', error);
         }
         
         // Clear timers
