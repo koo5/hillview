@@ -319,6 +319,18 @@
           "markdownDescription": "Denies the registerListener command without any pre-configured scope."
         },
         {
+          "description": "Enables the start_precise_location_listener command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-start-precise-location-listener",
+          "markdownDescription": "Enables the start_precise_location_listener command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the start_precise_location_listener command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-start-precise-location-listener",
+          "markdownDescription": "Denies the start_precise_location_listener command without any pre-configured scope."
+        },
+        {
           "description": "Enables the start_sensor command without any pre-configured scope.",
           "type": "string",
           "const": "allow-start-sensor",
@@ -329,6 +341,18 @@
           "type": "string",
           "const": "deny-start-sensor",
           "markdownDescription": "Denies the start_sensor command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the stop_precise_location_listener command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-stop-precise-location-listener",
+          "markdownDescription": "Enables the stop_precise_location_listener command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the stop_precise_location_listener command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-stop-precise-location-listener",
+          "markdownDescription": "Denies the stop_precise_location_listener command without any pre-configured scope."
         },
         {
           "description": "Enables the stop_sensor command without any pre-configured scope.",
@@ -355,10 +379,10 @@
           "markdownDescription": "Denies the update_sensor_location command without any pre-configured scope."
         },
         {
-          "description": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-ping`\n- `allow-start-sensor`\n- `allow-stop-sensor`\n- `allow-update-sensor-location`\n- `allow-registerListener`",
+          "description": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-ping`\n- `allow-start-sensor`\n- `allow-stop-sensor`\n- `allow-update-sensor-location`\n- `allow-registerListener`\n- `allow-start-precise-location-listener`\n- `allow-stop-precise-location-listener`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-ping`\n- `allow-start-sensor`\n- `allow-stop-sensor`\n- `allow-update-sensor-location`\n- `allow-registerListener`"
+          "markdownDescription": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-ping`\n- `allow-start-sensor`\n- `allow-stop-sensor`\n- `allow-update-sensor-location`\n- `allow-registerListener`\n- `allow-start-precise-location-listener`\n- `allow-stop-precise-location-listener`"
         }
       ]
     }

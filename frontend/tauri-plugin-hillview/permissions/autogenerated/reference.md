@@ -9,6 +9,8 @@ Default permissions for the plugin
 - `allow-stop-sensor`
 - `allow-update-sensor-location`
 - `allow-registerListener`
+- `allow-start-precise-location-listener`
+- `allow-stop-precise-location-listener`
 
 ## Permission Table
 
@@ -74,6 +76,32 @@ Denies the registerListener command without any pre-configured scope.
 <tr>
 <td>
 
+`hillview:allow-start-precise-location-listener`
+
+</td>
+<td>
+
+Enables the start_precise_location_listener command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:deny-start-precise-location-listener`
+
+</td>
+<td>
+
+Denies the start_precise_location_listener command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `hillview:allow-start-sensor`
 
 </td>
@@ -93,6 +121,32 @@ Enables the start_sensor command without any pre-configured scope.
 <td>
 
 Denies the start_sensor command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:allow-stop-precise-location-listener`
+
+</td>
+<td>
+
+Enables the stop_precise_location_listener command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:deny-stop-precise-location-listener`
+
+</td>
+<td>
+
+Denies the stop_precise_location_listener command without any pre-configured scope.
 
 </td>
 </tr>

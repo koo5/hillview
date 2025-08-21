@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-stop-precise-location-listener"
+description = "Enables the stop_precise_location_listener command without any pre-configured scope."
+commands.allow = ["stop_precise_location_listener"]
+
+[[permission]]
+identifier = "deny-stop-precise-location-listener"
+description = "Denies the stop_precise_location_listener command without any pre-configured scope."
+commands.deny = ["stop_precise_location_listener"]

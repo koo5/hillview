@@ -140,7 +140,7 @@ async function startTauriSensor(mode: SensorMode = SensorMode.UPRIGHT_ROTATION_V
         console.log('🔍 About to set up sensor data listener...');
         
         tauriSensorListener = await sensor.onSensorData((data: SensorData) => {
-            console.log('🔍📡 Native sensor data received:', JSON.stringify(data));
+            //console.log('🔍📡 Native sensor data received:', JSON.stringify(data));
 
             // Handle potentially different event formats
             const sensorData = data;
@@ -349,11 +349,25 @@ export async function startCompass(mode?: SensorMode) {
             currentSensorMode.set(sensorMode);
             
             // Also start precise location updates on Android
+            console.log('🔍 DEBUG: About to check TAURI_MOBILE...');
+            console.log('🔍 DEBUG: TAURI_MOBILE =', TAURI_MOBILE);
             if (TAURI_MOBILE) {
-                console.log('📍 Starting precise location updates');
-                startPreciseLocationUpdates().catch(err => 
-                    console.error('📍 Failed to start precise location:', err)
-                );
+                try {
+                    console.log('🔍 DEBUG: Inside TAURI_MOBILE block');
+                    console.log('📍 Starting precise location updates');
+                    console.log('🔍 DEBUG: About to call startPreciseLocationUpdates()');
+                    startPreciseLocationUpdates().then(() => {
+                        console.log('🔍 DEBUG: startPreciseLocationUpdates() resolved successfully');
+                    }).catch(err => {
+                        console.error('📍 Failed to start precise location:', err);
+                        console.error('🔍 DEBUG: startPreciseLocationUpdates() error details:', err);
+                    });
+                    console.log('🔍 DEBUG: Called startPreciseLocationUpdates()');
+                } catch (e) {
+                    console.error('🔍 DEBUG: Exception in TAURI_MOBILE block:', e);
+                }
+            } else {
+                console.log('🔍 DEBUG: TAURI_MOBILE is false, skipping location updates');
             }
             
             return true;

@@ -1,3 +1,3 @@
 [default]
 description = "Default permissions for the plugin"
-permissions = ["allow-ping", "allow-start-sensor", "allow-stop-sensor", "allow-update-sensor-location", "allow-registerListener"]
+permissions = ["allow-ping", "allow-start-sensor", "allow-stop-sensor", "allow-update-sensor-location", "allow-registerListener", "allow-start-precise-location-listener", "allow-stop-precise-location-listener"]

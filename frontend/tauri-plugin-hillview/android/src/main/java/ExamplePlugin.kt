@@ -153,6 +153,34 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     }
     
     @Command
+    fun startPreciseLocationListener(invoke: Invoke) {
+        Log.i(TAG, "📍 ======= startPreciseLocationListener COMMAND RECEIVED =======")
+        Log.i(TAG, "📍 CMD: Current thread: ${Thread.currentThread().name}")
+        Log.i(TAG, "📍 CMD: Current preciseLocationService = $preciseLocationService")
+        
+        if (preciseLocationService == null) {
+            Log.i(TAG, "📍 CMD: PreciseLocationService is null, need to create it")
+            Log.i(TAG, "📍 CMD: About to call initializePreciseLocationService()...")
+            initializePreciseLocationService()
+            Log.i(TAG, "📍 CMD: Returned from initializePreciseLocationService()")
+            Log.i(TAG, "📍 CMD: After init, preciseLocationService = $preciseLocationService")
+        } else {
+            Log.i(TAG, "📍 CMD: PreciseLocationService already exists, ensuring it's started")
+            preciseLocationService?.startLocationUpdates()
+        }
+        
+        Log.i(TAG, "📍 CMD: Location tracking command completed successfully")
+        invoke.resolve()
+    }
+    
+    @Command
+    fun stopPreciseLocationListener(invoke: Invoke) {
+        Log.d(TAG, "📍 Stopping precise location listener")
+        preciseLocationService?.stopLocationUpdates()
+        invoke.resolve()
+    }
+    
+    @Command
     fun updateSensorLocation(invoke: Invoke) {
         val args = invoke.parseArgs(LocationUpdateArgs::class.java)
         Log.d(TAG, "📍 Updating sensor location: ${args.latitude}, ${args.longitude}")
@@ -171,43 +199,61 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     }
     
     private fun initializePreciseLocationService() {
-        preciseLocationService = PreciseLocationService(activity) { locationData ->
-            // Update sensor service with precise location for magnetic declination
-            sensorService?.updateLocation(locationData.latitude, locationData.longitude)
-            
-            // Emit location update event that matches the existing GeolocationPosition interface
-            val data = JSObject()
-            
-            // Create coords object to match GeolocationPosition interface
-            val coords = JSObject()
-            coords.put("latitude", locationData.latitude)
-            coords.put("longitude", locationData.longitude)
-            coords.put("accuracy", locationData.accuracy)
-            coords.put("altitude", locationData.altitude)
-            coords.put("altitudeAccuracy", locationData.altitudeAccuracy)
-            coords.put("heading", locationData.bearing)
-            coords.put("speed", locationData.speed)
-            
-            data.put("coords", coords)
-            data.put("timestamp", locationData.timestamp)
-            
-            // Add extra precision data
-            data.put("provider", locationData.provider)
-            data.put("bearingAccuracy", locationData.bearingAccuracy)
-            data.put("speedAccuracy", locationData.speedAccuracy)
-            
-            Log.v(TAG, "📍 Emitting location update: lat=${locationData.latitude}, lng=${locationData.longitude}, accuracy=${locationData.accuracy}m")
-            
-            try {
-                // Use the same event name as the geolocation plugin would use
-                trigger("location-update", data)
-            } catch (e: Exception) {
-                Log.e(TAG, "📍 Error triggering location event: ${e.message}", e)
+        Log.i(TAG, "📍 INIT: ======= STARTING initializePreciseLocationService() =======")
+        Log.i(TAG, "📍 INIT: Thread: ${Thread.currentThread().name}")
+        Log.i(TAG, "📍 INIT: Current preciseLocationService = $preciseLocationService")
+        try {
+            Log.i(TAG, "📍 INIT: About to create PreciseLocationService instance...")
+            Log.i(TAG, "📍 INIT: Activity = $activity")
+            preciseLocationService = PreciseLocationService(activity) { locationData ->
+                Log.i(TAG, "📍 CALLBACK: Received location data callback!")
+                Log.i(TAG, "📍 CALLBACK: lat=${locationData.latitude}, lng=${locationData.longitude}, accuracy=${locationData.accuracy}m")
+                
+                // Update sensor service with precise location for magnetic declination
+                sensorService?.updateLocation(locationData.latitude, locationData.longitude)
+                Log.d(TAG, "📍 CALLBACK: Updated sensor service with location")
+                
+                // Emit location update event that matches the existing GeolocationPosition interface
+                val data = JSObject()
+                
+                // Create coords object to match GeolocationPosition interface
+                val coords = JSObject()
+                coords.put("latitude", locationData.latitude)
+                coords.put("longitude", locationData.longitude)
+                coords.put("accuracy", locationData.accuracy)
+                coords.put("altitude", locationData.altitude)
+                coords.put("altitudeAccuracy", locationData.altitudeAccuracy)
+                coords.put("heading", locationData.bearing)
+                coords.put("speed", locationData.speed)
+                
+                data.put("coords", coords)
+                data.put("timestamp", locationData.timestamp)
+                
+                // Add extra precision data
+                data.put("provider", locationData.provider)
+                data.put("bearingAccuracy", locationData.bearingAccuracy)
+                data.put("speedAccuracy", locationData.speedAccuracy)
+                
+                Log.i(TAG, "📍 CALLBACK: Emitting location-update event to frontend")
+                
+                try {
+                    // Use the same event name as the geolocation plugin would use
+                    trigger("location-update", data)
+                    Log.d(TAG, "📍 CALLBACK: Successfully triggered location-update event")
+                } catch (e: Exception) {
+                    Log.e(TAG, "📍 CALLBACK: Error triggering location event: ${e.message}", e)
+                }
             }
+            Log.i(TAG, "📍 INIT: ✅ PreciseLocationService instance created successfully!")
+            Log.i(TAG, "📍 INIT: New preciseLocationService = $preciseLocationService")
+            
+            // Start location updates automatically
+            Log.d(TAG, "📍 INIT: Starting location updates...")
+            preciseLocationService?.startLocationUpdates()
+            Log.d(TAG, "📍 INIT: Called startLocationUpdates() - initialization complete")
+        } catch (e: Exception) {
+            Log.e(TAG, "📍 INIT: Error in initializePreciseLocationService: ${e.message}", e)
         }
-        
-        // Start location updates automatically
-        preciseLocationService?.startLocationUpdates()
     }
     
     @Command
@@ -515,5 +561,11 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             error.put("error", e.message)
             invoke.resolve(error)
         }
+    }
+    
+    // Handle permission request results and forward to PreciseLocationService
+    fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
+        Log.i(TAG, "📍 PLUGIN: Permission request result received in plugin")
+        preciseLocationService?.onRequestPermissionsResult(requestCode, permissions, grantResults)
     }
 }

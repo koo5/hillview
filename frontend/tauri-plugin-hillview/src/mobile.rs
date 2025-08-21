@@ -131,4 +131,18 @@ impl<R: Runtime> Hillview<R> {
       .run_mobile_plugin("clearAuthToken", ())
       .map_err(Into::into)
   }
+  
+  pub fn start_precise_location_listener(&self) -> crate::Result<()> {
+    self
+      .0
+      .run_mobile_plugin("startPreciseLocationListener", ())
+      .map_err(Into::into)
+  }
+  
+  pub fn stop_precise_location_listener(&self) -> crate::Result<()> {
+    self
+      .0
+      .run_mobile_plugin("stopPreciseLocationListener", ())
+      .map_err(Into::into)
+  }
 }

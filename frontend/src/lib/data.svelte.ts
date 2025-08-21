@@ -198,20 +198,6 @@ export async function turn_to_photo_to(dir: string) {
     }
 }
 
-export function update_bearing(diff: number) {
-    const current = get(bearingState);
-    const newBearing = (current.bearing + diff + 360) % 360;
-    mapStateUpdateBearing(newBearing);
-}
-
-export function reversed<T>(list: T[]): T[] {
-    let res = [];
-    for (let i = list.length - 1; i >= 0; i--) {
-        res.push(list[i]);
-    }
-    return res;
-}
-
 // Debug modes constants
 
 export function toggleDebug() {

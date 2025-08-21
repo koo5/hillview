@@ -1,5 +1,6 @@
 import { TAURI_MOBILE } from './tauri';
 import { addPluginListener, type PluginListener } from '@tauri-apps/api/core';
+import { invoke } from '@tauri-apps/api/core';
 import { updateGpsLocation, locationTracking } from './location.svelte';
 import { get } from 'svelte/store';
 
@@ -99,6 +100,7 @@ export async function startPreciseLocationUpdates(): Promise<void> {
         try {
             console.log('📍 Starting Android precise location listener');
             
+            // Set up the event listener first
             locationListener = await addPluginListener(
                 'hillview',
                 'location-update',
@@ -116,9 +118,21 @@ export async function startPreciseLocationUpdates(): Promise<void> {
                 }
             );
             
+            // Now start the precise location service on the Android side
+            await invoke('plugin:hillview|start_precise_location_listener');
+            
             console.log('📍 Android precise location listener started successfully');
         } catch (error) {
             console.error('📍 Failed to start Android precise location listener:', error);
+            // Clean up the listener if starting the service failed
+            if (locationListener) {
+                try {
+                    await locationListener.unregister();
+                } catch (cleanupError) {
+                    console.debug('📍 Failed to cleanup listener on error:', cleanupError);
+                }
+                locationListener = null;
+            }
             throw error;
         }
     } else {
@@ -161,10 +175,16 @@ export async function stopPreciseLocationUpdates(): Promise<void> {
     // Stop Android precise location listener
     if (locationListener) {
         try {
+            // Stop the Android service
+            if (TAURI_MOBILE) {
+                await invoke('plugin:hillview|stop_precise_location_listener');
+            }
+            
+            // Unregister the event listener
             await locationListener.unregister();
         } catch (error) {
             // Ignore error if remove_listener command doesn't exist
-            console.debug('📍 Could not unregister Android listener (expected):', error);
+            console.debug('📍 Could not stop Android location service or unregister listener (expected):', error);
         }
         locationListener = null;
     }

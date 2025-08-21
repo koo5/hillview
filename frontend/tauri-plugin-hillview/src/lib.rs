@@ -40,6 +40,8 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
       commands::start_sensor,
       commands::stop_sensor,
       commands::update_sensor_location,
+      commands::start_precise_location_listener,
+      commands::stop_precise_location_listener,
       commands::set_auto_upload_enabled,
       commands::get_upload_status,
       commands::set_upload_config,

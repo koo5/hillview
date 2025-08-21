@@ -3,8 +3,8 @@
 	import PhotoGallery from '../components/Gallery.svelte';
 	import Map from '../components/Map.svelte';
 	import {Activity, Camera, Database, Download, Info, LogOut, Maximize2, Menu, Minimize2, User} from 'lucide-svelte';
-	import {app, sources, toggleDebug, update_bearing} from "$lib/data.svelte";
-	import {bearingState, spatialState, updateSpatialState} from "$lib/mapState";
+	import {app, sources, toggleDebug } from "$lib/data.svelte";
+	import {bearingState, spatialState, updateSpatialState, updateBearing as mapStateUpdateBearing} from "$lib/mapState";
 	import {LatLng} from 'leaflet';
 	import {replaceState} from "$app/navigation";
 	import {get} from "svelte/store";

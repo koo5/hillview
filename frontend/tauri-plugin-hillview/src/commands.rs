@@ -135,3 +135,35 @@ pub(crate) async fn retry_failed_uploads<R: Runtime>(
         return Err(crate::Error::from("Retry uploads is only available on mobile devices"));
     }
 }
+
+#[command]
+pub(crate) async fn start_precise_location_listener<R: Runtime>(
+    _app: AppHandle<R>,
+) -> Result<()> {
+    #[cfg(mobile)]
+    {
+        _app.hillview().start_precise_location_listener()?;
+        return Ok(());
+    }
+    
+    #[cfg(desktop)]
+    {
+        return Err(crate::Error::from("Precise location is only available on mobile devices"));
+    }
+}
+
+#[command]
+pub(crate) async fn stop_precise_location_listener<R: Runtime>(
+    _app: AppHandle<R>,
+) -> Result<()> {
+    #[cfg(mobile)]
+    {
+        _app.hillview().stop_precise_location_listener()?;
+        return Ok(());
+    }
+    
+    #[cfg(desktop)]
+    {
+        return Err(crate::Error::from("Precise location is only available on mobile devices"));
+    }
+}
