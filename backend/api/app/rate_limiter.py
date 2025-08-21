@@ -6,6 +6,7 @@ from typing import Dict, Optional, Callable
 from fastapi import HTTPException, Request, status
 import logging
 import os
+from .config import rate_limit_config
 
 logger = logging.getLogger(__name__)
 
@@ -99,11 +100,19 @@ class AuthRateLimiter:
     async def check_auth_rate_limit(
         self, 
         identifier: str,
-        max_attempts: int = 5,
-        window_minutes: int = 15,
-        lockout_minutes: int = 30
+        max_attempts: Optional[int] = None,
+        window_minutes: Optional[int] = None,
+        lockout_minutes: Optional[int] = None
     ) -> None:
         """Check authentication rate limit with progressive delays."""
+        # Use config values if not provided
+        if max_attempts is None:
+            max_attempts = rate_limit_config.auth_max_attempts
+        if window_minutes is None:
+            window_minutes = rate_limit_config.auth_window_minutes
+        if lockout_minutes is None:
+            lockout_minutes = rate_limit_config.auth_lockout_minutes
+        
         async with self.lock:
             now = datetime.datetime.utcnow()
             attempts = self.failed_attempts[identifier]
@@ -179,7 +188,7 @@ class AuthRateLimiter:
         return client_ip
 
 # Global rate limiter instances
-mapillary_rate_limiter = AsyncRateLimiter(rate_limit_seconds=1.0)
+mapillary_rate_limiter = AsyncRateLimiter(rate_limit_seconds=rate_limit_config.mapillary_rate_limit_seconds)
 auth_rate_limiter = AuthRateLimiter()
 
 async def check_auth_rate_limit(request: Request, username: Optional[str] = None) -> None:
@@ -195,34 +204,8 @@ class GeneralRateLimiter:
         self.request_history: Dict[str, list] = defaultdict(list)
         self.lock = asyncio.Lock()
         
-        # Load rate limits from environment with defaults
-        self.limits = {
-            'photo_upload': {
-                'max_requests': int(os.getenv('RATE_LIMIT_PHOTO_UPLOAD', '10')),
-                'window_hours': int(os.getenv('RATE_LIMIT_PHOTO_UPLOAD_WINDOW', '1')),
-                'per_user': True
-            },
-            'photo_operations': {
-                'max_requests': int(os.getenv('RATE_LIMIT_PHOTO_OPS', '100')),
-                'window_hours': int(os.getenv('RATE_LIMIT_PHOTO_OPS_WINDOW', '1')),
-                'per_user': True
-            },
-            'user_profile': {
-                'max_requests': int(os.getenv('RATE_LIMIT_USER_PROFILE', '50')),
-                'window_hours': int(os.getenv('RATE_LIMIT_USER_PROFILE_WINDOW', '1')),
-                'per_user': True
-            },
-            'general_api': {
-                'max_requests': int(os.getenv('RATE_LIMIT_GENERAL_API', '200')),
-                'window_hours': int(os.getenv('RATE_LIMIT_GENERAL_API_WINDOW', '1')),
-                'per_user': False  # Per IP
-            },
-            'public_read': {
-                'max_requests': int(os.getenv('RATE_LIMIT_PUBLIC_READ', '500')),
-                'window_hours': int(os.getenv('RATE_LIMIT_PUBLIC_READ_WINDOW', '1')),
-                'per_user': False  # Per IP
-            }
-        }
+        # Load rate limits from central config
+        self.limits = rate_limit_config.to_general_limits_dict()
     
     def get_identifier(self, request: Request, user_id: Optional[str] = None, limit_type: str = 'general_api') -> str:
         """Get identifier for rate limiting based on limit type."""
@@ -283,7 +266,7 @@ class GeneralRateLimiter:
             )
 
 # Global rate limiter instances
-mapillary_rate_limiter = AsyncRateLimiter(rate_limit_seconds=1.0)
+mapillary_rate_limiter = AsyncRateLimiter(rate_limit_seconds=rate_limit_config.mapillary_rate_limit_seconds)
 auth_rate_limiter = AuthRateLimiter()
 general_rate_limiter = GeneralRateLimiter()
 

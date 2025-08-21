@@ -209,9 +209,15 @@ def run_migrations():
     command.upgrade(alembic_cfg, "head")
 
 # Initialize database
-# @app.on_event("startup")
-# async def startup():
-#     log.info("Application startup completed")
+@app.on_event("startup")
+async def startup():
+    from .config import rate_limit_config
+    log.info("Application startup initiated")
+    
+    # Log rate limit configuration
+    rate_limit_config.log_configuration()
+    
+    log.info("Application startup completed")
 
 @app.get("/api/debug")
 async def debug_endpoint():

@@ -435,7 +435,10 @@ export async function switchSensorMode(mode: SensorMode) {
 }
 
 let lastBearing: number | null = null;
-const SMOOTHING_FACTOR = 0.9; // 0 = no smoothing, 1 = no change
+/* refactor, smoothing happens in EnhancedSensorService.kt already (and also it only fires on changes), so smoothing on the frontend would only be useful if we need to smoothen web compass api
+* but also consider car mode...
+*  */
+const SMOOTHING_FACTOR = 0; // 0 = no smoothing, 1 = no change
 
 // Helper function to calculate shortest angular distance
 function angleDifference(a: number, b: number): number {
