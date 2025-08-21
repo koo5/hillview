@@ -59,7 +59,7 @@
 
         if (bearingParam) {
             console.log('Setting bearing to', bearingParam, 'from URL');
-            update_bearing(parseFloat(bearingParam));
+            mapStateUpdateBearing(parseFloat(bearingParam));
         }
 
         setTimeout(() => {
