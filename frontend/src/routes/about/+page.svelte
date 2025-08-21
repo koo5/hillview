@@ -36,7 +36,7 @@
     ];
 </script>
 
-<div class="about-container">
+<div class="about-container page-scrollable">
     <div class="back-button-container">
         <BackButton title="Back to Map" />
     </div>

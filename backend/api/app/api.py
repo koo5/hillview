@@ -177,6 +177,10 @@ if USER_ACCOUNTS:
     # Include photo routes (only with user accounts)
     from .photo_routes import router as photo_router
     app.include_router(photo_router)
+    
+    # Include activity routes (only with user accounts)
+    from .activity_routes import router as activity_router
+    app.include_router(activity_router)
 
 # Include Mapillary routes
 from .mapillary_routes import router as mapillary_router

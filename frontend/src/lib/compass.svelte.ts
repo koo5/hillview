@@ -153,7 +153,7 @@ async function startTauriSensor(mode: SensorMode = SensorMode.UPRIGHT_ROTATION_V
                 source: sensorData.source || 'tauri'
             };
             
-            //scheduleCompassUpdate(compassUpdate);
+            scheduleCompassUpdate(compassUpdate);
 
             if (false) {
                 const modeStr = get(currentSensorMode);

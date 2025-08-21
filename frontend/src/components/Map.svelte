@@ -23,7 +23,7 @@
     import { sources } from "$lib/data.svelte";
     import { simplePhotoWorker } from '$lib/simplePhotoWorker';
     import { turn_to_photo_to, app, mapillary_cache_status, sourceLoadingStatus } from "$lib/data.svelte";
-    import { updateGpsLocation, setLocationTracking, setLocationError, gpsLocation } from "$lib/location.svelte";
+    import { updateGpsLocation, setLocationTracking, setLocationError, gpsLocation, locationTracking } from "$lib/location.svelte";
     import { compassActive, compassAvailable, startCompass, stopCompass, currentCompassHeading } from "$lib/compass.svelte";
     import { optimizedMarkerSystem } from '$lib/optimizedMarkers';
     import '$lib/styles/optimizedMarkers.css';
@@ -48,7 +48,6 @@
     const longPressDelay = 500; // 500ms for long press detection
     
     // Location tracking variables
-    let locationTracking = false;
     let watchId: number | null = null;
     let userLocationMarker: any = null;
     let accuracyCircle: any = null;
@@ -75,16 +74,14 @@
     
     // Export location tracking functions for use by parent
     export function enableLocationTracking() {
-        if (!locationTracking) {
-            locationTracking = true;
+        if (!get(locationTracking)) {
             setLocationTracking(true);
             startLocationTracking();
         }
     }
     
     export function disableLocationTracking() {
-        if (locationTracking) {
-            locationTracking = false;
+        if (get(locationTracking)) {
             setLocationTracking(false);
             stopLocationTracking();
         }
@@ -425,13 +422,13 @@
     }
 
     function toggleLocationTracking() {
-        if (locationTracking) {
+        if (get(locationTracking)) {
             stopLocationTracking();
+            setLocationTracking(false);
         } else {
             startLocationTracking();
+            setLocationTracking(true);
         }
-        locationTracking = !locationTracking;
-        setLocationTracking(locationTracking);
     }
     
     async function toggleCompassTracking() {
@@ -494,7 +491,6 @@
                 }
                 
                 alert(errorMessage);
-                locationTracking = false;
                 setLocationTracking(false);
                 locationTrackingLoading = false;
             },
@@ -546,7 +542,7 @@
             const latLng = new L.LatLng(latitude, longitude);
 
             // Center map on user location if tracking is active
-            if (locationTracking) {
+            if (get(locationTracking)) {
                 flying = true;
                 updateSpatialState({
                     center: new LatLng(latitude, longitude),
@@ -586,6 +582,12 @@
     
     // Main GPS update handler - orchestrates location and bearing updates
     async function handleGpsUpdate(position: GeolocationPosition) {
+        // Only process GPS updates if location tracking is enabled
+        if (!get(locationTracking)) {
+            console.debug("handleGpsUpdate: Location tracking disabled, ignoring GPS update");
+            return;
+        }
+
         // Check if position changed and update global store
         const updated = updateGpsLocation(position);
         if (!updated) {
@@ -704,7 +706,7 @@
     function handleVisibilityChange() {
         if (document.hidden) {
             // App is going to background or orientation change starting
-            wasTrackingBeforeHidden = locationTracking;
+            wasTrackingBeforeHidden = get(locationTracking);
             console.log('App visibility changed to hidden, was tracking:', wasTrackingBeforeHidden);
         } else {
             // App is coming to foreground or orientation change completed
@@ -716,9 +718,8 @@
                 }
                 // Delay restart slightly to let WebView stabilize after orientation change
                 orientationRestartTimer = setTimeout(async () => {
-                    if (wasTrackingBeforeHidden && (!locationTracking || watchId === null)) {
+                    if (wasTrackingBeforeHidden && (!get(locationTracking) || watchId === null)) {
                         console.log('Restarting location tracking after visibility change');
-                        locationTracking = true;
                         setLocationTracking(true);
                         await startLocationTracking();
                     }
@@ -729,9 +730,8 @@
 
     // Handle page show/hide events (iOS Safari specific)
     function handlePageShow(event: PageTransitionEvent) {
-        if (event.persisted && wasTrackingBeforeHidden && !locationTracking) {
+        if (event.persisted && wasTrackingBeforeHidden && !get(locationTracking)) {
             console.log('Page shown from cache, resuming location tracking');
-            locationTracking = true;
             setLocationTracking(true);
             startLocationTracking();
         }
@@ -739,7 +739,7 @@
 
     function handlePageHide(event: PageTransitionEvent) {
         if (event.persisted) {
-            wasTrackingBeforeHidden = locationTracking;
+            wasTrackingBeforeHidden = get(locationTracking);
             console.log('Page hiding to cache, was tracking:', wasTrackingBeforeHidden);
         }
     }
@@ -1107,7 +1107,7 @@
 <!-- Location tracking buttons -->
 <div class="location-button-container">
     <button 
-        class={locationTracking ? 'active' : ''}
+        class={$locationTracking ? 'active' : ''}
         on:click={(e) => handleButtonClick('location', e)}
         title="Track my location"
         class:flash={locationApiEventFlash}

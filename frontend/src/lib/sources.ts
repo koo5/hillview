@@ -1,7 +1,6 @@
 import {app, hillview_photos, sources, type Source} from "$lib/data.svelte";
 import { LatLng } from 'leaflet';
 import {writable, get} from "svelte/store";
-import { auth } from "$lib/auth.svelte";
 import { userPhotos, devicePhotos } from './stores';
 import { photoCaptureService } from './photoCapture';
 import type { PhotoData, PhotoSize, DevicePhotoMetadata } from './types/photoTypes';
@@ -178,14 +177,3 @@ async function fetchDirectorySource(source: Source) {
 // Re-export utilities and types for backward compatibility
 export { parseCoordinate, parseFraction } from './utils/photoParser';
 export type { PhotoData, PhotoSize };
-
-
-
-
-
-
-
-export function source_by_id(id: string) {
-    return get(sources).find(s => s.id === id);
-}
-

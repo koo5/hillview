@@ -34,12 +34,12 @@ class EnhancedSensorService(
 ) : SensorEventListener {
     companion object {
         private const val TAG = "EnhancedSensorService"
-        private const val UPDATE_RATE_MS = 50 // Higher frequency for better fusion
+        private const val UPDATE_RATE_MS = 10 // Higher frequency for better fusion
         private const val SENSOR_DELAY = SensorManager.SENSOR_DELAY_GAME // Faster updates
         
         // Smoothing and filtering parameters
-        private const val EMA_ALPHA = 0.15f // EMA smoothing factor (0.1-0.3 range, lower = more smoothing)
-        private const val HEADING_THRESHOLD = 1.0f // Minimum heading change to trigger update (degrees)
+        private const val EMA_ALPHA = 0.899f // EMA smoothing factor (0.1-0.3 range, lower = more smoothing)
+        private const val HEADING_THRESHOLD = 3.0f // Minimum heading change to trigger update (degrees)
         private const val PITCH_THRESHOLD = 3.0f // Minimum pitch change to trigger update (degrees) 
         private const val ROLL_THRESHOLD = 3.0f // Minimum roll change to trigger update (degrees)
         private const val ACCURACY_THRESHOLD = 1.0f // Minimum accuracy change to trigger update (degrees)
@@ -645,6 +645,8 @@ class EnhancedSensorService(
      * Apply EMA smoothing to a value, handling circular angles properly for headings
      */
     private fun applySmoothingEMA(newValue: Float, smoothedValue: Float?, isAngle: Boolean = false): Float {
+    	//return newValue
+
         return if (smoothedValue == null) {
             newValue
         } else if (isAngle) {

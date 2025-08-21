@@ -1,6 +1,5 @@
-import type {SourceConfig} from './photoWorkerTypes';
-import {photosInArea, photosInRange, spatialState, bearingState} from './mapState';
-import {client_id, mapillary_cache_status, sources, sourceLoadingStatus} from './data.svelte';
+import {photosInArea, photosInRange, spatialState} from './mapState';
+import {sourceLoadingStatus, sources} from './data.svelte';
 import {get} from 'svelte/store';
 import {auth} from './auth.svelte';
 

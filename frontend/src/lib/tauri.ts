@@ -1,5 +1,4 @@
-import { invoke, addPluginListener } from '@tauri-apps/api/core';
-import { platform } from '@tauri-apps/plugin-os';
+import {addPluginListener, invoke} from '@tauri-apps/api/core';
 
 // Check if window is defined (tests/SSR may not have window)
 const hasWindow = typeof window !== 'undefined';

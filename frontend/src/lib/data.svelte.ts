@@ -25,7 +25,7 @@ export interface Source {
 }
 
 export const sources = writable<Source[]>([
-    {id: 'hillview', name: 'Hillview', type: 'stream', enabled: false, requests: [], color: '#000', url: `${backendUrl}/hillview`},
+    {id: 'hillview', name: 'Hillview', type: 'stream', enabled: true, requests: [], color: '#000', url: `${backendUrl}/hillview`},
     {id: 'mapillary', name: 'Mapillary', type: 'stream', enabled: true, requests: [], color: '#888', url: `${backendUrl}/mapillary`},
     {id: 'device', name: 'My Device', type: 'device', enabled: true, requests: [], color: '#4a90e2', subtype: 'hillview'},
 ]);

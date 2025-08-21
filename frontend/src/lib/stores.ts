@@ -25,21 +25,6 @@ export const userPhotos = writable<UserPhoto[]>([]);
 // Store for device-captured photos (loaded from backend)
 export const devicePhotos = writable<DevicePhotoMetadata[]>([]);
 
-// Store for auto-upload folder settings
-export const autoUploadSettings = localStorageSharedStore('autoUploadSettings', {
-    enabled: false,
-    folderPath: '',
-    lastScanTime: null,
-    uploadInterval: 30 // minutes
-});
-
-// Store for device type detection
-export const deviceInfo = writable({
-    isMobile: false,
-    isIOS: false,
-    isAndroid: false
-});
-
 // Store for photo capture settings
 export const photoCaptureSettings = localStorageSharedStore('photoCaptureSettings', {
     hideFromGallery: false // Default to false (photos visible in gallery)

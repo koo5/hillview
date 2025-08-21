@@ -132,7 +132,7 @@
     }
 </script>
 
-<div class="login-container">
+<div class="login-container page-scrollable">
     <div class="back-button-container">
         <BackButton title="Back to Map" />
     </div>

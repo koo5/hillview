@@ -93,7 +93,7 @@
     }
 </script>
 
-<div class="profile-container">
+<div class="profile-container page-scrollable">
     <div class="back-button-container">
         <BackButton title="Back to Map" />
     </div>

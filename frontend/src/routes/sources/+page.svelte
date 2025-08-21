@@ -145,7 +145,7 @@
     });
 </script>
 
-<div class="sources-container">
+<div class="sources-container page-scrollable">
     <div class="back-button-container">
         <BackButton title="Back to Map" />
     </div>

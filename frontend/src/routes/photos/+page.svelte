@@ -251,7 +251,7 @@
     }
 </script>
 
-<div class="photos-container">
+<div class="photos-container page-scrollable">
     <div class="back-button-container">
         <BackButton fallbackHref="/" title="Back to Map" />
     </div>

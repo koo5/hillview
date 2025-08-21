@@ -2,7 +2,7 @@
     import { Download, Smartphone, ArrowLeft } from 'lucide-svelte';
 </script>
 
-<div class="download-page">
+<div class="download-page page-scrollable">
     <nav class="nav-header">
         <a href="/" class="back-link">
             <ArrowLeft size={20} />

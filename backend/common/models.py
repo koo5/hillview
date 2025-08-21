@@ -142,5 +142,5 @@ class SecurityAuditLog(Base):
     timestamp = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     
     # Optional user relationship for successful authentications
-    user_id = Column(String, ForeignKey("users.id"), nullable=True)
+    user_id = Column(String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     user = relationship("User")

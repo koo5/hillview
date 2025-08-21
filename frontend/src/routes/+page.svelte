@@ -1,25 +1,23 @@
 <script lang="ts">
-    import {onDestroy, onMount, tick} from 'svelte';
-    import PhotoGallery from '../components/Gallery.svelte';
-    import Map from '../components/Map.svelte';
-    import {Camera, Compass, User, LogOut, Menu, Download, Maximize2, Minimize2, Database, Info} from 'lucide-svelte';
-    import {sources, toggleDebug} from "$lib/data.svelte";
-    import {dms} from "$lib/utils";
-    import {app, turn_to_photo_to, update_bearing} from "$lib/data.svelte";
-    import {spatialState, bearingState, updateSpatialState} from "$lib/mapState";
-    import {LatLng} from 'leaflet';
-    import { goto, replaceState } from "$app/navigation";
-    import {get, writable} from "svelte/store";
-    import { auth, logout, checkAuth } from "$lib/auth.svelte";
-    import CameraCapture from '../components/CameraCapture.svelte';
-    import DebugOverlay from '../components/DebugOverlay.svelte';
-    import { FEATURE_USER_ACCOUNTS } from '$lib/config';
-    import { gpsLocation } from '$lib/location.svelte';
-    import type { DevicePhotoMetadata } from '$lib/types/photoTypes';
-    import { stopCompass, startCompass } from '$lib/compass.svelte';
-    import '$lib/debugTauri';
+	import {onDestroy, onMount, tick} from 'svelte';
+	import PhotoGallery from '../components/Gallery.svelte';
+	import Map from '../components/Map.svelte';
+	import {Activity, Camera, Database, Download, Info, LogOut, Maximize2, Menu, Minimize2, User} from 'lucide-svelte';
+	import {app, sources, toggleDebug, update_bearing} from "$lib/data.svelte";
+	import {bearingState, spatialState, updateSpatialState} from "$lib/mapState";
+	import {LatLng} from 'leaflet';
+	import {replaceState} from "$app/navigation";
+	import {get} from "svelte/store";
+	import {auth, checkAuth, logout} from "$lib/auth.svelte";
+	import CameraCapture from '../components/CameraCapture.svelte';
+	import DebugOverlay from '../components/DebugOverlay.svelte';
+	import {FEATURE_USER_ACCOUNTS} from '$lib/config';
+	import {gpsLocation} from '$lib/location.svelte';
+	import type {DevicePhotoMetadata} from '$lib/types/photoTypes';
+	import {startCompass, stopCompass} from '$lib/compass.svelte';
+	import '$lib/debugTauri';
 
-    let map: any = null;
+	let map: any = null;
     let mapComponent: any = null;
     let update_url = false;
     let menuOpen = false;
@@ -329,6 +327,11 @@
                         My Photos
                     </a></li>
 
+            <li><a href="/activity" on:click={() => menuOpen = false}>
+                <Activity size={18} />
+                Activity
+            </a></li>
+
             <li><a href="/sources" data-testid="sources-menu-link" on:click={() => menuOpen = false}>
                 <Database size={18} />
                 Sources
@@ -396,13 +399,25 @@
 <DebugOverlay bind:this={debugOverlay} />
 
 <style>
-    /* Reset default margin, padding and prevent body scroll */
+    /* Reset default margin, padding and prevent body scroll for main app */
     :global(html, body) {
         margin: 0;
         padding: 0;
         overflow: hidden;
         width: 100%;
         height: 100%;
+    }
+
+    /* Allow specific pages to enable scrolling */
+    :global(body:has(.page-scrollable), html:has(.page-scrollable)) {
+        overflow: auto !important;
+        height: auto !important;
+    }
+
+    /* Fallback for browsers that don't support :has() */
+    :global(body.scrollable, html.scrollable) {
+        overflow: auto !important;
+        height: auto !important;
     }
 
     /* Ensure padding and borders are included in the elements' total size */
