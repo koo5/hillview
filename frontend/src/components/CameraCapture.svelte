@@ -107,12 +107,30 @@
     async function checkAndStartCamera() {
         console.log('[CAMERA] Checking camera permission before auto-start...');
         const permissionState = await checkCameraPermission();
+        console.log('[CAMERA] Permission state returned:', permissionState);
         
         if (permissionState === 'granted') {
             console.log('[CAMERA] Permission already granted, starting camera automatically');
             startCamera();
+        } else if (permissionState === 'prompt' || permissionState === null) {
+            // For 'prompt' state or when Permissions API not available, try direct camera access
+            // 'prompt' often means permission is set to "While using the app" which should work
+            console.log('[CAMERA] Permission state is prompt/null, attempting direct camera access...');
+            try {
+                // Quick test to see if we can access camera without showing permission UI
+                const testStream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: facing } 
+                });
+                testStream.getTracks().forEach(track => track.stop());
+                console.log('[CAMERA] Direct camera access successful, starting camera');
+                startCamera();
+            } catch (error) {
+                console.log('[CAMERA] Direct camera access failed, showing enable button:', error);
+                needsPermission = true;
+                cameraError = 'Camera access required. Tap "Enable Camera" to continue.';
+            }
         } else {
-            console.log('[CAMERA] Permission not granted, showing enable button');
+            console.log('[CAMERA] Permission explicitly denied, showing enable button');
             needsPermission = true;
             cameraError = 'Camera access required. Tap "Enable Camera" to continue.';
         }

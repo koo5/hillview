@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <!-- Bearing circle background (represents the directional marker) -->
+  <circle cx="16" cy="16" r="14" fill="#4a90e2" stroke="#2c5aa0" stroke-width="2"/>
+  
+  <!-- Direction arrow pointing north (like the photo markers) -->
+  <path d="M16 6 L20 14 L18 14 L18 18 L14 18 L14 14 L12 14 Z" fill="white" stroke="black" stroke-width="1"/>
+  
+  <!-- Small compass dots for cardinal directions -->
+  <circle cx="16" cy="4" r="1" fill="white"/>
+  <circle cx="28" cy="16" r="1" fill="white"/>
+  <circle cx="16" cy="28" r="1" fill="white"/>
+  <circle cx="4" cy="16" r="1" fill="white"/>
+</svg>
