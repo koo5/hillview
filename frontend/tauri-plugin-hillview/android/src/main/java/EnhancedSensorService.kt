@@ -11,6 +11,16 @@ import android.location.LocationManager
 import android.util.Log
 import kotlin.math.*
 
+data class SensorData(
+    val magneticHeading: Float,  // Compass bearing in degrees from magnetic north (0-360°)
+    val trueHeading: Float,       // Compass bearing corrected for magnetic declination
+    val headingAccuracy: Float,
+    val pitch: Float,
+    val roll: Float,
+    val timestamp: Long,
+    val source: String      // Identifies which sensor provided the data
+)
+
 // Extension function for float formatting
 private fun Float.format(digits: Int) = "%.${digits}f".format(this)
 
@@ -24,8 +34,15 @@ class EnhancedSensorService(
 ) : SensorEventListener {
     companion object {
         private const val TAG = "EnhancedSensorService"
-        private const val UPDATE_RATE_MS = 250 // Higher frequency for better fusion
+        private const val UPDATE_RATE_MS = 50 // Higher frequency for better fusion
         private const val SENSOR_DELAY = SensorManager.SENSOR_DELAY_GAME // Faster updates
+        
+        // Smoothing and filtering parameters
+        private const val EMA_ALPHA = 0.15f // EMA smoothing factor (0.1-0.3 range, lower = more smoothing)
+        private const val HEADING_THRESHOLD = 1.0f // Minimum heading change to trigger update (degrees)
+        private const val PITCH_THRESHOLD = 3.0f // Minimum pitch change to trigger update (degrees) 
+        private const val ROLL_THRESHOLD = 3.0f // Minimum roll change to trigger update (degrees)
+        private const val ACCURACY_THRESHOLD = 1.0f // Minimum accuracy change to trigger update (degrees)
         
         // Sensor fusion modes
         const val MODE_ROTATION_VECTOR = 0
@@ -86,6 +103,18 @@ class EnhancedSensorService(
     private var currentMode = MODE_ROTATION_VECTOR
     private var lastUpdateTime = 0L
     private var lastLocation: Location? = null
+    
+    // EMA smoothing state
+    private var smoothedMagneticHeading: Float? = null
+    private var smoothedTrueHeading: Float? = null
+    private var smoothedPitch: Float? = null
+    private var smoothedRoll: Float? = null
+    private var smoothedAccuracy: Float? = null
+    private var lastSentMagneticHeading: Float? = null
+    private var lastSentTrueHeading: Float? = null
+    private var lastSentPitch: Float? = null
+    private var lastSentRoll: Float? = null
+    private var lastSentAccuracy: Float? = null
     
     // Rotation matrices
     private val rotationMatrix = FloatArray(9)
@@ -239,7 +268,20 @@ class EnhancedSensorService(
             hasAccelerometer = false
             hasGyroscope = false
             hasMagnetometer = false
-            Log.i(TAG, "✅ Sensor service stopped successfully")
+            
+            // Reset smoothing state to avoid stale values on restart
+            smoothedMagneticHeading = null
+            smoothedTrueHeading = null
+            smoothedPitch = null
+            smoothedRoll = null
+            smoothedAccuracy = null
+            lastSentMagneticHeading = null
+            lastSentTrueHeading = null
+            lastSentPitch = null
+            lastSentRoll = null
+            lastSentAccuracy = null
+            
+            Log.i(TAG, "✅ Sensor service stopped successfully (smoothing state reset)")
         } else {
             Log.w(TAG, "⚠️ Sensor service already stopped")
         }
@@ -256,7 +298,7 @@ class EnhancedSensorService(
     override fun onSensorChanged(event: SensorEvent) {
         when (event.sensor.type) {
             Sensor.TYPE_ROTATION_VECTOR -> {
-                Log.v(TAG, "🔍📡 Received TYPE_ROTATION_VECTOR data")
+                //Log.v(TAG, "🔍📡 Received TYPE_ROTATION_VECTOR data")
                 val source = if (currentMode == MODE_UPRIGHT_ROTATION_VECTOR) {
                     "TYPE_ROTATION_VECTOR (UPRIGHT)"
                 } else {
@@ -338,7 +380,7 @@ class EnhancedSensorService(
         }
         lastUpdateTime = currentTime
         
-        Log.v(TAG, "🔍📊 Processing $source data")
+        //Log.v(TAG, "🔍📊 Processing $source data")
         
         // Get rotation matrix
         SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
@@ -355,7 +397,7 @@ class EnhancedSensorService(
                 remappedRotationMatrix
             )
             System.arraycopy(remappedRotationMatrix, 0, rotationMatrix, 0, 9)
-            Log.v(TAG, "🔄 Applied coordinate remapping for upright mode")
+            //Log.v(TAG, "🔄 Applied coordinate remapping for upright mode")
         }
         
         // Get orientation
@@ -599,6 +641,72 @@ class EnhancedSensorService(
         }
     }
     
+    /**
+     * Apply EMA smoothing to a value, handling circular angles properly for headings
+     */
+    private fun applySmoothingEMA(newValue: Float, smoothedValue: Float?, isAngle: Boolean = false): Float {
+        return if (smoothedValue == null) {
+            newValue
+        } else if (isAngle) {
+            // Handle circular nature of angles (0-360 degrees)
+            val diff = angleDifference(newValue, smoothedValue)
+            val smoothedDiff = EMA_ALPHA * diff
+            normalizeAngle(smoothedValue + smoothedDiff)
+        } else {
+            // Regular EMA for non-angular values
+            smoothedValue + EMA_ALPHA * (newValue - smoothedValue)
+        }
+    }
+    
+    /**
+     * Calculate the shortest angular difference between two angles
+     */
+    private fun angleDifference(angle1: Float, angle2: Float): Float {
+        var diff = angle1 - angle2
+        while (diff > 180f) diff -= 360f
+        while (diff < -180f) diff += 360f
+        return diff
+    }
+    
+    /**
+     * Normalize angle to 0-360 range
+     */
+    private fun normalizeAngle(angle: Float): Float {
+        var normalized = angle % 360f
+        if (normalized < 0f) normalized += 360f
+        return normalized
+    }
+    
+    /**
+     * Check if sensor values have changed significantly enough to warrant an update
+     */
+    private fun hasSignificantChange(
+        magneticHeading: Float, trueHeading: Float, accuracy: Float,
+        pitch: Float, roll: Float
+    ): Boolean {
+        val headingChanged = lastSentMagneticHeading?.let { 
+            abs(angleDifference(magneticHeading, it)) >= HEADING_THRESHOLD 
+        } ?: true
+        
+        val trueHeadingChanged = lastSentTrueHeading?.let { 
+            abs(angleDifference(trueHeading, it)) >= HEADING_THRESHOLD 
+        } ?: true
+        
+        val pitchChanged = lastSentPitch?.let { 
+            abs(pitch - it) >= PITCH_THRESHOLD 
+        } ?: true
+        
+        val rollChanged = lastSentRoll?.let { 
+            abs(roll - it) >= ROLL_THRESHOLD 
+        } ?: true
+        
+        val accuracyChanged = lastSentAccuracy?.let { 
+            abs(accuracy - it) >= ACCURACY_THRESHOLD 
+        } ?: true
+        
+        return headingChanged || trueHeadingChanged || pitchChanged || rollChanged || accuracyChanged
+    }
+    
     private fun sendSensorData(
         magneticHeading: Float,
         trueHeading: Float,
@@ -607,14 +715,54 @@ class EnhancedSensorService(
         roll: Float,
         source: String
     ) {
+        // Apply EMA smoothing
+        smoothedMagneticHeading = applySmoothingEMA(magneticHeading, smoothedMagneticHeading, isAngle = true)
+        smoothedTrueHeading = applySmoothingEMA(trueHeading, smoothedTrueHeading, isAngle = true)
+        smoothedPitch = applySmoothingEMA(pitch, smoothedPitch, isAngle = false)
+        smoothedRoll = applySmoothingEMA(roll, smoothedRoll, isAngle = false)
+        smoothedAccuracy = applySmoothingEMA(headingAccuracy, smoothedAccuracy, isAngle = false)
+        
+        // Use smoothed values
+        val finalMagneticHeading = smoothedMagneticHeading!!
+        val finalTrueHeading = smoothedTrueHeading!!
+        val finalPitch = smoothedPitch!!
+        val finalRoll = smoothedRoll!!
+        val finalAccuracy = smoothedAccuracy!!
+        
+        // Check if changes are significant enough to warrant an update
+        if (!hasSignificantChange(finalMagneticHeading, finalTrueHeading, finalAccuracy, finalPitch, finalRoll)) {
+            // Log suppressed update occasionally
+            /*if (Math.random() < 0.01) {
+                Log.v(TAG, "🔇 Suppressing update - changes below significance threshold")
+                Log.v(TAG, "  Raw: mag=${magneticHeading.format(1)}°, true=${trueHeading.format(1)}°, pitch=${pitch.format(1)}°, roll=${roll.format(1)}°")
+                Log.v(TAG, "  Smoothed: mag=${finalMagneticHeading.format(1)}°, true=${finalTrueHeading.format(1)}°, pitch=${finalPitch.format(1)}°, roll=${finalRoll.format(1)}°")
+            }*/
+            return
+        }
+        
+        // Update last sent values
+        lastSentMagneticHeading = finalMagneticHeading
+        lastSentTrueHeading = finalTrueHeading
+        lastSentPitch = finalPitch
+        lastSentRoll = finalRoll
+        lastSentAccuracy = finalAccuracy
+        
+        // Log smoothing effect occasionally
+        if (true) {
+            Log.w(TAG, "🔧 Smoothing applied:")
+            Log.w(TAG, "  Raw values: mag=${magneticHeading.format(1)}°, true=${trueHeading.format(1)}°, pitch=${pitch.format(1)}°, roll=${roll.format(1)}°")
+            Log.w(TAG, "  Smoothed:   mag=${finalMagneticHeading.format(1)}°, true=${finalTrueHeading.format(1)}°, pitch=${finalPitch.format(1)}°, roll=${finalRoll.format(1)}°")
+            Log.w(TAG, "  EMA_ALPHA=${EMA_ALPHA}, thresholds: heading=${HEADING_THRESHOLD}°, pitch=${PITCH_THRESHOLD}°, roll=${ROLL_THRESHOLD}°")
+        }
+        
         val data = SensorData(
-            magneticHeading = magneticHeading,
-            trueHeading = trueHeading,
-            headingAccuracy = headingAccuracy,
-            pitch = pitch,
-            roll = roll,
+            magneticHeading = finalMagneticHeading,
+            trueHeading = finalTrueHeading,
+            headingAccuracy = finalAccuracy,
+            pitch = finalPitch,
+            roll = finalRoll,
             timestamp = System.currentTimeMillis(),
-            source = source
+            source = "$source (EMA smoothed)"
         )
         
         onSensorUpdate(data)

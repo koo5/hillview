@@ -35,9 +35,3 @@ export function generateUnicodeGuid(): string {
 	return guid;
 }
 
-export function sanitizeFilename(filename: string): string {
-	// Some filesystems might have issues with certain Unicode characters
-	// This function can be expanded if needed to handle edge cases
-	// For now, we'll just ensure no path separators
-	return filename.replace(/[\/\\]/g, '_');
-}

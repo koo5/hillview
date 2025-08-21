@@ -1,6 +1,7 @@
 import { TAURI_MOBILE } from './tauri';
 import { addPluginListener, type PluginListener } from '@tauri-apps/api/core';
-import { updateGpsLocation } from './location.svelte';
+import { updateGpsLocation, locationTracking } from './location.svelte';
+import { get } from 'svelte/store';
 import type { GeolocationPosition } from './geolocation';
 
 // Interface for precise location data from Android
@@ -59,9 +60,14 @@ export async function startPreciseLocationUpdates(): Promise<void> {
                     provider: data.provider
                 });
                 
-                // Convert to GeolocationPosition and update the store
-                const position = toGeolocationPosition(data);
-                updateGpsLocation(position);
+                // Only update GPS location if location tracking is enabled
+                if (get(locationTracking)) {
+                    // Convert to GeolocationPosition and update the store
+                    const position = toGeolocationPosition(data);
+                    updateGpsLocation(position);
+                } else {
+                    console.debug('📍 Ignoring location update - GPS tracking is disabled');
+                }
                 
                 // Log if we have extra precision data
                 if (data.bearingAccuracy !== undefined) {

@@ -1,5 +1,4 @@
-import { event, path } from '@tauri-apps/api';
-import { TAURI, TAURI_MOBILE, TAURI_DESKTOP, isTauriAvailable } from './tauri';
+import { TAURI, TAURI_MOBILE, TAURI_DESKTOP } from './tauri';
 
 // Debug helper to check Tauri availability
 export function debugTauriStatus() {
