@@ -306,11 +306,12 @@ class PhotoUploadWorker(
     }
     
     private fun extractGpsCoordinates(exif: ExifInterface): Pair<Double, Double> {
-        var latitude = 0.0
-        var longitude = 0.0
+        var latitude: Double
+        var longitude: Double
         
         // Method 1: Use built-in getLatLong (most reliable)
         val latLong = FloatArray(2)
+        @Suppress("DEPRECATION")
         if (exif.getLatLong(latLong)) {
             latitude = latLong[0].toDouble()
             longitude = latLong[1].toDouble()

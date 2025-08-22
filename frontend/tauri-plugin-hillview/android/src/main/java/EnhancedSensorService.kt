@@ -601,7 +601,7 @@ class EnhancedSensorService(
         }
     }
     
-    private fun getGameRotationAccuracy(pitch: Float, roll: Float): Float {
+    private fun getGameRotationAccuracy(pitch: Float, @Suppress("UNUSED_PARAMETER") roll: Float): Float {
         // Game rotation vector is more accurate when upright
         val uprightness = 90 - abs(pitch)
         return when {
@@ -623,7 +623,7 @@ class EnhancedSensorService(
         }
     }
     
-    private fun getMadgwickAccuracy(pitch: Float, roll: Float): Float {
+    private fun getMadgwickAccuracy(pitch: Float, @Suppress("UNUSED_PARAMETER") roll: Float): Float {
         // Madgwick typically provides very good accuracy
         return when {
             abs(pitch) < 80 -> 2f  // Excellent accuracy except when nearly vertical
@@ -631,7 +631,7 @@ class EnhancedSensorService(
         }
     }
     
-    private fun getComplementaryAccuracy(pitch: Float, roll: Float): Float {
+    private fun getComplementaryAccuracy(@Suppress("UNUSED_PARAMETER") pitch: Float, @Suppress("UNUSED_PARAMETER") roll: Float): Float {
         // Complementary filter accuracy depends on magnetometer calibration
         val baseAccuracy = 3f
         return when (magnetometerCalibrationStatus) {

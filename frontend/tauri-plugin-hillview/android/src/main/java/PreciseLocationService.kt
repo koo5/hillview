@@ -215,7 +215,7 @@ class PreciseLocationService(
     }
     
     // Handle permission request results
-    fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
+    fun onRequestPermissionsResult(requestCode: Int, @Suppress("UNUSED_PARAMETER") permissions: Array<String>, grantResults: IntArray) {
         if (requestCode == LOCATION_PERMISSION_REQUEST_CODE) {
             Log.i(TAG, "📍 PERM: Permission request result received")
             Log.i(TAG, "📍 PERM: Granted permissions: ${grantResults.count { it == PackageManager.PERMISSION_GRANTED }}/${grantResults.size}")
@@ -247,38 +247,37 @@ class PreciseLocationService(
     
     @SuppressLint("MissingPermission")
     private fun startLocationUpdatesInternal() {
-        Log.i(TAG, "📍 START: ======= startLocationUpdates() called =======")
-        Log.i(TAG, "📍 START: Current thread: ${Thread.currentThread().name}")
-        Log.i(TAG, "📍 START: Current isRequestingUpdates = $isRequestingUpdates")
-        Log.i(TAG, "📍 START: fusedLocationClient = $fusedLocationClient")
-        Log.i(TAG, "📍 START: locationCallback = $locationCallback")
-        Log.i(TAG, "📍 START: locationRequest = $locationRequest")
+        Log.i(TAG, "📍 START_INTERNAL: ======= startLocationUpdatesInternal() called =======")
+        Log.i(TAG, "📍 START_INTERNAL: Current thread: ${Thread.currentThread().name}")
+        Log.i(TAG, "📍 START_INTERNAL: Current isRequestingUpdates = $isRequestingUpdates")
+        Log.i(TAG, "📍 START_INTERNAL: fusedLocationClient = $fusedLocationClient")
+        Log.i(TAG, "📍 START_INTERNAL: locationCallback = $locationCallback")
+        Log.i(TAG, "📍 START_INTERNAL: locationRequest = $locationRequest")
         
         if (isRequestingUpdates) {
-            Log.w(TAG, "📍 START: Location updates already active - returning early")
+            Log.w(TAG, "📍 START_INTERNAL: Location updates already active - returning early")
             return
         }
         
-        Log.i(TAG, "📍 START: Checking location permission status...")
+        Log.i(TAG, "📍 START_INTERNAL: Checking location permission status...")
         try {
             val hasLocationPermission = context.checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
             val hasCoarsePermission = context.checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
-            Log.i(TAG, "📍 START: Fine location permission: $hasLocationPermission")
-            Log.i(TAG, "📍 START: Coarse location permission: $hasCoarsePermission")
+            Log.i(TAG, "📍 START_INTERNAL: Fine location permission: $hasLocationPermission")
+            Log.i(TAG, "📍 START_INTERNAL: Coarse location permission: $hasCoarsePermission")
             
             if (!hasLocationPermission && !hasCoarsePermission) {
-                Log.e(TAG, "📍 START: ❌ NO LOCATION PERMISSIONS GRANTED!")
+                Log.e(TAG, "📍 START_INTERNAL: ❌ NO LOCATION PERMISSIONS GRANTED!")
                 return
             }
         } catch (e: Exception) {
-            Log.e(TAG, "📍 START: Error checking permissions: ${e.message}", e)
+            Log.e(TAG, "📍 START_INTERNAL: Error checking permissions: ${e.message}", e)
         }
         
-        Log.i(TAG, "📍 START: Beginning location update setup...")
+        Log.i(TAG, "📍 START_INTERNAL: Beginning location update setup...")
         
         locationCallback?.let { callback ->
-            Log.i(TAG, "📍 START: LocationCallback is not null, proceeding...")
-            Log.i(TAG, "📍 START: About to check if location services are enabled...")
+            Log.i(TAG, "📍 START_INTERNAL: LocationCallback is not null, proceeding...")
             
             try {
                 // Check if location services are enabled
@@ -286,19 +285,15 @@ class PreciseLocationService(
                 val isGpsEnabled = locationManager.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER)
                 val isNetworkEnabled = locationManager.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER)
                 
-                Log.i(TAG, "📍 START: GPS provider enabled: $isGpsEnabled")
-                Log.i(TAG, "📍 START: Network provider enabled: $isNetworkEnabled")
+                Log.i(TAG, "📍 START_INTERNAL: GPS provider enabled: $isGpsEnabled")
+                Log.i(TAG, "📍 START_INTERNAL: Network provider enabled: $isNetworkEnabled")
                 
                 if (!isGpsEnabled && !isNetworkEnabled) {
-                    Log.e(TAG, "📍 START: ❌ NO LOCATION PROVIDERS ENABLED!")
-                    Log.e(TAG, "📍 START: User needs to enable Location Services in Settings")
+                    Log.e(TAG, "📍 START_INTERNAL: ❌ NO LOCATION PROVIDERS ENABLED!")
+                    Log.e(TAG, "📍 START_INTERNAL: User needs to enable Location Services in Settings")
                 }
                 
-                Log.i(TAG, "📍 START: Calling fusedLocationClient.requestLocationUpdates()...")
-                Log.i(TAG, "📍 START: Using Looper: ${Looper.getMainLooper()}")
-                Log.i(TAG, "📍 START: Request priority: HIGH_ACCURACY")
-                Log.i(TAG, "📍 START: Update interval: ${UPDATE_INTERVAL}ms")
-                Log.i(TAG, "📍 START: Fastest interval: ${FASTEST_INTERVAL}ms")
+                Log.i(TAG, "📍 START_INTERNAL: Calling fusedLocationClient.requestLocationUpdates()...")
                 
                 fusedLocationClient.requestLocationUpdates(
                     locationRequest,
@@ -306,40 +301,22 @@ class PreciseLocationService(
                     Looper.getMainLooper()
                 )
                 isRequestingUpdates = true
-                Log.i(TAG, "✅ START: requestLocationUpdates() call completed successfully!")
-                Log.i(TAG, "📍 START: isRequestingUpdates now = $isRequestingUpdates")
+                Log.i(TAG, "✅ START_INTERNAL: requestLocationUpdates() call completed successfully!")
                 
                 // Also get the last known location immediately
-                Log.i(TAG, "📍 START: Getting last known location...")
+                Log.i(TAG, "📍 START_INTERNAL: Getting last known location...")
                 getLastKnownLocation()
-                Log.i(TAG, "📍 START: ======= startLocationUpdates() completed successfully =======")
                 
-                // Additional check: verify that the request was actually accepted
-                Log.i(TAG, "📍 START: Verifying location request was accepted...")
-                
-                // Post a delayed check to see if we receive any location updates
-                android.os.Handler(Looper.getMainLooper()).postDelayed({
-                    Log.w(TAG, "📍 TIMEOUT: 10 seconds passed since location request - checking status...")
-                    if (isRequestingUpdates) {
-                        Log.w(TAG, "📍 TIMEOUT: Still requesting updates but may not be receiving them")
-                        Log.w(TAG, "📍 TIMEOUT: Consider checking device GPS settings")
-                    }
-                }, 10000) // 10 second timeout
             } catch (e: SecurityException) {
-                Log.e(TAG, "❌ START: SECURITY EXCEPTION - Location permission not granted!")
-                Log.e(TAG, "❌ START: SecurityException message: ${e.message}")
-                Log.e(TAG, "❌ START: SecurityException details:", e)
-                Log.e(TAG, "❌ START: This usually means location permissions are missing from manifest or not granted at runtime")
+                Log.e(TAG, "❌ START_INTERNAL: SECURITY EXCEPTION - Location permission not granted!")
+                Log.e(TAG, "❌ START_INTERNAL: SecurityException message: ${e.message}")
             } catch (e: Exception) {
-                Log.e(TAG, "❌ START: UNEXPECTED EXCEPTION in startLocationUpdates!")
-                Log.e(TAG, "❌ START: Exception type: ${e.javaClass.simpleName}")
-                Log.e(TAG, "❌ START: Exception message: ${e.message}")
-                Log.e(TAG, "❌ START: Exception details:", e)
+                Log.e(TAG, "❌ START_INTERNAL: UNEXPECTED EXCEPTION in startLocationUpdatesInternal!")
+                Log.e(TAG, "❌ START_INTERNAL: Exception type: ${e.javaClass.simpleName}")
+                Log.e(TAG, "❌ START_INTERNAL: Exception message: ${e.message}")
             }
         } ?: run {
-            Log.e(TAG, "❌ START: CRITICAL ERROR - LocationCallback is null!")
-            Log.e(TAG, "❌ START: This means setupLocationCallback() failed or was not called")
-            Log.e(TAG, "❌ START: Cannot start location updates without a valid callback")
+            Log.e(TAG, "❌ START_INTERNAL: CRITICAL ERROR - LocationCallback is null!")
         }
     }
     

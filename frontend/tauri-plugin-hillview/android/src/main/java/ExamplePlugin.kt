@@ -62,15 +62,12 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     
     private var sensorService: EnhancedSensorService? = null
     private var preciseLocationService: PreciseLocationService? = null
-    private lateinit var uploadManager: UploadManager
-    private lateinit var database: PhotoDatabase
-    private lateinit var authManager: AuthenticationManager
+    private val uploadManager: UploadManager = UploadManager(activity)
+    private val database: PhotoDatabase = PhotoDatabase.getDatabase(activity)
+    private val authManager: AuthenticationManager = AuthenticationManager(activity)
     
     init {
         pluginInstance = this
-        uploadManager = UploadManager(activity)
-        database = PhotoDatabase.getDatabase(activity)
-        authManager = AuthenticationManager(activity)
     }
     
     @Command
@@ -231,7 +228,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     fun setAutoUploadEnabled(invoke: Invoke) {
         try {
             val args = invoke.parseArgs(AutoUploadArgs::class.java)
-            val enabled = args?.enabled ?: false
+            val enabled = args.enabled
             
             Log.d(TAG, "📤 Setting auto upload enabled: $enabled")
             
@@ -448,7 +445,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         
         workManager.enqueueUniquePeriodicWork(
             PhotoUploadWorker.WORK_NAME,
-            ExistingPeriodicWorkPolicy.REPLACE,
+            ExistingPeriodicWorkPolicy.UPDATE,
             uploadWorkRequest
         )
     }
@@ -493,7 +490,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     fun getAuthToken(invoke: Invoke) {
         try {
             Log.d(TAG, "🔐 Getting auth token")
-            val (token, expiresAt) = authManager.getTokenInfo()
+            val (_, expiresAt) = authManager.getTokenInfo()
             val validToken = authManager.getValidToken()
             
             val result = JSObject()
