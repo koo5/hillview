@@ -2,7 +2,7 @@
 	import {onDestroy, onMount, tick} from 'svelte';
 	import PhotoGallery from '../components/Gallery.svelte';
 	import Map from '../components/Map.svelte';
-	import {Activity, Camera, Database, Download, Info, LogOut, Maximize2, Menu, Minimize2, User} from 'lucide-svelte';
+	import {Activity, Camera, Database, Download, EyeOff, Info, LogOut, Maximize2, Menu, Minimize2, User} from 'lucide-svelte';
 	import {app, sources, toggleDebug } from "$lib/data.svelte";
 	import {bearingState, spatialState, updateSpatialState, updateBearing as mapStateUpdateBearing} from "$lib/mapState";
 	import {LatLng} from 'leaflet';
@@ -343,6 +343,12 @@
                         <a href="/profile" on:click={() => menuOpen = false}>
                             <User size={18} />
                             Profile
+                        </a>
+                    </li>
+                    <li>
+                        <a href="/hidden" on:click={() => menuOpen = false}>
+                            <EyeOff size={18} />
+                            Hidden Content
                         </a>
                     </li>
                     <li>

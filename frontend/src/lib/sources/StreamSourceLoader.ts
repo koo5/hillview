@@ -238,27 +238,39 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
                 if (data.photos && Array.isArray(data.photos)) {
                     console.log(`StreamSourceLoader: Received ${data.photos.length} photos`);
                     
-                    const convertedPhotos: PhotoData[] = data.photos.map((photo: any) => ({
-                        id: photo.id,
-                        coord: photo.geometry ? 
-                            { lat: photo.geometry.coordinates[1], lng: photo.geometry.coordinates[0] } :
-                            photo.coord,
-                        bearing: photo.computed_compass_angle || photo.compass_angle || photo.bearing || 0,
-                        url: photo.thumb_1024_url || photo.url || '',
-                        file: photo.file || `stream_${photo.id}`,
-                        source_type: this.source.type,
-                        source: this.source,
-                        altitude: photo.computed_altitude || photo.altitude || 0,
-                        captured_at: photo.captured_at,
-                        is_pano: photo.is_pano,
-                        sizes: photo.sizes || (photo.thumb_1024_url ? {
-                            1024: {
-                                url: photo.thumb_1024_url,
-                                width: 1024,
-                                height: 768
-                            }
-                        } : undefined)
-                    }));
+                    const convertedPhotos: PhotoData[] = data.photos.map((photo: any) => {
+                        const convertedPhoto: any = {
+                            id: photo.id,
+                            coord: photo.geometry ? 
+                                { lat: photo.geometry.coordinates[1], lng: photo.geometry.coordinates[0] } :
+                                photo.coord,
+                            bearing: photo.computed_compass_angle || photo.compass_angle || photo.bearing || 0,
+                            url: photo.thumb_1024_url || photo.url || '',
+                            file: photo.file || `stream_${photo.id}`,
+                            source_type: this.source.type,
+                            source: this.source,
+                            altitude: photo.computed_altitude || photo.altitude || 0,
+                            captured_at: photo.captured_at,
+                            is_pano: photo.is_pano,
+                            sizes: photo.sizes || (photo.thumb_1024_url ? {
+                                1024: {
+                                    url: photo.thumb_1024_url,
+                                    width: 1024,
+                                    height: 768
+                                }
+                            } : undefined)
+                        };
+
+                        // Add creator information if available (from Mapillary API)
+                        if (photo.creator && typeof photo.creator === 'object') {
+                            convertedPhoto.creator = {
+                                id: photo.creator.id,
+                                username: photo.creator.username
+                            };
+                        }
+
+                        return convertedPhoto;
+                    });
 
                     this.streamPhotos.push(...convertedPhotos);
                     

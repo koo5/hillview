@@ -109,8 +109,22 @@ export class HttpClient {
     return this.makeRequest(url, requestOptions);
   }
   
-  async delete(url: string, options: RequestInit = {}): Promise<Response> {
-    return this.makeRequest(url, { ...options, method: 'DELETE' });
+  async delete(url: string, data?: any, options: RequestInit = {}): Promise<Response> {
+    const requestOptions: RequestInit = { ...options, method: 'DELETE' };
+    
+    if (data) {
+      if (data instanceof FormData) {
+        requestOptions.body = data;
+      } else {
+        requestOptions.headers = {
+          'Content-Type': 'application/json',
+          ...requestOptions.headers,
+        };
+        requestOptions.body = JSON.stringify(data);
+      }
+    }
+    
+    return this.makeRequest(url, requestOptions);
   }
   
   // Special method for file uploads with progress tracking

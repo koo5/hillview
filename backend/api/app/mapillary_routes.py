@@ -16,9 +16,10 @@ import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db, SessionLocal
-from common.models import CachedRegion, MapillaryPhotoCache
+from common.models import CachedRegion, MapillaryPhotoCache, User
 from .cache_service import MapillaryCacheService
 from .rate_limiter import rate_limit_public_read
+from .auth import get_current_user_optional_with_query
 
 load_dotenv()
 log = logging.getLogger(__name__)
@@ -223,7 +224,7 @@ async def fetch_mapillary_data(
     params = {
         "limit": 250,
         "bbox": ",".join(map(str, [round(top_left_lon, 7), round(bottom_right_lat,7), round(bottom_right_lon,7), round(top_left_lat,7)])),
-        "fields": "id,geometry,compass_angle,thumb_1024_url,computed_rotation,computed_compass_angle,computed_altitude,captured_at,is_pano",
+        "fields": "id,geometry,compass_angle,thumb_1024_url,computed_rotation,computed_compass_angle,computed_altitude,captured_at,is_pano,creator",
         "access_token": get_mapillary_token(),
     }
     
@@ -251,7 +252,8 @@ async def stream_mapillary_images(
     bottom_right_lat: float = Query(..., description="Bottom right latitude"),
     bottom_right_lon: float = Query(..., description="Bottom right longitude"),
     client_id: str = Query(..., description="Client ID"),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional_with_query)
 ):
     """Stream Mapillary images with Server-Sent Events"""
     # Apply public read rate limiting
@@ -259,7 +261,7 @@ async def stream_mapillary_images(
     
     log.info(f"EventSource connection initiated by client {client_id} for bbox: ({top_left_lat}, {top_left_lon}) to ({bottom_right_lat}, {bottom_right_lon})")
     
-    async def generate_stream(db_session: AsyncSession):
+    async def generate_stream(db_session: AsyncSession, user: Optional[User] = None):
         request_id = datetime.datetime.now().strftime("%Y%m%d%H%M%S.%f")
         log.info(f"Stream generator started for request {request_id} from client {client_id} (cache_enabled={ENABLE_MAPILLARY_CACHE}, live_enabled={ENABLE_MAPILLARY_LIVE})")
         
@@ -338,7 +340,8 @@ async def stream_mapillary_images(
                 # Send initial response with cached data using spatial sampling
                 cached_photos = await cache_service.get_cached_photos_in_bbox(
                     top_left_lat, top_left_lon, bottom_right_lat, bottom_right_lon, 
-                    max_photos=MAX_PHOTOS_PER_REQUEST
+                    max_photos=MAX_PHOTOS_PER_REQUEST,
+                    current_user_id=user.id if user else None
                 )
                 
                 cache_ignored_due_to_distribution = False
@@ -521,7 +524,7 @@ async def stream_mapillary_images(
     try:
         log.info(f"Creating StreamingResponse for client {client_id}")
         response = StreamingResponse(
-            generate_stream(db),
+            generate_stream(db, current_user),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache, no-store, must-revalidate",

@@ -190,6 +190,10 @@ app.include_router(mapillary_router)
 from .hillview_routes import router as hillview_router
 app.include_router(hillview_router)
 
+# Include Hidden Content routes
+from .hidden_content_routes import router as hidden_content_router
+app.include_router(hidden_content_router)
+
 # Database migration function
 def run_migrations():
     """Run Alembic migrations on startup"""

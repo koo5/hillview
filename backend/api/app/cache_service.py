@@ -30,7 +30,8 @@ class MapillaryCacheService:
         top_left_lon: float,
         bottom_right_lat: float,
         bottom_right_lon: float,
-        max_photos: int = 3000
+        max_photos: int = 3000,
+        current_user_id: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """Get cached photos within bounding box with spatial sampling for even distribution"""
         
@@ -75,9 +76,15 @@ class MapillaryCacheService:
         else:
             log.warning("Debug: No photos found in bbox for grid calculation test")
         
+        # Import and use the SQL-based filtering for Mapillary
+        from .hidden_content_filters import apply_mapillary_hidden_content_filters
+        
+        # Build the hidden content filtering conditions
+        hidden_filters = apply_mapillary_hidden_content_filters([], current_user_id)
+        
         # Use raw SQL for spatial sampling with grid-based distribution
         # Grid coordinates should be 0-9 for both x and y
-        query = text("""
+        query = text(f"""
             WITH cell_photos AS (
                 SELECT p.*,
                        CAST(LEAST(GREATEST(FLOOR((ST_X(p.geometry) - :bbox_min_x) / :cell_width * :grid_size), 0), :grid_size - 1) AS INTEGER) as grid_x,
@@ -90,17 +97,18 @@ class MapillaryCacheService:
                        ) as row_num
                 FROM mapillary_photo_cache p
                 WHERE ST_Within(p.geometry, ST_GeomFromText(:bbox_wkt, 4326))
+                {hidden_filters}
             )
             SELECT mapillary_id, ST_X(geometry) as lon, ST_Y(geometry) as lat, 
                    compass_angle, computed_compass_angle, computed_rotation, computed_altitude,
-                   captured_at, is_pano, thumb_1024_url, grid_x, grid_y
+                   captured_at, is_pano, thumb_1024_url, creator_username, creator_id, grid_x, grid_y
             FROM cell_photos 
             WHERE row_num <= :photos_per_cell
             ORDER BY grid_x, grid_y, row_num
             LIMIT :max_photos
         """)
         
-        result = await self.db.execute(query, {
+        params = {
             'bbox_wkt': bbox_wkt,
             'bbox_min_x': top_left_lon,
             'bbox_min_y': bottom_right_lat,
@@ -109,7 +117,12 @@ class MapillaryCacheService:
             'grid_size': grid_size,
             'photos_per_cell': photos_per_cell,
             'max_photos': max_photos
-        })
+        }
+        
+        if current_user_id:
+            params['current_user_id'] = current_user_id
+        
+        result = await self.db.execute(query, params)
         
         cached_photos = result.fetchall()
         
@@ -129,6 +142,10 @@ class MapillaryCacheService:
                 "captured_at": row.captured_at.isoformat() if row.captured_at else None,
                 "is_pano": row.is_pano,
                 "thumb_1024_url": row.thumb_1024_url,
+                "creator": {
+                    "username": row.creator_username,
+                    "id": row.creator_id
+                } if row.creator_username or row.creator_id else None,
                 # Include grid info for distribution analysis
                 "_grid_x": row.grid_x,
                 "_grid_y": row.grid_y
@@ -360,6 +377,14 @@ class MapillaryCacheService:
                 # Set to None if it's not a valid numeric type
                 computed_rotation = None
             
+            # Extract creator information
+            creator_username = None
+            creator_id = None
+            creator_data = photo_data.get('creator')
+            if creator_data and isinstance(creator_data, dict):
+                creator_username = creator_data.get('username')
+                creator_id = creator_data.get('id')
+            
             # Prepare insert data
             photo_dict = {
                 'mapillary_id': photo_data['id'],
@@ -371,6 +396,8 @@ class MapillaryCacheService:
                 'captured_at': captured_at,
                 'is_pano': photo_data.get('is_pano', False),
                 'thumb_1024_url': photo_data.get('thumb_1024_url'),
+                'creator_username': creator_username,
+                'creator_id': creator_id,
                 'region_id': region.id,
                 'raw_data': photo_data,
                 'cached_at': datetime.datetime.utcnow()

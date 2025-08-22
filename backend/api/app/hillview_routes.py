@@ -13,6 +13,7 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
 from common.models import Photo, User
+from .hidden_content_filters import apply_hidden_content_filters
 from .auth import get_current_user_optional_with_query
 from .rate_limiter import rate_limit_public_read
 
@@ -48,6 +49,13 @@ async def get_hillview_images(
             Photo.longitude >= top_left_lon,
             Photo.longitude <= bottom_right_lon,
             Photo.is_public == True
+        )
+        
+        # Apply hidden content filtering
+        query = apply_hidden_content_filters(
+            query, 
+            current_user.id if current_user else None,
+            'hillview'
         )
         
         # Filter out test user photos if user is not authenticated

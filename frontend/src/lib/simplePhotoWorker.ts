@@ -204,6 +204,33 @@ class SimplePhotoWorker {
     isReady(): boolean {
         return this.isInitialized && this.worker !== null;
     }
+
+    // Cache removal methods for hidden content
+    removePhotoFromCache(photoId: string, photoSource: string): void {
+        if (!this.isInitialized || !this.worker) {
+            console.warn('SimplePhotoWorker: Cannot remove photo from cache - worker not initialized');
+            return;
+        }
+
+        console.log(`SimplePhotoWorker: Removing photo ${photoId} from ${photoSource} cache...`);
+        this.sendMessage('removePhoto', {
+            photoId: photoId,
+            source: photoSource
+        });
+    }
+
+    removeUserPhotosFromCache(userId: string, userSource: string): void {
+        if (!this.isInitialized || !this.worker) {
+            console.warn('SimplePhotoWorker: Cannot remove user photos from cache - worker not initialized');
+            return;
+        }
+
+        console.log(`SimplePhotoWorker: Removing all photos by user ${userId} from ${userSource} cache...`);
+        this.sendMessage('removeUserPhotos', {
+            userId: userId,
+            source: userSource
+        });
+    }
 }
 
 // Global instance

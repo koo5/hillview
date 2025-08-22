@@ -106,6 +106,10 @@ class MapillaryPhotoCache(Base):
     is_pano = Column(Boolean, default=False)
     thumb_1024_url = Column(String, nullable=True)
     
+    # Creator information
+    creator_username = Column(String(255), nullable=True)
+    creator_id = Column(String(255), nullable=True)
+    
     # Cache metadata
     cached_at = Column(DateTime(timezone=True), server_default=func.now())
     region_id = Column(String, ForeignKey("cached_regions.id"))
@@ -144,3 +148,43 @@ class SecurityAuditLog(Base):
     # Optional user relationship for successful authentications
     user_id = Column(String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     user = relationship("User")
+
+class HiddenPhoto(Base):
+    __tablename__ = "hidden_photos"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    photo_source = Column(String(20), nullable=False)  # 'mapillary' or 'hillview'
+    photo_id = Column(String(255), nullable=False)
+    hidden_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    reason = Column(String(100), nullable=True)
+    extra_data = Column(JSON, nullable=True)  # Additional context like creator info, etc.
+    
+    # Relationships
+    user = relationship("User")
+    
+    # Table constraints are defined in the migration
+    __table_args__ = (
+        # Unique constraint to prevent duplicate hides
+        {"schema": None}  # Placeholder - actual constraints in migration
+    )
+
+class HiddenUser(Base):
+    __tablename__ = "hidden_users"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    hiding_user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    target_user_source = Column(String(20), nullable=False)  # 'mapillary' or 'hillview'
+    target_user_id = Column(String(255), nullable=False)  # User ID from the source platform
+    hidden_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    reason = Column(String(100), nullable=True)
+    extra_data = Column(JSON, nullable=True)  # Additional context about the hidden user
+    
+    # Relationships
+    hiding_user = relationship("User")
+    
+    # Table constraints are defined in the migration
+    __table_args__ = (
+        # Unique constraints and checks defined in migration
+        {"schema": None}  # Placeholder - actual constraints in migration
+    )

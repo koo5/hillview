@@ -463,6 +463,18 @@ async function loop(): Promise<void> {
 					// Stream is complete, no additional action needed
 					break;
 					
+				case 'removePhoto':
+					// Handle removing a single photo from cache
+					console.log(`NewWorker: Removing photo ${message.data.photoId} from ${message.data.source} cache`);
+					removePhotoFromCache(message.data.photoId, message.data.source);
+					break;
+					
+				case 'removeUserPhotos':
+					// Handle removing all photos by a user from cache
+					console.log(`NewWorker: Removing all photos by user ${message.data.userId} from ${message.data.source} cache`);
+					removeUserPhotosFromCache(message.data.userId, message.data.source);
+					break;
+					
 				case 'exit':
 					console.log('NewWorker: Exit requested');
 					stopProcessMonitor();
@@ -636,3 +648,55 @@ loop().catch(error => {
 });
 
 console.log('NewWorker: Initialization complete');
+
+// Cache removal functions for hidden content
+function removePhotoFromCache(photoId: string, source: string): void {
+	console.log(`NewWorker: Removing photo ${photoId} from ${source} cache`);
+	
+	// Remove from photosInAreaPerSource
+	const sourcePhotos = photosInAreaPerSource.get(source);
+	if (sourcePhotos) {
+		const updatedPhotos = sourcePhotos.filter(photo => photo.id !== photoId);
+		photosInAreaPerSource.set(source, updatedPhotos);
+		console.log(`NewWorker: Removed photo ${photoId} from ${source} - ${sourcePhotos.length - updatedPhotos.length} photos removed`);
+		
+		// Trigger photo update
+		sourcesPhotosInAreaVersion++;
+		updateState('sourcesPhotosInArea', { id: sourcesPhotosInAreaVersion });
+		sendPhotosUpdate();
+	} else {
+		console.log(`NewWorker: No photos found for source ${source} when trying to remove photo ${photoId}`);
+	}
+}
+
+function removeUserPhotosFromCache(userId: string, source: string): void {
+	console.log(`NewWorker: Removing all photos by user ${userId} from ${source} cache`);
+	
+	// Remove from photosInAreaPerSource
+	const sourcePhotos = photosInAreaPerSource.get(source);
+	if (sourcePhotos) {
+		const beforeCount = sourcePhotos.length;
+		const updatedPhotos = sourcePhotos.filter(photo => {
+			// Check if photo has creator information
+			const photoAny = photo as any;
+			if (photoAny.creator?.id === userId) {
+				console.log(`NewWorker: Filtering out photo ${photo.id} by user ${userId}`);
+				return false;
+			}
+			return true;
+		});
+		
+		photosInAreaPerSource.set(source, updatedPhotos);
+		const removedCount = beforeCount - updatedPhotos.length;
+		console.log(`NewWorker: Removed ${removedCount} photos by user ${userId} from ${source}`);
+		
+		if (removedCount > 0) {
+			// Trigger photo update if any photos were removed
+			sourcesPhotosInAreaVersion++;
+			updateState('sourcesPhotosInArea', { id: sourcesPhotosInAreaVersion });
+			sendPhotosUpdate();
+		}
+	} else {
+		console.log(`NewWorker: No photos found for source ${source} when trying to remove photos by user ${userId}`);
+	}
+}

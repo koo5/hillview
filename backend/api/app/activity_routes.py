@@ -12,7 +12,8 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
 from common.models import Photo, User
-from .auth import get_current_active_user
+from .auth import get_current_user_optional_with_query
+from .hidden_content_filters import apply_hidden_content_filters
 from .rate_limiter import general_rate_limiter
 
 logger = logging.getLogger(__name__)
@@ -23,7 +24,8 @@ router = APIRouter(prefix="/api/activity", tags=["activity"])
 async def get_recent_activity(
     request: Request,
     limit: int = 100,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional_with_query)
 ):
     """Get last 100 photos across all users with user information for activity feed."""
     # Apply general rate limiting
@@ -34,6 +36,13 @@ async def get_recent_activity(
         query = select(Photo, User.username).join(
             User, Photo.owner_id == User.id
         ).order_by(Photo.uploaded_at.desc()).limit(limit)
+        
+        # Apply hidden content filtering
+        query = apply_hidden_content_filters(
+            query,
+            current_user.id if current_user else None,
+            'hillview'
+        )
         
         result = await db.execute(query)
         photo_user_pairs = result.all()

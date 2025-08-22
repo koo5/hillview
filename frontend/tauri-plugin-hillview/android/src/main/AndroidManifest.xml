@@ -22,9 +22,7 @@
 
 
     <application
-            android:usesCleartextTraffic="true"
-            android:requestLegacyExternalStorage="true"
-            tools:replace="android:usesCleartextTraffic">
+>
         <!-- you can keep other attributes/components here -->
     </application>
 

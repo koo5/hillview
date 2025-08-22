@@ -32,6 +32,9 @@ class PreciseLocationService(
     private val activity: Activity,
     private val onLocationUpdate: (PreciseLocationData) -> Unit
 ) {
+    // Provide context from activity for convenience
+    private val context: Context = activity
+    
     companion object {
         private const val TAG = "PreciseLocationService"
         
