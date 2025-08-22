@@ -132,6 +132,18 @@
         return null;
     }
 
+    function getUserName(photo: PhotoData): string | null {
+        // For Mapillary photos, check if creator info exists in the photo data
+        if ((photo as any).creator?.username) {
+            return (photo as any).creator.username;
+        }
+        // For Hillview photos, we might have owner username in the data
+        if ((photo as any).owner_username) {
+            return (photo as any).owner_username;
+        }
+        return null;
+    }
+
     async function hidePhoto() {
         if (!photo || !isAuthenticated || isHiding) return;
         
@@ -259,6 +271,14 @@
         
         <!-- Hide buttons for front photo only, and only for authenticated users -->
         {#if className === 'front' && isAuthenticated}
+            <!-- Creator username display -->
+            {#if getUserName(photo)}
+                <div class="creator-info">
+                    <span class="creator-name">@{getUserName(photo)}</span>
+                    <span class="source-name">{getPhotoSource(photo)}</span>
+                </div>
+            {/if}
+            
             <div class="hide-buttons">
                 <button 
                     class="hide-button hide-photo"
@@ -274,7 +294,7 @@
                     class="hide-button hide-user"
                     on:click={showUserHideDialog}
                     disabled={isHiding || !getUserId(photo)}
-                    title="Hide all photos by this user"
+                    title="Hide all photos by {getUserName(photo) || 'this user'}"
                     data-testid="hide-user-button"
                 >
                     <UserX size={16} />
@@ -296,7 +316,7 @@
     <div class="dialog-overlay">
         <div class="dialog">
             <h3>Hide User</h3>
-            <p>This will hide all photos by this user from your view.</p>
+            <p>This will hide all photos by <strong>{getUserName(photo) ? `@${getUserName(photo)}` : 'this user'}</strong> from your view.</p>
             
             <div class="form-group">
                 <label for="hide-reason">Reason (optional):</label>
@@ -400,6 +420,43 @@
         right: 0;
         mask-image: linear-gradient(to left, white 0%, white 70%, transparent 100%);
         -webkit-mask-image: linear-gradient(to left, white 0%, white 70%, transparent 100%);
+    }
+
+    /* Creator info display */
+    .creator-info {
+        position: absolute;
+        bottom: 60px;
+        right: 10px;
+        background: rgba(0, 0, 0, 0.8);
+        color: white;
+        padding: 6px 10px;
+        border-radius: 12px;
+        font-size: 12px;
+        font-weight: 500;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 2px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        z-index: 9;
+        max-width: 150px;
+        text-align: right;
+    }
+
+    .creator-name {
+        color: #4a90e2;
+        font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 100%;
+    }
+
+    .source-name {
+        color: rgba(255, 255, 255, 0.7);
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
     }
 
     /* Hide buttons */
