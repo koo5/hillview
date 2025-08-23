@@ -228,9 +228,6 @@
             // Note: Compass stopping is now handled by reactive statement
         }
     }
-    
-    // Use the reactive GPS location store
-    $: currentLocation = $gpsLocation;
 
     // Subscribe to auth store
     let isAuthenticated = false;

@@ -2,7 +2,7 @@
     import {getBuildInfo} from '$lib/build-info';
     import {onMount} from 'svelte';
     import {spatialState, bearingState} from '$lib/mapState';
-    import {gpsCoordinates, locationError, locationTracking} from '$lib/location.svelte';
+	import {gpsLocation, locationError, locationTracking} from '$lib/location.svelte';
 
     import {
         compassAvailable,
@@ -118,21 +118,12 @@
     <div>Zoom: {$spatialState.zoom?.toFixed(1)} | Bearing: {$bearingState.bearing?.toFixed(0)}°</div>
 </div>
 
-{#if $gpsCoordinates}
+{#if $gpsLocation}
     <div class="debug-section">
         <div><strong>GPS Location {$locationTracking ? '📍 Active' : '⭕ Inactive'}:</strong></div>
-        <div>Position: {$gpsCoordinates.latitude?.toFixed(4)}
-            , {$gpsCoordinates.longitude?.toFixed(4)}</div>
-        <div>Accuracy: ±{$gpsCoordinates.accuracy?.toFixed(0)}m
-            {#if $gpsCoordinates.altitude !== null && $gpsCoordinates.altitude !== undefined}
-                | Altitude: {$gpsCoordinates.altitude?.toFixed(0)}m
-            {/if}
-        </div>
-        <div>GPS Heading: {$gpsCoordinates.heading?.toFixed(0) || 'No movement'}°
-            {#if $gpsCoordinates.speed !== null && $gpsCoordinates.speed !== undefined}
-                | Speed: {($gpsCoordinates.speed * 3.6)?.toFixed(1)}km/h
-            {/if}
-        </div>
+
+        <pre>{JSON.stringify($gpsLocation, null, 2)}</pre>
+
         {#if $locationError}
             <div class="error">Error: {$locationError}</div>
         {/if}

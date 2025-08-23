@@ -10,35 +10,6 @@ export const locationTracking = writable<boolean>(false);
 // Store for location error messages
 export const locationError = writable<string | null>(null);
 
-// Derived store for easy access to coordinates
-export const gpsCoordinates = derived(
-    gpsLocation,
-    $gpsLocation => {
-        if (!$gpsLocation) return null;
-        
-        const { latitude, longitude, altitude, accuracy, heading, speed } = $gpsLocation.coords;
-        
-        return {
-            latitude,
-            longitude,
-            altitude,
-            accuracy,
-            heading,
-            speed,
-            timestamp: $gpsLocation.timestamp
-        };
-    }
-);
-
-// Derived store for formatted location string
-export const gpsLocationString = derived(
-    gpsCoordinates,
-    $coords => {
-        if (!$coords) return 'No GPS data';
-        
-        return `${$coords.latitude.toFixed(6)}, ${$coords.longitude.toFixed(6)}`;
-    }
-);
 
 // Helper function to check if position has changed
 export function hasPositionChanged(oldPosition: GeolocationPosition | null, newPosition: GeolocationPosition | null): boolean {
@@ -62,7 +33,7 @@ export function updateGpsLocation(position: GeolocationPosition | null) {
         return false;
     }
 
-    console.debug('Updating GPS location store:', position);
+    console.debug('Updating GPS location store:', JSON.stringify(position));
     gpsLocation.set(position);
     
     // Capture location updates are now handled by captureLocationManager.ts

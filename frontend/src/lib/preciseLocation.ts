@@ -1,7 +1,7 @@
 import { TAURI_MOBILE } from './tauri';
 import { addPluginListener, type PluginListener } from '@tauri-apps/api/core';
 import { invoke } from '@tauri-apps/api/core';
-import { updateGpsLocation, locationTracking } from './location.svelte';
+import { updateGpsLocation, locationTracking, setLocationTracking } from './location.svelte';
 import { get } from 'svelte/store';
 
 // Unified GeolocationPosition interface
@@ -37,6 +37,7 @@ interface PreciseLocationData {
 
 // Tracking variables for both platforms
 let locationListener: PluginListener | null = null;  // Android plugin listener
+let locationStoppedListener: PluginListener | null = null;  // Android location stopped listener
 let webWatchId: number | null = null;                // Web geolocation watch ID
 
 // Convert precise location data to GeolocationPosition format
@@ -73,11 +74,11 @@ function fromBrowserGeolocation(position: globalThis.GeolocationPosition): Geolo
 
 // Handle location update for both platforms
 function handleLocationUpdate(position: GeolocationPosition, source: string) {
-    console.debug(`📍 Received ${source} location update:`, {
+    console.debug(`📍 Received "${source}" location update:`, JSON.stringify({
         lat: position.coords.latitude,
         lng: position.coords.longitude,
         accuracy: position.coords.accuracy
-    });
+    }));
     
     // Only update GPS location if location tracking is enabled
     if (get(locationTracking)) {
@@ -100,7 +101,7 @@ export async function startPreciseLocationUpdates(): Promise<void> {
         try {
             console.log('📍 Starting Android precise location listener');
             
-            // Set up the event listener first
+            // Set up the location update event listener
             locationListener = await addPluginListener(
                 'hillview',
                 'location-update',
@@ -118,20 +119,38 @@ export async function startPreciseLocationUpdates(): Promise<void> {
                 }
             );
             
+            // Set up the location stopped event listener
+            locationStoppedListener = await addPluginListener(
+                'hillview',
+                'location-stopped',
+                () => {
+                    console.log('📍 Android location tracking stopped - updating frontend state');
+                    setLocationTracking(false);
+                }
+            );
+            
             // Now start the precise location service on the Android side
             await invoke('plugin:hillview|start_precise_location_listener');
             
             console.log('📍 Android precise location listener started successfully');
         } catch (error) {
             console.error('📍 Failed to start Android precise location listener:', error);
-            // Clean up the listener if starting the service failed
+            // Clean up the listeners if starting the service failed
             if (locationListener) {
                 try {
                     await locationListener.unregister();
                 } catch (cleanupError) {
-                    console.debug('📍 Failed to cleanup listener on error:', cleanupError);
+                    console.debug('📍 Failed to cleanup location listener on error:', cleanupError);
                 }
                 locationListener = null;
+            }
+            if (locationStoppedListener) {
+                try {
+                    await locationStoppedListener.unregister();
+                } catch (cleanupError) {
+                    console.debug('📍 Failed to cleanup location stopped listener on error:', cleanupError);
+                }
+                locationStoppedListener = null;
             }
             throw error;
         }
@@ -172,21 +191,27 @@ export async function startPreciseLocationUpdates(): Promise<void> {
 export async function stopPreciseLocationUpdates(): Promise<void> {
     console.log('📍 Stopping location tracking');
     
-    // Stop Android precise location listener
-    if (locationListener) {
+    // Stop Android precise location listeners
+    if (locationListener || locationStoppedListener) {
         try {
             // Stop the Android service
             if (TAURI_MOBILE) {
                 await invoke('plugin:hillview|stop_precise_location_listener');
             }
             
-            // Unregister the event listener
-            await locationListener.unregister();
+            // Unregister the event listeners
+            if (locationListener) {
+                await locationListener.unregister();
+                locationListener = null;
+            }
+            if (locationStoppedListener) {
+                await locationStoppedListener.unregister();
+                locationStoppedListener = null;
+            }
         } catch (error) {
             // Ignore error if remove_listener command doesn't exist
-            console.debug('📍 Could not stop Android location service or unregister listener (expected):', error);
+            console.debug('📍 Could not stop Android location service or unregister listeners (expected):', error);
         }
-        locationListener = null;
     }
     
     // Stop web geolocation watch

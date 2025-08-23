@@ -11,7 +11,6 @@ import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.*
-import com.google.android.gms.tasks.CancellationTokenSource
 
 data class PreciseLocationData(
     val latitude: Double,
@@ -30,7 +29,8 @@ data class PreciseLocationData(
 
 class PreciseLocationService(
     private val activity: Activity,
-    private val onLocationUpdate: (PreciseLocationData) -> Unit
+    private val onLocationUpdate: (PreciseLocationData) -> Unit,
+    private val onLocationStopped: (() -> Unit)? = null
 ) {
     // Provide context from activity for convenience
     private val context: Context = activity
@@ -225,6 +225,9 @@ class PreciseLocationService(
                 startLocationUpdatesInternal()
             } else {
                 Log.e(TAG, "📍 PERM: ❌ Location permissions denied! Cannot start location updates.")
+                // Notify frontend that location tracking stopped
+                Log.i(TAG, "📍 PERM: Notifying frontend that location tracking stopped")
+                onLocationStopped?.invoke()
             }
         }
     }
@@ -356,73 +359,8 @@ class PreciseLocationService(
             fusedLocationClient.removeLocationUpdates(callback)
             isRequestingUpdates = false
             Log.i(TAG, "✅ Location updates stopped")
-        }
-    }
-    
-    @SuppressLint("MissingPermission")
-    fun getCurrentLocation(onSuccess: (PreciseLocationData) -> Unit, onFailure: (Exception) -> Unit) {
-        Log.d(TAG, "📍 Requesting current location")
-        
-        val cancellationTokenSource = CancellationTokenSource()
-        
-        try {
-            fusedLocationClient.getCurrentLocation(
-                Priority.PRIORITY_HIGH_ACCURACY,
-                cancellationTokenSource.token
-            ).addOnSuccessListener { location ->
-                location?.let {
-                    Log.d(TAG, "📍 Got current location")
-                    handleLocationUpdate(it)
-                    onSuccess(PreciseLocationData(
-                        latitude = it.latitude,
-                        longitude = it.longitude,
-                        accuracy = it.accuracy,
-                        altitude = if (it.hasAltitude()) it.altitude else null,
-                        altitudeAccuracy = if (it.hasVerticalAccuracy()) it.verticalAccuracyMeters else null,
-                        bearing = if (it.hasBearing()) it.bearing else null,
-                        bearingAccuracy = if (it.hasBearingAccuracy()) it.bearingAccuracyDegrees else null,
-                        speed = if (it.hasSpeed()) it.speed else null,
-                        speedAccuracy = if (it.hasSpeedAccuracy()) it.speedAccuracyMetersPerSecond else null,
-                        provider = it.provider,
-                        timestamp = it.time,
-                        elapsedRealtimeNanos = it.elapsedRealtimeNanos
-                    ))
-                } ?: run {
-                    val error = Exception("Location is null")
-                    Log.e(TAG, "❌ Current location is null")
-                    onFailure(error)
-                }
-            }.addOnFailureListener { exception ->
-                Log.e(TAG, "❌ Failed to get current location: ${exception.message}")
-                onFailure(exception)
-            }
-        } catch (e: SecurityException) {
-            Log.e(TAG, "❌ Location permission not granted")
-            onFailure(e)
-        }
-    }
-    
-    // Note: With the new API, location request is immutable, so we can't update it dynamically
-    // This method is kept for compatibility but would require recreating the request
-    fun updateLocationRequest(interval: Long? = null, fastestInterval: Long? = null, priority: Int? = null) {
-        Log.d(TAG, "📍 Location request parameters cannot be updated with new API")
-        Log.d(TAG, "📍 To change parameters, stop and restart location updates with new settings")
-        
-        // Log the requested changes
-        interval?.let { 
-            Log.d(TAG, "  - Requested update interval: ${it}ms")
-        }
-        fastestInterval?.let { 
-            Log.d(TAG, "  - Requested fastest interval: ${it}ms")
-        }
-        priority?.let { 
-            Log.d(TAG, "  - Requested priority: ${when(it) {
-                Priority.PRIORITY_HIGH_ACCURACY -> "HIGH_ACCURACY"
-                Priority.PRIORITY_BALANCED_POWER_ACCURACY -> "BALANCED_POWER_ACCURACY"
-                Priority.PRIORITY_LOW_POWER -> "LOW_POWER"
-                Priority.PRIORITY_PASSIVE -> "PASSIVE"
-                else -> "UNKNOWN"
-            }}")
+            // Notify frontend that location tracking stopped
+            onLocationStopped?.invoke()
         }
     }
 }

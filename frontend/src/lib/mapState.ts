@@ -34,6 +34,7 @@ export const spatialState = localStorageReadOnceSharedStore<SpatialState>('spati
   range: 1000
 });
 
+
 // Visual state - only affects rendering, optimized with debounced writes
 export const bearingState = staggeredLocalStorageSharedStore<BearingState>('bearingState', {
   bearing: 230

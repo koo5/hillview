@@ -185,7 +185,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     }
     
     private fun initializePreciseLocationService() {
-        preciseLocationService = PreciseLocationService(activity) { locationData ->
+        preciseLocationService = PreciseLocationService(activity, { locationData ->
             // Update sensor service with precise location for magnetic declination
             sensorService?.updateLocation(locationData.latitude, locationData.longitude)
             
@@ -210,7 +210,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             data.put("bearingAccuracy", locationData.bearingAccuracy)
             data.put("speedAccuracy", locationData.speedAccuracy)
             
-            Log.v(TAG, "📍 Emitting location update: lat=${locationData.latitude}, lng=${locationData.longitude}, accuracy=${locationData.accuracy}m")
+            Log.v(TAG, "📍 ExamplePlugin.kt emitting location update: lat=${locationData.latitude}, lng=${locationData.longitude}, accuracy=${locationData.accuracy}m")
             
             try {
                 // Use the same event name as the geolocation plugin would use
@@ -218,7 +218,15 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             } catch (e: Exception) {
                 Log.e(TAG, "📍 Error triggering location event: ${e.message}", e)
             }
-        }
+        }, {
+            // Location stopped callback
+            try {
+                Log.i(TAG, "📍 Emitting location-stopped event to frontend")
+                trigger("location-stopped", JSObject())
+            } catch (e: Exception) {
+                Log.e(TAG, "📍 Error triggering location-stopped event: ${e.message}", e)
+            }
+        })
         
         // Start location updates automatically
         preciseLocationService?.startLocationUpdates()

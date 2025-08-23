@@ -70,7 +70,11 @@
     
     // Source buttons display mode
     let compactSourceButtons = true;
-    
+
+    $: map = elMap?.getMap();
+
+
+
     // Export location tracking functions for use by parent
     export function enableLocationTracking() {
         if (!get(locationTracking)) {
@@ -189,7 +193,7 @@
         try {
             let _center = map.getCenter();
             let _zoom = map.getZoom();
-            console.log('onMapStateChange force:', force, 'reason:', reason, 'center:', _center, '_zoom:', _zoom);
+            console.log('onMapStateChange: force:', force, 'reason:', reason, 'center:', JSON.stringify(_center), 'zoom:', _zoom);
             
             const currentSpatial = get(spatialState);
             const bounds = map.getBounds();
@@ -402,7 +406,6 @@
             center: newCenter,
             zoom: map.getZoom(),
             bounds: null, // Will be updated by onMapStateChange
-            range: get_range(newCenter)
         });
         
         // Reset flag after the movement is complete    
@@ -458,18 +461,7 @@
         locationTrackingLoading = true;
         
         try {
-            console.log("📍 Starting location tracking");
-            
-            // Try to get initial position first (web only, Android starts streaming immediately)
-            try {
-                const position = await getCurrentPosition();
-                await handleGpsUpdate(position);
-            } catch (error) {
-                console.debug("📍 Could not get initial position (may be normal on Android):", error);
-                // Don't fail here, continuous tracking might still work
-            }
-            
-            // Start continuous location updates
+            console.log("📍 Map.svelte Starting location tracking");
             await startPreciseLocationUpdates();
             
             locationTrackingLoading = false;
@@ -578,31 +570,8 @@
             updateBearing(heading);
         }
     }
-    
-    // Main GPS update handler - orchestrates location and bearing updates
-    async function handleGpsUpdate(position: GeolocationPosition) {
-        // Only process GPS updates if location tracking is enabled
-        if (!get(locationTracking)) {
-            console.debug("handleGpsUpdate: Location tracking disabled, ignoring GPS update");
-            return;
-        }
 
-        // Check if position changed and update global store
-        const updated = updateGpsLocation(position);
-        if (!updated) {
-            //console.log("handleGpsUpdate(GPS): No change in position, skipping update");
-            return;
-        }
 
-        // Handle location updates (always)
-        await handleGpsLocationUpdate(position);
-        
-        // Handle bearing updates (conditional on compass tracking + car mode)
-        handleGpsBearingUpdate(position);
-    }
-
-    $: map = elMap?.getMap();
-    
     // Add tile pruning function for memory management
     function pruneTiles() {
         if (map && map.eachLayer) {
@@ -743,19 +712,21 @@
         }
     }
 
-    onMount(async () => {
+    onMount(() => {
         console.log('Map component mounted');
         
-        // Initialize the simplified photo worker
-        try {
-            await simplePhotoWorker.initialize();
-            console.log('SimplePhotoWorker initialized successfully');
-        } catch (error) {
-            console.error('Failed to initialize SimplePhotoWorker:', error);
-        }
-        
-        await onMapStateChange(true, 'mount');
-        console.log('Map component mounted - after onMapStateChange');
+        // Initialize the simplified photo worker (async)
+        (async () => {
+            try {
+                await simplePhotoWorker.initialize();
+                console.log('SimplePhotoWorker initialized successfully');
+            } catch (error) {
+                console.error('Failed to initialize SimplePhotoWorker:', error);
+            }
+            
+            await onMapStateChange(true, 'mount');
+            console.log('Map component mounted - after onMapStateChange');
+        })();
         
         // Add event listeners for visibility changes
         document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -768,7 +739,11 @@
             // The visibility change handler will take care of restarting
         });
         
-        // Compass availability is automatically tracked by the store
+        return gpsLocation.subscribe((position: GeolocationPosition | null) => {
+            if (position) {
+                handleGpsLocationUpdate(position);
+            }
+        });
     });
 
     export function setView(center: any, zoom: number) {

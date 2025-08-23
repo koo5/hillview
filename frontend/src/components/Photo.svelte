@@ -316,7 +316,7 @@
     <div class="dialog-overlay">
         <div class="dialog">
             <h3>Hide User</h3>
-            <p>This will hide all photos by <strong>{getUserName(photo) ? `@${getUserName(photo)}` : 'this user'}</strong> from your view.</p>
+            <p>This will hide all photos by <strong>{photo && getUserName(photo) ? `@${getUserName(photo)}` : 'this user'}</strong> from your view.</p>
             
             <div class="form-group">
                 <label for="hide-reason">Reason (optional):</label>

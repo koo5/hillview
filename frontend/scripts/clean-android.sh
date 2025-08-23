@@ -1,5 +1,8 @@
 #!/bin/bash
 
+
+# fixme, does this clean both hillview and hillview.dev?
+
 # Script to clean up Android emulator/device storage
 # Usage: ./scripts/clean-android.sh [--deep]
 
