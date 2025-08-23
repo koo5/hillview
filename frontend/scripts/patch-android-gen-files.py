@@ -299,7 +299,7 @@ class AndroidConfigurer:
             return False
         
         steps = [
-            ("Fix AndroidManifest.xml", self.fix_android_manifest),
+#            ("Fix AndroidManifest.xml", self.fix_android_manifest),
             ("Configure build.gradle.kts", self.configure_build_gradle),
             ("Update .gitignore", self.update_gitignore)
         ]

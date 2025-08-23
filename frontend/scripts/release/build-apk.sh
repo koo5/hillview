@@ -6,7 +6,7 @@
 set -e
 
 # Source common functions
-source "$(dirname "$0")/lib/common.sh"
+source "$(dirname "$0")/../lib/common.sh"
 
 # Default to universal build
 BUILD_TYPE="${1:-universal}"
