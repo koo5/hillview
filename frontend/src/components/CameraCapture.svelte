@@ -2,7 +2,7 @@
     import {createEventDispatcher, onDestroy, onMount} from 'svelte';
     import {X} from 'lucide-svelte';
     import {photoCaptureSettings} from '$lib/stores';
-    import {app} from "$lib/data.svelte";
+    import {app, cameraOverlayOpacity} from "$lib/data.svelte";
     import DualCaptureButton from './DualCaptureButton.svelte';
     import CaptureQueueStatus from './CaptureQueueStatus.svelte';
     import {captureQueue } from '$lib/captureQueue';
@@ -46,6 +46,11 @@
     let maxRetries = 5;
     let retryDelay = 1000; // Start with 1 second
     let retryTimeout: number | null = null;
+
+    // Toggle overlay opacity through 6 levels: 0 (fully transparent) to 5 (most opaque)
+    function toggleOverlayOpacity() {
+        cameraOverlayOpacity.update(current => (current + 1) % 6);
+    }
 
     async function checkCameraPermission(): Promise<PermissionState | null> {
         try {
@@ -252,7 +257,7 @@
     async function handleCapture(event: CustomEvent<{ mode: 'slow' | 'fast' }>) {
         if (!video || !canvas || !cameraReady || !locationData ||
             locationData.latitude === undefined || locationData.longitude === undefined) {
-            console.warn('Cannot capture: camera not ready or no location');
+            console.warn('📍 Cannot capture: camera not ready or no location');
             return;
         }
 
@@ -467,7 +472,22 @@
                 {/if}
 
                 <!-- Location overlay -->
-                <div class="location-overlay {locationReady ? 'ready' : ''} {locationError ? 'error' : ''}" style:display={cameraError ? 'none' : 'block'}>
+                <div 
+                    class="location-overlay {locationReady ? 'ready' : ''} {locationError ? 'error' : ''}" 
+                    class:opacity-0={$cameraOverlayOpacity === 0}
+                    class:opacity-1={$cameraOverlayOpacity === 1}
+                    class:opacity-2={$cameraOverlayOpacity === 2}
+                    class:opacity-3={$cameraOverlayOpacity === 3}
+                    class:opacity-4={$cameraOverlayOpacity === 4}
+                    class:opacity-5={$cameraOverlayOpacity === 5}
+                    style:display={cameraError ? 'none' : 'block'}
+                    on:click={toggleOverlayOpacity}
+                    on:keydown={(e) => e.key === 'Enter' && toggleOverlayOpacity()}
+                    role="button"
+                    tabindex="0"
+                    aria-label="Toggle overlay transparency"
+                    data-testid="location-overlay"
+                >
                         {#if locationError}
                             <div class="location-row">
                                 <span class="icon">⚠️</span>
@@ -620,7 +640,7 @@
     .camera-video {
         width: 100%;
         height: 100%;
-        object-fit: cover;
+        object-fit: contain;
     }
 
     .camera-error {
@@ -667,15 +687,55 @@
         position: absolute;
         top: 80px;
         left: 1rem;
-        /*background: rgba(255, 255, 255, 0.1);*/
-
         padding: 0.25rem;
         border-radius: 8px;
         font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
         font-size: 0.85rem;
-        /*border: 1px solid rgba(255, 255, 255, 0.2);*/
-        /*backdrop-filter: blur(2px);*/
         max-width: 90%;
+        cursor: pointer;
+        transition: background 0.3s ease, border 0.3s ease, backdrop-filter 0.3s ease;
+    }
+
+    /* Opacity level 0: Fully transparent */
+    .location-overlay.opacity-0 {
+        background: transparent;
+        border: none;
+        backdrop-filter: none;
+    }
+
+    /* Opacity level 1: Very light */
+    .location-overlay.opacity-1 {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(1px);
+    }
+
+    /* Opacity level 2: Light */
+    .location-overlay.opacity-2 {
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        backdrop-filter: blur(2px);
+    }
+
+    /* Opacity level 3: Medium (default) */
+    .location-overlay.opacity-3 {
+        background: rgba(255, 255, 255, 0.15);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        backdrop-filter: blur(3px);
+    }
+
+    /* Opacity level 4: Strong */
+    .location-overlay.opacity-4 {
+        background: rgba(255, 255, 255, 0.2);
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        backdrop-filter: blur(4px);
+    }
+
+    /* Opacity level 5: Most opaque */
+    .location-overlay.opacity-5 {
+        background: rgba(255, 255, 255, 0.3);
+        border: 1px solid rgba(255, 255, 255, 0.4);
+        backdrop-filter: blur(5px);
     }
 
     .location-overlay.ready {

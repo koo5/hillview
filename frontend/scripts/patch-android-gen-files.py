@@ -248,23 +248,6 @@ class AndroidConfigurer:
 			return False
 
 
-	def _show_next_steps(self):
-		"""Show next steps to user"""
-		self.log("\nNext steps:", "INFO")
-
-		if not self.keystore_props_path.exists():
-			self.log(f"1. Create {self.keystore_props_path} with:", "WARNING")
-			self.log("   password=your-password", "INFO")
-			self.log("   keyAlias=your-alias", "INFO")
-			self.log("   storeFile=/path/to/your/keystore.jks", "INFO")
-		else:
-			self.log(f"1. ✓ External keystore.properties found", "SUCCESS")
-
-		self.log("2. Test build: ./scripts/tauri-android.sh android build --apk", "INFO")
-
-		self.log(f"\nConfiguration references: {self.keystore_props_path}", "INFO")
-		self.log("All sensitive files are kept outside the repository", "SUCCESS")
-
 
 	def run(self) -> bool:
 
@@ -290,7 +273,6 @@ class AndroidConfigurer:
 
 		if success:
 			self.log("Android generated files patching completed successfully!", "SUCCESS")
-			self._show_next_steps()
 		else:
 			self.log("Android configuration completed with errors", "ERROR")
 

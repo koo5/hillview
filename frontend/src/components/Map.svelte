@@ -687,7 +687,7 @@
                 // Delay restart slightly to let WebView stabilize after orientation change
                 orientationRestartTimer = setTimeout(async () => {
                     if (wasTrackingBeforeHidden && !get(locationTracking)) {
-                        console.log('Restarting location tracking after visibility change');
+                        console.log('📍 Restarting location tracking after visibility change');
                         setLocationTracking(true);
                         await startLocationTracking();
                     }
@@ -699,7 +699,7 @@
     // Handle page show/hide events (iOS Safari specific)
     function handlePageShow(event: PageTransitionEvent) {
         if (event.persisted && wasTrackingBeforeHidden && !get(locationTracking)) {
-            console.log('Page shown from cache, resuming location tracking');
+            console.log('📍 Page shown from cache, resuming location tracking');
             setLocationTracking(true);
             startLocationTracking();
         }
@@ -760,7 +760,7 @@
         try {
             await stopPreciseLocationUpdates();
         } catch (error) {
-            console.debug('Error stopping location updates on destroy:', error);
+            console.debug('📍 Error stopping location updates on destroy:', error);
         }
         
         // Clear timers

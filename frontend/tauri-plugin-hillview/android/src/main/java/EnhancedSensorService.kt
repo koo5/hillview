@@ -153,7 +153,7 @@ class EnhancedSensorService(
             lastLocation = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
                 ?: locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
         } catch (e: SecurityException) {
-            Log.w(TAG, "Location permission not granted")
+            Log.w(TAG, "📍 Location permission not granted")
         }
     }
     
@@ -292,7 +292,7 @@ class EnhancedSensorService(
             this.latitude = latitude
             this.longitude = longitude
         }
-        Log.d(TAG, "Updated location: $latitude, $longitude")
+        Log.d(TAG, "📍 Updated location: $latitude, $longitude")
     }
     
     override fun onSensorChanged(event: SensorEvent) {

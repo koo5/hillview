@@ -32,6 +32,9 @@ export const sources = writable<Source[]>([
 
 export let client_id = staggeredLocalStorageSharedStore('client_id', Math.random().toString(36));
 
+// Camera overlay opacity store (0 = fully transparent, 5 = most opaque)
+export let cameraOverlayOpacity = staggeredLocalStorageSharedStore('cameraOverlayOpacity', 3);
+
 // Separate persisted app settings from session-specific state
 export let appSettings = staggeredLocalStorageSharedStore('appSettings', {
     debug: 0,

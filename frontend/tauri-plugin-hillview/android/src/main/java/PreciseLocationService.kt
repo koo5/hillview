@@ -73,10 +73,10 @@ class PreciseLocationService(
     init {
         Log.i(TAG, "📍 === PRECISE LOCATION SERVICE INITIALIZED ===")
         Log.i(TAG, "📍 Configuration:")
-        Log.i(TAG, "  - Update interval: ${UPDATE_INTERVAL}ms")
-        Log.i(TAG, "  - Fastest interval: ${FASTEST_INTERVAL}ms")
-        Log.i(TAG, "  - Priority: HIGH_ACCURACY (GPS)")
-        Log.i(TAG, "  - Wait for accurate location: true")
+        Log.i(TAG, "📍  - Update interval: ${UPDATE_INTERVAL}ms")
+        Log.i(TAG, "📍  - Fastest interval: ${FASTEST_INTERVAL}ms")
+        Log.i(TAG, "📍  - Priority: HIGH_ACCURACY (GPS)")
+        Log.i(TAG, "📍  - Wait for accurate location: true")
         Log.d(TAG, "📍 INIT: Setting up location callback...")
         
         setupLocationCallback()
@@ -111,10 +111,10 @@ class PreciseLocationService(
                 Log.i(TAG, "📍 CALLBACK: *** onLocationAvailability called! ***")
                 Log.i(TAG, "📍 CALLBACK: Location availability changed: ${availability.isLocationAvailable}")
                 if (!availability.isLocationAvailable) {
-                    Log.w(TAG, "⚠️ CALLBACK: Location is currently unavailable")
-                    Log.w(TAG, "⚠️ CALLBACK: This could mean GPS is turned off or no signal")
+                    Log.w(TAG, "📍⚠️ CALLBACK: Location is currently unavailable")
+                    Log.w(TAG, "📍⚠️ CALLBACK: This could mean GPS is turned off or no signal")
                 } else {
-                    Log.i(TAG, "✅ CALLBACK: Location is available!")
+                    Log.i(TAG, "📍✅ CALLBACK: Location is available!")
                 }
             }
         }
@@ -139,22 +139,22 @@ class PreciseLocationService(
         
         // Log additional data if available
         if (location.hasAltitude()) {
-            Log.d(TAG, "  - Altitude: ${location.altitude}m")
+            Log.d(TAG, "📍  - Altitude: ${location.altitude}m")
         }
         if (location.hasVerticalAccuracy()) {
-            Log.d(TAG, "  - Vertical accuracy: ${location.verticalAccuracyMeters}m")
+            Log.d(TAG, "📍  - Vertical accuracy: ${location.verticalAccuracyMeters}m")
         }
         if (location.hasBearing()) {
-            Log.d(TAG, "  - Bearing: ${location.bearing}°")
+            Log.d(TAG, "📍  - Bearing: ${location.bearing}°")
         }
         if (location.hasBearingAccuracy()) {
-            Log.d(TAG, "  - Bearing accuracy: ${location.bearingAccuracyDegrees}°")
+            Log.d(TAG, "📍  - Bearing accuracy: ${location.bearingAccuracyDegrees}°")
         }
         if (location.hasSpeed()) {
-            Log.d(TAG, "  - Speed: ${location.speed}m/s (${location.speed * 3.6}km/h)")
+            Log.d(TAG, "📍  - Speed: ${location.speed}m/s (${location.speed * 3.6}km/h)")
         }
         if (location.hasSpeedAccuracy()) {
-            Log.d(TAG, "  - Speed accuracy: ${location.speedAccuracyMetersPerSecond}m/s")
+            Log.d(TAG, "📍  - Speed accuracy: ${location.speedAccuracyMetersPerSecond}m/s")
         }
         
         // Create precise location data
@@ -304,22 +304,22 @@ class PreciseLocationService(
                     Looper.getMainLooper()
                 )
                 isRequestingUpdates = true
-                Log.i(TAG, "✅ START_INTERNAL: requestLocationUpdates() call completed successfully!")
+                Log.i(TAG, "📍✅ START_INTERNAL: requestLocationUpdates() call completed successfully!")
                 
                 // Also get the last known location immediately
                 Log.i(TAG, "📍 START_INTERNAL: Getting last known location...")
                 getLastKnownLocation()
                 
             } catch (e: SecurityException) {
-                Log.e(TAG, "❌ START_INTERNAL: SECURITY EXCEPTION - Location permission not granted!")
-                Log.e(TAG, "❌ START_INTERNAL: SecurityException message: ${e.message}")
+                Log.e(TAG, "📍❌ START_INTERNAL: SECURITY EXCEPTION - Location permission not granted!")
+                Log.e(TAG, "📍❌ START_INTERNAL: SecurityException message: ${e.message}")
             } catch (e: Exception) {
-                Log.e(TAG, "❌ START_INTERNAL: UNEXPECTED EXCEPTION in startLocationUpdatesInternal!")
-                Log.e(TAG, "❌ START_INTERNAL: Exception type: ${e.javaClass.simpleName}")
-                Log.e(TAG, "❌ START_INTERNAL: Exception message: ${e.message}")
+                Log.e(TAG, "📍❌ START_INTERNAL: UNEXPECTED EXCEPTION in startLocationUpdatesInternal!")
+                Log.e(TAG, "📍❌ START_INTERNAL: Exception type: ${e.javaClass.simpleName}")
+                Log.e(TAG, "📍❌ START_INTERNAL: Exception message: ${e.message}")
             }
         } ?: run {
-            Log.e(TAG, "❌ START_INTERNAL: CRITICAL ERROR - LocationCallback is null!")
+            Log.e(TAG, "📍❌ START_INTERNAL: CRITICAL ERROR - LocationCallback is null!")
         }
     }
     
@@ -358,7 +358,7 @@ class PreciseLocationService(
         locationCallback?.let { callback ->
             fusedLocationClient.removeLocationUpdates(callback)
             isRequestingUpdates = false
-            Log.i(TAG, "✅ Location updates stopped")
+            Log.i(TAG, "📍✅ Location updates stopped")
             // Notify frontend that location tracking stopped
             onLocationStopped?.invoke()
         }
