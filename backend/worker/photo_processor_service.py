@@ -46,7 +46,7 @@ class PhotoProcessorService:
     
     def __init__(self, upload_dir: str = "/app/uploads"):
         self.upload_dir = upload_dir
-        self.scan_interval = int(os.getenv("SCAN_INTERVAL_SECONDS", "10"))
+        self.scan_interval = int(os.getenv("SCAN_INTERVAL_SECONDS", "1"))
         
     async def scan_and_process(self):
         """Scan for unprocessed photos and process them."""
@@ -111,8 +111,10 @@ class PhotoProcessorService:
                 await db.commit()
                 return
             elif not debug_info.get('has_gps_coords', False):
-                found_tags = debug_info.get('found_gps_tags', [])
-                error_msg = f"GPS coordinates missing. Found tags: {', '.join(found_tags) if found_tags else 'none'}, needed: GPSLatitude, GPSLongitude"
+                found_gps_tags = debug_info.get('found_gps_tags', [])
+                found_bearing_tags = debug_info.get('found_bearing_tags', [])
+                all_found_tags = found_gps_tags + found_bearing_tags
+                error_msg = f"GPS coordinates missing. Found tags: {', '.join(all_found_tags) if all_found_tags else 'none'}, needed: GPSLatitude, GPSLongitude"
                 logger.warning(f"No GPS coordinates in {photo.filename}")
                 photo.processing_status = "error"
                 photo.error = error_msg
