@@ -66,6 +66,7 @@ class Photo(Base):
     
     # Processing status and data
     processing_status = Column(String, default="pending")  # pending, processing, completed, failed
+    error = Column(Text, nullable=True)  # Detailed error message if any operation fails
     exif_data = Column(JSON, nullable=True)
     detected_objects = Column(JSON, nullable=True)
     sizes = Column(JSON, nullable=True)  # Store the sizes array like in files.json

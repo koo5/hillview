@@ -208,50 +208,31 @@
             // Mark that we're about to request permission
             hasRequestedPermission = true;
 
-            // Enumerate cameras and select the appropriate one
-            const cameras = await enumerateCameraDevices();
-            
-            let selectedDevice: CameraDevice | null = null;
-            let currentSelectedId: string | null = null;
-            
-            selectedCameraId.subscribe(id => { currentSelectedId = id; })();
-            
-            if (currentSelectedId) {
-                // Use explicitly selected camera
-                selectedDevice = cameras.find(c => c.deviceId === currentSelectedId) || null;
-                console.log('🢄[CAMERA] Using explicitly selected camera:', selectedDevice?.label);
-            } else {
-                // Auto-select based on facing mode
-                if (facing === 'environment') {
-                    selectedDevice = getPreferredBackCamera(cameras);
-                } else {
-                    selectedDevice = getFrontCamera(cameras);
-                }
-                console.log('🢄[CAMERA] Auto-selected camera:', selectedDevice?.label);
-            }
-
-            // Build constraints
+            // Use probe-then-enumerate pattern for better compatibility
             let constraints: MediaStreamConstraints;
-            
-            if (selectedDevice) {
+            let currentSelectedId: string | null = null;
+            selectedCameraId.subscribe(id => { currentSelectedId = id; })();
+
+            if (currentSelectedId) {
+                // Use explicitly selected camera with exact deviceId
                 constraints = {
                     video: {
-                        deviceId: { exact: selectedDevice.deviceId },
-                        width: { ideal: 1920 },
-                        height: { ideal: 1080 }
+                        deviceId: { exact: currentSelectedId },
+                        width: { ideal: 1280 },  // More modest resolution for stability
+                        height: { ideal: 720 }
                     }
                 };
-                // Update the selected camera in the store
-                selectedCameraId.set(selectedDevice.deviceId);
+                console.log('🢄[CAMERA] Using selected camera device:', currentSelectedId.slice(0, 8) + '...');
             } else {
-                // Fallback to facingMode if no specific device found
+                // First attempt: probe with ideal facingMode (not exact) to trigger permission
                 constraints = {
                     video: {
-                        facingMode: { exact: facing },
-                        width: { ideal: 1920 },
-                        height: { ideal: 1080 }
+                        facingMode: { ideal: facing },  // Use ideal, not exact
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
                     }
                 };
+                console.log('🢄[CAMERA] Probing with ideal facingMode:', facing);
             }
 
             console.log('🢄[CAMERA] Requesting camera with constraints:', constraints);
@@ -260,6 +241,10 @@
 
             if (video) {
                 console.log('🢄[CAMERA] Setting video source');
+                
+                // Set video attributes for mobile compatibility
+                video.muted = true;  // Mobile autoplay safety
+                video.setAttribute('playsinline', 'true');
                 video.srcObject = stream;
 
                 // Wait for metadata to load
@@ -289,6 +274,16 @@
                 if (retryTimeout) {
                     clearTimeout(retryTimeout);
                     retryTimeout = null;
+                }
+
+                // Now enumerate cameras for the selector (after permission granted)
+                if (!currentSelectedId) {
+                    try {
+                        await enumerateCameraDevices();
+                        console.log('🢄[CAMERA] Camera enumeration completed');
+                    } catch (error) {
+                        console.log('🢄[CAMERA] Camera enumeration failed, but stream is working:', error);
+                    }
                 }
 
                 // Check zoom support
@@ -508,12 +503,13 @@
         }
     }
 
-    // Check permission and conditionally start camera when modal opens
+    // Show enable button instead of auto-starting camera
     $: if (show) {
         if (!stream && !cameraError && !cameraReady && !hasRequestedPermission) {
-            console.log('🢄[CAMERA] Modal shown, checking camera permission');
+            console.log('🢄[CAMERA] Modal shown, waiting for user to enable camera');
             retryCount = 0; // Reset retry count when modal opens
-            checkAndStartCamera();
+            needsPermission = true;
+            cameraError = 'Camera access required. Tap "Enable Camera" to continue.';
         }
     } else if (!show && stream) {
         // Stop camera when modal closes
@@ -546,6 +542,10 @@
         };
         locationReady = true;
         locationError = null;
+        
+        // Don't auto-start camera anymore - always wait for button click
+        // This prevents any chance of interfering with location permissions
+        console.log('🢄[CAMERA] Location ready, but keeping "Enable Camera" button for user control');
     }
 
     onMount(() => {

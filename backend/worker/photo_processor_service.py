@@ -83,10 +83,48 @@ class PhotoProcessorService:
             # Extract EXIF data
             exif_data = photo_processor.extract_exif_data(photo.filepath)
             gps_data = exif_data.get('gps', {})
+            debug_info = exif_data.get('debug', {})
             
-            if not photo_processor.has_required_gps_data(exif_data):
-                logger.warning(f"No GPS/bearing data found in {photo.filename}")
+            logger.info(f"EXIF extraction for {photo.filename}:")
+            logger.info(f"  - has_exif: {debug_info.get('has_exif', False)}")
+            logger.info(f"  - has_gps_coords: {debug_info.get('has_gps_coords', False)}")
+            logger.info(f"  - has_bearing: {debug_info.get('has_bearing', False)}")
+            logger.info(f"  - found_gps_tags: {debug_info.get('found_gps_tags', [])}")
+            logger.info(f"  - found_bearing_tags: {debug_info.get('found_bearing_tags', [])}")
+            logger.info(f"  - parsing_errors: {debug_info.get('parsing_errors', [])}")
+            logger.info(f"  - GPS data: {gps_data}")
+            
+            # Create detailed error messages based on what was found
+            if not debug_info.get('has_exif', False):
+                error_msg = "No EXIF data found in image file. Photo may be processed/edited or from an app that strips metadata."
+                logger.warning(f"No EXIF data found in {photo.filename}")
                 photo.processing_status = "error"
+                photo.error = error_msg
+                await db.commit()
+                return
+            elif not debug_info.get('has_gps_coords', False) and not debug_info.get('has_bearing', False):
+                found_tags = debug_info.get('found_gps_tags', [])
+                error_msg = f"No GPS data found in photo. Found EXIF tags: {', '.join(found_tags) if found_tags else 'none'}"
+                logger.warning(f"No GPS data found in {photo.filename}")
+                photo.processing_status = "error"
+                photo.error = error_msg
+                await db.commit()
+                return
+            elif not debug_info.get('has_gps_coords', False):
+                found_tags = debug_info.get('found_gps_tags', [])
+                error_msg = f"GPS coordinates missing. Found tags: {', '.join(found_tags) if found_tags else 'none'}, needed: GPSLatitude, GPSLongitude"
+                logger.warning(f"No GPS coordinates in {photo.filename}")
+                photo.processing_status = "error"
+                photo.error = error_msg
+                await db.commit()
+                return
+            elif not debug_info.get('has_bearing', False):
+                found_bearing_tags = debug_info.get('found_bearing_tags', [])
+                found_gps_tags = debug_info.get('found_gps_tags', [])
+                error_msg = f"Compass direction missing. Found: {', '.join(found_gps_tags + found_bearing_tags)}, needed: GPSImgDirection, GPSTrack, or GPSDestBearing"
+                logger.warning(f"No bearing data in {photo.filename}")
+                photo.processing_status = "error"
+                photo.error = error_msg
                 await db.commit()
                 return
             
@@ -96,8 +134,10 @@ class PhotoProcessorService:
             # Validate image dimensions to prevent resource exhaustion
             from common.security_utils import validate_image_dimensions
             if not validate_image_dimensions(width, height):
+                error_msg = f"Image size too large or invalid ({width}x{height}). Please use a smaller image."
                 logger.error(f"Image dimensions validation failed for {photo.filename}: {width}x{height}")
                 photo.processing_status = "error"
+                photo.error = error_msg
                 await db.commit()
                 return
             
@@ -118,13 +158,16 @@ class PhotoProcessorService:
             photo.height = height
             photo.sizes = sizes_info
             photo.processing_status = "completed"
+            photo.error = None  # Clear any previous error
             
             await db.commit()
             logger.info(f"Successfully processed photo {photo.id}")
             
         except Exception as e:
+            error_msg = "Photo processing failed. The image may be corrupted or in an unsupported format."
             logger.error(f"Error processing photo {photo.id}: {str(e)}")
             photo.processing_status = "error"
+            photo.error = error_msg
             await db.commit()
     
     

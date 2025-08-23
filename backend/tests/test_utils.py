@@ -60,16 +60,16 @@ def create_test_photos(test_users: list, auth_tokens: dict):
     """Create test photos by uploading real images to the API."""
     print("Creating test photos for filtering tests...")
     
-    # Create test photos for different users with different colors
+    # Create test photos for different users with different colors and GPS coordinates in Prague area
     test_photos_data = [
-        ("test_photo_1.jpg", "Test photo 1 for filtering", True, (255, 0, 0)),   # Red
-        ("test_photo_2.jpg", "Test photo 2 for filtering", True, (0, 255, 0)),   # Green
-        ("test_photo_3.jpg", "Test photo 3 for filtering", False, (0, 0, 255)),  # Blue (private)
-        ("test_photo_4.jpg", "Test photo 4 for filtering", True, (255, 255, 0)), # Yellow
+        ("test_photo_1.jpg", "Test photo 1 for filtering", True, (255, 0, 0), 50.0755, 14.4378),   # Red - Prague Castle
+        ("test_photo_2.jpg", "Test photo 2 for filtering", True, (0, 255, 0), 50.0865, 14.4175),   # Green - Old Town Square
+        ("test_photo_3.jpg", "Test photo 3 for filtering", False, (0, 0, 255), 50.0819, 14.4362),  # Blue (private) - Wenceslas Square
+        ("test_photo_4.jpg", "Test photo 4 for filtering", True, (255, 255, 0), 50.0870, 14.4208), # Yellow - Charles Bridge
     ]
     
     created_photos = 0
-    for i, (filename, description, is_public, color) in enumerate(test_photos_data):
+    for i, (filename, description, is_public, color, lat, lon) in enumerate(test_photos_data):
         # Assign photos to different users for variety
         user_index = i % len(test_users)
         username = test_users[user_index]["username"]
@@ -82,8 +82,8 @@ def create_test_photos(test_users: list, auth_tokens: dict):
             
         headers = {"Authorization": f"Bearer {token}"}
         
-        # Create a real JPEG image
-        image_data = create_test_image(200, 150, color)
+        # Create a real JPEG image with GPS coordinates
+        image_data = create_test_image(200, 150, color, lat, lon)
         
         files = {"file": (filename, image_data, "image/jpeg")}
         data = {
@@ -112,3 +112,54 @@ def create_test_photos(test_users: list, auth_tokens: dict):
     
     print(f"✓ Created {created_photos} test photos")
     return created_photos
+
+
+def wait_for_photo_processing(photo_id: str, token: str, timeout: int = 30) -> dict:
+    """Poll the photo endpoint until processing is complete or timeout."""
+    import time
+    
+    headers = {"Authorization": f"Bearer {token}"}
+    start_time = time.time()
+    
+    while time.time() - start_time < timeout:
+        try:
+            response = requests.get(f"{API_URL}/photos/{photo_id}", headers=headers)
+            if response.status_code == 200:
+                photo_data = response.json()
+                status = photo_data.get('processing_status', 'unknown')
+                
+                if status in ['completed', 'error']:
+                    return photo_data
+                    
+                print(f"Photo {photo_id} still processing (status: {status}), waiting...")
+                time.sleep(2)
+            else:
+                print(f"Failed to fetch photo {photo_id}: {response.status_code}")
+                time.sleep(2)
+                
+        except Exception as e:
+            print(f"Error polling photo {photo_id}: {e}")
+            time.sleep(2)
+    
+    raise Exception(f"Timeout waiting for photo {photo_id} processing after {timeout}s")
+
+
+def upload_test_image(filename: str, image_data: bytes, description: str, token: str, is_public: bool = True) -> str:
+    """Upload a test image and return the photo ID."""
+    headers = {"Authorization": f"Bearer {token}"}
+    files = {"file": (filename, image_data, "image/jpeg")}
+    data = {
+        "description": description,
+        "is_public": str(is_public).lower()
+    }
+    
+    response = requests.post(f"{API_URL}/photos/upload", files=files, data=data, headers=headers)
+    
+    if response.status_code == 200:
+        result = response.json()
+        photo_id = result.get('photo_id')
+        if not photo_id:
+            raise Exception(f"No photo ID returned from upload: {result}")
+        return photo_id
+    else:
+        raise Exception(f"Upload failed: {response.status_code} - {response.text}")

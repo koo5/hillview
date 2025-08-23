@@ -1,5 +1,4 @@
 import { invoke } from '@tauri-apps/api/core';
-import { TAURI_MOBILE } from './tauri';
 
 export class PermissionManager {
     private componentName: string;

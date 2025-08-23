@@ -189,7 +189,8 @@ async def list_photos(
             "width": photo.width,
             "height": photo.height,
             "uploaded_at": photo.uploaded_at,
-            "processing_status": photo.processing_status
+            "processing_status": photo.processing_status,
+            "error": photo.error
         } for photo in photos]
         
     except Exception as e:
@@ -241,6 +242,7 @@ async def get_photo(
             "captured_at": photo.captured_at,
             "uploaded_at": photo.uploaded_at,
             "processing_status": photo.processing_status,
+            "error": photo.error,
             "exif_data": photo.exif_data,
             "detected_objects": photo.detected_objects,
             "sizes": photo.sizes
