@@ -1,5 +1,6 @@
 <script lang="ts">
     import {cameraOverlayOpacity} from "$lib/data.svelte";
+	import {get} from "svelte/store";
 
     export let locationData: {
         latitude?: number;
@@ -14,7 +15,9 @@
 
     // Toggle overlay opacity through 6 levels: 0 (fully transparent) to 5 (most opaque)
     function toggleOverlayOpacity() {
-        cameraOverlayOpacity.update(current => (current + 2) % 6);
+		let next = get(cameraOverlayOpacity) + 2;
+		if (next > 5) next = 0;
+        cameraOverlayOpacity.set(next);
     }
 </script>
 

@@ -58,6 +58,43 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     companion object {
         private const val TAG = "🢄HillviewPlugin"
         private var pluginInstance: ExamplePlugin? = null
+        
+        // Permission mutex for ensuring only one permission dialog at a time
+        @Volatile
+        private var permissionLockHolder: String? = null
+        private val permissionLock = Any()
+        
+        fun acquirePermissionLock(requester: String): Boolean {
+            synchronized(permissionLock) {
+                if (permissionLockHolder == null) {
+                    permissionLockHolder = requester
+                    Log.i(TAG, "🔒 Permission lock acquired by: $requester")
+                    return true
+                } else {
+                    Log.i(TAG, "🔒 Permission lock denied to $requester, currently held by: $permissionLockHolder")
+                    return false
+                }
+            }
+        }
+        
+        fun releasePermissionLock(requester: String): Boolean {
+            synchronized(permissionLock) {
+                if (permissionLockHolder == requester) {
+                    permissionLockHolder = null
+                    Log.i(TAG, "🔒 Permission lock released by: $requester")
+                    return true
+                } else {
+                    Log.w(TAG, "🔒 Permission lock release failed: held by $permissionLockHolder, not $requester")
+                    return false
+                }
+            }
+        }
+        
+        fun getPermissionLockHolder(): String? {
+            synchronized(permissionLock) {
+                return permissionLockHolder
+            }
+        }
     }
     
     private var sensorService: EnhancedSensorService? = null
@@ -531,6 +568,32 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             error.put("error", e.message)
             invoke.resolve(error)
         }
+    }
+    
+    // Command to check if camera permissions can be requested (for WebView coordination)
+    @Command
+    fun canRequestCameraPermission(invoke: Invoke) {
+        val lockAcquired = acquirePermissionLock("camera")
+        val result = JSObject()
+        result.put("canRequest", lockAcquired)
+        result.put("currentHolder", getPermissionLockHolder())
+        
+        if (!lockAcquired) {
+            Log.w(TAG, "🎥 Camera permission request denied - lock held by: ${getPermissionLockHolder()}")
+        } else {
+            Log.i(TAG, "🎥 Camera permission request approved")
+            // Note: We keep the lock - WebView will need to release it after permission handling
+        }
+        
+        invoke.resolve(result)
+    }
+    
+    @Command
+    fun releaseCameraPermissionLock(invoke: Invoke) {
+        val released = releasePermissionLock("camera")
+        val result = JSObject()
+        result.put("success", released)
+        invoke.resolve(result)
     }
     
     // Handle permission request results and forward to PreciseLocationService

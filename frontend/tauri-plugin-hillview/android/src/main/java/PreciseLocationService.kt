@@ -11,6 +11,7 @@ import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.*
+import android.os.Handler
 
 data class PreciseLocationData(
     val latitude: Double,
@@ -54,6 +55,9 @@ class PreciseLocationService(
     private val fusedLocationClient = LocationServices.getFusedLocationProviderClient(activity)
     private var locationCallback: LocationCallback? = null
     private var isRequestingUpdates = false
+    private val retryHandler = Handler(Looper.getMainLooper())
+    private var permissionRetryRunnable: Runnable? = null
+    private var hasAcquiredLock = false
     
     // Create location request with high accuracy settings using the new Builder pattern
     private val locationRequest = LocationRequest.Builder(
@@ -199,8 +203,34 @@ class PreciseLocationService(
     }
     
     // Request location permissions
+    @Synchronized
     private fun requestLocationPermissions() {
         Log.i(TAG, "📍 PERM: Requesting location permissions...")
+        
+        // Import the plugin class to access the permission mutex
+        val lockAcquired = io.github.koo5.hillview.plugin.ExamplePlugin.acquirePermissionLock("location")
+        if (!lockAcquired) {
+            Log.w(TAG, "📍 PERM: Cannot request location permission - another permission dialog is active")
+            Log.w(TAG, "📍 PERM: Currently held by: ${io.github.koo5.hillview.plugin.ExamplePlugin.getPermissionLockHolder()}")
+            
+            // Schedule retry after 1 second
+            if (permissionRetryRunnable == null) {
+                permissionRetryRunnable = Runnable {
+                    Log.i(TAG, "📍 PERM: Retrying location permission request...")
+                    requestLocationPermissions()
+                }
+                retryHandler.postDelayed(permissionRetryRunnable!!, 1000)
+            }
+            return
+        }
+        
+        // Clear any existing retry since we got the lock
+        permissionRetryRunnable?.let { runnable ->
+            retryHandler.removeCallbacks(runnable)
+            permissionRetryRunnable = null
+        }
+        
+        Log.i(TAG, "📍 PERM: Permission lock acquired, showing location permission dialog")
         
         val permissions = arrayOf(
             Manifest.permission.ACCESS_FINE_LOCATION,
@@ -220,6 +250,14 @@ class PreciseLocationService(
             Log.i(TAG, "📍 PERM: Permission request result received")
             Log.i(TAG, "📍 PERM: Granted permissions: ${grantResults.count { it == PackageManager.PERMISSION_GRANTED }}/${grantResults.size}")
             
+            // Release the permission lock now that the dialog is dismissed
+            val lockReleased = io.github.koo5.hillview.plugin.ExamplePlugin.releasePermissionLock("location")
+            if (lockReleased) {
+                Log.i(TAG, "📍 PERM: Permission lock released by location service")
+            } else {
+                Log.w(TAG, "📍 PERM: Failed to release permission lock - may not have been held by location service")
+            }
+            
             if (grantResults.isNotEmpty() && grantResults.any { it == PackageManager.PERMISSION_GRANTED }) {
                 Log.i(TAG, "📍 PERM: ✅ At least one location permission granted, retrying location updates...")
                 startLocationUpdatesInternal()
@@ -233,8 +271,16 @@ class PreciseLocationService(
     }
     
     // Public method to start location updates with permission handling
+    @Synchronized
     fun startLocationUpdates() {
         Log.i(TAG, "📍 START: ======= startLocationUpdates() called =======")
+        
+        // Thread-safe check for existing location updates
+        if (isRequestingUpdates) {
+            Log.i(TAG, "📍 START: ✅ Location updates already active - ignoring duplicate request")
+            return
+        }
+        
         Log.i(TAG, "📍 START: Checking location permissions...")
         
         if (!hasLocationPermissions()) {
@@ -354,6 +400,13 @@ class PreciseLocationService(
         }
         
         Log.i(TAG, "📍 Stopping location updates")
+        
+        // Clean up any pending permission retry
+        permissionRetryRunnable?.let { runnable ->
+            retryHandler.removeCallbacks(runnable)
+            permissionRetryRunnable = null
+            Log.i(TAG, "📍 PERM: Cancelled pending permission retry")
+        }
         
         locationCallback?.let { callback ->
             fusedLocationClient.removeLocationUpdates(callback)

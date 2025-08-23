@@ -10,8 +10,21 @@
     import {injectPlaceholder, removePlaceholder} from '$lib/placeholderInjector';
     import {generateTempId, type PlaceholderLocation} from '$lib/utils/placeholderUtils';
     import {bearingState, spatialState} from '$lib/mapState';
+    import { createPermissionManager } from '$lib/permissionManager';
+    import { 
+        availableCameras, 
+        selectedCameraId, 
+        cameraEnumerationSupported,
+        enumerateCameraDevices,
+        getPreferredBackCamera,
+        getFrontCamera,
+        type CameraDevice 
+    } from '$lib/cameraDevices.svelte';
 
     const dispatch = createEventDispatcher();
+    
+    // Permission manager for camera permissions  
+    const permissionManager = createPermissionManager('camera');
 
     export let show = false;
 
@@ -47,6 +60,8 @@
     let maxRetries = 5;
     let retryDelay = 1000; // Start with 1 second
     let retryTimeout: number | null = null;
+    let permissionRetryInterval: number | null = null;
+    let showCameraSelector = false;
 
     async function checkCameraPermission(): Promise<PermissionState | null> {
         try {
@@ -107,33 +122,68 @@
 
     async function checkAndStartCamera() {
         console.log('🢄[CAMERA] Checking camera permission before auto-start...');
-        const permissionState = await checkCameraPermission();
-        console.log('🢄[CAMERA] Permission state returned:', permissionState);
         
-        if (permissionState === 'granted') {
-            console.log('🢄[CAMERA] Permission already granted, starting camera automatically');
-            startCamera();
-        } else if (permissionState === 'prompt' || permissionState === null) {
-            // For 'prompt' state or when Permissions API not available, try direct camera access
-            // 'prompt' often means permission is set to "While using the app" which should work
-            console.log('🢄[CAMERA] Permission state is prompt/null, attempting direct camera access...');
-            try {
-                // Quick test to see if we can access camera without showing permission UI
-                const testStream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: facing } 
-                });
-                testStream.getTracks().forEach(track => track.stop());
-                console.log('🢄[CAMERA] Direct camera access successful, starting camera');
+        // Try to acquire permission lock first
+        const lockAcquired = await permissionManager.acquireLock();
+        if (!lockAcquired) {
+            console.log('🢄[CAMERA] Permission system busy (location tracking?), will retry later');
+            // Schedule retry with interval
+            if (!permissionRetryInterval) {
+                permissionRetryInterval = window.setInterval(() => {
+                    if (show && !stream && !cameraReady) {
+                        checkAndStartCamera();
+                    } else {
+                        // Clean up interval if conditions no longer apply
+                        if (permissionRetryInterval) {
+                            clearInterval(permissionRetryInterval);
+                            permissionRetryInterval = null;
+                        }
+                    }
+                }, 1000);
+            }
+            return;
+        }
+        
+        // Clear retry interval since we successfully acquired the lock
+        if (permissionRetryInterval) {
+            clearInterval(permissionRetryInterval);
+            permissionRetryInterval = null;
+        }
+        
+        try {
+            const permissionState = await checkCameraPermission();
+            console.log('🢄[CAMERA] Permission state returned:', permissionState);
+            
+            if (permissionState === 'granted') {
+                console.log('🢄[CAMERA] Permission already granted, starting camera automatically');
                 startCamera();
-            } catch (error) {
-                console.log('🢄[CAMERA] Direct camera access failed, showing enable button:', error);
+            } else if (permissionState === 'prompt' || permissionState === null) {
+                // For 'prompt' state or when Permissions API not available, try direct camera access
+                // 'prompt' often means permission is set to "While using the app" which should work
+                console.log('🢄[CAMERA] Permission state is prompt/null, attempting direct camera access...');
+                try {
+                    // Quick test to see if we can access camera without showing permission UI
+                    const testStream = await navigator.mediaDevices.getUserMedia({ 
+                        video: { facingMode: facing } 
+                    });
+                    testStream.getTracks().forEach(track => track.stop());
+                    console.log('🢄[CAMERA] Direct camera access successful, starting camera');
+                    startCamera();
+                } catch (error) {
+                    console.log('🢄[CAMERA] Direct camera access failed, showing enable button:', error);
+                    needsPermission = true;
+                    cameraError = 'Camera access required. Tap "Enable Camera" to continue.';
+                    // Don't release lock yet - user will click Enable Camera button
+                }
+            } else {
+                console.log('🢄[CAMERA] Permission explicitly denied, showing enable button');
                 needsPermission = true;
                 cameraError = 'Camera access required. Tap "Enable Camera" to continue.';
+                // Don't release lock yet - user will click Enable Camera button
             }
-        } else {
-            console.log('🢄[CAMERA] Permission explicitly denied, showing enable button');
-            needsPermission = true;
-            cameraError = 'Camera access required. Tap "Enable Camera" to continue.';
+        } catch (error) {
+            console.error('🢄[CAMERA] Error in checkAndStartCamera:', error);
+            await permissionManager.releaseLock();
         }
     }
 
@@ -158,14 +208,51 @@
             // Mark that we're about to request permission
             hasRequestedPermission = true;
 
-            // Request camera access
-            const constraints: MediaStreamConstraints = {
-                video: {
-                    facingMode: facing,
-                    width: {ideal: 1920},
-                    height: {ideal: 1080}
+            // Enumerate cameras and select the appropriate one
+            const cameras = await enumerateCameraDevices();
+            
+            let selectedDevice: CameraDevice | null = null;
+            let currentSelectedId: string | null = null;
+            
+            selectedCameraId.subscribe(id => { currentSelectedId = id; })();
+            
+            if (currentSelectedId) {
+                // Use explicitly selected camera
+                selectedDevice = cameras.find(c => c.deviceId === currentSelectedId) || null;
+                console.log('🢄[CAMERA] Using explicitly selected camera:', selectedDevice?.label);
+            } else {
+                // Auto-select based on facing mode
+                if (facing === 'environment') {
+                    selectedDevice = getPreferredBackCamera(cameras);
+                } else {
+                    selectedDevice = getFrontCamera(cameras);
                 }
-            };
+                console.log('🢄[CAMERA] Auto-selected camera:', selectedDevice?.label);
+            }
+
+            // Build constraints
+            let constraints: MediaStreamConstraints;
+            
+            if (selectedDevice) {
+                constraints = {
+                    video: {
+                        deviceId: { exact: selectedDevice.deviceId },
+                        width: { ideal: 1920 },
+                        height: { ideal: 1080 }
+                    }
+                };
+                // Update the selected camera in the store
+                selectedCameraId.set(selectedDevice.deviceId);
+            } else {
+                // Fallback to facingMode if no specific device found
+                constraints = {
+                    video: {
+                        facingMode: { exact: facing },
+                        width: { ideal: 1920 },
+                        height: { ideal: 1080 }
+                    }
+                };
+            }
 
             console.log('🢄[CAMERA] Requesting camera with constraints:', constraints);
             stream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -194,6 +281,9 @@
                 
                 // Reset permission request flag on success
                 hasRequestedPermission = false;
+
+                // Release permission lock on success
+                await permissionManager.releaseLock();
 
                 // Clear any pending retries
                 if (retryTimeout) {
@@ -229,8 +319,11 @@
                 (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError')) {
                 hasRequestedPermission = true;
                 console.log('🢄[CAMERA] Permission denied by user');
+                // Release lock - permission dialog is done, user can try again later
+                await permissionManager.releaseLock();
             } else {
-                // For non-permission errors, schedule a retry
+                // For non-permission errors, release lock and schedule a retry
+                await permissionManager.releaseLock();
                 scheduleRetry();
             }
         }
@@ -253,6 +346,34 @@
     function handleZoomChange(event: Event) {
         const target = event.target as HTMLInputElement;
         setZoom(parseFloat(target.value));
+    }
+
+    async function selectCamera(camera: CameraDevice) {
+        console.log('🢄[CAMERA] Selecting camera:', camera.label);
+        
+        // Hide the dropdown
+        showCameraSelector = false;
+        
+        // Set the selected camera in the store
+        selectedCameraId.set(camera.deviceId);
+        
+        // Restart camera with new device
+        if (cameraReady && stream) {
+            console.log('🢄[CAMERA] Switching to camera:', camera.label);
+            
+            // Stop current stream
+            stream.getTracks().forEach(track => track.stop());
+            stream = null;
+            cameraReady = false;
+            
+            // Start with new camera
+            try {
+                await startCamera();
+            } catch (error) {
+                console.error('🢄[CAMERA] Failed to switch camera:', error);
+                cameraError = `Failed to switch to ${camera.label}`;
+            }
+        }
     }
 
     async function handleCapture(event: CustomEvent<{ mode: 'slow' | 'fast' }>) {
@@ -376,6 +497,17 @@
         }
     }
 
+    function handleClickOutside(event: MouseEvent) {
+        if (showCameraSelector) {
+            const target = event.target as Element;
+            const selectorContainer = document.querySelector('.camera-selector-container');
+            
+            if (selectorContainer && !selectorContainer.contains(target)) {
+                showCameraSelector = false;
+            }
+        }
+    }
+
     // Check permission and conditionally start camera when modal opens
     $: if (show) {
         if (!stream && !cameraError && !cameraReady && !hasRequestedPermission) {
@@ -418,6 +550,7 @@
 
     onMount(() => {
         document.addEventListener('visibilitychange', handleVisibilityChange);
+        document.addEventListener('click', handleClickOutside);
     });
 
     onDestroy(() => {
@@ -430,7 +563,14 @@
         if (retryTimeout) {
             clearTimeout(retryTimeout);
         }
+        if (permissionRetryInterval) {
+            clearInterval(permissionRetryInterval);
+        }
         document.removeEventListener('visibilitychange', handleVisibilityChange);
+        document.removeEventListener('click', handleClickOutside);
+        
+        // Clean up permission manager
+        permissionManager.cleanup();
     });
 </script>
 
@@ -456,8 +596,16 @@
                 {#if cameraError}
                     <div class="camera-error">
                         <p>📷 {cameraError}</p>
-                        <button class="retry-button" on:click={() => {
+                        <button class="retry-button" on:click={async () => {
                             console.log('🢄[CAMERA] Enable Camera button clicked');
+                            
+                            // Try to acquire permission lock before starting camera
+                            const lockAcquired = await permissionManager.acquireLock();
+                            if (!lockAcquired) {
+                                console.log('🢄[CAMERA] Permission system busy, cannot start camera right now');
+                                return;
+                            }
+                            
                             cameraError = null;
                             needsPermission = false;
                             hasRequestedPermission = false;
@@ -517,6 +665,39 @@
             {/if}
 
             <div class="camera-controls">
+                <!-- Camera selector button (lower-left) -->
+                {#if cameraReady && $cameraEnumerationSupported && $availableCameras.length > 1}
+                    <div class="camera-selector-container">
+                        <button 
+                            class="camera-selector-button" 
+                            on:click={() => showCameraSelector = !showCameraSelector}
+                            aria-label="Select camera"
+                        >
+                            📷
+                        </button>
+                        
+                        {#if showCameraSelector}
+                            <div class="camera-selector-dropdown">
+                                {#each $availableCameras as camera}
+                                    <button 
+                                        class="camera-option"
+                                        class:selected={$selectedCameraId === camera.deviceId}
+                                        on:click={() => selectCamera(camera)}
+                                    >
+                                        <span class="camera-facing">
+                                            {#if camera.facingMode === 'front'}🤳{:else if camera.facingMode === 'back'}📷{:else}📹{/if}
+                                        </span>
+                                        <span class="camera-label">
+                                            {camera.label}
+                                            {#if camera.isPreferred}⭐{/if}
+                                        </span>
+                                    </button>
+                                {/each}
+                            </div>
+                        {/if}
+                    </div>
+                {/if}
+                
                 <DualCaptureButton
                         disabled={!cameraReady || !locationData}
                         on:capture={handleCapture}
@@ -638,6 +819,80 @@
         gap: 2rem;
         padding: 2rem;
         background: linear-gradient(to top, rgba(0, 0, 0, 0.8), transparent);
+    }
+
+    .camera-selector-container {
+        position: absolute;
+        left: 2rem;
+        bottom: 2rem;
+    }
+
+    .camera-selector-button {
+        background: rgba(255, 255, 255, 0.2);
+        border: none;
+        color: white;
+        cursor: pointer;
+        padding: 0.75rem;
+        border-radius: 50%;
+        font-size: 1.5rem;
+        transition: background 0.2s;
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.3);
+    }
+
+    .camera-selector-button:hover {
+        background: rgba(255, 255, 255, 0.3);
+    }
+
+    .camera-selector-dropdown {
+        position: absolute;
+        bottom: 100%;
+        left: 0;
+        margin-bottom: 0.5rem;
+        background: rgba(0, 0, 0, 0.9);
+        border-radius: 8px;
+        padding: 0.5rem;
+        min-width: 200px;
+        backdrop-filter: blur(20px);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    }
+
+    .camera-option {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        width: 100%;
+        padding: 0.75rem;
+        background: transparent;
+        border: none;
+        color: white;
+        cursor: pointer;
+        border-radius: 6px;
+        transition: background 0.2s;
+        text-align: left;
+    }
+
+    .camera-option:hover {
+        background: rgba(255, 255, 255, 0.1);
+    }
+
+    .camera-option.selected {
+        background: rgba(74, 144, 226, 0.3);
+        border: 1px solid rgba(74, 144, 226, 0.5);
+    }
+
+    .camera-facing {
+        font-size: 1.2rem;
+        flex-shrink: 0;
+    }
+
+    .camera-label {
+        font-size: 0.9rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        flex: 1;
     }
 
 

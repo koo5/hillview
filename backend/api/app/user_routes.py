@@ -23,7 +23,7 @@ from .auth import (
     OAUTH_PROVIDERS, ACCESS_TOKEN_EXPIRE_MINUTES,
     blacklist_token, get_current_user
 )
-from .rate_limiter import auth_rate_limiter, check_auth_rate_limit, rate_limit_user_profile
+from .rate_limiter import auth_rate_limiter, check_auth_rate_limit, rate_limit_user_profile, rate_limit_user_registration
 from .security_utils import validate_username, validate_email, validate_oauth_redirect_uri
 from .security_audit import security_audit
 
@@ -33,7 +33,10 @@ router = APIRouter(prefix="/api", tags=["users"])
 
 # Authentication routes
 @router.post("/auth/register", response_model=UserOut)
-async def register_user(user: UserCreate, db: AsyncSession = Depends(get_db)):
+async def register_user(request: Request, user: UserCreate, db: AsyncSession = Depends(get_db)):
+    # Apply rate limiting for user registration
+    await rate_limit_user_registration(request)
+    
     # Validate input
     validated_username = validate_username(user.username)
     validated_email = validate_email(user.email)

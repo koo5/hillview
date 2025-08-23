@@ -6,7 +6,7 @@ from typing import Dict, Optional, Callable
 from fastapi import HTTPException, Request, status
 import logging
 import os
-from .config import rate_limit_config
+from .config import rate_limit_config, is_rate_limiting_disabled
 
 logger = logging.getLogger(__name__)
 
@@ -193,6 +193,10 @@ auth_rate_limiter = AuthRateLimiter()
 
 async def check_auth_rate_limit(request: Request, username: Optional[str] = None) -> None:
     """Check authentication-specific rate limits."""
+    if is_rate_limiting_disabled():
+        #logger.debug(f"Auth rate limiting bypassed (NO_LIMITS=true) for {username}")
+        return
+        
     identifier = auth_rate_limiter.get_identifier(request, username)
     await auth_rate_limiter.check_auth_rate_limit(identifier)
 
@@ -257,6 +261,11 @@ class GeneralRateLimiter:
         user_id: Optional[str] = None
     ) -> None:
         """Enforce rate limit and raise HTTPException if exceeded."""
+        # Check if rate limiting is globally disabled
+        if is_rate_limiting_disabled():
+            #logger.debug(f"Rate limiting bypassed (NO_LIMITS=true) for {limit_type}")
+            return
+            
         if not await self.check_rate_limit(request, limit_type, user_id):
             limit_config = self.limits[limit_type]
             raise HTTPException(
@@ -290,3 +299,11 @@ async def rate_limit_general_api(request: Request, user_id: Optional[str] = None
 async def rate_limit_public_read(request: Request) -> None:
     """Rate limit public read endpoints."""
     await general_rate_limiter.enforce_rate_limit(request, 'public_read')
+
+async def rate_limit_user_registration(request: Request) -> None:
+    """Rate limit user registration endpoints."""
+    await general_rate_limiter.enforce_rate_limit(request, 'user_registration')
+
+async def rate_limit_debug(request: Request) -> None:
+    """Rate limit debug endpoints."""
+    await general_rate_limiter.enforce_rate_limit(request, 'debug')

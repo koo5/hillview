@@ -2,10 +2,17 @@
 import time
 import requests
 import pytest
+import sys
+import os
 from typing import Dict, Any
+
+# Add the backend paths for imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'api', 'app'))
+from config import is_rate_limiting_disabled
 
 BASE_URL = "http://localhost:8055"
 
+@pytest.mark.skipif(is_rate_limiting_disabled(), reason="Rate limiting tests skipped when NO_LIMITS=true")
 class TestRateLimiting:
     """Test rate limiting across all endpoint categories."""
     
