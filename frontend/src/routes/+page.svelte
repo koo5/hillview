@@ -25,7 +25,7 @@
     let debugOverlay: any = null;
 
     onMount(async () => {
-        console.log('Page mounted');
+        console.log('🢄Page mounted');
         await tick();
 
         // Check authentication status
@@ -41,13 +41,13 @@
         let update = false;
 
         if (lat && lon) {
-            console.log('Setting position to', lat, lon, 'from URL');
+            console.log('🢄Setting position to', lat, lon, 'from URL');
             p.center = new LatLng(parseFloat(lat), parseFloat(lon));
             update = true;
         }
 
         if (zoom) {
-            console.log('Setting zoom to', zoom, 'from URL');
+            console.log('🢄Setting zoom to', zoom, 'from URL');
             p.zoom = parseFloat(zoom);
             update = true;
         }
@@ -58,7 +58,7 @@
         }
 
         if (bearingParam) {
-            console.log('Setting bearing to', bearingParam, 'from URL');
+            console.log('🢄Setting bearing to', bearingParam, 'from URL');
             mapStateUpdateBearing(parseFloat(bearingParam));
         }
 
@@ -72,7 +72,7 @@
     });
 
     onDestroy(() => {
-        console.log('Page destroyed');
+        console.log('🢄Page destroyed');
         window.removeEventListener('keydown', handleKeyDown);
     });
 
@@ -84,7 +84,7 @@
         url.searchParams.set('lat', String(p.center.lat));
         url.searchParams.set('lon', String(p.center.lng));
         url.searchParams.set('zoom', String(p.zoom));
-        //console.log('Setting URL to', url.toString());
+        //console.log('🢄Setting URL to', url.toString());
         replaceState2(url.toString());
     });
 
@@ -95,7 +95,7 @@
         }
         const url = new URL(window.location.href);
         url.searchParams.set('bearing', String(b));
-        //console.log('Setting URL to', url.toString());
+        //console.log('🢄Setting URL to', url.toString());
         setTimeout(() => {
             replaceState2(url.toString());
         }, 1000);
@@ -108,7 +108,7 @@
         try {
             replaceState(url, {});
         } catch (e) {
-            console.error('Failed to update URL', e);
+            console.error('🢄Failed to update URL', e);
             setTimeout(() => {
                 if (desiredUrl) replaceState(desiredUrl, {});
             }, 1000);
@@ -238,7 +238,7 @@
     // Reactive statement to ensure geolocation and bearing are enabled when in capture mode
     // This handles both toggle events and initial page load
     $: if ($app.activity === 'capture') {
-        console.log('🎥 Capture mode detected, ensuring location and compass are enabled');
+        console.log('🢄🎥 Capture mode detected, ensuring location and compass are enabled');
         
         // Enable location tracking when in capture mode
         if (mapComponent) {
@@ -247,10 +247,10 @@
         
         // Enable compass/bearing when in capture mode
         startCompass().catch(err => {
-            console.warn('Failed to start compass for camera capture:', err);
+            console.warn('🢄Failed to start compass for camera capture:', err);
         });
     } else if ($app.activity === 'view') {
-        console.log('👁️ View mode detected, stopping compass');
+        console.log('🢄👁️ View mode detected, stopping compass');
         
         // Stop compass when exiting capture mode (optional - can be removed if you want compass to stay active)
         stopCompass();

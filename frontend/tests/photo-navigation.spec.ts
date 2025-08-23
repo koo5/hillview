@@ -43,7 +43,7 @@ test.describe('Photo Navigation and Image URLs', () => {
         expect(isRelativeFilename, `Image URL should not be just a filename: ${src}`).toBe(false);
       }
     } else {
-      console.log('⚠️ No gallery images found to test URLs');
+      console.log('🢄⚠️ No gallery images found to test URLs');
     }
   });
 
@@ -67,15 +67,15 @@ test.describe('Photo Navigation and Image URLs', () => {
       };
     });
     
-    console.log('📊 Initial photo state:', initialPhotoInfo);
+    console.log('🢄📊 Initial photo state:', initialPhotoInfo);
     
     // Test left navigation (c key)
-    console.log('🔍 Testing c key (turn to left photo)...');
+    console.log('🢄🔍 Testing c key (turn to left photo)...');
     await page.keyboard.press('c');
     await page.waitForTimeout(500);
     
     // Test right navigation (v key) 
-    console.log('🔍 Testing v key (turn to right photo)...');
+    console.log('🢄🔍 Testing v key (turn to right photo)...');
     await page.keyboard.press('v');
     await page.waitForTimeout(500);
     
@@ -88,7 +88,7 @@ test.describe('Photo Navigation and Image URLs', () => {
       msg.includes('photoToRight')
     );
     
-    console.log('🧭 Navigation messages:');
+    console.log('🢄🧭 Navigation messages:');
     navigationMessages.forEach(msg => console.log(`  ${msg}`));
     
     // Should have navigation messages
@@ -101,7 +101,7 @@ test.describe('Photo Navigation and Image URLs', () => {
     );
     
     if (hasNavigationErrors) {
-      console.log('⚠️ Navigation errors detected - photos may not be properly set up for navigation');
+      console.log('🢄⚠️ Navigation errors detected - photos may not be properly set up for navigation');
       
       // This is expected if photos aren't properly sorted by bearing yet
       // We'll check if the navigation system is at least responding
@@ -111,7 +111,7 @@ test.describe('Photo Navigation and Image URLs', () => {
       
       expect(hasNavigationAttempts, 'Navigation system should respond to c/v keys').toBe(true);
     } else {
-      console.log('✅ Navigation appears to be working');
+      console.log('🢄✅ Navigation appears to be working');
     }
   });
 
@@ -136,7 +136,7 @@ test.describe('Photo Navigation and Image URLs', () => {
       return { hasDebugInfo: false };
     });
     
-    console.log('📊 Photo navigation states:', photoStates);
+    console.log('🢄📊 Photo navigation states:', photoStates);
     
     if (photoStates.hasDebugInfo) {
       // If we have photos in area, we should have at least a front photo
@@ -148,7 +148,7 @@ test.describe('Photo Navigation and Image URLs', () => {
         console.log(`📍 Left photo: ${photoStates.leftPhoto || 'none'}`);
         console.log(`📍 Right photo: ${photoStates.rightPhoto || 'none'}`);
       } else {
-        console.log('⚠️ No photos in area, navigation states expected to be empty');
+        console.log('🢄⚠️ No photos in area, navigation states expected to be empty');
       }
     } else {
       // Try to enable debug mode to see the info
@@ -156,7 +156,7 @@ test.describe('Photo Navigation and Image URLs', () => {
       await debugButton.click();
       await page.waitForTimeout(1000);
       
-      console.log('⚠️ Debug info not visible, tried to enable debug mode');
+      console.log('🢄⚠️ Debug info not visible, tried to enable debug mode');
     }
   });
 });

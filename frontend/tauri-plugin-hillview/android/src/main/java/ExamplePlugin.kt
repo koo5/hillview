@@ -56,7 +56,7 @@ class StoreAuthTokenArgs {
 @TauriPlugin
 class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     companion object {
-        private const val TAG = "HillviewPlugin"
+        private const val TAG = "🢄HillviewPlugin"
         private var pluginInstance: ExamplePlugin? = null
     }
     

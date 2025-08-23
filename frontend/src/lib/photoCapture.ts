@@ -118,7 +118,7 @@ class PhotoCaptureService {
 		try {
 			return await invoke<DevicePhotosDb>('load_device_photos_db');
 		} catch (error) {
-			console.debug('Failed to load device photos:', error instanceof Error ? error.message : String(error));
+			console.debug('🢄Failed to load device photos:', error instanceof Error ? error.message : String(error));
 			return { photos: [], last_updated: 0 };
 		}
 	}
@@ -127,7 +127,7 @@ class PhotoCaptureService {
 		try {
 			return await invoke<DevicePhotosDb>('refresh_device_photos');
 		} catch (error) {
-			console.error('Failed to refresh device photos:', error);
+			console.error('🢄Failed to refresh device photos:', error);
 			throw error;
 		}
 	}
@@ -136,7 +136,7 @@ class PhotoCaptureService {
 		try {
 			await invoke('delete_device_photo', { photoId });
 		} catch (error) {
-			console.error('Failed to delete device photo:', error);
+			console.error('🢄Failed to delete device photo:', error);
 			throw error;
 		}
 	}
@@ -145,7 +145,7 @@ class PhotoCaptureService {
 		try {
 			return await invoke<DevicePhotosDb>('scan_directory_for_photos', { directoryPath });
 		} catch (error) {
-			console.debug('Failed to load directory photos:', error instanceof Error ? error.message : String(error));
+			console.debug('🢄Failed to load directory photos:', error instanceof Error ? error.message : String(error));
 			return { photos: [], last_updated: 0 };
 		}
 	}
@@ -177,7 +177,7 @@ class PhotoCaptureService {
 			const processedUint8Array = new Uint8Array(processed.data);
 			return new Blob([processedUint8Array], { type: 'image/jpeg' });
 		} catch (error) {
-			console.error('Failed to embed EXIF metadata:', error);
+			console.error('🢄Failed to embed EXIF metadata:', error);
 			throw error;
 		}
 	}

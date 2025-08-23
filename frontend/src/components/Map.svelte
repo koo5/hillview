@@ -107,7 +107,7 @@
             currentMarkers = updatedMarkers;
             console.log(`Updated ${currentMarkers.length} optimized markers`);
         } else {
-            console.warn('optimizedMarkerSystem.updateMarkers returned undefined');
+            console.warn('🢄optimizedMarkerSystem.updateMarkers returned undefined');
         }
     }
     
@@ -121,7 +121,7 @@
     // Calculate how many km are "visible" based on the current zoom/center
     function get_range(_center: LatLng) {
         if (!map) {
-            console.warn('get_range called before map is ready');
+            console.warn('🢄get_range called before map is ready');
             return 1000; // Default 1km
         }
         try {
@@ -132,7 +132,7 @@
             // distanceTo returns meters
             return _center.distanceTo(latLngR);
         } catch (e) {
-            console.warn('Error calculating range:', e);
+            console.warn('🢄Error calculating range:', e);
             return 1000; // Default 1km
         }
     }
@@ -146,13 +146,13 @@
             const currentCenter = map.getCenter();
             const currentZoom = map.getZoom();
             if (!currentCenter || currentCenter.lat !== spatial.center.lat || currentCenter.lng !== spatial.center.lng || currentZoom !== spatial.zoom) {
-                console.log('setView', spatial.center, spatial.zoom);
+                console.log('🢄setView', spatial.center, spatial.zoom);
                 map.setView(new LatLng(spatial.center.lat, spatial.center.lng), spatial.zoom);
                 onMapStateChange(true, 'spatialState.subscribe');
             }
         } catch (e) {
             // Map not ready yet, ignore
-            console.log('Map not ready for spatialState update:', e instanceof Error ? e.message : String(e));
+            console.log('🢄Map not ready for spatialState update:', e instanceof Error ? e.message : String(e));
         }
     });
 
@@ -164,10 +164,10 @@
         if (!flying) {
             let _center = map.getCenter();
             let p = get(spatialState);
-            console.log('mapStateUserEvent:', event);
+            console.log('🢄mapStateUserEvent:', event);
             if (p.center.lat != _center.lat || p.center.lng != _center.lng) {
-                console.log('p.center:', p.center, '_center:', _center);
-                console.log('disableLocationTracking');
+                console.log('🢄p.center:', p.center, '_center:', _center);
+                console.log('🢄disableLocationTracking');
                 disableLocationTracking();
             }
         }
@@ -187,13 +187,13 @@
     async function onMapStateChange(force: boolean, reason: string) {
         await tick();
         if (!map) {
-            console.warn('onMapStateChange called before map is ready');
+            console.warn('🢄onMapStateChange called before map is ready');
             return;
         }
         try {
             let _center = map.getCenter();
             let _zoom = map.getZoom();
-            console.log('onMapStateChange: force:', force, 'reason:', reason, 'center:', JSON.stringify(_center), 'zoom:', _zoom);
+            console.log('🢄onMapStateChange: force:', force, 'reason:', reason, 'center:', JSON.stringify(_center), 'zoom:', _zoom);
             
             const currentSpatial = get(spatialState);
             const bounds = map.getBounds();
@@ -232,7 +232,7 @@
                 
                 updateSpatialState(newSpatialState);
                 
-                console.log('Map bounds updated:', JSON.stringify({
+                console.log('🢄Map bounds updated:', JSON.stringify({
                     nw: `${bounds.getNorthWest().lat}, ${bounds.getNorthWest().lng}`,
                     se: `${bounds.getSouthEast().lat}, ${bounds.getSouthEast().lng}`,
                     ne: `${bounds.getNorthEast().lat}, ${bounds.getNorthEast().lng}`,
@@ -242,7 +242,7 @@
                 }, null, 2));
             }
         } catch (e) {
-            console.error('Error in onMapStateChange:', e);
+            console.error('🢄Error in onMapStateChange:', e);
         }
     }
 
@@ -259,7 +259,7 @@
         // Disable compass tracking when any turn button is clicked
         if (action === 'left' || action === 'right' || action === 'rotate-ccw' || action === 'rotate-cw') {
             if (compassTrackingEnabled) {
-                console.log('🧭 Disabling compass tracking due to manual turn');
+                console.log('🢄🧭 Disabling compass tracking due to manual turn');
                 await stopCompass();
                 compassTrackingEnabled = false;
             }
@@ -437,14 +437,14 @@
         compassTrackingEnabled = !compassTrackingEnabled;
         
         if (compassTrackingEnabled) {
-            console.log('🧭 Starting compass tracking...');
+            console.log('🢄🧭 Starting compass tracking...');
             const success = await startCompass();
             if (!success) {
-                console.error('Failed to start compass');
+                console.error('🢄Failed to start compass');
                 compassTrackingEnabled = false;
             }
         } else {
-            console.log('🧭 Stopping compass tracking...');
+            console.log('🢄🧭 Stopping compass tracking...');
             stopCompass();
         }
     }
@@ -628,7 +628,7 @@
     let bearingUpdateTimeout: any = null;
     
     function handleAndroidWheel(e: WheelEvent) {
-        console.log('Android wheel event:', { deltaY: e.deltaY, wheelDelta: (e as any).wheelDelta, detail: e.detail });
+        console.log('🢄Android wheel event:', { deltaY: e.deltaY, wheelDelta: (e as any).wheelDelta, detail: e.detail });
         
         e.preventDefault();
         e.stopPropagation();
@@ -658,7 +658,7 @@
             const zoomDelta = delta > 0 ? -0.5 : 0.5;
             const newZoom = Math.max(map.getMinZoom(), Math.min(map.getMaxZoom(), zoom + zoomDelta));
             
-            console.log('Zooming from', zoom, 'to', newZoom);
+            console.log('🢄Zooming from', zoom, 'to', newZoom);
             
             // Get the mouse position relative to the map
             const containerPoint = map.mouseEventToContainerPoint(e);
@@ -675,10 +675,10 @@
         if (document.hidden) {
             // App is going to background or orientation change starting
             wasTrackingBeforeHidden = get(locationTracking);
-            console.log('App visibility changed to hidden, was tracking:', wasTrackingBeforeHidden);
+            console.log('🢄App visibility changed to hidden, was tracking:', wasTrackingBeforeHidden);
         } else {
             // App is coming to foreground or orientation change completed
-            console.log('App visibility changed to visible, should resume tracking:', wasTrackingBeforeHidden);
+            console.log('🢄App visibility changed to visible, should resume tracking:', wasTrackingBeforeHidden);
             if (wasTrackingBeforeHidden) {
                 // Clear any existing timer
                 if (orientationRestartTimer) {
@@ -687,7 +687,7 @@
                 // Delay restart slightly to let WebView stabilize after orientation change
                 orientationRestartTimer = setTimeout(async () => {
                     if (wasTrackingBeforeHidden && !get(locationTracking)) {
-                        console.log('📍 Restarting location tracking after visibility change');
+                        console.log('🢄📍 Restarting location tracking after visibility change');
                         setLocationTracking(true);
                         await startLocationTracking();
                     }
@@ -699,7 +699,7 @@
     // Handle page show/hide events (iOS Safari specific)
     function handlePageShow(event: PageTransitionEvent) {
         if (event.persisted && wasTrackingBeforeHidden && !get(locationTracking)) {
-            console.log('📍 Page shown from cache, resuming location tracking');
+            console.log('🢄📍 Page shown from cache, resuming location tracking');
             setLocationTracking(true);
             startLocationTracking();
         }
@@ -708,24 +708,24 @@
     function handlePageHide(event: PageTransitionEvent) {
         if (event.persisted) {
             wasTrackingBeforeHidden = get(locationTracking);
-            console.log('Page hiding to cache, was tracking:', wasTrackingBeforeHidden);
+            console.log('🢄Page hiding to cache, was tracking:', wasTrackingBeforeHidden);
         }
     }
 
     onMount(() => {
-        console.log('Map component mounted');
+        console.log('🢄Map component mounted');
         
         // Initialize the simplified photo worker (async)
         (async () => {
             try {
                 await simplePhotoWorker.initialize();
-                console.log('SimplePhotoWorker initialized successfully');
+                console.log('🢄SimplePhotoWorker initialized successfully');
             } catch (error) {
-                console.error('Failed to initialize SimplePhotoWorker:', error);
+                console.error('🢄Failed to initialize SimplePhotoWorker:', error);
             }
             
             await onMapStateChange(true, 'mount');
-            console.log('Map component mounted - after onMapStateChange');
+            console.log('🢄Map component mounted - after onMapStateChange');
         })();
         
         // Add event listeners for visibility changes
@@ -735,7 +735,7 @@
         
         // Also listen for orientation changes directly
         window.addEventListener('orientationchange', () => {
-            console.log('Orientation change detected');
+            console.log('🢄Orientation change detected');
             // The visibility change handler will take care of restarting
         });
         
@@ -755,12 +755,12 @@
     //import.meta.hot?.dispose(() => (map = null));
 
     onDestroy(async () => {
-        console.log('Map component destroyed');
+        console.log('🢄Map component destroyed');
         // Clean up location tracking if active
         try {
             await stopPreciseLocationUpdates();
         } catch (error) {
-            console.debug('📍 Error stopping location updates on destroy:', error);
+            console.debug('🢄📍 Error stopping location updates on destroy:', error);
         }
         
         // Clear timers

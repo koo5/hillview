@@ -78,10 +78,10 @@ test.describe('Runtime Error Detection', () => {
 
     // Log all errors for debugging
     if (errors.length > 0) {
-      console.log('Console errors found:', errors);
+      console.log('🢄Console errors found:', errors);
     }
     if (uncaughtExceptions.length > 0) {
-      console.log('Uncaught exceptions found:', uncaughtExceptions);
+      console.log('🢄Uncaught exceptions found:', uncaughtExceptions);
     }
 
     expect(hasPosErrors.length, `Found "pos is not defined" errors: ${hasPosErrors.join(', ')}`).toBe(0);

@@ -41,19 +41,19 @@
         invoke<string>('get_build_commit_hash').then((hash) => {
             buildCommitHash = hash;
         }).catch((err) => {
-            console.log('Failed to get build commit hash:', err.message);
+            console.log('🢄Failed to get build commit hash:', err.message);
         });
 
         invoke<string>('get_build_branch').then((branch) => {
             buildBranch = branch;
         }).catch((err) => {
-            console.log('Failed to get build branch:', err.message);
+            console.log('🢄Failed to get build branch:', err.message);
         });
 
         invoke<string>('get_build_ts').then((ts) => {
             buildTimestamp = ts;
         }).catch((err) => {
-            console.log('Failed to get build timestamp:', err.message);
+            console.log('🢄Failed to get build timestamp:', err.message);
         });
 
         // Fetch backend status

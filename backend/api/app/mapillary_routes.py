@@ -77,7 +77,7 @@ class MapillaryAPIManager:
                 max_connections=20,
                 keepalive_expiry=30
             ),
-            timeout=httpx.Timeout(60.0),
+            timeout=httpx.Timeout(300.0),  # 5 minutes
             http2=True
         )
         

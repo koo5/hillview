@@ -59,7 +59,7 @@
             hiddenPhotos = await photosResponse.json();
             hiddenUsers = await usersResponse.json();
         } catch (error) {
-            console.error('Error loading hidden content:', error);
+            console.error('🢄Error loading hidden content:', error);
             errorMessage = handleApiError(error);
             
             if (error instanceof TokenExpiredError) {
@@ -88,7 +88,7 @@
             successMessage = 'Photo unhidden successfully';
             setTimeout(() => successMessage = '', 3000);
         } catch (error) {
-            console.error('Error unhiding photo:', error);
+            console.error('🢄Error unhiding photo:', error);
             errorMessage = handleApiError(error);
             setTimeout(() => errorMessage = '', 5000);
         }
@@ -112,7 +112,7 @@
             successMessage = 'User unhidden successfully';
             setTimeout(() => successMessage = '', 3000);
         } catch (error) {
-            console.error('Error unhiding user:', error);
+            console.error('🢄Error unhiding user:', error);
             errorMessage = handleApiError(error);
             setTimeout(() => errorMessage = '', 5000);
         }

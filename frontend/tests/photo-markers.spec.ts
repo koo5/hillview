@@ -36,7 +36,7 @@ test.describe('Photo Markers', () => {
         }).filter(Boolean);
       });
       
-      console.log('Marker screen positions:', markerPositions);
+      console.log('🢄Marker screen positions:', markerPositions);
       
       // Verify markers are actually visible on screen (not off in crazy locations)
       for (const position of markerPositions) {

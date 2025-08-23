@@ -24,7 +24,7 @@ export async function fetchSourcePhotos(sourceId: string) {
             console.log(`Stream source ${source.name} is handled via streaming, not fetch`);
             break;
         default:
-            console.warn(`Unknown source type: ${source.type}`);
+            console.warn(`🢄Unknown source type: ${source.type}`);
     }
 }
 
@@ -85,7 +85,7 @@ async function fetchDeviceSource(source: Source) {
         });
         
     } catch (error) {
-        console.error('Failed to load device photos:', error);
+        console.error('🢄Failed to load device photos:', error);
     } finally {
         // Clear loading indicator
         sources.update(srcs => {
@@ -98,7 +98,7 @@ async function fetchDeviceSource(source: Source) {
 
 async function fetchDirectorySource(source: Source) {
     if (!source.path) {
-        console.warn('Directory source has no path specified');
+        console.warn('🢄Directory source has no path specified');
         return;
     }
 

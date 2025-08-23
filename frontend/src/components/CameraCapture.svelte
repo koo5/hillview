@@ -2,9 +2,10 @@
     import {createEventDispatcher, onDestroy, onMount} from 'svelte';
     import {X} from 'lucide-svelte';
     import {photoCaptureSettings} from '$lib/stores';
-    import {app, cameraOverlayOpacity} from "$lib/data.svelte";
+    import {app} from "$lib/data.svelte";
     import DualCaptureButton from './DualCaptureButton.svelte';
     import CaptureQueueStatus from './CaptureQueueStatus.svelte';
+    import CameraOverlay from './CameraOverlay.svelte';
     import {captureQueue } from '$lib/captureQueue';
     import {injectPlaceholder, removePlaceholder} from '$lib/placeholderInjector';
     import {generateTempId, type PlaceholderLocation} from '$lib/utils/placeholderUtils';
@@ -47,11 +48,6 @@
     let retryDelay = 1000; // Start with 1 second
     let retryTimeout: number | null = null;
 
-    // Toggle overlay opacity through 6 levels: 0 (fully transparent) to 5 (most opaque)
-    function toggleOverlayOpacity() {
-        cameraOverlayOpacity.update(current => (current + 1) % 6);
-    }
-
     async function checkCameraPermission(): Promise<PermissionState | null> {
         try {
             if ('permissions' in navigator && 'query' in navigator.permissions) {
@@ -59,7 +55,7 @@
                 return result.state;
             }
         } catch (error) {
-            console.log('Permission API not supported or error:', error);
+            console.log('🢄Permission API not supported or error:', error);
         }
         return null;
     }
@@ -70,15 +66,15 @@
             clearInterval(permissionCheckInterval);
         }
 
-        console.log('Starting permission monitoring...');
+        console.log('🢄Starting permission monitoring...');
         // Check permission state periodically when we have an error
         permissionCheckInterval = window.setInterval(async () => {
             if (cameraError && (hasRequestedPermission || cameraError.includes('Camera access required'))) {
                 const state = await checkCameraPermission();
-                console.log('Monitoring camera permission:', state, 'hasRequestedPermission:', hasRequestedPermission);
+                console.log('🢄Monitoring camera permission:', state, 'hasRequestedPermission:', hasRequestedPermission);
 
                 if (state === 'granted') {
-                    console.log('Camera permission granted during monitoring, starting camera...');
+                    console.log('🢄Camera permission granted during monitoring, starting camera...');
                     clearInterval(permissionCheckInterval!);
                     permissionCheckInterval = null;
                     hasRequestedPermission = false;
@@ -110,39 +106,39 @@
     let needsPermission = false;
 
     async function checkAndStartCamera() {
-        console.log('[CAMERA] Checking camera permission before auto-start...');
+        console.log('🢄[CAMERA] Checking camera permission before auto-start...');
         const permissionState = await checkCameraPermission();
-        console.log('[CAMERA] Permission state returned:', permissionState);
+        console.log('🢄[CAMERA] Permission state returned:', permissionState);
         
         if (permissionState === 'granted') {
-            console.log('[CAMERA] Permission already granted, starting camera automatically');
+            console.log('🢄[CAMERA] Permission already granted, starting camera automatically');
             startCamera();
         } else if (permissionState === 'prompt' || permissionState === null) {
             // For 'prompt' state or when Permissions API not available, try direct camera access
             // 'prompt' often means permission is set to "While using the app" which should work
-            console.log('[CAMERA] Permission state is prompt/null, attempting direct camera access...');
+            console.log('🢄[CAMERA] Permission state is prompt/null, attempting direct camera access...');
             try {
                 // Quick test to see if we can access camera without showing permission UI
                 const testStream = await navigator.mediaDevices.getUserMedia({ 
                     video: { facingMode: facing } 
                 });
                 testStream.getTracks().forEach(track => track.stop());
-                console.log('[CAMERA] Direct camera access successful, starting camera');
+                console.log('🢄[CAMERA] Direct camera access successful, starting camera');
                 startCamera();
             } catch (error) {
-                console.log('[CAMERA] Direct camera access failed, showing enable button:', error);
+                console.log('🢄[CAMERA] Direct camera access failed, showing enable button:', error);
                 needsPermission = true;
                 cameraError = 'Camera access required. Tap "Enable Camera" to continue.';
             }
         } else {
-            console.log('[CAMERA] Permission explicitly denied, showing enable button');
+            console.log('🢄[CAMERA] Permission explicitly denied, showing enable button');
             needsPermission = true;
             cameraError = 'Camera access required. Tap "Enable Camera" to continue.';
         }
     }
 
     async function startCamera() {
-        console.log('[CAMERA] Starting camera...');
+        console.log('🢄[CAMERA] Starting camera...');
         try {
             // Check for camera support
             if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -151,7 +147,7 @@
 
             // Stop any existing stream
             if (stream) {
-                console.log('[CAMERA] Stopping existing stream');
+                console.log('🢄[CAMERA] Stopping existing stream');
                 stream.getTracks().forEach(track => track.stop());
                 stream = null;
             }
@@ -159,6 +155,8 @@
             // Clear any previous errors
             cameraError = null;
 
+            // Mark that we're about to request permission
+            hasRequestedPermission = true;
 
             // Request camera access
             const constraints: MediaStreamConstraints = {
@@ -169,30 +167,33 @@
                 }
             };
 
-            console.log('[CAMERA] Requesting camera with constraints:', constraints);
+            console.log('🢄[CAMERA] Requesting camera with constraints:', constraints);
             stream = await navigator.mediaDevices.getUserMedia(constraints);
-            console.log('[CAMERA] Got media stream:', stream);
+            console.log('🢄[CAMERA] Got media stream:', stream);
 
             if (video) {
-                console.log('[CAMERA] Setting video source');
+                console.log('🢄[CAMERA] Setting video source');
                 video.srcObject = stream;
 
                 // Wait for metadata to load
                 await new Promise((resolve) => {
                     video.onloadedmetadata = () => {
-                        console.log('[CAMERA] Video metadata loaded');
+                        console.log('🢄[CAMERA] Video metadata loaded');
                         resolve(undefined);
                     };
                 });
 
                 await video.play();
-                console.log('[CAMERA] Video playing - clearing error state');
-                console.log('[CAMERA] Before clear: cameraError =', cameraError, 'needsPermission =', needsPermission, 'cameraReady =', cameraReady);
+                console.log('🢄[CAMERA] Video playing - clearing error state');
+                console.log('🢄[CAMERA] Before clear: cameraError =', cameraError, 'needsPermission =', needsPermission, 'cameraReady =', cameraReady);
                 cameraReady = true;
                 cameraError = null;
                 needsPermission = false;
                 retryCount = 0; // Reset retry count on success
-                console.log('[CAMERA] After clear: cameraError =', cameraError, 'needsPermission =', needsPermission, 'cameraReady =', cameraReady);
+                console.log('🢄[CAMERA] After clear: cameraError =', cameraError, 'needsPermission =', needsPermission, 'cameraReady =', cameraReady);
+                
+                // Reset permission request flag on success
+                hasRequestedPermission = false;
 
                 // Clear any pending retries
                 if (retryTimeout) {
@@ -215,11 +216,11 @@
                     }
                 }
             } else {
-                console.error('[CAMERA] Video element not found!');
+                console.error('🢄[CAMERA] Video element not found!');
                 throw new Error('Video element not available');
             }
         } catch (error) {
-            console.error('[CAMERA] Camera error:', error);
+            console.error('🢄[CAMERA] Camera error:', error);
             cameraError = error instanceof Error ? error.message : 'Failed to access camera';
             cameraReady = false;
 
@@ -227,7 +228,7 @@
             if (error instanceof DOMException &&
                 (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError')) {
                 hasRequestedPermission = true;
-                console.log('[CAMERA] Permission denied by user');
+                console.log('🢄[CAMERA] Permission denied by user');
             } else {
                 // For non-permission errors, schedule a retry
                 scheduleRetry();
@@ -245,7 +246,7 @@
             } as MediaTrackConstraints);
             zoomLevel = level;
         } catch (error) {
-            console.error('Failed to set zoom:', error);
+            console.error('🢄Failed to set zoom:', error);
         }
     }
 
@@ -257,11 +258,11 @@
     async function handleCapture(event: CustomEvent<{ mode: 'slow' | 'fast' }>) {
         if (!video || !canvas || !cameraReady || !locationData ||
             locationData.latitude === undefined || locationData.longitude === undefined) {
-            console.warn('📍 Cannot capture: camera not ready or no location');
+            console.warn('🢄📍 Cannot capture: camera not ready or no location');
             return;
         }
 
-        console.log('Capture event:', event.detail);
+        console.log('🢄Capture event:', event.detail);
 
         const {mode} = event.detail;
         const timestamp = Date.now();
@@ -313,7 +314,7 @@
                 }
             }, 'image/jpeg', quality);
         } catch (error) {
-            console.error('Capture error:', error);
+            console.error('🢄Capture error:', error);
             // Remove placeholder on error
             removePlaceholder(tempId);
         }
@@ -351,7 +352,7 @@
             // App is going to background
             wasShowingBeforeHidden = show && !!stream;
             if (stream) {
-                console.log('App going to background, stopping camera');
+                console.log('🢄App going to background, stopping camera');
                 stream.getTracks().forEach(track => track.stop());
                 stream = null;
                 cameraReady = false;
@@ -364,7 +365,7 @@
         } else {
             // App is coming back to foreground
             if (wasShowingBeforeHidden && show) {
-                console.log('App returning to foreground, restarting camera');
+                console.log('🢄App returning to foreground, restarting camera');
                 // Reset retry count for fresh attempt when returning from background
                 retryCount = 0;
                 cameraError = null;
@@ -377,14 +378,14 @@
 
     // Check permission and conditionally start camera when modal opens
     $: if (show) {
-        if (!stream && !cameraError && !cameraReady) {
-            console.log('[CAMERA] Modal shown, checking camera permission');
+        if (!stream && !cameraError && !cameraReady && !hasRequestedPermission) {
+            console.log('🢄[CAMERA] Modal shown, checking camera permission');
             retryCount = 0; // Reset retry count when modal opens
             checkAndStartCamera();
         }
     } else if (!show && stream) {
         // Stop camera when modal closes
-        console.log('Modal hidden, stopping camera');
+        console.log('🢄Modal hidden, stopping camera');
         stream.getTracks().forEach(track => track.stop());
         stream = null;
         cameraReady = false;
@@ -456,6 +457,7 @@
                     <div class="camera-error">
                         <p>📷 {cameraError}</p>
                         <button class="retry-button" on:click={() => {
+                            console.log('🢄[CAMERA] Enable Camera button clicked');
                             cameraError = null;
                             needsPermission = false;
                             hasRequestedPermission = false;
@@ -472,57 +474,13 @@
                 {/if}
 
                 <!-- Location overlay -->
-                <div 
-                    class="location-overlay {locationReady ? 'ready' : ''} {locationError ? 'error' : ''}" 
-                    class:opacity-0={$cameraOverlayOpacity === 0}
-                    class:opacity-1={$cameraOverlayOpacity === 1}
-                    class:opacity-2={$cameraOverlayOpacity === 2}
-                    class:opacity-3={$cameraOverlayOpacity === 3}
-                    class:opacity-4={$cameraOverlayOpacity === 4}
-                    class:opacity-5={$cameraOverlayOpacity === 5}
-                    style:display={cameraError ? 'none' : 'block'}
-                    on:click={toggleOverlayOpacity}
-                    on:keydown={(e) => e.key === 'Enter' && toggleOverlayOpacity()}
-                    role="button"
-                    tabindex="0"
-                    aria-label="Toggle overlay transparency"
-                    data-testid="location-overlay"
-                >
-                        {#if locationError}
-                            <div class="location-row">
-                                <span class="icon">⚠️</span>
-                                <span>{locationError}</span>
-                            </div>
-                        {:else if locationData}
-                                                        <div class="location-row">
-                                                            <span class="icon">📍</span>
-                                                            <span>{locationData.latitude?.toFixed(6)}°, {locationData.longitude?.toFixed(6)}°</span>
-                                                        </div>
-                                                        {#if locationData.heading !== null && locationData.heading !== undefined}
-                                                            <div class="location-row">
-                                                                <span class="icon">🧭</span>
-                                                                <span>{locationData.heading.toFixed(1)}°</span>
-                                                            </div>
-                                                        {/if}
-                                                        {#if locationData.altitude !== null && locationData.altitude !== undefined}
-                                                            <div class="location-row">
-                                                                <span class="icon">⛰️</span>
-                                                                <span>{locationData.altitude.toFixed(1)}m</span>
-                                                            </div>
-                                                        {/if}
-                            {#if locationData.accuracy}
-                                <div class="location-row">
-                                    <span class="icon">🎯</span>
-                                    <span>±{locationData.accuracy.toFixed(0)}m</span>
-                                </div>
-                            {/if}
-                        {:else}
-                            <div class="location-row">
-                                <span class="spinner"></span>
-                                <span>Getting location...</span>
-                            </div>
-                        {/if}
-                    </div>
+                {#if !cameraError}
+                    <CameraOverlay 
+                        {locationData} 
+                        {locationError} 
+                        {locationReady} 
+                    />
+                {/if}
             </div>
 
             {#if zoomSupported && cameraReady}
@@ -682,103 +640,6 @@
         background: linear-gradient(to top, rgba(0, 0, 0, 0.8), transparent);
     }
 
-
-    .location-overlay {
-        position: absolute;
-        top: 80px;
-        left: 1rem;
-        padding: 0.25rem;
-        border-radius: 8px;
-        font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
-        font-size: 0.85rem;
-        max-width: 90%;
-        cursor: pointer;
-        transition: background 0.3s ease, border 0.3s ease, backdrop-filter 0.3s ease;
-    }
-
-    /* Opacity level 0: Fully transparent */
-    .location-overlay.opacity-0 {
-        background: transparent;
-        border: none;
-        backdrop-filter: none;
-    }
-
-    /* Opacity level 1: Very light */
-    .location-overlay.opacity-1 {
-        background: rgba(255, 255, 255, 0.05);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        backdrop-filter: blur(1px);
-    }
-
-    /* Opacity level 2: Light */
-    .location-overlay.opacity-2 {
-        background: rgba(255, 255, 255, 0.1);
-        border: 1px solid rgba(255, 255, 255, 0.15);
-        backdrop-filter: blur(2px);
-    }
-
-    /* Opacity level 3: Medium (default) */
-    .location-overlay.opacity-3 {
-        background: rgba(255, 255, 255, 0.15);
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        backdrop-filter: blur(3px);
-    }
-
-    /* Opacity level 4: Strong */
-    .location-overlay.opacity-4 {
-        background: rgba(255, 255, 255, 0.2);
-        border: 1px solid rgba(255, 255, 255, 0.3);
-        backdrop-filter: blur(4px);
-    }
-
-    /* Opacity level 5: Most opaque */
-    .location-overlay.opacity-5 {
-        background: rgba(255, 255, 255, 0.3);
-        border: 1px solid rgba(255, 255, 255, 0.4);
-        backdrop-filter: blur(5px);
-    }
-
-    .location-overlay.ready {
-        border-color: #4caf50;
-    }
-
-    .location-overlay.error {
-        border-color: #f44336;
-        background: rgba(244, 67, 54, 0.2);
-    }
-
-    .location-row {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        margin: 0.25rem 0;
-        white-space: nowrap;
-    }
-
-    .location-row .icon {
-        font-size: 1rem;
-        width: 1.2rem;
-        text-align: center;
-    }
-
-    .spinner {
-        display: inline-block;
-        width: 0.8rem;
-        height: 0.8rem;
-        border: 2px solid rgba(255, 255, 255, 0.3);
-        border-top: 2px solid white;
-        border-radius: 50%;
-        animation: spin 1s linear infinite;
-    }
-
-    @keyframes spin {
-        0% {
-            transform: rotate(0deg);
-        }
-        100% {
-            transform: rotate(360deg);
-        }
-    }
 
     .zoom-control {
         position: absolute;

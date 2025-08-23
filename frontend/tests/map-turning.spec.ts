@@ -19,7 +19,7 @@ test.describe('Map Turning and Rotation Operations', () => {
     
     // Test counterclockwise rotation if button exists
     if (await rotateCcwButton.count() > 0) {
-      console.log('Testing counterclockwise rotation button...');
+      console.log('🢄Testing counterclockwise rotation button...');
       
       for (let i = 0; i < 3; i++) {
         await rotateCcwButton.click();
@@ -32,7 +32,7 @@ test.describe('Map Turning and Rotation Operations', () => {
     
     // Test clockwise rotation if button exists
     if (await rotateCwButton.count() > 0) {
-      console.log('Testing clockwise rotation button...');
+      console.log('🢄Testing clockwise rotation button...');
       
       for (let i = 0; i < 3; i++) {
         await rotateCwButton.click();
@@ -53,7 +53,7 @@ test.describe('Map Turning and Rotation Operations', () => {
     if (await leftTurnButton.count() > 0) {
       const isEnabled = await leftTurnButton.isEnabled();
       if (isEnabled) {
-        console.log('Testing left turn button...');
+        console.log('🢄Testing left turn button...');
         await leftTurnButton.click();
         await page.waitForTimeout(1000);
         
@@ -65,7 +65,7 @@ test.describe('Map Turning and Rotation Operations', () => {
     if (await rightTurnButton.count() > 0) {
       const isEnabled = await rightTurnButton.isEnabled();
       if (isEnabled) {
-        console.log('Testing right turn button...');
+        console.log('🢄Testing right turn button...');
         await rightTurnButton.click();
         await page.waitForTimeout(1000);
         
@@ -81,7 +81,7 @@ test.describe('Map Turning and Rotation Operations', () => {
     
     // Test forward movement
     if (await forwardButton.count() > 0) {
-      console.log('Testing forward movement button...');
+      console.log('🢄Testing forward movement button...');
       await forwardButton.click();
       await page.waitForTimeout(800);
       
@@ -90,7 +90,7 @@ test.describe('Map Turning and Rotation Operations', () => {
     
     // Test backward movement
     if (await backwardButton.count() > 0) {
-      console.log('Testing backward movement button...');
+      console.log('🢄Testing backward movement button...');
       await backwardButton.click();
       await page.waitForTimeout(800);
       
@@ -110,7 +110,7 @@ test.describe('Map Turning and Rotation Operations', () => {
     const rotationRadius = 80;
     
     // Simulate two-finger rotation gesture (clockwise)
-    console.log('Testing clockwise rotation gesture...');
+    console.log('🢄Testing clockwise rotation gesture...');
     
     // First finger starts at top, moves to right
     const finger1Start = { x: centerX, y: centerY - rotationRadius };
@@ -149,7 +149,7 @@ test.describe('Map Turning and Rotation Operations', () => {
     const centerY = mapBounds.y + mapBounds.height / 2;
     const rotationRadius = 80;
     
-    console.log('Testing counterclockwise rotation gesture...');
+    console.log('🢄Testing counterclockwise rotation gesture...');
     
     // First finger starts at top, moves to left
     const finger1Start = { x: centerX, y: centerY - rotationRadius };
@@ -218,7 +218,7 @@ test.describe('Map Turning and Rotation Operations', () => {
     const locationButton = page.locator('button[title*="location"], button[title*="Track my location"]');
     
     if (await locationButton.count() > 0) {
-      console.log('Testing location tracking button...');
+      console.log('🢄Testing location tracking button...');
       
       // Click to attempt to enable location tracking
       await locationButton.click();
@@ -241,7 +241,7 @@ test.describe('Map Turning and Rotation Operations', () => {
     const compassButton = page.locator('button[title*="compass"], button[title*="Track compass bearing"]');
     
     if (await compassButton.count() > 0) {
-      console.log('Testing compass tracking button...');
+      console.log('🢄Testing compass tracking button...');
       
       const isEnabled = await compassButton.isEnabled();
       if (isEnabled) {
@@ -253,7 +253,7 @@ test.describe('Map Turning and Rotation Operations', () => {
         await compassButton.click();
         await page.waitForTimeout(500);
       } else {
-        console.log('Compass button is disabled (likely no compass available in test environment)');
+        console.log('🢄Compass button is disabled (likely no compass available in test environment)');
       }
       
       await expect(compassButton).toBeVisible();
@@ -262,7 +262,7 @@ test.describe('Map Turning and Rotation Operations', () => {
   });
 
   test('should perform complex turning sequence with movement', async ({ page }) => {
-    console.log('Testing complex turning and movement sequence...');
+    console.log('🢄Testing complex turning and movement sequence...');
     
     // Get all control buttons
     const rotateButtons = page.locator('button[title*="Rotate"], button[title*="rotate"]');
@@ -273,7 +273,7 @@ test.describe('Map Turning and Rotation Operations', () => {
     
     // Perform complex sequence: rotate → move → rotate → move
     if (rotateCount > 0) {
-      console.log('Executing rotation action...');
+      console.log('🢄Executing rotation action...');
       const randomRotateIndex = Math.floor(Math.random() * rotateCount);
       const rotateButton = rotateButtons.nth(randomRotateIndex);
       
@@ -284,7 +284,7 @@ test.describe('Map Turning and Rotation Operations', () => {
     }
     
     if (moveCount > 0) {
-      console.log('Executing movement action...');
+      console.log('🢄Executing movement action...');
       const randomMoveIndex = Math.floor(Math.random() * moveCount);
       const moveButton = moveButtons.nth(randomMoveIndex);
       
@@ -320,7 +320,7 @@ test.describe('Map Turning and Rotation Operations', () => {
   });
 
   test('should test turning while panning simultaneously', async ({ page }) => {
-    console.log('Testing simultaneous turning and panning...');
+    console.log('🢄Testing simultaneous turning and panning...');
     
     const mapContainer = page.locator('.leaflet-container');
     const mapBounds = await mapContainer.boundingBox();
@@ -356,7 +356,7 @@ test.describe('Map Turning and Rotation Operations', () => {
   });
 
   test('should maintain navigation consistency after multiple operations', async ({ page }) => {
-    console.log('Testing navigation consistency...');
+    console.log('🢄Testing navigation consistency...');
     
     const mapContainer = page.locator('.leaflet-container');
     const mapBounds = await mapContainer.boundingBox();
@@ -424,7 +424,7 @@ test.describe('Map Turning and Rotation Operations', () => {
   });
 
   test('should handle rapid control button interactions', async ({ page }) => {
-    console.log('Testing rapid control button interactions...');
+    console.log('🢄Testing rapid control button interactions...');
     
     // Get all navigation control buttons
     const controlButtons = page.locator('button[title*="Rotate"], button[title*="Move"], button[title*="rotate"], button[title*="move"]');
@@ -450,7 +450,7 @@ test.describe('Map Turning and Rotation Operations', () => {
   });
 
   test('should test bearing arrow visibility and updates', async ({ page }) => {
-    console.log('Testing bearing arrow visibility...');
+    console.log('🢄Testing bearing arrow visibility...');
     
     // Look for the bearing arrow/direction indicator
     const bearingArrow = page.locator('svg line[marker-end*="arrowhead"], .svg-overlay svg line');
@@ -472,7 +472,7 @@ test.describe('Map Turning and Rotation Operations', () => {
         // Verify arrow is still visible (position may have changed)
         await expect(bearingArrow.first()).toBeVisible();
         
-        console.log('Bearing arrow remained visible after rotation');
+        console.log('🢄Bearing arrow remained visible after rotation');
       }
     }
   });

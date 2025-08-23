@@ -33,7 +33,7 @@ export function updateGpsLocation(position: GeolocationPosition | null) {
         return false;
     }
 
-    console.debug('Updating GPS location store:', JSON.stringify(position));
+    console.debug('🢄Updating GPS location store:', JSON.stringify(position));
     gpsLocation.set(position);
     
     // Capture location updates are now handled by captureLocationManager.ts

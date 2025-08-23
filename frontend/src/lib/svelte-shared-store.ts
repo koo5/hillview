@@ -3,7 +3,7 @@ import { writable, get, type Writable } from 'svelte/store';
 export function localStorageSharedStore<T>(name: string, default_: T): Writable<T> {
  function setStorage(value: T): void {
   const str = JSON.stringify(value);
-  //console.log('SAVE', name, str);
+  //console.log('🢄SAVE', name, str);
   window.localStorage.setItem(name, str);
  }
 
@@ -11,13 +11,13 @@ export function localStorageSharedStore<T>(name: string, default_: T): Writable<
   const item = window.localStorage.getItem(name);
   let result: T = default_;
   try {
-   //console.log('LOAD', name, item);
+   //console.log('🢄LOAD', name, item);
    if (item !== null) {
     result = JSON.parse(item) as T;
    }
   } catch (e) {
-   console.error('trying to parse: "' + item + '"');
-   console.error(e);
+   console.error('🢄trying to parse: "' + item + '"');
+   console.error('🢄',e);
   }
   if (result && typeof result === 'object' && 'reason' in result) {
    (result as any).reason = 'getStorage';
@@ -69,7 +69,7 @@ export function localStorageSharedStore<T>(name: string, default_: T): Writable<
 export function localStorageStaggeredStore<T>(name: string, default_: T): Writable<T> {
  function setStorage(value: T): void {
   const str = JSON.stringify(value);
-  //console.log('SAVE', name, str);
+  //console.log('🢄SAVE', name, str);
   window.localStorage.setItem(name, str);
  }
 
@@ -77,13 +77,13 @@ export function localStorageStaggeredStore<T>(name: string, default_: T): Writab
   const item = window.localStorage.getItem(name);
   let result: T = default_;
   try {
-   //console.log('LOAD', name, item);
+   //console.log('🢄LOAD', name, item);
    if (item !== null) {
     result = JSON.parse(item) as T;
    }
   } catch (e) {
-   console.error('trying to parse: "' + item + '"');
-   console.error(e);
+   console.error('🢄trying to parse: "' + item + '"');
+   console.error('🢄',e);
   }
   if (result && typeof result === 'object' && 'reason' in result) {
    (result as any).reason = 'getStorage';
@@ -145,7 +145,7 @@ export function localStorageStaggeredStore<T>(name: string, default_: T): Writab
 export function localStorageReadOnceSharedStore<T>(name: string, default_: T): Writable<T> {
  function setStorage(value: T): void {
   const str = JSON.stringify(value);
-  //console.log('SAVE', name, str);
+  //console.log('🢄SAVE', name, str);
   window.localStorage.setItem(name, str);
  }
 
@@ -156,7 +156,7 @@ export function localStorageReadOnceSharedStore<T>(name: string, default_: T): W
    if (item !== 'undefined' && item) result = JSON.parse(item) as T;
    if (!result) result = default_;
   } catch (e) {
-   console.log('trying to parse: "' + item + '"');
+   console.log('🢄trying to parse: "' + item + '"');
    console.log(e);
   }
   return result;
@@ -210,8 +210,8 @@ export function staggeredLocalStorageSharedStore<T>(
         result = JSON.parse(item) as T;
       }
     } catch (e) {
-      console.error('trying to parse: "' + item + '"');
-      console.error(e);
+      console.error('🢄trying to parse: "' + item + '"');
+      console.error('🢄',e);
     }
     if (result && typeof result === 'object' && 'reason' in result) {
       (result as any).reason = 'getStorage';

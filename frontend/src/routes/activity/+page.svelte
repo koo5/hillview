@@ -74,7 +74,7 @@
 			);
 			
 		} catch (err) {
-			console.error('Error loading activity data:', err);
+			console.error('🢄Error loading activity data:', err);
 			error = handleApiError(err);
 		} finally {
 			loading = false;

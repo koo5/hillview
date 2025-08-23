@@ -39,7 +39,7 @@
     //$: bg_style_stretched_photo = photo.sizes?.[50] ? `background-image: url(${photo.sizes[50].url});` : ''
 
     $: border_style = className === 'front' && photo ? 'border: 4px dotted #4a90e2;' : '';
-    console.log('border_style:', border_style);
+    console.log('🢄border_style:', border_style);
 
     $: if (photo || clientWidth || containerElement) updateSelectedUrl();
     
@@ -51,7 +51,7 @@
             if (!clientWidth2)
                 clientWidth2 = 500;
 
-        //console.log('updateSelectedUrl clientWidth:', clientWidth2);
+        //console.log('🢄updateSelectedUrl clientWidth:', clientWidth2);
 
         if (!containerElement) {
             return;
@@ -70,7 +70,7 @@
                 selectedUrl = devicePhotoUrl;
                 return;
             } catch (error) {
-                console.error('Failed to load device photo:', error);
+                console.error('🢄Failed to load device photo:', error);
                 selectedUrl = '';
                 return;
             }
@@ -86,7 +86,7 @@
         let p: any;
         for (let i = 0; i < sizes.length; i++) {
             const size = sizes[i];
-            //console.log('size:', size);
+            //console.log('🢄size:', size);
             if (Number(size) >= clientWidth2 || ((i === sizes.length - 1) && !photo.sizes.full)) {
                 p = photo.sizes[sizes[i]];
                 selectedSize = size;
@@ -168,7 +168,7 @@
             hideMessage = 'Photo hidden successfully';
             setTimeout(() => hideMessage = '', 2000);
         } catch (error) {
-            console.error('Error hiding photo:', error);
+            console.error('🢄Error hiding photo:', error);
             hideMessage = `Error: ${handleApiError(error)}`;
             setTimeout(() => hideMessage = '', 5000);
         } finally {
@@ -230,7 +230,7 @@
             setTimeout(() => hideMessage = '', 2000);
             showHideUserDialog = false;
         } catch (error) {
-            console.error('Error hiding user:', error);
+            console.error('🢄Error hiding user:', error);
             hideMessage = `Error: ${handleApiError(error)}`;
             setTimeout(() => hideMessage = '', 5000);
         } finally {

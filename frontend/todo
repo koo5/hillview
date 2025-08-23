@@ -15,7 +15,7 @@ async function share_state() {
             range: p2.range,
             bearing: get(bearing)
         }
-        //console.log('Saving state:', state);
+        //console.log('🢄Saving state:', state);
         space_db.state.add(state);
     });
 };

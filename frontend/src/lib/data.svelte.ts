@@ -81,9 +81,9 @@ app.subscribe(appState => {
     if (((!isNaN(currentSettings.debug) && !isNaN(appState.debug)) && currentSettings.debug != appState.debug) ||
         currentSettings.displayMode != appState.displayMode ||
         currentSettings.activity != appState.activity) {
-        console.log('currentSettings.debug:', currentSettings.debug, 'appState.debug:', appState.debug, 'currentSettings.displayMode:', currentSettings.displayMode, 'appState.displayMode:', appState.displayMode, 'currentSettings.activity:', currentSettings.activity, 'appState.activity:', appState.activity);
+        console.log('🢄currentSettings.debug:', currentSettings.debug, 'appState.debug:', appState.debug, 'currentSettings.displayMode:', currentSettings.displayMode, 'appState.displayMode:', appState.displayMode, 'currentSettings.activity:', currentSettings.activity, 'appState.activity:', appState.activity);
         setTimeout(() => {
-            console.log('Updating appSettings from app state:', JSON.stringify(appState));
+            console.log('🢄Updating appSettings from app state:', JSON.stringify(appState));
             appSettings.update(settings => ({
                 ...settings,
                 debug: appState.debug,
@@ -164,7 +164,7 @@ export {photoToRight as photo_to_right};
 let old_sources: Source[] = JSON.parse(JSON.stringify(get(sources)));
 
 sources.subscribe(async (s: Source[]) => {
-    console.log('sources changed:', s);
+    console.log('🢄sources changed:', s);
     let old = JSON.parse(JSON.stringify(old_sources));
     old_sources = JSON.parse(JSON.stringify(s));
 
@@ -174,7 +174,7 @@ sources.subscribe(async (s: Source[]) => {
     });
 
     if (changedSources.length > 0) {
-        console.log('Source enabled states changed:', changedSources.map(s => ({id: s.id, enabled: s.enabled})));
+        console.log('🢄Source enabled states changed:', changedSources.map(s => ({id: s.id, enabled: s.enabled})));
 
         // Mapillary source changes now handled by worker
     }
@@ -185,19 +185,19 @@ export async function turn_to_photo_to(dir: string) {
     const currentPhotoToLeft = get(photoToLeft);
     const currentPhotoToRight = get(photoToRight);
 
-    console.log('turn_to_photo_to:', dir, {
+    console.log('🢄turn_to_photo_to:', dir, {
         hasPhotoToLeft: !!currentPhotoToLeft,
         hasPhotoToRight: !!currentPhotoToRight
     });
 
     if (dir === 'left' && currentPhotoToLeft) {
-        console.log('Turning to left photo:', currentPhotoToLeft.id, 'bearing:', currentPhotoToLeft.bearing);
+        console.log('🢄Turning to left photo:', currentPhotoToLeft.id, 'bearing:', currentPhotoToLeft.bearing);
         mapStateUpdateBearing(currentPhotoToLeft.bearing);
     } else if (dir === 'right' && currentPhotoToRight) {
-        console.log('Turning to right photo:', currentPhotoToRight.id, 'bearing:', currentPhotoToRight.bearing);
+        console.log('🢄Turning to right photo:', currentPhotoToRight.id, 'bearing:', currentPhotoToRight.bearing);
         mapStateUpdateBearing(currentPhotoToRight.bearing);
     } else {
-        console.warn(`No photo to ${dir} available`);
+        console.warn(`🢄No photo to ${dir} available`);
     }
 }
 
@@ -213,5 +213,5 @@ export function toggleDebug() {
 
 export function closeDebug() {
     app.update(a => ({...a, debug: 0}));
-    console.log('Debug mode closed');
+    console.log('🢄Debug mode closed');
 }

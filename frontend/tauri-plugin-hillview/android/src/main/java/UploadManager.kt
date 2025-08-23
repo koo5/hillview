@@ -16,7 +16,7 @@ import java.util.concurrent.TimeUnit
 class UploadManager(private val context: Context) {
     
     companion object {
-        private const val TAG = "UploadManager"
+        private const val TAG = "🢄UploadManager"
         private const val PREFS_NAME = "hillview_upload_prefs"
         private const val PREF_SERVER_URL = "server_url"
         private const val PREF_AUTH_TOKEN = "auth_token"

@@ -36,7 +36,7 @@ class PreciseLocationService(
     private val context: Context = activity
     
     companion object {
-        private const val TAG = "PreciseLocationService"
+        private const val TAG = "🢄PreciseLocationService"
         
         // Update intervals in milliseconds
         private const val UPDATE_INTERVAL = 1000L        // 1 second

@@ -5,7 +5,7 @@ test('Settings button should not be visible in web browser (non-Tauri environmen
   const response = await fetch('http://localhost:8055/api/debug/recreate-test-users', {
     method: 'POST'
   });
-  console.log('Test cleanup result:', await response.json());
+  console.log('🢄Test cleanup result:', await response.json());
   
   // Login with test user
   await page.goto('/login');
@@ -26,10 +26,10 @@ test('Settings button should not be visible in web browser (non-Tauri environmen
   // Verify settings button is NOT visible (since we're in browser, not Tauri)
   const settingsButton = page.locator('button:has-text("Settings")');
   await expect(settingsButton).not.toBeVisible();
-  console.log('✓ Settings button correctly hidden in web browser');
+  console.log('🢄✓ Settings button correctly hidden in web browser');
   
   // Verify upload section is still visible
   const uploadSection = page.locator('[data-testid="upload-section"]');
   await expect(uploadSection).toBeVisible();
-  console.log('✓ Upload section is visible');
+  console.log('🢄✓ Upload section is visible');
 });

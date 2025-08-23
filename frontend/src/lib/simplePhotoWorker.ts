@@ -2,6 +2,8 @@ import {photosInArea, photosInRange, spatialState} from './mapState';
 import {sourceLoadingStatus, sources} from './data.svelte';
 import {get} from 'svelte/store';
 import {auth} from './auth.svelte';
+import {addToast} from './toast.svelte';
+import type {WorkerToastMessage} from './workerToast';
 
 declare const __WORKER_VERSION__: string;
 
@@ -37,7 +39,7 @@ class SimplePhotoWorker {
 
             // Test: Check initial sources
             const initialSources = get(sources);
-            console.log('SimplePhotoWorker: Initial sources on startup:', JSON.stringify(
+            console.log('🢄SimplePhotoWorker: Initial sources on startup:', JSON.stringify(
             initialSources.map(s => ({
                 id: s.id,
                 type: s.type,
@@ -48,7 +50,7 @@ class SimplePhotoWorker {
             })), null, 2));
 
         } catch (error) {
-            console.error('SimplePhotoWorker: Failed to initialize', error);
+            console.error('🢄SimplePhotoWorker: Failed to initialize', error);
             throw error;
         }
     }
@@ -63,7 +65,7 @@ class SimplePhotoWorker {
         };
 
         this.worker.onerror = (error: ErrorEvent) => {
-            console.error('SimplePhotoWorker: Worker error', error);
+            console.error('🢄SimplePhotoWorker: Worker error', error);
         };
     }
 
@@ -93,11 +95,23 @@ class SimplePhotoWorker {
                 break;
 
             case 'error':
-                console.error('SimplePhotoWorker: Worker error', message.error);
+                console.error('🢄SimplePhotoWorker: Worker error', message.error);
+                break;
+
+            case 'toast':
+                // Handle toast messages from worker
+                const toastMessage = message as WorkerToastMessage;
+                console.log(`SimplePhotoWorker: Received toast from worker: ${toastMessage.level} - ${toastMessage.message} (source: ${toastMessage.source})`);
+                
+                // Convert worker toast to main thread toast
+                const duration = toastMessage.duration !== undefined ? toastMessage.duration : 
+                    (toastMessage.level === 'error' ? 0 : 5000); // Persistent errors, auto-dismiss others
+                
+                addToast(toastMessage.message, toastMessage.level, duration, toastMessage.source);
                 break;
                 
             default:
-                console.warn('SimplePhotoWorker: Unknown message type:', message.type);
+                console.warn('🢄SimplePhotoWorker: Unknown message type:', message.type);
         }
     }
 
@@ -131,7 +145,7 @@ class SimplePhotoWorker {
             // Skip update if bounds haven't changed significantly (hysteresis)
 			// TODO: we could skip area load, but we can't skip range filter
             /*if (this.lastBounds && this.boundsChangeSignificant(this.lastBounds, spatial.bounds) < 0.003) {
-                console.log('SimplePhotoWorker: Skipping area update - bounds change too small');
+                console.log('🢄SimplePhotoWorker: Skipping area update - bounds change too small');
                 return;
             }*/
 
@@ -147,7 +161,7 @@ class SimplePhotoWorker {
         sources.subscribe((sourceList) => {
             if (!this.isInitialized) return;
 
-            console.log('SimplePhotoWorker: Sending config update with sources...');
+            console.log('🢄SimplePhotoWorker: Sending config update with sources...');
             
             // Add auth token to sources that need it
             const sourcesWithAuth = sourceList.map(source => {
@@ -171,7 +185,7 @@ class SimplePhotoWorker {
             // Also trigger area update after config to ensure streaming sources load with current bounds
             const currentSpatial = get(spatialState);
             if (currentSpatial.bounds) {
-                console.log('SimplePhotoWorker: Sending area update after config to trigger streaming sources...');
+                console.log('🢄SimplePhotoWorker: Sending area update after config to trigger streaming sources...');
                 this.sendMessage('areaUpdated', {
                     area: currentSpatial.bounds,
                     range: currentSpatial.range
@@ -208,7 +222,7 @@ class SimplePhotoWorker {
     // Cache removal methods for hidden content
     removePhotoFromCache(photoId: string, photoSource: string): void {
         if (!this.isInitialized || !this.worker) {
-            console.warn('SimplePhotoWorker: Cannot remove photo from cache - worker not initialized');
+            console.warn('🢄SimplePhotoWorker: Cannot remove photo from cache - worker not initialized');
             return;
         }
 
@@ -221,7 +235,7 @@ class SimplePhotoWorker {
 
     removeUserPhotosFromCache(userId: string, userSource: string): void {
         if (!this.isInitialized || !this.worker) {
-            console.warn('SimplePhotoWorker: Cannot remove user photos from cache - worker not initialized');
+            console.warn('🢄SimplePhotoWorker: Cannot remove user photos from cache - worker not initialized');
             return;
         }
 

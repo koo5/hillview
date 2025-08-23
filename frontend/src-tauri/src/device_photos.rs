@@ -78,19 +78,19 @@ pub async fn load_device_photos_db(app_handle: tauri::AppHandle) -> Result<Devic
     let db_path = get_database_path(&app_handle)?;
 
     if !db_path.exists() {
-        info!("Device photos database not found, creating new one");
+        info!("🢄Device photos database not found, creating new one");
         return Ok(DevicePhotosDb::new());
     }
 
     let content = std::fs::read_to_string(&db_path)
         .map_err(|e| {
-            error!("Failed to read device photos database: {}", e);
+            error!("🢄Failed to read device photos database: {}", e);
             format!("Failed to read database: {}", e)
         })?;
 
     serde_json::from_str(&content)
         .map_err(|e| {
-            error!("Failed to parse device photos database: {}", e);
+            error!("🢄Failed to parse device photos database: {}", e);
             format!("Failed to parse database: {}", e)
         })
 }
@@ -110,17 +110,17 @@ pub async fn save_device_photos_db(
 
     let content = serde_json::to_string_pretty(&db)
         .map_err(|e| {
-            error!("Failed to serialize device photos database: {}", e);
+            error!("🢄Failed to serialize device photos database: {}", e);
             format!("Failed to serialize database: {}", e)
         })?;
 
     std::fs::write(&db_path, content)
         .map_err(|e| {
-            error!("Failed to write device photos database: {}", e);
+            error!("🢄Failed to write device photos database: {}", e);
             format!("Failed to write database: {}", e)
         })?;
 
-    info!("Device photos database saved with {} photos", db.photos.len());
+    info!("🢄Device photos database saved with {} photos", db.photos.len());
     Ok(())
 }
 
@@ -177,7 +177,7 @@ pub async fn add_device_photo_to_db(
 
     save_device_photos_db(app_handle, db).await?;
 
-    info!("Added device photo to database: id: {}, path: {}, filename: {}, dimensions: {}x{}, size: {} bytes, lat: {}, lon: {}, alt: {:?}, bearing: {:?}, timestamp: {}, accuracy: {}",
+    info!("🢄Added device photo to database: id: {}, path: {}, filename: {}, dimensions: {}x{}, size: {} bytes, lat: {}, lon: {}, alt: {:?}, bearing: {:?}, timestamp: {}, accuracy: {}",
           device_photo.id, device_photo.path, device_photo.filename, device_photo.width, device_photo.height,
           device_photo.file_size, device_photo.latitude, device_photo.longitude, device_photo.altitude,
           device_photo.bearing, device_photo.timestamp, device_photo.accuracy);
@@ -235,7 +235,7 @@ async fn create_device_photo_metadata(file_path: &Path) -> Result<DevicePhotoMet
             (w, h)
         }
         Err(e) => {
-            warn!("Failed to read image dimensions for {}: {}", path_str, e);
+            warn!("🢄Failed to read image dimensions for {}: {}", path_str, e);
             (0, 0)
         }
     };
@@ -281,7 +281,7 @@ async fn create_device_photo_metadata(file_path: &Path) -> Result<DevicePhotoMet
 
 #[command]
 pub async fn refresh_device_photos(app_handle: tauri::AppHandle) -> Result<DevicePhotosDb, String> {
-    info!("Starting device photos refresh");
+    info!("🢄Starting device photos refresh");
     
     // Get both directories to scan
     let (visible_dir, hidden_dir) = get_hillview_directories()?;
@@ -291,7 +291,7 @@ pub async fn refresh_device_photos(app_handle: tauri::AppHandle) -> Result<Devic
     let mut db = load_device_photos_db(app_handle.clone())
         .await
         .unwrap_or_else(|e| {
-            warn!("Failed to load existing database, creating new: {}", e);
+            warn!("🢄Failed to load existing database, creating new: {}", e);
             DevicePhotosDb::new()
         });
     
@@ -300,7 +300,7 @@ pub async fn refresh_device_photos(app_handle: tauri::AppHandle) -> Result<Devic
     db.photos.retain(|photo| {
         let exists = Path::new(&photo.path).exists();
         if !exists {
-            info!("Removing deleted photo from database: {}", photo.path);
+            info!("🢄Removing deleted photo from database: {}", photo.path);
         }
         exists
     });
@@ -320,11 +320,11 @@ pub async fn refresh_device_photos(app_handle: tauri::AppHandle) -> Result<Devic
             continue;
         }
         
-        info!("Scanning directory: {:?}", dir);
+        info!("🢄Scanning directory: {:?}", dir);
         
         match scan_directory_for_images(dir) {
             Ok(image_files) => {
-                info!("Found {} image files in {:?}", image_files.len(), dir);
+                info!("🢄Found {} image files in {:?}", image_files.len(), dir);
                 
                 for file_path in image_files {
                     let path_str = file_path.to_string_lossy().to_string();
@@ -337,19 +337,19 @@ pub async fn refresh_device_photos(app_handle: tauri::AppHandle) -> Result<Devic
                     // Create metadata for new photo
                     match create_device_photo_metadata(&file_path).await {
                         Ok(photo_metadata) => {
-                            info!("Adding new photo to database: {}", photo_metadata.filename);
+                            info!("🢄Adding new photo to database: {}", photo_metadata.filename);
                             db.photos.push(photo_metadata);
                             new_photos_added += 1;
                         }
                         Err(e) => {
-                            warn!("Failed to create metadata for {}: {}", path_str, e);
+                            warn!("🢄Failed to create metadata for {}: {}", path_str, e);
                             scan_errors += 1;
                         }
                     }
                 }
             }
             Err(e) => {
-                error!("Failed to scan directory {:?}: {}", dir, e);
+                error!("🢄Failed to scan directory {:?}: {}", dir, e);
                 scan_errors += 1;
             }
         }

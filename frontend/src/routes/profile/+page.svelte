@@ -31,7 +31,7 @@
 
             userInfo = await response.json();
         } catch (error) {
-            console.error('Error loading profile:', error);
+            console.error('🢄Error loading profile:', error);
             errorMessage = handleApiError(error);
             
             // TokenExpiredError is handled automatically by the http client
@@ -49,7 +49,7 @@
             await logout();
             goto('/');
         } catch (error) {
-            console.error('Logout error:', error);
+            console.error('🢄Logout error:', error);
             errorMessage = 'Failed to logout properly';
         }
     }
@@ -77,7 +77,7 @@
             }, 2000);
 
         } catch (error) {
-            console.error('Delete account error:', error);
+            console.error('🢄Delete account error:', error);
             errorMessage = handleApiError(error);
         }
     }

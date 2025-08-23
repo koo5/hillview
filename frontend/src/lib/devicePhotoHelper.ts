@@ -23,7 +23,7 @@ export async function getDevicePhotoUrl(path: string): Promise<string> {
         
         return dataUrl;
     } catch (error) {
-        console.error('Failed to read device photo:', error);
+        console.error('🢄Failed to read device photo:', error);
         throw error;
     }
 }

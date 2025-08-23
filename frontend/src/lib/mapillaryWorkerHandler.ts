@@ -76,7 +76,7 @@ export class MapillaryWorkerHandler {
       completedRegions: [...this.completedRegions]
     };
     
-    console.log('Worker: Mapillary status update:', status);
+    console.log('🢄Worker: Mapillary status update:', status);
     this.callbacks.onStatusUpdate(status);
   }
   
@@ -89,7 +89,7 @@ export class MapillaryWorkerHandler {
     backendUrl: string
   ): Promise<void> {
     if (this.isStreaming) {
-      console.log('Worker: Stopping previous Mapillary stream before starting new one');
+      console.log('🢄Worker: Stopping previous Mapillary stream before starting new one');
       this.stopStream();
     }
     
@@ -110,7 +110,7 @@ export class MapillaryWorkerHandler {
       `&client_id=${clientId}`;
     
     this.currentUrl = url;
-    console.log('Worker: Starting Mapillary stream:', url);
+    console.log('🢄Worker: Starting Mapillary stream:', url);
     this.emitStatusUpdate();
     
     this.eventSource = new EventSource(url);
@@ -123,7 +123,7 @@ export class MapillaryWorkerHandler {
         const data: StreamMessage = JSON.parse(event.data);
         this.handleStreamMessage(data);
       } catch (error) {
-        console.error('Worker: Error parsing Mapillary stream message:', error);
+        console.error('🢄Worker: Error parsing Mapillary stream message:', error);
         this.streamPhase = 'error';
         this.lastError = 'Error parsing stream data';
         this.emitStatusUpdate();
@@ -132,7 +132,7 @@ export class MapillaryWorkerHandler {
     };
     
     this.eventSource.onerror = (error) => {
-      console.error('Worker: Mapillary stream error:', error);
+      console.error('🢄Worker: Mapillary stream error:', error);
       this.streamPhase = 'error';
       this.lastError = 'Stream connection error';
       this.emitStatusUpdate();
@@ -141,7 +141,7 @@ export class MapillaryWorkerHandler {
     };
     
     this.eventSource.onopen = () => {
-      console.log('Worker: Mapillary stream opened');
+      console.log('🢄Worker: Mapillary stream opened');
       this.streamPhase = 'receiving_cached';
       this.emitStatusUpdate();
     };
@@ -189,7 +189,7 @@ export class MapillaryWorkerHandler {
         break;
         
       case 'error':
-        console.error('Worker: Mapillary stream error:', data.message);
+        console.error('🢄Worker: Mapillary stream error:', data.message);
         this.streamPhase = 'error';
         this.lastError = data.message || 'Unknown stream error';
         this.emitStatusUpdate();
@@ -197,7 +197,7 @@ export class MapillaryWorkerHandler {
         break;
         
       default:
-        console.warn('Worker: Unknown Mapillary stream message type:', data.type);
+        console.warn('🢄Worker: Unknown Mapillary stream message type:', data.type);
     }
   }
   
@@ -302,7 +302,7 @@ export class MapillaryWorkerHandler {
     if (this.streamPhase !== 'complete' && this.streamPhase !== 'error') {
       this.streamPhase = 'idle';
     }
-    console.log('Worker: Mapillary stream stopped');
+    console.log('🢄Worker: Mapillary stream stopped');
     this.emitStatusUpdate();
   }
   

@@ -39,18 +39,18 @@
         try {
             await invoke('get_auth_token');
             isMobileApp = true;
-            console.log('🔐 Mobile app detected');
+            console.log('🢄🔐 Mobile app detected');
             
             // Check if user already has valid auth from previous session
             const hasAuth = await hasValidAuth();
             if (hasAuth) {
-                console.log('🔐 Found valid stored auth, redirecting to dashboard');
+                console.log('🢄🔐 Found valid stored auth, redirecting to dashboard');
                 goto('/dashboard');
                 return;
             }
         } catch {
             isMobileApp = false;
-            console.log('🔐 Web app detected');
+            console.log('🢄🔐 Web app detected');
         }
 
         // Check if user is already logged in (for web)
@@ -69,7 +69,7 @@
         try {
             if (isLogin) {
                 // Login
-                console.log('Attempting login for:', username);
+                console.log('🢄Attempting login for:', username);
                 const success = await login(username, password);
                 
                 if (!success) {
@@ -80,7 +80,7 @@
                 goBack('/');
             } else {
                 // Register
-                console.log('Registering with:', { email, username, password });
+                console.log('🢄Registering with:', { email, username, password });
                 const success = await register(email, username, password);
                 
                 if (!success) {
@@ -92,7 +92,7 @@
                 successMessage = 'Registration successful! Please log in.';
             }
         } catch (error) {
-            console.error('Form submission error:', error);
+            console.error('🢄Form submission error:', error);
             errorMessage = error instanceof Error ? error.message : 'An error occurred';
         } finally {
             isLoading = false;
@@ -101,13 +101,13 @@
 
     function handleOAuthLogin(provider: string) {
         if (!oauthProviders[provider]) {
-            console.error('Unsupported OAuth provider:', provider);
+            console.error('🢄Unsupported OAuth provider:', provider);
             return;
         }
         
         console.log(`🔐 Starting ${provider} OAuth flow (${isMobileApp ? 'mobile' : 'web'} mode)`);
         const authUrl = buildOAuthUrl(provider, isMobileApp);
-        console.log('🔐 Redirecting to:', authUrl);
+        console.log('🢄🔐 Redirecting to:', authUrl);
         
         window.location.href = authUrl;
     }

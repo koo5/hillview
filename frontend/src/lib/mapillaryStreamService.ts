@@ -74,19 +74,19 @@ export class MapillaryStreamService {
                 const data: StreamMessage = JSON.parse(event.data);
                 this.handleStreamMessage(data);
             } catch (error) {
-                console.error('Error parsing stream message:', error);
+                console.error('🢄Error parsing stream message:', error);
                 this.callbacks.onError?.('Error parsing stream data');
             }
         };
         
         this.eventSource.onerror = (error) => {
-            console.error('Stream error:', error);
+            console.error('🢄Stream error:', error);
             this.callbacks.onError?.('Stream connection error');
             this.stopStream();
         };
         
         this.eventSource.onopen = () => {
-            console.log('Stream opened');
+            console.log('🢄Stream opened');
         };
     }
     
@@ -130,7 +130,7 @@ export class MapillaryStreamService {
                 break;
                 
             default:
-                console.warn('Unknown stream message type:', data.type);
+                console.warn('🢄Unknown stream message type:', data.type);
         }
     }
     

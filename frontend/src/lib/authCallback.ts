@@ -49,11 +49,11 @@ export async function handleAuthCallback(url?: string): Promise<boolean> {
             const expiryDate = new Date(expiresAt);
             const now = new Date();
             if (expiryDate <= now) {
-                console.error('🔐 Auth callback token is already expired');
+                console.error('🢄🔐 Auth callback token is already expired');
                 return false;
             }
             
-            console.log('🔐 Auth callback received, storing token');
+            console.log('🢄🔐 Auth callback received, storing token');
             
             // Store token in Android SharedPreferences via Tauri command
             let result: BasicResponse;
@@ -69,21 +69,21 @@ export async function handleAuthCallback(url?: string): Promise<boolean> {
             }
             
             if (result.success) {
-                console.log('🔐 Auth token stored successfully');
+                console.log('🢄🔐 Auth token stored successfully');
                 
                 // Redirect to dashboard
                 await goto('/dashboard');
                 return true;
             } else {
-                console.error('🔐 Failed to store auth token:', result.error);
+                console.error('🢄🔐 Failed to store auth token:', result.error);
                 return false;
             }
         } else {
-            console.error('🔐 Auth callback missing required parameters');
+            console.error('🢄🔐 Auth callback missing required parameters');
             return false;
         }
     } catch (error) {
-        console.error('🔐 Error handling auth callback:', error);
+        console.error('🢄🔐 Error handling auth callback:', error);
         return false;
     }
 }
@@ -103,7 +103,7 @@ export async function getStoredToken(): Promise<string | null> {
         }
         return null;
     } catch (error) {
-        console.error('🔐 Error getting stored token:', error);
+        console.error('🢄🔐 Error getting stored token:', error);
         return null;
     }
 }
@@ -120,7 +120,7 @@ export async function clearStoredToken(): Promise<boolean> {
         const result = await invoke('clear_auth_token') as BasicResponse;
         return result.success;
     } catch (error) {
-        console.error('🔐 Error clearing token:', error);
+        console.error('🢄🔐 Error clearing token:', error);
         return false;
     }
 }
@@ -144,7 +144,7 @@ export async function hasValidAuth(): Promise<boolean> {
             const expiryDate = new Date(result.expires_at);
             const now = new Date();
             if (expiryDate <= now) {
-                console.log('🔐 Token has expired');
+                console.log('🢄🔐 Token has expired');
                 return false;
             }
         }
@@ -152,13 +152,13 @@ export async function hasValidAuth(): Promise<boolean> {
         // Check if token format is valid (basic JWT check)
         const tokenParts = result.token.split('.');
         if (tokenParts.length !== 3) {
-            console.log('🔐 Invalid token format');
+            console.log('🢄🔐 Invalid token format');
             return false;
         }
         
         return true;
     } catch (error) {
-        console.error('🔐 Error checking auth:', error);
+        console.error('🢄🔐 Error checking auth:', error);
         return false;
     }
 }
@@ -169,7 +169,7 @@ export async function hasValidAuth(): Promise<boolean> {
  */
 export async function setupDeepLinkListener(): Promise<void> {
     if (!browser || !TAURI) {
-        console.log('🔗 Skipping deep link listener setup (not in Tauri environment)');
+        console.log('🢄🔗 Skipping deep link listener setup (not in Tauri environment)');
         return;
     }
     
@@ -179,22 +179,22 @@ export async function setupDeepLinkListener(): Promise<void> {
         
         // Listen for deep link URLs
         const unlisten = await onOpenUrl((urls) => {
-            console.log('🔗 Deep link received:', urls);
+            console.log('🢄🔗 Deep link received:', urls);
             
             for (const url of urls) {
                 const expectedScheme = import.meta.env.VITE_DEV_MODE === 'true' ? 'com.hillview.dev://auth' : 'com.hillview://auth';
                 if (url.startsWith(expectedScheme)) {
-                    console.log('🔐 Processing auth callback from deep link:', url);
+                    console.log('🢄🔐 Processing auth callback from deep link:', url);
                     handleAuthCallback(url);
                     break;
                 }
             }
         });
         
-        console.log('🔗 Deep link listener set up successfully');
+        console.log('🢄🔗 Deep link listener set up successfully');
         // Store unlisten function if needed, but don't return it since function returns void
     } catch (error) {
-        console.error('🔗 Error setting up deep link listener:', error);
+        console.error('🢄🔗 Error setting up deep link listener:', error);
     }
 }
 

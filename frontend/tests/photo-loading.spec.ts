@@ -29,7 +29,7 @@ test.describe('Photo Loading and Display', () => {
       msg.includes('Updated') && msg.includes('markers')
     );
 
-    console.log('📸 Photo loading messages:');
+    console.log('🢄📸 Photo loading messages:');
     photoLoadMessages.forEach(msg => console.log(`  ${msg}`));
 
     // Check if photos were actually loaded by worker
@@ -43,7 +43,7 @@ test.describe('Photo Loading and Display', () => {
       
       expect(photosCount, 'Expected photos to be loaded by worker from data sources').toBeGreaterThan(0);
     } else {
-      console.log('❌ No worker photo loading message found');
+      console.log('🢄❌ No worker photo loading message found');
       expect(false, 'No worker photo loading message found in console').toBe(true);
     }
 
@@ -52,7 +52,7 @@ test.describe('Photo Loading and Display', () => {
       msg.includes('Updated') && msg.includes('markers')
     );
     
-    console.log('🎯 Marker update messages:');
+    console.log('🢄🎯 Marker update messages:');
     markerMessages.forEach(msg => console.log(`  ${msg}`));
 
     // At least one marker update should show > 0 markers
@@ -149,10 +149,10 @@ test.describe('Photo Loading and Display', () => {
     // Wait for photo loading
     await page.waitForTimeout(5000);
 
-    console.log('🌐 Network requests for photo data:');
+    console.log('🢄🌐 Network requests for photo data:');
     networkRequests.forEach(req => console.log(`  ${req}`));
 
-    console.log('📋 Relevant console messages:');
+    console.log('🢄📋 Relevant console messages:');
     const relevantMessages = consoleMessages.filter(msg => 
       msg.includes('source') || 
       msg.includes('photo') || 
@@ -177,7 +177,7 @@ test.describe('Photo Loading and Display', () => {
       return (window as any).debugSources || 'Sources not available in global scope';
     });
     
-    console.log('📊 Sources debug info:', sourceInfo);
+    console.log('🢄📊 Sources debug info:', sourceInfo);
   });
 
   test('should show photo count information', async ({ page }) => {
@@ -195,7 +195,7 @@ test.describe('Photo Loading and Display', () => {
         console.log(`📊 Found photo count display: "${text}"`);
       }
     } else {
-      console.log('📊 No photo count displays found on page');
+      console.log('🢄📊 No photo count displays found on page');
     }
 
     // Look for debug overlay or status information
@@ -207,7 +207,7 @@ test.describe('Photo Loading and Display', () => {
       // Look for debug information
       const debugText = await page.locator('.debug-overlay, .debug-info').textContent();
       if (debugText) {
-        console.log('🔍 Debug overlay content:', debugText);
+        console.log('🢄🔍 Debug overlay content:', debugText);
       }
     }
   });

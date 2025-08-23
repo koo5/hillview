@@ -15,7 +15,7 @@ class MadgwickAHRS(
     private var beta: Float = 0.1f         // Algorithm gain
 ) {
     companion object {
-        private const val TAG = "MadgwickAHRS"
+        private const val TAG = "🢄MadgwickAHRS"
     }
     // Quaternion of sensor frame relative to auxiliary frame
     private var q0 = 1.0f

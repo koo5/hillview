@@ -6,6 +6,7 @@
 import type { PhotoData, Bounds } from '../photoWorkerTypes';
 import { BasePhotoSourceLoader, type PhotoSourceCallbacks } from './PhotoSourceLoader';
 import { verbalizeEventSourceReadyState } from './eventSourceUtils';
+import { postToast } from '../workerToast';
 
 export class StreamSourceLoader extends BasePhotoSourceLoader {
     private eventSource?: EventSource;
@@ -14,6 +15,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
     private completionResolve?: () => void;
     private timeoutId?: NodeJS.Timeout;
     private readyStateMonitorId?: NodeJS.Timeout;
+    private wasConnected = false;
 
     constructor(source: any, callbacks: PhotoSourceCallbacks) {
         super(source, callbacks);
@@ -78,19 +80,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
             this.completionResolve = resolve;
         });
 
-        // Add timeout to prevent hanging forever (2 minutes to match server timeouts)
-        this.timeoutId = setTimeout(() => {
-            console.warn(`StreamSourceLoader: Timeout waiting for ${this.source.url} - closing connection`);
-            // Mark as complete on timeout
-            this.isComplete = true;
-            // Properly close the EventSource on timeout
-            if (this.eventSource) {
-                this.eventSource.close();
-                this.eventSource = undefined;
-            }
-            this.updateLoadingStatus(false, undefined, 'Connection timeout');
-            this.resolveCompletion();
-        }, 120000); // 2 minutes
+        // Let OS handle connection lifecycle - no artificial timeout
 
         this.eventSource = new EventSource(url.toString());
         console.log(`StreamSourceLoader: Created EventSource for ${this.source.id} with URL:`, url.toString());
@@ -111,7 +101,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
                 const data = JSON.parse(event.data);
                 this.handleStreamMessage(data);
             } catch (error) {
-                console.error('StreamSourceLoader: Error parsing stream message:', error);
+                console.error('🢄StreamSourceLoader: Error parsing stream message:', error);
                 this.callbacks.onError?.(new Error('Error parsing stream data'));
                 // Close EventSource on parsing error to prevent further errors
                 if (this.eventSource) {
@@ -144,7 +134,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
                 errorMessage = `Stream error: ${JSON.stringify(error, Object.getOwnPropertyNames(error))}`;
             }
             
-            console.error('StreamSourceLoader: Stream error details:', JSON.stringify({
+            console.error('🢄StreamSourceLoader: Stream error details:', JSON.stringify({
                 error,
                 errorType: error?.constructor?.name,
                 errorMessage,
@@ -157,7 +147,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
             
             // Check if this is an immediate connection failure
             if (this.eventSource?.readyState === EventSource.CLOSED && Date.now() - this.startTime < 1000) {
-                console.error('StreamSourceLoader: EventSource failed immediately after creation - possible network/CORS/URL issue');
+                console.error('🢄StreamSourceLoader: EventSource failed immediately after creation - possible network/CORS/URL issue');
             }
             
             // Mark as complete on error to prevent further processing
@@ -172,6 +162,13 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
             
             this.updateLoadingStatus(false, undefined, errorMessage);
             this.callbacks.onError?.(new Error(errorMessage));
+            
+            // Toast only on state change from connected to disconnected
+            if (this.wasConnected) {
+                postToast('error', 'Connection lost', this.source.name || this.source.id, 0);
+            }
+            this.wasConnected = false;
+            
             // Resolve the completion promise even on error to prevent hanging
             this.resolveCompletion();
         };
@@ -179,6 +176,12 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
         this.eventSource.onopen = () => {
             console.log(`StreamSourceLoader: Stream opened for ${this.source.id} (readyState: ${this.eventSource ? verbalizeEventSourceReadyState(this.eventSource.readyState) : 'undefined'})`);
             this.updateLoadingStatus(true, 'Loading photos...');
+            
+            // Toast only on reconnection
+            if (!this.wasConnected) {
+                postToast('success', 'Connection restored', this.source.name || this.source.id, 3000);
+            }
+            this.wasConnected = true;
         };
 
         // Monitor readyState changes
@@ -209,11 +212,6 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
     }
 
     private resolveCompletion(): void {
-        // Clear timeout and resolve promise
-        if (this.timeoutId) {
-            clearTimeout(this.timeoutId);
-            this.timeoutId = undefined;
-        }
         // Clear readyState monitor
         if (this.readyStateMonitorId) {
             clearInterval(this.readyStateMonitorId);
@@ -312,7 +310,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
                 break;
 
             case 'error':
-                console.error('StreamSourceLoader: Stream error:', data.message);
+                console.error('🢄StreamSourceLoader: Stream error:', data.message);
                 this.updateLoadingStatus(false, undefined, data.message || 'Unknown stream error');
                 this.callbacks.onError?.(new Error(data.message || 'Unknown stream error'));
                 // Resolve the completion promise even on error
@@ -320,7 +318,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
                 break;
 
             default:
-                console.warn('StreamSourceLoader: Unknown stream message type:', data.type);
+                console.warn('🢄StreamSourceLoader: Unknown stream message type:', data.type);
         }
     }
 
@@ -343,7 +341,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
             this.eventSource = undefined; // Clear reference to allow garbage collection
         }
 
-        // Clear timeout and resolve completion promise if still pending
+        // Resolve completion promise if still pending
         this.resolveCompletion();
         
         // Clear all data and references

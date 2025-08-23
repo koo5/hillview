@@ -284,7 +284,7 @@ async function startProcess(type: 'config' | 'area' | 'sourcesPhotosInArea', mes
             if (currentState.config.data) {
                 photoOperations.processConfig(processId, messageId, currentState.config.data, operationCallbacks);
             } else {
-                console.warn(`NewWorker: PROCESSCONFIG - Config data is null for process ${processId}`);
+                console.warn(`🢄NewWorker: PROCESSCONFIG - Config data is null for process ${processId}`);
             }
         } else if (type === 'area') {
             console.log(`NewWorker: About to call processArea with area:`, currentState.area.data, 'sources:', currentState.config.data?.sources?.length || 0);
@@ -297,7 +297,7 @@ async function startProcess(type: 'config' | 'area' | 'sourcesPhotosInArea', mes
                     operationCallbacks
                 );
             } else {
-                console.warn(`NewWorker: Area data is null for process ${processId}`);
+                console.warn(`🢄NewWorker: Area data is null for process ${processId}`);
             }
         } else if (type === 'sourcesPhotosInArea') {
             console.log(`NewWorker: Calling processCombinePhotos for ${processId}`);
@@ -318,7 +318,7 @@ async function startProcess(type: 'config' | 'area' | 'sourcesPhotosInArea', mes
 function handleMessage(message: any): void {
 	// Handle special cleanup message
 	if (message.type === 'cleanup' || message.type === 'terminate') {
-		console.log('NewWorker: Received cleanup/terminate message, cleaning up resources');
+		console.log('🢄NewWorker: Received cleanup/terminate message, cleaning up resources');
 		
 		// Abort all running processes
 		for (const [processId, process] of processTable.entries()) {
@@ -355,19 +355,19 @@ function startProcessMonitor(): void {
 	processMonitorInterval = setInterval(() => {
 		listRunningProcesses();
 	}, 10000);
-	console.log('NewWorker: Process monitor started (10s interval)');
+	console.log('🢄NewWorker: Process monitor started (10s interval)');
 }
 
 function stopProcessMonitor(): void {
 	if (processMonitorInterval) {
 		clearInterval(processMonitorInterval);
 		processMonitorInterval = null;
-		console.log('NewWorker: Process monitor stopped');
+		console.log('🢄NewWorker: Process monitor stopped');
 	}
 }
 
 async function loop(): Promise<void> {
-	console.log('NewWorker: Starting main event loop');
+	console.log('🢄NewWorker: Starting main event loop');
 	
 	// Start the process monitor
 	startProcessMonitor();
@@ -385,30 +385,30 @@ async function loop(): Promise<void> {
 			
 			if (!needsProcessing && !hasQueuedMessages) {
 				// Nothing to do, wait for next message
-				console.log('NewWorker: Waiting for next message...');
+				console.log('🢄NewWorker: Waiting for next message...');
 				message = await messageQueue.getNextMessage();
-				console.log('NewWorker: Got message from queue:', message?.type);
+				console.log('🢄NewWorker: Got message from queue:', message?.type);
 				isBlocked = false; // Clear blocked flag when we get a new message
 			} else if (hasQueuedMessages) {
 				// Process queued messages first
-				console.log('NewWorker: Processing queued message...');
+				console.log('🢄NewWorker: Processing queued message...');
 				message = await messageQueue.getNextMessage();
-				console.log('NewWorker: Got queued message:', message?.type);
+				console.log('🢄NewWorker: Got queued message:', message?.type);
 				isBlocked = false; // Clear blocked flag when we get a new message
 			} else if (isBlocked) {
 				// We're blocked by running processes, sleep instead of spinning
-				console.log('NewWorker: Blocked by running processes, waiting for next message...');
+				console.log('🢄NewWorker: Blocked by running processes, waiting for next message...');
 				message = await messageQueue.getNextMessage();
-				console.log('NewWorker: Unblocked by message:', message?.type);
+				console.log('🢄NewWorker: Unblocked by message:', message?.type);
 				isBlocked = false; // Clear blocked flag
 			} else {
 				// No more messages but we have unprocessed updates
-				console.log('NewWorker: No more messages, processing pending updates...');
+				console.log('🢄NewWorker: No more messages, processing pending updates...');
 				break;
 			}
 			
 			if (!message) {
-				console.log('NewWorker: Got null message, continuing...');
+				console.log('🢄NewWorker: Got null message, continuing...');
 				continue; // Handle queue cancellation
 			}
 			
@@ -430,7 +430,7 @@ async function loop(): Promise<void> {
 					
 				case 'loadError':
 					// Handle loading errors from PhotoLoadingProcess
-					console.error('NewWorker: Load error from process:', JSON.stringify(message));
+					console.error('🢄NewWorker: Load error from process:', JSON.stringify(message));
 					// Mark the process as failed but continue processing
 					if (message.processId) {
 						cleanupProcess(message.processId);
@@ -474,14 +474,20 @@ async function loop(): Promise<void> {
 					console.log(`NewWorker: Removing all photos by user ${message.data.userId} from ${message.data.source} cache`);
 					removeUserPhotosFromCache(message.data.userId, message.data.source);
 					break;
+				
+				case 'toast':
+					// Forward toast messages to main thread
+					console.log(`NewWorker: Forwarding toast message: ${message.level} - ${message.message} (source: ${message.source})`);
+					postMessage(message);
+					break;
 					
 				case 'exit':
-					console.log('NewWorker: Exit requested');
+					console.log('🢄NewWorker: Exit requested');
 					stopProcessMonitor();
 					return;
 					
 				default:
-					console.warn(`NewWorker: Unknown message type: ${message.type}`);
+					console.warn(`🢄NewWorker: Unknown message type: ${message.type}`);
 			}
 		}
 		
@@ -491,7 +497,7 @@ async function loop(): Promise<void> {
 		// If we're blocked by running processes, set blocked flag and continue loop
 		if (!canProcess) {
 			isBlocked = true;
-			console.log('NewWorker: Cannot process - setting blocked flag');
+			console.log('🢄NewWorker: Cannot process - setting blocked flag');
 		}
 	}
 }
@@ -581,17 +587,17 @@ function listRunningProcesses(): void {
 		console.log(`NewWorker: Process Monitor - Running: ${runningProcesses.length}, Aborting: ${abortedProcesses.length}`);
 		
 		if (runningProcesses.length > 0) {
-			console.log('  Active processes:', runningProcesses);
+			console.log('🢄  Active processes:', runningProcesses);
 		}
 		
 		if (abortedProcesses.length > 0) {
-			console.log('  Aborting processes:', abortedProcesses);
+			console.log('🢄  Aborting processes:', abortedProcesses);
 		}
 		
 		// Also log current state for context
 		console.log(`  State - Config: update=${currentState.config.lastUpdateId}/processed=${currentState.config.lastProcessedId}, Area: update=${currentState.area.lastUpdateId}/processed=${currentState.area.lastProcessedId}, isBlocked: ${isBlocked}`);
 	} else {
-		console.log('NewWorker: Process Monitor - No active processes');
+		console.log('🢄NewWorker: Process Monitor - No active processes');
 	}
 }
 
@@ -606,7 +612,7 @@ function getProcessPriority(type: 'config' | 'area' | 'sourcesPhotosInArea'): nu
 async function startPendingProcesses(): Promise<boolean> {
 	// Only start processes if no active process is running
 	if (hasRunningProcess()) {
-		console.log('NewWorker: Process already running, waiting for completion');
+		console.log('🢄NewWorker: Process already running, waiting for completion');
 		return false; // Return false to indicate we're blocked
 	}
 
@@ -622,7 +628,7 @@ async function startPendingProcesses(): Promise<boolean> {
 		console.log(`NewWorker: Starting sourcesPhotosInArea update process for message ${currentState.sourcesPhotosInArea.lastUpdateId}`);
 		await startProcess('sourcesPhotosInArea', currentState.sourcesPhotosInArea.lastUpdateId);
 	} else {
-		console.log('NewWorker: No pending processes to start');
+		console.log('🢄NewWorker: No pending processes to start');
 	}
 	
 	return true; // Return true to indicate we successfully started or completed processing
@@ -630,13 +636,13 @@ async function startPendingProcesses(): Promise<boolean> {
 
 // Set up message handler from main thread
 self.onmessage = function(e: MessageEvent) {
-	console.log('NewWorker: Received message from main thread:', e.data.type);
+	console.log('🢄NewWorker: Received message from main thread:', e.data.type);
 	handleMessage(e.data);
 };
 
 // Start the main loop
 loop().catch(error => {
-	console.error('NewWorker: Fatal error in main loop:', error);
+	console.error('🢄NewWorker: Fatal error in main loop:', error);
 	stopProcessMonitor();
 	postMessage({
 		type: 'error',
@@ -647,7 +653,7 @@ loop().catch(error => {
 	});
 });
 
-console.log('NewWorker: Initialization complete');
+console.log('🢄NewWorker: Initialization complete');
 
 // Cache removal functions for hidden content
 function removePhotoFromCache(photoId: string, source: string): void {

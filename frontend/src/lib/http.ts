@@ -1,6 +1,7 @@
 import { get } from 'svelte/store';
 import { auth, logout, checkTokenValidity } from './auth.svelte';
 import {backendUrl} from "$lib/config";
+import { addToast } from './toast.svelte';
 
 export interface ApiError extends Error {
   status?: number;
@@ -50,7 +51,7 @@ export class HttpClient {
       
       // Handle authentication errors globally
       if (response.status === 401) {
-        console.warn('[HTTP] Received 401 Unauthorized response');
+        console.warn('🢄[HTTP] Received 401 Unauthorized response');
         logout('Session expired');
         throw new TokenExpiredError();
       }
@@ -62,8 +63,12 @@ export class HttpClient {
         throw error;
       }
       
+      // Show toast for network errors
+      const errorMessage = error instanceof Error ? error.message : 'Network error';
+      addToast(`Network error: ${errorMessage}`, 'error', 8000, 'http');
+      
       // Wrap other errors
-      const apiError = new Error(error instanceof Error ? error.message : 'Network error') as ApiError;
+      const apiError = new Error(errorMessage) as ApiError;
       apiError.status = 0;
       throw apiError;
     }
@@ -168,14 +173,18 @@ export class HttpClient {
             resolve(xhr.responseText);
           }
         } else {
-          const error = new Error(`Upload failed: ${xhr.status} ${xhr.statusText}`) as ApiError;
+          const errorMessage = `Upload failed: ${xhr.status} ${xhr.statusText}`;
+          addToast(`Upload error: ${errorMessage}`, 'error', 8000, 'http');
+          const error = new Error(errorMessage) as ApiError;
           error.status = xhr.status;
           reject(error);
         }
       };
       
       xhr.onerror = () => {
-        reject(new Error('Network error during upload'));
+        const errorMessage = 'Network error during upload';
+        addToast(errorMessage, 'error', 8000, 'http');
+        reject(new Error(errorMessage));
       };
       
       xhr.open('POST', fullUrl);

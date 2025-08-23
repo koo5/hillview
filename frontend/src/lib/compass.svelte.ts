@@ -107,40 +107,40 @@ function normalizeHeading(heading: number): number {
 
 // Log compass availability once
 if (TAURI_MOBILE) {
-    console.log('📱 Tauri Mobile detected, sensor-based compass will be available');
+    console.log('🢄📱 Tauri Mobile detected, sensor-based compass will be available');
 } else if (TAURI) {
-    console.log('💻 Tauri Desktop detected, compass not available');
+    console.log('🢄💻 Tauri Desktop detected, compass not available');
 } else if ('ondeviceorientationabsolute' in window || 'ondeviceorientation' in window) {
-    console.log('🧭 Web DeviceOrientation API detected');
+    console.log('🢄🧭 Web DeviceOrientation API detected');
 } else {
-    console.log('❌ No compass API available');
+    console.log('🢄❌ No compass API available');
 }
 
 // Tauri sensor implementation
 async function startTauriSensor(mode: SensorMode = SensorMode.UPRIGHT_ROTATION_VECTOR): Promise<boolean> {
     try {
         if (!isSensorAvailable()) {
-            console.warn('🔍 Tauri sensor not available');
+            console.warn('🢄🔍 Tauri sensor not available');
             return false;
         }
         
         const sensor = tauriSensor!;
         
-        console.log('🔍🔄 Starting Tauri sensor with mode:', SensorMode[mode]);
-        console.log('🔍 About to call sensor.startSensor()...');
+        console.log('🢄🔍🔄 Starting Tauri sensor with mode:', SensorMode[mode]);
+        console.log('🢄🔍 About to call sensor.startSensor()...');
         try {
             await sensor.startSensor(mode);
-            console.log('🔍✅ sensor.startSensor() completed successfully with mode:', SensorMode[mode]);
+            console.log('🢄🔍✅ sensor.startSensor() completed successfully with mode:', SensorMode[mode]);
         } catch (startError) {
-            console.error('🔍❌ sensor.startSensor() threw error:', startError);
+            console.error('🢄🔍❌ sensor.startSensor() threw error:', startError);
             throw startError;
         }
 
         // Set up sensor data listener
-        console.log('🔍 About to set up sensor data listener...');
+        console.log('🢄🔍 About to set up sensor data listener...');
         
         tauriSensorListener = await sensor.onSensorData((data: SensorData) => {
-            //console.log('🔍📡 Native sensor data received:', JSON.stringify(data));
+            //console.log('🢄🔍📡 Native sensor data received:', JSON.stringify(data));
 
             // Handle potentially different event formats
             const sensorData = data;
@@ -168,12 +168,12 @@ async function startTauriSensor(mode: SensorMode = SensorMode.UPRIGHT_ROTATION_V
             }
         });
 
-        console.log('🔍✅ Tauri sensor listener:', JSON.stringify(tauriSensorListener));
+        console.log('🢄🔍✅ Tauri sensor listener:', JSON.stringify(tauriSensorListener));
 
         return true;
     } catch (error) {
-        console.error('🔍❌ Failed to start Tauri sensor:', error);
-        console.error('🔍 Error details:', JSON.stringify( {
+        console.error('🢄🔍❌ Failed to start Tauri sensor:', error);
+        console.error('🢄🔍 Error details:', JSON.stringify( {
             message: error instanceof Error ? error.message : String(error),
             stack: error instanceof Error ? error.stack : undefined,
             type: error instanceof Error ? error.constructor.name : typeof error
@@ -190,7 +190,7 @@ async function startWebCompass(): Promise<boolean> {
         orientationHandler = (event: DeviceOrientationEvent) => {
             if (!hasResolved) {
                 hasResolved = true;
-                console.log('✅ DeviceOrientation API is working');
+                console.log('🢄✅ DeviceOrientation API is working');
                 resolve(true);
             }
 
@@ -214,7 +214,7 @@ async function startWebCompass(): Promise<boolean> {
             
             // Log occasional updates
             if (false) {
-                console.log('🌐 Web Compass update:', JSON.stringify({
+                console.log('🢄🌐 Web Compass update:', JSON.stringify({
                     source: event.source || 'deviceorientation',
                     magneticHeading: data.magneticHeading?.toFixed(1) + '°',
                     trueHeading: data.trueHeading?.toFixed(1) + '°',
@@ -238,7 +238,7 @@ async function startWebCompass(): Promise<boolean> {
         setTimeout(() => {
             if (!hasResolved) {
                 hasResolved = true;
-                console.warn('⚠️ No DeviceOrientation events received after 3 seconds');
+                console.warn('🢄⚠️ No DeviceOrientation events received after 3 seconds');
                 resolve(false);
             }
         }, 3000);
@@ -247,7 +247,7 @@ async function startWebCompass(): Promise<boolean> {
 
 // Stop all compass services
 export function stopCompass() {
-    console.log('🛑 Stopping compass');
+    console.log('🢄🛑 Stopping compass');
     compassActive.set(false);
     
     // Stop Tauri sensor if active
@@ -256,20 +256,20 @@ export function stopCompass() {
         tauriSensorListener.unregister().catch((error: unknown) => {
             // Ignore error if remove_listener command doesn't exist
             // The listener will be cleaned up when the plugin is destroyed
-            console.debug('🧙 Could not unregister sensor listener (expected on Android):', error);
+            console.debug('🢄🧙 Could not unregister sensor listener (expected on Android):', error);
         });
         tauriSensorListener = null;
         
         // Try to stop the sensor service
         if (tauriSensor) {
             tauriSensor.stopSensor().catch((error: unknown) => {
-                console.error('🔍 Failed to stop Tauri sensor:', error);
+                console.error('🢄🔍 Failed to stop Tauri sensor:', error);
             });
         }
         
         // Also stop precise location updates on Android
         if (TAURI_MOBILE) {
-            console.log('📍 Stopping precise location updates');
+            console.log('🢄📍 Stopping precise location updates');
             stopPreciseLocationUpdates();
         }
     }
@@ -304,7 +304,7 @@ export function stopCompass() {
 export async function requestCompassPermission(): Promise<boolean> {
     // Skip permission check for Tauri
     if (TAURI) {
-        console.log('📱 Tauri app - skipping web permission check');
+        console.log('🢄📱 Tauri app - skipping web permission check');
         permissionGranted = true;
         return true;
     }
@@ -312,13 +312,13 @@ export async function requestCompassPermission(): Promise<boolean> {
     // Check if we need permission (iOS 13+)
     if (typeof (DeviceOrientationEvent as any).requestPermission === 'function') {
         try {
-            console.log('📱 Requesting DeviceOrientation permission...');
+            console.log('🢄📱 Requesting DeviceOrientation permission...');
             const response = await (DeviceOrientationEvent as any).requestPermission();
             permissionGranted = response === 'granted';
-            console.log('Permission response:', response);
+            console.log('🢄Permission response:', response);
             return permissionGranted;
         } catch (error) {
-            console.error('Permission request failed:', error);
+            console.error('🢄Permission request failed:', error);
             compassError.set('Failed to request compass permission');
             return false;
         }
@@ -332,47 +332,47 @@ export async function requestCompassPermission(): Promise<boolean> {
 // Main compass start function
 export async function startCompass(mode?: SensorMode) {
     const sensorMode = mode ?? get(currentSensorMode);
-    console.log('🧭 Starting compass with mode:', SensorMode[sensorMode]);
+    console.log('🢄🧭 Starting compass with mode:', SensorMode[sensorMode]);
     
     // If WEB_DEVICE_ORIENTATION mode is selected, skip Tauri and go straight to web API
     if (sensorMode === SensorMode.WEB_DEVICE_ORIENTATION) {
-        console.log('🌐 WEB_DEVICE_ORIENTATION mode selected, using web API');
+        console.log('🢄🌐 WEB_DEVICE_ORIENTATION mode selected, using web API');
         // Skip directly to web API
     } else if (isSensorAvailable()) {
         // Try Tauri sensor first (Android native sensor)
-        console.log('🔍 Tauri sensor API available, attempting to start...');
+        console.log('🢄🔍 Tauri sensor API available, attempting to start...');
         const success = await startTauriSensor(sensorMode);
         if (success) {
-            console.log('🔍✅ Tauri sensor started successfully');
+            console.log('🢄🔍✅ Tauri sensor started successfully');
             compassActive.set(true);
             compassError.set(null);
             currentSensorMode.set(sensorMode);
             
             // Also start precise location updates on Android
-            console.log('🔍 DEBUG: About to check TAURI_MOBILE...');
-            console.log('🔍 DEBUG: TAURI_MOBILE =', TAURI_MOBILE);
+            console.log('🢄🔍 DEBUG: About to check TAURI_MOBILE...');
+            console.log('🢄🔍 DEBUG: TAURI_MOBILE =', TAURI_MOBILE);
             if (TAURI_MOBILE) {
                 try {
-                    console.log('🔍 DEBUG: Inside TAURI_MOBILE block');
-                    console.log('📍 Starting precise location updates');
-                    console.log('🔍 DEBUG: About to call startPreciseLocationUpdates()');
+                    console.log('🢄🔍 DEBUG: Inside TAURI_MOBILE block');
+                    console.log('🢄📍 Starting precise location updates');
+                    console.log('🢄🔍 DEBUG: About to call startPreciseLocationUpdates()');
                     startPreciseLocationUpdates().then(() => {
-                        console.log('🔍 DEBUG: startPreciseLocationUpdates() resolved successfully');
+                        console.log('🢄🔍 DEBUG: startPreciseLocationUpdates() resolved successfully');
                     }).catch(err => {
-                        console.error('📍 Failed to start precise location:', err);
-                        console.error('🔍 DEBUG: startPreciseLocationUpdates() error details:', err);
+                        console.error('🢄📍 Failed to start precise location:', err);
+                        console.error('🢄🔍 DEBUG: startPreciseLocationUpdates() error details:', err);
                     });
-                    console.log('🔍 DEBUG: Called startPreciseLocationUpdates()');
+                    console.log('🢄🔍 DEBUG: Called startPreciseLocationUpdates()');
                 } catch (e) {
-                    console.error('🔍 DEBUG: Exception in TAURI_MOBILE block:', e);
+                    console.error('🢄🔍 DEBUG: Exception in TAURI_MOBILE block:', e);
                 }
             } else {
-                console.log('🔍 DEBUG: TAURI_MOBILE is false, skipping location updates');
+                console.log('🢄🔍 DEBUG: TAURI_MOBILE is false, skipping location updates');
             }
             
             return true;
         }
-        console.warn('🔍⚠️ Tauri sensor failed, falling back to web APIs');
+        console.warn('🢄🔍⚠️ Tauri sensor failed, falling back to web APIs');
     }
     
     // Check permission for web APIs
@@ -420,29 +420,29 @@ export const compassAvailable = writable(isCompassAvailable());
 // Function to switch sensor mode while running
 export async function switchSensorMode(mode: SensorMode) {
     const oldMode = get(currentSensorMode);
-    console.log('🔄 Switching sensor mode:', SensorMode[oldMode], '→', SensorMode[mode]);
+    console.log('🢄🔄 Switching sensor mode:', SensorMode[oldMode], '→', SensorMode[mode]);
     
     if (!get(compassActive)) {
-        console.warn('⚠️ Compass not active, starting with new mode:', SensorMode[mode]);
+        console.warn('🢄⚠️ Compass not active, starting with new mode:', SensorMode[mode]);
         return startCompass(mode);
     }
     
-    console.log('🛑 Stopping current sensor...');
+    console.log('🢄🛑 Stopping current sensor...');
     // Stop current sensor
     stopCompass();
     
     // Wait a bit for cleanup
-    console.log('⏳ Waiting for cleanup...');
+    console.log('🢄⏳ Waiting for cleanup...');
     await new Promise(resolve => setTimeout(resolve, 100));
     
     // Start with new mode
-    console.log('🚀 Starting sensor with new mode:', SensorMode[mode]);
+    console.log('🢄🚀 Starting sensor with new mode:', SensorMode[mode]);
     const success = await startCompass(mode);
     
     if (success) {
-        console.log('✅ Successfully switched to mode:', SensorMode[mode]);
+        console.log('🢄✅ Successfully switched to mode:', SensorMode[mode]);
     } else {
-        console.error('❌ Failed to switch to mode:', SensorMode[mode]);
+        console.error('🢄❌ Failed to switch to mode:', SensorMode[mode]);
     }
     
     return success;

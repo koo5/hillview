@@ -5,7 +5,7 @@ test('Activity log should show upload activities', async ({ page }) => {
   const response = await fetch('http://localhost:8055/api/debug/recreate-test-users', {
     method: 'POST'
   });
-  console.log('Test cleanup result:', await response.json());
+  console.log('🢄Test cleanup result:', await response.json());
   
   // Login with test user
   await page.goto('/login');
@@ -39,7 +39,7 @@ test('Activity log should show upload activities', async ({ page }) => {
   // Check if activity log exists and has entries
   const activityLog = page.locator('.activity-log');
   if (await activityLog.isVisible()) {
-    console.log('✓ Activity log is visible');
+    console.log('🢄✓ Activity log is visible');
     
     const logEntries = page.locator('.log-entry');
     const count = await logEntries.count();
@@ -48,13 +48,13 @@ test('Activity log should show upload activities', async ({ page }) => {
     // Check if there's an upload-related entry
     const logText = await activityLog.textContent();
     if (logText?.includes('Starting upload') || logText?.includes('Uploaded:')) {
-      console.log('✓ Activity log contains upload-related entries');
+      console.log('🢄✓ Activity log contains upload-related entries');
     } else {
-      console.log('⚠ Activity log exists but no upload entries found');
-      console.log('Log content:', logText);
+      console.log('🢄⚠ Activity log exists but no upload entries found');
+      console.log('🢄Log content:', logText);
     }
   } else {
-    console.log('⚠ Activity log is not visible');
+    console.log('🢄⚠ Activity log is not visible');
     
     // Check if there are any log entries at all
     const logEntries = page.locator('.log-entry');

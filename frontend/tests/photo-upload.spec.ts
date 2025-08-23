@@ -22,7 +22,7 @@ test.describe('Photo Upload Tests', () => {
       method: 'POST'
     });
     const result = await response.json();
-    console.log('Test cleanup result:', result);
+    console.log('🢄Test cleanup result:', result);
     
     // Login with test user before each test
     await page.goto('/login');
@@ -61,62 +61,62 @@ test.describe('Photo Upload Tests', () => {
     await page.goto('/photos');
     await page.waitForLoadState('networkidle');
     
-    console.log('Current URL:', await page.url());
+    console.log('🢄Current URL:', await page.url());
     
     // Check if upload section exists
     const uploadSection = page.locator('[data-testid="upload-section"]');
-    console.log('Upload section visible:', await uploadSection.isVisible());
+    console.log('🢄Upload section visible:', await uploadSection.isVisible());
     
     const fileInput = page.locator('[data-testid="photo-file-input"]');
     const uploadButton = page.locator('[data-testid="upload-submit-button"]');
     
-    console.log('File input visible:', await fileInput.isVisible());
-    console.log('Upload button visible:', await uploadButton.isVisible());
-    console.log('Upload button text before:', await uploadButton.textContent());
-    console.log('Upload button disabled before:', await uploadButton.isDisabled());
+    console.log('🢄File input visible:', await fileInput.isVisible());
+    console.log('🢄Upload button visible:', await uploadButton.isVisible());
+    console.log('🢄Upload button text before:', await uploadButton.textContent());
+    console.log('🢄Upload button disabled before:', await uploadButton.isDisabled());
     
     // Listen to network requests
     page.on('response', response => {
       if (response.url().includes('/photos/upload')) {
-        console.log('Upload request:', response.status(), response.url());
+        console.log('🢄Upload request:', response.status(), response.url());
       }
     });
     
     // Listen to console logs
     page.on('console', msg => {
       if (msg.text().includes('Error') || msg.text().includes('Upload')) {
-        console.log('BROWSER CONSOLE:', msg.text());
+        console.log('🢄BROWSER CONSOLE:', msg.text());
       }
     });
     
     // Select file
-    console.log('Setting file:', photoPath);
+    console.log('🢄Setting file:', photoPath);
     await fileInput.setInputFiles(photoPath);
     
     await page.waitForTimeout(1000);
     
-    console.log('Upload button text after file select:', await uploadButton.textContent());
-    console.log('Upload button disabled after file select:', await uploadButton.isDisabled());
+    console.log('🢄Upload button text after file select:', await uploadButton.textContent());
+    console.log('🢄Upload button disabled after file select:', await uploadButton.isDisabled());
     
     // Click upload
-    console.log('Clicking upload button...');
+    console.log('🢄Clicking upload button...');
     await uploadButton.click();
     
     await page.waitForTimeout(2000);
     
-    console.log('Upload button text after click:', await uploadButton.textContent());
-    console.log('Upload button disabled after click:', await uploadButton.isDisabled());
+    console.log('🢄Upload button text after click:', await uploadButton.textContent());
+    console.log('🢄Upload button disabled after click:', await uploadButton.isDisabled());
     
     // Wait and check again
     await page.waitForTimeout(5000);
     
-    console.log('Upload button text after wait:', await uploadButton.textContent());
-    console.log('Upload button disabled after wait:', await uploadButton.isDisabled());
+    console.log('🢄Upload button text after wait:', await uploadButton.textContent());
+    console.log('🢄Upload button disabled after wait:', await uploadButton.isDisabled());
     
     // Check for any error messages
     const errorMessage = page.locator('.error-message');
     if (await errorMessage.count() > 0) {
-      console.log('Error message:', await errorMessage.textContent());
+      console.log('🢄Error message:', await errorMessage.textContent());
     }
   });
 
@@ -142,7 +142,7 @@ test.describe('Photo Upload Tests', () => {
     await expect(uploadButton).toContainText('Upload 2 Photos');
     await expect(uploadButton).not.toBeDisabled();
     
-    console.log('✓ Multi-file selection UI working');
+    console.log('🢄✓ Multi-file selection UI working');
     
     // Start upload
     await uploadButton.click();
@@ -163,7 +163,7 @@ test.describe('Photo Upload Tests', () => {
     expect(logText).toContain('Starting batch upload: 2 files');
     expect(logText).toContain('Batch complete:');
     
-    console.log('✓ Batch upload completed successfully');
+    console.log('🢄✓ Batch upload completed successfully');
     
     // Verify photos appeared in the grid
     await page.waitForTimeout(2000); // Wait for photos to load
@@ -258,7 +258,7 @@ test.describe('Photo Upload Tests', () => {
       console.log(`✓ Found photo: ${photoName}`);
     }
 
-    console.log('All test photos verified successfully!');
+    console.log('🢄All test photos verified successfully!');
   });
 
   test('should delete uploaded photos by exact filename', async ({ page }) => {
@@ -327,7 +327,7 @@ test.describe('Photo Upload Tests', () => {
         await page.waitForTimeout(1000);
       }
     } catch (error) {
-      console.log('Logout failed in afterEach:', error);
+      console.log('🢄Logout failed in afterEach:', error);
     }
   });
 });

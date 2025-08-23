@@ -46,7 +46,7 @@
             }, 1000);
             
         } catch (err) {
-            console.error('OAuth callback error:', err);
+            console.error('🢄OAuth callback error:', err);
             error = err instanceof Error ? err.message : 'Authentication failed';
             status = 'Authentication failed';
             

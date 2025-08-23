@@ -17,7 +17,7 @@ export class PlaceholderInjector {
     ): void {
         const deviceSource = get(sources).find(s => s.id === 'device');
         if (!deviceSource || !deviceSource.enabled) {
-            console.warn('Device source not enabled, skipping placeholder injection');
+            console.warn('🢄Device source not enabled, skipping placeholder injection');
             return;
         }
 
@@ -26,7 +26,7 @@ export class PlaceholderInjector {
         // Add to our placeholder store
         placeholderPhotos.update(photos => [...photos, placeholderPhoto]);
         
-        console.log('📍 Injected placeholder:', tempId, 'at', location);
+        console.log('🢄📍 Injected placeholder:', tempId, 'at', location);
     }
 
     /**
@@ -34,7 +34,7 @@ export class PlaceholderInjector {
      */
     static removePlaceholder(tempId: string): void {
         placeholderPhotos.update(photos => photos.filter(p => p.tempId !== tempId));
-        console.log('📍 Removed placeholder:', tempId);
+        console.log('🢄📍 Removed placeholder:', tempId);
     }
 
     /**
@@ -49,7 +49,7 @@ export class PlaceholderInjector {
      */
     static clearAll(): void {
         placeholderPhotos.set([]);
-        console.log('📍 Cleared all placeholders');
+        console.log('🢄📍 Cleared all placeholders');
     }
 }
 

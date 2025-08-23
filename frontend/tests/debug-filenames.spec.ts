@@ -33,14 +33,14 @@ test('debug filenames', async ({ page }) => {
   
   // Try to find a specific photo using different approaches
   const targetFilename = '2025-07-10-19-10-37_🔶∏🗿↻🌞🌲.jpg';
-  console.log('Looking for filename:', targetFilename);
+  console.log('🢄Looking for filename:', targetFilename);
   
   const byDataFilename = page.locator(`[data-testid="photo-card"][data-filename="${targetFilename}"]`);
-  console.log('Found by data-filename:', await byDataFilename.count());
+  console.log('🢄Found by data-filename:', await byDataFilename.count());
   
   const byText = page.locator('[data-testid="photo-filename"]', { hasText: targetFilename });
-  console.log('Found by text content:', await byText.count());
+  console.log('🢄Found by text content:', await byText.count());
   
   const byContainsText = page.locator('[data-testid="photo-filename"]:has-text("2025-07-10-19-10-37")');
-  console.log('Found by partial text:', await byContainsText.count());
+  console.log('🢄Found by partial text:', await byContainsText.count());
 });

@@ -85,20 +85,20 @@ function handleLocationUpdate(position: GeolocationPosition, source: string) {
     if (get(locationTracking)) {
         updateGpsLocation(position);
     } else {
-        console.debug('📍 Ignoring location update - GPS tracking is disabled');
+        console.debug('🢄📍 Ignoring location update - GPS tracking is disabled');
     }
 }
 
 // Initialize persistent listeners (similar to sensor onSensorData)
 async function initializeLocationListeners(): Promise<void> {
     if (listenersInitialized) {
-        console.debug('📍 Location listeners already initialized');
+        console.debug('🢄📍 Location listeners already initialized');
         return;
     }
 
     if (TAURI_MOBILE) {
         try {
-            console.log('📍 Initializing persistent Android location listeners');
+            console.log('🢄📍 Initializing persistent Android location listeners');
             
             // Set up the location update event listener (persistent)
             locationListener = await addPluginListener(
@@ -110,10 +110,10 @@ async function initializeLocationListeners(): Promise<void> {
                     
                     // Log extra precision data
                     if (data.bearingAccuracy !== undefined) {
-                        console.debug('📍 Bearing accuracy:', data.bearingAccuracy, '°');
+                        console.debug('🢄📍 Bearing accuracy:', data.bearingAccuracy, '°');
                     }
                     if (data.speedAccuracy !== undefined) {
-                        console.debug('📍 Speed accuracy:', data.speedAccuracy, 'm/s');
+                        console.debug('🢄📍 Speed accuracy:', data.speedAccuracy, 'm/s');
                     }
                 }
             );
@@ -123,15 +123,15 @@ async function initializeLocationListeners(): Promise<void> {
                 'hillview',
                 'location-stopped',
                 () => {
-                    console.log('📍 Android location service stopped - updating frontend state');
+                    console.log('🢄📍 Android location service stopped - updating frontend state');
                     setLocationTracking(false);
                 }
             );
             
             listenersInitialized = true;
-            console.log('📍 Android location listeners initialized successfully');
+            console.log('🢄📍 Android location listeners initialized successfully');
         } catch (error) {
-            console.error('📍 Failed to initialize Android location listeners:', error);
+            console.error('🢄📍 Failed to initialize Android location listeners:', error);
             throw error;
         }
     } else {
@@ -140,14 +140,14 @@ async function initializeLocationListeners(): Promise<void> {
             throw new Error('Geolocation is not supported by this browser');
         }
         
-        console.log('📍 Initializing web geolocation listener');
+        console.log('🢄📍 Initializing web geolocation listener');
         webWatchId = navigator.geolocation.watchPosition(
             (position) => {
                 const geoPosition = fromBrowserGeolocation(position);
                 handleLocationUpdate(geoPosition, 'web browser');
             },
             (error) => {
-                console.error('📍 Web geolocation error:', error);
+                console.error('🢄📍 Web geolocation error:', error);
                 // Don't throw here to avoid stopping the watch
             },
             {
@@ -158,7 +158,7 @@ async function initializeLocationListeners(): Promise<void> {
         );
         
         listenersInitialized = true;
-        console.log('📍 Web geolocation listener initialized successfully');
+        console.log('🢄📍 Web geolocation listener initialized successfully');
     }
 }
 
@@ -169,39 +169,39 @@ export async function startPreciseLocationUpdates(): Promise<void> {
 
     if (TAURI_MOBILE) {
         try {
-            console.log('📍 Starting Android precise location service');
+            console.log('🢄📍 Starting Android precise location service');
             
             // Just start the Android service - listeners are already set up
             await invoke('plugin:hillview|start_precise_location_listener');
             
-            console.log('📍 Android precise location service started successfully');
+            console.log('🢄📍 Android precise location service started successfully');
         } catch (error) {
-            console.error('📍 Failed to start Android precise location service:', error);
+            console.error('🢄📍 Failed to start Android precise location service:', error);
             throw error;
         }
     } else {
         // Web: Browser geolocation is already active, nothing more to do
-        console.log('📍 Web geolocation already active');
+        console.log('🢄📍 Web geolocation already active');
     }
 }
 
 // Stop location tracking (platform-aware)
 export async function stopPreciseLocationUpdates(): Promise<void> {
-    console.log('📍 Stopping location tracking');
+    console.log('🢄📍 Stopping location tracking');
     
     if (TAURI_MOBILE) {
         try {
             // Just stop the Android service - listeners remain active
             await invoke('plugin:hillview|stop_precise_location_listener');
-            console.log('📍 Android precise location service stopped');
+            console.log('🢄📍 Android precise location service stopped');
         } catch (error) {
-            console.debug('📍 Could not stop Android location service:', error);
+            console.debug('🢄📍 Could not stop Android location service:', error);
         }
     } else {
         // Web: For now, don't clear the watch to keep it persistent
         // In the future, we could add a flag to control whether web geolocation 
         // should keep running in the background
-        console.log('📍 Web geolocation remains active (persistent mode)');
+        console.log('🢄📍 Web geolocation remains active (persistent mode)');
     }
 }
 

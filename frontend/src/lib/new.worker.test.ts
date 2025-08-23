@@ -434,7 +434,7 @@ describe('New Worker Integration Tests', () => {
     // Verify that different areas might have different photo counts
     // (this tests that culling and filtering is working)
     const photoCounts = responses.map(r => r.photosInArea.length);
-    console.log('Photo counts by area:', photoCounts);
+    console.log('🢄Photo counts by area:', photoCounts);
     
     // Should handle all requests without errors
     expect(responses.every(r => r.type === 'photosUpdate')).toBe(true);
@@ -507,7 +507,7 @@ describe('New Worker Integration Tests', () => {
     } catch (error) {
       // Should catch version mismatch error somewhere in the process
       // The exact timing depends on async processing, but error should occur
-      console.log('Expected version mismatch error occurred');
+      console.log('🢄Expected version mismatch error occurred');
     }
   });
 
@@ -535,7 +535,7 @@ describe('New Worker Integration Tests', () => {
     expect(configResult.type).toBe('photosUpdate');
     
     // Config update should have priority and its result should reflect the new source
-    console.log('Area result photos:', areaResult.photosInArea.length);
-    console.log('Config result photos:', configResult.photosInArea.length);
+    console.log('🢄Area result photos:', areaResult.photosInArea.length);
+    console.log('🢄Config result photos:', configResult.photosInArea.length);
   });
 });

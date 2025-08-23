@@ -76,7 +76,7 @@ if (TEST_CONFIG.CLEAN_APP_STATE) {
 ```typescript
 beforeEach(async function () {
     // Clean app state is automatically provided by framework
-    console.log('🧪 Starting test with clean app state');
+    console.log('🢄🧪 Starting test with clean app state');
     
     // Optional: Additional test-specific setup
 });

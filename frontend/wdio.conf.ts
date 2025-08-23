@@ -90,18 +90,18 @@ export const config: Options.Testrunner = {
     },
     
     beforeSession: async function () {
-        console.log('Starting test session...');
+        console.log('🢄Starting test session...');
     },
     
     before: async function () {
-        console.log('Initial session setup - preparing clean app state once...');
+        console.log('🢄Initial session setup - preparing clean app state once...');
         // Do a one-time clean restart at the start of the session
         // This eliminates the need for individual test restarts
         if (TEST_CONFIG.CLEAN_APP_STATE) {
-            console.log('🧹 Session-level clean app preparation');
+            console.log('🢄🧹 Session-level clean app preparation');
             await prepareAppForTest(true); // clearData = true
         } else {
-            console.log('⚡ Session-level fast app preparation');
+            console.log('🢄⚡ Session-level fast app preparation');
             await prepareAppForTestFast();
         }
     },
@@ -114,25 +114,25 @@ export const config: Options.Testrunner = {
         
         if (TEST_CONFIG.RESTART_PER_SUITE && !isFirstTestInSuite) {
             // Skip restart for subsequent tests in same suite
-            console.log('⚡ Skipping restart - using existing app state within suite');
+            console.log('🢄⚡ Skipping restart - using existing app state within suite');
             return;
         }
         
         // Only do a lightweight health check - app was already prepared in 'before' hook
-        console.log('🔍 Quick health check before test...');
+        console.log('🢄🔍 Quick health check before test...');
         try {
             // Just verify the app is still responsive (no restart unless absolutely necessary)
             const webView = await $('android.webkit.WebView');
             const webViewExists = await webView.isExisting();
             
             if (!webViewExists) {
-                console.log('⚠️ WebView missing, doing minimal restart...');
+                console.log('🢄⚠️ WebView missing, doing minimal restart...');
                 await ensureAppIsRunning(false); // Don't force restart, just ensure it's running
             } else {
-                console.log('✅ App appears healthy, proceeding with test');
+                console.log('🢄✅ App appears healthy, proceeding with test');
             }
         } catch (e) {
-            console.log('⚠️ Health check failed, doing minimal restart...');
+            console.log('🢄⚠️ Health check failed, doing minimal restart...');
             await ensureAppIsRunning(false); // Don't force restart, just ensure it's running
         }
     },
@@ -153,11 +153,11 @@ export const config: Options.Testrunner = {
                 try {
                     await driver.saveScreenshot(`./test-results/failed-${testName}-${timestamp}.png`);
                     screenshotSaved = true;
-                    console.log('📸 Failure screenshot saved');
+                    console.log('🢄📸 Failure screenshot saved');
                 } catch (screenshotError) {
-                    console.warn(`⚠️ Screenshot failed: ${screenshotError.message}`);
+                    console.warn(`🢄⚠️ Screenshot failed: ${screenshotError.message}`);
                     if (screenshotError.message.includes('DeadObjectException')) {
-                        console.log('🔧 Device appears to have UiAutomation issues - skipping screenshot attempts');
+                        console.log('🢄🔧 Device appears to have UiAutomation issues - skipping screenshot attempts');
                         // Skip all other screenshot attempts for this test
                         return;
                     }
@@ -178,12 +178,12 @@ export const config: Options.Testrunner = {
                         }
                     }
                     if (visibleTexts.length > 0) {
-                        console.log('📝 Visible text at test failure:', visibleTexts);
+                        console.log('🢄📝 Visible text at test failure:', visibleTexts);
                     } else {
-                        console.log('📝 No visible text elements found');
+                        console.log('🢄📝 No visible text elements found');
                     }
                 } catch (e) {
-                    console.warn('⚠️ Could not read text elements:', e.message);
+                    console.warn('🢄⚠️ Could not read text elements:', e.message);
                 }
                 
                 // Save page source for detailed analysis
@@ -192,9 +192,9 @@ export const config: Options.Testrunner = {
                     const fs = require('fs').promises;
                     await fs.mkdir('./test-results', { recursive: true });
                     await fs.writeFile(`./test-results/failed-${testName}-${timestamp}-source.xml`, pageSource);
-                    console.log('💾 Page source saved for analysis');
+                    console.log('🢄💾 Page source saved for analysis');
                 } catch (e) {
-                    console.warn('⚠️ Could not save page source:', e.message);
+                    console.warn('🢄⚠️ Could not save page source:', e.message);
                 }
                 
                 // Save device state info
@@ -204,11 +204,11 @@ export const config: Options.Testrunner = {
                     const fs = require('fs').promises;
                     await fs.writeFile(`./test-results/failed-${testName}-${timestamp}-info.txt`, deviceInfo);
                 } catch (e) {
-                    console.warn('⚠️ Could not save device info:', e.message);
+                    console.warn('🢄⚠️ Could not save device info:', e.message);
                 }
                 
             } catch (debugError) {
-                console.error('❌ Failed to save any debug info for failed test:', debugError.message);
+                console.error('🢄❌ Failed to save any debug info for failed test:', debugError.message);
             }
         } else {
             // Test passed - try to save a basic screenshot (but don't fail if it doesn't work)
@@ -217,9 +217,9 @@ export const config: Options.Testrunner = {
             } catch (e) {
                 // Silently ignore screenshot errors for passed tests - especially DeadObjectException
                 if (e.message && e.message.includes('DeadObjectException')) {
-                    console.log('📸 Passed test screenshot skipped (UiAutomation dead)');
+                    console.log('🢄📸 Passed test screenshot skipped (UiAutomation dead)');
                 } else {
-                    console.log('📸 Passed test screenshot skipped (device issues)');
+                    console.log('🢄📸 Passed test screenshot skipped (device issues)');
                 }
             }
         }

@@ -58,7 +58,7 @@ test.describe('Capture Button Gestures', () => {
     const hasFastButton = buttonsHTML.includes('data-testid="fast-capture-button"');
     
     if (!hasSlowButton || !hasFastButton) {
-      console.log('Buttons not found in HTML, trying to trigger Svelte reactivity');
+      console.log('🢄Buttons not found in HTML, trying to trigger Svelte reactivity');
       
       // Alternative: modify the component to show buttons for testing
       await page.evaluate(() => {

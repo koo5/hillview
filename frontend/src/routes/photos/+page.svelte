@@ -54,7 +54,7 @@
                 try {
                     await fetchPhotos();
                 } catch (err) {
-                    console.error('Error loading photos:', err);
+                    console.error('🢄Error loading photos:', err);
                     error = err instanceof Error ? err.message : 'Failed to load photos';
                 } finally {
                     isLoading = false;
@@ -83,7 +83,7 @@
                 userPhotos: photos
             }));
         } catch (err) {
-            console.error('Error fetching photos:', err);
+            console.error('🢄Error fetching photos:', err);
             const errorMessage = handleApiError(err);
             addLogEntry(errorMessage, 'error');
             error = errorMessage;
@@ -130,7 +130,7 @@
                         successCount++;
                     }
                 } catch (err) {
-                    console.error('Error uploading file:', file.name, err);
+                    console.error('🢄Error uploading file:', file.name, err);
                     const errorMessage = handleApiError(err);
                     addLogEntry(`Failed: ${file.name} - ${errorMessage}`, 'error');
                     errorCount++;
@@ -158,7 +158,7 @@
             await fetchPhotos();
             
         } catch (err) {
-            console.error('Error in batch upload:', err);
+            console.error('🢄Error in batch upload:', err);
             const errorMessage = handleApiError(err);
             addLogEntry(`Batch upload failed: ${errorMessage}`, 'error');
             error = errorMessage;
@@ -171,7 +171,7 @@
     async function deletePhoto(photoId: number) {
         console.log(`DEBUG: deletePhoto called with photoId: ${photoId}`);
         if (!confirm('Are you sure you want to delete this photo?')) {
-            console.log('DEBUG: User cancelled delete');
+            console.log('🢄DEBUG: User cancelled delete');
             return;
         }
         
@@ -188,7 +188,7 @@
                 throw new Error(`Failed to delete photo: ${response.status} ${errorText}`);
             }
             
-            console.log('DEBUG: Delete successful, removing from UI');
+            console.log('🢄DEBUG: Delete successful, removing from UI');
             
             // Find the photo name for logging
             const deletedPhoto = photos.find(photo => photo.id === photoId);
@@ -206,7 +206,7 @@
             addLogEntry(`Deleted: ${photoName}`, 'success');
             
         } catch (err) {
-            console.error('Error deleting photo:', err);
+            console.error('🢄Error deleting photo:', err);
             const errorMessage = handleApiError(err);
             addLogEntry(`Delete failed: ${errorMessage}`, 'error');
             error = errorMessage;
@@ -228,7 +228,7 @@
             addLogEntry('Settings saved successfully', 'success');
             
         } catch (err) {
-            console.error('Error saving settings:', err);
+            console.error('🢄Error saving settings:', err);
             const errorMessage = handleApiError(err);
             addLogEntry(`Settings save failed: ${errorMessage}`, 'error');
             error = errorMessage;

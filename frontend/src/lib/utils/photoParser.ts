@@ -22,7 +22,7 @@ export function parseCoordinate(coord: string): number {
         }
         return degrees + minutes / 60 + seconds / 3600;
     } catch (error) {
-        console.error('Error parsing coordinate:', coord, error);
+        console.error('🢄Error parsing coordinate:', coord, error);
         return 0;
     }
 }

@@ -225,7 +225,7 @@ fn create_exif_segment_simple(metadata: &PhotoMetadata) -> Vec<u8> {
     }
 
     // Log final EXIF size and structure for debugging
-    info!("Created simple EXIF: {} bytes", exif_data.len());
+    info!("🢄Created simple EXIF: {} bytes", exif_data.len());
     info!(
         "EXIF structure: TIFF at {}, IFD0 at {}, GPS IFD at {}, lat data at {}, lon data at {}",
         tiff_start,
@@ -292,12 +292,12 @@ fn save_to_pictures_directory(
     let pictures_path = std::path::Path::new(&pictures_dir)
         .join(folder_name);
 
-    info!("create_dir_all: {:?}", pictures_path);
+    info!("🢄create_dir_all: {:?}", pictures_path);
     
     // Create the Hillview subdirectory in Pictures
     std::fs::create_dir_all(&pictures_path)?;
 
-    info!("hide_from_gallery: {}, pictures_path: {:?}", hide_from_gallery, pictures_path);
+    info!("🢄hide_from_gallery: {}, pictures_path: {:?}", hide_from_gallery, pictures_path);
 
     // Create .nomedia file if hiding from gallery
     if hide_from_gallery {
@@ -308,17 +308,17 @@ fn save_to_pictures_directory(
     // Save the file
     let photo_path = pictures_path.join(filename);
 
-	info!("Saving photo to: {:?}", photo_path);
+	info!("🢄Saving photo to: {:?}", photo_path);
 
     std::fs::write(&photo_path, image_data)?;
 
-    info!("Saved photo to Pictures directory: {:?} (hidden: {})", photo_path, hide_from_gallery);
+    info!("🢄Saved photo to Pictures directory: {:?} (hidden: {})", photo_path, hide_from_gallery);
 
     // Set readable permissions for other apps on Unix systems
     #[cfg(unix)]
     {
 
-    	info!("Setting permissions...");
+    	info!("🢄Setting permissions...");
         let mut perms = std::fs::metadata(&photo_path)?.permissions();
         perms.set_mode(0o644); // rw-r--r--
         std::fs::set_permissions(&photo_path, perms)?;
@@ -364,10 +364,10 @@ pub async fn save_photo_with_metadata(
         if let Ok(file_data) = std::fs::read(&file_path) {
             if let Ok(jpeg) = Jpeg::from_bytes(file_data.into()) {
                 if let Some(exif) = jpeg.exif() {
-                    info!("EXIF segment found, size: {} bytes", exif.len());
+                    info!("🢄EXIF segment found, size: {} bytes", exif.len());
                     // Log first few bytes for debugging
                     if exif.len() > 16 {
-                        info!("EXIF header: {:?}", &exif[0..16]);
+                        info!("🢄EXIF header: {:?}", &exif[0..16]);
                     }
                     // Check if it starts with "Exif\0\0" or directly with TIFF header
                     let has_exif_header = exif.len() >= 6 && &exif[0..6] == b"Exif\0\0";
@@ -378,7 +378,7 @@ pub async fn save_photo_with_metadata(
                         has_exif_header, has_tiff_header
                     );
                 } else {
-                    info!("Warning: No EXIF segment found in saved file");
+                    info!("🢄Warning: No EXIF segment found in saved file");
                 }
             }
         }
@@ -394,7 +394,7 @@ pub async fn save_photo_with_metadata(
                 );
             }
             Err(e) => {
-                info!("Warning: Could not verify EXIF after save: {}", e);
+                info!("🢄Warning: Could not verify EXIF after save: {}", e);
             }
         }
     }
@@ -549,7 +549,7 @@ pub async fn read_photo_exif(path: String) -> Result<PhotoMetadata, String> {
                     bearing[0].num, bearing[0].denom
                 );
                 metadata.bearing = Some(bearing[0].to_f64());
-                info!("GPS bearing as float: {}", bearing[0].to_f64());
+                info!("🢄GPS bearing as float: {}", bearing[0].to_f64());
             }
         }
     }

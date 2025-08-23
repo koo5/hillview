@@ -69,7 +69,7 @@ services:
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-hillview}:${POSTGRES_PASSWORD:-hillview}@postgres:5432/${POSTGRES_DB:-hillview}
       - UPLOAD_DIR=/app/uploads
-      - SCAN_INTERVAL_SECONDS=${WORKER_SCAN_INTERVAL:-60}
+      - SCAN_INTERVAL_SECONDS=${WORKER_SCAN_INTERVAL:-10}
       - PICS_URL=${PICS_URL:-}
     depends_on:
       postgres:

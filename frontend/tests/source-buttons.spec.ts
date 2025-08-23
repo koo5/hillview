@@ -25,7 +25,7 @@ async function setMapLocation(page: any, lat: number, lng: number, zoom: number 
         return;
       }
     }
-    console.log('Could not find map component to set view');
+    console.log('🢄Could not find map component to set view');
   }, [lat, lng, zoom, locationName]);
   
   // Wait a moment for the map to update
@@ -34,7 +34,7 @@ async function setMapLocation(page: any, lat: number, lng: number, zoom: number 
 
 // Helper function to manage source states
 async function configureSources(page: any, config: { [sourceName: string]: boolean }) {
-  console.log('🔧 Configuring sources:', config);
+  console.log('🢄🔧 Configuring sources:', config);
   
   // Wait for initial load
   await page.waitForTimeout(1000);
@@ -53,16 +53,16 @@ async function configureSources(page: any, config: { [sourceName: string]: boole
     if (isCompact) {
       await compactToggle.click();
       await page.waitForTimeout(500);
-      console.log('🔄 Expanded source buttons to show labels');
+      console.log('🢄🔄 Expanded source buttons to show labels');
     }
   } catch (e) {
-    console.log('⚠️ Could not find compact toggle, trying hover method');
+    console.log('🢄⚠️ Could not find compact toggle, trying hover method');
     try {
       await sourceButtonsContainer.hover();
       await page.waitForSelector('.source-buttons-container:not(.compact)', { timeout: 2000 });
-      console.log('🔄 Expanded source buttons via hover');
+      console.log('🢄🔄 Expanded source buttons via hover');
     } catch (e2) {
-      console.log('⚠️ Source buttons remain compact, using icons');
+      console.log('🢄⚠️ Source buttons remain compact, using icons');
     }
   }
   
@@ -91,7 +91,7 @@ async function configureSources(page: any, config: { [sourceName: string]: boole
   
   // Wait for source state changes to propagate to worker
   await page.waitForTimeout(2000);
-  console.log('⏳ Waiting for source configuration to propagate...');
+  console.log('🢄⏳ Waiting for source configuration to propagate...');
 }
 
 test.describe('Source Buttons Toggle', () => {
@@ -136,7 +136,7 @@ test.describe('Source Buttons Toggle', () => {
     if (isCompact) {
       await compactToggle.click();
       await page.waitForTimeout(500);
-      console.log('🔄 Expanded source buttons to show labels');
+      console.log('🢄🔄 Expanded source buttons to show labels');
     }
 
     // Find specific source buttons using title attributes as backup
@@ -149,14 +149,14 @@ test.describe('Source Buttons Toggle', () => {
     await expect(mapillaryButton).toBeVisible();  
     await expect(deviceButton).toBeVisible();
 
-    console.log('🔘 Disabling Hillview and Device sources...');
+    console.log('🢄🔘 Disabling Hillview and Device sources...');
 
     // Check if Hillview is currently enabled and disable it
     const hillviewActive = await hillviewButton.evaluate(el => el.classList.contains('active'));
     if (hillviewActive) {
       await hillviewButton.click();
       await page.waitForTimeout(500);
-      console.log('✅ Disabled Hillview source');
+      console.log('🢄✅ Disabled Hillview source');
     }
 
     // Check if Device is currently enabled and disable it  
@@ -164,17 +164,17 @@ test.describe('Source Buttons Toggle', () => {
     if (deviceActive) {
       await deviceButton.click();
       await page.waitForTimeout(500);
-      console.log('✅ Disabled Device source');
+      console.log('🢄✅ Disabled Device source');
     }
 
-    console.log('🌍 Enabling Mapillary source...');
+    console.log('🢄🌍 Enabling Mapillary source...');
 
     // Enable Mapillary if it's not already enabled
     const mapillaryActive = await mapillaryButton.evaluate(el => el.classList.contains('active'));
     if (!mapillaryActive) {
       await mapillaryButton.click();
       await page.waitForTimeout(1000);
-      console.log('✅ Enabled Mapillary source');
+      console.log('🢄✅ Enabled Mapillary source');
     }
 
     // Verify button states
@@ -186,7 +186,7 @@ test.describe('Source Buttons Toggle', () => {
     await setMapLocation(page, 40.7580, -73.9855, 18, 'Times Square');
     
     await page.waitForTimeout(2000);
-    console.log('⏳ Waiting for Mapillary photos to load and display...');
+    console.log('🢄⏳ Waiting for Mapillary photos to load and display...');
 
     // Wait longer for Mapillary photos to potentially load
     await page.waitForTimeout(10000);
@@ -196,13 +196,13 @@ test.describe('Source Buttons Toggle', () => {
     
     // Check if a photo is displayed and has Mapillary data
     if (await mainPhoto.isVisible()) {
-      console.log('📸 Main photo is visible');
+      console.log('🢄📸 Main photo is visible');
       
       // Get the photo data from the data attribute (this will always exist)
       const photoDataStr = await mainPhoto.getAttribute('data-photo');
       const photoData = JSON.parse(photoDataStr!);
       
-      console.log('📊 Photo data:', {
+      console.log('🢄📊 Photo data:', {
         id: photoData.id,
         source_type: photoData.source_type,
         source_id: photoData.source?.id
@@ -210,22 +210,22 @@ test.describe('Source Buttons Toggle', () => {
       
       // Verify this is a Mapillary photo
       expect(photoData.source_type, 'Expected photo to be from Mapillary source').toBe('mapillary');
-      console.log('✅ Confirmed photo is from Mapillary source');
+      console.log('🢄✅ Confirmed photo is from Mapillary source');
       
     } else {
-      console.log('❌ No main photo visible after enabling Mapillary');
+      console.log('🢄❌ No main photo visible after enabling Mapillary');
       
       // The issue is that Mapillary photos are loaded but not being displayed as the front photo
       // This suggests the photo worker doesn't handle Mapillary type, or the photo navigation
       // system isn't finding Mapillary photos to display
       
-      console.log('🔍 The logs show Mapillary photos are loaded (count: 5) but not displayed');
-      console.log('🔍 Issue: Worker shows "Unknown source type: mapillary"');
+      console.log('🢄🔍 The logs show Mapillary photos are loaded (count: 5) but not displayed');
+      console.log('🢄🔍 Issue: Worker shows "Unknown source type: mapillary"');
       
       // For now, let's verify that the Mapillary toggle functionality works correctly
       // even if photos aren't displayed due to the worker integration issue
-      console.log('✅ Source toggle functionality works - Mapillary enabled and photos loaded');
-      console.log('⚠️  Display integration needs work - photos not shown in UI');
+      console.log('🢄✅ Source toggle functionality works - Mapillary enabled and photos loaded');
+      console.log('🢄⚠️  Display integration needs work - photos not shown in UI');
       
       // Pass the test since the core functionality (source toggling) works
       expect(true, 'Source toggle works, but photo display needs integration work').toBe(true);
@@ -269,7 +269,7 @@ test.describe('Source Buttons Toggle', () => {
     expect(afterMapillaryToggle.mapillary).toBe(!initialMapillary);
     expect(afterMapillaryToggle.device).toBe(initialDevice);
 
-    console.log('✅ Mapillary toggle worked independently');
+    console.log('🢄✅ Mapillary toggle worked independently');
 
     // Toggle Hillview
     await hillviewButton.click();
@@ -286,11 +286,11 @@ test.describe('Source Buttons Toggle', () => {
     expect(afterHillviewToggle.mapillary).toBe(afterMapillaryToggle.mapillary);
     expect(afterHillviewToggle.device).toBe(afterMapillaryToggle.device);
 
-    console.log('✅ Hillview toggle worked independently');
+    console.log('🢄✅ Hillview toggle worked independently');
   });
 
   test('should load new Mapillary photos when map is panned', async ({ page }) => {
-    console.log('🗺️ Testing Mapillary photo loading after map panning...');
+    console.log('🢄🗺️ Testing Mapillary photo loading after map panning...');
     
     // Enable console logging to track photo loading
     page.on('console', (msg) => {
@@ -321,7 +321,7 @@ test.describe('Source Buttons Toggle', () => {
       return photoAttr ? JSON.parse(photoAttr) : null;
     });
     
-    console.log('📸 First location photo:', {
+    console.log('🢄📸 First location photo:', {
       id: firstPhotoData?.id,
       lat: firstPhotoData?.lat?.toFixed(6),
       lng: firstPhotoData?.lng?.toFixed(6),
@@ -346,7 +346,7 @@ test.describe('Source Buttons Toggle', () => {
       return photoAttr ? JSON.parse(photoAttr) : null;
     });
     
-    console.log('📸 Second location photo:', {
+    console.log('🢄📸 Second location photo:', {
       id: secondPhotoData?.id,
       lat: secondPhotoData?.lat?.toFixed(6),
       lng: secondPhotoData?.lng?.toFixed(6),
@@ -361,7 +361,7 @@ test.describe('Source Buttons Toggle', () => {
                               Math.abs(firstPhotoData.lat - secondPhotoData.lat) > 0.001 ||
                               Math.abs(firstPhotoData.lng - secondPhotoData.lng) > 0.001;
     
-    console.log('🔍 Photos comparison:', {
+    console.log('🢄🔍 Photos comparison:', {
       firstId: firstPhotoData.id,
       secondId: secondPhotoData.id,
       differentIds: firstPhotoData.id !== secondPhotoData.id,
@@ -371,6 +371,6 @@ test.describe('Source Buttons Toggle', () => {
     
     expect(photosAreDifferent, 'New location should show different Mapillary photos').toBe(true);
     
-    console.log('✅ Map panning successfully loaded new Mapillary photos');
+    console.log('🢄✅ Map panning successfully loaded new Mapillary photos');
   });
 });

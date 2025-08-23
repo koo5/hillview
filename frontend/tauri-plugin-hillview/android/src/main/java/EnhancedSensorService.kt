@@ -33,7 +33,7 @@ class EnhancedSensorService(
     private val onSensorUpdate: (SensorData) -> Unit
 ) : SensorEventListener {
     companion object {
-        private const val TAG = "EnhancedSensorService"
+        private const val TAG = "🢄EnhancedSensorService"
         private const val UPDATE_RATE_MS = 10 // Higher frequency for better fusion
         private const val SENSOR_DELAY = SensorManager.SENSOR_DELAY_GAME // Faster updates
         

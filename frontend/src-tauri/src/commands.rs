@@ -8,7 +8,7 @@ const BUILD_TIME: &str = env!("BUILD_TIME");
 
 #[tauri::command]
 pub fn log(message: String) {
-    info!("YELLOW {}", message);
+    info!("🢄{}", message);
 }
 
 #[tauri::command]

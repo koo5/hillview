@@ -56,7 +56,7 @@ import { currentSensorMode } from '$lib/compass.svelte';
 import { get } from 'svelte/store';
 
 const mode = get(currentSensorMode);
-console.log('Current sensor mode:', SensorMode[mode]);
+console.log('🢄Current sensor mode:', SensorMode[mode]);
 ```
 
 ## Recommendations

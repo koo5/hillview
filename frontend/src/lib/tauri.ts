@@ -14,12 +14,12 @@ let platformName = 'browser';
 if (TAURI && hasWindow) {
     try {
         platformName = 'android' // window.__TAURI_OS_PLUGIN_INTERNALS__  //  platform(); // TypeError: Cannot read properties of undefined (reading 'platform')
-        console.log('🔍 [TAURI] Platform detected:', platformName);
+        console.log('🢄🔍 [TAURI] Platform detected:', platformName);
     } catch (error) {
-        console.warn('🔍 [TAURI] Failed to detect Tauri platform:', error);
+        console.warn('🢄🔍 [TAURI] Failed to detect Tauri platform:', error);
     }
 } else {
-    console.log('🔍 [TAURI] Not running in Tauri, platform:', platformName);
+    console.log('🢄🔍 [TAURI] Not running in Tauri, platform:', platformName);
 }
 
 export const TAURI_MOBILE = TAURI && (platformName === 'android' || platformName === 'ios');
@@ -49,24 +49,24 @@ export enum SensorMode {
 // Conditional Tauri sensor API
 export const tauriSensor = TAURI ? {
     startSensor: async (mode: SensorMode = SensorMode.UPRIGHT_ROTATION_VECTOR) => {
-        console.log('🔍📱 Starting Tauri sensor service with mode:', mode, `(${SensorMode[mode]})`);
+        console.log('🢄🔍📱 Starting Tauri sensor service with mode:', mode, `(${SensorMode[mode]})`);
         try {
             const result = await invoke('plugin:hillview|start_sensor', { mode });
-            console.log('🔍✅ Tauri invoke start_sensor succeeded:', result);
+            console.log('🢄🔍✅ Tauri invoke start_sensor succeeded:', result);
             return result;
         } catch (error) {
-            console.error('🔍❌ Tauri invoke start_sensor failed:', error);
+            console.error('🢄🔍❌ Tauri invoke start_sensor failed:', error);
             throw error;
         }
     },
     stopSensor: async () => {
-        console.log('🔍📱 Stopping Tauri sensor service');
+        console.log('🢄🔍📱 Stopping Tauri sensor service');
         try {
             const result = await invoke('plugin:hillview|stop_sensor');
-            console.log('🔍✅ Tauri invoke stop_sensor succeeded:', result);
+            console.log('🢄🔍✅ Tauri invoke stop_sensor succeeded:', result);
             return result;
         } catch (error) {
-            console.error('🔍❌ Tauri invoke stop_sensor failed:', error);
+            console.error('🢄🔍❌ Tauri invoke stop_sensor failed:', error);
             throw error;
         }
     },
@@ -76,23 +76,23 @@ export const tauriSensor = TAURI ? {
         });
     },
     onSensorData: async (callback: (data: SensorData) => void) => {
-        console.log('🔍👂 Setting up sensor data listener using addPluginListener');
+        console.log('🢄🔍👂 Setting up sensor data listener using addPluginListener');
         try {
             // Use addPluginListener as per Tauri mobile plugin documentation
             const unlisten = await addPluginListener('hillview', 'sensor-data', (data: any) => {
-                //console.log('🔍📡 Received sensor event from plugin:', JSON.stringify(data));
+                //console.log('🢄🔍📡 Received sensor event from plugin:', JSON.stringify(data));
                 callback(data as SensorData);
             });
-            console.log('🔍✅ Sensor listener setup complete, unlisten function:', typeof unlisten);
+            console.log('🢄🔍✅ Sensor listener setup complete, unlisten function:', typeof unlisten);
             return unlisten;
         } catch (error) {
-            console.error('🔍❌ Failed to setup sensor listener:', error);
+            console.error('🢄🔍❌ Failed to setup sensor listener:', error);
             throw error;
         }
     }
 } : null;
 
-console.log('🔍 TAURI environment:', JSON.stringify({
+console.log('🢄🔍 TAURI environment:', JSON.stringify({
     TAURI,
     hasWindow,
     platformName,
@@ -109,6 +109,6 @@ export function isTauriAvailable(): boolean {
 // Utility function to check if sensor APIs are available
 export function isSensorAvailable(): boolean {
     const available = TAURI_MOBILE && tauriSensor !== null;
-    console.log('🔍 isSensorAvailable():', available, { TAURI_MOBILE, hasTauriSensor: !!tauriSensor });
+    console.log('🢄🔍 isSensorAvailable():', available, { TAURI_MOBILE, hasTauriSensor: !!tauriSensor });
     return available;
 }
