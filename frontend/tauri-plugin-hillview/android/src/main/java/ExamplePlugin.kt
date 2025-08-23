@@ -168,19 +168,13 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     
     @Command
     fun updateSensorLocation(invoke: Invoke) {
+        // Update sensor service for magnetic declination
+        // If we're not using Fused Location, this might be called from JS geolocation
+
         val args = invoke.parseArgs(LocationUpdateArgs::class.java)
         Log.d(TAG, "📍 Updating sensor location: ${args.latitude}, ${args.longitude}")
         
-        // Update sensor service for magnetic declination
         sensorService?.updateLocation(args.latitude, args.longitude)
-        
-        // If we're not using Fused Location, this might be called from JS geolocation
-        // Start precise location service if not already running
-        if (preciseLocationService == null) {
-            Log.d(TAG, "📍 Creating PreciseLocationService as backup")
-            initializePreciseLocationService()
-        }
-        
         invoke.resolve()
     }
     
@@ -210,8 +204,8 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             data.put("bearingAccuracy", locationData.bearingAccuracy)
             data.put("speedAccuracy", locationData.speedAccuracy)
             
-            Log.v(TAG, "📍 ExamplePlugin.kt emitting location update: lat=${locationData.latitude}, lng=${locationData.longitude}, accuracy=${locationData.accuracy}m")
-            
+            Log.v(TAG, "📍 ExamplePlugin.kt relaying location update: lat=${locationData.latitude}, lng=${locationData.longitude}, accuracy=${locationData.accuracy}m")
+
             try {
                 // Use the same event name as the geolocation plugin would use
                 trigger("location-update", data)
