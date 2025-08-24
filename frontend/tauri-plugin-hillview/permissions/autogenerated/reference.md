@@ -5,17 +5,17 @@ Default permissions for the plugin
 #### This default permission set includes the following:
 
 - `allow-ping`
-- `allow-start-sensor`
-- `allow-stop-sensor`
-- `allow-update-sensor-location`
+- `allow-start_sensor`
+- `allow-stop_sensor`
+- `allow-update_sensor_location`
 - `allow-registerListener`
-- `allow-start-precise-location-listener`
-- `allow-stop-precise-location-listener`
-- `allow-set-auto-upload-enabled`
-- `allow-get-upload-status`
-- `allow-set-upload-config`
-- `allow-upload-photo`
-- `allow-retry-failed-uploads`
+- `allow-start_precise_location_listener`
+- `allow-stop_precise_location_listener`
+- `allow-set_auto_upload_enabled`
+- `allow-get_upload_status`
+- `allow-set_upload_config`
+- `allow-upload_photo`
+- `allow-retry_failed_uploads`
 
 ## Permission Table
 
