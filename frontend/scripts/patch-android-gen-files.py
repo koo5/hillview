@@ -113,6 +113,37 @@ class AndroidConfigurer:
 				changes_made = True
 				self.log("Fixed tools namespace", "SUCCESS")
 
+			# Ensure storage permissions are present
+			required_permissions = [
+				"android.permission.WRITE_EXTERNAL_STORAGE",
+				"android.permission.READ_EXTERNAL_STORAGE"
+			]
+			
+			for permission in required_permissions:
+				# Check if permission already exists
+				permission_exists = False
+				for perm_elem in manifest_elem.getElementsByTagName("uses-permission"):
+					if perm_elem.hasAttribute("android:name") and perm_elem.getAttribute("android:name") == permission:
+						permission_exists = True
+						break
+				
+				if not permission_exists:
+					# Create new uses-permission element
+					perm_elem = dom.createElement("uses-permission")
+					perm_elem.setAttribute("android:name", permission)
+					
+					# Insert before application element if it exists, otherwise at end
+					app_elements = manifest_elem.getElementsByTagName("application")
+					if app_elements:
+						manifest_elem.insertBefore(perm_elem, app_elements[0])
+					else:
+						manifest_elem.appendChild(perm_elem)
+					
+					changes_made = True
+					self.log(f"Added permission: {permission}", "SUCCESS")
+				else:
+					self.log(f"Permission already present: {permission}", "SUCCESS")
+
 			# Find application element
 			app_elements = manifest_elem.getElementsByTagName("application")
 			if app_elements:
@@ -258,7 +289,7 @@ class AndroidConfigurer:
 			return False
 
 		steps = [
-#			("Fix AndroidManifest.xml", self.fix_android_manifest),
+			("Fix AndroidManifest.xml", self.fix_android_manifest),
 			("Configure build.gradle.kts", self.configure_build_gradle),
 		]
 

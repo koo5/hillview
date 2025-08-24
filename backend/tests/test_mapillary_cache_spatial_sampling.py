@@ -436,7 +436,7 @@ def test_spatial_sampling_with_full_coverage():
 		assert result3['live_count'] == 0, "Third request should not need live API calls"
 		assert result3['total_count'] == sample_limit, f"Expected exactly {sample_limit} photos via sampling, got {result3['total_count']}"
 		
-		print(f"✓ Spatial sampling provided well-distributed {sample_limit} photos from {num_photos} cached")
+		print(f"✓ Spatial sampling provided well-distributed {sample_limit} photos from {smaller_num_photos} cached")
 
 	finally:
 		# clear_mock_mapillary_data()
@@ -522,7 +522,7 @@ def run_spatial_sampling_tests():
 		print("   ✓ Cache works correctly with large datasets (500 photos)")
 		print("   ✓ Cache works correctly with large datasets (800 photos)")
 		print("   ✓ Spatial sampling works correctly with half-area coverage (200 photos)")
-		print("   ✓ Spatial sampling works correctly with full-area coverage (1000 photos)")
+		print("   ✓ Spatial sampling works correctly with full-area coverage (900 photos)")
 		print("   ✓ Cache is used consistently across requests")
 		print("   ✓ Geographic filtering works with cached data")
 		print("   ✓ Performance limiting logic is documented")
