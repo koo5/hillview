@@ -38,7 +38,7 @@
     let map: any;
     let elMap: any;
     const fov_circle_radius_px = 70;
-    
+
     // Slideshow variables
     let slideshowActive = false;
     let slideshowDirection: 'left' | 'right' | null = null;
@@ -46,20 +46,20 @@
     let slideshowInterval = 5000; // 5 seconds
     let longPressTimeout: any = null;
     const longPressDelay = 500; // 500ms for long press detection
-    
+
     // Location tracking variables (now managed by preciseLocation module)
     let userLocationMarker: any = null;
     let accuracyCircle: any = null;
     let wasTrackingBeforeHidden = false;
     let orientationRestartTimer: any = null;
-    
+
     // Compass tracking variables
     let compassTrackingEnabled = false;
-    
+
     // Optimized marker system variables
     let currentMarkers: L.Marker[] = [];
     let lastPhotosUpdate = 0;
-    
+
     // Subscribe to compass tracking state
     $: compassTrackingEnabled = $compassActive;
 
@@ -67,7 +67,7 @@
     let boundsRectangle: any = null;
     let userHeading: number | null = null;
     let userLocation: GeolocationPosition | null = null;
-    
+
     // Source buttons display mode
     let compactSourceButtons = true;
 
@@ -82,14 +82,14 @@
             startLocationTracking();
         }
     }
-    
+
     export function disableLocationTracking() {
         if (get(locationTracking)) {
             setLocationTracking(false);
             stopLocationTracking();
         }
     }
-    
+
     export function getLocationData() {
         return userLocation;
     }
@@ -97,10 +97,10 @@
     // Optimized marker management functions
     function updateOptimizedMarkers(photos: any[]) {
         if (!map) return;
-        
+
         const updateId = Date.now();
         lastPhotosUpdate = updateId;
-        
+
         // Use the optimized marker system
         const updatedMarkers = optimizedMarkerSystem.updateMarkers(map, photos);
         if (updatedMarkers) {
@@ -110,10 +110,10 @@
             console.warn('🢄optimizedMarkerSystem.updateMarkers returned undefined');
         }
     }
-    
+
     function updateMarkerBearingColors() {
         if (!currentMarkers || currentMarkers.length === 0) return;
-        
+
         // Efficiently update only the bearing colors
         optimizedMarkerSystem.updateMarkerColors(currentMarkers, $bearingState.bearing);
     }
@@ -142,7 +142,7 @@
         try {
             // Check if map is fully initialized with container
             if (!map.getContainer() || !map._loaded) return;
-            
+
             const currentCenter = map.getCenter();
             const currentZoom = map.getZoom();
             if (!currentCenter || currentCenter.lat !== spatial.center.lat || currentCenter.lng !== spatial.center.lng || currentZoom !== spatial.zoom) {
@@ -158,7 +158,7 @@
 
     let moveEventCount = 0;
     let lastPruneTime = Date.now();
-    
+
     async function mapStateUserEvent(event: any) {
 
         if (!flying) {
@@ -172,7 +172,7 @@
             }
         }
         await onMapStateChange(true, 'mapStateUserEvent');
-        
+
         // Prune tiles after significant movement or every 10 move events
         moveEventCount++;
         const timeSinceLastPrune = Date.now() - lastPruneTime;
@@ -194,44 +194,44 @@
             let _center = map.getCenter();
             let _zoom = map.getZoom();
             console.log('🢄onMapStateChange: force:', force, 'reason:', reason, 'center:', JSON.stringify(_center), 'zoom:', _zoom);
-            
+
             const currentSpatial = get(spatialState);
             const bounds = map.getBounds();
             const range = get_range(_center);
-            
+
             // Normalize coordinates to valid lat/lng ranges
             const normalizeLng = (lng: number) => ((lng % 360) + 540) % 360 - 180;
             const normalizeLat = (lat: number) => Math.max(-90, Math.min(90, lat));
-            
+
             const topLeft = bounds.getNorthWest();
             const bottomRight = bounds.getSouthEast();
-            
+
             const newSpatialState = {
                 center: new LatLng(_center.lat, _center.lng),
                 zoom: _zoom,
                 bounds: {
                     top_left: new LatLng(
-                        normalizeLat(topLeft.lat), 
+                        normalizeLat(topLeft.lat),
                         normalizeLng(topLeft.lng)
                     ),
                     bottom_right: new LatLng(
-                        normalizeLat(bottomRight.lat), 
+                        normalizeLat(bottomRight.lat),
                         normalizeLng(bottomRight.lng)
                     )
                 },
                 range: range
             };
-            
+
             // Debug log to verify normalization
             console.log(`Map: Normalized bounds - TL: [${newSpatialState.bounds.top_left.lat.toFixed(6)}, ${newSpatialState.bounds.top_left.lng.toFixed(6)}], BR: [${newSpatialState.bounds.bottom_right.lat.toFixed(6)}, ${newSpatialState.bounds.bottom_right.lng.toFixed(6)}]`);
 
-            if (force === true || 
-                currentSpatial.center.lat !== newSpatialState.center.lat || 
-                currentSpatial.center.lng !== newSpatialState.center.lng || 
+            if (force === true ||
+                currentSpatial.center.lat !== newSpatialState.center.lat ||
+                currentSpatial.center.lng !== newSpatialState.center.lng ||
                 currentSpatial.zoom !== newSpatialState.zoom) {
-                
+
                 updateSpatialState(newSpatialState);
-                
+
                 console.log('🢄Map bounds updated:', JSON.stringify({
                     nw: `${bounds.getNorthWest().lat}, ${bounds.getNorthWest().lng}`,
                     se: `${bounds.getSouthEast().lat}, ${bounds.getSouthEast().lng}`,
@@ -287,7 +287,7 @@
 
         return false;
     }
-    
+
     // Start slideshow in the specified direction
     function startSlideshow(direction: 'left' | 'right') {
         if (slideshowActive && slideshowDirection === direction) {
@@ -295,22 +295,22 @@
             stopSlideshow();
             return;
         }
-        
+
         slideshowActive = true;
         slideshowDirection = direction;
-        
+
         // Clear any existing timer
         if (slideshowTimer) {
             clearInterval(slideshowTimer);
         }
-        
+
         // Immediately perform the first action
         performSlideshowAction();
-        
+
         // Set up interval for subsequent actions
         slideshowTimer = setInterval(performSlideshowAction, slideshowInterval);
     }
-    
+
     // Stop the slideshow
     function stopSlideshow() {
         slideshowActive = false;
@@ -320,7 +320,7 @@
             slideshowTimer = null;
         }
     }
-    
+
     // Perform the slideshow action based on current direction
     async function performSlideshowAction() {
         if (slideshowDirection === 'left' && $photoToLeft) {
@@ -332,17 +332,17 @@
             stopSlideshow();
         }
     }
-    
+
     // Handle mouse down for long press detection
     function handleMouseDown(direction: 'left' | 'right', event: MouseEvent) {
         event.preventDefault();
-        
+
         // Set timeout for long press
         longPressTimeout = setTimeout(() => {
             startSlideshow(direction);
         }, longPressDelay);
     }
-    
+
     // Handle mouse up to cancel long press if released early
     function handleMouseUp(event: MouseEvent) {
         event.preventDefault();
@@ -351,39 +351,39 @@
             longPressTimeout = null;
         }
     }
-    
-    
+
+
     // Move in a direction relative to current bearing
     function move(direction: string) {
         // Ensure we have the latest map state
         if (!map) return;
-        
+
         const currentBearing = get(bearingState).bearing;
         const _center = map.getCenter();
-        
+
         // Use the same approach as get_range function
         // First, convert center to container point
         const centerPoint = map.latLngToContainerPoint(_center);
-        
+
         // Calculate pixel movement based on bearing
         const pixelDistance = fov_circle_radius_px;
-        
+
         // Adjust bearing based on direction
         const adjustedBearing = direction === 'backward' ? (currentBearing + 180) % 360 : currentBearing;
-        
+
         // Convert bearing to radians
         const bearingRad = (adjustedBearing * Math.PI) / 180;
-        
+
         // Calculate pixel offset
         const dx = pixelDistance * Math.sin(bearingRad);
         const dy = -pixelDistance * Math.cos(bearingRad);
-        
+
         // Create new point in container coordinates
         const newPoint = L.point(centerPoint.x + dx, centerPoint.y + dy);
-        
+
         // Convert back to lat/lng
         const newCenter = map.containerPointToLatLng(newPoint);
-        
+
         console.log(`move ${direction}:`, {
             bearing: currentBearing,
             adjustedBearing: adjustedBearing,
@@ -394,31 +394,31 @@
             oldCenter: _center,
             newCenter: newCenter
         });
-        
+
         // Set flag to prevent position sync conflicts
         programmaticMove = true;
-        
+
         // Fly to new position
         map.flyTo(newCenter, map.getZoom());
-        
+
         // Update the spatial state
         updateSpatialState({
             center: newCenter,
             zoom: map.getZoom(),
             bounds: null, // Will be updated by onMapStateChange
         });
-        
-        // Reset flag after the movement is complete    
+
+        // Reset flag after the movement is complete
         setTimeout(() => {
             programmaticMove = false;
         }, 1000); // Allow time for flyTo animation
     }
-    
+
     // Convenience functions
     function moveForward() {
         move('forward');
     }
-    
+
     function moveBackward() {
         move('backward');
     }
@@ -432,10 +432,10 @@
             setLocationTracking(true);
         }
     }
-    
+
     async function toggleCompassTracking() {
         compassTrackingEnabled = !compassTrackingEnabled;
-        
+
         if (compassTrackingEnabled) {
             console.log('🢄🧭 Starting compass tracking...');
             const success = await startCompass();
@@ -448,29 +448,29 @@
             stopCompass();
         }
     }
-    
+
     function toggleBearingMode() {
         const currentMode = $bearingMode;
         const newMode: BearingMode = currentMode === 'car' ? 'walking' : 'car';
         console.log(`🚗🚶 Switching bearing mode: ${currentMode} → ${newMode}`);
         bearingMode.set(newMode);
     }
-    
+
     // Start tracking user location
     async function startLocationTracking() {
         locationTrackingLoading = true;
-        
+
         try {
             console.log("📍 Map.svelte Starting location tracking");
             await startPreciseLocationUpdates();
-            
+
             locationTrackingLoading = false;
             console.log("📍 Location tracking started successfully");
-            
+
         } catch (error: any) {
             console.error("📍 Error starting location tracking:", error);
             setLocationError(error?.message || "Unknown error");
-            
+
             let errorMessage = "Unable to get your location: ";
             if (error?.name === 'GeolocationPositionError' || error?.code) {
                 switch(error.code) {
@@ -489,33 +489,33 @@
             } else {
                 errorMessage += error?.message || "Unknown error";
             }
-            
+
             alert(errorMessage);
             setLocationTracking(false);
             locationTrackingLoading = false;
         }
     }
-    
+
     // Stop tracking user location
     async function stopLocationTracking() {
         locationTrackingLoading = false;
-        
+
         try {
             console.log("📍 Stopping location tracking");
             await stopPreciseLocationUpdates();
         } catch (error) {
             console.error("📍 Error stopping location tracking:", error);
         }
-        
+
         // Clear the location data when stopping
         updateGpsLocation(null);
         setLocationError(null);
     }
-    
+
     // Handle GPS location updates only (position/coordinates)
     async function handleGpsLocationUpdate(position: GeolocationPosition) {
         const { latitude, longitude, accuracy } = position.coords;
-        
+
         // Store the location data locally
         userLocation = position;
 
@@ -538,7 +538,7 @@
                 updateSpatialState({
                     center: new LatLng(latitude, longitude),
                     zoom: map.getZoom(),
-                    bounds: null, // Will be updated by onMapStateChange  
+                    bounds: null, // Will be updated by onMapStateChange
                     range: get_range(new LatLng(latitude, longitude))
                 });
                 await tick();
@@ -562,7 +562,7 @@
     // Handle GPS bearing updates (only when compass button active + car mode)
     function handleGpsBearingUpdate(position: GeolocationPosition) {
         const { heading } = position.coords;
-        
+
         // Only update bearing if compass tracking is enabled AND in car mode
         if (compassTrackingEnabled && $bearingMode === 'car' && heading !== null && heading !== undefined) {
             userHeading = heading;
@@ -582,67 +582,67 @@
             });
         }
     }
-    
+
     // Periodically prune tiles to free memory
     let tilePruneInterval: any = null;
     $: if (map && !tilePruneInterval) {
         // Prune tiles every 30 seconds
         tilePruneInterval = setInterval(pruneTiles, 30000);
     }
-    
+
     // Fix Android mouse wheel behavior when map is ready
     $: if (map && /Android/i.test(navigator.userAgent)) {
         const mapContainer = map.getContainer();
-        
+
         // Remove any existing wheel listeners first
         mapContainer.removeEventListener('wheel', handleAndroidWheel, true);
         mapContainer.removeEventListener('wheel', handleAndroidWheel, false);
         mapContainer.removeEventListener('mousewheel', handleAndroidWheel, true);
         mapContainer.removeEventListener('DOMMouseScroll', handleAndroidWheel, true);
-        
+
         // Add our custom wheel handler with capture to intercept early
-        mapContainer.addEventListener('wheel', handleAndroidWheel, { 
-            passive: false, 
-            capture: true 
+        mapContainer.addEventListener('wheel', handleAndroidWheel, {
+            passive: false,
+            capture: true
         });
-        mapContainer.addEventListener('mousewheel', handleAndroidWheel, { 
-            passive: false, 
-            capture: true 
+        mapContainer.addEventListener('mousewheel', handleAndroidWheel, {
+            passive: false,
+            capture: true
         });
-        mapContainer.addEventListener('DOMMouseScroll', handleAndroidWheel, { 
-            passive: false, 
-            capture: true 
+        mapContainer.addEventListener('DOMMouseScroll', handleAndroidWheel, {
+            passive: false,
+            capture: true
         });
-        
+
         // Also prevent default on the parent div
         const mapDiv = mapContainer.parentElement;
         if (mapDiv) {
             mapDiv.addEventListener('wheel', (e: Event) => e.preventDefault(), { passive: false });
         }
-        
+
         // Disable Leaflet's built-in scroll wheel zoom since we're handling it manually
         map.scrollWheelZoom.disable();
     }
-    
+
     let wheelTimeout: any = null;
     let bearingUpdateTimeout: any = null;
-    
+
     function handleAndroidWheel(e: WheelEvent) {
         console.log('🢄Android wheel event:', { deltaY: e.deltaY, wheelDelta: (e as any).wheelDelta, detail: e.detail });
-        
+
         e.preventDefault();
         e.stopPropagation();
         e.stopImmediatePropagation();
-        
+
         // Temporarily disable dragging to prevent pan
         if (map && map.dragging.enabled()) {
             map.dragging.disable();
-            
+
             // Clear any existing timeout
             if (wheelTimeout) {
                 clearTimeout(wheelTimeout);
             }
-            
+
             // Re-enable dragging after a short delay
             wheelTimeout = setTimeout(() => {
                 if (map) {
@@ -651,22 +651,22 @@
                 wheelTimeout = null;
             }, 100);
         }
-        
+
         const delta = e.deltaY || (e as any).wheelDelta || -e.detail;
         if (delta && map) {
             const zoom = map.getZoom();
             const zoomDelta = delta > 0 ? -0.5 : 0.5;
             const newZoom = Math.max(map.getMinZoom(), Math.min(map.getMaxZoom(), zoom + zoomDelta));
-            
+
             console.log('🢄Zooming from', zoom, 'to', newZoom);
-            
+
             // Get the mouse position relative to the map
             const containerPoint = map.mouseEventToContainerPoint(e);
-            
+
             // Zoom to the mouse position
             map.setZoomAround(containerPoint, newZoom, { animate: false });
         }
-        
+
         return false;
     }
 
@@ -714,7 +714,7 @@
 
     onMount(() => {
         console.log('🢄Map component mounted');
-        
+
         // Initialize the simplified photo worker (async)
         (async () => {
             try {
@@ -723,22 +723,22 @@
             } catch (error) {
                 console.error('🢄Failed to initialize SimplePhotoWorker:', error);
             }
-            
+
             await onMapStateChange(true, 'mount');
             console.log('🢄Map component mounted - after onMapStateChange');
         })();
-        
+
         // Add event listeners for visibility changes
         document.addEventListener('visibilitychange', handleVisibilityChange);
         window.addEventListener('pageshow', handlePageShow);
         window.addEventListener('pagehide', handlePageHide);
-        
+
         // Also listen for orientation changes directly
         window.addEventListener('orientationchange', () => {
             console.log('🢄Orientation change detected');
             // The visibility change handler will take care of restarting
         });
-        
+
         return gpsLocation.subscribe((position: GeolocationPosition | null) => {
             if (position) {
                 handleGpsLocationUpdate(position);
@@ -762,53 +762,53 @@
         } catch (error) {
             console.debug('🢄📍 Error stopping location updates on destroy:', error);
         }
-        
+
         // Clear timers
         if (orientationRestartTimer) {
             clearTimeout(orientationRestartTimer);
         }
-        
+
         // Remove event listeners
         document.removeEventListener('visibilitychange', handleVisibilityChange);
         window.removeEventListener('pageshow', handlePageShow);
         window.removeEventListener('pagehide', handlePageHide);
         window.removeEventListener('orientationchange', () => {});
-        
+
         // Clean up slideshow timer if active
         if (slideshowTimer) {
             clearInterval(slideshowTimer);
         }
-        
+
         // Clean up long press timeout if active
         if (longPressTimeout) {
             clearTimeout(longPressTimeout);
         }
-        
+
         // Clean up wheel timeout if active
         if (wheelTimeout) {
             clearTimeout(wheelTimeout);
         }
-        
+
         // Clean up bearing update timeout
         if (bearingUpdateTimeout) {
             clearTimeout(bearingUpdateTimeout);
         }
-        
+
         // Clean up optimized marker system
         optimizedMarkerSystem.destroy();
-        
+
         // Clean up tile pruning interval
         if (tilePruneInterval) {
             clearInterval(tilePruneInterval);
             tilePruneInterval = null;
         }
-        
+
         // Clean up Android wheel event listener
         if (map && /Android/i.test(navigator.userAgent)) {
             const mapContainer = map.getContainer();
             mapContainer.removeEventListener('wheel', handleAndroidWheel, true);
             mapContainer.removeEventListener('wheel', handleAndroidWheel, false);
-            
+
             const mapDiv = mapContainer.parentElement;
             if (mapDiv) {
                 mapDiv.removeEventListener('wheel', (e: Event) => e.preventDefault());
@@ -848,13 +848,13 @@
     //const tileUrl = "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
     //const tileUrl = "https://tile.tracestrack.com/topo_auto/{z}/{x}/{y}.webp?key=262a38b16c187cfca361f1776efb9421&style=contrast+";
     const tileUrl = 'https://tile.tracestrack.com/_/{z}/{x}/{y}.webp?key=262a38b16c187cfca361f1776efb9421';
-    
+
     // Reactive updates for spatial changes (new photos from worker)
     $: if ($visiblePhotos && map) {
         //console.log(`Map: Updating markers with ${$visiblePhotos.length} visible photos`);
         updateOptimizedMarkers($visiblePhotos);
     }
-    
+
     // Ultra-fast bearing color updates (no worker communication)
     $: if ($bearingState && currentMarkers && currentMarkers.length > 0) {
         optimizedMarkerSystem.scheduleColorUpdate($bearingState.bearing);
@@ -1082,7 +1082,7 @@
 
 <!-- Location tracking buttons -->
 <div class="location-button-container">
-    <button 
+    <button
         class={$locationTracking ? 'active' : ''}
         on:click={(e) => handleButtonClick('location', e)}
         title="Track my location"
@@ -1093,7 +1093,7 @@
             <Spinner show={true} color="#4285F4"></Spinner>
         {/if}
     </button>
-    <button 
+    <button
         class={compassTrackingEnabled ? 'active' : ''}
         on:click={(e) => handleButtonClick('compass', e)}
         title="Auto bearing updates ({$bearingMode === 'car' ? 'GPS' : 'compass'} mode)"
@@ -1101,7 +1101,7 @@
     >
         <Compass />
     </button>
-    <button 
+    <button
         class="active"
         on:click={(e) => handleButtonClick('bearing-mode', e)}
         title={$bearingMode === 'car' ? 'Car mode: GPS bearing' : 'Walking mode: Compass bearing'}
@@ -1186,14 +1186,14 @@
     .buttons button:active {
         background-color: #e0e0e0;
     }
-    
+
     .buttons button.slideshow-active {
         background-color: #4285F4;
         color: white;
         border-color: #3367d6;
         animation: pulse 2s infinite;
     }
-    
+
     @keyframes pulse {
         0% {
             box-shadow: 0 0 0 0 rgba(66, 133, 244, 0.7);
@@ -1205,7 +1205,7 @@
             box-shadow: 0 0 0 0 rgba(66, 133, 244, 0);
         }
     }
-    
+
     .location-button-container {
         position: absolute;
         top: 0px;
@@ -1214,7 +1214,7 @@
         display: flex;
         gap: 8px;
     }
-    
+
     .location-button-container button {
         cursor: pointer;
         background-color: white;
@@ -1231,7 +1231,7 @@
     .location-button-container button:hover {
         background-color: #f0f0f0;
     }
-    
+
     .location-button-container button.active {
         background-color: #4285F4;
         color: white;
@@ -1241,12 +1241,12 @@
     .location-button-container button.flash {
         border-radius: 100%;
     }
-    
+
     .location-button-container button:disabled {
         opacity: 0.5;
         cursor: not-allowed;
     }
-    
+
     .location-button-container button:disabled:hover {
         background-color: white;
     }
@@ -1300,22 +1300,31 @@
         align-items: center;
         justify-content: center;
         margin-right: 0.5rem;
+        /*background-color: rgba(255, 255, 255, 0.1);*/
     }
-    
+
+ .source-buttons-container.compact button {
+    opacity: 0.7;
+}
+
+.source-buttons-container:not(.compact) button {
+    opacity: 1;
+}
+
     .source-icon {
         width: 1rem;
         height: 1rem;
         border-radius: 5%;
         border: 1px solid #ccc;
     }
-    
+
     .source-icon-wrapper :global(.spinner-container) {
         position: absolute;
         top: 50%;
         left: 50%;
         transform: translate(-50%, -50%);
     }
-    
+
     /* Compact mode styles */
     .source-buttons-container.compact button {
         padding: 0.5rem;
@@ -1323,22 +1332,26 @@
         height: 40px;
         justify-content: center;
     }
-    
+
     .source-buttons-container.compact .source-icon-wrapper {
         margin-right: 0;
     }
-    
+
+    .location-button-container button {
+        opacity: 0.6;
+    }
+
     /* Toggle button styles */
     .toggle-compact {
         border: 1px solid #999 !important;
         background-color: #f8f8f8 !important;
         transition: all 0.2s;
     }
-    
+
     .toggle-compact:hover {
         background-color: #e8e8e8 !important;
     }
-    
+
     .toggle-compact.active {
         background-color: #666 !important;
         color: white !important;

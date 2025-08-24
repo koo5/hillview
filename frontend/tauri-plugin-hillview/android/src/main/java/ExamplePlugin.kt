@@ -64,6 +64,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     companion object {
         private const val TAG = "🢄HillviewPlugin"
         private var pluginInstance: ExamplePlugin? = null
+        private var initializationCount = 0
         
         // Permission request codes
         private const val CAMERA_PERMISSION_REQUEST_CODE = 2001
@@ -120,8 +121,10 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     private val authManager: AuthenticationManager = AuthenticationManager(activity)
     
     init {
+        initializationCount++
+        val processId = android.os.Process.myPid()
         pluginInstance = this
-        Log.i(TAG, "🢄🎥 ExamplePlugin initialized")
+        Log.i(TAG, "🢄🎥 Plugin init #$initializationCount - Process ID: $processId")
     }
     
     override fun load(webView: WebView) {

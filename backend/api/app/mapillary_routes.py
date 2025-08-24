@@ -351,27 +351,36 @@ async def stream_mapillary_images(
                 cache_service = MapillaryCacheService(db_session)
                 
                 # Send initial response with cached data using spatial sampling
-                cached_photos = await cache_service.get_cached_photos_in_bbox(
+                cache_result = await cache_service.get_cached_photos_in_bbox(
                     top_left_lat, top_left_lon, bottom_right_lat, bottom_right_lon, 
                     max_photos=MAX_PHOTOS_PER_REQUEST,
                     current_user_id=user.id if user else None
                 )
+                cached_photos = cache_result['photos']
+                is_complete_coverage = cache_result['is_complete_coverage']
+                distribution_score = cache_result['distribution_score']
                 
                 cache_ignored_due_to_distribution = False
                 if cached_photos:
-                    log.info(f"Cache hit: Found {len(cached_photos)} cached photos for bbox")
+                    log.info(f"Cache hit: Found {len(cached_photos)} cached photos for bbox (complete_coverage={is_complete_coverage})")
                     
-                    # Check spatial distribution of cached photos
-                    distribution_score = cache_service.calculate_spatial_distribution(cached_photos)
-                    min_distribution_threshold = 0.9
-                    
-                    if distribution_score < min_distribution_threshold:
-                        log.info(f"Cached photos poorly distributed (score: {distribution_score:.2%} < {min_distribution_threshold:.2%}), ignoring cache and using live API")
-                        cache_ignored_due_to_distribution = True
-                        cached_photo_count = 0
-                        yield f"data: {json.dumps({'type': 'photos', 'photos': [], 'hasNext': True})}\n\n"
+                    if is_complete_coverage:
+                        # Complete coverage - use cache regardless of distribution
+                        log.info(f"Using cached photos from COMPLETE region coverage (distribution check skipped)")
                     else:
-                        log.info(f"Cached photos well distributed (score: {distribution_score:.2%}), using cache")
+                        # Incomplete coverage - check distribution
+                        min_distribution_threshold = 0.9
+                        
+                        if distribution_score < min_distribution_threshold:
+                            log.info(f"Cached photos poorly distributed (score: {distribution_score:.2%} < {min_distribution_threshold:.2%}), ignoring cache and using live API")
+                            cache_ignored_due_to_distribution = True
+                            cached_photo_count = 0
+                            yield f"data: {json.dumps({'type': 'photos', 'photos': [], 'hasNext': True})}\n\n"
+                        else:
+                            log.info(f"Cached photos well distributed (score: {distribution_score:.2%}), using cache")
+                    
+                    # If we're using cache (complete coverage or good distribution), process the photos
+                    if not cache_ignored_due_to_distribution:
                         sorted_cached = sorted(cached_photos, key=lambda x: x.get('compass_angle', 0))
                         
                         # Apply photo limit to cached photos (already limited by spatial sampling)

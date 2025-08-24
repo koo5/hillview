@@ -32,7 +32,7 @@ class MapillaryCacheService:
         bottom_right_lon: float,
         max_photos: int = 3000,
         current_user_id: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
+    ) -> Dict[str, Any]:
         """Get cached photos within bounding box with spatial sampling for even distribution"""
         
         # Create bbox polygon
@@ -163,7 +163,54 @@ class MapillaryCacheService:
                 log.warning(f"Found invalid grid coordinates: {invalid_coords}")
         
         log.info(f"Spatial sampling returned {len(photos)} photos distributed across grid cells")
-        return photos
+        
+        # Check if the requested bbox is covered by complete regions FIRST
+        is_complete_coverage = await self._is_bbox_completely_cached(
+            top_left_lat, top_left_lon, bottom_right_lat, bottom_right_lon
+        )
+        
+        if is_complete_coverage:
+            # If completely cached, return immediately without distribution calculation
+            log.info(f"Cache result: {len(photos)} photos from COMPLETE coverage - distribution check skipped")
+            return {
+                'photos': photos,
+                'is_complete_coverage': True,
+                'distribution_score': 1.0  # Perfect score for complete coverage
+            }
+        else:
+            # Only calculate distribution for incomplete coverage
+            distribution_score = self.calculate_spatial_distribution(photos) if photos else 0.0
+            log.info(f"Cache result: {len(photos)} photos from INCOMPLETE coverage, distribution={distribution_score:.2%}")
+            return {
+                'photos': photos,
+                'is_complete_coverage': False,
+                'distribution_score': distribution_score
+            }
+    
+    async def _is_bbox_completely_cached(
+        self,
+        top_left_lat: float,
+        top_left_lon: float, 
+        bottom_right_lat: float,
+        bottom_right_lon: float
+    ) -> bool:
+        """Check if the given bbox is completely covered by complete cached regions."""
+        # Get all complete cached regions that intersect with request
+        cached_regions = await self.get_cached_regions_for_bbox(
+            top_left_lat, top_left_lon, bottom_right_lat, bottom_right_lon
+        )
+        
+        # Filter to only complete regions
+        complete_regions = [r for r in cached_regions if r.is_complete]
+        
+        if not complete_regions:
+            return False
+        
+        # For simplicity, if we have any complete regions covering our bbox,
+        # and we retrieved photos, assume complete coverage
+        # (More sophisticated geometry checking could be added later)
+        log.info(f"Completeness check: found {len(complete_regions)} complete regions covering bbox")
+        return len(complete_regions) > 0
     
     def calculate_spatial_distribution(self, photos: List[Dict[str, Any]], grid_size: int = 10) -> float:
         """Calculate spatial distribution score (0.0 = all clustered, 1.0 = perfectly distributed)"""

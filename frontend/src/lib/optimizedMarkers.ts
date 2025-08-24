@@ -169,9 +169,10 @@ export class OptimizedMarkerSystem {
       marker.addTo(map);
       
       // Debug: Log first few markers
-      if (index < 3) {
+      //if (index < 3)
+	  {
         console.log(`Created marker ${index} at [${photo.coord.lat}, ${photo.coord.lng}]`, marker);
-        console.log('🢄Marker element after addTo:', marker.getElement());
+//        console.log('🢄Marker element after addTo:', marker.getElement());
       }
       
       return marker;
