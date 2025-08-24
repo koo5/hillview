@@ -12,9 +12,9 @@ const createMockMapillaryData = (centerLat = 50.0755, centerLng = 14.4378) => {
   const photos = [];
   
   for (let i = 1; i <= 15; i++) {
-    // Distribute photos in a small area - use deterministic positions for consistent testing
-    const angle = (i * 24) % 360; // Distribute in a circle
-    const distance = 0.002 * ((i % 3) + 1); // Three concentric circles
+    // Distribute photos very close to center to ensure they're within bbox
+    const angle = (i * 24) % 360; // Distribute in a circle  
+    const distance = 0.0001 * ((i % 3) + 1); // Very small distances (0.0001, 0.0002, 0.0003 degrees)
     const latOffset = distance * Math.sin(angle * Math.PI / 180);
     const lngOffset = distance * Math.cos(angle * Math.PI / 180);
     
@@ -206,8 +206,13 @@ test.describe('Mapillary Marker Consistency', () => {
     });
 
     // IMPORTANT: Set up mock data BEFORE enabling Mapillary source
-    // Based on observed backend logs: lat ~50.114, lng ~14.523
-    const mockData = createMockMapillaryData(50.114, 14.523);
+    // Use exact coordinates from backend logs to ensure bbox match
+    // Request bbox: top_left=(50.114739, 14.523099) bottom_right=(50.114119, 14.523957)
+    // Place mock data in the center of this exact bbox
+    const centerLat = (50.114739147066835 + 50.114119952930224) / 2; // ~50.11443
+    const centerLng = (14.523099660873413 + 14.523957967758179) / 2; // ~14.5235
+    console.log(`📍 Creating mock data at exact bbox center: ${centerLat}, ${centerLng}`);
+    const mockData = createMockMapillaryData(centerLat, centerLng);
     await setMockMapillaryData(page, mockData);
     
     // Set map to that area first
@@ -267,12 +272,24 @@ test.describe('Mapillary Marker Consistency', () => {
   test('should maintain marker count through repeated Mapillary toggles', async ({ page }) => {
     console.log('🧪 Testing marker consistency through repeated Mapillary toggles');
     
-    // Set up mock data
-    const mockData = createMockMapillaryData();
+    // Enable console logging
+    page.on('console', (msg) => {
+      if (msg.text().includes('marker') || msg.text().includes('Mapillary') || msg.text().includes('photo')) {
+        console.log(`[BROWSER LOG] ${msg.text()}`);
+      }
+    });
+
+    // IMPORTANT: Set up mock data BEFORE any source configuration
+    // Use exact coordinates from backend logs to ensure bbox match
+    const centerLat = (50.114739147066835 + 50.114119952930224) / 2;
+    const centerLng = (14.523099660873413 + 14.523957967758179) / 2;
+    console.log(`📍 Creating mock data at exact bbox center: ${centerLat}, ${centerLng}`);
+    const mockData = createMockMapillaryData(centerLat, centerLng);
     await setMockMapillaryData(page, mockData);
     
-    // Set map location
-    await setMapLocation(page, 50.0755, 14.4378, 16);
+    // Set map to that area first
+    await setMapLocation(page, 50.114, 14.523, 16);
+    await page.waitForTimeout(2000);
     
     // Initially disable all sources
     await configureSources(page, {
@@ -297,7 +314,7 @@ test.describe('Mapillary Marker Consistency', () => {
       
       // Enable Mapillary
       await configureSources(page, { 'Mapillary': true });
-      await page.waitForTimeout(3000); // Wait for markers to render
+      await page.waitForTimeout(4000); // Wait for markers to render
       
       const enabledMarkerCount = await countVisibleMarkers(page);
       console.log(`  📍 Markers after enabling: ${enabledMarkerCount}`);

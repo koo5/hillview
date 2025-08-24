@@ -242,6 +242,23 @@ async function startProcess(type: 'config' | 'area' | 'sourcesPhotosInArea', mes
         shouldAbort: (id: string) => shouldAbortProcess(id),
         postMessage: (message: any) => messageQueue.addMessage(message),
         updatePhotosInArea: (photos: PhotoData[]) => { 
+            // CRITICAL FIX: Clear photos from disabled sources BEFORE adding new photos
+            if (currentState.config.data?.sources) {
+                const enabledSourceIds = new Set(
+                    currentState.config.data.sources
+                        .filter(s => s.enabled)
+                        .map(s => s.id)
+                );
+                
+                // Remove photos from disabled sources
+                for (const sourceId of photosInAreaPerSource.keys()) {
+                    if (!enabledSourceIds.has(sourceId)) {
+                        console.log(`NewWorker: Clearing photos from disabled source: ${sourceId}`);
+                        photosInAreaPerSource.delete(sourceId);
+                    }
+                }
+            }
+            
             // For config updates, distribute photos across per-source tracking
             if (photos.length > 0) {
                 // Group by source if available, otherwise use 'default'

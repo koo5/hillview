@@ -168,11 +168,19 @@ export class OptimizedMarkerSystem {
       const marker = this.createOptimizedMarker(photo);
       marker.addTo(map);
       
-      // Debug: Log first few markers
-      //if (index < 3)
-	  {
+      // Debug: Log first few markers and check z-index
+      if (index < 5) {
         console.log(`Created marker ${index} at [${photo.coord.lat}, ${photo.coord.lng}]`, marker);
-//        console.log('🢄Marker element after addTo:', marker.getElement());
+        
+        // Check the z-index after adding to map
+        setTimeout(() => {
+          const element = marker.getElement();
+          if (element) {
+            const computedStyle = getComputedStyle(element);
+            const zIndex = computedStyle.zIndex;
+            console.log(`🢄Marker ${index} z-index: ${zIndex}, element:`, element);
+          }
+        }, 100);
       }
       
       return marker;
