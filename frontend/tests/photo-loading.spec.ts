@@ -30,7 +30,7 @@ test.describe('Photo Loading and Display', () => {
     );
 
     console.log('🢄📸 Photo loading messages:');
-    photoLoadMessages.forEach(msg => console.log(`  ${msg}`));
+    photoLoadMessages.forEach(msg => console.log(`🢄  ${msg}`));
 
     // Check if photos were actually loaded by worker
     const workerLoadedMessage = consoleMessages.find(msg => 
@@ -53,7 +53,7 @@ test.describe('Photo Loading and Display', () => {
     );
     
     console.log('🢄🎯 Marker update messages:');
-    markerMessages.forEach(msg => console.log(`  ${msg}`));
+    markerMessages.forEach(msg => console.log(`🢄  ${msg}`));
 
     // At least one marker update should show > 0 markers
     const hasVisibleMarkers = markerMessages.some(msg => {
@@ -115,7 +115,7 @@ test.describe('Photo Loading and Display', () => {
           const img = allImages.nth(i);
           const src = await img.getAttribute('src');
           const alt = await img.getAttribute('alt');
-          console.log(`  Image ${i}: src="${src}", alt="${alt}"`);
+          console.log(`🢄  Image ${i}: src="${src}", alt="${alt}"`);
         }
       }
 
@@ -150,7 +150,7 @@ test.describe('Photo Loading and Display', () => {
     await page.waitForTimeout(5000);
 
     console.log('🢄🌐 Network requests for photo data:');
-    networkRequests.forEach(req => console.log(`  ${req}`));
+    networkRequests.forEach(req => console.log(`🢄  ${req}`));
 
     console.log('🢄📋 Relevant console messages:');
     const relevantMessages = consoleMessages.filter(msg => 
@@ -162,7 +162,7 @@ test.describe('Photo Loading and Display', () => {
       msg.includes('device') ||
       msg.includes('mapillary')
     );
-    relevantMessages.forEach(msg => console.log(`  ${msg}`));
+    relevantMessages.forEach(msg => console.log(`🢄  ${msg}`));
 
     // Check if sources are enabled
     const sourcesMessages = consoleMessages.filter(msg => 

@@ -112,7 +112,7 @@ async function configureSources(page: any, config: { [sourceName: string]: boole
         .filter({ hasText: new RegExp(sourceName, 'i') })
         .or(sourceButtonsContainer.locator(`button[title*="${sourceName}"]`));
       
-      const isCurrentlyActive = await sourceButton.evaluate(el => el.classList.contains('active'));
+      const isCurrentlyActive = await sourceButton.evaluate((el: Element) => el.classList.contains('active'));
       
       if (isCurrentlyActive !== shouldBeEnabled) {
         await sourceButton.click();
@@ -317,7 +317,7 @@ test.describe('Mapillary Marker Consistency', () => {
       await page.waitForTimeout(4000); // Wait for markers to render
       
       const enabledMarkerCount = await countVisibleMarkers(page);
-      console.log(`  📍 Markers after enabling: ${enabledMarkerCount}`);
+      console.log(`🢄  📍 Markers after enabling: ${enabledMarkerCount}`);
       toggleResults.push(enabledMarkerCount);
       
       // Verify we get the expected number of markers
@@ -328,7 +328,7 @@ test.describe('Mapillary Marker Consistency', () => {
       await page.waitForTimeout(2000); // Wait for markers to disappear
       
       const disabledMarkerCount = await countVisibleMarkers(page);
-      console.log(`  📍 Markers after disabling: ${disabledMarkerCount}`);
+      console.log(`🢄  📍 Markers after disabling: ${disabledMarkerCount}`);
       
       // Verify markers are properly removed
       expect(disabledMarkerCount).toBe(0);

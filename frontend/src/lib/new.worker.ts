@@ -612,9 +612,9 @@ function listRunningProcesses(): void {
 		}
 		
 		// Also log current state for context
-		console.log(`  State - Config: update=${currentState.config.lastUpdateId}/processed=${currentState.config.lastProcessedId}, Area: update=${currentState.area.lastUpdateId}/processed=${currentState.area.lastProcessedId}, isBlocked: ${isBlocked}`);
+		console.debug(`🢄  State - Config: update=${currentState.config.lastUpdateId}/processed=${currentState.config.lastProcessedId}, Area: update=${currentState.area.lastUpdateId}/processed=${currentState.area.lastProcessedId}, isBlocked: ${isBlocked}`);
 	} else {
-		console.log('🢄NewWorker: Process Monitor - No active processes');
+		//console.debug('🢄NewWorker: Process Monitor - No active processes');
 	}
 }
 

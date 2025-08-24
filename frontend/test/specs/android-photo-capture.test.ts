@@ -1,6 +1,7 @@
 import {expect} from '@wdio/globals'
 import {TestWorkflows} from '../helpers/TestWorkflows'
 import {ScreenshotHelper} from '../helpers/ScreenshotHelper'
+import {CameraWorkflowHelper} from '../helpers/CameraWorkflowHelper'
 
 /**
  * Android Photo Capture Test
@@ -10,6 +11,7 @@ import {ScreenshotHelper} from '../helpers/ScreenshotHelper'
 describe('Android Photo Capture', () => {
 	let workflows: TestWorkflows;
 	let screenshots: ScreenshotHelper;
+	let cameraWorkflow: CameraWorkflowHelper;
 
 	beforeEach(async function () {
 		this.timeout(130000);
@@ -17,6 +19,7 @@ describe('Android Photo Capture', () => {
 		// Initialize helpers
 		workflows = new TestWorkflows();
 		screenshots = new ScreenshotHelper('photo-capture');
+		cameraWorkflow = new CameraWorkflowHelper();
 		screenshots.reset();
 
 		// Clean app state is now automatically provided by wdio.conf.ts beforeTest hook
@@ -106,90 +109,20 @@ describe('Android Photo Capture', () => {
 				await driver.back();
 				await driver.pause(2000);
 
-				await openCamera();
+				// Take screenshot before camera workflow
+				await screenshots.takeScreenshot('before-camera');
 
-				// Take screenshot of camera interface
-				await screenshots.takeScreenshot('camera-interface');
-
-				// Handle camera and location permissions
-				console.log('📋 Checking for permission dialogs...');
-
-
-				try {
-					const button = await $('android=new UiSelector().text("Only this time")');
-					if (await button.isDisplayed()) {
-						console.log('📍 Selecting "Only this time"...');
-						await button.click();
-						await driver.pause(2000);
-					}
-				} catch (e) {
-					console.log(' No "Only this time" option');
+				// Perform complete photo capture workflow using the helper
+				const photoSuccess = await cameraWorkflow.performCompletePhotoCapture();
+				
+				// Take screenshot after camera workflow
+				await screenshots.takeScreenshot('after-camera');
+				
+				if (!photoSuccess) {
+					throw new Error('Photo capture workflow failed');
 				}
-
-
-
-
-				try {
-					const button = await $('android=new UiSelector().text("Only this time")');
-					if (await button.isDisplayed()) {
-						console.log('📍 Selecting "Only this time"...');
-						await button.click();
-						await driver.pause(2000);
-					}
-				} catch (e) {
-					console.log(' No "Only this time" option');
-				}
-
-
-				// Wait for camera to initialize and look for in-app capture button
-				await driver.pause(3000);
-
-				// Take screenshot to see current state
-				await screenshots.takeScreenshot('before-capture');
-
-				// Check for "Try Again" or "Enable Camera" buttons before attempting capture
-				console.log('🔄 Checking for Try Again or Enable Camera buttons...');
-				await handleCameraInitializationButtons();
-
-				// Capture photo using in-app camera interface
-				console.log('📸 Looking for in-app capture button...');
-
-				const captureButtons = [
-					'android=new UiSelector().text("SINGLE")',
-				];
-
-				let photoTaken = false;
-				for (const selector of captureButtons) {
-					try {
-						const captureButton = await $(selector);
-						if (await captureButton.isDisplayed()) {
-							console.log(`📸 Found capture button: ${selector}`);
-							await captureButton.click();
-							await driver.pause(2000);
-							photoTaken = true;
-							console.log('✅ Photo captured using in-app camera');
-							break;
-						}
-					} catch (e) {
-						console.log(`ℹ️ Capture button not found: ${selector}`);
-					}
-				}
-
-
-				// Take screenshot after capture
-				await screenshots.takeScreenshot('after-capture');
-
-				// Wait for photo processing
-				await driver.pause(3000);
-
-				// Return to main view
-				console.log('↩️ Returning to main view...');
-
-
-				await closeCamera();
-
-				// Wait a moment for UI to stabilize after closing camera
-				await driver.pause(3000);
+				
+				console.log('✅ Photo capture workflow completed successfully');
 
 				const appHealthy = await workflows.performQuickHealthCheck();
 				expect(appHealthy).toBe(true);
@@ -208,32 +141,6 @@ describe('Android Photo Capture', () => {
 		console.log('📸 Photo capture test cleanup completed');
 	});
 });
-
-
-
-async function openCamera() {
-	console.log('📸 Looking for camera button...');
-	
-	// Switch to WebView context first since this is an HTML button
-	const contexts = await driver.getContexts();
-	const webViewContexts = contexts.filter(ctx => ctx.includes('WEBVIEW'));
-	
-	if (webViewContexts.length > 0) {
-		await driver.switchContext(webViewContexts[0]);
-		
-		// Just find the camera button and click it - keep it simple
-		const cameraButton = await $('[data-testid="camera-button"]');
-		await cameraButton.click();
-		console.log('✅ Clicked camera button');
-		
-		await driver.switchContext('NATIVE_APP');
-	} else {
-		throw new Error('No WebView context found');
-	}
-	
-	await driver.pause(2000);
-	console.log('📸 Opened camera mode');
-}
 
 
 async function closeCamera() {

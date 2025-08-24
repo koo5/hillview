@@ -44,7 +44,7 @@ describe('Android UI Exploration', () => {
                 if (await element.isDisplayed()) {
                     console.log(`✓ Found text element: "${text}"`);
                     const elementText = await element.getText();
-                    console.log(`  Full text: "${elementText}"`);
+                    console.log("🢄  Full text: "${elementText}"`);
                 }
             } catch (error) {
                 // Element not found, continue
@@ -63,9 +63,9 @@ describe('Android UI Exploration', () => {
                     const isDisplayed = await editText.isDisplayed();
                     const hint = await editText.getAttribute('hint') || 'No hint';
                     const text = await editText.getText() || 'No text';
-                    console.log(`  EditText[${i}]: displayed=${isDisplayed}, hint="${hint}", text="${text}"`);
+                    console.log("🢄  EditText[${i}]: displayed=${isDisplayed}, hint="${hint}", text="${text}"`);
                 } catch (error) {
-                    console.log(`  EditText[${i}]: Error getting properties - ${error.message}`);
+                    console.log("🢄  EditText[${i}]: Error getting properties - ${error.message}`);
                 }
             }
         } catch (error) {
@@ -84,9 +84,9 @@ describe('Android UI Exploration', () => {
                     const isDisplayed = await button.isDisplayed();
                     const text = await button.getText() || 'No text';
                     const enabled = await button.isEnabled();
-                    console.log(`  Button[${i}]: displayed=${isDisplayed}, enabled=${enabled}, text="${text}"`);
+                    console.log("🢄  Button[${i}]: displayed=${isDisplayed}, enabled=${enabled}, text="${text}"`);
                 } catch (error) {
-                    console.log(`  Button[${i}]: Error getting properties - ${error.message}`);
+                    console.log("🢄  Button[${i}]: Error getting properties - ${error.message}`);
                 }
             }
         } catch (error) {
@@ -105,10 +105,10 @@ describe('Android UI Exploration', () => {
                     const isDisplayed = await textView.isDisplayed();
                     const text = await textView.getText() || 'No text';
                     if (text.length > 0 && text.length < 100) { // Skip empty or very long text
-                        console.log(`  TextView[${i}]: displayed=${isDisplayed}, text="${text}"`);
+                        console.log("🢄  TextView[${i}]: displayed=${isDisplayed}, text="${text}"`);
                     }
                 } catch (error) {
-                    console.log(`  TextView[${i}]: Error getting text`);
+                    console.log("🢄  TextView[${i}]: Error getting text`);
                 }
             }
         } catch (error) {
@@ -130,10 +130,10 @@ describe('Android UI Exploration', () => {
                     const contentDesc = await clickable.getAttribute('contentDescription') || 'No description';
                     
                     if (isDisplayed) {
-                        console.log(`  Clickable[${i}]: class="${className}", text="${text}", desc="${contentDesc}"`);
+                        console.log("🢄  Clickable[${i}]: class="${className}", text="${text}", desc="${contentDesc}"`);
                     }
                 } catch (error) {
-                    console.log(`  Clickable[${i}]: Error getting properties`);
+                    console.log("🢄  Clickable[${i}]: Error getting properties`);
                 }
             }
         } catch (error) {
@@ -183,9 +183,9 @@ describe('Android UI Exploration', () => {
                                         const type = await element.getAttribute('type') || 'no type';
                                         const placeholder = await element.getAttribute('placeholder') || 'no placeholder';
                                         const text = await element.getText() || 'no text';
-                                        console.log(`  WebView Element[${i}]: ${tagName} type="${type}" placeholder="${placeholder}" text="${text}"`);
+                                        console.log("🢄  WebView Element[${i}]: ${tagName} type="${type}" placeholder="${placeholder}" text="${text}"`);
                                     } catch (error) {
-                                        console.log(`  WebView Element[${i}]: Error getting properties`);
+                                        console.log("🢄  WebView Element[${i}]: Error getting properties`);
                                     }
                                 }
                             }
@@ -212,8 +212,8 @@ describe('Android UI Exploration', () => {
         try {
             const activity = await driver.getCurrentActivity();
             const packageName = await driver.getCurrentPackage();
-            console.log(`  Current package: ${packageName}`);
-            console.log(`  Current activity: ${activity}`);
+            console.log("🢄  Current package: ${packageName}`);
+            console.log("🢄  Current activity: ${activity}`);
         } catch (error) {
             console.log('❌ Could not get app package info:', error.message);
         }

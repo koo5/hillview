@@ -89,7 +89,7 @@ test.describe('Photo Navigation and Image URLs', () => {
     );
     
     console.log('🢄🧭 Navigation messages:');
-    navigationMessages.forEach(msg => console.log(`  ${msg}`));
+    navigationMessages.forEach(msg => console.log(`🢄  ${msg}`));
     
     // Should have navigation messages
     expect(navigationMessages.length, 'Expected navigation messages when pressing c/v keys').toBeGreaterThan(0);

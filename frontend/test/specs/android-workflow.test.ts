@@ -274,16 +274,16 @@ describe('Android Complete Workflow', () => {
                 await driver.saveScreenshot('./test-results/workflow-08-final.png');
                 
                 console.log('🎯 Test Summary:');
-                console.log('   ✅ Login: Successful');
-                console.log('   ✅ Camera: Accessed successfully');
-                console.log('   ✅ Photo: Capture attempted');
-                console.log('   ✅ Navigation: Back to app successful');
-                console.log('   ✅ Gallery: Access attempted');
+                console.log('🢄   ✅ Login: Successful');
+                console.log('🢄   ✅ Camera: Accessed successfully');
+                console.log('🢄   ✅ Photo: Capture attempted');
+                console.log('🢄   ✅ Navigation: Back to app successful');
+                console.log('🢄   ✅ Gallery: Access attempted');
                 console.log('');
                 console.log('🔬 Next steps for debugging:');
-                console.log('   1. Check worker container logs for photo processing');
-                console.log('   2. Verify database for uploaded photo records');
-                console.log('   3. Test hillview source toggle to see processed photos');
+                console.log('🢄   1. Check worker container logs for photo processing');
+                console.log('🢄   2. Verify database for uploaded photo records');
+                console.log('🢄   3. Test hillview source toggle to see processed photos');
                 
                 expect(true).toBe(true);
                 

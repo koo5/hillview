@@ -219,14 +219,15 @@ class PhotoUploadWorker(
     private fun getPhotoDirectories(): List<File> {
         val directories = mutableListOf<File>()
         
-        // Get external storage path
+        // Get external storage path  
         val externalStorage = System.getenv("EXTERNAL_STORAGE") ?: "/storage/emulated/0"
-        val basePath = File(externalStorage)
+        val picturesDir = File(externalStorage, "Pictures")
         
-        // Add Hillview directories
-        directories.add(File(basePath, "Hillview"))
-        directories.add(File(basePath, ".Hillview"))
+        // Add Hillview directories in Pictures (where photos are actually saved)
+        directories.add(File(picturesDir, "Hillview"))    // /storage/emulated/0/Pictures/Hillview
+        directories.add(File(picturesDir, ".Hillview"))   // /storage/emulated/0/Pictures/.Hillview (hidden)
         
+        Log.d(TAG, "Scanning photo directories: ${directories.map { it.path }}")
         return directories
     }
     

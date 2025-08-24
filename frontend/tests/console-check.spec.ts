@@ -68,12 +68,12 @@ test.describe('Console Error Check', () => {
 
     if (errors.length > 0) {
       console.log('🢄\n❌ CONSOLE ERRORS:');
-      errors.forEach((error, i) => console.log(`  ${i + 1}. ${error}`));
+      errors.forEach((error, i) => console.log(`🢄  ${i + 1}. ${error}`));
     }
 
     if (uncaughtExceptions.length > 0) {
       console.log('🢄\n💥 UNCAUGHT EXCEPTIONS:');
-      uncaughtExceptions.forEach((error, i) => console.log(`  ${i + 1}. ${error}`));
+      uncaughtExceptions.forEach((error, i) => console.log(`🢄  ${i + 1}. ${error}`));
     }
 
     // Check for specific "pos is not defined" errors
@@ -103,12 +103,12 @@ test.describe('Console Error Check', () => {
 
     if (hasPosErrors.length > 0) {
       console.log('🢄\n🚨 "pos is not defined" ERRORS FOUND:');
-      hasPosErrors.forEach((error, i) => console.log(`  ${i + 1}. ${error}`));
+      hasPosErrors.forEach((error, i) => console.log(`🢄  ${i + 1}. ${error}`));
     }
 
     if (hasLegacyErrors.length > 0) {
       console.log('🢄\n🚨 LEGACY STORE ERRORS FOUND:');
-      hasLegacyErrors.forEach((error, i) => console.log(`  ${i + 1}. ${error}`));
+      hasLegacyErrors.forEach((error, i) => console.log(`🢄  ${i + 1}. ${error}`));
     }
 
     // Test assertions

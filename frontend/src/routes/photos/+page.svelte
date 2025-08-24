@@ -11,6 +11,7 @@
     import { http, handleApiError, TokenExpiredError } from '$lib/http';
     import { TAURI } from '$lib/tauri';
     import { navigateWithHistory } from '$lib/navigation.svelte';
+    import { invoke } from '@tauri-apps/api/core';
 
     let photos: UserPhoto[] = [];
     let isLoading = true;
@@ -215,13 +216,25 @@
 
     async function saveSettings() {
         try {
-            const formData = new FormData();
-            formData.append('auto_upload_enabled', String(autoUploadEnabled));
+            const settingsData = {
+                auto_upload_enabled: autoUploadEnabled
+            };
             
-            const response = await http.put('/auth/settings', formData);
+            const response = await http.put('/auth/settings', settingsData);
             
             if (!response.ok) {
                 throw new Error('Failed to save settings');
+            }
+            
+            // Also update the Android background service setting
+            if (TAURI) {
+                try {
+                    await invoke('plugin:hillview|set_auto_upload_enabled', { enabled: autoUploadEnabled });
+                    addLogEntry(`Android auto-upload ${autoUploadEnabled ? 'enabled' : 'disabled'}`, 'success');
+                } catch (pluginErr) {
+                    console.error('🢄Error updating Android plugin:', pluginErr);
+                    addLogEntry('Warning: Android auto-upload setting may not be updated', 'warning');
+                }
             }
             
             showSettings = false;

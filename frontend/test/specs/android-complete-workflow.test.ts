@@ -619,8 +619,8 @@ describe('Complete Android Photo Workflow', () => {
                 await driver.saveScreenshot('./test-results/workflow-final-result.png');
                 
                 console.log('📊 Workflow Summary:');
-                console.log(`   Device photo found: ${devicePhotoFound}`);
-                console.log(`   Hillview photo found: ${hillviewPhotoFound}`);
+                console.log("🢄   Device photo found: ${devicePhotoFound}`);
+                console.log("🢄   Hillview photo found: ${hillviewPhotoFound}`);
                 
                 if (hillviewPhotoFound) {
                     console.log('🎉 COMPLETE SUCCESS: Photo upload workflow worked!');

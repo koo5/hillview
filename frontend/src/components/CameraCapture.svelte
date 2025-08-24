@@ -1,5 +1,6 @@
 <script lang="ts">
     import {createEventDispatcher, onDestroy, onMount} from 'svelte';
+    import {get} from 'svelte/store';
     import {X} from 'lucide-svelte';
     import {photoCaptureSettings} from '$lib/stores';
     import {app} from "$lib/data.svelte";
@@ -180,19 +181,18 @@
 
             // Use probe-then-enumerate pattern for better compatibility
             let constraints: MediaStreamConstraints;
-            let currentSelectedId: string | null = null;
-            selectedCameraId.subscribe(id => { currentSelectedId = id; })();
 
-            if (currentSelectedId) {
+            const selectedId = get(selectedCameraId);
+            if (selectedId) {
                 // Use explicitly selected camera with exact deviceId
                 constraints = {
                     video: {
-                        deviceId: { exact: currentSelectedId },
+                        deviceId: { exact: selectedId },
                         width: { ideal: 1280 },  // More modest resolution for stability
                         height: { ideal: 720 }
                     }
                 };
-                console.log('🢄[CAMERA] Using selected camera device:', currentSelectedId.slice(0, 8) + '...');
+                console.log('🢄[CAMERA] Using selected camera device:', selectedId.slice(0, 8) + '...');
             } else {
                 // First attempt: probe with ideal facingMode (not exact) to trigger permission
                 constraints = {
@@ -247,7 +247,7 @@
                 }
 
                 // Now enumerate cameras for the selector (after permission granted)
-                if (!currentSelectedId) {
+                if (!get(selectedCameraId)) {
                     try {
                         await enumerateCameraDevices();
                         console.log('🢄[CAMERA] Camera enumeration completed');

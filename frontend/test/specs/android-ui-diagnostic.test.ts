@@ -49,9 +49,9 @@ describe('Android UI Diagnostic', () => {
                     for (let i = 0; i < Math.min(descriptiveElements.length, 5); i++) {
                         try {
                             const desc = await descriptiveElements[i].getAttribute('content-desc');
-                            console.log(`  ${i}: content-desc="${desc}"`);
+                            console.log("🢄  ${i}: content-desc="${desc}"`);
                         } catch (e) {
-                            console.log(`  ${i}: could not read content-desc`);
+                            console.log("🢄  ${i}: could not read content-desc`);
                         }
                     }
                 } catch (e) {
@@ -69,10 +69,10 @@ describe('Android UI Diagnostic', () => {
                         try {
                             const text = await textElements[i].getAttribute('text');
                             if (text && text.trim()) {
-                                console.log(`  ${i}: text="${text}"`);
+                                console.log("🢄  ${i}: text="${text}"`);
                             }
                         } catch (e) {
-                            console.log(`  ${i}: could not read text`);
+                            console.log("🢄  ${i}: could not read text`);
                         }
                     }
                 } catch (e) {
@@ -89,9 +89,9 @@ describe('Android UI Diagnostic', () => {
                         try {
                             const text = await buttons[i].getText();
                             const desc = await buttons[i].getAttribute('content-desc');
-                            console.log(`  Button ${i}: text="${text}", desc="${desc}"`);
+                            console.log("🢄  Button ${i}: text="${text}", desc="${desc}"`);
                         } catch (e) {
-                            console.log(`  Button ${i}: could not read properties`);
+                            console.log("🢄  Button ${i}: could not read properties`);
                         }
                     }
                 } catch (e) {

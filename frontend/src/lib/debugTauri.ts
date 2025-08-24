@@ -15,7 +15,7 @@ export function debugTauriStatus() {
     if ((window as any).__TAURI__) {
         console.log('🢄Tauri modules available:');
         for (const key in (window as any).__TAURI__) {
-            console.log(`  - ${key}:`, typeof (window as any).__TAURI__[key]);
+            console.log(`🢄  - ${key}:`, typeof (window as any).__TAURI__[key]);
         }
     }
 }
