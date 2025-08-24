@@ -297,7 +297,7 @@ class PhotoProcessorService:
         while True:
             try:
                 await self.scan_and_process()
-                //logger.debug(f"Scan completed, sleeping for {self.scan_interval} seconds")
+                #logger.debug(f"Scan completed, sleeping for {self.scan_interval} seconds")
                 await asyncio.sleep(self.scan_interval)
                 
             except KeyboardInterrupt:
