@@ -267,11 +267,11 @@ export function stopCompass() {
             });
         }
         
-        // Also stop precise location updates on Android
-        if (TAURI_MOBILE) {
+        // Also stop precise location updates on Android : TODO - ideally, compass, in absence of true north, would use GPS to determine heading, but we'de have to implement some kind of reference count on location tracking, it cannot just toggle the user-facing location tracking active value
+        /*if (TAURI_MOBILE) {
             console.log('🢄📍 Stopping precise location updates');
             stopPreciseLocationUpdates();
-        }
+        }*/
     }
     
     // Stop DeviceOrientation if active

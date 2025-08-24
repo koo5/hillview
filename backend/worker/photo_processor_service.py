@@ -46,7 +46,7 @@ class PhotoProcessorService:
     
     def __init__(self, upload_dir: str = "/app/uploads"):
         self.upload_dir = upload_dir
-        self.scan_interval = int(os.getenv("SCAN_INTERVAL_SECONDS", "1))
+        self.scan_interval = int(os.getenv("SCAN_INTERVAL_SECONDS", "2"))
         
     async def scan_and_process(self):
         """Scan for unprocessed photos and process them."""

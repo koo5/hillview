@@ -229,6 +229,7 @@
             // Also update the Android background service setting
             if (TAURI) {
                 try {
+                    console.log('📤 Setting Android auto-upload to:', autoUploadEnabled);
                     await invoke('plugin:hillview|set_auto_upload_enabled', { enabled: autoUploadEnabled });
                     addLogEntry(`Android auto-upload ${autoUploadEnabled ? 'enabled' : 'disabled'}`, 'success');
                 } catch (pluginErr) {

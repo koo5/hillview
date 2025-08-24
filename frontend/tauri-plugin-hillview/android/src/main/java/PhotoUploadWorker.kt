@@ -32,8 +32,10 @@ class PhotoUploadWorker(
         try {
             Log.d(TAG, "Starting photo upload worker")
             
-            val autoUploadEnabled = inputData.getBoolean(KEY_AUTO_UPLOAD_ENABLED, false)
-            Log.d(TAG, "Auto upload enabled: $autoUploadEnabled")
+            // Read current auto-upload setting from SharedPreferences (not stale inputData)
+            val prefs = applicationContext.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
+            val autoUploadEnabled = prefs.getBoolean("auto_upload_enabled", false)
+            Log.d(TAG, "Auto upload enabled (from SharedPrefs): $autoUploadEnabled")
             
             // First scan for new photos
             scanForNewPhotos()
@@ -82,6 +84,9 @@ class PhotoUploadWorker(
             
             for (file in imageFiles) {
                 try {
+
+                	Log.w(TAG, "Processing file: ${file.path}")
+
                     // Calculate file hash for duplicate detection
                     val fileHash = calculateFileHash(file)
                     if (fileHash == null) {
@@ -109,6 +114,8 @@ class PhotoUploadWorker(
                     Log.w(TAG, "Failed to process photo ${file.path}: ${e.message}")
                     scanErrors++
                 }
+
+                Log.w(TAG, "loop..");
             }
         }
         
@@ -220,7 +227,8 @@ class PhotoUploadWorker(
         val directories = mutableListOf<File>()
         
         // Get external storage path  
-        val externalStorage = System.getenv("EXTERNAL_STORAGE") ?: "/storage/emulated/0"
+        //val externalStorage = System.getenv("EXTERNAL_STORAGE") ?: "/storage/emulated/0"
+        val externalStorage = "/storage/emulated/0"
         val picturesDir = File(externalStorage, "Pictures")
         
         // Add Hillview directories in Pictures (where photos are actually saved)
