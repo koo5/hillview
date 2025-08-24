@@ -127,24 +127,6 @@ describe('Android Photo Capture', () => {
 				}
 
 
-				// Check for "Enable Camera" button (app-specific) FIRST
-				console.log('📷 Checking for "Enable Camera" button...');
-				try {
-					const enableCameraButton = await $('android=new UiSelector().text("Enable Camera")');
-					if (await enableCameraButton.isDisplayed()) {
-						console.log('📷 Clicking "Enable Camera" button...');
-						await enableCameraButton.click();
-						await driver.pause(3000);
-						console.log('✅ Camera enabled');
-
-						// Take screenshot after enabling camera
-						await screenshots.takeScreenshot('camera-enabled');
-					} else {
-						console.log('ℹ️ No "Enable Camera" button found - camera may already be enabled');
-					}
-				} catch (e) {
-					console.log('ℹ️ Could not find "Enable Camera" button:', e.message);
-				}
 
 
 				try {
@@ -164,6 +146,10 @@ describe('Android Photo Capture', () => {
 
 				// Take screenshot to see current state
 				await screenshots.takeScreenshot('before-capture');
+
+				// Check for "Try Again" or "Enable Camera" buttons before attempting capture
+				console.log('🔄 Checking for Try Again or Enable Camera buttons...');
+				await handleCameraInitializationButtons();
 
 				// Capture photo using in-app camera interface
 				console.log('📸 Looking for in-app capture button...');
@@ -202,6 +188,8 @@ describe('Android Photo Capture', () => {
 
 				await closeCamera();
 
+				// Wait a moment for UI to stabilize after closing camera
+				await driver.pause(3000);
 
 				const appHealthy = await workflows.performQuickHealthCheck();
 				expect(appHealthy).toBe(true);
@@ -270,4 +258,90 @@ async function closeCamera() {
 	
 	await driver.pause(2000);
 	console.log('📸 Closed camera mode');
+}
+
+async function handleCameraInitializationButtons() {
+	console.log('🔄 Handling camera initialization buttons...');
+	
+	let buttonClicked = false;
+	
+	// Check for "Try Again" button first
+	try {
+		const tryAgainButton = await $('android=new UiSelector().text("Try Again")');
+		if (await tryAgainButton.isDisplayed()) {
+			console.log('🔄 Found "Try Again" button, clicking...');
+			await tryAgainButton.click();
+			await driver.pause(3000);
+			console.log('✅ Clicked Try Again button');
+			buttonClicked = true;
+		}
+	} catch (e) {
+		console.log('ℹ️ No "Try Again" button found');
+	}
+	
+	// Check for "Enable Camera" button
+	try {
+		const enableCameraButton = await $('android=new UiSelector().text("Enable Camera")');
+		if (await enableCameraButton.isDisplayed()) {
+			console.log('📷 Found "Enable Camera" button, clicking...');
+			await enableCameraButton.click();
+			await driver.pause(3000);
+			console.log('✅ Clicked Enable Camera button');
+			buttonClicked = true;
+		}
+	} catch (e) {
+		console.log('ℹ️ No "Enable Camera" button found');
+	}
+	
+	// If we clicked any initialization button, check for permission dialogs
+	if (buttonClicked) {
+		console.log('📋 Checking for permission dialogs after button click...');
+		await handlePermissionDialogs();
+	}
+	
+	// Additional wait for camera to initialize after button clicks
+	await driver.pause(2000);
+}
+
+async function handlePermissionDialogs() {
+	console.log('📋 Handling potential permission dialogs...');
+	
+	// Handle camera permission dialog
+	try {
+		const allowButton = await $('android=new UiSelector().text("Allow")');
+		if (await allowButton.isDisplayed()) {
+			console.log('📷 Found camera permission dialog, clicking Allow...');
+			await allowButton.click();
+			await driver.pause(2000);
+			console.log('✅ Granted camera permission');
+		}
+	} catch (e) {
+		console.log('ℹ️ No "Allow" button found');
+	}
+	
+	// Handle "While using the app" option
+	try {
+		const whileUsingButton = await $('android=new UiSelector().text("While using the app")');
+		if (await whileUsingButton.isDisplayed()) {
+			console.log('📷 Found "While using the app" option, clicking...');
+			await whileUsingButton.click();
+			await driver.pause(2000);
+			console.log('✅ Selected "While using the app"');
+		}
+	} catch (e) {
+		console.log('ℹ️ No "While using the app" option found');
+	}
+	
+	// Handle "Only this time" option
+	try {
+		const onlyThisTimeButton = await $('android=new UiSelector().text("Only this time")');
+		if (await onlyThisTimeButton.isDisplayed()) {
+			console.log('📍 Found "Only this time" option, clicking...');
+			await onlyThisTimeButton.click();
+			await driver.pause(2000);
+			console.log('✅ Selected "Only this time"');
+		}
+	} catch (e) {
+		console.log('ℹ️ No "Only this time" option found');
+	}
 }

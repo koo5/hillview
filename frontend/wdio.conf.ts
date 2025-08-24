@@ -10,6 +10,12 @@ const TEST_CONFIG = {
     RESTART_PER_SUITE: process.env.WDIO_RESTART_PER_SUITE === 'true'
 };
 
+// Appium connection configuration
+const APPIUM_CONFIG = {
+    hostname: process.env.APPIUM_HOST || 'localhost',
+    port: parseInt(process.env.APPIUM_PORT || '4723')
+};
+
 export const config: Options.Testrunner = {
     runner: 'local',
     autoCompileOpts: {
@@ -20,7 +26,8 @@ export const config: Options.Testrunner = {
         }
     },
     
-    port: 4723,
+    hostname: APPIUM_CONFIG.hostname,
+    port: APPIUM_CONFIG.port,
     specs: [
         './test/specs/**/*.ts'
     ],
@@ -70,7 +77,7 @@ export const config: Options.Testrunner = {
     connectionRetryTimeout: 30000,  // Connection timeout for session creation
     connectionRetryCount: 0,  // Disable connection retries
     
-    services: [
+    services: process.env.APPIUM_HOST ? [] : [
         ['appium', {
             command: 'appium',
             args: {

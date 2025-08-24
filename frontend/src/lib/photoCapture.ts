@@ -96,12 +96,12 @@ class PhotoCaptureService {
 				hideFromGallery: settings.hideFromGallery
 			});
 
-			this.log(this.LOG_TAGS.SAVE_SUCCESS, 'Photo saved successfully', {
+			this.log(this.LOG_TAGS.SAVE_SUCCESS, 'Photo saved successfully', JSON.stringify({
 				photoId: devicePhoto.id,
 				filename: devicePhoto.filename,
 				path: devicePhoto.path,
 				hideFromGallery: settings.hideFromGallery
-			});
+			}));
 
 			return devicePhoto;
 		} catch (error) {

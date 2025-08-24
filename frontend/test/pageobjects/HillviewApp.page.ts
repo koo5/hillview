@@ -44,9 +44,20 @@ export class HillviewAppPage {
 
     async waitForAppReady(): Promise<void> {
         console.log('⏳ Waiting for app to be ready...');
-        await this.webView.waitForExist({ timeout: 15000 });
-        await driver.pause(2000);
-        console.log('✅ App is ready');
+        try {
+            await this.webView.waitForExist({ timeout: 10000 });
+            await driver.pause(2000);
+            console.log('✅ App is ready (WebView found)');
+        } catch (error) {
+            console.log('⚠️ WebView not immediately available, checking basic app functionality...');
+            // Fallback: check if app is at least responsive with basic elements
+            const menuExists = await this.hamburgerMenu.isExisting();
+            if (menuExists) {
+                console.log('✅ App is ready (menu button found)');
+                return;
+            }
+            throw new Error('App not ready - no WebView and no menu button found');
+        }
     }
 
     async verifyAppIsResponsive(): Promise<boolean> {

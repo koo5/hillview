@@ -403,11 +403,22 @@ pub async fn save_photo_with_metadata(
     {
         // Add to device photos database with dimensions
         let device_photo = crate::device_photos::add_device_photo_to_db(
-            app_handle,
+            app_handle.clone(),
             file_path.to_string_lossy().to_string(),
             metadata,
         )
         .await?;
+
+        // Trigger immediate upload worker to process the new photo
+        use tauri_plugin_hillview::HillviewExt;
+        match app_handle.hillview().retry_failed_uploads() {
+            Ok(_) => {
+                info!("📤[UPLOAD_TRIGGER] Upload worker triggered for new photo: {}", device_photo.filename);
+            }
+            Err(e) => {
+                info!("📤[UPLOAD_TRIGGER] Failed to trigger upload worker: {}", e);
+            }
+        }
 
         Ok(device_photo)
     }
