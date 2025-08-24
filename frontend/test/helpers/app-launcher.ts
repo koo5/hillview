@@ -6,7 +6,7 @@ import path from 'path';
  * Check for critical "error sending request" and fail the test immediately
  * No more automatic restarts - if this error appears, the test should fail
  */
-async function checkForCriticalErrors(): Promise<void> {
+export async function checkForCriticalErrors(): Promise<void> {
     console.log('🔍 Checking for critical error: "error sending request"...');
     
     const errorEl = await $('//*[contains(@text, "error sending request")]');
@@ -25,7 +25,7 @@ async function checkForCriticalErrors(): Promise<void> {
 /**
  * Verify the app is actually functional by checking for expected UI elements
  */
-async function verifyAppHealth(): Promise<boolean> {
+export async function verifyAppHealth(): Promise<boolean> {
     console.log('🏥 Performing app health check...');
     
     // Take screenshot for debugging
@@ -37,7 +37,7 @@ async function verifyAppHealth(): Promise<boolean> {
     // Check for expected core UI elements
     const expectedElements = [
         { selector: '//android.widget.Button[@text="Take photo"]', name: 'Take photo button' },
-        { selector: 'android.webkit.WebView', name: 'WebView container' }
+        //{ selector: 'android.webkit.WebView', name: 'WebView container' } // already checked in ensureAppIsRunning
     ];
     
     let foundElements = 0;

@@ -1,7 +1,6 @@
 #!/usr/bin/env fish
 
 # Start Android development mode (Vite server + dev APK with hot reload)
-source (dirname (status --current-filename))/../env/android-base.env
 source (dirname (status --current-filename))/../env/android-debug.env
 
 # Set TAURI_DEV_HOST for development

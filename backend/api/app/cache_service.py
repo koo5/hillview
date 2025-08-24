@@ -124,18 +124,12 @@ class MapillaryCacheService:
         else:
             log.info("Applying spatial sampling for incomplete coverage or to improve distribution")
             
-            # Use spatial sampling with grid-based distribution for incomplete regions
+            # Use round-robin spatial sampling for better distribution
             query = text(f"""
                 WITH cell_photos AS (
                     SELECT p.*,
                            CAST(LEAST(GREATEST(FLOOR((ST_X(p.geometry) - :bbox_min_x) / :cell_width * :grid_size), 0), :grid_size - 1) AS INTEGER) as grid_x,
-                           CAST(LEAST(GREATEST(FLOOR((ST_Y(p.geometry) - :bbox_min_y) / :cell_height * :grid_size), 0), :grid_size - 1) AS INTEGER) as grid_y,
-                           ROW_NUMBER() OVER (
-                               PARTITION BY 
-                                   CAST(LEAST(GREATEST(FLOOR((ST_X(p.geometry) - :bbox_min_x) / :cell_width * :grid_size), 0), :grid_size - 1) AS INTEGER),
-                                   CAST(LEAST(GREATEST(FLOOR((ST_Y(p.geometry) - :bbox_min_y) / :cell_height * :grid_size), 0), :grid_size - 1) AS INTEGER)
-                               ORDER BY random()
-                           ) as row_num
+                           CAST(LEAST(GREATEST(FLOOR((ST_Y(p.geometry) - :bbox_min_y) / :cell_height * :grid_size), 0), :grid_size - 1) AS INTEGER) as grid_y
                     FROM mapillary_photo_cache p
                     WHERE ST_Within(p.geometry, ST_GeomFromText(:bbox_wkt, 4326))
                     {hidden_filters}
@@ -144,8 +138,7 @@ class MapillaryCacheService:
                        compass_angle, computed_compass_angle, computed_rotation, computed_altitude,
                        captured_at, is_pano, thumb_1024_url, creator_username, creator_id, grid_x, grid_y
                 FROM cell_photos 
-                WHERE row_num <= :photos_per_cell
-                ORDER BY grid_x, grid_y, row_num
+                ORDER BY grid_x, grid_y, captured_at DESC
                 LIMIT :max_photos
             """)
         
@@ -155,15 +148,14 @@ class MapillaryCacheService:
             'max_photos': max_photos
         }
         
-        # Add spatial sampling parameters only for incomplete coverage
-        if not (is_complete_coverage and max_photos >= 1000):
+        # Add spatial sampling parameters for the spatial sampling query
+        if not use_simple_query:
             params.update({
                 'bbox_min_x': top_left_lon,
                 'bbox_min_y': bottom_right_lat,
                 'cell_width': cell_width,
                 'cell_height': cell_height,
-                'grid_size': grid_size,
-                'photos_per_cell': photos_per_cell
+                'grid_size': grid_size
             })
         
         if current_user_id:
@@ -200,7 +192,7 @@ class MapillaryCacheService:
             photos.append(photo_data)
         
         # Debug: Check actual grid coordinates being returned
-        if photos:
+        if photos and not use_simple_query:
             grid_coords = [(photo.get('_grid_x'), photo.get('_grid_y')) for photo in photos]
             log.info(f"Debug: Grid coordinates: {grid_coords}")
             

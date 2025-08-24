@@ -1,7 +1,7 @@
 #!/usr/bin/env fish
 
 # Install debug APK to connected Android device/emulator
-source (dirname (status --current-filename))/../env/android-base.env
+source (dirname (status --current-filename))/../env/android-debug.env
 
 set APK_PATH "src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk"
 set PACKAGE_ID "io.github.koo5.hillview.dev"

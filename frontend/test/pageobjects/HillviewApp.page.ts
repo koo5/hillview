@@ -1,4 +1,5 @@
 import { $ } from '@wdio/globals';
+import { checkForCriticalErrors } from '../helpers/app-launcher';
 
 /**
  * Page object for the main Hillview app interactions
@@ -88,19 +89,9 @@ export class HillviewAppPage {
     }
 
     async checkForCriticalError(): Promise<void> {
-        console.log('🔍 Page object checking for critical error: "error sending request"...');
-        
-        const errorEl = await $('//*[contains(@text, "error sending request")]');
-        if (await errorEl.isExisting()) {
-            const errorText = await errorEl.getText();
-            console.error(`❌ CRITICAL ERROR DETECTED: "${errorText}"`);
-            await this.takeScreenshot('page-critical-error-sending-request');
-            
-            // Fail the test immediately
-            throw new Error(`Test failed due to critical error in app: "${errorText}". This indicates backend connectivity issues.`);
-        }
-        
-        console.log('✅ No critical errors detected in page object');
+        console.log('🔍 Page object delegating to centralized critical error check...');
+        // Use the centralized critical error check
+        await checkForCriticalErrors();
     }
 
     async getCameraButtonTexts(): Promise<string[]> {

@@ -51,10 +51,10 @@
 		"android:release:install": "./scripts/android/release-install.sh",
 		"android:logs": "./scripts/android/logs.sh",
 
-		"test:android": "wdio run wdio.conf.ts",
-		"test:android:clean": "WDIO_CLEAN_STATE=true wdio run wdio.conf.ts",
-		"test:android:fast": "WDIO_CLEAN_STATE=false wdio run wdio.conf.ts",
-		"test:android:test0": "WDIO_CLEAN_STATE=false WDIO_RESTART_PER_SUITE=true wdio run wdio.conf.ts --spec './test/specs/android-photo-simple.test0.ts'",
+		"test:android": "fish -c 'source scripts/env/android-debug.env; wdio run wdio.conf.ts'",
+		"test:android:clean": "fish -c 'source scripts/env/android-debug.env; set -gx WDIO_CLEAN_STATE true; wdio run wdio.conf.ts'",
+		"test:android:fast": "fish -c 'source scripts/env/android-debug.env; set -gx WDIO_CLEAN_STATE false; wdio run wdio.conf.ts'",
+		"test:android:test0": "fish -c 'source scripts/env/android-debug.env; set -gx WDIO_CLEAN_STATE false; set -gx WDIO_RESTART_PER_SUITE true; wdio run wdio.conf.ts --spec \"./test/specs/android-photo-simple.test0.ts\"'",
 
 
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env fish
 
 # View Android logs with filtering for Hillview app
-source (dirname (status --current-filename))/../env/android-base.env
+source (dirname (status --current-filename))/../env/android-debug.env
 
 set ADB_PATH "$ANDROID_HOME/platform-tools/adb"
 

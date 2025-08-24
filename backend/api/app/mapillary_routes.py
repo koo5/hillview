@@ -508,15 +508,14 @@ async def stream_mapillary_images(
                                 break
                             
                             else:
-                                # check if we got exactly the limit
-                                # If so, there might still be more data (Mapillary API behavior)
-                                if len(photos_data) >= 250:  # Got full batch, likely more data exists
-                                    log.info(f"Marking region {region.id} as incomplete")
-                                    break  # Don't mark as complete, there might be more
-                                else:
-                                    log.info(f"Got partial batch ({len(photos_data)} photos) - region {region.id} appears complete")
+                                # Check if we got fewer photos than requested - indicates no more data available
+                                if len(photos_data) < effective_max_photos:
+                                    log.info(f"Got partial batch ({len(photos_data)} < {effective_max_photos} requested) - region {region.id} appears complete")
                                     region_fully_fetched = True
                                     break
+                                else:
+                                    log.info(f"Got full batch ({len(photos_data)} = {effective_max_photos} requested) - region {region.id} may have more data")
+                                    break  # Don't mark as complete, there might be more
                     
                         # Only mark region as complete if we actually fetched all available data from Mapillary
                         if region_fully_fetched:

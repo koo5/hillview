@@ -1,5 +1,5 @@
 import type { Options } from '@wdio/types';
-import { ensureAppIsRunning, prepareAppForTest, prepareAppForTestFast } from './test/helpers/app-launcher';
+import { ensureAppIsRunning, prepareAppForTest, prepareAppForTestFast, verifyAppHealth } from './test/helpers/app-launcher';
 
 // Test configuration
 const TEST_CONFIG = {
@@ -118,15 +118,12 @@ export const config: Options.Testrunner = {
             return;
         }
         
-        // Only do a lightweight health check - app was already prepared in 'before' hook
+        // Use centralized health check from app-launcher
         console.log('🢄🔍 Quick health check before test...');
         try {
-            // Just verify the app is still responsive (no restart unless absolutely necessary)
-            const webView = await $('android.webkit.WebView');
-            const webViewExists = await webView.isExisting();
-            
-            if (!webViewExists) {
-                console.log('🢄⚠️ WebView missing, doing minimal restart...');
+            const isHealthy = await verifyAppHealth();
+            if (!isHealthy) {
+                console.log('🢄⚠️ App health check failed, doing minimal restart...');
                 await ensureAppIsRunning(false); // Don't force restart, just ensure it's running
             } else {
                 console.log('🢄✅ App appears healthy, proceeding with test');

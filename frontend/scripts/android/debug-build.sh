@@ -1,7 +1,6 @@
 #!/usr/bin/env fish
 
 # Build debug APK with dev configuration
-source (dirname (status --current-filename))/../env/android-base.env
 source (dirname (status --current-filename))/../env/android-debug.env
 
 echo "🔨 Building debug APK..."
