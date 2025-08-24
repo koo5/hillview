@@ -116,6 +116,7 @@
     <div><strong>Map View:</strong></div>
     <div>Center: {$spatialState.center.lat?.toFixed(4)}, {$spatialState.center.lng?.toFixed(4)}</div>
     <div>Zoom: {$spatialState.zoom?.toFixed(1)} | Bearing: {$bearingState.bearing?.toFixed(0)}°</div>
+    <div>Area: {JSON.stringify($spatialState.bounds, null, 2)}</div>
 </div>
 
 {#if $gpsLocation}

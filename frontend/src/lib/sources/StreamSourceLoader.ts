@@ -16,6 +16,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
     private timeoutId?: NodeJS.Timeout;
     private readyStateMonitorId?: NodeJS.Timeout;
     private wasConnected = false;
+	private wasErrored = false;
 
     constructor(source: any, callbacks: PhotoSourceCallbacks) {
         super(source, callbacks);
@@ -168,6 +169,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
                 postToast('error', 'Connection lost', this.source.name || this.source.id, 0);
             }
             this.wasConnected = false;
+			this.wasErrored = true;
             
             // Resolve the completion promise even on error to prevent hanging
             this.resolveCompletion();
@@ -178,9 +180,10 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
             this.updateLoadingStatus(true, 'Loading photos...');
             
             // Toast only on reconnection
-            if (!this.wasConnected) {
+            if (this.wasErrored) {
                 postToast('success', 'Connection restored', this.source.name || this.source.id, 3000);
             }
+			this.wasErrored= false;
             this.wasConnected = true;
         };
 

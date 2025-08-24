@@ -219,18 +219,19 @@ async def fetch_mapillary_data(
     top_left_lon: float,
     bottom_right_lat: float,
     bottom_right_lon: float,
-    cursor: Optional[str] = None
+    cursor: Optional[str] = None,
+    limit: int = 250
 ) -> Dict[str, Any]:
     """Fetch data from Mapillary API with optional cursor for pagination"""
     
     # Check for mock data first
     if mock_mapillary_service.has_mock_data():
-        log.info("Using mock Mapillary data instead of real API")
+        log.info(f"Using mock Mapillary data instead of real API (limit: {limit})")
         bbox_coords = [top_left_lon, bottom_right_lat, bottom_right_lon, top_left_lat]  # [west, south, east, north]
-        return mock_mapillary_service.filter_by_bbox(bbox_coords, limit=250)
+        return mock_mapillary_service.filter_by_bbox(bbox_coords, limit=limit)
     
     params = {
-        "limit": 250,
+        "limit": limit,
         "bbox": ",".join(map(str, [round(top_left_lon, 7), round(bottom_right_lat,7), round(bottom_right_lon,7), round(top_left_lat,7)])),
         "fields": "id,geometry,compass_angle,thumb_1024_url,computed_rotation,computed_compass_angle,computed_altitude,captured_at,is_pano,creator",
         "access_token": get_mapillary_token(),
@@ -260,6 +261,7 @@ async def stream_mapillary_images(
     bottom_right_lat: float = Query(..., description="Bottom right latitude"),
     bottom_right_lon: float = Query(..., description="Bottom right longitude"),
     client_id: str = Query(..., description="Client ID"),
+    max_photos: int = Query(250, description="Maximum photos to return (cannot exceed server limit)", ge=1),
     db: AsyncSession = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional_with_query)
 ):
@@ -267,8 +269,12 @@ async def stream_mapillary_images(
     # Apply public read rate limiting
     await rate_limit_public_read(request)
     
+    # Calculate effective maximum photos (client can't exceed server limit)
+    effective_max_photos = min(max_photos, MAX_PHOTOS_PER_REQUEST)
+    
     log.info(f"EventSource connection initiated by client {client_id} for bbox: ({top_left_lat}, {top_left_lon}) to ({bottom_right_lat}, {bottom_right_lon})")
     log.info(f"User authentication status: {current_user.username if current_user else 'Anonymous'} (ID: {current_user.id if current_user else 'None'})")
+    log.info(f"Photo limits: client requested {max_photos}, server limit {MAX_PHOTOS_PER_REQUEST}, effective limit {effective_max_photos}")
     
     async def generate_stream(db_session: AsyncSession, user: Optional[User] = None):
         request_id = datetime.datetime.now().strftime("%Y%m%d%H%M%S.%f")
@@ -296,7 +302,8 @@ async def stream_mapillary_images(
                 cursor = None
                 while True:
                     mapillary_response = await fetch_mapillary_data(
-                        top_left_lat, top_left_lon, bottom_right_lat, bottom_right_lon, cursor
+                        top_left_lat, top_left_lon, bottom_right_lat, bottom_right_lon, cursor,
+                        limit=effective_max_photos
                     )
                     
                     photos_data = mapillary_response["data"]
@@ -307,9 +314,9 @@ async def stream_mapillary_images(
                     
                     # Apply photo limit
                     original_batch_size = len(photos_data)
-                    if total_photo_count + len(photos_data) > MAX_PHOTOS_PER_REQUEST:
+                    if total_photo_count + len(photos_data) > effective_max_photos:
                         # Truncate batch to stay within limit
-                        remaining_slots = MAX_PHOTOS_PER_REQUEST - total_photo_count
+                        remaining_slots = effective_max_photos - total_photo_count
                         photos_data = photos_data[:remaining_slots]
                         log.info(f"Photo limit reached, truncating batch from {original_batch_size} to {remaining_slots} photos")
                     else:
@@ -320,7 +327,7 @@ async def stream_mapillary_images(
                         photos_data = await filter_mapillary_photos_list(photos_data, user.id, db_session)
                     
                     total_photo_count += len(photos_data)
-                    log.info(f"Total photos streamed so far: {total_photo_count}/{MAX_PHOTOS_PER_REQUEST}")
+                    log.info(f"Total photos streamed so far: {total_photo_count}/{effective_max_photos}")
                     
                     # Stream this batch
                     sorted_batch = sorted(photos_data, key=lambda x: x.get('compass_angle', 0))
@@ -329,8 +336,8 @@ async def stream_mapillary_images(
                     yield f"data: {json.dumps({'type': 'photos', 'photos': sorted_batch, 'hasNext': region_has_next})}\n\n"
                     
                     # Check if we've reached the photo limit
-                    if total_photo_count >= MAX_PHOTOS_PER_REQUEST:
-                        log.info(f"Photo limit of {MAX_PHOTOS_PER_REQUEST} reached, stopping fetch")
+                    if total_photo_count >= effective_max_photos:
+                        log.info(f"Photo limit of {effective_max_photos} reached, stopping fetch")
                         break
                     
                     # Check for more pages
@@ -353,7 +360,7 @@ async def stream_mapillary_images(
                 # Send initial response with cached data using spatial sampling
                 cache_result = await cache_service.get_cached_photos_in_bbox(
                     top_left_lat, top_left_lon, bottom_right_lat, bottom_right_lon, 
-                    max_photos=MAX_PHOTOS_PER_REQUEST,
+                    max_photos=effective_max_photos,
                     current_user_id=user.id if user else None
                 )
                 cached_photos = cache_result['photos']
@@ -384,9 +391,9 @@ async def stream_mapillary_images(
                         sorted_cached = sorted(cached_photos, key=lambda x: x.get('compass_angle', 0))
                         
                         # Apply photo limit to cached photos (already limited by spatial sampling)
-                        if len(sorted_cached) > MAX_PHOTOS_PER_REQUEST:
-                            sorted_cached = sorted_cached[:MAX_PHOTOS_PER_REQUEST]
-                            log.info(f"Limiting cached photos from {len(cached_photos)} to {MAX_PHOTOS_PER_REQUEST} due to MAX_PHOTOS_PER_REQUEST")
+                        if len(sorted_cached) > effective_max_photos:
+                            sorted_cached = sorted_cached[:effective_max_photos]
+                            log.info(f"Limiting cached photos from {len(cached_photos)} to {effective_max_photos} due to effective_max_photos")
                         
                         # Clean up grid info before sending to client
                         for photo in sorted_cached:
@@ -397,7 +404,7 @@ async def stream_mapillary_images(
                         log.info(f"Streaming {cached_photo_count} cached photos to client {client_id}")
                         # For cached photos from complete cache, region is exhausted if we have fewer than limit
                         # (assuming cache service marks regions as complete when no more data available)
-                        region_exhausted = len(cached_photos) < MAX_PHOTOS_PER_REQUEST
+                        region_exhausted = len(cached_photos) < effective_max_photos
                         yield f"data: {json.dumps({'type': 'photos', 'photos': sorted_cached, 'hasNext': not region_exhausted})}\n\n"
                 else:
                     cached_photo_count = 0
@@ -435,8 +442,8 @@ async def stream_mapillary_images(
                     log.info(f"Processing uncached region {region_idx + 1}/{len(uncached_regions)}: {region_bbox}")
                     # Check if we've already reached the photo limit (including cached photos)
                     total_photos_so_far = cached_photo_count + total_photo_count
-                    if total_photos_so_far >= MAX_PHOTOS_PER_REQUEST:
-                        log.info(f"Photo limit of {MAX_PHOTOS_PER_REQUEST} reached (cached: {cached_photo_count}, live: {total_photo_count}), skipping remaining regions")
+                    if total_photos_so_far >= effective_max_photos:
+                        log.info(f"Photo limit of {effective_max_photos} reached (cached: {cached_photo_count}, live: {total_photo_count}), skipping remaining regions")
                         break
                         
                     try:
@@ -453,7 +460,8 @@ async def stream_mapillary_images(
                         while True:
                             log.info(f"Fetching data from Mapillary API for region {region.id} with cursor: {cursor}")
                             mapillary_response = await fetch_mapillary_data(
-                                region_bbox[0], region_bbox[1], region_bbox[2], region_bbox[3], cursor
+                                region_bbox[0], region_bbox[1], region_bbox[2], region_bbox[3], cursor,
+                                limit=effective_max_photos
                             )
                             
                             photos_data = mapillary_response["data"]
@@ -476,9 +484,9 @@ async def stream_mapillary_images(
                                 stream_photos = await filter_mapillary_photos_list(stream_photos, user.id, db_session)
                             
                             total_photos_so_far = cached_photo_count + total_photo_count
-                            if total_photos_so_far + len(stream_photos) > MAX_PHOTOS_PER_REQUEST:
+                            if total_photos_so_far + len(stream_photos) > effective_max_photos:
                                 # Truncate stream batch to stay within limit
-                                remaining_slots = MAX_PHOTOS_PER_REQUEST - total_photos_so_far
+                                remaining_slots = effective_max_photos - total_photos_so_far
                                 stream_photos = stream_photos[:remaining_slots] if remaining_slots > 0 else []
                                 log.info(f"Photo limit reached, streaming only {len(stream_photos)} photos (but caching all {len(photos_data)} from this batch)")
                             else:
@@ -486,7 +494,7 @@ async def stream_mapillary_images(
                             
                             total_photo_count += len(stream_photos)
                             total_photos_so_far = cached_photo_count + total_photo_count
-                            log.info(f"Total photos streamed so far: {total_photos_so_far}/{MAX_PHOTOS_PER_REQUEST} (cached: {cached_photo_count}, live: {total_photo_count})")
+                            log.info(f"Total photos streamed so far: {total_photos_so_far}/{effective_max_photos} (cached: {cached_photo_count}, live: {total_photo_count})")
                             
                             # Stream this batch (limited)
                             sorted_batch = sorted(stream_photos, key=lambda x: x.get('compass_angle', 0))
@@ -495,8 +503,8 @@ async def stream_mapillary_images(
                             yield f"data: {json.dumps({'type': 'photos', 'photos': sorted_batch, 'hasNext': region_has_next})}\n\n"
                             
                             # Check if we've reached the photo limit for streaming
-                            if total_photos_so_far >= MAX_PHOTOS_PER_REQUEST:
-                                log.info(f"Photo limit of {MAX_PHOTOS_PER_REQUEST} reached, stopping fetch (region may have more data)")
+                            if total_photos_so_far >= effective_max_photos:
+                                log.info(f"Photo limit of {effective_max_photos} reached, stopping fetch (region may have more data)")
                                 break
                             
                             else:

@@ -87,10 +87,28 @@ class MapillaryCacheService:
         # Build the hidden content filtering conditions
         hidden_filters = apply_mapillary_hidden_content_filters([], current_user_id)
         
-        if is_complete_coverage and max_photos >= 1000:  # For complete regions, return all photos unless excessive
-            log.info("Complete coverage detected - returning ALL cached photos without spatial sampling")
+        # For complete coverage, check if we need spatial sampling by counting cached photos
+        use_simple_query = False
+        if is_complete_coverage:
+            # Count total cached photos in the area to decide if spatial sampling is needed
+            count_query = text(f"""
+                SELECT COUNT(*) as total_count
+                FROM mapillary_photo_cache p
+                WHERE ST_Within(p.geometry, ST_GeomFromText(:bbox_wkt, 4326))
+                {hidden_filters}
+            """)
             
-            # Simple query without spatial sampling for complete regions
+            count_result = await self.db.execute(count_query, {'bbox_wkt': bbox_wkt, 'current_user_id': current_user_id} if current_user_id else {'bbox_wkt': bbox_wkt})
+            total_cached_photos = count_result.scalar()
+            
+            if total_cached_photos <= max_photos:
+                use_simple_query = True
+                log.info(f"Complete coverage with {total_cached_photos} cached photos <= {max_photos} requested - returning ALL cached photos without spatial sampling")
+            else:
+                log.info(f"Complete coverage with {total_cached_photos} cached photos > {max_photos} requested - applying spatial sampling for better distribution")
+        
+        if use_simple_query:
+            # Simple query without spatial sampling - return all cached photos
             query = text(f"""
                 SELECT p.mapillary_id, ST_X(p.geometry) as lon, ST_Y(p.geometry) as lat, 
                        p.compass_angle, p.computed_compass_angle, p.computed_rotation, p.computed_altitude,
@@ -104,7 +122,7 @@ class MapillaryCacheService:
             """)
             
         else:
-            log.info("Incomplete coverage or performance limit - applying spatial sampling")
+            log.info("Applying spatial sampling for incomplete coverage or to improve distribution")
             
             # Use spatial sampling with grid-based distribution for incomplete regions
             query = text(f"""
@@ -191,19 +209,20 @@ class MapillaryCacheService:
             if invalid_coords:
                 log.warning(f"Found invalid grid coordinates: {invalid_coords}")
         
-        if is_complete_coverage and max_photos >= 1000:
-            log.info(f"Complete coverage: returned {len(photos)} photos WITHOUT spatial sampling")
+        if use_simple_query:
+            log.info(f"Complete coverage with simple query: returned {len(photos)} photos WITHOUT spatial sampling")
             return {
                 'photos': photos,
                 'is_complete_coverage': True,
-                'distribution_score': 1.0  # Perfect score for complete coverage
+                'distribution_score': 1.0  # Perfect score for complete coverage without sampling
             }
         else:
             log.info(f"Spatial sampling returned {len(photos)} photos distributed across grid cells")
             
-            # Calculate distribution score for incomplete or performance-limited coverage
+            # Calculate distribution score for incomplete coverage or large complete regions with sampling
             distribution_score = self.calculate_spatial_distribution(photos) if photos else 0.0
-            log.info(f"Cache result: {len(photos)} photos from INCOMPLETE coverage, distribution={distribution_score:.2%}")
+            coverage_status = "COMPLETE (with sampling)" if is_complete_coverage else "INCOMPLETE"
+            log.info(f"Cache result: {len(photos)} photos from {coverage_status} coverage, distribution={distribution_score:.2%}")
             return {
                 'photos': photos,
                 'is_complete_coverage': is_complete_coverage,

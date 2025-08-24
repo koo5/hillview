@@ -27,7 +27,7 @@ class MockMapillaryService:
         """Check if mock data is available."""
         return self._mock_data is not None
     
-    def filter_by_bbox(self, bbox_coords: List[float], limit: int = 250) -> Dict[str, Any]:
+    def filter_by_bbox(self, bbox_coords: List[float], limit: int = 2000) -> Dict[str, Any]:
         """Filter mock data by bounding box coordinates with limit."""
         if not self._mock_data:
             return {"data": []}
