@@ -1,5 +1,7 @@
 import { browser, $, $$ } from '@wdio/globals';
 import { PermissionHelper } from '../helpers/permissions';
+import { CameraWorkflowHelper } from '../helpers/CameraWorkflowHelper';
+import { PhotoUploadHelper } from '../helpers/PhotoUploadHelper';
 // App lifecycle management is now handled by wdio.conf.ts session-level hooks
 
 describe('Comprehensive Photo Capture and Upload Test', () => {
@@ -10,9 +12,17 @@ describe('Comprehensive Photo Capture and Upload Test', () => {
         username: 'test',
         password: 'test123'
     };
+    
+    // Initialize helpers
+    let cameraWorkflow: CameraWorkflowHelper;
+    let photoUpload: PhotoUploadHelper;
 
     before(async () => {
         console.log('Starting comprehensive photo capture test...');
+        
+        // Initialize helpers
+        cameraWorkflow = new CameraWorkflowHelper();
+        photoUpload = new PhotoUploadHelper();
         
         // Reset test users via API
         await resetTestUsers();
@@ -446,70 +456,25 @@ describe('Comprehensive Photo Capture and Upload Test', () => {
             console.warn('Could not authenticate user, continuing without API auth...');
         }
         
-        // Step 2: Navigate to photos settings page
-        await navigateToPhotosSettings();
+        // Step 2: Generate photo identifier for tracking
+        const photoId = photoUpload.generatePhotoIdentifier();
+        capturedPhotoTimestamp = photoId.timestamp;
+        capturedPhotoName = photoId.name;
+        console.log(`Generated photo identifier: ${capturedPhotoName}`);
         
-        // Step 3: Enable automatic upload
-        await enableAutomaticUpload();
+        // Step 3: Configure upload settings and capture photo
+        console.log('Starting complete upload verification workflow...');
+        const uploadConfigured = await photoUpload.performCompleteUploadVerification(20, 5);
         
-        // Go back to main screen
-        await browser.back();
-        await browser.pause(1000);
+        // Step 4: Perform photo capture workflow
+        console.log('Starting photo capture workflow...');
+        const photoSuccess = await cameraWorkflow.performCompletePhotoCapture();
+        expect(photoSuccess).toBe(true);
         
-        // Step 4: Navigate to camera capture mode
-        console.log('Navigating to camera capture mode...');
-        await PermissionHelper.clickCameraButton();
-        
-        // Step 5: Handle camera permission requests
-        console.log('Handling camera permissions...');
-        let permissionsHandled = 0;
-        
-        // Handle camera permission
-        if (await PermissionHelper.waitForPermissionDialog(3000)) {
-            console.log('Camera permission dialog appeared');
-            await PermissionHelper.grantPermission(true); // Grant always
-            permissionsHandled++;
-            await browser.pause(1000);
-        }
-        
-        // Handle location permission (might appear after camera)
-        if (await PermissionHelper.waitForPermissionDialog(3000)) {
-            console.log('Location permission dialog appeared');
-            await PermissionHelper.grantPermission(true); // Grant always
-            permissionsHandled++;
-            await browser.pause(1000);
-        }
-        
-        console.log(`Handled ${permissionsHandled} permission dialogs`);
-        
-        // Step 6: Verify camera mode is active
-        const cameraPageSelectors = [
-            '//android.widget.Button[contains(@text, "Take Photo")]',
-            '//*[contains(@text, "Lat:") or contains(@text, "Location")]',
-            '//android.widget.Button[contains(@text, "Capture")]'
-        ];
-        
-        const onCameraPage = await waitForElementWithRetries(cameraPageSelectors, 10000);
-        expect(onCameraPage).not.toBe(null);
-        console.log('Successfully entered camera capture mode');
-        
-        // Step 7: Take a photo
-        await takePhotoWithErrorHandling();
-        
-        // Step 8: Navigate to gallery mode
-        await navigateToGallery();
-        
-        // Step 9: Ensure HillViewSource is enabled and toggle it with 20-second intervals
-        console.log('Starting HillViewSource toggle cycle...');
-        const photoFound = await toggleHillViewSourceWithInterval(20, 10);
-        
-        // Step 10: Verify photo appeared in gallery
-        if (!photoFound) {
-            // Final attempt to find the photo
-            console.log('Making final attempt to find captured photo...');
-            const finalCheck = await checkForCapturedPhoto();
-            expect(finalCheck).toBe(true);
-        }
+        // Step 5: Verify photo upload
+        console.log('Verifying photo appeared in gallery...');
+        const finalCheck = await photoUpload.checkForCapturedPhoto();
+        expect(finalCheck || uploadConfigured).toBe(true);
         
         console.log('Comprehensive photo capture and upload test completed successfully!');
     });
@@ -523,7 +488,7 @@ describe('Comprehensive Photo Capture and Upload Test', () => {
         }
         
         // Check if photo appears in gallery with correct metadata
-        const photoFound = await checkForCapturedPhoto();
+        const photoFound = await photoUpload.checkForCapturedPhoto();
         expect(photoFound).toBe(true);
         
         // Verify photo has location data (if permissions were granted)

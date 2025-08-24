@@ -56,7 +56,13 @@
                     await fetchPhotos();
                 } catch (err) {
                     console.error('🢄Error loading photos:', err);
-                    error = err instanceof Error ? err.message : 'Failed to load photos';
+                    error = handleApiError(err);
+                    
+                    // TokenExpiredError is handled automatically by the http client
+                    if (err instanceof TokenExpiredError) {
+                        // No need to handle manually, http client already logged out
+                        return;
+                    }
                 } finally {
                     isLoading = false;
                 }
@@ -73,7 +79,7 @@
             const response = await http.get('/photos');
             
             if (!response.ok) {
-                throw new Error('Failed to fetch photos');
+                throw new Error(`Failed to fetch photos: ${response.status}`);
             }
             
             photos = await response.json();
@@ -88,6 +94,12 @@
             const errorMessage = handleApiError(err);
             addLogEntry(errorMessage, 'error');
             error = errorMessage;
+            
+            // TokenExpiredError is handled automatically by the http client
+            if (err instanceof TokenExpiredError) {
+                // No need to handle manually, http client already logged out
+                return;
+            }
         }
     }
 
@@ -135,6 +147,12 @@
                     const errorMessage = handleApiError(err);
                     addLogEntry(`Failed: ${file.name} - ${errorMessage}`, 'error');
                     errorCount++;
+                    
+                    // TokenExpiredError is handled automatically by the http client
+                    if (err instanceof TokenExpiredError) {
+                        // Stop upload process if authentication fails
+                        break;
+                    }
                 }
             }
             
@@ -163,6 +181,12 @@
             const errorMessage = handleApiError(err);
             addLogEntry(`Batch upload failed: ${errorMessage}`, 'error');
             error = errorMessage;
+            
+            // TokenExpiredError is handled automatically by the http client
+            if (err instanceof TokenExpiredError) {
+                // No need to handle manually, http client already logged out
+                return;
+            }
         } finally {
             isUploading = false;
             uploadProgress = 0;
@@ -211,6 +235,12 @@
             const errorMessage = handleApiError(err);
             addLogEntry(`Delete failed: ${errorMessage}`, 'error');
             error = errorMessage;
+            
+            // TokenExpiredError is handled automatically by the http client
+            if (err instanceof TokenExpiredError) {
+                // No need to handle manually, http client already logged out
+                return;
+            }
         }
     }
 
@@ -223,7 +253,7 @@
             const response = await http.put('/auth/settings', settingsData);
             
             if (!response.ok) {
-                throw new Error('Failed to save settings');
+                throw new Error(`Failed to save settings: ${response.status}`);
             }
             
             // Also update the Android background service setting
@@ -246,6 +276,12 @@
             const errorMessage = handleApiError(err);
             addLogEntry(`Settings save failed: ${errorMessage}`, 'error');
             error = errorMessage;
+            
+            // TokenExpiredError is handled automatically by the http client
+            if (err instanceof TokenExpiredError) {
+                // No need to handle manually, http client already logged out
+                return;
+            }
         }
     }
 

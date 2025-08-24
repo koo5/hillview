@@ -91,6 +91,20 @@ export async function login(username: string, password: string) {
         localStorage.setItem('token', data.access_token);
         localStorage.setItem('token_expires', data.expires_at);
         
+        // Store token in Android SharedPreferences via Tauri command
+        if (TAURI) {
+            try {
+                const { invoke } = await import('@tauri-apps/api/core');
+                await invoke('store_auth_token', { 
+                    token: data.access_token, 
+                    expiresAt: data.expires_at 
+                });
+                console.log('🢄[AUTH] Auth token stored in Android SharedPreferences');
+            } catch (error) {
+                console.error('🢄[AUTH] Failed to store auth token in Android:', error);
+            }
+        }
+        
         // Update auth store with token info first
         auth.update(a => {
             console.log('🢄[AUTH] auth Setting token and isAuthenticated to true');

@@ -2,6 +2,7 @@ import { expect } from '@wdio/globals';
 import { TestWorkflows } from '../helpers/TestWorkflows';
 import { HillviewAppPage } from '../pageobjects/HillviewApp.page';
 import { CameraFlowPage } from '../pageobjects/CameraFlow.page';
+import { CameraWorkflowHelper } from '../helpers/CameraWorkflowHelper';
 
 /**
  * Android Camera Test - MIGRATED TO PROPER PATTERNS
@@ -12,14 +13,16 @@ describe('Android Camera', () => {
     let workflows: TestWorkflows;
     let app: HillviewAppPage;
     let camera: CameraFlowPage;
+    let cameraWorkflow: CameraWorkflowHelper;
 
     beforeEach(async function () {
         this.timeout(60000); // FIXED: Reduced from 90s
         
-        // Initialize page objects
+        // Initialize page objects and helpers
         workflows = new TestWorkflows();
         app = new HillviewAppPage();
         camera = new CameraFlowPage();
+        cameraWorkflow = new CameraWorkflowHelper();
         
         console.log('🧪 Starting camera test with clean app state');
     });

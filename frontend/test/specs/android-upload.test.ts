@@ -1,4 +1,5 @@
 import { expect } from '@wdio/globals'
+import { PhotoUploadHelper } from '../helpers/PhotoUploadHelper'
 // App lifecycle management is now handled by wdio.conf.ts session-level hooks
 
 /**
