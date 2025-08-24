@@ -76,48 +76,77 @@ class MapillaryCacheService:
         else:
             log.warning("Debug: No photos found in bbox for grid calculation test")
         
+        # Check if the requested bbox is covered by complete regions FIRST
+        is_complete_coverage = await self._is_bbox_completely_cached(
+            top_left_lat, top_left_lon, bottom_right_lat, bottom_right_lon
+        )
+        
         # Import and use the SQL-based filtering for Mapillary
         from .hidden_content_filters import apply_mapillary_hidden_content_filters
         
         # Build the hidden content filtering conditions
         hidden_filters = apply_mapillary_hidden_content_filters([], current_user_id)
         
-        # Use raw SQL for spatial sampling with grid-based distribution
-        # Grid coordinates should be 0-9 for both x and y
-        query = text(f"""
-            WITH cell_photos AS (
-                SELECT p.*,
-                       CAST(LEAST(GREATEST(FLOOR((ST_X(p.geometry) - :bbox_min_x) / :cell_width * :grid_size), 0), :grid_size - 1) AS INTEGER) as grid_x,
-                       CAST(LEAST(GREATEST(FLOOR((ST_Y(p.geometry) - :bbox_min_y) / :cell_height * :grid_size), 0), :grid_size - 1) AS INTEGER) as grid_y,
-                       ROW_NUMBER() OVER (
-                           PARTITION BY 
-                               CAST(LEAST(GREATEST(FLOOR((ST_X(p.geometry) - :bbox_min_x) / :cell_width * :grid_size), 0), :grid_size - 1) AS INTEGER),
-                               CAST(LEAST(GREATEST(FLOOR((ST_Y(p.geometry) - :bbox_min_y) / :cell_height * :grid_size), 0), :grid_size - 1) AS INTEGER)
-                           ORDER BY random()
-                       ) as row_num
+        if is_complete_coverage and max_photos >= 1000:  # For complete regions, return all photos unless excessive
+            log.info("Complete coverage detected - returning ALL cached photos without spatial sampling")
+            
+            # Simple query without spatial sampling for complete regions
+            query = text(f"""
+                SELECT p.mapillary_id, ST_X(p.geometry) as lon, ST_Y(p.geometry) as lat, 
+                       p.compass_angle, p.computed_compass_angle, p.computed_rotation, p.computed_altitude,
+                       p.captured_at, p.is_pano, p.thumb_1024_url, p.creator_username, p.creator_id,
+                       0 as grid_x, 0 as grid_y
                 FROM mapillary_photo_cache p
                 WHERE ST_Within(p.geometry, ST_GeomFromText(:bbox_wkt, 4326))
                 {hidden_filters}
-            )
-            SELECT mapillary_id, ST_X(geometry) as lon, ST_Y(geometry) as lat, 
-                   compass_angle, computed_compass_angle, computed_rotation, computed_altitude,
-                   captured_at, is_pano, thumb_1024_url, creator_username, creator_id, grid_x, grid_y
-            FROM cell_photos 
-            WHERE row_num <= :photos_per_cell
-            ORDER BY grid_x, grid_y, row_num
-            LIMIT :max_photos
-        """)
+                ORDER BY p.captured_at DESC
+                LIMIT :max_photos
+            """)
+            
+        else:
+            log.info("Incomplete coverage or performance limit - applying spatial sampling")
+            
+            # Use spatial sampling with grid-based distribution for incomplete regions
+            query = text(f"""
+                WITH cell_photos AS (
+                    SELECT p.*,
+                           CAST(LEAST(GREATEST(FLOOR((ST_X(p.geometry) - :bbox_min_x) / :cell_width * :grid_size), 0), :grid_size - 1) AS INTEGER) as grid_x,
+                           CAST(LEAST(GREATEST(FLOOR((ST_Y(p.geometry) - :bbox_min_y) / :cell_height * :grid_size), 0), :grid_size - 1) AS INTEGER) as grid_y,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY 
+                                   CAST(LEAST(GREATEST(FLOOR((ST_X(p.geometry) - :bbox_min_x) / :cell_width * :grid_size), 0), :grid_size - 1) AS INTEGER),
+                                   CAST(LEAST(GREATEST(FLOOR((ST_Y(p.geometry) - :bbox_min_y) / :cell_height * :grid_size), 0), :grid_size - 1) AS INTEGER)
+                               ORDER BY random()
+                           ) as row_num
+                    FROM mapillary_photo_cache p
+                    WHERE ST_Within(p.geometry, ST_GeomFromText(:bbox_wkt, 4326))
+                    {hidden_filters}
+                )
+                SELECT mapillary_id, ST_X(geometry) as lon, ST_Y(geometry) as lat, 
+                       compass_angle, computed_compass_angle, computed_rotation, computed_altitude,
+                       captured_at, is_pano, thumb_1024_url, creator_username, creator_id, grid_x, grid_y
+                FROM cell_photos 
+                WHERE row_num <= :photos_per_cell
+                ORDER BY grid_x, grid_y, row_num
+                LIMIT :max_photos
+            """)
         
+        # Base parameters for both queries
         params = {
             'bbox_wkt': bbox_wkt,
-            'bbox_min_x': top_left_lon,
-            'bbox_min_y': bottom_right_lat,
-            'cell_width': cell_width,
-            'cell_height': cell_height,
-            'grid_size': grid_size,
-            'photos_per_cell': photos_per_cell,
             'max_photos': max_photos
         }
+        
+        # Add spatial sampling parameters only for incomplete coverage
+        if not (is_complete_coverage and max_photos >= 1000):
+            params.update({
+                'bbox_min_x': top_left_lon,
+                'bbox_min_y': bottom_right_lat,
+                'cell_width': cell_width,
+                'cell_height': cell_height,
+                'grid_size': grid_size,
+                'photos_per_cell': photos_per_cell
+            })
         
         if current_user_id:
             params['current_user_id'] = current_user_id
@@ -162,28 +191,22 @@ class MapillaryCacheService:
             if invalid_coords:
                 log.warning(f"Found invalid grid coordinates: {invalid_coords}")
         
-        log.info(f"Spatial sampling returned {len(photos)} photos distributed across grid cells")
-        
-        # Check if the requested bbox is covered by complete regions FIRST
-        is_complete_coverage = await self._is_bbox_completely_cached(
-            top_left_lat, top_left_lon, bottom_right_lat, bottom_right_lon
-        )
-        
-        if is_complete_coverage:
-            # If completely cached, return immediately without distribution calculation
-            log.info(f"Cache result: {len(photos)} photos from COMPLETE coverage - distribution check skipped")
+        if is_complete_coverage and max_photos >= 1000:
+            log.info(f"Complete coverage: returned {len(photos)} photos WITHOUT spatial sampling")
             return {
                 'photos': photos,
                 'is_complete_coverage': True,
                 'distribution_score': 1.0  # Perfect score for complete coverage
             }
         else:
-            # Only calculate distribution for incomplete coverage
+            log.info(f"Spatial sampling returned {len(photos)} photos distributed across grid cells")
+            
+            # Calculate distribution score for incomplete or performance-limited coverage
             distribution_score = self.calculate_spatial_distribution(photos) if photos else 0.0
             log.info(f"Cache result: {len(photos)} photos from INCOMPLETE coverage, distribution={distribution_score:.2%}")
             return {
                 'photos': photos,
-                'is_complete_coverage': False,
+                'is_complete_coverage': is_complete_coverage,
                 'distribution_score': distribution_score
             }
     
