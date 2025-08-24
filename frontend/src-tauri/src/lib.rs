@@ -52,11 +52,19 @@ pub fn run() {
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {
-                app.handle().plugin(
+                // Only initialize log plugin if logger hasn't been set yet
+                // This prevents crashes when the process persists but Activity restarts
+                match app.handle().plugin(
                     tauri_plugin_log::Builder::default()
                         .level(log::LevelFilter::Debug)
                         .build(),
-                )?;
+                ) {
+                    Ok(_) => info!("🢄Log plugin initialized successfully"),
+                    Err(e) => {
+                        // Logger already initialized, this is expected on Activity restart
+                        info!("🢄Log plugin already initialized (process persisted): {}", e);
+                    }
+                }
             }
 
             #[cfg(debug_assertions)]

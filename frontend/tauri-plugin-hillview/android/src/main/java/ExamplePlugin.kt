@@ -112,6 +112,18 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         fun getPluginInstance(): ExamplePlugin? {
             return pluginInstance
         }
+        
+        private fun cleanupStaticState() {
+            synchronized(permissionLock) {
+                // Clear any pending WebView permission requests from previous instance
+                pendingWebViewPermissionRequest = null
+                
+                // Reset permission lock if it was held by previous instance
+                permissionLockHolder = null
+                
+                Log.i(TAG, "🢄🎥 Static state cleaned up for new plugin instance")
+            }
+        }
     }
     
     private var sensorService: EnhancedSensorService? = null
@@ -123,6 +135,10 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     init {
         initializationCount++
         val processId = android.os.Process.myPid()
+        
+        // Clean up static state from any previous plugin instance
+        cleanupStaticState()
+        
         pluginInstance = this
         Log.i(TAG, "🢄🎥 Plugin init #$initializationCount - Process ID: $processId")
     }
