@@ -295,6 +295,18 @@
       "type": "string",
       "oneOf": [
         {
+          "description": "Enables the get_upload_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-upload-status",
+          "markdownDescription": "Enables the get_upload_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_upload_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-upload-status",
+          "markdownDescription": "Denies the get_upload_status command without any pre-configured scope."
+        },
+        {
           "description": "Enables the ping command without any pre-configured scope.",
           "type": "string",
           "const": "allow-ping",
@@ -317,6 +329,42 @@
           "type": "string",
           "const": "deny-registerListener",
           "markdownDescription": "Denies the registerListener command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the retry_failed_uploads command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-retry-failed-uploads",
+          "markdownDescription": "Enables the retry_failed_uploads command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the retry_failed_uploads command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-retry-failed-uploads",
+          "markdownDescription": "Denies the retry_failed_uploads command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_auto_upload_enabled command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-auto-upload-enabled",
+          "markdownDescription": "Enables the set_auto_upload_enabled command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_auto_upload_enabled command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-auto-upload-enabled",
+          "markdownDescription": "Denies the set_auto_upload_enabled command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_upload_config command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-upload-config",
+          "markdownDescription": "Enables the set_upload_config command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_upload_config command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-upload-config",
+          "markdownDescription": "Denies the set_upload_config command without any pre-configured scope."
         },
         {
           "description": "Enables the start_precise_location_listener command without any pre-configured scope.",
@@ -379,10 +427,22 @@
           "markdownDescription": "Denies the update_sensor_location command without any pre-configured scope."
         },
         {
-          "description": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-ping`\n- `allow-start_sensor`\n- `allow-stop_sensor`\n- `allow-update_sensor_location`\n- `allow-registerListener`\n- `allow-start_precise_location_listener`\n- `allow-stop_precise_location_listener`\n- `allow-set_auto_upload_enabled`\n- `allow-get_upload_status`\n- `allow-set_upload_config`\n- `allow-upload_photo`\n- `allow-retry_failed_uploads`",
+          "description": "Enables the upload_photo command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-upload-photo",
+          "markdownDescription": "Enables the upload_photo command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the upload_photo command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-upload-photo",
+          "markdownDescription": "Denies the upload_photo command without any pre-configured scope."
+        },
+        {
+          "description": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-ping`\n- `allow-start-sensor`\n- `allow-stop-sensor`\n- `allow-update-sensor-location`\n- `allow-registerListener`\n- `allow-start-precise-location-listener`\n- `allow-stop-precise-location-listener`\n- `allow-set-auto-upload-enabled`\n- `allow-get-upload-status`\n- `allow-set-upload-config`\n- `allow-upload-photo`\n- `allow-retry-failed-uploads`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-ping`\n- `allow-start_sensor`\n- `allow-stop_sensor`\n- `allow-update_sensor_location`\n- `allow-registerListener`\n- `allow-start_precise_location_listener`\n- `allow-stop_precise_location_listener`\n- `allow-set_auto_upload_enabled`\n- `allow-get_upload_status`\n- `allow-set_upload_config`\n- `allow-upload_photo`\n- `allow-retry_failed_uploads`"
+          "markdownDescription": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-ping`\n- `allow-start-sensor`\n- `allow-stop-sensor`\n- `allow-update-sensor-location`\n- `allow-registerListener`\n- `allow-start-precise-location-listener`\n- `allow-stop-precise-location-listener`\n- `allow-set-auto-upload-enabled`\n- `allow-get-upload-status`\n- `allow-set-upload-config`\n- `allow-upload-photo`\n- `allow-retry-failed-uploads`"
         }
       ]
     }

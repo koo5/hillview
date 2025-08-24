@@ -100,7 +100,7 @@ class RateLimitConfig:
 			public_read_window_hours=int(os.getenv('RATE_LIMIT_PUBLIC_READ_WINDOW', '1')),
 
 			# Activity feed
-			activity_recent_max_requests=int(os.getenv('RATE_LIMIT_ACTIVITY_RECENT', '100')),
+			activity_recent_max_requests=int(os.getenv('RATE_LIMIT_ACTIVITY_RECENT', '1000')),
 			activity_recent_window_hours=int(os.getenv('RATE_LIMIT_ACTIVITY_RECENT_WINDOW', '1')),
 
 			# User registration
