@@ -56,7 +56,7 @@ class PhotoProcessorService:
                 result = await db.execute(stmt)
                 pending_photos = result.scalars().all()
 
-                if pending_photos > 0:
+                if len(pending_photos) > 0:
                 	logger.info(f"Found {len(pending_photos)} photos to process")
                 
                 for photo in pending_photos:

@@ -11,6 +11,11 @@ Default permissions for the plugin
 - `allow-registerListener`
 - `allow-start-precise-location-listener`
 - `allow-stop-precise-location-listener`
+- `allow-set-auto-upload-enabled`
+- `allow-get-upload-status`
+- `allow-set-upload-config`
+- `allow-upload-photo`
+- `allow-retry-failed-uploads`
 
 ## Permission Table
 
