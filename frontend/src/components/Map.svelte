@@ -105,7 +105,7 @@
         const updatedMarkers = optimizedMarkerSystem.updateMarkers(map, photos);
         if (updatedMarkers) {
             currentMarkers = updatedMarkers;
-            console.log(`Updated ${currentMarkers.length} optimized markers`);
+            //console.log(`🢄Updated ${currentMarkers.length} optimized markers`);
         } else {
             console.warn('🢄optimizedMarkerSystem.updateMarkers returned undefined');
         }
@@ -851,7 +851,7 @@
     
     // Reactive updates for spatial changes (new photos from worker)
     $: if ($visiblePhotos && map) {
-        console.log(`Map: Updating markers with ${$visiblePhotos.length} visible photos`);
+        //console.log(`Map: Updating markers with ${$visiblePhotos.length} visible photos`);
         updateOptimizedMarkers($visiblePhotos);
     }
     

@@ -150,41 +150,11 @@
             permissionRetryInterval = null;
         }
         
-        try {
-            const permissionState = await checkCameraPermission();
-            console.log('🢄[CAMERA] Permission state returned:', permissionState);
-            
-            if (permissionState === 'granted') {
-                console.log('🢄[CAMERA] Permission already granted, starting camera automatically');
-                startCamera();
-            } else if (permissionState === 'prompt' || permissionState === null) {
-                // For 'prompt' state or when Permissions API not available, try direct camera access
-                // 'prompt' often means permission is set to "While using the app" which should work
-                console.log('🢄[CAMERA] Permission state is prompt/null, attempting direct camera access...');
-                try {
-                    // Quick test to see if we can access camera without showing permission UI
-                    const testStream = await navigator.mediaDevices.getUserMedia({ 
-                        video: { facingMode: facing } 
-                    });
-                    testStream.getTracks().forEach(track => track.stop());
-                    console.log('🢄[CAMERA] Direct camera access successful, starting camera');
-                    startCamera();
-                } catch (error) {
-                    console.log('🢄[CAMERA] Direct camera access failed, showing enable button:', error);
-                    needsPermission = true;
-                    cameraError = 'Camera access required. Tap "Enable Camera" to continue.';
-                    // Don't release lock yet - user will click Enable Camera button
-                }
-            } else {
-                console.log('🢄[CAMERA] Permission explicitly denied, showing enable button');
-                needsPermission = true;
-                cameraError = 'Camera access required. Tap "Enable Camera" to continue.';
-                // Don't release lock yet - user will click Enable Camera button
-            }
-        } catch (error) {
-            console.error('🢄[CAMERA] Error in checkAndStartCamera:', error);
-            await permissionManager.releaseLock();
-        }
+        // Release lock immediately and let WebChromeClient handle the permission dialog
+        await permissionManager.releaseLock();
+        
+        console.log('🢄[CAMERA] Permission lock coordination complete, starting camera directly');
+        startCamera();
     }
 
     async function startCamera() {
@@ -503,13 +473,12 @@
         }
     }
 
-    // Show enable button instead of auto-starting camera
+    // Try to auto-start camera with permission lock coordination
     $: if (show) {
         if (!stream && !cameraError && !cameraReady && !hasRequestedPermission) {
-            console.log('🢄[CAMERA] Modal shown, waiting for user to enable camera');
+            console.log('🢄[CAMERA] Modal shown, attempting to start camera with permission coordination');
             retryCount = 0; // Reset retry count when modal opens
-            needsPermission = true;
-            cameraError = 'Camera access required. Tap "Enable Camera" to continue.';
+            checkAndStartCamera();
         }
     } else if (!show && stream) {
         // Stop camera when modal closes
@@ -545,7 +514,7 @@
         
         // Don't auto-start camera anymore - always wait for button click
         // This prevents any chance of interfering with location permissions
-        console.log('🢄[CAMERA] Location ready, but keeping "Enable Camera" button for user control');
+        //console.log('🢄[CAMERA] Location ready, but keeping "Enable Camera" button for user control');
     }
 
     onMount(() => {

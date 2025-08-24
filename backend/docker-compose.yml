@@ -43,6 +43,7 @@ services:
       - ENABLE_MAPILLARY_LIVE=${ENABLE_MAPILLARY_LIVE:-true}
       - USER_ACCOUNTS=${USER_ACCOUNTS:-true}
       - TEST_USERS=${TEST_USERS:-false}
+      - DEBUG_ENDPOINTS=${DEBUG_ENDPOINTS:-false}
       # Configure uvicorn for development with reload
       - MODULE_NAME=app.api
       - VARIABLE_NAME=app

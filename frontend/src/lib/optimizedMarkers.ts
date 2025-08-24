@@ -177,7 +177,7 @@ export class OptimizedMarkerSystem {
       return marker;
     });
     
-    console.log(`OptimizedMarkerSystem: Created ${this.activeMarkers.length} markers, added to map`);
+    //console.log(`OptimizedMarkerSystem: Created ${this.activeMarkers.length} markers, added to map`);
     return this.activeMarkers;
   }
 

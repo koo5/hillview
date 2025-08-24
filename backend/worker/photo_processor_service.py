@@ -46,7 +46,7 @@ class PhotoProcessorService:
     
     def __init__(self, upload_dir: str = "/app/uploads"):
         self.upload_dir = upload_dir
-        self.scan_interval = int(os.getenv("SCAN_INTERVAL_SECONDS", "1"))
+        self.scan_interval = int(os.getenv("SCAN_INTERVAL_SECONDS", "1))
         
     async def scan_and_process(self):
         """Scan for unprocessed photos and process them."""
@@ -55,8 +55,9 @@ class PhotoProcessorService:
                 stmt = select(Photo).where(Photo.processing_status == "pending")
                 result = await db.execute(stmt)
                 pending_photos = result.scalars().all()
-                
-                logger.info(f"Found {len(pending_photos)} photos to process")
+
+                if pending_photos > 0:
+                	logger.info(f"Found {len(pending_photos)} photos to process")
                 
                 for photo in pending_photos:
                     await self.process_photo(db, photo)
@@ -296,7 +297,7 @@ class PhotoProcessorService:
         while True:
             try:
                 await self.scan_and_process()
-                logger.info(f"Scan completed, sleeping for {self.scan_interval} seconds")
+                //logger.debug(f"Scan completed, sleeping for {self.scan_interval} seconds")
                 await asyncio.sleep(self.scan_interval)
                 
             except KeyboardInterrupt:

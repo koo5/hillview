@@ -1,4 +1,5 @@
 import logging
+from typing import Dict, Any
 from fastapi import FastAPI, HTTPException, status, Request, Depends
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -234,9 +235,12 @@ async def debug_endpoint():
 	"""Debug endpoint to check if the API is working properly"""
 	return {"status": "ok", "message": "API is working properly"}
 
+
 @app.post("/api/debug/recreate-test-users")
 async def recreate_test_users():
-	"""Debug endpoint to delete and recreate test users"""
+	"""Debug endpoint to delete and recreate test users (only available when DEBUG_ENDPOINTS=true)"""
+	if not os.getenv("DEBUG_ENDPOINTS", "false").lower() in ("true", "1", "yes"):
+		raise HTTPException(status_code=404, detail="Debug endpoints disabled")
 	if not USER_ACCOUNTS:
 		return {"error": "User accounts are not enabled"}
 
@@ -246,7 +250,9 @@ async def recreate_test_users():
 
 @app.post("/api/debug/clear-database")
 async def clear_database():
-	"""Debug endpoint to clear all data from the database"""
+	"""Debug endpoint to clear all data from the database (only available when DEBUG_ENDPOINTS=true)"""
+	if not os.getenv("DEBUG_ENDPOINTS", "false").lower() in ("true", "1", "yes"):
+		raise HTTPException(status_code=404, detail="Debug endpoints disabled")
 	from sqlalchemy import select, text
 	from .auth import delete_users_by_usernames
 	from common.database import get_db
@@ -289,4 +295,35 @@ async def clear_database():
 			"hidden_photos_deleted": hidden_photos_result.rowcount,
 			"hidden_users_deleted": hidden_users_result.rowcount
 		}
+	}
+
+@app.post("/api/debug/mock-mapillary")
+async def set_mock_mapillary_data(mock_data: Dict[str, Any]):
+	"""Debug endpoint to set mock Mapillary data for testing (only available when DEBUG_ENDPOINTS=true)"""
+	if not os.getenv("DEBUG_ENDPOINTS", "false").lower() in ("true", "1", "yes"):
+		raise HTTPException(status_code=404, detail="Debug endpoints disabled")
+	
+	from .mock_mapillary import mock_mapillary_service
+	mock_mapillary_service.set_mock_data(mock_data)
+	
+	return {
+		"status": "success",
+		"message": "Mock Mapillary data set",
+		"details": {
+			"photos_count": len(mock_data.get('data', []))
+		}
+	}
+
+@app.delete("/api/debug/mock-mapillary")
+async def clear_mock_mapillary_data():
+	"""Debug endpoint to clear mock Mapillary data (only available when DEBUG_ENDPOINTS=true)"""
+	if not os.getenv("DEBUG_ENDPOINTS", "false").lower() in ("true", "1", "yes"):
+		raise HTTPException(status_code=404, detail="Debug endpoints disabled")
+	
+	from .mock_mapillary import mock_mapillary_service
+	mock_mapillary_service.clear_mock_data()
+	
+	return {
+		"status": "success", 
+		"message": "Mock Mapillary data cleared"
 	}

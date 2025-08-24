@@ -423,13 +423,13 @@ class EnhancedSensorService(
         }
         
         // Log every 20th update to avoid spam
-        if (Math.random() < 0.05) {
+        /*if (Math.random() < 0.05) {
             Log.d(TAG, "🔍🧭 $source bearing:")
             Log.d(TAG, "  - Magnetic: ${heading.format(1)}°")
             Log.d(TAG, "  - True: ${trueHeading.format(1)}°")
             Log.d(TAG, "  - Accuracy: ±${accuracy.format(1)}°")
             Log.d(TAG, "  - Pitch: ${pitch.format(1)}°, Roll: ${roll.format(1)}°")
-        }
+        }*/
         
         // Include mode information in source
         val sourceWithMode = when (currentMode) {
@@ -750,7 +750,7 @@ class EnhancedSensorService(
         lastSentAccuracy = finalAccuracy
         
         // Log smoothing effect occasionally
-        if (true) {
+        if (false) {
             Log.w(TAG, "🔧 Smoothing applied:")
             Log.w(TAG, "  Raw values: mag=${magneticHeading.format(1)}°, true=${trueHeading.format(1)}°, pitch=${pitch.format(1)}°, roll=${roll.format(1)}°")
             Log.w(TAG, "  Smoothed:   mag=${finalMagneticHeading.format(1)}°, true=${finalTrueHeading.format(1)}°, pitch=${finalPitch.format(1)}°, roll=${finalRoll.format(1)}°")

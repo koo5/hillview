@@ -16,4 +16,4 @@ echo "🔍 Press Ctrl+C to stop"
 echo ""
 
 # Filter for Hillview-specific logs
-$ADB_PATH logcat | grep -E "(🢄|📍|io\.github\.koo5\.hillview|PreciseLocationService|EnhancedSensorService)"
+$ADB_PATH logcat | grep -E "(🢄|📍|hillview|RustStdoutStderr)"

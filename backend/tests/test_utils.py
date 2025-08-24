@@ -82,8 +82,10 @@ def create_test_photos(test_users: list, auth_tokens: dict):
             
         headers = {"Authorization": f"Bearer {token}"}
         
-        # Create a real JPEG image with GPS coordinates
-        image_data = create_test_image(200, 150, color, lat, lon)
+        # Create a real JPEG image with GPS coordinates AND bearing (for successful processing)
+        from image_utils import create_test_image_full_gps
+        bearing = 45.0 + (i * 30)  # Different bearings: 45°, 75°, 105°, 135°
+        image_data = create_test_image_full_gps(200, 150, color, lat, lon, bearing)
         
         files = {"file": (filename, image_data, "image/jpeg")}
         data = {
@@ -100,11 +102,21 @@ def create_test_photos(test_users: list, auth_tokens: dict):
             )
             
             if response.status_code == 200:
-                created_photos += 1
                 result = response.json()
-                photo_id = result.get('id', 'unknown')
-                print(f"✓ Created photo: {filename} by {username} (ID: {photo_id})")
-                print(f"  Photo details: lat={result.get('latitude', 'none')}, lon={result.get('longitude', 'none')}")
+                photo_id = result.get('photo_id', 'unknown')
+                print(f"✓ Uploaded photo: {filename} by {username} (ID: {photo_id})")
+                
+                # Wait for processing to complete
+                try:
+                    photo_data = wait_for_photo_processing(photo_id, token, timeout=30)
+                    if photo_data['processing_status'] == 'completed':
+                        created_photos += 1
+                        print(f"  ✓ Processed: lat={photo_data.get('latitude')}, lon={photo_data.get('longitude')}, bearing={photo_data.get('compass_angle')}")
+                    else:
+                        error_msg = photo_data.get('error', 'Unknown error')
+                        print(f"  ⚠ Processing failed: {error_msg}")
+                except Exception as e:
+                    print(f"  ⚠ Processing timeout/error: {e}")
             else:
                 print(f"⚠ Failed to create photo {filename}: {response.status_code} - {response.text}")
         except Exception as e:

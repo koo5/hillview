@@ -65,10 +65,16 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         private const val TAG = "🢄HillviewPlugin"
         private var pluginInstance: ExamplePlugin? = null
         
+        // Permission request codes
+        private const val CAMERA_PERMISSION_REQUEST_CODE = 2001
+        
         // Permission mutex for ensuring only one permission dialog at a time
         @Volatile
         private var permissionLockHolder: String? = null
         private val permissionLock = Any()
+        
+        // Storage for pending WebView permission requests
+        private var pendingWebViewPermissionRequest: PermissionRequest? = null
         
         fun acquirePermissionLock(requester: String): Boolean {
             synchronized(permissionLock) {
@@ -101,6 +107,10 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                 return permissionLockHolder
             }
         }
+        
+        fun getPluginInstance(): ExamplePlugin? {
+            return pluginInstance
+        }
     }
     
     private var sensorService: EnhancedSensorService? = null
@@ -111,6 +121,107 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     
     init {
         pluginInstance = this
+        Log.i(TAG, "🢄🎥 ExamplePlugin initialized")
+    }
+    
+    override fun load(webView: WebView) {
+        Log.i(TAG, "🢄🎥 Plugin load() called with WebView: $webView")
+        super.load(webView)
+        setupWebViewCameraPermissions(webView)
+    }
+    
+    private fun setupWebViewCameraPermissions(webView: WebView) {
+        Log.i(TAG, "🢄🎥 Setting up WebView camera permission handling")
+        
+        webView.webChromeClient = object : WebChromeClient() {
+            override fun onPermissionRequest(request: PermissionRequest) {
+                Log.i(TAG, "🢄🎥 WebView permission request received")
+                Log.i(TAG, "🢄🎥 Origin: ${request.origin}")
+                Log.i(TAG, "🢄🎥 Resources: ${request.resources?.joinToString(", ")}")
+                
+                // Check if this is a camera/microphone permission request
+                val requestedResources = request.resources ?: emptyArray()
+                val needsCamera = requestedResources.contains(PermissionRequest.RESOURCE_VIDEO_CAPTURE)
+                val needsMicrophone = requestedResources.contains(PermissionRequest.RESOURCE_AUDIO_CAPTURE)
+                
+                if (needsCamera || needsMicrophone) {
+                    handleCameraPermissionRequest(request, needsCamera, needsMicrophone)
+                } else {
+                    Log.i(TAG, "🢄🎥 Non-camera permission request, granting automatically")
+                    activity.runOnUiThread { request.grant(request.resources) }
+                }
+            }
+        }
+    }
+    
+    private fun handleCameraPermissionRequest(request: PermissionRequest, needsCamera: Boolean, needsMicrophone: Boolean) {
+        Log.i(TAG, "🢄🎥 Handling camera permission request (camera: $needsCamera, microphone: $needsMicrophone)")
+        
+        // Try to acquire permission lock to serialize with location permissions
+        val lockAcquired = acquirePermissionLock("camera")
+        if (!lockAcquired) {
+            Log.w(TAG, "🢄🎥 Permission system busy, denying WebView camera permission")
+            activity.runOnUiThread { request.deny() }
+            return
+        }
+        
+        // Build list of required Android permissions
+        val requiredPermissions = mutableListOf<String>()
+        if (needsCamera) requiredPermissions.add(android.Manifest.permission.CAMERA)
+        if (needsMicrophone) requiredPermissions.add(android.Manifest.permission.RECORD_AUDIO)
+        
+        // Check if we already have the required permissions
+        val hasAllPermissions = requiredPermissions.all { permission ->
+            ContextCompat.checkSelfPermission(activity, permission) == PackageManager.PERMISSION_GRANTED
+        }
+        
+        if (hasAllPermissions) {
+            Log.i(TAG, "🢄🎥 Android permissions already granted, granting WebView permission")
+            releasePermissionLock("camera")
+            activity.runOnUiThread { request.grant(request.resources) }
+        } else {
+            Log.i(TAG, "🢄🎥 Android permissions needed, requesting from user")
+            pendingWebViewPermissionRequest = request
+            
+            // Request permissions using modern API
+            ActivityCompat.requestPermissions(
+                activity,
+                requiredPermissions.toTypedArray(),
+                CAMERA_PERMISSION_REQUEST_CODE
+            )
+        }
+    }
+    
+    // Handle camera permission results (to be called from MainActivity)
+    fun handleCameraPermissionResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
+        if (requestCode == CAMERA_PERMISSION_REQUEST_CODE) {
+            Log.i(TAG, "🢄🎥 Camera permission result received")
+            
+            val pendingRequest = pendingWebViewPermissionRequest
+            if (pendingRequest == null) {
+                Log.w(TAG, "🢄🎥 No pending WebView permission request")
+                return
+            }
+            
+            // Check if all requested permissions were granted
+            val allGranted = grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }
+            
+            if (allGranted) {
+                Log.i(TAG, "🢄🎥 Camera permissions granted by user, granting WebView permission")
+                activity.runOnUiThread { 
+                    pendingRequest.grant(pendingRequest.resources)
+                }
+            } else {
+                Log.i(TAG, "🢄🎥 Camera permissions denied by user, denying WebView permission")
+                activity.runOnUiThread { 
+                    pendingRequest.deny()
+                }
+            }
+            
+            // Release permission lock and clear pending request
+            releasePermissionLock("camera")
+            pendingWebViewPermissionRequest = null
+        }
     }
     
     @Command

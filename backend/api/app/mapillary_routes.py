@@ -21,6 +21,7 @@ from .cache_service import MapillaryCacheService
 from .rate_limiter import rate_limit_public_read
 from .auth import get_current_user_optional_with_query
 from .hidden_content_filters import filter_mapillary_photos_list
+from .mock_mapillary import mock_mapillary_service
 
 load_dotenv()
 log = logging.getLogger(__name__)
@@ -221,6 +222,12 @@ async def fetch_mapillary_data(
     cursor: Optional[str] = None
 ) -> Dict[str, Any]:
     """Fetch data from Mapillary API with optional cursor for pagination"""
+    
+    # Check for mock data first
+    if mock_mapillary_service.has_mock_data():
+        log.info("Using mock Mapillary data instead of real API")
+        bbox_coords = [top_left_lon, bottom_right_lat, bottom_right_lon, top_left_lat]  # [west, south, east, north]
+        return mock_mapillary_service.filter_by_bbox(bbox_coords, limit=250)
     
     params = {
         "limit": 250,

@@ -50,11 +50,11 @@ export const photosInArea = writable<PhotoData[]>([]);
 export const photosInRange = writable<PhotoData[]>([]);
 
 photosInRange.subscribe(photos => {
-    console.log(`Spatial: photosInRange updated with ${photos.length} photos`);
+    //console.log(`Spatial: photosInRange updated with ${photos.length} photos`);
 });
 
 bearingState.subscribe(v => {
-    console.log(`bearingState updated to ${JSON.stringify(v)}`);
+    //console.log(`bearingState updated to ${JSON.stringify(v)}`);
 });
 
 // Navigation photos (front, left, right) - derived from bearing-sorted photosInRange (within spatialState.range)
@@ -62,7 +62,7 @@ export const photoInFront = derived(
   [photosInRange, bearingState],
   ([photos, visual]) => {
     if (photos.length === 0) {
-      console.log('🢄Navigation: No photos available for photoInFront');
+      //console.log('🢄Navigation: No photos available for photoInFront');
       return null;
     }
     
@@ -79,7 +79,7 @@ export const photoInFront = derived(
       }
     }
     
-    console.log(`Navigation: photoInFront selected from ${photos.length} photos in range`);
+    //console.log(`Navigation: photoInFront selected from ${photos.length} photos in range`);
     return photos[closestIndex];
   }
 );
