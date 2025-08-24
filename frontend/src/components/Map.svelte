@@ -845,9 +845,9 @@
     $: arrowY = centerY + Math.sin(arrow_radians) * arrowLength;
 
     // CartoDB Voyager has larger, more readable place labels than standard OSM
-    const tileUrl = "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
+    //const tileUrl = "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
     //const tileUrl = "https://tile.tracestrack.com/topo_auto/{z}/{x}/{y}.webp?key=262a38b16c187cfca361f1776efb9421&style=contrast+";
-    //const tileUrl = 'https://tile.tracestrack.com/_/{z}/{x}/{y}.webp?key=262a38b16c187cfca361f1776efb9421';
+    const tileUrl = 'https://tile.tracestrack.com/_/{z}/{x}/{y}.webp?key=262a38b16c187cfca361f1776efb9421';
 
     // Reactive updates for spatial changes (new photos from worker)
     $: if ($visiblePhotos && map) {
