@@ -22,6 +22,7 @@
         type CameraDevice 
     } from '$lib/cameraDevices.svelte';
     import { tauriCamera, isCameraPermissionCheckAvailable } from '$lib/tauri';
+    import { addPluginListener } from '@tauri-apps/api/core';
 
     const dispatch = createEventDispatcher();
     
@@ -538,9 +539,49 @@
         //console.log('🢄[CAMERA] Location ready, but keeping "Enable Camera" button for user control');
     }
 
-    onMount(() => {
+    onMount(async () => {
         document.addEventListener('visibilitychange', handleVisibilityChange);
         document.addEventListener('click', handleClickOutside);
+        
+        // Listen for native camera permission granted event
+        if (isCameraPermissionCheckAvailable()) {
+            try {
+                console.log('🢄[CAMERA] Setting up camera permission event listener...');
+                const unlisten = await addPluginListener('hillview', 'camera-permission-granted', async (event) => {
+                    console.log('🢄[CAMERA] *** CAMERA PERMISSION EVENT RECEIVED ***', event);
+                    console.log('🢄[CAMERA] Event data:', JSON.stringify(event));
+                    console.log('🢄[CAMERA] Current state - show:', show, 'cameraError:', cameraError, 'cameraReady:', cameraReady);
+                    
+                    if (show && cameraError) {
+                        console.log('🢄[CAMERA] Conditions met - retrying camera after native permission granted');
+                        cameraError = null;
+                        needsPermission = false;
+                        hasRequestedPermission = false;
+                        retryCount = 0;
+                        try {
+                            await startCamera();
+                            console.log('🢄[CAMERA] startCamera() completed after permission event');
+                        } catch (err) {
+                            console.error('🢄[CAMERA] startCamera() failed after permission event:', err);
+                        }
+                    } else {
+                        console.log('🢄[CAMERA] Not retrying camera - show:', show, 'cameraError:', cameraError);
+                    }
+                });
+                
+                console.log('🢄[CAMERA] Camera permission event listener setup complete');
+                
+                // Store unlisten function for cleanup
+                onDestroy(() => {
+                    console.log('🢄[CAMERA] Cleaning up camera permission event listener');
+                    unlisten?.();
+                });
+            } catch (error) {
+                console.error('🢄[CAMERA] Failed to setup camera permission event listener:', error);
+            }
+        } else {
+            console.log('🢄[CAMERA] Camera permission check not available - skipping event listener');
+        }
     });
 
     onDestroy(() => {
@@ -567,13 +608,6 @@
 {#if show}
     <div class="camera-container">
         <div class="camera-content">
-            <div class="camera-header">
-                <h2>Take Photo</h2>
-                <button class="close-button" on:click={close} aria-label="Close">
-                    <X size={24}/>
-                </button>
-            </div>
-
             <div class="camera-view">
                 <!-- Debug: cameraError = {cameraError}, needsPermission = {needsPermission}, cameraReady = {cameraReady} -->
                 
@@ -587,6 +621,7 @@
                     <div class="camera-error">
                         <p>📷 {cameraError}</p>
                         <button class="retry-button" on:click={async () => {
+
                             console.log('🢄[CAMERA] Enable Camera button clicked');
                             
                             // Try native permission request first if available

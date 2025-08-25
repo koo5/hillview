@@ -130,8 +130,20 @@ pub fn acquire_permission_lock(requester: String) -> bool {
         true
     } else {
         let holder = guard.as_ref().unwrap();
-        info!("🢄Permission lock denied to {}, currently held by: {}", requester, holder);
-        false
+        if holder == &requester {
+			info!("🢄Permission lock already held by requester: {}", requester);
+			true
+		}
+		else if requester == "camera" {
+			true
+		}
+		else if requester == "camera-native" {
+			true
+		}
+		else {
+        	info!("🢄Permission lock denied to {}, currently held by: {}", requester, holder);
+        	false
+        }
     }
 }
 

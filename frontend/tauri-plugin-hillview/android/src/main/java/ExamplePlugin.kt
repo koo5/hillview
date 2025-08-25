@@ -45,7 +45,7 @@ class AutoUploadArgs {
 @InvokeArg
 class UploadConfigArgs {
   var serverUrl: String? = null
-  var authToken: String? = null
+  // authToken removed - now managed by AuthenticationManager
 }
 
 @InvokeArg
@@ -75,13 +75,17 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         // Permission request codes
         private const val CAMERA_PERMISSION_REQUEST_CODE = 2001
         
-        // Permission mutex for ensuring only one permission dialog at a time
+        // Storage for pending WebView permission requests
+        private var pendingWebViewPermissionRequest: PermissionRequest? = null
+        
+        fun getPluginInstance(): ExamplePlugin? {
+            return pluginInstance
+        }
+        
+        // Centralized permission lock management with camera overrides
         @Volatile
         private var permissionLockHolder: String? = null
         private val permissionLock = Any()
-        
-        // Storage for pending WebView permission requests
-        private var pendingWebViewPermissionRequest: PermissionRequest? = null
         
         fun acquirePermissionLock(requester: String): Boolean {
             synchronized(permissionLock) {
@@ -90,15 +94,31 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                     Log.i(TAG, "🔒 Permission lock acquired by: $requester")
                     return true
                 } else {
-                    Log.i(TAG, "🔒 Permission lock denied to $requester, currently held by: $permissionLockHolder")
-                    return false
+                    val holder = permissionLockHolder!!
+                    if (holder == requester) {
+                        Log.i(TAG, "🔒 Permission lock already held by requester: $requester")
+                        return true
+                    }
+                    // Special overrides: allow camera requests to proceed (matching Rust logic)
+                    else if (requester == "camera") {
+                        Log.i(TAG, "🔒 Permission lock granted to camera (override)")
+                        return true
+                    }
+                    else if (requester == "camera-native") {
+                        Log.i(TAG, "🔒 Permission lock granted to camera-native (override)")
+                        return true
+                    }
+                    else {
+                        Log.i(TAG, "🔒 Permission lock denied to $requester, currently held by: $holder")
+                        return false
+                    }
                 }
             }
         }
         
         fun releasePermissionLock(requester: String): Boolean {
             synchronized(permissionLock) {
-                if (permissionLockHolder == requester) {
+                if (permissionLockHolder == requester || permissionLockHolder == null) {
                     permissionLockHolder = null
                     Log.i(TAG, "🔒 Permission lock released by: $requester")
                     return true
@@ -115,20 +135,10 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             }
         }
         
-        fun getPluginInstance(): ExamplePlugin? {
-            return pluginInstance
-        }
-        
         private fun cleanupStaticState() {
-            synchronized(permissionLock) {
-                // Clear any pending WebView permission requests from previous instance
-                pendingWebViewPermissionRequest = null
-                
-                // Reset permission lock if it was held by previous instance
-                permissionLockHolder = null
-                
-                Log.i(TAG, "🢄🎥 Static state cleaned up for new plugin instance")
-            }
+            // Clear any pending WebView permission requests from previous instance
+            pendingWebViewPermissionRequest = null
+            Log.i(TAG, "🢄🎥 Static state cleaned up for new plugin instance")
         }
     }
     
@@ -257,6 +267,18 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                 
                 if (allGranted) {
                     Log.i(TAG, "🢄🎥 Native camera permission granted")
+                    
+                    // Emit event to frontend to retry camera
+                    try {
+                        val eventData = JSObject()
+                        eventData.put("granted", true)
+                        eventData.put("timestamp", System.currentTimeMillis())
+                        Log.i(TAG, "🢄🎥 About to emit camera-permission-granted event with data: $eventData")
+                        trigger("camera-permission-granted", eventData)
+                        Log.i(TAG, "🢄🎥 Successfully emitted camera-permission-granted event")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "🢄🎥 Failed to emit camera permission event: ${e.message}", e)
+                    }
                 } else {
                     Log.i(TAG, "🢄🎥 Native camera permission denied")
                     result.put("error", "Camera permission denied by user")
@@ -506,7 +528,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             val args = invoke.parseArgs(UploadConfigArgs::class.java)
             
             args?.serverUrl?.let { uploadManager.setServerUrl(it) }
-            args?.authToken?.let { uploadManager.setAuthToken(it) }
+            // Note: Auth token is now managed by AuthenticationManager, not UploadManager
             
             Log.d(TAG, "📤 Upload config updated")
             
@@ -698,9 +720,9 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     @Command
     fun getAuthToken(invoke: Invoke) {
         try {
-            Log.d(TAG, "🔐 Getting auth token")
+            Log.d(TAG, "🔐 Getting auth token (sync version - no refresh)")
             val (_, expiresAt) = authManager.getTokenInfo()
-            val validToken = authManager.getValidToken()
+            val validToken = authManager.getValidTokenSync()  // Use sync version for Tauri commands
             
             val result = JSObject()
             result.put("success", true)
@@ -913,7 +935,18 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     
     // Handle permission request results and forward to PreciseLocationService
     fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
-        Log.i(TAG, "📍 Permission request result received")
+        Log.e(TAG, "🔒🔒🔒 PERMISSION RESULT CALLBACK RECEIVED 🔒🔒🔒")
+        Log.e(TAG, "🔒 requestCode: $requestCode")
+        Log.e(TAG, "🔒 permissions: ${permissions.contentToString()}")
+        Log.e(TAG, "🔒 grantResults: ${grantResults.contentToString()}")
+        Log.e(TAG, "🔒 CAMERA_PERMISSION_REQUEST_CODE: $CAMERA_PERMISSION_REQUEST_CODE")
+        
+        // Handle camera permission results
+        handleCameraPermissionResult(requestCode, permissions, grantResults)
+        
+        // Handle location permission results  
         preciseLocationService?.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        
+        Log.e(TAG, "🔒 Permission result processing complete")
     }
 }

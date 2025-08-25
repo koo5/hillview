@@ -58,6 +58,10 @@ class PreciseLocationService(
     private val retryHandler = Handler(Looper.getMainLooper())
     private var permissionRetryRunnable: Runnable? = null
     private var hasAcquiredLock = false
+    private var permissionRetryCount = 0
+    private val maxPermissionRetries = 5
+    private var permissionTimeoutRunnable: Runnable? = null
+    private val permissionDialogTimeoutMs = 30000L // 30 second timeout
     
     // Create location request with high accuracy settings using the new Builder pattern
     private val locationRequest = LocationRequest.Builder(
@@ -213,13 +217,26 @@ class PreciseLocationService(
             Log.w(TAG, "📍 PERM: Cannot request location permission - another permission dialog is active")
             Log.w(TAG, "📍 PERM: Currently held by: ${io.github.koo5.hillview.plugin.ExamplePlugin.getPermissionLockHolder()}")
             
-            // Schedule retry after 1 second
+            // Check retry limit to prevent infinite loops
+            if (permissionRetryCount >= maxPermissionRetries) {
+                Log.e(TAG, "📍 PERM: Max permission retries ($maxPermissionRetries) exceeded - giving up")
+                permissionRetryCount = 0 // Reset for next attempt
+                // Notify frontend that location tracking failed
+                onLocationStopped?.invoke()
+                return
+            }
+            
+            // Schedule retry after increasing delay
             if (permissionRetryRunnable == null) {
+                permissionRetryCount++
+                val delayMs = 1000L * permissionRetryCount // Increasing delay: 1s, 2s, 3s, etc.
+                Log.i(TAG, "📍 PERM: Scheduling retry #$permissionRetryCount in ${delayMs}ms")
+                
                 permissionRetryRunnable = Runnable {
-                    Log.i(TAG, "📍 PERM: Retrying location permission request...")
+                    Log.i(TAG, "📍 PERM: Retrying location permission request (attempt $permissionRetryCount/$maxPermissionRetries)...")
                     requestLocationPermissions()
                 }
-                retryHandler.postDelayed(permissionRetryRunnable!!, 1000)
+                retryHandler.postDelayed(permissionRetryRunnable!!, delayMs)
             }
             return
         }
@@ -230,7 +247,13 @@ class PreciseLocationService(
             permissionRetryRunnable = null
         }
         
+        // Reset retry count since we successfully acquired the lock
+        permissionRetryCount = 0
+        
         Log.i(TAG, "📍 PERM: Permission lock acquired, showing location permission dialog")
+        
+        // Start timeout timer to auto-release lock if dialog disappears
+        startPermissionTimeout()
         
         val permissions = arrayOf(
             Manifest.permission.ACCESS_FINE_LOCATION,
@@ -249,6 +272,9 @@ class PreciseLocationService(
         if (requestCode == LOCATION_PERMISSION_REQUEST_CODE) {
             Log.i(TAG, "📍 PERM: Permission request result received")
             Log.i(TAG, "📍 PERM: Granted permissions: ${grantResults.count { it == PackageManager.PERMISSION_GRANTED }}/${grantResults.size}")
+            
+            // Cancel timeout since dialog completed normally
+            cancelPermissionTimeout()
             
             // Release the permission lock now that the dialog is dismissed
             val lockReleased = io.github.koo5.hillview.plugin.ExamplePlugin.releasePermissionLock("location")
@@ -359,10 +385,14 @@ class PreciseLocationService(
             } catch (e: SecurityException) {
                 Log.e(TAG, "📍❌ START_INTERNAL: SECURITY EXCEPTION - Location permission not granted!")
                 Log.e(TAG, "📍❌ START_INTERNAL: SecurityException message: ${e.message}")
+                // Emergency cleanup - permission may have been revoked
+                cleanupPermissionState()
             } catch (e: Exception) {
                 Log.e(TAG, "📍❌ START_INTERNAL: UNEXPECTED EXCEPTION in startLocationUpdatesInternal!")
                 Log.e(TAG, "📍❌ START_INTERNAL: Exception type: ${e.javaClass.simpleName}")
                 Log.e(TAG, "📍❌ START_INTERNAL: Exception message: ${e.message}")
+                // Emergency cleanup on critical failures
+                cleanupPermissionState()
             }
         } ?: run {
             Log.e(TAG, "📍❌ START_INTERNAL: CRITICAL ERROR - LocationCallback is null!")
@@ -408,12 +438,75 @@ class PreciseLocationService(
             Log.i(TAG, "📍 PERM: Cancelled pending permission retry")
         }
         
+        // Cancel timeout timer
+        cancelPermissionTimeout()
+        
+        // CRITICAL FIX: Release any held permission lock when stopping
+        val lockReleased = io.github.koo5.hillview.plugin.ExamplePlugin.releasePermissionLock("location")
+        if (lockReleased) {
+            Log.i(TAG, "📍 PERM: Released location permission lock during stop")
+        }
+        
         locationCallback?.let { callback ->
             fusedLocationClient.removeLocationUpdates(callback)
             isRequestingUpdates = false
             Log.i(TAG, "📍✅ Location updates stopped")
             // Notify frontend that location tracking stopped
             onLocationStopped?.invoke()
+        }
+    }
+    
+    // Start timeout timer to auto-release permission lock
+    private fun startPermissionTimeout() {
+        // Cancel any existing timeout
+        cancelPermissionTimeout()
+        
+        permissionTimeoutRunnable = Runnable {
+            Log.w(TAG, "📍 TIMEOUT: Permission dialog timeout - auto-releasing lock")
+            val lockReleased = io.github.koo5.hillview.plugin.ExamplePlugin.releasePermissionLock("location")
+            if (lockReleased) {
+                Log.i(TAG, "📍 TIMEOUT: Permission lock released due to timeout")
+            }
+            permissionTimeoutRunnable = null
+        }
+        
+        retryHandler.postDelayed(permissionTimeoutRunnable!!, permissionDialogTimeoutMs)
+        Log.i(TAG, "📍 TIMEOUT: Started permission timeout (${permissionDialogTimeoutMs/1000}s)")
+    }
+    
+    // Cancel permission timeout
+    private fun cancelPermissionTimeout() {
+        permissionTimeoutRunnable?.let { runnable ->
+            retryHandler.removeCallbacks(runnable)
+            permissionTimeoutRunnable = null
+            Log.d(TAG, "📍 TIMEOUT: Cancelled permission timeout")
+        }
+    }
+
+    // Emergency cleanup method to release permission locks and cancel retries
+    private fun cleanupPermissionState() {
+        Log.w(TAG, "📍 CLEANUP: Emergency permission state cleanup")
+        
+        // Cancel any pending retry attempts
+        permissionRetryRunnable?.let { runnable ->
+            retryHandler.removeCallbacks(runnable)
+            permissionRetryRunnable = null
+            Log.i(TAG, "📍 CLEANUP: Cancelled pending permission retry")
+        }
+        
+        // Cancel timeout timer
+        cancelPermissionTimeout()
+        
+        // Reset retry counter
+        permissionRetryCount = 0
+        Log.i(TAG, "📍 CLEANUP: Reset permission retry count")
+        
+        // Attempt to release any held permission lock
+        val lockReleased = io.github.koo5.hillview.plugin.ExamplePlugin.releasePermissionLock("location")
+        if (lockReleased) {
+            Log.i(TAG, "📍 CLEANUP: Released location permission lock during emergency cleanup")
+        } else {
+            Log.w(TAG, "📍 CLEANUP: No location permission lock to release (or not held by location)")
         }
     }
 }
