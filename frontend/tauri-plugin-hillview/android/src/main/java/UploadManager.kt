@@ -19,7 +19,6 @@ class UploadManager(private val context: Context) {
         private const val TAG = "🢄UploadManager"
         private const val PREFS_NAME = "hillview_upload_prefs"
         private const val PREF_SERVER_URL = "server_url"
-        private const val PREF_AUTH_TOKEN = "auth_token"
         private const val DEFAULT_SERVER_URL = "http://localhost:8055"
     }
     
@@ -30,6 +29,7 @@ class UploadManager(private val context: Context) {
         .build()
     
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val authManager = AuthenticationManager(context)
     
     suspend fun uploadPhoto(photo: PhotoEntity): Boolean = withContext(Dispatchers.IO) {
         try {
@@ -41,55 +41,8 @@ class UploadManager(private val context: Context) {
                 return@withContext false
             }
             
-            val serverUrl = getServerUrl()
-            val authToken = getAuthToken()
-            
-            if (authToken.isNullOrEmpty()) {
-                Log.e(TAG, "No auth token available for upload")
-                return@withContext false
-            }
-            
-            val mediaType = when (file.extension.lowercase()) {
-                "jpg", "jpeg" -> "image/jpeg".toMediaType()
-                "png" -> "image/png".toMediaType()
-                "webp" -> "image/webp".toMediaType()
-                else -> "image/jpeg".toMediaType()
-            }
-            
-            val requestBody = MultipartBody.Builder()
-                .setType(MultipartBody.FORM)
-                .addFormDataPart(
-                    "file",
-                    file.name,
-                    file.asRequestBody(mediaType)
-                )
-                .addFormDataPart("description", "Auto-uploaded from Hillview Android")
-                .addFormDataPart("is_public", "true")
-                .build()
-            
-            val request = Request.Builder()
-                .url("$serverUrl/api/photos/upload")
-                .addHeader("Authorization", "Bearer $authToken")
-                .post(requestBody)
-                .build()
-            
-            Log.d(TAG, "Sending upload request to: $serverUrl/api/photos/upload")
-            
-            client.newCall(request).execute().use { response ->
-                val success = response.isSuccessful
-                
-                if (success) {
-                    Log.d(TAG, "Upload successful for photo: ${photo.filename}")
-                    Log.d(TAG, "Response: ${response.body?.string()}")
-                } else {
-                    Log.e(TAG, "Upload failed for photo: ${photo.filename}")
-                    Log.e(TAG, "Response code: ${response.code}")
-                    Log.e(TAG, "Response message: ${response.message}")
-                    Log.e(TAG, "Response body: ${response.body?.string()}")
-                }
-                
-                return@withContext success
-            }
+            // Try upload with automatic token refresh
+            return@withContext attemptUpload(file, photo.filename)
             
         } catch (e: IOException) {
             Log.e(TAG, "Network error uploading photo: ${photo.filename}", e)
@@ -97,6 +50,66 @@ class UploadManager(private val context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "Unexpected error uploading photo: ${photo.filename}", e)
             return@withContext false
+        }
+    }
+    
+    private suspend fun attemptUpload(file: File, filename: String): Boolean {
+        val serverUrl = getServerUrl()
+        
+        // Get valid auth token (with automatic refresh)
+        val authToken = authManager.getValidToken()
+        if (authToken == null) {
+            Log.e(TAG, "No valid auth token available for upload")
+            return false
+        }
+        
+        val mediaType = when (file.extension.lowercase()) {
+            "jpg", "jpeg" -> "image/jpeg".toMediaType()
+            "png" -> "image/png".toMediaType()
+            "webp" -> "image/webp".toMediaType()
+            else -> "image/jpeg".toMediaType()
+        }
+        
+        val requestBody = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart(
+                "file",
+                file.name,
+                file.asRequestBody(mediaType)
+            )
+            .addFormDataPart("description", "Auto-uploaded from Hillview Android")
+            .addFormDataPart("is_public", "true")
+            .build()
+        
+        val request = Request.Builder()
+            .url("$serverUrl/api/photos/upload")
+            .addHeader("Authorization", "Bearer $authToken")
+            .post(requestBody)
+            .build()
+        
+        Log.d(TAG, "Sending upload request to: $serverUrl/api/photos/upload")
+        
+        client.newCall(request).execute().use { response ->
+            when {
+                response.isSuccessful -> {
+                    Log.d(TAG, "Upload successful for photo: $filename")
+                    Log.d(TAG, "Response: ${response.body?.string()}")
+                    return true
+                }
+                response.code == 401 -> {
+                    Log.w(TAG, "Upload failed with 401 (auth error) for photo: $filename")
+                    Log.w(TAG, "Auth token may have expired during upload - should have been refreshed already")
+                    Log.e(TAG, "Response body: ${response.body?.string()}")
+                    return false
+                }
+                else -> {
+                    Log.e(TAG, "Upload failed for photo: $filename")
+                    Log.e(TAG, "Response code: ${response.code}")
+                    Log.e(TAG, "Response message: ${response.message}")
+                    Log.e(TAG, "Response body: ${response.body?.string()}")
+                    return false
+                }
+            }
         }
     }
     
@@ -109,26 +122,21 @@ class UploadManager(private val context: Context) {
         return prefs.getString(PREF_SERVER_URL, DEFAULT_SERVER_URL) ?: DEFAULT_SERVER_URL
     }
     
-    fun setAuthToken(token: String) {
-        prefs.edit().putString(PREF_AUTH_TOKEN, token).apply()
-        Log.d(TAG, "Auth token updated")
-    }
-    
-    fun getAuthToken(): String? {
-        return prefs.getString(PREF_AUTH_TOKEN, null)
-    }
-    
-    fun clearAuthToken() {
-        prefs.edit().remove(PREF_AUTH_TOKEN).apply()
-        Log.d(TAG, "Auth token cleared")
-    }
+    // Auth token methods removed - now handled by AuthenticationManager
     
     suspend fun testConnection(): Boolean = withContext(Dispatchers.IO) {
         try {
             val serverUrl = getServerUrl()
+            val authToken = authManager.getValidToken()
+            
+            if (authToken == null) {
+                Log.e(TAG, "No valid auth token for connection test")
+                return@withContext false
+            }
+            
             val request = Request.Builder()
                 .url("$serverUrl/api/auth/me")
-                .addHeader("Authorization", "Bearer ${getAuthToken()}")
+                .addHeader("Authorization", "Bearer $authToken")
                 .get()
                 .build()
             

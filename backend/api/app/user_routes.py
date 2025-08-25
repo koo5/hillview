@@ -18,8 +18,8 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
 from common.models import User
 from .auth import (
-    authenticate_user, create_access_token, get_current_active_user,
-    get_password_hash, Token, UserCreate, UserLogin, UserOut, UserOAuth,
+    authenticate_user, create_access_token, create_refresh_token, get_current_active_user,
+    get_password_hash, Token, UserCreate, UserLogin, UserOut, UserOAuth, RefreshTokenRequest,
     OAUTH_PROVIDERS, ACCESS_TOKEN_EXPIRE_MINUTES,
     blacklist_token, get_current_user
 )
@@ -130,8 +130,13 @@ async def login_for_access_token(
         expires_delta=datetime.timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     )
     
+    refresh_token, _ = create_refresh_token(
+        data={"sub": user.username, "user_id": user.id}
+    )
+    
     return {
         "access_token": access_token,
+        "refresh_token": refresh_token,
         "token_type": "bearer",
         "expires_at": expires
     }
@@ -155,6 +160,101 @@ async def logout(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Logout failed"
+        )
+
+@router.post("/auth/refresh", response_model=Token)
+async def refresh_access_token(
+    request: Request,
+    refresh_request: RefreshTokenRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """Refresh an access token using a refresh token."""
+    try:
+        # Rate limit refresh requests
+        identifier = auth_rate_limiter.get_identifier(request)
+        if not await auth_rate_limiter.check_rate_limit(identifier, max_requests=10, window_seconds=300):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many refresh requests. Try again later.",
+                headers={"Retry-After": "300"}
+            )
+        
+        # Verify refresh token
+        import jwt
+        from .auth import SECRET_KEY, ALGORITHM
+        
+        try:
+            payload = jwt.decode(refresh_request.refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
+            username: str = payload.get("sub")
+            user_id: str = payload.get("user_id")
+            token_type: str = payload.get("type")
+            
+            if not username or not user_id or token_type != "refresh":
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid refresh token"
+                )
+                
+        except jwt.ExpiredSignatureError:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Refresh token expired"
+            )
+        except jwt.JWTError:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid refresh token"
+            )
+        
+        # Get user from database
+        result = await db.execute(
+            select(User).where(User.username == username, User.id == user_id)
+        )
+        user = result.scalars().first()
+        
+        if not user or not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User not found or inactive"
+            )
+        
+        # Create new access token
+        access_token, expires = create_access_token(
+            data={"sub": user.username, "user_id": user.id},
+            expires_delta=datetime.timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        )
+        
+        # Optionally create new refresh token (rotate refresh tokens for better security)
+        new_refresh_token, _ = create_refresh_token(
+            data={"sub": user.username, "user_id": user.id}
+        )
+        
+        # Log successful refresh
+        await security_audit.log_event(
+            db=db,
+            event_type="token_refresh_success",
+            user_identifier=user.username,
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+            event_details={"user_id": user.id},
+            severity="info",
+            user_id=user.id
+        )
+        
+        return {
+            "access_token": access_token,
+            "refresh_token": new_refresh_token,
+            "token_type": "bearer",
+            "expires_at": expires
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"Error during token refresh: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Token refresh failed"
         )
 
 @router.get("/auth/oauth-redirect")

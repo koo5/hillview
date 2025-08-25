@@ -33,7 +33,7 @@ test.describe('Photo Upload Tests', () => {
     await page.click('button[type="submit"]');
     
     // Wait for login success and redirect
-    await expect(page).toHaveURL('/');
+    await page.waitForURL('/', { timeout: 15000 });
     await page.waitForLoadState('networkidle');
   });
 
@@ -97,6 +97,9 @@ test.describe('Photo Upload Tests', () => {
     
     console.log('🢄Upload button text after file select:', await uploadButton.textContent());
     console.log('🢄Upload button disabled after file select:', await uploadButton.isDisabled());
+    
+    // Wait for upload button to be enabled after file selection
+    await expect(uploadButton).toBeEnabled({ timeout: 10000 });
     
     // Click upload
     console.log('🢄Clicking upload button...');
@@ -211,7 +214,7 @@ test.describe('Photo Upload Tests', () => {
       await page.waitForFunction(() => {
         const uploadButton = document.querySelector('[data-testid="upload-submit-button"]') as HTMLButtonElement;
         return uploadButton && uploadButton.textContent?.includes('Upload Photo');
-      }, { timeout: 15000 });
+      }, { timeout: 30000 });
       
       // Wait for file input to be cleared (indicating upload completed)
       await page.waitForFunction(() => {

@@ -42,14 +42,14 @@ class PhotoUploadWorker(
             
             // Then process upload queue if auto upload is enabled
             if (autoUploadEnabled) {
-                // Check authentication before proceeding with uploads
+                // Get valid auth token (automatically refreshes if needed)
                 val authToken = authManager.getValidToken()
                 if (authToken == null) {
-                    Log.w(TAG, "🔐 No valid auth token available, skipping upload work")
+                    Log.w(TAG, "🔐 No valid auth token available (refresh failed or no refresh token), skipping upload work")
                     return@withContext Result.success()
                 }
                 
-                Log.d(TAG, "🔐 Valid auth token found, proceeding with uploads")
+                Log.d(TAG, "🔐 Valid auth token obtained, proceeding with uploads")
                 processUploadQueue()
                 retryFailedUploads()
             }

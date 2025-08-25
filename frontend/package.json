@@ -17,7 +17,7 @@
 		"@wdio/local-runner": "^9.16.2",
 		"@wdio/mocha-framework": "^9.16.2",
 		"@wdio/spec-reporter": "^9.16.2",
-		"appium": "^2.19.0",
+		"appium": "^3.0.1",
 		"appium-uiautomator2-driver": "^4.2.4",
 		"appium-xcuitest-driver": "^9.9.1",
 		"happy-dom": "^18.0.1",
@@ -36,28 +36,22 @@
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
-
 		"test:unit": "vitest",
 		"test:unit:ui": "vitest --ui",
 		"test:coverage": "vitest --coverage",
 		"test:run": "vitest run",
-
 		"android:dev": "./scripts/android/dev.sh",
 		"android:debug:init": "./scripts/android/debug-init.sh",
 		"android:debug:build": "./scripts/android/debug-build.sh",
 		"android:debug:install": "./scripts/android/debug-install.sh",
 		"android:release:init": "./scripts/android/release-init.sh",
-		"android:release:build": "./scripts/android/release-build.sh", 
+		"android:release:build": "./scripts/android/release-build.sh",
 		"android:release:install": "./scripts/android/release-install.sh",
 		"android:logs": "./scripts/android/logs.sh",
-
 		"test:android": "./scripts/android/test.sh",
 		"test:android:clean": "fish -c 'source scripts/env/android-debug.env; set -gx WDIO_CLEAN_STATE true; wdio run wdio.conf.ts'",
 		"test:android:fast": "fish -c 'source scripts/env/android-debug.env; set -gx WDIO_CLEAN_STATE false; wdio run wdio.conf.ts'",
 		"test:android:test0": "fish -c 'source scripts/env/android-debug.env; set -gx WDIO_CLEAN_STATE false; set -gx WDIO_RESTART_PER_SUITE true; wdio run wdio.conf.ts --spec \"./test/specs/android-photo-simple.test0.ts\"'",
-
-
-
 		"appium": "appium",
 		"appium:doctor": "echo 'Use: npx appium driver list --installed to check drivers'",
 		"test": "playwright test",

@@ -4,7 +4,7 @@
     import { Upload, Trash2, Map, Settings } from 'lucide-svelte';
     import BackButton from '../../components/BackButton.svelte';
     import Spinner from '../../components/Spinner.svelte';
-    import { auth } from '$lib/auth.svelte';
+    import { auth, checkAuth } from '$lib/auth.svelte';
     import { app } from '$lib/data.svelte';
     import type { UserPhoto } from '$lib/stores';
     import type { User } from '$lib/auth.svelte';
@@ -45,6 +45,9 @@
     }
 
     onMount(async () => {
+        // Check authentication status first
+        checkAuth();
+        
         // Check if user is authenticated
         auth.subscribe(async (value) => {
             user = value.isAuthenticated ? value.user : null;

@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Auth Expiry Notification</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        button { padding: 10px 20px; margin: 10px; background: #4CAF50; color: white; border: none; cursor: pointer; }
+        .result { margin: 10px 0; padding: 10px; background: #f0f0f0; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <h1>Test Auth Expiry Notification</h1>
+    <p>This page tests the push notification system for authentication expiry.</p>
+    
+    <button id="testNotification">Send Test Notification</button>
+    
+    <div id="result" class="result" style="display: none;"></div>
+
+    <script>
+        document.getElementById('testNotification').addEventListener('click', async () => {
+            const resultDiv = document.getElementById('result');
+            
+            try {
+                // Check if we're in Tauri environment
+                if (typeof window.__TAURI__ === 'undefined') {
+                    resultDiv.innerHTML = '❌ This test only works in the Android app (Tauri environment)';
+                    resultDiv.style.display = 'block';
+                    return;
+                }
+                
+                const { invoke } = window.__TAURI__.core;
+                
+                resultDiv.innerHTML = '⏳ Sending test notification...';
+                resultDiv.style.display = 'block';
+                
+                const result = await invoke('plugin:hillview|test_auth_expired_notification');
+                
+                if (result.success) {
+                    resultDiv.innerHTML = '✅ ' + result.message + '<br>Check your notification panel!';
+                } else {
+                    resultDiv.innerHTML = '❌ Failed: ' + (result.error || 'Unknown error');
+                }
+                
+            } catch (error) {
+                resultDiv.innerHTML = '❌ Error: ' + error.message;
+                resultDiv.style.display = 'block';
+            }
+        });
+    </script>
+</body>
+</html>

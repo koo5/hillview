@@ -1,7 +1,10 @@
 import { get } from 'svelte/store';
-import { auth, logout, checkTokenValidity } from './auth.svelte';
+import { auth, logout } from './auth.svelte';
 import {backendUrl} from "$lib/config";
 import { addToast } from './toast.svelte';
+import { createTokenManager } from './tokenManagerFactory';
+import type { TokenManager } from './tokenManager';
+import { TokenExpiredError as TokenManagerExpiredError, TokenRefreshError } from './tokenManager';
 
 export interface ApiError extends Error {
   status?: number;
@@ -20,44 +23,76 @@ export class TokenExpiredError extends Error implements ApiError {
 
 export class HttpClient {
   private baseURL: string;
+  private tokenManager: TokenManager;
   
   constructor(baseURL: string) {
     this.baseURL = baseURL;
+    this.tokenManager = createTokenManager();
   }
   
   private async makeRequest(url: string, options: RequestInit = {}): Promise<Response> {
-    // Always check token validity before making requests
-    if (!checkTokenValidity()) {
-      throw new TokenExpiredError();
-    }
-    
-    const authState = get(auth);
     const fullUrl = url.startsWith('http') ? url : `${this.baseURL}${url}`;
     
-    // Automatically add auth header if we have a token
-    const headers: Record<string, string> = {
-      ...(options.headers as Record<string, string> || {}),
-    };
-    
-    if (authState.token) {
-      headers['Authorization'] = `Bearer ${authState.token}`;
-    }
-    
     try {
+      // Get valid token (will auto-refresh if needed)
+      const token = await this.tokenManager.getValidToken();
+      
+      // Prepare headers
+      const headers: Record<string, string> = {
+        ...(options.headers as Record<string, string> || {}),
+      };
+      
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      
       const response = await fetch(fullUrl, {
         ...options,
         headers,
       });
       
-      // Handle authentication errors globally
+      // Handle authentication errors
       if (response.status === 401) {
-        console.warn('🢄[HTTP] Received 401 Unauthorized response');
+        console.warn('🢄[HTTP] Received 401 Unauthorized response, attempting token refresh');
+        
+        try {
+          // Try to refresh the token
+          const refreshSuccess = await this.tokenManager.refreshToken();
+          if (refreshSuccess) {
+            // Retry the request with the new token
+            const newToken = await this.tokenManager.getValidToken();
+            if (newToken) {
+              const retryHeaders = {
+                ...headers,
+                'Authorization': `Bearer ${newToken}`
+              };
+              
+              return await fetch(fullUrl, {
+                ...options,
+                headers: retryHeaders,
+              });
+            }
+          }
+        } catch (refreshError) {
+          console.error('🢄[HTTP] Token refresh failed:', refreshError);
+        }
+        
+        // If refresh failed, logout
+        console.warn('🢄[HTTP] Token refresh failed, logging out');
         logout('Session expired');
         throw new TokenExpiredError();
       }
       
       return response;
+      
     } catch (error) {
+      // Handle TokenManager errors
+      if (error instanceof TokenManagerExpiredError || error instanceof TokenRefreshError) {
+        console.warn('🢄[HTTP] TokenManager error:', error.message);
+        logout('Session expired');
+        throw new TokenExpiredError();
+      }
+      
       // Re-throw our custom errors
       if (error instanceof TokenExpiredError) {
         throw error;
@@ -138,61 +173,131 @@ export class HttpClient {
     formData: FormData,
     onProgress?: (percent: number) => void
   ): Promise<any> {
-    if (!checkTokenValidity()) {
-      throw new TokenExpiredError();
-    }
-    
-    const authState = get(auth);
     const fullUrl = url.startsWith('http') ? url : `${this.baseURL}${url}`;
     
-    return new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
+    try {
+      // Get valid token (will auto-refresh if needed)
+      const token = await this.tokenManager.getValidToken();
       
-      // Progress tracking
-      if (onProgress) {
-        xhr.upload.addEventListener('progress', (event) => {
-          if (event.lengthComputable) {
-            const percent = Math.round((event.loaded / event.total) * 100);
-            onProgress(percent);
-          }
-        });
-      }
-      
-      xhr.onload = () => {
-        if (xhr.status === 401) {
-          logout('Session expired');
-          reject(new TokenExpiredError());
-          return;
+      return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        
+        // Progress tracking
+        if (onProgress) {
+          xhr.upload.addEventListener('progress', (event) => {
+            if (event.lengthComputable) {
+              const percent = Math.round((event.loaded / event.total) * 100);
+              onProgress(percent);
+            }
+          });
         }
         
-        if (xhr.status >= 200 && xhr.status < 300) {
-          try {
-            const result = JSON.parse(xhr.responseText);
-            resolve(result);
-          } catch (e) {
-            resolve(xhr.responseText);
+        xhr.onload = async () => {
+          if (xhr.status === 401) {
+            console.warn('🢄[HTTP] Upload received 401, attempting token refresh');
+            
+            try {
+              // Try to refresh the token and retry upload
+              const refreshSuccess = await this.tokenManager.refreshToken();
+              if (refreshSuccess) {
+                const newToken = await this.tokenManager.getValidToken();
+                if (newToken) {
+                  // Create new request with fresh token
+                  const retryXhr = new XMLHttpRequest();
+                  
+                  if (onProgress) {
+                    retryXhr.upload.addEventListener('progress', (event) => {
+                      if (event.lengthComputable) {
+                        const percent = Math.round((event.loaded / event.total) * 100);
+                        onProgress(percent);
+                      }
+                    });
+                  }
+                  
+                  retryXhr.onload = () => {
+                    if (retryXhr.status === 401) {
+                      logout('Session expired');
+                      reject(new TokenExpiredError());
+                      return;
+                    }
+                    
+                    if (retryXhr.status >= 200 && retryXhr.status < 300) {
+                      try {
+                        const result = JSON.parse(retryXhr.responseText);
+                        resolve(result);
+                      } catch (e) {
+                        resolve(retryXhr.responseText);
+                      }
+                    } else {
+                      const errorMessage = `Upload failed: ${retryXhr.status} ${retryXhr.statusText}`;
+                      addToast(`Upload error: ${errorMessage}`, 'error', 8000, 'http');
+                      const error = new Error(errorMessage) as ApiError;
+                      error.status = retryXhr.status;
+                      reject(error);
+                    }
+                  };
+                  
+                  retryXhr.onerror = () => {
+                    const errorMessage = 'Network error during upload retry';
+                    addToast(errorMessage, 'error', 8000, 'http');
+                    reject(new Error(errorMessage));
+                  };
+                  
+                  retryXhr.open('POST', fullUrl);
+                  retryXhr.setRequestHeader('Authorization', `Bearer ${newToken}`);
+                  retryXhr.send(formData);
+                  return;
+                }
+              }
+            } catch (refreshError) {
+              console.error('🢄[HTTP] Upload token refresh failed:', refreshError);
+            }
+            
+            // If refresh failed, logout
+            logout('Session expired');
+            reject(new TokenExpiredError());
+            return;
           }
-        } else {
-          const errorMessage = `Upload failed: ${xhr.status} ${xhr.statusText}`;
-          addToast(`Upload error: ${errorMessage}`, 'error', 8000, 'http');
-          const error = new Error(errorMessage) as ApiError;
-          error.status = xhr.status;
-          reject(error);
+          
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+              const result = JSON.parse(xhr.responseText);
+              resolve(result);
+            } catch (e) {
+              resolve(xhr.responseText);
+            }
+          } else {
+            const errorMessage = `Upload failed: ${xhr.status} ${xhr.statusText}`;
+            addToast(`Upload error: ${errorMessage}`, 'error', 8000, 'http');
+            const error = new Error(errorMessage) as ApiError;
+            error.status = xhr.status;
+            reject(error);
+          }
+        };
+        
+        xhr.onerror = () => {
+          const errorMessage = 'Network error during upload';
+          addToast(errorMessage, 'error', 8000, 'http');
+          reject(new Error(errorMessage));
+        };
+        
+        xhr.open('POST', fullUrl);
+        if (token) {
+          xhr.setRequestHeader('Authorization', `Bearer ${token}`);
         }
-      };
+        xhr.send(formData);
+      });
       
-      xhr.onerror = () => {
-        const errorMessage = 'Network error during upload';
-        addToast(errorMessage, 'error', 8000, 'http');
-        reject(new Error(errorMessage));
-      };
-      
-      xhr.open('POST', fullUrl);
-      if (authState.token) {
-        xhr.setRequestHeader('Authorization', `Bearer ${authState.token}`);
+    } catch (error) {
+      // Handle TokenManager errors
+      if (error instanceof TokenManagerExpiredError || error instanceof TokenRefreshError) {
+        console.warn('🢄[HTTP] Upload TokenManager error:', error.message);
+        logout('Session expired');
+        throw new TokenExpiredError();
       }
-      xhr.send(formData);
-    });
+      
+      throw error;
+    }
   }
 }
 

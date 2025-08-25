@@ -295,6 +295,42 @@
       "type": "string",
       "oneOf": [
         {
+          "description": "Enables the check_camera_permission command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-check-camera-permission",
+          "markdownDescription": "Enables the check_camera_permission command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the check_camera_permission command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-check-camera-permission",
+          "markdownDescription": "Denies the check_camera_permission command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the clear_auth_token command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-clear-auth-token",
+          "markdownDescription": "Enables the clear_auth_token command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the clear_auth_token command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-clear-auth-token",
+          "markdownDescription": "Denies the clear_auth_token command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_auth_token command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-auth-token",
+          "markdownDescription": "Enables the get_auth_token command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_auth_token command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-auth-token",
+          "markdownDescription": "Denies the get_auth_token command without any pre-configured scope."
+        },
+        {
           "description": "Enables the get_upload_status command without any pre-configured scope.",
           "type": "string",
           "const": "allow-get-upload-status",
@@ -305,6 +341,18 @@
           "type": "string",
           "const": "deny-get-upload-status",
           "markdownDescription": "Denies the get_upload_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the is_token_expired command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-is-token-expired",
+          "markdownDescription": "Enables the is_token_expired command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the is_token_expired command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-is-token-expired",
+          "markdownDescription": "Denies the is_token_expired command without any pre-configured scope."
         },
         {
           "description": "Enables the ping command without any pre-configured scope.",
@@ -319,6 +367,18 @@
           "markdownDescription": "Denies the ping command without any pre-configured scope."
         },
         {
+          "description": "Enables the refresh_auth_token command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-refresh-auth-token",
+          "markdownDescription": "Enables the refresh_auth_token command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the refresh_auth_token command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-refresh-auth-token",
+          "markdownDescription": "Denies the refresh_auth_token command without any pre-configured scope."
+        },
+        {
           "description": "Enables the registerListener command without any pre-configured scope.",
           "type": "string",
           "const": "allow-registerListener",
@@ -329,6 +389,18 @@
           "type": "string",
           "const": "deny-registerListener",
           "markdownDescription": "Denies the registerListener command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the request_camera_permission command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-request-camera-permission",
+          "markdownDescription": "Enables the request_camera_permission command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the request_camera_permission command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-request-camera-permission",
+          "markdownDescription": "Denies the request_camera_permission command without any pre-configured scope."
         },
         {
           "description": "Enables the retry_failed_uploads command without any pre-configured scope.",
@@ -415,6 +487,30 @@
           "markdownDescription": "Denies the stop_sensor command without any pre-configured scope."
         },
         {
+          "description": "Enables the store_auth_token command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-store-auth-token",
+          "markdownDescription": "Enables the store_auth_token command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the store_auth_token command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-store-auth-token",
+          "markdownDescription": "Denies the store_auth_token command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the test_auth_expired_notification command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-test-auth-expired-notification",
+          "markdownDescription": "Enables the test_auth_expired_notification command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the test_auth_expired_notification command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-test-auth-expired-notification",
+          "markdownDescription": "Denies the test_auth_expired_notification command without any pre-configured scope."
+        },
+        {
           "description": "Enables the update_sensor_location command without any pre-configured scope.",
           "type": "string",
           "const": "allow-update-sensor-location",
@@ -439,10 +535,10 @@
           "markdownDescription": "Denies the upload_photo command without any pre-configured scope."
         },
         {
-          "description": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-ping`\n- `allow-start-sensor`\n- `allow-stop-sensor`\n- `allow-update-sensor-location`\n- `allow-registerListener`\n- `allow-start-precise-location-listener`\n- `allow-stop-precise-location-listener`\n- `allow-set-auto-upload-enabled`\n- `allow-get-upload-status`\n- `allow-set-upload-config`\n- `allow-upload-photo`\n- `allow-retry-failed-uploads`",
+          "description": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-ping`\n- `allow-start-sensor`\n- `allow-stop-sensor`\n- `allow-update-sensor-location`\n- `allow-registerListener`\n- `allow-start-precise-location-listener`\n- `allow-stop-precise-location-listener`\n- `allow-set-auto-upload-enabled`\n- `allow-get-upload-status`\n- `allow-set-upload-config`\n- `allow-upload-photo`\n- `allow-retry-failed-uploads`\n- `allow-store-auth-token`\n- `allow-get-auth-token`\n- `allow-clear-auth-token`\n- `allow-refresh-auth-token`\n- `allow-is-token-expired`\n- `allow-check-camera-permission`\n- `allow-request-camera-permission`\n- `allow-test-auth-expired-notification`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-ping`\n- `allow-start-sensor`\n- `allow-stop-sensor`\n- `allow-update-sensor-location`\n- `allow-registerListener`\n- `allow-start-precise-location-listener`\n- `allow-stop-precise-location-listener`\n- `allow-set-auto-upload-enabled`\n- `allow-get-upload-status`\n- `allow-set-upload-config`\n- `allow-upload-photo`\n- `allow-retry-failed-uploads`"
+          "markdownDescription": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-ping`\n- `allow-start-sensor`\n- `allow-stop-sensor`\n- `allow-update-sensor-location`\n- `allow-registerListener`\n- `allow-start-precise-location-listener`\n- `allow-stop-precise-location-listener`\n- `allow-set-auto-upload-enabled`\n- `allow-get-upload-status`\n- `allow-set-upload-config`\n- `allow-upload-photo`\n- `allow-retry-failed-uploads`\n- `allow-store-auth-token`\n- `allow-get-auth-token`\n- `allow-clear-auth-token`\n- `allow-refresh-auth-token`\n- `allow-is-token-expired`\n- `allow-check-camera-permission`\n- `allow-request-camera-permission`\n- `allow-test-auth-expired-notification`"
         }
       ]
     }

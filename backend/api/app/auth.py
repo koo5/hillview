@@ -67,12 +67,16 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
 # Models
 class Token(BaseModel):
     access_token: str
+    refresh_token: Optional[str] = None
     token_type: str
     expires_at: datetime
 
 class TokenData(BaseModel):
     username: Optional[str] = None
     user_id: Optional[str] = None
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
 
 class UserCreate(BaseModel):
     email: str

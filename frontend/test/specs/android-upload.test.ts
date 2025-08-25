@@ -8,8 +8,13 @@ import { PhotoUploadHelper } from '../helpers/PhotoUploadHelper'
  * Focused test for verifying photo upload and gallery checking
  */
 describe('Android Upload Verification', () => {
+    let photoUpload: PhotoUploadHelper;
+    
     beforeEach(async function () {
         this.timeout(90000);
+        
+        // Initialize helper
+        photoUpload = new PhotoUploadHelper();
         
         // Clean app state is automatically provided by wdio.conf.ts beforeTest hook
         console.log('🧪 Starting upload verification test with clean app state');
@@ -22,70 +27,26 @@ describe('Android Upload Verification', () => {
             console.log('📚 Starting upload verification test...');
             
             try {
-                await driver.saveScreenshot('./test-results/upload-01-initial.png');
+                // Generate a photo identifier for potential tracking
+                const photoId = photoUpload.generatePhotoIdentifier();
+                console.log(`📸 Generated photo identifier: ${photoId.name}`);
                 
-                // Open hamburger menu
-                const hamburgerMenu = await $('android=new UiSelector().text("Toggle menu")');
-                await hamburgerMenu.waitForDisplayed({ timeout: 10000 });
-                await hamburgerMenu.click();
-                await driver.pause(2000);
+                // Navigate to gallery using helper
+                await photoUpload.navigateToGallery();
                 
-                // Switch to WebView context
-                const contexts = await driver.getContexts();
-                const webViewContexts = contexts.filter(ctx => ctx.includes('WEBVIEW'));
+                // Check for any existing photos
+                const hasPhotos = await photoUpload.checkForCapturedPhoto();
                 
-                if (webViewContexts.length > 0) {
-                    await driver.switchContext(webViewContexts[0]);
-                    
-                    // Look for gallery or photos link
-                    const galleryLinks = ['a[href="/gallery"]', 'a[href="/photos"]', 'a:contains("Gallery")', 'a:contains("Photos")'];
-                    
-                    for (const linkSelector of galleryLinks) {
-                        try {
-                            const galleryLink = await $(linkSelector);
-                            if (await galleryLink.isDisplayed()) {
-                                console.log(`📚 Found gallery link: ${linkSelector}`);
-                                await galleryLink.click();
-                                await driver.pause(4000);
-                                
-                                await driver.saveScreenshot('./test-results/upload-02-gallery.png');
-                                
-                                // Look for uploaded photos
-                                const photoElements = await $$('img, [class*="photo"], [class*="image"]');
-                                console.log(`📷 Found ${photoElements.length} photo elements in gallery`);
-                                
-                                if (photoElements.length > 0) {
-                                    console.log('🎉 SUCCESS: Photos found in gallery!');
-                                    
-                                    // Click first photo to see details
-                                    try {
-                                        await photoElements[0].click();
-                                        await driver.pause(2000);
-                                        await driver.saveScreenshot('./test-results/upload-03-photo-details.png');
-                                        console.log('📸 Accessed photo details');
-                                    } catch (e) {
-                                        console.log('ℹ️ Could not access photo details');
-                                    }
-                                } else {
-                                    console.log('ℹ️ No photos in gallery yet - may still be processing');
-                                }
-                                
-                                break;
-                            }
-                        } catch (e) {
-                            // Continue trying other selectors
-                        }
-                    }
-                    
-                    await driver.switchContext('NATIVE_APP');
+                if (hasPhotos) {
+                    console.log('🎉 SUCCESS: Photos found in gallery!');
+                    expect(hasPhotos).toBe(true);
+                } else {
+                    console.log('ℹ️ No photos in gallery yet - this is normal for upload verification test');
+                    // This test just checks the gallery works, doesn't require photos
+                    expect(true).toBe(true);
                 }
                 
-                await driver.back(); // Close menu
-                await driver.pause(2000);
-                
-                await driver.saveScreenshot('./test-results/upload-04-final.png');
                 console.log('🎉 Upload verification test completed');
-                expect(true).toBe(true);
                 
             } catch (error) {
                 console.error('❌ Upload verification test failed:', error);

@@ -12,5 +12,13 @@ permissions = [
   "allow-get-upload-status",
   "allow-set-upload-config",
   "allow-upload-photo",
-  "allow-retry-failed-uploads"
+  "allow-retry-failed-uploads",
+  "allow-store-auth-token",
+  "allow-get-auth-token",
+  "allow-clear-auth-token",
+  "allow-refresh-auth-token",
+  "allow-is-token-expired",
+  "allow-check-camera-permission",
+  "allow-request-camera-permission",
+  "allow-test-auth-expired-notification"
 ]

@@ -16,7 +16,7 @@ test('Settings button should not be visible in web browser (non-Tauri environmen
   await page.click('button[type="submit"]');
   
   // Wait for login success and redirect
-  await expect(page).toHaveURL('/');
+  await page.waitForURL('/', { timeout: 15000 });
   await page.waitForLoadState('networkidle');
   
   // Navigate to photos page

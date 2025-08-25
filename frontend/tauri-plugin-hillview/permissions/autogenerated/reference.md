@@ -16,6 +16,14 @@ Default permissions for the plugin
 - `allow-set-upload-config`
 - `allow-upload-photo`
 - `allow-retry-failed-uploads`
+- `allow-store-auth-token`
+- `allow-get-auth-token`
+- `allow-clear-auth-token`
+- `allow-refresh-auth-token`
+- `allow-is-token-expired`
+- `allow-check-camera-permission`
+- `allow-request-camera-permission`
+- `allow-test-auth-expired-notification`
 
 ## Permission Table
 
@@ -25,6 +33,84 @@ Default permissions for the plugin
 <th>Description</th>
 </tr>
 
+
+<tr>
+<td>
+
+`hillview:allow-check-camera-permission`
+
+</td>
+<td>
+
+Enables the check_camera_permission command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:deny-check-camera-permission`
+
+</td>
+<td>
+
+Denies the check_camera_permission command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:allow-clear-auth-token`
+
+</td>
+<td>
+
+Enables the clear_auth_token command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:deny-clear-auth-token`
+
+</td>
+<td>
+
+Denies the clear_auth_token command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:allow-get-auth-token`
+
+</td>
+<td>
+
+Enables the get_auth_token command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:deny-get-auth-token`
+
+</td>
+<td>
+
+Denies the get_auth_token command without any pre-configured scope.
+
+</td>
+</tr>
 
 <tr>
 <td>
@@ -48,6 +134,32 @@ Enables the get_upload_status command without any pre-configured scope.
 <td>
 
 Denies the get_upload_status command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:allow-is-token-expired`
+
+</td>
+<td>
+
+Enables the is_token_expired command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:deny-is-token-expired`
+
+</td>
+<td>
+
+Denies the is_token_expired command without any pre-configured scope.
 
 </td>
 </tr>
@@ -81,6 +193,32 @@ Denies the ping command without any pre-configured scope.
 <tr>
 <td>
 
+`hillview:allow-refresh-auth-token`
+
+</td>
+<td>
+
+Enables the refresh_auth_token command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:deny-refresh-auth-token`
+
+</td>
+<td>
+
+Denies the refresh_auth_token command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `hillview:allow-registerListener`
 
 </td>
@@ -100,6 +238,32 @@ Enables the registerListener command without any pre-configured scope.
 <td>
 
 Denies the registerListener command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:allow-request-camera-permission`
+
+</td>
+<td>
+
+Enables the request_camera_permission command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:deny-request-camera-permission`
+
+</td>
+<td>
+
+Denies the request_camera_permission command without any pre-configured scope.
 
 </td>
 </tr>
@@ -282,6 +446,58 @@ Enables the stop_sensor command without any pre-configured scope.
 <td>
 
 Denies the stop_sensor command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:allow-store-auth-token`
+
+</td>
+<td>
+
+Enables the store_auth_token command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:deny-store-auth-token`
+
+</td>
+<td>
+
+Denies the store_auth_token command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:allow-test-auth-expired-notification`
+
+</td>
+<td>
+
+Enables the test_auth_expired_notification command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:deny-test-auth-expired-notification`
+
+</td>
+<td>
+
+Denies the test_auth_expired_notification command without any pre-configured scope.
 
 </td>
 </tr>

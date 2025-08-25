@@ -21,6 +21,7 @@
         getFrontCamera,
         type CameraDevice 
     } from '$lib/cameraDevices.svelte';
+    import { tauriCamera, isCameraPermissionCheckAvailable } from '$lib/tauri';
 
     const dispatch = createEventDispatcher();
     
@@ -123,6 +124,27 @@
 
     async function checkAndStartCamera() {
         console.log('🢄[CAMERA] Checking camera permission before auto-start...');
+        
+        // Check camera permission status using Tauri if available
+        if (isCameraPermissionCheckAvailable() && tauriCamera) {
+            try {
+                const hasPermission = await tauriCamera.checkCameraPermission();
+                console.log('🢄[CAMERA] Camera permission status from Tauri:', hasPermission);
+                
+                if (hasPermission) {
+                    console.log('🢄[CAMERA] Permission granted, starting camera immediately');
+                    await startCamera();
+                    return;
+                } else {
+                    console.log('🢄[CAMERA] Permission not granted, showing Enable Camera button');
+                    cameraError = 'Camera access required';
+                    needsPermission = true;
+                    return;
+                }
+            } catch (error) {
+                console.warn('🢄[CAMERA] Failed to check camera permission via Tauri, falling back to standard flow:', error);
+            }
+        }
         
         // Try to acquire permission lock first
         const lockAcquired = await permissionManager.acquireLock();
@@ -566,6 +588,38 @@
                         <p>📷 {cameraError}</p>
                         <button class="retry-button" on:click={async () => {
                             console.log('🢄[CAMERA] Enable Camera button clicked');
+                            
+                            // Try native permission request first if available
+                            if (isCameraPermissionCheckAvailable() && tauriCamera) {
+                                try {
+                                    console.log('🢄[CAMERA] Using native permission request');
+                                    const permissionResult = await tauriCamera.requestCameraPermission();
+                                    
+                                    if (permissionResult.granted) {
+                                        console.log('🢄[CAMERA] Native permission granted, starting camera');
+                                        cameraError = null;
+                                        needsPermission = false;
+                                        hasRequestedPermission = false;
+                                        if (permissionCheckInterval) {
+                                            clearInterval(permissionCheckInterval);
+                                            permissionCheckInterval = null;
+                                        }
+                                        retryCount = 0;
+                                        await startCamera();
+                                        return;
+                                    } else {
+                                        console.log('🢄[CAMERA] Native permission denied:', permissionResult.error);
+                                        cameraError = permissionResult.error || 'Camera permission denied';
+                                        needsPermission = true;
+                                        return;
+                                    }
+                                } catch (error) {
+                                    console.warn('🢄[CAMERA] Native permission request failed, falling back to WebView:', error);
+                                }
+                            }
+                            
+                            // Fallback to WebView permission flow
+                            console.log('🢄[CAMERA] Using WebView permission flow');
                             
                             // Try to acquire permission lock before starting camera
                             const lockAcquired = await permissionManager.acquireLock();

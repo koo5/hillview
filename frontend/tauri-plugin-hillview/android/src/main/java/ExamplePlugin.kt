@@ -57,6 +57,12 @@ class PhotoUploadArgs {
 class StoreAuthTokenArgs {
   var token: String? = null
   var expiresAt: String? = null
+  var refreshToken: String? = null
+}
+
+@InvokeArg
+class TokenExpiryCheckArgs {
+  var bufferMinutes: Int = 2
 }
 
 @TauriPlugin
@@ -216,30 +222,57 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         if (requestCode == CAMERA_PERMISSION_REQUEST_CODE) {
             Log.i(TAG, "🢄🎥 Camera permission result received")
             
-            val pendingRequest = pendingWebViewPermissionRequest
-            if (pendingRequest == null) {
-                Log.w(TAG, "🢄🎥 No pending WebView permission request")
-                return
-            }
-            
             // Check if all requested permissions were granted
             val allGranted = grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }
             
-            if (allGranted) {
-                Log.i(TAG, "🢄🎥 Camera permissions granted by user, granting WebView permission")
-                activity.runOnUiThread { 
-                    pendingRequest.grant(pendingRequest.resources)
+            // Handle WebView permission request if present
+            val pendingWebViewRequest = pendingWebViewPermissionRequest
+            if (pendingWebViewRequest != null) {
+                Log.i(TAG, "🢄🎥 Handling WebView permission result")
+                
+                if (allGranted) {
+                    Log.i(TAG, "🢄🎥 Camera permissions granted by user, granting WebView permission")
+                    activity.runOnUiThread { 
+                        pendingWebViewRequest.grant(pendingWebViewRequest.resources)
+                    }
+                } else {
+                    Log.i(TAG, "🢄🎥 Camera permissions denied by user, denying WebView permission")
+                    activity.runOnUiThread { 
+                        pendingWebViewRequest.deny()
+                    }
                 }
-            } else {
-                Log.i(TAG, "🢄🎥 Camera permissions denied by user, denying WebView permission")
-                activity.runOnUiThread { 
-                    pendingRequest.deny()
-                }
+                
+                // Release permission lock and clear pending request
+                releasePermissionLock("camera")
+                pendingWebViewPermissionRequest = null
             }
             
-            // Release permission lock and clear pending request
-            releasePermissionLock("camera")
-            pendingWebViewPermissionRequest = null
+            // Handle native permission request if present
+            val pendingNativeRequest = pendingNativePermissionInvoke
+            if (pendingNativeRequest != null) {
+                Log.i(TAG, "🢄🎥 Handling native permission result")
+                
+                val result = JSObject()
+                result.put("granted", allGranted)
+                
+                if (allGranted) {
+                    Log.i(TAG, "🢄🎥 Native camera permission granted")
+                } else {
+                    Log.i(TAG, "🢄🎥 Native camera permission denied")
+                    result.put("error", "Camera permission denied by user")
+                }
+                
+                pendingNativeRequest.resolve(result)
+                
+                // Release permission lock and clear pending request
+                releasePermissionLock("camera-native")
+                pendingNativePermissionInvoke = null
+            }
+            
+            // If neither pending request exists, log warning
+            if (pendingWebViewRequest == null && pendingNativeRequest == null) {
+                Log.w(TAG, "🢄🎥 Camera permission result received but no pending requests found")
+            }
         }
     }
     
@@ -633,6 +666,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             val args = invoke.parseArgs(StoreAuthTokenArgs::class.java)
             val token = args?.token
             val expiresAt = args?.expiresAt
+            val refreshToken = args?.refreshToken
             
             if (token.isNullOrEmpty() || expiresAt.isNullOrEmpty()) {
                 val error = JSObject()
@@ -642,8 +676,8 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                 return
             }
             
-            Log.d(TAG, "🔐 Storing auth token")
-            val success = authManager.storeAuthToken(token, expiresAt)
+            Log.d(TAG, "🔐 Storing auth token with refresh token: ${refreshToken != null}")
+            val success = authManager.storeAuthToken(token, expiresAt, refreshToken)
             
             val result = JSObject()
             result.put("success", success)
@@ -706,6 +740,65 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         }
     }
     
+    @Command
+    fun refreshAuthToken(invoke: Invoke) {
+        try {
+            Log.d(TAG, "🔐 Refreshing auth token")
+            
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val success = authManager.refreshTokenIfNeeded()
+                    
+                    CoroutineScope(Dispatchers.Main).launch {
+                        val result = JSObject()
+                        result.put("success", success)
+                        if (!success) {
+                            result.put("error", "Token refresh failed")
+                        }
+                        invoke.resolve(result)
+                    }
+                    
+                } catch (e: Exception) {
+                    Log.e(TAG, "🔐 Error during token refresh", e)
+                    CoroutineScope(Dispatchers.Main).launch {
+                        val error = JSObject()
+                        error.put("success", false)
+                        error.put("error", e.message)
+                        invoke.resolve(error)
+                    }
+                }
+            }
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "🔐 Error starting token refresh", e)
+            val error = JSObject()
+            error.put("success", false)
+            error.put("error", e.message)
+            invoke.resolve(error)
+        }
+    }
+    
+    @Command
+    fun isTokenExpired(invoke: Invoke) {
+        try {
+            val args = invoke.parseArgs(TokenExpiryCheckArgs::class.java)
+            val bufferMinutes = args?.bufferMinutes ?: 2
+            
+            Log.d(TAG, "🔐 Checking if token is expired (buffer: $bufferMinutes minutes)")
+            val expired = authManager.isTokenExpired(bufferMinutes)
+            
+            val result = JSObject()
+            result.put("expired", expired)
+            invoke.resolve(result)
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "🔐 Error checking token expiry", e)
+            val error = JSObject()
+            error.put("expired", true) // Assume expired on error for safety
+            invoke.resolve(error)
+        }
+    }
+    
     // Command to check if camera permissions can be requested (for WebView coordination)
     @Command
     fun canRequestCameraPermission(invoke: Invoke) {
@@ -730,6 +823,92 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         val result = JSObject()
         result.put("success", released)
         invoke.resolve(result)
+    }
+    
+    @Command
+    fun checkCameraPermission(invoke: Invoke) {
+        val hasCameraPermission = ContextCompat.checkSelfPermission(
+            activity, 
+            android.Manifest.permission.CAMERA
+        ) == PackageManager.PERMISSION_GRANTED
+        
+        val result = JSObject()
+        result.put("granted", hasCameraPermission)
+        
+        Log.i(TAG, "🎥 Camera permission check: $hasCameraPermission")
+        invoke.resolve(result)
+    }
+    
+    // Store pending native permission request
+    private var pendingNativePermissionInvoke: Invoke? = null
+    
+    @Command
+    fun requestCameraPermission(invoke: Invoke) {
+        Log.i(TAG, "🎥 Native camera permission request")
+        
+        val hasCameraPermission = ContextCompat.checkSelfPermission(
+            activity, 
+            android.Manifest.permission.CAMERA
+        ) == PackageManager.PERMISSION_GRANTED
+        
+        if (hasCameraPermission) {
+            Log.i(TAG, "🎥 Camera permission already granted")
+            val result = JSObject()
+            result.put("granted", true)
+            invoke.resolve(result)
+            return
+        }
+        
+        // Check if we can request permission (not permanently denied)
+        if (ActivityCompat.shouldShowRequestPermissionRationale(activity, android.Manifest.permission.CAMERA)) {
+            Log.i(TAG, "🎥 Should show rationale - permission can be requested")
+        } else {
+            Log.i(TAG, "🎥 No rationale needed - first time or permanently denied")
+        }
+        
+        // Try to acquire permission lock
+        val lockAcquired = acquirePermissionLock("camera-native")
+        if (!lockAcquired) {
+            Log.w(TAG, "🎥 Permission system busy, cannot request camera permission right now")
+            val result = JSObject()
+            result.put("granted", false)
+            result.put("error", "Permission system busy")
+            invoke.resolve(result)
+            return
+        }
+        
+        // Store the invoke for the callback
+        pendingNativePermissionInvoke = invoke
+        
+        // Request camera permission directly via Android system
+        ActivityCompat.requestPermissions(
+            activity,
+            arrayOf(android.Manifest.permission.CAMERA),
+            CAMERA_PERMISSION_REQUEST_CODE
+        )
+        
+        Log.i(TAG, "🎥 Camera permission request sent to Android system")
+    }
+    
+    @Command
+    fun testAuthExpiredNotification(invoke: Invoke) {
+        try {
+            Log.d(TAG, "🔔 Testing auth expired notification")
+            val notificationHelper = NotificationHelper(activity)
+            notificationHelper.showAuthExpiredNotification()
+            
+            val result = JSObject()
+            result.put("success", true)
+            result.put("message", "Test notification sent")
+            invoke.resolve(result)
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "🔔 Error sending test notification", e)
+            val error = JSObject()
+            error.put("success", false)
+            error.put("error", e.message)
+            invoke.resolve(error)
+        }
     }
     
     // Handle permission request results and forward to PreciseLocationService

@@ -2,6 +2,8 @@ import { writable, type Writable, get } from 'svelte/store';
 import { goto } from "$app/navigation";
 import { userPhotos } from './stores';
 import { backendUrl } from './config';
+import { createTokenManager } from './tokenManagerFactory';
+import { TAURI } from './tauri';
 
 export interface User {
     id: string;
@@ -87,21 +89,23 @@ export async function login(username: string, password: string) {
         
         console.log('🢄[AUTH] auth Login successful, token received:', data);
         
-        // Store token
-        localStorage.setItem('token', data.access_token);
-        localStorage.setItem('token_expires', data.expires_at);
-        
-        // Store token in Android SharedPreferences via Tauri command
-        if (TAURI) {
-            try {
-                const { invoke } = await import('@tauri-apps/api/core');
-                await invoke('store_auth_token', { 
-                    token: data.access_token, 
-                    expiresAt: data.expires_at 
-                });
-                console.log('🢄[AUTH] Auth token stored in Android SharedPreferences');
-            } catch (error) {
-                console.error('🢄[AUTH] Failed to store auth token in Android:', error);
+        // Store tokens using the unified TokenManager
+        const tokenManager = createTokenManager();
+        try {
+            await tokenManager.storeTokens({
+                access_token: data.access_token,
+                refresh_token: data.refresh_token,
+                expires_at: data.expires_at,
+                token_type: data.token_type || 'bearer'
+            });
+            console.log('🢄[AUTH] Tokens stored successfully via TokenManager');
+        } catch (error) {
+            console.error('🢄[AUTH] Failed to store tokens via TokenManager:', error);
+            // Fallback to localStorage only
+            localStorage.setItem('token', data.access_token);
+            localStorage.setItem('token_expires', data.expires_at);
+            if (data.refresh_token) {
+                localStorage.setItem('refresh_token', data.refresh_token);
             }
         }
         
@@ -226,14 +230,24 @@ export async function oauthLogin(provider: string, code: string, redirectUri?: s
     }
 }
 
-export function logout(reason?: string) {
+export async function logout(reason?: string) {
     console.log('🢄[AUTH] === LOGGING OUT ===');
     if (reason) {
         console.log('🢄[AUTH] - Reason:', reason);
     }
-    console.log('🢄[AUTH] - Removing token from localStorage');
-    localStorage.removeItem('token');
-    localStorage.removeItem('token_expires');
+    
+    console.log('🢄[AUTH] - Clearing tokens via TokenManager');
+    const tokenManager = createTokenManager();
+    try {
+        await tokenManager.clearTokens();
+        console.log('🢄[AUTH] - Tokens cleared successfully');
+    } catch (error) {
+        console.error('🢄[AUTH] - Error clearing tokens:', error);
+        // Fallback to manual cleanup
+        localStorage.removeItem('token');
+        localStorage.removeItem('token_expires');
+        localStorage.removeItem('refresh_token');
+    }
     
     console.log('🢄[AUTH] - Updating auth store');
     auth.update(a => {
@@ -283,20 +297,24 @@ export function checkTokenValidity(): boolean {
 }
 
 export async function authenticatedFetch(url: string, options: RequestInit = {}): Promise<Response> {
-    // Check token validity before making request
-    if (!checkTokenValidity()) {
-        throw new Error('Token expired. Please log in again.');
-    }
-    
-    const authState = get(auth);
-    
-    // Add authorization header
-    const headers = {
-        ...options.headers,
-        'Authorization': `Bearer ${authState.token}`
-    };
+    const tokenManager = createTokenManager();
     
     try {
+        // Get valid token (will auto-refresh if needed)
+        const token = await tokenManager.getValidToken();
+        
+        if (!token) {
+            console.log('🢄[AUTH] No valid token available');
+            logout('No valid token');
+            throw new Error('Authentication failed. Please log in again.');
+        }
+        
+        // Add authorization header
+        const headers = {
+            ...options.headers,
+            'Authorization': `Bearer ${token}`
+        };
+        
         const response = await fetch(url, {
             ...options,
             headers
@@ -304,7 +322,32 @@ export async function authenticatedFetch(url: string, options: RequestInit = {})
         
         // Handle 401 Unauthorized responses
         if (response.status === 401) {
-            console.log('🢄[AUTH] Received 401 response, token may be invalid');
+            console.log('🢄[AUTH] Received 401 response, attempting token refresh');
+            
+            // Try to refresh the token
+            try {
+                const refreshSuccess = await tokenManager.refreshToken();
+                if (refreshSuccess) {
+                    // Retry the request with the new token
+                    const newToken = await tokenManager.getValidToken();
+                    if (newToken) {
+                        const retryHeaders = {
+                            ...options.headers,
+                            'Authorization': `Bearer ${newToken}`
+                        };
+                        
+                        return await fetch(url, {
+                            ...options,
+                            headers: retryHeaders
+                        });
+                    }
+                }
+            } catch (refreshError) {
+                console.error('🢄[AUTH] Token refresh failed:', refreshError);
+            }
+            
+            // If refresh failed, logout
+            console.log('🢄[AUTH] Token refresh failed, logging out');
             logout('Authentication failed');
             throw new Error('Authentication failed. Please log in again.');
         }
