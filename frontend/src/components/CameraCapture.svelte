@@ -151,11 +151,10 @@
             permissionRetryInterval = null;
         }
         
-        // Release lock immediately and let WebChromeClient handle the permission dialog
+        await startCamera();
+
         await permissionManager.releaseLock();
         
-        console.log('🢄[CAMERA] Permission lock coordination complete, starting camera directly');
-        startCamera();
     }
 
     async function startCamera() {
