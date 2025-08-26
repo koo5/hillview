@@ -68,7 +68,7 @@ export async function handleAuthCallback(url?: string): Promise<boolean> {
                 const { invoke } = await import('@tauri-apps/api/core');
                 result = await invoke('store_auth_token', { 
                     token, 
-                    expires_at: expiresAt 
+                    expiresAt: expiresAt  // Java expects camelCase
                 }) as BasicResponse;
             } else {
                 // For non-Tauri environments, store in localStorage or similar
