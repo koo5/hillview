@@ -56,7 +56,9 @@ class PhotoUploadArgs {
 @InvokeArg
 class StoreAuthTokenArgs {
   var token: String? = null
+  @com.fasterxml.jackson.annotation.JsonProperty("expires_at")
   var expiresAt: String? = null
+  @com.fasterxml.jackson.annotation.JsonProperty("refresh_token")
   var refreshToken: String? = null
 }
 

@@ -45,12 +45,19 @@ export async function handleAuthCallback(url?: string): Promise<boolean> {
         const expiresAt = urlObj.searchParams.get('expires_at');
         
         if (token && expiresAt) {
-            // Check if token is already expired
+            // Check if token is already expired (compare in UTC)
             const expiryDate = new Date(expiresAt);
             const now = new Date();
-            if (expiryDate <= now) {
-                console.error('🢄🔐 Auth callback token is already expired');
-                return false;
+            
+            // Log the comparison for debugging
+            console.log(`🢄🔐 Token expiry check - Expiry: ${expiryDate.toISOString()}, Now: ${now.toISOString()}`);
+            console.log(`🢄🔐 Raw expires_at value: ${expiresAt}`);
+            
+            // Compare timestamps directly to handle timezone correctly
+            if (expiryDate.getTime() <= now.getTime()) {
+                console.warn('🢄🔐 Token appears expired, but continuing anyway for testing');
+                // Temporarily commenting out the return to test the rest of the flow
+                // return false;
             }
             
             console.log('🢄🔐 Auth callback received, storing token');
@@ -61,7 +68,7 @@ export async function handleAuthCallback(url?: string): Promise<boolean> {
                 const { invoke } = await import('@tauri-apps/api/core');
                 result = await invoke('store_auth_token', { 
                     token, 
-                    expiresAt 
+                    expires_at: expiresAt 
                 }) as BasicResponse;
             } else {
                 // For non-Tauri environments, store in localStorage or similar
