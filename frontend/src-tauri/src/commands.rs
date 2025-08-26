@@ -1,12 +1,11 @@
 use log::info;
 // Remove unused serde imports since we're using types from plugin
-use tauri::{AppHandle, Runtime};
 use std::sync::Mutex;
+use tauri::{AppHandle, Runtime};
 
 const GIT_HASH: &str = env!("GIT_HASH");
 const GIT_BRANCH: &str = env!("GIT_BRANCH");
 const BUILD_TIME: &str = env!("BUILD_TIME");
-
 
 #[tauri::command]
 pub fn log(message: String) {
@@ -35,7 +34,7 @@ pub fn is_debug_mode() -> bool {
 
 // Authentication data structures
 // Re-export types from plugin to avoid duplication
-pub use tauri_plugin_hillview::{BasicResponse, AuthTokenResponse};
+pub use tauri_plugin_hillview::{AuthTokenResponse, BasicResponse};
 
 // Authentication Commands
 
@@ -54,7 +53,7 @@ pub async fn store_auth_token<R: Runtime>(
             Err(e) => Err(format!("Failed to store auth token: {}", e)),
         }
     }
-    
+
     #[cfg(not(target_os = "android"))]
     {
         // For non-Android platforms, we could use secure storage or just return success
@@ -68,9 +67,7 @@ pub async fn store_auth_token<R: Runtime>(
 
 #[tauri::command]
 #[allow(unused_variables)]
-pub async fn get_auth_token<R: Runtime>(
-    app: AppHandle<R>,
-) -> Result<AuthTokenResponse, String> {
+pub async fn get_auth_token<R: Runtime>(app: AppHandle<R>) -> Result<AuthTokenResponse, String> {
     #[cfg(target_os = "android")]
     {
         use tauri_plugin_hillview::HillviewExt;
@@ -79,7 +76,7 @@ pub async fn get_auth_token<R: Runtime>(
             Err(e) => Err(format!("Failed to get auth token: {}", e)),
         }
     }
-    
+
     #[cfg(not(target_os = "android"))]
     {
         // For non-Android platforms, return no token
@@ -94,9 +91,7 @@ pub async fn get_auth_token<R: Runtime>(
 
 #[tauri::command]
 #[allow(unused_variables)]
-pub async fn clear_auth_token<R: Runtime>(
-    app: AppHandle<R>,
-) -> Result<BasicResponse, String> {
+pub async fn clear_auth_token<R: Runtime>(app: AppHandle<R>) -> Result<BasicResponse, String> {
     #[cfg(target_os = "android")]
     {
         use tauri_plugin_hillview::HillviewExt;
@@ -105,7 +100,7 @@ pub async fn clear_auth_token<R: Runtime>(
             Err(e) => Err(format!("Failed to clear auth token: {}", e)),
         }
     }
-    
+
     #[cfg(not(target_os = "android"))]
     {
         // For non-Android platforms, just return success
@@ -115,4 +110,3 @@ pub async fn clear_auth_token<R: Runtime>(
         })
     }
 }
-

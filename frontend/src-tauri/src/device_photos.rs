@@ -1,8 +1,8 @@
 use image::GenericImageView;
-use log::{info, warn, error};
+use log::{error, info, warn};
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
 use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 use tauri::{command, Manager};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -40,12 +40,11 @@ impl DevicePhotosDb {
 /// Get the base Pictures directory path for the current platform
 fn get_pictures_base_dir() -> Result<PathBuf, String> {
     if cfg!(target_os = "android") {
-        let external_storage = std::env::var("EXTERNAL_STORAGE")
-            .unwrap_or_else(|_| "/storage/emulated/0".to_string());
+        let external_storage =
+            std::env::var("EXTERNAL_STORAGE").unwrap_or_else(|_| "/storage/emulated/0".to_string());
         Ok(Path::new(&external_storage).to_path_buf())
     } else {
-        dirs::picture_dir()
-            .ok_or_else(|| "Could not determine Pictures directory".to_string())
+        dirs::picture_dir().ok_or_else(|| "Could not determine Pictures directory".to_string())
     }
 }
 
@@ -82,17 +81,15 @@ pub async fn load_device_photos_db(app_handle: tauri::AppHandle) -> Result<Devic
         return Ok(DevicePhotosDb::new());
     }
 
-    let content = std::fs::read_to_string(&db_path)
-        .map_err(|e| {
-            error!("🢄Failed to read device photos database: {}", e);
-            format!("Failed to read database: {}", e)
-        })?;
+    let content = std::fs::read_to_string(&db_path).map_err(|e| {
+        error!("🢄Failed to read device photos database: {}", e);
+        format!("Failed to read database: {}", e)
+    })?;
 
-    serde_json::from_str(&content)
-        .map_err(|e| {
-            error!("🢄Failed to parse device photos database: {}", e);
-            format!("Failed to parse database: {}", e)
-        })
+    serde_json::from_str(&content).map_err(|e| {
+        error!("🢄Failed to parse device photos database: {}", e);
+        format!("Failed to parse database: {}", e)
+    })
 }
 
 #[command]
@@ -108,19 +105,20 @@ pub async fn save_device_photos_db(
             .map_err(|e| format!("Failed to create database directory: {}", e))?;
     }
 
-    let content = serde_json::to_string_pretty(&db)
-        .map_err(|e| {
-            error!("🢄Failed to serialize device photos database: {}", e);
-            format!("Failed to serialize database: {}", e)
-        })?;
+    let content = serde_json::to_string_pretty(&db).map_err(|e| {
+        error!("🢄Failed to serialize device photos database: {}", e);
+        format!("Failed to serialize database: {}", e)
+    })?;
 
-    std::fs::write(&db_path, content)
-        .map_err(|e| {
-            error!("🢄Failed to write device photos database: {}", e);
-            format!("Failed to write database: {}", e)
-        })?;
+    std::fs::write(&db_path, content).map_err(|e| {
+        error!("🢄Failed to write device photos database: {}", e);
+        format!("Failed to write database: {}", e)
+    })?;
 
-    info!("🢄Device photos database saved with {} photos", db.photos.len());
+    info!(
+        "🢄Device photos database saved with {} photos",
+        db.photos.len()
+    );
     Ok(())
 }
 
@@ -188,17 +186,17 @@ pub async fn add_device_photo_to_db(
 /// Scan a directory for image files
 fn scan_directory_for_images(dir: &Path) -> Result<Vec<PathBuf>, std::io::Error> {
     let mut image_files = Vec::new();
-    
+
     if !dir.exists() {
         return Ok(image_files);
     }
-    
+
     let entries = std::fs::read_dir(dir)?;
-    
+
     for entry in entries {
         let entry = entry?;
         let path = entry.path();
-        
+
         if path.is_file() {
             if let Some(extension) = path.extension() {
                 let ext = extension.to_string_lossy().to_lowercase();
@@ -208,26 +206,26 @@ fn scan_directory_for_images(dir: &Path) -> Result<Vec<PathBuf>, std::io::Error>
             }
         }
     }
-    
+
     Ok(image_files)
 }
 
 /// Create DevicePhotoMetadata from a file path
 async fn create_device_photo_metadata(file_path: &Path) -> Result<DevicePhotoMetadata, String> {
     let path_str = file_path.to_string_lossy().to_string();
-    
+
     // Get basic file info
-    let metadata = std::fs::metadata(file_path)
-        .map_err(|e| format!("Failed to read file metadata: {}", e))?;
+    let metadata =
+        std::fs::metadata(file_path).map_err(|e| format!("Failed to read file metadata: {}", e))?;
     let file_size = metadata.len();
-    
+
     // Get filename
     let filename = file_path
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("unknown")
         .to_string();
-    
+
     // Try to get image dimensions
     let (width, height) = match image::open(file_path) {
         Ok(img) => {
@@ -239,9 +237,9 @@ async fn create_device_photo_metadata(file_path: &Path) -> Result<DevicePhotoMet
             (0, 0)
         }
     };
-    
+
     // Try to read EXIF data for GPS info
-    let (latitude, longitude, altitude, bearing, timestamp, accuracy) = 
+    let (latitude, longitude, altitude, bearing, timestamp, accuracy) =
         match crate::photo_exif::read_photo_exif(path_str.clone()).await {
             Ok(exif_data) => (
                 exif_data.latitude,
@@ -256,10 +254,10 @@ async fn create_device_photo_metadata(file_path: &Path) -> Result<DevicePhotoMet
                 (0.0, 0.0, None, None, chrono::Utc::now().timestamp(), 0.0)
             }
         };
-    
+
     Ok(DevicePhotoMetadata {
         id: format!(
-            "device_{}_{}_{}", 
+            "device_{}_{}_{}",
             chrono::Utc::now().timestamp_millis(),
             uuid::Uuid::new_v4(),
             filename
@@ -282,11 +280,11 @@ async fn create_device_photo_metadata(file_path: &Path) -> Result<DevicePhotoMet
 #[command]
 pub async fn refresh_device_photos(app_handle: tauri::AppHandle) -> Result<DevicePhotosDb, String> {
     info!("🢄Starting device photos refresh");
-    
+
     // Get both directories to scan
     let (visible_dir, hidden_dir) = get_hillview_directories()?;
     let directories_to_scan = [&visible_dir, &hidden_dir];
-    
+
     // Load existing database
     let mut db = load_device_photos_db(app_handle.clone())
         .await
@@ -294,7 +292,7 @@ pub async fn refresh_device_photos(app_handle: tauri::AppHandle) -> Result<Devic
             warn!("🢄Failed to load existing database, creating new: {}", e);
             DevicePhotosDb::new()
         });
-    
+
     // Remove photos that no longer exist on filesystem
     let initial_count = db.photos.len();
     db.photos.retain(|photo| {
@@ -305,35 +303,33 @@ pub async fn refresh_device_photos(app_handle: tauri::AppHandle) -> Result<Devic
         exists
     });
     let removed_count = initial_count - db.photos.len();
-    
+
     // Build set of existing paths for quick lookup
-    let existing_paths: HashSet<String> = db.photos.iter()
-        .map(|p| p.path.clone())
-        .collect();
-    
+    let existing_paths: HashSet<String> = db.photos.iter().map(|p| p.path.clone()).collect();
+
     // Scan both directories for new photos
     let mut new_photos_added = 0;
     let mut scan_errors = 0;
-    
+
     for dir in directories_to_scan {
         if !dir.exists() {
             continue;
         }
-        
+
         info!("🢄Scanning directory: {:?}", dir);
-        
+
         match scan_directory_for_images(dir) {
             Ok(image_files) => {
                 info!("🢄Found {} image files in {:?}", image_files.len(), dir);
-                
+
                 for file_path in image_files {
                     let path_str = file_path.to_string_lossy().to_string();
-                    
+
                     // Skip if already in database
                     if existing_paths.contains(&path_str) {
                         continue;
                     }
-                    
+
                     // Create metadata for new photo
                     match create_device_photo_metadata(&file_path).await {
                         Ok(photo_metadata) => {
@@ -354,18 +350,21 @@ pub async fn refresh_device_photos(app_handle: tauri::AppHandle) -> Result<Devic
             }
         }
     }
-    
+
     // Update timestamp
     db.last_updated = chrono::Utc::now().timestamp();
-    
+
     // Save updated database
     save_device_photos_db(app_handle, db.clone()).await?;
-    
+
     info!(
         "Device photos refresh complete: {} photos total, {} new added, {} removed, {} scan errors",
-        db.photos.len(), new_photos_added, removed_count, scan_errors
+        db.photos.len(),
+        new_photos_added,
+        removed_count,
+        scan_errors
     );
-    
+
     Ok(db)
 }
 

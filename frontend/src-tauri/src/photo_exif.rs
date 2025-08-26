@@ -288,16 +288,22 @@ fn save_to_pictures_directory(
     };
 
     // Use dot folder if hiding from gallery
-    let folder_name = if hide_from_gallery { ".Hillview" } else { "Hillview" };
-    let pictures_path = std::path::Path::new(&pictures_dir)
-        .join(folder_name);
+    let folder_name = if hide_from_gallery {
+        ".Hillview"
+    } else {
+        "Hillview"
+    };
+    let pictures_path = std::path::Path::new(&pictures_dir).join(folder_name);
 
     info!("🢄create_dir_all: {:?}", pictures_path);
-    
+
     // Create the Hillview subdirectory in Pictures
     std::fs::create_dir_all(&pictures_path)?;
 
-    info!("🢄hide_from_gallery: {}, pictures_path: {:?}", hide_from_gallery, pictures_path);
+    info!(
+        "🢄hide_from_gallery: {}, pictures_path: {:?}",
+        hide_from_gallery, pictures_path
+    );
 
     // Create .nomedia file if hiding from gallery
     if hide_from_gallery {
@@ -308,17 +314,19 @@ fn save_to_pictures_directory(
     // Save the file
     let photo_path = pictures_path.join(filename);
 
-	info!("🢄Saving photo to: {:?}", photo_path);
+    info!("🢄Saving photo to: {:?}", photo_path);
 
     std::fs::write(&photo_path, image_data)?;
 
-    info!("🢄Saved photo to Pictures directory: {:?} (hidden: {})", photo_path, hide_from_gallery);
+    info!(
+        "🢄Saved photo to Pictures directory: {:?} (hidden: {})",
+        photo_path, hide_from_gallery
+    );
 
     // Set readable permissions for other apps on Unix systems
     #[cfg(unix)]
     {
-
-    	info!("🢄Setting permissions...");
+        info!("🢄Setting permissions...");
         let mut perms = std::fs::metadata(&photo_path)?.permissions();
         perms.set_mode(0o644); // rw-r--r--
         std::fs::set_permissions(&photo_path, perms)?;
@@ -326,7 +334,6 @@ fn save_to_pictures_directory(
 
     Ok(photo_path)
 }
-
 
 #[command]
 #[allow(unused_variables)]
@@ -351,7 +358,7 @@ pub async fn save_photo_with_metadata(
     #[cfg(target_os = "android")]
     let file_path = save_to_pictures_directory(&filename, &processed.data, hide_from_gallery)
         .map_err(|e| format!("Failed to save to Pictures directory: {}", e))?;
-    
+
     #[cfg(not(target_os = "android"))]
     {
         return Err("Photo saving not implemented for non-Android platforms".to_string());
@@ -413,7 +420,10 @@ pub async fn save_photo_with_metadata(
         use tauri_plugin_hillview::HillviewExt;
         match app_handle.hillview().retry_failed_uploads() {
             Ok(_) => {
-                info!("📤[UPLOAD_TRIGGER] Upload worker triggered for new photo: {}", device_photo.filename);
+                info!(
+                    "📤[UPLOAD_TRIGGER] Upload worker triggered for new photo: {}",
+                    device_photo.filename
+                );
             }
             Err(e) => {
                 info!("📤[UPLOAD_TRIGGER] Failed to trigger upload worker: {}", e);

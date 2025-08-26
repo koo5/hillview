@@ -15,6 +15,9 @@
     "fs:allow-appdata-write-recursive",
     "fs:allow-appdata-read-recursive",
     "os:default",
-    "hillview:default"
+    "shell:allow-open",
+    "hillview:default",
+    "shell:default",
+    "opener:default"
   ]
 }

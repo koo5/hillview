@@ -99,7 +99,7 @@
         }
     }
 
-    function handleOAuthLogin(provider: string) {
+    async function handleOAuthLogin(provider: string) {
         if (!oauthProviders[provider]) {
             console.error('🢄Unsupported OAuth provider:', provider);
             return;
@@ -109,7 +109,21 @@
         const authUrl = buildOAuthUrl(provider, isMobileApp);
         console.log('🢄🔐 Redirecting to:', authUrl);
         
-        window.location.href = authUrl;
+        if (isMobileApp) {
+            // Open in system browser using Tauri opener plugin
+            try {
+                const { openUrl } = await import('@tauri-apps/plugin-opener');
+                await openUrl(authUrl);
+                console.log('🢄🔐 Successfully opened OAuth URL in system browser');
+            } catch (error) {
+                console.error('🢄🔐 Failed to open system browser:', error);
+                // Fallback to WebView (will likely fail with 403)
+                window.location.href = authUrl;
+            }
+        } else {
+            // Web app - use normal redirect
+            window.location.href = authUrl;
+        }
     }
 
     function generateUsername() {
