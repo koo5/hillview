@@ -523,7 +523,7 @@ async def oauth_login_internal(
     
     if redirect_uri:
         # Define allowed domains for OAuth redirects (include port for localhost)
-        allowed_domains = {'localhost:8212', 'localhost', '127.0.0.1', 'localhost:8055', 'hillview.cz'}
+        allowed_domains = {'localhost:8212', 'localhost', '127.0.0.1', 'localhost:8055', 'hillview.cz', 'api.hillview.cz'}
         log.info(f"Validating redirect URI: {redirect_uri} against allowed domains: {allowed_domains}")
         redirect_uri = validate_oauth_redirect_uri(redirect_uri, allowed_domains)
         log.info(f"Redirect URI after validation: {redirect_uri}")
