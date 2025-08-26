@@ -144,11 +144,26 @@ class CORSLoggingMiddleware(BaseHTTPMiddleware):
 
 		return response
 
+# Reverse Proxy Middleware - Handle forwarded headers from Caddy
+class ReverseProxyMiddleware(BaseHTTPMiddleware):
+	async def dispatch(self, request: Request, call_next):
+		# Trust forwarded headers from reverse proxy (Caddy)
+		forwarded_proto = request.headers.get("X-Forwarded-Proto")
+		forwarded_host = request.headers.get("X-Forwarded-Host")
+		
+		if forwarded_proto:
+			request.scope["scheme"] = forwarded_proto
+		if forwarded_host:
+			request.scope["server"] = (forwarded_host, None)
+			
+		return await call_next(request)
+
 # Add middlewares (order matters - later added = executed first)
 app.add_middleware(CORSLoggingMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(GlobalRateLimitMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(ReverseProxyMiddleware)
 
 # Add exception handlers
 @app.exception_handler(Exception)
