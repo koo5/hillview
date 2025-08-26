@@ -25,9 +25,9 @@ export interface Source {
 }
 
 export const sources = writable<Source[]>([
-    {id: 'hillview', name: 'Hillview', type: 'stream', enabled: false, requests: [], color: '#000', url: `${backendUrl}/hillview`},
-    {id: 'mapillary', name: 'Mapillary', type: 'stream', enabled: false, requests: [], color: '#888', url: `${backendUrl}/mapillary`},
-    {id: 'device', name: 'My Device', type: 'device', enabled: false, requests: [], color: '#4a90e2', subtype: 'hillview'},
+    {id: 'hillview', name: 'Hillview', type: 'stream', enabled: !import.meta.env.VITE_PICS_OFF, requests: [], color: '#000', url: `${backendUrl}/hillview`},
+    {id: 'mapillary', name: 'Mapillary', type: 'stream', enabled: !import.meta.env.VITE_PICS_OFF, requests: [], color: '#888', url: `${backendUrl}/mapillary`},
+    {id: 'device', name: 'My Device', type: 'device', enabled: !import.meta.env.VITE_PICS_OFF, requests: [], color: '#4a90e2', subtype: 'hillview'},
 ]);
 
 export let client_id = staggeredLocalStorageSharedStore('client_id', Math.random().toString(36));
