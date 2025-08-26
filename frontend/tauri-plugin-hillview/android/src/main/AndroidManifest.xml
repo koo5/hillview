@@ -29,9 +29,41 @@
     <uses-permission android:name="android.permission.VIBRATE" />
 
 
-    <application
->
-        <!-- you can keep other attributes/components here -->
+    <application>
+        <!-- Deep link handling for OAuth callbacks -->
+        <activity
+            android:name="io.github.koo5.hillview.dev.MainActivity"
+            android:exported="true"
+            tools:node="merge">
+            <!-- Deep link intent filter for com.hillview scheme -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="com.hillview" />
+            </intent-filter>
+            <!-- Deep link intent filter for com.hillview.dev scheme -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="com.hillview.dev" />
+            </intent-filter>
+            <!-- Deep link intent filter for io.github.koo5.hillview scheme -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="io.github.koo5.hillview" />
+            </intent-filter>
+            <!-- Deep link intent filter for io.github.koo5.hillview.dev scheme -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="io.github.koo5.hillview.dev" />
+            </intent-filter>
+        </activity>
     </application>
 
 </manifest>
