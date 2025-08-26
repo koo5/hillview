@@ -278,7 +278,10 @@ async def oauth_redirect(
     
     # Validate and sanitize redirect URI  
     # Define allowed domains for OAuth redirects (include mobile deep links)
-    if redirect_uri.startswith("com.hillview://"):
+    if (redirect_uri.startswith("io.github.koo5.hillview://") or 
+        redirect_uri.startswith("io.github.koo5.hillview.dev://") or 
+        redirect_uri.startswith("com.hillview://") or  # Keep for backward compatibility
+        redirect_uri.startswith("com.hillview.dev://")):
         # Mobile deep link - allow it
         validated_redirect_uri = redirect_uri
     else:
@@ -322,7 +325,10 @@ async def oauth_redirect(
     
     # Build OAuth URL with appropriate redirect URI
     # For mobile: use deep link, for web: use frontend callback
-    if validated_redirect_uri.startswith("com.hillview://"):
+    if (validated_redirect_uri.startswith("io.github.koo5.hillview://") or 
+        validated_redirect_uri.startswith("io.github.koo5.hillview.dev://") or 
+        validated_redirect_uri.startswith("com.hillview://") or 
+        validated_redirect_uri.startswith("com.hillview.dev://")):
         # Mobile flow: OAuth provider should redirect to API server callback
         server_callback_uri = f"{request.base_url}api/auth/oauth-callback"
         log.info(f"Mobile flow detected - Server callback URI: {server_callback_uri}")
@@ -401,7 +407,11 @@ async def oauth_callback(
     
     # Exchange code for JWT using existing logic
     # Use the same redirect URI logic as the redirect endpoint
-    if final_redirect_uri and final_redirect_uri.startswith("com.hillview://"):
+    if (final_redirect_uri and 
+        (final_redirect_uri.startswith("io.github.koo5.hillview://") or 
+         final_redirect_uri.startswith("io.github.koo5.hillview.dev://") or 
+         final_redirect_uri.startswith("com.hillview://") or 
+         final_redirect_uri.startswith("com.hillview.dev://"))):
         # Mobile flow: used API server callback
         server_callback_uri = f"{request.base_url}api/auth/oauth-callback"
     else:
@@ -459,7 +469,11 @@ async def oauth_callback(
         raise
     
     # Detect if this is a mobile app request
-    if final_redirect_uri and final_redirect_uri.startswith("com.hillview://"):
+    if (final_redirect_uri and 
+        (final_redirect_uri.startswith("io.github.koo5.hillview://") or 
+         final_redirect_uri.startswith("io.github.koo5.hillview.dev://") or 
+         final_redirect_uri.startswith("com.hillview://") or 
+         final_redirect_uri.startswith("com.hillview.dev://"))):
         # Mobile app: deep link back with token
         callback_url = f"{final_redirect_uri}?token={jwt_token}&expires_at={expires_at.isoformat()}"
         log.info(f"Mobile OAuth callback, redirecting to: {callback_url}")
