@@ -403,7 +403,7 @@ async def oauth_callback(
     # Use the same redirect URI logic as the redirect endpoint
     if final_redirect_uri and final_redirect_uri.startswith("com.hillview://"):
         # Mobile flow: used API server callback
-        server_callback_uri = f"{request.base_url}auth/oauth-callback"
+        server_callback_uri = f"{request.base_url}api/auth/oauth-callback"
     else:
         # Web flow: used frontend callback
         from urllib.parse import urlparse
