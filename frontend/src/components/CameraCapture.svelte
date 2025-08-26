@@ -58,6 +58,7 @@
     let videoTrack: MediaStreamTrack | null = null;
     let wasShowingBeforeHidden = false;
     let permissionCheckInterval: number | null = null;
+    let cameraPermissionPollInterval: ReturnType<typeof setInterval> | null = null;
     let hasRequestedPermission = false;
     let retryCount = 0;
     let maxRetries = 5;
@@ -574,13 +575,30 @@
                 // Store unlisten function for cleanup
                 onDestroy(() => {
                     console.log('🢄[CAMERA] Cleaning up camera permission event listener');
-                    unlisten?.();
+                    if (unlisten) (unlisten as any)();
                 });
             } catch (error) {
                 console.error('🢄[CAMERA] Failed to setup camera permission event listener:', error);
             }
         } else {
             console.log('🢄[CAMERA] Camera permission check not available - skipping event listener');
+        }
+        
+        // Start simple permission polling from Kotlin
+        if (isCameraPermissionCheckAvailable() && tauriCamera) {
+            cameraPermissionPollInterval = setInterval(async () => {
+                try {
+                    const hasPermission = await tauriCamera!.checkCameraPermission();
+                    if (hasPermission && cameraError === 'Camera access required') {
+                        console.log('🢄[CAMERA POLL] Permission granted, retrying camera');
+                        cameraError = null;
+                        needsPermission = false;
+                        await startCamera();
+                    }
+                } catch (error) {
+                    console.error('🢄[CAMERA POLL] Error:', error);
+                }
+            }, 1000);
         }
     });
 
@@ -596,6 +614,9 @@
         }
         if (permissionRetryInterval) {
             clearInterval(permissionRetryInterval);
+        }
+        if (cameraPermissionPollInterval) {
+            clearInterval(cameraPermissionPollInterval);
         }
         document.removeEventListener('visibilitychange', handleVisibilityChange);
         document.removeEventListener('click', handleClickOutside);
@@ -791,38 +812,6 @@
         position: relative;
     }
 
-    .camera-header {
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 1rem;
-        background: linear-gradient(to bottom, rgba(0, 0, 0, 0.8), transparent);
-        z-index: 10;
-    }
-
-    .camera-header h2 {
-        margin: 0;
-        color: white;
-        font-size: 1.25rem;
-    }
-
-    .close-button {
-        background: rgba(255, 255, 255, 0.2);
-        border: none;
-        color: white;
-        cursor: pointer;
-        padding: 0.5rem;
-        border-radius: 50%;
-        transition: background 0.2s;
-    }
-
-    .close-button:hover {
-        background: rgba(255, 255, 255, 0.3);
-    }
 
     .camera-view {
         flex: 1;
@@ -1046,9 +1035,6 @@
     }
 
     @media (max-width: 600px) {
-        .camera-header h2 {
-            font-size: 1rem;
-        }
 
         .camera-controls {
             padding: 1rem;

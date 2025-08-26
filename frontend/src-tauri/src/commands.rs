@@ -7,8 +7,6 @@ const GIT_HASH: &str = env!("GIT_HASH");
 const GIT_BRANCH: &str = env!("GIT_BRANCH");
 const BUILD_TIME: &str = env!("BUILD_TIME");
 
-// Permission mutex for ensuring only one permission dialog at a time
-static PERMISSION_MUTEX: Mutex<Option<String>> = Mutex::new(None);
 
 #[tauri::command]
 pub fn log(message: String) {
@@ -118,66 +116,3 @@ pub async fn clear_auth_token<R: Runtime>(
     }
 }
 
-// Permission Mutex Commands
-
-#[tauri::command]
-pub fn acquire_permission_lock(requester: String) -> bool {
-    info!("🢄Permission lock request from: {}", requester);
-    let mut guard = PERMISSION_MUTEX.lock().unwrap();
-    if guard.is_none() {
-        *guard = Some(requester.clone());
-        info!("🢄Permission lock acquired by: {}", requester);
-        true
-    } else {
-        let holder = guard.as_ref().unwrap();
-        if holder == &requester {
-			info!("🢄Permission lock already held by requester: {}", requester);
-			true
-		}
-		else if requester == "camera" {
-			true
-		}
-		else if requester == "camera-native" {
-			true
-		}
-		else {
-        	info!("🢄Permission lock denied to {}, currently held by: {}", requester, holder);
-        	false
-        }
-    }
-}
-
-#[tauri::command]
-pub fn release_permission_lock(requester: String) -> Result<(), String> {
-    info!("🢄Permission lock release request from: {}", requester);
-    let mut guard = PERMISSION_MUTEX.lock().unwrap();
-    match guard.as_ref() {
-        Some(holder) if holder == &requester => {
-            *guard = None;
-            info!("🢄Permission lock released by: {}", requester);
-            Ok(())
-        }
-        Some(holder) => {
-            let error = format!("Lock held by {}, not {}", holder, requester);
-            info!("🢄Permission lock release failed: {}", error);
-            Err(error)
-        }
-        None => {
-            let error = "No lock held".to_string();
-            info!("🢄Permission lock release failed: {}", error);
-            Err(error)
-        }
-    }
-}
-
-#[tauri::command]
-pub fn get_permission_lock_holder() -> Option<String> {
-    let guard = PERMISSION_MUTEX.lock().unwrap();
-    let holder = guard.clone();
-    if let Some(ref h) = holder {
-        info!("🢄Permission lock currently held by: {}", h);
-    } else {
-        info!("🢄Permission lock is available");
-    }
-    holder
-}

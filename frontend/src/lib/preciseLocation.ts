@@ -3,7 +3,6 @@ import { addPluginListener, type PluginListener } from '@tauri-apps/api/core';
 import { invoke } from '@tauri-apps/api/core';
 import { updateGpsLocation, locationTracking, setLocationTracking } from './location.svelte';
 import { get } from 'svelte/store';
-import { createPermissionManager } from './permissionManager';
 
 // Unified GeolocationPosition interface
 export interface GeolocationPosition {
