@@ -475,9 +475,10 @@ async def oauth_callback(
          final_redirect_uri.startswith("com.hillview://") or 
          final_redirect_uri.startswith("com.hillview.dev://"))):
         # Mobile app: deep link back with token
-        # Round microseconds to avoid JavaScript parsing issues
+        # Format as ISO string with Z suffix for JavaScript compatibility
         expires_at_rounded = expires_at.replace(microsecond=0)
-        callback_url = f"{final_redirect_uri}?token={jwt_token}&expires_at={expires_at_rounded.isoformat()}"
+        expires_at_str = expires_at_rounded.isoformat().replace('+00:00', 'Z')
+        callback_url = f"{final_redirect_uri}?token={jwt_token}&expires_at={expires_at_str}"
         log.info(f"Mobile OAuth callback, redirecting to: {callback_url}")
         return RedirectResponse(callback_url)
     else:
