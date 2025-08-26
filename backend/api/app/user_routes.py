@@ -324,7 +324,7 @@ async def oauth_redirect(
     # For mobile: use deep link, for web: use frontend callback
     if validated_redirect_uri.startswith("com.hillview://"):
         # Mobile flow: OAuth provider should redirect to API server callback
-        server_callback_uri = f"{request.base_url}auth/oauth-callback"
+        server_callback_uri = f"{request.base_url}/api/auth/oauth-callback"
         log.info(f"Mobile flow detected - Server callback URI: {server_callback_uri}")
     else:
         # Web flow: OAuth provider should redirect to frontend callback
