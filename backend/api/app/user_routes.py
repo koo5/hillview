@@ -431,6 +431,7 @@ async def oauth_callback(
     try:
         jwt_result = await oauth_login_internal(oauth_data, db, request)
         jwt_token = jwt_result["access_token"]
+        refresh_token = jwt_result.get("refresh_token")  # Get refresh token
         expires_at = jwt_result["expires_at"]
         user_info = jwt_result.get("user_info", {})
         
@@ -474,12 +475,17 @@ async def oauth_callback(
          final_redirect_uri.startswith("io.github.koo5.hillview.dev://") or 
          final_redirect_uri.startswith("com.hillview://") or 
          final_redirect_uri.startswith("com.hillview.dev://"))):
-        # Mobile app: deep link back with token
+        # Mobile app: deep link back with tokens
         # Format as ISO string with Z suffix for JavaScript compatibility
         expires_at_rounded = expires_at.replace(microsecond=0)
         expires_at_str = expires_at_rounded.isoformat().replace('+00:00', 'Z')
+        
+        # Build URL with both access and refresh tokens
         callback_url = f"{final_redirect_uri}?token={jwt_token}&expires_at={expires_at_str}"
-        log.info(f"Mobile OAuth callback, redirecting to: {callback_url}")
+        if refresh_token:
+            callback_url += f"&refresh_token={refresh_token}"
+        
+        log.info(f"Mobile OAuth callback, redirecting to: {callback_url[:100]}...")  # Log first 100 chars
         return RedirectResponse(callback_url)
     else:
         # Web app: existing behavior (redirect to dashboard)
@@ -678,14 +684,19 @@ async def oauth_login_internal(
         user.is_verified = True
         await db.commit()
     
-    # Create access token
+    # Create access token and refresh token (just like login endpoint)
     access_token, expires = create_access_token(
         data={"sub": user.username, "user_id": user.id},
         expires_delta=datetime.timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     )
     
+    refresh_token, _ = create_refresh_token(
+        data={"sub": user.username, "user_id": user.id}
+    )
+    
     return {
         "access_token": access_token,
+        "refresh_token": refresh_token,
         "token_type": "bearer",
         "expires_at": expires,
         "user_info": {

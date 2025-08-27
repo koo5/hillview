@@ -21,32 +21,50 @@ export interface AuthState {
     user: User | null;
 }
 
-// Check for existing token
-const token = typeof localStorage !== 'undefined' ? localStorage.getItem('token') : null;
-const tokenExpires = typeof localStorage !== 'undefined' ? localStorage.getItem('token_expires') : null;
-const isAuthenticated = !!(token && tokenExpires && new Date(tokenExpires + 'Z') > new Date());
+// Initialize with localStorage for web, will be updated for Android
+const localToken = typeof localStorage !== 'undefined' ? localStorage.getItem('token') : null;
+const localTokenExpires = typeof localStorage !== 'undefined' ? localStorage.getItem('token_expires') : null;
+const localIsAuthenticated = !!(localToken && localTokenExpires && new Date(localTokenExpires + 'Z') > new Date());
 
 console.log('🢄[AUTH]  Auth initialization:');
-console.log('🢄[AUTH]  - Token exists:', !!token);
-console.log('🢄[AUTH]  - Token expires:', tokenExpires);
-console.log('🢄[AUTH]  - Is authenticated:', isAuthenticated);
-if (token) {
-    console.log('🢄[AUTH]1  - Token preview:', token.substring(0, 10) + '...');
-}
+console.log('🢄[AUTH]  - Local token exists:', !!localToken);
+console.log('🢄[AUTH]  - Local token expires:', localTokenExpires);
+console.log('🢄[AUTH]  - Local is authenticated:', localIsAuthenticated);
 
-// Auth store
+// Auth store - initialize with local values, will be updated for Android
 export const auth: Writable<AuthState> = writable({
-    isAuthenticated,
-    token,
-    tokenExpires: tokenExpires ? new Date(tokenExpires + 'Z') : null,
+    isAuthenticated: localIsAuthenticated,
+    token: localToken,
+    tokenExpires: localTokenExpires ? new Date(localTokenExpires + 'Z') : null,
     user: null
 });
 
+// Check Android storage if running in Tauri
+if (TAURI && typeof window !== 'undefined') {
+    console.log('🢄[AUTH]  Checking Android token storage...');
+    import('./authCallback').then(async ({ getStoredToken }) => {
+        const androidToken = await getStoredToken();
+        if (androidToken) {
+            console.log('🢄[AUTH]  Found token in Android storage');
+            // For now, we don't have the expiry from the basic getStoredToken
+            // but we can assume it's valid since the Android side checks it
+            auth.update(state => ({
+                ...state,
+                isAuthenticated: true,
+                token: androidToken,
+                tokenExpires: null  // Will be updated when we fetch user info
+            }));
+        } else {
+            console.log('🢄[AUTH]  No token found in Android storage');
+        }
+    });
+}
+
 // If we have a token but isAuthenticated is false, this might be a bug
 // Let's check the token validity immediately
-if (token && !isAuthenticated && tokenExpires) {
+if (localToken && !localIsAuthenticated && localTokenExpires) {
     console.log('🢄[AUTH]  Token exists but isAuthenticated is false, checking token validity');
-    const expiry = new Date(tokenExpires + 'Z');
+    const expiry = new Date(localTokenExpires + 'Z');
     const now = new Date();
     console.log('🢄[AUTH]  - Token expiry:', expiry);
     console.log('🢄[AUTH]  - Current time:', now);
@@ -211,6 +229,12 @@ export async function oauthLogin(provider: string, code: string, redirectUri?: s
 
         localStorage.setItem('token', data.access_token);
         localStorage.setItem('token_expires', data.expires_at);
+        
+        // Store refresh token if provided
+        if (data.refresh_token) {
+            localStorage.setItem('refresh_token', data.refresh_token);
+            console.log('🢄[AUTH]o Refresh token stored');
+        }
         
         // Update auth store
         auth.update(a => ({

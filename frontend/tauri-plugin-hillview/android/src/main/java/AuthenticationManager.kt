@@ -7,10 +7,13 @@ import java.time.Instant
 import java.time.format.DateTimeFormatter
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 class AuthenticationManager(private val context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val notificationHelper = NotificationHelper(context)
+    private val refreshMutex = Mutex()
 
     companion object {
         private const val TAG = "🢄AuthenticationManager"
@@ -46,11 +49,12 @@ class AuthenticationManager(private val context: Context) {
     /**
      * Get a valid authentication token, automatically refreshing if needed.
      * This is the main method that should be used by all components needing auth.
+     * Uses mutex to prevent concurrent refresh attempts.
      * 
      * @return A valid token, or null if authentication failed/unavailable
      */
     suspend fun getValidToken(): String? {
-        // First check if current token is valid
+        // First check if current token is valid (outside mutex for performance)
         val currentToken = getCurrentTokenIfValid()
         if (currentToken != null) {
             return currentToken
@@ -58,14 +62,24 @@ class AuthenticationManager(private val context: Context) {
         
         Log.d(TAG, "Token expired or missing, attempting refresh...")
         
-        // Try to refresh the token
-        if (refreshTokenIfNeeded()) {
-            // Return the new token after successful refresh
-            return getCurrentTokenIfValid()
+        // Use mutex to prevent multiple simultaneous refresh attempts
+        return refreshMutex.withLock {
+            // Double-check inside mutex - another thread may have refreshed already
+            val tokenAfterLock = getCurrentTokenIfValid()
+            if (tokenAfterLock != null) {
+                Log.d(TAG, "Token was refreshed by another thread")
+                return@withLock tokenAfterLock
+            }
+            
+            // Try to refresh the token
+            if (refreshTokenIfNeeded()) {
+                // Return the new token after successful refresh
+                return@withLock getCurrentTokenIfValid()
+            }
+            
+            Log.w(TAG, "Unable to obtain valid token (refresh failed or no refresh token)")
+            return@withLock null
         }
-        
-        Log.w(TAG, "Unable to obtain valid token (refresh failed or no refresh token)")
-        return null
     }
     
     /**

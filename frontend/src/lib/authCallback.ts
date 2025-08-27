@@ -42,6 +42,7 @@ export async function handleAuthCallback(url?: string): Promise<boolean> {
         
         const urlObj = new URL(url);
         const token = urlObj.searchParams.get('token');
+        const refreshToken = urlObj.searchParams.get('refresh_token');
         const expiresAt = urlObj.searchParams.get('expires_at');
         
         if (token && expiresAt) {
@@ -68,6 +69,7 @@ export async function handleAuthCallback(url?: string): Promise<boolean> {
                 const { invoke } = await import('@tauri-apps/api/core');
                 result = await invoke('store_auth_token', { 
                     token, 
+                    refreshToken: refreshToken || undefined,  // Pass refresh token if available
                     expiresAt: expiresAt  // Java expects camelCase
                 }) as BasicResponse;
             } else {
