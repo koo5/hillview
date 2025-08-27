@@ -85,12 +85,12 @@ class UploadManager(private val context: Context) {
             .build()
         
         val request = Request.Builder()
-            .url("$serverUrl/api/photos/upload")
+            .url("$serverUrl/photos/upload")
             .addHeader("Authorization", "Bearer $authToken")
             .post(requestBody)
             .build()
         
-        Log.d(TAG, "Sending upload request to: $serverUrl/api/photos/upload")
+        Log.d(TAG, "Sending upload request.")
         
         client.newCall(request).execute().use { response ->
             when {
