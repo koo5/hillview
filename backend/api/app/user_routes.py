@@ -491,7 +491,7 @@ async def oauth_callback(
         # Web app: existing behavior (redirect to dashboard)
         # Note: For web app, you might want to set cookies here
         log.info("Web OAuth callback, redirecting to dashboard")
-        response = RedirectResponse("/dashboard")
+        response = RedirectResponse("/")
         response.set_cookie(
             "auth_token", 
             jwt_token, 

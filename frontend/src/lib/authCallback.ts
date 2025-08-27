@@ -81,7 +81,7 @@ export async function handleAuthCallback(url?: string): Promise<boolean> {
                 console.log('🢄🔐 Auth token stored successfully');
                 
                 // Redirect to dashboard
-                await goto('/dashboard');
+                await goto('/');
                 return true;
             } else {
                 console.error('🢄🔐 Failed to store auth token:', result.error);

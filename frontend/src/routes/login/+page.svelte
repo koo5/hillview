@@ -45,7 +45,7 @@
             const hasAuth = await hasValidAuth();
             if (hasAuth) {
                 console.log('🢄🔐 Found valid stored auth, redirecting to dashboard');
-                goto('/dashboard');
+                goto('/');
                 return;
             }
         } catch {
