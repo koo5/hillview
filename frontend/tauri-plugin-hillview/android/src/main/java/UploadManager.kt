@@ -19,7 +19,6 @@ class UploadManager(private val context: Context) {
         private const val TAG = "🢄UploadManager"
         private const val PREFS_NAME = "hillview_upload_prefs"
         private const val PREF_SERVER_URL = "server_url"
-        private const val DEFAULT_SERVER_URL = "http://localhost:8055"
     }
     
     private val client = OkHttpClient.Builder()
@@ -55,6 +54,10 @@ class UploadManager(private val context: Context) {
     
     private suspend fun attemptUpload(file: File, filename: String): Boolean {
         val serverUrl = getServerUrl()
+        if (serverUrl == null) {
+            Log.e(TAG, "Server URL not configured. Please login first.")
+            return false
+        }
         
         // Get valid auth token (with automatic refresh)
         val authToken = authManager.getValidToken()
@@ -118,8 +121,12 @@ class UploadManager(private val context: Context) {
         Log.d(TAG, "Server URL updated to: $url")
     }
     
-    fun getServerUrl(): String {
-        return prefs.getString(PREF_SERVER_URL, DEFAULT_SERVER_URL) ?: DEFAULT_SERVER_URL
+    fun getServerUrl(): String? {
+        val url = prefs.getString(PREF_SERVER_URL, null)
+        if (url == null) {
+            Log.w(TAG, "Server URL not configured. Please call setServerUrl() first.")
+        }
+        return url
     }
     
     // Auth token methods removed - now handled by AuthenticationManager
@@ -127,6 +134,10 @@ class UploadManager(private val context: Context) {
     suspend fun testConnection(): Boolean = withContext(Dispatchers.IO) {
         try {
             val serverUrl = getServerUrl()
+            if (serverUrl == null) {
+                Log.e(TAG, "Server URL not configured. Please login first.")
+                return@withContext false
+            }
             val authToken = authManager.getValidToken()
             
             if (authToken == null) {

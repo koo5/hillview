@@ -247,7 +247,7 @@ async function startWebCompass(): Promise<boolean> {
 
 // Stop all compass services
 export function stopCompass() {
-    console.log('🢄🛑 Stopping compass');
+    //console.log('🢄🛑 Stopping compass');
     compassActive.set(false);
     
     // Stop Tauri sensor if active
@@ -304,7 +304,7 @@ export function stopCompass() {
 export async function requestCompassPermission(): Promise<boolean> {
     // Skip permission check for Tauri
     if (TAURI) {
-        console.log('🢄📱 Tauri app - skipping web permission check');
+        //console.log('🢄📱 Tauri app - skipping web permission check');
         permissionGranted = true;
         return true;
     }
@@ -312,10 +312,10 @@ export async function requestCompassPermission(): Promise<boolean> {
     // Check if we need permission (iOS 13+)
     if (typeof (DeviceOrientationEvent as any).requestPermission === 'function') {
         try {
-            console.log('🢄📱 Requesting DeviceOrientation permission...');
+            //console.log('🢄📱 Requesting DeviceOrientation permission...');
             const response = await (DeviceOrientationEvent as any).requestPermission();
             permissionGranted = response === 'granted';
-            console.log('🢄Permission response:', response);
+            //console.log('🢄Permission response:', response);
             return permissionGranted;
         } catch (error) {
             console.error('🢄Permission request failed:', error);
@@ -332,7 +332,7 @@ export async function requestCompassPermission(): Promise<boolean> {
 // Main compass start function
 export async function startCompass(mode?: SensorMode) {
     const sensorMode = mode ?? get(currentSensorMode);
-    console.log('🢄🧭 Starting compass with mode:', SensorMode[sensorMode]);
+    //console.log('🢄🧭 Starting compass with mode:', SensorMode[sensorMode]);
     
     // If WEB_DEVICE_ORIENTATION mode is selected, skip Tauri and go straight to web API
     if (sensorMode === SensorMode.WEB_DEVICE_ORIENTATION) {
@@ -340,34 +340,31 @@ export async function startCompass(mode?: SensorMode) {
         // Skip directly to web API
     } else if (isSensorAvailable()) {
         // Try Tauri sensor first (Android native sensor)
-        console.log('🢄🔍 Tauri sensor API available, attempting to start...');
+        //console.log('🢄🔍 Tauri sensor API available, attempting to start...');
         const success = await startTauriSensor(sensorMode);
         if (success) {
-            console.log('🢄🔍✅ Tauri sensor started successfully');
+            //console.log('🢄🔍✅ Tauri sensor started successfully');
             compassActive.set(true);
             compassError.set(null);
             currentSensorMode.set(sensorMode);
             
             // Also start precise location updates on Android
-            console.log('🢄🔍 DEBUG: About to check TAURI_MOBILE...');
-            console.log('🢄🔍 DEBUG: TAURI_MOBILE =', TAURI_MOBILE);
+            //console.log('🢄🔍 DEBUG: About to check TAURI_MOBILE...');
+            //console.log('🢄🔍 DEBUG: TAURI_MOBILE =', TAURI_MOBILE);
             if (TAURI_MOBILE) {
                 try {
-                    console.log('🢄🔍 DEBUG: Inside TAURI_MOBILE block');
-                    console.log('🢄📍 Starting precise location updates');
-                    console.log('🢄🔍 DEBUG: About to call startPreciseLocationUpdates()');
                     startPreciseLocationUpdates().then(() => {
-                        console.log('🢄🔍 DEBUG: startPreciseLocationUpdates() resolved successfully');
+                        //console.log('🢄🔍 DEBUG: startPreciseLocationUpdates() resolved successfully');
                     }).catch(err => {
                         console.error('🢄📍 Failed to start precise location:', err);
                         console.error('🢄🔍 DEBUG: startPreciseLocationUpdates() error details:', err);
                     });
-                    console.log('🢄🔍 DEBUG: Called startPreciseLocationUpdates()');
+                    //console.log('🢄🔍 DEBUG: Called startPreciseLocationUpdates()');
                 } catch (e) {
                     console.error('🢄🔍 DEBUG: Exception in TAURI_MOBILE block:', e);
                 }
             } else {
-                console.log('🢄🔍 DEBUG: TAURI_MOBILE is false, skipping location updates');
+                //console.log('🢄🔍 DEBUG: TAURI_MOBILE is false, skipping location updates');
             }
             
             return true;

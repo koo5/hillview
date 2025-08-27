@@ -528,8 +528,6 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             val args = invoke.parseArgs(UploadConfigArgs::class.java)
             
             args?.serverUrl?.let { uploadManager.setServerUrl(it) }
-            // Note: Auth token is now managed by AuthenticationManager, not UploadManager
-            
             Log.d(TAG, "📤 Upload config updated")
             
             val result = JSObject()
@@ -720,7 +718,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     @Command
     fun getAuthToken(invoke: Invoke) {
         try {
-            Log.d(TAG, "🔐 Getting auth token (sync version - no refresh)")
+            //Log.d(TAG, "🔐 Getting auth token (sync version - no refresh)")
             val (_, expiresAt) = authManager.getTokenInfo()
             val validToken = authManager.getValidTokenSync()  // Use sync version for Tauri commands
             
@@ -857,7 +855,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         val result = JSObject()
         result.put("granted", hasCameraPermission)
         
-        Log.i(TAG, "🎥 Camera permission check: $hasCameraPermission")
+        //Log.i(TAG, "🎥 Camera permission check: $hasCameraPermission")
         invoke.resolve(result)
     }
     

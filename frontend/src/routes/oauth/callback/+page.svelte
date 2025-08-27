@@ -1,9 +1,8 @@
 <script lang="ts">
     import { onMount } from 'svelte';
-    import { goto } from '$app/navigation';
     import { oauthLogin } from '$lib/auth.svelte';
     import Spinner from '../../../components/Spinner.svelte';
-    import { clearNavigationHistory } from '$lib/navigation.svelte';
+    import { clearNavigationHistory, myGoto } from '$lib/navigation.svelte';
 
     let status = 'Processing your login...';
     let error: string | null = null;
@@ -42,7 +41,7 @@
             // OAuth flow disrupts navigation history, so clear it and go to home
             clearNavigationHistory();
             setTimeout(() => {
-                goto('/');
+                myGoto('/');
             }, 1000);
             
         } catch (err) {
@@ -52,7 +51,7 @@
             
             // Redirect to login page after a delay
             setTimeout(() => {
-                goto('/login');
+                myGoto('/login');
             }, 3000);
         }
     });

@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount } from 'svelte';
-    import { goto } from '$app/navigation';
+    import { myGoto } from '$lib/navigation.svelte';
     import { Upload, Trash2, Map, Settings } from 'lucide-svelte';
     import BackButton from '../../components/BackButton.svelte';
     import Spinner from '../../components/Spinner.svelte';
@@ -295,7 +295,7 @@
 
     function viewOnMap(photo: UserPhoto) {
         if (photo.latitude && photo.longitude) {
-            goto(`/?lat=${photo.latitude}&lon=${photo.longitude}&zoom=18`);
+            myGoto(`/?lat=${photo.latitude}&lon=${photo.longitude}&zoom=18`);
         }
     }
 

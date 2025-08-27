@@ -1,6 +1,24 @@
 import { writable, get } from 'svelte/store';
 import { goto } from '$app/navigation';
 import { browser } from '$app/environment';
+import { page } from '$app/stores';
+
+// Smart goto wrapper that avoids redundant navigation
+export async function myGoto(path: string, options?: any): Promise<void> {
+    if (!browser) return goto(path, options);
+    
+    const currentPage = get(page);
+    const currentPath = currentPage.url.pathname;
+    
+    // Avoid navigation if already on the target page
+    if (currentPath === path) {
+        console.log(`🧭 [NAV] Already on "${path}", skipping navigation`);
+        return;
+    }
+    
+    console.log(`🧭 [NAV] Navigating from "${currentPath}" to "${path}"`);
+    return goto(path, options);
+}
 
 // Simple navigation history store - just tracks our app's navigation
 const navigationHistory = writable<string[]>([]);
@@ -17,16 +35,26 @@ export const navigationState = writable<{
  * Navigate to a path while tracking it in our history
  * This is the main navigation function to use instead of goto()
  */
-export function navigateWithHistory(path: string, options?: { replaceState?: boolean }) {
-    if (!browser) return goto(path, options);
+export function navigateWithHistory(path: string, options?: { replaceState?: boolean; reason?: string }) {
+    if (!browser) return myGoto(path, options);
     
     const currentPath = window.location.pathname;
     
-    // Only add to history if we're not replacing state and it's a different page
-    if (!options?.replaceState && currentPath !== path) {
+    // Check if we're already there
+    if (currentPath === path) {
+        console.log(`🧭 [NAV] Already on "${path}", skipping navigation${options?.reason ? ` (reason: ${options.reason})` : ''}`);
+        return Promise.resolve();
+    }
+    
+    // Log navigation
+    console.log(`🧭 [NAV] Programmatic navigation from "${currentPath}" to "${path}"${options?.reason ? ` (reason: ${options.reason})` : ''}`);
+    
+    // Only add to history if we're not replacing state
+    if (!options?.replaceState) {
         navigationHistory.update(history => {
             // Limit history to last 10 pages to prevent memory issues
             const newHistory = [...history, currentPath].slice(-10);
+            console.log(`🧭 [NAV] History updated (depth: ${newHistory.length})`);
             return newHistory;
         });
         
@@ -37,7 +65,7 @@ export function navigateWithHistory(path: string, options?: { replaceState?: boo
         }));
     }
     
-    return goto(path, options);
+    return myGoto(path, options);
 }
 
 /**
@@ -45,7 +73,7 @@ export function navigateWithHistory(path: string, options?: { replaceState?: boo
  * Falls back to a default path if no history available
  */
 export function goBack(fallbackPath: string = '/') {
-    if (!browser) return goto(fallbackPath);
+    if (!browser) return myGoto(fallbackPath);
     
     const history = get(navigationHistory);
     
@@ -56,6 +84,8 @@ export function goBack(fallbackPath: string = '/') {
             const previousPath = newHistory.pop();
             
             if (previousPath) {
+                console.log(`🧭 [NAV] Going back to "${previousPath}" (remaining history: ${newHistory.length})`);
+                
                 // Update state
                 navigationState.update(() => ({
                     previousPath: newHistory[newHistory.length - 1],
@@ -63,14 +93,15 @@ export function goBack(fallbackPath: string = '/') {
                 }));
                 
                 // Navigate to previous path
-                goto(previousPath);
+                myGoto(previousPath);
             }
             
             return newHistory;
         });
     } else {
         // No history, go to fallback
-        goto(fallbackPath);
+        console.log(`🧭 [NAV] No history, using fallback: "${fallbackPath}"`);
+        myGoto(fallbackPath);
     }
 }
 
@@ -78,6 +109,8 @@ export function goBack(fallbackPath: string = '/') {
  * Clear all navigation history (useful after login/logout)
  */
 export function clearNavigationHistory() {
+    const history = get(navigationHistory);
+    console.log(`🧭 [NAV] Clearing navigation history (had ${history.length} entries)`);
     navigationHistory.set([]);
     navigationState.set({ canGoBack: false });
 }

@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount } from 'svelte';
-    import { goto } from '$app/navigation';
+    import { myGoto } from '$lib/navigation.svelte';
     import { User, Mail, Calendar, Trash2, LogOut, Settings, Shield } from 'lucide-svelte';
     import BackButton from '../../components/BackButton.svelte';
     import { auth, logout } from '$lib/auth.svelte';
@@ -37,7 +37,7 @@
             // TokenExpiredError is handled automatically by the http client
             // which will call logout and redirect, but we can also check here
             if (error instanceof TokenExpiredError) {
-                goto('/login');
+                myGoto('/login');
             }
         } finally {
             isLoading = false;
@@ -47,7 +47,7 @@
     async function handleLogout() {
         try {
             await logout();
-            goto('/');
+            myGoto('/');
         } catch (error) {
             console.error('🢄Logout error:', error);
             errorMessage = 'Failed to logout properly';
@@ -73,7 +73,7 @@
             // Clear authentication and redirect after a delay
             setTimeout(async () => {
                 await logout();
-                goto('/');
+                myGoto('/');
             }, 2000);
 
         } catch (error) {

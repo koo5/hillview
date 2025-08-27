@@ -1,7 +1,8 @@
-import { goto } from '$app/navigation';
 import { browser } from '$app/environment';
 import { backendUrl } from './config';
 import { TAURI } from './tauri';
+import { completeAuthentication } from './auth.svelte';
+import { myGoto } from './navigation.svelte';
 
 export interface AuthToken {
     token: string;
@@ -61,30 +62,23 @@ export async function handleAuthCallback(url?: string): Promise<boolean> {
                 // return false;
             }
             
-            console.log('🢄🔐 Auth callback received, storing token');
+            console.log('🢄🔐 Auth callback received, completing authentication');
             
-            // Store token in Android SharedPreferences via Tauri command
-            let result: BasicResponse;
-            if (TAURI) {
-                const { invoke } = await import('@tauri-apps/api/core');
-                result = await invoke('store_auth_token', { 
-                    token, 
-                    refreshToken: refreshToken || undefined,  // Pass refresh token if available
-                    expiresAt: expiresAt  // Java expects camelCase
-                }) as BasicResponse;
-            } else {
-                // For non-Tauri environments, store in localStorage or similar
-                result = { success: false, error: 'Not running in Tauri environment' };
-            }
+            // Use shared authentication completion function
+            const success = await completeAuthentication({
+                access_token: token,
+                refresh_token: refreshToken || undefined,
+                expires_at: expiresAt,
+                token_type: 'bearer'
+            }, 'oauth');
             
-            if (result.success) {
-                console.log('🢄🔐 Auth token stored successfully');
-                
+            if (success) {
+                console.log('🢄🔐 OAuth authentication completed successfully');
                 // Redirect to dashboard
-                await goto('/');
+                await myGoto('/');
                 return true;
             } else {
-                console.error('🢄🔐 Failed to store auth token:', result.error);
+                console.error('🢄🔐 OAuth authentication completion failed');
                 return false;
             }
         } else {
@@ -106,7 +100,7 @@ export async function getStoredToken(): Promise<string | null> {
     }
     try {
         const { invoke } = await import('@tauri-apps/api/core');
-        const result = await invoke('get_auth_token') as AuthTokenResponse;
+        const result = await invoke('plugin:hillview|get_auth_token') as AuthTokenResponse;
         if (result.success && result.token) {
             return result.token;
         }
@@ -126,7 +120,7 @@ export async function clearStoredToken(): Promise<boolean> {
     }
     try {
         const { invoke } = await import('@tauri-apps/api/core');
-        const result = await invoke('clear_auth_token') as BasicResponse;
+        const result = await invoke('plugin:hillview|clear_auth_token') as BasicResponse;
         return result.success;
     } catch (error) {
         console.error('🢄🔐 Error clearing token:', error);

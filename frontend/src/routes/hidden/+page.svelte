@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount } from 'svelte';
-    import { goto } from '$app/navigation';
+    import { myGoto } from '$lib/navigation.svelte';
     import { EyeOff, Trash2, User, Image, MapPin } from 'lucide-svelte';
     import BackButton from '../../components/BackButton.svelte';
     import { auth } from '$lib/auth.svelte';
@@ -30,7 +30,7 @@
     onMount(async () => {
         // Check if user is authenticated
         if (!$auth.isAuthenticated) {
-            goto('/login');
+            myGoto('/login');
             return;
         }
         
@@ -63,7 +63,7 @@
             errorMessage = handleApiError(error);
             
             if (error instanceof TokenExpiredError) {
-                goto('/login');
+                myGoto('/login');
             }
         } finally {
             isLoading = false;

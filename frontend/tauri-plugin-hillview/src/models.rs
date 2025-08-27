@@ -51,7 +51,6 @@ pub struct UploadStatusResponse {
 #[serde(rename_all = "camelCase")]
 pub struct UploadConfig {
   pub server_url: Option<String>,
-  pub auth_token: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]

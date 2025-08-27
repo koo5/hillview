@@ -69,7 +69,7 @@ appSettings.subscribe(settings => {
             ...a,
             debug: settings.debug,
             displayMode: settings.displayMode,
-            activity: settings.activity
+            activity: !!import.meta.env.VITE_PICS_OFF ? 'view' : settings.activity
         }));
     }
 });

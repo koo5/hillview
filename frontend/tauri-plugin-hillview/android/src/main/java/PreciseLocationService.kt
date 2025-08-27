@@ -137,14 +137,14 @@ class PreciseLocationService(
             location.accuracy <= MEDIUM_ACCURACY_THRESHOLD -> "MEDIUM"
             else -> "LOW"
         }
-        
+/*
         Log.i(TAG, "📍 HANDLE: Location update details:")
         Log.i(TAG, "📍 HANDLE:   - Lat/Lng: ${location.latitude}, ${location.longitude}")
         Log.i(TAG, "📍 HANDLE:   - Accuracy: ${location.accuracy}m ($accuracyLevel)")
         Log.i(TAG, "📍 HANDLE:   - Provider: ${location.provider}")
         Log.i(TAG, "📍 HANDLE:   - Time: ${location.time}")
         Log.i(TAG, "📍 HANDLE:   - Elapsed realtime: ${location.elapsedRealtimeNanos}")
-        
+
         // Log additional data if available
         if (location.hasAltitude()) {
             Log.d(TAG, "📍  - Altitude: ${location.altitude}m")
@@ -164,7 +164,8 @@ class PreciseLocationService(
         if (location.hasSpeedAccuracy()) {
             Log.d(TAG, "📍  - Speed accuracy: ${location.speedAccuracyMetersPerSecond}m/s")
         }
-        
+  */
+
         // Create precise location data
         Log.i(TAG, "📍 HANDLE: Creating PreciseLocationData object...")
         val preciseData = PreciseLocationData(

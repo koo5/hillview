@@ -47,6 +47,10 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
       commands::set_upload_config,
       commands::upload_photo,
       commands::retry_failed_uploads,
+      // Authentication commands
+      commands::store_auth_token,
+      commands::get_auth_token,
+      commands::clear_auth_token,
       ])
     .setup(|app, api| {
       #[cfg(mobile)]

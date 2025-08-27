@@ -36,9 +36,6 @@ pub fn run() {
             commands::get_build_commit_hash,
             commands::get_build_branch,
             commands::get_build_ts,
-            commands::store_auth_token,
-            commands::get_auth_token,
-            commands::clear_auth_token,
             photo_exif::embed_photo_metadata,
             photo_exif::save_photo_with_metadata,
             photo_exif::read_device_photo,
@@ -55,7 +52,7 @@ pub fn run() {
                 // This prevents crashes when the process persists but Activity restarts
                 match app.handle().plugin(
                     tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Debug)
+                        .level(log::LevelFilter::Error)
                         .build(),
                 ) {
                     Ok(_) => info!("🢄Log plugin initialized successfully"),

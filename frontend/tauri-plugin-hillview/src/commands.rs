@@ -167,3 +167,69 @@ pub(crate) async fn stop_precise_location_listener<R: Runtime>(
         return Err(crate::Error::from("Precise location is only available on mobile devices"));
     }
 }
+
+// Authentication Commands
+
+#[command]
+#[allow(unused_variables)]
+pub(crate) async fn store_auth_token<R: Runtime>(
+    app: AppHandle<R>,
+    token: String,
+    refresh_token: Option<String>,
+    expires_at: String,
+) -> Result<BasicResponse> {
+    #[cfg(mobile)]
+    {
+        return app.hillview().store_auth_token(token, expires_at, refresh_token);
+    }
+    
+    #[cfg(desktop)]
+    {
+        // For desktop, just return success for now
+        // In a real app, you might use secure storage
+        return Ok(BasicResponse {
+            success: true,
+            error: None,
+        });
+    }
+}
+
+#[command]
+pub(crate) async fn get_auth_token<R: Runtime>(
+    _app: AppHandle<R>,
+) -> Result<AuthTokenResponse> {
+    #[cfg(mobile)]
+    {
+        return _app.hillview().get_auth_token();
+    }
+    
+    #[cfg(desktop)]
+    {
+        // For desktop, return no token
+        return Ok(AuthTokenResponse {
+            token: None,
+            expires_at: None,
+            success: true,
+            error: None,
+        });
+    }
+}
+
+#[command]
+pub(crate) async fn clear_auth_token<R: Runtime>(
+    _app: AppHandle<R>,
+) -> Result<BasicResponse> {
+    #[cfg(mobile)]
+    {
+        return _app.hillview().clear_auth_token();
+    }
+    
+    #[cfg(desktop)]
+    {
+        // For desktop, just return success
+        return Ok(BasicResponse {
+            success: true,
+            error: None,
+        });
+    }
+}

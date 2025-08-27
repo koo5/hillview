@@ -109,7 +109,7 @@ export function isTauriAvailable(): boolean {
 // Utility function to check if sensor APIs are available
 export function isSensorAvailable(): boolean {
     const available = TAURI_MOBILE && tauriSensor !== null;
-    console.log('🢄🔍 isSensorAvailable():', available, { TAURI_MOBILE, hasTauriSensor: !!tauriSensor });
+    //console.log('🢄🔍 isSensorAvailable():', available, { TAURI_MOBILE, hasTauriSensor: !!tauriSensor });
     return available;
 }
 

@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { TokenManager, TokenData } from './tokenManager';
 import { TokenExpiredError, TokenRefreshError } from './tokenManager';
+import { auth } from './authStore';
 
 /**
  * Android Token Manager
@@ -77,6 +78,12 @@ export class AndroidTokenManager implements TokenManager {
             
             console.log(`${this.LOG_PREFIX} Tokens stored successfully in Android`);
             
+            // Update auth store - tokens stored means authenticated
+            auth.update(state => ({
+                ...state,
+                isAuthenticated: true
+            }));
+            
         } catch (error) {
             console.error(`${this.LOG_PREFIX} Error storing tokens in Android:`, error);
             throw error;
@@ -90,6 +97,13 @@ export class AndroidTokenManager implements TokenManager {
             await invoke('plugin:hillview|clear_auth_token');
             
             console.log(`${this.LOG_PREFIX} Tokens cleared successfully from Android`);
+            
+            // Update auth store - no tokens means not authenticated
+            auth.update(state => ({
+                ...state,
+                isAuthenticated: false,
+                user: null
+            }));
             
         } catch (error) {
             console.error(`${this.LOG_PREFIX} Error clearing tokens from Android:`, error);

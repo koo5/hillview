@@ -167,7 +167,13 @@ class AuthenticationManager(private val context: Context) {
         Log.d(TAG, "Performing token refresh...")
         
         try {
-            val url = "http://10.0.2.2:8055/api/auth/refresh" // Android emulator backend URL
+            // Get server URL from shared preferences (set by upload config)
+            val uploadPrefs = context.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
+            val serverUrl = uploadPrefs.getString("server_url", null) ?: run {
+                Log.e(TAG, "Server URL not configured - user needs to login first")
+                return false
+            }
+            val url = "$serverUrl/auth/refresh"
             val json = """{"refresh_token":"$refreshToken"}"""
             
             // Use OkHttp for the HTTP request (assuming it's available from UploadManager)

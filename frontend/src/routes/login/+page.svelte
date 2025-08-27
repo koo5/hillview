@@ -1,7 +1,7 @@
 <script lang="ts">
     import { onMount } from 'svelte';
-    import { goto } from '$app/navigation';
     import { User, Lock, Mail, Github } from 'lucide-svelte';
+    import { myGoto } from '$lib/navigation.svelte';
     import BackButton from '../../components/BackButton.svelte';
     import { login, register, oauthLogin, auth } from '$lib/auth.svelte';
     import { invoke } from '@tauri-apps/api/core';
@@ -37,7 +37,7 @@
     onMount(async () => {
         // Detect if we're in a Tauri mobile app
         try {
-            await invoke('get_auth_token');
+            await invoke('plugin:hillview|get_auth_token');
             isMobileApp = true;
             console.log('🢄🔐 Mobile app detected');
             
@@ -45,7 +45,7 @@
             const hasAuth = await hasValidAuth();
             if (hasAuth) {
                 console.log('🢄🔐 Found valid stored auth, redirecting to dashboard');
-                goto('/');
+                myGoto('/');
                 return;
             }
         } catch {

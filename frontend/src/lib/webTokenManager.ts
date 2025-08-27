@@ -1,6 +1,7 @@
 import type { TokenManager, TokenData } from './tokenManager';
 import { TokenExpiredError, TokenRefreshError } from './tokenManager';
 import { backendUrl } from './config';
+import { auth } from './authStore';
 
 /**
  * Web Token Manager
@@ -48,6 +49,12 @@ export class WebTokenManager implements TokenManager {
                 } catch (error) {
                     this.refreshPromise = null;
                     console.error(`${this.LOG_PREFIX} Refresh failed:`, error);
+                    // Refresh failed means authentication is lost
+                    auth.update(state => ({
+                        ...state,
+                        isAuthenticated: false,
+                        user: null
+                    }));
                     throw new TokenExpiredError('Token expired and refresh failed');
                 }
             }
@@ -132,6 +139,12 @@ export class WebTokenManager implements TokenManager {
             
             console.log(`${this.LOG_PREFIX} Tokens stored successfully in localStorage`);
             
+            // Update auth store - tokens stored means authenticated
+            auth.update(state => ({
+                ...state,
+                isAuthenticated: true
+            }));
+            
         } catch (error) {
             console.error(`${this.LOG_PREFIX} Error storing tokens in localStorage:`, error);
             throw error;
@@ -147,6 +160,13 @@ export class WebTokenManager implements TokenManager {
             localStorage.removeItem('refresh_token');
             
             console.log(`${this.LOG_PREFIX} Tokens cleared successfully from localStorage`);
+            
+            // Update auth store - no tokens means not authenticated
+            auth.update(state => ({
+                ...state,
+                isAuthenticated: false,
+                user: null
+            }));
             
         } catch (error) {
             console.error(`${this.LOG_PREFIX} Error clearing tokens from localStorage:`, error);

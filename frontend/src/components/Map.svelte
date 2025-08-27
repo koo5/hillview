@@ -146,13 +146,13 @@
             const currentCenter = map.getCenter();
             const currentZoom = map.getZoom();
             if (!currentCenter || currentCenter.lat !== spatial.center.lat || currentCenter.lng !== spatial.center.lng || currentZoom !== spatial.zoom) {
-                console.log('🢄setView', spatial.center, spatial.zoom);
+                //console.log('🢄setView', spatial.center, spatial.zoom);
                 map.setView(new LatLng(spatial.center.lat, spatial.center.lng), spatial.zoom);
                 onMapStateChange(true, 'spatialState.subscribe');
             }
         } catch (e) {
             // Map not ready yet, ignore
-            console.log('🢄Map not ready for spatialState update:', e instanceof Error ? e.message : String(e));
+            //console.log('🢄Map not ready for spatialState update:', e instanceof Error ? e.message : String(e));
         }
     });
 
@@ -223,7 +223,7 @@
             };
 
             // Debug log to verify normalization
-            console.log(`Map: Normalized bounds - TL: [${newSpatialState.bounds.top_left.lat.toFixed(6)}, ${newSpatialState.bounds.top_left.lng.toFixed(6)}], BR: [${newSpatialState.bounds.bottom_right.lat.toFixed(6)}, ${newSpatialState.bounds.bottom_right.lng.toFixed(6)}]`);
+            //console.log(`Map: Normalized bounds - TL: [${newSpatialState.bounds.top_left.lat.toFixed(6)}, ${newSpatialState.bounds.top_left.lng.toFixed(6)}], BR: [${newSpatialState.bounds.bottom_right.lat.toFixed(6)}, ${newSpatialState.bounds.bottom_right.lng.toFixed(6)}]`);
 
             if (force === true ||
                 currentSpatial.center.lat !== newSpatialState.center.lat ||
@@ -232,14 +232,14 @@
 
                 updateSpatialState(newSpatialState);
 
-                console.log('🢄Map bounds updated:', JSON.stringify({
+                /*console.log('🢄Map bounds updated:', JSON.stringify({
                     nw: `${bounds.getNorthWest().lat}, ${bounds.getNorthWest().lng}`,
                     se: `${bounds.getSouthEast().lat}, ${bounds.getSouthEast().lng}`,
                     ne: `${bounds.getNorthEast().lat}, ${bounds.getNorthEast().lng}`,
                     sw: `${bounds.getSouthWest().lat}, ${bounds.getSouthWest().lng}`,
                     center: `${_center.lat}, ${_center.lng}`,
                     zoom: _zoom
-                }, null, 2));
+                }, null, 2));*/
             }
         } catch (e) {
             console.error('🢄Error in onMapStateChange:', e);
@@ -444,7 +444,7 @@
                 compassTrackingEnabled = false;
             }
         } else {
-            console.log('🢄🧭 Stopping compass tracking...');
+            //console.log('🢄🧭 Stopping compass tracking...');
             stopCompass();
         }
     }

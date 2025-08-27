@@ -238,7 +238,7 @@
     // Reactive statement to ensure geolocation and bearing are enabled when in capture mode
     // This handles both toggle events and initial page load
     $: if ($app.activity === 'capture') {
-        console.log('🢄🎥 Capture mode detected, ensuring location and compass are enabled');
+        //console.log('🢄🎥 Capture mode detected, ensuring location and compass are enabled');
         
         // Enable location tracking when in capture mode
         if (mapComponent) {
@@ -250,8 +250,7 @@
             console.warn('🢄Failed to start compass for camera capture:', err);
         });
     } else if ($app.activity === 'view') {
-        console.log('🢄👁️ View mode detected, stopping compass');
-        
+        //console.log('🢄👁️ View mode detected, stopping compass');
         // Stop compass when exiting capture mode (optional - can be removed if you want compass to stay active)
         stopCompass();
     }
@@ -314,7 +313,6 @@
             <div class="debug-info">
                 <h4>Auth Debug:</h4>
                 <pre>isAuthenticated: {$auth.isAuthenticated}</pre>
-                <pre>token: {$auth.token ? 'exists' : 'none'}</pre>
                 <pre>user: {$auth.user ? $auth.user.username : 'none'}</pre>
             </div>
         {/if}

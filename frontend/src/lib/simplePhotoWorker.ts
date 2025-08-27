@@ -1,7 +1,7 @@
 import {photosInArea, photosInRange, spatialState} from './mapState';
 import {sourceLoadingStatus, sources} from './data.svelte';
 import {get} from 'svelte/store';
-import {auth} from './auth.svelte';
+import {auth, getCurrentToken} from './auth.svelte';
 import {addToast} from './toast.svelte';
 import type {WorkerToastMessage} from './workerToast';
 
@@ -47,7 +47,7 @@ class SimplePhotoWorker {
                 url: s.url,
                 keys: Object.keys(s),
                 JSON: JSON.stringify(s)
-            })), null, 2));
+            }))));
 
         } catch (error) {
             console.error('🢄SimplePhotoWorker: Failed to initialize', error);
@@ -158,22 +158,29 @@ class SimplePhotoWorker {
         });
 
         // React to source changes - triggers config updates
-        sources.subscribe((sourceList) => {
+        sources.subscribe(async (sourceList) => {
             if (!this.isInitialized) return;
 
             console.log('🢄SimplePhotoWorker: Sending config update with sources...');
             
             // Add auth token to sources that need it
-            const sourcesWithAuth = sourceList.map(source => {
+            const sourcesWithAuth = await Promise.all(sourceList.map(async source => {
                 if (source.type === 'stream') {
                     const authState = get(auth);
+                    if (authState.isAuthenticated) {
+                        const token = await getCurrentToken();
+                        return {
+                            ...source,
+                            authToken: token
+                        };
+                    }
                     return {
                         ...source,
-                        authToken: authState.isAuthenticated ? authState.token : null
+                        authToken: null
                     };
                 }
                 return source;
-            });
+            }));
             
             this.sendMessage('configUpdated', {
                 config: {
