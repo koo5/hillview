@@ -27,6 +27,8 @@ from anonymize import anonymize_image
 
 logger = logging.getLogger(__name__)
 
+PICS_URL = os.environ.get("PICS_URL")
+
 class PhotoProcessor:
     """Unified photo processing service for both imports and uploads."""
     
@@ -239,28 +241,8 @@ class PhotoProcessor:
             print(f"Error getting image size for {filepath}: {e}")
             return 0, 0
     
-    def detect_objects(self, filepath: str) -> List[Dict[str, Any]]:
-        """
-        Detect objects in the image using computer vision.
-        Placeholder for future implementation.
-        """
-        try:
-            # Check if YOLO model exists
-            model_path = os.path.join("/app", "yolov5su.pt")
-            if not os.path.exists(model_path):
-                return []
-            
-            # Placeholder for object detection implementation
-            # In production, you would load and run your model here
-            detected_objects = []
-            
-            return detected_objects
-            
-        except Exception as e:
-            logger.warning(f"Error detecting objects in {filepath}: {str(e)}")
-            return []
-    
-    def create_optimized_sizes(self, source_path: str, unique_id: str, original_filename: str, width: int, height: int) -> Dict[str, Dict[str, Any]]:
+
+    def create_optimized_sizes(self, source_path: str, unique_id: str, original_filename: str, width: int, height: int, include_urls: bool = False) -> Dict[str, Dict[str, Any]]:
         """Create optimized versions with anonymization and unique IDs."""
         sizes_info = {}
         anonymized_path = None
@@ -287,11 +269,14 @@ class PhotoProcessor:
                     shutil.copy2(input_file_path, full_output_path)
                     
                     relative_path = os.path.relpath(full_output_path, output_base)
-                    sizes_info[size] = {
+                    size_info = {
                         'width': width,
                         'height': height,
                         'path': relative_path
                     }
+                    if include_urls and PICS_URL:
+                        size_info['url'] = PICS_URL + relative_path
+                    sizes_info[size] = size_info
                 else:
                     # Skip if size is larger than original width
                     if isinstance(size, int) and size > width:
@@ -322,11 +307,14 @@ class PhotoProcessor:
                         # Get new dimensions after resize
                         new_width, new_height = self.get_image_dimensions(output_file_path)
                         
-                        sizes_info[size] = {
+                        size_info = {
                             'width': new_width,
                             'height': new_height,
                             'path': size_relative_path
                         }
+                        if include_urls and PICS_URL:
+                            size_info['url'] = PICS_URL + size_relative_path
+                        sizes_info[size] = size_info
                         
                         # Optimize with jpegoptim (matching original)
                         cmd = ['jpegoptim', '--all-progressive', '--overwrite', output_file_path]
@@ -398,8 +386,8 @@ class PhotoProcessor:
         user_id: UUID,
         description: Optional[str] = None,
         is_public: bool = True
-    ) -> Optional[Photo]:
-        """Process a user-uploaded photo and store it in the database."""
+    ) -> Optional[Dict[str, Any]]:
+        """Process a user-uploaded photo and return processing results."""
         try:
             # Sanitize filename
             try:
@@ -415,18 +403,52 @@ class PhotoProcessor:
             
             # Extract EXIF data
             exif_data = self.extract_exif_data(file_path)
+            gps_data = exif_data.get('gps', {})
+            debug_info = exif_data.get('debug', {})
+            
+            # Log detailed EXIF extraction results
+            logger.info(f"EXIF extraction for {safe_filename}:")
+            logger.info(f"  - has_exif: {debug_info.get('has_exif', False)}")
+            logger.info(f"  - has_gps_coords: {debug_info.get('has_gps_coords', False)}")
+            logger.info(f"  - has_bearing: {debug_info.get('has_bearing', False)}")
+            logger.info(f"  - found_gps_tags: {debug_info.get('found_gps_tags', [])}")
+            logger.info(f"  - found_bearing_tags: {debug_info.get('found_bearing_tags', [])}")
+            logger.info(f"  - parsing_errors: {debug_info.get('parsing_errors', [])}")
+            logger.info(f"  - GPS data: {gps_data}")
+
+            # Create detailed error messages based on what was found (same logic as service)
+            if not debug_info.get('has_exif', False):
+                error_msg = "No EXIF data found in image file. Photo may be processed/edited or from an app that strips metadata."
+                logger.warning(f"No EXIF data found in {safe_filename}")
+                raise ValueError(error_msg)
+            elif not debug_info.get('has_gps_coords', False) and not debug_info.get('has_bearing', False):
+                found_tags = debug_info.get('found_gps_tags', [])
+                error_msg = f"No GPS data found in photo. Found EXIF tags: {', '.join(found_tags) if found_tags else 'none'}"
+                logger.warning(f"No GPS data found in {safe_filename}")
+                raise ValueError(error_msg)
+            elif not debug_info.get('has_gps_coords', False):
+                found_gps_tags = debug_info.get('found_gps_tags', [])
+                found_bearing_tags = debug_info.get('found_bearing_tags', [])
+                all_found_tags = found_gps_tags + found_bearing_tags
+                error_msg = f"GPS coordinates missing. Found tags: {', '.join(all_found_tags) if all_found_tags else 'none'}, needed: GPSLatitude, GPSLongitude"
+                logger.warning(f"No GPS coordinates in {safe_filename}")
+                raise ValueError(error_msg)
+            elif not debug_info.get('has_bearing', False):
+                found_bearing_tags = debug_info.get('found_bearing_tags', [])
+                found_gps_tags = debug_info.get('found_gps_tags', [])
+                error_msg = f"Compass direction missing. Found: {', '.join(found_gps_tags + found_bearing_tags)}, needed: GPSImgDirection, GPSTrack, or GPSDestBearing"
+                logger.warning(f"No bearing data in {safe_filename}")
+                raise ValueError(error_msg)
             
             # Get image dimensions
             width, height = self.get_image_dimensions(file_path)
             
             # Validate image dimensions to prevent resource exhaustion
             if not validate_image_dimensions(width, height):
+                error_msg = f"Image size too large or invalid ({width}x{height}). Please use a smaller image."
                 logger.error(f"Image dimensions validation failed for {safe_filename}: {width}x{height}")
-                raise ValueError("Image dimensions exceed safety limits")
-            
-            # Detect objects (optional)
-            detected_objects = self.detect_objects(file_path)
-            
+                raise ValueError(error_msg)
+
             # Generate unique ID for this photo
             unique_id = str(uuid.uuid4())
             
@@ -435,38 +457,29 @@ class PhotoProcessor:
             if width and height:
                 sizes_info = self.create_optimized_sizes(file_path, unique_id, filename, width, height)
             
-            # Create database record
-            async with SessionLocal() as db:
-                gps = exif_data.get('gps', {})
+            # Return processing results for database creation
+            return {
+                'filename': safe_filename,
+                'filepath': file_path,
+                'exif_data': exif_data,
+                'width': width,
+                'height': height,
+                'sizes_info': sizes_info,
+                'detected_objects': detected_objects,
+                'description': description,
+                'is_public': is_public,
+                'user_id': user_id
+            }
                 
-                photo = Photo(
-                    filename=safe_filename,
-                    filepath=file_path,
-                    description=description,
-                    is_public=is_public,
-                    owner_id=user_id,
-                    latitude=gps.get('latitude'),
-                    longitude=gps.get('longitude'),
-                    compass_angle=gps.get('bearing'),  # Use compass_angle field
-                    altitude=gps.get('altitude'),
-                    width=width,
-                    height=height,
-                    exif_data=exif_data.get('exif', {}),
-                    detected_objects=detected_objects,
-                    sizes=sizes_info,
-                    processing_status="completed"
-                )
-                
-                db.add(photo)
-                await db.commit()
-                await db.refresh(photo)
-                
-                logger.info(f"Successfully processed uploaded photo {photo.id}")
-                return photo
-                
+        except ValueError as e:
+            # Re-raise ValueError for specific validation errors (EXIF, GPS, dimensions)
+            logger.error(f"Validation error processing {filename}: {str(e)}")
+            raise e
         except Exception as e:
+            # Generic processing errors
+            error_msg = "Photo processing failed. The image may be corrupted or in an unsupported format."
             logger.error(f"Error processing uploaded photo {filename}: {str(e)}")
-            return None
+            raise ValueError(error_msg)
     
 
 # Global instance

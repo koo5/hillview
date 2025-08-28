@@ -6,7 +6,8 @@
     import L from 'leaflet';
     import 'leaflet/dist/leaflet.css';
     import Spinner from './Spinner.svelte';
-    import { startPreciseLocationUpdates, stopPreciseLocationUpdates, getCurrentPosition, type GeolocationPosition } from '$lib/preciseLocation';
+    import { getCurrentPosition, type GeolocationPosition } from '$lib/preciseLocation';
+    import { locationManager } from '$lib/locationManager';
 
     import {
         spatialState,
@@ -445,7 +446,7 @@
             }
         } else {
             //console.log('🢄🧭 Stopping compass tracking...');
-            stopCompass();
+            stopCompass().catch(err => console.error('Error stopping compass:', err));
         }
     }
 
@@ -462,7 +463,7 @@
 
         try {
             console.log("📍 Map.svelte Starting location tracking");
-            await startPreciseLocationUpdates();
+            await locationManager.requestLocation('user');
 
             locationTrackingLoading = false;
             console.log("📍 Location tracking started successfully");
@@ -502,7 +503,7 @@
 
         try {
             console.log("📍 Stopping location tracking");
-            await stopPreciseLocationUpdates();
+            await locationManager.releaseLocation('user');
         } catch (error) {
             console.error("📍 Error stopping location tracking:", error);
         }
@@ -758,7 +759,7 @@
         console.log('🢄Map component destroyed');
         // Clean up location tracking if active
         try {
-            await stopPreciseLocationUpdates();
+            await locationManager.releaseLocation('user');
         } catch (error) {
             console.debug('🢄📍 Error stopping location updates on destroy:', error);
         }

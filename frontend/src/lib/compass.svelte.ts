@@ -1,7 +1,7 @@
 import { writable, derived, get } from 'svelte/store';
 import { TAURI, TAURI_MOBILE, tauriSensor, isSensorAvailable, type SensorData, SensorMode } from './tauri';
 import {PluginListener} from "@tauri-apps/api/core";
-import { startPreciseLocationUpdates, stopPreciseLocationUpdates } from './preciseLocation';
+import { locationManager } from './locationManager';
 import {bearingMode, bearingState, updateBearing} from "$lib/mapState";
 
 export interface CompassData {
@@ -246,7 +246,7 @@ async function startWebCompass(): Promise<boolean> {
 }
 
 // Stop all compass services
-export function stopCompass() {
+export async function stopCompass() {
     //console.log('🢄🛑 Stopping compass');
     compassActive.set(false);
     
@@ -267,11 +267,15 @@ export function stopCompass() {
             });
         }
         
-        // Also stop precise location updates on Android : TODO - ideally, compass, in absence of true north, would use GPS to determine heading, but we'de have to implement some kind of reference count on location tracking, it cannot just toggle the user-facing location tracking active value
-        /*if (TAURI_MOBILE) {
-            console.log('🢄📍 Stopping precise location updates');
-            stopPreciseLocationUpdates();
-        }*/
+        // Release location service for compass
+        if (TAURI_MOBILE) {
+            try {
+                await locationManager.releaseLocation('compass');
+                console.log('🢄🔍 ✅ Compass released location service');
+            } catch (err) {
+                console.error('🢄🔍 ❌ Compass failed to release location service:', err);
+            }
+        }
     }
     
     // Stop DeviceOrientation if active
@@ -348,23 +352,15 @@ export async function startCompass(mode?: SensorMode) {
             compassError.set(null);
             currentSensorMode.set(sensorMode);
             
-            // Also start precise location updates on Android
-            //console.log('🢄🔍 DEBUG: About to check TAURI_MOBILE...');
-            //console.log('🢄🔍 DEBUG: TAURI_MOBILE =', TAURI_MOBILE);
+            // Request location service for compass (needed for true north calculation)
             if (TAURI_MOBILE) {
                 try {
-                    startPreciseLocationUpdates().then(() => {
-                        //console.log('🢄🔍 DEBUG: startPreciseLocationUpdates() resolved successfully');
-                    }).catch(err => {
-                        console.error('🢄📍 Failed to start precise location:', err);
-                        console.error('🢄🔍 DEBUG: startPreciseLocationUpdates() error details:', err);
-                    });
-                    //console.log('🢄🔍 DEBUG: Called startPreciseLocationUpdates()');
-                } catch (e) {
-                    console.error('🢄🔍 DEBUG: Exception in TAURI_MOBILE block:', e);
+                    await locationManager.requestLocation('compass');
+                    console.log('🢄🔍 ✅ Compass requested location service successfully');
+                } catch (err) {
+                    console.error('🢄🔍 ❌ Compass failed to request location service:', err);
+                    // Don't fail compass startup if location fails - magnetic heading still works
                 }
-            } else {
-                //console.log('🢄🔍 DEBUG: TAURI_MOBILE is false, skipping location updates');
             }
             
             return true;
@@ -426,7 +422,7 @@ export async function switchSensorMode(mode: SensorMode) {
     
     console.log('🢄🛑 Stopping current sensor...');
     // Stop current sensor
-    stopCompass();
+    await stopCompass();
     
     // Wait a bit for cleanup
     console.log('🢄⏳ Waiting for cleanup...');

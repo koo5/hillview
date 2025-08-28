@@ -3,6 +3,7 @@
 import fire
 import os
 import logging
+import cv2
 
 logging.basicConfig(
     level=logging.INFO,
@@ -86,7 +87,7 @@ def anonymize_image(input_dir, output_dir, filename, force_copy_all_images=False
     if not filename.lower().endswith(('.jpg', '.jpeg', '.png')):
         return False
 
-    import cv2
+
 
     input_path = os.path.join(input_dir, filename)
     

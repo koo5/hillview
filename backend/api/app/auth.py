@@ -17,6 +17,7 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
 from common.models import User, TokenBlacklist
+from common.jwt import validate_jwt_token, create_access_token, create_refresh_token
 
 load_dotenv()
 
@@ -112,32 +113,7 @@ def verify_password(plain_password, hashed_password):
 def get_password_hash(password):
     return pwd_context.hash(password)
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
-    to_encode = data.copy()
-    if expires_delta:
-        expire = datetime.now(timezone.utc) + expires_delta
-    else:
-        expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    
-    # Add issued at time for better token tracking
-    to_encode.update({
-        "exp": expire,
-        "iat": datetime.now(timezone.utc),
-        "type": "access"
-    })
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt, expire
-
-def create_refresh_token(data: dict):
-    to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
-    to_encode.update({
-        "exp": expire,
-        "iat": datetime.now(timezone.utc),
-        "type": "refresh"
-    })
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt, expire
+# Token creation functions moved to common/jwt.py
 
 async def get_user_by_username(db: AsyncSession, username: str):
     result = await db.execute(select(User).where(User.username == username))
@@ -195,32 +171,22 @@ async def get_current_user(
         detail="User account is disabled",
     )
     
-    try:
-        # Decode and validate JWT token with strict algorithm checking
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM], options={"verify_exp": True})
-        
-        # Validate token type
-        token_type = payload.get("type")
-        if token_type != "access":
-            logger.warning(f"Invalid token type: {token_type}")
-            raise credentials_exception
-        
-        username: str = payload.get("sub")
-        user_id: str = payload.get("user_id")
-        
-        if username is None or user_id is None:
-            logger.warning("Token missing username or user_id")
-            raise credentials_exception
-            
-        # Check if token is blacklisted (implementation pending)
-        if await is_token_blacklisted(token, db):
-            logger.warning(f"Blacklisted token used by user: {user_id}")
-            raise credentials_exception
-            
-        token_data = TokenData(username=username, user_id=user_id)
-    except JWTError as e:
-        logger.warning(f"JWT Error: {str(e)}")
+    # Use common JWT validation
+    
+    token_data_dict = validate_jwt_token(token)
+    if not token_data_dict:
+        logger.warning("Token validation failed")
         raise credentials_exception
+    
+    username = token_data_dict["username"]
+    user_id = token_data_dict["user_id"]
+    
+    # Check if token is blacklisted
+    if await is_token_blacklisted(token, db):
+        logger.warning(f"Blacklisted token used by user: {user_id}")
+        raise credentials_exception
+    
+    token_data = TokenData(username=username, user_id=user_id)
     
     # Fetch user from database
     result = await db.execute(select(User).where(User.id == user_id))
