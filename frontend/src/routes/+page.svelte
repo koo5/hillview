@@ -339,7 +339,7 @@
             <li>
                 <a href="/download" on:click={() => menuOpen = false}>
                     <Download size={18} />
-                    Download Android App
+                    Download App
                 </a>
             </li>
 
