@@ -123,21 +123,27 @@
     }
 
     function getUserId(photo: PhotoData): string | null {
+        if (!photo) return null;
+        
         // For Mapillary photos, check if creator info exists in the photo data
         if ((photo as any).creator?.id) {
             return (photo as any).creator.id;
         }
-        // For Hillview photos, we might need to get the owner_id from the backend
-        // For now, return null if not available
+        // For Hillview photos, check for owner_id field
+        if ((photo as any).owner_id) {
+            return (photo as any).owner_id;
+        }
         return null;
     }
 
     function getUserName(photo: PhotoData): string | null {
+        if (!photo) return null;
+        
         // For Mapillary photos, check if creator info exists in the photo data
         if ((photo as any).creator?.username) {
             return (photo as any).creator.username;
         }
-        // For Hillview photos, we might have owner username in the data
+        // For Hillview photos, check for owner_username field
         if ((photo as any).owner_username) {
             return (photo as any).owner_username;
         }
@@ -294,7 +300,7 @@
                     class="hide-button hide-user"
                     on:click={showUserHideDialog}
                     disabled={isHiding || !getUserId(photo)}
-                    title="Hide all photos by {getUserName(photo) || 'this user'} isHiding: {isHiding}, (photo): {JSON.stringify(photo)}"
+                    title="Hide all photos by {getUserName(photo) || 'this user'}"
                     data-testid="hide-user-button"
                 >
                     <UserX size={16} />

@@ -190,7 +190,9 @@ async def list_photos(
             "height": photo.height,
             "uploaded_at": photo.uploaded_at,
             "processing_status": photo.processing_status,
-            "error": photo.error
+            "error": photo.error,
+            "owner_id": photo.owner_id,
+            "owner_username": current_user.username  # Since these are the current user's photos
         } for photo in photos]
         
     except Exception as e:
@@ -245,7 +247,9 @@ async def get_photo(
             "error": photo.error,
             "exif_data": photo.exif_data,
             "detected_objects": photo.detected_objects,
-            "sizes": photo.sizes
+            "sizes": photo.sizes,
+            "owner_id": photo.owner_id,
+            "owner_username": current_user.username  # Since this is the current user's photo
         }
         
     except HTTPException:
