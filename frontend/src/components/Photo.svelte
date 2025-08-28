@@ -294,7 +294,7 @@
                     class="hide-button hide-user"
                     on:click={showUserHideDialog}
                     disabled={isHiding || !getUserId(photo)}
-                    title="Hide all photos by {getUserName(photo) || 'this user'}"
+                    title="Hide all photos by {getUserName(photo) || 'this user'} isHiding: {isHiding}, (photo): {JSON.stringify(photo)}"
                     data-testid="hide-user-button"
                 >
                     <UserX size={16} />

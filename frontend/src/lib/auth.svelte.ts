@@ -42,23 +42,13 @@ export async function completeAuthentication(tokenData: {
         
         // Store tokens using the unified TokenManager
         const tokenManager = createTokenManager();
-        try {
-            await tokenManager.storeTokens({
-                access_token: tokenData.access_token,
-                refresh_token: tokenData.refresh_token,
-                expires_at: tokenData.expires_at,
-                token_type: tokenData.token_type || 'bearer'
-            });
-            console.log('🢄[AUTH] Tokens stored successfully via TokenManager');
-        } catch (error) {
-            console.error('🢄[AUTH] Failed to store tokens via TokenManager:', error);
-            // Fallback to localStorage only
-            localStorage.setItem('token', tokenData.access_token);
-            localStorage.setItem('token_expires', tokenData.expires_at);
-            if (tokenData.refresh_token) {
-                localStorage.setItem('refresh_token', tokenData.refresh_token);
-            }
-        }
+        await tokenManager.storeTokens({
+            access_token: tokenData.access_token,
+            refresh_token: tokenData.refresh_token,
+            expires_at: tokenData.expires_at,
+            token_type: tokenData.token_type || 'bearer'
+        });
+        console.log('🢄[AUTH] Tokens stored successfully via TokenManager');
         
         // Update auth store - tokens stored means authenticated
         auth.update(a => ({
@@ -227,16 +217,8 @@ export async function logout(reason?: string) {
     
     console.log('🢄[AUTH] - Clearing tokens via TokenManager');
     const tokenManager = createTokenManager();
-    try {
-        await tokenManager.clearTokens();
-        console.log('🢄[AUTH] - Tokens cleared successfully');
-    } catch (error) {
-        console.error('🢄[AUTH] - Error clearing tokens:', error);
-        // Fallback to manual cleanup
-        localStorage.removeItem('token');
-        localStorage.removeItem('token_expires');
-        localStorage.removeItem('refresh_token');
-    }
+    await tokenManager.clearTokens();
+    console.log('🢄[AUTH] - Tokens cleared successfully');
     
     console.log('🢄[AUTH] - Updating auth store');
     auth.update(a => {
@@ -254,16 +236,10 @@ export async function logout(reason?: string) {
     console.log('🢄[AUTH] === LOGOUT COMPLETE ===');
 }
 
-export function isTokenExpired(tokenExpires: Date | null): boolean {
-    if (!tokenExpires) return true;
-    
-    const now = new Date();
-    const expiry = new Date(tokenExpires);
-    
-    // Add 30 second buffer to handle slight time differences
-    const buffer = 30 * 1000;
-    
-    return expiry.getTime() - buffer <= now.getTime();
+// Deprecated - use TokenManager.isTokenExpired instead
+export async function isTokenExpired(): Promise<boolean> {
+    const tokenManager = createTokenManager();
+    return await tokenManager.isTokenExpired();
 }
 
 // Helper to get current valid token
@@ -283,66 +259,25 @@ export async function checkTokenValidity(): Promise<boolean> {
     return true;
 }
 
+// Deprecated - use HttpClient from $lib/http instead
 export async function authenticatedFetch(url: string, options: RequestInit = {}): Promise<Response> {
-    const tokenManager = createTokenManager();
+    console.warn('🢄[AUTH] authenticatedFetch is deprecated. Use HttpClient from $lib/http instead');
+    const { http } = await import('$lib/http');
     
-    try {
-        // Get valid token (will auto-refresh if needed)
-        const token = await getCurrentToken();
-        
-        if (!token) {
-            console.log('🢄[AUTH] No valid token available');
-            logout('No valid token');
-            throw new Error('Authentication failed. Please log in again.');
-        }
-        
-        // Add authorization header
-        const headers = {
-            ...options.headers,
-            'Authorization': `Bearer ${token}`
-        };
-        
-        const response = await fetch(url, {
-            ...options,
-            headers
-        });
-        
-        // Handle 401 Unauthorized responses
-        if (response.status === 401) {
-            console.log('🢄[AUTH] Received 401 response, attempting token refresh');
-            
-            // Try to refresh the token
-            try {
-                const refreshSuccess = await tokenManager.refreshToken();
-                if (refreshSuccess) {
-                    // Retry the request with the new token
-                    const newToken = await tokenManager.getValidToken();
-                    if (newToken) {
-                        const retryHeaders = {
-                            ...options.headers,
-                            'Authorization': `Bearer ${newToken}`
-                        };
-                        
-                        return await fetch(url, {
-                            ...options,
-                            headers: retryHeaders
-                        });
-                    }
-                }
-            } catch (refreshError) {
-                console.error('🢄[AUTH] Token refresh failed:', refreshError);
-            }
-            
-            // If refresh failed, logout
-            console.log('🢄[AUTH] Token refresh failed, logging out');
-            logout('Authentication failed');
-            throw new Error('Authentication failed. Please log in again.');
-        }
-        
-        return response;
-    } catch (error) {
-        // Re-throw the error for the caller to handle
-        throw error;
+    // Convert to relative URL if it starts with backendUrl
+    const relativeUrl = url.startsWith(backendUrl) ? url.substring(backendUrl.length) : url;
+    
+    // Use the appropriate method from HttpClient
+    const method = (options.method || 'GET').toUpperCase();
+    switch (method) {
+        case 'POST':
+            return http.post(relativeUrl, options.body, options);
+        case 'PUT':
+            return http.put(relativeUrl, options.body, options);
+        case 'DELETE':
+            return http.delete(relativeUrl, options.body, options);
+        default:
+            return http.get(relativeUrl, options);
     }
 }
 

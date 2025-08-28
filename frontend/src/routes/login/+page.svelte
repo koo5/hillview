@@ -5,7 +5,8 @@
     import BackButton from '../../components/BackButton.svelte';
     import { login, register, oauthLogin, auth } from '$lib/auth.svelte';
     import { invoke } from '@tauri-apps/api/core';
-    import { hasValidAuth, buildOAuthUrl } from '$lib/authCallback';
+    import { buildOAuthUrl } from '$lib/authCallback';
+    import { getCurrentToken } from '$lib/auth.svelte';
     import { goBack, clearNavigationHistory } from '$lib/navigation.svelte';
 
     let username = '';
@@ -42,8 +43,8 @@
             console.log('🢄🔐 Mobile app detected');
             
             // Check if user already has valid auth from previous session
-            const hasAuth = await hasValidAuth();
-            if (hasAuth) {
+            const token = await getCurrentToken();
+            if (token) {
                 console.log('🢄🔐 Found valid stored auth, redirecting to dashboard');
                 myGoto('/');
                 return;

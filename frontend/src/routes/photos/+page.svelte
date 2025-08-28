@@ -9,6 +9,7 @@
     import type { UserPhoto } from '$lib/stores';
     import type { User } from '$lib/auth.svelte';
     import { http, handleApiError, TokenExpiredError } from '$lib/http';
+    import { backendUrl } from '$lib/config';
     import { TAURI } from '$lib/tauri';
     import { navigateWithHistory } from '$lib/navigation.svelte';
     import { invoke } from '@tauri-apps/api/core';
@@ -466,8 +467,9 @@
                 {#each photos as photo (photo.id)}
                     <div class="photo-card" data-testid="photo-card" data-photo-id={photo.id} data-filename={photo.original_filename}>
                         <div class="photo-image">
+                            <details><summary>?</summary><pre>{JSON.stringify(photo, null, 2)}</pre></details>
                             <img 
-                                src={photo.thumbnail_url || `http://localhost:8089/api/photos/${photo.id}/thumbnail`} 
+                                src={photo.thumbnail_url || `${backendUrl}/photos/${photo.id}/thumbnail`} 
                                 alt={photo.description || photo.original_filename}
                                 data-testid="photo-thumbnail"
                             />
