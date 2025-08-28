@@ -332,6 +332,17 @@
                 Sources
             </a></li>
 
+            <li><a href="/about" on:click={() => menuOpen = false}>
+                <Info size={18} />
+                About
+            </a></li>
+            <li>
+                <a href="/download" on:click={() => menuOpen = false}>
+                    <Download size={18} />
+                    Download Android App
+                </a>
+            </li>
+
             {#if FEATURE_USER_ACCOUNTS}
                 {#if isAuthenticated}
                     <li>
@@ -364,16 +375,6 @@
                 FEATURE_USER_ACCOUNTS off
             {/if}
 
-            <li><a href="/about" on:click={() => menuOpen = false}>
-                <Info size={18} />
-                About
-            </a></li>
-            <li>
-                <a href="/download" on:click={() => menuOpen = false}>
-                    <Download size={18} />
-                    Download Android App
-                </a>
-            </li>
         </ul>
     </nav>
 {/if}

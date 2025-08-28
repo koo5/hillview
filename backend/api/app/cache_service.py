@@ -462,9 +462,18 @@ class MapillaryCacheService:
             creator_username = None
             creator_id = None
             creator_data = photo_data.get('creator')
+            
+            # Debug log to see what creator data we're getting
+            if photo_data['id'] in ['sample_photo_1', 'sample_photo_2']:  # Log first few photos
+                log.info(f"Creator data for photo {photo_data['id']}: {creator_data}")
+            
             if creator_data and isinstance(creator_data, dict):
                 creator_username = creator_data.get('username')
                 creator_id = creator_data.get('id')
+            elif creator_data and isinstance(creator_data, str):
+                # Sometimes Mapillary returns creator as a string ID
+                creator_id = creator_data
+                log.info(f"Creator data is string: {creator_data} for photo {photo_data['id']}")
             
             # Prepare insert data
             photo_dict = {
