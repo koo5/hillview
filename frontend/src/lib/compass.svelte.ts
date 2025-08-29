@@ -466,8 +466,6 @@ currentCompassHeading.subscribe(compass => {
     if (!compass || compass.heading === null || !get(compassActive)) return;
 	if (isNaN(compass.heading)) return;
 
-    // Negate the compass bearing for map view
-    // When device rotates clockwise, map should rotate counter-clockwise
     const targetBearing = (360 + compass.heading) % 360;
 
     // Apply smoothing
