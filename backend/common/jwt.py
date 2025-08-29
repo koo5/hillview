@@ -181,6 +181,72 @@ def create_refresh_token(data: dict) -> tuple[str, datetime]:
     encoded_jwt = jwt.encode(to_encode, PRIVATE_KEY, algorithm=ALGORITHM)
     return encoded_jwt, expire
 
+def create_upload_authorization_token(data: dict) -> tuple[str, datetime]:
+    """
+    Create a JWT upload authorization token using ECDSA private key.
+    This token authorizes a specific upload to a worker service.
+    Only available in API server (requires private key).
+    
+    Args:
+        data: Upload metadata including photo_id, user_id, client_public_key_id
+    
+    Returns:
+        Tuple of (encoded_jwt, expiration_datetime)
+    """
+    if not PRIVATE_KEY:
+        raise RuntimeError("No private key available for token creation")
+    
+    to_encode = data.copy()
+    expire = datetime.now(timezone.utc) + timedelta(minutes=15)  # 15 minute upload tokens
+    
+    to_encode.update({
+        "exp": expire,
+        "iat": datetime.now(timezone.utc),
+        "type": "upload_authorization"
+    })
+    
+    encoded_jwt = jwt.encode(to_encode, PRIVATE_KEY, algorithm=ALGORITHM)
+    return encoded_jwt, expire
+
+def validate_upload_authorization_token(token: str) -> Optional[Dict[str, Any]]:
+    """
+    Validate an upload authorization JWT token.
+    Used by worker services to verify upload permissions.
+    
+    Args:
+        token: Upload authorization JWT token
+    
+    Returns:
+        Dict with upload metadata if valid, None otherwise
+    """
+    if not PUBLIC_KEY:
+        logger.error("No public key available for JWT token verification")
+        return None
+        
+    try:
+        # Decode and validate JWT token with ECDSA public key
+        payload = jwt.decode(token, PUBLIC_KEY, algorithms=[ALGORITHM])
+        
+        # Validate token type
+        token_type = payload.get("type")
+        if token_type != "upload_authorization":
+            logger.warning(f"Invalid token type: {token_type}, expected upload_authorization")
+            return None
+        
+        # Check required fields
+        required_fields = ["photo_id", "user_id", "client_public_key_id"]
+        for field in required_fields:
+            if field not in payload:
+                logger.warning(f"Upload authorization token missing required field: {field}")
+                return None
+        
+        logger.debug(f"Upload authorization validated for photo: {payload.get('photo_id')}")
+        return payload
+        
+    except JWTError as e:
+        logger.warning(f"Upload authorization JWT Error: {str(e)}")
+        return None
+
 def extract_bearer_token(authorization_header: Optional[str]) -> Optional[str]:
     """
     Extract JWT token from Authorization header.

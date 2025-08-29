@@ -112,26 +112,15 @@ Once the server is running, you can access the API documentation at:
 
 ### Database Migrations
 
-For database migrations, you can use Alembic:
+**📖 See [Database Migrations Guide](../docs/database-migrations.md) for complete documentation.**
 
-1. Install Alembic:
-   ```
-   pip install alembic
-   ```
+Quick start:
+```bash
+# Apply migrations
+./scripts/migrate.sh upgrade head
 
-2. Initialize Alembic:
-   ```
-   alembic init migrations
-   ```
+# Create new migration after model changes
+./scripts/migrate.sh revision --autogenerate -m "description"
+```
 
-3. Configure Alembic to use your database (edit `alembic.ini` and `migrations/env.py`)
-
-4. Create a migration:
-   ```
-   alembic revision --autogenerate -m "Initial migration"
-   ```
-
-5. Apply migrations:
-   ```
-   alembic upgrade head
-   ```
+The migration script handles all Docker, networking, and environment configuration automatically.

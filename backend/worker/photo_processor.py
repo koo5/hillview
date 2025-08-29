@@ -384,6 +384,7 @@ class PhotoProcessor:
         file_path: str, 
         filename: str, 
         user_id: UUID,
+        photo_id: Optional[str] = None,
         description: Optional[str] = None,
         is_public: bool = True
     ) -> Optional[Dict[str, Any]]:

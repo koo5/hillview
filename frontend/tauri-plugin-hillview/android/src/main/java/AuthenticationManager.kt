@@ -14,6 +14,7 @@ class AuthenticationManager(private val context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val notificationHelper = NotificationHelper(context)
     private val refreshMutex = Mutex()
+    private val clientCrypto = ClientCryptoManager(context)
 
     companion object {
         private const val TAG = "🢄AuthenticationManager"
@@ -23,7 +24,7 @@ class AuthenticationManager(private val context: Context) {
         private const val KEY_EXPIRES_AT = "expires_at"
     }
 
-    fun storeAuthToken(token: String, expiresAt: String, refreshToken: String? = null): Boolean {
+    suspend fun storeAuthToken(token: String, expiresAt: String, refreshToken: String? = null): Boolean {
         Log.d(TAG, "Storing auth token, expires at: $expiresAt, has refresh token: ${refreshToken != null}")
         return try {
             val editor = prefs.edit()
@@ -38,6 +39,14 @@ class AuthenticationManager(private val context: Context) {
             
             // Clear any auth expired notifications since user is now authenticated
             notificationHelper.clearAuthExpiredNotification()
+            
+            // Register client public key with server - this must succeed for uploads to work
+            val keyRegistered = registerClientPublicKey(token)
+            if (!keyRegistered) {
+                Log.e(TAG, "Client public key registration failed - clearing stored tokens")
+                clearAuthToken()
+                return false
+            }
             
             true
         } catch (e: Exception) {
@@ -161,6 +170,56 @@ class AuthenticationManager(private val context: Context) {
         }
         
         return performTokenRefresh(refreshToken)
+    }
+    
+    private suspend fun registerClientPublicKey(token: String): Boolean {
+        Log.d(TAG, "Registering client public key with server")
+        
+        try {
+            // Get client public key info
+            val keyInfo = clientCrypto.getPublicKeyInfo() ?: run {
+                Log.e(TAG, "Failed to get client public key info")
+                return false
+            }
+            
+            // Get server URL from shared preferences
+            val uploadPrefs = context.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
+            val serverUrl = uploadPrefs.getString("server_url", null) ?: run {
+                Log.e(TAG, "Server URL not configured - user needs to login first")
+                return false
+            }
+            
+            val url = "$serverUrl/auth/register-client-key"
+            val json = """{"public_key_pem":"${keyInfo.publicKeyPem}","key_id":"${keyInfo.keyId}","created_at":"${keyInfo.createdAt}"}"""
+            
+            // Use OkHttp for the HTTP request
+            val client = okhttp3.OkHttpClient()
+            val mediaType = "application/json".toMediaType()
+            val requestBody = json.toRequestBody(mediaType)
+            
+            val request = okhttp3.Request.Builder()
+                .url(url)
+                .post(requestBody)
+                .addHeader("Content-Type", "application/json")
+                .addHeader("Authorization", "Bearer $token")
+                .build()
+            
+            val response = client.newCall(request).execute()
+            
+            if (response.isSuccessful) {
+                Log.d(TAG, "Client public key registered successfully")
+                return true
+            } else {
+                Log.e(TAG, "Client public key registration failed with status: ${response.code}")
+                val responseBody = response.body?.string()
+                Log.e(TAG, "Registration error response: $responseBody")
+                return false
+            }
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Exception during client public key registration: ${e.message}", e)
+            return false
+        }
     }
     
     private suspend fun performTokenRefresh(refreshToken: String): Boolean {

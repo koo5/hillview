@@ -21,7 +21,7 @@ from pydantic import BaseModel
 # Add parent directories to path for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from common.jwt import validate_jwt_token
+from common.jwt import validate_upload_authorization_token
 from common.file_utils import (
     validate_and_prepare_photo_file,
     verify_saved_file_content,
@@ -50,6 +50,40 @@ UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "./uploads"))
 UPLOAD_DIR.mkdir(exist_ok=True)
 API_URL = os.getenv("API_URL", "http://localhost:8055")
 
+def get_worker_identity() -> str:
+    """
+    Generate a unique worker identity for audit trail.
+    
+    This creates a semi-permanent identifier for this worker instance that can be used
+    to track which worker processed which photos for debugging and audit purposes.
+    
+    The identity includes:
+    - Worker hostname/container ID 
+    - Process start time
+    - Short hash for uniqueness
+    
+    Example: "worker-container-abc123_20241201-143022_x9k2m"
+    """
+    import socket
+    import hashlib
+    from datetime import datetime
+    
+    # Get hostname/container identifier
+    hostname = socket.gethostname()
+    
+    # Get process start time (approximation)
+    start_time = datetime.now().strftime("%Y%m%d-%H%M%S")
+    
+    # Create a short hash for uniqueness
+    unique_string = f"{hostname}-{start_time}-{os.getpid()}"
+    hash_suffix = hashlib.md5(unique_string.encode()).hexdigest()[:5]
+    
+    return f"{hostname}_{start_time}_{hash_suffix}"
+
+# Generate worker identity once at startup
+WORKER_IDENTITY = get_worker_identity()
+logger.info(f"Worker identity: {WORKER_IDENTITY}")
+
 # Request/Response models
 class ProcessPhotoResponse(BaseModel):
     success: bool
@@ -70,24 +104,28 @@ class ProcessedPhotoData(BaseModel):
     sizes: Optional[dict] = None
     detected_objects: Optional[dict] = None
     error: Optional[str] = None
+    client_signature: Optional[str] = None  # Base64-encoded ECDSA signature from client
+    processed_by_worker: Optional[str] = None  # Worker identity for audit trail
+    filename: Optional[str] = None  # Secure filename after processing
+    filepath: Optional[str] = None  # Final file path after processing
 
-# Authentication dependency
-async def get_current_user_and_token(credentials: HTTPAuthorizationCredentials = Depends(security)) -> tuple[str, str]:
+# Authentication dependency for upload authorization  
+async def get_upload_authorization(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
     """
-    Validate JWT token and return both user_id and the original token.
-    Uses the same JWT validation logic as the API server.
+    Validate upload authorization JWT token.
+    Returns upload metadata including photo_id, user_id, client_public_key_id.
     """
     token = credentials.credentials
     
-    token_data = validate_jwt_token(token)
+    token_data = validate_upload_authorization_token(token)
     if not token_data:
         raise HTTPException(
             status_code=401,
-            detail="Could not validate credentials",
+            detail="Invalid upload authorization token",
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    return token_data["user_id"], token
+    return token_data
 
 @app.get("/")
 async def root():
@@ -102,18 +140,21 @@ async def health_check():
 @app.post("/upload", response_model=ProcessPhotoResponse)
 async def upload_and_process_photo(
     file: UploadFile = File(...),
-    description: Optional[str] = Form(None),
-    is_public: bool = Form(True),
-    user_and_token: tuple[str, str] = Depends(get_current_user_and_token)
+    client_signature: str = Form(...),
+    upload_auth: dict = Depends(get_upload_authorization)
 ):
     """
-    Upload and immediately process a photo, resembling the original API upload flow.
-    Saves processed results via API call instead of direct database operations.
+    Upload and immediately process a photo using secure upload authorization.
+    Verifies upload JWT authorization and processes file with client signature.
     """
     file_path = None
     try:
-        current_user_id, original_token = user_and_token
-        logger.info(f"Upload request received for user {current_user_id}: {file.filename}")
+        # Extract upload authorization data
+        photo_id = upload_auth["photo_id"]
+        user_id = upload_auth["user_id"]
+        client_public_key_id = upload_auth["client_public_key_id"]
+        
+        logger.info(f"Secure upload request for photo {photo_id}, user {user_id}: {file.filename}")
         
         # Get file size
         file_size = get_file_size_from_upload(file.file)
@@ -123,7 +164,7 @@ async def upload_and_process_photo(
             filename=file.filename,
             file_size=file_size,
             content_type=file.content_type,
-            user_id=current_user_id,
+            user_id=user_id,
             upload_base_dir=str(UPLOAD_DIR)
         )
         
@@ -143,13 +184,12 @@ async def upload_and_process_photo(
         logger.info(f"File saved successfully: {file_path}")
         
         # Process the photo immediately
-        user_uuid = UUID(current_user_id)
+        user_uuid = UUID(user_id)
         processing_result = await photo_processor.process_uploaded_photo(
             file_path=str(file_path),
             filename=safe_filename,
             user_id=user_uuid,
-            description=description,
-            is_public=is_public
+            photo_id=photo_id  # Use photo_id from authorization
         )
         
         if not processing_result:
@@ -162,10 +202,54 @@ async def upload_and_process_photo(
         
         logger.info(f"Photo processing completed for {safe_filename}")
         
-        # TODO: Call API endpoint to save processed data using ProcessedPhotoData
-        # We now have access to the original JWT token
-        logger.info(f"Ready to call API endpoint with original token: {original_token[:20]}...")
-        # Next step: implement the actual HTTP call to /api/photos/processed
+        # Call API endpoint to save processed data with client signature and worker identity
+        processed_data = ProcessedPhotoData(
+            photo_id=photo_id,
+            processing_status="completed",
+            width=processing_result.get("width"),
+            height=processing_result.get("height"),
+            latitude=processing_result.get("latitude"),
+            longitude=processing_result.get("longitude"),
+            compass_angle=processing_result.get("compass_angle"),
+            altitude=processing_result.get("altitude"),
+            exif_data=processing_result.get("exif_data"),
+            sizes=processing_result.get("sizes"),
+            detected_objects=processing_result.get("detected_objects"),
+            client_signature=client_signature,  # Include client signature for verification
+            processed_by_worker=WORKER_IDENTITY,  # Track which worker processed this photo
+            filename=secure_filename,  # Update secure filename after processing
+            filepath=str(file_path)  # Store the final file path
+        )
+        
+        # Make HTTP call to API server to save processed data
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{API_URL}/api/photos/processed",
+                    json=processed_data.dict(),
+                    headers={"Content-Type": "application/json"},
+                    timeout=30.0
+                )
+                
+                if response.status_code == 200:
+                    logger.info(f"Successfully saved processed data for photo {photo_id}")
+                else:
+                    logger.error(f"Failed to save processed data for photo {photo_id}: {response.status_code} - {response.text}")
+                    return ProcessPhotoResponse(
+                        success=False,
+                        message="Photo processing completed but failed to save results",
+                        photo_id=photo_id,
+                        error=f"API call failed: {response.status_code}"
+                    )
+                    
+        except Exception as e:
+            logger.error(f"Error calling API to save processed data for photo {photo_id}: {e}")
+            return ProcessPhotoResponse(
+                success=False,
+                message="Photo processing completed but failed to save results",
+                photo_id=photo_id,
+                error=f"API call error: {str(e)}"
+            )
         
         return ProcessPhotoResponse(
             success=True,

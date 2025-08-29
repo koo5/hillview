@@ -7,6 +7,10 @@ import os
 
 # Add the parent directory to the path so we can import our models
 sys.path.append('/app')
+sys.path.append('/app/app')
+
+# Set sync mode for alembic to avoid async engine issues
+os.environ['ALEMBIC_SYNC_MODE'] = '1'
 from common.models import Base
 
 # this is the Alembic Config object

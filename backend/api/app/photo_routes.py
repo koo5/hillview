@@ -1,10 +1,15 @@
 """Photo upload and management routes with security."""
 import os
 import logging
+import base64
+import json
 from pathlib import Path
 from typing import Optional, Dict, Any
 from datetime import datetime, timezone
 import aiofiles
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives import serialization
 from pydantic import BaseModel
 
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Request
@@ -50,6 +55,10 @@ class ProcessedPhotoData(BaseModel):
     sizes: Optional[Dict[str, Any]] = None
     detected_objects: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
+    client_signature: Optional[str] = None  # Base64-encoded ECDSA signature from client
+    processed_by_worker: Optional[str] = None  # Worker identity for audit trail
+    filename: Optional[str] = None  # Secure filename after processing
+    filepath: Optional[str] = None  # Final file path after processing
 
 # @router.post("/upload")
 # async def upload_photo(
@@ -164,42 +173,16 @@ class ProcessedPhotoData(BaseModel):
 @router.post("/processed")
 async def save_processed_photo(
     processed_data: ProcessedPhotoData,
-    original_user_auth_token: str,
     db: AsyncSession = Depends(get_db)
 ):
-    """Save processed photo data from worker service with original JWT token."""
+    """Save processed photo data from worker service with client signature verification."""
     try:
-        # Validate JWT token without expiration check to get user info and exp time
-        token_data = validate_jwt_token(original_user_auth_token, verify_exp=False)
-        if not token_data:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid token"
-            )
-        
-        # Check if token is expired by more than 5 minutes
-        exp_timestamp = token_data.get("exp")
-        if exp_timestamp:
-            exp_time = datetime.fromtimestamp(exp_timestamp, tz=timezone.utc)
-            current_time = datetime.now(timezone.utc)
-            time_since_exp = current_time - exp_time
-            
-            # Allow tokens expired up to 5 minutes ago
-            if time_since_exp.total_seconds() > 300:  # 5 minutes = 300 seconds
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Token expired more than 5 minutes ago"
-                )
-        
-        user_id = token_data["user_id"]
         photo_id = processed_data.photo_id
+        logger.info(f"Saving processed photo data for {photo_id}")
         
-        # Get the existing photo record
+        # Get the photo record (includes client signature info)
         result = await db.execute(
-            select(Photo).where(
-                Photo.id == photo_id,
-                Photo.owner_id == user_id
-            )
+            select(Photo).where(Photo.id == photo_id)
         )
         photo = result.scalars().first()
         
@@ -209,23 +192,82 @@ async def save_processed_photo(
                 detail="Photo not found"
             )
         
-        # Update photo with processed data
+        # Verify that photo is in authorized status (not already processed)
+        if photo.processing_status not in ["authorized", "processing"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Photo not in valid state for processing: {photo.processing_status}"
+            )
+        
+        if not processed_data.client_signature:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Client signature is required for secure uploads"
+            )
+        
+        # Get client's public key for signature verification
+        from common.models import UserPublicKey
+        key_result = await db.execute(
+            select(UserPublicKey).where(
+                UserPublicKey.user_id == photo.owner_id,
+                UserPublicKey.key_id == photo.client_public_key_id,
+                UserPublicKey.is_active == True
+            )
+        )
+        client_public_key = key_result.scalars().first()
+        
+        if not client_public_key:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Client public key not found or inactive"
+            )
+        
+        # Verify client signature
+        if not verify_client_signature(
+            signature_base64=processed_data.client_signature,
+            public_key_pem=client_public_key.public_key_pem,
+            photo_id=photo_id,
+            filename=photo.original_filename,
+            timestamp=int(photo.upload_authorized_at.timestamp()) if photo.upload_authorized_at else None
+        ):
+            logger.error(f"Client signature verification failed for photo {photo_id}")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Client signature verification failed"
+            )
+        
+        logger.info(f"Client signature verified for photo {photo_id}")
+        
+        # Update photo with processed data, store signature, and track worker identity
         photo.processing_status = processed_data.processing_status
         photo.width = processed_data.width
         photo.height = processed_data.height
-        photo.latitude = processed_data.latitude
-        photo.longitude = processed_data.longitude
-        photo.compass_angle = processed_data.compass_angle
-        photo.altitude = processed_data.altitude
+        # Update filename and filepath after successful processing
+        if processed_data.filename:
+            photo.filename = processed_data.filename
+        if processed_data.filepath:
+            photo.filepath = processed_data.filepath
+        # Overwrite client-supplied geolocation data from authorization if EXIF/processing provides better data
+        if processed_data.latitude is not None:
+            photo.latitude = processed_data.latitude
+        if processed_data.longitude is not None:
+            photo.longitude = processed_data.longitude
+        if processed_data.compass_angle is not None:
+            photo.compass_angle = processed_data.compass_angle
+        if processed_data.altitude is not None:
+            photo.altitude = processed_data.altitude
         photo.exif_data = processed_data.exif_data
         photo.sizes = processed_data.sizes
         photo.detected_objects = processed_data.detected_objects
         photo.error = processed_data.error
+        photo.client_signature = processed_data.client_signature  # Store signature for audit trail
+        photo.processed_by_worker = processed_data.processed_by_worker  # Track which worker processed this
+        photo.processed_at = datetime.now(timezone.utc)  # When processing was completed
         
         await db.commit()
         await db.refresh(photo)
         
-        logger.info(f"Photo {photo_id} processing data saved successfully for user {user_id}")
+        logger.info(f"Photo {photo_id} processing data saved successfully with verified client signature")
         
         return {
             "message": "Processed photo data saved successfully",
@@ -468,3 +510,77 @@ async def delete_photo(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to delete photo"
         )
+
+def verify_client_signature(signature_base64: str, public_key_pem: str, photo_id: str, filename: str, timestamp: int) -> bool:
+    """
+    Verify ECDSA client signature using the client's public key.
+    
+    SIGNATURE VERIFICATION SCHEME:
+    =============================
+    
+    This function is the critical security checkpoint that prevents compromised workers 
+    from impersonating users. Here's how the three-phase upload process works:
+    
+    Phase 1 - Upload Authorization (Client → API Server):
+    - Client calls /api/photos/authorize-upload with file metadata
+    - API server creates pending photo record with status="authorized" 
+    - API server returns upload_jwt signed with API server's private key
+    - upload_jwt contains: photo_id, user_id, client_public_key_id
+    
+    Phase 2 - Signed Upload (Client → Worker):
+    - Client signs upload payload: {photo_id, filename, timestamp} with their ECDSA private key
+    - Client sends: upload_jwt + file + client_signature to worker
+    - Worker verifies upload_jwt using API server's public key (validates authorization)
+    - Worker processes file but does NOT verify client signature (zero-trust worker)
+    - Worker sends processed results + client_signature back to API server
+    
+    Phase 3 - Result Storage (Worker → API Server) ← WE ARE HERE
+    - API server receives processed results + client_signature from worker
+    - API server loads client's public key from database (client_public_key_id from photo record)
+    - API server recreates the exact message that client signed: {photo_id, filename, timestamp}
+    - API server verifies client_signature using client's public key
+    - Only saves results if signature is valid - this prevents worker impersonation!
+    
+    WHY THIS WORKS:
+    ===============
+    - Worker cannot forge client signatures (doesn't have client's private key)
+    - Worker cannot modify upload metadata (signature verification would fail)  
+    - Even if worker is completely compromised, it cannot impersonate users
+    - Provides cryptographic proof that the client authorized this specific upload
+    - Signature is stored in database for audit trail and non-repudiation
+    
+    SIGNATURE FORMAT:
+    =================
+    Message signed by client: {"photo_id":"uuid","filename":"file.jpg","timestamp":1234567890}
+    Signature algorithm: ECDSA P-256 with SHA-256
+    Signature encoding: Base64
+    """
+    try:
+        # Load the client's public key
+        public_key = serialization.load_pem_public_key(public_key_pem.encode())
+        
+        # Recreate the exact message that the client signed
+        # This must match the format used by ClientCryptoManager.signUploadData()
+        message_data = {
+            "photo_id": photo_id,
+            "filename": filename,
+            "timestamp": timestamp
+        }
+        message = json.dumps(message_data, separators=(',', ':'))  # Compact JSON, no spaces
+        
+        # Decode the base64 signature
+        signature_bytes = base64.b64decode(signature_base64)
+        
+        # Verify the ECDSA signature
+        public_key.verify(
+            signature_bytes,
+            message.encode('utf-8'),
+            ec.ECDSA(hashes.SHA256())
+        )
+        
+        logger.debug(f"Client signature verified for photo {photo_id}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error verifying client signature: {e}")
+        return False

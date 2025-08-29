@@ -11,6 +11,7 @@
     import { http, handleApiError, TokenExpiredError } from '$lib/http';
     import { backendUrl } from '$lib/config';
     import { TAURI } from '$lib/tauri';
+    import { secureUploadFiles } from '$lib/secureUpload';
     import { navigateWithHistory } from '$lib/navigation.svelte';
     import { invoke } from '@tauri-apps/api/core';
 
@@ -107,15 +108,6 @@
         }
     }
 
-    async function uploadSingleFile(file: File): Promise<any> {
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('description', description);
-        formData.append('is_public', String(isPublic));
-        
-        return http.uploadWithProgress('/photos/upload', formData);
-    }
-
     async function handleUpload() {
         if (!uploadFiles.length) return;
         
@@ -123,50 +115,43 @@
         uploadProgress = 0;
         
         const totalFiles = uploadFiles.length;
-        addLogEntry(`Starting batch upload: ${totalFiles} file${totalFiles > 1 ? 's' : ''}`, 'info');
+        addLogEntry(`Starting secure batch upload: ${totalFiles} file${totalFiles > 1 ? 's' : ''}`, 'info');
         
         try {
-            let successCount = 0;
-            let skipCount = 0;
-            let errorCount = 0;
-            
-            for (let i = 0; i < uploadFiles.length; i++) {
-                const file = uploadFiles[i];
-                uploadProgress = Math.round(((i + 1) / totalFiles) * 100);
-                
-                try {
-                    addLogEntry(`Uploading ${i + 1}/${totalFiles}: ${file.name}`, 'info');
-                    const result = await uploadSingleFile(file);
-                    
-                    // Log the result
-                    if (result.skipped) {
-                        addLogEntry(`Skipped: ${result.original_filename} (already exists)`, 'warning');
-                        skipCount++;
-                    } else {
-                        addLogEntry(`Uploaded: ${result.original_filename || file.name}`, 'success');
-                        successCount++;
-                    }
-                } catch (err) {
-                    console.error('🢄Error uploading file:', file.name, err);
-                    const errorMessage = handleApiError(err);
-                    addLogEntry(`Failed: ${file.name} - ${errorMessage}`, 'error');
-                    errorCount++;
-                    
-                    // TokenExpiredError is handled automatically by the http client
-                    if (err instanceof TokenExpiredError) {
-                        // Stop upload process if authentication fails
-                        break;
+            // Use new secure upload service
+            const uploadResult = await secureUploadFiles(
+                uploadFiles,
+                description,
+                isPublic,
+                undefined, // Use default worker URL
+                (completed, total, currentFile) => {
+                    uploadProgress = Math.round((completed / total) * 100);
+                    if (currentFile) {
+                        addLogEntry(`Uploading ${completed + 1}/${total}: ${currentFile}`, 'info');
                     }
                 }
-            }
+            );
+            
+            // Process results
+            uploadResult.results.forEach((result, index) => {
+                const file = uploadFiles[index];
+                if (result.success) {
+                    addLogEntry(`✅ Uploaded: ${file.name}`, 'success');
+                } else {
+                    addLogEntry(`❌ Failed: ${file.name} - ${result.error}`, 'error');
+                }
+            });
             
             // Summary log
             const summaryParts = [];
-            if (successCount > 0) summaryParts.push(`${successCount} uploaded`);
-            if (skipCount > 0) summaryParts.push(`${skipCount} skipped`);
-            if (errorCount > 0) summaryParts.push(`${errorCount} failed`);
+            if (uploadResult.successCount > 0) summaryParts.push(`${uploadResult.successCount} uploaded`);
+            if (uploadResult.skipCount > 0) summaryParts.push(`${uploadResult.skipCount} skipped`);
+            if (uploadResult.errorCount > 0) summaryParts.push(`${uploadResult.errorCount} failed`);
             
-            addLogEntry(`Batch complete: ${summaryParts.join(', ')}`, errorCount > 0 ? 'warning' : 'success');
+            addLogEntry(
+                `🔐 Secure batch complete: ${summaryParts.join(', ')}`, 
+                uploadResult.errorCount > 0 ? 'warning' : 'success'
+            );
             
             // Reset form and refresh photos
             uploadFiles = [];
@@ -181,9 +166,9 @@
             await fetchPhotos();
             
         } catch (err) {
-            console.error('🢄Error in batch upload:', err);
+            console.error('🔐 Error in secure batch upload:', err);
             const errorMessage = handleApiError(err);
-            addLogEntry(`Batch upload failed: ${errorMessage}`, 'error');
+            addLogEntry(`🔐 Secure batch upload failed: ${errorMessage}`, 'error');
             error = errorMessage;
             
             // TokenExpiredError is handled automatically by the http client

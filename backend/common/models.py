@@ -71,6 +71,15 @@ class Photo(Base):
     detected_objects = Column(JSON, nullable=True)
     sizes = Column(JSON, nullable=True)  # Store the sizes array like in files.json
     
+    # Client signature fields for secure uploads
+    client_signature = Column(Text, nullable=True)  # Base64-encoded ECDSA signature from client
+    client_public_key_id = Column(String, nullable=True)  # References the client's key used for signing
+    upload_authorized_at = Column(DateTime(timezone=True), nullable=True)  # When upload was authorized
+    
+    # Worker identity tracking for audit trail
+    processed_by_worker = Column(String, nullable=True)  # Worker ID/signature that processed this photo
+    processed_at = Column(DateTime(timezone=True), nullable=True)  # When worker completed processing
+    
     # Relationships
     owner_id = Column(String, ForeignKey("users.id"))
     owner = relationship("User", back_populates="photos")
@@ -188,4 +197,23 @@ class HiddenUser(Base):
     __table_args__ = (
         # Unique constraints and checks defined in migration
         {"schema": None}  # Placeholder - actual constraints in migration
+    )
+
+class UserPublicKey(Base):
+    __tablename__ = "user_public_keys"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    key_id = Column(String, nullable=False, index=True)  # Client-generated key identifier
+    public_key_pem = Column(Text, nullable=False)  # PEM-formatted ECDSA P-256 public key
+    created_at = Column(DateTime(timezone=True), nullable=False)  # When key was created on client
+    registered_at = Column(DateTime(timezone=True), server_default=func.now())  # When registered with server
+    is_active = Column(Boolean, default=True)  # For key rotation/revocation
+    
+    # Relationships
+    user = relationship("User")
+    
+    # Ensure unique key_id per user
+    __table_args__ = (
+        {"schema": None}  # Actual unique constraint in migration: (user_id, key_id)
     )

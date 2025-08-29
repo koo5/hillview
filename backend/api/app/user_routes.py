@@ -1,5 +1,6 @@
 import datetime
 import os
+import uuid
 from typing import Optional
 import logging
 from fastapi import APIRouter, Depends, HTTPException, status, Request
@@ -16,7 +17,8 @@ import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
-from common.models import User
+from common.models import User, UserPublicKey, Photo
+from common.jwt import create_upload_authorization_token
 from .auth import (
     authenticate_user, create_access_token, create_refresh_token, get_current_active_user,
     get_password_hash, Token, UserCreate, UserLogin, UserOut, UserOAuth, RefreshTokenRequest,
@@ -783,6 +785,243 @@ async def update_user_settings(
     await db.commit()
     await db.refresh(current_user)
     return current_user
+
+# Client public key registration for secure uploads
+class ClientPublicKeyData(BaseModel):
+    public_key_pem: str
+    key_id: str
+    created_at: str
+
+@router.post("/auth/register-client-key")
+async def register_client_public_key(
+    request: Request,
+    key_data: ClientPublicKeyData,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Register client's ECDSA public key for secure upload authorization."""
+    try:
+        log.info(f"Registering client public key for user {current_user.id}, key_id: {key_data.key_id}")
+        
+        # Check if this key_id already exists for this user
+        result = await db.execute(
+            select(UserPublicKey).where(
+                UserPublicKey.user_id == current_user.id,
+                UserPublicKey.key_id == key_data.key_id
+            )
+        )
+        existing_key = result.scalars().first()
+        
+        if existing_key:
+            # Don't allow overwriting existing keys for security
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Public key with ID {key_data.key_id} already exists"
+            )
+        
+        # Create new key record
+        user_public_key = UserPublicKey(
+            user_id=current_user.id,
+            key_id=key_data.key_id,
+            public_key_pem=key_data.public_key_pem,
+            created_at=datetime.datetime.fromisoformat(key_data.created_at.replace('Z', '+00:00')),
+            is_active=True
+        )
+        db.add(user_public_key)
+        await db.commit()
+        
+        log.info(f"Created new client public key for user {current_user.id}")
+        
+        return {
+            "message": "Client public key registered successfully",
+            "key_id": key_data.key_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        log.error(f"Error registering client public key: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to register client public key"
+        )
+
+# Upload authorization for secure uploads
+class UploadAuthorizationRequest(BaseModel):
+    filename: str
+    file_size: int
+    content_type: str
+    description: Optional[str] = None
+    is_public: bool = True
+    # Geolocation data from client (EXIF or device GPS)
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    altitude: Optional[float] = None
+    compass_angle: Optional[float] = None
+    captured_at: Optional[datetime.datetime] = None
+
+class UploadAuthorizationResponse(BaseModel):
+    upload_jwt: str
+    photo_id: str
+    expires_at: datetime.datetime
+    worker_url: str  # URL of worker service for upload
+
+@router.post("/photos/authorize-upload", response_model=UploadAuthorizationResponse)
+async def authorize_upload(
+    request: Request,
+    auth_request: UploadAuthorizationRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Create upload authorization JWT for secure photo upload to worker."""
+    try:
+        log.info(f"Creating upload authorization for user {current_user.id}: {auth_request.filename}")
+        
+        # Basic validation of request parameters
+        if not auth_request.filename.strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Filename cannot be empty"
+            )
+        
+        if auth_request.file_size <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File size must be positive"
+            )
+        
+        if not auth_request.content_type.startswith('image/'):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Only image files are supported"
+            )
+        
+        # Get user's active public key for inclusion in JWT
+        result = await db.execute(
+            select(UserPublicKey).where(
+                UserPublicKey.user_id == current_user.id,
+                UserPublicKey.is_active == True
+            ).order_by(UserPublicKey.registered_at.desc())
+        )
+        user_public_key = result.scalars().first()
+        
+        if not user_public_key:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No active client public key found. Please register a public key first."
+            )
+        
+        # Create pending photo record
+        photo_id = str(uuid.uuid4())
+        upload_authorized_at = datetime.datetime.now(datetime.timezone.utc)
+        
+        photo = Photo(
+            id=photo_id,
+            filename=None,  # Will be set by worker after file processing
+            original_filename=auth_request.filename,  # Store original filename from request
+            filepath=None,  # Will be set by worker after upload
+            description=auth_request.description,
+            is_public=auth_request.is_public,
+            owner_id=current_user.id,
+            processing_status="authorized",  # Special status for authorized but not yet uploaded
+            client_public_key_id=user_public_key.key_id,
+            upload_authorized_at=upload_authorized_at,
+            # Store geolocation data from client for immediate map display
+            latitude=auth_request.latitude,
+            longitude=auth_request.longitude,
+            altitude=auth_request.altitude,
+            compass_angle=auth_request.compass_angle,
+            captured_at=auth_request.captured_at
+        )
+        
+        db.add(photo)
+        await db.commit()
+        
+        # Create upload authorization JWT
+        upload_jwt, expires_at = create_upload_authorization_token({
+            "photo_id": photo_id,
+            "user_id": current_user.id,
+            "client_public_key_id": user_public_key.key_id,
+            "original_filename": auth_request.filename,
+            "file_size": auth_request.file_size,
+            "content_type": auth_request.content_type
+        })
+        
+        log.info(f"Upload authorization created for photo {photo_id}")
+        
+        # Get worker URL from environment or default
+        worker_url = os.getenv("WORKER_URL", "http://localhost:8056")
+        
+        return UploadAuthorizationResponse(
+            upload_jwt=upload_jwt,
+            photo_id=photo_id,
+            expires_at=expires_at,
+            worker_url=worker_url
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        log.error(f"Error creating upload authorization: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create upload authorization"
+        )
+
+# Cleanup endpoint for orphaned authorized photos
+@router.delete("/photos/cleanup-orphaned")
+async def cleanup_orphaned_photos(
+    request: Request,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Clean up photos that have been authorized but never processed.
+    These can accumulate if upload authorization succeeds but the actual upload fails.
+    """
+    try:
+        from datetime import timedelta
+        
+        # Find photos that have been in "authorized" status for more than 1 hour
+        cutoff_time = datetime.datetime.now(datetime.timezone.utc) - timedelta(hours=1)
+        
+        result = await db.execute(
+            select(Photo).where(
+                Photo.owner_id == current_user.id,
+                Photo.processing_status == "authorized",
+                Photo.upload_authorized_at < cutoff_time
+            )
+        )
+        orphaned_photos = result.scalars().all()
+        
+        if not orphaned_photos:
+            return {
+                "message": "No orphaned photos found",
+                "cleaned_up_count": 0
+            }
+        
+        # Delete orphaned photos
+        for photo in orphaned_photos:
+            await db.delete(photo)
+        
+        await db.commit()
+        
+        logger.info(f"Cleaned up {len(orphaned_photos)} orphaned photos for user {current_user.id}")
+        
+        return {
+            "message": f"Cleaned up {len(orphaned_photos)} orphaned photos",
+            "cleaned_up_count": len(orphaned_photos)
+        }
+        
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Error cleaning up orphaned photos for user {current_user.id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to cleanup orphaned photos"
+        )
 
 # TODO: Admin endpoints temporarily disabled until role system is working
 # Will be re-enabled after database migration and proper role handling

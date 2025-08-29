@@ -1,3 +1,5 @@
+name: hillview
+
 services:
   postgres:
     image: postgis/postgis:15-3.3

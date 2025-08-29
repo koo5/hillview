@@ -2,6 +2,7 @@ import type { TokenManager, TokenData } from './tokenManager';
 import { TokenExpiredError, TokenRefreshError } from './tokenManager';
 import { backendUrl } from './config';
 import { auth } from './authStore';
+import { clientCrypto } from './clientCrypto';
 
 /**
  * Web Token Manager
@@ -145,8 +146,45 @@ export class WebTokenManager implements TokenManager {
                 isAuthenticated: true
             }));
             
+            // Register client public key with server after successful authentication
+            try {
+                await this.registerClientPublicKey();
+            } catch (error) {
+                console.error(`${this.LOG_PREFIX} Failed to register client public key:`, error);
+                // Don't fail the login process, but log the error
+            }
+            
         } catch (error) {
             console.error(`${this.LOG_PREFIX} Error storing tokens in localStorage:`, error);
+            throw error;
+        }
+    }
+
+    private async registerClientPublicKey(): Promise<void> {
+        try {
+            console.log(`${this.LOG_PREFIX} Registering client public key with server`);
+            
+            // Get client public key info
+            const keyInfo = await clientCrypto.getPublicKeyInfo();
+            
+            // Use the HttpClient for authenticated requests
+            const { http } = await import('$lib/http');
+            
+            const response = await http.post('/auth/register-client-key', {
+                public_key_pem: keyInfo.publicKeyPem,
+                key_id: keyInfo.keyId,
+                created_at: keyInfo.createdAt
+            });
+            
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(`Registration failed: ${error.detail || response.statusText}`);
+            }
+            
+            console.log(`${this.LOG_PREFIX} Client public key registered successfully`);
+            
+        } catch (error) {
+            console.error(`${this.LOG_PREFIX} Error registering client public key:`, error);
             throw error;
         }
     }

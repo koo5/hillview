@@ -42,8 +42,8 @@ docker compose up --build --remove-orphans -d api
 # Run backend tests
 python -m pytest tests/ -v
 
-# Database migrations
-docker exec -it hillview-api alembic upgrade head
+# Database migrations (see docs/database-migrations.md for complete guide)
+./scripts/migrate.sh upgrade head
 ```
 
 ## Architecture Overview
@@ -94,6 +94,10 @@ Each subdirectory has its own `CLAUDE.md` with detailed instructions:
 
 - **`/frontend/CLAUDE.md`**: Android testing, UI development, build processes
 - **`/backend/CLAUDE.md`**: API development, database operations, deployment
+
+## Documentation Guides
+
+- **[Database Migrations Guide](docs/database-migrations.md)**: Complete workflow for managing database schema changes with Alembic
 
 ## Common Issues & Solutions
 
