@@ -1,6 +1,10 @@
 import asyncio
 import datetime
 import time
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
+from common.utc import utcnow
 from collections import defaultdict
 from typing import Dict, Optional, Callable
 from fastapi import HTTPException, Request, status
@@ -21,7 +25,7 @@ class AsyncRateLimiter:
     
     async def acquire(self, client_id: str) -> None:
         """Acquire rate limit permission for client_id"""
-        now = datetime.datetime.now()
+        now = utcnow()
         
         # Check if we need to wait
         if client_id in self.last_request:
@@ -57,7 +61,7 @@ class AsyncRateLimiter:
                 # Process next request
                 task = await queue.get()
                 if task and not task.done():
-                    self.last_request[client_id] = datetime.datetime.now()
+                    self.last_request[client_id] = utcnow()
                     # Wake up the waiting task (simplified approach)
                     
         finally:
@@ -114,7 +118,7 @@ class AuthRateLimiter:
             lockout_minutes = rate_limit_config.auth_lockout_minutes
         
         async with self.lock:
-            now = datetime.datetime.utcnow()
+            now = utcnow()
             attempts = self.failed_attempts[identifier]
             
             # Clean old attempts
@@ -157,7 +161,7 @@ class AuthRateLimiter:
     async def record_failed_attempt(self, identifier: str) -> None:
         """Record a failed authentication attempt."""
         async with self.lock:
-            now = datetime.datetime.utcnow()
+            now = utcnow()
             attempts = self.failed_attempts[identifier]
             
             # Count recent attempts

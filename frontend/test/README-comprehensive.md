@@ -55,7 +55,7 @@ These credentials are automatically reset before each test run via the API endpo
 
 ### Prerequisites
 
-1. **Backend API running** on `http://localhost:8089`
+1. **Backend API running** on `http://localhost:8055`
 2. **Android emulator or device** connected
 3. **Appium server** running on port 4723
 4. **App APK** built and available at the configured path
@@ -83,7 +83,7 @@ npm run test:android:permissions
 2. **Start the backend API**:
    ```bash
    cd ../backend
-   uvicorn app.api:app --reload --port 8089
+   uvicorn app.api:app --reload --port 8055
    ```
 
 3. **Start Appium server**:

@@ -1,7 +1,18 @@
-# Core photo processing dependencies
-exifread
-Pillow==10.1.0
+# System
+python-dotenv==1.0.0
+fire
+
+# FastAPI web service dependencies
 requests
+fastapi
+uvicorn
+pydantic
+aiofiles
+httpx
+python-jose
+cryptography
+python-multipart
+
 
 # Database
 sqlalchemy==2.0.23
@@ -9,13 +20,9 @@ asyncpg==0.28.0
 geoalchemy2==0.14.2
 shapely==2.0.2
 
-# Image processing and ML dependencies
+# Core photo processing dependencies
+exifread
+Pillow==10.1.0
 numpy<2
 opencv-python==4.8.1.78
 ultralytics==8.0.196
-
-# System
-python-dotenv==1.0.0
-
-# CLI tools for anonymization
-fire

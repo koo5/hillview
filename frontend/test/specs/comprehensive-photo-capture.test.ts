@@ -7,7 +7,7 @@ import {PhotoUploadHelper} from '../helpers/PhotoUploadHelper';
 describe('Comprehensive Photo Capture and Upload Test', () => {
 	let capturedPhotoTimestamp: number;
 	let capturedPhotoName: string;
-	const BASE_API_URL = 'http://localhost:8089';
+	const BASE_API_URL = 'http://localhost:8055';
 	const TEST_USER_CREDENTIALS = {
 		username: 'test',
 		password: 'test123'

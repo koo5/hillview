@@ -1,4 +1,8 @@
 from datetime import datetime, timedelta, timezone
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
+from common.utc import utcnow, utc_plus_timedelta
 from typing import Optional, Dict, Any
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer, OAuth2AuthorizationCodeBearer
@@ -17,7 +21,7 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
 from common.models import User, TokenBlacklist
-from common.jwt import validate_jwt_token, create_access_token, create_refresh_token
+from .jwt_service import validate_token, create_access_token, create_refresh_token
 
 load_dotenv()
 
@@ -173,13 +177,13 @@ async def get_current_user(
     
     # Use common JWT validation
     
-    token_data_dict = validate_jwt_token(token)
+    token_data_dict = validate_token(token)
     if not token_data_dict:
         logger.warning("Token validation failed")
         raise credentials_exception
     
     username = token_data_dict["username"]
-    user_id = token_data_dict["user_id"]
+    user_id = token_data_dict["sub"]
     
     # Check if token is blacklisted
     if await is_token_blacklisted(token, db):
@@ -210,7 +214,7 @@ async def is_token_blacklisted(token: str, db: AsyncSession) -> bool:
     result = await db.execute(
         select(TokenBlacklist).where(
             TokenBlacklist.token == token,
-            TokenBlacklist.expires_at > datetime.utcnow()
+            TokenBlacklist.expires_at > utcnow()
         )
     )
     return result.scalars().first() is not None
@@ -225,7 +229,7 @@ async def blacklist_token(token: str, user_id: str, reason: str, db: AsyncSessio
             expires_at = datetime.fromtimestamp(exp_timestamp)
         else:
             # Default to 30 days if no expiration
-            expires_at = datetime.utcnow() + timedelta(days=30)
+            expires_at = utc_plus_timedelta(timedelta(days=30))
         
         blacklist_entry = TokenBlacklist(
             token=token,

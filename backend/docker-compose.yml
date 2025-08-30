@@ -29,8 +29,8 @@ services:
     ports:
       - "${API_PORT:-8055}:8055"
     volumes:
-      - ./uploads:/app/uploads
       - ./api/app:/app/app
+      - ./common:/app/common
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-hillview}:${POSTGRES_PASSWORD:-hillview}@postgres:5432/${POSTGRES_DB:-hillview}
       #- REDIS_URL=redis://redis:6379/0
@@ -67,18 +67,19 @@ services:
       context: .
       dockerfile: worker/Dockerfile
     container_name: hillview_worker
+    ports:
+      - "${WORKER_PORT:-8056}:8056"
     volumes:
       - ./uploads:/app/uploads
       - pics:/app/pics
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-hillview}:${POSTGRES_PASSWORD:-hillview}@postgres:5432/${POSTGRES_DB:-hillview}
       - UPLOAD_DIR=/app/uploads
-      - SCAN_INTERVAL_SECONDS=${WORKER_SCAN_INTERVAL:-10}
       - PICS_URL=${PICS_URL:-}
-    depends_on:
-      postgres:
-        condition: service_healthy
-    command: python photo_processor_service.py
+      - WORKER_PORT=8056
+      - WORKER_HOST=0.0.0.0
+      - API_URL=http://localhost:8055
+    command: python app.py
 
 volumes:
   postgres_data:

@@ -13,7 +13,7 @@ from common.database import Base, engine
 from .config import is_rate_limiting_disabled
 
 load_dotenv()
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 log = logging.getLogger(__name__)
 
 # Silence noisy HTTP libraries

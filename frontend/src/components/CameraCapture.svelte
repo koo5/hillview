@@ -1,7 +1,6 @@
 <script lang="ts">
     import {createEventDispatcher, onDestroy, onMount} from 'svelte';
     import {get} from 'svelte/store';
-    import {X} from 'lucide-svelte';
     import {photoCaptureSettings} from '$lib/stores';
     import {app} from "$lib/data.svelte";
     import DualCaptureButton from './DualCaptureButton.svelte';
@@ -17,22 +16,22 @@
         selectedCameraId, 
         cameraEnumerationSupported,
         enumerateCameraDevices,
-        getPreferredBackCamera,
-        getFrontCamera,
-        type CameraDevice 
+        type CameraDevice
     } from '$lib/cameraDevices.svelte';
     import { tauriCamera, isCameraPermissionCheckAvailable } from '$lib/tauri';
     import { addPluginListener } from '@tauri-apps/api/core';
 
     const dispatch = createEventDispatcher();
     
-    // Permission manager for camera permissions  
+
     const permissionManager = createPermissionManager('camera');
 
+
+	// show or hide the whole capture UI, parent component controls this
     export let show = false;
 
 
-	// TODO - add location data
+	// updated with $bearingState && $spatialState
 	let locationData: {
         latitude?: number;
         longitude?: number;
@@ -40,10 +39,18 @@
         accuracy?: number;
         heading?: number | null;
     } | null = null;
-    // TODO
+
+
+    // TODO - this should be set if location tracking fails, but we need to figure out the exact semantics
+    //  - we know that location tracking is automatically enabled when the camera modal is opened,
+    // and the location tracking service should be able to produce errors if it can't get a fix.
+    // but it should be nulled when location is set by map panning.
 	let locationError: string | null = null;
-	// TODO
+
+	// TODO - this is probably redundant
     let locationReady = false;
+
+
 
     let video: HTMLVideoElement;
     let canvas: HTMLCanvasElement;
@@ -284,6 +291,7 @@
                     videoTrack = stream.getVideoTracks()[0];
                     if (videoTrack) {
                         const capabilities = videoTrack.getCapabilities() as any;
+						console.log('🢄[CAMERA] Video track capabilities:', JSON.stringify(capabilities));
                         if ('zoom' in capabilities && capabilities.zoom) {
                             zoomSupported = true;
                             minZoom = capabilities.zoom.min || 1;
@@ -534,10 +542,6 @@
         };
         locationReady = true;
         locationError = null;
-        
-        // Don't auto-start camera anymore - always wait for button click
-        // This prevents any chance of interfering with location permissions
-        //console.log('🢄[CAMERA] Location ready, but keeping "Enable Camera" button for user control');
     }
 
     onMount(async () => {

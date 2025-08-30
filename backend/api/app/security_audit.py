@@ -1,6 +1,10 @@
 """Security audit logging service for tracking authentication events and security incidents."""
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
+from common.utc import utcnow, utc_minus_timedelta
 from typing import Optional, Dict, Any
 from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -168,7 +172,7 @@ class SecurityAuditService:
     ) -> int:
         """Get count of recent failed login attempts for analysis."""
         try:
-            cutoff_time = datetime.utcnow() - timedelta(hours=hours)
+            cutoff_time = utc_minus_timedelta(timedelta(hours=hours))
             
             SecurityAuditLog = get_security_audit_model()
             query = select(SecurityAuditLog).where(
@@ -197,7 +201,7 @@ class SecurityAuditService:
     ) -> list:
         """Get IPs with suspicious activity patterns."""
         try:
-            cutoff_time = datetime.utcnow() - timedelta(hours=hours)
+            cutoff_time = utc_minus_timedelta(timedelta(hours=hours))
             
             # This would need raw SQL for proper aggregation
             # For now, return empty list and recommend external monitoring
@@ -214,7 +218,7 @@ class SecurityAuditService:
     ) -> int:
         """Clean up old audit logs to prevent table growth."""
         try:
-            cutoff_date = datetime.utcnow() - timedelta(days=days_to_keep)
+            cutoff_date = utc_minus_timedelta(timedelta(days=days_to_keep))
             
             # Delete old logs except critical events
             from sqlalchemy import delete

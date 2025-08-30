@@ -21,7 +21,7 @@ from pydantic import BaseModel
 # Add parent directories to path for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from common.jwt import validate_upload_authorization_token
+from jwt_service import validate_upload_authorization_token, sign_processing_result
 from common.file_utils import (
     validate_and_prepare_photo_file,
     verify_saved_file_content,
@@ -221,12 +221,30 @@ async def upload_and_process_photo(
             filepath=str(file_path)  # Store the final file path
         )
         
-        # Make HTTP call to API server to save processed data
+        # Sign the processed data with worker's private key
         try:
+            worker_signature = sign_processing_result(processed_data.dict())
+            logger.info(f"Signed processing result for photo {photo_id}")
+        except Exception as e:
+            logger.error(f"Failed to sign processing result for photo {photo_id}: {e}")
+            return ProcessPhotoResponse(
+                success=False,
+                message="Failed to sign processing result",
+                photo_id=photo_id,
+                error=f"Signing error: {str(e)}"
+            )
+        
+        # Make HTTP call to API server to save processed data with worker signature
+        try:
+            payload = {
+                "processed_data": processed_data.dict(),
+                "worker_signature": worker_signature
+            }
+            
             async with httpx.AsyncClient() as client:
                 response = await client.post(
                     f"{API_URL}/api/photos/processed",
-                    json=processed_data.dict(),
+                    json=payload,
                     headers={"Content-Type": "application/json"},
                     timeout=30.0
                 )

@@ -19,6 +19,7 @@
       <excludeFolder url="file://$MODULE_DIR$/frontend/logs" />
       <excludeFolder url="file://$MODULE_DIR$/frontend/src-tauri/gen/android" />
       <excludeFolder url="file://$MODULE_DIR$/frontend/src-tauri/target" />
+      <excludeFolder url="file://$MODULE_DIR$/backend/scraps" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />

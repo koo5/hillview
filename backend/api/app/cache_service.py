@@ -1,6 +1,11 @@
 import asyncio
 import datetime
+from datetime import timezone
 import logging
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
+from common.utc import utcnow
 from typing import List, Optional, Tuple, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -490,7 +495,7 @@ class MapillaryCacheService:
                 'creator_id': creator_id,
                 'region_id': region.id,
                 'raw_data': photo_data,
-                'cached_at': datetime.datetime.utcnow()
+                'cached_at': utcnow()
             }
             
             photos_to_insert.append(photo_dict)
@@ -504,7 +509,7 @@ class MapillaryCacheService:
             
             # Update region stats
             region.photo_count += cached_count
-            region.last_updated = datetime.datetime.utcnow()
+            region.last_updated = utcnow()
             
             await self.db.commit()
         
@@ -515,13 +520,13 @@ class MapillaryCacheService:
         region.is_complete = True
         region.has_more = False
         region.last_cursor = last_cursor
-        region.last_updated = datetime.datetime.utcnow()
+        region.last_updated = utcnow()
         await self.db.commit()
     
     async def update_region_cursor(self, region: CachedRegion, cursor: str):
         """Update region's pagination cursor"""
         region.last_cursor = cursor
-        region.last_updated = datetime.datetime.utcnow()
+        region.last_updated = utcnow()
         await self.db.commit()
     
     async def get_cache_stats(self) -> Dict[str, Any]:

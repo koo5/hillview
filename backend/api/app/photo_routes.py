@@ -30,7 +30,7 @@ from common.file_utils import (
     get_file_size_from_upload
 )
 from common.security_utils import SecurityValidationError
-from common.jwt import validate_jwt_token
+from .jwt_service import validate_token
 from .rate_limiter import rate_limit_photo_upload, rate_limit_photo_operations
 
 logger = logging.getLogger(__name__)

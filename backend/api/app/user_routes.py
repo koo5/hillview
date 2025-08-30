@@ -18,7 +18,7 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
 from common.models import User, UserPublicKey, Photo
-from common.jwt import create_upload_authorization_token
+from .jwt_service import create_upload_authorization_token
 from .auth import (
     authenticate_user, create_access_token, create_refresh_token, get_current_active_user,
     get_password_hash, Token, UserCreate, UserLogin, UserOut, UserOAuth, RefreshTokenRequest,
@@ -128,8 +128,8 @@ async def login_for_access_token(
     )
     
     access_token, expires = create_access_token(
-        data={"sub": user.username, "user_id": user.id},
-        expires_delta=datetime.timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        data={"sub": user.id, "username": user.username},
+        expires_delta=ACCESS_TOKEN_EXPIRE_MINUTES
     )
     
     refresh_token, _ = create_refresh_token(
@@ -222,8 +222,8 @@ async def refresh_access_token(
         
         # Create new access token
         access_token, expires = create_access_token(
-            data={"sub": user.username, "user_id": user.id},
-            expires_delta=datetime.timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+            data={"sub": user.id, "username": user.username},
+            expires_delta=ACCESS_TOKEN_EXPIRE_MINUTES
         )
         
         # Optionally create new refresh token (rotate refresh tokens for better security)
@@ -688,8 +688,8 @@ async def oauth_login_internal(
     
     # Create access token and refresh token (just like login endpoint)
     access_token, expires = create_access_token(
-        data={"sub": user.username, "user_id": user.id},
-        expires_delta=datetime.timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        data={"sub": user.id, "username": user.username},
+        expires_delta=ACCESS_TOKEN_EXPIRE_MINUTES
     )
     
     refresh_token, _ = create_refresh_token(
