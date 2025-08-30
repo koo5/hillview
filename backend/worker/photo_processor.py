@@ -126,10 +126,10 @@ class PhotoProcessor:
                             return result
                         except Exception as e:
                             result['debug']['parsing_errors'].append(f"GPS parsing failed: {e}")
-                            print(f"GPS parsing failed: {e}")
+                            logger.debug(f"GPS parsing failed: {e}")
         except Exception as e:
             result['debug']['parsing_errors'].append(f"exifread failed: {e}")
-            print(f"exifread failed: {e}")
+            logger.debug(f"exifread failed: {e}")
 
         # Fallback to exiftool
         try:
@@ -138,18 +138,18 @@ class PhotoProcessor:
                 validated_filepath = validate_file_path(filepath, "/app")
             except SecurityValidationError as e:
                 result['debug']['parsing_errors'].append(f"Path validation failed for exiftool: {e}")
-                print(f"Path validation failed for exiftool: {e}")
+                logger.debug(f"Path validation failed for exiftool: {e}")
                 return result
             
             # Use -n flag to get raw numeric values instead of formatted strings
             cmd = ['exiftool', '-json', '-n', '-GPS*', validated_filepath]
-            print(f"Trying exiftool fallback: {shlex.join(cmd)}")
+            logger.debug(f"Trying exiftool fallback: {shlex.join(cmd)}")
 
             proc_result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             
             if proc_result.returncode != 0:
                 result['debug']['parsing_errors'].append("exiftool command failed")
-                print(f"Error running exiftool")
+                logger.debug(f"Error running exiftool: {proc_result.stderr}")
                 return result
                 
             data = json.loads(proc_result.stdout)[0]
@@ -168,9 +168,10 @@ class PhotoProcessor:
             
             if latitude is None or longitude is None:
                 result['debug']['has_gps_coords'] = False
-                print(f"No GPS coordinates found via exiftool.")
+                logger.debug(f"No GPS coordinates found via exiftool.")
             else:
                 result['debug']['has_gps_coords'] = True
+                result['debug']['has_exif'] = True  # Mark as having EXIF data when GPS found via exiftool
                 
                 # Apply sign based on reference
                 if lat_ref == 'S':
@@ -189,12 +190,12 @@ class PhotoProcessor:
                 
                 if not bearing:
                     result['debug']['has_bearing'] = False
-                    print(f"No bearing data found via exiftool")
+                    logger.debug(f"No bearing data found via exiftool")
                 else:
                     result['debug']['has_bearing'] = True
                     altitude = data.get('GPSAltitude')
                     
-                    print(f"Found complete GPS data via exiftool")
+                    logger.debug(f"Found complete GPS data via exiftool")
                     gps_data = {
                         'latitude': latitude,
                         'longitude': longitude,
@@ -207,7 +208,7 @@ class PhotoProcessor:
                     
         except Exception as e:
             result['debug']['parsing_errors'].append(f"exiftool failed: {e}")
-            print(f"Error reading EXIF data from {filepath}: {e}")
+            logger.debug(f"Error reading EXIF data from {filepath}: {e}")
             
         return result
     
@@ -228,17 +229,17 @@ class PhotoProcessor:
             # Validate filepath before passing to external tool
             validated_filepath = validate_file_path(filepath, "/app")
         except SecurityValidationError as e:
-            print(f"Path validation failed for identify: {e}")
+            logger.debug(f"Path validation failed for identify: {e}")
             return 0, 0
         
         cmd = ['identify', '-format', '%w %h', validated_filepath]
         try:
             output = subprocess.check_output(cmd, timeout=30).decode('utf-8')
             dimensions = [int(x) for x in output.split()]
-            print('Image dimensions:', dimensions)
+            logger.debug(f'Image dimensions: {dimensions}')
             return dimensions[0], dimensions[1]
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
-            print(f"Error getting image size for {filepath}: {e}")
+            logger.debug(f"Error getting image size for {filepath}: {e}")
             return 0, 0
     
 

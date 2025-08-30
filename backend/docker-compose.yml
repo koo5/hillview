@@ -2,6 +2,7 @@ name: hillview
 
 services:
   postgres:
+    init: true
     image: postgis/postgis:15-3.3
     container_name: hillview_postgres
     restart: always
@@ -11,7 +12,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hillview}
       POSTGRES_HOST_AUTH_METHOD: trust
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "${POSTGRES_PORT:-5434}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -21,6 +22,7 @@ services:
       retries: 5
 
   api:
+    init: true
     restart: always
     build:
       context: .
@@ -62,6 +64,7 @@ services:
         condition: service_healthy
 
   worker:
+    init: true
     restart: always
     build:
       context: .
@@ -70,19 +73,22 @@ services:
     ports:
       - "${WORKER_PORT:-8056}:8056"
     volumes:
-      - ./uploads:/app/uploads
+      - ./worker:/app/app
+      - ./common:/app/common
+      - uploads:/app/uploads
       - pics:/app/pics
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-hillview}:${POSTGRES_PASSWORD:-hillview}@postgres:5432/${POSTGRES_DB:-hillview}
       - UPLOAD_DIR=/app/uploads
       - PICS_URL=${PICS_URL:-}
       - WORKER_PORT=8056
       - WORKER_HOST=0.0.0.0
-      - API_URL=http://localhost:8055
-    command: python app.py
+      - API_URL=http://api:8055
+      - DEV_MODE=${DEV_MODE:-}
+    command: /app/start.sh
 
 volumes:
   postgres_data:
+  uploads:
   pics:
     external: true
     name: pics

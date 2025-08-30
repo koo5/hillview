@@ -866,6 +866,7 @@ class UploadAuthorizationResponse(BaseModel):
     photo_id: str
     expires_at: datetime.datetime
     worker_url: str  # URL of worker service for upload
+    upload_authorized_at: datetime.datetime  # Timestamp for client signature generation
 
 @router.post("/photos/authorize-upload", response_model=UploadAuthorizationResponse)
 async def authorize_upload(
@@ -957,7 +958,8 @@ async def authorize_upload(
             upload_jwt=upload_jwt,
             photo_id=photo_id,
             expires_at=expires_at,
-            worker_url=worker_url
+            worker_url=worker_url,
+            upload_authorized_at=upload_authorized_at
         )
         
     except HTTPException:

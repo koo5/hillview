@@ -50,16 +50,31 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 
 RUN chmod 1777 /tmp && apt-get update && apt-get install -y libimage-exiftool-perl
 
-# Copy application code
-COPY worker /app/
-
-# Copy common directory  
-COPY common /app/common
+# Run as non-root user
+RUN useradd --create-home --shell /bin/bash worker
 
 # Create uploads directory structure
 RUN mkdir -p /app/uploads/opt
+RUN mkdir -p /app/pics
 
-# Run as non-root user
-RUN useradd --create-home --shell /bin/bash worker
+RUN chown -R worker:worker /app/uploads
+RUN chown -R worker:worker /app/pics
+
+# Copy application code
+COPY worker/*py /app/
+COPY worker/.env /app/
+
+# Copy common directory
+COPY common /app/common
+
+
 RUN chown -R worker:worker /app
+
+
+USER worker
+
+# Copy and make start script executable
+COPY worker/start.sh /app/start.sh
+USER root
+RUN chmod +x /app/start.sh
 USER worker
