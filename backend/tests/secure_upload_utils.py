@@ -150,7 +150,8 @@ class SecureUploadClient:
 
 			# Register client public key
 			import datetime
-			key_id = client_key_pair.get("key_id", f"test-key-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}")
+			import uuid
+			key_id = client_key_pair.get("key_id", f"test-key-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}-{str(uuid.uuid4())[:8]}")
 			response = await client.post(
 				f"{self.api_url}/api/auth/register-client-key",
 				json={

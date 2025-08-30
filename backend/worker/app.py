@@ -26,10 +26,10 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from jwt_service import validate_upload_authorization_token, sign_processing_result
 from common.file_utils import (
-    validate_and_prepare_photo_file,
-    verify_saved_file_content,
-    cleanup_file_on_error,
-    get_file_size_from_upload
+	validate_and_prepare_photo_file,
+	verify_saved_file_content,
+	cleanup_file_on_error,
+	get_file_size_from_upload
 )
 from common.security_utils import SecurityValidationError
 from photo_processor import photo_processor
@@ -40,9 +40,9 @@ logger = logging.getLogger(__name__)
 
 # FastAPI app
 app = FastAPI(
-    title="Hillview Photo Processing Worker",
-    description="Photo processing service with JWT authentication",
-    version="1.0.1"
+	title="Hillview Photo Processing Worker",
+	description="Photo processing service with JWT authentication",
+	version="1.0.1"
 )
 
 # HTTP Bearer security scheme
@@ -54,34 +54,34 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 API_URL = os.getenv("API_URL", "http://localhost:8055")
 
 def get_worker_identity() -> str:
-    """
-    Generate a unique worker identity for audit trail.
+	"""
+	Generate a unique worker identity for audit trail.
 
-    This creates a semi-permanent identifier for this worker instance that can be used
-    to track which worker processed which photos for debugging and audit purposes.
+	This creates a semi-permanent identifier for this worker instance that can be used
+	to track which worker processed which photos for debugging and audit purposes.
 
-    The identity includes:
-    - Worker hostname/container ID
-    - Process start time
-    - Short hash for uniqueness
+	The identity includes:
+	- Worker hostname/container ID
+	- Process start time
+	- Short hash for uniqueness
 
-    Example: "worker-container-abc123_20241201-143022_x9k2m"
-    """
-    import socket
-    import hashlib
-    from datetime import datetime
+	Example: "worker-container-abc123_20241201-143022_x9k2m"
+	"""
+	import socket
+	import hashlib
+	from datetime import datetime
 
-    # Get hostname/container identifier
-    hostname = socket.gethostname()
+	# Get hostname/container identifier
+	hostname = socket.gethostname()
 
-    # Get process start time (approximation)
-    start_time = datetime.now().strftime("%Y%m%d-%H%M%S")
+	# Get process start time (approximation)
+	start_time = datetime.now().strftime("%Y%m%d-%H%M%S")
 
-    # Create a short hash for uniqueness
-    unique_string = f"{hostname}-{start_time}-{os.getpid()}"
-    hash_suffix = hashlib.md5(unique_string.encode()).hexdigest()[:5]
+	# Create a short hash for uniqueness
+	unique_string = f"{hostname}-{start_time}-{os.getpid()}"
+	hash_suffix = hashlib.md5(unique_string.encode()).hexdigest()[:5]
 
-    return f"{hostname}_{start_time}_{hash_suffix}"
+	return f"{hostname}_{start_time}_{hash_suffix}"
 
 # Generate worker identity once at startup
 WORKER_IDENTITY = get_worker_identity()
@@ -90,178 +90,184 @@ logger.info(f"Worker identity: {WORKER_IDENTITY}, PID: {os.getpid()}, DEV_MODE: 
 
 # Request/Response models
 class ProcessPhotoResponse(BaseModel):
-    success: bool
-    message: str
-    photo_id: Optional[str] = None
-    error: Optional[str] = None
+	success: bool
+	message: str
+	photo_id: Optional[str] = None
+	error: Optional[str] = None
 
 class ProcessedPhotoData(BaseModel):
-    photo_id: str
-    processing_status: str = "completed"
-    width: Optional[int] = None
-    height: Optional[int] = None
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
-    compass_angle: Optional[float] = None
-    altitude: Optional[float] = None
-    exif_data: Optional[dict] = None
-    sizes: Optional[dict] = None
-    detected_objects: Optional[dict] = None
-    error: Optional[str] = None
-    client_signature: Optional[str] = None  # Base64-encoded ECDSA signature from client
-    processed_by_worker: Optional[str] = None  # Worker identity for audit trail
-    filename: Optional[str] = None  # Secure filename after processing
-    filepath: Optional[str] = None  # Final file path after processing
+	photo_id: str
+	processing_status: str = "completed"
+	width: Optional[int] = None
+	height: Optional[int] = None
+	latitude: Optional[float] = None
+	longitude: Optional[float] = None
+	compass_angle: Optional[float] = None
+	altitude: Optional[float] = None
+	exif_data: Optional[dict] = None
+	sizes: Optional[dict] = None
+	detected_objects: Optional[dict] = None
+	error: Optional[str] = None
+	client_signature: Optional[str] = None  # Base64-encoded ECDSA signature from client
+	processed_by_worker: Optional[str] = None  # Worker identity for audit trail
+	filename: Optional[str] = None  # Secure filename after processing
+	filepath: Optional[str] = None  # Final file path after processing
 
 # Authentication dependency for upload authorization
 async def get_upload_authorization(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
-    """
-    Validate upload authorization JWT token.
-    Returns upload metadata including photo_id, user_id, client_public_key_id.
-    """
-    token = credentials.credentials
+	"""
+	Validate upload authorization JWT token.
+	Returns upload metadata including photo_id, user_id, client_public_key_id.
+	"""
+	token = credentials.credentials
 
-    token_data = validate_upload_authorization_token(token)
-    if not token_data:
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid upload authorization token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+	token_data = validate_upload_authorization_token(token)
+	if not token_data:
+		raise HTTPException(
+			status_code=401,
+			detail="Invalid upload authorization token",
+			headers={"WWW-Authenticate": "Bearer"},
+		)
 
-    return token_data
+	return token_data
 
 @app.get("/")
 async def root():
-    """Health check endpoint."""
-    return {"message": "Hillview Photo Processing Worker", "status": "running"}
+	"""Health check endpoint."""
+	return {"message": "Hillview Photo Processing Worker", "status": "running"}
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint."""
-    return {"status": "healthy", "service": "photo-processor"}
+	"""Health check endpoint."""
+	return {"status": "healthy", "service": "photo-processor"}
 
 @app.post("/upload", response_model=ProcessPhotoResponse)
 async def upload_and_process_photo(
-    file: UploadFile = File(...),
-    client_signature: str = Form(...),
-    upload_auth: dict = Depends(get_upload_authorization)
+	file: UploadFile = File(...),
+	client_signature: str = Form(...),
+	upload_auth: dict = Depends(get_upload_authorization)
 ):
-    """
-    Upload and immediately process a photo using secure upload authorization.
-    Always notifies API server of result (success or failure).
-    """
-    # Extract upload authorization data
-    photo_id = upload_auth["photo_id"]
-    user_id = upload_auth["user_id"]
-    client_public_key_id = upload_auth["client_public_key_id"]
+	"""
+	Upload and immediately process a photo using secure upload authorization.
+	Always notifies API server of result (success or failure).
+	"""
+	# Extract upload authorization data
+	photo_id = upload_auth["photo_id"]
+	user_id = upload_auth["user_id"]
+	client_public_key_id = upload_auth["client_public_key_id"]
 
-    logger.info(f"/upload photo {photo_id}, user {user_id}: {file.filename}")
+	logger.info(f"/upload photo {photo_id}, user {user_id}: {file.filename}")
 
-    file_path = None
-    processing_status = "failed"
-    error_message = None
-    processing_result = None
-    secure_filename = None
+	file_path = None
+	processing_status = "failed"
+	error_message = None
+	processing_result = None
+	secure_filename = None
 
-    try:
-        # Get file size and validate file
-        file_size = get_file_size_from_upload(file.file)
-        safe_filename, secure_filename, file_path = validate_and_prepare_photo_file(
-            filename=file.filename,
-            file_size=file_size,
-            content_type=file.content_type,
-            user_id=user_id,
-            upload_base_dir=str(UPLOAD_DIR)
-        )
 
-        # Save uploaded file
-        async with aiofiles.open(file_path, 'wb') as f:
-            content = await file.read()
-            await f.write(content)
+	try:
 
-        # Verify file content
-        if not verify_saved_file_content(str(file_path), "image"):
-            raise ValueError("Invalid image file content")
+		# Get file size and validate file
+		file_size = get_file_size_from_upload(file.file)
+		safe_filename, secure_filename, file_path = validate_and_prepare_photo_file(
+			filename=file.filename,
+			file_size=file_size,
+			content_type=file.content_type,
+			user_id=user_id,
+			upload_base_dir=str(UPLOAD_DIR)
+		)
 
-        logger.info(f"File saved successfully: {file_path}")
+		# Save uploaded file
+		async with aiofiles.open(file_path, 'wb') as f:
+			content = await file.read()
+			await f.write(content)
 
-        # Process the photo
-        user_uuid = UUID(user_id)
-        processing_result = await photo_processor.process_uploaded_photo(
-            file_path=str(file_path),
-            filename=safe_filename,
-            user_id=user_uuid,
-            photo_id=photo_id
-        )
+		# Verify file content
+		if not verify_saved_file_content(str(file_path), "image"):
+			raise ValueError("Invalid image file content")
 
-        if not processing_result:
-            raise ValueError("Processing returned no result")
+		logger.info(f"File saved successfully: {file_path}")
 
-        logger.info(f"Photo processing completed for {safe_filename}")
-        processing_status = "completed"
+		# Process the photo
+		user_uuid = UUID(user_id)
+		processing_result = await photo_processor.process_uploaded_photo(
+			file_path=str(file_path),
+			filename=safe_filename,
+			user_id=user_uuid,
+			photo_id=photo_id
+		)
 
-    except Exception as e:
-        error_message = str(e)
-        logger.error(f"Error processing photo {file.filename}: {error_message}")
-        if file_path:
-            cleanup_file_on_error(file_path)
+		if not processing_result:
+			raise ValueError("Processing returned no result")
 
-    # Always notify API server of result
-    try:
-        processed_data = ProcessedPhotoData(
-            photo_id=photo_id,
-            processing_status=processing_status,
-            client_signature=client_signature,
-            processed_by_worker=WORKER_IDENTITY,
-            error=error_message
-        )
+		logger.info(f"Photo processing completed for {safe_filename}")
+		processing_status = "completed"
 
-        # Add success data if processing succeeded
-        if processing_status == "completed" and processing_result:
-            processed_data.width = processing_result.get("width")
-            processed_data.height = processing_result.get("height")
-            processed_data.latitude = processing_result.get("latitude")
-            processed_data.longitude = processing_result.get("longitude")
-            processed_data.compass_angle = processing_result.get("compass_angle")
-            processed_data.altitude = processing_result.get("altitude")
-            processed_data.exif_data = processing_result.get("exif_data")
-            processed_data.sizes = processing_result.get("sizes")
-            processed_data.detected_objects = processing_result.get("detected_objects")
-            processed_data.filename = secure_filename
-            processed_data.filepath = str(file_path)
 
-        # Send to API server
-        worker_signature = sign_processing_result(processed_data.dict())
-        payload = {
-            "processed_data": processed_data.dict(),
-            "worker_signature": worker_signature
-        }
+		# Always notify API server of result
+		try:
+			processed_data = ProcessedPhotoData(
+				photo_id=photo_id,
+				processing_status=processing_status,
+				client_signature=client_signature,
+				processed_by_worker=WORKER_IDENTITY,
+				error=error_message
+			)
 
-        logger.info(f"Sending processing result to API server for photo {photo_id}")
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{API_URL}/api/photos/processed",
-                json=payload,
-                headers={"Content-Type": "application/json"},
-                timeout=30.0
-            )
+			# Add success data if processing succeeded
+			if processing_status == "completed" and processing_result:
+				processed_data.width = processing_result.get("width")
+				processed_data.height = processing_result.get("height")
+				processed_data.latitude = processing_result.get("latitude")
+				processed_data.longitude = processing_result.get("longitude")
+				processed_data.compass_angle = processing_result.get("compass_angle")
+				processed_data.altitude = processing_result.get("altitude")
+				processed_data.exif_data = processing_result.get("exif_data")
+				processed_data.sizes = processing_result.get("sizes")
+				processed_data.detected_objects = processing_result.get("detected_objects")
+				processed_data.filename = secure_filename
+				processed_data.filepath = str(file_path)
 
-            if response.status_code != 200:
-                logger.error(f"Failed to notify API for photo {photo_id}: {response.status_code}")
-                raise HTTPException(status_code=500, detail="Failed to register result with API server")
+			# Send to API server
+			worker_signature = sign_processing_result(processed_data.dict())
+			payload = {
+				"processed_data": processed_data.dict(),
+				"worker_signature": worker_signature
+			}
 
-            logger.info(f"Successfully notified API server for photo {photo_id}")
+			logger.info(f"Sending processing result to API server for photo {photo_id}")
+			logger.info(f"Payload: {payload}")
 
-    except Exception as e:
-        logger.error(f"Error notifying API for photo {photo_id}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to register result with API server")
+			async with httpx.AsyncClient() as client:
+				response = await client.post(
+					f"{API_URL}/api/photos/processed",
+					json=payload,
+					headers={"Content-Type": "application/json"},
+					timeout=30.0
+				)
 
-    # Return success response
-    return ProcessPhotoResponse(
-        success=processing_status == "completed",
-        message="Photo processed successfully" if processing_status == "completed" else "Photo processing failed",
-        photo_id=photo_id,
-        error=error_message if processing_status == "failed" else None
-    )
+				if response.status_code != 200:
+					logger.error(f"Failed to notify API for photo {photo_id}: {response.status_code}")
+					raise HTTPException(status_code=500, detail="Failed to register result with API server")
+
+				logger.info(f"Successfully notified API server for photo {photo_id}")
+
+		except Exception as e:
+			logger.error(f"Error notifying API for photo {photo_id}: {e}")
+			raise HTTPException(status_code=500, detail="Failed to register result with API server")
+
+
+	finally:
+
+		if file_path:
+			cleanup_file_on_error(file_path)
+
+
+	# Return success response
+	return ProcessPhotoResponse(
+		success=processing_status == "completed",
+		message="Photo processed successfully" if processing_status == "completed" else "Photo processing failed",
+		photo_id=photo_id,
+		error=error_message if processing_status == "failed" else None
+	)
 

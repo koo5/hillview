@@ -61,6 +61,7 @@ RUN chown -R worker:worker /app/uploads
 RUN chown -R worker:worker /app/pics
 
 # Copy application code
+COPY worker/models /app/worker/models
 COPY worker/start*.sh /app/worker/
 COPY worker/*py /app/worker/
 COPY worker/.env /app/worker/

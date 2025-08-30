@@ -73,7 +73,7 @@ services:
     ports:
       - "${WORKER_PORT:-8056}:8056"
     volumes:
-      - ./worker:/app/app
+      - ./worker:/app/worker
       - ./common:/app/common
       - uploads:/app/uploads
       - pics:/app/pics

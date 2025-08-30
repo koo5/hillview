@@ -338,18 +338,6 @@ class PhotoProcessor:
 				logger.info(f"Cleaned up temporary anonymization files")
 
 			return sizes_info
-
-		except Exception as e:
-			logger.error(f"Error creating optimized sizes for {unique_id}: {str(e)}")
-			# Fallback to just the full size
-			relative_path = os.path.relpath(source_path, output_base)
-			return {
-				'full': {
-					'width': width,
-					'height': height,
-					'path': relative_path
-				}
-			}
 		finally:
 			# Always clean up temporary anonymized file
 			if anonymized_path and os.path.exists(anonymized_path):
@@ -384,7 +372,7 @@ class PhotoProcessor:
 			logger.info(f"Successfully anonymized {filename}")
 			return anonymized_path
 		else:
-			logger.warning(f"Anonymization failed for {filename}, using original")
+			logger.info(f"No anonymization applied to {filename}")
 			# Clean up temp directory
 			shutil.rmtree(temp_dir, ignore_errors=True)
 			return None
@@ -400,98 +388,91 @@ class PhotoProcessor:
 		is_public: bool = True
 	) -> Optional[Dict[str, Any]]:
 		"""Process a user-uploaded photo and return processing results."""
+		# Sanitize filename
 		try:
-			# Sanitize filename
-			try:
-				safe_filename = sanitize_filename(filename)
-			except SecurityValidationError as e:
-				logger.error(f"Filename sanitization failed for {filename}: {e}")
-				raise ValueError(f"Invalid filename: {e}")
+			safe_filename = sanitize_filename(filename)
+		except SecurityValidationError as e:
+			logger.error(f"Filename sanitization failed for {filename}: {e}")
+			raise ValueError(f"Invalid filename: {e}")
 
-			# Verify file content matches image type
-			if not check_file_content(file_path, "image"):
-				logger.error(f"File content verification failed for {safe_filename}")
-				raise ValueError("Invalid image file content")
+		# Verify file content matches image type
+		if not check_file_content(file_path, "image"):
+			logger.error(f"File content verification failed for {safe_filename}")
+			raise ValueError("Invalid image file content")
 
-			# Extract EXIF data
-			exif_data = self.extract_exif_data(file_path)
-			gps_data = exif_data.get('gps', {})
-			debug_info = exif_data.get('debug', {})
+		# Extract EXIF data
+		exif_data = self.extract_exif_data(file_path)
+		gps_data = exif_data.get('gps', {})
+		debug_info = exif_data.get('debug', {})
 
-			# Log detailed EXIF extraction results
-			logger.info(f"EXIF extraction for {safe_filename}:")
-			logger.info(f"  - has_exif: {debug_info.get('has_exif', False)}")
-			logger.info(f"  - has_gps_coords: {debug_info.get('has_gps_coords', False)}")
-			logger.info(f"  - has_bearing: {debug_info.get('has_bearing', False)}")
-			logger.info(f"  - found_gps_tags: {debug_info.get('found_gps_tags', [])}")
-			logger.info(f"  - found_bearing_tags: {debug_info.get('found_bearing_tags', [])}")
-			logger.info(f"  - parsing_errors: {debug_info.get('parsing_errors', [])}")
-			logger.info(f"  - GPS data: {gps_data}")
+		# Log detailed EXIF extraction results
+		logger.info(f"EXIF extraction for {safe_filename}:")
+		logger.info(f"  - has_exif: {debug_info.get('has_exif', False)}")
+		logger.info(f"  - has_gps_coords: {debug_info.get('has_gps_coords', False)}")
+		logger.info(f"  - has_bearing: {debug_info.get('has_bearing', False)}")
+		logger.info(f"  - found_gps_tags: {debug_info.get('found_gps_tags', [])}")
+		logger.info(f"  - found_bearing_tags: {debug_info.get('found_bearing_tags', [])}")
+		logger.info(f"  - parsing_errors: {debug_info.get('parsing_errors', [])}")
+		logger.info(f"  - GPS data: {gps_data}")
 
-			# Create detailed error messages based on what was found (same logic as service)
-			if not debug_info.get('has_exif', False):
-				error_msg = "No EXIF data found in image file. Photo may be processed/edited or from an app that strips metadata."
-				logger.warning(f"No EXIF data found in {safe_filename}")
-				raise ValueError(error_msg)
-			elif not debug_info.get('has_gps_coords', False) and not debug_info.get('has_bearing', False):
-				found_tags = debug_info.get('found_gps_tags', [])
-				error_msg = f"No GPS data found in photo. Found EXIF tags: {', '.join(found_tags) if found_tags else 'none'}"
-				logger.warning(f"No GPS data found in {safe_filename}")
-				raise ValueError(error_msg)
-			elif not debug_info.get('has_gps_coords', False):
-				found_gps_tags = debug_info.get('found_gps_tags', [])
-				found_bearing_tags = debug_info.get('found_bearing_tags', [])
-				all_found_tags = found_gps_tags + found_bearing_tags
-				error_msg = f"GPS coordinates missing. Found tags: {', '.join(all_found_tags) if all_found_tags else 'none'}, needed: GPSLatitude, GPSLongitude"
-				logger.warning(f"No GPS coordinates in {safe_filename}")
-				raise ValueError(error_msg)
-			elif not debug_info.get('has_bearing', False):
-				found_bearing_tags = debug_info.get('found_bearing_tags', [])
-				found_gps_tags = debug_info.get('found_gps_tags', [])
-				error_msg = f"Compass direction missing. Found: {', '.join(found_gps_tags + found_bearing_tags)}, needed: GPSImgDirection, GPSTrack, or GPSDestBearing"
-				logger.warning(f"No bearing data in {safe_filename}")
-				raise ValueError(error_msg)
-
-			# Get image dimensions
-			width, height = self.get_image_dimensions(file_path)
-
-			# Validate image dimensions to prevent resource exhaustion
-			if not validate_image_dimensions(width, height):
-				error_msg = f"Image size too large or invalid ({width}x{height}). Please use a smaller image."
-				logger.error(f"Image dimensions validation failed for {safe_filename}: {width}x{height}")
-				raise ValueError(error_msg)
-
-			# Generate unique ID for this photo
-			unique_id = str(uuid.uuid4())
-
-			# Create sizes information matching the original importer structure
-			sizes_info = {}
-			if width and height:
-				sizes_info = self.create_optimized_sizes(file_path, unique_id, filename, width, height)
-
-			# Return processing results for database creation
-			return {
-				'filename': safe_filename,
-				'filepath': file_path,
-				'exif_data': exif_data,
-				'width': width,
-				'height': height,
-				'sizes_info': sizes_info,
-				'detected_objects': {},  # TODO: Implement object detection when ML models are available
-				'description': description,
-				'is_public': is_public,
-				'user_id': user_id
-			}
-
-		except ValueError as e:
-			# Re-raise ValueError for specific validation errors (EXIF, GPS, dimensions)
-			logger.error(f"Validation error processing {filename}: {str(e)}")
-			raise e
-		except Exception as e:
-			# Generic processing errors
-			error_msg = "Photo processing failed. The image may be corrupted or in an unsupported format."
-			logger.error(f"Error processing uploaded photo {filename}: {str(e)}")
+		# Create detailed error messages based on what was found (same logic as service)
+		if not debug_info.get('has_exif', False):
+			error_msg = "No EXIF data found in image file. Photo may be processed/edited or from an app that strips metadata."
+			logger.warning(f"No EXIF data found in {safe_filename}")
 			raise ValueError(error_msg)
+		elif not debug_info.get('has_gps_coords', False) and not debug_info.get('has_bearing', False):
+			found_tags = debug_info.get('found_gps_tags', [])
+			error_msg = f"No GPS data found in photo. Found EXIF tags: {', '.join(found_tags) if found_tags else 'none'}"
+			logger.warning(f"No GPS data found in {safe_filename}")
+			raise ValueError(error_msg)
+		elif not debug_info.get('has_gps_coords', False):
+			found_gps_tags = debug_info.get('found_gps_tags', [])
+			found_bearing_tags = debug_info.get('found_bearing_tags', [])
+			all_found_tags = found_gps_tags + found_bearing_tags
+			error_msg = f"GPS coordinates missing. Found tags: {', '.join(all_found_tags) if all_found_tags else 'none'}, needed: GPSLatitude, GPSLongitude"
+			logger.warning(f"No GPS coordinates in {safe_filename}")
+			raise ValueError(error_msg)
+		elif not debug_info.get('has_bearing', False):
+			found_bearing_tags = debug_info.get('found_bearing_tags', [])
+			found_gps_tags = debug_info.get('found_gps_tags', [])
+			error_msg = f"Compass direction missing. Found: {', '.join(found_gps_tags + found_bearing_tags)}, needed: GPSImgDirection, GPSTrack, or GPSDestBearing"
+			logger.warning(f"No bearing data in {safe_filename}")
+			raise ValueError(error_msg)
+
+		# Get image dimensions
+		width, height = self.get_image_dimensions(file_path)
+
+		# Validate image dimensions to prevent resource exhaustion
+		if not validate_image_dimensions(width, height):
+			error_msg = f"Image size too large or invalid ({width}x{height}). Please use a smaller image."
+			logger.error(f"Image dimensions validation failed for {safe_filename}: {width}x{height}")
+			raise ValueError(error_msg)
+
+		# Generate unique ID for this photo
+		unique_id = str(uuid.uuid4())
+
+		# Create sizes information matching the original importer structure
+		sizes_info = {}
+		if width and height:
+			sizes_info = self.create_optimized_sizes(file_path, unique_id, filename, width, height)
+
+		# Return processing results for database creation
+		return {
+			'filename': safe_filename,
+			'filepath': file_path,
+			'exif_data': exif_data,
+			'width': width,
+			'height': height,
+			'latitude': gps_data.get('latitude'),
+			'longitude': gps_data.get('longitude'),
+			'compass_angle': gps_data.get('bearing'),
+			'altitude': gps_data.get('altitude'),
+			'sizes': sizes_info,  # Worker expects 'sizes', not 'sizes_info'
+			'detected_objects': {},  # TODO: Implement object detection when ML models are available
+			'description': description,
+			'is_public': is_public,
+			'user_id': user_id
+		}
 
 
 # Global instance
