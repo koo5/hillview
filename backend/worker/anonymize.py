@@ -37,13 +37,7 @@ def detect_targets(image):
 
 		# Verify model file exists and is valid before loading
 		if not verify_model_file(model_path):
-			logging.error(f"Model verification failed for {model_path}")
-			# Fallback: try alternative path for backwards compatibility
-			fallback_path = "/app/yolov5su.pt"
-			if not verify_model_file(fallback_path):
-				logging.error("No valid YOLO model found, object detection disabled")
-				return []
-			model_path = fallback_path
+			raise Exception("No valid YOLO model found")
 
 		try:
 			from ultralytics import YOLO
@@ -77,8 +71,6 @@ def apply_blur(image, boxes):
 
 
 def anonymize_image(input_dir, output_dir, filename, force_copy_all_images=False):
-	if not filename.lower().endswith(('.jpg', '.jpeg', '.png')):
-		return False
 
 	input_path = os.path.join(input_dir, filename)
 
@@ -90,18 +82,17 @@ def anonymize_image(input_dir, output_dir, filename, force_copy_all_images=False
 			return False
 	except OSError:
 		logging.warning(f"Could not access image file: {filename}")
-		return False
+		raise ValueError("Invalid image file path")
 
 	image = cv2.imread(input_path)
 	if image is None:
 		logging.warning(f"Could not read image: {filename}")
-		return False
+		raise ValueError("Invalid image file content")
 
 	# Validate image dimensions to prevent memory exhaustion
 	height, width = image.shape[:2]
 	if width > 8192 or height > 8192 or (width * height) > 67108864:
-		logging.warning(f"Image dimensions too large for processing: {width}x{height}")
-		return False
+		raise ValueError(f"Image size too large or invalid ({width}x{height}). Please use a smaller image.")
 
 	boxes = detect_targets(image)
 	if len(boxes) == 0 and not force_copy_all_images:
@@ -117,6 +108,7 @@ def anonymize_image(input_dir, output_dir, filename, force_copy_all_images=False
 	cv2.imwrite(output_path, masked)
 	logging.debug(f"Saved masked image to: {output_path}\n")
 	return True
+
 
 
 def process_directory(input_dir, output_dir, force_copy_all_images=False):
