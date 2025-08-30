@@ -16,7 +16,9 @@ import tempfile
 # Add the backend directory to the path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-BASE_URL = "http://localhost:8055"
+from test_utils import recreate_test_users
+
+BASE_URL = os.getenv("API_URL", "http://localhost:8055")
 
 class TestResetUploadPoll:
     """Test complete workflow: reset test users -> login -> upload -> poll until photo appears"""
@@ -96,27 +98,6 @@ class TestResetUploadPoll:
         img_bytes.seek(0)
         return img_bytes.getvalue()
 
-    def reset_test_users(self):
-        """Reset test users using the debug endpoint"""
-        print("Resetting test users using debug endpoint...")
-
-        response = requests.post(f"{BASE_URL}/api/debug/recreate-test-users")
-
-        if response.status_code == 200:
-            result = response.json()
-            print(f"✅ Test users reset successfully: {result}")
-            details = result.get("details", {}) or {}
-            photos_deleted = details.get("photos_deleted", 0)
-            users_deleted = details.get("users_deleted", 0)
-            users_created = details.get("users_created", 0)
-            print(f"   - {photos_deleted} photos deleted")
-            print(f"   - {users_deleted} old users deleted")
-            print(f"   - {users_created} new users created")
-        else:
-            print(f"⚠️  Test user reset failed: {response.status_code} - {response.text}")
-            # This might fail if TEST_USERS is not enabled, but we can continue
-
-        print("Test user reset complete")
 
     def login_test_user(self) -> str:
         """Login as test user and return access token"""
@@ -308,7 +289,7 @@ class TestResetUploadPoll:
 
         try:
             # Step 1: Reset test users
-            self.reset_test_users()
+            recreate_test_users()
 
             # Step 2: Login as test user
             token = self.login_test_user()
@@ -453,7 +434,7 @@ class TestResetUploadPoll:
     def test_reset_only(self):
         """Test just the reset functionality"""
         print("\n🔄 Testing reset functionality only...")
-        self.reset_test_users()
+        recreate_test_users()
         print("✅ Reset test completed")
 
     def test_login_only(self):

@@ -5,8 +5,9 @@ Simple test script to verify the API is working correctly.
 import requests
 import json
 import sys
+import os
 
-BASE_URL = "http://localhost:8089"
+BASE_URL = os.getenv("API_URL", "http://localhost:8055")
 
 def test_debug_endpoint():
     """Test the debug endpoint"""

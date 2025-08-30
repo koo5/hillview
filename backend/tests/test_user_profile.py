@@ -12,7 +12,7 @@ import os
 # Add the backend directory to the path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-BASE_URL = "http://localhost:8055"
+BASE_URL = os.getenv("API_URL", "http://localhost:8055")
 
 class TestUserProfile:
     """Test user profile retrieval and management"""

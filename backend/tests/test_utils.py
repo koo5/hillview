@@ -8,9 +8,10 @@ import requests
 from PIL import Image
 import piexif
 import io
+import pytest
 
 # Test configuration
-BASE_URL = os.getenv("TEST_API_URL", "http://localhost:8055")
+BASE_URL = os.getenv("API_URL", "http://localhost:8055")
 API_URL = f"{BASE_URL}/api"
 
 def clear_test_database():
@@ -22,6 +23,26 @@ def clear_test_database():
         print(f"✓ Database cleared: {details}")
     else:
         raise Exception(f"Database clear failed: {response.status_code} - {response.text}")
+
+def recreate_test_users():
+    """Recreate test users using the debug endpoint. Throws exception on failure."""
+    print("Recreating test users using debug endpoint...")
+    response = requests.post(f"{API_URL}/debug/recreate-test-users")
+    if response.status_code == 200:
+        result = response.json()
+        print(f"✅ Test users reset successfully: {result}")
+        details = result.get("details", {}) or {}
+        photos_deleted = details.get("photos_deleted", 0)
+        users_deleted = details.get("users_deleted", 0)
+        users_created = details.get("users_created", 0)
+        print(f"   - {photos_deleted} photos deleted")
+        print(f"   - {users_deleted} old users deleted")
+        print(f"   - {users_created} new users created")
+        print("Test user reset complete")
+        return result
+    else:
+        print(f"⚠️  Test user reset failed: {response.status_code} - {response.text}")
+        raise Exception(f"Test users recreation failed: {response.status_code} - {response.text}")
 
 def create_test_image(width: int = 100, height: int = 100, color: tuple = (255, 0, 0), 
                       lat: float = 50.0755, lon: float = 14.4378) -> bytes:
@@ -71,7 +92,7 @@ async def create_test_photos(test_users: list, auth_tokens: dict):
     ]
     
     # Create SecureUploadClient instance
-    upload_client = SecureUploadClient(api_url="http://localhost:8055")
+    upload_client = SecureUploadClient(api_url=BASE_URL)
     
     created_photos = 0
     for i, (filename, description, is_public, color, lat, lon) in enumerate(test_photos_data):

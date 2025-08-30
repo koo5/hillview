@@ -23,6 +23,7 @@ import pytest
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from common.jwt_utils import generate_ecdsa_key_pair, serialize_private_key, serialize_public_key
+from test_utils import recreate_test_users
 
 class SecureUploadClient:
 	"""
@@ -31,8 +32,8 @@ class SecureUploadClient:
 	Handles client key generation, signature creation, and the full three-phase workflow.
 	"""
 
-	def __init__(self, api_url: str = "http://localhost:8055"):
-		self.api_url = api_url
+	def __init__(self, api_url: str = None):
+		self.api_url = api_url or os.getenv("API_URL", "http://localhost:8055")
 		self.client_keys = None
 		self.key_id = None
 

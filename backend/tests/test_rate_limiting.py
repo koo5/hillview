@@ -10,7 +10,7 @@ from typing import Dict, Any
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'api', 'app'))
 from config import is_rate_limiting_disabled
 
-BASE_URL = "http://localhost:8055"
+BASE_URL = os.getenv("API_URL", "http://localhost:8055")
 
 @pytest.mark.skipif(is_rate_limiting_disabled(), reason="Rate limiting tests skipped when NO_LIMITS=true")
 class TestRateLimiting:

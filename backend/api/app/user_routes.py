@@ -26,6 +26,7 @@ from .auth import (
     blacklist_token, get_current_user
 )
 from .rate_limiter import auth_rate_limiter, check_auth_rate_limit, rate_limit_user_profile, rate_limit_user_registration
+from .config import is_rate_limiting_disabled
 from .security_utils import validate_username, validate_email, validate_oauth_redirect_uri
 from .security_audit import security_audit
 
@@ -173,13 +174,14 @@ async def refresh_access_token(
     """Refresh an access token using a refresh token."""
     try:
         # Rate limit refresh requests
-        identifier = auth_rate_limiter.get_identifier(request)
-        if not await auth_rate_limiter.check_rate_limit(identifier, max_requests=10, window_seconds=300):
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Too many refresh requests. Try again later.",
-                headers={"Retry-After": "300"}
-            )
+        if not is_rate_limiting_disabled():
+            identifier = auth_rate_limiter.get_identifier(request)
+            if not await auth_rate_limiter.check_rate_limit(identifier, max_requests=10, window_seconds=300):
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail="Too many refresh requests. Try again later.",
+                    headers={"Retry-After": "300"}
+                )
         
         # Verify refresh token
         import jwt
@@ -270,13 +272,14 @@ async def oauth_redirect(
     Initiate OAuth flow with proper redirect URI for both web and mobile
     """
     # Rate limit OAuth redirects to prevent abuse
-    identifier = auth_rate_limiter.get_identifier(request)
-    if not await auth_rate_limiter.check_rate_limit(identifier, max_requests=20, window_seconds=300):
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many OAuth requests. Try again later.",
-            headers={"Retry-After": "300"}
-        )
+    if not is_rate_limiting_disabled():
+        identifier = auth_rate_limiter.get_identifier(request)
+        if not await auth_rate_limiter.check_rate_limit(identifier, max_requests=20, window_seconds=300):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many OAuth requests. Try again later.",
+                headers={"Retry-After": "300"}
+            )
     
     # Validate and sanitize redirect URI  
     # Define allowed domains for OAuth redirects (include mobile deep links)
@@ -376,21 +379,22 @@ async def oauth_callback(
     Enhanced OAuth callback that supports both web and mobile flows
     """
     # Rate limit OAuth callbacks to prevent abuse
-    identifier = auth_rate_limiter.get_identifier(request)
-    if not await auth_rate_limiter.check_rate_limit(identifier, max_requests=30, window_seconds=300):
-        await security_audit.log_event(
-            db=db,
-            event_type="oauth_callback_rate_limited",
-            ip_address=request.client.host if request.client else None,
-            user_agent=request.headers.get("user-agent"),
-            event_details={"code_prefix": code[:10] if code else None, "state": state},
-            severity="warning"
-        )
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many OAuth callback requests.",
-            headers={"Retry-After": "300"}
-        )
+    if not is_rate_limiting_disabled():
+        identifier = auth_rate_limiter.get_identifier(request)
+        if not await auth_rate_limiter.check_rate_limit(identifier, max_requests=30, window_seconds=300):
+            await security_audit.log_event(
+                db=db,
+                event_type="oauth_callback_rate_limited",
+                ip_address=request.client.host if request.client else None,
+                user_agent=request.headers.get("user-agent"),
+                event_details={"code_prefix": code[:10] if code else None, "state": state},
+                severity="warning"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many OAuth callback requests.",
+                headers={"Retry-After": "300"}
+            )
     
     log.info(f"OAuth callback received with code and state: {state}")
     
@@ -512,13 +516,14 @@ async def oauth_login(
 ):
     """Public OAuth endpoint for API clients"""
     # Rate limit OAuth API endpoint
-    identifier = auth_rate_limiter.get_identifier(request)
-    if not await auth_rate_limiter.check_rate_limit(identifier, max_requests=15, window_seconds=300):
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many OAuth requests. Try again later.",
-            headers={"Retry-After": "300"}
-        )
+    if not is_rate_limiting_disabled():
+        identifier = auth_rate_limiter.get_identifier(request)
+        if not await auth_rate_limiter.check_rate_limit(identifier, max_requests=15, window_seconds=300):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many OAuth requests. Try again later.",
+                headers={"Retry-After": "300"}
+            )
     
     log.info(f"POST /auth/oauth called - Provider: {oauth_data.provider}, Code length: {len(oauth_data.code) if oauth_data.code else 0}, Redirect URI: {oauth_data.redirect_uri}")
     return await oauth_login_internal(oauth_data, db, request)

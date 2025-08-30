@@ -98,16 +98,42 @@ async def get_hillview_images(
 
 		log.info(f"Found {len(filtered_photos)} photos in database for bbox")
 
-		return {
-			'data': filtered_photos,
-			'total_count': len(filtered_photos),
-			'bbox': {
-				'top_left_lat': top_left_lat,
-				'top_left_lon': top_left_lon,
-				'bottom_right_lat': bottom_right_lat,
-				'bottom_right_lon': bottom_right_lon
+		# Create generator for EventSource streaming
+		async def generate_stream():
+			try:
+				# Send the data as a single event with proper type field
+				data = {
+					'type': 'photos',
+					'photos': filtered_photos,
+					'total_count': len(filtered_photos),
+					'hasNext': False,  # Hillview returns all photos in one batch
+					'bbox': {
+						'top_left_lat': top_left_lat,
+						'top_left_lon': top_left_lon,
+						'bottom_right_lat': bottom_right_lat,
+						'bottom_right_lon': bottom_right_lon
+					}
+				}
+				yield f"data: {json.dumps(data)}\n\n"
+			except Exception as e:
+				log.error(f"Stream error in hillview endpoint: {str(e)}")
+				yield f"data: {json.dumps({'type': 'error', 'message': f'Stream error: {str(e)}'})}\n\n"
+
+		# Return EventSource streaming response
+		return StreamingResponse(
+			generate_stream(),
+			media_type="text/event-stream",
+			headers={
+				"Cache-Control": "no-cache, no-store, must-revalidate",
+				"Connection": "keep-alive",
+				"Access-Control-Allow-Origin": "*",
+				"Access-Control-Allow-Headers": "Cache-Control, Content-Type, Authorization",
+				"Access-Control-Allow-Methods": "GET, OPTIONS",
+				"Access-Control-Expose-Headers": "*",
+				"X-Accel-Buffering": "no",  # Disable nginx buffering
+				"Content-Type": "text/event-stream; charset=utf-8"
 			}
-		}
+		)
 
 	except Exception as e:
 		log.error(f"Error querying photos from database: {str(e)}")

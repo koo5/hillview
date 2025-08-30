@@ -18,7 +18,7 @@ import os
 from datetime import datetime
 
 # Test configuration
-BASE_URL = os.getenv("TEST_API_URL", "http://localhost:8055")
+BASE_URL = os.getenv("API_URL", "http://localhost:8055")
 API_URL = f"{BASE_URL}/api"
 
 class TestUserHiding:

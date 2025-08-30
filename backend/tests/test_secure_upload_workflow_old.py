@@ -14,7 +14,7 @@ import time
 from PIL import Image
 
 # Test configuration
-API_URL = os.getenv("TEST_API_URL", "http://localhost:8055")
+API_URL = os.getenv("API_URL", "http://localhost:8055")
 WORKER_URL = os.getenv("TEST_WORKER_URL", "http://localhost:8056")
 
 class TestSecureUploadWorkflow:

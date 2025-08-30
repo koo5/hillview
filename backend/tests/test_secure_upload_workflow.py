@@ -16,7 +16,7 @@ class TestSecureUploadWorkflow:
 	@pytest.fixture
 	def upload_client(self):
 		"""Create SecureUploadClient instance for testing."""
-		return SecureUploadClient(api_url=os.getenv("TEST_API_URL", "http://localhost:8055"))
+		return SecureUploadClient(api_url=os.getenv("API_URL", "http://localhost:8055"))
 
 	@pytest.fixture
 	def test_image(self):

@@ -5,8 +5,9 @@ Test script for the hillview endpoint to verify it queries the database correctl
 import requests
 import json
 import sys
+import os
 
-BASE_URL = "http://localhost:8089"
+BASE_URL = os.getenv("API_URL", "http://localhost:8055")
 
 def test_hillview_endpoint():
     """Test the hillview endpoint with database queries"""
