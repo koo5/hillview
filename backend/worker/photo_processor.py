@@ -24,6 +24,7 @@ from common.database import SessionLocal
 from common.models import Photo, User
 from common.security_utils import sanitize_filename, validate_file_path, check_file_content, validate_image_dimensions, SecurityValidationError
 from anonymize import anonymize_image
+from cdn_uploader import cdn_uploader
 
 logger = logging.getLogger(__name__)
 
@@ -243,7 +244,7 @@ class PhotoProcessor:
 			return 0, 0
 
 
-	def create_optimized_sizes(self, source_path: str, unique_id: str, original_filename: str, width: int, height: int, include_urls: bool = False) -> Dict[str, Dict[str, Any]]:
+	def create_optimized_sizes(self, source_path: str, unique_id: str, original_filename: str, width: int, height: int) -> Dict[str, Dict[str, Any]]:
 		"""Create optimized versions with anonymization and unique IDs."""
 		sizes_info = {}
 		anonymized_path = None
@@ -273,10 +274,9 @@ class PhotoProcessor:
 					size_info = {
 						'width': width,
 						'height': height,
-						'path': relative_path
+						'path': relative_path,
+						'url': self._get_size_url(full_output_path, relative_path)
 					}
-					if include_urls and PICS_URL:
-						size_info['url'] = PICS_URL + relative_path
 					sizes_info[size] = size_info
 				else:
 					# Skip if size is larger than original width
@@ -311,10 +311,9 @@ class PhotoProcessor:
 						size_info = {
 							'width': new_width,
 							'height': new_height,
-							'path': size_relative_path
+							'path': size_relative_path,
+							'url': self._get_size_url(output_file_path, size_relative_path)
 						}
-						if include_urls and PICS_URL:
-							size_info['url'] = PICS_URL + size_relative_path
 						sizes_info[size] = size_info
 
 						# Optimize with jpegoptim (matching original)
@@ -356,6 +355,21 @@ class PhotoProcessor:
 			if anonymized_path and os.path.exists(anonymized_path):
 				temp_dir = os.path.dirname(anonymized_path)
 				shutil.rmtree(temp_dir, ignore_errors=True)
+
+	def _get_size_url(self, file_path: str, relative_path: str) -> str:
+		"""Get URL for a size variant - either local PICS_URL or CDN upload."""
+		if os.getenv("BUCKET_NAME"):
+			# Upload to CDN and return CDN URL
+			cdn_url = cdn_uploader._upload_file(file_path, relative_path)
+			if not cdn_url:
+				raise RuntimeError(f"Failed to upload {relative_path} to CDN")
+			return cdn_url
+		elif PICS_URL:
+			# Use local PICS_URL
+			return PICS_URL + relative_path
+		else:
+			# No URL generation configured
+			raise RuntimeError("Neither BUCKET_NAME nor PICS_URL configured")
 
 	def _anonymize_image(self, source_path: str, unique_id: str) -> Optional[str]:
 		"""Anonymize image by blurring people and vehicles."""

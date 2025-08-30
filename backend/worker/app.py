@@ -85,7 +85,7 @@ def get_worker_identity() -> str:
 
 # Generate worker identity once at startup
 WORKER_IDENTITY = get_worker_identity()
-logger.info(f"wwwWorker identity: {WORKER_IDENTITY}, PID: {os.getpid()}, DEV_MODE: {os.getenv('DEV_MODE')}")
+logger.info(f"Worker identity: {WORKER_IDENTITY}, PID: {os.getpid()}, DEV_MODE: {os.getenv('DEV_MODE')}")
 
 
 # Request/Response models
