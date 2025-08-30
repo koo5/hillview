@@ -65,7 +65,7 @@ class TestOAuthRedirect:
     def test_oauth_redirect_github_web(self):
         """Test OAuth redirect for GitHub with web callback"""
         provider = "github"
-        redirect_uri = "http://localhost:3000/oauth/callback"
+        redirect_uri = "http://localhost:8212/oauth/callback"
         
         response = requests.get(
             f"{BASE_URL}/api/auth/oauth-redirect",

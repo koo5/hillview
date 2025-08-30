@@ -38,21 +38,8 @@ class SecureUploadClient:
 		self.key_id = None
 
 	async def setup_test_environment(self):
-		"""Set up test environment using existing test user endpoints."""
-		async with httpx.AsyncClient() as client:
-			try:
-				response = await client.post(f"{self.api_url}/api/debug/recreate-test-users")
-				if response.status_code == 200:
-					print("✅ Test users recreated successfully")
-					return response.json()
-				else:
-					print(f"⚠️ Test users endpoint returned {response.status_code}")
-					print("Make sure DEBUG_ENDPOINTS=true and TEST_USERS=true")
-					pytest.fail("recreate-test-users failed")
-
-			except Exception as e:
-				print(f"❌ Failed to setup test users: {e}")
-				pytest.fail("recreate-test-users failed")
+		"""Set up test environment using shared test utility."""
+		return recreate_test_users()
 
 
 	def test_image(self):

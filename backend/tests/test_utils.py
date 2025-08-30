@@ -15,34 +15,45 @@ BASE_URL = os.getenv("API_URL", "http://localhost:8055")
 API_URL = f"{BASE_URL}/api"
 
 def clear_test_database():
-    """Clear the database before running tests. Throws exception on failure."""
+    """Clear the database before running tests. Fails test on error."""
     print("Clearing database...")
-    response = requests.post(f"{API_URL}/debug/clear-database")
-    if response.status_code == 200:
-        details = response.json().get("details", {})
-        print(f"✓ Database cleared: {details}")
-    else:
-        raise Exception(f"Database clear failed: {response.status_code} - {response.text}")
+    try:
+        response = requests.post(f"{API_URL}/debug/clear-database")
+        if response.status_code == 200:
+            details = response.json().get("details", {})
+            print(f"✓ Database cleared: {details}")
+            return response.json()
+        else:
+            print(f"⚠️  Database clear failed: {response.status_code} - {response.text}")
+            pytest.fail(f"clear-database failed: {response.status_code} - {response.text}")
+    except Exception as e:
+        print(f"❌ Failed to clear database: {e}")
+        pytest.fail(f"clear-database failed with exception: {e}")
 
 def recreate_test_users():
-    """Recreate test users using the debug endpoint. Throws exception on failure."""
+    """Recreate test users using the debug endpoint. Fails test on error."""
     print("Recreating test users using debug endpoint...")
-    response = requests.post(f"{API_URL}/debug/recreate-test-users")
-    if response.status_code == 200:
-        result = response.json()
-        print(f"✅ Test users reset successfully: {result}")
-        details = result.get("details", {}) or {}
-        photos_deleted = details.get("photos_deleted", 0)
-        users_deleted = details.get("users_deleted", 0)
-        users_created = details.get("users_created", 0)
-        print(f"   - {photos_deleted} photos deleted")
-        print(f"   - {users_deleted} old users deleted")
-        print(f"   - {users_created} new users created")
-        print("Test user reset complete")
-        return result
-    else:
-        print(f"⚠️  Test user reset failed: {response.status_code} - {response.text}")
-        raise Exception(f"Test users recreation failed: {response.status_code} - {response.text}")
+    try:
+        response = requests.post(f"{API_URL}/debug/recreate-test-users")
+        if response.status_code == 200:
+            result = response.json()
+            print(f"✅ Test users reset successfully: {result}")
+            details = result.get("details", {}) or {}
+            photos_deleted = details.get("photos_deleted", 0)
+            users_deleted = details.get("users_deleted", 0)
+            users_created = details.get("users_created", 0)
+            print(f"   - {photos_deleted} photos deleted")
+            print(f"   - {users_deleted} old users deleted")
+            print(f"   - {users_created} new users created")
+            print("Test user reset complete")
+            return result
+        else:
+            print(f"⚠️  Test user reset failed: {response.status_code} - {response.text}")
+            print("Make sure DEBUG_ENDPOINTS=true and TEST_USERS=true")
+            pytest.fail(f"recreate-test-users failed: {response.status_code} - {response.text}")
+    except Exception as e:
+        print(f"❌ Failed to setup test users: {e}")
+        pytest.fail(f"recreate-test-users failed with exception: {e}")
 
 def create_test_image(width: int = 100, height: int = 100, color: tuple = (255, 0, 0), 
                       lat: float = 50.0755, lon: float = 14.4378) -> bytes:
