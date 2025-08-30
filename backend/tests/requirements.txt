@@ -15,10 +15,14 @@ piexif
 
 # For existing tests compatibility
 requests==2.31.0
+fastapi
+
+# Password hashing for auth tests
+passlib[bcrypt]
 
 
 # Database
 sqlalchemy==2.0.23
-#asyncpg==0.28.0
+asyncpg==0.28.0
 geoalchemy2==0.14.2
 #shapely==2.0.2

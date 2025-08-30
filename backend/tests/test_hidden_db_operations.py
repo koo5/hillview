@@ -29,7 +29,7 @@ from sqlalchemy import and_, func
 
 from common.database import SessionLocal, Base, engine
 from common.models import User, HiddenPhoto, HiddenUser
-from api.app.auth import get_password_hash
+from common.auth_utils import get_password_hash
 
 class TestHiddenDatabaseOperations:
     """Test suite for hidden content database operations."""

@@ -63,8 +63,8 @@ OAUTH_PROVIDERS = {
     }
 }
 
-# Password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Import password hashing utilities from common
+from common.auth_utils import verify_password, get_password_hash
 
 # OAuth2 token URL
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
@@ -110,12 +110,7 @@ class UserOut(BaseModel):
     class Config:
         from_attributes = True
 
-# Helper functions
-def verify_password(plain_password, hashed_password):
-    return pwd_context.verify(plain_password, hashed_password)
-
-def get_password_hash(password):
-    return pwd_context.hash(password)
+# Password hashing functions are now imported from common.auth_utils
 
 # Token creation functions moved to common/jwt.py
 
