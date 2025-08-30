@@ -1,9 +1,12 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-if [ "$DEV_MODE" = "1" ] || [ "$DEV_MODE" = "true" ]; then
-    echo "Starting worker in development mode with auto-reload"
-    uvicorn app:app --host 0.0.0.0 --port 8056 --reload
+set -x
+
+if [ ! -z $DEV_MODE ]; then
+	pwd
+	watchmedo auto-restart --debounce-interval 1 --interval 3 -d /app/worker -d /app/common --patterns="*.py;*.egg" --recursive  --  ./start2.sh
 else
-    echo "Starting worker in production mode"
-    uvicorn app:app --host 0.0.0.0 --port 8056
+	./start2.sh
 fi
+
+echo ".process end ======================================================================= end process ."

@@ -2,7 +2,8 @@
 backend/uploads/
 .#.env
 backend/__pycache__/
-backend/yolov5su.pt
+yolov5su.pt
+backend/worker/models/
 frontend/src-tauri/gen/
 __pycache__
 venv

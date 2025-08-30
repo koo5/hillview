@@ -37,7 +37,7 @@ def detect_targets(image):
 
 		# Verify model file exists and is valid before loading
 		if not verify_model_file(model_path):
-			raise Exception("No valid YOLO model found")
+			raise Exception("nnnnnNo valid YOLO model found")
 
 		try:
 			from ultralytics import YOLO

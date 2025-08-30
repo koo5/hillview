@@ -75,37 +75,119 @@ class TestRateLimiting:
         # Note: This test may not trigger rate limits in CI due to high limits
         # But it verifies the endpoint structure is correct
         
-    def test_photo_upload_rate_limiting(self):
-        """Test photo upload rate limiting (10 uploads/hour per user)."""
-        print("\n=== Testing Photo Upload Rate Limiting ===")
+    @pytest.mark.asyncio
+    async def test_client_key_registration_rate_limiting(self):
+        """Test rate limiting on client key registration endpoint."""
+        from secure_upload_utils import SecureUploadClient
         
-        # Create a test image file
-        test_file_content = b"fake image content for testing"
-        files = {"file": ("test.jpg", test_file_content, "image/jpeg")}
-        data = {"description": "Rate limit test", "is_public": "true"}
+        print("\n=== Testing Client Key Registration Rate Limiting ===")
         
+        upload_client = SecureUploadClient(api_url=BASE_URL)
         success_count = 0
         rate_limited_count = 0
         
-        for i in range(3):  # Try a few uploads
-            response = requests.post(
-                f"{BASE_URL}/api/photos/upload",
-                files=files,
-                data=data,
-                headers=self.headers
-            )
-            
-            if response.status_code in [200, 400]:  # 400 might be "already exists"
+        for i in range(5):  # Try multiple key registrations
+            try:
+                client_keys = upload_client.generate_client_keys()
+                await upload_client.register_client_key(self.token, client_keys)
                 success_count += 1
-                print(f"Upload {i+1}: Success")
-            elif response.status_code == 429:
-                rate_limited_count += 1
-                print(f"✓ Upload rate limit triggered: {response.json()['detail']}")
-                break
-            else:
-                print(f"Upload {i+1}: Unexpected status {response.status_code}: {response.text}")
+                print(f"Key registration {i+1}: Success")
+            except Exception as e:
+                error_msg = str(e)
+                if "429" in error_msg or "rate limit" in error_msg.lower():
+                    rate_limited_count += 1
+                    print(f"✓ Key registration rate limit triggered: {error_msg}")
+                    break
+                else:
+                    print(f"Key registration {i+1}: Unexpected error: {error_msg}")
         
-        print(f"Photo uploads - Success: {success_count}, Rate limited: {rate_limited_count}")
+        print(f"Key registrations - Success: {success_count}, Rate limited: {rate_limited_count}")
+    
+    @pytest.mark.asyncio
+    async def test_upload_authorization_rate_limiting(self):
+        """Test rate limiting on upload authorization endpoint."""
+        from secure_upload_utils import SecureUploadClient
+        
+        print("\n=== Testing Upload Authorization Rate Limiting ===")
+        
+        upload_client = SecureUploadClient(api_url=BASE_URL)
+        test_file_content = b"fake image content for testing"
+        success_count = 0
+        rate_limited_count = 0
+        
+        # Register one client key to use for all authorization attempts
+        client_keys = upload_client.generate_client_keys()
+        await upload_client.register_client_key(self.token, client_keys)
+        
+        for i in range(5):  # Try multiple upload authorizations
+            try:
+                await upload_client.authorize_upload_with_params(
+                    self.token,
+                    f"rate_limit_test_{i}.jpg",
+                    len(test_file_content),
+                    50.0755,  # Default latitude
+                    14.4378,  # Default longitude  
+                    "Rate limit test",
+                    True
+                )
+                success_count += 1
+                print(f"Upload authorization {i+1}: Success")
+            except Exception as e:
+                error_msg = str(e)
+                if "429" in error_msg or "rate limit" in error_msg.lower():
+                    rate_limited_count += 1
+                    print(f"✓ Upload authorization rate limit triggered: {error_msg}")
+                    break
+                else:
+                    print(f"Upload authorization {i+1}: Unexpected error: {error_msg}")
+        
+        print(f"Upload authorizations - Success: {success_count}, Rate limited: {rate_limited_count}")
+    
+    @pytest.mark.asyncio
+    async def test_worker_upload_rate_limiting(self):
+        """Test rate limiting on worker upload endpoint."""
+        from secure_upload_utils import SecureUploadClient
+        
+        print("\n=== Testing Worker Upload Rate Limiting ===")
+        
+        upload_client = SecureUploadClient(api_url=BASE_URL)
+        test_file_content = b"fake image content for testing"
+        success_count = 0
+        rate_limited_count = 0
+        
+        for i in range(3):  # Try multiple worker uploads
+            try:
+                # Complete workflow for each attempt
+                client_keys = upload_client.generate_client_keys()
+                await upload_client.register_client_key(self.token, client_keys)
+                
+                auth_data = await upload_client.authorize_upload_with_params(
+                    self.token,
+                    f"worker_rate_test_{i}.jpg",
+                    len(test_file_content),
+                    50.0755,
+                    14.4378,
+                    "Worker rate limit test",
+                    True
+                )
+                
+                # This is where worker rate limiting would be tested
+                result = await upload_client.upload_to_worker(
+                    test_file_content, auth_data, client_keys, f"worker_rate_test_{i}.jpg"
+                )
+                success_count += 1
+                print(f"Worker upload {i+1}: Success")
+                
+            except Exception as e:
+                error_msg = str(e)
+                if "429" in error_msg or "rate limit" in error_msg.lower():
+                    rate_limited_count += 1
+                    print(f"✓ Worker upload rate limit triggered: {error_msg}")
+                    break
+                else:
+                    print(f"Worker upload {i+1}: Unexpected error: {error_msg}")
+        
+        print(f"Worker uploads - Success: {success_count}, Rate limited: {rate_limited_count}")
         
     def test_photo_operations_rate_limiting(self):
         """Test photo operations rate limiting (100 ops/hour per user).""" 

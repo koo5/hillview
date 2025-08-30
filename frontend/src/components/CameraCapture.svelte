@@ -11,9 +11,9 @@
     import {generateTempId, type PlaceholderLocation} from '$lib/utils/placeholderUtils';
     import {bearingState, spatialState} from '$lib/mapState';
     import { createPermissionManager } from '$lib/permissionManager';
-    import { 
-        availableCameras, 
-        selectedCameraId, 
+    import {
+        availableCameras,
+        selectedCameraId,
         cameraEnumerationSupported,
         enumerateCameraDevices,
         type CameraDevice
@@ -22,7 +22,7 @@
     import { addPluginListener } from '@tauri-apps/api/core';
 
     const dispatch = createEventDispatcher();
-    
+
 
     const permissionManager = createPermissionManager('camera');
 
@@ -86,30 +86,6 @@
         return null;
     }
 
-    async function startPermissionMonitoring() {
-        // Clear any existing interval
-        if (permissionCheckInterval) {
-            clearInterval(permissionCheckInterval);
-        }
-
-        console.log('🢄Starting permission monitoring...');
-        // Check permission state periodically when we have an error
-        permissionCheckInterval = window.setInterval(async () => {
-            if (cameraError && (hasRequestedPermission || cameraError.includes('Camera access required'))) {
-                const state = await checkCameraPermission();
-                console.log('🢄Monitoring camera permission:', state, 'hasRequestedPermission:', hasRequestedPermission);
-
-                if (state === 'granted') {
-                    console.log('🢄Camera permission granted during monitoring, starting camera...');
-                    clearInterval(permissionCheckInterval!);
-                    permissionCheckInterval = null;
-                    hasRequestedPermission = false;
-                    cameraError = null; // Clear the error
-                    startCamera();
-                }
-            }
-        }, 500); // Check more frequently
-    }
 
     function scheduleRetry() {
         if (retryTimeout) {
@@ -133,13 +109,13 @@
 
     async function checkAndStartCamera() {
         console.log('🢄[CAMERA] Checking camera permission before auto-start...');
-        
+
         // Check camera permission status using Tauri if available
         if (isCameraPermissionCheckAvailable() && tauriCamera) {
             try {
                 const hasPermission = await tauriCamera.checkCameraPermission();
                 console.log('🢄[CAMERA] Camera permission status from Tauri:', hasPermission);
-                
+
                 if (hasPermission) {
                     console.log('🢄[CAMERA] Permission granted, starting camera immediately');
                     await startCamera();
@@ -154,7 +130,7 @@
                 console.warn('🢄[CAMERA] Failed to check camera permission via Tauri, falling back to standard flow:', error);
             }
         }
-        
+
         // Try to acquire permission lock first
         const lockAcquired = await permissionManager.acquireLock();
         if (!lockAcquired) {
@@ -175,17 +151,17 @@
             }
             return;
         }
-        
+
         // Clear retry interval since we successfully acquired the lock
         if (permissionRetryInterval) {
             clearInterval(permissionRetryInterval);
             permissionRetryInterval = null;
         }
-        
+
         await startCamera();
 
         await permissionManager.releaseLock();
-        
+
     }
 
     async function startCamera() {
@@ -241,7 +217,7 @@
 
             if (video) {
                 console.log('🢄[CAMERA] Setting video source');
-                
+
                 // Set video attributes for mobile compatibility
                 video.muted = true;  // Mobile autoplay safety
                 video.setAttribute('playsinline', 'true');
@@ -263,7 +239,7 @@
                 needsPermission = false;
                 retryCount = 0; // Reset retry count on success
                 console.log('🢄[CAMERA] After clear: cameraError =', cameraError, 'needsPermission =', needsPermission, 'cameraReady =', cameraReady);
-                
+
                 // Reset permission request flag on success
                 hasRequestedPermission = false;
 
@@ -346,22 +322,22 @@
 
     async function selectCamera(camera: CameraDevice) {
         console.log('🢄[CAMERA] Selecting camera:', camera.label);
-        
+
         // Hide the dropdown
         showCameraSelector = false;
-        
+
         // Set the selected camera in the store
         selectedCameraId.set(camera.deviceId);
-        
+
         // Restart camera with new device
         if (cameraReady && stream) {
             console.log('🢄[CAMERA] Switching to camera:', camera.label);
-            
+
             // Stop current stream
             stream.getTracks().forEach(track => track.stop());
             stream = null;
             cameraReady = false;
-            
+
             // Start with new camera
             try {
                 await startCamera();
@@ -497,7 +473,7 @@
         if (showCameraSelector) {
             const target = event.target as Element;
             const selectorContainer = document.querySelector('.camera-selector-container');
-            
+
             if (selectorContainer && !selectorContainer.contains(target)) {
                 showCameraSelector = false;
             }
@@ -547,7 +523,7 @@
     onMount(async () => {
         document.addEventListener('visibilitychange', handleVisibilityChange);
         document.addEventListener('click', handleClickOutside);
-        
+
         // Listen for native camera permission granted event
         if (isCameraPermissionCheckAvailable()) {
             try {
@@ -556,7 +532,7 @@
                     console.log('🢄[CAMERA] *** CAMERA PERMISSION EVENT RECEIVED ***', event);
                     console.log('🢄[CAMERA] Event data:', JSON.stringify(event));
                     console.log('🢄[CAMERA] Current state - show:', show, 'cameraError:', cameraError, 'cameraReady:', cameraReady);
-                    
+
                     if (show && cameraError) {
                         console.log('🢄[CAMERA] Conditions met - retrying camera after native permission granted');
                         cameraError = null;
@@ -573,9 +549,9 @@
                         console.log('🢄[CAMERA] Not retrying camera - show:', show, 'cameraError:', cameraError);
                     }
                 });
-                
+
                 console.log('🢄[CAMERA] Camera permission event listener setup complete');
-                
+
                 // Store unlisten function for cleanup
                 onDestroy(() => {
                     console.log('🢄[CAMERA] Cleaning up camera permission event listener');
@@ -587,7 +563,7 @@
         } else {
             console.log('🢄[CAMERA] Camera permission check not available - skipping event listener');
         }
-        
+
         // Start simple permission polling from Kotlin
         if (isCameraPermissionCheckAvailable() && tauriCamera) {
             cameraPermissionPollInterval = setInterval(async () => {
@@ -624,7 +600,7 @@
         }
         document.removeEventListener('visibilitychange', handleVisibilityChange);
         document.removeEventListener('click', handleClickOutside);
-        
+
         // Clean up permission manager
         permissionManager.cleanup();
     });
@@ -635,7 +611,7 @@
         <div class="camera-content">
             <div class="camera-view">
                 <!-- Debug: cameraError = {cameraError}, needsPermission = {needsPermission}, cameraReady = {cameraReady} -->
-                
+
                 <!-- Always render video element so it's available for binding -->
                 <video bind:this={video} class="camera-video" playsinline style:display={cameraError ? 'none' : 'block'}>
                     <track kind="captions"/>
@@ -648,13 +624,13 @@
                         <button class="retry-button" on:click={async () => {
 
                             console.log('🢄[CAMERA] Enable Camera button clicked');
-                            
+
                             // Try native permission request first if available
                             if (isCameraPermissionCheckAvailable() && tauriCamera) {
                                 try {
                                     console.log('🢄[CAMERA] Using native permission request');
                                     const permissionResult = await tauriCamera.requestCameraPermission();
-                                    
+
                                     if (permissionResult.granted) {
                                         console.log('🢄[CAMERA] Native permission granted, starting camera');
                                         cameraError = null;
@@ -677,17 +653,17 @@
                                     console.warn('🢄[CAMERA] Native permission request failed, falling back to WebView:', error);
                                 }
                             }
-                            
+
                             // Fallback to WebView permission flow
                             console.log('🢄[CAMERA] Using WebView permission flow');
-                            
+
                             // Try to acquire permission lock before starting camera
                             const lockAcquired = await permissionManager.acquireLock();
                             if (!lockAcquired) {
                                 console.log('🢄[CAMERA] Permission system busy, cannot start camera right now');
                                 return;
                             }
-                            
+
                             cameraError = null;
                             needsPermission = false;
                             hasRequestedPermission = false;
@@ -705,10 +681,10 @@
 
                 <!-- Location overlay -->
                 {#if !cameraError}
-                    <CameraOverlay 
-                        {locationData} 
-                        {locationError} 
-                        {locationReady} 
+                    <CameraOverlay
+                        {locationData}
+                        {locationError}
+                        {locationReady}
                     />
                 {/if}
             </div>
@@ -750,18 +726,18 @@
                 <!-- Camera selector button (lower-left) -->
                 {#if cameraReady && $cameraEnumerationSupported && $availableCameras.length > 1}
                     <div class="camera-selector-container">
-                        <button 
-                            class="camera-selector-button" 
+                        <button
+                            class="camera-selector-button"
                             on:click={() => showCameraSelector = !showCameraSelector}
                             aria-label="Select camera"
                         >
                             📷
                         </button>
-                        
+
                         {#if showCameraSelector}
                             <div class="camera-selector-dropdown">
                                 {#each $availableCameras as camera}
-                                    <button 
+                                    <button
                                         class="camera-option"
                                         class:selected={$selectedCameraId === camera.deviceId}
                                         on:click={() => selectCamera(camera)}
@@ -779,7 +755,7 @@
                         {/if}
                     </div>
                 {/if}
-                
+
                 <DualCaptureButton
                         disabled={!cameraReady || !locationData}
                         on:capture={handleCapture}

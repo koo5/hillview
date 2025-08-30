@@ -96,7 +96,7 @@ class SecureUploadClient:
 			"public_pem": serialize_public_key(public_key)
 		}
 
-	def generate_client_signature(self, client_private_key, photo_id: str, filename: str, timestamp: str) -> str:
+	def generate_client_signature(self, client_private_key, photo_id: str, filename: str, timestamp: int) -> str:
 		"""Generate a proper ECDSA client signature matching the API server's verification logic."""
 		from cryptography.hazmat.primitives.asymmetric import ec
 		from cryptography.hazmat.primitives import hashes
@@ -152,7 +152,7 @@ class SecureUploadClient:
 			import datetime
 			key_id = client_key_pair.get("key_id", f"test-key-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}")
 			response = await client.post(
-				f"{self.api_url}/api/users/public-keys",
+				f"{self.api_url}/api/auth/register-client-key",
 				json={
 					"public_key_pem": client_key_pair["public_pem"],
 					"key_id": key_id,
@@ -172,18 +172,8 @@ class SecureUploadClient:
 			else:
 				raise Exception(f"Client key registration failed: {response.status_code} - {response.text}")
 
-	async def authorize_upload(self, auth_token: str, filename: str = "secure_test.jpg", **kwargs):
-		"""Test Phase 2: Request upload authorization from API."""
-		upload_request = {
-			"filename": filename,
-			"content_type": "image/jpeg",
-			"file_size": 5120,
-			"latitude": 50.0755,
-			"longitude": 14.4378,
-			"description": "End-to-end secure upload test",
-			"is_public": True
-		}
-
+	async def _request_upload_authorization(self, auth_token: str, upload_request: dict):
+		"""Internal method to make upload authorization request and handle response."""
 		async with httpx.AsyncClient() as client:
 			response = await client.post(
 				f"{self.api_url}/api/photos/authorize-upload",
@@ -196,23 +186,61 @@ class SecureUploadClient:
 				assert "upload_jwt" in auth_data
 				assert "worker_url" in auth_data
 				assert "photo_id" in auth_data
-
-				print(f"✅ Phase 2: Upload authorization successful")
-				print(f"   Photo ID: {auth_data['photo_id']}")
-				print(f"   Worker URL: {auth_data['worker_url']}")
 				return auth_data
 			elif response.status_code == 404:
 				raise Exception("Upload authorization endpoint not implemented")
 			else:
 				raise Exception(f"Upload authorization failed: {response.status_code} - {response.text}")
 
-	async def upload_to_worker(self, test_image, auth_data, client_keys, filename="secure_test.jpg"):
-		"""Phase 3: Upload file to worker with proper client signature."""
+	async def authorize_upload(self, auth_token: str, filename: str = "secure_test.jpg", **kwargs):
+		"""Test Phase 2: Request upload authorization from API."""
+		upload_request = {
+			"filename": filename,
+			"content_type": "image/jpeg",
+			"file_size": 5120,
+			"latitude": 50.0755,
+			"longitude": 14.4378,
+			"description": "End-to-end secure upload test",
+			"is_public": True
+		}
+
+		auth_data = await self._request_upload_authorization(auth_token, upload_request)
+		print(f"✅ Phase 2: Upload authorization successful")
+		print(f"   Photo ID: {auth_data['photo_id']}")
+		print(f"   Worker URL: {auth_data['worker_url']}")
+		return auth_data
+
+	async def authorize_upload_with_params(self, auth_token: str, filename: str, file_size: int,
+										   latitude: float, longitude: float, description: str,
+										   is_public: bool = True):
+		"""Request upload authorization with custom parameters."""
+		upload_request = {
+			"filename": filename,
+			"content_type": "image/jpeg",
+			"file_size": file_size,
+			"latitude": latitude,
+			"longitude": longitude,
+			"description": description,
+			"is_public": is_public
+		}
+
+		return await self._request_upload_authorization(auth_token, upload_request)
+
+	async def upload_to_worker(self, file_input, auth_data, client_keys, filename="secure_test.jpg"):
+		"""Phase 3: Upload file to worker with proper client signature.
+
+		Args:
+			file_input: Either a file path (str) or file data (bytes)
+		"""
 		upload_jwt = auth_data["upload_jwt"]
 		worker_url = auth_data["worker_url"]
 		photo_id = auth_data["photo_id"]
-		timestamp = auth_data["upload_authorized_at"]
-		
+
+		# Convert timestamp to integer like the old version
+		from datetime import datetime
+		upload_authorized_at = datetime.fromisoformat(auth_data["upload_authorized_at"].replace('Z', '+00:00'))
+		timestamp = int(upload_authorized_at.timestamp())
+
 		client_signature = self.generate_client_signature(
 			client_keys["private_key"],
 			photo_id,
@@ -221,176 +249,41 @@ class SecureUploadClient:
 		)
 
 		async with httpx.AsyncClient() as client:
-			with open(test_image, 'rb') as f:
-				files = {'file': (filename, f, 'image/jpeg')}
-				data = {'client_signature': client_signature}
-				headers = {'Authorization': f'Bearer {upload_jwt}'}
+			# Handle both file paths and file data
+			if isinstance(file_input, bytes):
+				# File data provided directly
+				files = {'file': (filename, file_input, 'image/jpeg')}
+			else:
+				# File path provided, read the file
+				with open(file_input, 'rb') as f:
+					file_data = f.read()
+				files = {'file': (filename, file_data, 'image/jpeg')}
 
-				response = await client.post(
-					f"{worker_url}/upload",
-					files=files,
-					data=data,
-					headers=headers,
-					timeout=60.0
-				)
+			data = {'client_signature': client_signature}
+			headers = {'Authorization': f'Bearer {upload_jwt}'}
 
-				if response.status_code == 200:
-					result = response.json()
-					print(f"✅ Phase 3: Worker processed upload successfully")
-					return result
-				else:
-					raise Exception(f"Worker upload failed: {response.status_code} - {response.text}")
+			response = await client.post(
+				f"{worker_url}/upload",
+				files=files,
+				data=data,
+				headers=headers,
+				timeout=60.0
+			)
 
-	async def test_complete_secure_upload_workflow(self, test_image):
-		"""Test the complete end-to-end secure upload workflow."""
-		print(f"\n{'='*60}")
-		print(f"TESTING COMPLETE SECURE UPLOAD WORKFLOW")
-		print(f"{'='*60}")
+			if response.status_code == 200:
+				result = response.json()
+				print(f"✅ Phase 3: Worker processed upload successfully")
+				return result
+			else:
+				raise Exception(f"Worker upload failed: {response.status_code} - {response.text}")
 
-		# Test constants
-		TEST_FILENAME = "secure_test.jpg"
-
-		# Setup test environment using the fixture method
-		setup_result = await self.setup_test_environment()
-		if not setup_result:
-			raise Exception("Test environment setup failed")
-
-		# Get auth token using the fixture method
-		auth_token = await self.test_user_auth(setup_result)
-
-		# Phase 1: Client Authentication & Key Registration
-		print(f"\n--- Phase 1: Client Authentication & Key Registration ---")
-		client_keys = None
-		try:
-			# Generate client key pair for this workflow test
-			import sys
-			import os
-			sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-
-			from common.jwt_utils import generate_ecdsa_key_pair, serialize_private_key, serialize_public_key
-
-			private_key, public_key = generate_ecdsa_key_pair()
-			client_keys = {
-				"private_key": private_key,
-				"public_key": public_key,
-				"private_pem": serialize_private_key(private_key),
-				"public_pem": serialize_public_key(public_key)
-			}
-
-			# Use the existing test method
-			key_data = await self.register_client_key(auth_token, client_keys)
-			phase1_success = True
-		except Exception as e:
-			print(f"❌ Phase 1 failed: {e}")
-			raise Exception(f"Phase 1 (client key registration) failed: {e}")
-
-		# Phase 2: Upload Authorization
-		print(f"\n--- Phase 2: Upload Authorization ---")
-		auth_data = None
-		try:
-			auth_data = await self.authorize_upload(auth_token, TEST_FILENAME)
-			if not auth_data:
-				raise Exception("Phase 2 (upload authorization) failed: No authorization data returned")
-			phase2_success = True
-		except Exception as e:
-			print(f"❌ Phase 2 failed: {e}")
-			raise Exception(f"Phase 2 (upload authorization) failed: {e}")
-
-		# Phase 3: Worker Processing
-		print(f"\n--- Phase 3: Worker Processing ---")
-		phase3_success = False
-		try:
-			upload_jwt = auth_data["upload_jwt"]
-			worker_url = auth_data["worker_url"]
-
-			# Use the upload_to_worker utility method
-			result = await self.upload_to_worker(test_image, auth_data, client_keys, TEST_FILENAME)
-			phase3_success = True
-		except Exception as e:
-			print(f"❌ Phase 3 failed: {e}")
-			raise Exception(f"Phase 3 (worker processing) failed: {e}")
-
-		# Phase 4: Final Verification - Client checks photo was processed
-		print(f"\n--- Phase 4: Final Verification ---")
-		# Phase 4 can proceed even if Phase 3 failed - we still want to verify the photo state
-		phase4_success = False
-		try:
-			photo_id = auth_data["photo_id"]
-			async with httpx.AsyncClient() as client:
-				# Check that the photo appears in user's photo list
-				response = await client.get(
-					f"{self.api_url}/api/photos",
-					headers={"Authorization": f"Bearer {auth_token}"},
-					follow_redirects=True
-				)
-
-				if response.status_code == 200:
-					photos = response.json()
-					processed_photo = None
-
-					# Find our uploaded photo by ID
-					for photo in photos:
-						if photo.get("id") == photo_id:
-							processed_photo = photo
-							break
-
-					if processed_photo:
-						print(f"✅ Phase 4a: Photo found in user's photo list")
-						print(f"   Photo ID: {processed_photo.get('id')}")
-						print(f"   Filename: {processed_photo.get('filename', 'N/A')}")
-						processing_status = processed_photo.get('processing_status', 'N/A')
-						print(f"   Processing Status: {processing_status}")
-
-						# Verify processing was completed successfully
-						if processing_status == 'completed':
-							# Check for processed metadata
-							has_dimensions = processed_photo.get('width') is not None and processed_photo.get('height') is not None
-							has_location = processed_photo.get('latitude') is not None and processed_photo.get('longitude') is not None
-							has_worker_signature = processed_photo.get('processed_by_worker') is not None
-
-							if has_dimensions:
-								print(f"   Dimensions: {processed_photo.get('width')}x{processed_photo.get('height')}")
-							if has_location:
-								print(f"   Location: {processed_photo.get('latitude')}, {processed_photo.get('longitude')}")
-							if has_worker_signature:
-								print(f"   Processed by worker: {processed_photo.get('processed_by_worker')}")
-
-							print(f"✅ Phase 4b: Photo processing verification complete")
-							phase4_success = True
-						else:
-							print(f"❌ Phase 4b: Photo processing failed - status is '{processing_status}', expected 'completed'")
-							phase4_success = False
-					else:
-						print(f"❌ Phase 4: Photo {photo_id} not found in user's photo list")
-				else:
-					print(f"❌ Phase 4: Failed to retrieve photos: {response.status_code}")
-					print(f"   Error: {response.text}")
-
-		except Exception as e:
-			print(f"❌ Phase 4 failed: {e}")
-
-		# Summary
-		print(f"\n{'='*60}")
-		print(f"WORKFLOW SUMMARY:")
-		print(f"{'='*60}")
-		print(f"{'✅' if phase1_success else '❌'} Phase 1: Client Authentication & Key Registration")
-		print(f"{'✅' if phase2_success else '❌'} Phase 2: Upload Authorization")
-		print(f"{'✅' if phase3_success else '❌'} Phase 3: Worker Processing")
-		print(f"{'✅' if phase4_success else '❌'} Phase 4: Final Verification")
-
-		overall_success = phase1_success and phase2_success and phase3_success and phase4_success
-		print(f"\n{'✅' if overall_success else '❌'} Overall Workflow: {'SUCCESS' if overall_success else 'PARTIAL/FAILED'}")
-		print(f"{'='*60}\n")
-
-		# At minimum, authentication should work
-		assert phase1_success, "Phase 1 (authentication) must work"
 
 	async def test_worker_token_validation(self, test_user_auth):
 		"""Test that worker properly validates JWT authorization tokens."""
-		# First get a valid authorization to get the worker URL  
+		# First get a valid authorization to get the worker URL
 		auth_data = await self.authorize_upload(test_user_auth, "test.jpg")
 		worker_url = auth_data["worker_url"]
-		
+
 		# Test with invalid token
 		async with httpx.AsyncClient() as client:
 			try:

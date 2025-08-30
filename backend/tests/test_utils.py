@@ -56,9 +56,11 @@ def create_test_image(width: int = 100, height: int = 100, color: tuple = (255, 
     
     return img_buffer.getvalue()
 
-def create_test_photos(test_users: list, auth_tokens: dict):
-    """Create test photos by uploading real images to the API."""
-    print("Creating test photos for filtering tests...")
+async def create_test_photos(test_users: list, auth_tokens: dict):
+    """Create test photos by uploading real images using the secure upload workflow."""
+    from secure_upload_utils import SecureUploadClient
+    
+    print("Creating test photos for filtering tests using secure upload workflow...")
     
     # Create test photos for different users with different colors and GPS coordinates in Prague area
     test_photos_data = [
@@ -67,6 +69,9 @@ def create_test_photos(test_users: list, auth_tokens: dict):
         ("test_photo_3.jpg", "Test photo 3 for filtering", False, (0, 0, 255), 50.0819, 14.4362),  # Blue (private) - Wenceslas Square
         ("test_photo_4.jpg", "Test photo 4 for filtering", True, (255, 255, 0), 50.0870, 14.4208), # Yellow - Charles Bridge
     ]
+    
+    # Create SecureUploadClient instance
+    upload_client = SecureUploadClient(api_url="http://localhost:8055")
     
     created_photos = 0
     for i, (filename, description, is_public, color, lat, lon) in enumerate(test_photos_data):
@@ -77,52 +82,35 @@ def create_test_photos(test_users: list, auth_tokens: dict):
         # Get auth token
         token = auth_tokens.get(username)
         if not token:
-            print(f"⚠ No token found for user {username}")
-            continue
-            
-        headers = {"Authorization": f"Bearer {token}"}
+            raise Exception(f"No token found for user {username}")
         
         # Create a real JPEG image with GPS coordinates AND bearing (for successful processing)
         from image_utils import create_test_image_full_gps
         bearing = 45.0 + (i * 30)  # Different bearings: 45°, 75°, 105°, 135°
         image_data = create_test_image_full_gps(200, 150, color, lat, lon, bearing)
         
-        files = {"file": (filename, image_data, "image/jpeg")}
-        data = {
-            "description": description,
-            "is_public": str(is_public).lower()
-        }
+        # Use secure upload workflow
+        client_keys = upload_client.generate_client_keys()
+        await upload_client.register_client_key(token, client_keys)
         
-        try:
-            response = requests.post(
-                f"{API_URL}/photos/upload",
-                files=files,
-                data=data,
-                headers=headers
-            )
-            
-            if response.status_code == 200:
-                result = response.json()
-                photo_id = result.get('photo_id', 'unknown')
-                print(f"✓ Uploaded photo: {filename} by {username} (ID: {photo_id})")
-                
-                # Wait for processing to complete
-                try:
-                    photo_data = wait_for_photo_processing(photo_id, token, timeout=30)
-                    if photo_data['processing_status'] == 'completed':
-                        created_photos += 1
-                        print(f"  ✓ Processed: lat={photo_data.get('latitude')}, lon={photo_data.get('longitude')}, bearing={photo_data.get('compass_angle')}")
-                    else:
-                        error_msg = photo_data.get('error', 'Unknown error')
-                        print(f"  ⚠ Processing failed: {error_msg}")
-                except Exception as e:
-                    print(f"  ⚠ Processing timeout/error: {e}")
-            else:
-                print(f"⚠ Failed to create photo {filename}: {response.status_code} - {response.text}")
-        except Exception as e:
-            print(f"⚠ Error creating photo {filename}: {e}")
+        auth_data = await upload_client.authorize_upload_with_params(
+            token, filename, len(image_data), lat, lon, description, is_public
+        )
+        
+        result = await upload_client.upload_to_worker(image_data, auth_data, client_keys, filename)
+        photo_id = result.get('photo_id', auth_data.get('photo_id', 'unknown'))
+        print(f"✓ Uploaded photo: {filename} by {username} (ID: {photo_id})")
+        
+        # Wait for processing to complete
+        photo_data = wait_for_photo_processing(photo_id, token, timeout=30)
+        if photo_data['processing_status'] == 'completed':
+            created_photos += 1
+            print(f"  ✓ Processed: lat={photo_data.get('latitude')}, lon={photo_data.get('longitude')}, bearing={photo_data.get('compass_angle')}")
+        else:
+            error_msg = photo_data.get('error', 'Unknown error')
+            raise Exception(f"Photo processing failed: {error_msg}")
     
-    print(f"✓ Created {created_photos} test photos")
+    print(f"✓ Created {created_photos} test photos using secure upload workflow")
     return created_photos
 
 

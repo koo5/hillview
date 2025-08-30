@@ -20,10 +20,9 @@ RUN apt-get install -y \
     libgomp1 \
     imagemagick \
     jpegoptim \
+    libimage-exiftool-perl \
     && rm -rf /var/lib/apt/lists/*
 
-# Set working directory
-WORKDIR /app
 
 # Upgrade pip first
 RUN pip install --no-cache-dir --upgrade pip
@@ -44,11 +43,12 @@ RUN pip install --no-cache-dir \
     sqlalchemy==2.0.23 \
     shapely==2.0.2
 
-# Copy requirements and install remaining dependencies
-COPY worker/requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
 
-RUN chmod 1777 /tmp && apt-get update && apt-get install -y libimage-exiftool-perl
+WORKDIR /app/worker/
+
+# Copy requirements and install remaining dependencies
+COPY worker/requirements.txt /app/worker/requirements.txt
+RUN pip install --no-cache-dir -r /app/worker/requirements.txt
 
 # Run as non-root user
 RUN useradd --create-home --shell /bin/bash worker
@@ -61,20 +61,13 @@ RUN chown -R worker:worker /app/uploads
 RUN chown -R worker:worker /app/pics
 
 # Copy application code
-COPY worker/*py /app/
-COPY worker/.env /app/
-
-# Copy common directory
+COPY worker/start*.sh /app/worker/
+COPY worker/*py /app/worker/
+COPY worker/.env /app/worker/
 COPY common /app/common
-
 
 RUN chown -R worker:worker /app
 
-
 USER worker
-
-# Copy and make start script executable
-COPY worker/start.sh /app/start.sh
-USER root
-RUN chmod +x /app/start.sh
-USER worker
+RUN chmod +x /app/worker/start*.sh
+CMD /app/worker/start.sh
