@@ -20,13 +20,11 @@ from utils.test_utils import clear_test_database, API_URL
 
 class TestPhotoHiding:
     """Test suite for photo hiding endpoints."""
-    
-    def __init__(self):
+        
+    def setup_method(self):
+        """Set up test by logging in."""
         self.auth_token = None
         self.test_photo_id = "test_photo_123"
-        
-    def setup(self):
-        """Set up test by logging in."""
         print("Setting up photo hiding tests...")
         
         # Create and login test user

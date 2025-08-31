@@ -15,7 +15,7 @@ def test_debug_endpoint():
     response = requests.get(f"{API_URL}/debug")
     print(f"Status code: {response.status_code}")
     print(f"Response: {response.json()}")
-    return response.status_code == 200
+    assert response.status_code == 200
 
 def test_register_user():
     """Test user registration"""
@@ -38,7 +38,7 @@ def test_register_user():
     except:
         print(f"Response text: {response.text}")
     
-    return response.status_code in (200, 201, 400)  # 400 is ok if user already exists
+    assert response.status_code in (200, 201, 400)  # 400 is ok if user already exists
 
 def test_login():
     """Test user login"""
@@ -60,7 +60,7 @@ def test_login():
     except:
         print(f"Response text: {response.text}")
     
-    return response.status_code == 200
+    assert response.status_code == 200
 
 def main():
     """Run all tests"""

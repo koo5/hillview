@@ -24,7 +24,8 @@ from utils.test_utils import clear_test_database, API_URL, create_test_photos
 class TestHillviewFiltering:
     """Comprehensive test suite for Hillview API content filtering."""
     
-    def __init__(self):
+    def setup_method(self):
+        """Setup method called before each test method."""
         self.auth_tokens = {}
         self.test_users = []
         self.test_photos = []

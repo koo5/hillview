@@ -25,7 +25,7 @@ class PhotoUploadWorker(
     
     private val database = PhotoDatabase.getDatabase(applicationContext)
     private val photoDao = database.photoDao()
-    private val uploadManager = UploadManager(applicationContext)
+    private val secureUploadManager = SecureUploadManager(applicationContext)
     private val authManager = AuthenticationManager(applicationContext)
     
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
@@ -141,7 +141,7 @@ class PhotoUploadWorker(
                 photoDao.updateUploadStatus(photo.id, "uploading", 0L)
                 
                 // Attempt upload
-                val success = uploadManager.uploadPhoto(photo)
+                val success = secureUploadManager.secureUploadPhoto(photo)
                 
                 if (success) {
                     Log.d(TAG, "Successfully uploaded photo: ${photo.filename}")
@@ -194,7 +194,7 @@ class PhotoUploadWorker(
                 
                 photoDao.updateUploadStatus(photo.id, "uploading", 0L)
                 
-                val success = uploadManager.uploadPhoto(photo)
+                val success = secureUploadManager.secureUploadPhoto(photo)
                 
                 if (success) {
                     Log.d(TAG, "Successfully retried upload for photo: ${photo.filename}")

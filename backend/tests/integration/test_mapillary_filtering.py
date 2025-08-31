@@ -194,17 +194,14 @@ def test_mapillary_filtering():
     clear_test_database()
     auth_tokens = setup_test_users()
     
-    if not auth_tokens:
-        print("❌ Failed to setup test users")
-        return False
+    assert auth_tokens, "Failed to setup test users"
     
     user1_token = auth_tokens.get("mapillary_user_1")
     user2_token = auth_tokens.get("mapillary_user_2") 
     
     # Set mock data
     mock_data = create_mock_mapillary_data()
-    if not set_mock_mapillary_data(mock_data):
-        return False
+    assert set_mock_mapillary_data(mock_data), "Failed to set mock Mapillary data"
     
     # Prague area bbox [west, south, east, north]
     prague_bbox = [14.40, 50.07, 14.45, 50.09]

@@ -144,7 +144,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     
     private var sensorService: EnhancedSensorService? = null
     private var preciseLocationService: PreciseLocationService? = null
-    private val uploadManager: UploadManager = UploadManager(activity)
+    private val secureUploadManager: SecureUploadManager = SecureUploadManager(activity)
     private val database: PhotoDatabase = PhotoDatabase.getDatabase(activity)
     private val authManager: AuthenticationManager = AuthenticationManager(activity)
     
@@ -527,7 +527,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         try {
             val args = invoke.parseArgs(UploadConfigArgs::class.java)
             
-            args?.serverUrl?.let { uploadManager.setServerUrl(it) }
+            args?.serverUrl?.let { secureUploadManager.setServerUrl(it) }
             Log.d(TAG, "📤 Upload config updated")
             
             val result = JSObject()
@@ -578,7 +578,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                     photoDao.updateUploadStatus(photoId, "uploading", 0L)
                     
                     // Attempt upload
-                    val success = uploadManager.uploadPhoto(photo)
+                    val success = secureUploadManager.secureUploadPhoto(photo)
                     
                     if (success) {
                         photoDao.updateUploadStatus(photoId, "completed", System.currentTimeMillis())

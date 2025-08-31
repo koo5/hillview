@@ -37,7 +37,8 @@ from common.auth_utils import get_password_hash
 class TestHiddenDatabaseOperations:
     """Test suite for hidden content database operations."""
     
-    def __init__(self):
+    def setup_method(self):
+        """Setup method called before each test method."""
         self.test_users = []
         self.test_hidden_photos = []
         self.test_hidden_users = []

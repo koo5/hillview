@@ -25,8 +25,13 @@ shapely==2.0.2
 exifread
 Pillow==10.1.0
 numpy<2
-opencv-python==4.8.1.78
-ultralytics==8.0.196
+opencv-python-headless==4.8.1.78
+
+# CPU-only ML dependencies (install with special index)
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch
+torchvision
+ultralytics
 
 # S3-compatible CDN upload
 boto3

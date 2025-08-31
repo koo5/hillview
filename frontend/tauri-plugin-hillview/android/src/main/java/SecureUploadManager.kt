@@ -98,19 +98,27 @@ class SecureUploadManager(private val context: Context) {
         
         Log.d(TAG, "Requesting upload authorization for: ${photo.filename}")
         
-        client.newCall(httpRequest).execute().use { response ->
-            if (!response.isSuccessful) {
-                val error = response.body?.string() ?: "Unknown error"
-                throw Exception("Upload authorization failed: ${response.code} - $error")
+        try {
+            client.newCall(httpRequest).execute().use { response ->
+                if (!response.isSuccessful) {
+                    val error = response.body?.string() ?: "Unknown error"
+                    throw Exception("Upload authorization failed: ${response.code} - $error")
+                }
+                
+                val responseJson = JSONObject(response.body!!.string())
+                return UploadAuthorizationResponse(
+                    upload_jwt = responseJson.getString("upload_jwt"),
+                    photo_id = responseJson.getString("photo_id"),
+                    expires_at = responseJson.getString("expires_at"),
+                    worker_url = responseJson.getString("worker_url")
+                )
             }
-            
-            val responseJson = JSONObject(response.body!!.string())
-            return UploadAuthorizationResponse(
-                upload_jwt = responseJson.getString("upload_jwt"),
-                photo_id = responseJson.getString("photo_id"),
-                expires_at = responseJson.getString("expires_at"),
-                worker_url = responseJson.getString("worker_url")
-            )
+        } catch (e: java.net.ConnectException) {
+            throw Exception("❌ Cannot reach API server: ${e.message}")
+        } catch (e: java.net.SocketTimeoutException) {
+            throw Exception("⏱️ API server timeout: ${e.message}")
+        } catch (e: java.net.UnknownHostException) {
+            throw Exception("🔍 Cannot resolve API server hostname: ${e.message}")
         }
     }
     
@@ -157,24 +165,38 @@ class SecureUploadManager(private val context: Context) {
         
         Log.d(TAG, "Uploading to worker: $filename")
         
-        client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
-                val error = response.body?.string() ?: "Unknown error"
-                Log.e(TAG, "Worker upload failed: ${response.code} - $error")
-                return false
+        try {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    val error = response.body?.string() ?: "Unknown error"
+                    Log.e(TAG, "Worker upload failed: ${response.code} - $error")
+                    return false
+                }
+                
+                val responseJson = JSONObject(response.body!!.string())
+                val success = responseJson.optBoolean("success", false)
+                
+                if (success) {
+                    Log.d(TAG, "✅ Secure upload completed: $filename")
+                } else {
+                    val errorMsg = responseJson.optString("error", "Unknown worker error")
+                    Log.e(TAG, "❌ Worker processing failed: $errorMsg")
+                }
+                
+                return success
             }
-            
-            val responseJson = JSONObject(response.body!!.string())
-            val success = responseJson.optBoolean("success", false)
-            
-            if (success) {
-                Log.d(TAG, "✅ Secure upload completed: $filename")
-            } else {
-                val errorMsg = responseJson.optString("error", "Unknown worker error")
-                Log.e(TAG, "❌ Worker processing failed: $errorMsg")
-            }
-            
-            return success
+        } catch (e: java.net.ConnectException) {
+            Log.e(TAG, "❌ Cannot reach worker server for $filename: ${e.message}")
+            return false
+        } catch (e: java.net.SocketTimeoutException) {
+            Log.e(TAG, "⏱️ Worker upload timeout for $filename: ${e.message}")
+            return false  
+        } catch (e: java.net.UnknownHostException) {
+            Log.e(TAG, "🔍 Cannot resolve worker hostname for $filename: ${e.message}")
+            return false
+        } catch (e: IOException) {
+            Log.e(TAG, "📡 Network I/O error during worker upload for $filename: ${e.message}")
+            return false
         }
     }
     
@@ -221,11 +243,20 @@ class SecureUploadManager(private val context: Context) {
             
             return@withContext uploadSuccess
             
+        } catch (e: java.net.ConnectException) {
+            Log.w(TAG, "🌐 Connection failed for ${photo.filename}: Server unreachable (${e.message})")
+            return@withContext false
+        } catch (e: java.net.SocketTimeoutException) {
+            Log.w(TAG, "⏱️ Upload timeout for ${photo.filename}: ${e.message}")
+            return@withContext false
+        } catch (e: java.net.UnknownHostException) {
+            Log.w(TAG, "🔍 DNS lookup failed for ${photo.filename}: ${e.message}")
+            return@withContext false
         } catch (e: IOException) {
-            Log.e(TAG, "Network error in secure upload: ${photo.filename}", e)
+            Log.w(TAG, "📡 Network I/O error for ${photo.filename}: ${e.message}")
             return@withContext false
         } catch (e: Exception) {
-            Log.e(TAG, "Unexpected error in secure upload: ${photo.filename}", e)
+            Log.e(TAG, "💥 Unexpected error in secure upload: ${photo.filename}", e)
             return@withContext false
         }
     }

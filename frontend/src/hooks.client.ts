@@ -1,5 +1,11 @@
 import * as Sentry from "@sentry/sveltekit";
 import {handleErrorWithSentry, replayIntegration} from "@sentry/sveltekit";
+import {sequence} from "@sveltejs/kit/hooks";
+
+const sentryEnabled = /^(true|1|yes|on)$/i.test((process.env.VITE_SENTRY_ENABLED || '').trim());
+
+if (sentryEnabled)
+{
 
 Sentry.init({
     dsn: 'https://0cd95912362bc25ef123532e78c3d594@o4509657094881280.ingest.de.sentry.io/4509657109692496',
@@ -27,8 +33,14 @@ Sentry.init({
         }),
     ],
 });
-
+}
 // If you have a custom error handler, pass it to `handleErrorWithSentry`
-export const handleError = handleErrorWithSentry();
+export const handleError = sentryEnabled
+	? handleErrorWithSentry()
+	: ({ error }) => {
+			console.error('Unhandled error:', error);
+		};
+
+//export const handle = sentryEnabled ? sequence(sentryHandle()) : sequence();
 
 export const init = () => {console.log('🢄client initialized');};

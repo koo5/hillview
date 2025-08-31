@@ -17,6 +17,9 @@ async def test_upload_endpoint():
     # API base URL (updated to match backend port)
     base_url = "http://localhost:8055"
     
+    # Initialize test_image_path to None
+    test_image_path = None
+    
     # First, register/login to get a token
     print("Testing photo upload functionality with secure workflow...")
     
@@ -134,7 +137,7 @@ async def test_upload_endpoint():
         return False
     finally:
         # Clean up test image
-        if os.path.exists(test_image_path):
+        if test_image_path and os.path.exists(test_image_path):
             os.remove(test_image_path)
 
 def create_test_image(path: str):

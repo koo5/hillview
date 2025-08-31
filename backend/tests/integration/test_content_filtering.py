@@ -21,13 +21,11 @@ API_URL = os.getenv("API_URL", "http://localhost:8055/api")
 
 class TestContentFiltering:
     """Test suite for hidden content filtering in API responses."""
-    
-    def __init__(self):
+        
+    def setup_method(self):
+        """Set up test by creating users and content."""
         self.auth_tokens = {}
         self.test_users = []
-        
-    def setup(self):
-        """Set up test by creating users and content."""
         print("Setting up content filtering tests...")
         
         # Create two test users

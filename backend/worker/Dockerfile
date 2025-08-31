@@ -31,11 +31,14 @@ RUN pip install --no-cache-dir --upgrade pip
 # Install numpy first (many packages depend on it)
 RUN pip install --no-cache-dir "numpy<2"
 
-# Install opencv-python (large package with many binary dependencies)
-RUN pip install --no-cache-dir opencv-python==4.8.1.78
+# Install CPU-only PyTorch first (much smaller than CUDA version)
+RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu
 
-# Install ultralytics (includes PyTorch and other ML dependencies - very large)
-RUN pip install --no-cache-dir ultralytics==8.0.196
+# Install opencv-python-headless (smaller than full opencv-python)
+RUN pip install --no-cache-dir opencv-python-headless==4.8.1.78
+
+# Install ultralytics (will use already installed CPU-only torch)
+RUN pip install --no-cache-dir ultralytics
 
 # Install other medium-sized packages
 RUN pip install --no-cache-dir \
@@ -61,11 +64,11 @@ RUN chown -R worker:worker /app/uploads
 RUN chown -R worker:worker /app/pics
 
 # Copy application code
+COPY common /app/common
 COPY worker/models /app/worker/models
 COPY worker/start*.sh /app/worker/
 COPY worker/*py /app/worker/
 COPY worker/.env /app/worker/
-COPY common /app/common
 
 RUN chown -R worker:worker /app
 

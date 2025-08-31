@@ -27,7 +27,7 @@ from .auth import (
 )
 from .rate_limiter import auth_rate_limiter, check_auth_rate_limit, rate_limit_user_profile, rate_limit_user_registration
 from .config import is_rate_limiting_disabled
-from .security_utils import validate_username, validate_email, validate_oauth_redirect_uri
+from .security_utils import validate_username, validate_email, validate_password, validate_oauth_redirect_uri
 from .security_audit import security_audit
 
 log = logging.getLogger(__name__)
@@ -43,6 +43,7 @@ async def register_user(request: Request, user: UserCreate, db: AsyncSession = D
     # Validate input
     validated_username = validate_username(user.username)
     validated_email = validate_email(user.email)
+    validated_password = validate_password(user.password)
     
     log.info(f"Registration attempt for user: {validated_username}, email: {validated_email}")
     
@@ -62,14 +63,7 @@ async def register_user(request: Request, user: UserCreate, db: AsyncSession = D
     
     # Create new user
     try:
-        # Validate password strength (min 8 chars)
-        if len(user.password) < 8:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Password must be at least 8 characters long"
-            )
-        
-        hashed_password = get_password_hash(user.password)
+        hashed_password = get_password_hash(validated_password)
         db_user = User(
             email=validated_email,
             username=validated_username,

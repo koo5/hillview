@@ -1,0 +1,33 @@
+# flyctl launch added from .gitignore
+**/secrets
+#**/.env
+**/fly.toml
+**/worker/Dockerfile.fly
+
+# flyctl launch added from .idea/.gitignore
+# Default ignored files
+.idea/shelf
+.idea/workspace.xml
+
+# flyctl launch added from .pytest_cache/.gitignore
+# Created by pytest automatically.
+.pytest_cache/**/*
+
+# flyctl launch added from tests/.gitignore
+tests/**/test_venv
+
+# flyctl launch added from tests/.pytest_cache/.gitignore
+# Created by pytest automatically.
+tests/.pytest_cache/**/*
+
+# flyctl launch added from tests/integration/.pytest_cache/.gitignore
+# Created by pytest automatically.
+tests/integration/.pytest_cache/**/*
+
+# flyctl launch added from tests/venv/.gitignore
+# created by virtualenv automatically
+tests/venv/**/*
+
+# flyctl launch added from worker/venv/.gitignore
+# created by virtualenv automatically
+worker/venv/**/*

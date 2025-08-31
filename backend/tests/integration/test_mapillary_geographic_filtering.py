@@ -416,7 +416,7 @@ def test_geographic_filtering_comprehensive():
     else:
         print("\n❌ Some tests failed!")
     
-    return success
+    assert success, "Some geographic filtering tests failed"
 
 if __name__ == "__main__":
     test_geographic_filtering_comprehensive()

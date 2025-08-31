@@ -23,12 +23,10 @@ API_URL = os.getenv("API_URL", "http://localhost:8055/api")
 class TestUserHiding:
     """Test suite for user hiding endpoints."""
     
-    def __init__(self):
+    def setup_method(self):
+        """Set up test by logging in."""
         self.auth_token = None
         self.target_user_id = "target_user_456"
-        
-    def setup(self):
-        """Set up test by logging in."""
         print("Setting up user hiding tests...")
         
         # Create and login test user
