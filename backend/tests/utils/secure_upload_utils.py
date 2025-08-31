@@ -23,7 +23,7 @@ import pytest
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from common.jwt_utils import generate_ecdsa_key_pair, serialize_private_key, serialize_public_key
-from test_utils import recreate_test_users
+from .test_utils import recreate_test_users
 
 class SecureUploadClient:
 	"""

@@ -6,7 +6,7 @@ Tests both evenly distributed photos (should use cache) and poorly distributed p
 
 import requests
 import json
-from test_utils import clear_test_database, API_URL
+from utils.test_utils import clear_test_database, API_URL
 
 def create_evenly_distributed_mock_data():
     """Create mock Mapillary data that's evenly distributed across a 10x10 grid."""

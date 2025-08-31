@@ -5,7 +5,7 @@ Test Mapillary photo filtering functionality using mock data.
 
 import requests
 import json
-from test_utils import clear_test_database, API_URL
+from utils.test_utils import clear_test_database, API_URL
 
 def setup_test_users():
     """Create test users and return auth tokens."""

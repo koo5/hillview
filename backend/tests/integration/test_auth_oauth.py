@@ -6,13 +6,12 @@ Tests the unified authentication flow for both web and mobile platforms.
 import pytest
 import requests
 import json
-from unittest.mock import Mock, patch
 from urllib.parse import urlparse, parse_qs
 import sys
 import os
 
 # Add the backend directory to the path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
 BASE_URL = os.getenv("API_URL", "http://localhost:8055")
 TEST_PROVIDERS = ["google", "github"]

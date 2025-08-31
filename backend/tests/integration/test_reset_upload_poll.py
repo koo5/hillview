@@ -14,9 +14,9 @@ import io
 import tempfile
 
 # Add the backend directory to the path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
-from test_utils import recreate_test_users
+from utils.test_utils import recreate_test_users
 
 BASE_URL = os.getenv("API_URL", "http://localhost:8055")
 
@@ -119,7 +119,7 @@ class TestResetUploadPoll:
 
     async def upload_test_photo(self, token: str, location_data: dict, cycle_num: int = 1) -> dict:
         """Upload a test photo with specific location data using secure upload workflow"""
-        from secure_upload_utils import SecureUploadClient
+        from utils.secure_upload_utils import SecureUploadClient
 
         print(f"Uploading test photo #{cycle_num} ({location_data['description']}) using secure workflow...")
 

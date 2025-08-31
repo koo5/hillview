@@ -1,4 +1,5 @@
 import logging
+from contextlib import asynccontextmanager
 from typing import Dict, Any
 from fastapi import FastAPI, HTTPException, status, Request, Depends
 from fastapi.responses import JSONResponse
@@ -10,7 +11,7 @@ import os
 import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import Base, engine
-from .config import is_rate_limiting_disabled
+from .config import is_rate_limiting_disabled, rate_limit_config
 
 load_dotenv()
 logging.basicConfig(level=logging.DEBUG)
@@ -24,7 +25,22 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 # Configuration
 USER_ACCOUNTS = os.getenv("USER_ACCOUNTS", "false").lower() in ("true", "1", "yes")
 
-app = FastAPI(title="Hillview API", description="API for Hillview application")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+	# Startup
+	log.info("Application startup initiated")
+	
+	# Log rate limit configuration
+	rate_limit_config.log_configuration()
+	
+	log.info("Application startup completed")
+	
+	yield
+	
+	# Shutdown (if needed in the future)
+	log.info("Application shutdown")
+
+app = FastAPI(title="Hillview API", description="API for Hillview application", lifespan=lifespan)
 
 # Security Headers Middleware
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -234,16 +250,7 @@ def run_migrations():
 	# Run migrations
 	command.upgrade(alembic_cfg, "head")
 
-# Initialize database
-@app.on_event("startup")
-async def startup():
-	from .config import rate_limit_config
-	log.info("Application startup initiated")
-
-	# Log rate limit configuration
-	rate_limit_config.log_configuration()
-
-	log.info("Application startup completed")
+# Database initialization moved to lifespan handler above
 
 @app.get("/api/debug")
 async def debug_endpoint():

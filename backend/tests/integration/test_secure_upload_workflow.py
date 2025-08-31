@@ -8,7 +8,7 @@ import httpx
 import os
 import tempfile
 from PIL import Image
-from secure_upload_utils import SecureUploadClient
+from utils.secure_upload_utils import SecureUploadClient
 
 class TestSecureUploadWorkflow:
 	"""Integration tests for the real secure upload workflow using SecureUploadClient utility."""
@@ -117,7 +117,7 @@ class TestSecureUploadWorkflow:
 		# Generate client key pair for this workflow test
 		import sys
 		import os
-		sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+		sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
 		from common.jwt_utils import generate_ecdsa_key_pair, serialize_private_key, serialize_public_key
 

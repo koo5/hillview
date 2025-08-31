@@ -10,7 +10,7 @@ from pathlib import Path
 
 async def test_upload_endpoint():
     """Test the photo upload endpoint using secure upload workflow."""
-    from secure_upload_utils import SecureUploadClient
+    from utils.secure_upload_utils import SecureUploadClient
     
     # API base URL (updated to match backend port)
     base_url = "http://localhost:8055"

@@ -9,13 +9,17 @@ fi
 # Activate virtual environment
 source venv/bin/activate
 
+# Install backend dependencies first (for FastAPI app imports)
+echo "Installing backend dependencies..."
+pip install -r ../api/app/requirements.txt
+
 # Install test dependencies
 echo "Installing test dependencies..."
 pip install -r requirements.txt
 
 # Run the tests
-echo "Running secure upload workflow test..."
-python -m pytest test_secure_upload_workflow.py::TestSecureUploadWorkflow::test_complete_secure_upload_workflow -v -s
+echo "Running all tests..."
+python -m pytest integration/ unit/ -v
 
 # Deactivate virtual environment
 deactivate

@@ -2,7 +2,7 @@
 dotenv
 pytest==7.4.3
 pytest-asyncio==0.21.1
-httpx==0.27.0
+httpx[http2]==0.27.0
 Pillow==10.1.0
 
 # JWT and crypto dependencies (for client key generation)
@@ -16,6 +16,9 @@ piexif
 # For existing tests compatibility
 requests==2.31.0
 fastapi
+python-multipart
+aiofiles
+
 
 # Password hashing for auth tests
 passlib[bcrypt]
@@ -25,4 +28,5 @@ passlib[bcrypt]
 sqlalchemy==2.0.23
 asyncpg==0.28.0
 geoalchemy2==0.14.2
-#shapely==2.0.2
+shapely==2.0.2
+numpy<2.0.0

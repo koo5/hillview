@@ -16,7 +16,7 @@ import json
 import time
 import os
 from datetime import datetime
-from test_utils import clear_test_database, API_URL
+from utils.test_utils import clear_test_database, API_URL
 
 class TestPhotoHiding:
     """Test suite for photo hiding endpoints."""

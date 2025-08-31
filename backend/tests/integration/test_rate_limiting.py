@@ -8,7 +8,7 @@ from typing import Dict, Any
 
 # Add the backend paths for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'api', 'app'))
-from config import is_rate_limiting_disabled
+from api.app.config import is_rate_limiting_disabled
 
 BASE_URL = os.getenv("API_URL", "http://localhost:8055")
 
@@ -78,7 +78,7 @@ class TestRateLimiting:
     @pytest.mark.asyncio
     async def test_client_key_registration_rate_limiting(self):
         """Test rate limiting on client key registration endpoint."""
-        from secure_upload_utils import SecureUploadClient
+        from utils.secure_upload_utils import SecureUploadClient
         
         print("\n=== Testing Client Key Registration Rate Limiting ===")
         
@@ -106,7 +106,7 @@ class TestRateLimiting:
     @pytest.mark.asyncio
     async def test_upload_authorization_rate_limiting(self):
         """Test rate limiting on upload authorization endpoint."""
-        from secure_upload_utils import SecureUploadClient
+        from utils.secure_upload_utils import SecureUploadClient
         
         print("\n=== Testing Upload Authorization Rate Limiting ===")
         
@@ -146,7 +146,7 @@ class TestRateLimiting:
     @pytest.mark.asyncio
     async def test_worker_upload_rate_limiting(self):
         """Test rate limiting on worker upload endpoint."""
-        from secure_upload_utils import SecureUploadClient
+        from utils.secure_upload_utils import SecureUploadClient
         
         print("\n=== Testing Worker Upload Rate Limiting ===")
         

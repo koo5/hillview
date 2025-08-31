@@ -19,7 +19,7 @@ import time
 import os
 from datetime import datetime
 from typing import List, Dict, Any, Optional
-from test_utils import clear_test_database, API_URL, create_test_photos
+from utils.test_utils import clear_test_database, API_URL, create_test_photos
 
 class TestHillviewFiltering:
     """Comprehensive test suite for Hillview API content filtering."""

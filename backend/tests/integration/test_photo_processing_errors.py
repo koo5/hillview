@@ -4,8 +4,8 @@ Test photo processing error cases with polling mechanism.
 """
 
 import requests
-from test_utils import clear_test_database, API_URL, upload_test_image, wait_for_photo_processing
-from image_utils import (
+from utils.test_utils import clear_test_database, API_URL, upload_test_image, wait_for_photo_processing
+from utils.image_utils import (
 	create_test_image_no_exif,
 	create_test_image_coords_only,
 	create_test_image_bearing_only,
