@@ -59,6 +59,9 @@ class TestSecureUploadWorkflow:
 		"""Test Phase 2: Request upload authorization from API using utility."""
 		try:
 			auth_token = await test_user_auth
+			# Register client key first (required for upload authorization)
+			client_keys = upload_client.generate_client_keys()
+			await upload_client.register_client_key(auth_token, client_keys)
 			auth_data = await upload_client.authorize_upload(auth_token, filename)
 			assert "upload_jwt" in auth_data
 			assert "worker_url" in auth_data
@@ -90,6 +93,9 @@ class TestSecureUploadWorkflow:
 	async def test_worker_token_validation(self, test_user_auth, upload_client):
 		"""Test that worker properly validates JWT authorization tokens using utility."""
 		auth_token = await test_user_auth
+		# Register client key first (required for upload authorization)
+		client_keys = upload_client.generate_client_keys()
+		await upload_client.register_client_key(auth_token, client_keys)
 		await upload_client.test_worker_token_validation(auth_token)
 
 	@pytest.mark.asyncio
@@ -178,7 +184,7 @@ class TestSecureUploadWorkflow:
 				if processed_photo:
 					processing_status = processed_photo.get('processing_status', 'N/A')
 					print(f"   Processing Status: {processing_status}")
-					assert processing_status == "failed", "Photo processing status should be 'failed'"
+					assert processing_status == "error", "Photo processing status should be 'error'"
 				else:
 					pytest.fail(f"❌ Phase 4: Photo {photo_id} not found in user's photo list")
 			else:

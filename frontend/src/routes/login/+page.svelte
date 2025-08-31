@@ -8,6 +8,7 @@
     import { buildOAuthUrl } from '$lib/authCallback';
     import { getCurrentToken } from '$lib/auth.svelte';
     import { goBack, clearNavigationHistory } from '$lib/navigation.svelte';
+    import { page } from '$app/stores';
 
     let username = '';
     let password = '';
@@ -18,6 +19,13 @@
     let isLoading = false;
     let usernameGenerated = false;
     let isMobileApp = false;
+
+    // Auto-fill dev credentials if in dev mode
+    if (import.meta.env.VITE_DEV_MODE === 'true') {
+        username = 'test';
+        password = 'test123';
+        console.log('🢄[DEV] Auto-filled login credentials for development');
+    }
 
     // OAuth configuration
     const oauthProviders: Record<string, {clientId: string; redirectUri: string; authUrl: string; scope: string}> = {
@@ -56,8 +64,9 @@
 
         // Check if user is already logged in (for web)
         auth.subscribe(value => {
-            if (value.isAuthenticated) {
-                // If already authenticated, go back to where they came from
+            if (value.isAuthenticated && $page.url.pathname === '/login') {
+                // Only redirect if we're actually on the login page
+                console.log('🢄🔐 Already authenticated on login page, redirecting');
                 goBack('/');
             }
         });

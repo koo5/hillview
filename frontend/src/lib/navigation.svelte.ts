@@ -101,6 +101,7 @@ export function goBack(fallbackPath: string = '/') {
     } else {
         // No history, go to fallback
         console.log(`🧭 [NAV] No history, using fallback: "${fallbackPath}"`);
+        console.trace('🧭 [NAV] goBack() called from:');
         myGoto(fallbackPath);
     }
 }

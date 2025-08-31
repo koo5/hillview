@@ -9,6 +9,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import org.json.JSONObject
 
 class AuthenticationManager(private val context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -190,12 +191,25 @@ class AuthenticationManager(private val context: Context) {
             }
 
             val url = "$serverUrl/auth/register-client-key"
-            val json = """{"public_key_pem":"${keyInfo.publicKeyPem}","key_id":"${keyInfo.keyId}","created_at":"${keyInfo.createdAt}"}"""
+            val json = JSONObject().apply {
+                put("public_key_pem", keyInfo.publicKeyPem)
+                put("key_id", keyInfo.keyId)
+                put("created_at", keyInfo.createdAt)
+            }
+
+            // Debug: Log the JSON payload
+            val jsonString = json.toString()
+            Log.d(TAG, "Sending JSON payload to register-client-key:")
+            Log.d(TAG, "JSON length: ${jsonString.length}")
+            Log.d(TAG, "Key ID: ${keyInfo.keyId}")
+            Log.d(TAG, "Created at: ${keyInfo.createdAt}")
+            Log.d(TAG, "PEM preview: ${keyInfo.publicKeyPem.take(50)}...")
+            Log.d(TAG, "Full JSON: $jsonString")
 
             // Use OkHttp for the HTTP request
             val client = okhttp3.OkHttpClient()
             val mediaType = "application/json".toMediaType()
-            val requestBody = json.toRequestBody(mediaType)
+            val requestBody = jsonString.toRequestBody(mediaType)
 
             val request = okhttp3.Request.Builder()
                 .url(url)
