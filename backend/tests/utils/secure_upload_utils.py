@@ -228,10 +228,8 @@ class SecureUploadClient:
 		worker_url = auth_data["worker_url"]
 		photo_id = auth_data["photo_id"]
 
-		# Convert timestamp to integer like the old version
-		from datetime import datetime
-		upload_authorized_at = datetime.fromisoformat(auth_data["upload_authorized_at"].replace('Z', '+00:00'))
-		timestamp = int(upload_authorized_at.timestamp())
+		# Get timestamp - now comes as Unix timestamp directly
+		timestamp = auth_data["upload_authorized_at"]
 
 		client_signature = self.generate_client_signature(
 			client_keys["private_key"],

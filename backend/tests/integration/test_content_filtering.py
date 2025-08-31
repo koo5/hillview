@@ -14,7 +14,13 @@ import requests
 import json
 import time
 import os
+import sys
 from datetime import datetime
+
+# Add paths for imports
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+
+from utils.test_utils import query_hillview_endpoint
 
 # Test configuration
 API_URL = os.getenv("API_URL", "http://localhost:8055/api")
@@ -33,7 +39,7 @@ class TestContentFiltering:
             test_user = {
                 "username": f"filter_test_user_{i}_{int(time.time())}",
                 "email": f"filter_test_{i}_{int(time.time())}@test.com", 
-                "password": "TestPass123!"
+                "password": "SuperStrongFilterTestPassword123!@#"
             }
             
             # Register user
@@ -85,17 +91,13 @@ class TestContentFiltering:
             "client_id": "test_filter_client"
         }
         
-        response = requests.get(
-            f"{API_URL}/hillview",
-            params=params,
-            headers=self.get_auth_headers(user1)
+        baseline_result = query_hillview_endpoint(
+            token=self.auth_tokens[user1], 
+            params=params
         )
         
-        if response.status_code != 200:
-            print(f"✗ Hillview API call failed: {response.status_code}")
-            return False
+        assert baseline_result is not None, "Hillview API call failed"
         
-        baseline_result = response.json()
         baseline_count = len(baseline_result.get("data", []))
         print(f"Baseline: {baseline_count} photos found")
         
@@ -115,50 +117,39 @@ class TestContentFiltering:
                 headers=self.get_auth_headers(user1)
             )
             
-            if response.status_code != 200:
-                print(f"✗ Failed to hide photo: {response.status_code}")
-                return False
+            assert response.status_code == 200, f"Failed to hide photo: {response.status_code}"
             
             print(f"✓ Hidden photo: {photo_to_hide}")
             
             # Query again - should have one less photo
-            response = requests.get(
-                f"{API_URL}/hillview",
-                params=params,
-                headers=self.get_auth_headers(user1)
+            filtered_result = query_hillview_endpoint(
+                token=self.auth_tokens[user1], 
+                params=params
             )
             
-            if response.status_code == 200:
-                filtered_result = response.json()
-                filtered_count = len(filtered_result.get("data", []))
-                
-                # Verify the hidden photo is not in results
-                photo_ids = [photo["id"] for photo in filtered_result.get("data", [])]
-                
-                if photo_to_hide not in photo_ids:
-                    print(f"✓ Hidden photo filtered out ({baseline_count} -> {filtered_count})")
-                    
-                    # Clean up - unhide the photo
-                    unhide_request = {
-                        "photo_source": "hillview",
-                        "photo_id": photo_to_hide
-                    }
-                    requests.delete(
-                        f"{API_URL}/hidden/photos",
-                        json=unhide_request,
-                        headers=self.get_auth_headers(user1)
-                    )
-                    
-                    return True
-                else:
-                    print("✗ Hidden photo still appears in results")
-                    return False
-            else:
-                print(f"✗ Filtered query failed: {response.status_code}")
-                return False
+            assert filtered_result is not None, "Filtered query failed"
+            
+            filtered_count = len(filtered_result.get("data", []))
+            
+            # Verify the hidden photo is not in results
+            photo_ids = [photo["id"] for photo in filtered_result.get("data", [])]
+            
+            assert photo_to_hide not in photo_ids, "Hidden photo still appears in results"
+            
+            print(f"✓ Hidden photo filtered out ({baseline_count} -> {filtered_count})")
+            
+            # Clean up - unhide the photo
+            unhide_request = {
+                "photo_source": "hillview",
+                "photo_id": photo_to_hide
+            }
+            requests.delete(
+                f"{API_URL}/hidden/photos",
+                json=unhide_request,
+                headers=self.get_auth_headers(user1)
+            )
         else:
-            print("ℹ No photos available to test filtering")
-            return True
+            print("ℹ No photos available to test filtering - test passes")
     
     def test_activity_feed_filtering(self):
         """Test that hidden content is filtered from activity feed."""
@@ -263,18 +254,20 @@ class TestContentFiltering:
             "client_id": "test_auth_client"
         }
         
-        auth_response = requests.get(
-            f"{API_URL}/hillview",
-            params=params,
-            headers=self.get_auth_headers(user1)
+        auth_result = query_hillview_endpoint(
+            token=self.auth_tokens[user1], 
+            params=params
         )
         
         # Query as anonymous user
-        anon_response = requests.get(f"{API_URL}/hillview", params=params)
+        anon_result = query_hillview_endpoint(
+            token=None, 
+            params=params
+        )
         
-        if auth_response.status_code == 200 and anon_response.status_code == 200:
-            auth_photos = auth_response.json().get("data", [])
-            anon_photos = anon_response.json().get("data", [])
+        if auth_result is not None and anon_result is not None:
+            auth_photos = auth_result.get("data", [])
+            anon_photos = anon_result.get("data", [])
             
             print(f"Authenticated user sees: {len(auth_photos)} photos")
             print(f"Anonymous user sees: {len(anon_photos)} photos")
@@ -287,7 +280,7 @@ class TestContentFiltering:
                 print("✗ Anonymous user sees more photos than authenticated user")
                 return False
         else:
-            print(f"✗ API calls failed - auth: {auth_response.status_code}, anon: {anon_response.status_code}")
+            print("✗ API calls failed - one or both queries returned None")
             return False
     
     def test_cross_user_isolation(self):

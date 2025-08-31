@@ -31,7 +31,7 @@ class TestPhotoHiding:
         test_user = {
             "username": f"test_photo_hider_{int(time.time())}",
             "email": f"photo_hider_{int(time.time())}@test.com",
-            "password": "TestPass123!"
+            "password": "SuperStrongHiddenPhotoTestPassword123!@#"
         }
         
         # Register user
@@ -84,14 +84,13 @@ class TestPhotoHiding:
         print(f"Response status: {response.status_code}")
         print(f"Response: {response.json()}")
         
-        if response.status_code == 200:
-            result = response.json()
-            if result.get("success") and "hidden successfully" in result.get("message", ""):
-                print("✓ Photo hidden successfully")
-                return True
+        assert response.status_code == 200, f"Expected 200, got {response.status_code}"
         
-        print("✗ Failed to hide photo")
-        return False
+        result = response.json()
+        assert result.get("success"), f"Expected success=True, got {result}"
+        assert "hidden successfully" in result.get("message", ""), f"Expected success message, got {result}"
+        
+        print("✓ Photo hidden successfully")
     
     def test_hide_photo_duplicate(self):
         """Test hiding a photo that's already hidden."""
@@ -112,14 +111,13 @@ class TestPhotoHiding:
         print(f"Response status: {response.status_code}")
         print(f"Response: {response.json()}")
         
-        if response.status_code == 200:
-            result = response.json()
-            if result.get("success") and result.get("already_hidden"):
-                print("✓ Duplicate hiding handled correctly")
-                return True
+        assert response.status_code == 200, f"Expected 200, got {response.status_code}"
         
-        print("✗ Duplicate hiding not handled properly")
-        return False
+        result = response.json()
+        assert result.get("success"), f"Expected success=True, got {result}"
+        assert result.get("already_hidden"), f"Expected already_hidden=True, got {result}"
+        
+        print("✓ Duplicate hiding handled correctly")
     
     def test_list_hidden_photos(self):
         """Test listing hidden photos."""
@@ -132,23 +130,21 @@ class TestPhotoHiding:
         
         print(f"Response status: {response.status_code}")
         
-        if response.status_code == 200:
-            photos = response.json()
-            print(f"Found {len(photos)} hidden photos")
-            
-            # Verify structure
-            if photos and isinstance(photos, list):
-                photo = photos[0]
-                required_fields = ["photo_source", "photo_id", "hidden_at", "reason"]
-                if all(field in photo for field in required_fields):
-                    print("✓ Hidden photos listed successfully")
-                    return True
-            elif len(photos) == 0:
-                print("✓ No hidden photos found (valid response)")
-                return True
+        assert response.status_code == 200, f"Expected 200, got {response.status_code}"
         
-        print("✗ Failed to list hidden photos")
-        return False
+        photos = response.json()
+        print(f"Found {len(photos)} hidden photos")
+        
+        assert isinstance(photos, list), f"Expected list response, got {type(photos)}"
+        
+        # Verify structure if we have photos
+        if photos:
+            photo = photos[0]
+            required_fields = ["photo_source", "photo_id", "hidden_at", "reason"]
+            assert all(field in photo for field in required_fields), f"Missing required fields in {photo}"
+            print("✓ Hidden photos listed successfully")
+        else:
+            print("✓ No hidden photos found (valid response)")
     
     def test_unhide_photo(self):
         """Test unhiding a photo."""
@@ -168,14 +164,13 @@ class TestPhotoHiding:
         print(f"Response status: {response.status_code}")
         print(f"Response: {response.json()}")
         
-        if response.status_code == 200:
-            result = response.json()
-            if result.get("success") and "unhidden successfully" in result.get("message", ""):
-                print("✓ Photo unhidden successfully")
-                return True
+        assert response.status_code == 200, f"Expected 200, got {response.status_code}"
         
-        print("✗ Failed to unhide photo")
-        return False
+        result = response.json()
+        assert result.get("success"), f"Expected success=True, got {result}"
+        assert "unhidden successfully" in result.get("message", ""), f"Expected success message, got {result}"
+        
+        print("✓ Photo unhidden successfully")
     
     def test_authentication_required(self):
         """Test that authentication is required."""
@@ -197,14 +192,9 @@ class TestPhotoHiding:
             else:  # GET
                 response = requests.get(f"{API_URL}/hidden/photos")
             
-            if response.status_code != 401:
-                print(f"✗ {method} should require auth, got {response.status_code}")
-                success = False
+            assert response.status_code == 401, f"{method} should require auth, got {response.status_code}"
         
-        if success:
-            print("✓ All endpoints require authentication")
-        
-        return success
+        print("✓ All endpoints require authentication")
     
     def test_input_validation(self):
         """Test input validation."""
@@ -222,8 +212,6 @@ class TestPhotoHiding:
             {}  # Empty request
         ]
         
-        success = True
-        
         # Test business logic validation (400 expected)
         for invalid_data in invalid_business_logic:
             response = requests.post(
@@ -232,11 +220,8 @@ class TestPhotoHiding:
                 headers=self.get_auth_headers()
             )
             
-            if response.status_code != 400:
-                print(f"✗ Should return 400 for invalid business logic: {invalid_data}")
-                success = False
-            else:
-                print(f"✓ Correctly rejected invalid business logic: {invalid_data}")
+            assert response.status_code == 400, f"Should return 400 for invalid business logic: {invalid_data}, got {response.status_code}"
+            print(f"✓ Correctly rejected invalid business logic: {invalid_data}")
         
         # Test Pydantic validation (422 expected)  
         for invalid_data in missing_fields:
@@ -246,16 +231,10 @@ class TestPhotoHiding:
                 headers=self.get_auth_headers()
             )
             
-            if response.status_code != 422:
-                print(f"✗ Should return 422 for missing fields: {invalid_data}")
-                success = False
-            else:
-                print(f"✓ Correctly rejected missing fields: {invalid_data}")
+            assert response.status_code == 422, f"Should return 422 for missing fields: {invalid_data}, got {response.status_code}"
+            print(f"✓ Correctly rejected missing fields: {invalid_data}")
         
-        if success:
-            print("✓ Input validation working correctly")
-        
-        return success
+        print("✓ Input validation working correctly")
     
     def run_all_tests(self):
         """Run all photo hiding tests."""

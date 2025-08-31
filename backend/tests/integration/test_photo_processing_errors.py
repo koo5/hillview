@@ -24,7 +24,7 @@ def setup_test_user():
 	recreate_test_users()
 	
 	# Login as standard test user
-	login_data = {"username": "test", "password": "test123"}
+	login_data = {"username": "test", "password": "StrongTestPassword123!"}
 	response = requests.post(f"{API_URL}/auth/token", data=login_data)
 	if response.status_code != 200:
 		raise Exception(f"Failed to login test user: {response.status_code} - {response.text}")

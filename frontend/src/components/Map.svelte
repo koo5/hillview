@@ -720,13 +720,13 @@
         (async () => {
             try {
                 await simplePhotoWorker.initialize();
-                console.log('🢄SimplePhotoWorker initialized successfully');
+                //console.log('🢄SimplePhotoWorker initialized successfully');
             } catch (error) {
                 console.error('🢄Failed to initialize SimplePhotoWorker:', error);
             }
 
             await onMapStateChange(true, 'mount');
-            console.log('🢄Map component mounted - after onMapStateChange');
+            //console.log('🢄Map component mounted - after onMapStateChange');
         })();
 
         // Add event listeners for visibility changes
@@ -870,11 +870,11 @@
             bind:this={elMap}
             events={{moveend: mapStateUserEvent, zoomend: mapStateUserEvent}}
             options={{
-                center: [$spatialState.center.lat, $spatialState.center.lng], 
+                center: [$spatialState.center.lat, $spatialState.center.lng],
                 zoom: $spatialState.zoom,
                 minZoom: 3,
                 maxZoom: 23,
-                zoomControl: true, 
+                zoomControl: true,
                 scrollWheelZoom: !/Android/i.test(navigator.userAgent), // Disable on Android, we'll handle it manually
                 touchZoom: true,
                 dragging: true,
@@ -1020,8 +1020,8 @@
                 on:mousedown={(e) => handleMouseDown('left', e)}
                 on:mouseup={handleMouseUp}
                 on:mouseleave={handleMouseUp}
-                title={slideshowActive && slideshowDirection === 'left' ? 
-                      "Stop slideshow" : 
+                title={slideshowActive && slideshowDirection === 'left' ?
+                      "Stop slideshow" :
                       "Rotate to next photo on the left (long press for slideshow)"}
                 disabled={!$photoToLeft}
                 class:slideshow-active={slideshowActive && slideshowDirection === 'left'}
@@ -1066,8 +1066,8 @@
                 on:mousedown={(e) => handleMouseDown('right', e)}
                 on:mouseup={handleMouseUp}
                 on:mouseleave={handleMouseUp}
-                title={slideshowActive && slideshowDirection === 'right' ? 
-                      "Stop slideshow" : 
+                title={slideshowActive && slideshowDirection === 'right' ?
+                      "Stop slideshow" :
                       "Rotate to next photo on the right (long press for slideshow)"}
                 disabled={!$photoToRight}
                 class:slideshow-active={slideshowActive && slideshowDirection === 'right'}

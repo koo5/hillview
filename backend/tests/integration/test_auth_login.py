@@ -30,7 +30,7 @@ class TestUserPasswordAuth:
 		"""Test successful login with test user credentials"""
 		login_data = {
 			"username": "test",
-			"password": "test123"
+			"password": "StrongTestPassword123!"
 		}
 
 		response = requests.post(
@@ -59,7 +59,7 @@ class TestUserPasswordAuth:
 		"""Test successful login with admin user credentials"""
 		login_data = {
 			"username": "admin",
-			"password": "admin123"
+			"password": "StrongAdminPassword123!"
 		}
 
 		response = requests.post(
@@ -79,7 +79,7 @@ class TestUserPasswordAuth:
 		"""Test login with invalid username"""
 		login_data = {
 			"username": "nonexistent_user",
-			"password": "test123"
+			"password": "StrongTestPassword123!"
 		}
 
 		response = requests.post(
@@ -153,7 +153,7 @@ class TestUserPasswordAuth:
 		"""Test login with wrong content type (JSON instead of form data)"""
 		login_data = {
 			"username": "test",
-			"password": "test123"
+			"password": "StrongTestPassword123!"
 		}
 
 		# Try sending as JSON instead of form data
@@ -173,7 +173,7 @@ class TestTokenValidation:
 		"""Helper to get a valid token for testing"""
 		login_data = {
 			"username": "test",
-			"password": "test123"
+			"password": "StrongTestPassword123!"
 		}
 
 		response = requests.post(
@@ -262,7 +262,7 @@ class TestUserRoles:
 
 	def get_admin_token(self):
 		"""Get token for admin user"""
-		login_data = {"username": "admin", "password": "admin123"}
+		login_data = {"username": "admin", "password": "StrongAdminPassword123!"}
 		response = requests.post(
 			f"{API_URL}/auth/token",
 			data=login_data,
@@ -328,7 +328,7 @@ class TestLoginSecurity:
 		for username in usernames_to_test:
 			login_data = {
 				"username": username,
-				"password": "test123"
+				"password": "StrongTestPassword123!"
 			}
 
 			response = requests.post(
@@ -357,7 +357,7 @@ class TestLoginSecurity:
 		for malicious_input in malicious_inputs:
 			login_data = {
 				"username": malicious_input,
-				"password": "test123"
+				"password": "StrongTestPassword123!"
 			}
 
 			response = requests.post(

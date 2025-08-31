@@ -52,7 +52,7 @@ class TestHillviewFiltering:
             test_user = {
                 "username": f"{username[:15]}_{timestamp}_{i}",  # Keep under 30 chars and make unique
                 "email": f"{email.split('@')[0]}_{timestamp}_{i}@test.com",
-                "password": "TestPass123!"
+                "password": "SuperStrongHillviewFilterTestPassword123!@#"
             }
             
             # Register user

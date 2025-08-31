@@ -76,16 +76,16 @@ export class OptimizedMarkerSystem {
 			html: `
         <div class="marker-container" style="width: ${arrowSize}px; height: ${arrowSize}px;">
           <!-- Bearing diff circle (background) -->
-          <div class="bearing-circle ${isSelected ? 'selected' : ''}" 
+          <div class="bearing-circle ${isSelected ? 'selected' : ''}"
                style="
                  background-color: ${photo.bearing_color || '#9E9E9E'};
-                 width: ${circleSize}px; 
+                 width: ${circleSize}px;
                  height: ${circleSize}px;
                  border: ${strokeWidth}px solid ${photo.source?.color || '#666'};
                "></div>
-          
+
           <!-- Direction arrow (foreground) -->
-          <div class="direction-arrow" 
+          <div class="direction-arrow"
                style="
                  background-image: url(${this.atlasDataUrl});
                  background-position: ${backgroundPos};
@@ -143,12 +143,8 @@ export class OptimizedMarkerSystem {
 	private pendingBearingUpdate: number | null = null;
 	private pendingBearingUpdateTimeout: returnType<typeof setTimeout> | null = null;
 
-
-	let
-	lastVal;
-
+	private lastVal: number | undefined = undefined;
 	scheduleColorUpdate(bearing: number): void {
-
 		lastVal = bearing;
 		if (this.pendingBearingUpdateTimeout) {
 			return
@@ -171,8 +167,6 @@ export class OptimizedMarkerSystem {
 
 
 		}, 100);
-
-
 	}
 
 	/**

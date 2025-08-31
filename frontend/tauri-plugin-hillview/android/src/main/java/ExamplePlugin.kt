@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.pm.PackageManager
 import android.util.Log
+import android.webkit.ConsoleMessage
 import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
 import android.webkit.WebView
@@ -168,7 +169,18 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     private fun setupWebViewCameraPermissions(webView: WebView) {
         Log.i(TAG, "🢄🎥 Setting up WebView camera permission handling")
         
+        // Store the existing WebChromeClient to preserve other functionality
+        val existingClient = webView.webChromeClient
+        Log.i(TAG, "🢄🎥 Existing WebChromeClient: ${existingClient?.javaClass?.simpleName}")
+        
         webView.webChromeClient = object : WebChromeClient() {
+            // Prevent duplicate console logging by not forwarding to Android logs
+            override fun onConsoleMessage(consoleMessage: ConsoleMessage): Boolean {
+                // Don't forward console messages to prevent duplication
+                // Let WebView handle them naturally in DevTools/Inspector
+                return false
+            }
+            
             override fun onPermissionRequest(request: PermissionRequest) {
                 Log.i(TAG, "🢄🎥 WebView permission request received")
                 Log.i(TAG, "🢄🎥 Origin: ${request.origin}")

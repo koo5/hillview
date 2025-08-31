@@ -23,7 +23,7 @@
     // Auto-fill dev credentials if in dev mode
     if (import.meta.env.VITE_DEV_MODE === 'true') {
         username = 'test';
-        password = 'test123';
+        password = 'StrongTestPassword123!';
         console.log('🢄[DEV] Auto-filled login credentials for development');
     }
 
@@ -49,7 +49,7 @@
             await invoke('plugin:hillview|get_auth_token');
             isMobileApp = true;
             console.log('🢄🔐 Mobile app detected');
-            
+
             // Check if user already has valid auth from previous session
             const token = await getCurrentToken();
             if (token) {
@@ -75,28 +75,28 @@
     async function handleSubmit() {
         isLoading = true;
         errorMessage = '';
-        
+
         try {
             if (isLogin) {
                 // Login
                 console.log('🢄Attempting login for:', username);
                 const success = await login(username, password);
-                
+
                 if (!success) {
                     throw new Error('Login failed. Please check your credentials and try again.');
                 }
-                
+
                 // After successful login, go back to where user came from
                 goBack('/');
             } else {
                 // Register
                 console.log('🢄Registering with:', { email, username, password });
                 const success = await register(email, username, password);
-                
+
                 if (!success) {
                     throw new Error('Registration failed. Please check the console for more details.');
                 }
-                
+
                 // Switch to login form after successful registration
                 isLogin = true;
                 successMessage = 'Registration successful! Please log in.';
@@ -114,11 +114,11 @@
             console.error('🢄Unsupported OAuth provider:', provider);
             return;
         }
-        
+
         console.log(`🔐 Starting ${provider} OAuth flow (${isMobileApp ? 'mobile' : 'web'} mode)`);
         const authUrl = buildOAuthUrl(provider, isMobileApp);
         console.log('🢄🔐 Redirecting to:', authUrl);
-        
+
         if (isMobileApp) {
             // Open in system browser using Tauri opener plugin
             try {
@@ -162,15 +162,15 @@
     </div>
     <div class="login-card">
         <h1>{isLogin ? 'Login' : 'Register'}</h1>
-        
+
         {#if errorMessage}
             <div class="error-message">{errorMessage}</div>
         {/if}
-        
+
         {#if successMessage}
             <div class="success-message">{successMessage}</div>
         {/if}
-        
+
         <form on:submit|preventDefault={handleSubmit}>
             {#if !isLogin}
                 <div class="form-group">
@@ -178,47 +178,47 @@
                         <Mail size={20} />
                         Email
                     </label>
-                    <input 
-                        type="email" 
-                        id="email" 
-                        bind:value={email} 
+                    <input
+                        type="email"
+                        id="email"
+                        bind:value={email}
                         on:input={generateUsername}
                         required
                         placeholder="Enter your email"
                     />
                 </div>
             {/if}
-            
+
             <div class="form-group">
                 <label for="username">
                     <User size={20} />
                     Username {#if !isLogin && usernameGenerated}<span class="auto-generated">(auto-generated)</span>{/if}
                 </label>
-                <input 
-                    type="text" 
-                    id="username" 
-                    bind:value={username} 
+                <input
+                    type="text"
+                    id="username"
+                    bind:value={username}
                     required
                     placeholder="Enter your username"
                     class:auto-generated={!isLogin && usernameGenerated}
                     on:focus={() => usernameGenerated = false}
                 />
             </div>
-            
+
             <div class="form-group">
                 <label for="password">
                     <Lock size={20} />
                     Password
                 </label>
-                <input 
-                    type="password" 
-                    id="password" 
-                    bind:value={password} 
+                <input
+                    type="password"
+                    id="password"
+                    bind:value={password}
                     required
                     placeholder="Enter your password"
                 />
             </div>
-            
+
             <div class="auth-buttons">
                 <button type="submit" class="primary-button" disabled={isLoading}>
                     {isLoading ? 'Loading...' : isLogin ? 'Login' : 'Register'}
@@ -228,14 +228,14 @@
                 </button>
             </div>
         </form>
-        
+
         <div class="divider">
             <span>OR</span>
         </div>
-        
+
         <div class="oauth-buttons">
-            <button 
-                class="oauth-button google" 
+            <button
+                class="oauth-button google"
                 on:click={() => handleOAuthLogin('google')}
                 disabled={isLoading}
             >
@@ -247,9 +247,9 @@
                 </svg>
                 Continue with Google
             </button>
-            
-            <button 
-                class="oauth-button github" 
+
+            <button
+                class="oauth-button github"
                 on:click={() => handleOAuthLogin('github')}
                 disabled={isLoading}
             >
@@ -257,7 +257,7 @@
                 Continue with GitHub
             </button>
         </div>
-        
+
     </div>
 </div>
 
@@ -270,7 +270,7 @@
         background-color: #f5f5f5;
         padding: 20px;
     }
-    
+
     .login-card {
         background: white;
         border-radius: 8px;
@@ -279,17 +279,17 @@
         width: 100%;
         max-width: 400px;
     }
-    
+
     h1 {
         text-align: center;
         margin-bottom: 24px;
         color: #333;
     }
-    
+
     .form-group {
         margin-bottom: 20px;
     }
-    
+
     label {
         display: flex;
         align-items: center;
@@ -298,7 +298,7 @@
         font-weight: 500;
         color: #555;
     }
-    
+
     input {
         width: 100%;
         padding: 12px;
@@ -307,18 +307,18 @@
         font-size: 16px;
         transition: border-color 0.3s;
     }
-    
+
     input:focus {
         border-color: #4a90e2;
         outline: none;
     }
-    
+
     .auth-buttons {
         display: flex;
         gap: 12px;
         margin-bottom: 20px;
     }
-    
+
     .primary-button {
         flex: 1;
         padding: 12px;
@@ -331,16 +331,16 @@
         cursor: pointer;
         transition: background-color 0.3s;
     }
-    
+
     .primary-button:hover {
         background-color: #3a7bc8;
     }
-    
+
     .primary-button:disabled {
         background-color: #a0c0e8;
         cursor: not-allowed;
     }
-    
+
     .secondary-button {
         flex: 1;
         padding: 12px;
@@ -353,36 +353,36 @@
         cursor: pointer;
         transition: background-color 0.3s;
     }
-    
+
     .secondary-button:hover {
         background-color: #e5e5e5;
     }
-    
+
     .divider {
         display: flex;
         align-items: center;
         margin: 24px 0;
     }
-    
+
     .divider::before,
     .divider::after {
         content: "";
         flex: 1;
         border-bottom: 1px solid #ddd;
     }
-    
+
     .divider span {
         padding: 0 10px;
         color: #777;
         font-size: 14px;
     }
-    
+
     .oauth-buttons {
         display: flex;
         flex-direction: column;
         gap: 12px;
     }
-    
+
     .oauth-button {
         display: flex;
         align-items: center;
@@ -396,22 +396,22 @@
         cursor: pointer;
         transition: background-color 0.3s;
     }
-    
+
     .oauth-button.google {
         background-color: white;
         color: #333;
     }
-    
+
     .oauth-button.github {
         background-color: #24292e;
         color: white;
     }
-    
+
     .oauth-button:hover {
         opacity: 0.9;
     }
-    
-    
+
+
     .error-message {
         background-color: #ffebee;
         color: #c62828;
@@ -420,7 +420,7 @@
         margin-bottom: 20px;
         text-align: center;
     }
-    
+
     .success-message {
         background-color: #e8f5e9;
         color: #2e7d32;
@@ -429,17 +429,17 @@
         margin-bottom: 20px;
         text-align: center;
     }
-    
+
     .auto-generated {
         font-size: 0.8em;
         color: #666;
         font-style: italic;
     }
-    
+
     input.auto-generated {
         background-color: #f5f5f5;
     }
-    
+
     .back-button-container {
         margin-bottom: 20px;
     }

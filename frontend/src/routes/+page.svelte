@@ -95,15 +95,13 @@
 
 
 	let bearingUrlUpdateTimeout: returnType<typeof setTimeout> | null = null;
-
-	let lastVal;
+	let lastVal: number | undefined = undefined;
 
 	bearingState.subscribe(visual => {
 
 		if (!update_url) {
 			return;
 		}
-
 
 		lastVal = visual.bearing;
 
@@ -113,6 +111,9 @@
 
 		bearingUrlUpdateTimeout = setTimeout(() => {
 			bearingUrlUpdateTimeout = null;
+			if (lastVal === undefined || lastVal === null) {
+				return;
+			}
 			const url = new URL(window.location.href);
 			url.searchParams.set('bearing', String(lastVal));
 			replaceState2(url.toString());

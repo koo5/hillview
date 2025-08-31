@@ -188,6 +188,8 @@ export class ClientCryptoManager {
                 timestamp: data.timestamp
             }, null, 0); // No spaces for consistency
             
+            console.log(`${this.LOG_PREFIX} 📝 Signing message: ${message}`);
+            
             // Sign the message
             const encoder = new TextEncoder();
             const messageBuffer = encoder.encode(message);

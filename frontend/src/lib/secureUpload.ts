@@ -30,6 +30,7 @@ export interface UploadAuthorizationResponse {
     photo_id: string;
     expires_at: string;
     worker_url: string;
+    upload_authorized_at: number; // Unix timestamp when upload was authorized
 }
 
 export interface SecureUploadResult {
@@ -108,15 +109,13 @@ async function requestUploadAuthorization(request: UploadAuthorizationRequest): 
 }
 
 /**
- * Generate client signature for upload
+ * Generate client signature for upload using authorization timestamp
  */
-async function generateClientSignature(photoId: string, filename: string): Promise<string> {
-    const timestamp = Math.floor(Date.now() / 1000); // Unix timestamp
-    
+async function generateClientSignature(photoId: string, filename: string, authTimestamp: number): Promise<string> {
     const signature = await clientCrypto.signUploadData({
         photo_id: photoId,
         filename: filename,
-        timestamp: timestamp
+        timestamp: authTimestamp
     });
     
     return signature;
@@ -195,9 +194,9 @@ export async function secureUploadFile(
         const authResponse = await requestUploadAuthorization(authRequest);
         console.log(`🔐 Upload authorized, photo_id: ${authResponse.photo_id}`);
         
-        // Step 3: Generate client signature
+        // Step 3: Generate client signature using authorization timestamp
         console.log(`🔐 Generating client signature for: ${file.name}`);
-        const clientSignature = await generateClientSignature(authResponse.photo_id, file.name);
+        const clientSignature = await generateClientSignature(authResponse.photo_id, file.name, authResponse.upload_authorized_at);
         
         // Step 4: Upload to worker (use URL from authorization response)
         console.log(`🔐 Uploading to worker: ${file.name}`);

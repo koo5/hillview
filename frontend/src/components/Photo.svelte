@@ -15,7 +15,7 @@
     let clientWidth2: number | undefined;
 
     let fetchPriority = className === 'front' ? 'high' : 'auto';
-    
+
     let containerElement: HTMLElement | undefined;
     let selectedUrl: string | undefined;
     let selectedSize: any;
@@ -39,10 +39,10 @@
     //$: bg_style_stretched_photo = photo.sizes?.[50] ? `background-image: url(${photo.sizes[50].url});` : ''
 
     $: border_style = className === 'front' && photo ? 'border: 4px dotted #4a90e2;' : '';
-    console.log('🢄border_style:', border_style);
+    //console.log('🢄border_style:', border_style);
 
     $: if (photo || clientWidth || containerElement) updateSelectedUrl();
-    
+
     async function updateSelectedUrl() {
 
         if (clientWidth)
@@ -62,7 +62,7 @@
             devicePhotoUrl = null;
             return;
         }
-        
+
         // Handle device photos specially
         if (photo.isDevicePhoto && photo.url) {
             try {
@@ -75,7 +75,7 @@
                 return;
             }
         }
-        
+
         if (!photo.sizes) {
             selectedUrl = photo.url;
             return;
@@ -92,7 +92,7 @@
                 selectedSize = size;
                 width = p.width;
                 height = p.height;
-                
+
                 // Handle device photo URLs
                 if (photo.isDevicePhoto) {
                     selectedUrl = await getDevicePhotoUrl(p.url);
@@ -105,7 +105,7 @@
         selectedSize = 'full';
         width = photo.sizes.full?.width || p?.width || 0;
         height = photo.sizes.full?.height || p?.height || 0;
-        
+
         // Handle device photo URLs for full size
         if (photo.isDevicePhoto && photo.sizes.full) {
             selectedUrl = await getDevicePhotoUrl(photo.sizes.full.url);
@@ -124,7 +124,7 @@
 
     function getUserId(photo: PhotoData): string | null {
         if (!photo) return null;
-        
+
         // For Mapillary photos, check if creator info exists in the photo data
         if ((photo as any).creator?.id) {
             return (photo as any).creator.id;
@@ -138,7 +138,7 @@
 
     function getUserName(photo: PhotoData): string | null {
         if (!photo) return null;
-        
+
         // For Mapillary photos, check if creator info exists in the photo data
         if ((photo as any).creator?.username) {
             return (photo as any).creator.username;
@@ -152,7 +152,7 @@
 
     async function hidePhoto() {
         if (!photo || !isAuthenticated || isHiding) return;
-        
+
         isHiding = true;
         hideMessage = '';
 
@@ -170,7 +170,7 @@
 
             // Call webworker to remove from cache
             simplePhotoWorker.removePhotoFromCache?.(photo.id, photoSource);
-            
+
             hideMessage = 'Photo hidden successfully';
             setTimeout(() => hideMessage = '', 2000);
         } catch (error) {
@@ -184,7 +184,7 @@
 
     function showUserHideDialog() {
         if (!photo || !isAuthenticated) return;
-        
+
         showHideUserDialog = true;
         hideUserReason = '';
         flagUserForReview = false;
@@ -222,7 +222,7 @@
             if (flagUserForReview) {
                 requestBody.extra_data = { flagged_for_review: true };
             }
-            
+
             const response = await http.post('/hidden/users', requestBody);
 
             if (!response.ok) {
@@ -231,7 +231,7 @@
 
             // Call webworker to remove all photos by this user from cache
             simplePhotoWorker.removeUserPhotosFromCache?.(userId, photoSource);
-            
+
             hideMessage = 'User hidden successfully';
             setTimeout(() => hideMessage = '', 2000);
             showHideUserDialog = false;
@@ -274,7 +274,7 @@
             data-photo={JSON.stringify(photo)}
         />
         {/key}
-        
+
         <!-- Hide buttons for front photo only, and only for authenticated users -->
         {#if className === 'front' && isAuthenticated}
             <!-- Creator username display -->
@@ -284,9 +284,9 @@
                     <span class="source-name">{getPhotoSource(photo)}</span>
                 </div>
             {/if}
-            
+
             <div class="hide-buttons">
-                <button 
+                <button
                     class="hide-button hide-photo"
                     on:click={hidePhoto}
                     disabled={isHiding}
@@ -295,8 +295,8 @@
                 >
                     <EyeOff size={16} />
                 </button>
-                
-                <button 
+
+                <button
                     class="hide-button hide-user"
                     on:click={showUserHideDialog}
                     disabled={isHiding || !getUserId(photo)}
@@ -323,37 +323,37 @@
         <div class="dialog">
             <h3>Hide User</h3>
             <p>This will hide all photos by <strong>{photo && getUserName(photo) ? `@${getUserName(photo)}` : 'this user'}</strong> from your view.</p>
-            
+
             <div class="form-group">
                 <label for="hide-reason">Reason (optional):</label>
-                <input 
+                <input
                     id="hide-reason"
-                    type="text" 
+                    type="text"
                     bind:value={hideUserReason}
                     placeholder="e.g., Inappropriate content, spam, etc."
                     maxlength="100"
                 />
             </div>
-            
+
             <div class="form-group">
                 <label class="checkbox-label">
-                    <input 
-                        type="checkbox" 
+                    <input
+                        type="checkbox"
                         bind:checked={flagUserForReview}
                     />
                     Flag user for review by moderators
                 </label>
             </div>
-            
+
             <div class="dialog-buttons">
-                <button 
+                <button
                     class="cancel-button"
                     on:click={cancelHideUser}
                     disabled={isHiding}
                 >
                     Cancel
                 </button>
-                <button 
+                <button
                     class="confirm-button"
                     on:click={confirmHideUser}
                     disabled={isHiding}
@@ -394,7 +394,7 @@
         background-size: cover;
         -o-background-size: cover;
     }
-    
+
 
     /* Front image is centered and on top */
     .front {

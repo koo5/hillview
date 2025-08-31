@@ -23,7 +23,7 @@ def test_register_user():
     test_user = {
         "email": "test@example.com",
         "username": "testuser",
-        "password": "password123"
+        "password": "StrongTestUserPassword123!"
     }
     
     response = requests.post(
@@ -45,7 +45,7 @@ def test_login():
     print("\nTesting user login...")
     login_data = {
         "username": "testuser",
-        "password": "password123"
+        "password": "StrongTestUserPassword123!"
     }
     
     response = requests.post(

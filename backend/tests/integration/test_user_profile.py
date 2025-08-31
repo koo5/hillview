@@ -37,7 +37,7 @@ class TestUserProfile:
         """Helper to get a valid token for admin user"""
         login_data = {
             "username": "admin",
-            "password": "admin123"
+            "password": "StrongAdminPassword123!"
         }
         
         response = requests.post(
@@ -214,7 +214,7 @@ class TestProfileSecurity:
         
         admin_login = requests.post(
             f"{API_URL}/auth/token",
-            data={"username": "admin", "password": "admin123"},
+            data={"username": "admin", "password": "StrongAdminPassword123!"},
             headers={"Content-Type": "application/x-www-form-urlencoded"}
         )
         

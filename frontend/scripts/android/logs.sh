@@ -16,4 +16,4 @@ echo "🔍 Press Ctrl+C to stop"
 echo ""
 
 # Filter for Hillview-specific logs
-$ADB_PATH logcat | grep -E "(🢄|📍|hillview|RustStdoutStderr)"
+$ADB_PATH logcat | grep -E "(🢄|📍|hillview|RustStdoutStderr|chromium)"

@@ -18,7 +18,7 @@ async function configureUploadManager() {
         console.log('📤 [AUTH] Not on mobile, skipping upload manager config');
         return;
     }
-    
+
     try {
         console.log('📤 [AUTH] Configuring upload manager with backend URL:', backendUrl);
         const result = await invoke('plugin:hillview|set_upload_config', {
@@ -39,11 +39,11 @@ export async function completeAuthentication(tokenData: {
 }, source: 'login' | 'oauth' = 'login'): Promise<boolean> {
     try {
         console.log(`🢄[AUTH] Completing ${source} authentication...`);
-        
+
         // IMPORTANT: Configure upload manager BEFORE storing tokens
         // The Android AuthenticationManager needs the server URL to register client keys
         await configureUploadManager();
-        
+
         // Store tokens using the unified TokenManager
         const tokenManager = createTokenManager();
         await tokenManager.storeTokens({
@@ -53,22 +53,22 @@ export async function completeAuthentication(tokenData: {
             token_type: tokenData.token_type || 'bearer'
         });
         console.log('🢄[AUTH] Tokens stored successfully via TokenManager');
-        
+
         // Update auth store - tokens stored means authenticated
         auth.update(a => ({
             ...a,
             isAuthenticated: true
         }));
-        
+
         // Fetch user data
         const userData = await fetchUserData();
         console.log('🢄[AUTH] User data fetched:', userData);
-        
+
         if (!userData) {
             console.error('🢄[AUTH] Failed to fetch user data after authentication');
             return false;
         }
-        
+
         // Ensure isAuthenticated is still true after fetching user data
         auth.update(a => {
             if (!a.isAuthenticated && a.user) {
@@ -80,10 +80,10 @@ export async function completeAuthentication(tokenData: {
             }
             return a;
         });
-        
+
         // Double-check auth state
         console.log('🢄[AUTH] Auth state after authentication:', debugAuth());
-        
+
         return true;
     } catch (error) {
         console.error(`🢄[AUTH] ${source} completion error:`, error);
@@ -125,16 +125,16 @@ export async function login(username: string, password: string) {
                 'grant_type': 'password'
             })
         });
-        
+
         if (!response.ok) {
             const error = await response.json();
             throw new Error(error.detail || 'Login failed');
         }
-        
+
         const data = await response.json();
-        
+
         console.log('🢄[AUTH] Login successful, token received:', data);
-        
+
         // Use shared authentication completion
         return await completeAuthentication(data, 'login');
     } catch (error) {
@@ -158,7 +158,7 @@ export async function register(email: string, username: string, password: string
                 password
             })
         });
-        
+
         if (!response.ok) {
             const errorText = await response.text();
             console.error('🢄[AUTH] Registration error response:', errorText);
@@ -171,7 +171,7 @@ export async function register(email: string, username: string, password: string
             }
             throw new Error(errorDetail);
         }
-        
+
         return true;
     } catch (error) {
         console.error('🢄[AUTH] Registration error:', error);
@@ -192,16 +192,16 @@ export async function oauthLogin(provider: string, code: string, redirectUri?: s
                 redirect_uri: redirectUri
             })
         });
-        
+
         if (!response.ok) {
             const error = await response.json();
             throw new Error(error.detail || 'OAuth login failed');
         }
-        
+
         const data = await response.json();
-        
+
         console.log('🢄[AUTH] OAuth login successful, token received:', data);
-        
+
         // Use shared authentication completion
         return await completeAuthentication(data, 'oauth');
     } catch (error) {
@@ -215,12 +215,12 @@ export async function logout(reason?: string) {
     if (reason) {
         console.log('🢄[AUTH] - Reason:', reason);
     }
-    
+
     console.log('🢄[AUTH] - Clearing tokens via TokenManager');
     const tokenManager = createTokenManager();
     await tokenManager.clearTokens();
     console.log('🢄[AUTH] - Tokens cleared successfully');
-    
+
     console.log('🢄[AUTH] - Updating auth store');
     auth.update(a => {
         console.log('🢄[AUTH]   - Setting isAuthenticated to false');
@@ -231,7 +231,7 @@ export async function logout(reason?: string) {
             user: null
         };
     });
-    
+
     console.log('🢄[AUTH] - Redirecting to login page from auth.svelte.ts');
     myGoto('/login');
     console.log('🢄[AUTH] === LOGOUT COMPLETE ===');
@@ -251,12 +251,12 @@ export async function getCurrentToken(): Promise<string | null> {
 
 export async function checkTokenValidity(): Promise<boolean> {
     const token = await getCurrentToken();
-    
+
     if (!token) {
         console.log('🢄[AUTH] No valid token found');
         return false;
     }
-    
+
     return true;
 }
 
@@ -264,10 +264,10 @@ export async function checkTokenValidity(): Promise<boolean> {
 export async function authenticatedFetch(url: string, options: RequestInit = {}): Promise<Response> {
     console.warn('🢄[AUTH] authenticatedFetch is deprecated. Use HttpClient from $lib/http instead');
     const { http } = await import('$lib/http');
-    
+
     // Convert to relative URL if it starts with backendUrl
     const relativeUrl = url.startsWith(backendUrl) ? url.substring(backendUrl.length) : url;
-    
+
     // Use the appropriate method from HttpClient
     const method = (options.method || 'GET').toUpperCase();
     switch (method) {
@@ -284,24 +284,21 @@ export async function authenticatedFetch(url: string, options: RequestInit = {})
 
 export async function fetchUserData() {
     const a = get(auth);
-    
-    console.log('🢄[AUTH] === FETCHING USER DATA ===');
-    console.log('🢄[AUTH] - Current auth state:');
-    console.log('🢄[AUTH]   - isAuthenticated:', a.isAuthenticated);
-    console.log('🢄[AUTH]   - Has user:', !!a.user);
-    
+
+    console.log('🢄[AUTH] fetchUserData - Current auth state: isAuthenticated:', a.isAuthenticated, 'Has user:', !!a.user);
+
     // Get token from TokenManager
     const tokenToUse = await getCurrentToken();
     console.log('🢄[AUTH] - Token from TokenManager:', tokenToUse ? 'exists' : 'none');
     if (tokenToUse) {
         console.log('🢄[AUTH]2   - Token preview:', tokenToUse.substring(0, 10) + '...');
     }
-    
+
     if (!tokenToUse) {
         console.error('🢄[AUTH] NO TOKEN AVAILABLE to fetch user data');
         return null;
     }
-    
+
     try {
         console.log('🢄[AUTH] Making API request to /api/auth/me');
         const response = await fetch(backendUrl+'/auth/me', {
@@ -309,25 +306,25 @@ export async function fetchUserData() {
                 'Authorization': `Bearer ${tokenToUse}`
             }
         });
-        
+
         console.log('🢄[AUTH] - API response status:', response.status);
-        
+
         if (!response.ok) {
             console.error('🢄[AUTH] API request failed:', response.status, response.statusText);
-            
+
             if (response.status === 401) {
                 console.log('🢄[AUTH] UNAUTHORIZED: Token expired or invalid, logging out');
                 logout();
             }
             return null;
         }
-        
+
         const userData = await response.json();
         console.log('🢄[AUTH] USER DATA FETCHED SUCCESSFULLY:');
         console.log('🢄[AUTH] - User ID:', userData.id);
         console.log('🢄[AUTH] - Username:', userData.username);
         console.log('🢄[AUTH] - Email:', userData.email);
-        
+
         // If we successfully got user data, ensure isAuthenticated is true
         console.log('🢄[AUTH] Updating auth store with user data');
         auth.update(a => {
@@ -339,11 +336,11 @@ export async function fetchUserData() {
                 user: userData
             };
         });
-        
+
         // Fetch user photos
         console.log('🢄[AUTH] Fetching user photos');
         await fetchUserPhotos();
-        
+
         console.log('🢄[AUTH] === USER DATA FETCH COMPLETE ===');
         return userData;
     } catch (error) {
@@ -354,24 +351,24 @@ export async function fetchUserData() {
 
 export async function fetchUserPhotos() {
     const a = get(auth);
-    
+
     // If we're not authenticated, don't try to fetch photos
     if (!a.isAuthenticated) return null;
-    
+
     // Get token from TokenManager
     const tokenToUse = await getCurrentToken();
     if (!tokenToUse) {
         console.error('🢄[AUTH] No token available to fetch user photos');
         return null;
     }
-    
+
     try {
         const response = await fetch(backendUrl+'/photos', {
             headers: {
                 'Authorization': `Bearer ${tokenToUse}`
             }
         });
-        
+
         if (!response.ok) {
             if (response.status === 401) {
                 // Token is invalid, log out
@@ -379,12 +376,12 @@ export async function fetchUserPhotos() {
             }
             return null;
         }
-        
+
         const photos = await response.json();
-        
+
         // Update shared store with user photos
         userPhotos.set(photos);
-        
+
         return photos;
     } catch (error) {
         console.error('🢄[AUTH] Error fetching user photos:', error);
@@ -395,42 +392,41 @@ export async function fetchUserPhotos() {
 // Check token validity on app start
 export async function checkAuth() {
     const a = get(auth);
-    
+
     console.log('🢄[AUTH] === CHECKING AUTH STATE ===');
     console.log('🢄[AUTH] - isAuthenticated:', a.isAuthenticated);
     console.log('🢄[AUTH] - Has user:', !!a.user);
-    
+
     // Check token validity through TokenManager
     const validToken = await getCurrentToken();
-    console.log('🢄[AUTH] - Has valid token:', !!validToken);
+    //console.log('🢄[AUTH] - Has valid token:', !!validToken);
     if (validToken) {
         console.log('🢄[AUTH]3 - Token preview:', validToken.substring(0, 10) + '...');
     }
-    
+
     if (a.user) {
-        console.log('🢄[AUTH] - User ID:', a.user.id);
-        console.log('🢄[AUTH] - Username:', a.user.username);
+        console.log('🢄[AUTH] - Username:', a.user.username, 'ID:', a.user.id);
     }
-    
+
     // If we have a valid token, fetch user data
     if (validToken) {
-        console.log('🢄[AUTH] Valid token found, fetching user data');
+        //console.log('🢄[AUTH] Valid token found, fetching user data');
         fetchUserData();
     } else if (a.user) {
         // We have user data but no valid token - inconsistent state
-        console.log('🢄[AUTH] INCONSISTENT STATE: User data exists but no valid token');
-        console.log('🢄[AUTH] Logging out due to invalid token');
+        console.warn('🢄[AUTH] INCONSISTENT STATE: User data exists but no valid token');
+        console.warn('🢄[AUTH] Logging out due to invalid token');
         logout('Invalid token');
     } else if (a.isAuthenticated && !a.user) {
         // We think we're authenticated but have no user data - fetch it
-        console.log('🢄[AUTH] INCONSISTENT STATE: Authenticated but no user data');
-        console.log('🢄[AUTH] Attempting to fetch user data');
+        console.warn('🢄[AUTH] INCONSISTENT STATE: Authenticated but no user data');
+        console.warn('🢄[AUTH] Attempting to fetch user data');
         fetchUserData();
     } else {
         // Not authenticated
         console.log('🢄[AUTH] Not authenticated');
     }
-    
+
     console.log('🢄[AUTH] === AUTH CHECK COMPLETE ===');
 }
 

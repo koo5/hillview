@@ -29,7 +29,7 @@ class TestResetUploadPoll:
         """Setup for each test method"""
         self.test_user_credentials = {
             "username": "test",
-            "password": "test123"
+            "password": "StrongTestPassword123!"
         }
         # Multiple test locations within Prague bounding box
         self.test_photo_locations = [

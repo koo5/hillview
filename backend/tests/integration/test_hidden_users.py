@@ -33,7 +33,7 @@ class TestUserHiding:
         test_user = {
             "username": f"test_user_hider_{int(time.time())}",
             "email": f"user_hider_{int(time.time())}@test.com",
-            "password": "TestPass123!"
+            "password": "SuperStrongHiddenUserTestPassword123!@#"
         }
         
         # Register user

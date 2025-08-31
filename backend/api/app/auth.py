@@ -457,9 +457,9 @@ async def recreate_test_users() -> dict:
 
         # Hardcoded test users with roles
         test_user_data = [
-            ("test", "test123", UserRole.USER),
-            ("admin", "admin123", UserRole.ADMIN),
-			("testuser", "password123", UserRole.USER),
+            ("test", "StrongTestPassword123!", UserRole.USER),
+            ("admin", "StrongAdminPassword123!", UserRole.ADMIN),
+			("testuser", "StrongTestUserPassword123!", UserRole.USER),
         ]
 
         summary = {

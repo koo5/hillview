@@ -107,20 +107,16 @@ fn create_exif_segment_simple(metadata: &PhotoMetadata) -> Vec<u8> {
 	exif_data.extend_from_slice(&[0x03, 0x00]); // Tag
 	exif_data.extend_from_slice(&[0x02, 0x00]); // Type: ASCII
 	exif_data.extend_from_slice(&[0x02, 0x00, 0x00, 0x00]); // Count: 2
-														 // Handle longitude in 0-360 range (where > 180 means West)
-	if metadata.longitude <= 180.0 {
+														 // Handle standard longitude (-180 to +180)
+	if metadata.longitude >= 0.0 {
 		exif_data.extend_from_slice(b"E\0\0\0");
 	} else {
 		exif_data.extend_from_slice(b"W\0\0\0");
 	}
 
 	// GPSLongitude
-	// Convert from 0-360 to proper longitude if needed
-	let lon_proper = if metadata.longitude > 180.0 {
-		360.0 - metadata.longitude // Convert to proper West longitude
-	} else {
-		metadata.longitude
-	};
+	// Use absolute value for longitude (ref indicates direction)
+	let lon_proper = metadata.longitude.abs();
 	let lon_deg = lon_proper.floor() as u32;
 	let lon_min = ((lon_proper - lon_deg as f64) * 60.0).floor() as u32;
 	let lon_sec = ((lon_proper - lon_deg as f64 - lon_min as f64 / 60.0) * 3600.0 * 100.0) as u32;
