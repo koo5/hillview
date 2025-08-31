@@ -3,6 +3,12 @@
 OAuth Authentication Edge Cases and Error Scenarios Test Suite.
 Tests various failure modes and edge cases for OAuth authentication.
 """
+import warnings
+# Suppress specific deprecation warnings that we cannot fix at our level
+warnings.filterwarnings("ignore", message="'crypt' is deprecated", category=DeprecationWarning)
+warnings.filterwarnings("ignore", message="Support for class-based `config` is deprecated", category=DeprecationWarning)
+warnings.filterwarnings("ignore", message="The 'app' shortcut is now deprecated", category=DeprecationWarning)
+
 import pytest
 import json
 from unittest.mock import Mock, patch

@@ -5,7 +5,12 @@ Shared between API and tests.
 from passlib.context import CryptContext
 
 # Password hashing context
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Use only bcrypt to avoid deprecated crypt module warnings
+pwd_context = CryptContext(
+    schemes=["bcrypt"], 
+    deprecated="auto",
+    bcrypt__rounds=12  # Use explicit rounds for bcrypt
+)
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a plain password against a hashed password."""

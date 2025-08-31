@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 """Unit tests for security features using FastAPI TestClient."""
 
+import warnings
+# Suppress specific deprecation warnings that we cannot fix at our level
+warnings.filterwarnings("ignore", message="'crypt' is deprecated", category=DeprecationWarning)
+warnings.filterwarnings("ignore", message="Support for class-based `config` is deprecated", category=DeprecationWarning)
+warnings.filterwarnings("ignore", message="The 'app' shortcut is now deprecated", category=DeprecationWarning)
+
 import pytest
 import os
 import sys
