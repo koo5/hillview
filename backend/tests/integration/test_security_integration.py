@@ -8,11 +8,11 @@ import sys
 
 # Add the backend directory to the path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from utils.test_utils import recreate_test_users
 
-BASE_URL = os.getenv("API_URL", "http://localhost:8055")
-API_URL = f"{BASE_URL}/api"
+API_URL = os.getenv("API_URL", "http://localhost:8055/api")
 
 
 class TestJWTSecurity:

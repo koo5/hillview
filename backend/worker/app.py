@@ -94,6 +94,7 @@ class ProcessPhotoResponse(BaseModel):
 	message: str
 	photo_id: Optional[str] = None
 	error: Optional[str] = None
+	retry_after_minutes: Optional[int] = None  # None = permanent failure, >0 = retry after N minutes
 
 class ProcessedPhotoData(BaseModel):
 	photo_id: str
@@ -161,6 +162,7 @@ async def upload_and_process_photo(
 	file_path = None
 	processing_status = "failed"
 	error_message = None
+	retry_after_minutes = None
 	processing_result = None
 	secure_filename = None
 
@@ -190,18 +192,40 @@ async def upload_and_process_photo(
 
 		# Process the photo
 		user_uuid = UUID(user_id)
-		processing_result = await photo_processor.process_uploaded_photo(
-			file_path=str(file_path),
-			filename=safe_filename,
-			user_id=user_uuid,
-			photo_id=photo_id
-		)
+		try:
+			processing_result = await photo_processor.process_uploaded_photo(
+				file_path=str(file_path),
+				filename=safe_filename,
+				user_id=user_uuid,
+				photo_id=photo_id
+			)
 
-		if not processing_result:
-			raise ValueError("Processing returned no result")
+			if not processing_result:
+				raise ValueError("Processing returned no result")
 
-		logger.info(f"Photo processing completed for {safe_filename}")
-		processing_status = "completed"
+			logger.info(f"Photo processing completed for {safe_filename}")
+			processing_status = "completed"
+
+		except ValueError as processing_error:
+			# Processing errors (EXIF missing, corrupted data, etc.) - permanent failures
+			logger.error(f"Photo processing failed for {safe_filename}: {processing_error}")
+			processing_status = "error" 
+			error_message = str(processing_error)
+			retry_after_minutes = None  # Permanent failure, no retry
+
+		except (IOError, OSError, PermissionError) as system_error:
+			# System/IO errors (disk full, permissions, etc.) - retriable failures
+			logger.error(f"System error processing photo {safe_filename}: {system_error}")
+			processing_status = "error"
+			error_message = f"System error: {system_error}"
+			retry_after_minutes = 5  # Retry in 5 minutes
+
+		except Exception as unexpected_error:
+			# Unexpected errors - retriable failures with longer delay
+			logger.error(f"Unexpected error processing photo {safe_filename}: {unexpected_error}")
+			processing_status = "error"
+			error_message = f"Unexpected error: {unexpected_error}"
+			retry_after_minutes = 10  # Retry in 10 minutes
 
 
 		# Always notify API server of result
@@ -268,6 +292,7 @@ async def upload_and_process_photo(
 		success=processing_status == "completed",
 		message="Photo processed successfully" if processing_status == "completed" else "Photo processing failed",
 		photo_id=photo_id,
-		error=error_message if processing_status == "failed" else None
+		error=error_message if processing_status in ["failed", "error"] else None,
+		retry_after_minutes=retry_after_minutes
 	)
 

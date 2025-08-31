@@ -19,8 +19,9 @@ from typing import Dict, Any, Optional
 import sys
 import pytest
 
-# Add parent directory to path for imports
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+# Add backend directory to path for imports
+backend_dir = os.path.join(os.path.dirname(__file__), '..', '..')
+sys.path.append(backend_dir)
 
 from common.jwt_utils import generate_ecdsa_key_pair, serialize_private_key, serialize_public_key
 from .test_utils import recreate_test_users
@@ -58,7 +59,7 @@ class SecureUploadClient:
 			raise Exception("Test environment not available")
 
 		async with httpx.AsyncClient() as client:
-			response = await client.post(f"{self.api_url}/api/auth/token", data={
+			response = await client.post(f"{self.api_url}/auth/token", data={
 				"username": "test",
 				"password": "test123"
 			})
@@ -129,11 +130,13 @@ class SecureUploadClient:
 		# Test authentication first
 		async with httpx.AsyncClient() as client:
 			response = await client.get(
-				f"{self.api_url}/api/photos",
+				f"{self.api_url}/photos/",
 				headers={"Authorization": f"Bearer {auth_token}"},
 				follow_redirects=True
 			)
-			assert response.status_code == 200
+			if response.status_code != 200:
+				print(f"❌ Phase 1a failed: {response.status_code} - {response.text}")
+				raise Exception(f"Authentication test failed: {response.status_code} - {response.text}")
 			print("✅ Phase 1a: Client authentication successful")
 
 			# Register client public key
@@ -141,7 +144,7 @@ class SecureUploadClient:
 			import uuid
 			key_id = client_key_pair.get("key_id", f"test-key-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}-{str(uuid.uuid4())[:8]}")
 			response = await client.post(
-				f"{self.api_url}/api/auth/register-client-key",
+				f"{self.api_url}/auth/register-client-key",
 				json={
 					"public_key_pem": client_key_pair["public_pem"],
 					"key_id": key_id,
@@ -165,7 +168,7 @@ class SecureUploadClient:
 		"""Internal method to make upload authorization request and handle response."""
 		async with httpx.AsyncClient() as client:
 			response = await client.post(
-				f"{self.api_url}/api/photos/authorize-upload",
+				f"{self.api_url}/photos/authorize-upload",
 				json=upload_request,
 				headers={"Authorization": f"Bearer {auth_token}"}
 			)
@@ -298,7 +301,7 @@ class SecureUploadClient:
 	async def test_api_server_connectivity(self):
 		"""Test basic API server health."""
 		async with httpx.AsyncClient() as client:
-			response = await client.get(f"{self.api_url}/api/debug")
+			response = await client.get(f"{self.api_url}/debug")
 			assert response.status_code == 200
 			assert response.json()["status"] == "ok"
 

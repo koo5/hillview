@@ -5,14 +5,14 @@ Shared utilities for hidden content tests.
 
 import os
 import requests
+import json
 from PIL import Image
 import piexif
 import io
 import pytest
 
 # Test configuration
-BASE_URL = os.getenv("API_URL", "http://localhost:8055")
-API_URL = f"{BASE_URL}/api"
+API_URL = os.getenv("API_URL", "http://localhost:8055/api")
 
 def clear_test_database():
     """Clear the database before running tests. Fails test on error."""
@@ -103,7 +103,7 @@ async def create_test_photos(test_users: list, auth_tokens: dict):
     ]
     
     # Create SecureUploadClient instance
-    upload_client = SecureUploadClient(api_url=BASE_URL)
+    upload_client = SecureUploadClient(api_url=API_URL)
     
     created_photos = 0
     for i, (filename, description, is_public, color, lat, lon) in enumerate(test_photos_data):
@@ -176,22 +176,95 @@ def wait_for_photo_processing(photo_id: str, token: str, timeout: int = 30) -> d
     raise Exception(f"Timeout waiting for photo {photo_id} processing after {timeout}s")
 
 
-def upload_test_image(filename: str, image_data: bytes, description: str, token: str, is_public: bool = True) -> str:
-    """Upload a test image and return the photo ID."""
-    headers = {"Authorization": f"Bearer {token}"}
-    files = {"file": (filename, image_data, "image/jpeg")}
-    data = {
-        "description": description,
-        "is_public": str(is_public).lower()
-    }
+async def upload_test_image(filename: str, image_data: bytes, description: str, token: str, is_public: bool = True) -> str:
+    """Upload a test image using secure upload workflow and return the photo ID."""
+    from .secure_upload_utils import SecureUploadClient
     
-    response = requests.post(f"{API_URL}/photos/upload", files=files, data=data, headers=headers)
+    upload_client = SecureUploadClient(api_url=API_URL)
     
-    if response.status_code == 200:
-        result = response.json()
+    try:
+        # Generate client keys
+        client_keys = upload_client.generate_client_keys()
+        
+        # Register client key
+        await upload_client.register_client_key(token, client_keys)
+        
+        # Authorize upload with default coordinates
+        auth_data = await upload_client.authorize_upload_with_params(
+            token,
+            filename,
+            len(image_data),
+            50.0755,  # Default Prague latitude
+            14.4378,  # Default Prague longitude  
+            description,
+            is_public
+        )
+        
+        # Upload to worker
+        result = await upload_client.upload_to_worker(
+            image_data, auth_data, client_keys, filename
+        )
+        
         photo_id = result.get('photo_id')
         if not photo_id:
-            raise Exception(f"No photo ID returned from upload: {result}")
+            raise Exception(f"No photo ID returned from secure upload: {result}")
+        
         return photo_id
-    else:
-        raise Exception(f"Upload failed: {response.status_code} - {response.text}")
+        
+    except Exception as e:
+        raise Exception(f"Secure upload failed: {str(e)}")
+
+
+def query_hillview_endpoint(token: str = None, params: dict = None) -> dict:
+    """
+    Query the hillview endpoint and parse SSE response format.
+    
+    Args:
+        token: Authentication token (optional)
+        params: Query parameters for the hillview endpoint
+        
+    Returns:
+        dict: Parsed response with 'photos' list and metadata
+    """
+    headers = {
+        "Accept": "text/event-stream",
+        "Cache-Control": "no-cache"
+    }
+    
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    
+    response = requests.get(
+        f"{API_URL}/hillview",
+        params=params,
+        headers=headers,
+        stream=True
+    )
+    
+    if response.status_code != 200:
+        raise Exception(f"Hillview endpoint failed: {response.status_code} - {response.text}")
+    
+    # Parse SSE stream format
+    photos_data = None
+    total_count = 0
+    
+    for line in response.iter_lines(decode_unicode=True):
+        if line and line.startswith('data: '):
+            try:
+                line_data = json.loads(line[6:])  # Remove 'data: ' prefix
+                if line_data.get('type') == 'photos':
+                    photos_data = line_data
+                    total_count = len(line_data.get('photos', []))
+                elif line_data.get('type') == 'stream_complete':
+                    break
+            except json.JSONDecodeError:
+                continue
+    
+    if not photos_data:
+        return {'photos': [], 'total_count': 0}
+    
+    return {
+        'photos': photos_data.get('photos', []),
+        'total_count': total_count,
+        'data': photos_data.get('photos', [])  # For backward compatibility
+    }

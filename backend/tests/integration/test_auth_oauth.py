@@ -13,7 +13,7 @@ import os
 # Add the backend directory to the path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
-BASE_URL = os.getenv("API_URL", "http://localhost:8055")
+API_URL = os.getenv("API_URL", "http://localhost:8055/api")
 TEST_PROVIDERS = ["google", "github"]
 
 class TestOAuthRedirect:
@@ -25,7 +25,7 @@ class TestOAuthRedirect:
         redirect_uri = "com.hillview://auth"
         
         response = requests.get(
-            f"{BASE_URL}/api/auth/oauth-redirect",
+            f"{API_URL}/auth/oauth-redirect",
             params={
                 "provider": provider,
                 "redirect_uri": redirect_uri
@@ -67,7 +67,7 @@ class TestOAuthRedirect:
         redirect_uri = "http://localhost:8212/oauth/callback"
         
         response = requests.get(
-            f"{BASE_URL}/api/auth/oauth-redirect",
+            f"{API_URL}/auth/oauth-redirect",
             params={
                 "provider": provider,
                 "redirect_uri": redirect_uri
@@ -92,7 +92,7 @@ class TestOAuthRedirect:
     def test_oauth_redirect_invalid_provider(self):
         """Test OAuth redirect with invalid provider"""
         response = requests.get(
-            f"{BASE_URL}/api/auth/oauth-redirect",
+            f"{API_URL}/auth/oauth-redirect",
             params={
                 "provider": "invalid",
                 "redirect_uri": "com.hillview://auth"
@@ -107,14 +107,14 @@ class TestOAuthRedirect:
         """Test OAuth redirect with missing parameters"""
         # Missing provider
         response = requests.get(
-            f"{BASE_URL}/api/auth/oauth-redirect",
+            f"{API_URL}/auth/oauth-redirect",
             params={"redirect_uri": "com.hillview://auth"}
         )
         assert response.status_code == 422  # FastAPI validation error
         
         # Missing redirect_uri
         response = requests.get(
-            f"{BASE_URL}/api/auth/oauth-redirect",
+            f"{API_URL}/auth/oauth-redirect",
             params={"provider": "google"}
         )
         assert response.status_code == 422  # FastAPI validation error
@@ -130,7 +130,7 @@ class TestOAuthCallback:
         code = "invalid_auth_code"
         
         response = requests.get(
-            f"{BASE_URL}/api/auth/oauth-callback",
+            f"{API_URL}/auth/oauth-callback",
             params={
                 "code": code,
                 "state": state
@@ -153,7 +153,7 @@ class TestOAuthCallback:
         code = "invalid_auth_code"
         
         response = requests.get(
-            f"{BASE_URL}/api/auth/oauth-callback",
+            f"{API_URL}/auth/oauth-callback",
             params={
                 "code": code,
                 "state": state
@@ -172,7 +172,7 @@ class TestOAuthCallback:
     def test_oauth_callback_missing_code(self):
         """Test OAuth callback with missing auth code"""
         response = requests.get(
-            f"{BASE_URL}/api/auth/oauth-callback",
+            f"{API_URL}/auth/oauth-callback",
             params={"state": "google:com.hillview://auth"}
         )
         
@@ -181,7 +181,7 @@ class TestOAuthCallback:
     def test_oauth_callback_malformed_state(self):
         """Test OAuth callback with malformed state parameter"""
         response = requests.get(
-            f"{BASE_URL}/api/auth/oauth-callback",
+            f"{API_URL}/auth/oauth-callback",
             params={
                 "code": "mock_code",
                 "state": "invalid_state_format"
@@ -199,7 +199,7 @@ class TestAuthTokenValidation:
         """Test that OAuth errors are handled properly"""
         # Test that invalid tokens result in proper error responses
         response = requests.get(
-            f"{BASE_URL}/api/auth/oauth-callback",
+            f"{API_URL}/auth/oauth-callback",
             params={
                 "code": "invalid_token_code",
                 "state": "google:com.hillview://auth"
@@ -227,7 +227,7 @@ class TestAuthTokenValidation:
         
         for params in test_cases:
             response = requests.get(
-                f"{BASE_URL}/api/auth/oauth-callback",
+                f"{API_URL}/auth/oauth-callback",
                 params=params,
                 allow_redirects=False
             )
@@ -246,7 +246,7 @@ class TestOAuthIntegration:
         redirect_uri = "com.hillview://auth"
         
         response = requests.get(
-            f"{BASE_URL}/api/auth/oauth-redirect",
+            f"{API_URL}/auth/oauth-redirect",
             params={
                 "provider": provider,
                 "redirect_uri": redirect_uri
@@ -286,7 +286,7 @@ class TestOAuthIntegration:
         
         for state in malicious_states:
             response = requests.get(
-                f"{BASE_URL}/api/auth/oauth-callback",
+                f"{API_URL}/auth/oauth-callback",
                 params={
                     "code": "test_code",
                     "state": state

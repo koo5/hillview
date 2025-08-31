@@ -6,8 +6,14 @@ Tests the real three-phase cryptographic flow using actual JWT tokens.
 import pytest
 import httpx
 import os
+import sys
 import tempfile
 from PIL import Image
+
+# Add the backend and tests directory to the path
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+
 from utils.secure_upload_utils import SecureUploadClient
 
 class TestSecureUploadWorkflow:
@@ -16,7 +22,7 @@ class TestSecureUploadWorkflow:
 	@pytest.fixture
 	def upload_client(self):
 		"""Create SecureUploadClient instance for testing."""
-		return SecureUploadClient(api_url=os.getenv("API_URL", "http://localhost:8055"))
+		return SecureUploadClient(api_url=os.getenv("API_URL", "http://localhost:8055/api"))
 
 	@pytest.fixture
 	def test_image(self):
@@ -40,7 +46,8 @@ class TestSecureUploadWorkflow:
 	async def test_phase1_client_key_registration(self, test_user_auth, upload_client):
 		"""Test Phase 1: Client authentication and public key registration using utility."""
 		try:
-			key_result = await upload_client.register_client_key(test_user_auth)
+			auth_token = await test_user_auth
+			key_result = await upload_client.register_client_key(auth_token)
 			print("✅ Phase 1: Client key registered successfully")
 			print(f"   Key ID: {key_result}")
 			return {"key_id": key_result}
@@ -51,7 +58,8 @@ class TestSecureUploadWorkflow:
 	async def test_phase2_upload_authorization(self, test_user_auth, upload_client, filename="secure_test.jpg"):
 		"""Test Phase 2: Request upload authorization from API using utility."""
 		try:
-			auth_data = await upload_client.authorize_upload(test_user_auth, filename)
+			auth_token = await test_user_auth
+			auth_data = await upload_client.authorize_upload(auth_token, filename)
 			assert "upload_jwt" in auth_data
 			assert "worker_url" in auth_data
 			assert "photo_id" in auth_data
@@ -68,8 +76,9 @@ class TestSecureUploadWorkflow:
 		"""Test Phase 3: Worker processes upload with real authorization token."""
 		# Register client key and get upload authorization using utility
 		client_keys = upload_client.generate_client_keys()
-		await upload_client.register_client_key(test_user_auth, client_keys)
-		auth_data = await upload_client.authorize_upload(test_user_auth, "secure_test.jpg")
+		auth_token = await test_user_auth
+		await upload_client.register_client_key(auth_token, client_keys)
+		auth_data = await upload_client.authorize_upload(auth_token, "secure_test.jpg")
 
 		# Use utility method to upload to worker
 		result = await upload_client.upload_to_worker(test_image, auth_data, client_keys, "secure_test.jpg")
@@ -80,7 +89,8 @@ class TestSecureUploadWorkflow:
 	@pytest.mark.asyncio
 	async def test_worker_token_validation(self, test_user_auth, upload_client):
 		"""Test that worker properly validates JWT authorization tokens using utility."""
-		await upload_client.test_worker_token_validation(test_user_auth)
+		auth_token = await test_user_auth
+		await upload_client.test_worker_token_validation(auth_token)
 
 	@pytest.mark.asyncio
 	async def test_api_server_connectivity(self, upload_client):
@@ -150,7 +160,7 @@ class TestSecureUploadWorkflow:
 		async with httpx.AsyncClient() as client:
 			# Check that the photo appears in user's photo list
 			response = await client.get(
-				f"{upload_client.api_url}/api/photos",
+				f"{upload_client.api_url}/photos",
 				headers={"Authorization": f"Bearer {auth_token}"},
 				follow_redirects=True
 			)

@@ -1,5 +1,7 @@
 #!/bin/bash
 
+cd "$(dirname "$(readlink -f -- "$0")")"
+
 # Create test virtual environment if it doesn't exist
 if [ ! -d "venv" ]; then
     echo "Creating test virtual environment..."

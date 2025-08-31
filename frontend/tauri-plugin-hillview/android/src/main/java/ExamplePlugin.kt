@@ -697,17 +697,33 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             }
             
             Log.d(TAG, "🔐 Storing auth token with refresh token: ${refreshToken != null}")
-            val success = authManager.storeAuthToken(token, expiresAt, refreshToken)
             
-            val result = JSObject()
-            result.put("success", success)
-            if (!success) {
-                result.put("error", "Failed to store auth token")
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val success = authManager.storeAuthToken(token, expiresAt, refreshToken)
+                    
+                    CoroutineScope(Dispatchers.Main).launch {
+                        val result = JSObject()
+                        result.put("success", success)
+                        if (!success) {
+                            result.put("error", "Failed to store auth token")
+                        }
+                        invoke.resolve(result)
+                    }
+                    
+                } catch (e: Exception) {
+                    Log.e(TAG, "🔐 Error storing auth token", e)
+                    CoroutineScope(Dispatchers.Main).launch {
+                        val error = JSObject()
+                        error.put("success", false)
+                        error.put("error", e.message)
+                        invoke.resolve(error)
+                    }
+                }
             }
-            invoke.resolve(result)
             
         } catch (e: Exception) {
-            Log.e(TAG, "🔐 Error storing auth token", e)
+            Log.e(TAG, "🔐 Error parsing store auth token args", e)
             val error = JSObject()
             error.put("success", false)
             error.put("error", e.message)

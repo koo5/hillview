@@ -3,11 +3,13 @@
 Simple test script to verify photo upload functionality works.
 """
 import asyncio
+import pytest
 import requests
 import os
 import sys
 from pathlib import Path
 
+@pytest.mark.asyncio
 async def test_upload_endpoint():
     """Test the photo upload endpoint using secure upload workflow."""
     from utils.secure_upload_utils import SecureUploadClient

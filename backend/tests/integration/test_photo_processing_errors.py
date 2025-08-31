@@ -3,8 +3,13 @@
 Test photo processing error cases with polling mechanism.
 """
 
+import pytest
 import requests
-from utils.test_utils import clear_test_database, API_URL, upload_test_image, wait_for_photo_processing
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+
+from utils.test_utils import clear_test_database, API_URL, upload_test_image, wait_for_photo_processing, recreate_test_users
 from utils.image_utils import (
 	create_test_image_no_exif,
 	create_test_image_coords_only,
@@ -15,20 +20,11 @@ from utils.image_utils import (
 
 
 def setup_test_user():
-	"""Create a test user and return auth token."""
-	# Register test user
-	user_data = {
-		"username": "photo_test_user",
-		"email": "photo_test@example.com",
-		"password": "testpass123"
-	}
-
-	response = requests.post(f"{API_URL}/auth/register", json=user_data)
-	if response.status_code != 200:
-		raise Exception(f"Failed to create test user: {response.status_code} - {response.text}")
-
-	# Login to get token
-	login_data = {"username": "photo_test_user", "password": "testpass123"}
+	"""Create test users and return auth token."""
+	recreate_test_users()
+	
+	# Login as standard test user
+	login_data = {"username": "test", "password": "test123"}
 	response = requests.post(f"{API_URL}/auth/token", data=login_data)
 	if response.status_code != 200:
 		raise Exception(f"Failed to login test user: {response.status_code} - {response.text}")
@@ -37,18 +33,18 @@ def setup_test_user():
 	return token_data["access_token"]
 
 
-def test_no_exif_data():
+@pytest.mark.asyncio
+async def test_no_exif_data():
 	"""Test error message for images with no EXIF data."""
 	print("Testing: No EXIF data error case")
 
-	clear_test_database()
 	token = setup_test_user()
 
 	# Create image with no EXIF data
 	image_data = create_test_image_no_exif(color=(255, 0, 0))
 
 	# Upload image
-	photo_id = upload_test_image("no_exif_test.jpg", image_data, "Test image without EXIF", token)
+	photo_id = await upload_test_image("no_exif_test.jpg", image_data, "Test image without EXIF", token)
 	print(f"✓ Uploaded photo {photo_id}")
 
 	# Wait for processing
@@ -64,18 +60,18 @@ def test_no_exif_data():
 	print("✓ No EXIF data test passed\n")
 
 
-def test_missing_gps_coordinates():
+@pytest.mark.asyncio
+async def test_missing_gps_coordinates():
 	"""Test error message for images with bearing but no GPS coordinates."""
 	print("Testing: Missing GPS coordinates error case")
 
-	clear_test_database()
 	token = setup_test_user()
 
 	# Create image with bearing but no coordinates
 	image_data = create_test_image_bearing_only(color=(0, 0, 255))
 
 	# Upload image
-	photo_id = upload_test_image("bearing_only_test.jpg", image_data, "Test image with bearing only", token)
+	photo_id = await upload_test_image("bearing_only_test.jpg", image_data, "Test image with bearing only", token)
 	print(f"✓ Uploaded photo {photo_id}")
 
 	# Wait for processing
@@ -93,18 +89,18 @@ def test_missing_gps_coordinates():
 	print("✓ Missing GPS coordinates test passed\n")
 
 
-def test_missing_bearing_data():
+@pytest.mark.asyncio
+async def test_missing_bearing_data():
 	"""Test error message for images with GPS coordinates but no bearing."""
 	print("Testing: Missing bearing data error case")
 
-	clear_test_database()
 	token = setup_test_user()
 
 	# Create image with coordinates but no bearing
 	image_data = create_test_image_coords_only(color=(0, 255, 0))
 
 	# Upload image
-	photo_id = upload_test_image("coords_only_test.jpg", image_data, "Test image with coordinates only", token)
+	photo_id = await upload_test_image("coords_only_test.jpg", image_data, "Test image with coordinates only", token)
 	print(f"✓ Uploaded photo {photo_id}")
 
 	# Wait for processing
@@ -121,18 +117,18 @@ def test_missing_bearing_data():
 	print("✓ Missing bearing data test passed\n")
 
 
-def test_successful_processing():
+@pytest.mark.asyncio
+async def test_successful_processing():
 	"""Test successful processing with full GPS data."""
 	print("Testing: Successful processing with full GPS data")
 
-	clear_test_database()
 	token = setup_test_user()
 
 	# Create image with full GPS data
 	image_data = create_test_image_full_gps(color=(255, 255, 0), lat=50.0755, lon=14.4378, bearing=90.0)
 
 	# Upload image
-	photo_id = upload_test_image("full_gps_test.jpg", image_data, "Test image with full GPS data", token)
+	photo_id = await upload_test_image("full_gps_test.jpg", image_data, "Test image with full GPS data", token)
 	print(f"✓ Uploaded photo {photo_id}")
 
 	# Wait for processing
@@ -149,18 +145,18 @@ def test_successful_processing():
 	print("✓ Successful processing test passed\n")
 
 
-def test_corrupted_exif_handling():
+@pytest.mark.asyncio
+async def test_corrupted_exif_handling():
 	"""Test handling of corrupted EXIF data."""
 	print("Testing: Corrupted EXIF data handling")
 
-	clear_test_database()
 	token = setup_test_user()
 
 	# Create image with potentially corrupted EXIF
 	image_data = create_test_image_corrupted_exif(color=(255, 0, 255))
 
 	# Upload image
-	photo_id = upload_test_image("corrupted_exif_test.jpg", image_data, "Test image with corrupted EXIF", token)
+	photo_id = await upload_test_image("corrupted_exif_test.jpg", image_data, "Test image with corrupted EXIF", token)
 	print(f"✓ Uploaded photo {photo_id}")
 
 	# Wait for processing

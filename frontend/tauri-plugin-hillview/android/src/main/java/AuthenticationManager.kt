@@ -30,16 +30,16 @@ class AuthenticationManager(private val context: Context) {
             val editor = prefs.edit()
                 .putString(KEY_AUTH_TOKEN, token)
                 .putString(KEY_EXPIRES_AT, expiresAt)
-            
+
             if (refreshToken != null) {
                 editor.putString(KEY_REFRESH_TOKEN, refreshToken)
             }
-            
+
             editor.apply()
-            
+
             // Clear any auth expired notifications since user is now authenticated
             notificationHelper.clearAuthExpiredNotification()
-            
+
             // Register client public key with server - this must succeed for uploads to work
             val keyRegistered = registerClientPublicKey(token)
             if (!keyRegistered) {
@@ -47,7 +47,7 @@ class AuthenticationManager(private val context: Context) {
                 clearAuthToken()
                 return false
             }
-            
+
             true
         } catch (e: Exception) {
             Log.e(TAG, "Error storing auth token: ${e.message}")
@@ -59,7 +59,7 @@ class AuthenticationManager(private val context: Context) {
      * Get a valid authentication token, automatically refreshing if needed.
      * This is the main method that should be used by all components needing auth.
      * Uses mutex to prevent concurrent refresh attempts.
-     * 
+     *
      * @return A valid token, or null if authentication failed/unavailable
      */
     suspend fun getValidToken(): String? {
@@ -68,9 +68,9 @@ class AuthenticationManager(private val context: Context) {
         if (currentToken != null) {
             return currentToken
         }
-        
+
         Log.d(TAG, "Token expired or missing, attempting refresh...")
-        
+
         // Use mutex to prevent multiple simultaneous refresh attempts
         return refreshMutex.withLock {
             // Double-check inside mutex - another thread may have refreshed already
@@ -79,18 +79,18 @@ class AuthenticationManager(private val context: Context) {
                 Log.d(TAG, "Token was refreshed by another thread")
                 return@withLock tokenAfterLock
             }
-            
+
             // Try to refresh the token
             if (refreshTokenIfNeeded()) {
                 // Return the new token after successful refresh
                 return@withLock getCurrentTokenIfValid()
             }
-            
+
             Log.w(TAG, "Unable to obtain valid token (refresh failed or no refresh token)")
             return@withLock null
         }
     }
-    
+
     /**
      * Get current token only if it's valid (non-expired).
      * Does not attempt refresh - for internal use only.
@@ -103,7 +103,7 @@ class AuthenticationManager(private val context: Context) {
         return try {
             val expiry = Instant.from(DateTimeFormatter.ISO_INSTANT.parse(expiresAt))
             val now = Instant.now()
-            
+
             if (now.isAfter(expiry.minusSeconds(60))) { // Refresh 1 minute before expiry
                 Log.d(TAG, "Token is expired or expiring soon")
                 null
@@ -116,7 +116,7 @@ class AuthenticationManager(private val context: Context) {
             null
         }
     }
-    
+
     /**
      * Synchronous version for cases where async is not possible.
      * WARNING: Does not attempt token refresh - may return null for expired tokens.
@@ -135,77 +135,77 @@ class AuthenticationManager(private val context: Context) {
     fun getRefreshToken(): String? {
         return prefs.getString(KEY_REFRESH_TOKEN, null)
     }
-    
+
     fun isTokenExpired(bufferMinutes: Int = 2): Boolean {
         val expiresAt = prefs.getString(KEY_EXPIRES_AT, null) ?: return true
-        
+
         return try {
             val expiry = Instant.from(DateTimeFormatter.ISO_INSTANT.parse(expiresAt))
             val now = Instant.now()
             val bufferSeconds = bufferMinutes * 60L
-            
+
             now.isAfter(expiry.minusSeconds(bufferSeconds))
         } catch (e: Exception) {
             Log.e(TAG, "Error checking token expiry: ${e.message}")
             true // Assume expired on error
         }
     }
-    
+
     suspend fun refreshTokenIfNeeded(): Boolean {
         if (!isTokenExpired()) {
             Log.d(TAG, "Token not expired, no refresh needed")
             return true
         }
-        
+
         val refreshToken = getRefreshToken() ?: run {
             Log.w(TAG, "No refresh token available - user needs to re-authenticate")
-            
+
             // Show notification if we have an access token but no refresh token
             // (This means user is logged in but can't refresh - auth will fail soon)
             if (prefs.getString(KEY_AUTH_TOKEN, null) != null) {
                 notificationHelper.showAuthExpiredNotification()
             }
-            
+
             return false
         }
-        
+
         return performTokenRefresh(refreshToken)
     }
-    
+
     private suspend fun registerClientPublicKey(token: String): Boolean {
         Log.d(TAG, "Registering client public key with server")
-        
+
         try {
             // Get client public key info
             val keyInfo = clientCrypto.getPublicKeyInfo() ?: run {
                 Log.e(TAG, "Failed to get client public key info")
                 return false
             }
-            
+
             // Get server URL from shared preferences
             val uploadPrefs = context.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
             val serverUrl = uploadPrefs.getString("server_url", null) ?: run {
                 Log.e(TAG, "Server URL not configured - user needs to login first")
                 return false
             }
-            
+
             val url = "$serverUrl/auth/register-client-key"
             val json = """{"public_key_pem":"${keyInfo.publicKeyPem}","key_id":"${keyInfo.keyId}","created_at":"${keyInfo.createdAt}"}"""
-            
+
             // Use OkHttp for the HTTP request
             val client = okhttp3.OkHttpClient()
             val mediaType = "application/json".toMediaType()
             val requestBody = json.toRequestBody(mediaType)
-            
+
             val request = okhttp3.Request.Builder()
                 .url(url)
                 .post(requestBody)
                 .addHeader("Content-Type", "application/json")
                 .addHeader("Authorization", "Bearer $token")
                 .build()
-            
+
             val response = client.newCall(request).execute()
-            
+
             if (response.isSuccessful) {
                 Log.d(TAG, "Client public key registered successfully")
                 return true
@@ -215,16 +215,16 @@ class AuthenticationManager(private val context: Context) {
                 Log.e(TAG, "Registration error response: $responseBody")
                 return false
             }
-            
+
         } catch (e: Exception) {
             Log.e(TAG, "Exception during client public key registration: ${e.message}", e)
             return false
         }
     }
-    
+
     private suspend fun performTokenRefresh(refreshToken: String): Boolean {
         Log.d(TAG, "Performing token refresh...")
-        
+
         try {
             // Get server URL from shared preferences (set by upload config)
             val uploadPrefs = context.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
@@ -234,20 +234,22 @@ class AuthenticationManager(private val context: Context) {
             }
             val url = "$serverUrl/auth/refresh"
             val json = """{"refresh_token":"$refreshToken"}"""
-            
+
             // Use OkHttp for the HTTP request (assuming it's available from UploadManager)
             val client = okhttp3.OkHttpClient()
             val mediaType = "application/json".toMediaType()
             val requestBody = json.toRequestBody(mediaType)
-            
+
             val request = okhttp3.Request.Builder()
                 .url(url)
                 .post(requestBody)
                 .addHeader("Content-Type", "application/json")
                 .build()
-            
+
+			Log.d(TAG, "Sending token refresh request to $url, body: $json")
+
             val response = client.newCall(request).execute()
-            
+
             if (response.isSuccessful) {
                 val responseBody = response.body?.string()
                 if (responseBody != null) {
@@ -255,15 +257,15 @@ class AuthenticationManager(private val context: Context) {
                     val accessTokenMatch = Regex("\"access_token\":\\s*\"([^\"]+)\"").find(responseBody)
                     val refreshTokenMatch = Regex("\"refresh_token\":\\s*\"([^\"]+)\"").find(responseBody)
                     val expiresAtMatch = Regex("\"expires_at\":\\s*\"([^\"]+)\"").find(responseBody)
-                    
+
                     if (accessTokenMatch != null && expiresAtMatch != null) {
                         val newAccessToken = accessTokenMatch.groupValues[1]
                         val newRefreshToken = refreshTokenMatch?.groupValues?.get(1)
                         val newExpiresAt = expiresAtMatch.groupValues[1]
-                        
+
                         // Store new tokens
                         val stored = storeAuthToken(newAccessToken, newExpiresAt, newRefreshToken)
-                        
+
                         if (stored) {
                             Log.d(TAG, "Token refresh successful")
                             return true
@@ -276,21 +278,21 @@ class AuthenticationManager(private val context: Context) {
                 }
             } else {
                 Log.e(TAG, "Token refresh failed with status: ${response.code}")
-                
+
                 // If refresh token is expired/invalid, clear all auth data
                 if (response.code == 401) {
                     Log.w(TAG, "Refresh token expired/invalid - clearing all auth data and notifying user")
                     clearAuthToken()
-                    
+
                     // Show push notification to user about auth expiry
                     notificationHelper.showAuthExpiredNotification()
                 }
             }
-            
+
         } catch (e: Exception) {
             Log.e(TAG, "Exception during token refresh: ${e.message}", e)
         }
-        
+
         return false
     }
 
@@ -317,7 +319,7 @@ class AuthenticationManager(private val context: Context) {
     fun hasValidToken(): Boolean {
         return getCurrentTokenIfValid() != null
     }
-    
+
     /**
      * Check if we have any authentication data stored (even if expired).
      * Useful for UI state - doesn't check expiry.

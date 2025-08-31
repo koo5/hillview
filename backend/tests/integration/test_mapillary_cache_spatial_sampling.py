@@ -155,7 +155,7 @@ def set_mock_mapillary_data(mock_data):
 	if response.status_code == 200:
 		result = response.json()
 		print(f"✓ Set mock Mapillary data: {result['details']['photos_count']} photos")
-		return True
+		# Test completed successfully - no return value needed for pytest
 	else:
 		print(f"⚠ Failed to set mock data: {response.status_code} - {response.text}")
 		return False
@@ -165,7 +165,7 @@ def clear_mock_mapillary_data():
 	response = requests.delete(f"{API_URL}/debug/mock-mapillary")
 	if response.status_code == 200:
 		print("✓ Cleared mock Mapillary data")
-		return True
+		# Test completed successfully - no return value needed for pytest
 	else:
 		print(f"⚠ Failed to clear mock data: {response.status_code}")
 		return False
@@ -228,8 +228,8 @@ def test_spatial_sampling_complete_vs_incomplete(num_photos=20):
 
 	# Set clustered mock data
 	mock_data = create_clustered_mock_data_for_sampling(num_photos)
-	if not set_mock_mapillary_data(mock_data):
-		return False
+	result = set_mock_mapillary_data(mock_data)
+	assert result is not False, "Failed to set mock Mapillary data"
 
 	# Define bbox that contains all our mock photos
 	# For 2000 photos: lat goes up to 50.08 + (1999//5) * 0.0001 = 50.1199
@@ -305,7 +305,7 @@ def test_spatial_sampling_complete_vs_incomplete(num_photos=20):
 		#clear_mock_mapillary_data()
 		pass
 
-	return True
+	# Test completed successfully - no return value needed for pytest
 
 def test_spatial_sampling_with_half_coverage():
 	"""Test that spatial sampling works correctly when photos cover half the requested area."""
@@ -318,8 +318,8 @@ def test_spatial_sampling_with_half_coverage():
 	# Create mock data covering exactly half the area (50 out of 100 grid cells)
 	num_photos = 200
 	mock_data = create_half_area_mock_data(num_photos)
-	if not set_mock_mapillary_data(mock_data):
-		return False
+	result = set_mock_mapillary_data(mock_data)
+	assert result is not False, "Failed to set mock Mapillary data"
 
 	# Test area spans: lon 14.40 to 14.42, lat 50.07 to 50.13 
 	test_bbox = [14.40, 50.07, 14.42, 50.13]  # [west, south, east, north]
@@ -369,7 +369,7 @@ def test_spatial_sampling_with_half_coverage():
 		# clear_mock_mapillary_data()
 		pass
 
-	return True
+	# Test completed successfully - no return value needed for pytest
 
 def test_spatial_sampling_with_full_coverage():
 	"""Test that spatial sampling works correctly when photos cover the full requested area."""
@@ -382,8 +382,8 @@ def test_spatial_sampling_with_full_coverage():
 	# Create mock data covering the full area (all 100 grid cells)
 	num_photos = 1000  # 10 photos per cell on average
 	mock_data = create_full_area_mock_data(num_photos)
-	if not set_mock_mapillary_data(mock_data):
-		return False
+	result = set_mock_mapillary_data(mock_data)
+	assert result is not False, "Failed to set mock Mapillary data"
 
 	test_bbox = [14.40, 50.07, 14.42, 50.13]  # [west, south, east, north]
 
@@ -398,8 +398,8 @@ def test_spatial_sampling_with_full_coverage():
 		# We'll need to set new mock data with 900 photos instead of 1000
 		smaller_num_photos = 900
 		smaller_mock_data = create_full_area_mock_data(smaller_num_photos)
-		if not set_mock_mapillary_data(smaller_mock_data):
-			return False
+		result = set_mock_mapillary_data(smaller_mock_data)
+		assert result is not False, "Failed to set mock Mapillary data"
 		
 		cache_request_limit = smaller_num_photos + 100  # Request 1000, but only get 900 available
 		result1 = get_mapillary_photos(test_bbox, "populate_full_cache", max_photos=cache_request_limit)
@@ -442,7 +442,7 @@ def test_spatial_sampling_with_full_coverage():
 		# clear_mock_mapillary_data()
 		pass
 
-	return True
+	# Test completed successfully - no return value needed for pytest
 
 def test_spatial_sampling_performance_limit():
 	"""Test that spatial sampling still applies for performance when photo count is very high."""
@@ -457,7 +457,7 @@ def test_spatial_sampling_performance_limit():
 	print("   - Current implementation uses 1000 as the threshold in: max_photos >= 1000")
 	print("✓ Performance limiting logic documented")
 
-	return True
+	# Test completed successfully - no return value needed for pytest
 
 def run_spatial_sampling_tests():
 	"""Run all spatial sampling tests."""

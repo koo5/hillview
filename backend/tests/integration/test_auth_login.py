@@ -10,12 +10,13 @@ import sys
 import os
 import time
 
-# Add the backend directory to the path
+# Add the backend and tests directory to the path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from utils.test_utils import recreate_test_users
 
-BASE_URL = os.getenv("API_URL", "http://localhost:8055")
+API_URL = os.getenv("API_URL", "http://localhost:8055/api")
 
 
 class TestUserPasswordAuth:
@@ -33,7 +34,7 @@ class TestUserPasswordAuth:
 		}
 
 		response = requests.post(
-			f"{BASE_URL}/api/auth/token",
+			f"{API_URL}/auth/token",
 			data=login_data,
 			headers={"Content-Type": "application/x-www-form-urlencoded"}
 		)
@@ -62,7 +63,7 @@ class TestUserPasswordAuth:
 		}
 
 		response = requests.post(
-			f"{BASE_URL}/api/auth/token",
+			f"{API_URL}/auth/token",
 			data=login_data,
 			headers={"Content-Type": "application/x-www-form-urlencoded"}
 		)
@@ -82,7 +83,7 @@ class TestUserPasswordAuth:
 		}
 
 		response = requests.post(
-			f"{BASE_URL}/api/auth/token",
+			f"{API_URL}/auth/token",
 			data=login_data,
 			headers={"Content-Type": "application/x-www-form-urlencoded"}
 		)
@@ -101,7 +102,7 @@ class TestUserPasswordAuth:
 		}
 
 		response = requests.post(
-			f"{BASE_URL}/api/auth/token",
+			f"{API_URL}/auth/token",
 			data=login_data,
 			headers={"Content-Type": "application/x-www-form-urlencoded"}
 		)
@@ -122,7 +123,7 @@ class TestUserPasswordAuth:
 
 		for credentials in empty_credentials:
 			response = requests.post(
-				f"{BASE_URL}/api/auth/token",
+				f"{API_URL}/auth/token",
 				data=credentials,
 				headers={"Content-Type": "application/x-www-form-urlencoded"}
 			)
@@ -134,7 +135,7 @@ class TestUserPasswordAuth:
 		"""Test login with missing form fields"""
 		# Missing password
 		response = requests.post(
-			f"{BASE_URL}/api/auth/token",
+			f"{API_URL}/auth/token",
 			data={"username": "test"},
 			headers={"Content-Type": "application/x-www-form-urlencoded"}
 		)
@@ -142,7 +143,7 @@ class TestUserPasswordAuth:
 
 		# Missing username
 		response = requests.post(
-			f"{BASE_URL}/api/auth/token",
+			f"{API_URL}/auth/token",
 			data={"password": "test123"},
 			headers={"Content-Type": "application/x-www-form-urlencoded"}
 		)
@@ -157,7 +158,7 @@ class TestUserPasswordAuth:
 
 		# Try sending as JSON instead of form data
 		response = requests.post(
-			f"{BASE_URL}/api/auth/token",
+			f"{API_URL}/auth/token",
 			json=login_data
 		)
 
@@ -176,7 +177,7 @@ class TestTokenValidation:
 		}
 
 		response = requests.post(
-			f"{BASE_URL}/api/auth/token",
+			f"{API_URL}/auth/token",
 			data=login_data,
 			headers={"Content-Type": "application/x-www-form-urlencoded"}
 		)
@@ -190,7 +191,7 @@ class TestTokenValidation:
 
 		# Try accessing a protected endpoint (assuming photos endpoint requires auth)
 		response = requests.get(
-			f"{BASE_URL}/api/photos",
+			f"{API_URL}/photos",
 			headers={"Authorization": f"Bearer {token}"}
 		)
 
@@ -206,7 +207,7 @@ class TestTokenValidation:
 
 	def test_protected_endpoint_without_token(self):
 		"""Test accessing protected endpoint without token"""
-		response = requests.get(f"{BASE_URL}/api/photos")
+		response = requests.get(f"{API_URL}/photos")
 
 		# Should require authentication - no token should result in 401
 		assert response.status_code == 401, f"Protected endpoint should require auth, got {response.status_code}: {response.text}"
@@ -222,7 +223,7 @@ class TestTokenValidation:
 
 		for invalid_token in invalid_tokens:
 			response = requests.get(
-				f"{BASE_URL}/api/photos",
+				f"{API_URL}/photos",
 				headers={"Authorization": f"Bearer {invalid_token}"}
 			)
 
@@ -252,7 +253,7 @@ class TestUserRoles:
 		"""Get token for regular user"""
 		login_data = {"username": "test", "password": "test123"}
 		response = requests.post(
-			f"{BASE_URL}/api/auth/token",
+			f"{API_URL}/auth/token",
 			data=login_data,
 			headers={"Content-Type": "application/x-www-form-urlencoded"}
 		)
@@ -263,7 +264,7 @@ class TestUserRoles:
 		"""Get token for admin user"""
 		login_data = {"username": "admin", "password": "admin123"}
 		response = requests.post(
-			f"{BASE_URL}/api/auth/token",
+			f"{API_URL}/auth/token",
 			data=login_data,
 			headers={"Content-Type": "application/x-www-form-urlencoded"}
 		)
@@ -293,7 +294,7 @@ class TestUserRoles:
 			# Reduced sleep to test timezone consistency
 			time.sleep(1)
 			response = requests.get(
-				f"{BASE_URL}/api/photos",
+				f"{API_URL}/photos",
 				headers={"Authorization": f"Bearer {token}"}
 			)
 			# Should succeed with valid token
@@ -312,7 +313,7 @@ class TestLoginSecurity:
 		}
 
 		response = requests.post(
-			f"{BASE_URL}/api/auth/token",
+			f"{API_URL}/auth/token",
 			data=login_data,
 			headers={"Content-Type": "application/x-www-form-urlencoded"}
 		)
@@ -331,7 +332,7 @@ class TestLoginSecurity:
 			}
 
 			response = requests.post(
-				f"{BASE_URL}/api/auth/token",
+				f"{API_URL}/auth/token",
 				data=login_data,
 				headers={"Content-Type": "application/x-www-form-urlencoded"}
 			)
@@ -360,7 +361,7 @@ class TestLoginSecurity:
 			}
 
 			response = requests.post(
-				f"{BASE_URL}/api/auth/token",
+				f"{API_URL}/auth/token",
 				data=login_data,
 				headers={"Content-Type": "application/x-www-form-urlencoded"}
 			)
@@ -379,7 +380,7 @@ class TestLoginSecurity:
 		responses = []
 		for i in range(10):
 			response = requests.post(
-				f"{BASE_URL}/api/auth/token",
+				f"{API_URL}/auth/token",
 				data=login_data,
 				headers={"Content-Type": "application/x-www-form-urlencoded"}
 			)

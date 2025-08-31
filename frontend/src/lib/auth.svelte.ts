@@ -40,6 +40,10 @@ export async function completeAuthentication(tokenData: {
     try {
         console.log(`🢄[AUTH] Completing ${source} authentication...`);
         
+        // IMPORTANT: Configure upload manager BEFORE storing tokens
+        // The Android AuthenticationManager needs the server URL to register client keys
+        await configureUploadManager();
+        
         // Store tokens using the unified TokenManager
         const tokenManager = createTokenManager();
         await tokenManager.storeTokens({
@@ -79,9 +83,6 @@ export async function completeAuthentication(tokenData: {
         
         // Double-check auth state
         console.log('🢄[AUTH] Auth state after authentication:', debugAuth());
-        
-        // Configure upload manager for Android after successful login
-        await configureUploadManager();
         
         return true;
     } catch (error) {

@@ -7,12 +7,12 @@ import json
 import sys
 import os
 
-BASE_URL = os.getenv("API_URL", "http://localhost:8055")
+API_URL = os.getenv("API_URL", "http://localhost:8055/api")
 
 def test_debug_endpoint():
     """Test the debug endpoint"""
     print("Testing debug endpoint...")
-    response = requests.get(f"{BASE_URL}/api/debug")
+    response = requests.get(f"{API_URL}/debug")
     print(f"Status code: {response.status_code}")
     print(f"Response: {response.json()}")
     return response.status_code == 200
@@ -27,7 +27,7 @@ def test_register_user():
     }
     
     response = requests.post(
-        f"{BASE_URL}/api/auth/register",
+        f"{API_URL}/auth/register",
         json=test_user,
         headers={"Content-Type": "application/json"}
     )
@@ -49,7 +49,7 @@ def test_login():
     }
     
     response = requests.post(
-        f"{BASE_URL}/api/auth/token",
+        f"{API_URL}/auth/token",
         data=login_data,
         headers={"Content-Type": "application/x-www-form-urlencoded"}
     )

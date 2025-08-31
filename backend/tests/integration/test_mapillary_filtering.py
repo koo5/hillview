@@ -323,7 +323,7 @@ def test_mapillary_filtering():
         print("\n✓ Test cleanup complete")
     
     print("\n🎉 All Mapillary filtering tests passed!")
-    return True
+    # Test completed successfully - no return value needed for pytest
 
 if __name__ == "__main__":
     test_mapillary_filtering()

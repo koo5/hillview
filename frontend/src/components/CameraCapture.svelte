@@ -252,6 +252,13 @@
                     retryTimeout = null;
                 }
 
+                // Stop camera permission polling since camera stream is verified working
+                if (cameraPermissionPollInterval) {
+                    console.log('🢄[CAMERA] Camera stream verified working - stopping permission polling interval');
+                    clearInterval(cameraPermissionPollInterval);
+                    cameraPermissionPollInterval = null;
+                }
+
                 // Now enumerate cameras for the selector (after permission granted)
                 if (!get(selectedCameraId)) {
                     try {

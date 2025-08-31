@@ -7,7 +7,7 @@ import json
 import sys
 import os
 
-BASE_URL = os.getenv("API_URL", "http://localhost:8055")
+API_URL = os.getenv("API_URL", "http://localhost:8055/api")
 
 def test_hillview_endpoint():
     """Test the hillview endpoint with database queries"""
@@ -22,31 +22,57 @@ def test_hillview_endpoint():
         'client_id': 'test_client'
     }
     
-    response = requests.get(f"{BASE_URL}/api/hillview", params=params)
+    # The hillview endpoint returns Server-Sent Events format, not JSON
+    headers = {
+        "Accept": "text/event-stream",
+        "Cache-Control": "no-cache"
+    }
+    
+    response = requests.get(f"{API_URL}/hillview", params=params, headers=headers, stream=True)
     print(f"Status code: {response.status_code}")
     
     if response.status_code == 200:
-        data = response.json()
-        print(f"Total photos found: {data.get('total_count', 0)}")
-        print(f"Bbox: {data.get('bbox', {})}")
+        # Parse SSE stream format
+        data = None
+        total_count = 0
         
-        if data.get('data'):
-            print(f"First photo: {data['data'][0]}")
-        else:
-            print("No photos found in the specified area")
+        for line in response.iter_lines(decode_unicode=True):
+            if line and line.startswith('data: '):
+                try:
+                    line_data = json.loads(line[6:])  # Remove 'data: ' prefix
+                    if line_data.get('type') == 'photos':
+                        data = line_data
+                        total_count += len(line_data.get('photos', []))
+                    elif line_data.get('type') == 'stream_complete':
+                        print(f"Stream complete. Total photos found: {total_count}")
+                        break
+                except json.JSONDecodeError:
+                    continue
+        
+        if data:
+            print(f"Photos in batch: {len(data.get('photos', []))}")
+            print(f"Bbox: {data.get('bbox', {})}")
             
-        return True
+            if data.get('photos'):
+                print(f"First photo: {data['photos'][0]}")
+            else:
+                print("No photos found in the specified area")
+        else:
+            print("No photo data received in SSE stream")
+            
+        # Test passes if we can parse the SSE stream format correctly
     else:
         print(f"Error response: {response.text}")
-        return False
+        assert False, f"Expected status 200, got {response.status_code}"
 
 def main():
     """Run the test"""
-    if test_hillview_endpoint():
+    try:
+        test_hillview_endpoint()
         print("\nHillview endpoint test completed successfully!")
         return 0
-    else:
-        print("\nHillview endpoint test failed!")
+    except Exception as e:
+        print(f"\nHillview endpoint test failed: {e}")
         return 1
 
 if __name__ == "__main__":

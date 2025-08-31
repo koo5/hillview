@@ -17,8 +17,7 @@ import os
 from datetime import datetime
 
 # Test configuration
-BASE_URL = os.getenv("API_URL", "http://localhost:8055")
-API_URL = f"{BASE_URL}/api"
+API_URL = os.getenv("API_URL", "http://localhost:8055/api")
 
 class TestContentFiltering:
     """Test suite for hidden content filtering in API responses."""

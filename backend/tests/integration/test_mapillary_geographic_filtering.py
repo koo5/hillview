@@ -267,7 +267,7 @@ def test_evenly_distributed_photos():
     finally:
         clear_mock_mapillary_data()
     
-    return True
+    # Test completed successfully - no return value needed for pytest
 
 def test_clustered_photos():
     """Test with clustered photos - should bypass cache due to poor distribution.""" 
@@ -332,7 +332,7 @@ def test_clustered_photos():
     finally:
         clear_mock_mapillary_data()
     
-    return True
+    # Test completed successfully - no return value needed for pytest
 
 def test_repeated_requests_consistency():
     """Test that repeated requests return consistent results."""
@@ -378,7 +378,7 @@ def test_repeated_requests_consistency():
     finally:
         clear_mock_mapillary_data()
     
-    return True
+    # Test completed successfully - no return value needed for pytest
 
 def test_geographic_filtering_comprehensive():
     """Run comprehensive geographic filtering tests."""

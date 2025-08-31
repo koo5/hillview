@@ -12,7 +12,7 @@ import os
 # Add the backend directory to the path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
-BASE_URL = os.getenv("API_URL", "http://localhost:8055")
+API_URL = os.getenv("API_URL", "http://localhost:8055/api")
 
 class TestUserProfile:
     """Test user profile retrieval and management"""
@@ -25,7 +25,7 @@ class TestUserProfile:
         }
         
         response = requests.post(
-            f"{BASE_URL}/api/auth/token",
+            f"{API_URL}/auth/token",
             data=login_data,
             headers={"Content-Type": "application/x-www-form-urlencoded"}
         )
@@ -41,7 +41,7 @@ class TestUserProfile:
         }
         
         response = requests.post(
-            f"{BASE_URL}/api/auth/token",
+            f"{API_URL}/auth/token",
             data=login_data,
             headers={"Content-Type": "application/x-www-form-urlencoded"}
         )
@@ -54,7 +54,7 @@ class TestUserProfile:
         token = self.get_test_user_token()
         
         response = requests.get(
-            f"{BASE_URL}/api/user/profile",
+            f"{API_URL}/user/profile",
             headers={"Authorization": f"Bearer {token}"}
         )
         
@@ -75,14 +75,14 @@ class TestUserProfile:
     
     def test_get_user_profile_unauthorized(self):
         """Test profile retrieval without authentication"""
-        response = requests.get(f"{BASE_URL}/api/user/profile")
+        response = requests.get(f"{API_URL}/user/profile")
         
         assert response.status_code == 401
     
     def test_get_user_profile_invalid_token(self):
         """Test profile retrieval with invalid token"""
         response = requests.get(
-            f"{BASE_URL}/api/user/profile",
+            f"{API_URL}/user/profile",
             headers={"Authorization": "Bearer invalid.token.here"}
         )
         
@@ -93,7 +93,7 @@ class TestUserProfile:
         token = self.get_test_user_token()
         
         response = requests.get(
-            f"{BASE_URL}/api/auth/me",
+            f"{API_URL}/auth/me",
             headers={"Authorization": f"Bearer {token}"}
         )
         
@@ -110,14 +110,14 @@ class TestAccountDeletion:
     
     def test_delete_account_unauthorized(self):
         """Test account deletion without authentication"""
-        response = requests.delete(f"{BASE_URL}/api/user/delete")
+        response = requests.delete(f"{API_URL}/user/delete")
         
         assert response.status_code == 401
     
     def test_delete_account_invalid_token(self):
         """Test account deletion with invalid token"""
         response = requests.delete(
-            f"{BASE_URL}/api/user/delete",
+            f"{API_URL}/user/delete",
             headers={"Authorization": "Bearer invalid.token.here"}
         )
         
@@ -129,14 +129,14 @@ class TestAccountDeletion:
         
         # Test GET (should not be allowed)
         response = requests.get(
-            f"{BASE_URL}/api/user/delete",
+            f"{API_URL}/user/delete",
             headers={"Authorization": f"Bearer {token}"}
         )
         assert response.status_code == 405  # Method not allowed
         
         # Test POST (should not be allowed)
         response = requests.post(
-            f"{BASE_URL}/api/user/delete",
+            f"{API_URL}/user/delete",
             headers={"Authorization": f"Bearer {token}"}
         )
         assert response.status_code == 405  # Method not allowed
@@ -149,7 +149,7 @@ class TestAccountDeletion:
         }
         
         response = requests.post(
-            f"{BASE_URL}/api/auth/token",
+            f"{API_URL}/auth/token",
             data=login_data,
             headers={"Content-Type": "application/x-www-form-urlencoded"}
         )
@@ -167,14 +167,14 @@ class TestAccountDeletion:
         token = self.get_test_user_token()
         
         profile_response = requests.get(
-            f"{BASE_URL}/api/user/profile",
+            f"{API_URL}/user/profile",
             headers={"Authorization": f"Bearer {token}"}
         )
         assert profile_response.status_code == 200
         
         # Now delete the account
         delete_response = requests.delete(
-            f"{BASE_URL}/api/user/delete",
+            f"{API_URL}/user/delete",
             headers={"Authorization": f"Bearer {token}"}
         )
         
@@ -186,14 +186,14 @@ class TestAccountDeletion:
         
         # Verify the token is no longer valid
         verify_response = requests.get(
-            f"{BASE_URL}/api/user/profile",
+            f"{API_URL}/user/profile",
             headers={"Authorization": f"Bearer {token}"}
         )
         assert verify_response.status_code == 401
         
         # Verify we can't login with the deleted user credentials
         login_response = requests.post(
-            f"{BASE_URL}/api/auth/token",
+            f"{API_URL}/auth/token",
             data={"username": "test", "password": "test123"},
             headers={"Content-Type": "application/x-www-form-urlencoded"}
         )
@@ -207,13 +207,13 @@ class TestProfileSecurity:
         """Helper to get tokens for different users"""
         # Get test user token
         test_login = requests.post(
-            f"{BASE_URL}/api/auth/token",
+            f"{API_URL}/auth/token",
             data={"username": "test", "password": "test123"},
             headers={"Content-Type": "application/x-www-form-urlencoded"}
         )
         
         admin_login = requests.post(
-            f"{BASE_URL}/api/auth/token",
+            f"{API_URL}/auth/token",
             data={"username": "admin", "password": "admin123"},
             headers={"Content-Type": "application/x-www-form-urlencoded"}
         )
@@ -239,13 +239,13 @@ class TestProfileSecurity:
         
         # Get test user profile with test token
         test_profile_response = requests.get(
-            f"{BASE_URL}/api/user/profile",
+            f"{API_URL}/user/profile",
             headers={"Authorization": f"Bearer {test_token}"}
         )
         
         # Get admin profile with admin token  
         admin_profile_response = requests.get(
-            f"{BASE_URL}/api/user/profile",
+            f"{API_URL}/user/profile",
             headers={"Authorization": f"Bearer {admin_token}"}
         )
         
@@ -264,7 +264,7 @@ class TestProfileSecurity:
         expired_token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0IiwiZXhwIjoxNjAwMDAwMDAwfQ.invalid"
         
         response = requests.get(
-            f"{BASE_URL}/api/user/profile",
+            f"{API_URL}/user/profile",
             headers={"Authorization": f"Bearer {expired_token}"}
         )
         
@@ -281,7 +281,7 @@ class TestProfileSecurity:
         
         for malicious_token in malicious_tokens:
             response = requests.get(
-                f"{BASE_URL}/api/user/profile",
+                f"{API_URL}/user/profile",
                 headers={"Authorization": f"Bearer {malicious_token}"}
             )
             

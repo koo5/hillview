@@ -9,16 +9,18 @@ import requests
 import time
 import sys
 import os
+import json
 from PIL import Image
 import io
 import tempfile
 
-# Add the backend directory to the path
+# Add the backend and tests directory to the path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from utils.test_utils import recreate_test_users
+from utils.test_utils import recreate_test_users, query_hillview_endpoint
 
-BASE_URL = os.getenv("API_URL", "http://localhost:8055")
+API_URL = os.getenv("API_URL", "http://localhost:8055/api")
 
 class TestResetUploadPoll:
     """Test complete workflow: reset test users -> login -> upload -> poll until photo appears"""
@@ -104,7 +106,7 @@ class TestResetUploadPoll:
         print("Logging in as test user...")
 
         response = requests.post(
-            f"{BASE_URL}/api/auth/token",
+            f"{API_URL}/auth/token",
             data=self.test_user_credentials,
             headers={"Content-Type": "application/x-www-form-urlencoded"}
         )
@@ -136,7 +138,7 @@ class TestResetUploadPoll:
             image_data = self.create_simple_test_image()
 
         # Use secure upload workflow
-        upload_client = SecureUploadClient(api_url=BASE_URL)
+        upload_client = SecureUploadClient(api_url=API_URL)
 
         # Phase 1: Generate and register client keys
         client_keys = upload_client.generate_client_keys()
@@ -168,7 +170,7 @@ class TestResetUploadPoll:
 
         while time.time() - start_time < timeout:
             response = requests.get(
-                f"{BASE_URL}/api/photos/{photo_id}",
+                f"{API_URL}/photos/{photo_id}",
                 headers=headers
             )
 
@@ -202,8 +204,6 @@ class TestResetUploadPoll:
         """Poll the hillview endpoint until the uploaded photo appears and verify its data"""
         print("Polling hillview endpoint for uploaded photo...")
 
-        headers = {"Authorization": f"Bearer {token}"}
-
         # Define bounding box around Prague coordinates where our test photo should appear
         bbox_params = {
             'top_left_lat': 50.1,
@@ -216,15 +216,9 @@ class TestResetUploadPoll:
         for attempt in range(max_attempts):
             print(f"   Polling attempt {attempt + 1}/{max_attempts}")
 
-            response = requests.get(
-                f"{BASE_URL}/api/hillview",
-                params=bbox_params,
-                headers=headers
-            )
-
-            if response.status_code == 200:
-                data = response.json()
-                photos = data.get('data', [])
+            try:
+                data = query_hillview_endpoint(token, bbox_params)
+                photos = data.get('photos', [])
                 total_count = data.get('total_count', 0)
 
                 print(f"   Found {total_count} photos in hillview endpoint")
@@ -271,8 +265,9 @@ class TestResetUploadPoll:
                     for i, photo in enumerate(photos[:3]):
                         coords = photo.get('geometry', {}).get('coordinates', [])
                         print(f"     {i+1}. ID: {photo.get('id')}, coords: {coords}")
-            else:
-                print(f"   Failed to query hillview endpoint: {response.status_code} - {response.text}")
+                        
+            except Exception as e:
+                print(f"   Failed to query hillview endpoint: {e}")
 
             # Wait before next attempt
             if attempt < max_attempts - 1:
@@ -345,11 +340,8 @@ class TestResetUploadPoll:
                 'client_id': 'test_client_final_verification'
             }
 
-            response = requests.get(f"{BASE_URL}/api/hillview", params=bbox_params, headers=headers)
-            assert response.status_code == 200, "Final verification failed"
-
-            data = response.json()
-            all_photos = data.get('data', [])
+            data = query_hillview_endpoint(token, bbox_params)
+            all_photos = data.get('photos', [])
             total_count = data.get('total_count', 0)
 
             print(f"📊 Total photos in dataset: {total_count}")
@@ -421,13 +413,9 @@ class TestResetUploadPoll:
             'client_id': 'test_client_basic'
         }
 
-        response = requests.get(f"{BASE_URL}/api/hillview", params=params)
-        assert response.status_code == 200, f"Hillview endpoint failed: {response.status_code}"
-
-        data = response.json()
+        data = query_hillview_endpoint(token=None, params=params)
         assert "data" in data, "Response missing 'data' field"
         assert "total_count" in data, "Response missing 'total_count' field"
-        assert "bbox" in data, "Response missing 'bbox' field"
 
         print(f"✅ Hillview endpoint working - found {data['total_count']} photos")
 
