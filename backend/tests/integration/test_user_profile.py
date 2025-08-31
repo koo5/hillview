@@ -21,7 +21,7 @@ class TestUserProfile:
         """Helper to get a valid token for test user"""
         login_data = {
             "username": "test",
-            "password": "test123"
+            "password": "StrongTestPassword123!"
         }
         
         response = requests.post(
@@ -145,7 +145,7 @@ class TestAccountDeletion:
         """Helper to get a valid token for test user"""
         login_data = {
             "username": "test",
-            "password": "test123"
+            "password": "StrongTestPassword123!"
         }
         
         response = requests.post(
@@ -194,7 +194,7 @@ class TestAccountDeletion:
         # Verify we can't login with the deleted user credentials
         login_response = requests.post(
             f"{API_URL}/auth/token",
-            data={"username": "test", "password": "test123"},
+            data={"username": "test", "password": "StrongTestPassword123!"},
             headers={"Content-Type": "application/x-www-form-urlencoded"}
         )
         assert login_response.status_code == 401
@@ -208,7 +208,7 @@ class TestProfileSecurity:
         # Get test user token
         test_login = requests.post(
             f"{API_URL}/auth/token",
-            data={"username": "test", "password": "test123"},
+            data={"username": "test", "password": "StrongTestPassword123!"},
             headers={"Content-Type": "application/x-www-form-urlencoded"}
         )
         

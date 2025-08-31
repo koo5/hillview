@@ -59,9 +59,11 @@ RUN useradd --create-home --shell /bin/bash worker
 # Create uploads directory structure
 RUN mkdir -p /app/uploads/opt
 RUN mkdir -p /app/pics
+RUN mkdir -p /home/worker/.config/Ultralytics
 
 RUN chown -R worker:worker /app/uploads
 RUN chown -R worker:worker /app/pics
+RUN chown -R worker:worker /home/worker/.config/Ultralytics
 
 # Copy application code
 COPY common /app/common

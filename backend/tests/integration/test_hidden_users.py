@@ -308,7 +308,7 @@ class TestUserHiding:
         print("USER HIDING ENDPOINT TESTS")
         print("=" * 50)
         
-        if not self.setup():
+        if not self.setup_method():
             print("❌ Setup failed!")
             return False
         

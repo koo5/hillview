@@ -36,7 +36,7 @@ class TestJWTSecurity:
         response = requests.post(f"{API_URL}/auth/register", json=test_user)
         if response.status_code != 200:
             # Registration may not be available, use existing test user
-            test_user = {"username": "test", "password": "test123"}
+            test_user = {"username": "test", "password": "StrongTestPassword123!"}
         
         # Login
         login_data = {
@@ -131,7 +131,7 @@ class TestTokenBlacklist:
     
     def get_test_token(self):
         """Helper to get a valid token"""
-        login_data = {"username": "test", "password": "test123"}
+        login_data = {"username": "test", "password": "StrongTestPassword123!"}
         response = requests.post(
             f"{API_URL}/auth/token",
             data=login_data,

@@ -22,7 +22,7 @@ class TestRateLimiting:
         register_data = {
             "email": "ratetest@example.com",
             "username": "ratetest", 
-            "password": "testpass123"
+            "password": "StrongTestPassword123!"
         }
         response = requests.post(f"{API_URL}/auth/register", json=register_data)
         if response.status_code == 400 and "already exists" in response.text:
@@ -31,7 +31,7 @@ class TestRateLimiting:
             assert response.status_code == 200, f"Registration failed: {response.text}"
         
         # Login to get token
-        login_data = {"username": "ratetest", "password": "testpass123"}
+        login_data = {"username": "ratetest", "password": "StrongTestPassword123!"}
         response = requests.post(
             f"{API_URL}/auth/token",
             data=login_data,
@@ -256,7 +256,7 @@ class TestRateLimiting:
         success_count = 0
         
         for i in range(3):
-            login_data = {"username": "ratetest", "password": "testpass123"}
+            login_data = {"username": "ratetest", "password": "StrongTestPassword123!"}
             response = requests.post(
                 f"{API_URL}/auth/token",
                 data=login_data,

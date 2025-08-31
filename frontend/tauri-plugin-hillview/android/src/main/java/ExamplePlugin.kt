@@ -231,6 +231,8 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     fun handleCameraPermissionResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         if (requestCode == CAMERA_PERMISSION_REQUEST_CODE) {
             Log.i(TAG, "🢄🎥 Camera permission result received")
+            Log.i(TAG, "🢄🎥 Permissions requested: ${permissions.joinToString(", ")}")
+            Log.i(TAG, "🢄🎥 Grant results: ${grantResults.joinToString(", ") { if (it == PackageManager.PERMISSION_GRANTED) "GRANTED" else "DENIED" }}")
             
             // Check if all requested permissions were granted
             val allGranted = grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }
@@ -302,7 +304,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     fun startSensor(invoke: Invoke) {
         val mode = try {
             val args = invoke.parseArgs(SensorModeArgs::class.java)
-            if (args != null) {
+            if (args.mode != null) {
                 Log.d(TAG, "🔄 Successfully parsed args with mode=${args.mode}")
                 args.mode ?: EnhancedSensorService.MODE_UPRIGHT_ROTATION_VECTOR
             } else {
@@ -527,7 +529,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         try {
             val args = invoke.parseArgs(UploadConfigArgs::class.java)
             
-            args?.serverUrl?.let { secureUploadManager.setServerUrl(it) }
+            args.serverUrl?.let { secureUploadManager.setServerUrl(it) }
             Log.d(TAG, "📤 Upload config updated")
             
             val result = JSObject()
@@ -547,7 +549,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     fun uploadPhoto(invoke: Invoke) {
         try {
             val args = invoke.parseArgs(PhotoUploadArgs::class.java)
-            val photoId = args?.photoId
+            val photoId = args.photoId
             
             if (photoId.isNullOrEmpty()) {
                 val error = JSObject()
@@ -684,9 +686,9 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     fun storeAuthToken(invoke: Invoke) {
         try {
             val args = invoke.parseArgs(StoreAuthTokenArgs::class.java)
-            val token = args?.token
-            val expiresAt = args?.expiresAt
-            val refreshToken = args?.refreshToken
+            val token = args.token
+            val expiresAt = args.expiresAt
+            val refreshToken = args.refreshToken
             
             if (token.isNullOrEmpty() || expiresAt.isNullOrEmpty()) {
                 val error = JSObject()
@@ -818,7 +820,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     fun isTokenExpired(invoke: Invoke) {
         try {
             val args = invoke.parseArgs(TokenExpiryCheckArgs::class.java)
-            val bufferMinutes = args?.bufferMinutes ?: 2
+            val bufferMinutes = args.bufferMinutes
             
             Log.d(TAG, "🔐 Checking if token is expired (buffer: $bufferMinutes minutes)")
             val expired = authManager.isTokenExpired(bufferMinutes)
@@ -951,8 +953,8 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         Log.e(TAG, "🔒🔒🔒 PERMISSION RESULT CALLBACK RECEIVED 🔒🔒🔒")
         Log.e(TAG, "🔒 requestCode: $requestCode")
-        Log.e(TAG, "🔒 permissions: ${permissions.contentToString()}")
-        Log.e(TAG, "🔒 grantResults: ${grantResults.contentToString()}")
+        Log.e(TAG, "🔒 permissions: ${permissions.joinToString(", ")}")
+        Log.e(TAG, "🔒 grantResults: ${grantResults.joinToString(", ") { if (it == PackageManager.PERMISSION_GRANTED) "GRANTED" else "DENIED" }}")
         Log.e(TAG, "🔒 CAMERA_PERMISSION_REQUEST_CODE: $CAMERA_PERMISSION_REQUEST_CODE")
         
         // Handle camera permission results

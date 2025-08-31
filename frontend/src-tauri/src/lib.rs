@@ -47,20 +47,10 @@ pub fn run() {
             device_photos::delete_device_photo
         ])
         .setup(|app| {
+            // Tauri log plugin disabled to prevent duplicate console logs
+            // (JavaScript console already visible in WebView, Sentry handles errors)
             if cfg!(debug_assertions) {
-                // Only initialize log plugin if logger hasn't been set yet
-                // This prevents crashes when the process persists but Activity restarts
-                match app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Error)
-                        .build(),
-                ) {
-                    Ok(_) => info!("🢄Log plugin initialized successfully"),
-                    Err(e) => {
-                        // Logger already initialized, this is expected on Activity restart
-                        info!("🢄Log plugin already initialized (process persisted): {}", e);
-                    }
-                }
+                info!("🢄Debug mode enabled, console logs available in WebView");
             }
 
             #[cfg(debug_assertions)]

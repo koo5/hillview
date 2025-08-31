@@ -134,16 +134,16 @@ async def authenticate_user(db: AsyncSession, username: str, password: str):
     if not user:
         logger.debug(f"User not found by username, trying email: {username}")
         user = await get_user_by_email(db, username)  # Try with email
-    
+
     if not user:
         logger.warning(f"Authentication failed: User not found: {username}")
         return False
-    
+
     # Check if user is active BEFORE password verification
     if not user.is_active:
         logger.warning(f"Authentication failed: User is disabled: {username}")
         return False
-    
+
     logger.debug(f"Verifying password for user {username}")
     logger.debug(f"Stored hash: {user.hashed_password[:50]}...")
     logger.debug(f"Password to verify: {password}")
@@ -152,7 +152,7 @@ async def authenticate_user(db: AsyncSession, username: str, password: str):
     if not password_valid:
         logger.warning(f"Authentication failed: Invalid password for user: {username}")
         return False
-    
+
     logger.info(f"Authentication successful for user: {username}, id: {user.id}")
     return user
 
@@ -164,42 +164,42 @@ async def get_current_user(
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
-    
+
     inactive_user_exception = HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
         detail="User account is disabled",
     )
-    
+
     # Use common JWT validation
-    
+
     token_data_dict = validate_token(token)
     if not token_data_dict:
         logger.warning("Token validation failed")
         raise credentials_exception
-    
+
     username = token_data_dict["username"]
     user_id = token_data_dict["sub"]
-    
+
     # Check if token is blacklisted
     if await is_token_blacklisted(token, db):
         logger.warning(f"Blacklisted token used by user: {user_id}")
         raise credentials_exception
-    
+
     token_data = TokenData(username=username, user_id=user_id)
-    
+
     # Fetch user from database
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalars().first()
-    
+
     if user is None:
         logger.warning(f"User not found with ID: {user_id}")
         raise credentials_exception
-    
+
     # Check if user is active IMMEDIATELY after fetching
     if not user.is_active:
         logger.warning(f"Disabled user attempted access: {user_id}")
         raise inactive_user_exception
-        
+
     logger.debug(f"User authenticated successfully: {user.username}, id: {user.id}")
     return user
 
@@ -225,7 +225,7 @@ async def blacklist_token(token: str, user_id: str, reason: str, db: AsyncSessio
         else:
             # Default to 30 days if no expiration
             expires_at = utc_plus_timedelta(timedelta(days=30))
-        
+
         blacklist_entry = TokenBlacklist(
             token=token,
             user_id=user_id,
@@ -252,44 +252,44 @@ async def get_current_active_user(current_user: User = Depends(get_current_user)
     return current_user
 
 async def get_current_user_optional(
-    token: Optional[str] = Depends(OAuth2PasswordBearer(tokenUrl="/api/auth/token", auto_error=False)), 
+    token: Optional[str] = Depends(OAuth2PasswordBearer(tokenUrl="/api/auth/token", auto_error=False)),
     db: AsyncSession = Depends(get_db)
 ) -> Optional[User]:
     """Get current user if authenticated, otherwise return None"""
     if not token:
         return None
-    
+
     try:
         # Decode and validate JWT token with strict algorithm checking
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get("sub")
         if username is None:
             return None
-        
+
         # Check if token is blacklisted
         blacklist_query = select(TokenBlacklist).where(TokenBlacklist.token == token)
         blacklist_result = await db.execute(blacklist_query)
         blacklisted_token = blacklist_result.scalars().first()
-        
+
         if blacklisted_token:
             logger.warning(f"Blacklisted token used for user: {username}")
             return None
-            
+
     except JWTError:
         return None
-    
+
     # Get user from database
     result = await db.execute(select(User).where(User.username == username))
     user = result.scalars().first()
-    
+
     if user is None or not user.is_active:
         return None
-        
+
     return user
 
 async def get_current_user_optional_with_query(
     request: Request,
-    token: Optional[str] = Depends(OAuth2PasswordBearer(tokenUrl="/api/auth/token", auto_error=False)), 
+    token: Optional[str] = Depends(OAuth2PasswordBearer(tokenUrl="/api/auth/token", auto_error=False)),
     db: AsyncSession = Depends(get_db)
 ) -> Optional[User]:
     """Get current user if authenticated, checking both header and query params"""
@@ -301,27 +301,27 @@ async def get_current_user_optional_with_query(
             username: str = payload.get("sub")
             if username is None:
                 return None
-            
+
             # Check if token is blacklisted
             blacklist_query = select(TokenBlacklist).where(TokenBlacklist.token == token)
             blacklist_result = await db.execute(blacklist_query)
             blacklisted_token = blacklist_result.scalars().first()
-            
+
             if blacklisted_token:
                 logger.warning(f"Blacklisted token used for user: {username}")
                 return None
-                
+
             # Get user from database
             result = await db.execute(select(User).where(User.username == username))
             user = result.scalars().first()
-            
+
             if user is None or not user.is_active:
                 return None
-                
+
             return user
         except JWTError:
             pass
-    
+
     # If no header token or it failed, try query parameter
     if request:
         query_token = request.query_params.get('token')
@@ -332,34 +332,34 @@ async def get_current_user_optional_with_query(
                 username: str = payload.get("sub")
                 if username is None:
                     return None
-                
+
                 # Check if token is blacklisted
                 blacklist_query = select(TokenBlacklist).where(TokenBlacklist.token == query_token)
                 blacklist_result = await db.execute(blacklist_query)
                 blacklisted_token = blacklist_result.scalars().first()
-                
+
                 if blacklisted_token:
                     logger.warning(f"Blacklisted token used for user: {username}")
                     return None
-                    
+
                 # Get user from database
                 result = await db.execute(select(User).where(User.username == username))
                 user = result.scalars().first()
-                
+
                 if user is None or not user.is_active:
                     return None
-                    
+
                 return user
             except JWTError:
                 pass
-    
+
     return None
 
 def require_role(required_role: str):
     """Dependency factory for role-based access control."""
     async def role_checker(current_user: User = Depends(get_current_active_user)):
         from common.models import UserRole
-        
+
         # Convert string to enum if needed
         if isinstance(required_role, str):
             try:
@@ -368,18 +368,18 @@ def require_role(required_role: str):
                 raise HTTPException(status_code=400, detail=f"Invalid role: {required_role}")
         else:
             required_role_enum = required_role
-        
+
         # Check if user has the required role
         if current_user.role != required_role_enum:
             # Allow admin to access all endpoints
             if current_user.role != UserRole.ADMIN:
                 raise HTTPException(
-                    status_code=403, 
+                    status_code=403,
                     detail=f"Access denied. Required role: {required_role_enum.value}, your role: {current_user.role.value}"
                 )
-        
+
         return current_user
-    
+
     return role_checker
 
 # Convenience functions for common roles
@@ -392,33 +392,33 @@ def require_moderator():
     """Require moderator role (admins also have access)."""
     async def moderator_checker(current_user: User = Depends(get_current_active_user)):
         from common.models import UserRole
-        
+
         if current_user.role not in [UserRole.ADMIN, UserRole.MODERATOR]:
             raise HTTPException(
                 status_code=403,
                 detail=f"Access denied. Required role: moderator or admin, your role: {current_user.role.value}"
             )
-        
+
         return current_user
-    
+
     return moderator_checker
 
 async def delete_users_by_usernames(db: AsyncSession, usernames: list[str]) -> dict:
     """Delete users by usernames, including their owned photos. Returns summary of deletions."""
     from sqlalchemy import delete, select
     from common.models import Photo
-    
+
     summary = {
         "photos_deleted": 0,
         "users_deleted": 0
     }
-    
+
     try:
         # First, get user IDs for the specified usernames
         user_ids_query = select(User.id).where(User.username.in_(usernames))
         user_ids_result = await db.execute(user_ids_query)
         user_ids = [row[0] for row in user_ids_result.fetchall()]
-        
+
         if user_ids:
             # Delete photos owned by these users
             photo_delete_stmt = delete(Photo).where(Photo.owner_id.in_(user_ids))
@@ -426,17 +426,17 @@ async def delete_users_by_usernames(db: AsyncSession, usernames: list[str]) -> d
             summary["photos_deleted"] = photo_result.rowcount
             if photo_result.rowcount > 0:
                 logger.info(f"Deleted {photo_result.rowcount} photos owned by users: {usernames}")
-        
+
         # Delete the users
         user_delete_stmt = delete(User).where(User.username.in_(usernames))
         user_result = await db.execute(user_delete_stmt)
         summary["users_deleted"] = user_result.rowcount
         if user_result.rowcount > 0:
             logger.info(f"Deleted {user_result.rowcount} users: {usernames}")
-        
+
         await db.commit()
         return summary
-        
+
     except Exception as e:
         logger.error(f"Error deleting users {usernames}: {str(e)}")
         await db.rollback()
@@ -458,7 +458,8 @@ async def recreate_test_users() -> dict:
         # Hardcoded test users with roles
         test_user_data = [
             ("test", "test123", UserRole.USER),
-            ("admin", "admin123", UserRole.ADMIN)
+            ("admin", "admin123", UserRole.ADMIN),
+			("testuser", "password123", UserRole.USER),
         ]
 
         summary = {

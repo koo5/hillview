@@ -10,16 +10,19 @@ from utils.test_utils import clear_test_database, API_URL
 def setup_test_users():
     """Create test users and return auth tokens."""
     users = [
-        {"username": "mapillary_user_1", "email": "map1@example.com", "password": "testpass123"},
-        {"username": "mapillary_user_2", "email": "map2@example.com", "password": "testpass123"}
+        {"username": "mapillary_user_1", "email": "map1@example.com", "password": "StrongTestPassword123!"},
+        {"username": "mapillary_user_2", "email": "map2@example.com", "password": "StrongTestPassword123!"}
     ]
     
     auth_tokens = {}
     for user in users:
         # Register
         response = requests.post(f"{API_URL}/auth/register", json=user)
-        if response.status_code != 200:
-            print(f"Failed to register {user['username']}: {response.status_code}")
+        if response.status_code not in [200, 201, 400]:
+            print(f"Failed to register {user['username']}: {response.status_code} - {response.text}")
+            continue
+        elif response.status_code == 400 and "already exists" not in response.text:
+            print(f"Registration failed for {user['username']}: {response.text}")
             continue
             
         # Login

@@ -17,7 +17,7 @@ export class PlaceholderInjector {
     ): void {
         const deviceSource = get(sources).find(s => s.id === 'device');
         if (!deviceSource || !deviceSource.enabled) {
-            console.warn('🢄Device source not enabled, skipping placeholder injection');
+            console.log('🢄Device source not enabled, skipping placeholder injection');
             return;
         }
 
@@ -25,7 +25,7 @@ export class PlaceholderInjector {
 
         // Add to our placeholder store
         placeholderPhotos.update(photos => [...photos, placeholderPhoto]);
-        
+
         console.log('🢄📍 Injected placeholder:', tempId, 'at', location);
     }
 

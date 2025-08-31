@@ -29,14 +29,16 @@ USER_ACCOUNTS = os.getenv("USER_ACCOUNTS", "false").lower() in ("true", "1", "ye
 async def lifespan(app: FastAPI):
 	# Startup
 	log.info("Application startup initiated")
-	
+
+	log.info(f"DEV_MODE: {os.getenv('DEV_MODE', 'false')}")
+
 	# Log rate limit configuration
 	rate_limit_config.log_configuration()
-	
+
 	log.info("Application startup completed")
-	
+
 	yield
-	
+
 	# Shutdown (if needed in the future)
 	log.info("Application shutdown")
 
@@ -166,12 +168,12 @@ class ReverseProxyMiddleware(BaseHTTPMiddleware):
 		# Trust forwarded headers from reverse proxy (Caddy)
 		forwarded_proto = request.headers.get("X-Forwarded-Proto")
 		forwarded_host = request.headers.get("X-Forwarded-Host")
-		
+
 		if forwarded_proto:
 			request.scope["scheme"] = forwarded_proto
 		if forwarded_host:
 			request.scope["server"] = (forwarded_host, None)
-			
+
 		return await call_next(request)
 
 # Add middlewares (order matters - later added = executed first)
@@ -324,10 +326,10 @@ async def set_mock_mapillary_data(mock_data: Dict[str, Any]):
 	"""Debug endpoint to set mock Mapillary data for testing (only available when DEBUG_ENDPOINTS=true)"""
 	if not os.getenv("DEBUG_ENDPOINTS", "false").lower() in ("true", "1", "yes"):
 		raise HTTPException(status_code=404, detail="Debug endpoints disabled")
-	
+
 	from .mock_mapillary import mock_mapillary_service
 	mock_mapillary_service.set_mock_data(mock_data)
-	
+
 	return {
 		"status": "success",
 		"message": "Mock Mapillary data set",
@@ -341,11 +343,11 @@ async def clear_mock_mapillary_data():
 	"""Debug endpoint to clear mock Mapillary data (only available when DEBUG_ENDPOINTS=true)"""
 	if not os.getenv("DEBUG_ENDPOINTS", "false").lower() in ("true", "1", "yes"):
 		raise HTTPException(status_code=404, detail="Debug endpoints disabled")
-	
+
 	from .mock_mapillary import mock_mapillary_service
 	mock_mapillary_service.clear_mock_data()
-	
+
 	return {
-		"status": "success", 
+		"status": "success",
 		"message": "Mock Mapillary data cleared"
 	}

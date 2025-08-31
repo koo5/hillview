@@ -27,7 +27,7 @@ async def test_upload_endpoint():
     user_data = {
         "username": "testuser",
         "email": "test@example.com", 
-        "password": "testpassword123"
+        "password": "StrongTestPassword123!"
     }
     
     try:
