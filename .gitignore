@@ -7,3 +7,4 @@ backend/worker/models/
 frontend/src-tauri/gen/
 __pycache__
 venv
+backend/worker/Ultralytics/

@@ -86,14 +86,13 @@ class TestUserHiding:
         print(f"Response status: {response.status_code}")
         print(f"Response: {response.json()}")
         
-        if response.status_code == 200:
-            result = response.json()
-            if result.get("success") and "hidden successfully" in result.get("message", ""):
-                print("✓ User hidden successfully")
-                return True
+        assert response.status_code == 200, f"Expected 200, got {response.status_code}"
         
-        print("✗ Failed to hide user")
-        return False
+        result = response.json()
+        assert result.get("success"), f"Expected success=True, got {result}"
+        assert "hidden successfully" in result.get("message", ""), f"Expected success message, got {result}"
+        
+        print("✓ User hidden successfully")
     
     def test_hide_user_duplicate(self):
         """Test hiding a user that's already hidden."""

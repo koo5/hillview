@@ -39,8 +39,7 @@ async def test_upload_endpoint():
         elif response.status_code == 400 and "already exists" in response.text:
             print("✓ User already exists")
         else:
-            print(f"✗ Registration failed: {response.status_code} - {response.text}")
-            return False
+            pytest.fail(f"Registration failed: {response.status_code} - {response.text}")
         
         # Login to get token
         print("Logging in...")
@@ -54,9 +53,7 @@ async def test_upload_endpoint():
             headers={"Content-Type": "application/x-www-form-urlencoded"}
         )
         
-        if response.status_code != 200:
-            print(f"✗ Login failed: {response.status_code} - {response.text}")
-            return False
+        assert response.status_code == 200, f"Login failed: {response.status_code} - {response.text}"
         
         token_data = response.json()
         access_token = token_data["access_token"]
@@ -116,10 +113,9 @@ async def test_upload_endpoint():
                 if status in ['completed', 'failed']:
                     if status == 'completed':
                         print("✓ Photo processing completed successfully!")
-                        return True
+                        assert True  # Test passed
                     else:
-                        print("✗ Photo processing failed")
-                        return False
+                        pytest.fail("Photo processing failed")
                     
                 time.sleep(1)
             else:
@@ -127,14 +123,11 @@ async def test_upload_endpoint():
                 break
         
         print("✓ Upload workflow completed (processing may still be in progress)")
-        return True
             
     except requests.exceptions.ConnectionError:
-        print("✗ Could not connect to API. Make sure the server is running on localhost:8055")
-        return False
+        pytest.fail("Could not connect to API. Make sure the server is running on localhost:8055")
     except Exception as e:
-        print(f"✗ Test failed with error: {e}")
-        return False
+        pytest.fail(f"Test failed with error: {e}")
     finally:
         # Clean up test image
         if test_image_path and os.path.exists(test_image_path):
@@ -149,5 +142,5 @@ def create_test_image(path: str):
     img.save(path, 'JPEG')
 
 if __name__ == "__main__":
-    success = asyncio.run(test_upload_endpoint())
-    sys.exit(0 if success else 1)
+    asyncio.run(test_upload_endpoint())
+    print("✓ Upload test completed successfully!")
