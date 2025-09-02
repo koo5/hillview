@@ -12,8 +12,11 @@ cd api/app && uvicorn api:app --reload
 # Run with Docker Compose (preferred method)
 docker compose up --build --remove-orphans -d api
 
-# Run tests
-python -m pytest tests/ -v
+# Run tests (use the test script for proper environment setup)
+./tests/run_tests.sh
+
+# Run specific tests
+./tests/run_tests.sh integration/test_content_filtering.py -v
 ```
 
 ### Database Operations

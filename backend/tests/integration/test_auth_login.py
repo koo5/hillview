@@ -251,7 +251,7 @@ class TestUserRoles:
 
 	def get_user_token(self):
 		"""Get token for regular user"""
-		login_data = {"username": "test", "password": "test123"}
+		login_data = {"username": "test", "password": "StrongTestPassword123!"}
 		response = requests.post(
 			f"{API_URL}/auth/token",
 			data=login_data,

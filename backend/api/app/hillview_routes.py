@@ -14,7 +14,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
 from common.models import Photo, User
 from .hidden_content_filters import apply_hidden_content_filters
-from .auth import get_current_user_optional_with_query
+from .auth import get_current_user_optional_with_query, get_current_user_optional
 from .rate_limiter import rate_limit_public_read
 
 load_dotenv()
@@ -33,7 +33,7 @@ async def get_hillview_images(
 	bottom_right_lon: float = Query(..., description="Bottom right longitude"),
 	client_id: str = Query(..., description="Client ID"),
 	db: AsyncSession = Depends(get_db),
-	current_user: Optional[User] = Depends(get_current_user_optional_with_query)
+	current_user: Optional[User] = Depends(get_current_user_optional)
 ):
 	"""Get Hillview images from database filtered by bounding box area"""
 	# Apply public read rate limiting
@@ -53,6 +53,7 @@ async def get_hillview_images(
 		)
 
 		log.debug(f"Querying photos from database for bbox: {top_left_lat}, {top_left_lon}, {bottom_right_lat}, {bottom_right_lon}, query: {query}")
+		log.info(f"Hillview endpoint - current_user: {current_user.username if current_user else 'None'} (ID: {current_user.id if current_user else 'None'})")
 
 		# Apply hidden content filtering
 		query = apply_hidden_content_filters(

@@ -25,21 +25,31 @@ def apply_hidden_content_filters(
     Returns:
         Modified query with hidden content filters applied
     """
+    import logging
+    log = logging.getLogger(__name__)
+    
+    log.info(f"apply_hidden_content_filters called: user_id={current_user_id}, photo_source={photo_source}")
+    
     if not current_user_id:
         # No filtering for anonymous users
+        log.info("No current_user_id, skipping filtering")
         return query
     
     # Filter out photos explicitly hidden by the user
-    query = query.where(
-        Photo.id.notin_(
-            select(HiddenPhoto.photo_id).where(
-                and_(
-                    HiddenPhoto.user_id == current_user_id,
-                    HiddenPhoto.photo_source == photo_source
-                )
-            )
+    log.info(f"Applying photo filtering for user {current_user_id}, source {photo_source}")
+    
+    hidden_photo_subquery = select(HiddenPhoto.photo_id).where(
+        and_(
+            HiddenPhoto.user_id == current_user_id,
+            HiddenPhoto.photo_source == photo_source
         )
     )
+    log.info(f"Hidden photo subquery: {hidden_photo_subquery}")
+    
+    query = query.where(
+        Photo.id.notin_(hidden_photo_subquery)
+    )
+    log.info(f"Applied photo filtering, modified query: {query}")
     
     # Filter out photos by hidden users (for Hillview photos, filter by owner_id)
     if photo_source == 'hillview':

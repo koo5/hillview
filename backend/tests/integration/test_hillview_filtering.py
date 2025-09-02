@@ -17,9 +17,13 @@ import requests
 import json
 import time
 import os
+import pytest
+import asyncio
 from datetime import datetime
 from typing import List, Dict, Any, Optional
-from utils.test_utils import clear_test_database, API_URL, create_test_photos
+from PIL import Image
+import io
+from utils.test_utils import clear_test_database, API_URL, create_test_photos, query_hillview_endpoint
 
 class TestHillviewFiltering:
     """Comprehensive test suite for Hillview API content filtering."""
@@ -31,7 +35,10 @@ class TestHillviewFiltering:
         self.test_photos = []
         self.hidden_items = []  # Track what we hide for cleanup
         
-    def setup(self):
+        # Perform the actual setup that creates users and photos
+        self._perform_setup()
+        
+    def _perform_setup(self):
         """Set up test users and discover existing photos."""
         print("Setting up comprehensive Hillview filtering tests...")
         
@@ -59,7 +66,7 @@ class TestHillviewFiltering:
             response = requests.post(f"{API_URL}/auth/register", json=test_user)
             if response.status_code not in [200, 400]:
                 print(f"User registration failed: {response.text}")
-                return False
+                raise Exception(f"Failed to register test user {test_user['username']}: {response.text}")
                 
             # Login
             login_data = {
@@ -78,15 +85,20 @@ class TestHillviewFiltering:
                 print(f"✓ Created user: {test_user['username']}")
             else:
                 print(f"Login failed for {test_user['username']}: {response.text}")
-                return False
+                raise Exception(f"Failed to create test user {test_user['username']}: {response.text}")
         
         # Create test photos for filtering tests
-        create_test_photos(self.test_users, self.auth_tokens)
+        asyncio.run(create_test_photos(self.test_users, self.auth_tokens))
         
         # Discover photos for testing (now includes our uploaded photos)
         self.discover_test_photos()
         
-        return len(self.test_users) == 4
+        # Ensure we have exactly 4 test users and their auth tokens
+        assert len(self.test_users) == 4, f"Expected 4 test users, got {len(self.test_users)}"
+        assert len(self.auth_tokens) == 4, f"Expected 4 auth tokens, got {len(self.auth_tokens)}"
+        assert len(self.test_photos) > 0, f"Expected test photos, got {len(self.test_photos)}"
+        
+        print(f"✓ Setup complete: {len(self.test_users)} users, {len(self.test_photos)} photos")
     
     def cleanup(self):
         """Clean up all hidden items created during testing."""
@@ -155,21 +167,13 @@ class TestHillviewFiltering:
             "client_id": "hillview_filter_discovery"
         }
         
-        # Try as first user (authenticated)
-        if self.test_users:
-            headers = self.get_auth_headers(self.test_users[0]["username"])
-            response = requests.get(f"{API_URL}/hillview", params=params, headers=headers)
-        else:
-            # Try anonymous
-            response = requests.get(f"{API_URL}/hillview", params=params)
+        # Use first test user (setup ensures we have users)
+        username = self.test_users[0]["username"]
+        token = self.auth_tokens[username]
+        result = query_hillview_endpoint(token, params)
         
-        if response.status_code == 200:
-            result = response.json()
-            self.test_photos = result.get("data", [])
-            print(f"✓ Discovered {len(self.test_photos)} photos for testing")
-        else:
-            print(f"⚠ No photos discovered for testing (status: {response.status_code})")
-            self.test_photos = []
+        self.test_photos = result.get("data", [])
+        print(f"✓ Discovered {len(self.test_photos)} photos for testing")
     
     def get_hillview_photos(self, username: Optional[str] = None, bbox: Optional[Dict] = None) -> List[Dict]:
         """Get photos from Hillview API."""
@@ -181,17 +185,9 @@ class TestHillviewFiltering:
             "client_id": "hillview_filter_test"
         }
         
-        if username:
-            headers = self.get_auth_headers(username)
-            response = requests.get(f"{API_URL}/hillview", params=params, headers=headers)
-        else:
-            response = requests.get(f"{API_URL}/hillview", params=params)
-        
-        if response.status_code == 200:
-            return response.json().get("data", [])
-        else:
-            print(f"Hillview API call failed: {response.status_code}")
-            return []
+        token = self.auth_tokens.get(username) if username else None
+        result = query_hillview_endpoint(token, params)
+        return result.get("data", [])
     
     def test_individual_photo_hiding_filtering(self):
         """Test that individually hidden photos are filtered from results."""
@@ -199,7 +195,7 @@ class TestHillviewFiltering:
         
         if not self.test_photos:
             print("ℹ No photos available for individual photo hiding test")
-            return True
+            pytest.skip("No photos available for individual photo hiding test")
         
         username = self.test_users[0]["username"]
         photo_to_hide = self.test_photos[0]
@@ -213,7 +209,7 @@ class TestHillviewFiltering:
         
         if photo_to_hide["id"] not in baseline_ids:
             print(f"⚠ Test photo {photo_to_hide['id']} not in baseline results")
-            return True
+            pytest.skip(f"Test photo {photo_to_hide['id']} not in baseline results")
         
         # Hide the photo
         hide_request = {
@@ -228,9 +224,7 @@ class TestHillviewFiltering:
             headers=self.get_auth_headers(username)
         )
         
-        if response.status_code != 200:
-            print(f"✗ Failed to hide photo: {response.status_code}")
-            return False
+        assert response.status_code == 200, f"Failed to hide photo: {response.status_code}"
         
         print(f"✓ Hidden photo: {photo_to_hide['id']}")
         
@@ -240,12 +234,8 @@ class TestHillviewFiltering:
         filtered_ids = [p["id"] for p in filtered_photos]
         
         # Verify photo is filtered out
-        if photo_to_hide["id"] not in filtered_ids:
-            print(f"✓ Hidden photo filtered out ({baseline_count} -> {filtered_count})")
-            success = True
-        else:
-            print(f"✗ Hidden photo still appears in results")
-            success = False
+        assert photo_to_hide["id"] not in filtered_ids, f"Hidden photo {photo_to_hide['id']} still appears in results"
+        print(f"✓ Hidden photo filtered out ({baseline_count} -> {filtered_count})")
         
         # Verify other photos are still there
         other_photos_still_present = sum(1 for photo_id in baseline_ids 
@@ -263,16 +253,12 @@ class TestHillviewFiltering:
             "photo_id": photo_to_hide["id"]
         }
         requests.delete(f"{API_URL}/hidden/photos", json=unhide_request, headers=self.get_auth_headers(username))
-        
-        return success
     
     def test_user_hiding_filtering(self):
         """Test that all photos by hidden users are filtered from results."""
         print("\n--- Testing User Hiding Filtering ---")
         
-        if not self.test_photos:
-            print("ℹ No photos available for user hiding test")
-            return True
+        assert self.test_photos, "No photos available for user hiding test"
         
         username = self.test_users[0]["username"]
         
@@ -301,9 +287,7 @@ class TestHillviewFiltering:
                             break
                 break
         
-        if not target_photo or not target_owner_id:
-            print("ℹ No suitable photo with identifiable owner found")
-            return True
+        assert target_photo and target_owner_id, "No suitable photo with identifiable owner found"
         
         print(f"Target photo: {target_photo['id']}, Owner: {target_owner_id}")
         
@@ -320,9 +304,7 @@ class TestHillviewFiltering:
             headers=self.get_auth_headers(username)
         )
         
-        if response.status_code != 200:
-            print(f"✗ Failed to hide user: {response.status_code}")
-            return False
+        assert response.status_code == 200, f"Failed to hide user: {response.status_code} - {response.text}"
         
         print(f"✓ Hidden user: {target_owner_id}")
         
@@ -337,12 +319,8 @@ class TestHillviewFiltering:
             if photo.get("filepath") and target_owner_id in photo["filepath"]:
                 hidden_user_photos_still_visible += 1
         
-        if hidden_user_photos_still_visible == 0:
-            print(f"✓ All photos by hidden user filtered out ({baseline_count} -> {filtered_count})")
-            success = True
-        else:
-            print(f"✗ {hidden_user_photos_still_visible} photos by hidden user still visible")
-            success = False
+        assert hidden_user_photos_still_visible == 0, f"{hidden_user_photos_still_visible} photos by hidden user still visible"
+        print(f"✓ All photos by hidden user filtered out ({baseline_count} -> {filtered_count})")
         
         # Cleanup
         unhide_request = {
@@ -350,16 +328,12 @@ class TestHillviewFiltering:
             "target_user_id": target_owner_id
         }
         requests.delete(f"{API_URL}/hidden/users", json=unhide_request, headers=self.get_auth_headers(username))
-        
-        return success
     
     def test_combined_photo_and_user_hiding(self):
         """Test filtering when both individual photos and users are hidden."""
         print("\n--- Testing Combined Photo + User Hiding ---")
         
-        if len(self.test_photos) < 2:
-            print("ℹ Need at least 2 photos for combined hiding test")
-            return True
+        assert len(self.test_photos) >= 2, f"Need at least 2 photos for combined hiding test, got {len(self.test_photos)}"
         
         username = self.test_users[0]["username"]
         
@@ -383,9 +357,7 @@ class TestHillviewFiltering:
                     target_owner_id = part
                     break
         
-        if not target_owner_id:
-            print("ℹ Cannot extract owner ID for user hiding")
-            return True
+        assert target_owner_id, "Cannot extract owner ID for user hiding"
         
         # Hide individual photo
         hide_photo_request = {
@@ -413,9 +385,7 @@ class TestHillviewFiltering:
             headers=self.get_auth_headers(username)
         )
         
-        if response1.status_code != 200 or response2.status_code != 200:
-            print(f"✗ Failed to set up combined hiding (photo: {response1.status_code}, user: {response2.status_code})")
-            return False
+        assert response1.status_code == 200 and response2.status_code == 200, f"Failed to set up combined hiding (photo: {response1.status_code}, user: {response2.status_code})"
         
         print(f"✓ Hidden photo: {photo_to_hide_individually['id']} and user: {target_owner_id}")
         
@@ -432,12 +402,10 @@ class TestHillviewFiltering:
             if photo.get("filepath") and target_owner_id in photo["filepath"]:
                 user_photos_filtered += 1
         
-        success = individual_photo_filtered and user_photos_filtered == 0
+        assert individual_photo_filtered, f"Individual photo {photo_to_hide_individually['id']} still visible"
+        assert user_photos_filtered == 0, f"{user_photos_filtered} photos by hidden user still visible"
         
-        if success:
-            print(f"✓ Combined hiding successful ({baseline_count} -> {filtered_count})")
-        else:
-            print(f"✗ Combined hiding failed - individual: {individual_photo_filtered}, user photos visible: {user_photos_filtered}")
+        print(f"✓ Combined hiding successful ({baseline_count} -> {filtered_count})")
         
         # Cleanup
         requests.delete(f"{API_URL}/hidden/photos", 
@@ -447,8 +415,6 @@ class TestHillviewFiltering:
         requests.delete(f"{API_URL}/hidden/users",
                        json={"target_user_source": "hillview", "target_user_id": target_owner_id},
                        headers=self.get_auth_headers(username))
-        
-        return success
     
     def test_geographic_filtering_interaction(self):
         """Test that hidden content filtering works correctly with geographic bounding boxes."""
@@ -473,8 +439,6 @@ class TestHillviewFiltering:
                 "bottom_right_lon": 19.0
             }
         ]
-        
-        success = True
         
         for area in test_areas:
             print(f"Testing area: {area['name']}")
@@ -521,11 +485,8 @@ class TestHillviewFiltering:
                 filtered_count = len(filtered_photos)
                 filtered_ids = [p["id"] for p in filtered_photos]
                 
-                if photo_to_hide["id"] not in filtered_ids:
-                    print(f"  ✓ Hidden photo filtered in {area['name']} ({baseline_count} -> {filtered_count})")
-                else:
-                    print(f"  ✗ Hidden photo not filtered in {area['name']}")
-                    success = False
+                assert photo_to_hide["id"] not in filtered_ids, f"Hidden photo not filtered in {area['name']}"
+                print(f"  ✓ Hidden photo filtered in {area['name']} ({baseline_count} -> {filtered_count})")
                 
                 # Cleanup
                 unhide_request = {
@@ -535,8 +496,6 @@ class TestHillviewFiltering:
                 requests.delete(f"{API_URL}/hidden/photos", json=unhide_request, headers=self.get_auth_headers(username))
             else:
                 print(f"  ⚠ Could not hide photo in {area['name']}: {response.status_code}")
-        
-        return success
     
     def test_anonymous_vs_authenticated_detailed(self):
         """Detailed test of filtering differences between anonymous and authenticated users."""
@@ -565,25 +524,17 @@ class TestHillviewFiltering:
         print(f"Authenticated user sees: {auth_count} photos")
         print(f"Anonymous user sees: {anon_count} photos")
         
-        # Anonymous should see same or fewer photos (test users filtered out)
-        if anon_count <= auth_count:
-            print("✓ Anonymous user sees appropriate number of photos")
-            
-            # Check for test user content in anonymous results
-            test_user_content_in_anon = 0
-            for photo in anon_photos:
-                if photo.get("filepath") and any(user["username"] in photo["filepath"] for user in self.test_users):
-                    test_user_content_in_anon += 1
-            
-            if test_user_content_in_anon == 0:
-                print("✓ No test user content visible to anonymous users")
-                return True
-            else:
-                print(f"⚠ {test_user_content_in_anon} test user photos visible to anonymous users")
-                return True  # May be expected depending on is_test flag
-        else:
-            print("✗ Anonymous user sees more photos than authenticated user")
-            return False
+        # Anonymous should see same or fewer photos than authenticated users
+        assert anon_count <= auth_count, f"Anonymous user sees more photos ({anon_count}) than authenticated user ({auth_count})"
+        print("✓ Anonymous user sees appropriate number of photos")
+        
+        # Test user content is now visible to anonymous users (app design change)
+        test_user_content_in_anon = 0
+        for photo in anon_photos:
+            if photo.get("filepath") and any(user["username"] in photo["filepath"] for user in self.test_users):
+                test_user_content_in_anon += 1
+        
+        print(f"✓ Test user content visible to anonymous users: {test_user_content_in_anon} photos")
     
     def test_cross_user_isolation_detailed(self):
         """Detailed test that User A's hidden content doesn't affect User B."""
@@ -592,9 +543,7 @@ class TestHillviewFiltering:
         user_a = self.test_users[0]["username"]
         user_b = self.test_users[1]["username"]
         
-        if not self.test_photos:
-            print("ℹ No photos available for isolation test")
-            return True
+        assert self.test_photos, "No photos available for isolation test"
         
         # Both users get baseline
         user_a_baseline = self.get_hillview_photos(user_a)
@@ -603,9 +552,7 @@ class TestHillviewFiltering:
         print(f"User A baseline: {len(user_a_baseline)} photos")
         print(f"User B baseline: {len(user_b_baseline)} photos")
         
-        if len(user_a_baseline) == 0:
-            print("ℹ No photos visible to User A for isolation test")
-            return True
+        assert len(user_a_baseline) > 0, "No photos visible to User A for isolation test"
         
         # User A hides a photo
         photo_to_hide = user_a_baseline[0]
@@ -621,9 +568,7 @@ class TestHillviewFiltering:
             headers=self.get_auth_headers(user_a)
         )
         
-        if response.status_code != 200:
-            print(f"✗ User A failed to hide photo: {response.status_code}")
-            return False
+        assert response.status_code == 200, f"User A failed to hide photo: {response.status_code} - {response.text}"
         
         print(f"✓ User A hidden photo: {photo_to_hide['id']}")
         
@@ -642,20 +587,14 @@ class TestHillviewFiltering:
         photo_was_visible_to_b = photo_to_hide["id"] in user_b_baseline_ids
         user_b_still_sees = photo_to_hide["id"] in user_b_after_ids
         
-        success = True
+        # User A should not see the hidden photo
+        assert not user_a_sees_hidden, "User A still sees hidden photo"
+        print("✓ User A no longer sees hidden photo")
         
-        if user_a_sees_hidden:
-            print("✗ User A still sees hidden photo")
-            success = False
-        else:
-            print("✓ User A no longer sees hidden photo")
-        
+        # User B should still see the photo if it was originally visible to B
         if photo_was_visible_to_b:
-            if user_b_still_sees:
-                print("✓ User B still sees photo hidden by User A")
-            else:
-                print("✗ User B no longer sees photo hidden by User A (isolation broken)")
-                success = False
+            assert user_b_still_sees, "User B no longer sees photo hidden by User A (isolation broken)"
+            print("✓ User B still sees photo hidden by User A")
         else:
             print("ℹ Photo was not visible to User B originally")
         
@@ -665,8 +604,6 @@ class TestHillviewFiltering:
             "photo_id": photo_to_hide["id"]
         }
         requests.delete(f"{API_URL}/hidden/photos", json=unhide_request, headers=self.get_auth_headers(user_a))
-        
-        return success
     
     def test_performance_with_many_hidden_items(self):
         """Test filtering performance when user has many hidden items."""
@@ -674,9 +611,7 @@ class TestHillviewFiltering:
         
         username = self.test_users[0]["username"]
         
-        if len(self.test_photos) < 3:
-            print("ℹ Need at least 3 photos for performance test")
-            return True
+        assert len(self.test_photos) >= 3, f"Need at least 3 photos for performance test, got {len(self.test_photos)}"
         
         # Record baseline performance
         start_time = time.time()
@@ -715,21 +650,15 @@ class TestHillviewFiltering:
         print(f"Filtered query: {len(filtered_photos)} photos in {filtered_time:.3f}s")
         
         # Performance should not degrade significantly (within 2x)
-        performance_acceptable = filtered_time <= baseline_time * 2
-        
-        if performance_acceptable:
-            print(f"✓ Performance acceptable ({filtered_time:.3f}s vs {baseline_time:.3f}s)")
-        else:
-            print(f"⚠ Performance degradation ({filtered_time:.3f}s vs {baseline_time:.3f}s)")
+        assert filtered_time <= baseline_time * 2, f"Performance degradation ({filtered_time:.3f}s vs {baseline_time:.3f}s)"
+        print(f"✓ Performance acceptable ({filtered_time:.3f}s vs {baseline_time:.3f}s)")
         
         # Verify filtering worked
         filtered_ids = [p["id"] for p in filtered_photos]
         correctly_filtered = sum(1 for item_id in hidden_items if item_id not in filtered_ids)
         
-        if correctly_filtered == len(hidden_items):
-            print(f"✓ All {len(hidden_items)} hidden photos correctly filtered")
-        else:
-            print(f"✗ Only {correctly_filtered}/{len(hidden_items)} hidden photos filtered")
+        assert correctly_filtered == len(hidden_items), f"Only {correctly_filtered}/{len(hidden_items)} hidden photos filtered"
+        print(f"✓ All {len(hidden_items)} hidden photos correctly filtered")
         
         # Cleanup
         for photo_id in hidden_items:
@@ -738,8 +667,6 @@ class TestHillviewFiltering:
                 "photo_id": photo_id
             }
             requests.delete(f"{API_URL}/hidden/photos", json=unhide_request, headers=self.get_auth_headers(username))
-        
-        return performance_acceptable and correctly_filtered == len(hidden_items)
     
     def test_empty_results_filtering(self):
         """Test filtering behavior when all results would be hidden."""
@@ -768,12 +695,9 @@ class TestHillviewFiltering:
             # Query should still work with empty results
             filtered_photos = self.get_hillview_photos(username, narrow_bbox)
             
-            if len(filtered_photos) == 0:
-                print("✓ Empty results handled correctly")
-                return True
-            else:
-                print("✗ Unexpected photos in empty area")
-                return False
+            assert len(filtered_photos) == 0, f"Unexpected photos in empty area: {len(filtered_photos)}"
+            print("✓ Empty results handled correctly")
+            return
         
         # Hide all photos in the area
         hidden_items = []
@@ -799,12 +723,8 @@ class TestHillviewFiltering:
         filtered_photos = self.get_hillview_photos(username, narrow_bbox)
         filtered_count = len(filtered_photos)
         
-        success = filtered_count == 0
-        
-        if success:
-            print("✓ All photos filtered out - empty results handled correctly")
-        else:
-            print(f"✗ {filtered_count} photos still visible after hiding all")
+        assert filtered_count == 0, f"{filtered_count} photos still visible after hiding all"
+        print("✓ All photos filtered out - empty results handled correctly")
         
         # Cleanup
         for photo_id in hidden_items:
@@ -813,8 +733,6 @@ class TestHillviewFiltering:
                 "photo_id": photo_id
             }
             requests.delete(f"{API_URL}/hidden/photos", json=unhide_request, headers=self.get_auth_headers(username))
-        
-        return success
     
     def run_all_tests(self):
         """Run all comprehensive Hillview filtering tests."""
@@ -822,9 +740,7 @@ class TestHillviewFiltering:
         print("COMPREHENSIVE HILLVIEW FILTERING TESTS")
         print("=" * 60)
         
-        if not self.setup():
-            print("❌ Setup failed!")
-            return False
+        # Setup is now handled automatically by setup_method()
         
         tests = [
             self.test_individual_photo_hiding_filtering,
@@ -837,32 +753,16 @@ class TestHillviewFiltering:
             self.test_empty_results_filtering
         ]
         
-        passed = 0
-        failed = 0
-        
         try:
             for test in tests:
-                try:
-                    if test():
-                        passed += 1
-                    else:
-                        failed += 1
-                except Exception as e:
-                    print(f"✗ {test.__name__} failed with exception: {e}")
-                    failed += 1
+                test()
+                print(f"✓ {test.__name__} passed")
         
         finally:
             self.cleanup()
         
         print("\n" + "=" * 60)
-        print(f"RESULTS: {passed} passed, {failed} failed")
-        
-        if failed == 0:
-            print("🎉 ALL COMPREHENSIVE HILLVIEW FILTERING TESTS PASSED!")
-            return True
-        else:
-            print("❌ Some Hillview filtering tests failed!")
-            return False
+        print("🎉 ALL COMPREHENSIVE HILLVIEW FILTERING TESTS PASSED!")
 
 
 def main():

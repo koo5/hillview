@@ -260,32 +260,32 @@ async def get_current_user_optional(
         return None
 
     try:
-        # Decode and validate JWT token with strict algorithm checking
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
-        if username is None:
+        # Use common JWT validation (same as get_current_user)
+        token_data_dict = validate_token(token)
+        if not token_data_dict:
+            return None
+            
+        user_id = token_data_dict.get("sub")
+        if user_id is None:
             return None
 
         # Check if token is blacklisted
-        blacklist_query = select(TokenBlacklist).where(TokenBlacklist.token == token)
-        blacklist_result = await db.execute(blacklist_query)
-        blacklisted_token = blacklist_result.scalars().first()
+        if await is_token_blacklisted(token, db):
+            logger.warning(f"Blacklisted token used for user ID: {user_id}")
+            return None
+            
+        # Get user from database by ID
+        result = await db.execute(select(User).where(User.id == user_id))
+        user = result.scalars().first()
 
-        if blacklisted_token:
-            logger.warning(f"Blacklisted token used for user: {username}")
+        if user is None or not user.is_active:
             return None
 
-    except JWTError:
+        return user
+
+    except Exception as e:
+        logger.debug(f"get_current_user_optional: Error: {str(e)}")
         return None
-
-    # Get user from database
-    result = await db.execute(select(User).where(User.username == username))
-    user = result.scalars().first()
-
-    if user is None or not user.is_active:
-        return None
-
-    return user
 
 async def get_current_user_optional_with_query(
     request: Request,
@@ -296,30 +296,29 @@ async def get_current_user_optional_with_query(
     # First try header token
     if token:
         try:
-            # Decode and validate JWT token with strict algorithm checking
-            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-            username: str = payload.get("sub")
-            if username is None:
+            # Use common JWT validation (same as get_current_user)
+            token_data_dict = validate_token(token)
+            if not token_data_dict:
+                return None
+                
+            user_id = token_data_dict.get("sub")
+            if user_id is None:
                 return None
 
             # Check if token is blacklisted
-            blacklist_query = select(TokenBlacklist).where(TokenBlacklist.token == token)
-            blacklist_result = await db.execute(blacklist_query)
-            blacklisted_token = blacklist_result.scalars().first()
-
-            if blacklisted_token:
-                logger.warning(f"Blacklisted token used for user: {username}")
+            if await is_token_blacklisted(token, db):
+                logger.warning(f"Blacklisted token used for user ID: {user_id}")
                 return None
 
-            # Get user from database
-            result = await db.execute(select(User).where(User.username == username))
+            # Get user from database by ID
+            result = await db.execute(select(User).where(User.id == user_id))
             user = result.scalars().first()
 
             if user is None or not user.is_active:
                 return None
 
             return user
-        except JWTError:
+        except Exception:
             pass
 
     # If no header token or it failed, try query parameter
@@ -327,30 +326,29 @@ async def get_current_user_optional_with_query(
         query_token = request.query_params.get('token')
         if query_token:
             try:
-                # Reuse the logic from get_current_user_optional
-                payload = jwt.decode(query_token, SECRET_KEY, algorithms=[ALGORITHM])
-                username: str = payload.get("sub")
-                if username is None:
+                # Use common JWT validation (same as get_current_user)
+                token_data_dict = validate_token(query_token)
+                if not token_data_dict:
+                    return None
+                    
+                user_id = token_data_dict.get("sub")
+                if user_id is None:
                     return None
 
                 # Check if token is blacklisted
-                blacklist_query = select(TokenBlacklist).where(TokenBlacklist.token == query_token)
-                blacklist_result = await db.execute(blacklist_query)
-                blacklisted_token = blacklist_result.scalars().first()
-
-                if blacklisted_token:
-                    logger.warning(f"Blacklisted token used for user: {username}")
+                if await is_token_blacklisted(query_token, db):
+                    logger.warning(f"Blacklisted token used for user ID: {user_id}")
                     return None
 
-                # Get user from database
-                result = await db.execute(select(User).where(User.username == username))
+                # Get user from database by ID
+                result = await db.execute(select(User).where(User.id == user_id))
                 user = result.scalars().first()
 
                 if user is None or not user.is_active:
                     return None
 
                 return user
-            except JWTError:
+            except Exception:
                 pass
 
     return None

@@ -61,7 +61,7 @@ class SecureUploadClient:
 		async with httpx.AsyncClient() as client:
 			response = await client.post(f"{self.api_url}/auth/token", data={
 				"username": "test",
-				"password": "test123"
+				"password": "StrongTestPassword123!"
 			})
 
 			if response.status_code == 200:

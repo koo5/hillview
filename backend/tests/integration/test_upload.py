@@ -9,13 +9,13 @@ import os
 import sys
 from pathlib import Path
 
+API_URL = os.getenv("API_URL", "http://localhost:8055/api")
+
 @pytest.mark.asyncio
 async def test_upload_endpoint():
     """Test the photo upload endpoint using secure upload workflow."""
     from utils.secure_upload_utils import SecureUploadClient
     
-    # API base URL (updated to match backend port)
-    base_url = "http://localhost:8055"
     
     # Initialize test_image_path to None
     test_image_path = None
@@ -27,16 +27,16 @@ async def test_upload_endpoint():
     user_data = {
         "username": "testuser",
         "email": "test@example.com", 
-        "password": "StrongTestPassword123!"
+        "password": "StrongTestUserPassword123!"
     }
     
     try:
         # Register user
         print("Registering test user...")
-        response = requests.post(f"{base_url}/api/auth/register", json=user_data)
+        response = requests.post(f"{API_URL}/auth/register", json=user_data)
         if response.status_code in [200, 201]:
             print("✓ User registered successfully")
-        elif response.status_code == 400 and "already exists" in response.text:
+        elif response.status_code == 400 and ("already exists" in response.text or "already registered" in response.text):
             print("✓ User already exists")
         else:
             pytest.fail(f"Registration failed: {response.status_code} - {response.text}")
@@ -48,7 +48,7 @@ async def test_upload_endpoint():
             "password": user_data["password"]
         }
         response = requests.post(
-            f"{base_url}/api/auth/token", 
+            f"{API_URL}/auth/token", 
             data=login_data,
             headers={"Content-Type": "application/x-www-form-urlencoded"}
         )
@@ -71,7 +71,7 @@ async def test_upload_endpoint():
             image_data = f.read()
         
         # Use secure upload workflow
-        upload_client = SecureUploadClient(api_url=base_url)
+        upload_client = SecureUploadClient(api_url=API_URL)
         
         # Phase 1: Generate and register client keys
         print("Phase 1: Registering client keys...")
@@ -101,7 +101,7 @@ async def test_upload_endpoint():
         
         for i in range(30):  # Check for up to 30 seconds
             status_response = requests.get(
-                f"{base_url}/api/photos/{photo_id}",
+                f"{API_URL}/photos/{photo_id}",
                 headers=headers
             )
             
@@ -113,7 +113,7 @@ async def test_upload_endpoint():
                 if status in ['completed', 'failed']:
                     if status == 'completed':
                         print("✓ Photo processing completed successfully!")
-                        assert True  # Test passed
+                        break
                     else:
                         pytest.fail("Photo processing failed")
                     
@@ -125,7 +125,7 @@ async def test_upload_endpoint():
         print("✓ Upload workflow completed (processing may still be in progress)")
             
     except requests.exceptions.ConnectionError:
-        pytest.fail("Could not connect to API. Make sure the server is running on localhost:8055")
+        pytest.fail("Could not connect to API. Make sure the server is running")
     except Exception as e:
         pytest.fail(f"Test failed with error: {e}")
     finally:

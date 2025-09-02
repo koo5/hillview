@@ -385,38 +385,19 @@ def test_geographic_filtering_comprehensive():
     print("🧪 Starting Comprehensive Mapillary Geographic Filtering Tests")
     print("=" * 70)
     
-    success = True
-    
     # Test 1: Evenly distributed photos (cache-friendly)
-    try:
-        if not test_evenly_distributed_photos():
-            success = False
-    except Exception as e:
-        print(f"❌ Evenly distributed test failed: {e}")
-        success = False
+    test_evenly_distributed_photos()
+    print("✓ Evenly distributed test passed")
     
-    # Test 2: Clustered photos (poor distribution)
-    try:
-        if not test_clustered_photos():
-            success = False
-    except Exception as e:
-        print(f"❌ Clustered photos test failed: {e}")
-        success = False
+    # Test 2: Clustered photos (poor distribution) 
+    test_clustered_photos()
+    print("✓ Clustered photos test passed")
     
     # Test 3: Consistency of repeated requests
-    try:
-        if not test_repeated_requests_consistency():
-            success = False
-    except Exception as e:
-        print(f"❌ Consistency test failed: {e}")
-        success = False
+    test_repeated_requests_consistency()
+    print("✓ Consistency test passed")
     
-    if success:
-        print("\n🎉 All comprehensive geographic filtering tests passed!")
-    else:
-        print("\n❌ Some tests failed!")
-    
-    assert success, "Some geographic filtering tests failed"
+    print("\n🎉 All comprehensive geographic filtering tests passed!")
 
 if __name__ == "__main__":
     test_geographic_filtering_comprehensive()

@@ -99,21 +99,32 @@ class TestPhotoHiding:
         hide_request = {
             "photo_source": "mapillary", 
             "photo_id": self.test_photo_id,
-            "reason": "Duplicate test"
+            "reason": "Initial hide for duplicate test"
         }
         
-        response = requests.post(
+        # First hide the photo
+        response1 = requests.post(
+            f"{API_URL}/hidden/photos",
+            json=hide_request,
+            headers=self.get_auth_headers()
+        )
+        assert response1.status_code == 200, f"First hide failed: {response1.status_code}"
+        print("✓ Photo hidden initially")
+        
+        # Now try to hide again (should be duplicate)
+        hide_request["reason"] = "Duplicate test"
+        response2 = requests.post(
             f"{API_URL}/hidden/photos",
             json=hide_request,
             headers=self.get_auth_headers()
         )
         
-        print(f"Response status: {response.status_code}")
-        print(f"Response: {response.json()}")
+        print(f"Duplicate response status: {response2.status_code}")
+        print(f"Duplicate response: {response2.json()}")
         
-        assert response.status_code == 200, f"Expected 200, got {response.status_code}"
+        assert response2.status_code == 200, f"Expected 200, got {response2.status_code}"
         
-        result = response.json()
+        result = response2.json()
         assert result.get("success"), f"Expected success=True, got {result}"
         assert result.get("already_hidden"), f"Expected already_hidden=True, got {result}"
         
@@ -150,6 +161,22 @@ class TestPhotoHiding:
         """Test unhiding a photo."""
         print("\n--- Testing Unhide Photo ---")
         
+        # First hide the photo so we can test unhiding
+        hide_request = {
+            "photo_source": "mapillary", 
+            "photo_id": self.test_photo_id,
+            "reason": "Setup for unhide test"
+        }
+        
+        hide_response = requests.post(
+            f"{API_URL}/hidden/photos",
+            json=hide_request,
+            headers=self.get_auth_headers()
+        )
+        assert hide_response.status_code == 200, f"Setup hide failed: {hide_response.status_code}"
+        print("✓ Photo hidden for unhide test")
+        
+        # Now unhide the photo
         unhide_request = {
             "photo_source": "mapillary",
             "photo_id": self.test_photo_id
@@ -161,8 +188,8 @@ class TestPhotoHiding:
             headers=self.get_auth_headers()
         )
         
-        print(f"Response status: {response.status_code}")
-        print(f"Response: {response.json()}")
+        print(f"Unhide response status: {response.status_code}")
+        print(f"Unhide response: {response.json()}")
         
         assert response.status_code == 200, f"Expected 200, got {response.status_code}"
         

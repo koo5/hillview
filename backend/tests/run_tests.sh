@@ -13,15 +13,20 @@ source venv/bin/activate
 
 # Install backend dependencies first (for FastAPI app imports)
 echo "Installing backend dependencies..."
-pip install -r ../api/app/requirements.txt
+pip install -q -r ../api/app/requirements.txt
 
 # Install test dependencies
 echo "Installing test dependencies..."
-pip install -r requirements.txt
+pip install -q -r requirements.txt
 
 # Run the tests
-echo "Running all tests..."
-python -m pytest integration/ unit/ -v
+if [ $# -eq 0 ]; then
+    echo "Running all tests..."
+    python -m pytest integration/ unit/ -v
+else
+    echo "Running tests: $*"
+    python -m pytest "$@"
+fi
 
 # Deactivate virtual environment
 deactivate

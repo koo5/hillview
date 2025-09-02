@@ -15,6 +15,7 @@ import json
 import time
 import os
 import sys
+import pytest
 from datetime import datetime
 
 # Add paths for imports
@@ -163,9 +164,7 @@ class TestContentFiltering:
             headers=self.get_auth_headers(user1)
         )
         
-        if response.status_code != 200:
-            print(f"✗ Activity API call failed: {response.status_code}")
-            return False
+        assert response.status_code == 200, f"Activity API call failed: {response.status_code} - {response.text}"
         
         baseline_activities = response.json()
         baseline_count = len(baseline_activities)
@@ -208,36 +207,28 @@ class TestContentFiltering:
                             if item.get("owner_id") == owner_id
                         ]
                         
-                        if len(hidden_user_activities) == 0:
-                            print(f"✓ Hidden user's activities filtered out ({baseline_count} -> {filtered_count})")
-                            
-                            # Clean up
-                            unhide_request = {
-                                "target_user_source": "hillview",
-                                "target_user_id": owner_id
-                            }
-                            requests.delete(
-                                f"{API_URL}/hidden/users",
-                                json=unhide_request,
-                                headers=self.get_auth_headers(user1)
-                            )
-                            
-                            return True
-                        else:
-                            print(f"✗ Hidden user's activities still present: {len(hidden_user_activities)}")
-                            return False
+                        assert len(hidden_user_activities) == 0, f"Hidden user's activities still present: {len(hidden_user_activities)} (should be 0)"
+                        print(f"✓ Hidden user's activities filtered out ({baseline_count} -> {filtered_count})")
+                        
+                        # Clean up
+                        unhide_request = {
+                            "target_user_source": "hillview",
+                            "target_user_id": owner_id
+                        }
+                        cleanup_response = requests.delete(
+                            f"{API_URL}/hidden/users",
+                            json=unhide_request,
+                            headers=self.get_auth_headers(user1)
+                        )
+                        assert cleanup_response.status_code in [200, 404], f"Cleanup failed: {cleanup_response.status_code}"
                     else:
-                        print(f"✗ Filtered activity query failed: {response.status_code}")
-                        return False
+                        pytest.fail(f"Filtered activity query failed: {response.status_code}")
                 else:
-                    print(f"✗ Failed to hide user: {response.status_code}")
-                    return False
+                    pytest.fail(f"Failed to hide user: {response.status_code}")
             else:
-                print("ℹ Activity item has no owner_id to test with")
-                return True
+                pytest.skip("Activity item has no owner_id to test with - check test data setup")
         else:
-            print("ℹ No activity items to test filtering with")
-            return True
+            pytest.skip("No activity items to test filtering with - check test data setup")
     
     def test_anonymous_vs_authenticated_filtering(self):
         """Test filtering differences between anonymous and authenticated users."""
@@ -265,23 +256,18 @@ class TestContentFiltering:
             params=params
         )
         
-        if auth_result is not None and anon_result is not None:
-            auth_photos = auth_result.get("data", [])
-            anon_photos = anon_result.get("data", [])
-            
-            print(f"Authenticated user sees: {len(auth_photos)} photos")
-            print(f"Anonymous user sees: {len(anon_photos)} photos")
-            
-            # Anonymous users should see fewer or equal photos (no test user photos)
-            if len(anon_photos) <= len(auth_photos):
-                print("✓ Anonymous filtering working correctly")
-                return True
-            else:
-                print("✗ Anonymous user sees more photos than authenticated user")
-                return False
-        else:
-            print("✗ API calls failed - one or both queries returned None")
-            return False
+        assert auth_result is not None, "Authenticated API call failed - returned None"
+        assert anon_result is not None, "Anonymous API call failed - returned None"
+        
+        auth_photos = auth_result.get("data", [])
+        anon_photos = anon_result.get("data", [])
+        
+        print(f"Authenticated user sees: {len(auth_photos)} photos")
+        print(f"Anonymous user sees: {len(anon_photos)} photos")
+        
+        # Anonymous users should see fewer or equal photos (no test user photos)
+        assert len(anon_photos) <= len(auth_photos), f"Anonymous user sees more photos ({len(anon_photos)}) than authenticated user ({len(auth_photos)})"
+        print("✓ Anonymous filtering working correctly")
     
     def test_cross_user_isolation(self):
         """Test that User A's hidden content doesn't affect User B."""
@@ -331,24 +317,20 @@ class TestContentFiltering:
         
         common_hidden = set(user1_photo_ids) & set(user2_photo_ids)
         
-        if len(common_hidden) == 0:
-            print("✓ User hidden lists are properly isolated")
-            
-            # Clean up
-            unhide_request = {
-                "photo_source": "mapillary",
-                "photo_id": "isolation_test_photo"
-            }
-            requests.delete(
-                f"{API_URL}/hidden/photos",
-                json=unhide_request,
-                headers=self.get_auth_headers(user1)
-            )
-            
-            return True
-        else:
-            print(f"✗ Users share hidden photos: {common_hidden}")
-            return False
+        assert len(common_hidden) == 0, f"Users share hidden photos (should be isolated): {common_hidden}"
+        print("✓ User hidden lists are properly isolated")
+        
+        # Clean up
+        unhide_request = {
+            "photo_source": "mapillary",
+            "photo_id": "isolation_test_photo"
+        }
+        cleanup_response = requests.delete(
+            f"{API_URL}/hidden/photos",
+            json=unhide_request,
+            headers=self.get_auth_headers(user1)
+        )
+        assert cleanup_response.status_code in [200, 404], f"Cleanup failed: {cleanup_response.status_code} - {cleanup_response.text}"
     
     def run_all_tests(self):
         """Run all content filtering tests."""

@@ -101,26 +101,34 @@ class TestUserHiding:
         hide_request = {
             "target_user_source": "hillview",
             "target_user_id": self.target_user_id,
-            "reason": "Duplicate test"
+            "reason": "Initial hide for duplicate test"
         }
         
-        response = requests.post(
+        # First hide the user
+        response1 = requests.post(
+            f"{API_URL}/hidden/users",
+            json=hide_request,
+            headers=self.get_auth_headers()
+        )
+        assert response1.status_code == 200, f"First hide failed: {response1.status_code}"
+        print("✓ User hidden initially")
+        
+        # Now try to hide again (should be duplicate)
+        hide_request["reason"] = "Duplicate test"
+        response2 = requests.post(
             f"{API_URL}/hidden/users",
             json=hide_request,
             headers=self.get_auth_headers()
         )
         
-        print(f"Response status: {response.status_code}")
-        print(f"Response: {response.json()}")
+        print(f"Duplicate response status: {response2.status_code}")
+        print(f"Duplicate response: {response2.json()}")
         
-        if response.status_code == 200:
-            result = response.json()
-            if result.get("success") and result.get("already_hidden"):
-                print("✓ Duplicate hiding handled correctly")
-                return True
-        
-        print("✗ Duplicate hiding not handled properly")
-        return False
+        assert response2.status_code == 200, f"Expected 200, got {response2.status_code}"
+        result = response2.json()
+        assert result.get("success"), f"Expected success=True, got {result}"
+        assert result.get("already_hidden"), f"Expected already_hidden=True, got {result}"
+        print("✓ Duplicate hiding handled correctly")
     
     def test_list_hidden_users(self):
         """Test listing hidden users."""
@@ -141,15 +149,12 @@ class TestUserHiding:
             if users and isinstance(users, list):
                 user = users[0]
                 required_fields = ["target_user_source", "target_user_id", "hidden_at", "reason"]
-                if all(field in user for field in required_fields):
-                    print("✓ Hidden users listed successfully")
-                    return True
+                assert all(field in user for field in required_fields), f"Missing required fields in user: {user}"
+                print("✓ Hidden users listed successfully")
             elif len(users) == 0:
                 print("✓ No hidden users found (valid response)")
-                return True
-        
-        print("✗ Failed to list hidden users")
-        return False
+            else:
+                pytest.fail("Failed to list hidden users")
     
     def test_list_hidden_users_with_filter(self):
         """Test listing hidden users with source filter."""
@@ -163,26 +168,36 @@ class TestUserHiding:
         
         print(f"Response status: {response.status_code}")
         
-        if response.status_code == 200:
-            users = response.json()
-            print(f"Found {len(users)} hidden hillview users")
-            
-            # Verify all results are from hillview source
-            for user in users:
-                if user.get("target_user_source") != "hillview":
-                    print("✗ Filter not working correctly")
-                    return False
-            
-            print("✓ Source filtering working correctly")
-            return True
+        assert response.status_code == 200, f"Expected 200, got {response.status_code}"
+        users = response.json()
+        print(f"Found {len(users)} hidden hillview users")
         
-        print("✗ Failed to filter hidden users by source")
-        return False
+        # Verify all results are from hillview source
+        for user in users:
+            assert user.get("target_user_source") == "hillview", f"Expected hillview source, got {user.get('target_user_source')}"
+        
+        print("✓ Source filtering working correctly")
     
     def test_unhide_user(self):
         """Test unhiding a user."""
         print("\n--- Testing Unhide User ---")
         
+        # First hide the user so we can test unhiding
+        hide_request = {
+            "target_user_source": "hillview",
+            "target_user_id": self.target_user_id,
+            "reason": "Setup for unhide test"
+        }
+        
+        hide_response = requests.post(
+            f"{API_URL}/hidden/users",
+            json=hide_request,
+            headers=self.get_auth_headers()
+        )
+        assert hide_response.status_code == 200, f"Setup hide failed: {hide_response.status_code}"
+        print("✓ User hidden for unhide test")
+        
+        # Now unhide the user
         unhide_request = {
             "target_user_source": "hillview",
             "target_user_id": self.target_user_id
@@ -194,17 +209,14 @@ class TestUserHiding:
             headers=self.get_auth_headers()
         )
         
-        print(f"Response status: {response.status_code}")
-        print(f"Response: {response.json()}")
+        print(f"Unhide response status: {response.status_code}")
+        print(f"Unhide response: {response.json()}")
         
-        if response.status_code == 200:
-            result = response.json()
-            if result.get("success") and "unhidden successfully" in result.get("message", ""):
-                print("✓ User unhidden successfully")
-                return True
-        
-        print("✗ Failed to unhide user")
-        return False
+        assert response.status_code == 200, f"Expected 200, got {response.status_code}"
+        result = response.json()
+        assert result.get("success"), f"Expected success=True, got {result}"
+        assert "unhidden successfully" in result.get("message", ""), f"Expected success message, got {result}"
+        print("✓ User unhidden successfully")
     
     def test_unhide_nonexistent_user(self):
         """Test unhiding a user that was never hidden."""
@@ -224,14 +236,11 @@ class TestUserHiding:
         print(f"Response status: {response.status_code}")
         print(f"Response: {response.json()}")
         
-        if response.status_code == 200:
-            result = response.json()
-            if result.get("success") and "was not hidden" in result.get("message", ""):
-                print("✓ Non-existent unhide handled correctly")
-                return True
-        
-        print("✗ Non-existent unhide not handled properly")
-        return False
+        assert response.status_code == 200, f"Expected 200, got {response.status_code}"
+        result = response.json()
+        assert result.get("success"), f"Expected success=True, got {result}"
+        assert "was not hidden" in result.get("message", ""), f"Expected 'was not hidden' message, got {result}"
+        print("✓ Non-existent unhide handled correctly")
     
     def test_authentication_required(self):
         """Test that authentication is required."""
@@ -244,7 +253,6 @@ class TestUserHiding:
             ("GET", None)
         ]
         
-        success = True
         for method, data in test_requests:
             if method == "POST":
                 response = requests.post(f"{API_URL}/hidden/users", json=data)
@@ -253,14 +261,9 @@ class TestUserHiding:
             else:  # GET
                 response = requests.get(f"{API_URL}/hidden/users")
             
-            if response.status_code != 401:
-                print(f"✗ {method} should require auth, got {response.status_code}")
-                success = False
+            assert response.status_code == 401, f"{method} should require auth, got {response.status_code}"
         
-        if success:
-            print("✓ All endpoints require authentication")
-        
-        return success
+        print("✓ All endpoints require authentication")
     
     def test_input_validation(self):
         """Test input validation."""
@@ -274,7 +277,6 @@ class TestUserHiding:
             {}  # Empty request
         ]
         
-        success = True
         for invalid_data in invalid_requests:
             response = requests.post(
                 f"{API_URL}/hidden/users",
@@ -282,9 +284,7 @@ class TestUserHiding:
                 headers=self.get_auth_headers()
             )
             
-            if response.status_code != 400:
-                print(f"✗ Should reject invalid data: {invalid_data}")
-                success = False
+            assert response.status_code in [400, 422], f"Should reject invalid data: {invalid_data}, got {response.status_code}"
         
         # Test invalid source in GET filter
         response = requests.get(
@@ -292,14 +292,9 @@ class TestUserHiding:
             headers=self.get_auth_headers()
         )
         
-        if response.status_code != 400:
-            print("✗ Should reject invalid source filter")
-            success = False
+        assert response.status_code in [400, 422], f"Should reject invalid source filter, got {response.status_code}"
         
-        if success:
-            print("✓ Input validation working correctly")
-        
-        return success
+        print("✓ Input validation working correctly")
     
     def run_all_tests(self):
         """Run all user hiding tests."""

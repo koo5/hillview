@@ -90,7 +90,7 @@ def create_test_image(width: int = 100, height: int = 100, color: tuple = (255, 
 
 async def create_test_photos(test_users: list, auth_tokens: dict):
     """Create test photos by uploading real images using the secure upload workflow."""
-    from secure_upload_utils import SecureUploadClient
+    from .secure_upload_utils import SecureUploadClient
     
     print("Creating test photos for filtering tests using secure upload workflow...")
     
@@ -117,7 +117,7 @@ async def create_test_photos(test_users: list, auth_tokens: dict):
             raise Exception(f"No token found for user {username}")
         
         # Create a real JPEG image with GPS coordinates AND bearing (for successful processing)
-        from image_utils import create_test_image_full_gps
+        from .image_utils import create_test_image_full_gps
         bearing = 45.0 + (i * 30)  # Different bearings: 45°, 75°, 105°, 135°
         image_data = create_test_image_full_gps(200, 150, color, lat, lon, bearing)
         
