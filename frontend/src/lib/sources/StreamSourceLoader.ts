@@ -115,9 +115,21 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
         };
 
         this.eventSource.onerror = (error) => {
+            console.log(`🔍 StreamSourceLoader: onerror triggered for ${this.source.id}`, {
+                isComplete: this.isComplete,
+                wasConnected: this.wasConnected,
+                wasErrored: this.wasErrored,
+                aborted: this.abortController?.signal.aborted,
+                readyState: this.eventSource?.readyState ? verbalizeEventSourceReadyState(this.eventSource.readyState) : 'undefined',
+                timeFromStart: Date.now() - this.startTime
+            });
+
             // Check if stream is already complete - if so, this is normal connection closure
             if (this.isComplete) {
                 console.log(`StreamSourceLoader: EventSource connection closed normally after stream completion for ${this.source.id}`);
+                // Don't show "Connection lost" toast for normal stream completion
+                this.wasConnected = false;
+                console.log(`🔍 StreamSourceLoader: Set wasConnected=false for completed stream ${this.source.id}`);
                 return;
             }
             
@@ -151,6 +163,14 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
                 console.error('🢄StreamSourceLoader: EventSource failed immediately after creation - possible network/CORS/URL issue');
             }
             
+            // Check if we should show toast BEFORE marking as complete
+            const shouldShowToast = this.wasConnected && !this.isComplete;
+            console.log(`🔍 StreamSourceLoader: Checking toast conditions for ${this.source.id}`, {
+                wasConnected: this.wasConnected,
+                isComplete: this.isComplete,
+                willShowToast: shouldShowToast
+            });
+            
             // Mark as complete on error to prevent further processing
             this.isComplete = true;
             
@@ -164,9 +184,14 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
             this.updateLoadingStatus(false, undefined, errorMessage);
             this.callbacks.onError?.(new Error(errorMessage));
             
-            // Toast only on state change from connected to disconnected
-            if (this.wasConnected) {
+            // Show toast based on pre-completion state
+            if (shouldShowToast) {
+                console.log(`🔍 StreamSourceLoader: Showing Connection lost toast for ${this.source.id} (connection lost during streaming)`);
                 postToast('error', 'Connection lost', this.source.name || this.source.id, 0);
+            } else {
+                console.log(`🔍 StreamSourceLoader: NOT showing Connection lost toast for ${this.source.id}`, {
+                    reason: !this.wasConnected ? 'never connected' : 'stream already completed'
+                });
             }
             this.wasConnected = false;
 			this.wasErrored = true;
@@ -176,7 +201,12 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
         };
 
         this.eventSource.onopen = () => {
-            console.log(`StreamSourceLoader: Stream opened for ${this.source.id} (readyState: ${this.eventSource ? verbalizeEventSourceReadyState(this.eventSource.readyState) : 'undefined'})`);
+            const timeFromStart = Date.now() - this.startTime;
+            console.log(`🔍 StreamSourceLoader: Stream opened for ${this.source.id}`, {
+                readyState: this.eventSource ? verbalizeEventSourceReadyState(this.eventSource.readyState) : 'undefined',
+                timeFromStart,
+                wasErrored: this.wasErrored
+            });
             this.updateLoadingStatus(true, 'Loading photos...');
             
             // Toast only on reconnection
@@ -185,6 +215,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
             }
 			this.wasErrored= false;
             this.wasConnected = true;
+            console.log(`🔍 StreamSourceLoader: Set wasConnected=true for ${this.source.id} after ${timeFromStart}ms`);
         };
 
         // Monitor readyState changes
@@ -286,7 +317,11 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
                 break;
 
             case 'stream_complete':
-                console.log(`StreamSourceLoader: Stream complete for ${this.source.id}`);
+                console.log(`🔍 StreamSourceLoader: Stream complete for ${this.source.id}`, {
+                    wasConnected: this.wasConnected,
+                    wasErrored: this.wasErrored,
+                    totalPhotos: this.streamPhotos.length
+                });
                 this.isComplete = true;
                 const duration = Date.now() - this.startTime;
                 
@@ -303,7 +338,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
 
                 // Close EventSource since stream is complete
                 if (this.eventSource) {
-                    console.log(`StreamSourceLoader: Closing EventSource after stream completion for ${this.source.id}`);
+                    console.log(`🔍 StreamSourceLoader: Closing EventSource after stream completion for ${this.source.id} (wasConnected=${this.wasConnected})`);
                     this.eventSource.close();
                     this.eventSource = undefined; // Clear reference to allow garbage collection
                 }

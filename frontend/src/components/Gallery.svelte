@@ -1,6 +1,8 @@
 <script lang="ts">
     import {photoInFront, photosInRange, updateBearing} from "$lib/mapState";
     import Photo from "./Photo.svelte";
+    import Spinner from "./Spinner.svelte";
+    import {anySourceLoading} from "$lib/data.svelte";
     import type {PhotoData} from '$lib/sources';
 
     let clientWidth: number;
@@ -40,7 +42,14 @@
             <Photo photo={$photoInFront} className="front" {clientWidth}/>
         {:else}
             <div class="no-photo">
-                <p>No photos in range</p>
+                {#if $anySourceLoading}
+                    <div class="loading-container">
+                        <Spinner show={true} color="#ffffff" />
+                        <p>Loading photos...</p>
+                    </div>
+                {:else}
+                    <p>No photos in range</p>
+                {/if}
             </div>
         {/if}
         <!--{#if $photo_to_right}-->
@@ -126,6 +135,27 @@
         align-items: center;
         justify-content: center;
         overflow: hidden;
+    }
+
+    .no-photo {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        color: #ffffff;
+    }
+
+    .loading-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 1rem;
+    }
+
+    .loading-container p {
+        margin: 0;
+        font-size: 1rem;
+        opacity: 0.8;
     }
 
 

@@ -1,4 +1,4 @@
-import {get, writable} from "svelte/store";
+import {get, writable, derived} from "svelte/store";
 import {staggeredLocalStorageSharedStore} from './svelte-shared-store';
 import {backendUrl} from './config';
 import {MAX_DEBUG_MODES} from './constants';
@@ -155,18 +155,35 @@ export interface SourceLoadingStatus {
 
 export let sourceLoadingStatus = writable<SourceLoadingStatus>({});
 
+// Derived store to check if any enabled source is loading
+export const anySourceLoading = derived(
+    [sources, sourceLoadingStatus],
+    ([sources, loadingStatus]) => {
+        return sources.some(source => {
+            if (!source.enabled) return false;
+            // For stream sources, check loading status
+            if (source.type === 'stream') {
+                return loadingStatus[source.id]?.isLoading || false;
+            }
+            // For device sources, check if requests are pending
+            return !!(source.requests && source.requests.length);
+        });
+    }
+);
+
 // Essential exports still used by components
 export {photoInFront as photo_in_front};
 export {photoToLeft as photo_to_left};
 export {photoToRight as photo_to_right};
 
-// Mapillary functionality moved to worker
-let old_sources: Source[] = JSON.parse(JSON.stringify(get(sources)));
+let old_sources: Source[] = [];
 
 sources.subscribe(async (s: Source[]) => {
-    console.log('🢄sources changed:', s);
+
     let old = JSON.parse(JSON.stringify(old_sources));
     old_sources = JSON.parse(JSON.stringify(s));
+
+	console.log('🢄sources changed: old vs new', old, s);
 
     const changedSources = s.filter((src, i) => {
         const oldSrc = old.find((o: Source) => o.id === src.id);

@@ -130,7 +130,7 @@ export class OptimizedMarkerSystem {
 		});
 
 		const processingTime = performance.now() - startTime;
-		if (processingTime > 5) { // Only log if it takes more than 5ms
+		if (processingTime > 2) { // Only log if it takes more time
 			console.log(`OptimizedMarkers: Updated ${updatedCount}/${markers.length} marker colors in ${processingTime.toFixed(1)}ms`);
 		}
 	}
@@ -141,11 +141,11 @@ export class OptimizedMarkerSystem {
 	 */
 	private rafId: number | null = null;
 	private pendingBearingUpdate: number | null = null;
-	private pendingBearingUpdateTimeout: returnType<typeof setTimeout> | null = null;
+	private pendingBearingUpdateTimeout: ReturnType<typeof setTimeout> | null = null;
 
 	private lastVal: number | undefined = undefined;
 	scheduleColorUpdate(bearing: number): void {
-		lastVal = bearing;
+		this.lastVal = bearing;
 		if (this.pendingBearingUpdateTimeout) {
 			return
 		}
@@ -153,7 +153,7 @@ export class OptimizedMarkerSystem {
 		this.pendingBearingUpdateTimeout = setTimeout(() => {
 			this.pendingBearingUpdateTimeout = null;
 
-			this.pendingBearingUpdate = lastVal;
+			this.pendingBearingUpdate = this.lastVal ?? null;
 
 			if (this.rafId !== null) return; // Already scheduled
 
@@ -262,10 +262,18 @@ export class OptimizedMarkerSystem {
 	/**
 	 * Convert bearing difference to color
 	 */
-	private getBearingColor(absBearingDiff: number): string {
+	/*private getBearingColor(absBearingDiff: number): string {
 		if (absBearingDiff === null || absBearingDiff === undefined) return '#9E9E9E';
 		return `hsl(${Math.round(100 - absBearingDiff / 2)}, 100%, 70%)`;
-	}
+	}*/
+	private getBearingColor(absBearingDiff: number): string {
+	if (absBearingDiff === null || absBearingDiff === undefined) return '#9E9E9E';
+	const steps = 16;
+	const stepSize = 100 / (steps - 1);
+	const step = Math.round(absBearingDiff / (200 / (steps - 1)));
+	const hue = 100 - step * stepSize;
+	return `hsl(${hue}, 100%, 70%)`;
+}
 
 	/**
 	 * Cleanup resources

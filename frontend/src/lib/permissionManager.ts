@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import {TAURI} from "$lib/tauri";
 
 export class PermissionManager {
     private componentName: string;
@@ -9,6 +10,9 @@ export class PermissionManager {
     }
 
     async acquireLock(): Promise<boolean> {
+		if (!TAURI)
+			return true;
+
         if (this.hasLock) {
             console.log(`🢄[PermissionManager] ${this.componentName} already has lock`);
             return true;
@@ -18,15 +22,15 @@ export class PermissionManager {
             const acquired = await invoke<boolean>('acquire_permission_lock', {
                 requester: this.componentName
             });
-            
+
             this.hasLock = acquired;
-            
+
             if (acquired) {
                 console.log(`🢄[PermissionManager] Lock acquired by ${this.componentName}`);
             } else {
                 console.log(`🢄[PermissionManager] Lock denied to ${this.componentName} - held by another component`);
             }
-            
+
             return acquired;
         } catch (error) {
             console.error(`🢄[PermissionManager] Failed to acquire lock for ${this.componentName}:`, error);
@@ -35,6 +39,9 @@ export class PermissionManager {
     }
 
     async releaseLock(): Promise<void> {
+		if (!TAURI)
+			return;
+
         if (!this.hasLock) {
             console.log(`🢄[PermissionManager] ${this.componentName} does not have lock to release`);
             return;
@@ -44,7 +51,7 @@ export class PermissionManager {
             await invoke('release_permission_lock', {
                 requester: this.componentName
             });
-            
+
             this.hasLock = false;
             console.log(`🢄[PermissionManager] Lock released by ${this.componentName}`);
         } catch (error) {
@@ -52,37 +59,6 @@ export class PermissionManager {
             // Reset our local state even if the backend call failed
             this.hasLock = false;
         }
-    }
-
-    async waitForLock(retryIntervalMs: number = 500, maxRetries: number = 60): Promise<boolean> {
-        let retries = 0;
-        
-        while (retries < maxRetries) {
-            if (await this.acquireLock()) {
-                return true;
-            }
-            
-            console.log(`🢄[PermissionManager] ${this.componentName} waiting for lock (attempt ${retries + 1}/${maxRetries})`);
-            await new Promise(resolve => setTimeout(resolve, retryIntervalMs));
-            retries++;
-        }
-        
-        console.warn(`🢄[PermissionManager] ${this.componentName} gave up waiting for lock after ${maxRetries} attempts`);
-        return false;
-    }
-
-    async getCurrentLockHolder(): Promise<string | null> {
-        try {
-            const holder = await invoke<string | null>('get_permission_lock_holder');
-            return holder;
-        } catch (error) {
-            console.error(`🢄[PermissionManager] Failed to get lock holder:`, error);
-            return null;
-        }
-    }
-
-    get hasPermissionLock(): boolean {
-        return this.hasLock;
     }
 
     get name(): string {
@@ -98,14 +74,4 @@ export class PermissionManager {
 // Utility function to create a scoped permission manager
 export function createPermissionManager(componentName: string): PermissionManager {
     return new PermissionManager(componentName);
-}
-
-// Global function to check current lock holder (useful for debugging)
-export async function getCurrentPermissionLockHolder(): Promise<string | null> {
-    try {
-        return await invoke<string | null>('get_permission_lock_holder');
-    } catch (error) {
-        console.error('🢄[PermissionManager] Failed to get current lock holder:', error);
-        return null;
-    }
 }

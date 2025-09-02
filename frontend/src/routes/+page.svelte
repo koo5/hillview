@@ -94,7 +94,7 @@
 	});
 
 
-	let bearingUrlUpdateTimeout: returnType<typeof setTimeout> | null = null;
+	let bearingUrlUpdateTimeout: ReturnType<typeof setTimeout> | null = null;
 	let lastVal: number | undefined = undefined;
 
 	bearingState.subscribe(visual => {
@@ -135,7 +135,7 @@
 		}
 	}
 
-	let spatialUrlUpdateTimeout: returnType<typeof setTimeout> | null = null;
+	let spatialUrlUpdateTimeout: ReturnType<typeof setTimeout> | null = null;
 
 	spatialState.subscribe(p => {
 		if (!update_url) {
