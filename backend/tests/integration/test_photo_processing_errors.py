@@ -7,9 +7,24 @@ import pytest
 import requests
 import sys
 import os
+
+# Add paths for imports
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
+from utils.base_test import BasePhotoTest
 from utils.test_utils import clear_test_database, API_URL, upload_test_image, wait_for_photo_processing, recreate_test_users
+from utils.auth_utils import AuthTestHelper
+
+def setup_test_user():
+	"""Get test user token."""
+	recreate_test_users()
+	auth_helper = AuthTestHelper(API_URL)
+	login_result = auth_helper.login_user("test", "StrongTestPassword123!")
+	if login_result["status_code"] != 200:
+		raise Exception(f"Login failed: {login_result['status_code']}")
+	return login_result["token"]
+
 from utils.image_utils import (
 	create_test_image_no_exif,
 	create_test_image_coords_only,
@@ -19,74 +34,60 @@ from utils.image_utils import (
 )
 
 
-def setup_test_user():
-	"""Create test users and return auth token."""
-	recreate_test_users()
-	
-	# Login as standard test user
-	login_data = {"username": "test", "password": "StrongTestPassword123!"}
-	response = requests.post(f"{API_URL}/auth/token", data=login_data)
-	if response.status_code != 200:
-		raise Exception(f"Failed to login test user: {response.status_code} - {response.text}")
-
-	token_data = response.json()
-	return token_data["access_token"]
+class TestPhotoProcessingErrors(BasePhotoTest):
+	"""Test photo processing error cases with polling mechanism."""
 
 
-@pytest.mark.asyncio
-async def test_no_exif_data():
-	"""Test error message for images with no EXIF data."""
-	print("Testing: No EXIF data error case")
+	@pytest.mark.asyncio
+	async def test_no_exif_data(self):
+		"""Test error message for images with no EXIF data."""
+		print("Testing: No EXIF data error case")
 
-	token = setup_test_user()
+		# Create image with no EXIF data
+		image_data = create_test_image_no_exif(color=(255, 0, 0))
 
-	# Create image with no EXIF data
-	image_data = create_test_image_no_exif(color=(255, 0, 0))
+		# Upload image
+		photo_id = await upload_test_image("no_exif_test.jpg", image_data, "Test image without EXIF", self.test_token)
+		print(f"✓ Uploaded photo {photo_id}")
 
-	# Upload image
-	photo_id = await upload_test_image("no_exif_test.jpg", image_data, "Test image without EXIF", token)
-	print(f"✓ Uploaded photo {photo_id}")
+		# Wait for processing
+		photo_data = wait_for_photo_processing(photo_id, self.test_token, timeout=30)
 
-	# Wait for processing
-	photo_data = wait_for_photo_processing(photo_id, token, timeout=30)
+		# Verify error message
+		assert photo_data['processing_status'] == 'error', f"Expected error status, got {photo_data['processing_status']}"
+		error_msg = photo_data.get('error', '')
+		expected_msg = "No EXIF data found in image file"
+		assert expected_msg in error_msg, f"Expected '{expected_msg}' in error message, got: {error_msg}"
 
-	# Verify error message
-	assert photo_data['processing_status'] == 'error', f"Expected error status, got {photo_data['processing_status']}"
-	error_msg = photo_data.get('error', '')
-	expected_msg = "No EXIF data found in image file"
-	assert expected_msg in error_msg, f"Expected '{expected_msg}' in error message, got: {error_msg}"
-
-	print(f"✓ Correct error message: {error_msg}")
-	print("✓ No EXIF data test passed\n")
+		print(f"✓ Correct error message: {error_msg}")
+		print("✓ No EXIF data test passed\n")
 
 
-@pytest.mark.asyncio
-async def test_missing_gps_coordinates():
-	"""Test error message for images with bearing but no GPS coordinates."""
-	print("Testing: Missing GPS coordinates error case")
+	@pytest.mark.asyncio
+	async def test_missing_gps_coordinates(self):
+		"""Test error message for images with bearing but no GPS coordinates."""
+		print("Testing: Missing GPS coordinates error case")
 
-	token = setup_test_user()
+		# Create image with bearing but no coordinates
+		image_data = create_test_image_bearing_only(color=(0, 0, 255))
 
-	# Create image with bearing but no coordinates
-	image_data = create_test_image_bearing_only(color=(0, 0, 255))
+		# Upload image
+		photo_id = await upload_test_image("bearing_only_test.jpg", image_data, "Test image with bearing only", self.test_token)
+		print(f"✓ Uploaded photo {photo_id}")
 
-	# Upload image
-	photo_id = await upload_test_image("bearing_only_test.jpg", image_data, "Test image with bearing only", token)
-	print(f"✓ Uploaded photo {photo_id}")
+		# Wait for processing
+		photo_data = wait_for_photo_processing(photo_id, self.test_token, timeout=30)
 
-	# Wait for processing
-	photo_data = wait_for_photo_processing(photo_id, token, timeout=30)
+		# Verify error message shows found bearing tags and missing coordinates
+		assert photo_data['processing_status'] == 'error', f"Expected error status, got {photo_data['processing_status']}"
+		error_msg = photo_data.get('error', '')
+		expected_msg = "GPS coordinates missing"
+		assert expected_msg in error_msg, f"Expected '{expected_msg}' in error message, got: {error_msg}"
+		assert "GPS GPSImgDirection" in error_msg, f"Expected found bearing tag in error message, got: {error_msg}"
+		assert "GPSLatitude, GPSLongitude" in error_msg, f"Expected coordinate requirements in error message, got: {error_msg}"
 
-	# Verify error message shows found bearing tags and missing coordinates
-	assert photo_data['processing_status'] == 'error', f"Expected error status, got {photo_data['processing_status']}"
-	error_msg = photo_data.get('error', '')
-	expected_msg = "GPS coordinates missing"
-	assert expected_msg in error_msg, f"Expected '{expected_msg}' in error message, got: {error_msg}"
-	assert "GPS GPSImgDirection" in error_msg, f"Expected found bearing tag in error message, got: {error_msg}"
-	assert "GPSLatitude, GPSLongitude" in error_msg, f"Expected coordinate requirements in error message, got: {error_msg}"
-
-	print(f"✓ Correct error message: {error_msg}")
-	print("✓ Missing GPS coordinates test passed\n")
+		print(f"✓ Correct error message: {error_msg}")
+		print("✓ Missing GPS coordinates test passed\n")
 
 
 @pytest.mark.asyncio

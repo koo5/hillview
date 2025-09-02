@@ -6,7 +6,7 @@ Verifies that complete regions return all photos without sampling reduction.
 
 import requests
 import json
-from utils.test_utils import clear_test_database, API_URL
+from tests.utils.test_utils import clear_test_database, API_URL
 
 def create_clustered_mock_data_for_sampling(num_photos=20):
 	"""Create mock photos clustered in one grid cell to test spatial sampling."""

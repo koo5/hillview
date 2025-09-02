@@ -15,20 +15,22 @@ from urllib.parse import urlencode, quote
 
 import sys
 import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
+# Add common module path
+common_path = os.path.join(os.path.dirname(__file__), '..', '..', 'common')
+sys.path.append(common_path)
 from common.database import get_db
 from common.models import User, UserPublicKey, Photo
-from .jwt_service import create_upload_authorization_token
-from .auth import (
+from jwt_service import create_upload_authorization_token
+from auth import (
 	authenticate_user, create_access_token, create_refresh_token, get_current_active_user,
 	get_password_hash, Token, UserCreate, UserLogin, UserOut, UserOAuth, RefreshTokenRequest,
 	OAUTH_PROVIDERS, ACCESS_TOKEN_EXPIRE_MINUTES,
 	blacklist_token, get_current_user
 )
-from .rate_limiter import auth_rate_limiter, check_auth_rate_limit, rate_limit_user_profile, rate_limit_user_registration
-from .config import is_rate_limiting_disabled
-from .security_utils import validate_username, validate_email, validate_password, validate_oauth_redirect_uri
-from .security_audit import security_audit
+from rate_limiter import auth_rate_limiter, check_auth_rate_limit, rate_limit_user_profile, rate_limit_user_registration
+from common.config import is_rate_limiting_disabled
+from security_utils import validate_username, validate_email, validate_password, validate_oauth_redirect_uri
+from security_audit import security_audit
 
 log = logging.getLogger(__name__)
 
@@ -179,7 +181,7 @@ async def refresh_access_token(
 
 		# Verify refresh token
 		import jwt
-		from .auth import SECRET_KEY, ALGORITHM
+		from auth import SECRET_KEY, ALGORITHM
 
 		try:
 			payload = jwt.decode(refresh_request.refresh_token, SECRET_KEY, algorithms=[ALGORITHM])

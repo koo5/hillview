@@ -3,14 +3,15 @@ import datetime
 import time
 import sys
 import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
+# Add common module path
+common_path = os.path.join(os.path.dirname(__file__), '..', '..', 'common')
+sys.path.append(common_path)
 from common.utc import utcnow
 from collections import defaultdict
 from typing import Dict, Optional, Callable
 from fastapi import HTTPException, Request, status
 import logging
-import os
-from .config import rate_limit_config, is_rate_limiting_disabled
+from common.config import rate_limit_config, is_rate_limiting_disabled
 
 logger = logging.getLogger(__name__)
 

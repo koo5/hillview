@@ -21,7 +21,7 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
 from common.models import User, TokenBlacklist
-from .jwt_service import validate_token, create_access_token, create_refresh_token
+from jwt_service import validate_token, create_access_token, create_refresh_token
 
 load_dotenv()
 

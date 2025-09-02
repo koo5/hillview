@@ -87,7 +87,7 @@ class MapillaryCacheService:
 		)
 		
 		# Import and use the SQL-based filtering for Mapillary
-		from .hidden_content_filters import apply_mapillary_hidden_content_filters
+		from hidden_content_filters import apply_mapillary_hidden_content_filters
 		
 		# Build the hidden content filtering conditions
 		hidden_filters = apply_mapillary_hidden_content_filters([], current_user_id)

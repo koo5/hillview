@@ -57,7 +57,7 @@ services:
       - NO_LIMITS=${NO_LIMITS:-}
       - WORKER_URL=${WORKER_URL:-http://localhost:8056}
     command: >
-      bash -c "/app/prestart.sh && uvicorn app.api:app --host 0.0.0.0 --port 8055 $${DEV_MODE:+--reload}"
+      bash -c "cd /app/app && /app/prestart.sh && uvicorn api:app --host 0.0.0.0 --port 8055 $${DEV_MODE:+--reload}"
     secrets:
       - mapillary_token
     depends_on:

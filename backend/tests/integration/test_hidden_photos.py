@@ -15,55 +15,28 @@ import requests
 import json
 import time
 import os
+import sys
 from datetime import datetime
+
+# Add paths for imports
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+
+from utils.base_test import BaseUserManagementTest
 from utils.test_utils import clear_test_database, API_URL
 
-class TestPhotoHiding:
+class TestPhotoHiding(BaseUserManagementTest):
     """Test suite for photo hiding endpoints."""
-        
-    def setup_method(self):
-        """Set up test by logging in."""
-        self.auth_token = None
+    
+    def setup_method(self, method=None):
+        """Set up test with photo ID."""
+        super().setup_method(method)
         self.test_photo_id = "test_photo_123"
         print("Setting up photo hiding tests...")
-        
-        # Create and login test user
-        test_user = {
-            "username": f"test_photo_hider_{int(time.time())}",
-            "email": f"photo_hider_{int(time.time())}@test.com",
-            "password": "SuperStrongHiddenPhotoTestPassword123!@#"
-        }
-        
-        # Register user
-        response = requests.post(f"{API_URL}/auth/register", json=test_user)
-        if response.status_code not in [200, 400]:  # 400 if user exists
-            print(f"User registration failed: {response.text}")
-            return False
-            
-        # Login
-        login_data = {
-            "username": test_user["username"],
-            "password": test_user["password"]
-        }
-        response = requests.post(
-            f"{API_URL}/auth/token",
-            data=login_data,
-            headers={"Content-Type": "application/x-www-form-urlencoded"}
-        )
-        
-        if response.status_code == 200:
-            self.auth_token = response.json()["access_token"]
-            print(f"✓ Logged in as {test_user['username']}")
-            return True
-        else:
-            print(f"Login failed: {response.text}")
-            return False
     
-    def get_auth_headers(self):
-        """Get authorization headers."""
-        if not self.auth_token:
-            raise ValueError("No auth token available")
-        return {"Authorization": f"Bearer {self.auth_token}"}
+    def get_test_auth_headers(self):
+        """Get authorization headers for test user."""
+        return self.test_headers
     
     def test_hide_photo_success(self):
         """Test successfully hiding a photo."""
@@ -78,7 +51,7 @@ class TestPhotoHiding:
         response = requests.post(
             f"{API_URL}/hidden/photos",
             json=hide_request,
-            headers=self.get_auth_headers()
+            headers=self.test_headers
         )
         
         print(f"Response status: {response.status_code}")
@@ -106,7 +79,7 @@ class TestPhotoHiding:
         response1 = requests.post(
             f"{API_URL}/hidden/photos",
             json=hide_request,
-            headers=self.get_auth_headers()
+            headers=self.test_headers
         )
         assert response1.status_code == 200, f"First hide failed: {response1.status_code}"
         print("✓ Photo hidden initially")
@@ -116,7 +89,7 @@ class TestPhotoHiding:
         response2 = requests.post(
             f"{API_URL}/hidden/photos",
             json=hide_request,
-            headers=self.get_auth_headers()
+            headers=self.test_headers
         )
         
         print(f"Duplicate response status: {response2.status_code}")
@@ -136,7 +109,7 @@ class TestPhotoHiding:
         
         response = requests.get(
             f"{API_URL}/hidden/photos",
-            headers=self.get_auth_headers()
+            headers=self.test_headers
         )
         
         print(f"Response status: {response.status_code}")
@@ -171,7 +144,7 @@ class TestPhotoHiding:
         hide_response = requests.post(
             f"{API_URL}/hidden/photos",
             json=hide_request,
-            headers=self.get_auth_headers()
+            headers=self.test_headers
         )
         assert hide_response.status_code == 200, f"Setup hide failed: {hide_response.status_code}"
         print("✓ Photo hidden for unhide test")
@@ -185,7 +158,7 @@ class TestPhotoHiding:
         response = requests.delete(
             f"{API_URL}/hidden/photos",
             json=unhide_request,
-            headers=self.get_auth_headers()
+            headers=self.test_headers
         )
         
         print(f"Unhide response status: {response.status_code}")
@@ -244,7 +217,7 @@ class TestPhotoHiding:
             response = requests.post(
                 f"{API_URL}/hidden/photos",
                 json=invalid_data,
-                headers=self.get_auth_headers()
+                headers=self.test_headers
             )
             
             assert response.status_code == 400, f"Should return 400 for invalid business logic: {invalid_data}, got {response.status_code}"
@@ -255,7 +228,7 @@ class TestPhotoHiding:
             response = requests.post(
                 f"{API_URL}/hidden/photos",
                 json=invalid_data,
-                headers=self.get_auth_headers()
+                headers=self.test_headers
             )
             
             assert response.status_code == 422, f"Should return 422 for missing fields: {invalid_data}, got {response.status_code}"

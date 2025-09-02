@@ -17,95 +17,51 @@ import requests
 import json
 import time
 import os
+import sys
 import pytest
 import asyncio
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from PIL import Image
 import io
-from utils.test_utils import clear_test_database, API_URL, create_test_photos, query_hillview_endpoint
 
-class TestHillviewFiltering:
+# Add paths for imports
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+
+from tests.utils.test_utils import clear_test_database, API_URL, create_test_photos, query_hillview_endpoint
+from tests.utils.base_test import BaseUserManagementTest
+
+class TestHillviewFiltering(BaseUserManagementTest):
     """Comprehensive test suite for Hillview API content filtering."""
     
-    def setup_method(self):
+    def setup_method(self, method=None):
         """Setup method called before each test method."""
-        self.auth_tokens = {}
-        self.test_users = []
+        super().setup_method(method)
         self.test_photos = []
         self.hidden_items = []  # Track what we hide for cleanup
         
-        # Perform the actual setup that creates users and photos
-        self._perform_setup()
-        
-    def _perform_setup(self):
-        """Set up test users and discover existing photos."""
-        print("Setting up comprehensive Hillview filtering tests...")
-        
-        # Clear database first to ensure clean state
+        # Clear database to ensure clean state
         clear_test_database()
         
-        # Create multiple test users for various scenarios
-        user_configs = [
-            ("hillview_filter_viewer", "viewer@test.com"),
-            ("hillview_filter_hider1", "hider1@test.com"), 
-            ("hillview_filter_hider2", "hider2@test.com"),
-            ("hillview_filter_content_owner", "owner@test.com")
-        ]
+    def setup_test_photos_for_filtering(self):
+        """Create test photos for comprehensive filtering tests."""
+        print("Setting up comprehensive Hillview filtering tests...")
         
-        for i, (username, email) in enumerate(user_configs):
-            # Generate unique shorter username to fit 3-30 character limit
-            timestamp = str(int(time.time()))[-6:]  # Use last 6 digits
-            test_user = {
-                "username": f"{username[:15]}_{timestamp}_{i}",  # Keep under 30 chars and make unique
-                "email": f"{email.split('@')[0]}_{timestamp}_{i}@test.com",
-                "password": "SuperStrongHillviewFilterTestPassword123!@#"
-            }
-            
-            # Register user
-            response = requests.post(f"{API_URL}/auth/register", json=test_user)
-            if response.status_code not in [200, 400]:
-                print(f"User registration failed: {response.text}")
-                raise Exception(f"Failed to register test user {test_user['username']}: {response.text}")
-                
-            # Login
-            login_data = {
-                "username": test_user["username"],
-                "password": test_user["password"]
-            }
-            response = requests.post(
-                f"{API_URL}/auth/token",
-                data=login_data,
-                headers={"Content-Type": "application/x-www-form-urlencoded"}
-            )
-            
-            if response.status_code == 200:
-                self.auth_tokens[test_user["username"]] = response.json()["access_token"]
-                self.test_users.append(test_user)
-                print(f"✓ Created user: {test_user['username']}")
-            else:
-                print(f"Login failed for {test_user['username']}: {response.text}")
-                raise Exception(f"Failed to create test user {test_user['username']}: {response.text}")
-        
-        # Create test photos for filtering tests
-        asyncio.run(create_test_photos(self.test_users, self.auth_tokens))
+        # Use the base class's test users and create photos
+        photos_created = self.create_test_photos(self.test_users, self.auth_tokens)
+        print(f"Created {photos_created} test photos for filtering tests")
         
         # Discover photos for testing (now includes our uploaded photos)
         self.discover_test_photos()
-        
-        # Ensure we have exactly 4 test users and their auth tokens
-        assert len(self.test_users) == 4, f"Expected 4 test users, got {len(self.test_users)}"
-        assert len(self.auth_tokens) == 4, f"Expected 4 auth tokens, got {len(self.auth_tokens)}"
-        assert len(self.test_photos) > 0, f"Expected test photos, got {len(self.test_photos)}"
-        
-        print(f"✓ Setup complete: {len(self.test_users)} users, {len(self.test_photos)} photos")
+        return photos_created
     
     def cleanup(self):
         """Clean up all hidden items created during testing."""
         print("Cleaning up Hillview filtering test data...")
         
-        for username in self.auth_tokens:
-            headers = self.get_auth_headers(username)
+        # Clean up using standard test and admin users
+        for headers in [self.test_headers, self.admin_headers]:
             
             # Clean up hidden photos
             try:
@@ -135,12 +91,9 @@ class TestHillviewFiltering:
         
         print("✓ Cleanup complete")
     
-    def get_auth_headers(self, username: str) -> Dict[str, str]:
-        """Get authorization headers for a specific user."""
-        token = self.auth_tokens.get(username)
-        if not token:
-            raise ValueError(f"No token found for user {username}")
-        return {"Authorization": f"Bearer {token}"}
+    def get_user_headers(self, use_admin: bool = False) -> Dict[str, str]:
+        """Get authorization headers for test user or admin user."""
+        return self.admin_headers if use_admin else self.test_headers
     
     def create_test_image(self, width: int = 100, height: int = 100, color: tuple = (255, 0, 0)) -> bytes:
         """Create a real JPEG image for testing."""
@@ -167,9 +120,8 @@ class TestHillviewFiltering:
             "client_id": "hillview_filter_discovery"
         }
         
-        # Use first test user (setup ensures we have users)
-        username = self.test_users[0]["username"]
-        token = self.auth_tokens[username]
+        # Use the test user token from base class
+        token = self.test_token
         result = query_hillview_endpoint(token, params)
         
         self.test_photos = result.get("data", [])
@@ -185,7 +137,12 @@ class TestHillviewFiltering:
             "client_id": "hillview_filter_test"
         }
         
-        token = self.auth_tokens.get(username) if username else None
+        if username == "test":
+            token = self.test_token
+        elif username == "admin":
+            token = self.admin_token
+        else:
+            token = None
         result = query_hillview_endpoint(token, params)
         return result.get("data", [])
     
@@ -193,9 +150,14 @@ class TestHillviewFiltering:
         """Test that individually hidden photos are filtered from results."""
         print("\n--- Testing Individual Photo Hiding Filtering ---")
         
+        # Create test photos if none exist
         if not self.test_photos:
-            print("ℹ No photos available for individual photo hiding test")
-            pytest.skip("No photos available for individual photo hiding test")
+            photos_created = self.setup_test_photos_for_filtering()
+            print(f"Created {photos_created} test photos for filtering tests")
+            
+        # Still no photos after creation attempt - this is a real issue
+        if not self.test_photos:
+            pytest.fail("Unable to create test photos for individual photo hiding test")
         
         username = self.test_users[0]["username"]
         photo_to_hide = self.test_photos[0]
@@ -221,7 +183,7 @@ class TestHillviewFiltering:
         response = requests.post(
             f"{API_URL}/hidden/photos",
             json=hide_request,
-            headers=self.get_auth_headers(username)
+            headers=self.test_headers
         )
         
         assert response.status_code == 200, f"Failed to hide photo: {response.status_code}"
@@ -252,11 +214,15 @@ class TestHillviewFiltering:
             "photo_source": "hillview",
             "photo_id": photo_to_hide["id"]
         }
-        requests.delete(f"{API_URL}/hidden/photos", json=unhide_request, headers=self.get_auth_headers(username))
+        requests.delete(f"{API_URL}/hidden/photos", json=unhide_request, headers=self.test_headers)
     
     def test_user_hiding_filtering(self):
         """Test that all photos by hidden users are filtered from results."""
         print("\n--- Testing User Hiding Filtering ---")
+        
+        # Setup test photos if not already done
+        if not self.test_photos:
+            self.setup_test_photos_for_filtering()
         
         assert self.test_photos, "No photos available for user hiding test"
         
@@ -301,7 +267,7 @@ class TestHillviewFiltering:
         response = requests.post(
             f"{API_URL}/hidden/users",
             json=hide_request,
-            headers=self.get_auth_headers(username)
+            headers=self.test_headers
         )
         
         assert response.status_code == 200, f"Failed to hide user: {response.status_code} - {response.text}"
@@ -327,11 +293,15 @@ class TestHillviewFiltering:
             "target_user_source": "hillview",
             "target_user_id": target_owner_id
         }
-        requests.delete(f"{API_URL}/hidden/users", json=unhide_request, headers=self.get_auth_headers(username))
+        requests.delete(f"{API_URL}/hidden/users", json=unhide_request, headers=self.test_headers)
     
     def test_combined_photo_and_user_hiding(self):
         """Test filtering when both individual photos and users are hidden."""
         print("\n--- Testing Combined Photo + User Hiding ---")
+        
+        # Setup test photos if not already done
+        if not self.test_photos:
+            self.setup_test_photos_for_filtering()
         
         assert len(self.test_photos) >= 2, f"Need at least 2 photos for combined hiding test, got {len(self.test_photos)}"
         
@@ -369,7 +339,7 @@ class TestHillviewFiltering:
         response1 = requests.post(
             f"{API_URL}/hidden/photos",
             json=hide_photo_request,
-            headers=self.get_auth_headers(username)
+            headers=self.test_headers
         )
         
         # Hide user
@@ -382,7 +352,7 @@ class TestHillviewFiltering:
         response2 = requests.post(
             f"{API_URL}/hidden/users",
             json=hide_user_request,
-            headers=self.get_auth_headers(username)
+            headers=self.test_headers
         )
         
         assert response1.status_code == 200 and response2.status_code == 200, f"Failed to set up combined hiding (photo: {response1.status_code}, user: {response2.status_code})"
@@ -410,11 +380,11 @@ class TestHillviewFiltering:
         # Cleanup
         requests.delete(f"{API_URL}/hidden/photos", 
                        json={"photo_source": "hillview", "photo_id": photo_to_hide_individually["id"]},
-                       headers=self.get_auth_headers(username))
+                       headers=self.test_headers)
         
         requests.delete(f"{API_URL}/hidden/users",
                        json={"target_user_source": "hillview", "target_user_id": target_owner_id},
-                       headers=self.get_auth_headers(username))
+                       headers=self.test_headers)
     
     def test_geographic_filtering_interaction(self):
         """Test that hidden content filtering works correctly with geographic bounding boxes."""
@@ -469,7 +439,7 @@ class TestHillviewFiltering:
             response = requests.post(
                 f"{API_URL}/hidden/photos",
                 json=hide_request,
-                headers=self.get_auth_headers(username)
+                headers=self.test_headers
             )
             
             if response.status_code == 200:
@@ -493,7 +463,7 @@ class TestHillviewFiltering:
                     "photo_source": "hillview",
                     "photo_id": photo_to_hide["id"]
                 }
-                requests.delete(f"{API_URL}/hidden/photos", json=unhide_request, headers=self.get_auth_headers(username))
+                requests.delete(f"{API_URL}/hidden/photos", json=unhide_request, headers=self.test_headers)
             else:
                 print(f"  ⚠ Could not hide photo in {area['name']}: {response.status_code}")
     
@@ -543,6 +513,10 @@ class TestHillviewFiltering:
         user_a = self.test_users[0]["username"]
         user_b = self.test_users[1]["username"]
         
+        # Setup test photos if not already done
+        if not self.test_photos:
+            self.setup_test_photos_for_filtering()
+        
         assert self.test_photos, "No photos available for isolation test"
         
         # Both users get baseline
@@ -565,7 +539,7 @@ class TestHillviewFiltering:
         response = requests.post(
             f"{API_URL}/hidden/photos",
             json=hide_request,
-            headers=self.get_auth_headers(user_a)
+            headers=self.test_headers
         )
         
         assert response.status_code == 200, f"User A failed to hide photo: {response.status_code} - {response.text}"
@@ -603,13 +577,17 @@ class TestHillviewFiltering:
             "photo_source": "hillview",
             "photo_id": photo_to_hide["id"]
         }
-        requests.delete(f"{API_URL}/hidden/photos", json=unhide_request, headers=self.get_auth_headers(user_a))
+        requests.delete(f"{API_URL}/hidden/photos", json=unhide_request, headers=self.test_headers)
     
     def test_performance_with_many_hidden_items(self):
         """Test filtering performance when user has many hidden items."""
         print("\n--- Testing Performance with Many Hidden Items ---")
         
         username = self.test_users[0]["username"]
+        
+        # Setup test photos if not already done
+        if not self.test_photos:
+            self.setup_test_photos_for_filtering()
         
         assert len(self.test_photos) >= 3, f"Need at least 3 photos for performance test, got {len(self.test_photos)}"
         
@@ -634,7 +612,7 @@ class TestHillviewFiltering:
             response = requests.post(
                 f"{API_URL}/hidden/photos",
                 json=hide_request,
-                headers=self.get_auth_headers(username)
+                headers=self.test_headers
             )
             
             if response.status_code == 200:
@@ -666,7 +644,7 @@ class TestHillviewFiltering:
                 "photo_source": "hillview",
                 "photo_id": photo_id
             }
-            requests.delete(f"{API_URL}/hidden/photos", json=unhide_request, headers=self.get_auth_headers(username))
+            requests.delete(f"{API_URL}/hidden/photos", json=unhide_request, headers=self.test_headers)
     
     def test_empty_results_filtering(self):
         """Test filtering behavior when all results would be hidden."""
@@ -711,7 +689,7 @@ class TestHillviewFiltering:
             response = requests.post(
                 f"{API_URL}/hidden/photos",
                 json=hide_request,
-                headers=self.get_auth_headers(username)
+                headers=self.test_headers
             )
             
             if response.status_code == 200:
@@ -732,7 +710,7 @@ class TestHillviewFiltering:
                 "photo_source": "hillview", 
                 "photo_id": photo_id
             }
-            requests.delete(f"{API_URL}/hidden/photos", json=unhide_request, headers=self.get_auth_headers(username))
+            requests.delete(f"{API_URL}/hidden/photos", json=unhide_request, headers=self.test_headers)
     
     def run_all_tests(self):
         """Run all comprehensive Hillview filtering tests."""

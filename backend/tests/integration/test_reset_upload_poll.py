@@ -25,7 +25,7 @@ API_URL = os.getenv("API_URL", "http://localhost:8055/api")
 class TestResetUploadPoll:
     """Test complete workflow: reset test users -> login -> upload -> poll until photo appears"""
 
-    def setup_method(self):
+    def setup_method(self, method=None):
         """Setup for each test method"""
         self.test_user_credentials = {
             "username": "test",

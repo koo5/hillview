@@ -7,40 +7,21 @@ import os
 from typing import Dict, Any
 
 # Add the backend paths for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'api', 'app'))
-from api.app.config import is_rate_limiting_disabled
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'api', 'app'))
+
+# Import config module from common directory
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
+from common import config
+is_rate_limiting_disabled = config.is_rate_limiting_disabled
+from utils.base_test import BaseAuthTest
 
 API_URL = os.getenv("API_URL", "http://localhost:8055/api")
 
 @pytest.mark.skipif(is_rate_limiting_disabled(), reason="Rate limiting tests skipped when NO_LIMITS=true")
-class TestRateLimiting:
+class TestRateLimiting(BaseAuthTest):
     """Test rate limiting across all endpoint categories."""
-    
-    def setup_method(self):
-        """Setup test user and authentication."""
-        # Register test user
-        register_data = {
-            "email": "ratetest@example.com",
-            "username": "ratetest", 
-            "password": "StrongTestPassword123!"
-        }
-        response = requests.post(f"{API_URL}/auth/register", json=register_data)
-        if response.status_code == 400 and "already exists" in response.text:
-            print("Test user already exists, continuing...")
-        else:
-            assert response.status_code == 200, f"Registration failed: {response.text}"
-        
-        # Login to get token
-        login_data = {"username": "ratetest", "password": "StrongTestPassword123!"}
-        response = requests.post(
-            f"{API_URL}/auth/token",
-            data=login_data,
-            headers={"Content-Type": "application/x-www-form-urlencoded"}
-        )
-        assert response.status_code == 200, f"Login failed: {response.text}"
-        
-        self.token = response.json()["access_token"]
-        self.headers = {"Authorization": f"Bearer {self.token}"}
     
     def test_global_rate_limiting_middleware(self):
         """Test global rate limiting middleware on general API endpoints."""
@@ -89,7 +70,7 @@ class TestRateLimiting:
         for i in range(5):  # Try multiple key registrations
             try:
                 client_keys = upload_client.generate_client_keys()
-                await upload_client.register_client_key(self.token, client_keys)
+                await upload_client.register_client_key(self.test_token, client_keys)
                 success_count += 1
                 print(f"Key registration {i+1}: Success")
             except Exception as e:
@@ -117,12 +98,12 @@ class TestRateLimiting:
         
         # Register one client key to use for all authorization attempts
         client_keys = upload_client.generate_client_keys()
-        await upload_client.register_client_key(self.token, client_keys)
+        await upload_client.register_client_key(self.test_token, client_keys)
         
         for i in range(5):  # Try multiple upload authorizations
             try:
                 await upload_client.authorize_upload_with_params(
-                    self.token,
+                    self.test_token,
                     f"rate_limit_test_{i}.jpg",
                     len(test_file_content),
                     50.0755,  # Default latitude
@@ -159,10 +140,10 @@ class TestRateLimiting:
             try:
                 # Complete workflow for each attempt
                 client_keys = upload_client.generate_client_keys()
-                await upload_client.register_client_key(self.token, client_keys)
+                await upload_client.register_client_key(self.test_token, client_keys)
                 
                 auth_data = await upload_client.authorize_upload_with_params(
-                    self.token,
+                    self.test_token,
                     f"worker_rate_test_{i}.jpg",
                     len(test_file_content),
                     50.0755,
@@ -197,7 +178,7 @@ class TestRateLimiting:
         rate_limited_count = 0
         
         for i in range(5):  # Try a few photo list requests
-            response = requests.get(f"{API_URL}/photos/", headers=self.headers)
+            response = requests.get(f"{API_URL}/photos/", headers=self.test_headers)
             
             if response.status_code == 200:
                 success_count += 1
@@ -216,7 +197,7 @@ class TestRateLimiting:
         rate_limited_count = 0
         
         for i in range(5):  # Try profile requests
-            response = requests.get(f"{API_URL}/auth/me", headers=self.headers)
+            response = requests.get(f"{API_URL}/auth/me", headers=self.test_headers)
             
             if response.status_code == 200:
                 success_count += 1
@@ -277,7 +258,7 @@ class TestRateLimiting:
         print("\n=== Testing Rate Limit Headers ===")
         
         # Make a request that might trigger rate limiting
-        response = requests.get(f"{API_URL}/auth/me", headers=self.headers)
+        response = requests.get(f"{API_URL}/auth/me", headers=self.test_headers)
         
         if response.status_code == 429:
             assert "Retry-After" in response.headers, "Rate limited response should include Retry-After header"

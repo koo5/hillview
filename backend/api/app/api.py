@@ -9,9 +9,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from dotenv import load_dotenv
 import os
 import sys
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
+# Add common module path for both local development and Docker
+common_path = os.path.join(os.path.dirname(__file__), '..', '..', 'common')
+sys.path.append(common_path)
 from common.database import Base, engine
-from .config import is_rate_limiting_disabled, rate_limit_config
+from common.config import is_rate_limiting_disabled, rate_limit_config
 
 load_dotenv()
 logging.basicConfig(level=logging.DEBUG)
@@ -80,7 +82,7 @@ class GlobalRateLimitMiddleware(BaseHTTPMiddleware):
 
 	def __init__(self, app):
 		super().__init__(app)
-		from .rate_limiter import general_rate_limiter
+		from rate_limiter import general_rate_limiter
 		self.rate_limiter = general_rate_limiter
 
 		# Endpoints that bypass global rate limiting (have their own specific limits)
@@ -211,28 +213,26 @@ app.add_middleware(
 
 # Include user routes if USER_ACCOUNTS is enabled
 if USER_ACCOUNTS:
-	from .user_routes import router as user_router
-	app.include_router(user_router)
+	import user_routes
+	app.include_router(user_routes.router)
 
 	# Include photo routes (only with user accounts)
-	from .photo_routes import router as photo_router
-	app.include_router(photo_router)
+	import photo_routes
+	app.include_router(photo_routes.router)
 
 	# Include activity routes (only with user accounts)
-	from .activity_routes import router as activity_router
-	app.include_router(activity_router)
+	import activity_routes
+	app.include_router(activity_routes.router)
 
-# Include Mapillary routes
-from .mapillary_routes import router as mapillary_router
-app.include_router(mapillary_router)
+# Include core routes
+import mapillary_routes
+app.include_router(mapillary_routes.router)
 
-# Include Hillview routes
-from .hillview_routes import router as hillview_router
-app.include_router(hillview_router)
+import hillview_routes
+app.include_router(hillview_routes.router)
 
-# Include Hidden Content routes
-from .hidden_content_routes import router as hidden_content_router
-app.include_router(hidden_content_router)
+import hidden_content_routes
+app.include_router(hidden_content_routes.router)
 
 # Database migration function
 def run_migrations():
@@ -268,8 +268,8 @@ async def recreate_test_users():
 	if not USER_ACCOUNTS:
 		return {"error": "User accounts are not enabled"}
 
-	from .auth import recreate_test_users
-	result = await recreate_test_users()
+	import auth
+	result = await auth.recreate_test_users()
 	return {"status": "success", "message": "Test users re-created", "details": result}
 
 @app.post("/api/debug/clear-database")
@@ -278,7 +278,7 @@ async def clear_database():
 	if not os.getenv("DEBUG_ENDPOINTS", "false").lower() in ("true", "1", "yes"):
 		raise HTTPException(status_code=404, detail="Debug endpoints disabled")
 	from sqlalchemy import select, text
-	from .auth import delete_users_by_usernames
+	import auth
 	from common.database import get_db
 	from common.models import User, CachedRegion, MapillaryPhotoCache
 
@@ -290,7 +290,7 @@ async def clear_database():
 		all_usernames = [row[0] for row in usernames_result.fetchall()]
 
 		# Use the existing safe deletion function to delete all users and their photos
-		delete_summary = await delete_users_by_usernames(db, all_usernames)
+		delete_summary = await auth.delete_users_by_usernames(db, all_usernames)
 
 		# Clear Mapillary cache tables (no foreign key dependencies from other tables)
 		mapillary_cache_result = await db.execute(text("DELETE FROM mapillary_photo_cache"))
@@ -327,7 +327,7 @@ async def set_mock_mapillary_data(mock_data: Dict[str, Any]):
 	if not os.getenv("DEBUG_ENDPOINTS", "false").lower() in ("true", "1", "yes"):
 		raise HTTPException(status_code=404, detail="Debug endpoints disabled")
 
-	from .mock_mapillary import mock_mapillary_service
+	from mock_mapillary import mock_mapillary_service
 	mock_mapillary_service.set_mock_data(mock_data)
 
 	return {
@@ -344,7 +344,7 @@ async def clear_mock_mapillary_data():
 	if not os.getenv("DEBUG_ENDPOINTS", "false").lower() in ("true", "1", "yes"):
 		raise HTTPException(status_code=404, detail="Debug endpoints disabled")
 
-	from .mock_mapillary import mock_mapillary_service
+	from mock_mapillary import mock_mapillary_service
 	mock_mapillary_service.clear_mock_data()
 
 	return {

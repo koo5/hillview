@@ -11,54 +11,27 @@ import pytest
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from utils.test_utils import recreate_test_users
+from utils.base_test import BaseAuthTest
+from utils.auth_utils import auth_helper, TEST_CREDENTIALS
 
 API_URL = os.getenv("API_URL", "http://localhost:8055/api")
 
 
-class TestJWTSecurity:
+class TestJWTSecurity(BaseAuthTest):
     """Integration tests for JWT security"""
-    
-    def setup_method(self):
-        """Setup test users before each test"""
-        recreate_test_users()
     
     def test_jwt_authentication_flow(self):
         """Test complete JWT authentication flow"""
-        # Register a new user
-        test_user = {
-            "username": f"testuser_{int(time.time())}",
-            "email": f"test_{int(time.time())}@example.com",
-            "password": "SecurePassword123!"
-        }
+        # Test with existing test user (no registration needed)
+        # Login is already handled by BaseAuthTest setup
         
-        # Register
-        response = requests.post(f"{API_URL}/auth/register", json=test_user)
-        if response.status_code != 200:
-            # Registration may not be available, use existing test user
-            test_user = {"username": "test", "password": "StrongTestPassword123!"}
-        
-        # Login
-        login_data = {
-            "username": test_user["username"],
-            "password": test_user["password"]
-        }
-        response = requests.post(
-            f"{API_URL}/auth/token",
-            data=login_data,
-            headers={"Content-Type": "application/x-www-form-urlencoded"}
-        )
-        
-        assert response.status_code == 200
-        token_data = response.json()
-        assert "access_token" in token_data
-        assert "token_type" in token_data
+        # Verify token data is valid
+        assert self.test_token is not None
+        assert len(self.test_token) > 0
         
         # Use token to access protected endpoint
-        token = token_data["access_token"]
-        headers = {"Authorization": f"Bearer {token}"}
-        protected_response = requests.get(f"{API_URL}/photos", headers=headers)
-        assert protected_response.status_code == 200
+        protected_response = requests.get(f"{API_URL}/photos", headers=self.test_headers)
+        self.assert_success(protected_response)
 
 
 class TestRateLimiting:
@@ -122,36 +95,18 @@ class TestRateLimiting:
         assert success_count >= 10, f"Should allow reasonable number of requests. Got status counts: {status_counts}"
 
 
-class TestTokenBlacklist:
+class TestTokenBlacklist(BaseAuthTest):
     """Integration tests for token blacklist functionality"""
-    
-    def setup_method(self):
-        """Setup test users before each test"""
-        recreate_test_users()
-    
-    def get_test_token(self):
-        """Helper to get a valid token"""
-        login_data = {"username": "test", "password": "StrongTestPassword123!"}
-        response = requests.post(
-            f"{API_URL}/auth/token",
-            data=login_data,
-            headers={"Content-Type": "application/x-www-form-urlencoded"}
-        )
-        assert response.status_code == 200
-        return response.json()["access_token"]
     
     def test_token_invalidation(self):
         """Test that tokens can be invalidated"""
-        token = self.get_test_token()
-        headers = {"Authorization": f"Bearer {token}"}
-        
         # Token should work initially
-        response = requests.get(f"{API_URL}/photos", headers=headers)
-        assert response.status_code == 200
+        response = requests.get(f"{API_URL}/photos", headers=self.test_headers)
+        self.assert_success(response)
         
         # TODO: Implement logout endpoint that invalidates tokens
         # For now, just verify the token works
-        assert token is not None and len(token) > 0
+        assert self.test_token is not None and len(self.test_token) > 0
 
 
 class TestInputValidationIntegration:

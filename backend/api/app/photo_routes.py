@@ -22,7 +22,7 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
 from common.models import Photo, User
-from .auth import get_current_active_user
+from auth import get_current_active_user
 from common.file_utils import (
 	validate_and_prepare_photo_file,
 	verify_saved_file_content,
@@ -30,8 +30,8 @@ from common.file_utils import (
 	get_file_size_from_upload
 )
 from common.security_utils import SecurityValidationError
-from .jwt_service import validate_token
-from .rate_limiter import rate_limit_photo_upload, rate_limit_photo_operations
+from jwt_service import validate_token
+from rate_limiter import rate_limit_photo_upload, rate_limit_photo_operations
 
 logger = logging.getLogger(__name__)
 

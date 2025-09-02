@@ -1,0 +1,10 @@
+# Include main app dependencies
+-r requirements.txt
+
+# Testing dependencies
+pytest==7.4.3
+pytest-asyncio==0.21.1
+piexif
+
+# For JWT testing and mocking
+cryptography==41.0.7

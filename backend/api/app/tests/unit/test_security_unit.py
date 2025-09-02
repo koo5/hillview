@@ -11,18 +11,24 @@ import pytest
 import os
 import sys
 
-# Add the backend directory to the path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
-
 # Enable user accounts for authentication testing
 os.environ["USER_ACCOUNTS"] = "true"
 
+# Add the parent directory (api/app) to path so we can import the API modules
+api_app_dir = os.path.join(os.path.dirname(__file__), '..', '..')
+sys.path.insert(0, os.path.abspath(api_app_dir))
+
+# Add backend root directory so common module can be found
+backend_dir = os.path.join(api_app_dir, '..', '..')
+sys.path.insert(1, os.path.abspath(backend_dir))
+
 from fastapi.testclient import TestClient
-from api.app.api import app
+import common.config as config
 
-# Create TestClient for unit testing
+# Import the API app directly
+import api
+app = api.app
 client = TestClient(app)
-
 
 class TestSecurityHeaders:
     """Test security headers using FastAPI TestClient"""

@@ -15,15 +15,22 @@ import requests
 import json
 import time
 import os
+import sys
 from datetime import datetime
+
+# Add paths for imports
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+
+from utils.base_test import BaseUserManagementTest
 
 # Test configuration
 API_URL = os.getenv("API_URL", "http://localhost:8055/api")
 
-class TestUserHiding:
+class TestUserHiding(BaseUserManagementTest):
     """Test suite for user hiding endpoints."""
     
-    def setup_method(self):
+    def setup_method(self, method=None):
         """Set up test by logging in."""
         self.auth_token = None
         self.target_user_id = "target_user_456"
@@ -61,11 +68,13 @@ class TestUserHiding:
             print(f"Login failed: {response.text}")
             return False
     
-    def get_auth_headers(self):
+    def get_auth_headers(self, token=None):
         """Get authorization headers."""
-        if not self.auth_token:
+        # Use provided token or fall back to instance token
+        auth_token = token or self.auth_token
+        if not auth_token:
             raise ValueError("No auth token available")
-        return {"Authorization": f"Bearer {self.auth_token}"}
+        return {"Authorization": f"Bearer {auth_token}"}
     
     def test_hide_user_success(self):
         """Test successfully hiding a user."""

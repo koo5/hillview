@@ -16,16 +16,23 @@ from urllib.parse import urlparse, parse_qs
 import sys
 import os
 
-# Add the backend directory to the path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
-
 # Enable user accounts for OAuth testing
 os.environ["USER_ACCOUNTS"] = "true"
 
-from fastapi.testclient import TestClient
-from api.app.api import app
+# Add the parent directory (api/app) to path so we can import the API modules
+api_app_dir = os.path.join(os.path.dirname(__file__), '..', '..')
+sys.path.insert(0, os.path.abspath(api_app_dir))
 
-# Create TestClient for unit testing
+# Add backend root directory so common module can be found
+backend_dir = os.path.join(api_app_dir, '..', '..')
+sys.path.insert(1, os.path.abspath(backend_dir))
+
+from fastapi.testclient import TestClient
+import common.config as config
+
+# Import the API app directly
+import api
+app = api.app
 client = TestClient(app)
 
 class TestOAuthErrorScenarios:
@@ -48,7 +55,7 @@ class TestOAuthErrorScenarios:
         location = response.headers.get("Location")
         assert "accounts.google.com" in location
     
-    @patch('api.app.user_routes.requests.post')
+    @patch('user_routes.requests.post')
     def test_oauth_token_exchange_failure(self, mock_post):
         """Test handling when OAuth token exchange fails"""
         # Mock failed token exchange
@@ -69,8 +76,8 @@ class TestOAuthErrorScenarios:
         # Should handle error gracefully
         assert response.status_code in [400, 302]
     
-    @patch('api.app.user_routes.requests.post')
-    @patch('api.app.user_routes.requests.get')
+    @patch('user_routes.requests.post')
+    @patch('user_routes.requests.get')
     def test_oauth_user_info_failure(self, mock_get, mock_post):
         """Test handling when OAuth user info fetch fails"""
         # Mock successful token exchange

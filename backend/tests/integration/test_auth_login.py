@@ -14,34 +14,23 @@ import time
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from utils.test_utils import recreate_test_users
+from utils.base_test import BaseAuthTest
+from utils.auth_utils import auth_helper, TEST_CREDENTIALS
 
 API_URL = os.getenv("API_URL", "http://localhost:8055/api")
 
 
-class TestUserPasswordAuth:
+class TestUserPasswordAuth(BaseAuthTest):
 	"""Test username/password authentication flow"""
-
-	def setup_method(self):
-		"""Setup test users before each test"""
-		recreate_test_users()
 
 	def test_valid_user_login(self):
 		"""Test successful login with test user credentials"""
-		login_data = {
-			"username": "test",
-			"password": "StrongTestPassword123!"
-		}
+		# Use auth helper to perform login
+		login_result = auth_helper.login_user("test", TEST_CREDENTIALS["test"])
+		
+		self.assert_success(login_result["response"], "Test user login should succeed")
 
-		response = requests.post(
-			f"{API_URL}/auth/token",
-			data=login_data,
-			headers={"Content-Type": "application/x-www-form-urlencoded"}
-		)
-
-		assert response.status_code == 200, f"Login failed with status {response.status_code}: {response.text}"
-
-		response_data = response.json()
+		response_data = login_result["response"].json()
 		assert "access_token" in response_data
 		assert "token_type" in response_data
 		assert response_data["token_type"] == "bearer"
@@ -57,59 +46,33 @@ class TestUserPasswordAuth:
 
 	def test_valid_admin_login(self):
 		"""Test successful login with admin user credentials"""
-		login_data = {
-			"username": "admin",
-			"password": "StrongAdminPassword123!"
-		}
+		# Use auth helper to perform login
+		login_result = auth_helper.login_user("admin", TEST_CREDENTIALS["admin"])
+		
+		self.assert_success(login_result["response"], "Admin user login should succeed")
 
-		response = requests.post(
-			f"{API_URL}/auth/token",
-			data=login_data,
-			headers={"Content-Type": "application/x-www-form-urlencoded"}
-		)
-
-		assert response.status_code == 200
-
-		response_data = response.json()
+		response_data = login_result["response"].json()
 		assert "access_token" in response_data
 		assert "token_type" in response_data
 		assert response_data["token_type"] == "bearer"
 
 	def test_invalid_username(self):
 		"""Test login with invalid username"""
-		login_data = {
-			"username": "nonexistent_user",
-			"password": "StrongTestPassword123!"
-		}
+		login_result = auth_helper.login_user("nonexistent_user", "StrongTestPassword123!")
+		
+		self.assert_unauthorized(login_result["response"], "Invalid username should be rejected")
 
-		response = requests.post(
-			f"{API_URL}/auth/token",
-			data=login_data,
-			headers={"Content-Type": "application/x-www-form-urlencoded"}
-		)
-
-		assert response.status_code == 401
-
-		response_data = response.json()
+		response_data = login_result["response"].json()
 		assert "detail" in response_data
 		assert "Incorrect username or password" in response_data["detail"]
 
 	def test_invalid_password(self):
 		"""Test login with valid username but wrong password"""
-		login_data = {
-			"username": "test",
-			"password": "wrong_password"
-		}
+		login_result = auth_helper.login_user("test", "wrong_password")
+		
+		self.assert_unauthorized(login_result["response"], "Wrong password should be rejected")
 
-		response = requests.post(
-			f"{API_URL}/auth/token",
-			data=login_data,
-			headers={"Content-Type": "application/x-www-form-urlencoded"}
-		)
-
-		assert response.status_code == 401
-
-		response_data = response.json()
+		response_data = login_result["response"].json()
 		assert "detail" in response_data
 		assert "Incorrect username or password" in response_data["detail"]
 

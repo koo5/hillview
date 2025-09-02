@@ -12,8 +12,8 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
 from common.models import HiddenPhoto, HiddenUser, User
-from .auth import get_current_active_user
-from .rate_limiter import rate_limit_photo_operations
+from auth import get_current_active_user
+from rate_limiter import rate_limit_photo_operations
 
 log = logging.getLogger(__name__)
 

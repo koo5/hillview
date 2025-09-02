@@ -14,52 +14,19 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 # Add paths for test utilities
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from utils.test_utils import recreate_test_users
+from utils.base_test import BaseUserManagementTest
+from utils.auth_utils import auth_helper, TEST_CREDENTIALS
 
 API_URL = os.getenv("API_URL", "http://localhost:8055/api")
 
-class TestUserProfile:
+class TestUserProfile(BaseUserManagementTest):
     """Test user profile retrieval and management"""
-    
-    def get_test_user_token(self):
-        """Helper to get a valid token for test user"""
-        login_data = {
-            "username": "test",
-            "password": "StrongTestPassword123!"
-        }
-        
-        response = requests.post(
-            f"{API_URL}/auth/token",
-            data=login_data,
-            headers={"Content-Type": "application/x-www-form-urlencoded"}
-        )
-        
-        assert response.status_code == 200
-        return response.json()["access_token"]
-    
-    def get_admin_token(self):
-        """Helper to get a valid token for admin user"""
-        login_data = {
-            "username": "admin",
-            "password": "StrongAdminPassword123!"
-        }
-        
-        response = requests.post(
-            f"{API_URL}/auth/token",
-            data=login_data,
-            headers={"Content-Type": "application/x-www-form-urlencoded"}
-        )
-        
-        assert response.status_code == 200
-        return response.json()["access_token"]
     
     def test_get_user_profile_success(self):
         """Test successful profile retrieval"""
-        token = self.get_test_user_token()
-        
         response = requests.get(
             f"{API_URL}/user/profile",
-            headers={"Authorization": f"Bearer {token}"}
+            headers=self.test_headers
         )
         
         assert response.status_code == 200
@@ -87,18 +54,16 @@ class TestUserProfile:
         """Test profile retrieval with invalid token"""
         response = requests.get(
             f"{API_URL}/user/profile",
-            headers={"Authorization": "Bearer invalid.token.here"}
+            headers=self.get_auth_headers("invalid.token.here")
         )
         
         assert response.status_code == 401
     
     def test_legacy_auth_me_endpoint(self):
         """Test that the legacy /auth/me endpoint still works"""
-        token = self.get_test_user_token()
-        
         response = requests.get(
             f"{API_URL}/auth/me",
-            headers={"Authorization": f"Bearer {token}"}
+            headers=self.test_headers
         )
         
         assert response.status_code == 200
@@ -109,57 +74,37 @@ class TestUserProfile:
         assert user_data["username"] == "test"
 
 
-class TestAccountDeletion:
+class TestAccountDeletion(BaseUserManagementTest):
     """Test account deletion functionality and security"""
     
     def test_delete_account_unauthorized(self):
         """Test account deletion without authentication"""
         response = requests.delete(f"{API_URL}/user/delete")
-        
-        assert response.status_code == 401
+        self.assert_unauthorized(response)
     
     def test_delete_account_invalid_token(self):
         """Test account deletion with invalid token"""
         response = requests.delete(
             f"{API_URL}/user/delete",
-            headers={"Authorization": "Bearer invalid.token.here"}
+            headers=self.get_auth_headers("invalid.token.here")
         )
-        
-        assert response.status_code == 401
+        self.assert_unauthorized(response)
     
     def test_delete_account_wrong_method(self):
         """Test that other HTTP methods are not allowed for deletion"""
-        token = self.get_test_user_token()
-        
         # Test GET (should not be allowed)
         response = requests.get(
             f"{API_URL}/user/delete",
-            headers={"Authorization": f"Bearer {token}"}
+            headers=self.test_headers
         )
         assert response.status_code == 405  # Method not allowed
         
         # Test POST (should not be allowed)
         response = requests.post(
             f"{API_URL}/user/delete",
-            headers={"Authorization": f"Bearer {token}"}
+            headers=self.test_headers
         )
         assert response.status_code == 405  # Method not allowed
-    
-    def get_test_user_token(self):
-        """Helper to get a valid token for test user"""
-        login_data = {
-            "username": "test",
-            "password": "StrongTestPassword123!"
-        }
-        
-        response = requests.post(
-            f"{API_URL}/auth/token",
-            data=login_data,
-            headers={"Content-Type": "application/x-www-form-urlencoded"}
-        )
-        
-        assert response.status_code == 200
-        return response.json()["access_token"]
     
     def test_delete_account_success(self):
         """Test successful account deletion"""
@@ -168,21 +113,19 @@ class TestAccountDeletion:
         # or restore the user after the test
         
         # First, verify the user exists by getting profile
-        token = self.get_test_user_token()
-        
         profile_response = requests.get(
             f"{API_URL}/user/profile",
-            headers={"Authorization": f"Bearer {token}"}
+            headers=self.test_headers
         )
-        assert profile_response.status_code == 200
+        self.assert_success(profile_response)
         
         # Now delete the account
         delete_response = requests.delete(
             f"{API_URL}/user/delete",
-            headers={"Authorization": f"Bearer {token}"}
+            headers=self.test_headers
         )
         
-        assert delete_response.status_code == 200
+        self.assert_success(delete_response)
         
         response_data = delete_response.json()
         assert "message" in response_data
@@ -191,63 +134,30 @@ class TestAccountDeletion:
         # Verify the token is no longer valid
         verify_response = requests.get(
             f"{API_URL}/user/profile",
-            headers={"Authorization": f"Bearer {token}"}
+            headers=self.test_headers
         )
-        assert verify_response.status_code == 401
+        self.assert_unauthorized(verify_response)
         
         # Verify we can't login with the deleted user credentials
-        login_response = requests.post(
-            f"{API_URL}/auth/token",
-            data={"username": "test", "password": "StrongTestPassword123!"},
-            headers={"Content-Type": "application/x-www-form-urlencoded"}
-        )
-        assert login_response.status_code == 401
+        login_result = auth_helper.login_user("test", TEST_CREDENTIALS["test"])
+        self.assert_unauthorized(login_result["response"])
 
 
-class TestProfileSecurity:
+class TestProfileSecurity(BaseUserManagementTest):
     """Test security aspects of profile endpoints"""
-    
-    def get_tokens_for_different_users(self):
-        """Helper to get tokens for different users"""
-        # Ensure test users exist
-        recreate_test_users()
-        
-        # Get test user token
-        test_login = requests.post(
-            f"{API_URL}/auth/token",
-            data={"username": "test", "password": "StrongTestPassword123!"},
-            headers={"Content-Type": "application/x-www-form-urlencoded"}
-        )
-        
-        admin_login = requests.post(
-            f"{API_URL}/auth/token",
-            data={"username": "admin", "password": "StrongAdminPassword123!"},
-            headers={"Content-Type": "application/x-www-form-urlencoded"}
-        )
-        
-        # Both should succeed now that we've recreated the users
-        assert test_login.status_code == 200, f"Test user login failed: {test_login.status_code} - {test_login.text}"
-        assert admin_login.status_code == 200, f"Admin user login failed: {admin_login.status_code} - {admin_login.text}"
-        
-        test_token = test_login.json()["access_token"]
-        admin_token = admin_login.json()["access_token"]
-            
-        return test_token, admin_token
     
     def test_user_isolation(self):
         """Test that users can only access their own profile"""
-        test_token, admin_token = self.get_tokens_for_different_users()
-        
         # Get test user profile with test token
         test_profile_response = requests.get(
             f"{API_URL}/user/profile",
-            headers={"Authorization": f"Bearer {test_token}"}
+            headers=self.test_headers
         )
         
         # Get admin profile with admin token  
         admin_profile_response = requests.get(
             f"{API_URL}/user/profile",
-            headers={"Authorization": f"Bearer {admin_token}"}
+            headers=self.admin_headers
         )
         
         if test_profile_response.status_code == 200 and admin_profile_response.status_code == 200:
@@ -266,10 +176,10 @@ class TestProfileSecurity:
         
         response = requests.get(
             f"{API_URL}/user/profile",
-            headers={"Authorization": f"Bearer {expired_token}"}
+            headers=self.get_auth_headers(expired_token)
         )
         
-        assert response.status_code == 401
+        self.assert_unauthorized(response)
     
     def test_sql_injection_protection(self):
         """Test that profile endpoints are protected against SQL injection"""
@@ -283,7 +193,7 @@ class TestProfileSecurity:
         for malicious_token in malicious_tokens:
             response = requests.get(
                 f"{API_URL}/user/profile",
-                headers={"Authorization": f"Bearer {malicious_token}"}
+                headers=self.get_auth_headers(malicious_token)
             )
             
             # Should reject malicious input (not crash the server)

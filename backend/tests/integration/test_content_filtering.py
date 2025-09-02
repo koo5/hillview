@@ -16,72 +16,26 @@ import time
 import os
 import sys
 import pytest
+import asyncio
 from datetime import datetime
 
 # Add paths for imports
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from utils.test_utils import query_hillview_endpoint
+from utils.base_test import BaseUserManagementTest
+from utils.test_utils import query_hillview_endpoint, create_test_photos
+from utils.auth_utils import auth_helper
 
 # Test configuration
 API_URL = os.getenv("API_URL", "http://localhost:8055/api")
 
-class TestContentFiltering:
+class TestContentFiltering(BaseUserManagementTest):
     """Test suite for hidden content filtering in API responses."""
-        
-    def setup_method(self):
-        """Set up test by creating users and content."""
-        self.auth_tokens = {}
-        self.test_users = []
-        print("Setting up content filtering tests...")
-        
-        # Create two test users
-        for i in range(2):
-            test_user = {
-                "username": f"filter_test_user_{i}_{int(time.time())}",
-                "email": f"filter_test_{i}_{int(time.time())}@test.com", 
-                "password": "SuperStrongFilterTestPassword123!@#"
-            }
-            
-            # Register user
-            response = requests.post(f"{API_URL}/auth/register", json=test_user)
-            if response.status_code not in [200, 400]:
-                print(f"User registration failed: {response.text}")
-                return False
-                
-            # Login
-            login_data = {
-                "username": test_user["username"],
-                "password": test_user["password"]
-            }
-            response = requests.post(
-                f"{API_URL}/auth/token",
-                data=login_data,
-                headers={"Content-Type": "application/x-www-form-urlencoded"}
-            )
-            
-            if response.status_code == 200:
-                self.auth_tokens[test_user["username"]] = response.json()["access_token"]
-                self.test_users.append(test_user)
-                print(f"✓ Created user: {test_user['username']}")
-            else:
-                print(f"Login failed for {test_user['username']}: {response.text}")
-                return False
-        
-        return len(self.test_users) == 2
-    
-    def get_auth_headers(self, username):
-        """Get authorization headers for a specific user."""
-        token = self.auth_tokens.get(username)
-        if not token:
-            raise ValueError(f"No token found for user {username}")
-        return {"Authorization": f"Bearer {token}"}
     
     def test_hillview_filtering_hidden_photos(self):
         """Test that hidden photos are filtered from Hillview API."""
         print("\n--- Testing Hillview Photo Filtering ---")
-        
-        user1 = self.test_users[0]["username"]
         
         # First, get baseline results without any hidden content
         params = {
@@ -93,7 +47,7 @@ class TestContentFiltering:
         }
         
         baseline_result = query_hillview_endpoint(
-            token=self.auth_tokens[user1], 
+            token=self.test_token, 
             params=params
         )
         
@@ -115,7 +69,7 @@ class TestContentFiltering:
             response = requests.post(
                 f"{API_URL}/hidden/photos",
                 json=hide_request,
-                headers=self.get_auth_headers(user1)
+                headers=self.test_headers
             )
             
             assert response.status_code == 200, f"Failed to hide photo: {response.status_code}"
@@ -124,7 +78,7 @@ class TestContentFiltering:
             
             # Query again - should have one less photo
             filtered_result = query_hillview_endpoint(
-                token=self.auth_tokens[user1], 
+                token=self.test_token, 
                 params=params
             )
             
@@ -147,7 +101,7 @@ class TestContentFiltering:
             requests.delete(
                 f"{API_URL}/hidden/photos",
                 json=unhide_request,
-                headers=self.get_auth_headers(user1)
+                headers=self.test_headers
             )
         else:
             print("ℹ No photos available to test filtering - test passes")
@@ -156,16 +110,11 @@ class TestContentFiltering:
         """Test that hidden content is filtered from activity feed."""
         print("\n--- Testing Activity Feed Filtering ---")
         
-        user1 = self.test_users[0]["username"]
-        user2 = self.test_users[1]["username"]
-        
         # Create test data - ensure we have photos from both users for testing
         print("Creating test photos for activity feed filtering...")
-        import asyncio
-        from utils.test_utils import create_test_photos
         
         # Create test photos that will appear in activity feed
-        photos_created = asyncio.run(create_test_photos(self.test_users, self.auth_tokens))
+        photos_created = self.create_test_photos(self.test_users, self.auth_tokens)
         assert photos_created > 0, "Failed to create test photos for activity feed test"
         
         # Wait a moment for activity feed to update
@@ -175,7 +124,7 @@ class TestContentFiltering:
         # Get baseline activity feed
         response = requests.get(
             f"{API_URL}/activity/recent",
-            headers=self.get_auth_headers(user1)
+            headers=self.test_headers
         )
         
         assert response.status_code == 200, f"Activity API call failed: {response.status_code} - {response.text}"
@@ -187,35 +136,35 @@ class TestContentFiltering:
         # We should now have activity items from our test photos
         assert baseline_count > 0, f"Expected activity items after creating {photos_created} photos, but found {baseline_count}"
         
-        # Get the owner_id from user2 (we'll hide user2's photos from user1's perspective)
-        # First, get user2's ID by checking their profile
-        user2_profile_response = requests.get(
+        # Get the owner_id from admin user (we'll hide admin's photos from test user's perspective)
+        # First, get admin user's ID by checking their profile
+        admin_profile_response = requests.get(
             f"{API_URL}/user/profile",
-            headers=self.get_auth_headers(user2)
+            headers=self.admin_headers
         )
-        assert user2_profile_response.status_code == 200, "Failed to get user2 profile"
-        user2_id = user2_profile_response.json()["id"]
+        assert admin_profile_response.status_code == 200, "Failed to get admin profile"
+        admin_user_id = admin_profile_response.json()["id"]
         
-        # Hide user2 from user1's perspective
+        # Hide admin from test user's perspective
         hide_request = {
             "target_user_source": "hillview", 
-            "target_user_id": user2_id,
+            "target_user_id": admin_user_id,
             "reason": "Test activity filtering"
         }
         
         response = requests.post(
             f"{API_URL}/hidden/users",
             json=hide_request,
-            headers=self.get_auth_headers(user1)
+            headers=self.test_headers
         )
         
         assert response.status_code == 200, f"Failed to hide user: {response.status_code} - {response.text}"
-        print(f"✓ Hidden user: {user2_id}")
+        print(f"✓ Hidden user: {admin_user_id}")
         
-        # Query activity again - should filter out user2's photos
+        # Query activity again - should filter out admin's photos
         response = requests.get(
             f"{API_URL}/activity/recent",
-            headers=self.get_auth_headers(user1)
+            headers=self.test_headers
         )
         
         assert response.status_code == 200, f"Filtered activity query failed: {response.status_code}"
@@ -226,7 +175,7 @@ class TestContentFiltering:
         # Check if activities from hidden user are removed
         hidden_user_activities = [
             item for item in filtered_activities 
-            if item.get("owner_id") == user2_id
+            if item.get("owner_id") == admin_user_id
         ]
         
         assert len(hidden_user_activities) == 0, f"Hidden user's activities still present: {len(hidden_user_activities)} (should be 0)"
@@ -235,20 +184,18 @@ class TestContentFiltering:
         # Clean up
         unhide_request = {
             "target_user_source": "hillview",
-            "target_user_id": user2_id
+            "target_user_id": admin_user_id
         }
         cleanup_response = requests.delete(
             f"{API_URL}/hidden/users",
             json=unhide_request,
-            headers=self.get_auth_headers(user1)
+            headers=self.test_headers
         )
         assert cleanup_response.status_code in [200, 404], f"Cleanup failed: {cleanup_response.status_code}"
     
     def test_anonymous_vs_authenticated_filtering(self):
         """Test filtering differences between anonymous and authenticated users."""
         print("\n--- Testing Anonymous vs Authenticated Filtering ---")
-        
-        user1 = self.test_users[0]["username"]
         
         # Query as authenticated user
         params = {
@@ -260,7 +207,7 @@ class TestContentFiltering:
         }
         
         auth_result = query_hillview_endpoint(
-            token=self.auth_tokens[user1], 
+            token=self.test_token, 
             params=params
         )
         
@@ -287,10 +234,7 @@ class TestContentFiltering:
         """Test that User A's hidden content doesn't affect User B."""
         print("\n--- Testing Cross-User Isolation ---")
         
-        user1 = self.test_users[0]["username"]
-        user2 = self.test_users[1]["username"] 
-        
-        # User1 hides a photo
+        # Test user hides a photo
         hide_request = {
             "photo_source": "mapillary",
             "photo_id": "isolation_test_photo",
@@ -300,36 +244,36 @@ class TestContentFiltering:
         response = requests.post(
             f"{API_URL}/hidden/photos",
             json=hide_request,
-            headers=self.get_auth_headers(user1)
+            headers=self.test_headers
         )
         
         if response.status_code != 200:
             print(f"✗ User1 failed to hide photo: {response.status_code}")
             return False
         
-        print("✓ User1 hidden photo")
+        print("✓ Test user hidden photo")
         
-        # Check User1's hidden list
+        # Check test user's hidden list
         response = requests.get(
             f"{API_URL}/hidden/photos",
-            headers=self.get_auth_headers(user1)
+            headers=self.test_headers
         )
         
-        user1_hidden = response.json() if response.status_code == 200 else []
+        test_user_hidden = response.json() if response.status_code == 200 else []
         
-        # Check User2's hidden list  
+        # Check admin user's hidden list  
         response = requests.get(
             f"{API_URL}/hidden/photos",
-            headers=self.get_auth_headers(user2)
+            headers=self.admin_headers
         )
         
-        user2_hidden = response.json() if response.status_code == 200 else []
+        admin_user_hidden = response.json() if response.status_code == 200 else []
         
-        # User2 should not see User1's hidden photos
-        user1_photo_ids = [item["photo_id"] for item in user1_hidden]
-        user2_photo_ids = [item["photo_id"] for item in user2_hidden]
+        # Admin should not see test user's hidden photos
+        test_user_photo_ids = [item["photo_id"] for item in test_user_hidden]
+        admin_user_photo_ids = [item["photo_id"] for item in admin_user_hidden]
         
-        common_hidden = set(user1_photo_ids) & set(user2_photo_ids)
+        common_hidden = set(test_user_photo_ids) & set(admin_user_photo_ids)
         
         assert len(common_hidden) == 0, f"Users share hidden photos (should be isolated): {common_hidden}"
         print("✓ User hidden lists are properly isolated")
@@ -342,7 +286,7 @@ class TestContentFiltering:
         cleanup_response = requests.delete(
             f"{API_URL}/hidden/photos",
             json=unhide_request,
-            headers=self.get_auth_headers(user1)
+            headers=self.test_headers
         )
         assert cleanup_response.status_code in [200, 404], f"Cleanup failed: {cleanup_response.status_code} - {cleanup_response.text}"
     

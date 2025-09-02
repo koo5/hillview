@@ -9,138 +9,118 @@ import os
 import sys
 from pathlib import Path
 
+# Add paths for imports
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+
+from utils.base_test import BasePhotoTest
+from utils.secure_upload_utils import SecureUploadClient
+from utils.test_utils import create_test_image
+
 API_URL = os.getenv("API_URL", "http://localhost:8055/api")
 
-@pytest.mark.asyncio
-async def test_upload_endpoint():
-    """Test the photo upload endpoint using secure upload workflow."""
-    from utils.secure_upload_utils import SecureUploadClient
+class TestUpload(BasePhotoTest):
+    """Test photo upload functionality using secure upload workflow."""
     
-    
-    # Initialize test_image_path to None
-    test_image_path = None
-    
-    # First, register/login to get a token
-    print("Testing photo upload functionality with secure workflow...")
-    
-    # Create a test user
-    user_data = {
-        "username": "testuser",
-        "email": "test@example.com", 
-        "password": "StrongTestUserPassword123!"
-    }
-    
-    try:
-        # Register user
-        print("Registering test user...")
-        response = requests.post(f"{API_URL}/auth/register", json=user_data)
-        if response.status_code in [200, 201]:
-            print("✓ User registered successfully")
-        elif response.status_code == 400 and ("already exists" in response.text or "already registered" in response.text):
-            print("✓ User already exists")
-        else:
-            pytest.fail(f"Registration failed: {response.status_code} - {response.text}")
+    @pytest.mark.asyncio
+    async def test_upload_endpoint(self):
+        """Test the photo upload endpoint using secure upload workflow."""
         
-        # Login to get token
-        print("Logging in...")
-        login_data = {
-            "username": user_data["username"],
-            "password": user_data["password"]
-        }
-        response = requests.post(
-            f"{API_URL}/auth/token", 
-            data=login_data,
-            headers={"Content-Type": "application/x-www-form-urlencoded"}
-        )
+        # Initialize test_image_path to None
+        test_image_path = None
         
-        assert response.status_code == 200, f"Login failed: {response.status_code} - {response.text}"
+        print("Testing photo upload functionality with secure workflow...")
         
-        token_data = response.json()
-        access_token = token_data["access_token"]
-        print("✓ Login successful")
-        
-        # Test photo upload using secure workflow
-        print("Testing secure photo upload workflow...")
-        
-        # Create a test image file (simple 10x10 pixel JPEG)
-        test_image_path = "/tmp/test_photo.jpg"
-        create_test_image(test_image_path)
-        
-        # Read image data
-        with open(test_image_path, 'rb') as f:
-            image_data = f.read()
-        
-        # Use secure upload workflow
-        upload_client = SecureUploadClient(api_url=API_URL)
-        
-        # Phase 1: Generate and register client keys
-        print("Phase 1: Registering client keys...")
-        client_keys = upload_client.generate_client_keys()
-        await upload_client.register_client_key(access_token, client_keys)
-        print("✓ Client keys registered")
-        
-        # Phase 2: Authorize upload
-        print("Phase 2: Authorizing upload...")
-        auth_data = await upload_client.authorize_upload_with_params(
-            access_token, "test_photo.jpg", len(image_data),
-            50.0755, 14.4378,  # Prague coordinates
-            "Test photo upload", True  # is_public
-        )
-        print("✓ Upload authorized")
-        
-        # Phase 3: Upload to worker
-        print("Phase 3: Uploading to worker...")
-        result = await upload_client.upload_to_worker(image_data, auth_data, client_keys, "test_photo.jpg")
-        photo_id = result.get('photo_id', auth_data.get('photo_id', 'unknown'))
-        print(f"✓ Photo upload successful! Photo ID: {photo_id}")
-        
-        # Wait for processing
-        print("Waiting for photo processing...")
-        import time
-        headers = {"Authorization": f"Bearer {access_token}"}
-        
-        for i in range(30):  # Check for up to 30 seconds
-            status_response = requests.get(
-                f"{API_URL}/photos/{photo_id}",
-                headers=headers
-            )
+        try:
+            # Create a test image file (simple test JPEG)
+            test_image_path = "/tmp/test_photo.jpg"
+            create_test_image_file(test_image_path)
             
-            if status_response.status_code == 200:
-                photo_data = status_response.json()
-                status = photo_data.get('processing_status', 'unknown')
-                print(f"Processing status: {status}")
+            # Read image data
+            with open(test_image_path, 'rb') as f:
+                image_data = f.read()
+            
+            # Use secure upload workflow
+            upload_client = SecureUploadClient(api_url=API_URL)
+            
+            # Phase 1: Generate and register client keys
+            print("Phase 1: Registering client keys...")
+            client_keys = upload_client.generate_client_keys()
+            await upload_client.register_client_key(self.test_token, client_keys)
+            print("✓ Client keys registered")
+            
+            # Phase 2: Authorize upload
+            print("Phase 2: Authorizing upload...")
+            auth_data = await upload_client.authorize_upload_with_params(
+                self.test_token, "test_photo.jpg", len(image_data),
+                50.0755, 14.4378,  # Prague coordinates
+                "Test photo upload", True  # is_public
+            )
+            print("✓ Upload authorized")
+            
+            # Phase 3: Upload to worker
+            print("Phase 3: Uploading to worker...")
+            result = await upload_client.upload_to_worker(image_data, auth_data, client_keys, "test_photo.jpg")
+            photo_id = result.get('photo_id', auth_data.get('photo_id', 'unknown'))
+            print(f"✓ Photo upload successful! Photo ID: {photo_id}")
+            
+            # Wait for processing
+            print("Waiting for photo processing...")
+            import time
+            
+            for i in range(30):  # Check for up to 30 seconds
+                status_response = requests.get(
+                    f"{API_URL}/photos/{photo_id}",
+                    headers=self.test_headers
+                )
                 
-                if status in ['completed', 'failed']:
-                    if status == 'completed':
-                        print("✓ Photo processing completed successfully!")
-                        break
-                    else:
-                        pytest.fail("Photo processing failed")
+                if status_response.status_code == 200:
+                    photo_data = status_response.json()
+                    status = photo_data.get('processing_status', 'unknown')
+                    print(f"Processing status: {status}")
                     
+                    if status in ['completed', 'failed']:
+                        if status == 'completed':
+                            print("✓ Photo processing completed successfully!")
+                            break
+                        else:
+                            pytest.fail("Photo processing failed")
+                        
                 time.sleep(1)
             else:
-                print(f"✗ Failed to get photo status: {status_response.status_code}")
-                break
-        
-        print("✓ Upload workflow completed (processing may still be in progress)")
+                pytest.fail("Photo processing timed out after 30 seconds")
             
-    except requests.exceptions.ConnectionError:
-        pytest.fail("Could not connect to API. Make sure the server is running")
-    except Exception as e:
-        pytest.fail(f"Test failed with error: {e}")
-    finally:
-        # Clean up test image
-        if test_image_path and os.path.exists(test_image_path):
-            os.remove(test_image_path)
+            # Verify photo exists in API
+            print("Verifying photo in API...")
+            photo_response = requests.get(
+                f"{API_URL}/photos/{photo_id}",
+                headers=self.test_headers
+            )
+            
+            self.assert_success(photo_response, "Should be able to retrieve uploaded photo")
+            
+            photo_info = photo_response.json()
+            assert photo_info.get('id') == photo_id, "Photo ID should match"
+            assert photo_info.get('processing_status') == 'completed', "Photo should be processed"
+            print("✓ Photo verified in API")
+            
+        except Exception as e:
+            pytest.fail(f"Upload test failed: {str(e)}")
+        finally:
+            # Cleanup test image
+            if test_image_path and os.path.exists(test_image_path):
+                os.unlink(test_image_path)
+                print("✓ Test image file cleaned up")
 
-def create_test_image(path: str):
-    """Create a minimal test JPEG image."""
-    from PIL import Image
-    
-    # Create a 10x10 red image
-    img = Image.new('RGB', (10, 10), color='red')
-    img.save(path, 'JPEG')
+def create_test_image_file(filepath):
+    """Create a test JPEG image file."""
+    image_data = create_test_image(200, 150, (255, 0, 0))  # Red image
+    with open(filepath, 'wb') as f:
+        f.write(image_data)
+    print(f"✓ Created test image file: {filepath}")
 
 if __name__ == "__main__":
-    asyncio.run(test_upload_endpoint())
-    print("✓ Upload test completed successfully!")
+    # Run the test
+    test = TestUpload()
+    test.setUp()
+    asyncio.run(test.test_upload_endpoint())

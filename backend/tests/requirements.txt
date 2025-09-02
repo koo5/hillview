@@ -1,28 +1,17 @@
-# Test dependencies
-dotenv
-pytest==7.4.3
-pytest-asyncio==0.21.1
+# Additional test dependencies not included in api/app/requirements-dev.txt
+python-dotenv
 httpx[http2]==0.27.0
-Pillow==10.1.0
 
 # JWT and crypto dependencies (for client key generation)
-cryptography==41.0.7
 python-jose[cryptography]==3.3.0
-
-# For test image creation
-Pillow==10.1.0
-piexif
 
 # For existing tests compatibility
 requests==2.31.0
-fastapi
 python-multipart
 aiofiles
 
-
 # Password hashing for auth tests
 passlib[bcrypt]
-
 
 # Database
 sqlalchemy==2.0.23

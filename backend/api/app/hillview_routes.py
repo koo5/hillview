@@ -13,9 +13,9 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
 from common.models import Photo, User
-from .hidden_content_filters import apply_hidden_content_filters
-from .auth import get_current_user_optional_with_query, get_current_user_optional
-from .rate_limiter import rate_limit_public_read
+from hidden_content_filters import apply_hidden_content_filters
+from auth import get_current_user_optional_with_query, get_current_user_optional
+from rate_limiter import rate_limit_public_read
 
 load_dotenv()
 log = logging.getLogger(__name__)
