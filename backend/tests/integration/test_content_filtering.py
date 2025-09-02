@@ -157,6 +157,20 @@ class TestContentFiltering:
         print("\n--- Testing Activity Feed Filtering ---")
         
         user1 = self.test_users[0]["username"]
+        user2 = self.test_users[1]["username"]
+        
+        # Create test data - ensure we have photos from both users for testing
+        print("Creating test photos for activity feed filtering...")
+        import asyncio
+        from utils.test_utils import create_test_photos
+        
+        # Create test photos that will appear in activity feed
+        photos_created = asyncio.run(create_test_photos(self.test_users, self.auth_tokens))
+        assert photos_created > 0, "Failed to create test photos for activity feed test"
+        
+        # Wait a moment for activity feed to update
+        import time
+        time.sleep(2)
         
         # Get baseline activity feed
         response = requests.get(
@@ -170,65 +184,65 @@ class TestContentFiltering:
         baseline_count = len(baseline_activities)
         print(f"Baseline activity: {baseline_count} items")
         
-        # If we have activities, try hiding one of the owners
-        if baseline_count > 0:
-            activity_item = baseline_activities[0]
-            owner_id = activity_item.get("owner_id")
-            
-            if owner_id:
-                hide_request = {
-                    "target_user_source": "hillview", 
-                    "target_user_id": owner_id,
-                    "reason": "Test activity filtering"
-                }
-                
-                response = requests.post(
-                    f"{API_URL}/hidden/users",
-                    json=hide_request,
-                    headers=self.get_auth_headers(user1)
-                )
-                
-                if response.status_code == 200:
-                    print(f"✓ Hidden user: {owner_id}")
-                    
-                    # Query activity again - should filter out that user's photos
-                    response = requests.get(
-                        f"{API_URL}/activity/recent",
-                        headers=self.get_auth_headers(user1)
-                    )
-                    
-                    if response.status_code == 200:
-                        filtered_activities = response.json()
-                        filtered_count = len(filtered_activities)
-                        
-                        # Check if activities from hidden user are removed
-                        hidden_user_activities = [
-                            item for item in filtered_activities 
-                            if item.get("owner_id") == owner_id
-                        ]
-                        
-                        assert len(hidden_user_activities) == 0, f"Hidden user's activities still present: {len(hidden_user_activities)} (should be 0)"
-                        print(f"✓ Hidden user's activities filtered out ({baseline_count} -> {filtered_count})")
-                        
-                        # Clean up
-                        unhide_request = {
-                            "target_user_source": "hillview",
-                            "target_user_id": owner_id
-                        }
-                        cleanup_response = requests.delete(
-                            f"{API_URL}/hidden/users",
-                            json=unhide_request,
-                            headers=self.get_auth_headers(user1)
-                        )
-                        assert cleanup_response.status_code in [200, 404], f"Cleanup failed: {cleanup_response.status_code}"
-                    else:
-                        pytest.fail(f"Filtered activity query failed: {response.status_code}")
-                else:
-                    pytest.fail(f"Failed to hide user: {response.status_code}")
-            else:
-                pytest.skip("Activity item has no owner_id to test with - check test data setup")
-        else:
-            pytest.skip("No activity items to test filtering with - check test data setup")
+        # We should now have activity items from our test photos
+        assert baseline_count > 0, f"Expected activity items after creating {photos_created} photos, but found {baseline_count}"
+        
+        # Get the owner_id from user2 (we'll hide user2's photos from user1's perspective)
+        # First, get user2's ID by checking their profile
+        user2_profile_response = requests.get(
+            f"{API_URL}/user/profile",
+            headers=self.get_auth_headers(user2)
+        )
+        assert user2_profile_response.status_code == 200, "Failed to get user2 profile"
+        user2_id = user2_profile_response.json()["id"]
+        
+        # Hide user2 from user1's perspective
+        hide_request = {
+            "target_user_source": "hillview", 
+            "target_user_id": user2_id,
+            "reason": "Test activity filtering"
+        }
+        
+        response = requests.post(
+            f"{API_URL}/hidden/users",
+            json=hide_request,
+            headers=self.get_auth_headers(user1)
+        )
+        
+        assert response.status_code == 200, f"Failed to hide user: {response.status_code} - {response.text}"
+        print(f"✓ Hidden user: {user2_id}")
+        
+        # Query activity again - should filter out user2's photos
+        response = requests.get(
+            f"{API_URL}/activity/recent",
+            headers=self.get_auth_headers(user1)
+        )
+        
+        assert response.status_code == 200, f"Filtered activity query failed: {response.status_code}"
+        
+        filtered_activities = response.json()
+        filtered_count = len(filtered_activities)
+        
+        # Check if activities from hidden user are removed
+        hidden_user_activities = [
+            item for item in filtered_activities 
+            if item.get("owner_id") == user2_id
+        ]
+        
+        assert len(hidden_user_activities) == 0, f"Hidden user's activities still present: {len(hidden_user_activities)} (should be 0)"
+        print(f"✓ Hidden user's activities filtered out ({baseline_count} -> {filtered_count})")
+        
+        # Clean up
+        unhide_request = {
+            "target_user_source": "hillview",
+            "target_user_id": user2_id
+        }
+        cleanup_response = requests.delete(
+            f"{API_URL}/hidden/users",
+            json=unhide_request,
+            headers=self.get_auth_headers(user1)
+        )
+        assert cleanup_response.status_code in [200, 404], f"Cleanup failed: {cleanup_response.status_code}"
     
     def test_anonymous_vs_authenticated_filtering(self):
         """Test filtering differences between anonymous and authenticated users."""

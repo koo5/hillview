@@ -110,6 +110,7 @@ class TestHiddenDatabaseOperations:
         finally:
             await db.close()
     
+    @pytest.mark.asyncio
     async def test_hidden_photo_crud_operations(self):
         """Test CRUD operations for HiddenPhoto model."""
         print("\n--- Testing HiddenPhoto CRUD Operations ---")
@@ -189,6 +190,7 @@ class TestHiddenDatabaseOperations:
         finally:
             await db.close()
     
+    @pytest.mark.asyncio
     async def test_hidden_user_crud_operations(self):
         """Test CRUD operations for HiddenUser model."""
         print("\n--- Testing HiddenUser CRUD Operations ---")
@@ -269,6 +271,7 @@ class TestHiddenDatabaseOperations:
         finally:
             await db.close()
     
+    @pytest.mark.asyncio
     async def test_duplicate_prevention(self):
         """Test prevention of duplicate hidden records."""
         print("\n--- Testing Duplicate Prevention ---")
@@ -319,6 +322,7 @@ class TestHiddenDatabaseOperations:
         finally:
             await db.close()
     
+    @pytest.mark.asyncio
     async def test_timestamp_handling(self):
         """Test timestamp handling for hidden records."""
         print("\n--- Testing Timestamp Handling ---")
@@ -367,6 +371,7 @@ class TestHiddenDatabaseOperations:
         finally:
             await db.close()
     
+    @pytest.mark.asyncio
     async def test_data_integrity(self):
         """Test data integrity constraints."""
         print("\n--- Testing Data Integrity ---")
@@ -421,6 +426,7 @@ class TestHiddenDatabaseOperations:
         finally:
             await db.close()
     
+    @pytest.mark.asyncio
     async def test_bulk_operations(self):
         """Test bulk database operations for hidden content."""
         print("\n--- Testing Bulk Operations ---")
