@@ -18,10 +18,10 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # Add is_test column to users table
-    op.add_column('users', sa.Column('is_test', sa.Boolean(), nullable=False, server_default='false'))
+	# Add is_test column to users table
+	op.add_column('users', sa.Column('is_test', sa.Boolean(), nullable=False, server_default='false'))
 
 
 def downgrade() -> None:
-    # Drop the is_test column
-    op.drop_column('users', 'is_test')
+	# Drop the is_test column
+	op.drop_column('users', 'is_test')
