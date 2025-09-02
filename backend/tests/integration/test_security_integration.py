@@ -157,7 +157,6 @@ class TestTokenBlacklist:
 class TestInputValidationIntegration:
     """Integration tests for input validation that require database"""
     
-    @pytest.mark.skip(reason="Password validation may be disabled in DEV_MODE")  
     def test_weak_password_rejection(self):
         """Test that weak passwords are rejected during registration (may be disabled in DEV_MODE)"""
         weak_passwords = [

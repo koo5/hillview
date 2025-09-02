@@ -11,6 +11,10 @@ import os
 
 # Add the backend directory to the path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
+# Add paths for test utilities
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+
+from utils.test_utils import recreate_test_users
 
 API_URL = os.getenv("API_URL", "http://localhost:8055/api")
 
@@ -205,6 +209,9 @@ class TestProfileSecurity:
     
     def get_tokens_for_different_users(self):
         """Helper to get tokens for different users"""
+        # Ensure test users exist
+        recreate_test_users()
+        
         # Get test user token
         test_login = requests.post(
             f"{API_URL}/auth/token",
@@ -218,24 +225,18 @@ class TestProfileSecurity:
             headers={"Content-Type": "application/x-www-form-urlencoded"}
         )
         
-        test_token = None
-        admin_token = None
+        # Both should succeed now that we've recreated the users
+        assert test_login.status_code == 200, f"Test user login failed: {test_login.status_code} - {test_login.text}"
+        assert admin_login.status_code == 200, f"Admin user login failed: {admin_login.status_code} - {admin_login.text}"
         
-        if test_login.status_code == 200:
-            test_token = test_login.json()["access_token"]
-        
-        if admin_login.status_code == 200:
-            admin_token = admin_login.json()["access_token"]
+        test_token = test_login.json()["access_token"]
+        admin_token = admin_login.json()["access_token"]
             
         return test_token, admin_token
     
     def test_user_isolation(self):
         """Test that users can only access their own profile"""
         test_token, admin_token = self.get_tokens_for_different_users()
-        
-        # Skip if we don't have both users (e.g., test user was deleted)
-        if not test_token or not admin_token:
-            pytest.skip("Both test users not available")
         
         # Get test user profile with test token
         test_profile_response = requests.get(
