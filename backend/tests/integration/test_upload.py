@@ -15,7 +15,8 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from tests.utils.base_test import BasePhotoTest
 from tests.utils.secure_upload_utils import SecureUploadClient
-from tests.utils.test_utils import create_test_image, API_URL
+from tests.utils.test_utils import API_URL
+from tests.utils.image_utils import create_test_image_full_gps
 
 class TestUpload(BasePhotoTest):
     """Test photo upload functionality using secure upload workflow."""
@@ -111,11 +112,12 @@ class TestUpload(BasePhotoTest):
                 print("✓ Test image file cleaned up")
 
 def create_test_image_file(filepath):
-    """Create a test JPEG image file."""
-    image_data = create_test_image(200, 150, (255, 0, 0))  # Red image
+    """Create a test JPEG image file with full GPS data including bearing."""
+    # Create image with GPS coordinates AND bearing (Prague coordinates, 90° bearing)
+    image_data = create_test_image_full_gps(200, 150, (255, 0, 0), lat=50.0755, lon=14.4378, bearing=90.0)
     with open(filepath, 'wb') as f:
         f.write(image_data)
-    print(f"✓ Created test image file: {filepath}")
+    print(f"✓ Created test image file with GPS+bearing: {filepath}")
 
 if __name__ == "__main__":
     # Run the test
