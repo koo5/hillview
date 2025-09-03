@@ -31,50 +31,16 @@ class TestUserHiding(BaseUserManagementTest):
     """Test suite for user hiding endpoints."""
     
     def setup_method(self, method=None):
-        """Set up test by logging in."""
-        self.auth_token = None
+        """Set up test by using parent class setup."""
+        super().setup_method(method)
         self.target_user_id = "target_user_456"
         print("Setting up user hiding tests...")
-        
-        # Create and login test user
-        test_user = {
-            "username": f"test_user_hider_{int(time.time())}",
-            "email": f"user_hider_{int(time.time())}@test.com",
-            "password": "SuperStrongHiddenUserTestPassword123!@#"
-        }
-        
-        # Register user
-        response = requests.post(f"{API_URL}/auth/register", json=test_user)
-        if response.status_code not in [200, 400]:  # 400 if user exists
-            print(f"User registration failed: {response.text}")
-            return False
-            
-        # Login
-        login_data = {
-            "username": test_user["username"],
-            "password": test_user["password"]
-        }
-        response = requests.post(
-            f"{API_URL}/auth/token",
-            data=login_data,
-            headers={"Content-Type": "application/x-www-form-urlencoded"}
-        )
-        
-        if response.status_code == 200:
-            self.auth_token = response.json()["access_token"]
-            print(f"✓ Logged in as {test_user['username']}")
-            return True
-        else:
-            print(f"Login failed: {response.text}")
-            return False
     
     def get_auth_headers(self, token=None):
         """Get authorization headers."""
-        # Use provided token or fall back to instance token
-        auth_token = token or self.auth_token
-        if not auth_token:
-            raise ValueError("No auth token available")
-        return {"Authorization": f"Bearer {auth_token}"}
+        # Use provided token or fall back to test token from parent class
+        auth_token = token or self.test_token
+        return super().get_auth_headers(auth_token)
     
     def test_hide_user_success(self):
         """Test successfully hiding a user."""

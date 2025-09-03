@@ -14,8 +14,8 @@ import time
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from utils.base_test import BaseAuthTest
-from utils.auth_utils import auth_helper, TEST_CREDENTIALS
+from tests.utils.base_test import BaseAuthTest
+from tests.utils.auth_utils import TEST_CREDENTIALS
 
 API_URL = os.getenv("API_URL", "http://localhost:8055/api")
 
@@ -26,7 +26,7 @@ class TestUserPasswordAuth(BaseAuthTest):
 	def test_valid_user_login(self):
 		"""Test successful login with test user credentials"""
 		# Use auth helper to perform login
-		login_result = auth_helper.login_user("test", TEST_CREDENTIALS["test"])
+		login_result = self.__class__.auth_helper.login_user("test", TEST_CREDENTIALS["test"])
 		
 		self.assert_success(login_result["response"], "Test user login should succeed")
 
@@ -47,7 +47,7 @@ class TestUserPasswordAuth(BaseAuthTest):
 	def test_valid_admin_login(self):
 		"""Test successful login with admin user credentials"""
 		# Use auth helper to perform login
-		login_result = auth_helper.login_user("admin", TEST_CREDENTIALS["admin"])
+		login_result = self.__class__.auth_helper.login_user("admin", TEST_CREDENTIALS["admin"])
 		
 		self.assert_success(login_result["response"], "Admin user login should succeed")
 
@@ -58,7 +58,7 @@ class TestUserPasswordAuth(BaseAuthTest):
 
 	def test_invalid_username(self):
 		"""Test login with invalid username"""
-		login_result = auth_helper.login_user("nonexistent_user", "StrongTestPassword123!")
+		login_result = self.__class__.auth_helper.login_user("nonexistent_user", "StrongTestPassword123!")
 		
 		self.assert_unauthorized(login_result["response"], "Invalid username should be rejected")
 
@@ -68,7 +68,7 @@ class TestUserPasswordAuth(BaseAuthTest):
 
 	def test_invalid_password(self):
 		"""Test login with valid username but wrong password"""
-		login_result = auth_helper.login_user("test", "wrong_password")
+		login_result = self.__class__.auth_helper.login_user("test", "wrong_password")
 		
 		self.assert_unauthorized(login_result["response"], "Wrong password should be rejected")
 

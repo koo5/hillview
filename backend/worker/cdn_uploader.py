@@ -11,6 +11,7 @@ from typing import Dict, Any, Optional
 
 import boto3
 from botocore.exceptions import ClientError, NoCredentialsError
+from botocore.config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -23,15 +24,13 @@ class CDNUploader:
 		self.enabled = bool(self.bucket_name and self.cdn_base_url)
 
 		if self.bucket_name and not self.cdn_base_url:
-			logger.warning(f"BUCKET_NAME ({BUCKET_NAME}) set but CDN_BASE_URL missing - CDN upload disabled")
+			logger.warning(f"BUCKET_NAME ({self.bucket_name}) set but CDN_BASE_URL missing - CDN upload disabled")
 
 		if self.enabled:
 			try:
 				self.s3_client = boto3.client(
 					's3',
 					endpoint_url=os.getenv("AWS_ENDPOINT_URL_S3"),
-					# AWS_ACCESS_KEY_ID
-					# AWS_SECRET_ACCESS_KEY
 					config=Config(s3={'addressing_style': 'virtual'}))
 				logger.info(f"CDN upload enabled for bucket: {self.bucket_name}")
 			except Exception as e:

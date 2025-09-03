@@ -12,9 +12,16 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from utils.base_test import BasePhotoTest
-from utils.test_utils import clear_test_database, API_URL, upload_test_image, wait_for_photo_processing, recreate_test_users
-from utils.auth_utils import AuthTestHelper
+from tests.utils.base_test import BasePhotoTest
+from tests.utils.test_utils import clear_test_database, API_URL, upload_test_image, wait_for_photo_processing, recreate_test_users
+from tests.utils.auth_utils import AuthTestHelper
+from tests.utils.image_utils import (
+	create_test_image_no_exif,
+	create_test_image_coords_only,
+	create_test_image_bearing_only,
+	create_test_image_full_gps,
+	create_test_image_corrupted_exif
+)
 
 def setup_test_user():
 	"""Get test user token."""
@@ -25,18 +32,8 @@ def setup_test_user():
 		raise Exception(f"Login failed: {login_result['status_code']}")
 	return login_result["token"]
 
-from utils.image_utils import (
-	create_test_image_no_exif,
-	create_test_image_coords_only,
-	create_test_image_bearing_only,
-	create_test_image_full_gps,
-	create_test_image_corrupted_exif
-)
-
-
 class TestPhotoProcessingErrors(BasePhotoTest):
 	"""Test photo processing error cases with polling mechanism."""
-
 
 	@pytest.mark.asyncio
 	async def test_no_exif_data(self):

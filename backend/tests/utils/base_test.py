@@ -9,7 +9,7 @@ from typing import Dict, List, Optional
 from tests.utils.test_utils import recreate_test_users, API_URL
 from tests.utils.auth_utils import AuthTestHelper, TEST_CREDENTIALS
 
-class BaseIntegrationTest(unittest.TestCase):
+class BaseIntegrationTest:
     """Base class for integration tests with common setup and utilities."""
     
     @classmethod
@@ -21,8 +21,11 @@ class BaseIntegrationTest(unittest.TestCase):
     
     def setUp(self):
         """Setup run before each test method."""
+        # Ensure class setup happens for pytest
+        if not hasattr(self.__class__, 'api_url'):
+            self.__class__.setUpClass()
         # Clear token cache to ensure fresh tokens for each test
-        self.auth_helper.clear_token_cache()
+        self.__class__.auth_helper.clear_token_cache()
         # Ensure test users exist for each test
         recreate_test_users()
     
@@ -33,7 +36,7 @@ class BaseIntegrationTest(unittest.TestCase):
     def tearDown(self):
         """Cleanup run after each test method."""
         # Clear token cache
-        self.auth_helper.clear_token_cache()
+        self.__class__.auth_helper.clear_token_cache()
     
     def teardown_method(self, method=None):
         """Pytest-compatible teardown method."""
@@ -42,35 +45,35 @@ class BaseIntegrationTest(unittest.TestCase):
     # Common utility methods
     def get_auth_headers(self, token: str) -> Dict[str, str]:
         """Get authorization headers with Bearer token."""
-        return self.auth_helper.get_auth_headers(token)
+        return self.__class__.auth_helper.get_auth_headers(token)
     
     def get_test_token(self, username: str = "test") -> str:
         """Get a valid token for specified test user."""
-        return self.auth_helper.get_test_user_token(username)
+        return self.__class__.auth_helper.get_test_user_token(username)
     
     def get_admin_token(self) -> str:
         """Get a valid token for admin user."""
-        return self.auth_helper.get_admin_token()
+        return self.__class__.auth_helper.get_admin_token()
     
     def get_different_user_tokens(self) -> tuple[str, str]:
         """Get tokens for test and admin users."""
-        return self.auth_helper.get_tokens_for_different_users()
+        return self.__class__.auth_helper.get_tokens_for_different_users()
     
     def assert_unauthorized(self, response, message: str = "Should be unauthorized"):
         """Assert that response has 401 status code."""
-        self.assertEqual(response.status_code, 401, message)
+        assert response.status_code == 401, f"{message} - Got {response.status_code}"
     
     def assert_success(self, response, message: str = "Should be successful"):
         """Assert that response has 200 status code."""
-        self.assertEqual(response.status_code, 200, message)
+        assert response.status_code == 200, f"{message} - Got {response.status_code}"
     
     def assert_bad_request(self, response, message: str = "Should be bad request"):
         """Assert that response has 400 status code."""
-        self.assertEqual(response.status_code, 400, message)
+        assert response.status_code == 400, f"{message} - Got {response.status_code}"
     
     def assert_forbidden(self, response, message: str = "Should be forbidden"):
         """Assert that response has 403 status code."""
-        self.assertEqual(response.status_code, 403, message)
+        assert response.status_code == 403, f"{message} - Got {response.status_code}"
 
 class BaseAuthTest(BaseIntegrationTest):
     """Base class specifically for authentication-related tests."""

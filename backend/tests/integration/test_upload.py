@@ -13,11 +13,9 @@ from pathlib import Path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from utils.base_test import BasePhotoTest
-from utils.secure_upload_utils import SecureUploadClient
-from utils.test_utils import create_test_image
-
-API_URL = os.getenv("API_URL", "http://localhost:8055/api")
+from tests.utils.base_test import BasePhotoTest
+from tests.utils.secure_upload_utils import SecureUploadClient
+from tests.utils.test_utils import create_test_image, API_URL
 
 class TestUpload(BasePhotoTest):
     """Test photo upload functionality using secure upload workflow."""

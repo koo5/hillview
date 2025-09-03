@@ -41,8 +41,22 @@ class TestHillviewFiltering(BaseUserManagementTest):
         self.test_photos = []
         self.hidden_items = []  # Track what we hide for cleanup
         
-        # Clear database to ensure clean state
+        # Clear database to ensure clean state - but after clearing, we need fresh tokens
         clear_test_database()
+        
+        # Clear token cache to ensure fresh tokens after database clear
+        self.__class__.auth_helper.clear_token_cache()
+        
+        # Recreate tokens since users were cleared
+        self.test_token, self.admin_token = self.get_different_user_tokens()
+        self.test_headers = self.get_auth_headers(self.test_token)
+        self.admin_headers = self.get_auth_headers(self.admin_token)
+        
+        # Update auth tokens dict
+        self.auth_tokens = {
+            "test": self.test_token,
+            "admin": self.admin_token
+        }
         
     def setup_test_photos_for_filtering(self):
         """Create test photos for comprehensive filtering tests."""
