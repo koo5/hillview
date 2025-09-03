@@ -118,7 +118,7 @@ class MapillaryAPIManager:
 
 				log.info(f"Making Mapillary API call (attempt {attempt + 1}/{max_retries + 1}): {url} with params {(params | {'access_token': 'xxx'})}")
 
-				raise Exception('tests should not cause real mapillary api calls')
+				#raise Exception('tests should not cause real mapillary api calls')
 				response = await self.client.get(url, params=params)
 
 				# Handle rate limiting
