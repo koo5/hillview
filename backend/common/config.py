@@ -92,7 +92,7 @@ class RateLimitConfig:
 			user_profile_window_hours=int(os.getenv('RATE_LIMIT_USER_PROFILE_WINDOW', '1')),
 
 			# General API
-			general_api_max_requests=int(os.getenv('RATE_LIMIT_GENERAL_API', '200')),
+				general_api_max_requests=int(os.getenv('RATE_LIMIT_GENERAL_API', '6000')),
 			general_api_window_hours=int(os.getenv('RATE_LIMIT_GENERAL_API_WINDOW', '1')),
 
 			# Public read
