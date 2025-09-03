@@ -29,7 +29,7 @@ import java.util.concurrent.TimeUnit
 class SecureUploadManager(private val context: Context) {
 
     companion object {
-        private const val TAG = "🔐SecureUploadManager"
+        private const val TAG = "🢄Upload"
         private const val PREFS_NAME = "hillview_upload_prefs"
         private const val PREF_SERVER_URL = "server_url"
     }
@@ -164,7 +164,7 @@ class SecureUploadManager(private val context: Context) {
             .post(requestBody)
             .build()
 
-        Log.d(TAG, "Uploading to worker: $filename")
+        Log.d(TAG, "Uploading $filename to worker $workerUrl")
 
         try {
             client.newCall(request).execute().use { response ->

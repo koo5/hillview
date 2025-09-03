@@ -18,6 +18,7 @@ from uuid import UUID
 from pathlib import Path
 from datetime import datetime
 from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 
@@ -43,6 +44,21 @@ app = FastAPI(
 	title="Hillview Photo Processing Worker",
 	description="Photo processing service with JWT authentication",
 	version="1.0.1"
+)
+
+# CORS configuration
+app.add_middleware(
+	CORSMiddleware,
+	allow_origins=[
+		"http://localhost:8212",
+		"http://127.0.0.1:8212",
+		"http://tauri.localhost",
+		"https://hillview.cz",
+		"https://api.hillview.cz",
+	],
+	allow_credentials=True,
+	allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+	allow_headers=["Content-Type", "Authorization", "Accept"],
 )
 
 # HTTP Bearer security scheme

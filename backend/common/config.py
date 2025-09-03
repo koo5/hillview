@@ -48,7 +48,7 @@ class RateLimitConfig:
 	user_profile_window_hours: int = 1
 
 	# General API limits (per IP)
-	general_api_max_requests: int = 200
+	general_api_max_requests: int = 4000
 	general_api_window_hours: int = 1
 
 	# Public read limits (per IP)
