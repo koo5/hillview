@@ -180,7 +180,7 @@ async def refresh_access_token(
 				)
 
 		# Verify refresh token
-		import jwt
+		from jose import jwt
 		from auth import SECRET_KEY, ALGORITHM
 
 		try:
