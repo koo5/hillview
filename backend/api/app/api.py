@@ -13,13 +13,9 @@ common_path = os.path.join(os.path.dirname(__file__), '..', '..', 'common')
 sys.path.append(common_path)
 from common.database import Base, engine
 from common.config import is_rate_limiting_disabled, rate_limit_config
-from common.dotenv_loader import load_dotenv_or_warn
 
 logging.basicConfig(level=logging.DEBUG)
 log = logging.getLogger(__name__)
-
-# Load environment variables with proper error handling
-load_dotenv_or_warn("API Server")
 
 # Silence noisy HTTP libraries
 logging.getLogger("hpack").setLevel(logging.WARNING)

@@ -170,6 +170,14 @@ class AndroidConfigurer:
 			else:
 				self.log("Warning: No application element found", "WARNING")
 
+			# Add deep-link intent filters to MainActivity
+			main_activity = self._find_main_activity(manifest_elem)
+			if main_activity:
+				if self._add_deep_link_intent_filters(dom, main_activity):
+					changes_made = True
+			else:
+				self.log("Warning: MainActivity not found for deep-link configuration", "WARNING")
+
 			# Write back only if changes were made
 			if changes_made:
 				# Write with proper formatting
@@ -184,6 +192,68 @@ class AndroidConfigurer:
 		except Exception as e:
 			self.log(f"Error fixing AndroidManifest.xml: {e}", "ERROR")
 			return False
+
+	def _find_main_activity(self, manifest_elem):
+		"""Find the MainActivity element in the manifest"""
+		for activity in manifest_elem.getElementsByTagName("activity"):
+			name_attr = activity.getAttribute("android:name")
+			# Look for MainActivity (could be fully qualified or relative)
+			if name_attr and ("MainActivity" in name_attr or name_attr.endswith(".MainActivity")):
+				return activity
+		return None
+
+	def _add_deep_link_intent_filters(self, dom, main_activity):
+		"""Add deep-link intent filters to MainActivity if not already present"""
+		changes_made = False
+		
+		# Check if deep-link intent filters already exist
+		existing_schemes = set()
+		for intent_filter in main_activity.getElementsByTagName("intent-filter"):
+			for data_elem in intent_filter.getElementsByTagName("data"):
+				scheme = data_elem.getAttribute("android:scheme")
+				if scheme:
+					existing_schemes.add(scheme)
+		
+		# Determine scheme based on DEV_MODE environment variable
+		dev_mode_str = os.environ.get('DEV_MODE', 'false')
+		is_dev_mode = dev_mode_str == 'true'
+		scheme = "cz.hillviedev" if is_dev_mode else "cz.hillview"
+		required_schemes = [scheme]
+		
+		self.log(f"DEV_MODE='{dev_mode_str}', using scheme: {scheme}", "INFO")
+		
+		for scheme in required_schemes:
+			if scheme not in existing_schemes:
+				# Create new intent-filter for this scheme
+				intent_filter = dom.createElement("intent-filter")
+				
+				# Add action
+				action = dom.createElement("action")
+				action.setAttribute("android:name", "android.intent.action.VIEW")
+				intent_filter.appendChild(action)
+				
+				# Add categories
+				default_category = dom.createElement("category")
+				default_category.setAttribute("android:name", "android.intent.category.DEFAULT")
+				intent_filter.appendChild(default_category)
+				
+				browsable_category = dom.createElement("category")
+				browsable_category.setAttribute("android:name", "android.intent.category.BROWSABLE")
+				intent_filter.appendChild(browsable_category)
+				
+				# Add data with scheme
+				data_elem = dom.createElement("data")
+				data_elem.setAttribute("android:scheme", scheme)
+				intent_filter.appendChild(data_elem)
+				
+				# Add intent-filter to main activity
+				main_activity.appendChild(intent_filter)
+				changes_made = True
+				self.log(f"Added deep-link intent filter for scheme: {scheme}", "SUCCESS")
+			else:
+				self.log(f"Deep-link intent filter already exists for scheme: {scheme}", "SUCCESS")
+		
+		return changes_made
 
 	def _indent_xml(self, elem, level=0):
 		"""Add pretty-printing indentation to XML"""

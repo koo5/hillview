@@ -4,9 +4,13 @@ API server JWT service - handles API-specific token operations.
 
 import sys
 import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
+
+# Initialize environment first
+from common import env_init
+
 import logging
 from datetime import datetime, timezone, timedelta
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.utc import utcnow, utc_plus_timedelta
 from typing import Optional, Dict, Any, Tuple
 
@@ -15,7 +19,7 @@ from common.jwt_utils import load_or_generate_keys, create_jwt_token, validate_j
 
 logger = logging.getLogger(__name__)
 
-# API server keys (loaded once at startup)
+# API server keys (loaded once at startup - environment is now initialized)
 PRIVATE_KEY, PUBLIC_KEY = load_or_generate_keys("API server")
 
 def create_access_token(data: dict, expires_delta: Optional[int] = None) -> Tuple[str, datetime]:

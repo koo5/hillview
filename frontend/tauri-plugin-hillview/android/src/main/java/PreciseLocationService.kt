@@ -132,11 +132,7 @@ class PreciseLocationService(
     private fun handleLocationUpdate(location: Location) {
         Log.i(TAG, "📍 HANDLE: *** handleLocationUpdate called! ***")
 
-        val accuracyLevel = when {
-            location.accuracy <= HIGH_ACCURACY_THRESHOLD -> "HIGH"
-            location.accuracy <= MEDIUM_ACCURACY_THRESHOLD -> "MEDIUM"
-            else -> "LOW"
-        }
+        // accuracyLevel removed - was only used in commented logging
 /*
         Log.i(TAG, "📍 HANDLE: Location update details:")
         Log.i(TAG, "📍 HANDLE:   - Lat/Lng: ${location.latitude}, ${location.longitude}")

@@ -65,6 +65,12 @@ pub fn run() {
                 }
             }
 
+            // Suppress unused variable warning in release mode
+            #[cfg(not(debug_assertions))]
+            {
+                let _ = app;
+            }
+
             Ok(())
         })
         .run(tauri::generate_context!())

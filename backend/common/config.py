@@ -5,71 +5,70 @@ This module handles all environment variable loading and provides
 typed configuration objects for different parts of the application.
 """
 
+# Import environment initialization first
+from . import env_init
+
 import os
 import logging
 from typing import Dict, Any
 from dataclasses import dataclass
-from dotenv import load_dotenv
-
-load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-# Global rate limiting configuration
-NO_LIMITS = os.getenv("NO_LIMITS", "false").lower() in ("true", "1", "yes")
-
 def is_rate_limiting_disabled() -> bool:
 	"""Check if rate limiting is globally disabled."""
-	return NO_LIMITS
-
+	return os.getenv("NO_LIMITS", "false").lower() in ("true", "1", "yes")
 
 @dataclass
 class RateLimitConfig:
 	"""Configuration for different types of rate limiting."""
 
 	# Mapillary API rate limiting
-	mapillary_rate_limit_seconds: float = 1.0
+	mapillary_rate_limit_seconds: float
 
 	# Authentication rate limiting
-	auth_max_attempts: int = 5
-	auth_window_minutes: int = 15
-	auth_lockout_minutes: int = 30
+	auth_max_attempts: int
+	auth_window_minutes: int
+	auth_lockout_minutes: int
 
 	# Photo upload limits (per user)
-	photo_upload_max_requests: int = 10
-	photo_upload_window_hours: int = 1
+	photo_upload_max_requests: int
+	photo_upload_window_hours: int
 
 	# Photo operations limits (per user)
-	photo_ops_max_requests: int = 100
-	photo_ops_window_hours: int = 1
+	photo_ops_max_requests: int
+	photo_ops_window_hours: int
 
 	# User profile limits (per user)
-	user_profile_max_requests: int = 50
-	user_profile_window_hours: int = 1
+	user_profile_max_requests: int
+	user_profile_window_hours: int
 
 	# General API limits (per IP)
-	general_api_max_requests: int = 4000
-	general_api_window_hours: int = 1
+	general_api_max_requests: int
+	general_api_window_hours: int
 
 	# Public read limits (per IP)
-	public_read_max_requests: int = 500
-	public_read_window_hours: int = 1
+	public_read_max_requests: int
+	public_read_window_hours: int
 
 	# Activity feed limits (per IP)
-	activity_recent_max_requests: int = 100
-	activity_recent_window_hours: int = 1
+	activity_recent_max_requests: int
+	activity_recent_window_hours: int
 
-	# User registration limits (per IP) - moderate limits to prevent abuse but allow testing
-	user_registration_max_requests: int = 30
-	user_registration_window_hours: int = 1
+	# User registration limits (per IP)
+	user_registration_max_requests: int
+	user_registration_window_hours: int
 
-	# Debug endpoints limits (per IP) - high limits for development
-	debug_max_requests: int = 2000
-	debug_window_hours: int = 1
+	# Debug endpoints limits (per IP)
+	debug_max_requests: int
+	debug_window_hours: int
 
 	@classmethod
 	def from_env(cls) -> 'RateLimitConfig':
 		"""Load configuration from environment variables."""
+
+		logger.info("Loading rate limit configuration from environment variables")
+
 		return cls(
 			# Mapillary
 			mapillary_rate_limit_seconds=float(os.getenv('MAPILLARY_RATE_LIMIT_SECONDS', '1.0')),
@@ -92,7 +91,7 @@ class RateLimitConfig:
 			user_profile_window_hours=int(os.getenv('RATE_LIMIT_USER_PROFILE_WINDOW', '1')),
 
 			# General API
-				general_api_max_requests=int(os.getenv('RATE_LIMIT_GENERAL_API', '6000')),
+			general_api_max_requests=int(os.getenv('RATE_LIMIT_GENERAL_API', '6000')),
 			general_api_window_hours=int(os.getenv('RATE_LIMIT_GENERAL_API_WINDOW', '1')),
 
 			# Public read
@@ -175,6 +174,8 @@ class RateLimitConfig:
 
 		logger.info("=== End Rate Limit Configuration ===")
 
-
-# Global configuration instance
+# Global configuration instance - now environment is loaded
 rate_limit_config = RateLimitConfig.from_env()
+
+# Log the final configuration on startup
+rate_limit_config.log_configuration()

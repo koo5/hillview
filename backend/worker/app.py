@@ -67,7 +67,7 @@ security = HTTPBearer()
 # Configuration
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "./uploads"))
 UPLOAD_DIR.mkdir(exist_ok=True)
-API_URL = os.getenv("API_URL", "http://localhost:8055")
+API_URL = os.getenv("API_URL", "http://localhost:8055/api")
 
 def get_worker_identity() -> str:
 	"""
@@ -225,7 +225,7 @@ async def upload_and_process_photo(
 		except ValueError as processing_error:
 			# Processing errors (EXIF missing, corrupted data, etc.) - permanent failures
 			logger.error(f"Photo processing failed for {safe_filename}: {processing_error}")
-			processing_status = "error" 
+			processing_status = "error"
 			error_message = str(processing_error)
 			retry_after_minutes = None  # Permanent failure, no retry
 
@@ -280,7 +280,7 @@ async def upload_and_process_photo(
 
 			async with httpx.AsyncClient() as client:
 				response = await client.post(
-					f"{API_URL}/api/photos/processed",
+					f"{API_URL}/photos/processed",
 					json=payload,
 					headers={"Content-Type": "application/json"},
 					timeout=30.0

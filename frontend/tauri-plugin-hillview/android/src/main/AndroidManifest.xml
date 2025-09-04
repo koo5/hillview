@@ -30,26 +30,7 @@
 
 
     <application>
-        <!-- Deep link handling for OAuth callbacks -->
-        <activity
-            android:name="cz.hillviedev.MainActivity"
-            android:exported="true"
-            tools:node="merge">
-            <!-- Deep link intent filter for cz.hillview scheme -->
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="cz.hillview" />
-            </intent-filter>
-            <!-- Deep link intent filter for cz.hillviedev scheme -->
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="cz.hillviedev" />
-            </intent-filter>
-        </activity>
+        <!-- Deep link intent filters are added directly to MainActivity by Tauri's deep-link plugin -->
     </application>
 
 </manifest>

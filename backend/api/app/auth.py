@@ -19,13 +19,9 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
 from common.models import User, TokenBlacklist
-from common.dotenv_loader import load_dotenv_or_warn
 from jwt_service import validate_token, create_access_token, create_refresh_token
 
 logger = logging.getLogger(__name__)
-
-# Load environment variables with proper error handling
-load_dotenv_or_warn("Auth Service")
 
 # Security configuration
 # Generate a secure random key if not provided
