@@ -6,7 +6,6 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
-from dotenv import load_dotenv
 import os
 import sys
 # Add common module path for both local development and Docker
@@ -14,10 +13,13 @@ common_path = os.path.join(os.path.dirname(__file__), '..', '..', 'common')
 sys.path.append(common_path)
 from common.database import Base, engine
 from common.config import is_rate_limiting_disabled, rate_limit_config
+from common.dotenv_loader import load_dotenv_or_warn
 
-load_dotenv()
 logging.basicConfig(level=logging.DEBUG)
 log = logging.getLogger(__name__)
+
+# Load environment variables with proper error handling
+load_dotenv_or_warn("API Server")
 
 # Silence noisy HTTP libraries
 logging.getLogger("hpack").setLevel(logging.WARNING)

@@ -6,20 +6,21 @@ from fastapi import APIRouter, Query, HTTPException, status, Depends, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from dotenv import load_dotenv
-
 import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
 from common.models import Photo, User
+from common.dotenv_loader import load_dotenv_or_warn
 from hidden_content_filters import apply_hidden_content_filters
 from auth import get_current_user_optional_with_query, get_current_user_optional
 from rate_limiter import rate_limit_public_read
 
-load_dotenv()
 log = logging.getLogger(__name__)
 log.setLevel(logging.DEBUG)
+
+# Load environment variables with proper error handling
+load_dotenv_or_warn("Hillview Service")
 
 router = APIRouter(prefix="/api/hillview", tags=["hillview"])
 

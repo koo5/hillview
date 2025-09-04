@@ -223,6 +223,10 @@ class AuthenticationManager(private val context: Context) {
             if (response.isSuccessful) {
                 Log.d(TAG, "Client public key registered successfully")
                 return true
+            } else if (response.code == 409) {
+                // 409 means key already exists - this is actually OK
+                Log.d(TAG, "Client public key already exists on server (409) - treating as success")
+                return true
             } else {
                 Log.e(TAG, "Client public key registration failed with status: ${response.code}")
                 val responseBody = response.body?.string()

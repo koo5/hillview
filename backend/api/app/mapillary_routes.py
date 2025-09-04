@@ -7,7 +7,6 @@ import logging
 from fastapi import APIRouter, Query, Depends, HTTPException, status, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from dotenv import load_dotenv
 import httpx
 from asyncio import Lock, Queue
 import time
@@ -17,14 +16,17 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db, SessionLocal
 from common.models import CachedRegion, MapillaryPhotoCache, User
+from common.dotenv_loader import load_dotenv_or_warn
 from cache_service import MapillaryCacheService
 from rate_limiter import rate_limit_public_read
 from auth import get_current_user_optional_with_query
 from hidden_content_filters import filter_mapillary_photos_list
 from mock_mapillary import mock_mapillary_service
 
-load_dotenv()
 log = logging.getLogger(__name__)
+
+# Load environment variables with proper error handling
+load_dotenv_or_warn("Mapillary Service")
 
 # Lazy load token to avoid crash on import
 TOKEN = None

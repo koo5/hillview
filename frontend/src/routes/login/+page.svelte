@@ -233,6 +233,8 @@
             <span>OR</span>
         </div>
 
+		VITE_DEV_MODE: {import.meta.env.VITE_DEV_MODE}
+
         <div class="oauth-buttons">
             <button
                 class="oauth-button google"
