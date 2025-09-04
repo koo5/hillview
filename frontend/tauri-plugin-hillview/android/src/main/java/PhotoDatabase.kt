@@ -1,4 +1,4 @@
-package io.github.koo5.hillview.plugin
+package cz.hillview.plugin
 
 import android.content.Context
 import androidx.room.Database
@@ -10,13 +10,13 @@ import androidx.room.RoomDatabase
     exportSchema = false
 )
 abstract class PhotoDatabase : RoomDatabase() {
-    
+
     abstract fun photoDao(): SimplePhotoDao
-    
+
     companion object {
         @Volatile
         private var INSTANCE: PhotoDatabase? = null
-        
+
         fun getDatabase(context: Context): PhotoDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(

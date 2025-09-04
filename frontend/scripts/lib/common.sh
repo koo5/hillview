@@ -24,7 +24,7 @@ if ! command -v adb &> /dev/null; then
         "/usr/local/android-sdk/platform-tools"
         "$HOME/.android/sdk/platform-tools"
     )
-    
+
     for sdk_path in "${ANDROID_SDK_PATHS[@]}"; do
         if [ -f "$sdk_path/adb" ]; then
             export PATH="$PATH:$sdk_path"
@@ -42,16 +42,16 @@ export NC='\033[0m' # No Color
 export SCRIPTS_DIR="$PROJECT_ROOT/scripts"
 export APK_PATH="$PROJECT_ROOT/src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk"
 export APK_PATH_X86_64="$PROJECT_ROOT/src-tauri/gen/android/app/build/outputs/apk/x86_64/debug/app-x86_64-debug.apk"
-export PACKAGE_ID="io.github.koo5.hillview"
+export PACKAGE_ID="cz.hillview"
 
 # Function to run a command and check its status
 run_check() {
     local description=$1
     local command=$2
-    
+
     echo -e "\n${YELLOW}Running: ${description}${NC}"
     echo -e "Command: ${command}"
-    
+
     if eval "$command"; then
         echo -e "${GREEN}✓ ${description} passed${NC}"
         return 0
@@ -79,31 +79,31 @@ check_android_device() {
         echo -e "${RED}Error: ADB not found. Please install Android SDK.${NC}"
         return 1
     fi
-    
+
     echo -e "\n${YELLOW}Checking for Android devices...${NC}"
     adb devices
-    
+
     if ! adb devices | grep -q "device$"; then
         echo -e "${RED}Error: No Android device or emulator connected.${NC}"
         echo -e "${YELLOW}Please connect a device or start an emulator.${NC}"
         return 1
     fi
-    
+
     return 0
 }
 
 # Function to uninstall and install APK
 install_apk() {
     local apk_path="${1:-$APK_PATH}"
-    
+
     if [ ! -f "$apk_path" ]; then
         echo -e "${RED}✗ APK not found at: $apk_path${NC}"
         return 1
     fi
-    
+
     echo -e "${YELLOW}Uninstalling old version...${NC}"
     adb uninstall "$PACKAGE_ID" 2>/dev/null || echo -e "${YELLOW}No previous installation found${NC}"
-    
+
     echo -e "${YELLOW}Installing APK...${NC}"
     if adb install -r "$apk_path"; then
         echo -e "${GREEN}✓ APK installed successfully${NC}"
@@ -117,14 +117,14 @@ install_apk() {
 # Function to run code quality checks
 run_code_quality_checks() {
     echo -e "\n${YELLOW}Running code quality checks...${NC}"
-    
+
     # Check for console.log statements
     if grep -r "console\.log" "$PROJECT_ROOT/src/" --exclude-dir=node_modules --exclude="*.test.*" > /dev/null 2>&1; then
         echo -e "${YELLOW}⚠ Warning: console.log statements found in source code${NC}"
         grep -r "console\.log" "$PROJECT_ROOT/src/" --exclude-dir=node_modules --exclude="*.test.*" | head -5
         echo -e "${YELLOW}  Consider removing or replacing with proper logging${NC}"
     fi
-    
+
     # Check for TODO comments
     if grep -r "TODO\|FIXME\|XXX" "$PROJECT_ROOT/src/" --exclude-dir=node_modules > /dev/null 2>&1; then
         echo -e "${YELLOW}⚠ Found TODO/FIXME comments:${NC}"
@@ -137,7 +137,7 @@ print_final_status() {
     local status=$1
     local success_message=$2
     local failure_message=$3
-    
+
     echo -e "\n${YELLOW}========================================${NC}"
     if [ "$status" = "true" ]; then
         echo -e "${GREEN}✓ $success_message${NC}"

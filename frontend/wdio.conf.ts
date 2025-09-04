@@ -25,16 +25,16 @@ export const config: Options.Testrunner = {
             transpileOnly: true
         }
     },
-    
+
     hostname: APPIUM_CONFIG.hostname,
     port: APPIUM_CONFIG.port,
     specs: [
         './test/specs/**/*.ts'
     ],
     exclude: [],
-    
+
     maxInstances: 1,
-    
+
     capabilities: [{
         platformName: 'Android',
         'appium:deviceName': 'Android Emulator',
@@ -46,7 +46,7 @@ export const config: Options.Testrunner = {
         'appium:skipInstall': false,
         'appium:allowTestPackages': true,
         'appium:forceAppLaunch': true,
-        'appium:appPackage': 'io.github.koo5.hillview.dev',
+        'appium:appPackage': 'cz.hillviedev',
         'appium:appActivity': '.MainActivity',
         'appium:appWaitActivity': '.MainActivity',
         'appium:autoLaunch': true,
@@ -63,20 +63,20 @@ export const config: Options.Testrunner = {
         // Reduce retry attempts for faster failure recovery
         'appium:uiautomator2ServerReadTimeout': 20000,
         'appium:permissions': {
-            'io.github.koo5.hillview.dev': {
+            'cz.hillviedev': {
                 'android.permission.CAMERA': 'unset',
                 'android.permission.ACCESS_FINE_LOCATION': 'unset',
                 'android.permission.ACCESS_COARSE_LOCATION': 'unset'
             }
         }
     }],
-    
+
     logLevel: 'info',
     bail: 1,  // Stop after first failure
     waitforTimeout: 10000,  // Wait timeout for element searches
     connectionRetryTimeout: 30000,  // Connection timeout for session creation
     connectionRetryCount: 0,  // Disable connection retries
-    
+
     services: process.env.APPIUM_HOST ? [] : [
         ['appium', {
             command: 'appium',
@@ -86,20 +86,20 @@ export const config: Options.Testrunner = {
             }
         }]
     ],
-    
+
     framework: 'mocha',
     reporters: ['spec'],
-    
+
     mochaOpts: {
         ui: 'bdd',
         timeout: 60000,
         retries: 0  // Disable all test retries for faster failure
     },
-    
+
     beforeSession: async function () {
         console.log('🢄Starting test session...');
     },
-    
+
     before: async function () {
         console.log('🢄Initial session setup - preparing clean app state once...');
         // Do a one-time clean restart at the start of the session
@@ -112,19 +112,19 @@ export const config: Options.Testrunner = {
             await prepareAppForTestFast();
         }
     },
-    
+
     beforeTest: async function (test, context) {
         // Check if this is the first test in a suite
-        const isFirstTestInSuite = context.specIndex === 0 || 
+        const isFirstTestInSuite = context.specIndex === 0 ||
                                   context.testIndex === 0 ||
                                   !context.previousTest;
-        
+
         if (TEST_CONFIG.RESTART_PER_SUITE && !isFirstTestInSuite) {
             // Skip restart for subsequent tests in same suite
             console.log('🢄⚡ Skipping restart - using existing app state within suite');
             return;
         }
-        
+
         // Use centralized health check from app-launcher
         console.log('🢄🔍 Quick health check before test...');
         try {
@@ -140,17 +140,17 @@ export const config: Options.Testrunner = {
             await ensureAppIsRunning(false); // Don't force restart, just ensure it's running
         }
     },
-    
+
     afterTest: async function (test, context, { error, result, duration, passed, retries }) {
         // Always save a screenshot after each test for debugging
         const testName = test.title.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        
+
         if (error || !passed) {
             // Test failed - save comprehensive debug info
             console.log(`❌ Test failed: ${test.title}`);
             console.log(`📊 Error details: ${error?.message || 'Unknown error'}`);
-            
+
             try {
                 // Try screenshot first
                 let screenshotSaved = false;
@@ -166,7 +166,7 @@ export const config: Options.Testrunner = {
                         return;
                     }
                 }
-                
+
                 // Log what's visible for debugging (even if screenshot failed)
                 try {
                     const textElements = await driver.$$('//*[@text!=""]');
@@ -189,7 +189,7 @@ export const config: Options.Testrunner = {
                 } catch (e) {
                     console.warn('🢄⚠️ Could not read text elements:', e.message);
                 }
-                
+
                 // Save page source for detailed analysis
                 try {
                     const pageSource = await driver.getPageSource();
@@ -200,17 +200,17 @@ export const config: Options.Testrunner = {
                 } catch (e) {
                     console.warn('🢄⚠️ Could not save page source:', e.message);
                 }
-                
+
                 // Save device state info
                 try {
-                    const appState = await driver.queryAppState('io.github.koo5.hillview.dev');
+                    const appState = await driver.queryAppState('cz.hillviedev');
                     const deviceInfo = `Test: ${test.title}\nTimestamp: ${timestamp}\nApp State: ${appState}\nError: ${error?.message || 'Unknown'}\nScreenshot Saved: ${screenshotSaved}\n`;
                     const fs = require('fs').promises;
                     await fs.writeFile(`./test-results/failed-${testName}-${timestamp}-info.txt`, deviceInfo);
                 } catch (e) {
                     console.warn('🢄⚠️ Could not save device info:', e.message);
                 }
-                
+
             } catch (debugError) {
                 console.error('🢄❌ Failed to save any debug info for failed test:', debugError.message);
             }

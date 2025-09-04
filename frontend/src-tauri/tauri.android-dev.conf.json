@@ -1,9 +1,9 @@
 {
-  "identifier": "io.github.koo5.hillview.dev",
+  "identifier": "cz.hillviedev",
   "productName": "hillview-dev",
   "plugins": {
     "deep-link": {
-      "schemes": ["io.github.koo5.hillview.dev"]
+      "schemes": ["cz.hillviedev"]
     }
   }
 }

@@ -1,4 +1,4 @@
-package io.github.koo5.hillview.plugin
+package cz.hillview.plugin
 
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -19,6 +19,6 @@ class ExampleInstrumentedTest {
     fun useAppContext() {
         // Context of the app under test.
         val appContext = InstrumentationRegistry.getInstrumentation().targetContext
-        assertEquals("io.github.koo5.hillview.plugin", appContext.packageName)
+        assertEquals("cz.hillview.plugin", appContext.packageName)
     }
 }

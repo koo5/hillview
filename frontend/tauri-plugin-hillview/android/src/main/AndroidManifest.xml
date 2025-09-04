@@ -6,24 +6,24 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
-    
+
     <!-- Required for camera access -->
     <uses-permission android:name="android.permission.CAMERA" />
-    
+
     <!-- Required for accessing photos -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
-    
+
     <!-- Required for saving photos -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
-    
+
     <!-- For Android 13+ (API 33+) - Granular media permissions -->
     <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
-    
+
     <!-- Required for precise location services -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    
+
     <!-- Required for notifications -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.VIBRATE" />
@@ -32,36 +32,22 @@
     <application>
         <!-- Deep link handling for OAuth callbacks -->
         <activity
-            android:name="io.github.koo5.hillview.dev.MainActivity"
+            android:name="cz.hillviedev.MainActivity"
             android:exported="true"
             tools:node="merge">
-            <!-- Deep link intent filter for com.hillview scheme -->
+            <!-- Deep link intent filter for cz.hillview scheme -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="com.hillview" />
+                <data android:scheme="cz.hillview" />
             </intent-filter>
-            <!-- Deep link intent filter for com.hillview.dev scheme -->
+            <!-- Deep link intent filter for cz.hillviedev scheme -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="com.hillview.dev" />
-            </intent-filter>
-            <!-- Deep link intent filter for io.github.koo5.hillview scheme -->
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="io.github.koo5.hillview" />
-            </intent-filter>
-            <!-- Deep link intent filter for io.github.koo5.hillview.dev scheme -->
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="io.github.koo5.hillview.dev" />
+                <data android:scheme="cz.hillviedev" />
             </intent-filter>
         </activity>
     </application>

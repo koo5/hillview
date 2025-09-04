@@ -159,8 +159,8 @@ Optional configuration:
 ## Android App Development & Testing
 
 ### App Package Identifiers
-- **Development**: `io.github.koo5.hillview.dev` (used by `./scripts/android-dev.sh`)
-- **Production**: `io.github.koo5.hillview` (release builds)
+- **Development**: `cz.hillviedev` (used by `./scripts/android-dev.sh`)
+- **Production**: `cz.hillview` (release builds)
 - **Important**: Always use the correct package ID for development testing
 
 ### Android Development Commands
@@ -178,7 +178,7 @@ Optional configuration:
 ### Android App Architecture
 - **Framework**: Tauri v2 hybrid app (Rust + WebView)
 - **WebView**: Uses Android WebView to render Svelte frontend
-- **Deep Links**: Configured for `com.hillview://auth` OAuth callbacks
+- **Deep Links**: Configured for `cz.hillview://auth` OAuth callbacks
 - **Configuration**: `src-tauri/tauri.conf.json` (prod) and `src-tauri/tauri.android-dev.conf.json` (dev)
 
 ### Android App Peculiarities & Debugging
@@ -194,7 +194,7 @@ Optional configuration:
   - Backend not reachable from emulator
   - Authentication required (normal state before login)
   - Network configuration issues
-- **Deep Link Return**: Browser redirects back via `com.hillview://auth?token=...&expires_at=...`
+- **Deep Link Return**: Browser redirects back via `cz.hillview://auth?token=...&expires_at=...`
 
 #### App State Management
 - **WebView Ready**: Look for 2 WebView elements in UI hierarchy
@@ -250,7 +250,7 @@ curl http://10.0.2.2:8055/api/debug
 #### OAuth Configuration
 - **Providers**: Google and GitHub OAuth2
 - **Callback URLs**: Must include both web and mobile redirect URIs
-- **Deep Links**: Mobile OAuth returns via `com.hillview://auth`
+- **Deep Links**: Mobile OAuth returns via `cz.hillview://auth`
 - **Security**: Device registration required for private IP OAuth testing
 
 #### API Endpoints for Testing
@@ -324,7 +324,7 @@ cd backend/tests && python test_auth_login.py
 
 ### Android App Issues
 - **"error sending request"**: Check backend is running, verify `VITE_BACKEND_ANDROID` is set
-- **App not launching**: Verify correct package ID (`io.github.koo5.hillview.dev` for dev)
+- **App not launching**: Verify correct package ID (`cz.hillviedev` for dev)
 - **Deep links not working**: Expected in test environment, check Android intent configuration
 
 ### Backend Issues

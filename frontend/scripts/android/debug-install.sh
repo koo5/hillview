@@ -4,7 +4,7 @@
 source (dirname (status --current-filename))/../env/android-debug.env
 
 set APK_PATH "src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk"
-set PACKAGE_ID "io.github.koo5.hillview.dev"
+set PACKAGE_ID "cz.hillviedev"
 set ADB_PATH "$ANDROID_HOME/platform-tools/adb"
 
 if not test -f $APK_PATH

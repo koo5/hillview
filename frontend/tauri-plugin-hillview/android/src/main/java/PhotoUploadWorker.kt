@@ -1,4 +1,4 @@
-package io.github.koo5.hillview.plugin
+package cz.hillview.plugin
 
 import android.content.Context
 import android.util.Log

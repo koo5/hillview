@@ -10,7 +10,7 @@ describe('Authentication Integration Tests', () => {
     describe('Deep Link Authentication Flow', () => {
         it('should handle authentication deep link and store token', async function () {
             this.timeout(60000); // Extended timeout for OAuth flow
-            
+
             // App should already be running from beforeEach
             await driver.pause(2000);
 
@@ -40,25 +40,25 @@ describe('Authentication Integration Tests', () => {
 
         it('should handle invalid deep link gracefully', async function () {
             this.timeout(30000);
-            
+
             // App should already be running
             await driver.pause(2000);
 
             // Simulate invalid deep link (this would normally be handled by the OS)
             // For testing, we can verify the app doesn't crash with invalid URLs
-            
+
             // Try to open an invalid URL scheme
             try {
                 await driver.execute('mobile: deepLink', {
-                    url: 'com.hillview.dev://auth?invalid=params',
-                    package: 'io.github.koo5.hillview.dev'
+                    url: 'cz.hillviedev://auth?invalid=params',
+                    package: 'cz.hillviedev'
                 });
                 await driver.pause(2000);
-                
+
                 // App should still be responsive
                 const isAppResponsive = await driver.isKeyboardShown() !== undefined;
                 expect(isAppResponsive).toBe(true);
-                
+
                 console.log('✅ App handles invalid deep link gracefully');
             } catch (error) {
                 // If deep link fails, that's also acceptable - the app shouldn't crash
@@ -68,25 +68,25 @@ describe('Authentication Integration Tests', () => {
 
         it('should store authentication token from deep link', async function () {
             this.timeout(30000);
-            
+
             // App should already be running
             await driver.pause(2000);
 
             // Simulate successful authentication deep link
             const mockToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0QGV4YW1wbGUuY29tIiwidXNlcl9pZCI6IjEyMzQ1IiwiZXhwIjoxNzAzMTU0MDAwfQ.mock_signature';
             const mockExpiresAt = '2023-12-21T10:00:00Z';
-            
+
             try {
                 // Simulate deep link with auth token
                 await driver.execute('mobile: deepLink', {
-                    url: `com.hillview.dev://auth?token=${mockToken}&expires_at=${mockExpiresAt}`,
-                    package: 'io.github.koo5.hillview.dev'
+                    url: `cz.hillviedev://auth?token=${mockToken}&expires_at=${mockExpiresAt}`,
+                    package: 'cz.hillviedev'
                 });
                 await driver.pause(3000);
 
                 // Check if we're redirected to dashboard (indicates successful auth)
                 const dashboardElement = await $('//android.widget.TextView[contains(@text, "Dashboard") or contains(@text, "Map")]');
-                
+
                 // If dashboard is shown, auth was successful
                 if (await dashboardElement.isDisplayed()) {
                     console.log('✅ Authentication deep link processed successfully');
@@ -108,7 +108,7 @@ describe('Authentication Integration Tests', () => {
     describe('Mobile Detection and OAuth URL Building', () => {
         it('should detect mobile environment correctly', async function () {
             this.timeout(30000);
-            
+
             // App should already be running
             await driver.pause(2000);
 
@@ -132,7 +132,7 @@ describe('Authentication Integration Tests', () => {
 
         it('should build mobile OAuth URLs correctly', async function () {
             this.timeout(30000);
-            
+
             // App should already be running
             await driver.pause(2000);
 
@@ -151,7 +151,7 @@ describe('Authentication Integration Tests', () => {
             // Check if browser opened (indicates OAuth URL was built and opened)
             // In test environment, this might open browser or show error
             // The key is that the app doesn't crash and handles the OAuth attempt
-            
+
             // Try to go back to app
             await driver.pressKeyCode(4); // Back button
             await driver.pause(1000);
@@ -167,7 +167,7 @@ describe('Authentication Integration Tests', () => {
     describe('Token Management', () => {
         it('should handle token storage and retrieval', async function () {
             this.timeout(30000);
-            
+
             // App should already be running
             await driver.pause(2000);
 
@@ -180,7 +180,7 @@ describe('Authentication Integration Tests', () => {
 
             // For now, we verify the app launches successfully (indicates Tauri commands are working)
             const appPackage = await driver.getCurrentPackage();
-            expect(appPackage).toBe('io.github.koo5.hillview.dev');
+            expect(appPackage).toBe('cz.hillviedev');
 
             console.log('✅ App launched successfully - Tauri commands functional');
         });
@@ -195,7 +195,7 @@ describe('Authentication Error Handling', () => {
 
     it('should handle network errors during OAuth gracefully', async function () {
         this.timeout(30000);
-        
+
         // App should already be running
         await driver.pause(2000);
 
@@ -232,21 +232,21 @@ describe('Authentication Error Handling', () => {
 
     it('should handle malformed authentication responses', async function () {
         this.timeout(30000);
-        
+
         // App should already be running
         await driver.pause(2000);
 
         // Simulate malformed deep link
         try {
             await driver.execute('mobile: deepLink', {
-                url: 'com.hillview.dev://auth?malformed=data&no_token=true',
-                package: 'io.github.koo5.hillview.dev'
+                url: 'cz.hillviedev://auth?malformed=data&no_token=true',
+                package: 'cz.hillviedev'
             });
             await driver.pause(2000);
 
             // App should remain on login page and not crash
             const loginTitle = await $('//android.widget.TextView[contains(@text, "Login")]');
-            
+
             // Should either show login page or show an error message
             const isAppResponsive = await driver.getCurrentActivity();
             expect(isAppResponsive).toBeTruthy();

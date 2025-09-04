@@ -1,4 +1,4 @@
-package io.github.koo5.hillview.plugin
+package cz.hillview.plugin
 
 import android.content.Context
 import android.content.SharedPreferences
@@ -27,14 +27,14 @@ class AuthenticationManagerTest {
     @Before
     fun setUp() {
         MockitoAnnotations.openMocks(this)
-        
+
         // Set up mocks
         `when`(mockContext.getSharedPreferences("hillview_auth", Context.MODE_PRIVATE))
             .thenReturn(mockSharedPreferences)
         `when`(mockSharedPreferences.edit()).thenReturn(mockEditor)
         `when`(mockEditor.putString(any(), any())).thenReturn(mockEditor)
         `when`(mockEditor.remove(any())).thenReturn(mockEditor)
-        
+
         authManager = AuthenticationManager(mockContext)
     }
 
@@ -59,7 +59,7 @@ class AuthenticationManagerTest {
         // Arrange
         val token = "test_token"
         val expiresAt = "2023-12-01T10:30:00Z"
-        
+
         doThrow(RuntimeException("Storage error"))
             .`when`(mockEditor).apply()
 
@@ -76,7 +76,7 @@ class AuthenticationManagerTest {
         val token = "valid_jwt_token"
         val futureTime = Instant.now().plusSeconds(3600) // 1 hour from now
         val expiresAt = DateTimeFormatter.ISO_INSTANT.format(futureTime)
-        
+
         `when`(mockSharedPreferences.getString("auth_token", null)).thenReturn(token)
         `when`(mockSharedPreferences.getString("expires_at", null)).thenReturn(expiresAt)
 
@@ -93,7 +93,7 @@ class AuthenticationManagerTest {
         val token = "expired_jwt_token"
         val pastTime = Instant.now().minusSeconds(3600) // 1 hour ago
         val expiresAt = DateTimeFormatter.ISO_INSTANT.format(pastTime)
-        
+
         `when`(mockSharedPreferences.getString("auth_token", null)).thenReturn(token)
         `when`(mockSharedPreferences.getString("expires_at", null)).thenReturn(expiresAt)
 
@@ -110,7 +110,7 @@ class AuthenticationManagerTest {
         val token = "expiring_jwt_token"
         val soonTime = Instant.now().plusSeconds(30)
         val expiresAt = DateTimeFormatter.ISO_INSTANT.format(soonTime)
-        
+
         `when`(mockSharedPreferences.getString("auth_token", null)).thenReturn(token)
         `when`(mockSharedPreferences.getString("expires_at", null)).thenReturn(expiresAt)
 
@@ -152,7 +152,7 @@ class AuthenticationManagerTest {
         // Arrange
         val token = "token_with_invalid_expiry"
         val invalidExpiresAt = "invalid_date_format"
-        
+
         `when`(mockSharedPreferences.getString("auth_token", null)).thenReturn(token)
         `when`(mockSharedPreferences.getString("expires_at", null)).thenReturn(invalidExpiresAt)
 
@@ -168,7 +168,7 @@ class AuthenticationManagerTest {
         // Arrange
         val token = "test_token"
         val expiresAt = "2023-12-01T10:30:00Z"
-        
+
         `when`(mockSharedPreferences.getString("auth_token", null)).thenReturn(token)
         `when`(mockSharedPreferences.getString("expires_at", null)).thenReturn(expiresAt)
 
@@ -211,7 +211,7 @@ class AuthenticationManagerTest {
         val token = "valid_token"
         val futureTime = Instant.now().plusSeconds(3600)
         val expiresAt = DateTimeFormatter.ISO_INSTANT.format(futureTime)
-        
+
         `when`(mockSharedPreferences.getString("auth_token", null)).thenReturn(token)
         `when`(mockSharedPreferences.getString("expires_at", null)).thenReturn(expiresAt)
 

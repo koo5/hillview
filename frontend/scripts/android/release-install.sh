@@ -4,7 +4,7 @@
 source (dirname (status --current-filename))/../env/android-release.env
 
 set APK_PATH "src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk"
-set PACKAGE_ID "io.github.koo5.hillview"
+set PACKAGE_ID "cz.hillview"
 set ADB_PATH "$ANDROID_HOME/platform-tools/adb"
 
 if not test -f $APK_PATH

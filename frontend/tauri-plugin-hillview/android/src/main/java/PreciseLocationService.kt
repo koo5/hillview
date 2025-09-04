@@ -1,4 +1,4 @@
-package io.github.koo5.hillview.plugin
+package cz.hillview.plugin
 
 import android.Manifest
 import android.annotation.SuppressLint
@@ -35,23 +35,23 @@ class PreciseLocationService(
 ) {
     // Provide context from activity for convenience
     private val context: Context = activity
-    
+
     companion object {
         private const val TAG = "🢄PreciseLocationService"
-        
+
         // Update intervals in milliseconds
         private const val UPDATE_INTERVAL = 1000L        // 1 second
         private const val FASTEST_INTERVAL = 500L        // 0.5 seconds
         private const val MAX_WAIT_TIME = 2000L          // 2 seconds
-        
+
         // Accuracy thresholds
         private const val HIGH_ACCURACY_THRESHOLD = 5.0f  // meters
         private const val MEDIUM_ACCURACY_THRESHOLD = 15.0f // meters
-        
+
         // Permission request code
         private const val LOCATION_PERMISSION_REQUEST_CODE = 1001
     }
-    
+
     private val fusedLocationClient = LocationServices.getFusedLocationProviderClient(activity)
     private var locationCallback: LocationCallback? = null
     private var isRequestingUpdates = false
@@ -62,7 +62,7 @@ class PreciseLocationService(
     private val maxPermissionRetries = 5
     private var permissionTimeoutRunnable: Runnable? = null
     private val permissionDialogTimeoutMs = 30000L // 30 second timeout
-    
+
     // Create location request with high accuracy settings using the new Builder pattern
     private val locationRequest = LocationRequest.Builder(
         Priority.PRIORITY_HIGH_ACCURACY,
@@ -70,14 +70,14 @@ class PreciseLocationService(
     ).apply {
         setMinUpdateIntervalMillis(FASTEST_INTERVAL)
         setMaxUpdateDelayMillis(MAX_WAIT_TIME)
-        
+
         // Request the most accurate location possible
         setWaitForAccurateLocation(true)
-        
+
         // Set the minimum displacement for location updates (0 = no minimum)
         setMinUpdateDistanceMeters(0f)
     }.build()
-    
+
     init {
         Log.i(TAG, "📍 === PRECISE LOCATION SERVICE INITIALIZED ===")
         Log.i(TAG, "📍 Configuration:")
@@ -86,13 +86,13 @@ class PreciseLocationService(
         Log.i(TAG, "📍  - Priority: HIGH_ACCURACY (GPS)")
         Log.i(TAG, "📍  - Wait for accurate location: true")
         Log.d(TAG, "📍 INIT: Setting up location callback...")
-        
+
         setupLocationCallback()
         Log.d(TAG, "📍 INIT: Location callback setup complete")
         Log.d(TAG, "📍 INIT: locationCallback = $locationCallback")
         Log.d(TAG, "📍 INIT: fusedLocationClient = $fusedLocationClient")
     }
-    
+
     private fun setupLocationCallback() {
         Log.i(TAG, "📍 SETUP: Setting up location callback...")
         locationCallback = object : LocationCallback() {
@@ -101,20 +101,20 @@ class PreciseLocationService(
                 Log.i(TAG, "📍 CALLBACK: locationResult = $locationResult")
                 Log.i(TAG, "📍 CALLBACK: locations count = ${locationResult.locations.size}")
                 Log.i(TAG, "📍 CALLBACK: lastLocation = ${locationResult.lastLocation}")
-                
+
                 locationResult.lastLocation?.let { location ->
                     Log.i(TAG, "📍 CALLBACK: Processing location update...")
                     handleLocationUpdate(location)
                 } ?: run {
                     Log.w(TAG, "📍 CALLBACK: lastLocation is null!")
                 }
-                
+
                 // Log all locations if there are multiple
                 locationResult.locations.forEachIndexed { index, location ->
                     Log.d(TAG, "📍 CALLBACK: Location $index: lat=${location.latitude}, lng=${location.longitude}, accuracy=${location.accuracy}m")
                 }
             }
-            
+
             override fun onLocationAvailability(availability: LocationAvailability) {
                 Log.i(TAG, "📍 CALLBACK: *** onLocationAvailability called! ***")
                 Log.i(TAG, "📍 CALLBACK: Location availability changed: ${availability.isLocationAvailable}")
@@ -128,10 +128,10 @@ class PreciseLocationService(
         }
         Log.i(TAG, "📍 SETUP: Location callback setup complete: $locationCallback")
     }
-    
+
     private fun handleLocationUpdate(location: Location) {
         Log.i(TAG, "📍 HANDLE: *** handleLocationUpdate called! ***")
-        
+
         val accuracyLevel = when {
             location.accuracy <= HIGH_ACCURACY_THRESHOLD -> "HIGH"
             location.accuracy <= MEDIUM_ACCURACY_THRESHOLD -> "MEDIUM"
@@ -182,7 +182,7 @@ class PreciseLocationService(
             timestamp = location.time,
             elapsedRealtimeNanos = location.elapsedRealtimeNanos
         )
-        
+
         Log.i(TAG, "📍 HANDLE: Calling onLocationUpdate callback...")
         try {
             onLocationUpdate(preciseData)
@@ -191,33 +191,33 @@ class PreciseLocationService(
             Log.e(TAG, "📍 HANDLE: ❌ Error in onLocationUpdate callback: ${e.message}", e)
         }
     }
-    
+
     // Check if location permissions are granted
     private fun hasLocationPermissions(): Boolean {
         val fineLocationGranted = ContextCompat.checkSelfPermission(
-            activity, 
+            activity,
             Manifest.permission.ACCESS_FINE_LOCATION
         ) == PackageManager.PERMISSION_GRANTED
-        
+
         val coarseLocationGranted = ContextCompat.checkSelfPermission(
-            activity, 
+            activity,
             Manifest.permission.ACCESS_COARSE_LOCATION
         ) == PackageManager.PERMISSION_GRANTED
-        
+
         return fineLocationGranted || coarseLocationGranted
     }
-    
+
     // Request location permissions
     @Synchronized
     private fun requestLocationPermissions() {
         Log.i(TAG, "📍 PERM: Requesting location permissions...")
-        
+
         // Import the plugin class to access the permission mutex
-        val lockAcquired = io.github.koo5.hillview.plugin.ExamplePlugin.acquirePermissionLock("location")
+        val lockAcquired = cz.hillview.plugin.ExamplePlugin.acquirePermissionLock("location")
         if (!lockAcquired) {
             Log.w(TAG, "📍 PERM: Cannot request location permission - another permission dialog is active")
-            Log.w(TAG, "📍 PERM: Currently held by: ${io.github.koo5.hillview.plugin.ExamplePlugin.getPermissionLockHolder()}")
-            
+            Log.w(TAG, "📍 PERM: Currently held by: ${cz.hillview.plugin.ExamplePlugin.getPermissionLockHolder()}")
+
             // Check retry limit to prevent infinite loops
             if (permissionRetryCount >= maxPermissionRetries) {
                 Log.e(TAG, "📍 PERM: Max permission retries ($maxPermissionRetries) exceeded - giving up")
@@ -226,13 +226,13 @@ class PreciseLocationService(
                 onLocationStopped?.invoke()
                 return
             }
-            
+
             // Schedule retry after increasing delay
             if (permissionRetryRunnable == null) {
                 permissionRetryCount++
                 val delayMs = 1000L * permissionRetryCount // Increasing delay: 1s, 2s, 3s, etc.
                 Log.i(TAG, "📍 PERM: Scheduling retry #$permissionRetryCount in ${delayMs}ms")
-                
+
                 permissionRetryRunnable = Runnable {
                     Log.i(TAG, "📍 PERM: Retrying location permission request (attempt $permissionRetryCount/$maxPermissionRetries)...")
                     requestLocationPermissions()
@@ -241,50 +241,50 @@ class PreciseLocationService(
             }
             return
         }
-        
+
         // Clear any existing retry since we got the lock
         permissionRetryRunnable?.let { runnable ->
             retryHandler.removeCallbacks(runnable)
             permissionRetryRunnable = null
         }
-        
+
         // Reset retry count since we successfully acquired the lock
         permissionRetryCount = 0
-        
+
         Log.i(TAG, "📍 PERM: Permission lock acquired, showing location permission dialog")
-        
+
         // Start timeout timer to auto-release lock if dialog disappears
         startPermissionTimeout()
-        
+
         val permissions = arrayOf(
             Manifest.permission.ACCESS_FINE_LOCATION,
             Manifest.permission.ACCESS_COARSE_LOCATION
         )
-        
+
         ActivityCompat.requestPermissions(
-            activity, 
-            permissions, 
+            activity,
+            permissions,
             LOCATION_PERMISSION_REQUEST_CODE
         )
     }
-    
+
     // Handle permission request results
     fun onRequestPermissionsResult(requestCode: Int, @Suppress("UNUSED_PARAMETER") permissions: Array<String>, grantResults: IntArray) {
         if (requestCode == LOCATION_PERMISSION_REQUEST_CODE) {
             Log.i(TAG, "📍 PERM: Permission request result received")
             Log.i(TAG, "📍 PERM: Granted permissions: ${grantResults.count { it == PackageManager.PERMISSION_GRANTED }}/${grantResults.size}")
-            
+
             // Cancel timeout since dialog completed normally
             cancelPermissionTimeout()
-            
+
             // Release the permission lock now that the dialog is dismissed
-            val lockReleased = io.github.koo5.hillview.plugin.ExamplePlugin.releasePermissionLock("location")
+            val lockReleased = cz.hillview.plugin.ExamplePlugin.releasePermissionLock("location")
             if (lockReleased) {
                 Log.i(TAG, "📍 PERM: Permission lock released by location service")
             } else {
                 Log.w(TAG, "📍 PERM: Failed to release permission lock - may not have been held by location service")
             }
-            
+
             if (grantResults.isNotEmpty() && grantResults.any { it == PackageManager.PERMISSION_GRANTED }) {
                 Log.i(TAG, "📍 PERM: ✅ At least one location permission granted, retrying location updates...")
                 startLocationUpdatesInternal()
@@ -296,31 +296,31 @@ class PreciseLocationService(
             }
         }
     }
-    
+
     // Public method to start location updates with permission handling
     @Synchronized
     fun startLocationUpdates() {
         Log.i(TAG, "📍 START: ======= startLocationUpdates() called =======")
-        
+
         // Thread-safe check for existing location updates
         if (isRequestingUpdates) {
             Log.i(TAG, "📍 START: ✅ Location updates already active - ignoring duplicate request")
             return
         }
-        
+
         Log.i(TAG, "📍 START: Checking location permissions...")
-        
+
         if (!hasLocationPermissions()) {
             Log.w(TAG, "📍 START: ❌ Location permissions not granted!")
             Log.i(TAG, "📍 START: Requesting location permissions...")
             requestLocationPermissions()
             return
         }
-        
+
         Log.i(TAG, "📍 START: ✅ Location permissions are granted, proceeding...")
         startLocationUpdatesInternal()
     }
-    
+
     @SuppressLint("MissingPermission")
     private fun startLocationUpdatesInternal() {
         Log.i(TAG, "📍 START_INTERNAL: ======= startLocationUpdatesInternal() called =======")
@@ -329,19 +329,19 @@ class PreciseLocationService(
         Log.i(TAG, "📍 START_INTERNAL: fusedLocationClient = $fusedLocationClient")
         Log.i(TAG, "📍 START_INTERNAL: locationCallback = $locationCallback")
         Log.i(TAG, "📍 START_INTERNAL: locationRequest = $locationRequest")
-        
+
         if (isRequestingUpdates) {
             Log.w(TAG, "📍 START_INTERNAL: Location updates already active - returning early")
             return
         }
-        
+
         Log.i(TAG, "📍 START_INTERNAL: Checking location permission status...")
         try {
             val hasLocationPermission = context.checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
             val hasCoarsePermission = context.checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
             Log.i(TAG, "📍 START_INTERNAL: Fine location permission: $hasLocationPermission")
             Log.i(TAG, "📍 START_INTERNAL: Coarse location permission: $hasCoarsePermission")
-            
+
             if (!hasLocationPermission && !hasCoarsePermission) {
                 Log.e(TAG, "📍 START_INTERNAL: ❌ NO LOCATION PERMISSIONS GRANTED!")
                 return
@@ -349,28 +349,28 @@ class PreciseLocationService(
         } catch (e: Exception) {
             Log.e(TAG, "📍 START_INTERNAL: Error checking permissions: ${e.message}", e)
         }
-        
+
         Log.i(TAG, "📍 START_INTERNAL: Beginning location update setup...")
-        
+
         locationCallback?.let { callback ->
             Log.i(TAG, "📍 START_INTERNAL: LocationCallback is not null, proceeding...")
-            
+
             try {
                 // Check if location services are enabled
                 val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager
                 val isGpsEnabled = locationManager.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER)
                 val isNetworkEnabled = locationManager.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER)
-                
+
                 Log.i(TAG, "📍 START_INTERNAL: GPS provider enabled: $isGpsEnabled")
                 Log.i(TAG, "📍 START_INTERNAL: Network provider enabled: $isNetworkEnabled")
-                
+
                 if (!isGpsEnabled && !isNetworkEnabled) {
                     Log.e(TAG, "📍 START_INTERNAL: ❌ NO LOCATION PROVIDERS ENABLED!")
                     Log.e(TAG, "📍 START_INTERNAL: User needs to enable Location Services in Settings")
                 }
-                
+
                 Log.i(TAG, "📍 START_INTERNAL: Calling fusedLocationClient.requestLocationUpdates()...")
-                
+
                 fusedLocationClient.requestLocationUpdates(
                     locationRequest,
                     callback,
@@ -378,11 +378,11 @@ class PreciseLocationService(
                 )
                 isRequestingUpdates = true
                 Log.i(TAG, "📍✅ START_INTERNAL: requestLocationUpdates() call completed successfully!")
-                
+
                 // Also get the last known location immediately
                 Log.i(TAG, "📍 START_INTERNAL: Getting last known location...")
                 getLastKnownLocation()
-                
+
             } catch (e: SecurityException) {
                 Log.e(TAG, "📍❌ START_INTERNAL: SECURITY EXCEPTION - Location permission not granted!")
                 Log.e(TAG, "📍❌ START_INTERNAL: SecurityException message: ${e.message}")
@@ -399,7 +399,7 @@ class PreciseLocationService(
             Log.e(TAG, "📍❌ START_INTERNAL: CRITICAL ERROR - LocationCallback is null!")
         }
     }
-    
+
     @SuppressLint("MissingPermission")
     private fun getLastKnownLocation() {
         Log.i(TAG, "📍 LAST: Getting last known location...")
@@ -423,31 +423,31 @@ class PreciseLocationService(
             Log.e(TAG, "📍 LAST: ❌ Unexpected error getting last known location: ${e.message}", e)
         }
     }
-    
+
     fun stopLocationUpdates() {
         if (!isRequestingUpdates) {
             Log.w(TAG, "📍 Location updates not active")
             return
         }
-        
+
         Log.i(TAG, "📍 Stopping location updates")
-        
+
         // Clean up any pending permission retry
         permissionRetryRunnable?.let { runnable ->
             retryHandler.removeCallbacks(runnable)
             permissionRetryRunnable = null
             Log.i(TAG, "📍 PERM: Cancelled pending permission retry")
         }
-        
+
         // Cancel timeout timer
         cancelPermissionTimeout()
-        
+
         // CRITICAL FIX: Release any held permission lock when stopping
-        val lockReleased = io.github.koo5.hillview.plugin.ExamplePlugin.releasePermissionLock("location")
+        val lockReleased = cz.hillview.plugin.ExamplePlugin.releasePermissionLock("location")
         if (lockReleased) {
             Log.i(TAG, "📍 PERM: Released location permission lock during stop")
         }
-        
+
         locationCallback?.let { callback ->
             fusedLocationClient.removeLocationUpdates(callback)
             isRequestingUpdates = false
@@ -456,25 +456,25 @@ class PreciseLocationService(
             onLocationStopped?.invoke()
         }
     }
-    
+
     // Start timeout timer to auto-release permission lock
     private fun startPermissionTimeout() {
         // Cancel any existing timeout
         cancelPermissionTimeout()
-        
+
         permissionTimeoutRunnable = Runnable {
             Log.w(TAG, "📍 TIMEOUT: Permission dialog timeout - auto-releasing lock")
-            val lockReleased = io.github.koo5.hillview.plugin.ExamplePlugin.releasePermissionLock("location")
+            val lockReleased = cz.hillview.plugin.ExamplePlugin.releasePermissionLock("location")
             if (lockReleased) {
                 Log.i(TAG, "📍 TIMEOUT: Permission lock released due to timeout")
             }
             permissionTimeoutRunnable = null
         }
-        
+
         retryHandler.postDelayed(permissionTimeoutRunnable!!, permissionDialogTimeoutMs)
         Log.i(TAG, "📍 TIMEOUT: Started permission timeout (${permissionDialogTimeoutMs/1000}s)")
     }
-    
+
     // Cancel permission timeout
     private fun cancelPermissionTimeout() {
         permissionTimeoutRunnable?.let { runnable ->
@@ -487,23 +487,23 @@ class PreciseLocationService(
     // Emergency cleanup method to release permission locks and cancel retries
     private fun cleanupPermissionState() {
         Log.w(TAG, "📍 CLEANUP: Emergency permission state cleanup")
-        
+
         // Cancel any pending retry attempts
         permissionRetryRunnable?.let { runnable ->
             retryHandler.removeCallbacks(runnable)
             permissionRetryRunnable = null
             Log.i(TAG, "📍 CLEANUP: Cancelled pending permission retry")
         }
-        
+
         // Cancel timeout timer
         cancelPermissionTimeout()
-        
+
         // Reset retry counter
         permissionRetryCount = 0
         Log.i(TAG, "📍 CLEANUP: Reset permission retry count")
-        
+
         // Attempt to release any held permission lock
-        val lockReleased = io.github.koo5.hillview.plugin.ExamplePlugin.releasePermissionLock("location")
+        val lockReleased = cz.hillview.plugin.ExamplePlugin.releasePermissionLock("location")
         if (lockReleased) {
             Log.i(TAG, "📍 CLEANUP: Released location permission lock during emergency cleanup")
         } else {

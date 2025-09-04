@@ -1,4 +1,4 @@
-package io.github.koo5.hillview.plugin
+package cz.hillview.plugin
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
@@ -20,7 +20,7 @@ data class PhotoEntity(
     val height: Int,
     val fileSize: Long,
     val createdAt: Long,
-    
+
     // Upload tracking fields
     val uploadStatus: String = "pending", // pending, uploading, completed, failed
     val uploadedAt: Long = 0L,
@@ -33,7 +33,7 @@ data class PhotoEntity(
 
 enum class UploadStatus {
     PENDING,
-    UPLOADING, 
+    UPLOADING,
     COMPLETED,
     FAILED
 }

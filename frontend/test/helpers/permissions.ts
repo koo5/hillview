@@ -2,7 +2,7 @@ import { browser, $ } from '@wdio/globals';
 
 export class PermissionHelper {
     private static readonly PERMISSION_DIALOG_TIMEOUT = 5000;
-    
+
     // Android permission dialog selectors
     private static readonly SELECTORS = {
         // Android 11+ permission dialog
@@ -11,16 +11,16 @@ export class PermissionHelper {
         denyButton: '//android.widget.Button[@resource-id="com.android.permissioncontroller:id/permission_deny_button"]',
         allowOnceButton: '//android.widget.Button[@resource-id="com.android.permissioncontroller:id/permission_allow_one_time_button"]',
         allowAlwaysButton: '//android.widget.Button[@resource-id="com.android.permissioncontroller:id/permission_allow_always_button"]',
-        
+
         // Alternative selectors for different Android versions
         alternativeAllow: '//android.widget.Button[contains(@text, "Allow") or contains(@text, "ALLOW")]',
         alternativeDeny: '//android.widget.Button[contains(@text, "Deny") or contains(@text, "DENY")]',
         alternativeWhileUsing: '//android.widget.Button[contains(@text, "While using") or contains(@text, "Only this time")]',
-        
+
         // Permission message
         permissionMessage: '//android.widget.TextView[@resource-id="com.android.permissioncontroller:id/permission_message"]'
     };
-    
+
     /**
      * Check if permission dialog is displayed
      */
@@ -34,7 +34,7 @@ export class PermissionHelper {
             return await allowButton.isExisting();
         }
     }
-    
+
     /**
      * Wait for permission dialog to appear
      */
@@ -49,7 +49,7 @@ export class PermissionHelper {
             return await allowButton.waitForExist({ timeout });
         }
     }
-    
+
     /**
      * Grant permission when dialog appears
      */
@@ -57,7 +57,7 @@ export class PermissionHelper {
         if (!await this.waitForPermissionDialog()) {
             throw new Error('Permission dialog did not appear');
         }
-        
+
         // Try specific buttons first
         if (allowAlways) {
             const alwaysButton = await $(this.SELECTORS.allowAlwaysButton);
@@ -66,31 +66,31 @@ export class PermissionHelper {
                 return;
             }
         }
-        
+
         // Try "While using app" button
         const whileUsingButton = await $(this.SELECTORS.alternativeWhileUsing);
         if (await whileUsingButton.isExisting()) {
             await whileUsingButton.click();
             return;
         }
-        
+
         // Try regular allow button
         const allowButton = await $(this.SELECTORS.allowButton);
         if (await allowButton.isExisting()) {
             await allowButton.click();
             return;
         }
-        
+
         // Fallback to alternative allow button
         const altAllowButton = await $(this.SELECTORS.alternativeAllow);
         if (await altAllowButton.isExisting()) {
             await altAllowButton.click();
             return;
         }
-        
+
         throw new Error('Could not find allow button on permission dialog');
     }
-    
+
     /**
      * Deny permission when dialog appears
      */
@@ -98,24 +98,24 @@ export class PermissionHelper {
         if (!await this.waitForPermissionDialog()) {
             throw new Error('Permission dialog did not appear');
         }
-        
+
         // Try specific deny button first
         const denyButton = await $(this.SELECTORS.denyButton);
         if (await denyButton.isExisting()) {
             await denyButton.click();
             return;
         }
-        
+
         // Fallback to alternative deny button
         const altDenyButton = await $(this.SELECTORS.alternativeDeny);
         if (await altDenyButton.isExisting()) {
             await altDenyButton.click();
             return;
         }
-        
+
         throw new Error('Could not find deny button on permission dialog');
     }
-    
+
     /**
      * Get permission dialog message text
      */
@@ -126,7 +126,7 @@ export class PermissionHelper {
         }
         return '';
     }
-    
+
     /**
      * Handle permission with automatic retry
      */
@@ -136,12 +136,12 @@ export class PermissionHelper {
         maxRetries: number = 3
     ): Promise<void> {
         let retries = 0;
-        
+
         while (retries < maxRetries) {
             try {
                 // Perform the action that triggers permission
                 await action();
-                
+
                 // Check if permission dialog appeared
                 if (await this.isPermissionDialogDisplayed()) {
                     if (grantPermission) {
@@ -149,11 +149,11 @@ export class PermissionHelper {
                     } else {
                         await this.denyPermission();
                     }
-                    
+
                     // Wait for dialog to disappear
                     await browser.pause(1000);
                 }
-                
+
                 // Success
                 return;
             } catch (error) {
@@ -166,7 +166,7 @@ export class PermissionHelper {
             }
         }
     }
-    
+
     /**
      * Reset app permissions (requires app reinstall)
      */
@@ -175,38 +175,38 @@ export class PermissionHelper {
         // or by using ADB commands
         await browser.execute('mobile: shell', {
             command: 'pm',
-            args: ['clear', 'io.github.koo5.hillview']
+            args: ['clear', 'cz.hillview']
         });
     }
-    
+
     /**
      * Wait for and click camera button with retries
      */
     static async clickCameraButton(maxRetries: number = 3): Promise<void> {
         let retries = 0;
-        
+
         while (retries < maxRetries) {
             try {
                 const cameraButton = await $('//android.widget.Button[@text="Take photo"]');
-                
+
                 // Wait for button to exist
-                await cameraButton.waitForExist({ 
+                await cameraButton.waitForExist({
                     timeout: 10000,
                     timeoutMsg: 'Camera button not found'
                 });
-                
+
                 // Ensure button is displayed
-                await cameraButton.waitForDisplayed({ 
+                await cameraButton.waitForDisplayed({
                     timeout: 5000,
                     timeoutMsg: 'Camera button not displayed'
                 });
-                
+
                 // Small pause to ensure UI is stable
                 await browser.pause(500);
-                
+
                 // Click the button
                 await cameraButton.click();
-                
+
                 // Success
                 return;
             } catch (error) {
@@ -215,9 +215,9 @@ export class PermissionHelper {
                     throw new Error(`Failed to click camera button after ${maxRetries} attempts: ${error}`);
                 }
                 console.log(`Camera button click attempt ${retries} failed, retrying...`);
-                
+
                 // Try to ensure app is in foreground
-                await browser.execute('mobile: activateApp', { appId: 'io.github.koo5.hillview' });
+                await browser.execute('mobile: activateApp', { appId: 'cz.hillview' });
                 await browser.pause(2000);
             }
         }

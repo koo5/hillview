@@ -41,23 +41,53 @@ def load_dotenv_with_logging(
             logger.error(f"{service_name}: .env path exists but is not a file: {env_file}")
             return False
             
+        # Count expected variables before loading
+        expected_vars = []
+        try:
+            with open(env_file, 'r') as f:
+                lines = f.readlines()
+                for line in lines:
+                    line = line.strip()
+                    if line and not line.startswith('#') and '=' in line:
+                        var_name = line.split('=')[0].strip()
+                        expected_vars.append(var_name)
+        except Exception as e:
+            logger.debug(f"{service_name}: Could not analyze .env file: {e}")
+            
         # Attempt to load the .env file
         logger.info(f"{service_name}: Loading environment variables from {env_file}")
         success = load_dotenv(env_file)
         
         if success:
-            logger.info(f"{service_name}: Successfully loaded environment variables from {env_file}")
+            logger.info(f"{service_name}: Python-dotenv reported success for {env_file}")
             
-            # Log some basic stats (without revealing sensitive values)
-            try:
-                with open(env_file, 'r') as f:
-                    lines = f.readlines()
-                    var_count = sum(1 for line in lines if line.strip() and not line.strip().startswith('#') and '=' in line)
-                    logger.debug(f"{service_name}: Loaded {var_count} environment variables")
-            except Exception as e:
-                logger.debug(f"{service_name}: Could not count variables: {e}")
+            # Check if all expected variables were actually loaded
+            if expected_vars:
+                loaded_vars = []
+                missing_vars = []
+                for var_name in expected_vars:
+                    if os.getenv(var_name) is not None:
+                        loaded_vars.append(var_name)
+                    else:
+                        missing_vars.append(var_name)
                 
-            return True
+                logger.info(f"{service_name}: Loaded {len(loaded_vars)} of {len(expected_vars)} variables from .env")
+                
+                if missing_vars:
+                    logger.warning(f"{service_name}: Missing {len(missing_vars)} expected variables: {', '.join(missing_vars[:5])}{'...' if len(missing_vars) > 5 else ''}")
+                    logger.warning(f"{service_name}: This may indicate partial .env file parsing due to syntax errors")
+                    # Check for common parsing issues
+                    try:
+                        with open(env_file, 'r') as f:
+                            content = f.read()
+                            if '@' in content or '`' in content or '!' in content:
+                                logger.warning(f"{service_name}: .env file contains potentially problematic characters that may cause parsing to stop")
+                    except:
+                        pass
+                else:
+                    logger.info(f"{service_name}: All expected variables loaded successfully")
+                
+            return len(missing_vars) == 0 if expected_vars else True
         else:
             logger.error(f"{service_name}: Failed to load environment variables from {env_file}")
             return False

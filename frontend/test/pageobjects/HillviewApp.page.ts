@@ -6,16 +6,16 @@ import { checkForCriticalErrors } from '../helpers/app-launcher';
  */
 export class HillviewAppPage {
     // Selectors
-    private get hamburgerMenu() { 
-        return $('android=new UiSelector().text("Toggle menu")'); 
+    private get hamburgerMenu() {
+        return $('android=new UiSelector().text("Toggle menu")');
     }
-    
-    private get cameraButton() { 
-        return $('android=new UiSelector().text("Take photo")'); 
+
+    private get cameraButton() {
+        return $('android=new UiSelector().text("Take photo")');
     }
-    
-    private get webView() { 
-        return $('android.webkit.WebView'); 
+
+    private get webView() {
+        return $('android.webkit.WebView');
     }
 
     // Navigation actions
@@ -67,19 +67,19 @@ export class HillviewAppPage {
             if (!currentActivity.includes('MainActivity')) {
                 return false;
             }
-            
+
             // Check app state
-            const appState = await driver.queryAppState('io.github.koo5.hillview.dev');
+            const appState = await driver.queryAppState('cz.hillviedev');
             if (appState < 2) { // Not running
                 return false;
             }
-            
+
             // Check for critical UI elements
             const webViewExists = await this.webView.isExisting();
             if (!webViewExists) {
                 return false;
             }
-            
+
             return true;
         } catch (error) {
             console.error('App responsiveness check failed:', error.message);
@@ -90,7 +90,7 @@ export class HillviewAppPage {
     async takeScreenshot(name: string): Promise<void> {
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
         const filename = `${name}-${timestamp}.png`;
-        
+
         try {
             await driver.saveScreenshot(`./test-results/${filename}`);
             console.log(`📸 Screenshot saved: ${filename}`);
@@ -108,7 +108,7 @@ export class HillviewAppPage {
     async getCameraButtonTexts(): Promise<string[]> {
         const possibleTexts = ['Take photo', 'Take photos', 'Camera'];
         const foundTexts: string[] = [];
-        
+
         for (const text of possibleTexts) {
             try {
                 const button = await $(`android=new UiSelector().text("${text}")`);
@@ -119,7 +119,7 @@ export class HillviewAppPage {
                 // Button not found with this text
             }
         }
-        
+
         return foundTexts;
     }
 }

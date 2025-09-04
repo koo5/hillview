@@ -1,4 +1,4 @@
-package io.github.koo5.hillview.plugin
+package cz.hillview.plugin
 
 import android.content.Context
 import android.content.SharedPreferences
@@ -14,35 +14,35 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 class UploadManager(private val context: Context) {
-    
+
     companion object {
         private const val TAG = "🢄UploadManager"
         private const val PREFS_NAME = "hillview_upload_prefs"
         private const val PREF_SERVER_URL = "server_url"
     }
-    
+
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(60, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
-    
+
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val authManager = AuthenticationManager(context)
-    
+
     suspend fun uploadPhoto(photo: PhotoEntity): Boolean = withContext(Dispatchers.IO) {
         try {
             Log.d(TAG, "Starting upload for photo: ${photo.filename}")
-            
+
             val file = File(photo.path)
             if (!file.exists()) {
                 Log.e(TAG, "Photo file does not exist: ${photo.path}")
                 return@withContext false
             }
-            
+
             // Try upload with automatic token refresh
             return@withContext attemptUpload(file, photo.filename)
-            
+
         } catch (e: IOException) {
             Log.e(TAG, "Network error uploading photo: ${photo.filename}", e)
             return@withContext false
@@ -51,28 +51,28 @@ class UploadManager(private val context: Context) {
             return@withContext false
         }
     }
-    
+
     private suspend fun attemptUpload(file: File, filename: String): Boolean {
         val serverUrl = getServerUrl()
         if (serverUrl == null) {
             Log.e(TAG, "Server URL not configured. Please login first.")
             return false
         }
-        
+
         // Get valid auth token (with automatic refresh)
         val authToken = authManager.getValidToken()
         if (authToken == null) {
             Log.e(TAG, "No valid auth token available for upload")
             return false
         }
-        
+
         val mediaType = when (file.extension.lowercase()) {
             "jpg", "jpeg" -> "image/jpeg".toMediaType()
             "png" -> "image/png".toMediaType()
             "webp" -> "image/webp".toMediaType()
             else -> "image/jpeg".toMediaType()
         }
-        
+
         val requestBody = MultipartBody.Builder()
             .setType(MultipartBody.FORM)
             .addFormDataPart(
@@ -83,15 +83,15 @@ class UploadManager(private val context: Context) {
             .addFormDataPart("description", "Auto-uploaded from Hillview Android")
             .addFormDataPart("is_public", "true")
             .build()
-        
+
         val request = Request.Builder()
             .url("$serverUrl/photos/upload")
             .addHeader("Authorization", "Bearer $authToken")
             .post(requestBody)
             .build()
-        
+
         Log.d(TAG, "Sending upload request.")
-        
+
         client.newCall(request).execute().use { response ->
             when {
                 response.isSuccessful -> {
@@ -115,12 +115,12 @@ class UploadManager(private val context: Context) {
             }
         }
     }
-    
+
     fun setServerUrl(url: String) {
         prefs.edit().putString(PREF_SERVER_URL, url).apply()
         Log.d(TAG, "Server URL updated to: $url")
     }
-    
+
     fun getServerUrl(): String? {
         val url = prefs.getString(PREF_SERVER_URL, null)
         if (url == null) {
@@ -128,9 +128,9 @@ class UploadManager(private val context: Context) {
         }
         return url
     }
-    
+
     // Auth token methods removed - now handled by AuthenticationManager
-    
+
     suspend fun testConnection(): Boolean = withContext(Dispatchers.IO) {
         try {
             val serverUrl = getServerUrl()
@@ -139,24 +139,24 @@ class UploadManager(private val context: Context) {
                 return@withContext false
             }
             val authToken = authManager.getValidToken()
-            
+
             if (authToken == null) {
                 Log.e(TAG, "No valid auth token for connection test")
                 return@withContext false
             }
-            
+
             val request = Request.Builder()
                 .url("$serverUrl/api/auth/me")
                 .addHeader("Authorization", "Bearer $authToken")
                 .get()
                 .build()
-            
+
             client.newCall(request).execute().use { response ->
                 val success = response.isSuccessful
                 Log.d(TAG, "Connection test result: $success")
                 return@withContext success
             }
-            
+
         } catch (e: Exception) {
             Log.e(TAG, "Connection test failed", e)
             return@withContext false

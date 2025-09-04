@@ -24,46 +24,46 @@ export interface BasicResponse {
 /**
  * Handle authentication callback from deep link
  * This function should be called when the app receives a deep link like:
- * com.hillview://auth?token=JWT_HERE&expires_at=2023-...
+ * cz.hillview://auth?token=JWT_HERE&expires_at=2023-...
  */
 export async function handleAuthCallback(url?: string): Promise<boolean> {
     if (!browser) return false;
-    
+
     try {
         // If no URL provided, try to get it from current location
         if (!url) {
             url = window.location.href;
         }
-        
+
         // Check if this is an auth callback URL
-        const expectedScheme = import.meta.env.VITE_DEV_MODE === 'true' ? 'io.github.koo5.hillview.dev://auth' : 'io.github.koo5.hillview://auth';
+        const expectedScheme = import.meta.env.VITE_DEV_MODE === 'true' ? 'cz.hillviedev://auth' : 'cz.hillview://auth';
         if (!url.includes('token=') || !url.startsWith(expectedScheme)) {
             return false;
         }
-        
+
         const urlObj = new URL(url);
         const token = urlObj.searchParams.get('token');
         const refreshToken = urlObj.searchParams.get('refresh_token');
         const expiresAt = urlObj.searchParams.get('expires_at');
-        
+
         if (token && expiresAt) {
             // Check if token is already expired (compare in UTC)
             const expiryDate = new Date(expiresAt);
             const now = new Date();
-            
+
             // Log the comparison for debugging
             console.log(`🢄🔐 Token expiry check - Expiry: ${expiryDate.toISOString()}, Now: ${now.toISOString()}`);
             console.log(`🢄🔐 Raw expires_at value: ${expiresAt}`);
-            
+
             // Compare timestamps directly to handle timezone correctly
             if (expiryDate.getTime() <= now.getTime()) {
                 console.warn('🢄🔐 Token appears expired, but continuing anyway for testing');
                 // Temporarily commenting out the return to test the rest of the flow
                 // return false;
             }
-            
+
             console.log('🢄🔐 Auth callback received, completing authentication');
-            
+
             // Use shared authentication completion function
             const success = await completeAuthentication({
                 access_token: token,
@@ -71,7 +71,7 @@ export async function handleAuthCallback(url?: string): Promise<boolean> {
                 expires_at: expiresAt,
                 token_type: 'bearer'
             }, 'oauth');
-            
+
             if (success) {
                 console.log('🢄🔐 OAuth authentication completed successfully');
                 // Redirect to dashboard
@@ -141,7 +141,7 @@ export async function hasValidAuth(): Promise<boolean> {
         if (!result.success || !result.token) {
             return false;
         }
-        
+
         // Check token expiration if expires_at is provided
         if (result.expires_at) {
             const expiryDate = new Date(result.expires_at);
@@ -151,14 +151,14 @@ export async function hasValidAuth(): Promise<boolean> {
                 return false;
             }
         }
-        
+
         // Check if token format is valid (basic JWT check)
         const tokenParts = result.token.split('.');
         if (tokenParts.length !== 3) {
             console.log('🢄🔐 Invalid token format');
             return false;
         }
-        
+
         return true;
     } catch (error) {
         console.error('🢄🔐 Error checking auth:', error);
@@ -175,17 +175,17 @@ export async function setupDeepLinkListener(): Promise<void> {
         console.log('🢄🔗 Skipping deep link listener setup (not in Tauri environment)');
         return;
     }
-    
+
     try {
         // Dynamically import the deep-link plugin only when in Tauri
         const { onOpenUrl } = await import('@tauri-apps/plugin-deep-link');
-        
+
         // Listen for deep link URLs
         const unlisten = await onOpenUrl((urls) => {
             console.log('🢄🔗 Deep link received:', urls);
-            
+
             for (const url of urls) {
-                const expectedScheme = import.meta.env.VITE_DEV_MODE === 'true' ? 'io.github.koo5.hillview.dev://auth' : 'io.github.koo5.hillview://auth';
+                const expectedScheme = import.meta.env.VITE_DEV_MODE === 'true' ? 'cz.hillviedev://auth' : 'cz.hillview://auth';
                 if (url.startsWith(expectedScheme)) {
                     console.log('🢄🔐 Processing auth callback from deep link:', url);
                     handleAuthCallback(url);
@@ -193,7 +193,7 @@ export async function setupDeepLinkListener(): Promise<void> {
                 }
             }
         });
-        
+
         console.log('🢄🔗 Deep link listener set up successfully');
         // Store unlisten function if needed, but don't return it since function returns void
     } catch (error) {
@@ -205,11 +205,11 @@ export async function setupDeepLinkListener(): Promise<void> {
  * Build OAuth URL for unified authentication flow
  */
 export function buildOAuthUrl(provider: string, isMobileApp: boolean): string {
-    const mobileScheme = import.meta.env.VITE_DEV_MODE === 'true' ? 'io.github.koo5.hillview.dev://auth' : 'io.github.koo5.hillview://auth';
-    const redirectUri = isMobileApp 
+    const mobileScheme = import.meta.env.VITE_DEV_MODE === 'true' ? 'cz.hillviedev://auth' : 'cz.hillview://auth';
+    const redirectUri = isMobileApp
         ? mobileScheme  // Deep link for mobile
         : `${window.location.origin}/oauth/callback`;  // Web callback
-        
+
     // Use unified backend OAuth redirect endpoint
     const serverUrl = backendUrl;
     return `${serverUrl}/auth/oauth-redirect?provider=${provider}&redirect_uri=${encodeURIComponent(redirectUri)}`;
