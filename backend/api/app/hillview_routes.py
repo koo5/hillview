@@ -113,6 +113,10 @@ async def get_hillview_images(
 					}
 				}
 				yield f"data: {json.dumps(data)}\n\n"
+				
+				# Send completion event to match Mapillary behavior
+				yield f"data: {json.dumps({'type': 'stream_complete', 'total_live_photos': 0, 'total_cached_photos': len(filtered_photos), 'total_all_photos': len(filtered_photos)})}\n\n"
+				
 			except Exception as e:
 				log.error(f"Stream error in hillview endpoint: {str(e)}")
 				yield f"data: {json.dumps({'type': 'error', 'message': f'Stream error: {str(e)}'})}\n\n"

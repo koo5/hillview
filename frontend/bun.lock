@@ -14,6 +14,7 @@
         "angles": "^0.3.0",
         "dexie": "^4.0.11",
         "leaflet": "^1.9.4",
+        "leaflet-providers": "^2.0.0",
         "lucide-svelte": "^0.476.0",
         "svelte-leafletjs": "^2.0.0",
         "tauri-plugin-hillview-api": "file:./tauri-plugin-hillview",
@@ -1202,6 +1203,8 @@
     "lazystream": ["lazystream@1.0.1", "", { "dependencies": { "readable-stream": "^2.0.5" } }, "sha512-b94GiNHQNy6JNTrt5w6zNyffMrNkXZb3KTkCZJb2V1xaEGCk093vkZ2jk3tpaeP33/OiXC+WvK9AxUebnf5nbw=="],
 
     "leaflet": ["leaflet@1.9.4", "", {}, "sha512-nxS1ynzJOmOlHp+iL3FyWqK89GtNL8U8rvlMOsQdTTssxZwCXh8N2NB3GDQOL+YR3XnWyZAxwQixURb+FA74PA=="],
+
+    "leaflet-providers": ["leaflet-providers@2.0.0", "", {}, "sha512-CWwKEnHd66Qsx0m4o5q5ZOa60s00B91pMxnlr4Y22msubfs7dhbZhdMIz8bvZQkrZqi67ppI1fsZRS6vtrLcOA=="],
 
     "lie": ["lie@3.3.0", "", { "dependencies": { "immediate": "~3.0.5" } }, "sha512-UaiMJzeWRlEujzAuw5LokY1L5ecNQYZKfmyZ9L7wDHb/p5etKaxXhohBcrw0EYby+G/NA52vRSN4N39dxHAIwQ=="],
 

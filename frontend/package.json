@@ -79,6 +79,7 @@
 		"angles": "^0.3.0",
 		"dexie": "^4.0.11",
 		"leaflet": "^1.9.4",
+		"leaflet-providers": "^2.0.0",
 		"lucide-svelte": "^0.476.0",
 		"svelte-leafletjs": "^2.0.0",
 		"tauri-plugin-hillview-api": "file:./tauri-plugin-hillview",

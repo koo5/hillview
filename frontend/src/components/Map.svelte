@@ -5,6 +5,7 @@
     import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle, MapPin, Pause, ArrowUp, ArrowDown, Layers, Eye, Compass, Car, PersonStanding} from 'lucide-svelte';
     import L from 'leaflet';
     import 'leaflet/dist/leaflet.css';
+    import 'leaflet-providers';
     import Spinner from './Spinner.svelte';
     import { getCurrentPosition, type GeolocationPosition } from '$lib/preciseLocation';
     import { locationManager } from '$lib/locationManager';
@@ -845,10 +846,67 @@
     $: arrowX = centerX + Math.cos(arrow_radians) * arrowLength;
     $: arrowY = centerY + Math.sin(arrow_radians) * arrowLength;
 
-    // CartoDB Voyager has larger, more readable place labels than standard OSM
-    //const tileUrl = "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
-    //const tileUrl = "https://tile.tracestrack.com/topo_auto/{z}/{x}/{y}.webp?key=262a38b16c187cfca361f1776efb9421&style=contrast+";
-    const tileUrl = 'https://tile.tracestrack.com/_/{z}/{x}/{y}.webp?key=262a38b16c187cfca361f1776efb9421';
+    // Tile provider configuration
+
+	////const tileUrl = "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
+	////const tileUrl = "https://tile.tracestrack.com/topo_auto/{z}/{x}/{y}.webp?key=262a38b16c187cfca361f1776efb9421&style=contrast+";
+	//const tileUrl = 'https://tile.tracestrack.com/_/{z}/{x}/{y}.webp?key=262a38b16c187cfca361f1776efb9421';
+
+    // Examples of available providers:
+    // 'OpenStreetMap.Mapnik' (default OpenStreetMap)
+    // 'OpenStreetMap.DE' (German OpenStreetMap)
+    // 'CartoDB.Positron' (light CartoDB style)
+    // 'CartoDB.DarkMatter' (dark CartoDB style)
+    // 'Esri.WorldImagery' (satellite imagery)
+    // 'Stamen.Terrain' (terrain style)
+    // See: https://github.com/leaflet-extras/leaflet-providers for full list
+    const TILE_PROVIDER = 'OpenStreetMap.DE' // 'OpenStreetMap.Mapnik'; // Can be changed to any provider from leaflet-providers
+
+    // Function to get provider configuration
+    function getProviderConfig(providerName: string) {
+        const providers = (L.TileLayer as any).Provider.providers;
+        const parts = providerName.split('.');
+        const providerKey = parts[0];
+        const variant = parts[1];
+
+        if (!providers[providerKey]) {
+            console.warn(`Provider ${providerKey} not found, falling back to OpenStreetMap`);
+            return {
+                url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+                maxZoom: 19
+            };
+        }
+
+        const provider = providers[providerKey];
+        let config = {
+            url: provider.url,
+            attribution: provider.options?.attribution || '',
+            maxZoom: provider.options?.maxZoom || 19,
+            ...provider.options
+        };
+
+        // Apply variant if specified
+        if (variant && provider.variants && provider.variants[variant]) {
+            const variantData = provider.variants[variant];
+            if (typeof variantData === 'string') {
+                // Simple string variant
+                config.url = config.url.replace('{variant}', variantData);
+            } else {
+                // Complex variant with its own options
+                config = {
+                    ...config,
+                    ...variantData.options,
+                    url: variantData.url || config.url
+                };
+            }
+        }
+
+        return config;
+    }
+
+    // Get the current provider configuration
+    $: tileConfig = getProviderConfig(TILE_PROVIDER);
 
     // Reactive updates for spatial changes (new photos from worker)
     $: if ($visiblePhotos && map) {
@@ -870,6 +928,7 @@
             bind:this={elMap}
             events={{moveend: mapStateUserEvent, zoomend: mapStateUserEvent}}
             options={{
+				attributionControl: true,
                 center: [$spatialState.center.lat, $spatialState.center.lng],
                 zoom: $spatialState.zoom,
                 minZoom: 3,
@@ -891,30 +950,30 @@
          -->
 
         <TileLayer
-                {...{ attribution: "&copy; OpenStreetMap contributors &copy; CartoDB" }}
                 options={{
-                    maxZoom: 23,
-                    maxNativeZoom: 19,
-                    minZoom: 3,
+                    attribution: tileConfig.attribution, // Attribution goes in options
+                    maxZoom: Math.min(23, tileConfig.maxZoom || 19),
+                    maxNativeZoom: tileConfig.maxNativeZoom || tileConfig.maxZoom || 19,
+                    minZoom: tileConfig.minZoom || 3,
                     // Memory optimization for tiles
                     //keepBuffer: 1, // Keep fewer tiles in memory (default is 2)
                     //updateWhenIdle: false, // Update tiles only when panning ends
                     //updateWhenZooming: false, // Don't update during zoom animation
-                    tileSize: 256, // Standard tile size
-                    zoomOffset: 0,
-                    detectRetina: false, // Disable retina tiles for larger text labels
-                    crossOrigin: true, // Enable CORS for better caching
+                    tileSize: tileConfig.tileSize || 256, // Standard tile size
+                    zoomOffset: tileConfig.zoomOffset || 0,
+                    detectRetina: tileConfig.detectRetina !== undefined ? tileConfig.detectRetina : false,
+                    crossOrigin: tileConfig.crossOrigin !== undefined ? tileConfig.crossOrigin : true,
                     // Additional performance options
                     updateInterval: 100, // Throttle tile updates
-                    tms: false,
-                    noWrap: true,
-                    zoomReverse: false,
-                    opacity: 1,
-                    zIndex: 1,
-                    bounds: undefined, // No bounds restriction
+                    tms: tileConfig.tms || false,
+                    noWrap: tileConfig.noWrap !== undefined ? tileConfig.noWrap : true,
+                    zoomReverse: tileConfig.zoomReverse || false,
+                    opacity: tileConfig.opacity !== undefined ? tileConfig.opacity : 1,
+                    zIndex: tileConfig.zIndex || 1,
+                    bounds: tileConfig.bounds, // Respect provider bounds if specified
                     className: 'map-tiles'
-                    }}
-                url={tileUrl}
+                }}
+                url={tileConfig.url}
         />
 
 
