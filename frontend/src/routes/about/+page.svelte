@@ -1,6 +1,7 @@
 <script lang="ts">
     import { Info, MapPin, Camera, Globe, Github, Heart, Compass } from 'lucide-svelte';
     import BackButton from '../../components/BackButton.svelte';
+    import { getCurrentProviderConfig, getProviderDisplayName, currentTileProvider } from '$lib/tileProviders';
 
     const appVersion = '0.0.1';
     const features = [
@@ -34,6 +35,10 @@
         'Lucide Icons',
         'Vite'
     ];
+
+    // Get current tile provider config
+    $: tileConfig = getCurrentProviderConfig();
+    $: tileProviderName = getProviderDisplayName(currentTileProvider);
 </script>
 
 <div class="about-container page-scrollable">
@@ -94,6 +99,16 @@
             Hillview is built with modern web technologies and open-source libraries. 
             We're grateful to the open-source community and photo services that make this project possible.
         </p>
+        
+        <h3>Map Data</h3>
+        <div class="map-attribution">
+            <p class="current-provider">
+                <strong>Current Tile Provider:</strong> {tileProviderName}
+            </p>
+            <div class="attribution-text">
+                {@html tileConfig.attribution}
+            </div>
+        </div>
         
         <h3>Libraries & Technologies</h3>
         <div class="attribution-links">
@@ -359,6 +374,35 @@
     .attribution-links a:hover {
         background: #f9fafb;
         border-color: #4f46e5;
+    }
+
+    .map-attribution {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 24px;
+    }
+
+    .current-provider {
+        color: #374151;
+        margin: 0 0 12px 0;
+        font-size: 0.9rem;
+    }
+
+    .attribution-text {
+        font-size: 0.875rem;
+        color: #6b7280;
+        line-height: 1.5;
+    }
+
+    .attribution-text :global(a) {
+        color: #4f46e5;
+        text-decoration: underline;
+    }
+
+    .attribution-text :global(a:hover) {
+        color: #3730a3;
     }
 
     .about-footer {

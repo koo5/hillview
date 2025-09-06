@@ -1,11 +1,12 @@
 import datetime
 import os
 import uuid
-from typing import Optional
+from typing import Optional, Dict, Any
 import logging
+import asyncio
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import or_
@@ -35,6 +36,75 @@ from security_audit import security_audit
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["users"])
+
+# OAuth session storage (in-memory, for production use Redis/database)
+oauth_sessions: Dict[str, Dict[str, Any]] = {}
+
+async def cleanup_expired_sessions():
+    """Clean up expired OAuth sessions"""
+    current_time = datetime.datetime.utcnow()
+    expired_sessions = [
+        session_id for session_id, session in oauth_sessions.items()
+        if current_time > session.get('expires_at', current_time)
+    ]
+    for session_id in expired_sessions:
+        del oauth_sessions[session_id]
+        log.info(f"Cleaned up expired OAuth session: {session_id}")
+    
+    # Also log session count for monitoring
+    if len(oauth_sessions) > 0:
+        log.info(f"Active OAuth sessions: {len(oauth_sessions)}")
+
+# Background cleanup task
+import asyncio
+from contextlib import asynccontextmanager
+
+_cleanup_task = None
+
+async def start_session_cleanup():
+    """Start background task to clean up expired sessions"""
+    global _cleanup_task
+    if _cleanup_task is None:
+        async def cleanup_loop():
+            while True:
+                try:
+                    await cleanup_expired_sessions()
+                    await asyncio.sleep(300)  # Clean every 5 minutes
+                except Exception as e:
+                    log.error(f"Session cleanup error: {e}")
+                    await asyncio.sleep(60)  # Retry after 1 minute on error
+        
+        _cleanup_task = asyncio.create_task(cleanup_loop())
+        log.info("Started OAuth session cleanup background task")
+
+async def stop_session_cleanup():
+    """Stop background cleanup task"""
+    global _cleanup_task
+    if _cleanup_task:
+        _cleanup_task.cancel()
+        try:
+            await _cleanup_task
+        except asyncio.CancelledError:
+            pass
+        _cleanup_task = None
+        log.info("Stopped OAuth session cleanup background task")
+
+def store_oauth_session(tokens: Dict[str, Any], user_info: Dict[str, Any]) -> str:
+    """Store OAuth tokens and return session ID"""
+    session_id = str(uuid.uuid4())
+    expires_at = datetime.datetime.utcnow() + datetime.timedelta(minutes=10)  # 10 minute session
+    
+    oauth_sessions[session_id] = {
+        'access_token': tokens['access_token'],
+        'refresh_token': tokens.get('refresh_token'),
+        'expires_at': expires_at,
+        'token_expires_at': tokens['expires_at'],
+        'user_info': user_info,
+        'created_at': datetime.datetime.utcnow()
+    }
+    
+    log.info(f"Stored OAuth session {session_id} for user {user_info.get('username', 'unknown')}")
+    return session_id
 
 # Authentication routes
 @router.post("/auth/register", response_model=UserOut)
@@ -257,11 +327,51 @@ async def refresh_access_token(
 			detail="Token refresh failed"
 		)
 
+@router.post("/auth/oauth-session")
+async def create_oauth_session(
+	request: Request,
+	db: AsyncSession = Depends(get_db)
+):
+	"""
+	Create a new OAuth session for mobile polling
+	Returns a session_id that can be used for polling
+	"""
+	# Rate limit session creation
+	if not is_rate_limiting_disabled():
+		identifier = auth_rate_limiter.get_identifier(request)
+		if not await auth_rate_limiter.check_rate_limit(identifier, max_requests=10, window_seconds=300):
+			raise HTTPException(
+				status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+				detail="Too many OAuth session requests.",
+				headers={"Retry-After": "30"}
+			)
+
+	# Generate session ID for polling
+	session_id = str(uuid.uuid4())
+	expires_at = datetime.datetime.utcnow() + datetime.timedelta(minutes=10)
+	
+	# Create pending session (no tokens yet)
+	oauth_sessions[session_id] = {
+		'status': 'pending',
+		'expires_at': expires_at,
+		'created_at': datetime.datetime.utcnow(),
+		'client_ip': request.client.host if request.client else None
+	}
+	
+	log.info(f"Created OAuth session for polling: {session_id}")
+	
+	return {
+		"session_id": session_id,
+		"expires_at": expires_at.isoformat(),
+		"status": "pending"
+	}
+
 @router.get("/auth/oauth-redirect")
 async def oauth_redirect(
 	provider: str,
 	redirect_uri: str,
 	request: Request,
+	session_id: Optional[str] = None,
 	db: AsyncSession = Depends(get_db)
 ):
 	"""
@@ -338,8 +448,12 @@ async def oauth_redirect(
 		server_callback_uri = f"{frontend_origin}/oauth/callback"
 		log.info(f"Web flow detected - Frontend origin: {frontend_origin}, Server callback URI: {server_callback_uri}")
 
-	# Encode both provider and final destination in state
-	state_data = f"{provider}:{validated_redirect_uri}"
+	# Encode provider, redirect URI, and optional session_id in state
+	if session_id:
+		state_data = f"{provider}:{validated_redirect_uri}:{session_id}"
+		log.info(f"Using polling session: {session_id}")
+	else:
+		state_data = f"{provider}:{validated_redirect_uri}"
 	oauth_params = {
 		"client_id": provider_config["client_id"],
 		"redirect_uri": server_callback_uri,  # Dynamic server callback
@@ -350,6 +464,12 @@ async def oauth_redirect(
 	# Add provider-specific scopes
 	if provider == "google":
 		oauth_params["scope"] = "email profile"
+		# Add device parameters for mobile flows to handle private IP restriction
+		if (validated_redirect_uri.startswith("cz.hillview://") or
+			validated_redirect_uri.startswith("cz.hillviedev://")):
+			import uuid
+			oauth_params["device_id"] = str(uuid.uuid4())
+			oauth_params["device_name"] = "Hillview Android App"
 	elif provider == "github":
 		oauth_params["scope"] = "user:email"
 
@@ -390,13 +510,19 @@ async def oauth_callback(
 
 	log.info(f"OAuth callback received with code and state: {state}")
 
-	# Extract provider and final destination from state
+	# Extract provider, final destination, and optional session_id from state
+	polling_session_id = None
 	if state and ":" in state:
-		provider, final_redirect_uri = state.split(":", 1)
+		state_parts = state.split(":", 2)  # Split into max 3 parts
+		provider = state_parts[0]
+		final_redirect_uri = state_parts[1] if len(state_parts) > 1 else state
+		polling_session_id = state_parts[2] if len(state_parts) > 2 else None
 	else:
 		# Fallback to default if state is malformed
 		provider = "google"
 		final_redirect_uri = state
+	
+	log.info(f"Parsed state - Provider: {provider}, Redirect: {final_redirect_uri}, Session: {polling_session_id}")
 
 	if provider not in OAUTH_PROVIDERS:
 		raise HTTPException(status_code=400, detail="Invalid OAuth provider")
@@ -465,22 +591,111 @@ async def oauth_callback(
 		)
 		raise
 
-	# Detect if this is a mobile app request
-	if (final_redirect_uri and
-		(final_redirect_uri.startswith("cz.hillview://") or
-		 final_redirect_uri.startswith("cz.hillviedev://"))):
-		# Mobile app: deep link back with tokens
-		# Format as ISO string with Z suffix for JavaScript compatibility
-		expires_at_rounded = expires_at.replace(microsecond=0)
-		expires_at_str = expires_at_rounded.isoformat().replace('+00:00', 'Z')
+	# Clean up expired sessions before processing
+	await cleanup_expired_sessions()
 
-		# Build URL with both access and refresh tokens
-		callback_url = f"{final_redirect_uri}?token={jwt_token}&expires_at={expires_at_str}"
-		if refresh_token:
-			callback_url += f"&refresh_token={refresh_token}"
-
-		log.info(f"Mobile OAuth callback, redirecting to: {callback_url[:100]}...")  # Log first 100 chars
-		return RedirectResponse(callback_url)
+	# Detect if this is a mobile app request or has a polling session
+	if (polling_session_id or 
+		(final_redirect_uri and
+		 (final_redirect_uri.startswith("cz.hillview://") or
+		  final_redirect_uri.startswith("cz.hillviedev://")))):
+		# Mobile app: use polling mechanism instead of deep links
+		log.info("Mobile OAuth callback detected, using polling mechanism")
+		
+		# Store tokens in session with limited lifetime
+		tokens = {
+			'access_token': jwt_token,
+			'refresh_token': refresh_token,
+			'expires_at': expires_at
+		}
+		
+		if polling_session_id:
+			# Update existing session with tokens
+			session = oauth_sessions.get(polling_session_id)
+			if session:
+				session.update({
+					'access_token': jwt_token,
+					'refresh_token': refresh_token,
+					'token_expires_at': expires_at,
+					'user_info': user_info,
+					'status': 'completed'
+				})
+				session_id = polling_session_id
+				log.info(f"Updated existing polling session: {session_id}")
+			else:
+				# Session expired or invalid, create new one
+				session_id = store_oauth_session(tokens, user_info)
+				log.warning(f"Polling session {polling_session_id} not found, created new: {session_id}")
+		else:
+			# No polling session, create new one (legacy mobile flow)
+			session_id = store_oauth_session(tokens, user_info)
+		
+		# Create a simple success page that instructs the user to return to the app
+		success_html = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Login Successful - Hillview</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }}
+        .container {{
+            background: white;
+            border-radius: 12px;
+            padding: 40px;
+            max-width: 400px;
+            width: 100%;
+            text-align: center;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }}
+        h1 {{ margin-top: 0; color: #333; }}
+        .success {{ color: #28a745; font-size: 48px; margin-bottom: 20px; }}
+        .message {{ color: #666; margin: 20px 0; line-height: 1.4; }}
+        .session-id {{ 
+            font-family: monospace; 
+            background: #f8f9fa; 
+            padding: 8px 12px; 
+            border-radius: 4px; 
+            font-size: 12px; 
+            color: #666;
+            margin: 16px 0;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="success">✅</div>
+        <h1>Login Successful!</h1>
+        <div class="message">
+            <strong>Please return to the Hillview app to continue.</strong><br>
+            Your authentication is ready and waiting.
+        </div>
+        <div class="session-id">Session: {session_id}</div>
+        <div class="message">
+            <small>You can safely close this browser tab.</small>
+        </div>
+    </div>
+    
+    <script>
+        // Auto-close tab after 5 seconds if possible
+        setTimeout(function() {{
+            try {{ window.close(); }} catch (e) {{ /* Tab can't be closed */ }}
+        }}, 5000);
+    </script>
+</body>
+</html>
+"""
+		
+		return HTMLResponse(content=success_html)
 	else:
 		# Web app: existing behavior (redirect to dashboard)
 		# Note: For web app, you might want to set cookies here
@@ -495,6 +710,77 @@ async def oauth_callback(
 			expires=expires_at
 		)
 		return response
+
+@router.get("/auth/oauth-status/{session_id}")
+async def get_oauth_status(
+	session_id: str,
+	request: Request,
+	db: AsyncSession = Depends(get_db)
+):
+	"""
+	Poll for OAuth completion status
+	Returns tokens when OAuth is complete, or 404 if session not found/expired
+	"""
+	# Rate limit polling requests per session (not per IP)
+	if not is_rate_limiting_disabled():
+		# Use session_id as identifier for more granular rate limiting
+		session_identifier = f"oauth_poll:{session_id}"
+		if not await auth_rate_limiter.check_rate_limit(session_identifier, max_requests=72, window_seconds=360):  # 1 request per 5 seconds for 6 minutes
+			raise HTTPException(
+				status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+				detail="Polling too frequently for this session. Please slow down.",
+				headers={"Retry-After": "5"}
+			)
+
+	# Clean up expired sessions
+	await cleanup_expired_sessions()
+	
+	# Check if session exists and is valid
+	session = oauth_sessions.get(session_id)
+	if not session:
+		# Session not found or expired
+		raise HTTPException(
+			status_code=status.HTTP_404_NOT_FOUND,
+			detail="OAuth session not found or expired"
+		)
+	
+	# Session found - return tokens and clean up
+	access_token = session['access_token']
+	refresh_token = session.get('refresh_token')
+	token_expires_at = session['token_expires_at']
+	user_info = session['user_info']
+	
+	# Log successful OAuth completion
+	await security_audit.log_event(
+		db=db,
+		event_type="oauth_polling_success",
+		user_identifier=user_info.get('username'),
+		ip_address=request.client.host if request.client else None,
+		user_agent=request.headers.get("user-agent"),
+		event_details={
+			"session_id": session_id,
+			"user_role": user_info.get("role"),
+			"polling_completion": True
+		},
+		severity="info",
+		user_id=user_info.get("user_id")
+	)
+	
+	# Clean up the session immediately after use
+	del oauth_sessions[session_id]
+	log.info(f"OAuth polling successful and session cleaned up: {session_id}")
+	
+	# Return the same format as the regular auth token endpoint
+	response_data = {
+		"access_token": access_token,
+		"token_type": "bearer",
+		"expires_at": token_expires_at.isoformat() if isinstance(token_expires_at, datetime.datetime) else token_expires_at
+	}
+	
+	if refresh_token:
+		response_data["refresh_token"] = refresh_token
+	
+	return response_data
 
 @router.post("/auth/oauth", response_model=Token)
 async def oauth_login(

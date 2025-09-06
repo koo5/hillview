@@ -350,14 +350,9 @@
 
 {#if menuOpen}
 
+    <pre>user: {$auth.user ? $auth.user.username : 'none'}</pre>
+
     <nav class="nav-menu">
-        {#if $app.debug === 3}
-            <div class="debug-info">
-                <h4>Auth Debug:</h4>
-                <pre>isAuthenticated: {$auth.isAuthenticated}</pre>
-                <pre>user: {$auth.user ? $auth.user.username : 'none'}</pre>
-            </div>
-        {/if}
 
         <ul>
             <li><a href="/photos" on:click={() => menuOpen = false}>

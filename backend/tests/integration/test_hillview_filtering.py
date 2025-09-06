@@ -78,30 +78,24 @@ class TestHillviewFiltering(BaseUserManagementTest):
         for headers in [self.test_headers, self.admin_headers]:
             
             # Clean up hidden photos
-            try:
-                response = requests.get(f"{API_URL}/hidden/photos", headers=headers)
-                if response.status_code == 200:
-                    for hidden_photo in response.json():
-                        unhide_request = {
-                            "photo_source": hidden_photo["photo_source"],
-                            "photo_id": hidden_photo["photo_id"]
-                        }
-                        requests.delete(f"{API_URL}/hidden/photos", json=unhide_request, headers=headers)
-            except:
-                pass
+            response = requests.get(f"{API_URL}/hidden/photos", headers=headers)
+            if response.status_code == 200:
+                for hidden_photo in response.json():
+                    unhide_request = {
+                        "photo_source": hidden_photo["photo_source"],
+                        "photo_id": hidden_photo["photo_id"]
+                    }
+                    requests.delete(f"{API_URL}/hidden/photos", json=unhide_request, headers=headers)
             
             # Clean up hidden users
-            try:
-                response = requests.get(f"{API_URL}/hidden/users", headers=headers)
-                if response.status_code == 200:
-                    for hidden_user in response.json():
-                        unhide_request = {
-                            "target_user_source": hidden_user["target_user_source"],
-                            "target_user_id": hidden_user["target_user_id"]
-                        }
-                        requests.delete(f"{API_URL}/hidden/users", json=unhide_request, headers=headers)
-            except:
-                pass
+            response = requests.get(f"{API_URL}/hidden/users", headers=headers)
+            if response.status_code == 200:
+                for hidden_user in response.json():
+                    unhide_request = {
+                        "target_user_source": hidden_user["target_user_source"],
+                        "target_user_id": hidden_user["target_user_id"]
+                    }
+                    requests.delete(f"{API_URL}/hidden/users", json=unhide_request, headers=headers)
         
         print("✓ Cleanup complete")
     

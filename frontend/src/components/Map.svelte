@@ -5,7 +5,7 @@
     import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle, MapPin, Pause, ArrowUp, ArrowDown, Layers, Eye, Compass, Car, PersonStanding} from 'lucide-svelte';
     import L from 'leaflet';
     import 'leaflet/dist/leaflet.css';
-    import 'leaflet-providers';
+    import { getCurrentProviderConfig, setTileProvider } from '$lib/tileProviders';
     import Spinner from './Spinner.svelte';
     import { getCurrentPosition, type GeolocationPosition } from '$lib/preciseLocation';
     import { locationManager } from '$lib/locationManager';
@@ -847,66 +847,11 @@
     $: arrowY = centerY + Math.sin(arrow_radians) * arrowLength;
 
     // Tile provider configuration
+    // Set initial tile provider (can be changed via setTileProvider() function)
+    setTileProvider('TracesTrack.Topo');
 
-	////const tileUrl = "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
-	////const tileUrl = "https://tile.tracestrack.com/topo_auto/{z}/{x}/{y}.webp?key=262a38b16c187cfca361f1776efb9421&style=contrast+";
-	//const tileUrl = 'https://tile.tracestrack.com/_/{z}/{x}/{y}.webp?key=262a38b16c187cfca361f1776efb9421';
-
-    // Examples of available providers:
-    // 'OpenStreetMap.Mapnik' (default OpenStreetMap)
-    // 'OpenStreetMap.DE' (German OpenStreetMap)
-    // 'CartoDB.Positron' (light CartoDB style)
-    // 'CartoDB.DarkMatter' (dark CartoDB style)
-    // 'Esri.WorldImagery' (satellite imagery)
-    // 'Stamen.Terrain' (terrain style)
-    // See: https://github.com/leaflet-extras/leaflet-providers for full list
-    const TILE_PROVIDER = 'OpenStreetMap.DE' // 'OpenStreetMap.Mapnik'; // Can be changed to any provider from leaflet-providers
-
-    // Function to get provider configuration
-    function getProviderConfig(providerName: string) {
-        const providers = (L.TileLayer as any).Provider.providers;
-        const parts = providerName.split('.');
-        const providerKey = parts[0];
-        const variant = parts[1];
-
-        if (!providers[providerKey]) {
-            console.warn(`Provider ${providerKey} not found, falling back to OpenStreetMap`);
-            return {
-                url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-                maxZoom: 19
-            };
-        }
-
-        const provider = providers[providerKey];
-        let config = {
-            url: provider.url,
-            attribution: provider.options?.attribution || '',
-            maxZoom: provider.options?.maxZoom || 19,
-            ...provider.options
-        };
-
-        // Apply variant if specified
-        if (variant && provider.variants && provider.variants[variant]) {
-            const variantData = provider.variants[variant];
-            if (typeof variantData === 'string') {
-                // Simple string variant
-                config.url = config.url.replace('{variant}', variantData);
-            } else {
-                // Complex variant with its own options
-                config = {
-                    ...config,
-                    ...variantData.options,
-                    url: variantData.url || config.url
-                };
-            }
-        }
-
-        return config;
-    }
-
-    // Get the current provider configuration
-    $: tileConfig = getProviderConfig(TILE_PROVIDER);
+    // Get the current provider configuration reactively
+    $: tileConfig = getCurrentProviderConfig();
 
     // Reactive updates for spatial changes (new photos from worker)
     $: if ($visiblePhotos && map) {

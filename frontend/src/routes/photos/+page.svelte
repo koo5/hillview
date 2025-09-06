@@ -4,6 +4,7 @@
 	import {Upload, Trash2, Map, Settings} from 'lucide-svelte';
 	import BackButton from '../../components/BackButton.svelte';
 	import Spinner from '../../components/Spinner.svelte';
+	import PhotoImport from '$lib/components/PhotoImport.svelte';
 	import {auth, checkAuth} from '$lib/auth.svelte';
 	import {app} from '$lib/data.svelte';
 	import type {UserPhoto} from '$lib/stores';
@@ -27,6 +28,7 @@
 	let showSettings = false;
 	let user: User | null = null;
 	let activityLog: Array<{ timestamp: Date, message: string, type: 'success' | 'warning' | 'error' | 'info' }> = [];
+	
 
 	function addLogEntry(message: string, type: 'success' | 'warning' | 'error' | 'info' = 'info') {
 		activityLog = [{
@@ -288,6 +290,13 @@
 	function goToLogin() {
 		navigateWithHistory('/login');
 	}
+
+	async function handleImportComplete(importedCount: number) {
+		if (importedCount > 0) {
+			// Refresh the photos list to show imported photos
+			await fetchPhotos();
+		}
+	}
 </script>
 
 <div class="photos-container page-scrollable">
@@ -425,6 +434,22 @@
             {/if}
         </form>
     </div>
+
+    <!-- Import Photos Section (Android Only) -->
+    {#if TAURI}
+        <div class="import-section" data-testid="import-section">
+            <h2>Import Photos</h2>
+            <p class="import-description">
+                Import existing photos from your device to add them to Hillview. 
+                Only photos with GPS location data will be imported.
+            </p>
+            
+            <PhotoImport 
+                onImportComplete={handleImportComplete}
+                onLogEntry={addLogEntry}
+            />
+        </div>
+    {/if}
 
     {#if activityLog.length > 0}
         <div class="activity-log">
@@ -914,6 +939,28 @@
     .login-link:hover {
         color: #0d47a1;
     }
+
+    /* Import section styles */
+    .import-section {
+        background-color: #f8f9fa;
+        border: 1px solid #e9ecef;
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 30px;
+    }
+
+    .import-section h2 {
+        color: #495057;
+        margin-bottom: 10px;
+    }
+
+    .import-description {
+        color: #6c757d;
+        font-size: 14px;
+        margin-bottom: 16px;
+        line-height: 1.4;
+    }
+
 
     /* Responsive adjustments */
     @media (max-width: 768px) {

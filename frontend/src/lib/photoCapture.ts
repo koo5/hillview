@@ -83,7 +83,6 @@ class PhotoCaptureService {
 			imageSizeBytes: imageData.length
 		});
 
-		try {
 			// Get current settings
 			const settings = get(photoCaptureSettings);
 
@@ -103,14 +102,6 @@ class PhotoCaptureService {
 			}));
 
 			return devicePhoto;
-		} catch (error) {
-			const errorMessage = error instanceof Error ? error.message : String(error);
-			this.log(this.LOG_TAGS.SAVE_ERROR, 'Failed to save photo with EXIF', JSON.stringify({
-				filename,
-				error: errorMessage
-			}));
-			throw error;
-		}
 	}
 
 	async loadDevicePhotos(): Promise<DevicePhotosDb> {

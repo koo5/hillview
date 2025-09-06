@@ -233,3 +233,48 @@ pub(crate) async fn clear_auth_token<R: Runtime>(
         });
     }
 }
+
+#[command]
+pub(crate) async fn get_device_photos<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<crate::models::DevicePhotosResponse> {
+    #[cfg(mobile)]
+    {
+        return app.hillview().get_device_photos();
+    }
+    
+    #[cfg(desktop)]
+    {
+        return Err(crate::Error::from("Device photos are only available on mobile devices"));
+    }
+}
+
+#[command]
+pub(crate) async fn refresh_photo_scan<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<crate::models::PhotoScanResponse> {
+    #[cfg(mobile)]
+    {
+        return app.hillview().refresh_photo_scan();
+    }
+    
+    #[cfg(desktop)]
+    {
+        return Err(crate::Error::from("Photo scanning is only available on mobile devices"));
+    }
+}
+
+#[command]
+pub(crate) async fn import_photos<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<crate::models::FileImportResponse> {
+    #[cfg(mobile)]
+    {
+        return app.hillview().import_photos();
+    }
+    
+    #[cfg(desktop)]
+    {
+        return Err(crate::Error::from("Photo import is only available on mobile devices"));
+    }
+}

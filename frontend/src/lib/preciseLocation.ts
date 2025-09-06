@@ -190,13 +190,9 @@ export async function stopPreciseLocationUpdates(): Promise<void> {
     console.log('🢄📍 Stopping location tracking');
     
     if (TAURI_MOBILE) {
-        try {
-            // Just stop the Android service - listeners remain active
-            await invoke('plugin:hillview|stop_precise_location_listener');
-            console.log('🢄📍 Android precise location service stopped');
-        } catch (error) {
-            console.debug('🢄📍 Could not stop Android location service:', error);
-        }
+        // Just stop the Android service - listeners remain active
+        await invoke('plugin:hillview|stop_precise_location_listener');
+        console.log('🢄📍 Android precise location service stopped');
     } else {
         // Web: For now, don't clear the watch to keep it persistent
         // In the future, we could add a flag to control whether web geolocation 

@@ -45,10 +45,7 @@ def main():
     
     finally:
         # Cleanup
-        try:
-            test_runner.cleanup()
-        except:
-            pass
+        test_runner.cleanup()
     
     return 0
 

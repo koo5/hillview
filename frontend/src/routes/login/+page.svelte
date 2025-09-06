@@ -9,6 +9,10 @@
     import { getCurrentToken } from '$lib/auth.svelte';
     import { goBack, clearNavigationHistory } from '$lib/navigation.svelte';
     import { page } from '$app/stores';
+    import OAuthPolling from '../../components/OAuthPolling.svelte';
+    import { TAURI } from '$lib/tauri';
+    import { backendUrl } from '$lib/config';
+    import { openUrl } from '@tauri-apps/plugin-opener';
 
     let username = '';
     let password = '';
@@ -18,13 +22,18 @@
     let successMessage = '';
     let isLoading = false;
     let usernameGenerated = false;
-    let isMobileApp = false;
+
+    // OAuth polling state
+    let isPolling = false;
+    let pollingSessionId = '';
+    let pollingProgress = 0;
+    let pollingMessage = '';
 
     // Auto-fill dev credentials if in dev mode
     if (import.meta.env.VITE_DEV_MODE === 'true') {
         username = 'test';
         password = 'StrongTestPassword123!';
-        console.log('🢄[DEV] Auto-filled login credentials for development');
+        //console.log('🢄[DEV] Auto-filled login credentials for development');
     }
 
     // OAuth configuration
@@ -44,12 +53,9 @@
     };
 
     onMount(async () => {
-        // Detect if we're in a Tauri mobile app
-        try {
-            await invoke('plugin:hillview|get_auth_token');
-            isMobileApp = true;
-            console.log('🢄🔐 Mobile app detected');
+        console.log(`🢄🔐 Platform detected: ${TAURI ? 'Tauri app' : 'Web app'}`);
 
+        if (TAURI) {
             // Check if user already has valid auth from previous session
             const token = await getCurrentToken();
             if (token) {
@@ -57,9 +63,6 @@
                 myGoto('/');
                 return;
             }
-        } catch {
-            isMobileApp = false;
-            console.log('🢄🔐 Web app detected');
         }
 
         // Check if user is already logged in (for web)
@@ -115,25 +118,78 @@
             return;
         }
 
-        console.log(`🔐 Starting ${provider} OAuth flow (${isMobileApp ? 'mobile' : 'web'} mode)`);
-        const authUrl = buildOAuthUrl(provider, isMobileApp);
-        console.log('🢄🔐 Redirecting to:', authUrl);
+        console.log(`🔐 Starting ${provider} OAuth flow (${TAURI ? 'tauri polling' : 'web'} mode)`);
+        isLoading = true;
+        errorMessage = '';
 
-        if (isMobileApp) {
-            // Open in system browser using Tauri opener plugin
-            try {
-                const { openUrl } = await import('@tauri-apps/plugin-opener');
-                await openUrl(authUrl);
-                console.log('🢄🔐 Successfully opened OAuth URL in system browser');
-            } catch (error) {
-                console.error('🢄🔐 Failed to open system browser:', error);
-                // Fallback to WebView (will likely fail with 403)
-                window.location.href = authUrl;
+        if (TAURI) {
+            // Tauri app: use polling mechanism
+            // Step 1: Create OAuth session for polling
+            console.log('🔐 Creating OAuth polling session...');
+            const sessionResponse = await fetch(`${backendUrl}/auth/oauth-session`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            });
+
+            if (!sessionResponse.ok) {
+                throw new Error(`Failed to create OAuth session: ${sessionResponse.status}`);
             }
+
+            const sessionData = await sessionResponse.json();
+            const sessionId = sessionData.session_id;
+            console.log('🔐 Created polling session:', sessionId);
+
+            // Step 2: Build OAuth URL with session_id
+            const authUrl = `${backendUrl}/auth/oauth-redirect?provider=${provider}&redirect_uri=cz.hillview://auth&session_id=${sessionId}`;
+            console.log('🢄🔐 Opening OAuth URL with polling:', authUrl);
+
+            // Step 3: Open OAuth in system browser
+            await openUrl(authUrl);
+
+            // Step 4: Start polling for completion
+            console.log('🔐 Starting OAuth polling...');
+            isPolling = true;
+            pollingSessionId = sessionId;
+            pollingProgress = 0;
+            pollingMessage = 'Complete login in the browser, then return here...';
+            isLoading = false;
         } else {
-            // Web app - use normal redirect
+            console.log('🢄 Web OAuth redirect');
+            const authUrl = buildOAuthUrl(provider, TAURI);
+            console.log('🢄🔐 Redirecting to:', authUrl);
             window.location.href = authUrl;
         }
+    }
+
+    function handleOAuthSuccess(event: CustomEvent) {
+        console.log('🔐 OAuth polling completed successfully');
+        pollingMessage = 'Login successful! Redirecting...';
+        setTimeout(() => {
+            isPolling = false;
+            goBack('/');
+        }, 1000);
+    }
+
+    function handleOAuthError(event: CustomEvent) {
+        console.error('🔐 OAuth polling failed:', event.detail.message);
+        isPolling = false;
+        errorMessage = event.detail.message || 'OAuth login failed. Please try again.';
+        isLoading = false;
+    }
+
+    function handleOAuthCancel() {
+        console.log('🔐 OAuth polling cancelled by user');
+        isPolling = false;
+        pollingMessage = '';
+        errorMessage = '';
+        isLoading = false;
+    }
+
+    function handleOAuthProgress(event: CustomEvent) {
+        pollingProgress = event.detail.progress;
+        pollingMessage = event.detail.message;
     }
 
     function generateUsername() {
@@ -171,7 +227,17 @@
             <div class="success-message">{successMessage}</div>
         {/if}
 
-        <form on:submit|preventDefault={handleSubmit}>
+        {#if isPolling}
+            <OAuthPolling
+                sessionId={pollingSessionId}
+                isActive={isPolling}
+                on:success={handleOAuthSuccess}
+                on:error={handleOAuthError}
+                on:cancel={handleOAuthCancel}
+                on:progress={handleOAuthProgress}
+            />
+        {:else}
+            <form on:submit|preventDefault={handleSubmit}>
             {#if !isLogin}
                 <div class="form-group">
                     <label for="email">
@@ -227,15 +293,17 @@
                     {isLogin ? 'Create Account' : 'Back to Login'}
                 </button>
             </div>
-        </form>
+            </form>
+        {/if}
 
-        <div class="divider">
-            <span>OR</span>
-        </div>
+        {#if !isPolling}
+            <div class="divider">
+                <span>OR</span>
+            </div>
 
-		VITE_DEV_MODE: {import.meta.env.VITE_DEV_MODE}
+            VITE_DEV_MODE: {import.meta.env.VITE_DEV_MODE}
 
-        <div class="oauth-buttons">
+            <div class="oauth-buttons">
             <button
                 class="oauth-button google"
                 on:click={() => handleOAuthLogin('google')}
@@ -258,7 +326,8 @@
                 <Github size={20} />
                 Continue with GitHub
             </button>
-        </div>
+            </div>
+        {/if}
 
     </div>
 </div>

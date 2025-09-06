@@ -26,26 +26,26 @@ export async function enumerateCameraDevices(): Promise<CameraDevice[]> {
 
         const devices = await navigator.mediaDevices.enumerateDevices();
         const videoDevices = devices.filter(device => device.kind === 'videoinput');
-        
+
         console.log('🢄[CAMERAS] Found video devices:', videoDevices.length);
-        
+
         const cameraDevices: CameraDevice[] = videoDevices.map(device => {
             const label = device.label.toLowerCase();
             let facingMode: 'front' | 'back' | 'unknown' = 'unknown';
             let isPreferred = false;
-            
+
             // Determine facing mode from label
             if (label.includes('front') || label.includes('user') || label.includes('selfie')) {
                 facingMode = 'front';
             } else if (label.includes('back') || label.includes('rear') || label.includes('environment')) {
                 facingMode = 'back';
-                
+
                 // Mark as preferred if it's a standard back camera (not wide/ultra/telephoto)
                 if (!label.includes('wide') && !label.includes('ultra') && !label.includes('telephoto')) {
                     isPreferred = true;
                 }
             }
-            
+
             return {
                 deviceId: device.deviceId,
                 label: device.label || `Camera ${videoDevices.indexOf(device) + 1}`,
@@ -53,7 +53,7 @@ export async function enumerateCameraDevices(): Promise<CameraDevice[]> {
                 isPreferred
             };
         });
-        
+
         // Sort cameras: preferred back cameras first, then other back cameras, then front cameras
         cameraDevices.sort((a, b) => {
             if (a.isPreferred && !b.isPreferred) return -1;
@@ -62,17 +62,18 @@ export async function enumerateCameraDevices(): Promise<CameraDevice[]> {
             if (a.facingMode !== 'back' && b.facingMode === 'back') return 1;
             return a.label.localeCompare(b.label);
         });
-        
-        console.log('🢄[CAMERAS] Processed cameras:', cameraDevices.map(c => ({
+
+        console.log('🢄[CAMERAS] Processed cameras:', JSON.stringify(
+			cameraDevices.map(c => ({
             label: c.label,
             facing: c.facingMode,
             preferred: c.isPreferred,
             id: c.deviceId.slice(0, 8) + '...'
-        })));
-        
+        }))));
+
         availableCameras.set(cameraDevices);
         cameraEnumerationSupported.set(true);
-        
+
         return cameraDevices;
     } catch (error) {
         console.error('🢄[CAMERAS] Failed to enumerate devices:', error);
@@ -85,11 +86,11 @@ export function getPreferredBackCamera(cameras: CameraDevice[]): CameraDevice | 
     // First try to find a preferred back camera
     const preferred = cameras.find(c => c.facingMode === 'back' && c.isPreferred);
     if (preferred) return preferred;
-    
+
     // Fallback to any back camera
     const anyBack = cameras.find(c => c.facingMode === 'back');
     if (anyBack) return anyBack;
-    
+
     // Last resort: any camera
     return cameras[0] || null;
 }

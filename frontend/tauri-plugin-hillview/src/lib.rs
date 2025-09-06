@@ -51,6 +51,10 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
       commands::store_auth_token,
       commands::get_auth_token,
       commands::clear_auth_token,
+      // Photo database bridge commands
+      commands::get_device_photos,
+      commands::refresh_photo_scan,
+      commands::import_photos,
       ])
     .setup(|app, api| {
       #[cfg(mobile)]

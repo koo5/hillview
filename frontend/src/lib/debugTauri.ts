@@ -1,5 +1,6 @@
-import { TAURI, TAURI_MOBILE, TAURI_DESKTOP } from './tauri';
+/*
 
+import { TAURI, TAURI_MOBILE, TAURI_DESKTOP } from './tauri';
 // Debug helper to check Tauri availability
 export function debugTauriStatus() {
     console.log('🢄=== TAURI DEBUG INFO ===');
@@ -11,7 +12,7 @@ export function debugTauriStatus() {
     console.log('🢄window.__TAURI_INTERNALS__:', (window as any).__TAURI_INTERNALS__);
     console.log('🢄navigator.userAgent:', navigator.userAgent);
     console.log('🢄Is Android:', /Android/i.test(navigator.userAgent));
-    
+
     if ((window as any).__TAURI__) {
         console.log('🢄Tauri modules available:');
         for (const key in (window as any).__TAURI__) {
@@ -26,8 +27,9 @@ if (typeof window !== 'undefined') {
         console.log('🢄🔍 Running Tauri debug on window load');
         debugTauriStatus();
     });
-    
+
     // Also run immediately
     console.log('🢄🔍 Running Tauri debug immediately');
     debugTauriStatus();
 }
+*/

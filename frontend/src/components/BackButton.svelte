@@ -1,6 +1,7 @@
 <script lang="ts">
     import { ArrowLeft } from 'lucide-svelte';
     import { goBack, canNavigateBack, getPreviousPath } from '$lib/navigation.svelte';
+    import { goto } from '$app/navigation';
 
     export let fallbackHref: string = '/';
     export let title: string = 'Back';
@@ -11,7 +12,7 @@
             goBack(fallbackHref);
         } else {
             // Fallback to traditional navigation
-            import('$app/navigation').then(({ goto }) => goto(fallbackHref));
+            goto(fallbackHref);
         }
     }
 

@@ -28,19 +28,27 @@ USER_ACCOUNTS = os.getenv("USER_ACCOUNTS", "false").lower() in ("true", "1", "ye
 @asynccontextmanager
 async def lifespan(app: FastAPI):
 	# Startup
-	log.info("Application startup initiated")
+	log.info(f"Application startup initiated, DEV_MODE: {os.getenv('DEV_MODE', 'false')}")
 
-	log.info(f"DEV_MODE: {os.getenv('DEV_MODE', 'false')}")
-
-	# Log rate limit configuration
-	rate_limit_config.log_configuration()
+	# Start OAuth session cleanup task
+	try:
+		from user_routes import start_session_cleanup
+		await start_session_cleanup()
+	except Exception as e:
+		log.error(f"Failed to start OAuth session cleanup: {e}")
 
 	log.info("Application startup completed")
 
 	yield
 
-	# Shutdown (if needed in the future)
-	log.info("Application shutdown")
+	# Shutdown
+	log.info("Application shutdown initiated")
+	try:
+		from user_routes import stop_session_cleanup
+		await stop_session_cleanup()
+	except Exception as e:
+		log.error(f"Failed to stop OAuth session cleanup: {e}")
+	log.info("Application shutdown completed")
 
 app = FastAPI(title="Hillview API", description="API for Hillview application", lifespan=lifespan)
 

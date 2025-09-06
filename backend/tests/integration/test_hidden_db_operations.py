@@ -86,23 +86,14 @@ class TestHiddenDatabaseOperations:
         try:
             # Clean up hidden records
             for hidden_photo in self.test_hidden_photos:
-                try:
-                    await db.delete(hidden_photo)
-                except:
-                    pass
+                await db.delete(hidden_photo)
             
             for hidden_user in self.test_hidden_users:
-                try:
-                    await db.delete(hidden_user)
-                except:
-                    pass
+                await db.delete(hidden_user)
             
             # Clean up test users
             for user in self.test_users:
-                try:
-                    await db.delete(user)
-                except:
-                    pass
+                await db.delete(user)
             
             await db.commit()
             print("✓ Database cleanup complete")

@@ -82,10 +82,7 @@ class TestResetUploadPoll:
 
         finally:
             # Clean up temp file
-            try:
-                os.unlink(temp_path)
-            except:
-                pass
+            os.unlink(temp_path)
 
     def create_simple_test_image(self) -> bytes:
         """Create a simple test image without GPS data as fallback"""

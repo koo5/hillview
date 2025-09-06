@@ -6,6 +6,7 @@ import { TAURI, TAURI_MOBILE } from './tauri';
 import { auth, type User, type AuthState } from './authStore';
 import { invoke } from '@tauri-apps/api/core';
 import { myGoto } from './navigation.svelte';
+import { http } from '$lib/http';
 
 // Re-export for backward compatibility
 export type { User, AuthState };
@@ -19,15 +20,11 @@ async function configureUploadManager() {
         return;
     }
 
-    try {
-        console.log('📤 [AUTH] Configuring upload manager with backend URL:', backendUrl);
-        const result = await invoke('plugin:hillview|set_upload_config', {
-            config:{serverUrl: backendUrl}
-        });
-        console.log('📤 [AUTH] Upload manager configured successfully:', result);
-    } catch (error) {
-        console.error('📤 [AUTH] Failed to configure upload manager:', error);
-    }
+    console.log('📤 [AUTH] Configuring upload manager with backend URL:', backendUrl);
+    const result = await invoke('plugin:hillview|set_upload_config', {
+        config:{serverUrl: backendUrl}
+    });
+    console.log('📤 [AUTH] Upload manager configured successfully:', result);
 }
 
 // Shared function to complete authentication after successful login (exported for authCallback)
@@ -37,7 +34,6 @@ export async function completeAuthentication(tokenData: {
     expires_at: string;
     token_type?: string;
 }, source: 'login' | 'oauth' = 'login'): Promise<boolean> {
-    try {
         console.log(`🢄[AUTH] Completing ${source} authentication...`);
 
         // IMPORTANT: Configure upload manager BEFORE storing tokens
@@ -85,33 +81,35 @@ export async function completeAuthentication(tokenData: {
         console.log('🢄[AUTH] Auth state after authentication:', debugAuth());
 
         return true;
-    } catch (error) {
-        console.error(`🢄[AUTH] ${source} completion error:`, error);
-        return false;
-    }
 }
 
-// Initialize auth state from TokenManager on startup
-if (typeof window !== 'undefined') {
+// Token manager lazy initialization - will initialize on first use
+let authInitialized = false;
+
+async function ensureAuthInitialized() {
+    if (authInitialized || typeof window === 'undefined') {
+        return;
+    }
+    authInitialized = true;
+
     const tokenManager = createTokenManager();
-    tokenManager.getValidToken().then(token => {
-        if (token) {
-            console.log('🢄[AUTH]  Valid token found on startup');
-            auth.update(state => ({
-                ...state,
-                isAuthenticated: true
-            }));
-            // Fetch user data
-            fetchUserData();
-        } else {
-            console.log('🢄[AUTH]  No valid token found on startup');
-        }
-    });
+    const token = await tokenManager.getValidToken();
+
+    if (token) {
+        console.log('🢄[AUTH] Valid token found during initialization');
+        auth.update(state => ({
+            ...state,
+            isAuthenticated: true
+        }));
+        fetchUserData();
+    } else {
+        console.log('🢄[AUTH] No valid token found during initialization');
+    }
 }
 
 // Auth functions
 export async function login(username: string, password: string) {
-    try {
+    await ensureAuthInitialized();
         console.log('🢄[AUTH] Logging in with:', { username });
         const response = await fetch(backendUrl+'/auth/token', {
             method: 'POST',
@@ -137,14 +135,9 @@ export async function login(username: string, password: string) {
 
         // Use shared authentication completion
         return await completeAuthentication(data, 'login');
-    } catch (error) {
-        console.error('🢄[AUTH] Login error:', error);
-        return false;
-    }
 }
 
 export async function register(email: string, username: string, password: string) {
-    try {
         console.log('🢄[AUTH] Registering user:', { email, username });
         const response = await fetch(backendUrl+'/auth/register', {
             method: 'POST',
@@ -173,14 +166,9 @@ export async function register(email: string, username: string, password: string
         }
 
         return true;
-    } catch (error) {
-        console.error('🢄[AUTH] Registration error:', error);
-        return false;
-    }
 }
 
 export async function oauthLogin(provider: string, code: string, redirectUri?: string) {
-    try {
         const response = await fetch(backendUrl+'/auth/oauth', {
             method: 'POST',
             headers: {
@@ -204,10 +192,6 @@ export async function oauthLogin(provider: string, code: string, redirectUri?: s
 
         // Use shared authentication completion
         return await completeAuthentication(data, 'oauth');
-    } catch (error) {
-        console.error('🢄[AUTH]o OAuth login error:', error);
-        return false;
-    }
 }
 
 export async function logout(reason?: string) {
@@ -245,6 +229,7 @@ export async function isTokenExpired(): Promise<boolean> {
 
 // Helper to get current valid token
 export async function getCurrentToken(): Promise<string | null> {
+    await ensureAuthInitialized();
     const tokenManager = createTokenManager();
     return await tokenManager.getValidToken();
 }
@@ -263,7 +248,6 @@ export async function checkTokenValidity(): Promise<boolean> {
 // Deprecated - use HttpClient from $lib/http instead
 export async function authenticatedFetch(url: string, options: RequestInit = {}): Promise<Response> {
     console.warn('🢄[AUTH] authenticatedFetch is deprecated. Use HttpClient from $lib/http instead');
-    const { http } = await import('$lib/http');
 
     // Convert to relative URL if it starts with backendUrl
     const relativeUrl = url.startsWith(backendUrl) ? url.substring(backendUrl.length) : url;
@@ -299,7 +283,6 @@ export async function fetchUserData() {
         return null;
     }
 
-    try {
         console.log('🢄[AUTH] Making API request to /api/auth/me');
         const response = await fetch(backendUrl+'/auth/me', {
             headers: {
@@ -343,10 +326,6 @@ export async function fetchUserData() {
 
         console.log('🢄[AUTH] === USER DATA FETCH COMPLETE ===');
         return userData;
-    } catch (error) {
-        console.error('🢄[AUTH] ERROR FETCHING USER DATA:', error);
-        return null;
-    }
 }
 
 export async function fetchUserPhotos() {
@@ -362,7 +341,6 @@ export async function fetchUserPhotos() {
         return null;
     }
 
-    try {
         const response = await fetch(backendUrl+'/photos', {
             headers: {
                 'Authorization': `Bearer ${tokenToUse}`
@@ -383,29 +361,19 @@ export async function fetchUserPhotos() {
         userPhotos.set(photos);
 
         return photos;
-    } catch (error) {
-        console.error('🢄[AUTH] Error fetching user photos:', error);
-        return null;
-    }
 }
 
 // Check token validity on app start
 export async function checkAuth() {
     const a = get(auth);
 
-    console.log('🢄[AUTH] === CHECKING AUTH STATE ===');
-    console.log('🢄[AUTH] - isAuthenticated:', a.isAuthenticated);
-    console.log('🢄[AUTH] - Has user:', !!a.user);
+    console.log('🢄[AUTH] - isAuthenticated:', a.isAuthenticated, 'a.user:', JSON.stringify(a.user));
 
     // Check token validity through TokenManager
     const validToken = await getCurrentToken();
     //console.log('🢄[AUTH] - Has valid token:', !!validToken);
     if (validToken) {
         console.log('🢄[AUTH]3 - Token preview:', validToken.substring(0, 10) + '...');
-    }
-
-    if (a.user) {
-        console.log('🢄[AUTH] - Username:', a.user.username, 'ID:', a.user.id);
     }
 
     // If we have a valid token, fetch user data
@@ -426,8 +394,6 @@ export async function checkAuth() {
         // Not authenticated
         console.log('🢄[AUTH] Not authenticated');
     }
-
-    console.log('🢄[AUTH] === AUTH CHECK COMPLETE ===');
 }
 
 // Debug function to log auth state

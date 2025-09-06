@@ -83,7 +83,7 @@ services:
       - PICS_URL=${PICS_URL:-}
       - WORKER_PORT=8056
       - WORKER_HOST=0.0.0.0
-      - API_URL=http://api:8055
+      - API_URL=http://api:8055/api
       - DEV_MODE=${DEV_MODE:-}
 
 volumes:

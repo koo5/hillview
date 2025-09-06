@@ -112,7 +112,6 @@
 
         // Check camera permission status using Tauri if available
         if (isCameraPermissionCheckAvailable() && tauriCamera) {
-            try {
                 const hasPermission = await tauriCamera.checkCameraPermission();
                 console.log('🢄[CAMERA] Camera permission status from Tauri:', hasPermission);
 
@@ -126,9 +125,6 @@
                     needsPermission = true;
                     return;
                 }
-            } catch (error) {
-                console.warn('🢄[CAMERA] Failed to check camera permission via Tauri, falling back to standard flow:', error);
-            }
         }
 
         // Try to acquire permission lock first
@@ -362,7 +358,7 @@
             return;
         }
 
-        console.log('🢄Capture event:', event.detail);
+        console.log('🢄Capture event:', JSON.stringify(event.detail));
 
         const {mode} = event.detail;
         const timestamp = Date.now();
@@ -387,7 +383,11 @@
         });
 
         const context = canvas.getContext('2d');
-        if (!context) return;
+        if (!context)
+		{
+			console.error('🢄Capture error: Unable to get canvas context');
+			return;
+		}
 
         try {
             // Set canvas size to match video
@@ -418,6 +418,7 @@
             // Remove placeholder on error
             removePlaceholder(tempId);
         }
+		console.log('🢄Capture process initiated');
     }
 
     function close() {
@@ -533,12 +534,8 @@
 
         // Listen for native camera permission granted event
         if (isCameraPermissionCheckAvailable()) {
-            try {
-                console.log('🢄[CAMERA] Setting up camera permission event listener...');
                 const unlisten = await addPluginListener('hillview', 'camera-permission-granted', async (event) => {
-                    console.log('🢄[CAMERA] *** CAMERA PERMISSION EVENT RECEIVED ***', event);
-                    console.log('🢄[CAMERA] Event data:', JSON.stringify(event));
-                    console.log('🢄[CAMERA] Current state - show:', show, 'cameraError:', cameraError, 'cameraReady:', cameraReady);
+                    console.log('🢄[CAMERA] CAMERA PERMISSION Event data:', JSON.stringify(event));
 
                     if (show && cameraError) {
                         console.log('🢄[CAMERA] Conditions met - retrying camera after native permission granted');
@@ -564,9 +561,6 @@
                     console.log('🢄[CAMERA] Cleaning up camera permission event listener');
                     if (unlisten) (unlisten as any)();
                 });
-            } catch (error) {
-                console.error('🢄[CAMERA] Failed to setup camera permission event listener:', error);
-            }
         } else {
             console.log('🢄[CAMERA] Camera permission check not available - skipping event listener');
         }
@@ -574,7 +568,6 @@
         // Start simple permission polling from Kotlin
         if (isCameraPermissionCheckAvailable() && tauriCamera) {
             cameraPermissionPollInterval = setInterval(async () => {
-                try {
                     const hasPermission = await tauriCamera!.checkCameraPermission();
                     if (hasPermission && cameraError === 'Camera access required') {
                         console.log('🢄[CAMERA POLL] Permission granted, retrying camera');
@@ -582,9 +575,6 @@
                         needsPermission = false;
                         await startCamera();
                     }
-                } catch (error) {
-                    console.error('🢄[CAMERA POLL] Error:', error);
-                }
             }, 1000);
         }
     });

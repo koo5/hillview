@@ -212,23 +212,21 @@ describe('Mobile Detection', () => {
         // This would be tested in a component test where we can mock the full environment
         // For now, we'll create a simple function to test
 
-        const detectMobileApp = async () => {
-            try {
-                await mockInvoke('get_auth_token');
-                return true;
-            } catch {
-                return false;
-            }
+        // Use proper platform detection instead of try/catch
+        const detectMobileApp = () => {
+            // In real code, this would import { TAURI } from '$lib/tauri'
+            // For tests, we simulate the detection
+            return typeof (globalThis as any).__TAURI__ !== 'undefined';
         };
 
         // Test mobile detection success
-        mockInvoke.mockResolvedValueOnce({ success: true });
-        const isMobile = await detectMobileApp();
+        const isMobile = detectMobileApp();
         expect(isMobile).toBe(true);
 
         // Test mobile detection failure (web environment)
-        mockInvoke.mockRejectedValueOnce(new Error('Not in Tauri'));
-        const isWeb = await detectMobileApp();
+        // In web environment, __TAURI__ would be undefined
+        delete (globalThis as any).__TAURI__;
+        const isWeb = detectMobileApp();
         expect(isWeb).toBe(false);
     });
 });

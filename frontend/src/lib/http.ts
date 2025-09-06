@@ -23,11 +23,17 @@ export class TokenExpiredError extends Error implements ApiError {
 
 export class HttpClient {
   private baseURL: string;
-  private tokenManager: TokenManager;
+  private tokenManager: TokenManager | null = null;
   
   constructor(baseURL: string) {
     this.baseURL = baseURL;
-    this.tokenManager = createTokenManager();
+  }
+  
+  private getTokenManager(): TokenManager {
+    if (!this.tokenManager) {
+      this.tokenManager = createTokenManager();
+    }
+    return this.tokenManager;
   }
   
   private async makeRequest(url: string, options: RequestInit = {}): Promise<Response> {
@@ -35,7 +41,7 @@ export class HttpClient {
     
     try {
       // Get valid token (will auto-refresh if needed)
-      const token = await this.tokenManager.getValidToken();
+      const token = await this.getTokenManager().getValidToken();
       
       // Prepare headers
       const headers: Record<string, string> = {
@@ -57,10 +63,10 @@ export class HttpClient {
         
         try {
           // Try to refresh the token
-          const refreshSuccess = await this.tokenManager.refreshToken();
+          const refreshSuccess = await this.getTokenManager().refreshToken();
           if (refreshSuccess) {
             // Retry the request with the new token
-            const newToken = await this.tokenManager.getValidToken();
+            const newToken = await this.getTokenManager().getValidToken();
             if (newToken) {
               const retryHeaders = {
                 ...headers,
@@ -177,7 +183,7 @@ export class HttpClient {
     
     try {
       // Get valid token (will auto-refresh if needed)
-      const token = await this.tokenManager.getValidToken();
+      const token = await this.getTokenManager().getValidToken();
       
       return new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
@@ -198,9 +204,9 @@ export class HttpClient {
             
             try {
               // Try to refresh the token and retry upload
-              const refreshSuccess = await this.tokenManager.refreshToken();
+              const refreshSuccess = await this.getTokenManager().refreshToken();
               if (refreshSuccess) {
-                const newToken = await this.tokenManager.getValidToken();
+                const newToken = await this.getTokenManager().getValidToken();
                 if (newToken) {
                   // Create new request with fresh token
                   const retryXhr = new XMLHttpRequest();

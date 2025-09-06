@@ -3,6 +3,7 @@ import { TokenExpiredError, TokenRefreshError } from './tokenManager';
 import { backendUrl } from './config';
 import { auth } from './authStore';
 import { clientCrypto } from './clientCrypto';
+import { http } from '$lib/http';
 
 /**
  * Web Token Manager
@@ -168,7 +169,6 @@ export class WebTokenManager implements TokenManager {
             const keyInfo = await clientCrypto.getPublicKeyInfo();
             
             // Use the HttpClient for authenticated requests
-            const { http } = await import('$lib/http');
             
             const response = await http.post('/auth/register-client-key', {
                 public_key_pem: keyInfo.publicKeyPem,

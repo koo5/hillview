@@ -14,7 +14,7 @@ let platformName = 'browser';
 if (TAURI && hasWindow) {
     try {
         platformName = 'android' // window.__TAURI_OS_PLUGIN_INTERNALS__  //  platform(); // TypeError: Cannot read properties of undefined (reading 'platform')
-        console.log('🢄🔍 [TAURI] Platform detected:', platformName);
+        //console.log('🢄🔍 [TAURI] Platform detected:', platformName);
     } catch (error) {
         console.warn('🢄🔍 [TAURI] Failed to detect Tauri platform:', error);
     }
@@ -116,23 +116,13 @@ export function isSensorAvailable(): boolean {
 // Camera permission checking
 export const tauriCamera = TAURI ? {
     checkCameraPermission: async (): Promise<boolean> => {
-        try {
-            const result = await invoke('plugin:hillview|check_camera_permission');
-            return (result as { granted: boolean }).granted;
-        } catch (error) {
-            console.error('🎥 Failed to check camera permission:', error);
-            return false;
-        }
+        const result = await invoke('plugin:hillview|check_camera_permission');
+        return (result as { granted: boolean }).granted;
     },
-    
+
     requestCameraPermission: async (): Promise<{ granted: boolean; error?: string }> => {
-        try {
-            const result = await invoke('plugin:hillview|request_camera_permission');
-            return result as { granted: boolean; error?: string };
-        } catch (error) {
-            console.error('🎥 Failed to request camera permission:', error);
-            return { granted: false, error: error instanceof Error ? error.message : 'Unknown error' };
-        }
+        const result = await invoke('plugin:hillview|request_camera_permission');
+        return result as { granted: boolean; error?: string };
     }
 } : null;
 

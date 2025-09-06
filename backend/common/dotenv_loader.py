@@ -77,13 +77,10 @@ def load_dotenv_with_logging(
                     logger.warning(f"{service_name}: Missing {len(missing_vars)} expected variables: {', '.join(missing_vars[:5])}{'...' if len(missing_vars) > 5 else ''}")
                     logger.warning(f"{service_name}: This may indicate partial .env file parsing due to syntax errors")
                     # Check for common parsing issues
-                    try:
-                        with open(env_file, 'r') as f:
-                            content = f.read()
-                            if '@' in content or '`' in content or '!' in content:
-                                logger.warning(f"{service_name}: .env file contains potentially problematic characters that may cause parsing to stop")
-                    except:
-                        pass
+                    with open(env_file, 'r') as f:
+                        content = f.read()
+                        if '@' in content or '`' in content or '!' in content:
+                            logger.warning(f"{service_name}: .env file contains potentially problematic characters that may cause parsing to stop")
                 else:
                     logger.info(f"{service_name}: All expected variables loaded successfully")
                 

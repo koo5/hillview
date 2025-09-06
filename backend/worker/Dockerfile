@@ -63,6 +63,8 @@ RUN mkdir -p /home/worker/.config/Ultralytics
 
 RUN chown -R worker:worker /app/uploads
 RUN chown -R worker:worker /app/pics
+RUN chown -R worker:worker /home/worker/
+RUN chown -R worker:worker /home/worker/.config/
 RUN chown -R worker:worker /home/worker/.config/Ultralytics
 
 # Copy application code

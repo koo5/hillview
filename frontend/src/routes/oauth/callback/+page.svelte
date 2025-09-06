@@ -3,23 +3,63 @@
     import { oauthLogin } from '$lib/auth.svelte';
     import Spinner from '../../../components/Spinner.svelte';
     import { clearNavigationHistory, myGoto } from '$lib/navigation.svelte';
+    import { handleAuthCallback } from '$lib/authCallback';
 
     let status = 'Processing your login...';
     let error: string | null = null;
 
     onMount(async () => {
         try {
+            // Check if this is a mobile browser within the Tauri app
+            const isMobileApp = window.navigator.userAgent.includes('hillview') || !!(window as any).__TAURI_INTERNALS__;
+            
+            // Check if we have OAuth callback parameters
             const urlParams = new URLSearchParams(window.location.search);
             const code = urlParams.get('code');
-            const state = urlParams.get('state'); // Provider name
+            const state = urlParams.get('state');
             const errorParam = urlParams.get('error');
+            
+            // Check if we have a deep link token (fallback case)
+            const token = urlParams.get('token');
+            const expires_at = urlParams.get('expires_at');
             
             if (errorParam) {
                 throw new Error(`OAuth error: ${errorParam}`);
             }
             
+            // Handle deep link token case (when browser intercepted the deep link)
+            if (token && expires_at && isMobileApp) {
+                console.log('🢄🔐 Handling intercepted deep link token in browser');
+                status = 'Processing authentication...';
+                
+                // Handle auth callback
+                const deepLinkUrl = `cz.hillview://auth?token=${token}&expires_at=${expires_at}`;
+                
+                const success = await handleAuthCallback(deepLinkUrl);
+                if (success) {
+                    status = 'Login successful! Redirecting...';
+                    setTimeout(() => {
+                        myGoto('/');
+                    }, 1000);
+                    return;
+                } else {
+                    throw new Error('Failed to process authentication token');
+                }
+            }
+            
+            // Handle standard OAuth code exchange
             if (!code || !state) {
-                throw new Error('Invalid OAuth callback parameters');
+                // If we're in mobile app without proper parameters, show helpful message
+                if (isMobileApp) {
+                    status = 'Please try logging in again';
+                    error = 'OAuth flow was interrupted. Please return to the app and try again.';
+                    setTimeout(() => {
+                        myGoto('/login');
+                    }, 3000);
+                    return;
+                } else {
+                    throw new Error('Invalid OAuth callback parameters');
+                }
             }
             
             // Parse provider from state (format: "provider:redirect_uri")

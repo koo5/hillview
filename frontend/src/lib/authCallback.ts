@@ -3,6 +3,8 @@ import { backendUrl } from './config';
 import { TAURI } from './tauri';
 import { completeAuthentication } from './auth.svelte';
 import { myGoto } from './navigation.svelte';
+import { invoke } from '@tauri-apps/api/core';
+import { onOpenUrl } from '@tauri-apps/plugin-deep-link';
 
 export interface AuthToken {
     token: string;
@@ -98,17 +100,11 @@ export async function getStoredToken(): Promise<string | null> {
     if (!TAURI) {
         return null;
     }
-    try {
-        const { invoke } = await import('@tauri-apps/api/core');
-        const result = await invoke('plugin:hillview|get_auth_token') as AuthTokenResponse;
+    const result = await invoke('plugin:hillview|get_auth_token') as AuthTokenResponse;
         if (result.success && result.token) {
             return result.token;
         }
         return null;
-    } catch (error) {
-        console.error('🢄🔐 Error getting stored token:', error);
-        return null;
-    }
 }
 
 /**
@@ -118,14 +114,8 @@ export async function clearStoredToken(): Promise<boolean> {
     if (!TAURI) {
         return false;
     }
-    try {
-        const { invoke } = await import('@tauri-apps/api/core');
-        const result = await invoke('plugin:hillview|clear_auth_token') as BasicResponse;
-        return result.success;
-    } catch (error) {
-        console.error('🢄🔐 Error clearing token:', error);
-        return false;
-    }
+    const result = await invoke('plugin:hillview|clear_auth_token') as BasicResponse;
+    return result.success;
 }
 
 /**
@@ -135,9 +125,7 @@ export async function hasValidAuth(): Promise<boolean> {
     if (!TAURI) {
         return false;
     }
-    try {
-        const { invoke } = await import('@tauri-apps/api/core');
-        const result = await invoke('get_auth_token') as AuthTokenResponse;
+    const result = await invoke('get_auth_token') as AuthTokenResponse;
         if (!result.success || !result.token) {
             return false;
         }
@@ -160,10 +148,6 @@ export async function hasValidAuth(): Promise<boolean> {
         }
 
         return true;
-    } catch (error) {
-        console.error('🢄🔐 Error checking auth:', error);
-        return false;
-    }
 }
 
 /**
@@ -176,12 +160,8 @@ export async function setupDeepLinkListener(): Promise<void> {
         return;
     }
 
-    try {
-        // Dynamically import the deep-link plugin only when in Tauri
-        const { onOpenUrl } = await import('@tauri-apps/plugin-deep-link');
-
-        // Listen for deep link URLs
-        const unlisten = await onOpenUrl((urls) => {
+    // Listen for deep link URLs
+    const unlisten = await onOpenUrl((urls) => {
             console.log('🢄🔗 Deep link received:', urls);
 
             for (const url of urls) {
@@ -194,11 +174,8 @@ export async function setupDeepLinkListener(): Promise<void> {
             }
         });
 
-        console.log('🢄🔗 Deep link listener set up successfully');
+        //console.log('🢄🔗 Deep link listener set up successfully');
         // Store unlisten function if needed, but don't return it since function returns void
-    } catch (error) {
-        console.error('🢄🔗 Error setting up deep link listener:', error);
-    }
 }
 
 /**
