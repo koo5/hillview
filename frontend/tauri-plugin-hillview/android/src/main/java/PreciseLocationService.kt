@@ -30,7 +30,6 @@ data class PreciseLocationData(
 
 class PreciseLocationService(
     private val activity: Activity,
-    private val permissionManager: PermissionManager,
     private val onLocationUpdate: (PreciseLocationData) -> Unit,
     private val onLocationStopped: (() -> Unit)? = null
 ) {
@@ -210,10 +209,10 @@ class PreciseLocationService(
         Log.i(TAG, "📍 PERM: Requesting location permissions...")
 
         // Import the plugin class to access the permission mutex
-        val lockAcquired = permissionManager.acquirePermissionLock("location")
+        val lockAcquired = cz.hillview.plugin.ExamplePlugin.acquirePermissionLock("location")
         if (!lockAcquired) {
             Log.w(TAG, "📍 PERM: Cannot request location permission - another permission dialog is active")
-            Log.w(TAG, "📍 PERM: Currently held by: ${permissionManager.getPermissionLockHolder()}")
+            Log.w(TAG, "📍 PERM: Currently held by: ${cz.hillview.plugin.ExamplePlugin.getPermissionLockHolder()}")
 
             // Check retry limit to prevent infinite loops
             if (permissionRetryCount >= maxPermissionRetries) {
@@ -275,7 +274,7 @@ class PreciseLocationService(
             cancelPermissionTimeout()
 
             // Release the permission lock now that the dialog is dismissed
-            val lockReleased = permissionManager.releasePermissionLock("location")
+            val lockReleased = cz.hillview.plugin.ExamplePlugin.releasePermissionLock("location")
             if (lockReleased) {
                 Log.i(TAG, "📍 PERM: Permission lock released by location service")
             } else {
@@ -440,7 +439,7 @@ class PreciseLocationService(
         cancelPermissionTimeout()
 
         // CRITICAL FIX: Release any held permission lock when stopping
-        val lockReleased = permissionManager.releasePermissionLock("location")
+        val lockReleased = cz.hillview.plugin.ExamplePlugin.releasePermissionLock("location")
         if (lockReleased) {
             Log.i(TAG, "📍 PERM: Released location permission lock during stop")
         }
@@ -461,7 +460,7 @@ class PreciseLocationService(
 
         permissionTimeoutRunnable = Runnable {
             Log.w(TAG, "📍 TIMEOUT: Permission dialog timeout - auto-releasing lock")
-            val lockReleased = permissionManager.releasePermissionLock("location")
+            val lockReleased = cz.hillview.plugin.ExamplePlugin.releasePermissionLock("location")
             if (lockReleased) {
                 Log.i(TAG, "📍 TIMEOUT: Permission lock released due to timeout")
             }
@@ -500,7 +499,7 @@ class PreciseLocationService(
         Log.i(TAG, "📍 CLEANUP: Reset permission retry count")
 
         // Attempt to release any held permission lock
-        val lockReleased = permissionManager.releasePermissionLock("location")
+        val lockReleased = cz.hillview.plugin.ExamplePlugin.releasePermissionLock("location")
         if (lockReleased) {
             Log.i(TAG, "📍 CLEANUP: Released location permission lock during emergency cleanup")
         } else {
