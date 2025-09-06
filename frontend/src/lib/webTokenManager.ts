@@ -2,6 +2,7 @@ import type { TokenManager, TokenData } from './tokenManager';
 import { TokenExpiredError, TokenRefreshError } from './tokenManager';
 import { backendUrl } from './config';
 import { auth } from './authStore';
+import { logout } from './auth.svelte';
 import { clientCrypto } from './clientCrypto';
 import { http } from '$lib/http';
 
@@ -37,9 +38,16 @@ export class WebTokenManager implements TokenManager {
                 return null;
             }
             
-            // Check if token is expired
-            if (await this.isTokenExpired()) {
-                console.log(`${this.LOG_PREFIX} Token expired, attempting refresh`);
+            // Check if token is expired OR refresh token needs proactive renewal
+            const tokenExpired = await this.isTokenExpired();
+            const needsRefreshRenewal = await this.shouldRenewRefreshToken();
+            
+            if (tokenExpired || needsRefreshRenewal) {
+                if (tokenExpired) {
+                    console.log(`${this.LOG_PREFIX} Access token expired, attempting refresh`);
+                } else {
+                    console.log(`${this.LOG_PREFIX} Refresh token expiring soon, performing proactive renewal`);
+                }
                 
                 // Start refresh process
                 this.refreshPromise = this.performRefresh();
@@ -51,12 +59,8 @@ export class WebTokenManager implements TokenManager {
                 } catch (error) {
                     this.refreshPromise = null;
                     console.error(`${this.LOG_PREFIX} Refresh failed:`, error);
-                    // Refresh failed means authentication is lost
-                    auth.update(state => ({
-                        ...state,
-                        isAuthenticated: false,
-                        user: null
-                    }));
+                    // Refresh failed means authentication is lost - trigger proper logout
+                    logout('Token refresh failed');
                     throw new TokenExpiredError('Token expired and refresh failed');
                 }
             }
@@ -102,30 +106,73 @@ export class WebTokenManager implements TokenManager {
             throw new TokenRefreshError('No refresh token available');
         }
         
-        console.log(`${this.LOG_PREFIX} Performing token refresh...`);
-        
-        const response = await fetch(`${backendUrl}/auth/refresh`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                refresh_token: refreshToken
-            })
-        });
-        
-        if (!response.ok) {
-            const error = await response.json();
-            throw new TokenRefreshError(`Refresh failed: ${error.detail || response.statusText}`);
+        // Check if refresh token is expired
+        const refreshExpires = localStorage.getItem('refresh_token_expires');
+        if (!refreshExpires) {
+            throw new TokenRefreshError('No refresh token expiry stored - invalid token state');
+        }
+
+        try {
+            const expiryTime = new Date(refreshExpires);
+            const now = new Date();
+            const bufferTime = 1 * 60 * 1000; // 1 minute buffer
+            
+            if (now.getTime() + bufferTime >= expiryTime.getTime()) {
+                console.warn(`${this.LOG_PREFIX} Refresh token expired at ${refreshExpires}, current time: ${now.toISOString()}`);
+                throw new TokenRefreshError('Refresh token expired');
+            }
+            
+            console.log(`${this.LOG_PREFIX} Refresh token valid until ${refreshExpires} (${Math.round((expiryTime.getTime() - now.getTime()) / (1000 * 60 * 60))} hours remaining)`);
+        } catch (dateError) {
+            console.error(`${this.LOG_PREFIX} Could not parse refresh token expiry date: ${refreshExpires}`, dateError);
+            throw new TokenRefreshError('Invalid refresh token expiry format');
         }
         
-        const tokenData = await response.json() as TokenData;
+        const refreshStartTime = Date.now();
+        console.log(`${this.LOG_PREFIX} Performing token refresh... (started at ${new Date().toISOString()})`);
+        console.debug(`${this.LOG_PREFIX} Refresh token: ${refreshToken.substring(0, 20)}...`);
         
-        // Store new tokens
-        await this.storeTokens(tokenData);
-        
-        console.log(`${this.LOG_PREFIX} Token refresh successful`);
-        return tokenData;
+        try {
+            const response = await fetch(`${backendUrl}/auth/refresh`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    refresh_token: refreshToken
+                })
+            });
+            
+            const refreshDuration = Date.now() - refreshStartTime;
+            console.log(`${this.LOG_PREFIX} Refresh request completed in ${refreshDuration}ms, status: ${response.status}`);
+            
+            if (!response.ok) {
+                const errorText = await response.text();
+                let errorDetail;
+                try {
+                    const errorJson = JSON.parse(errorText);
+                    errorDetail = errorJson.detail || errorJson.message || errorText;
+                } catch {
+                    errorDetail = errorText;
+                }
+                console.error(`${this.LOG_PREFIX} Refresh failed - Status: ${response.status}, Error: ${errorDetail}`);
+                throw new TokenRefreshError(`Refresh failed: ${errorDetail}`);
+            }
+            
+            const tokenData = await response.json() as TokenData;
+            console.debug(`${this.LOG_PREFIX} New tokens received, access_token: ${tokenData.access_token.substring(0, 20)}..., expires_at: ${tokenData.expires_at}`);
+            
+            // Store new tokens
+            await this.storeTokens(tokenData);
+            
+            console.log(`${this.LOG_PREFIX} Token refresh successful (total time: ${Date.now() - refreshStartTime}ms)`);
+            return tokenData;
+            
+        } catch (error) {
+            const refreshDuration = Date.now() - refreshStartTime;
+            console.error(`${this.LOG_PREFIX} Refresh failed after ${refreshDuration}ms:`, error);
+            throw error;
+        }
     }
 
     async storeTokens(tokenData: TokenData): Promise<void> {
@@ -136,7 +183,11 @@ export class WebTokenManager implements TokenManager {
             localStorage.setItem('token_expires', tokenData.expires_at);
             
             if (tokenData.refresh_token) {
+                if (!tokenData.refresh_token_expires_at) {
+                    throw new Error('Refresh token provided without expiry date');
+                }
                 localStorage.setItem('refresh_token', tokenData.refresh_token);
+                localStorage.setItem('refresh_token_expires', tokenData.refresh_token_expires_at);
             }
             
             console.log(`${this.LOG_PREFIX} Tokens stored successfully in localStorage`);
@@ -196,6 +247,7 @@ export class WebTokenManager implements TokenManager {
             localStorage.removeItem('token');
             localStorage.removeItem('token_expires');
             localStorage.removeItem('refresh_token');
+            localStorage.removeItem('refresh_token_expires');
             
             console.log(`${this.LOG_PREFIX} Tokens cleared successfully from localStorage`);
             
@@ -234,6 +286,35 @@ export class WebTokenManager implements TokenManager {
         } catch (error) {
             console.error(`${this.LOG_PREFIX} Error checking token expiry:`, error);
             return true; // If we can't check, assume expired for safety
+        }
+    }
+
+    /**
+     * Check if refresh token is expiring soon and needs proactive renewal
+     * @param bufferDays Days before expiry to trigger renewal (default: 3)
+     */
+    private async shouldRenewRefreshToken(bufferDays: number = 3): Promise<boolean> {
+        const refreshExpiresStr = localStorage.getItem('refresh_token_expires');
+        if (!refreshExpiresStr) {
+            throw new Error('No refresh token expiry stored - invalid token state');
+        }
+        
+        try {
+            const expiresAt = new Date(refreshExpiresStr);
+            const now = new Date();
+            const bufferMs = bufferDays * 24 * 60 * 60 * 1000; // Convert days to ms
+            
+            const shouldRenew = now.getTime() + bufferMs >= expiresAt.getTime();
+            
+            if (shouldRenew) {
+                const daysRemaining = Math.floor((expiresAt.getTime() - now.getTime()) / (24 * 60 * 60 * 1000));
+                console.log(`${this.LOG_PREFIX} Refresh token expiring in ${daysRemaining} days, triggering proactive renewal`);
+            }
+            
+            return shouldRenew;
+        } catch (error) {
+            console.error(`${this.LOG_PREFIX} Error checking refresh token renewal need:`, error);
+            throw new Error('Invalid refresh token expiry format');
         }
     }
 }

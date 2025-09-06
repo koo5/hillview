@@ -141,8 +141,8 @@
             const sessionId = sessionData.session_id;
             console.log('🔐 Created polling session:', sessionId);
 
-            // Step 2: Build OAuth URL with session_id
-            const authUrl = `${backendUrl}/auth/oauth-redirect?provider=${provider}&redirect_uri=cz.hillview://auth&session_id=${sessionId}`;
+            // Step 2: Build OAuth URL with session_id (no redirect_uri needed for polling)
+            const authUrl = `${backendUrl}/auth/oauth-redirect?provider=${provider}&session_id=${sessionId}`;
             console.log('🢄🔐 Opening OAuth URL with polling:', authUrl);
 
             // Step 3: Open OAuth in system browser

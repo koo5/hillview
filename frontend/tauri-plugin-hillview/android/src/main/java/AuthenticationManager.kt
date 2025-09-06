@@ -23,10 +23,11 @@ class AuthenticationManager(private val context: Context) {
         private const val KEY_AUTH_TOKEN = "auth_token"
         private const val KEY_REFRESH_TOKEN = "refresh_token"
         private const val KEY_EXPIRES_AT = "expires_at"
+        private const val KEY_REFRESH_EXPIRES_AT = "refresh_expires_at"
     }
 
-    suspend fun storeAuthToken(token: String, expiresAt: String, refreshToken: String? = null): Boolean {
-        Log.d(TAG, "Storing auth token, expires at: $expiresAt, has refresh token: ${refreshToken != null}")
+    suspend fun storeAuthToken(token: String, expiresAt: String, refreshToken: String? = null, refreshExpiresAt: String? = null): Boolean {
+        Log.d(TAG, "Storing auth token, expires at: $expiresAt, has refresh token: ${refreshToken != null}, refresh expires at: $refreshExpiresAt")
         return try {
             val editor = prefs.edit()
                 .putString(KEY_AUTH_TOKEN, token)
@@ -34,6 +35,10 @@ class AuthenticationManager(private val context: Context) {
 
             if (refreshToken != null) {
                 editor.putString(KEY_REFRESH_TOKEN, refreshToken)
+            }
+
+            if (refreshExpiresAt != null) {
+                editor.putString(KEY_REFRESH_EXPIRES_AT, refreshExpiresAt)
             }
 
             editor.apply()
@@ -152,10 +157,48 @@ class AuthenticationManager(private val context: Context) {
         }
     }
 
+    /**
+     * Check if refresh token is expiring soon and needs proactive renewal
+     * @param bufferDays Days before expiry to trigger renewal (default: 3)
+     */
+    private fun shouldRenewRefreshToken(bufferDays: Int = 3): Boolean {
+        val refreshExpiresAt = prefs.getString(KEY_REFRESH_EXPIRES_AT, null) ?: run {
+            Log.e(TAG, "No refresh token expiry stored - invalid token state")
+            return false
+        }
+
+        return try {
+            val expiry = Instant.from(DateTimeFormatter.ISO_INSTANT.parse(refreshExpiresAt))
+            val now = Instant.now()
+            val bufferSeconds = bufferDays * 24 * 60 * 60L // Convert days to seconds
+
+            val shouldRenew = now.isAfter(expiry.minusSeconds(bufferSeconds))
+            
+            if (shouldRenew) {
+                val daysRemaining = (expiry.epochSecond - now.epochSecond) / (24 * 60 * 60)
+                Log.d(TAG, "Refresh token expiring in $daysRemaining days, triggering proactive renewal")
+            }
+
+            shouldRenew
+        } catch (e: Exception) {
+            Log.e(TAG, "Error checking refresh token renewal need: ${e.message}")
+            false
+        }
+    }
+
     suspend fun refreshTokenIfNeeded(): Boolean {
-        if (!isTokenExpired()) {
-            Log.d(TAG, "Token not expired, no refresh needed")
+        val tokenExpired = isTokenExpired()
+        val needsRefreshRenewal = shouldRenewRefreshToken()
+        
+        if (!tokenExpired && !needsRefreshRenewal) {
+            Log.d(TAG, "Token not expired and refresh token not expiring soon, no refresh needed")
             return true
+        }
+        
+        if (tokenExpired) {
+            Log.d(TAG, "Access token expired, attempting refresh")
+        } else {
+            Log.d(TAG, "Refresh token expiring soon, performing proactive renewal")
         }
 
         val refreshToken = getRefreshToken() ?: run {
@@ -243,6 +286,30 @@ class AuthenticationManager(private val context: Context) {
     private suspend fun performTokenRefresh(refreshToken: String): Boolean {
         Log.d(TAG, "Performing token refresh...")
 
+        // Check if refresh token is expired before attempting refresh
+        val refreshExpiresAt = prefs.getString(KEY_REFRESH_EXPIRES_AT, null)
+        if (refreshExpiresAt != null) {
+            try {
+                val expiry = Instant.from(DateTimeFormatter.ISO_INSTANT.parse(refreshExpiresAt))
+                val now = Instant.now()
+                val bufferSeconds = 1 * 60L // 1 minute buffer
+                
+                if (now.isAfter(expiry.minusSeconds(bufferSeconds))) {
+                    Log.w(TAG, "Refresh token expired at $refreshExpiresAt, current time: $now")
+                    return false
+                }
+                
+                val hoursRemaining = (expiry.epochSecond - now.epochSecond) / 3600
+                Log.d(TAG, "Refresh token valid until $refreshExpiresAt ($hoursRemaining hours remaining)")
+            } catch (dateError: Exception) {
+                Log.w(TAG, "Could not parse refresh token expiry date: $refreshExpiresAt", dateError)
+                // Continue with refresh attempt - let server decide
+            }
+        } else {
+            Log.e(TAG, "No refresh token expiry stored - invalid token state, refresh will fail")
+            return false
+        }
+
         try {
             // Get server URL from shared preferences (set by upload config)
             val uploadPrefs = context.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
@@ -275,14 +342,18 @@ class AuthenticationManager(private val context: Context) {
                     val accessTokenMatch = Regex("\"access_token\":\\s*\"([^\"]+)\"").find(responseBody)
                     val refreshTokenMatch = Regex("\"refresh_token\":\\s*\"([^\"]+)\"").find(responseBody)
                     val expiresAtMatch = Regex("\"expires_at\":\\s*\"([^\"]+)\"").find(responseBody)
+                    val refreshExpiresAtMatch = Regex("\"refresh_token_expires_at\":\\s*\"([^\"]+)\"").find(responseBody)
 
                     if (accessTokenMatch != null && expiresAtMatch != null) {
                         val newAccessToken = accessTokenMatch.groupValues[1]
                         val newRefreshToken = refreshTokenMatch?.groupValues?.get(1)
                         val newExpiresAt = expiresAtMatch.groupValues[1]
+                        val newRefreshExpiresAt = refreshExpiresAtMatch?.groupValues?.get(1)
+
+                        Log.d(TAG, "Parsed refresh response - access expires: $newExpiresAt, refresh expires: $newRefreshExpiresAt")
 
                         // Store new tokens
-                        val stored = storeAuthToken(newAccessToken, newExpiresAt, newRefreshToken)
+                        val stored = storeAuthToken(newAccessToken, newExpiresAt, newRefreshToken, newRefreshExpiresAt)
 
                         if (stored) {
                             Log.d(TAG, "Token refresh successful")
@@ -321,6 +392,7 @@ class AuthenticationManager(private val context: Context) {
                 .remove(KEY_AUTH_TOKEN)
                 .remove(KEY_REFRESH_TOKEN)
                 .remove(KEY_EXPIRES_AT)
+                .remove(KEY_REFRESH_EXPIRES_AT)
                 .apply()
             true
         } catch (e: Exception) {

@@ -458,7 +458,9 @@ def verify_client_signature(signature_base64: str, public_key_pem: str, photo_id
 	"""
 	try:
 		# Load the client's public key
+		logger.debug(f"Loading client public key for photo {photo_id}, public key pem: {public_key_pem}")
 		public_key = serialization.load_pem_public_key(public_key_pem.encode())
+		logger.debug(f"Client public key loaded successfully: {public_key}")
 
 		# Recreate the exact message that the client signed
 		# This must match the format used by ClientCryptoManager.signUploadData()
@@ -472,10 +474,23 @@ def verify_client_signature(signature_base64: str, public_key_pem: str, photo_id
 		logger.debug(f"Verifying signature for photo {photo_id}")
 		logger.debug(f"Message to verify: {message}")
 		logger.debug(f"Timestamp used: {timestamp}")
-		logger.debug(f"Signature (base64): {signature_base64[:50]}...")
+		logger.debug(f"Signature (base64): {signature_base64}")
 
 		# Decode the base64 signature
 		signature_bytes = base64.b64decode(signature_base64)
+
+		# Auto-detect signature format and convert if needed
+		# Web Crypto API produces 64-byte IEEE P1363 format (r||s)
+		# Android/Java produces variable-length ASN.1 DER format
+		if len(signature_bytes) == 64:
+			logger.debug(f"Detected P1363 signature format (64 bytes) - converting to DER")
+			# Convert P1363 to DER format
+			r = int.from_bytes(signature_bytes[:32], byteorder='big')
+			s = int.from_bytes(signature_bytes[32:], byteorder='big')
+			from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
+			signature_bytes = encode_dss_signature(r, s)
+		else:
+			logger.debug(f"Detected DER signature format ({len(signature_bytes)} bytes) - using as-is")
 
 		# Verify the ECDSA signature
 		public_key.verify(

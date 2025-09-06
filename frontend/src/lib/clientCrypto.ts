@@ -1,56 +1,56 @@
 /**
  * Client-Side Cryptographic Key Management
- * 
+ *
  * This module implements a secure upload authorization scheme using client-side ECDSA signatures.
- * It prevents compromised workers from impersonating users by requiring cryptographic proof 
+ * It prevents compromised workers from impersonating users by requiring cryptographic proof
  * that the client authorized each specific upload.
- * 
+ *
  * SECURITY ARCHITECTURE:
  * =====================
- * 
- * Problem: A compromised worker service could use valid user JWT tokens to upload 
+ *
+ * Problem: A compromised worker service could use valid user JWT tokens to upload
  * malicious content on behalf of legitimate users.
- * 
+ *
  * Solution: Three-phase cryptographically secured upload process:
- * 
+ *
  * Phase 1 - Upload Authorization (Client → API Server):
  *   - Client requests upload authorization with file metadata
  *   - API server creates pending photo record and returns upload JWT
  *   - Upload JWT contains: photo_id, user_id, client_public_key_id, expiry
- * 
+ *
  * Phase 2 - Signed Upload (Client → Worker):
  *   - Client signs upload payload: {photo_id, filename, timestamp}
  *   - Client sends: upload_jwt + file + client_signature to worker
  *   - Worker verifies upload_jwt using API server's public key
  *   - Worker processes file (does NOT verify client signature)
- * 
+ *
  * Phase 3 - Result Storage (Worker → API Server):
  *   - Worker sends processed results + client_signature to API
  *   - API server verifies client_signature using client's public key
  *   - Only saves results if client signature is valid
  *   - Signature retained in database for audit trail
- * 
+ *
  * KEY MANAGEMENT:
  * ===============
- * 
+ *
  * - ECDSA P-256 key pairs generated client-side using Web Crypto API
  * - Private key stays on client device (never leaves client)
  * - Public key registered with server on successful login
  * - Keys stored in localStorage alongside auth tokens
  * - Keys survive logout/login cycles for consistency
- * 
+ *
  * BENEFITS:
  * =========
- * 
+ *
  * ✅ Non-repudiation: Cryptographic proof of client intent
- * ✅ Tamper-proof: Worker cannot modify upload metadata  
+ * ✅ Tamper-proof: Worker cannot modify upload metadata
  * ✅ Time-limited: Upload authorizations expire
  * ✅ Audit trail: Signatures prove legitimate uploads
  * ✅ Zero-trust workers: Workers verify upload auth but not client signatures
- * 
+ *
  * USAGE PATTERN:
  * ==============
- * 
+ *
  * 1. On app startup: getOrCreateKeyPair() - ensures keys exist
  * 2. On login: getPublicKeyInfo() → register with server
  * 3. On upload: signUploadData() → create proof of authorization
@@ -72,22 +72,22 @@ export class ClientCryptoManager {
     private readonly LOG_PREFIX = '🔐[CLIENT_CRYPTO]';
     private readonly STORAGE_KEYS = {
         PRIVATE_KEY: 'hillview_client_private_key',
-        PUBLIC_KEY: 'hillview_client_public_key', 
+        PUBLIC_KEY: 'hillview_client_public_key',
         KEY_ID: 'hillview_client_key_id',
         KEY_CREATED: 'hillview_client_key_created'
     };
 
     /**
      * Get or generate client ECDSA key pair
-     * 
+     *
      * This is the main entry point for key management. It ensures the client
      * always has a valid ECDSA key pair for signing upload requests.
-     * 
+     *
      * Flow:
      * 1. Try to load existing keys from localStorage
      * 2. If keys missing/corrupt, generate new P-256 ECDSA key pair
      * 3. Store new keys securely in localStorage
-     * 
+     *
      * Keys persist across browser sessions to maintain consistent identity.
      * If keys are lost, a new pair will be generated and the server will
      * need to be updated with the new public key on next login.
@@ -104,10 +104,10 @@ export class ClientCryptoManager {
             // Generate new key pair
             console.log(`${this.LOG_PREFIX} Generating new client ECDSA key pair`);
             const keyPair = await this.generateKeyPair();
-            
+
             // Store keys in localStorage
             await this.storeKeys(keyPair);
-            
+
             console.log(`${this.LOG_PREFIX} New client key pair generated and stored`);
             return keyPair;
 
@@ -119,15 +119,15 @@ export class ClientCryptoManager {
 
     /**
      * Get client public key info for registration with server
-     * 
+     *
      * Called during login process to register the client's public key with the API server.
      * The server stores this public key and associates it with the user account.
-     * 
+     *
      * Returns:
      * - publicKeyPem: PEM-formatted public key for server storage
      * - keyId: Unique identifier for this key pair
      * - createdAt: Timestamp when key was first generated
-     * 
+     *
      * The server uses this information to:
      * 1. Store the public key in user_public_keys table
      * 2. Include keyId in upload authorization JWTs
@@ -135,15 +135,15 @@ export class ClientCryptoManager {
      */
     async getPublicKeyInfo(): Promise<ClientKeyInfo> {
         const keyPair = await this.getOrCreateKeyPair();
-        
+
         // Export public key to PEM format
         const publicKeyBuffer = await crypto.subtle.exportKey('spki', keyPair.publicKey);
         const publicKeyPem = this.bufferToPem(publicKeyBuffer, 'PUBLIC KEY');
-        
+
         // Get or generate key ID
         const keyId = localStorage.getItem(this.STORAGE_KEYS.KEY_ID) || this.generateKeyId();
         const createdAt = localStorage.getItem(this.STORAGE_KEYS.KEY_CREATED) || new Date().toISOString();
-        
+
         return {
             publicKeyPem,
             keyId,
@@ -153,23 +153,23 @@ export class ClientCryptoManager {
 
     /**
      * Sign upload data with client private key
-     * 
+     *
      * Creates a cryptographic signature proving the client authorized this specific upload.
      * This is the core security mechanism that prevents worker impersonation attacks.
-     * 
+     *
      * Process:
      * 1. Creates canonical JSON representation of upload data
      * 2. Signs the JSON string using client's ECDSA private key
      * 3. Returns base64-encoded signature for transmission
-     * 
+     *
      * The signature covers:
      * - photo_id: Links to specific upload authorization
-     * - filename: Prevents file substitution attacks  
+     * - filename: Prevents file substitution attacks
      * - timestamp: Prevents replay attacks
-     * 
-     * The API server will later verify this signature using the client's 
+     *
+     * The API server will later verify this signature using the client's
      * registered public key before accepting processed results.
-     * 
+     *
      * @param data Upload metadata to sign
      * @returns Base64-encoded ECDSA signature
      */
@@ -180,20 +180,20 @@ export class ClientCryptoManager {
     }): Promise<string> {
         try {
             const keyPair = await this.getOrCreateKeyPair();
-            
+
             // Create canonical string representation
             const message = JSON.stringify({
                 photo_id: data.photo_id,
                 filename: data.filename,
                 timestamp: data.timestamp
             }, null, 0); // No spaces for consistency
-            
+
             console.log(`${this.LOG_PREFIX} 📝 Signing message: ${message}`);
-            
+
             // Sign the message
             const encoder = new TextEncoder();
             const messageBuffer = encoder.encode(message);
-            
+
             const signatureBuffer = await crypto.subtle.sign(
                 {
                     name: 'ECDSA',
@@ -202,11 +202,15 @@ export class ClientCryptoManager {
                 keyPair.privateKey,
                 messageBuffer
             );
-            
+
+			console.debug(`keyPair.privateKey: (${JSON.stringify(keyPair.privateKey)}), keyPair.publicKey: (${JSON.stringify(keyPair.publicKey)})`);
+
+
             // Convert to base64 for transmission
             const signatureBase64 = this.bufferToBase64(signatureBuffer);
-            
+
             console.log(`${this.LOG_PREFIX} Signed upload data for photo ${data.photo_id}`);
+			console.debug(`${this.LOG_PREFIX} Signature (base64): ${signatureBase64}`);
             return signatureBase64;
 
         } catch (error) {
@@ -252,17 +256,17 @@ export class ClientCryptoManager {
             // Export keys to JWK format for storage
             const privateKeyJwk = await crypto.subtle.exportKey('jwk', keyPair.privateKey);
             const publicKeyJwk = await crypto.subtle.exportKey('jwk', keyPair.publicKey);
-            
+
             // Generate unique key ID
             const keyId = this.generateKeyId();
             const createdAt = new Date().toISOString();
-            
+
             // Store in localStorage
             localStorage.setItem(this.STORAGE_KEYS.PRIVATE_KEY, JSON.stringify(privateKeyJwk));
             localStorage.setItem(this.STORAGE_KEYS.PUBLIC_KEY, JSON.stringify(publicKeyJwk));
             localStorage.setItem(this.STORAGE_KEYS.KEY_ID, keyId);
             localStorage.setItem(this.STORAGE_KEYS.KEY_CREATED, createdAt);
-            
+
         } catch (error) {
             console.error(`${this.LOG_PREFIX} Error storing keys:`, error);
             throw error;
@@ -273,14 +277,14 @@ export class ClientCryptoManager {
         try {
             const privateKeyJwkStr = localStorage.getItem(this.STORAGE_KEYS.PRIVATE_KEY);
             const publicKeyJwkStr = localStorage.getItem(this.STORAGE_KEYS.PUBLIC_KEY);
-            
+
             if (!privateKeyJwkStr || !publicKeyJwkStr) {
                 return null;
             }
-            
+
             const privateKeyJwk = JSON.parse(privateKeyJwkStr);
             const publicKeyJwk = JSON.parse(publicKeyJwkStr);
-            
+
             // Import keys from JWK
             const privateKey = await crypto.subtle.importKey(
                 'jwk',
@@ -289,17 +293,17 @@ export class ClientCryptoManager {
                 false,
                 ['sign']
             );
-            
+
             const publicKey = await crypto.subtle.importKey(
-                'jwk', 
+                'jwk',
                 publicKeyJwk,
                 { name: 'ECDSA', namedCurve: 'P-256' },
-                false,
+                true,
                 ['verify']
             );
-            
+
             return { publicKey, privateKey };
-            
+
         } catch (error) {
             console.error(`${this.LOG_PREFIX} Error loading stored keys:`, error);
             // If loading fails, return null to trigger new key generation

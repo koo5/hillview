@@ -199,7 +199,7 @@ async def login_for_access_token(
 		expires_delta=ACCESS_TOKEN_EXPIRE_MINUTES
 	)
 
-	refresh_token, _ = create_refresh_token(
+	refresh_token, refresh_expires = create_refresh_token(
 		data={"sub": user.username, "user_id": user.id}
 	)
 
@@ -207,7 +207,8 @@ async def login_for_access_token(
 		"access_token": access_token,
 		"refresh_token": refresh_token,
 		"token_type": "bearer",
-		"expires_at": expires
+		"expires_at": expires,
+		"refresh_token_expires_at": refresh_expires.isoformat()
 	}
 
 @router.post("/auth/logout")
@@ -295,7 +296,7 @@ async def refresh_access_token(
 		)
 
 		# Optionally create new refresh token (rotate refresh tokens for better security)
-		new_refresh_token, _ = create_refresh_token(
+		new_refresh_token, new_refresh_expires = create_refresh_token(
 			data={"sub": user.username, "user_id": user.id}
 		)
 
@@ -315,7 +316,8 @@ async def refresh_access_token(
 			"access_token": access_token,
 			"refresh_token": new_refresh_token,
 			"token_type": "bearer",
-			"expires_at": expires
+			"expires_at": expires,
+			"refresh_token_expires_at": new_refresh_expires.isoformat()
 		}
 
 	except HTTPException:
@@ -369,8 +371,8 @@ async def create_oauth_session(
 @router.get("/auth/oauth-redirect")
 async def oauth_redirect(
 	provider: str,
-	redirect_uri: str,
 	request: Request,
+	redirect_uri: Optional[str] = None,
 	session_id: Optional[str] = None,
 	db: AsyncSession = Depends(get_db)
 ):
@@ -387,30 +389,38 @@ async def oauth_redirect(
 				headers={"Retry-After": "300"}
 			)
 
-	# Validate and sanitize redirect URI
-	# Define allowed domains for OAuth redirects (include mobile deep links)
-	if (redirect_uri.startswith("cz.hillview://") or
-		redirect_uri.startswith("cz.hillviedev://")):
-		# Mobile deep link - allow it
-		validated_redirect_uri = redirect_uri
+	# Handle redirect URI - if none provided and we have a session_id, use polling flow
+	if redirect_uri is None:
+		if session_id:
+			# Polling flow - use localhost callback since tokens will be retrieved via polling
+			validated_redirect_uri = "http://localhost:8055/api/auth/oauth-polling-callback"
+		else:
+			raise HTTPException(status_code=400, detail="redirect_uri is required when not using polling")
 	else:
-		# Web redirect - validate against allowed domains
-		allowed_domains = {
-			'localhost:8212', 'localhost', '127.0.0.1', 'localhost:8055',
-			'hillview.cz', 'api.hillview.cz', 'tauri.localhost'
-		}
-		try:
-			validated_redirect_uri = validate_oauth_redirect_uri(redirect_uri, allowed_domains)
-		except Exception as e:
-			await security_audit.log_event(
-				db=db,
-				event_type="oauth_redirect_invalid",
-				ip_address=request.client.host if request.client else None,
-				user_agent=request.headers.get("user-agent"),
-				event_details={"provider": provider, "invalid_redirect_uri": redirect_uri, "error": str(e)},
-				severity="warning"
-			)
-			raise HTTPException(status_code=400, detail="Invalid redirect URI")
+		# Validate and sanitize redirect URI
+		# Define allowed domains for OAuth redirects (include mobile deep links)
+		if (redirect_uri.startswith("cz.hillview://") or
+			redirect_uri.startswith("cz.hillviedev://")):
+			# Mobile deep link - allow it
+			validated_redirect_uri = redirect_uri
+		else:
+			# Web redirect - validate against allowed domains
+			allowed_domains = {
+				'localhost:8212', 'localhost', '127.0.0.1', 'localhost:8055',
+				'hillview.cz', 'api.hillview.cz', 'tauri.localhost'
+			}
+			try:
+				validated_redirect_uri = validate_oauth_redirect_uri(redirect_uri, allowed_domains)
+			except Exception as e:
+				await security_audit.log_event(
+					db=db,
+					event_type="oauth_redirect_invalid",
+					ip_address=request.client.host if request.client else None,
+					user_agent=request.headers.get("user-agent"),
+					event_details={"provider": provider, "invalid_redirect_uri": redirect_uri, "error": str(e)},
+					severity="warning"
+				)
+				raise HTTPException(status_code=400, detail="Invalid redirect URI")
 
 	log.info(f"OAuth redirect initiated - Provider: {provider}, Redirect URI: {validated_redirect_uri}")
 	log.info(f"Request base URL: {request.base_url}")
@@ -433,12 +443,15 @@ async def oauth_redirect(
 	log.info(f"Provider config - Client ID: {provider_config['client_id'][:10]}..., Auth URL: {provider_config['auth_url']}")
 
 	# Build OAuth URL with appropriate redirect URI
-	# For mobile: use deep link, for web: use frontend callback
-	if (validated_redirect_uri.startswith("cz.hillview://") or
-		validated_redirect_uri.startswith("cz.hillviedev://")):
-		# Mobile flow: OAuth provider should redirect to API server callback
+	if session_id:
+		# Polling flow: always use API server callback regardless of redirect_uri format
 		server_callback_uri = f"{request.base_url}api/auth/oauth-callback"
-		log.info(f"Mobile flow detected - Server callback URI: {server_callback_uri}")
+		log.info(f"Polling flow detected - Server callback URI: {server_callback_uri}")
+	elif (validated_redirect_uri.startswith("cz.hillview://") or
+		validated_redirect_uri.startswith("cz.hillviedev://")):
+		# Legacy mobile flow: OAuth provider should redirect to API server callback
+		server_callback_uri = f"{request.base_url}api/auth/oauth-callback"
+		log.info(f"Legacy mobile flow detected - Server callback URI: {server_callback_uri}")
 	else:
 		# Web flow: OAuth provider should redirect to frontend callback
 		# Extract frontend origin from the redirect_uri
@@ -744,7 +757,15 @@ async def get_oauth_status(
 			detail="OAuth session not found or expired"
 		)
 	
-	# Session found - return tokens and clean up
+	# Check if OAuth flow is complete (has access_token)
+	if 'access_token' not in session:
+		# OAuth flow still in progress
+		raise HTTPException(
+			status_code=status.HTTP_202_ACCEPTED,
+			detail="OAuth flow in progress, keep polling"
+		)
+	
+	# Session found and OAuth complete - return tokens and clean up
 	access_token = session['access_token']
 	refresh_token = session.get('refresh_token')
 	token_expires_at = session['token_expires_at']
@@ -971,7 +992,7 @@ async def oauth_login_internal(
 		expires_delta=ACCESS_TOKEN_EXPIRE_MINUTES
 	)
 
-	refresh_token, _ = create_refresh_token(
+	refresh_token, refresh_expires = create_refresh_token(
 		data={"sub": user.username, "user_id": user.id}
 	)
 
@@ -980,6 +1001,7 @@ async def oauth_login_internal(
 		"refresh_token": refresh_token,
 		"token_type": "bearer",
 		"expires_at": expires,
+		"refresh_token_expires_at": refresh_expires.isoformat(),
 		"user_info": {
 			"user_id": user.id,
 			"username": user.username,

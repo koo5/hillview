@@ -148,21 +148,21 @@ impl<R: Runtime> Hillview<R> {
       .run_mobile_plugin("stopPreciseLocationListener", ())
       .map_err(Into::into)
   }
-  
+
   pub fn get_device_photos(&self) -> crate::Result<crate::models::DevicePhotosResponse> {
     self
       .0
       .run_mobile_plugin("getDevicePhotos", ())
       .map_err(Into::into)
   }
-  
+
   pub fn refresh_photo_scan(&self) -> crate::Result<crate::models::PhotoScanResponse> {
     self
       .0
       .run_mobile_plugin("refreshPhotoScan", ())
       .map_err(Into::into)
   }
-  
+
   pub fn import_photos(&self) -> crate::Result<crate::models::FileImportResponse> {
     self
       .0

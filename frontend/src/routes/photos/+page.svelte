@@ -5,6 +5,8 @@
 	import BackButton from '../../components/BackButton.svelte';
 	import Spinner from '../../components/Spinner.svelte';
 	import PhotoImport from '$lib/components/PhotoImport.svelte';
+	import PhotoUpload from '$lib/components/PhotoUpload.svelte';
+	import PhotoImportDevice from '$lib/components/PhotoImportDevice.svelte';
 	import {auth, checkAuth} from '$lib/auth.svelte';
 	import {app} from '$lib/data.svelte';
 	import type {UserPhoto} from '$lib/stores';
@@ -12,25 +14,21 @@
 	import {http, handleApiError, TokenExpiredError} from '$lib/http';
 	import {backendUrl} from '$lib/config';
 	import {TAURI} from '$lib/tauri';
-	import {secureUploadFiles} from '$lib/secureUpload';
 	import {navigateWithHistory} from '$lib/navigation.svelte';
 	import {invoke} from '@tauri-apps/api/core';
 
 	let photos: UserPhoto[] = [];
 	let isLoading = true;
 	let error: string | null = null;
-	let uploadFiles: File[] = [];
-	let description = '';
-	let isPublic = true;
-	let isUploading = false;
-	let uploadProgress = 0;
 	let autoUploadEnabled = false;
 	let showSettings = false;
 	let user: User | null = null;
 	let activityLog: Array<{ timestamp: Date, message: string, type: 'success' | 'warning' | 'error' | 'info' }> = [];
-	
+	let activeTab: 'upload' | 'import-device' | 'import-directory' = 'upload';
+
 
 	function addLogEntry(message: string, type: 'success' | 'warning' | 'error' | 'info' = 'info') {
+		console.info(`🢄 Log entry [${type}]: ${message}`);
 		activityLog = [{
 			timestamp: new Date(),
 			message,
@@ -42,11 +40,6 @@
 		return timestamp.toLocaleTimeString();
 	}
 
-	function autoResizeTextarea(event: Event) {
-		const textarea = event.target as HTMLTextAreaElement;
-		textarea.style.height = 'auto';
-		textarea.style.height = `${textarea.scrollHeight}px`;
-	}
 
 	onMount(async () => {
 		// Check authentication status first
@@ -110,78 +103,8 @@
 		}
 	}
 
-	async function handleUpload() {
-		if (!uploadFiles.length) return;
-
-		isUploading = true;
-		uploadProgress = 0;
-
-		const totalFiles = uploadFiles.length;
-		addLogEntry(`Starting secure batch upload: ${totalFiles} file${totalFiles > 1 ? 's' : ''}`, 'info');
-
-		try {
-			// Use new secure upload service
-			const uploadResult = await secureUploadFiles(
-				uploadFiles,
-				description,
-				isPublic,
-				undefined, // Use default worker URL
-				(completed, total, currentFile) => {
-					uploadProgress = Math.round((completed / total) * 100);
-					if (currentFile) {
-						addLogEntry(`Uploading ${completed + 1}/${total}: ${currentFile}`, 'info');
-					}
-				}
-			);
-
-			// Process results
-			uploadResult.results.forEach((result, index) => {
-				const file = uploadFiles[index];
-				if (result.success) {
-					addLogEntry(`✅ Uploaded: ${file.name}`, 'success');
-				} else {
-					addLogEntry(`❌ Failed: ${file.name} - ${result.error}`, 'error');
-				}
-			});
-
-			// Summary log
-			const summaryParts = [];
-			if (uploadResult.successCount > 0) summaryParts.push(`${uploadResult.successCount} uploaded`);
-			if (uploadResult.skipCount > 0) summaryParts.push(`${uploadResult.skipCount} skipped`);
-			if (uploadResult.errorCount > 0) summaryParts.push(`${uploadResult.errorCount} failed`);
-
-			addLogEntry(
-				`🔐 Secure batch complete: ${summaryParts.join(', ')}`,
-				uploadResult.errorCount > 0 ? 'warning' : 'success'
-			);
-
-			// Reset form and refresh photos
-			uploadFiles = [];
-			description = '';
-
-			// Clear the file input
-			const fileInput = document.getElementById('photo-file') as HTMLInputElement;
-			if (fileInput) {
-				fileInput.value = '';
-			}
-
-			await fetchPhotos();
-
-		} catch (err) {
-			console.error('🔐 Error in secure batch upload:', err);
-			const errorMessage = handleApiError(err);
-			addLogEntry(`🔐 Secure batch upload failed: ${errorMessage}`, 'error');
-			error = errorMessage;
-
-			// TokenExpiredError is handled automatically by the http client
-			if (err instanceof TokenExpiredError) {
-				// No need to handle manually, http client already logged out
-				return;
-			}
-		} finally {
-			isUploading = false;
-			uploadProgress = 0;
-		}
+	async function handleUploadComplete() {
+		await fetchPhotos();
 	}
 
 	async function deletePhoto(photoId: number) {
@@ -349,107 +272,63 @@
         </div>
     {/if}
 
-    <div class="upload-section" data-testid="upload-section">
-        <h2>Upload Photos</h2>
-        {#if !user}
-            <div class="login-notice">
-                <p>Please
-                    <button type="button" class="login-link" on:click={goToLogin}>log in</button>
-                    to upload photos.
-                </p>
-            </div>
-        {/if}
-        <form on:submit|preventDefault={handleUpload} data-testid="upload-form">
-            <div class="form-group">
-                <label for="photo-file">Select photos:</label>
-                <input
-                        type="file"
-                        id="photo-file"
-                        accept="image/*"
-                        multiple
-                        data-testid="photo-file-input"
-                        disabled={!user}
-                        on:change={(e) => {
-                        const files = (e.target as HTMLInputElement).files;
-                        uploadFiles = files ? Array.from(files) : [];
-                    }}
-                        required
-                />
-            </div>
-
-            <div class="form-group">
-                <label for="description">Description (optional):</label>
-                <textarea
-                        id="description"
-                        bind:value={description}
-                        placeholder="Optional description for this photo"
-                        rows="1"
-                        class="auto-resize-textarea"
-                        disabled={!user}
-                        on:input={autoResizeTextarea}
-                ></textarea>
-            </div>
-
-            <div class="form-group">
-                <label>
-                    <input type="checkbox" bind:checked={isPublic} disabled={!user}>
-                    Make this photo public
-                </label>
-            </div>
-
-            {#if uploadFiles.length > 0}
-                <div class="selected-files">
-                    <p>Selected files: {uploadFiles.length}</p>
-                    <ul class="file-list">
-                        {#each uploadFiles as file}
-                            <li class="file-item">{file.name}</li>
-                        {/each}
-                    </ul>
-                </div>
-            {/if}
-
-            <button
-                    type="submit"
-                    class="primary-button"
-                    data-testid="upload-submit-button"
-                    disabled={!user || !uploadFiles.length || isUploading}
-            >
-                <Upload size={20}/>
-                {#if isUploading}
-                    Uploading... ({uploadProgress}%)
-                {:else if uploadFiles.length > 1}
-                    Upload {uploadFiles.length} Photos
-                {:else if uploadFiles.length === 1}
-                    Upload Photo
-                {:else}
-                    Select Photos
+    <div class="photo-management-section" data-testid="photo-management-section">
+        <div class="tabs-header">
+            <h2>Photo Management</h2>
+            <div class="tabs">
+                <button 
+                    class="tab-button" 
+                    class:active={activeTab === 'upload'}
+                    on:click={() => activeTab = 'upload'}
+                    data-testid="upload-tab"
+                >
+                    Upload Photos
+                </button>
+                {#if TAURI}
+                    <button 
+                        class="tab-button" 
+                        class:active={activeTab === 'import-device'}
+                        on:click={() => activeTab = 'import-device'}
+                        data-testid="import-device-tab"
+                    >
+                        Import from Device
+                    </button>
+                    <button 
+                        class="tab-button" 
+                        class:active={activeTab === 'import-directory'}
+                        on:click={() => activeTab = 'import-directory'}
+                        data-testid="import-directory-tab"
+                    >
+                        Import from Directory
+                    </button>
                 {/if}
-            </button>
-
-            {#if isUploading}
-                <div class="progress-bar">
-                    <div class="progress" style="width: {uploadProgress}%"></div>
-                </div>
-                <p class="upload-progress">{uploadProgress}% uploaded</p>
+            </div>
+        </div>
+        
+        <div class="tab-content">
+            {#if activeTab === 'upload'}
+                <PhotoUpload 
+                    {user} 
+                    onLogEntry={addLogEntry} 
+                    onUploadComplete={handleUploadComplete}
+                    {goToLogin}
+                />
+            {:else if activeTab === 'import-device'}
+                <PhotoImportDevice 
+                    {user} 
+                    onLogEntry={addLogEntry} 
+                    onImportComplete={handleImportComplete}
+                    {goToLogin}
+                />
+            {:else if activeTab === 'import-directory'}
+                <PhotoImport
+                    onImportComplete={handleImportComplete}
+                    onLogEntry={addLogEntry}
+                />
             {/if}
-        </form>
+        </div>
     </div>
 
-    <!-- Import Photos Section (Android Only) -->
-    {#if TAURI}
-        <div class="import-section" data-testid="import-section">
-            <h2>Import Photos</h2>
-            <p class="import-description">
-                Import existing photos from your device to add them to Hillview. 
-                Only photos with GPS location data will be imported.
-            </p>
-            
-            <PhotoImport 
-                onImportComplete={handleImportComplete}
-                onLogEntry={addLogEntry}
-            />
-        </div>
-    {/if}
 
     {#if activityLog.length > 0}
         <div class="activity-log">
@@ -593,7 +472,7 @@
         margin-top: 20px;
     }
 
-    .upload-section {
+    .photo-management-section {
         background-color: white;
         border-radius: 8px;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
@@ -601,94 +480,50 @@
         margin-bottom: 32px;
     }
 
-    .form-group {
-        margin-bottom: 16px;
+    .tabs-header {
+        margin-bottom: 24px;
     }
 
-    .auto-resize-textarea {
-        resize: none;
-        min-height: 40px;
-        overflow: hidden;
-        transition: height 0.2s ease;
+    .tabs-header h2 {
+        margin: 0 0 16px 0;
+        color: #444;
     }
 
-    .selected-files {
-        margin-bottom: 16px;
-        padding: 12px;
-        background-color: #f8fafc;
-        border: 1px solid #e2e8f0;
-        border-radius: 4px;
-    }
-
-    .selected-files p {
-        margin: 0 0 8px 0;
-        font-weight: 500;
-        color: #374151;
-    }
-
-    .file-list {
-        margin: 0;
-        padding: 0;
-        list-style: none;
-        max-height: 120px;
-        overflow-y: auto;
-    }
-
-    .file-item {
-        padding: 4px 0;
-        font-size: 14px;
-        color: #6b7280;
-        word-break: break-all;
-    }
-
-    label {
-        display: block;
-        margin-bottom: 8px;
-        font-weight: 500;
-        color: #555;
-    }
-
-    textarea {
-        width: 100%;
-        padding: 10px;
-        border: 1px solid #ddd;
-        border-radius: 4px;
-        font-size: 16px;
-    }
-
-    textarea {
-        min-height: 100px;
-        resize: vertical;
-    }
-
-    input[type="checkbox"] {
-        margin-right: 8px;
-    }
-
-    .primary-button {
+    .tabs {
         display: flex;
-        align-items: center;
-        justify-content: center;
         gap: 8px;
-        padding: 12px 24px;
-        background-color: #4a90e2;
-        color: white;
+        border-bottom: 1px solid #e2e8f0;
+        margin-bottom: 0;
+    }
+
+    .tab-button {
+        padding: 12px 20px;
+        background: none;
         border: none;
-        border-radius: 4px;
-        font-size: 16px;
+        border-bottom: 2px solid transparent;
+        color: #6b7280;
+        font-size: 14px;
         font-weight: 500;
         cursor: pointer;
-        transition: background-color 0.3s;
+        transition: all 0.2s ease;
+        white-space: nowrap;
     }
 
-    .primary-button:hover {
-        background-color: #3a7bc8;
+    .tab-button:hover {
+        color: #374151;
+        background-color: #f8fafc;
     }
 
-    .primary-button:disabled {
-        background-color: #a0c0e8;
-        cursor: not-allowed;
+    .tab-button.active {
+        color: #4a90e2;
+        border-bottom-color: #4a90e2;
+        background-color: transparent;
     }
+
+    .tab-content {
+        padding-top: 20px;
+    }
+
 
     .secondary-button {
         padding: 12px 24px;
@@ -706,25 +541,6 @@
         background-color: #e5e5e5;
     }
 
-    .progress-bar {
-        height: 8px;
-        background-color: #f0f0f0;
-        border-radius: 4px;
-        margin-top: 16px;
-        overflow: hidden;
-    }
-
-    .progress {
-        height: 100%;
-        background-color: #4a90e2;
-        transition: width 0.3s ease;
-    }
-
-    .upload-progress {
-        margin-top: 8px;
-        font-size: 14px;
-        color: #666;
-    }
 
     .activity-log {
         background-color: white;

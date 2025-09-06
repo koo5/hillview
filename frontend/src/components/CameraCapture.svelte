@@ -26,6 +26,8 @@
 
     const permissionManager = createPermissionManager('camera');
 
+    // Store unlisten function for cleanup
+    let cameraPermissionUnlisten: (() => void) | null = null;
 
 	// show or hide the whole capture UI, parent component controls this
     export let show = false;
@@ -534,7 +536,7 @@
 
         // Listen for native camera permission granted event
         if (isCameraPermissionCheckAvailable()) {
-                const unlisten = await addPluginListener('hillview', 'camera-permission-granted', async (event) => {
+                cameraPermissionUnlisten = await addPluginListener('hillview', 'camera-permission-granted', async (event) => {
                     console.log('🢄[CAMERA] CAMERA PERMISSION Event data:', JSON.stringify(event));
 
                     if (show && cameraError) {
@@ -556,11 +558,6 @@
 
                 console.log('🢄[CAMERA] Camera permission event listener setup complete');
 
-                // Store unlisten function for cleanup
-                onDestroy(() => {
-                    console.log('🢄[CAMERA] Cleaning up camera permission event listener');
-                    if (unlisten) (unlisten as any)();
-                });
         } else {
             console.log('🢄[CAMERA] Camera permission check not available - skipping event listener');
         }
@@ -594,6 +591,11 @@
         }
         if (cameraPermissionPollInterval) {
             clearInterval(cameraPermissionPollInterval);
+        }
+        if (cameraPermissionUnlisten) {
+            console.log('🢄[CAMERA] Cleaning up camera permission event listener');
+            cameraPermissionUnlisten();
+            cameraPermissionUnlisten = null;
         }
         document.removeEventListener('visibilitychange', handleVisibilityChange);
         document.removeEventListener('click', handleClickOutside);

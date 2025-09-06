@@ -10,6 +10,7 @@ export interface TokenData {
     refresh_token?: string;
     token_type: string;
     expires_at: string;
+    refresh_token_expires_at: string;
 }
 
 export interface TokenManager {
@@ -41,6 +42,12 @@ export interface TokenManager {
      * @param bufferMinutes Minutes before expiry to consider expired (default: 2)
      */
     isTokenExpired(bufferMinutes?: number): Promise<boolean>;
+    
+    /**
+     * Check if refresh token is expired or expiring soon (Web only - Android handles internally)
+     * @param bufferHours Hours before expiry to consider expired (default: 1)
+     */
+    isRefreshTokenExpired?(bufferHours?: number): Promise<boolean>;
 }
 
 export class TokenExpiredError extends Error {

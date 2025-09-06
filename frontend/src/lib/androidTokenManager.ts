@@ -67,7 +67,8 @@ export class AndroidTokenManager implements TokenManager {
             await invoke('plugin:hillview|store_auth_token', {
                 token: tokenData.access_token,
                 refreshToken: tokenData.refresh_token,
-                expiresAt: tokenData.expires_at
+                expiresAt: tokenData.expires_at,
+                refreshExpiresAt: tokenData.refresh_token_expires_at
             });
             
             console.log(`${this.LOG_PREFIX} Tokens stored successfully in Android`);
@@ -112,4 +113,5 @@ export class AndroidTokenManager implements TokenManager {
         
         return result.expired;
     }
+
 }

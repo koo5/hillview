@@ -23,7 +23,7 @@ pub(crate) async fn start_sensor<R: Runtime>(
         app.hillview().start_sensor(mode)?;
         return Ok(());
     }
-    
+
     #[cfg(desktop)]
     {
         return Err(crate::Error::from("Sensor API is only available on mobile devices"));
@@ -38,7 +38,7 @@ pub(crate) async fn stop_sensor<R: Runtime>(
     {
         _app.hillview().stop_sensor()?;
     }
-    
+
     Ok(())
 }
 
@@ -51,7 +51,7 @@ pub(crate) async fn update_sensor_location<R: Runtime>(
     {
         _app.hillview().update_sensor_location(_location)?;
     }
-    
+
     Ok(())
 }
 
@@ -65,7 +65,7 @@ pub(crate) async fn set_auto_upload_enabled<R: Runtime>(
     {
         return app.hillview().set_auto_upload_enabled(enabled);
     }
-    
+
     #[cfg(desktop)]
     {
         return Err(crate::Error::from("Auto upload is only available on mobile devices"));
@@ -80,7 +80,7 @@ pub(crate) async fn get_upload_status<R: Runtime>(
     {
         return _app.hillview().get_upload_status();
     }
-    
+
     #[cfg(desktop)]
     {
         return Err(crate::Error::from("Upload status is only available on mobile devices"));
@@ -97,7 +97,7 @@ pub(crate) async fn set_upload_config<R: Runtime>(
     {
         return app.hillview().set_upload_config(config);
     }
-    
+
     #[cfg(desktop)]
     {
         return Err(crate::Error::from("Upload config is only available on mobile devices"));
@@ -114,7 +114,7 @@ pub(crate) async fn upload_photo<R: Runtime>(
     {
         return app.hillview().upload_photo(photo_id);
     }
-    
+
     #[cfg(desktop)]
     {
         return Err(crate::Error::from("Photo upload is only available on mobile devices"));
@@ -129,7 +129,7 @@ pub(crate) async fn retry_failed_uploads<R: Runtime>(
     {
         return _app.hillview().retry_failed_uploads();
     }
-    
+
     #[cfg(desktop)]
     {
         return Err(crate::Error::from("Retry uploads is only available on mobile devices"));
@@ -145,7 +145,7 @@ pub(crate) async fn start_precise_location_listener<R: Runtime>(
         _app.hillview().start_precise_location_listener()?;
         return Ok(());
     }
-    
+
     #[cfg(desktop)]
     {
         return Err(crate::Error::from("Precise location is only available on mobile devices"));
@@ -161,7 +161,7 @@ pub(crate) async fn stop_precise_location_listener<R: Runtime>(
         _app.hillview().stop_precise_location_listener()?;
         return Ok(());
     }
-    
+
     #[cfg(desktop)]
     {
         return Err(crate::Error::from("Precise location is only available on mobile devices"));
@@ -182,7 +182,7 @@ pub(crate) async fn store_auth_token<R: Runtime>(
     {
         return app.hillview().store_auth_token(token, expires_at, refresh_token);
     }
-    
+
     #[cfg(desktop)]
     {
         // For desktop, just return success for now
@@ -202,7 +202,7 @@ pub(crate) async fn get_auth_token<R: Runtime>(
     {
         return _app.hillview().get_auth_token();
     }
-    
+
     #[cfg(desktop)]
     {
         // For desktop, return no token
@@ -223,7 +223,7 @@ pub(crate) async fn clear_auth_token<R: Runtime>(
     {
         return _app.hillview().clear_auth_token();
     }
-    
+
     #[cfg(desktop)]
     {
         // For desktop, just return success
@@ -242,7 +242,7 @@ pub(crate) async fn get_device_photos<R: Runtime>(
     {
         return app.hillview().get_device_photos();
     }
-    
+
     #[cfg(desktop)]
     {
         return Err(crate::Error::from("Device photos are only available on mobile devices"));
@@ -257,7 +257,7 @@ pub(crate) async fn refresh_photo_scan<R: Runtime>(
     {
         return app.hillview().refresh_photo_scan();
     }
-    
+
     #[cfg(desktop)]
     {
         return Err(crate::Error::from("Photo scanning is only available on mobile devices"));
@@ -272,7 +272,7 @@ pub(crate) async fn import_photos<R: Runtime>(
     {
         return app.hillview().import_photos();
     }
-    
+
     #[cfg(desktop)]
     {
         return Err(crate::Error::from("Photo import is only available on mobile devices"));
