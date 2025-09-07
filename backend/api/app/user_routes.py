@@ -526,10 +526,26 @@ async def oauth_callback(
 	# Extract provider, final destination, and optional session_id from state
 	polling_session_id = None
 	if state and ":" in state:
-		state_parts = state.split(":", 2)  # Split into max 3 parts
-		provider = state_parts[0]
-		final_redirect_uri = state_parts[1] if len(state_parts) > 1 else state
-		polling_session_id = state_parts[2] if len(state_parts) > 2 else None
+		# Split on first colon to get provider
+		provider, remainder = state.split(":", 1)
+		
+		# Check if remainder has session ID (format: url:session_id)
+		# Session ID is always after the last colon and is a UUID format
+		if remainder and ":" in remainder:
+			# Split from the right to get the last part as potential session ID
+			url_part, potential_session = remainder.rsplit(":", 1)
+			
+			# Check if the last part looks like a session ID (UUID format)
+			if len(potential_session) >= 30 and "-" in potential_session:
+				final_redirect_uri = url_part
+				polling_session_id = potential_session
+			else:
+				# Last part doesn't look like session ID, treat whole remainder as URL
+				final_redirect_uri = remainder
+				polling_session_id = None
+		else:
+			final_redirect_uri = remainder
+			polling_session_id = None
 	else:
 		# Fallback to default if state is malformed
 		provider = "google"

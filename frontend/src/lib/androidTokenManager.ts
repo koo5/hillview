@@ -74,14 +74,14 @@ export class AndroidTokenManager implements TokenManager {
                 token: tokenData.access_token ? 'present' : 'missing',
                 refreshToken: tokenData.refresh_token ? 'present' : 'missing',
                 expiresAt: tokenData.expires_at,
-                refreshExpiry: "TEST_SIMPLE_STRING"
+                refreshExpiry: tokenData.refresh_token_expires_at
             }));
             
             const result = await invoke('plugin:hillview|store_auth_token', {
                 token: tokenData.access_token,
                 refreshToken: tokenData.refresh_token,
                 expiresAt: tokenData.expires_at,
-                refreshExpiry: "TEST_SIMPLE_STRING"
+                refreshExpiry: tokenData.refresh_token_expires_at
             }) as { success: boolean; error?: string };
             
             if (!result.success) {
