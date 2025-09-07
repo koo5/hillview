@@ -560,7 +560,10 @@ async def oauth_callback(
 
 	# Exchange code for JWT using existing logic
 	# Use the same redirect URI logic as the redirect endpoint
-	if (final_redirect_uri and
+	if polling_session_id:
+		# Polling flow: always use the server callback URI (same as used in OAuth redirect)
+		server_callback_uri = f"{request.base_url}api/auth/oauth-callback"
+	elif (final_redirect_uri and
 		(final_redirect_uri.startswith("cz.hillview://") or
 		 final_redirect_uri.startswith("cz.hillviedev://"))):
 		# Mobile flow: used API server callback
