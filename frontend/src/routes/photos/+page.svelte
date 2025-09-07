@@ -6,7 +6,6 @@
 	import Spinner from '../../components/Spinner.svelte';
 	import PhotoImport from '$lib/components/PhotoImport.svelte';
 	import PhotoUpload from '$lib/components/PhotoUpload.svelte';
-	import PhotoImportDevice from '$lib/components/PhotoImportDevice.svelte';
 	import {auth, checkAuth} from '$lib/auth.svelte';
 	import {app} from '$lib/data.svelte';
 	import type {UserPhoto} from '$lib/stores';
@@ -24,7 +23,7 @@
 	let showSettings = false;
 	let user: User | null = null;
 	let activityLog: Array<{ timestamp: Date, message: string, type: 'success' | 'warning' | 'error' | 'info' }> = [];
-	let activeTab: 'upload' | 'import-device' | 'import-directory' = 'upload';
+	let activeTab: 'upload' | 'import' = 'upload';
 
 
 	function addLogEntry(message: string, type: 'success' | 'warning' | 'error' | 'info' = 'info') {
@@ -276,8 +275,8 @@
         <div class="tabs-header">
             <h2>Photo Management</h2>
             <div class="tabs">
-                <button 
-                    class="tab-button" 
+                <button
+                    class="tab-button"
                     class:active={activeTab === 'upload'}
                     on:click={() => activeTab = 'upload'}
                     data-testid="upload-tab"
@@ -285,45 +284,32 @@
                     Upload Photos
                 </button>
                 {#if TAURI}
-                    <button 
-                        class="tab-button" 
-                        class:active={activeTab === 'import-device'}
-                        on:click={() => activeTab = 'import-device'}
-                        data-testid="import-device-tab"
-                    >
-                        Import from Device
-                    </button>
-                    <button 
-                        class="tab-button" 
-                        class:active={activeTab === 'import-directory'}
-                        on:click={() => activeTab = 'import-directory'}
-                        data-testid="import-directory-tab"
+                    <button
+                        class="tab-button"
+                        class:active={activeTab === 'import'}
+                        on:click={() => activeTab = 'import'}
+                        data-testid="import-tab"
                     >
                         Import from Directory
                     </button>
                 {/if}
             </div>
         </div>
-        
+
         <div class="tab-content">
             {#if activeTab === 'upload'}
-                <PhotoUpload 
-                    {user} 
-                    onLogEntry={addLogEntry} 
+                <PhotoUpload
+                    {user}
+                    onLogEntry={addLogEntry}
                     onUploadComplete={handleUploadComplete}
                     {goToLogin}
                 />
-            {:else if activeTab === 'import-device'}
-                <PhotoImportDevice 
-                    {user} 
-                    onLogEntry={addLogEntry} 
+            {:else if activeTab === 'import'}
+                <PhotoImport
+                    {user}
+                    onLogEntry={addLogEntry}
                     onImportComplete={handleImportComplete}
                     {goToLogin}
-                />
-            {:else if activeTab === 'import-directory'}
-                <PhotoImport
-                    onImportComplete={handleImportComplete}
-                    onLogEntry={addLogEntry}
                 />
             {/if}
         </div>
