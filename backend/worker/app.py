@@ -55,6 +55,7 @@ app.add_middleware(
 		"http://tauri.localhost",
 		"https://hillview.cz",
 		"https://api.hillview.cz",
+		"https://api.ipv4.hillview.cz",
 	],
 	allow_credentials=True,
 	allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
