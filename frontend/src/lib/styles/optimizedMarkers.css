@@ -21,8 +21,8 @@
 .bearing-circle {
   position: absolute;
   border-radius: 50%;
-  /* Smooth transitions for color changes */
-  transition: background-color 0.15s ease, border-color 0.15s ease;
+  /* No transitions for instant color updates - prevents UI freeze */
+  /* transition: background-color 0.15s ease, border-color 0.15s ease; */
   /* Center the circle */
   top: 50%;
   left: 50%;
