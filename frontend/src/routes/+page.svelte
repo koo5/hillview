@@ -33,6 +33,7 @@
 	import type {DevicePhotoMetadata} from '$lib/types/photoTypes';
 	import {startCompass, stopCompass} from '$lib/compass.svelte';
 	import '$lib/debugTauri';
+	import {bearingDiffColorsUpdateInterval} from "$lib/optimizedMarkers";
 
 	let map: any = null;
 	let mapComponent: any = null;
@@ -250,6 +251,7 @@
 		}));
 
 		if (newActivity === 'capture') {
+
 			// Entering capture mode - disable all photo sources
 			sources.update(srcs => {
 				return srcs.map(src => ({
@@ -259,6 +261,7 @@
 			});
 			// Note: Location and compass are now handled by reactive statement
 		} else {
+
 			// Exiting capture mode - re-enable previously enabled sources
 			// For now, we'll re-enable hillview and device sources by default
 			sources.update(srcs => {

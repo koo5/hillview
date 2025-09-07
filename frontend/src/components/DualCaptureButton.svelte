@@ -1,13 +1,13 @@
 <script lang="ts">
     import { createEventDispatcher, onDestroy } from 'svelte';
     import { Camera, Zap, Turtle } from 'lucide-svelte';
-    
+
     export let disabled = false;
     export let slowInterval = 1000; // 1 second between captures in slow mode
     export let fastInterval = 100; // 100ms between captures in fast mode
-    
+
     const dispatch = createEventDispatcher();
-    
+
     let slowPressed = false;
     let fastPressed = false;
     let captureInterval: number | null = null;
@@ -22,28 +22,29 @@
     let currentDragX = 0;
     let dragThreshold = 30;
     let selectedMode: 'slow' | 'fast' | null = null;
-    
+
     function startCapture(mode: 'slow' | 'fast') {
         const interval = mode === 'slow' ? slowInterval : fastInterval;
-        
+
         // Capture immediately
-        /*dispatch('capture', { mode });
-        captureCount++;*/
-        
+        dispatch('capture', { mode });
+        captureCount++;
+
         // Start interval for continuous capture
         captureInterval = window.setInterval(() => {
             dispatch('capture', { mode });
             captureCount++;
         }, interval);
     }
-    
+
     function stopCapture() {
         if (captureInterval) {
             clearInterval(captureInterval);
             captureInterval = null;
+			captureCount = 0;
         }
     }
-    
+
     function handleSlowStart(e?: Event) {
         if (e) e.preventDefault();
         if (disabled) return;
@@ -51,14 +52,14 @@
         dispatch('captureStart', { mode: 'slow' });
         startCapture('slow');
     }
-    
+
     function handleSlowEnd() {
         slowPressed = false;
         stopCapture();
         dispatch('captureEnd', { mode: 'slow', count: captureCount });
         captureCount = 0;
     }
-    
+
     function handleFastStart(e?: Event) {
         if (e) e.preventDefault();
         if (disabled) return;
@@ -66,26 +67,27 @@
         dispatch('captureStart', { mode: 'fast' });
         startCapture('fast');
     }
-    
+
     function handleFastEnd() {
         fastPressed = false;
         stopCapture();
         dispatch('captureEnd', { mode: 'fast', count: captureCount });
         captureCount = 0;
     }
-    
+
     function handleSlowClick() {
         if (disabled) return;
         dispatch('capture', { mode: 'slow' });
     }
-    
+
     function handleFastClick() {
         if (disabled) return;
         dispatch('capture', { mode: 'fast' });
     }
-    
+
     function handleSingleCapture() {
         if (disabled) return;
+		stopCapture();
         dispatch('capture', { mode: 'single' });
     }
 
@@ -111,7 +113,7 @@
 
     function handleSinglePointerDown(e: PointerEvent | MouseEvent) {
         if (disabled) return;
-        
+
         e.preventDefault();
         touchStartX = e.clientX;
         touchStartY = e.clientY;
@@ -153,7 +155,7 @@
             // Short press - single capture
             handleSingleCapture();
         }
-        
+
         // Reset state
         isLongPress = false;
         isDragging = false;
@@ -167,7 +169,7 @@
         const deltaX = e.clientX - touchStartX;
         const deltaY = e.clientY - touchStartY;
         const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-        
+
         currentDragX = deltaX;
 
         // If we're in long press mode and dragging
@@ -178,7 +180,7 @@
                     // Dragging left - slow mode
                     selectedMode = 'slow';
                 } else {
-                    // Dragging right - fast mode  
+                    // Dragging right - fast mode
                     selectedMode = 'fast';
                 }
             } else {
@@ -199,7 +201,7 @@
         }
         isLongPress = false;
     }
-    
+
     onDestroy(() => {
         stopCapture();
         if (longPressTimer) {
@@ -229,10 +231,10 @@
             <Turtle size={24} />
             <span class="mode-label">Slow</span>
         </button>
-        
+
         <div class="button-divider"></div>
     {/if}
-    
+
     <button
         class="capture-button single-mode"
         class:long-pressed={isLongPress}
@@ -250,10 +252,10 @@
         <Camera size={24} />
         <span class="mode-label">Single</span>
     </button>
-    
+
     {#if showAllButtons}
         <div class="button-divider"></div>
-        
+
         <button
             class="capture-button fast-mode"
             class:pressed={fastPressed}
@@ -271,7 +273,7 @@
             <span class="mode-label">Fast</span>
         </button>
     {/if}
-    
+
     {#if captureCount > 0}
         <div class="capture-counter">
             {captureCount}
@@ -289,7 +291,7 @@
         border-radius: 40px;
         padding: 4px;
         transition: all 0.3s ease;
-        overflow: hidden;
+        /*overflow: hidden;*/
     }
 
     .capture-button-container:not(.expanded) {
@@ -300,7 +302,7 @@
         width: auto; /* Allow expansion */
         animation: expandContainer 0.3s ease;
     }
-    
+
     .capture-button {
         width: 70px;
         height: 70px;
@@ -319,20 +321,20 @@
         -webkit-user-select: none;
         -webkit-touch-callout: none;
     }
-    
+
     .capture-button:disabled {
         opacity: 0.5;
         cursor: not-allowed;
     }
-    
+
     .slow-mode {
         background: linear-gradient(135deg, #4CAF50, #45a049);
     }
-    
+
     .slow-mode:hover:not(:disabled) {
         background: linear-gradient(135deg, #45a049, #3d8b40);
     }
-    
+
     .slow-mode.pressed {
         transform: scale(0.9);
         background: linear-gradient(135deg, #3d8b40, #357a38);
@@ -344,15 +346,15 @@
         box-shadow: 0 0 20px rgba(76, 175, 80, 0.6);
         border: 2px solid #81C784;
     }
-    
+
     .fast-mode {
         background: linear-gradient(135deg, #ff6b6b, #ff5252);
     }
-    
+
     .fast-mode:hover:not(:disabled) {
         background: linear-gradient(135deg, #ff5252, #ff4141);
     }
-    
+
     .fast-mode.pressed {
         transform: scale(0.9);
         background: linear-gradient(135deg, #ff4141, #ff3030);
@@ -364,15 +366,15 @@
         box-shadow: 0 0 20px rgba(255, 107, 107, 0.6);
         border: 2px solid #FF8A65;
     }
-    
+
     .single-mode {
         background: linear-gradient(135deg, #2196F3, #1976D2);
     }
-    
+
     .single-mode:hover:not(:disabled) {
         background: linear-gradient(135deg, #1976D2, #1565C0);
     }
-    
+
     .single-mode:active {
         transform: scale(0.9);
         background: linear-gradient(135deg, #1565C0, #0D47A1);
@@ -383,14 +385,14 @@
         background: linear-gradient(135deg, #1976D2, #1565C0);
         box-shadow: 0 0 20px rgba(33, 150, 243, 0.5);
     }
-    
+
     .button-divider {
         width: 2px;
         height: 50px;
         background: rgba(255, 255, 255, 0.3);
         margin: 0 8px;
     }
-    
+
     .mode-label {
         font-size: 11px;
         margin-top: 2px;
@@ -398,7 +400,7 @@
         text-transform: uppercase;
         letter-spacing: 0.5px;
     }
-    
+
     .capture-counter {
         position: absolute;
         top: -10px;
@@ -412,7 +414,7 @@
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
         animation: pulse 0.5s ease;
     }
-    
+
     @keyframes pulse {
         0% { transform: scale(1); }
         50% { transform: scale(1.1); }
@@ -420,10 +422,10 @@
     }
 
     @keyframes expandContainer {
-        0% { 
+        0% {
             width: 78px;
         }
-        100% { 
+        100% {
             width: auto;
         }
     }

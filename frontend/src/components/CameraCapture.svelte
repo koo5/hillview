@@ -5,6 +5,7 @@
     import {app} from "$lib/data.svelte";
     import DualCaptureButton from './DualCaptureButton.svelte';
     import CaptureQueueStatus from './CaptureQueueStatus.svelte';
+    import CaptureQueueIndicator from './CaptureQueueIndicator.svelte';
     import CameraOverlay from './CameraOverlay.svelte';
     import {captureQueue } from '$lib/captureQueue';
     import {injectPlaceholder, removePlaceholder} from '$lib/placeholderInjector';
@@ -766,6 +767,11 @@
                     <CaptureQueueStatus/>
                 </div>
             {/if}
+            
+            <!-- Capture queue indicator (always visible when queue has items) -->
+            <div class="queue-indicator-overlay">
+                <CaptureQueueIndicator/>
+            </div>
         </div>
     </div>
 {/if}
@@ -1034,6 +1040,13 @@
     .queue-status-overlay {
         position: absolute;
         top: 80px;
+        right: 20px;
+        z-index: 1001;
+    }
+
+    .queue-indicator-overlay {
+        position: absolute;
+        bottom: 20px;
         right: 20px;
         z-index: 1001;
     }

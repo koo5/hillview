@@ -65,12 +65,12 @@ export const photoInFront = derived(
       //console.log('🢄Navigation: No photos available for photoInFront');
       return null;
     }
-    
+
     // Find photo closest to current bearing
     const currentBearing = visual.bearing;
     let closestIndex = 0;
     let smallestDiff = calculateAbsBearingDiff(photos[0].bearing, currentBearing);
-    
+
     for (let i = 1; i < photos.length; i++) {
       const diff = calculateAbsBearingDiff(photos[i].bearing, currentBearing);
       if (diff < smallestDiff) {
@@ -78,7 +78,7 @@ export const photoInFront = derived(
         closestIndex = i;
       }
     }
-    
+
     //console.log(`Navigation: photoInFront selected from ${photos.length} photos in range`);
     return photos[closestIndex];
   }
@@ -88,26 +88,26 @@ export const photoToLeft = derived(
   [photosInRange, bearingState],
   ([photos, visual]) => {
     if (photos.length === 0) return null;
-    
+
     // Sort photos by bearing for proper navigation
     const sortedPhotos = [...photos].sort((a, b) => a.bearing - b.bearing);
-    
+
     // Find the next photo counter-clockwise from current bearing
     const currentBearing = visual.bearing;
     let bestPhoto = null;
     let bestDiff = Infinity;
-    
+
     for (const photo of sortedPhotos) {
       // Calculate counter-clockwise difference
       let diff = currentBearing - photo.bearing;
       if (diff <= 0) diff += 360; // Handle wraparound
-      
+
       if (diff < bestDiff) {
         bestDiff = diff;
         bestPhoto = photo;
       }
     }
-    
+
     return bestPhoto;
   }
 );
@@ -116,39 +116,40 @@ export const photoToRight = derived(
   [photosInRange, bearingState],
   ([photos, visual]) => {
     if (photos.length === 0) return null;
-    
+
     // Sort photos by bearing for proper navigation
     const sortedPhotos = [...photos].sort((a, b) => a.bearing - b.bearing);
-    
+
     // Find the next photo clockwise from current bearing
     const currentBearing = visual.bearing;
     let bestPhoto = null;
     let bestDiff = Infinity;
-    
+
     for (const photo of sortedPhotos) {
       // Calculate clockwise difference
       let diff = photo.bearing - currentBearing;
       if (diff <= 0) diff += 360; // Handle wraparound
-      
+
       if (diff < bestDiff) {
         bestDiff = diff;
         bestPhoto = photo;
       }
     }
-    
+
     return bestPhoto;
   }
 );
 
-// Combined photos for rendering (includes placeholders)
+// Combined photos for rendering (includes placeholders) 
+// Only recalculates when photo list changes, not on bearing changes
 export const visiblePhotos = derived(
-  [photosInArea, bearingState],
-  ([photos, visual]) => {
-    // Only add bearing diff colors - no spatial filtering
+  [photosInArea],
+  ([photos]) => {
+    const currentBearing = get(bearingState).bearing;
     return photos.map(photo => ({
       ...photo,
-      abs_bearing_diff: calculateAbsBearingDiff(photo.bearing, visual.bearing),
-      bearing_color: getBearingColor(calculateAbsBearingDiff(photo.bearing, visual.bearing))
+      abs_bearing_diff: calculateAbsBearingDiff(photo.bearing, currentBearing),
+      bearing_color: getBearingColor(calculateAbsBearingDiff(photo.bearing, currentBearing))
     }));
   }
 );
@@ -182,11 +183,11 @@ export function updateBearingByDiff(diff: number) {
 // Calculate range from map center and bounds
 export function calculateRange(center: LatLng, bounds: Bounds): number {
   if (!bounds) return 1000;
-  
+
   // Calculate distance from center to edge of bounds
   const cornerDistance = center.distanceTo(bounds.top_left);
   const sideDistance = center.distanceTo(new LatLng(center.lat, bounds.bottom_right.lng));
-  
+
   return Math.max(cornerDistance, sideDistance);
 }
 
@@ -194,7 +195,7 @@ export function calculateRange(center: LatLng, bounds: Bounds): number {
 export function updateBounds(bounds: Bounds) {
   const current = get(spatialState);
   const range = calculateRange(current.center, bounds);
-  
+
   updateSpatialState({
     bounds,
     range

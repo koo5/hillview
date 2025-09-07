@@ -31,6 +31,7 @@
     import '$lib/styles/optimizedMarkers.css';
 
     import {get} from "svelte/store";
+	import {stringifyCircularJSON} from "$lib/utils/json";
 
     let flying = false;
     let programmaticMove = false; // Flag to prevent position sync conflicts
@@ -61,6 +62,13 @@
     // Optimized marker system variables
     let currentMarkers: L.Marker[] = [];
     let lastPhotosUpdate = 0;
+
+    // Location tracking re-enable timer
+    let locationReEnableTimer: number | null = null;
+
+    // Flag to track if the current map event was caused by zoom buttons
+    let isZoomButtonEvent = false;
+    let zoomButtonEventTimer: number | null = null;
 
     // Subscribe to compass tracking state
     $: compassTrackingEnabled = $compassActive;
@@ -96,12 +104,72 @@
         return userLocation;
     }
 
+    // Handle zoom button clicks to re-enable location tracking
+    function handleZoomButtonClick() {
+        console.log('🢄[LOCATION] Zoom button clicked');
+
+        // Set flag to prevent location tracking from being disabled
+        isZoomButtonEvent = true;
+
+        // Clear any existing zoom button event timer
+        if (zoomButtonEventTimer) {
+            clearTimeout(zoomButtonEventTimer);
+        }
+
+        // Reset the flag after 500ms to handle multiple map events
+        zoomButtonEventTimer = window.setTimeout(() => {
+            console.log('🢄[LOCATION] Resetting zoom button event flag');
+            isZoomButtonEvent = false;
+            zoomButtonEventTimer = null;
+        }, 500);
+
+        if (get(locationTracking)) {
+            console.log('🢄[LOCATION] Zoom button clicked while tracking - will re-enable after 200ms');
+
+            // Clear any existing timer
+            if (locationReEnableTimer) {
+                clearTimeout(locationReEnableTimer);
+            }
+
+            // Re-enable location tracking after 200ms
+            locationReEnableTimer = window.setTimeout(() => {
+                if (get(locationTracking)) {
+                    console.log('🢄[LOCATION] Re-enabling location tracking after zoom');
+                    enableLocationTracking();
+                }
+            }, 200);
+        }
+    }
+
+    // Set up event listeners for Leaflet zoom controls
+    function setupZoomControlListeners() {
+        if (!map) return;
+
+        // Wait a bit for the zoom controls to be added to the DOM
+        setTimeout(() => {
+            const zoomInButton = document.querySelector('.leaflet-control-zoom-in');
+            const zoomOutButton = document.querySelector('.leaflet-control-zoom-out');
+
+            if (zoomInButton) {
+                zoomInButton.addEventListener('click', handleZoomButtonClick);
+                console.log('🢄[LOCATION] Added zoom-in button listener');
+            }
+
+            if (zoomOutButton) {
+                zoomOutButton.addEventListener('click', handleZoomButtonClick);
+                console.log('🢄[LOCATION] Added zoom-out button listener');
+            }
+        }, 100);
+    }
+
     // Optimized marker management functions
     function updateOptimizedMarkers(photos: any[]) {
         if (!map) return;
 
         const updateId = Date.now();
         lastPhotosUpdate = updateId;
+
+		//console.log(`🢄Updating optimized markers (bearing color) with ${JSON.stringify(photos)}`);
 
         // Use the optimized marker system
         const updatedMarkers = optimizedMarkerSystem.updateMarkers(map, photos);
@@ -111,13 +179,6 @@
         } else {
             console.warn('🢄optimizedMarkerSystem.updateMarkers returned undefined');
         }
-    }
-
-    function updateMarkerBearingColors() {
-        if (!currentMarkers || currentMarkers.length === 0) return;
-
-        // Efficiently update only the bearing colors
-        optimizedMarkerSystem.updateMarkerColors(currentMarkers, $bearingState.bearing);
     }
 
     // Calculate how many km are "visible" based on the current zoom/center
@@ -166,13 +227,21 @@
         if (!flying) {
             let _center = map.getCenter();
             let p = get(spatialState);
-            console.log('🢄mapStateUserEvent:', event);
+            //console.log('🢄mapStateUserEvent:', stringifyCircularJSON(event));
             if (p.center.lat != _center.lat || p.center.lng != _center.lng) {
                 console.log('🢄p.center:', p.center, '_center:', _center);
-                console.log('🢄disableLocationTracking');
-                disableLocationTracking();
+
+                // Only disable location tracking if this wasn't caused by zoom buttons
+                if (!isZoomButtonEvent) {
+                    console.log('🢄disableLocationTracking');
+                    disableLocationTracking();
+                } else {
+                    console.log('🢄Zoom button event detected - not disabling location tracking');
+                }
             }
         }
+
+        // Don't reset the flag here - let the timer handle it
         await onMapStateChange(true, 'mapStateUserEvent');
 
         // Prune tiles after significant movement or every 10 move events
@@ -728,6 +797,9 @@
 
             await onMapStateChange(true, 'mount');
             //console.log('🢄Map component mounted - after onMapStateChange');
+
+            // Set up zoom control listeners
+            setupZoomControlListeners();
         })();
 
         // Add event listeners for visibility changes
@@ -768,6 +840,29 @@
         // Clear timers
         if (orientationRestartTimer) {
             clearTimeout(orientationRestartTimer);
+        }
+
+        // Clean up location re-enable timer
+        if (locationReEnableTimer) {
+            clearTimeout(locationReEnableTimer);
+            locationReEnableTimer = null;
+        }
+
+        // Clean up zoom button event timer
+        if (zoomButtonEventTimer) {
+            clearTimeout(zoomButtonEventTimer);
+            zoomButtonEventTimer = null;
+        }
+
+        // Clean up zoom control event listeners
+        const zoomInButton = document.querySelector('.leaflet-control-zoom-in');
+        const zoomOutButton = document.querySelector('.leaflet-control-zoom-out');
+
+        if (zoomInButton) {
+            zoomInButton.removeEventListener('click', handleZoomButtonClick);
+        }
+        if (zoomOutButton) {
+            zoomOutButton.removeEventListener('click', handleZoomButtonClick);
         }
 
         // Remove event listeners

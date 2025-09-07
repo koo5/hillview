@@ -1,14 +1,20 @@
 import L from 'leaflet';
 import {arrowAtlas} from './markerAtlas';
 import type {PhotoData} from './types/photoTypes';
-import {photoInFront, bearingState} from './mapState';
-import {get} from 'svelte/store';
+import {photoInFront} from './mapState';
+import {get, writable} from 'svelte/store';
+import { app } from "$lib/data.svelte";
 
 export interface OptimizedMarkerOptions {
 	enablePooling: boolean;
 	maxPoolSize: number;
 	enableSelection: boolean;
 }
+
+export const bearingDiffColorsUpdateInterval = writable(100); // ms
+app.subscribe(value => {
+	bearingDiffColorsUpdateInterval.set(value?.activity === 'capture' ? 1000 : 300);
+});
 
 /**
  * Optimized marker system using separated visual elements:
@@ -51,6 +57,10 @@ export class OptimizedMarkerSystem {
 		const icon = this.createSeparatedIcon(photo);
 		marker.setIcon(icon);
 
+		const currentPhotoInFront = get(photoInFront);
+		const isSelected = currentPhotoInFront && photo.id === currentPhotoInFront.id;
+		marker.setZIndexOffset(isSelected ? 1000000 : 0); // Bring selected marker to front
+
 		// Store photo data for updates
 		(marker as any)._photoData = photo;
 
@@ -67,7 +77,7 @@ export class OptimizedMarkerSystem {
 		const isSelected = currentPhotoInFront && photo.id === currentPhotoInFront.id;
 
 		// Determine sizes based on zoom and selection
-		const circleSize = isSelected ? arrowSize * 0.8 : arrowSize * 0.6;
+		const circleSize = isSelected ? arrowSize * 1 : arrowSize * 0.6;
 		const arrowScale = isSelected ? 1.2 : 1.0;
 		const strokeWidth = isSelected ? 3 : 1;
 
@@ -106,6 +116,7 @@ export class OptimizedMarkerSystem {
 	 * This is called when bearing changes but photo positions haven't changed
 	 */
 	updateMarkerColors(markers: L.Marker[], currentBearing: number): void {
+		console.log('Updating marker bearing colors for ', currentBearing, 'on', markers.length, 'markers');
 		const startTime = performance.now();
 		let updatedCount = 0;
 
@@ -147,6 +158,7 @@ export class OptimizedMarkerSystem {
 	scheduleColorUpdate(bearing: number): void {
 		this.lastVal = bearing;
 		if (this.pendingBearingUpdateTimeout) {
+			console.log('Skipping scheduled bearing color update - already pending');
 			return
 		}
 
@@ -164,15 +176,16 @@ export class OptimizedMarkerSystem {
 				}
 				this.rafId = null;
 			});
-
-
-		}, 100);
+		}, get(bearingDiffColorsUpdateInterval));
+		console.log('Scheduled bearing color update in', get(bearingDiffColorsUpdateInterval), 'ms');
 	}
 
 	/**
 	 * Update markers for new photo set with pooling
 	 */
 	updateMarkers(map: L.Map, photos: PhotoData[]): L.Marker[] {
+
+		console.log(`OptimizedMarkerSystem: bearing color, updating ${photos.length} markers`);
 		// Return unused markers to pool
 		this.returnMarkersToPool();
 
@@ -182,7 +195,7 @@ export class OptimizedMarkerSystem {
 			marker.addTo(map);
 
 			// Debug: Log first few markers and check z-index
-			if (index < 5) {
+			/*if (index < 5) {
 				console.log(`Created marker ${index} at [${photo.coord.lat}, ${photo.coord.lng}]`, marker);
 
 				// Check the z-index after adding to map
@@ -194,7 +207,7 @@ export class OptimizedMarkerSystem {
 						console.log(`🢄Marker ${index} z-index: ${zIndex}, element:`, element);
 					}
 				}, 100);
-			}
+			}*/
 
 			return marker;
 		});

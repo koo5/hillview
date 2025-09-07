@@ -37,7 +37,9 @@
   /* Pulsing animation for selected photo */
   animation: selectedPulse 2s infinite;
   /* Stronger shadow when selected */
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.8);
+	/* Ensure pulse appears above other elements */
+  /*z-index: 100000;*/
 }
 
 .direction-arrow {
@@ -61,7 +63,7 @@
     opacity: 1;
   }
   50% {
-    transform: translate(-50%, -50%) scale(1.1);
+    transform: translate(-50%, -50%) scale(1.2);
     opacity: 0.8;
   }
   100% {
@@ -95,7 +97,7 @@
   .direction-arrow {
     transition: none;
   }
-  
+
   .bearing-circle.selected {
     animation: none;
   }
