@@ -63,13 +63,32 @@ export class AndroidTokenManager implements TokenManager {
     async storeTokens(tokenData: TokenData): Promise<void> {
         try {
             console.log(`${this.LOG_PREFIX} Storing tokens in Android`);
+            console.log(`${this.LOG_PREFIX} - Token data:`, JSON.stringify({
+                hasAccessToken: !!tokenData.access_token,
+                hasRefreshToken: !!tokenData.refresh_token,
+                expiresAt: tokenData.expires_at,
+                refreshTokenExpiresAt: tokenData.refresh_token_expires_at
+            }));
             
-            await invoke('plugin:hillview|store_auth_token', {
+            console.log(`${this.LOG_PREFIX} - Calling plugin with:`, JSON.stringify({
+                token: tokenData.access_token ? 'present' : 'missing',
+                refreshToken: tokenData.refresh_token ? 'present' : 'missing',
+                expiresAt: tokenData.expires_at,
+                refreshExpiry: "TEST_SIMPLE_STRING"
+            }));
+            
+            const result = await invoke('plugin:hillview|store_auth_token', {
                 token: tokenData.access_token,
                 refreshToken: tokenData.refresh_token,
                 expiresAt: tokenData.expires_at,
-                refreshExpiresAt: tokenData.refresh_token_expires_at
-            });
+                refreshExpiry: "TEST_SIMPLE_STRING"
+            }) as { success: boolean; error?: string };
+            
+            if (!result.success) {
+                const errorMsg = result.error || 'Unknown error storing tokens';
+                console.error(`${this.LOG_PREFIX} Plugin returned error: ${errorMsg}`);
+                throw new Error(`Failed to store tokens in Android: ${errorMsg}`);
+            }
             
             console.log(`${this.LOG_PREFIX} Tokens stored successfully in Android`);
             

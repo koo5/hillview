@@ -10,7 +10,7 @@ export interface TokenData {
     refresh_token?: string;
     token_type: string;
     expires_at: string;
-    refresh_token_expires_at: string;
+    refresh_token_expires_at?: string;
 }
 
 export interface TokenManager {

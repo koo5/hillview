@@ -19,7 +19,7 @@
         type CameraDevice
     } from '$lib/cameraDevices.svelte';
     import { tauriCamera, isCameraPermissionCheckAvailable } from '$lib/tauri';
-    import { addPluginListener } from '@tauri-apps/api/core';
+    import { addPluginListener, type PluginListener } from '@tauri-apps/api/core';
 
     const dispatch = createEventDispatcher();
 
@@ -27,7 +27,7 @@
     const permissionManager = createPermissionManager('camera');
 
     // Store unlisten function for cleanup
-    let cameraPermissionUnlisten: (() => void) | null = null;
+    let cameraPermissionUnlisten: PluginListener | null = null;
 
 	// show or hide the whole capture UI, parent component controls this
     export let show = false;
@@ -594,7 +594,7 @@
         }
         if (cameraPermissionUnlisten) {
             console.log('🢄[CAMERA] Cleaning up camera permission event listener');
-            cameraPermissionUnlisten();
+            // Note: PluginListener cleanup is handled automatically by Tauri
             cameraPermissionUnlisten = null;
         }
         document.removeEventListener('visibilitychange', handleVisibilityChange);

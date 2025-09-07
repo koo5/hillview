@@ -208,7 +208,7 @@ async def login_for_access_token(
 		"refresh_token": refresh_token,
 		"token_type": "bearer",
 		"expires_at": expires,
-		"refresh_token_expires_at": refresh_expires.isoformat()
+		"refresh_token_expires_at": refresh_expires
 	}
 
 @router.post("/auth/logout")
@@ -568,6 +568,7 @@ async def oauth_callback(
 		jwt_token = jwt_result["access_token"]
 		refresh_token = jwt_result.get("refresh_token")  # Get refresh token
 		expires_at = jwt_result["expires_at"]
+		refresh_token_expires_at = jwt_result.get("refresh_token_expires_at")
 		user_info = jwt_result.get("user_info", {})
 
 		# Log successful OAuth login
@@ -607,11 +608,14 @@ async def oauth_callback(
 	# Clean up expired sessions before processing
 	await cleanup_expired_sessions()
 
+	# Check if deep link mode is requested via query parameter
+	use_deep_links = request.query_params.get("use_deep_links") == "true"
+	
 	# Detect if this is a mobile app request or has a polling session
 	if (polling_session_id or 
 		(final_redirect_uri and
 		 (final_redirect_uri.startswith("cz.hillview://") or
-		  final_redirect_uri.startswith("cz.hillviedev://")))):
+		  final_redirect_uri.startswith("cz.hillviedev://")) and not use_deep_links)):
 		# Mobile app: use polling mechanism instead of deep links
 		log.info("Mobile OAuth callback detected, using polling mechanism")
 		
@@ -619,7 +623,8 @@ async def oauth_callback(
 		tokens = {
 			'access_token': jwt_token,
 			'refresh_token': refresh_token,
-			'expires_at': expires_at
+			'expires_at': expires_at,
+			'refresh_token_expires_at': refresh_token_expires_at
 		}
 		
 		if polling_session_id:
@@ -630,6 +635,7 @@ async def oauth_callback(
 					'access_token': jwt_token,
 					'refresh_token': refresh_token,
 					'token_expires_at': expires_at,
+					'refresh_token_expires_at': refresh_token_expires_at,
 					'user_info': user_info,
 					'status': 'completed'
 				})
@@ -709,6 +715,28 @@ async def oauth_callback(
 """
 		
 		return HTMLResponse(content=success_html)
+	elif (final_redirect_uri and use_deep_links and
+		  (final_redirect_uri.startswith("cz.hillview://") or 
+		   final_redirect_uri.startswith("cz.hillviedev://"))):
+		# Mobile app with deep link enabled: redirect directly with tokens
+		log.info("Mobile OAuth callback with deep links enabled, redirecting to app")
+		
+		from urllib.parse import urlencode
+		params = {
+			'token': jwt_token,
+			'refresh_token': refresh_token,
+			'expires_at': expires_at,
+			'refresh_token_expires_at': refresh_token_expires_at,
+			'token_type': 'bearer'
+		}
+		
+		# Remove None values
+		params = {k: v for k, v in params.items() if v is not None}
+		
+		deep_link_url = f"{final_redirect_uri}?{urlencode(params)}"
+		log.info(f"Redirecting to deep link: {deep_link_url}")
+		
+		return RedirectResponse(deep_link_url)
 	else:
 		# Web app: existing behavior (redirect to dashboard)
 		# Note: For web app, you might want to set cookies here
@@ -769,6 +797,7 @@ async def get_oauth_status(
 	access_token = session['access_token']
 	refresh_token = session.get('refresh_token')
 	token_expires_at = session['token_expires_at']
+	refresh_token_expires_at = session.get('refresh_token_expires_at')
 	user_info = session['user_info']
 	
 	# Log successful OAuth completion
@@ -800,6 +829,9 @@ async def get_oauth_status(
 	
 	if refresh_token:
 		response_data["refresh_token"] = refresh_token
+	
+	if refresh_token_expires_at:
+		response_data["refresh_token_expires_at"] = refresh_token_expires_at if isinstance(refresh_token_expires_at, str) else refresh_token_expires_at.isoformat()
 	
 	return response_data
 

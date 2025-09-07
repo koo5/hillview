@@ -71,6 +71,7 @@ class Token(BaseModel):
 	refresh_token: Optional[str] = None
 	token_type: str
 	expires_at: datetime
+	refresh_token_expires_at: Optional[datetime] = None
 
 class TokenData(BaseModel):
 	username: Optional[str] = None

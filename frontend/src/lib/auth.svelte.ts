@@ -33,6 +33,7 @@ export async function completeAuthentication(tokenData: {
     refresh_token?: string;
     expires_at: string;
     token_type?: string;
+    refresh_token_expires_at: string;
 }, source: 'login' | 'oauth' = 'login'): Promise<boolean> {
         console.log(`🢄[AUTH] Completing ${source} authentication...`);
 
@@ -42,12 +43,23 @@ export async function completeAuthentication(tokenData: {
 
         // Store tokens using the unified TokenManager
         const tokenManager = createTokenManager();
-        await tokenManager.storeTokens({
+        const tokensToStore = {
             access_token: tokenData.access_token,
             refresh_token: tokenData.refresh_token,
             expires_at: tokenData.expires_at,
-            token_type: tokenData.token_type || 'bearer'
-        });
+            token_type: tokenData.token_type || 'bearer',
+            refresh_token_expires_at: tokenData.refresh_token_expires_at
+        };
+        
+        console.log('🢄[AUTH] About to store tokens:', JSON.stringify({
+            hasAccessToken: !!tokensToStore.access_token,
+            hasRefreshToken: !!tokensToStore.refresh_token,
+            expiresAt: tokensToStore.expires_at,
+            refreshTokenExpiresAt: tokensToStore.refresh_token_expires_at,
+            tokenType: tokensToStore.token_type
+        }));
+        
+        await tokenManager.storeTokens(tokensToStore);
         console.log('🢄[AUTH] Tokens stored successfully via TokenManager');
 
         // Update auth store - tokens stored means authenticated
@@ -131,7 +143,12 @@ export async function login(username: string, password: string) {
 
         const data = await response.json();
 
-        console.log('🢄[AUTH] Login successful, token received:', data);
+        console.log('🢄[AUTH] Login successful, token received:');
+        console.log('🢄[AUTH] - access_token:', data.access_token ? 'present' : 'missing');
+        console.log('🢄[AUTH] - refresh_token:', data.refresh_token ? 'present' : 'missing');
+        console.log('🢄[AUTH] - expires_at:', data.expires_at);
+        console.log('🢄[AUTH] - refresh_token_expires_at:', data.refresh_token_expires_at);
+        console.log('🢄[AUTH] - token_type:', data.token_type);
 
         // Use shared authentication completion
         return await completeAuthentication(data, 'login');

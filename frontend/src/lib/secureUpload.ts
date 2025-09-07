@@ -166,16 +166,16 @@ export async function secureUploadFile(
         console.log(`🔐 Starting secure upload for: ${file.name}`);
 
         // Step 1: Try to extract geolocation data from file and device
-        const [fileGeo, deviceGeo] = await Promise.all([
+        const [fileGeo/*, deviceGeo*/] = await Promise.all([
             extractGeolocationFromFile(file),
-            //getCurrentLocation()
+			//getCurrentLocation()
         ]);
 
         // Prefer file EXIF data over device location
         const geolocation = {
-            latitude: fileGeo.latitude || deviceGeo?.latitude,
-            longitude: fileGeo.longitude || deviceGeo?.longitude,
-            altitude: fileGeo.altitude || deviceGeo?.altitude,
+            latitude: fileGeo.latitude,// || deviceGeo?.latitude,
+            longitude: fileGeo.longitude,// || deviceGeo?.longitude,
+            altitude: fileGeo.altitude,// || deviceGeo?.altitude,
             compass_angle: fileGeo.compass_angle,
             captured_at: fileGeo.captured_at
         };

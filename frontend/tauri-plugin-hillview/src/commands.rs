@@ -177,10 +177,11 @@ pub(crate) async fn store_auth_token<R: Runtime>(
     token: String,
     refresh_token: Option<String>,
     expires_at: String,
+    refresh_expiry: Option<String>,
 ) -> Result<BasicResponse> {
     #[cfg(mobile)]
     {
-        return app.hillview().store_auth_token(token, expires_at, refresh_token);
+        return app.hillview().store_auth_token(token, expires_at, refresh_token, refresh_expiry);
     }
 
     #[cfg(desktop)]

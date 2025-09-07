@@ -47,8 +47,9 @@ export async function handleAuthCallback(url?: string): Promise<boolean> {
         const token = urlObj.searchParams.get('token');
         const refreshToken = urlObj.searchParams.get('refresh_token');
         const expiresAt = urlObj.searchParams.get('expires_at');
+        const refreshTokenExpiresAt = urlObj.searchParams.get('refresh_token_expires_at');
 
-        if (token && expiresAt) {
+        if (token && expiresAt && refreshTokenExpiresAt) {
             // Check if token is already expired (compare in UTC)
             const expiryDate = new Date(expiresAt);
             const now = new Date();
@@ -71,7 +72,8 @@ export async function handleAuthCallback(url?: string): Promise<boolean> {
                 access_token: token,
                 refresh_token: refreshToken || undefined,
                 expires_at: expiresAt,
-                token_type: 'bearer'
+                token_type: 'bearer',
+                refresh_token_expires_at: refreshTokenExpiresAt
             }, 'oauth');
 
             if (success) {

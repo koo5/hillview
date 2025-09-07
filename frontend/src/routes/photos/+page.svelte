@@ -765,10 +765,6 @@
         margin-bottom: 30px;
     }
 
-    .import-section h2 {
-        color: #495057;
-        margin-bottom: 10px;
-    }
 
     .import-description {
         color: #6c757d;

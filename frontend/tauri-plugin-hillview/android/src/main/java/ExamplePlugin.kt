@@ -5,7 +5,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
-import android.provider.OpenableColumns
 import android.util.Log
 import android.webkit.ConsoleMessage
 import android.webkit.PermissionRequest
@@ -23,6 +22,9 @@ import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 import app.tauri.plugin.Invoke
+import org.json.JSONArray
+import java.io.File
+import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 @InvokeArg
@@ -62,7 +64,11 @@ class StoreAuthTokenArgs {
   var token: String? = null
   var expiresAt: String? = null
   var refreshToken: String? = null
-  var refreshExpiresAt: String? = null
+  var refreshExpiry: String? = null
+  
+  override fun toString(): String {
+    return "StoreAuthTokenArgs(token=${token?.let { "present" } ?: "null"}, expiresAt=$expiresAt, refreshToken=${refreshToken?.let { "present" } ?: "null"}, refreshExpiry=$refreshExpiry)"
+  }
 }
 
 @InvokeArg
@@ -79,7 +85,9 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
 
         // Permission request codes
         private const val CAMERA_PERMISSION_REQUEST_CODE = 2001
-        private const val FILE_PICKER_REQUEST_CODE = 2002
+        
+        // Activity request codes
+        private const val FILE_PICKER_REQUEST_CODE = 3001
 
         // Storage for pending WebView permission requests
         private var pendingWebViewPermissionRequest: PermissionRequest? = null
@@ -704,14 +712,22 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
 
     @Command
     fun storeAuthToken(invoke: Invoke) {
+        Log.d(TAG, "🔐 storeAuthToken command called")
         try {
+            Log.d(TAG, "🔐 Parsing arguments...")
             val args = invoke.parseArgs(StoreAuthTokenArgs::class.java)
+            Log.d(TAG, "🔐 Parsed args object: $args")
             val token = args.token
             val expiresAt = args.expiresAt
             val refreshToken = args.refreshToken
-            val refreshExpiresAt = args.refreshExpiresAt
+            val refreshExpiresAt = args.refreshExpiry
+            Log.d(TAG, "🔐 Individual field values - refreshExpiry field: $refreshExpiresAt")
+
+            Log.d(TAG, "🔐 Arguments parsed - token: ${if (token?.isNotEmpty() == true) "present" else "missing"}, expiresAt: $expiresAt")
+            Log.d(TAG, "🔐 Refresh token: ${if (refreshToken?.isNotEmpty() == true) "present" else "missing"}, refreshExpiresAt: $refreshExpiresAt")
 
             if (token.isNullOrEmpty() || expiresAt.isNullOrEmpty()) {
+                Log.e(TAG, "🔐 Validation failed: token or expiresAt is null/empty")
                 val error = JSObject()
                 error.put("success", false)
                 error.put("error", "Token and expiration date are required")
@@ -720,6 +736,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             }
 
             if (refreshToken != null && refreshExpiresAt.isNullOrEmpty()) {
+                Log.e(TAG, "🔐 Validation failed: refresh token without expiry")
                 val error = JSObject()
                 error.put("success", false)
                 error.put("error", "Refresh token provided without expiry date")
@@ -727,11 +744,13 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                 return
             }
 
-            Log.d(TAG, "🔐 Storing auth token with refresh token: ${refreshToken != null}, refresh expires at: $refreshExpiresAt")
+            Log.d(TAG, "🔐 Validation passed, proceeding with storage...")
 
             CoroutineScope(Dispatchers.IO).launch {
                 try {
+                    Log.d(TAG, "🔐 Calling authManager.storeAuthToken...")
                     val success = authManager.storeAuthToken(token, expiresAt, refreshToken, refreshExpiresAt)
+                    Log.d(TAG, "🔐 authManager.storeAuthToken returned: $success")
 
                     CoroutineScope(Dispatchers.Main).launch {
                         val result = JSObject()
@@ -739,11 +758,12 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                         if (!success) {
                             result.put("error", "Failed to store auth token")
                         }
+                        Log.d(TAG, "🔐 Resolving with success: $success")
                         invoke.resolve(result)
                     }
 
                 } catch (e: Exception) {
-                    Log.e(TAG, "🔐 Error storing auth token", e)
+                    Log.e(TAG, "🔐 Exception in storeAuthToken coroutine", e)
                     CoroutineScope(Dispatchers.Main).launch {
                         val error = JSObject()
                         error.put("success", false)
@@ -765,9 +785,11 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     @Command
     fun getAuthToken(invoke: Invoke) {
         try {
-            //Log.d(TAG, "🔐 Getting auth token (sync version - no refresh)")
+            Log.d(TAG, "🔐 Getting auth token (sync version - no refresh)")
             val (_, expiresAt) = authManager.getTokenInfo()
+            Log.d(TAG, "🔐 Token info retrieved, expires at: $expiresAt")
             val validToken = authManager.getValidTokenSync()  // Use sync version for Tauri commands
+            Log.d(TAG, "🔐 Valid token result: ${if (validToken != null) "token retrieved" else "null"}")
 
             val result = JSObject()
             result.put("success", true)
@@ -981,124 +1003,33 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     @Command
     fun import_photos(invoke: Invoke) {
         try {
-            Log.d(TAG, "📂 Starting photo import")
-
-            // Store the callback for when the file picker returns
-            pendingFilePickerInvoke = invoke
-
-            // Create file picker intent
-            val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
-                type = "image/*"
-                putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
-                addCategory(Intent.CATEGORY_OPENABLE)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-
-            val chooser = Intent.createChooser(intent, "Select Photos to Import")
-            activity.startActivityForResult(chooser, FILE_PICKER_REQUEST_CODE)
-
-            Log.d(TAG, "📂 File picker opened")
-
-        } catch (e: Exception) {
-            Log.e(TAG, "❌ Failed to open file picker", e)
-            invoke.reject("Failed to open file picker: ${e.message}")
-        }
-    }
-
-    // Handle activity results (for file picker) - Called by Tauri's activity lifecycle
-    fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        if (requestCode == FILE_PICKER_REQUEST_CODE) {
-            handleFilePickerResult(resultCode, data)
-        }
-    }
-
-    private fun handleFilePickerResult(resultCode: Int, data: Intent?) {
-        val invoke = pendingFilePickerInvoke
-        pendingFilePickerInvoke = null
-
-        if (invoke == null) {
-            Log.w(TAG, "⚠️ No pending file picker callback found")
-            return
-        }
-
-        if (resultCode != Activity.RESULT_OK || data == null) {
-            Log.d(TAG, "📂 File picker cancelled or failed")
-            val result = JSObject()
-            result.put("success", false)
-            result.put("imported_count", 0)
-            result.put("failed_count", 0)
-            result.put("error", "File picker cancelled")
-            invoke.resolve(result)
-            return
-        }
-
-        try {
-            val selectedUris = mutableListOf<Uri>()
-
-            // Handle multiple file selection
-            val clipData = data.clipData
-            if (clipData != null) {
-                // Multiple files selected
-                for (i in 0 until clipData.itemCount) {
-                    val uri = clipData.getItemAt(i).uri
-                    selectedUris.add(uri)
-                }
-            } else {
-                // Single file selected
-                data.data?.let { selectedUris.add(it) }
-            }
-
-            if (selectedUris.isEmpty()) {
-                Log.w(TAG, "📂 No files selected")
-                val result = JSObject()
-                result.put("success", false)
-                result.put("imported_count", 0)
-                result.put("failed_count", 0)
-                result.put("error", "No files selected")
-                invoke.resolve(result)
+            Log.d(TAG, "📂 Starting photo import with file picker")
+            
+            // Check if another file picker request is already pending
+            if (pendingFilePickerInvoke != null) {
+                Log.w(TAG, "📂 File picker already in progress")
+                invoke.reject("File picker already in progress")
                 return
             }
-
-            Log.d(TAG, "📂 Processing ${selectedUris.size} selected files")
-
-            // For now, return success with basic info
-            // TODO: Implement actual file importing similar to PhotoImportManager
-            val result = JSObject()
-            result.put("success", true)
-            result.put("imported_count", selectedUris.size)
-            result.put("failed_count", 0)
             
-            val importedFiles = mutableListOf<String>()
-            selectedUris.forEach { uri ->
-                val fileName = getFileNameFromUri(uri) ?: "unknown.jpg"
-                importedFiles.add(fileName)
+            // Store the pending request
+            pendingFilePickerInvoke = invoke
+            
+            // Create file picker intent
+            val filePickerIntent = Intent(Intent.ACTION_GET_CONTENT).apply {
+                type = "image/*"
+                addCategory(Intent.CATEGORY_OPENABLE)
+                putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+                putExtra(Intent.EXTRA_LOCAL_ONLY, true)
             }
             
-            Log.d(TAG, "📂 Import completed: ${selectedUris.size} files")
-            invoke.resolve(result)
-
+            Log.i(TAG, "📂 Launching file picker with request code: $FILE_PICKER_REQUEST_CODE")
+            activity.startActivityForResult(filePickerIntent, FILE_PICKER_REQUEST_CODE)
+            
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Error processing file picker result", e)
-            val result = JSObject()
-            result.put("success", false)
-            result.put("imported_count", 0)
-            result.put("failed_count", 0)
-            result.put("error", e.message)
-            invoke.resolve(result)
-        }
-    }
-
-    private fun getFileNameFromUri(uri: Uri): String? {
-        return try {
-            activity.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-                if (cursor.moveToFirst()) {
-                    val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                    if (nameIndex >= 0) cursor.getString(nameIndex) else null
-                } else null
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to get filename from URI: $uri", e)
-            null
+            Log.e(TAG, "❌ Failed to start file picker", e)
+            pendingFilePickerInvoke = null
+            invoke.reject("Failed to start file picker: ${e.message}")
         }
     }
 
@@ -1117,5 +1048,131 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         preciseLocationService?.onRequestPermissionsResult(requestCode, permissions, grantResults)
 
         Log.e(TAG, "🔒 Permission result processing complete")
+    }
+    
+    // Handle activity results and forward to appropriate handlers
+    fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        Log.i(TAG, "📂 Activity result received: requestCode=$requestCode, resultCode=$resultCode")
+        
+        when (requestCode) {
+            FILE_PICKER_REQUEST_CODE -> {
+                handleFilePickerResult(resultCode, data)
+            }
+            else -> {
+                Log.w(TAG, "📂 Unhandled activity result: requestCode=$requestCode")
+            }
+        }
+    }
+    
+    // Handle file picker results
+    private fun handleFilePickerResult(resultCode: Int, data: Intent?) {
+        val invoke = pendingFilePickerInvoke
+        if (invoke == null) {
+            Log.w(TAG, "📂 File picker result received but no pending request found")
+            return
+        }
+        
+        pendingFilePickerInvoke = null
+        
+        if (resultCode == Activity.RESULT_OK && data != null) {
+            Log.i(TAG, "📂 File picker result: User selected files")
+            
+            val selectedUris = mutableListOf<Uri>()
+            
+            // Handle multiple files selection
+            data.clipData?.let { clipData ->
+                for (i in 0 until clipData.itemCount) {
+                    selectedUris.add(clipData.getItemAt(i).uri)
+                }
+            } ?: data.data?.let { singleUri ->
+                // Handle single file selection
+                selectedUris.add(singleUri)
+            }
+            
+            if (selectedUris.isNotEmpty()) {
+                Log.i(TAG, "📂 Processing ${selectedUris.size} selected files")
+                
+                // Use coroutine to handle async import - reuse existing photo processing logic
+                CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        val importedFiles = mutableListOf<String>()
+                        val failedFiles = mutableListOf<String>()
+                        val errors = mutableListOf<String>()
+                        
+                        for (uri in selectedUris) {
+                            try {
+                                // Convert URI to file path using PhotoUtils
+                                val filePath = PhotoUtils.getFilePathFromUri(activity, uri)
+                                if (filePath != null) {
+                                    val file = File(filePath)
+                                    if (file.exists() && file.isFile) {
+                                        // Calculate hash and check for existing photo
+                                        val fileHash = PhotoUtils.calculateFileHash(file)
+                                        val existingPhoto = database.photoDao().getPhotoByHash(fileHash)
+                                        
+                                        if (existingPhoto == null) {
+                                            // Create new PhotoEntity using PhotoUtils
+                                            val photoEntity = PhotoUtils.createPhotoEntityFromFile(file, fileHash, "imported")
+                                            database.photoDao().insertPhoto(photoEntity)
+                                            importedFiles.add(filePath)
+                                            Log.d(TAG, "📂 Successfully imported: ${file.name}")
+                                        } else {
+                                            Log.d(TAG, "📂 Photo already exists: ${file.name}")
+                                            importedFiles.add(filePath)  // Count as imported since it's in our database
+                                        }
+                                    } else {
+                                        failedFiles.add(uri.toString())
+                                        errors.add("File not found or not readable: $filePath")
+                                    }
+                                } else {
+                                    failedFiles.add(uri.toString())
+                                    errors.add("Could not resolve file path for URI: $uri")
+                                }
+                            } catch (e: IOException) {
+                                failedFiles.add(uri.toString())
+                                errors.add("I/O error importing ${uri}: ${e.message}")
+                                Log.e(TAG, "📂 I/O error importing $uri", e)
+                            } catch (e: SecurityException) {
+                                failedFiles.add(uri.toString())
+                                errors.add("Permission denied accessing ${uri}: ${e.message}")
+                                Log.e(TAG, "📂 Permission error importing $uri", e)
+                            }
+                        }
+                        
+                        // Return result matching FileImportResponse structure
+                        val response = JSObject()
+                        response.put("success", importedFiles.isNotEmpty())
+                        response.put("selected_files", JSONArray(selectedUris.map { it.toString() }))
+                        response.put("imported_count", importedFiles.size)
+                        response.put("failed_count", failedFiles.size)
+                        response.put("failed_files", JSONArray(failedFiles))
+                        response.put("import_errors", JSONArray(errors))
+                        
+                        Log.i(TAG, "📂 Import complete: ${importedFiles.size} successful, ${failedFiles.size} failed")
+                        invoke.resolve(response)
+                        
+                    } catch (e: Exception) {
+                        Log.e(TAG, "📂 Import failed with error: ${e.message}", e)
+                        invoke.reject("Import failed: ${e.message}")
+                    }
+                }
+            } else {
+                Log.w(TAG, "📂 No files selected")
+                val response = JSObject()
+                response.put("success", false)
+                response.put("imported_count", 0)
+                response.put("failed_count", 0)
+                response.put("error", "No files selected")
+                invoke.resolve(response)
+            }
+        } else {
+            Log.i(TAG, "📂 File picker cancelled by user")
+            val response = JSObject()
+            response.put("success", false)
+            response.put("imported_count", 0)
+            response.put("failed_count", 0)
+            response.put("error", "File selection cancelled")
+            invoke.resolve(response)
+        }
     }
 }

@@ -105,7 +105,7 @@ impl<R: Runtime> Hillview<R> {
 
   // Authentication methods
 
-  pub fn store_auth_token(&self, token: String, expires_at: String, refresh_token: Option<String>) -> crate::Result<BasicResponse> {
+  pub fn store_auth_token(&self, token: String, expires_at: String, refresh_token: Option<String>, refresh_expiry: Option<String>) -> crate::Result<BasicResponse> {
     #[derive(serde::Serialize)]
     struct Args {
       token: String,
@@ -113,11 +113,13 @@ impl<R: Runtime> Hillview<R> {
       expires_at: String,
       #[serde(rename = "refreshToken")]
       refresh_token: Option<String>,
+      #[serde(rename = "refreshExpiry")]
+      refresh_expiry: Option<String>,
     }
 
     self
       .0
-      .run_mobile_plugin("storeAuthToken", Args { token, expires_at, refresh_token })
+      .run_mobile_plugin("storeAuthToken", Args { token, expires_at, refresh_token, refresh_expiry })
       .map_err(Into::into)
   }
 

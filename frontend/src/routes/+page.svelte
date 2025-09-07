@@ -649,27 +649,6 @@
         color: #c62828;
     }
 
-    .debug-info {
-        background-color: #f8f9fa;
-        border: 1px solid #dee2e6;
-        border-radius: 4px;
-        padding: 10px;
-        margin: 0 10px 16px;
-        font-family: monospace;
-        font-size: 12px;
-    }
-
-    .debug-info h4 {
-        margin-top: 0;
-        margin-bottom: 8px;
-        color: #495057;
-    }
-
-    .debug-info pre {
-        margin: 0;
-        white-space: pre-wrap;
-        word-break: break-all;
-    }
 
 
     :global(#sentry-feedback) {
