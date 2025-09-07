@@ -50,7 +50,7 @@ async def cleanup_expired_sessions():
     for session_id in expired_sessions:
         del oauth_sessions[session_id]
         log.info(f"Cleaned up expired OAuth session: {session_id}")
-    
+
     # Also log session count for monitoring
     if len(oauth_sessions) > 0:
         log.info(f"Active OAuth sessions: {len(oauth_sessions)}")
@@ -73,7 +73,7 @@ async def start_session_cleanup():
                 except Exception as e:
                     log.error(f"Session cleanup error: {e}")
                     await asyncio.sleep(60)  # Retry after 1 minute on error
-        
+
         _cleanup_task = asyncio.create_task(cleanup_loop())
         log.info("Started OAuth session cleanup background task")
 
@@ -93,7 +93,7 @@ def store_oauth_session(tokens: Dict[str, Any], user_info: Dict[str, Any]) -> st
     """Store OAuth tokens and return session ID"""
     session_id = str(uuid.uuid4())
     expires_at = datetime.datetime.utcnow() + datetime.timedelta(minutes=10)  # 10 minute session
-    
+
     oauth_sessions[session_id] = {
         'access_token': tokens['access_token'],
         'refresh_token': tokens.get('refresh_token'),
@@ -102,7 +102,7 @@ def store_oauth_session(tokens: Dict[str, Any], user_info: Dict[str, Any]) -> st
         'user_info': user_info,
         'created_at': datetime.datetime.utcnow()
     }
-    
+
     log.info(f"Stored OAuth session {session_id} for user {user_info.get('username', 'unknown')}")
     return session_id
 
@@ -351,7 +351,7 @@ async def create_oauth_session(
 	# Generate session ID for polling
 	session_id = str(uuid.uuid4())
 	expires_at = datetime.datetime.utcnow() + datetime.timedelta(minutes=10)
-	
+
 	# Create pending session (no tokens yet)
 	oauth_sessions[session_id] = {
 		'status': 'pending',
@@ -359,9 +359,9 @@ async def create_oauth_session(
 		'created_at': datetime.datetime.utcnow(),
 		'client_ip': request.client.host if request.client else None
 	}
-	
+
 	log.info(f"Created OAuth session for polling: {session_id}")
-	
+
 	return {
 		"session_id": session_id,
 		"expires_at": expires_at.isoformat(),
@@ -528,13 +528,13 @@ async def oauth_callback(
 	if state and ":" in state:
 		# Split on first colon to get provider
 		provider, remainder = state.split(":", 1)
-		
+
 		# Check if remainder has session ID (format: url:session_id)
 		# Session ID is always after the last colon and is a UUID format
 		if remainder and ":" in remainder:
 			# Split from the right to get the last part as potential session ID
 			url_part, potential_session = remainder.rsplit(":", 1)
-			
+
 			# Check if the last part looks like a session ID (UUID format)
 			if len(potential_session) >= 30 and "-" in potential_session:
 				final_redirect_uri = url_part
@@ -550,7 +550,7 @@ async def oauth_callback(
 		# Fallback to default if state is malformed
 		provider = "google"
 		final_redirect_uri = state
-	
+
 	log.info(f"Parsed state - Provider: {provider}, Redirect: {final_redirect_uri}, Session: {polling_session_id}")
 
 	if provider not in OAUTH_PROVIDERS:
@@ -629,15 +629,15 @@ async def oauth_callback(
 
 	# Check if deep link mode is requested via query parameter
 	use_deep_links = request.query_params.get("use_deep_links") == "true"
-	
+
 	# Detect if this is a mobile app request or has a polling session
-	if (polling_session_id or 
+	if (polling_session_id or
 		(final_redirect_uri and
 		 (final_redirect_uri.startswith("cz.hillview://") or
 		  final_redirect_uri.startswith("cz.hillviedev://")) and not use_deep_links)):
 		# Mobile app: use polling mechanism instead of deep links
 		log.info("Mobile OAuth callback detected, using polling mechanism")
-		
+
 		# Store tokens in session with limited lifetime
 		tokens = {
 			'access_token': jwt_token,
@@ -645,7 +645,7 @@ async def oauth_callback(
 			'expires_at': expires_at,
 			'refresh_token_expires_at': refresh_token_expires_at
 		}
-		
+
 		if polling_session_id:
 			# Update existing session with tokens
 			session = oauth_sessions.get(polling_session_id)
@@ -667,7 +667,7 @@ async def oauth_callback(
 		else:
 			# No polling session, create new one (legacy mobile flow)
 			session_id = store_oauth_session(tokens, user_info)
-		
+
 		# Create a simple success page that instructs the user to return to the app
 		success_html = f"""
 <!DOCTYPE html>
@@ -698,12 +698,12 @@ async def oauth_callback(
         h1 {{ margin-top: 0; color: #333; }}
         .success {{ color: #28a745; font-size: 48px; margin-bottom: 20px; }}
         .message {{ color: #666; margin: 20px 0; line-height: 1.4; }}
-        .session-id {{ 
-            font-family: monospace; 
-            background: #f8f9fa; 
-            padding: 8px 12px; 
-            border-radius: 4px; 
-            font-size: 12px; 
+        .session-id {{
+            font-family: monospace;
+            background: #f8f9fa;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 12px;
             color: #666;
             margin: 16px 0;
         }}
@@ -722,24 +722,26 @@ async def oauth_callback(
             <small>You can safely close this browser tab.</small>
         </div>
     </div>
-    
+
     <script>
         // Auto-close tab after 5 seconds if possible
+        /*
         setTimeout(function() {{
             try {{ window.close(); }} catch (e) {{ /* Tab can't be closed */ }}
         }}, 5000);
+        */
     </script>
 </body>
 </html>
 """
-		
+
 		return HTMLResponse(content=success_html)
 	elif (final_redirect_uri and use_deep_links and
-		  (final_redirect_uri.startswith("cz.hillview://") or 
+		  (final_redirect_uri.startswith("cz.hillview://") or
 		   final_redirect_uri.startswith("cz.hillviedev://"))):
 		# Mobile app with deep link enabled: redirect directly with tokens
 		log.info("Mobile OAuth callback with deep links enabled, redirecting to app")
-		
+
 		from urllib.parse import urlencode
 		params = {
 			'token': jwt_token,
@@ -748,13 +750,13 @@ async def oauth_callback(
 			'refresh_token_expires_at': refresh_token_expires_at,
 			'token_type': 'bearer'
 		}
-		
+
 		# Remove None values
 		params = {k: v for k, v in params.items() if v is not None}
-		
+
 		deep_link_url = f"{final_redirect_uri}?{urlencode(params)}"
 		log.info(f"Redirecting to deep link: {deep_link_url}")
-		
+
 		return RedirectResponse(deep_link_url)
 	else:
 		# Web app: existing behavior (redirect to dashboard)
@@ -794,7 +796,7 @@ async def get_oauth_status(
 
 	# Clean up expired sessions
 	await cleanup_expired_sessions()
-	
+
 	# Check if session exists and is valid
 	session = oauth_sessions.get(session_id)
 	if not session:
@@ -803,7 +805,7 @@ async def get_oauth_status(
 			status_code=status.HTTP_404_NOT_FOUND,
 			detail="OAuth session not found or expired"
 		)
-	
+
 	# Check if OAuth flow is complete (has access_token)
 	if 'access_token' not in session:
 		# OAuth flow still in progress
@@ -811,14 +813,14 @@ async def get_oauth_status(
 			status_code=status.HTTP_202_ACCEPTED,
 			detail="OAuth flow in progress, keep polling"
 		)
-	
+
 	# Session found and OAuth complete - return tokens and clean up
 	access_token = session['access_token']
 	refresh_token = session.get('refresh_token')
 	token_expires_at = session['token_expires_at']
 	refresh_token_expires_at = session.get('refresh_token_expires_at')
 	user_info = session['user_info']
-	
+
 	# Log successful OAuth completion
 	await security_audit.log_event(
 		db=db,
@@ -834,24 +836,24 @@ async def get_oauth_status(
 		severity="info",
 		user_id=user_info.get("user_id")
 	)
-	
+
 	# Clean up the session immediately after use
 	del oauth_sessions[session_id]
 	log.info(f"OAuth polling successful and session cleaned up: {session_id}")
-	
+
 	# Return the same format as the regular auth token endpoint
 	response_data = {
 		"access_token": access_token,
 		"token_type": "bearer",
 		"expires_at": token_expires_at.isoformat() if isinstance(token_expires_at, datetime.datetime) else token_expires_at
 	}
-	
+
 	if refresh_token:
 		response_data["refresh_token"] = refresh_token
-	
+
 	if refresh_token_expires_at:
 		response_data["refresh_token_expires_at"] = refresh_token_expires_at if isinstance(refresh_token_expires_at, str) else refresh_token_expires_at.isoformat()
-	
+
 	return response_data
 
 @router.post("/auth/oauth", response_model=Token)

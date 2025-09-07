@@ -7,8 +7,9 @@
     import { invoke } from '@tauri-apps/api/core';
     import { buildOAuthUrl } from '$lib/authCallback';
     import { getCurrentToken } from '$lib/auth.svelte';
-    import { goBack, clearNavigationHistory } from '$lib/navigation.svelte';
+    import { goBack, clearNavigationHistory, canNavigateBack } from '$lib/navigation.svelte';
     import { page } from '$app/stores';
+    import { browser } from '$app/environment';
     import OAuthPolling from '../../components/OAuthPolling.svelte';
     import { TAURI } from '$lib/tauri';
     import { backendUrl } from '$lib/config';
@@ -23,11 +24,61 @@
     let isLoading = false;
     let usernameGenerated = false;
 
-    // OAuth polling state
+    // OAuth polling state - persistent across app reinitialization
     let isPolling = false;
     let pollingSessionId = '';
     let pollingProgress = 0;
     let pollingMessage = '';
+
+    // Key for storing OAuth polling state
+    const OAUTH_POLLING_KEY = 'hillview_oauth_polling_state';
+
+    // Save OAuth polling state to localStorage
+    function saveOAuthPollingState() {
+        if (browser && isPolling && pollingSessionId) {
+            const state = {
+                isPolling,
+                pollingSessionId,
+                pollingProgress,
+                pollingMessage,
+                timestamp: Date.now()
+            };
+            localStorage.setItem(OAUTH_POLLING_KEY, JSON.stringify(state));
+            console.log('🔐 Saved OAuth polling state:', pollingSessionId);
+        }
+    }
+
+    // Restore OAuth polling state from localStorage
+    function restoreOAuthPollingState() {
+        if (!browser) return false;
+        
+        try {
+            const storedState = localStorage.getItem(OAUTH_POLLING_KEY);
+            if (storedState) {
+                const state = JSON.parse(storedState);
+                // Only restore if session is recent (within 10 minutes)
+                if (state.timestamp && (Date.now() - state.timestamp) < 600000) {
+                    isPolling = state.isPolling;
+                    pollingSessionId = state.pollingSessionId;
+                    pollingProgress = state.pollingProgress;
+                    pollingMessage = state.pollingMessage || 'Continuing OAuth login...';
+                    console.log('🔐 Restored OAuth polling state:', pollingSessionId);
+                    return true;
+                }
+            }
+        } catch (error) {
+            console.warn('🔐 Failed to restore OAuth polling state:', error);
+        }
+        return false;
+    }
+
+    // Clear OAuth polling state from localStorage
+    function clearOAuthPollingState() {
+        if (browser) {
+            localStorage.removeItem(OAUTH_POLLING_KEY);
+            console.log('🔐 Cleared OAuth polling state');
+        }
+    }
 
     // Auto-fill dev credentials if in dev mode
     if (import.meta.env.VITE_DEV_MODE === 'true') {
@@ -60,8 +111,16 @@
             const token = await getCurrentToken();
             if (token) {
                 console.log('🢄🔐 Found valid stored auth, redirecting to dashboard');
+                clearOAuthPollingState(); // Clear any stale polling state
                 myGoto('/');
                 return;
+            }
+
+            // Try to restore OAuth polling state if app was reinitialized
+            const restoredPolling = restoreOAuthPollingState();
+            if (restoredPolling) {
+                console.log('🔐 Resumed OAuth polling after app reinitialization');
+                // Polling will restart automatically due to reactive statement
             }
         }
 
@@ -70,7 +129,12 @@
             if (value.isAuthenticated && $page.url.pathname === '/login') {
                 // Only redirect if we're actually on the login page
                 console.log('🢄🔐 Already authenticated on login page, redirecting');
-                goBack('/');
+                clearOAuthPollingState(); // Clear polling state on successful auth
+                if (canNavigateBack()) {
+                    goBack('/');
+                } else {
+                    myGoto('/');
+                }
             }
         });
     });
@@ -89,8 +153,12 @@
                     throw new Error('Login failed. Please check your credentials and try again.');
                 }
 
-                // After successful login, go back to where user came from
-                goBack('/');
+                // After successful login, go back to where user came from or home
+                if (canNavigateBack()) {
+                    goBack('/');
+                } else {
+                    myGoto('/');
+                }
             } else {
                 // Register
                 console.log('🢄Registering with:', { email, username, password });
@@ -154,6 +222,7 @@
             pollingSessionId = sessionId;
             pollingProgress = 0;
             pollingMessage = 'Complete login in the browser, then return here...';
+            saveOAuthPollingState(); // Save state in case app gets reinitialized
             isLoading = false;
         } else {
             console.log('🢄 Web OAuth redirect');
@@ -166,14 +235,21 @@
     function handleOAuthSuccess(event: CustomEvent) {
         console.log('🔐 OAuth polling completed successfully');
         pollingMessage = 'Login successful! Redirecting...';
+        clearOAuthPollingState(); // Clear persisted state on success
         setTimeout(() => {
             isPolling = false;
-            goBack('/');
+            // Check if we have navigation history to go back to, otherwise go to home
+            if (canNavigateBack()) {
+                goBack('/');
+            } else {
+                myGoto('/');
+            }
         }, 1000);
     }
 
     function handleOAuthError(event: CustomEvent) {
         console.error('🔐 OAuth polling failed:', event.detail.message);
+        clearOAuthPollingState(); // Clear persisted state on error
         isPolling = false;
         errorMessage = event.detail.message || 'OAuth login failed. Please try again.';
         isLoading = false;
@@ -181,6 +257,7 @@
 
     function handleOAuthCancel() {
         console.log('🔐 OAuth polling cancelled by user');
+        clearOAuthPollingState(); // Clear persisted state on cancel
         isPolling = false;
         pollingMessage = '';
         errorMessage = '';
@@ -190,6 +267,7 @@
     function handleOAuthProgress(event: CustomEvent) {
         pollingProgress = event.detail.progress;
         pollingMessage = event.detail.message;
+        saveOAuthPollingState(); // Update persisted state with progress
     }
 
     function generateUsername() {
