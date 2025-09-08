@@ -22,6 +22,8 @@
 	}
 
 	async function handleUpload() {
+		console.log('🢄handleUpload');
+
 		if (!uploadFiles.length) return;
 
 		isUploading = true;

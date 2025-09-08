@@ -271,6 +271,22 @@
         </div>
     {/if}
 
+
+	ttteeesssttt:
+		<form on:submit|preventDefault={console.log} data-testid="upload-form">
+		<div class="form-group">
+			<label for="photo-file">Select photos to upload:</label>
+			<input
+				type="file"
+				id="photo-file"
+				accept="image/*"
+				multiple
+				on:change={() => console.log('File input changed')}}
+				required
+			/>
+		</div>
+111
+
     <div class="photo-management-section" data-testid="photo-management-section">
         <div class="tabs-header">
             <h2>Photo Management</h2>

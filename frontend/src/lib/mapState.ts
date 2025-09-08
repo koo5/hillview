@@ -140,11 +140,11 @@ export const photoToRight = derived(
   }
 );
 
-// Combined photos for rendering (includes placeholders) 
+// Combined photos for rendering (includes placeholders)
 // Only recalculates when photo list changes, not on bearing changes
 export const visiblePhotos = derived(
-  [photosInArea],
-  ([photos]) => {
+  [photosInArea, photoInFront ],
+  ([photos, _]) => {
     const currentBearing = get(bearingState).bearing;
     return photos.map(photo => ({
       ...photo,

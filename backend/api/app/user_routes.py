@@ -668,7 +668,20 @@ async def oauth_callback(
 			# No polling session, create new one (legacy mobile flow)
 			session_id = store_oauth_session(tokens, user_info)
 
-		# Create a simple success page that instructs the user to return to the app
+		# Determine the appropriate deep link URL
+		deep_link_url = None
+		if final_redirect_uri and (final_redirect_uri.startswith("cz.hillview://") or final_redirect_uri.startswith("cz.hillviedev://")):
+			# Use the provided deep link URL, but redirect to auth callback with session ID
+			if "://" in final_redirect_uri:
+				scheme = final_redirect_uri.split("://")[0]
+				deep_link_url = f"{scheme}://auth?session_id={session_id}"
+			else:
+				deep_link_url = f"cz.hillview://auth?session_id={session_id}"
+		else:
+			# Default deep link for development
+			deep_link_url = f"cz.hillviedev://auth?session_id={session_id}"
+
+		# Create a simple success page that automatically tries to redirect to the app
 		success_html = f"""
 <!DOCTYPE html>
 <html>
@@ -707,29 +720,66 @@ async def oauth_callback(
             color: #666;
             margin: 16px 0;
         }}
+        .redirect-info {{
+            background: #e3f2fd;
+            border: 1px solid #90caf9;
+            border-radius: 8px;
+            padding: 16px;
+            margin: 20px 0;
+            color: #1565c0;
+        }}
+        .manual-link {{
+            display: inline-block;
+            background: #2196f3;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 6px;
+            text-decoration: none;
+            margin: 16px 0;
+            font-weight: 500;
+        }}
+        .manual-link:hover {{
+            background: #1976d2;
+        }}
     </style>
 </head>
 <body>
     <div class="container">
         <div class="success">✅</div>
         <h1>Login Successful!</h1>
-        <div class="message">
-            <strong>Please return to the Hillview app to continue.</strong><br>
-            Your authentication is ready and waiting.
+        <div class="redirect-info">
+            <strong>Redirecting to app...</strong><br>
+            <small>If the app doesn't open automatically, use the button below.</small>
         </div>
+        <a href="{deep_link_url}" class="manual-link">Open Hillview App</a>
         <div class="session-id">Session: {session_id}</div>
         <div class="message">
-            <small>You can safely close this browser tab.</small>
+            <small>You can safely close this browser tab after the app opens.</small>
         </div>
     </div>
 
     <script>
-        // Auto-close tab after 5 seconds if possible
-        /*
+        // Try to redirect to the app immediately
+        function redirectToApp() {{
+            console.log('Attempting to redirect to app: {deep_link_url}');
+            window.location.href = '{deep_link_url}';
+        }}
+
+        // Try redirect immediately
+        redirectToApp();
+        
+        // Fallback: try again after a short delay
+        setTimeout(redirectToApp, 1000);
+        
+        // Auto-close tab after 10 seconds if possible
         setTimeout(function() {{
-            try {{ window.close(); }} catch (e) {{ /* Tab can't be closed */ }}
-        }}, 5000);
-        */
+            try {{ 
+                console.log('Attempting to close tab');
+                window.close(); 
+            }} catch (e) {{ 
+                console.log('Cannot close tab:', e);
+            }}
+        }}, 10000);
     </script>
 </body>
 </html>

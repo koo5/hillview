@@ -3,8 +3,8 @@
     import { Camera, Zap, Turtle } from 'lucide-svelte';
 
     export let disabled = false;
-    export let slowInterval = 1000; // 1 second between captures in slow mode
-    export let fastInterval = 100; // 100ms between captures in fast mode
+    export let slowInterval = 10000;
+    export let fastInterval = 1000; // ms
 
     const dispatch = createEventDispatcher();
 
@@ -24,6 +24,9 @@
     let selectedMode: 'slow' | 'fast' | null = null;
 
     function startCapture(mode: 'slow' | 'fast') {
+
+		stopCapture();
+
         const interval = mode === 'slow' ? slowInterval : fastInterval;
 
         // Capture immediately
