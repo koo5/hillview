@@ -6,6 +6,9 @@ import {
     localStorageSharedStore
 } from './svelte-shared-store';
 import type { PhotoData } from './types/photoTypes';
+import {AngularRangeCuller, sortPhotosByBearing} from './AngularRangeCuller';
+
+const angularRangeCuller = new AngularRangeCuller();
 
 export interface Bounds {
   top_left: LatLng;
@@ -57,8 +60,21 @@ bearingState.subscribe(v => {
     //console.log(`bearingState updated to ${JSON.stringify(v)}`);
 });
 
+// Recalculate photosInRange when map moves (spatialState changes)
+spatialState.subscribe(spatial => {
+    const photos = get(photosInArea);
+    const center = { lat: spatial.center.lat, lng: spatial.center.lng };
+    const inRange = angularRangeCuller.cullPhotosInRange(photos, center, spatial.range, 300);
+
+    // Sort by bearing for consistent navigation order
+    sortPhotosByBearing(inRange);
+    photosInRange.set(inRange);
+});
+
+export const photoInFront = writable<PhotoData | null>(null);
+
 // Navigation photos (front, left, right) - derived from bearing-sorted photosInRange (within spatialState.range)
-export const photoInFront = derived(
+export const newPhotoInFront = derived(
   [photosInRange, bearingState],
   ([photos, visual]) => {
     if (photos.length === 0) {
@@ -83,6 +99,12 @@ export const photoInFront = derived(
     return photos[closestIndex];
   }
 );
+
+newPhotoInFront.subscribe(photo => {
+	if (photo != get(photoInFront)) {
+		photoInFront.set(photo);
+	}
+});
 
 export const photoToLeft = derived(
   [photosInRange, bearingState],
@@ -143,8 +165,8 @@ export const photoToRight = derived(
 // Combined photos for rendering (includes placeholders)
 // Only recalculates when photo list changes, not on bearing changes
 export const visiblePhotos = derived(
-  [photosInArea, photoInFront ],
-  ([photos, _]) => {
+  [photosInArea ],
+  ([photos]) => {
     const currentBearing = get(bearingState).bearing;
     return photos.map(photo => ({
       ...photo,

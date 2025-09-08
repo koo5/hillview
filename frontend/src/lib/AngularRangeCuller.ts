@@ -1,9 +1,9 @@
 /**
  * Angular Range Culler - Ensures uniform angular coverage around user position
- * 
+ *
  * Creates 36 angular buckets (10 degrees each, 0-360°) and uses round-robin
  * selection to ensure the user can "look" in all directions within range.
- * 
+ *
  * Uses the photo's existing bearing property (camera direction) for bucketing.
  */
 
@@ -25,9 +25,9 @@ export class AngularRangeCuller {
      * Cull photos for uniform angular coverage around center point
      */
     cullPhotosInRange(
-        photosInArea: PhotoData[], 
-        center: { lat: number; lng: number }, 
-        range: number, 
+        photosInArea: PhotoData[],
+        center: { lat: number; lng: number },
+        range: number,
         maxPhotos: number
     ): PhotoData[] {
         if (photosInArea.length === 0 || maxPhotos <= 0) {
@@ -36,14 +36,14 @@ export class AngularRangeCuller {
 
         // Create angular buckets
         const angularBuckets = this.createAngularBuckets();
-        
+
         // Distribute photos into angular buckets (only those within range)
         for (const photo of photosInArea) {
             const distance = calculateDistance(center.lat, center.lng, photo.coord.lat, photo.coord.lng);
-            
+
             if (distance <= range) {
                 const bucketIndex = this.getBucketIndex(photo.bearing);
-                
+
                 angularBuckets[bucketIndex].photos.push({
                     ...photo,
                     range_distance: distance
@@ -53,7 +53,7 @@ export class AngularRangeCuller {
 
         // Get non-empty buckets for round-robin
         const nonEmptyBuckets = angularBuckets.filter(bucket => bucket.photos.length > 0);
-        
+
         if (nonEmptyBuckets.length === 0) {
             return [];
         }
@@ -89,7 +89,7 @@ export class AngularRangeCuller {
         }
 
         console.log(`AngularRangeCuller: Culled ${photosInArea.length} area photos → ${selectedPhotos.length} range photos with angular coverage (${nonEmptyBuckets.length}/${this.ANGULAR_BUCKETS} angular sectors covered)`);
-        
+
         return selectedPhotos;
     }
 
@@ -110,9 +110,9 @@ export class AngularRangeCuller {
      * Get statistics about angular coverage
      */
     getAngularStats(
-        photosInArea: PhotoData[], 
-        culledPhotos: PhotoData[], 
-        center: { lat: number; lng: number }, 
+        photosInArea: PhotoData[],
+        culledPhotos: PhotoData[],
+        center: { lat: number; lng: number },
         range: number
     ): {
         totalPhotosInRange: number;
@@ -123,7 +123,7 @@ export class AngularRangeCuller {
     } {
         // Count photos per angular sector in result
         const sectorCounts = new Array(this.ANGULAR_BUCKETS).fill(0);
-        
+
         for (const photo of culledPhotos) {
             const bucketIndex = this.getBucketIndex(photo.bearing);
             sectorCounts[bucketIndex]++;
@@ -153,4 +153,13 @@ export class AngularRangeCuller {
             angularCoverage
         };
     }
+}
+
+export function sortPhotosByBearing(photos: PhotoData[]){
+    photos.sort((a, b) => {
+        if (a.bearing !== b.bearing) {
+            return a.bearing - b.bearing;
+        }
+        return a.id.localeCompare(b.id); // Stable sort with ID as tiebreaker
+    });
 }

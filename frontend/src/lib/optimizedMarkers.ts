@@ -3,7 +3,7 @@ import {arrowAtlas} from './markerAtlas';
 import type {PhotoData} from './types/photoTypes';
 import {photoInFront} from './mapState';
 import {get, writable} from 'svelte/store';
-import { app } from "$lib/data.svelte";
+import {app} from "$lib/data.svelte";
 
 export interface OptimizedMarkerOptions {
 	enablePooling: boolean;
@@ -11,9 +11,12 @@ export interface OptimizedMarkerOptions {
 	enableSelection: boolean;
 }
 
+const bearingDiffColorsUpdateIntervalInCaptureMode = 3000; // ms
+const bearingDiffColorsUpdateIntervalInNavigationMode = 300; // ms
+
 export const bearingDiffColorsUpdateInterval = writable(100); // ms
 app.subscribe(value => {
-	bearingDiffColorsUpdateInterval.set(value?.activity === 'capture' ? 1000 : 300);
+	bearingDiffColorsUpdateInterval.set(value?.activity === 'capture' ? bearingDiffColorsUpdateIntervalInCaptureMode : bearingDiffColorsUpdateIntervalInNavigationMode);
 });
 
 /**
@@ -28,6 +31,7 @@ export class OptimizedMarkerSystem {
 	private activeMarkers: L.Marker[] = [];
 	private atlasDataUrl: string;
 	private atlasDimensions: any;
+	private currentSelectedMarker: L.Marker | null = null;
 
 	constructor(options: OptimizedMarkerOptions = {
 		enablePooling: true,
@@ -42,6 +46,11 @@ export class OptimizedMarkerSystem {
 		if (options.enablePooling) {
 			this.prewarmPool(100);
 		}
+
+		// Subscribe to photoInFront changes for automatic selection updates
+		photoInFront.subscribe(newPhotoInFront => {
+			this.updateSelectedMarker(newPhotoInFront);
+		});
 	}
 
 	/**
@@ -59,7 +68,12 @@ export class OptimizedMarkerSystem {
 
 		const currentPhotoInFront = get(photoInFront);
 		const isSelected = currentPhotoInFront && photo.id === currentPhotoInFront.id;
-		marker.setZIndexOffset(isSelected ? 1000000 : 0); // Bring selected marker to front
+
+		// Apply selection styling and store reference
+		if (isSelected) {
+			this.applySelectedStyling(marker);
+			this.currentSelectedMarker = marker;
+		}
 
 		// Store photo data for updates
 		(marker as any)._photoData = photo;
@@ -155,29 +169,72 @@ export class OptimizedMarkerSystem {
 	private pendingBearingUpdateTimeout: ReturnType<typeof setTimeout> | null = null;
 
 	private lastVal: number | undefined = undefined;
+	private lastUpdateTime: number = 0;
+
 	scheduleColorUpdate(bearing: number): void {
 		this.lastVal = bearing;
+
 		if (this.pendingBearingUpdateTimeout) {
-			console.log('Skipping scheduled bearing color update - already pending');
+			console.log('Skipping scheduled bearing color update - already pendingBearingUpdateTimeout:', this.pendingBearingUpdateTimeout);
 			return
 		}
 
-		this.pendingBearingUpdateTimeout = setTimeout(() => {
+		const timeSinceLastUpdate = Date.now() - this.lastUpdateTime;
+		if (timeSinceLastUpdate < get(bearingDiffColorsUpdateInterval)) {
+			this.pendingBearingUpdateTimeout = setTimeout( this.updateColors.bind(this), get(bearingDiffColorsUpdateInterval));
+			console.log('Scheduled pendingBearingUpdateTimeout in', get(bearingDiffColorsUpdateInterval), 'ms');
+		} else {
+			this.updateColors();
+		}
+	}
+
+	updateColors() {
+
+		this.lastUpdateTime = Date.now();
+		if (this.pendingBearingUpdateTimeout) {
+			console.log('clearing pendingBearingUpdateTimeout:', this.pendingBearingUpdateTimeout);
 			this.pendingBearingUpdateTimeout = null;
+			console.log('cleared pendingBearingUpdateTimeout');
+		}
+		this.pendingBearingUpdate = this.lastVal ?? null;
+		if (this.rafId !== null) return; // Already scheduled
 
-			this.pendingBearingUpdate = this.lastVal ?? null;
+		this.rafId = requestAnimationFrame(() => {
+			if (this.pendingBearingUpdate !== null && this.activeMarkers.length > 0) {
+				this.updateMarkerColors(this.activeMarkers, this.pendingBearingUpdate);
+				this.pendingBearingUpdate = null;
+			}
+			this.rafId = null;
+		});
 
-			if (this.rafId !== null) return; // Already scheduled
+	}
 
-			this.rafId = requestAnimationFrame(() => {
-				if (this.pendingBearingUpdate !== null && this.activeMarkers.length > 0) {
-					this.updateMarkerColors(this.activeMarkers, this.pendingBearingUpdate);
-					this.pendingBearingUpdate = null;
+	/**
+	 * Update selected marker efficiently using stored reference
+	 * Only touches the old and new selected markers, not all markers
+	 */
+	updateSelectedMarker(newPhotoInFront: PhotoData | null): void {
+		if (!this.options.enableSelection) return;
+
+		// Remove selection from current selected marker
+		if (this.currentSelectedMarker) {
+			this.removeSelectedStyling(this.currentSelectedMarker);
+			this.currentSelectedMarker = null;
+		}
+
+		// Find and select new marker
+		if (newPhotoInFront) {
+			for (const marker of this.activeMarkers) {
+				const photoData = (marker as any)._photoData as PhotoData;
+				if (photoData && photoData.id === newPhotoInFront.id) {
+					this.applySelectedStyling(marker);
+					this.currentSelectedMarker = marker;
+					break;
 				}
-				this.rafId = null;
-			});
-		}, get(bearingDiffColorsUpdateInterval));
-		console.log('Scheduled bearing color update in', get(bearingDiffColorsUpdateInterval), 'ms');
+			}
+		}
+
+		console.log(`OptimizedMarkers: Updated selection to ${newPhotoInFront?.id || 'none'}`);
 	}
 
 	/**
@@ -231,6 +288,9 @@ export class OptimizedMarkerSystem {
 	 * Return markers to pool for reuse
 	 */
 	private returnMarkersToPool(): void {
+		// Clear selected marker reference
+		this.currentSelectedMarker = null;
+
 		if (!this.options.enablePooling) {
 			// If not pooling, just remove markers
 			this.activeMarkers.forEach(marker => marker && marker.remove());
@@ -265,6 +325,52 @@ export class OptimizedMarkerSystem {
 	}
 
 	/**
+	 * Apply selected state styling to a marker
+	 */
+	private applySelectedStyling(marker: L.Marker): void {
+		marker.setZIndexOffset(1000000);
+
+		const element = marker.getElement();
+		if (element) {
+			const circle = element.querySelector('.bearing-circle');
+			if (circle) {
+				circle.classList.add('selected');
+				const arrowSize = this.atlasDimensions.arrowSize;
+				(circle as HTMLElement).style.width = `${arrowSize * 1}px`;
+				(circle as HTMLElement).style.height = `${arrowSize * 1}px`;
+				(circle as HTMLElement).style.borderWidth = '3px';
+			}
+			const arrow = element.querySelector('.direction-arrow');
+			if (arrow) {
+				(arrow as HTMLElement).style.transform = 'scale(1.2)';
+			}
+		}
+	}
+
+	/**
+	 * Remove selected state styling from a marker
+	 */
+	private removeSelectedStyling(marker: L.Marker): void {
+		marker.setZIndexOffset(0);
+
+		const element = marker.getElement();
+		if (element) {
+			const circle = element.querySelector('.bearing-circle');
+			if (circle) {
+				circle.classList.remove('selected');
+				const arrowSize = this.atlasDimensions.arrowSize;
+				(circle as HTMLElement).style.width = `${arrowSize * 0.6}px`;
+				(circle as HTMLElement).style.height = `${arrowSize * 0.6}px`;
+				(circle as HTMLElement).style.borderWidth = '1px';
+			}
+			const arrow = element.querySelector('.direction-arrow');
+			if (arrow) {
+				(arrow as HTMLElement).style.transform = 'scale(1.0)';
+			}
+		}
+	}
+
+	/**
 	 * Calculate absolute bearing difference
 	 */
 	private calculateAbsBearingDiff(bearing1: number, bearing2: number): number {
@@ -275,18 +381,19 @@ export class OptimizedMarkerSystem {
 	/**
 	 * Convert bearing difference to color
 	 */
+
 	/*private getBearingColor(absBearingDiff: number): string {
 		if (absBearingDiff === null || absBearingDiff === undefined) return '#9E9E9E';
 		return `hsl(${Math.round(100 - absBearingDiff / 2)}, 100%, 70%)`;
 	}*/
 	private getBearingColor(absBearingDiff: number): string {
-	if (absBearingDiff === null || absBearingDiff === undefined) return '#9E9E9E';
-	const steps = 16;
-	const stepSize = 100 / (steps - 1);
-	const step = Math.round(absBearingDiff / (200 / (steps - 1)));
-	const hue = 100 - step * stepSize;
-	return `hsl(${hue}, 100%, 70%)`;
-}
+		if (absBearingDiff === null || absBearingDiff === undefined) return '#9E9E9E';
+		const steps = 16;
+		const stepSize = 100 / (steps - 1);
+		const step = Math.round(absBearingDiff / (200 / (steps - 1)));
+		const hue = 100 - step * stepSize;
+		return `hsl(${hue}, 100%, 70%)`;
+	}
 
 	/**
 	 * Cleanup resources

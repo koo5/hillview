@@ -48,7 +48,7 @@ import type { PhotoData, SourceConfig, Bounds } from './photoWorkerTypes';
 import { MessageQueue } from './MessageQueue';
 import { PhotoOperations } from './photoOperations';
 import { CullingGrid } from './CullingGrid';
-import { AngularRangeCuller } from './AngularRangeCuller';
+import {AngularRangeCuller, sortPhotosByBearing} from './AngularRangeCuller';
 // Note: Using CullingGrid and AngularRangeCuller instead of photoProcessingUtils functions
 
 declare const __WORKER_VERSION__: string;
@@ -144,13 +144,8 @@ function mergeAndCullPhotos(): { photosInArea: PhotoData[], photosInRange: Photo
         MAX_PHOTOS_IN_RANGE
     );
 
-    // Sort photos in range by bearing for consistent navigation order
-    photosInRange.sort((a, b) => {
-        if (a.bearing !== b.bearing) {
-            return a.bearing - b.bearing;
-        }
-        return a.id.localeCompare(b.id); // Stable sort with ID as tiebreaker
-    });
+    // sort photos in range by bearing for consistent navigation order
+    sortPhotosByBearing(photosInRange);
 
     console.log(`NewWorker: Merged ${photosInAreaPerSource.size} sources → ${photosInArea.length} in area → ${photosInRange.length} in range with angular coverage`);
 

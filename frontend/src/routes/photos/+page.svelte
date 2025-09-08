@@ -281,7 +281,7 @@
 				id="photo-file"
 				accept="image/*"
 				multiple
-				on:change={() => console.log('File input changed')}}
+				on:change={ async () => {console.log('File input changed')} }
 				required
 			/>
 		</div>
