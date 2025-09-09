@@ -250,7 +250,7 @@ class PhotoProcessor:
 		anonymized_path = None
 
 		# Create output directory structure
-		output_base = self.upload_dir
+		output_base = os.getenv('PICS_DIR');
 
 		try:
 			# First anonymize the image
@@ -320,7 +320,7 @@ class PhotoProcessor:
 						cmd = ['jpegoptim', '--all-progressive', '--overwrite', output_file_path]
 						subprocess.run(cmd, capture_output=True, timeout=30)
 
-						logger.info(f"Created size {size} for {unique_id}: {new_width}x{new_height}")
+						logger.info(f"Created size {size} for {unique_id}: {new_width}x{new_height} at {output_file_path}");
 					else:
 						logger.warning(f"Failed to resize image to size {size}")
 						# Clean up failed file

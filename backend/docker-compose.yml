@@ -80,6 +80,7 @@ services:
       - pics:/app/pics
     environment:
       - UPLOAD_DIR=/app/uploads
+      - PICS_DIR=/app/pics
       - PICS_URL=${PICS_URL:-}
       - WORKER_PORT=8056
       - WORKER_HOST=0.0.0.0

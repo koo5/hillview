@@ -19,6 +19,10 @@
 	let photos: UserPhoto[] = [];
 	let isLoading = true;
 	let error: string | null = null;
+	let nextCursor: string | null = null;
+	let hasMore = false;
+	let loadingMore = false;
+	let totalCount = 0;
 	let autoUploadEnabled = false;
 	let showSettings = false;
 	let user: User | null = null;
@@ -52,7 +56,7 @@
 
 				// Fetch user photos when authenticated
 				try {
-					await fetchPhotos();
+					await fetchPhotos(true); // Reset and fetch from the beginning
 				} catch (err) {
 					console.error('🢄Error loading photos:', err);
 					error = handleApiError(err);
@@ -73,15 +77,34 @@
 		});
 	});
 
-	async function fetchPhotos() {
+	async function fetchPhotos(reset = false) {
 		try {
-			const response = await http.get('/photos');
+			if (reset) {
+				photos = [];
+				nextCursor = null;
+				hasMore = false;
+				totalCount = 0;
+			}
+
+			const url = nextCursor ? `/photos?cursor=${encodeURIComponent(nextCursor)}` : '/photos';
+			const response = await http.get(url);
 
 			if (!response.ok) {
 				throw new Error(`Failed to fetch photos: ${response.status}`);
 			}
 
-			photos = await response.json();
+			const data = await response.json();
+			
+			const newPhotos = data.photos || [];
+			if (reset) {
+				photos = newPhotos;
+			} else {
+				photos = [...photos, ...newPhotos];
+			}
+			
+			nextCursor = data.pagination?.next_cursor || null;
+			hasMore = data.pagination?.has_more || false;
+			totalCount = data.counts?.total || 0;
 
 			// Update app store with user photos
 			app.update(a => ({
@@ -102,8 +125,19 @@
 		}
 	}
 
+	async function loadMorePhotos() {
+		if (!hasMore || loadingMore) return;
+		
+		loadingMore = true;
+		try {
+			await fetchPhotos(false);
+		} finally {
+			loadingMore = false;
+		}
+	}
+
 	async function handleUploadComplete() {
-		await fetchPhotos();
+		await fetchPhotos(true); // Reset and fetch from the beginning
 	}
 
 	async function deletePhoto(photoId: number) {
@@ -156,7 +190,7 @@
 			}
 		}
 	}
-
+/*
 	async function saveSettingsToServer() {
 		try {
 			const settingsData = {
@@ -179,7 +213,7 @@
 			}
 		}
 	}
-
+*/
 	async function saveSettings() {
 		// update the Android background service setting
 		if (TAURI) {
@@ -215,7 +249,7 @@
 	async function handleImportComplete(importedCount: number) {
 		if (importedCount > 0) {
 			// Refresh the photos list to show imported photos
-			await fetchPhotos();
+			await fetchPhotos(true); // Reset and fetch from the beginning
 		}
 	}
 </script>
@@ -331,7 +365,7 @@
 	{/if}
 
 	<div class="photos-grid" data-testid="photos-grid">
-		<h2>My Photos ({photos.length})</h2>
+		<h2>My Photos ({totalCount})</h2>
 
 		{#if isLoading}
 			<div class="loading-container" data-testid="loading-container">
@@ -392,6 +426,25 @@
 					</div>
 				{/each}
 			</div>
+			
+			<!-- Load More Button -->
+			{#if hasMore}
+				<div class="load-more-container">
+					<button 
+						class="load-more-button" 
+						on:click={loadMorePhotos} 
+						disabled={loadingMore}
+						data-testid="load-more-button"
+					>
+						{#if loadingMore}
+							<Spinner/>
+							Loading more...
+						{:else}
+							Load More Photos
+						{/if}
+					</button>
+				</div>
+			{/if}
 		{/if}
 	</div>
 </div>
@@ -792,6 +845,42 @@
 
 	.login-link:hover {
 		color: #0d47a1;
+	}
+
+	/* Load More Button Styles */
+	.load-more-container {
+		display: flex;
+		justify-content: center;
+		margin-top: 32px;
+		padding: 20px 0;
+	}
+
+	.load-more-button {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 12px 24px;
+		background-color: #4a90e2;
+		color: white;
+		border: none;
+		border-radius: 6px;
+		font-size: 16px;
+		font-weight: 500;
+		cursor: pointer;
+		transition: background-color 0.3s, transform 0.2s;
+		min-width: 160px;
+		justify-content: center;
+	}
+
+	.load-more-button:hover:not(:disabled) {
+		background-color: #357abd;
+		transform: translateY(-1px);
+	}
+
+	.load-more-button:disabled {
+		background-color: #94a3b8;
+		cursor: not-allowed;
+		transform: none;
 	}
 
 </style>

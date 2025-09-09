@@ -116,7 +116,7 @@
 				accept="image/*"
 				multiple
 				data-testid="photo-file-input"
-				disabled={!user}
+				disabled={!user || isUploading}
 				on:change={(e) => {
 					console.log('🢄 File input changed');
 					const files = (e.target as HTMLInputElement).files;

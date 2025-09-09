@@ -94,7 +94,7 @@ async def save_processed_photo(
 			)
 
 		# Verify that photo is in authorized status (not already processed)
-		if photo.processing_status not in ["authorized", "processing"]:
+		if photo.processing_status != "authorized":
 			raise HTTPException(
 				status_code=status.HTTP_400_BAD_REQUEST,
 				detail=f"Photo not in valid state for processing: {photo.processing_status}"
@@ -188,30 +188,74 @@ async def save_processed_photo(
 @router.get("/")
 async def list_photos(
 	request: Request,
-	skip: int = 0,
-	limit: int = 100,
+	cursor: Optional[str] = None,
+	limit: int = 20,
 	only_processed: bool = False,
 	current_user: User = Depends(get_current_active_user),
 	db: AsyncSession = Depends(get_db)
 ):
-	"""List user's photos."""
+	"""List user's photos with cursor-based pagination."""
 	# Apply photo operations rate limiting
 	await rate_limit_photo_operations(request, current_user.id)
 
 	try:
-		query = select(Photo).where(Photo.owner_id == str(current_user.id))
+		# Validate limit
+		if limit > 100:
+			limit = 100
+		elif limit < 1:
+			limit = 1
+
+		base_query = select(Photo).where(Photo.owner_id == str(current_user.id))
 
 		if only_processed:
-			query = query.where(Photo.processing_status == "completed")
+			base_query = base_query.where(Photo.processing_status == "completed")
+
+		# Get counts by processing status (separate query for performance)
+		from sqlalchemy import func
+		counts_result = await db.execute(
+			select(Photo.processing_status, func.count(Photo.id))
+			.where(Photo.owner_id == str(current_user.id))
+			.group_by(Photo.processing_status)
+		)
+		counts_by_status = dict(counts_result.fetchall())
+		
+		# Calculate totals
+		total_count = sum(counts_by_status.values())
+		completed_count = counts_by_status.get("completed", 0)
+		failed_count = counts_by_status.get("failed", 0)
+		authorized_count = counts_by_status.get("authorized", 0)
+
+		# Apply cursor-based pagination to main query
+		query = base_query
+		if cursor:
+			try:
+				from datetime import datetime, timezone
+				cursor_timestamp = datetime.fromisoformat(cursor.replace('Z', '+00:00'))
+				query = query.where(Photo.uploaded_at < cursor_timestamp)
+			except (ValueError, TypeError) as e:
+				logger.warning(f"Invalid cursor format: {cursor}, error: {e}")
+				raise HTTPException(
+					status_code=status.HTTP_400_BAD_REQUEST,
+					detail="Invalid cursor format. Expected ISO 8601 timestamp."
+				)
 
 		result = await db.execute(
-			query.offset(skip)
-			.limit(limit)
+			query.limit(limit + 1)  # Get one extra to check if there are more
 			.order_by(Photo.uploaded_at.desc())
 		)
 		photos = result.scalars().all()
 
-		return [{
+		# Check if there are more photos
+		has_more = len(photos) > limit
+		if has_more:
+			photos = photos[:-1]  # Remove the extra photo
+
+		# Generate next cursor
+		next_cursor = None
+		if has_more and photos:
+			next_cursor = photos[-1].uploaded_at.isoformat()
+
+		photos_data = [{
 			"id": photo.id,
 			"filename": photo.filename,
 			"original_filename": photo.original_filename,
@@ -223,13 +267,32 @@ async def list_photos(
 			"width": photo.width,
 			"height": photo.height,
 			"uploaded_at": photo.uploaded_at,
+			"created_at": photo.uploaded_at,  # For backward compatibility
+			"captured_at": photo.captured_at,
 			"processing_status": photo.processing_status,
 			"error": photo.error,
 			"sizes": photo.sizes,
 			"owner_id": photo.owner_id,
-			"owner_username": current_user.username  # Since these are the current user's photos
+			"owner_username": current_user.username
 		} for photo in photos]
 
+		return {
+			"photos": photos_data,
+			"pagination": {
+				"next_cursor": next_cursor,
+				"has_more": has_more,
+				"limit": limit
+			},
+			"counts": {
+				"total": total_count,
+				"completed": completed_count,
+				"failed": failed_count,
+				"authorized": authorized_count  # Upload authorized but not yet processed
+			}
+		}
+
+	except HTTPException:
+		raise
 	except Exception as e:
 		logger.error(f"Error listing photos: {str(e)}")
 		raise HTTPException(
