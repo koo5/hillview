@@ -250,28 +250,21 @@ async def refresh_access_token(
 					headers={"Retry-After": "300"}
 				)
 
-		# Verify refresh token
-		from jose import jwt
-		from auth import SECRET_KEY, ALGORITHM
+		# Verify refresh token using proper JWT validation service
+		from jwt_service import validate_token
 
-		try:
-			payload = jwt.decode(refresh_request.refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
-			username: str = payload.get("sub")
-			user_id: str = payload.get("user_id")
-			token_type: str = payload.get("type")
-
-			if not username or not user_id or token_type != "refresh":
-				raise HTTPException(
-					status_code=status.HTTP_401_UNAUTHORIZED,
-					detail="Invalid refresh token"
-				)
-
-		except jwt.ExpiredSignatureError:
+		payload = validate_token(refresh_request.refresh_token, verify_exp=True)
+		if not payload:
 			raise HTTPException(
 				status_code=status.HTTP_401_UNAUTHORIZED,
-				detail="Refresh token expired"
+				detail="Invalid refresh token"
 			)
-		except jwt.JWTError:
+
+		username: str = payload.get("sub")
+		user_id: str = payload.get("user_id") 
+		token_type: str = payload.get("type")
+
+		if not username or not user_id or token_type != "refresh":
 			raise HTTPException(
 				status_code=status.HTTP_401_UNAUTHORIZED,
 				detail="Invalid refresh token"
@@ -317,7 +310,7 @@ async def refresh_access_token(
 			"refresh_token": new_refresh_token,
 			"token_type": "bearer",
 			"expires_at": expires,
-			"refresh_token_expires_at": new_refresh_expires.isoformat()
+			"refresh_token_expires_at": new_refresh_expires.isoformat() if hasattr(new_refresh_expires, 'isoformat') else new_refresh_expires
 		}
 
 	except HTTPException:
@@ -1104,7 +1097,7 @@ async def oauth_login_internal(
 		"refresh_token": refresh_token,
 		"token_type": "bearer",
 		"expires_at": expires,
-		"refresh_token_expires_at": refresh_expires.isoformat(),
+		"refresh_token_expires_at": refresh_expires.isoformat() if hasattr(refresh_expires, 'isoformat') else refresh_expires,
 		"user_info": {
 			"user_id": user.id,
 			"username": user.username,

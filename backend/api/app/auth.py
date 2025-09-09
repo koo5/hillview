@@ -214,13 +214,17 @@ async def is_token_blacklisted(token: str, db: AsyncSession) -> bool:
 async def blacklist_token(token: str, user_id: str, reason: str, db: AsyncSession) -> None:
 	"""Add a token to the blacklist."""
 	try:
-		# Decode token to get expiration time
-		payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-		exp_timestamp = payload.get("exp")
-		if exp_timestamp:
-			expires_at = datetime.fromtimestamp(exp_timestamp)
+		# Decode token to get expiration time using proper JWT validation
+		payload = validate_token(token, verify_exp=False)  # Don't verify expiry for blacklisting
+		if payload:
+			exp_timestamp = payload.get("exp")
+			if exp_timestamp:
+				expires_at = datetime.fromtimestamp(exp_timestamp)
+			else:
+				# Default to 30 days if no expiration
+				expires_at = utc_plus_timedelta(timedelta(days=30))
 		else:
-			# Default to 30 days if no expiration
+			# If we can't decode the token, default to 30 days
 			expires_at = utc_plus_timedelta(timedelta(days=30))
 
 		blacklist_entry = TokenBlacklist(
