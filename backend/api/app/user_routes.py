@@ -1248,6 +1248,7 @@ class UploadAuthorizationRequest(BaseModel):
 	filename: str
 	file_size: int
 	content_type: str
+	file_md5: str  # MD5 hash for duplicate detection
 	description: Optional[str] = None
 	is_public: bool = True
 	# Geolocation data from client (EXIF or device GPS)
@@ -1294,6 +1295,29 @@ async def authorize_upload(
 				detail="Only image files are supported"
 			)
 
+		# Validate MD5 hash format (32 hex characters)
+		if not auth_request.file_md5 or len(auth_request.file_md5) != 32:
+			raise HTTPException(
+				status_code=status.HTTP_400_BAD_REQUEST,
+				detail="Valid MD5 hash is required (32 hex characters)"
+			)
+
+		# Check for duplicate files by MD5 hash (per-user scope)
+		result = await db.execute(
+			select(Photo).where(
+				Photo.owner_id == current_user.id,
+				Photo.file_md5 == auth_request.file_md5
+			)
+		)
+		existing_photo = result.scalars().first()
+
+		if existing_photo:
+			log.info(f"Duplicate file detected for user {current_user.id}: MD5={auth_request.file_md5}, original photo={existing_photo.id}")
+			raise HTTPException(
+				status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+				detail=f"File already exists. You previously uploaded this file as '{existing_photo.original_filename}' on {existing_photo.uploaded_at.strftime('%Y-%m-%d %H:%M:%S')}."
+			)
+
 		# Get user's active public key for inclusion in JWT
 		result = await db.execute(
 			select(UserPublicKey).where(
@@ -1318,6 +1342,7 @@ async def authorize_upload(
 			filename=None,  # Will be set by worker after file processing
 			original_filename=auth_request.filename,  # Store original filename from request
 			filepath=None,  # Will be set by worker after upload
+			file_md5=auth_request.file_md5,  # Store MD5 hash for duplicate detection
 			description=auth_request.description,
 			is_public=auth_request.is_public,
 			owner_id=current_user.id,

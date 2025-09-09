@@ -47,6 +47,7 @@ class Photo(Base):
 	original_filename = Column(String)  # Original filename for display
 	filepath = Column(String)
 	thumbnail_path = Column(String, nullable=True)
+	file_md5 = Column(String, nullable=True, index=True)  # MD5 hash for duplicate detection
 	
 	# Location data
 	latitude = Column(Float, nullable=True)

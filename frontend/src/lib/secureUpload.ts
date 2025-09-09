@@ -15,6 +15,7 @@ export interface UploadAuthorizationRequest {
     filename: string;
     file_size: number;
     content_type: string;
+    file_md5: string; // MD5 hash for duplicate detection
     description?: string;
     is_public: boolean;
     // Geolocation data for immediate map display
@@ -38,6 +39,29 @@ export interface SecureUploadResult {
     message: string;
     photo_id?: string;
     error?: string;
+}
+
+/**
+ * Calculate MD5 hash of a file using Web Crypto API
+ */
+async function calculateFileMD5(file: File): Promise<string> {
+    try {
+        const buffer = await file.arrayBuffer();
+        const hashBuffer = await crypto.subtle.digest('MD5', buffer);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        return hashHex;
+    } catch (error) {
+        console.error('Failed to calculate MD5 hash:', error);
+        // Fall back to a simple hash based on file content and metadata
+        const fallbackString = file.name + file.size + file.type + file.lastModified;
+        const encoder = new TextEncoder();
+        const data = encoder.encode(fallbackString);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        return hashHex.substring(0, 32); // Truncate to 32 chars like MD5
+    }
 }
 
 /**
@@ -165,8 +189,9 @@ export async function secureUploadFile(
     try {
         console.log(`🔐 Starting secure upload for: ${file.name}`);
 
-        // Step 1: Try to extract geolocation data from file and device
-        const [fileGeo/*, deviceGeo*/] = await Promise.all([
+        // Step 1: Calculate file MD5 hash and extract geolocation data
+        const [fileMD5, fileGeo/*, deviceGeo*/] = await Promise.all([
+            calculateFileMD5(file),
             extractGeolocationFromFile(file),
 			//getCurrentLocation()
         ]);
@@ -181,11 +206,12 @@ export async function secureUploadFile(
         };
 
         // Step 2: Request upload authorization
-        console.log(`🔐 Requesting upload authorization for: ${file.name}`);
+        console.log(`🔐 Requesting upload authorization for: ${file.name} (MD5: ${fileMD5})`);
         const authRequest: UploadAuthorizationRequest = {
             filename: file.name,
             file_size: file.size,
             content_type: file.type,
+            file_md5: fileMD5,
             description,
             is_public: isPublic,
             ...geolocation

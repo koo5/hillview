@@ -80,6 +80,7 @@ class SecureUploadManager(private val context: Context) {
             put("filename", photo.filename)
             put("file_size", photo.fileSize)
             put("content_type", contentType)
+            put("file_md5", photo.fileHash)  // MD5 hash for duplicate detection
             put("description", "Auto-uploaded from Hillview Android")  // Could be made configurable
             put("is_public", true)  // Could be made configurable
             // Use PhotoEntity geolocation data

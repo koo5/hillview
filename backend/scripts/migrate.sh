@@ -33,4 +33,4 @@ docker run --rm --network hillview_network \
     -w "/app/api/app" \
     --env-file .env \
     -e ALEMBIC_SYNC_MODE=1 \
-    backend-api:latest alembic "$@"
+    hillview-api:latest alembic "$@"
