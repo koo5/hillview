@@ -1115,6 +1115,9 @@
 
 
     </LeafletMap>
+<div class="provider-selector-container">
+    <TileProviderSelector />
+</div>
 
 </div>
 
@@ -1257,10 +1260,6 @@
     {/each}
 </div>
 
-<!-- Tile Provider Selector -->
-<div class="provider-selector-container">
-    <TileProviderSelector />
-</div>
 
 <style>
 

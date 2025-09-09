@@ -47,15 +47,7 @@ export const AVAILABLE_PROVIDERS = {
     // Standard leaflet-providers
     'OpenStreetMap.Mapnik': 'OpenStreetMap (Default)',
     'OpenStreetMap.DE': 'OpenStreetMap (German)',
-    'CartoDB.Positron': 'CartoDB Light',
     'CartoDB.DarkMatter': 'CartoDB Dark',
-    'CartoDB.Voyager': 'CartoDB Voyager',
-    'Esri.WorldImagery': 'Esri Satellite Imagery',
-    'Esri.WorldStreetMap': 'Esri Street Map',
-    'Esri.WorldTopoMap': 'Esri Topographic',
-    'Stamen.Terrain': 'Stamen Terrain',
-    'Stamen.Toner': 'Stamen Toner',
-    'Stamen.Watercolor': 'Stamen Watercolor',
     'OpenTopoMap': 'OpenTopoMap',
     'CyclOSM': 'CyclOSM (Cycling)',
 
@@ -116,11 +108,6 @@ export function getProviderConfig(providerName: ProviderName): TileProviderConfi
         ...provider.options
     };
 
-    // Set maxNativeZoom from provider's maxZoom (the package value is usually correct)
-    config.maxNativeZoom = provider.options?.maxZoom || 19;
-
-    // Set our preferred max zoom (independent of provider)
-    config.maxZoom = 24;
 
     // Apply variant if specified
     if (variant && provider.variants && provider.variants[variant]) {
@@ -137,6 +124,12 @@ export function getProviderConfig(providerName: ProviderName): TileProviderConfi
             };
         }
     }
+
+    // Set maxNativeZoom from final config's maxZoom (after variant is applied)
+    config.maxNativeZoom = config.maxZoom || 19;
+
+    // Set our preferred max zoom (independent of provider)
+    config.maxZoom = 24;
 
     return config;
 }

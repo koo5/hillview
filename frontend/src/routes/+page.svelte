@@ -153,7 +153,7 @@
 			url.searchParams.set('lon', String(p.center.lng));
 			url.searchParams.set('zoom', String(p.zoom));
 			replaceState2(url.toString());
-		}, 2000);
+		}, 500);
 
 
 	});
