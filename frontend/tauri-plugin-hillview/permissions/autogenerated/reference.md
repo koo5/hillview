@@ -24,6 +24,9 @@ Default permissions for the plugin
 - `allow-check-camera-permission`
 - `allow-request-camera-permission`
 - `allow-test-auth-expired-notification`
+- `allow-get-device-photos`
+- `allow-refresh-photo-scan`
+- `allow-import-photos`
 
 ## Permission Table
 
@@ -115,6 +118,32 @@ Denies the get_auth_token command without any pre-configured scope.
 <tr>
 <td>
 
+`hillview:allow-get-device-photos`
+
+</td>
+<td>
+
+Enables the get_device_photos command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:deny-get-device-photos`
+
+</td>
+<td>
+
+Denies the get_device_photos command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `hillview:allow-get-upload-status`
 
 </td>
@@ -134,6 +163,32 @@ Enables the get_upload_status command without any pre-configured scope.
 <td>
 
 Denies the get_upload_status command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:allow-import-photos`
+
+</td>
+<td>
+
+Enables the import_photos command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:deny-import-photos`
+
+</td>
+<td>
+
+Denies the import_photos command without any pre-configured scope.
 
 </td>
 </tr>
@@ -212,6 +267,32 @@ Enables the refresh_auth_token command without any pre-configured scope.
 <td>
 
 Denies the refresh_auth_token command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:allow-refresh-photo-scan`
+
+</td>
+<td>
+
+Enables the refresh_photo_scan command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:deny-refresh-photo-scan`
+
+</td>
+<td>
+
+Denies the refresh_photo_scan command without any pre-configured scope.
 
 </td>
 </tr>

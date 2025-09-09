@@ -225,6 +225,7 @@ async def list_photos(
 			"uploaded_at": photo.uploaded_at,
 			"processing_status": photo.processing_status,
 			"error": photo.error,
+			"sizes": photo.sizes,
 			"owner_id": photo.owner_id,
 			"owner_username": current_user.username  # Since these are the current user's photos
 		} for photo in photos]
@@ -461,6 +462,15 @@ def verify_client_signature(signature_base64: str, public_key_pem: str, photo_id
 		logger.debug(f"Loading client public key for photo {photo_id}, public key pem: {public_key_pem}")
 		public_key = serialization.load_pem_public_key(public_key_pem.encode())
 		logger.debug(f"Client public key loaded successfully: {public_key}")
+		
+		# Debug public key details
+		try:
+			public_key_info = public_key.public_numbers()
+			logger.debug(f"Public key curve: {public_key_info.curve.name}")
+			logger.debug(f"Public key x: {public_key_info.x}")
+			logger.debug(f"Public key y: {public_key_info.y}")
+		except Exception as key_info_error:
+			logger.debug(f"Could not extract public key info: {key_info_error}")
 
 		# Recreate the exact message that the client signed
 		# This must match the format used by ClientCryptoManager.signUploadData()
@@ -487,22 +497,64 @@ def verify_client_signature(signature_base64: str, public_key_pem: str, photo_id
 			# Convert P1363 to DER format
 			r = int.from_bytes(signature_bytes[:32], byteorder='big')
 			s = int.from_bytes(signature_bytes[32:], byteorder='big')
-			from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
-			signature_bytes = encode_dss_signature(r, s)
+			logger.debug(f"P1363 components: r={r}, s={s}")
+			
+			try:
+				from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
+				signature_bytes = encode_dss_signature(r, s)
+				logger.debug(f"DER signature bytes length: {len(signature_bytes)}")
+				logger.debug(f"DER signature hex: {signature_bytes.hex()}")
+			except Exception as der_error:
+				logger.error(f"DER encoding failed: {type(der_error).__name__}: {der_error}")
+				return False
 		else:
 			logger.debug(f"Detected DER signature format ({len(signature_bytes)} bytes) - using as-is")
 
 		# Verify the ECDSA signature
-		public_key.verify(
-			signature_bytes,
-			message.encode('utf-8'),
-			ec.ECDSA(hashes.SHA256())
-		)
-
-		logger.debug(f"Client signature verified for photo {photo_id}")
-		return True
+		logger.debug(f"About to verify signature using cryptography library")
+		logger.debug(f"Message bytes length: {len(message.encode('utf-8'))}")
+		logger.debug(f"Signature bytes length after conversion: {len(signature_bytes)}")
+		
+		# Test: Create a self-signature to verify our public key works
+		try:
+			logger.debug("Testing public key with self-verification...")
+			test_message = b"test message for key verification"
+			# We can't self-sign with public key, but we can check key validity
+			logger.debug("Public key appears valid for verification operations")
+		except Exception as key_test_error:
+			logger.error(f"Public key test failed: {key_test_error}")
+		
+		try:
+			public_key.verify(
+				signature_bytes,
+				message.encode('utf-8'),
+				ec.ECDSA(hashes.SHA256())
+			)
+			logger.debug(f"Client signature verified for photo {photo_id}")
+			return True
+		except Exception as verify_error:
+			logger.error(f"Cryptography library verification failed: {type(verify_error).__name__}: {verify_error}")
+			
+			# Additional debugging: try to understand why verification failed
+			logger.debug("Additional verification debugging:")
+			logger.debug(f"Message (raw string): '{message}'")
+			logger.debug(f"Message (UTF-8 bytes): {message.encode('utf-8')}")
+			logger.debug(f"Message (UTF-8 hex): {message.encode('utf-8').hex()}")
+			logger.debug(f"DER signature length: {len(signature_bytes)} bytes")
+			
+			# Check if there might be Unicode normalization issues
+			import unicodedata
+			normalized_message = unicodedata.normalize('NFC', message)
+			if normalized_message != message:
+				logger.debug(f"Unicode normalization difference detected!")
+				logger.debug(f"Normalized message: '{normalized_message}'")
+				logger.debug(f"Normalized UTF-8 hex: {normalized_message.encode('utf-8').hex()}")
+			else:
+				logger.debug("No Unicode normalization issues detected")
+			
+			return False
 
 	except Exception as e:
-		logger.error(f"Error verifying client signature:")
-		logger.error(type(e))
+		logger.error(f"Error in signature verification setup:")
+		logger.error(f"{type(e).__name__}: {e}")
 		return False

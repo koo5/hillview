@@ -17,6 +17,7 @@ export interface UserPhoto {
     thumbnail_url?: string;
     uploaded_at?: string;
     captured_at?: string;
+    sizes?: Record<string, { url: string; width: number; height: number; path?: string }>;
 }
 
 // Shared stores that can be imported by both auth and data modules

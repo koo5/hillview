@@ -65,7 +65,7 @@ class StoreAuthTokenArgs {
   var expiresAt: String? = null
   var refreshToken: String? = null
   var refreshExpiry: String? = null
-  
+
   override fun toString(): String {
     return "StoreAuthTokenArgs(token=${token?.let { "present" } ?: "null"}, expiresAt=$expiresAt, refreshToken=${refreshToken?.let { "present" } ?: "null"}, refreshExpiry=$refreshExpiry)"
   }
@@ -85,7 +85,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
 
         // Permission request codes
         private const val CAMERA_PERMISSION_REQUEST_CODE = 2001
-        
+
         // Activity request codes
         private const val FILE_PICKER_REQUEST_CODE = 3001
 
@@ -691,7 +691,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             .build()
 
         val uploadWorkRequest = PeriodicWorkRequestBuilder<PhotoUploadWorker>(
-            15, TimeUnit.MINUTES // Run every 15 minutes
+            150, TimeUnit.MINUTES
         )
             .setConstraints(constraints)
             .setInputData(
@@ -1001,20 +1001,130 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     }
 
     @Command
-    fun import_photos(invoke: Invoke) {
+    fun getDevicePhotos(invoke: Invoke) {
+        try {
+            Log.d(TAG, "📸 Getting device photos from database")
+            
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val photoDao = database.photoDao()
+                    val photos = photoDao.getAllPhotos()
+                    
+                    // Convert PhotoEntity list to JSON array for response
+                    val photoList = JSONArray()
+                    for (photo in photos) {
+                        val photoJson = JSObject()
+                        photoJson.put("id", photo.id)
+                        photoJson.put("filePath", photo.path)
+                        photoJson.put("fileName", photo.filename)
+                        photoJson.put("fileHash", photo.fileHash)
+                        photoJson.put("fileSize", photo.fileSize)
+                        photoJson.put("timestamp", photo.timestamp)
+                        photoJson.put("createdAt", photo.createdAt)
+                        photoJson.put("latitude", photo.latitude)
+                        photoJson.put("longitude", photo.longitude)
+                        photoJson.put("altitude", photo.altitude)
+                        photoJson.put("bearing", photo.bearing)
+                        photoJson.put("accuracy", photo.accuracy)
+                        photoJson.put("width", photo.width)
+                        photoJson.put("height", photo.height)
+                        photoJson.put("uploadStatus", photo.uploadStatus)
+                        photoJson.put("uploadedAt", photo.uploadedAt)
+                        photoJson.put("retryCount", photo.retryCount)
+                        photoList.put(photoJson)
+                    }
+                    
+                    val response = JSObject()
+                    response.put("photos", photoList)
+                    response.put("lastUpdated", System.currentTimeMillis())
+                    
+                    Log.d(TAG, "📸 Retrieved ${photos.size} photos from device database")
+                    
+                    CoroutineScope(Dispatchers.Main).launch {
+                        invoke.resolve(response)
+                    }
+                    
+                } catch (e: Exception) {
+                    Log.e(TAG, "📸 Error getting device photos", e)
+                    CoroutineScope(Dispatchers.Main).launch {
+                        val error = JSObject()
+                        error.put("photos", JSONArray())
+                        error.put("lastUpdated", 0)
+                        error.put("error", e.message)
+                        invoke.resolve(error)
+                    }
+                }
+            }
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "📸 Error starting device photos retrieval", e)
+            val error = JSObject()
+            error.put("photos", JSONArray())
+            error.put("lastUpdated", 0)
+            error.put("error", e.message)
+            invoke.resolve(error)
+        }
+    }
+
+    @Command
+    fun refreshPhotoScan(invoke: Invoke) {
+        try {
+            Log.d(TAG, "🔄 Starting photo scan refresh")
+            
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    // This would typically scan the device for new photos
+                    // For now, return a simple success response
+                    val response = JSObject()
+                    response.put("photosAdded", 0)
+                    response.put("scanErrors", 0)
+                    response.put("success", true)
+                    
+                    Log.d(TAG, "🔄 Photo scan refresh completed")
+                    
+                    CoroutineScope(Dispatchers.Main).launch {
+                        invoke.resolve(response)
+                    }
+                    
+                } catch (e: Exception) {
+                    Log.e(TAG, "🔄 Error during photo scan refresh", e)
+                    CoroutineScope(Dispatchers.Main).launch {
+                        val error = JSObject()
+                        error.put("photosAdded", 0)
+                        error.put("scanErrors", 1)
+                        error.put("success", false)
+                        error.put("error", e.message)
+                        invoke.resolve(error)
+                    }
+                }
+            }
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "🔄 Error starting photo scan refresh", e)
+            val error = JSObject()
+            error.put("photosAdded", 0)
+            error.put("scanErrors", 1)
+            error.put("success", false)
+            error.put("error", e.message)
+            invoke.resolve(error)
+        }
+    }
+
+    @Command
+    fun importPhotos(invoke: Invoke) {
         try {
             Log.d(TAG, "📂 Starting photo import with file picker")
-            
+
             // Check if another file picker request is already pending
             if (pendingFilePickerInvoke != null) {
                 Log.w(TAG, "📂 File picker already in progress")
                 invoke.reject("File picker already in progress")
                 return
             }
-            
+
             // Store the pending request
             pendingFilePickerInvoke = invoke
-            
+
             // Create file picker intent
             val filePickerIntent = Intent(Intent.ACTION_GET_CONTENT).apply {
                 type = "image/*"
@@ -1022,10 +1132,10 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                 putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
                 putExtra(Intent.EXTRA_LOCAL_ONLY, true)
             }
-            
+
             Log.i(TAG, "📂 Launching file picker with request code: $FILE_PICKER_REQUEST_CODE")
             activity.startActivityForResult(filePickerIntent, FILE_PICKER_REQUEST_CODE)
-            
+
         } catch (e: Exception) {
             Log.e(TAG, "❌ Failed to start file picker", e)
             pendingFilePickerInvoke = null
@@ -1049,11 +1159,11 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
 
         Log.e(TAG, "🔒 Permission result processing complete")
     }
-    
+
     // Handle activity results and forward to appropriate handlers
     fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         Log.i(TAG, "📂 Activity result received: requestCode=$requestCode, resultCode=$resultCode")
-        
+
         when (requestCode) {
             FILE_PICKER_REQUEST_CODE -> {
                 handleFilePickerResult(resultCode, data)
@@ -1063,7 +1173,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             }
         }
     }
-    
+
     // Handle file picker results
     private fun handleFilePickerResult(resultCode: Int, data: Intent?) {
         val invoke = pendingFilePickerInvoke
@@ -1071,14 +1181,14 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             Log.w(TAG, "📂 File picker result received but no pending request found")
             return
         }
-        
+
         pendingFilePickerInvoke = null
-        
+
         if (resultCode == Activity.RESULT_OK && data != null) {
             Log.i(TAG, "📂 File picker result: User selected files")
-            
+
             val selectedUris = mutableListOf<Uri>()
-            
+
             // Handle multiple files selection
             data.clipData?.let { clipData ->
                 for (i in 0 until clipData.itemCount) {
@@ -1088,17 +1198,17 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                 // Handle single file selection
                 selectedUris.add(singleUri)
             }
-            
+
             if (selectedUris.isNotEmpty()) {
                 Log.i(TAG, "📂 Processing ${selectedUris.size} selected files")
-                
+
                 // Use coroutine to handle async import - reuse existing photo processing logic
                 CoroutineScope(Dispatchers.IO).launch {
                     try {
                         val importedFiles = mutableListOf<String>()
                         val failedFiles = mutableListOf<String>()
                         val errors = mutableListOf<String>()
-                        
+
                         for (uri in selectedUris) {
                             try {
                                 // Convert URI to file path using PhotoUtils
@@ -1109,7 +1219,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                                         // Calculate hash and check for existing photo
                                         val fileHash = PhotoUtils.calculateFileHash(file)
                                         val existingPhoto = database.photoDao().getPhotoByHash(fileHash)
-                                        
+
                                         if (existingPhoto == null) {
                                             // Create new PhotoEntity using PhotoUtils
                                             val photoEntity = PhotoUtils.createPhotoEntityFromFile(file, fileHash, "imported")
@@ -1138,7 +1248,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                                 Log.e(TAG, "📂 Permission error importing $uri", e)
                             }
                         }
-                        
+
                         // Return result matching FileImportResponse structure
                         val response = JSObject()
                         response.put("success", importedFiles.isNotEmpty())
@@ -1147,10 +1257,10 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                         response.put("failed_count", failedFiles.size)
                         response.put("failed_files", JSONArray(failedFiles))
                         response.put("import_errors", JSONArray(errors))
-                        
+
                         Log.i(TAG, "📂 Import complete: ${importedFiles.size} successful, ${failedFiles.size} failed")
                         invoke.resolve(response)
-                        
+
                     } catch (e: Exception) {
                         Log.e(TAG, "📂 Import failed with error: ${e.message}", e)
                         invoke.reject("Import failed: ${e.message}")

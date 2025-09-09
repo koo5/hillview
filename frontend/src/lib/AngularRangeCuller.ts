@@ -7,11 +7,10 @@
  * Uses the photo's existing bearing property (camera direction) for bucketing.
  */
 
-import type { PhotoData } from './photoWorkerTypes';
 import { calculateDistance } from './workerUtils';
 
-interface AngularBucket {
-    photos: PhotoData[];
+interface AngularBucket<T> {
+    photos: T[];
     nextIndex: number; // For round-robin within bucket
 }
 
@@ -24,18 +23,18 @@ export class AngularRangeCuller {
     /**
      * Cull photos for uniform angular coverage around center point
      */
-    cullPhotosInRange(
-        photosInArea: PhotoData[],
+    cullPhotosInRange<T extends { bearing: number; coord: { lat: number; lng: number }; id: string }>(
+        photosInArea: T[],
         center: { lat: number; lng: number },
         range: number,
         maxPhotos: number
-    ): PhotoData[] {
+    ): T[] {
         if (photosInArea.length === 0 || maxPhotos <= 0) {
             return [];
         }
 
         // Create angular buckets
-        const angularBuckets = this.createAngularBuckets();
+        const angularBuckets = this.createAngularBuckets<T>();
 
         // Distribute photos into angular buckets (only those within range)
         for (const photo of photosInArea) {
@@ -47,7 +46,7 @@ export class AngularRangeCuller {
                 angularBuckets[bucketIndex].photos.push({
                     ...photo,
                     range_distance: distance
-                });
+                } as T);
             }
         }
 
@@ -59,7 +58,7 @@ export class AngularRangeCuller {
         }
 
         // Round-robin selection across angular buckets
-        const selectedPhotos: PhotoData[] = [];
+        const selectedPhotos: T[] = [];
         let bucketIndex = 0;
 
         while (selectedPhotos.length < maxPhotos) {
@@ -93,7 +92,7 @@ export class AngularRangeCuller {
         return selectedPhotos;
     }
 
-    private createAngularBuckets(): AngularBucket[] {
+    private createAngularBuckets<T>(): AngularBucket<T>[] {
         return new Array(this.ANGULAR_BUCKETS).fill(null).map(() => ({
             photos: [],
             nextIndex: 0
@@ -109,9 +108,9 @@ export class AngularRangeCuller {
     /**
      * Get statistics about angular coverage
      */
-    getAngularStats(
-        photosInArea: PhotoData[],
-        culledPhotos: PhotoData[],
+    getAngularStats<T extends { bearing: number; coord: { lat: number; lng: number } }>(
+        photosInArea: T[],
+        culledPhotos: T[],
         center: { lat: number; lng: number },
         range: number
     ): {
@@ -155,7 +154,7 @@ export class AngularRangeCuller {
     }
 }
 
-export function sortPhotosByBearing(photos: PhotoData[]){
+export function sortPhotosByBearing(photos: { bearing: number; id: string }[]) {
     photos.sort((a, b) => {
         if (a.bearing !== b.bearing) {
             return a.bearing - b.bearing;
