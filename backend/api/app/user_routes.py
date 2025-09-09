@@ -767,16 +767,16 @@ async def oauth_callback(
 
         // Try redirect immediately
         redirectToApp();
-        
+
         // Fallback: try again after a short delay
         setTimeout(redirectToApp, 1000);
-        
+
         // Auto-close tab after 10 seconds if possible
         setTimeout(function() {{
-            try {{ 
+            try {{
                 console.log('Attempting to close tab');
-                window.close(); 
-            }} catch (e) {{ 
+                window.close();
+            }} catch (e) {{
                 console.log('Cannot close tab:', e);
             }}
         }}, 10000);
@@ -1217,11 +1217,10 @@ async def register_client_public_key(
 		existing_key = result.scalars().first()
 
 		if existing_key:
-			# Don't allow overwriting existing keys for security
-			raise HTTPException(
-				status_code=status.HTTP_409_CONFLICT,
-				detail=f"Public key with ID {key_data.key_id} already exists"
-			)
+			return {
+				"message": "Client public key already registered",
+				"key_id": key_data.key_id,
+			}
 
 		# Create new key record
 		user_public_key = UserPublicKey(
