@@ -42,15 +42,20 @@ export interface SecureUploadResult {
 }
 
 /**
- * Calculate MD5 hash of a file using Web Crypto API
+ * Calculate MD5 hash of a file using crypto-js library
  */
 async function calculateFileMD5(file: File): Promise<string> {
     try {
+        // Import crypto-js dynamically to avoid SSR issues
+        const CryptoJS = await import('crypto-js');
+        
+        // Read file as ArrayBuffer and convert to WordArray
         const buffer = await file.arrayBuffer();
-        const hashBuffer = await crypto.subtle.digest('MD5', buffer);
-        const hashArray = Array.from(new Uint8Array(hashBuffer));
-        const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-        return hashHex;
+        const wordArray = CryptoJS.lib.WordArray.create(buffer);
+        
+        // Calculate MD5 hash
+        const hash = CryptoJS.MD5(wordArray);
+        return hash.toString();
     } catch (error) {
         console.error('Failed to calculate MD5 hash:', error);
         // Fall back to a simple hash based on file content and metadata

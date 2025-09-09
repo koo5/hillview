@@ -1,5 +1,6 @@
 import L from 'leaflet';
 import 'leaflet-providers';
+import { writable, get } from 'svelte/store';
 
 export interface TileProviderConfig {
     url: string;
@@ -30,13 +31,13 @@ const CUSTOM_PROVIDERS: Record<string, TileProviderConfig> = {
     'TracesTrack.Topo': {
         url: `https://tile.tracestrack.com/_/{z}/{x}/{y}.webp?key=${API_KEYS.TRACESTRACK}`,
         attribution: '&copy; <a href="https://tracestrack.com">TracesTrack</a>, &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-        maxZoom: 19, // Allow zooming to higher levels  
-        maxNativeZoom: 12, // TracesTrack tiles likely go up to zoom 12 (conservative)
+        maxZoom: 23, // Allow zooming to higher levels
+        maxNativeZoom: 19, // TracesTrack tiles likely go up to zoom 12 (conservative)
     },
     'TracesTrack.TopoContrast': {
         url: `https://tile.tracestrack.com/topo_auto/{z}/{x}/{y}.webp?key=${API_KEYS.TRACESTRACK}&style=contrast+`,
         attribution: '&copy; <a href="https://tracestrack.com">TracesTrack</a>, &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-        maxZoom: 19, // Allow zooming to higher levels  
+        maxZoom: 19, // Allow zooming to higher levels
         maxNativeZoom: 12, // TracesTrack tiles likely go up to zoom 12 (conservative)
     },
 };
@@ -47,7 +48,7 @@ export const AVAILABLE_PROVIDERS = {
     'OpenStreetMap.Mapnik': 'OpenStreetMap (Default)',
     'OpenStreetMap.DE': 'OpenStreetMap (German)',
     'CartoDB.Positron': 'CartoDB Light',
-    'CartoDB.DarkMatter': 'CartoDB Dark', 
+    'CartoDB.DarkMatter': 'CartoDB Dark',
     'CartoDB.Voyager': 'CartoDB Voyager',
     'Esri.WorldImagery': 'Esri Satellite Imagery',
     'Esri.WorldStreetMap': 'Esri Street Map',
@@ -57,28 +58,28 @@ export const AVAILABLE_PROVIDERS = {
     'Stamen.Watercolor': 'Stamen Watercolor',
     'OpenTopoMap': 'OpenTopoMap',
     'CyclOSM': 'CyclOSM (Cycling)',
-    
+
     // Custom providers
     'TracesTrack.Topo': 'TracesTrack Topographic',
-    'TracesTrack.TopoContrast': 'TracesTrack Topo (High Contrast)',
+    /*'TracesTrack.TopoContrast': 'TracesTrack Topo (High Contrast)',*/
 } as const;
 
 export type ProviderName = keyof typeof AVAILABLE_PROVIDERS;
 
 // Default tile provider
-export const DEFAULT_TILE_PROVIDER: ProviderName = 'OpenStreetMap.Mapnik';
+export const DEFAULT_TILE_PROVIDER: ProviderName = 'TracesTrack.Topo';//'OpenStreetMap.Mapnik';
 
 // Current selected provider (can be changed at runtime)
-export let currentTileProvider: ProviderName = DEFAULT_TILE_PROVIDER;
+export const currentTileProvider = writable<ProviderName>(DEFAULT_TILE_PROVIDER);
 
 /**
  * Set the current tile provider
  */
 export function setTileProvider(provider: ProviderName): void {
     if (provider in AVAILABLE_PROVIDERS) {
-        currentTileProvider = provider;
+        currentTileProvider.set(provider);
     } else {
-        console.warn(`Unknown tile provider: ${provider}, keeping current: ${currentTileProvider}`);
+        console.warn(`Unknown tile provider: ${provider}, keeping current provider`);
     }
 }
 
@@ -90,10 +91,10 @@ export function getProviderConfig(providerName: ProviderName): TileProviderConfi
     if (CUSTOM_PROVIDERS[providerName]) {
         return { ...CUSTOM_PROVIDERS[providerName] };
     }
-    
+
     // Then check leaflet-providers
     const providers = (L.TileLayer as any).Provider?.providers;
-    
+
     if (!providers) {
         console.warn('leaflet-providers not loaded, using fallback');
         return getFallbackConfig();
@@ -102,20 +103,25 @@ export function getProviderConfig(providerName: ProviderName): TileProviderConfi
     const parts = providerName.split('.');
     const providerKey = parts[0];
     const variant = parts[1];
-    
+
     if (!providers[providerKey]) {
         console.warn(`Provider ${providerKey} not found, falling back to OpenStreetMap`);
         return getFallbackConfig();
     }
-    
+
     const provider = providers[providerKey];
     let config: TileProviderConfig = {
         url: provider.url,
         attribution: provider.options?.attribution || '',
-        maxZoom: provider.options?.maxZoom || 19,
         ...provider.options
     };
-    
+
+    // Set maxNativeZoom from provider's maxZoom (the package value is usually correct)
+    config.maxNativeZoom = provider.options?.maxZoom || 19;
+
+    // Set our preferred max zoom (independent of provider)
+    config.maxZoom = 24;
+
     // Apply variant if specified
     if (variant && provider.variants && provider.variants[variant]) {
         const variantData = provider.variants[variant];
@@ -131,7 +137,7 @@ export function getProviderConfig(providerName: ProviderName): TileProviderConfi
             };
         }
     }
-    
+
     return config;
 }
 
@@ -139,7 +145,7 @@ export function getProviderConfig(providerName: ProviderName): TileProviderConfi
  * Get the current provider configuration
  */
 export function getCurrentProviderConfig(): TileProviderConfig {
-    return getProviderConfig(currentTileProvider);
+    return getProviderConfig(get(currentTileProvider));
 }
 
 /**
@@ -170,15 +176,3 @@ export function getAvailableProviders(): Array<{key: ProviderName, name: string}
     }));
 }
 
-/**
- * Update TracesTrack zoom levels (for debugging)
- */
-export function updateTracesTrackZoom(maxNativeZoom: number, maxZoom: number = 19) {
-    console.log(`Updating TracesTrack zoom levels: maxNativeZoom=${maxNativeZoom}, maxZoom=${maxZoom}`);
-    
-    CUSTOM_PROVIDERS['TracesTrack.Topo'].maxNativeZoom = maxNativeZoom;
-    CUSTOM_PROVIDERS['TracesTrack.Topo'].maxZoom = maxZoom;
-    
-    CUSTOM_PROVIDERS['TracesTrack.TopoContrast'].maxNativeZoom = maxNativeZoom;
-    CUSTOM_PROVIDERS['TracesTrack.TopoContrast'].maxZoom = maxZoom;
-}

@@ -2,11 +2,12 @@
     import {onMount, onDestroy, tick} from 'svelte';
     import {Polygon, LeafletMap, TileLayer, Marker, Circle, ScaleControl} from 'svelte-leafletjs';
     import {LatLng} from 'leaflet';
-    import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle, MapPin, Pause, ArrowUp, ArrowDown, Layers, Eye, Compass, Car, PersonStanding} from 'lucide-svelte';
+    import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle, MapPin, Pause, ArrowUp, ArrowDown, Layers, Eye, Compass, Car, PersonStanding, Map as MapIcon} from 'lucide-svelte';
     import L from 'leaflet';
     import 'leaflet/dist/leaflet.css';
-    import { getCurrentProviderConfig, setTileProvider } from '$lib/tileProviders';
+    import { getCurrentProviderConfig, setTileProvider, currentTileProvider } from '$lib/tileProviders';
     import Spinner from './Spinner.svelte';
+    import TileProviderSelector from './TileProviderSelector.svelte';
     import { getCurrentPosition, type GeolocationPosition } from '$lib/preciseLocation';
     import { locationManager } from '$lib/locationManager';
 
@@ -80,6 +81,7 @@
 
     // Source buttons display mode
     let compactSourceButtons = true;
+
 
     $: map = elMap?.getMap();
 
@@ -798,6 +800,14 @@
             await onMapStateChange(true, 'mount');
             //console.log('🢄Map component mounted - after onMapStateChange');
 
+            // Add zoom control after scale control for proper ordering
+            const zoomControl = new L.Control.Zoom({ position: 'topleft' });
+            map.addControl(zoomControl);
+
+            // Add attribution control at bottom-left
+            const attributionControl = new L.Control.Attribution({ position: 'bottomleft' });
+            map.addControl(attributionControl);
+
             // Set up zoom control listeners
             setupZoomControlListeners();
         })();
@@ -943,10 +953,15 @@
 
     // Tile provider configuration
     // Set initial tile provider (can be changed via setTileProvider() function)
-    setTileProvider('TracesTrack.Topo');
+    setTileProvider('OpenStreetMap.Mapnik');//TracesTrack.Topo');
 
     // Get the current provider configuration reactively
     $: tileConfig = getCurrentProviderConfig();
+
+    // Force tile layer to update when provider changes
+    $: if ($currentTileProvider) {
+        tileConfig = getCurrentProviderConfig();
+    }
 
     // Reactive updates for spatial changes (new photos from worker)
     $: if ($visiblePhotos && map) {
@@ -968,12 +983,13 @@
             bind:this={elMap}
             events={{moveend: mapStateUserEvent, zoomend: mapStateUserEvent}}
             options={{
-				attributionControl: true,
+				attributionControl: false, // We'll add it manually with correct position
                 center: [$spatialState.center.lat, $spatialState.center.lng],
                 zoom: $spatialState.zoom,
                 minZoom: 3,
                 maxZoom: 23,
-                zoomControl: true,
+                maxNativeZoom: 19,
+                zoomControl: false, // We'll add it manually in the right order
                 scrollWheelZoom: !/Android/i.test(navigator.userAgent), // Disable on Android, we'll handle it manually
                 touchZoom: true,
                 dragging: true,
@@ -984,16 +1000,17 @@
             }}
     >
 
-        <ScaleControl options={{maxWidth: 100, imperial: false}} position="bottomleft"/>
+        <ScaleControl options={{maxWidth: 100, imperial: false}} position="topleft"/>
 
         <!-- Base map tiles
          -->
 
+        {#key $currentTileProvider}
         <TileLayer
                 options={{
                     attribution: tileConfig.attribution, // Attribution goes in options
-                    maxZoom: Math.min(23, tileConfig.maxZoom || 19),
-                    maxNativeZoom: tileConfig.maxNativeZoom || tileConfig.maxZoom || 19,
+                    maxZoom: tileConfig.maxZoom,
+                    maxNativeZoom: tileConfig.maxNativeZoom,
                     minZoom: tileConfig.minZoom || 3,
                     // Memory optimization for tiles
                     //keepBuffer: 1, // Keep fewer tiles in memory (default is 2)
@@ -1015,6 +1032,7 @@
                 }}
                 url={tileConfig.url}
         />
+        {/key}
 
 
         {#if $spatialState.center}
@@ -1237,6 +1255,11 @@
             {/if}
         </button>
     {/each}
+</div>
+
+<!-- Tile Provider Selector -->
+<div class="provider-selector-container">
+    <TileProviderSelector />
 </div>
 
 <style>
@@ -1466,6 +1489,13 @@
     /* Ensure zoom controls have higher z-index than scale control */
     :global(.leaflet-control-zoom-out) {
         background-color: rgba(255, 255, 255, 0.5) !important;
+    }
+
+    .provider-selector-container {
+        position: absolute;
+        bottom: 15px;
+        left: 10px;
+        z-index: 30000;
     }
 
 </style>
