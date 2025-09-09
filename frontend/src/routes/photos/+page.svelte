@@ -361,7 +361,7 @@
 
 						<div class="photo-image">
 							<img
-								src={photo.sizes?.['50']?.url}
+								src={photo.sizes?.['320']?.url}
 								alt={photo.description || photo.original_filename}
 								data-testid="photo-thumbnail"
 							/>
