@@ -35,6 +35,9 @@
         activeMode = mode;
         const interval = mode === 'slow' ? slowInterval : fastInterval;
 
+        // Emit capture start event
+        dispatch('captureStart', { mode });
+
         // Capture immediately
         dispatch('capture', { mode });
         captureCount++;
@@ -50,9 +53,9 @@
         if (captureInterval) {
             clearInterval(captureInterval);
             captureInterval = null;
-			captureCount = 0;
-            activeMode = null;
         }
+        captureCount = 0;
+        activeMode = null;
     }
 
     function handleSlowStart(e?: Event) {
@@ -97,8 +100,15 @@
 
     function handleSingleCapture() {
         if (disabled) return;
-		stopCapture();
-        dispatch('capture', { mode: 'single' });
+        
+        // If a mode is active, stop it
+        if (activeMode) {
+            stopCapture();
+            dispatch('captureEnd', { mode: activeMode, count: captureCount });
+        } else {
+            // Otherwise, do a single capture
+            dispatch('capture', { mode: 'single' });
+        }
     }
 
     function showButtons() {
@@ -157,9 +167,11 @@
             const target = document.elementFromPoint(e.clientX, e.clientY);
             
             if (slowButtonEl && slowButtonEl.contains(target as Node)) {
-                dispatch('capture', { mode: 'slow' });
+                // Start slow continuous capture
+                startCapture('slow');
             } else if (fastButtonEl && fastButtonEl.contains(target as Node)) {
-                dispatch('capture', { mode: 'fast' });
+                // Start fast continuous capture
+                startCapture('fast');
             }
             // If not over any button, no capture
         } else if (!isLongPress) {
@@ -291,7 +303,7 @@
         data-testid="single-capture-button"
     >
         <Camera size={24} />
-        <span class="mode-label">{activeMode === 'slow' ? 'Slow' : activeMode === 'fast' ? 'Fast' : 'Single'}</span>
+        <span class="mode-label">{activeMode ? 'Stop' : 'Single'}</span>
     </button>
 
     {#if showAllButtons}
@@ -421,13 +433,21 @@
     }
 
     .single-mode.slow-active {
-        background: linear-gradient(135deg, #4CAF50, #45a049);
+        background: linear-gradient(135deg, #4CAF50, #45a049) !important;
         animation: pulse-slow 2s ease-in-out infinite;
     }
 
+    .single-mode.slow-active:hover {
+        background: linear-gradient(135deg, #45a049, #3d8b40) !important;
+    }
+
     .single-mode.fast-active {
-        background: linear-gradient(135deg, #ff6b6b, #ff5252);
+        background: linear-gradient(135deg, #ff6b6b, #ff5252) !important;
         animation: pulse-fast 0.8s ease-in-out infinite;
+    }
+
+    .single-mode.fast-active:hover {
+        background: linear-gradient(135deg, #ff5252, #ff4141) !important;
     }
 
     .button-divider {
