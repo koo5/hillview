@@ -465,7 +465,8 @@ async def recreate_test_users() -> dict:
 			"photos_deleted": 0,
 			"users_deleted": 0,
 			"users_created": 0,
-			"created_users": []
+			"created_users": [],
+			"user_passwords": {}
 		}
 
 		try:
@@ -492,6 +493,7 @@ async def recreate_test_users() -> dict:
 				db.add(new_user)
 				summary["created_users"].append(username)
 				summary["users_created"] += 1
+				summary["user_passwords"][username] = password
 
 			await db.commit()
 			logger.info(f"Created {len(test_user_data)} fresh test users")

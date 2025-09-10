@@ -1,6 +1,18 @@
 import { test, expect } from '@playwright/test';
 
 test('debug login', async ({ page }) => {
+  // Get test user credentials first
+  const response = await fetch('http://localhost:8055/api/debug/recreate-test-users', {
+    method: 'POST'
+  });
+  const result = await response.json();
+  console.log('🢄Test cleanup result:', result);
+  
+  const testPassword = result.details?.user_passwords?.test;
+  if (!testPassword) {
+    throw new Error('Test user password not returned from recreate-test-users');
+  }
+  
   // Navigate to login page
   await page.goto('/login');
   await page.waitForLoadState('networkidle');
@@ -19,7 +31,7 @@ test('debug login', async ({ page }) => {
   
   // Fill form
   await usernameInput.fill('test');
-  await passwordInput.fill('test123');
+  await passwordInput.fill(testPassword);
   
   console.log('🢄Username value:', await usernameInput.inputValue());
   console.log('🢄Password value:', await passwordInput.inputValue());

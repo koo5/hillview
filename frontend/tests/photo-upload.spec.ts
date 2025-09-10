@@ -24,12 +24,18 @@ test.describe('Photo Upload Tests', () => {
     const result = await response.json();
     console.log('🢄Test cleanup result:', result);
     
+    // Get test user password from response
+    const testPassword = result.details?.user_passwords?.test;
+    if (!testPassword) {
+      throw new Error('Test user password not returned from recreate-test-users');
+    }
+    
     // Login with test user before each test
     await page.goto('/login');
     await page.waitForLoadState('networkidle');
     
     await page.fill('input[type="text"]', 'test');
-    await page.fill('input[type="password"]', 'test123');
+    await page.fill('input[type="password"]', testPassword);
     await page.click('button[type="submit"]');
     
     // Wait for login success and redirect
