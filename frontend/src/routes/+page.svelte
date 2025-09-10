@@ -8,6 +8,7 @@
 		Database,
 		Download,
 		EyeOff,
+		Images,
 		Info,
 		LogOut,
 		Maximize2,
@@ -359,6 +360,7 @@
 
         <ul>
             <li><a href="/photos" on:click={() => menuOpen = false}>
+                <Images size={18}/>
                 My Photos
             </a></li>
 
