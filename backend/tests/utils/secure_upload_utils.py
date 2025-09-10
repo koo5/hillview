@@ -186,10 +186,15 @@ class SecureUploadClient:
 
 	async def authorize_upload(self, auth_token: str, filename: str = "secure_test.jpg", **kwargs):
 		"""Test Phase 2: Request upload authorization from API."""
+		# Generate MD5 hash for test data
+		import hashlib
+		file_md5 = hashlib.md5(f"{filename}_5120".encode()).hexdigest()
+		
 		upload_request = {
 			"filename": filename,
 			"content_type": "image/jpeg",
 			"file_size": 5120,
+			"file_md5": file_md5,  # Add required MD5 hash
 			"latitude": 50.0755,
 			"longitude": 14.4378,
 			"description": "End-to-end secure upload test",
@@ -204,12 +209,21 @@ class SecureUploadClient:
 
 	async def authorize_upload_with_params(self, auth_token: str, filename: str, file_size: int,
 										   latitude: float, longitude: float, description: str,
-										   is_public: bool = True):
+										   is_public: bool = True, file_data: bytes = None):
 		"""Request upload authorization with custom parameters."""
+		# Calculate MD5 hash for the file data
+		import hashlib
+		if file_data:
+			file_md5 = hashlib.md5(file_data).hexdigest()
+		else:
+			# Generate a fake MD5 for test data if no file_data provided
+			file_md5 = hashlib.md5(f"{filename}_{file_size}".encode()).hexdigest()
+		
 		upload_request = {
 			"filename": filename,
 			"content_type": "image/jpeg",
 			"file_size": file_size,
+			"file_md5": file_md5,  # Add required MD5 hash
 			"latitude": latitude,
 			"longitude": longitude,
 			"description": description,

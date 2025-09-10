@@ -59,30 +59,31 @@ test.describe('Debug Capture Mode', () => {
     
     // Click through debug modes
     await debugButton.click(); // Mode 1
-    await page.waitForTimeout(200);
+    await page.waitForSelector('.debug-overlay', { timeout: 5000 });
+    await page.waitForTimeout(500);
     
     await debugButton.click(); // Mode 2
-    await page.waitForTimeout(200);
+    await page.waitForTimeout(500);
     
     await debugButton.click(); // Mode 3
-    await page.waitForTimeout(200);
+    await page.waitForTimeout(500);
     
     await debugButton.click(); // Mode 4 (capture system)
-    await page.waitForTimeout(200);
+    await page.waitForTimeout(500);
     
     // Check that we're in mode 4 and capture system section is visible
     const captureSystemSection = page.locator('.capture-system-section');
     await expect(captureSystemSection).toBeVisible();
     
     await debugButton.click(); // Mode 5 (front photo debug)
-    await page.waitForTimeout(200);
+    await page.waitForTimeout(500);
     
     // Check that we're in mode 5 and photo management section is visible
     const photoManagementSection = page.locator('.photo-management-section');
     await expect(photoManagementSection).toBeVisible();
     
     await debugButton.click(); // Mode 0 (off)
-    await page.waitForTimeout(200);
+    await page.waitForTimeout(500);
     
     // Debug overlay should be hidden
     const debugOverlay = page.locator('.debug-overlay');

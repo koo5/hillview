@@ -161,10 +161,13 @@ class TestTokenValidation:
 		# Should succeed with 200 (empty list) or 404 (no endpoint), but definitely not 401/500
 		assert response.status_code == 200, f"Valid token should succeed, got {response.status_code}: {response.text}"
 
-		# If successful, response should be JSON
+		# If successful, response should be JSON with the new paginated format
 		try:
 			data = response.json()
-			assert isinstance(data, list), f"Photos endpoint should return a list, got {type(data)}"
+			assert isinstance(data, dict), f"Photos endpoint should return an object, got {type(data)}"
+			assert 'photos' in data, "Response should have 'photos' key"
+			assert 'pagination' in data, "Response should have 'pagination' key"
+			assert 'counts' in data, "Response should have 'counts' key"
 		except ValueError:
 			assert False, f"Response should be valid JSON, got: {response.text}"
 

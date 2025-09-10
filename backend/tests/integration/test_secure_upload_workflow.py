@@ -172,7 +172,8 @@ class TestSecureUploadWorkflow:
 			)
 
 			if response.status_code == 200:
-				photos = response.json()
+				response_data = response.json()
+				photos = response_data.get('photos', [])  # Handle new paginated format
 				processed_photo = None
 
 				# Find our uploaded photo by ID

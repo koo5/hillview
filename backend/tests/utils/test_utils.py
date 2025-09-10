@@ -126,7 +126,7 @@ async def create_test_photos(test_users: list, auth_tokens: dict):
         await upload_client.register_client_key(token, client_keys)
         
         auth_data = await upload_client.authorize_upload_with_params(
-            token, filename, len(image_data), lat, lon, description, is_public
+            token, filename, len(image_data), lat, lon, description, is_public, file_data=image_data
         )
         
         result = await upload_client.upload_to_worker(image_data, auth_data, client_keys, filename)
@@ -197,7 +197,8 @@ async def upload_test_image(filename: str, image_data: bytes, description: str, 
             50.0755,  # Default Prague latitude
             14.4378,  # Default Prague longitude  
             description,
-            is_public
+            is_public,
+            file_data=image_data  # Pass the actual file data for MD5 calculation
         )
         
         # Upload to worker

@@ -34,24 +34,27 @@ class TestPhotoPagination(BasePhotoTest):
         
         data = response.json()
         
-        # Check if it's the new paginated format
-        if isinstance(data, dict) and 'photos' in data:
-            # New paginated format
-            assert 'photos' in data, "Response should have 'photos' key"
-            assert 'pagination' in data, "Response should have 'pagination' key"
-            assert isinstance(data['photos'], list), "Photos should be a list"
-            
-            pagination = data['pagination']
-            assert 'next_cursor' in pagination, "Pagination should have 'next_cursor'"
-            assert 'has_more' in pagination, "Pagination should have 'has_more'"
-            assert 'limit' in pagination, "Pagination should have 'limit'"
-            assert isinstance(pagination['has_more'], bool), "has_more should be boolean"
-            
-            print("✓ New paginated format detected and validated")
-        else:
-            # Old format - should still work for backward compatibility
-            assert isinstance(data, list), "Response should be a list (old format)"
-            print("✓ Old format detected - backward compatibility maintained")
+        # Validate the new paginated format
+        assert isinstance(data, dict), "Response should be an object"
+        assert 'photos' in data, "Response should have 'photos' key"
+        assert 'pagination' in data, "Response should have 'pagination' key"
+        assert 'counts' in data, "Response should have 'counts' key"
+        assert isinstance(data['photos'], list), "Photos should be a list"
+        
+        pagination = data['pagination']
+        assert 'next_cursor' in pagination, "Pagination should have 'next_cursor'"
+        assert 'has_more' in pagination, "Pagination should have 'has_more'"
+        assert 'limit' in pagination, "Pagination should have 'limit'"
+        assert isinstance(pagination['has_more'], bool), "has_more should be boolean"
+        
+        counts = data['counts']
+        assert 'total' in counts, "Counts should have 'total'"
+        assert 'completed' in counts, "Counts should have 'completed'"
+        assert 'failed' in counts, "Counts should have 'failed'"
+        assert 'authorized' in counts, "Counts should have 'authorized'"
+        assert isinstance(counts['total'], int), "Total count should be integer"
+        
+        print("✓ New paginated format with counts validated")
 
     @pytest.mark.asyncio
     async def test_pagination_with_multiple_photos(self):
@@ -61,7 +64,7 @@ class TestPhotoPagination(BasePhotoTest):
         # Create multiple test photos using existing utilities
         uploaded_photos = []
         for i in range(5):
-            photo_id = await self._create_simple_test_photo(f"test_pagination_{i}.jpg")
+            photo_id = await self._create_simple_test_photo(f"test_pagination_{i}.jpg", color_index=i)
             uploaded_photos.append(photo_id)
             # Small delay to ensure different timestamps
             await asyncio.sleep(0.1)
@@ -74,48 +77,55 @@ class TestPhotoPagination(BasePhotoTest):
         
         data = response.json()
         
-        if isinstance(data, dict) and 'photos' in data:
-            # Test paginated format
-            photos_page_1 = data['photos']
-            pagination = data['pagination']
+        # Test paginated format
+        photos_page_1 = data['photos']
+        pagination = data['pagination']
+        counts = data['counts']
+        
+        assert len(photos_page_1) <= 2, "Should return at most 2 photos"
+        assert pagination['limit'] == 2, "Limit should be 2"
+        assert counts['total'] >= len(uploaded_photos), "Total count should be at least the uploaded photos"
+        
+        if len(uploaded_photos) > 2:
+            assert pagination['has_more'] is True, "Should have more photos"
+            assert pagination['next_cursor'] is not None, "Should have next cursor"
             
-            assert len(photos_page_1) <= 2, "Should return at most 2 photos"
-            assert pagination['limit'] == 2, "Limit should be 2"
+            # Test second page using cursor
+            cursor = pagination['next_cursor']
+            # Use params to properly URL encode the cursor
+            response_2 = requests.get(
+                f"{API_URL}/photos/",
+                params={"cursor": cursor, "limit": 2}, 
+                headers=self.test_headers
+            )
+            self.assert_success(response_2, "Should retrieve second page of photos")
             
-            if len(uploaded_photos) > 2:
-                assert pagination['has_more'] is True, "Should have more photos"
-                assert pagination['next_cursor'] is not None, "Should have next cursor"
-                
-                # Test second page using cursor
-                cursor = pagination['next_cursor']
-                response_2 = requests.get(
-                    f"{API_URL}/photos/?cursor={cursor}&limit=2", 
-                    headers=self.test_headers
-                )
-                self.assert_success(response_2, "Should retrieve second page of photos")
-                
-                data_2 = response_2.json()
-                photos_page_2 = data_2['photos']
-                
-                # Verify no duplicates between pages
-                page_1_ids = {p['id'] for p in photos_page_1}
-                page_2_ids = {p['id'] for p in photos_page_2}
-                overlap = page_1_ids & page_2_ids
-                assert not overlap, f"Pages should not overlap. Overlap: {overlap}"
-                
-                # Verify chronological order (newest first)
-                all_photos = photos_page_1 + photos_page_2
-                timestamps = [p['uploaded_at'] for p in all_photos]
-                sorted_timestamps = sorted(timestamps, reverse=True)
-                assert timestamps == sorted_timestamps, "Photos should be ordered by upload time (desc)"
-                
-                print("✓ Cursor-based pagination working correctly")
-                print(f"✓ Page 1: {len(photos_page_1)} photos")
-                print(f"✓ Page 2: {len(photos_page_2)} photos")
-                print("✓ No overlaps between pages")
-                print("✓ Chronological ordering maintained")
-            else:
-                print("✓ Single page result (not enough photos for pagination)")
+            data_2 = response_2.json()
+            photos_page_2 = data_2['photos']
+            
+            # Verify no duplicates between pages
+            page_1_ids = {p['id'] for p in photos_page_1}
+            page_2_ids = {p['id'] for p in photos_page_2}
+            overlap = page_1_ids & page_2_ids
+            assert not overlap, f"Pages should not overlap. Overlap: {overlap}"
+            
+            # Verify chronological order (newest first)
+            all_photos = photos_page_1 + photos_page_2
+            timestamps = [p['uploaded_at'] for p in all_photos]
+            sorted_timestamps = sorted(timestamps, reverse=True)
+            assert timestamps == sorted_timestamps, "Photos should be ordered by upload time (desc)"
+            
+            # Verify counts are consistent across pages
+            assert data_2['counts']['total'] == counts['total'], "Total count should be consistent across pages"
+            
+            print("✓ Cursor-based pagination working correctly")
+            print(f"✓ Page 1: {len(photos_page_1)} photos")
+            print(f"✓ Page 2: {len(photos_page_2)} photos")
+            print(f"✓ Total count: {counts['total']}")
+            print("✓ No overlaps between pages")
+            print("✓ Chronological ordering maintained")
+        else:
+            print("✓ Single page result (not enough photos for pagination)")
 
     @pytest.mark.asyncio
     async def test_cursor_validation(self):
@@ -132,7 +142,8 @@ class TestPhotoPagination(BasePhotoTest):
         
         for invalid_cursor in invalid_cursors:
             response = requests.get(
-                f"{API_URL}/photos/?cursor={invalid_cursor}",
+                f"{API_URL}/photos/",
+                params={"cursor": invalid_cursor},
                 headers=self.test_headers
             )
             
@@ -163,26 +174,23 @@ class TestPhotoPagination(BasePhotoTest):
                 else:
                     # Or might be adjusted to a default value
                     data = response.json()
-                    if isinstance(data, dict) and 'pagination' in data:
-                        actual_limit = data['pagination']['limit']
-                        assert actual_limit > 0, "Adjusted limit should be positive"
-                        print(f"✓ Invalid limit {limit} adjusted to {actual_limit}")
+                    actual_limit = data['pagination']['limit']
+                    assert actual_limit > 0, "Adjusted limit should be positive"
+                    print(f"✓ Invalid limit {limit} adjusted to {actual_limit}")
             elif limit > 100:
                 # Large limits should be capped
                 self.assert_success(response, f"Should handle large limit {limit}")
                 data = response.json()
-                if isinstance(data, dict) and 'pagination' in data:
-                    actual_limit = data['pagination']['limit']
-                    assert actual_limit <= 100, "Limit should be capped at 100"
-                    print(f"✓ Large limit {limit} capped to {actual_limit}")
+                actual_limit = data['pagination']['limit']
+                assert actual_limit <= 100, "Limit should be capped at 100"
+                print(f"✓ Large limit {limit} capped to {actual_limit}")
             else:
                 # Valid limits should work
                 self.assert_success(response, f"Should handle valid limit {limit}")
                 data = response.json()
-                if isinstance(data, dict) and 'pagination' in data:
-                    actual_limit = data['pagination']['limit']
-                    assert actual_limit == limit, f"Limit should be {limit}"
-                    print(f"✓ Valid limit {limit} working correctly")
+                actual_limit = data['pagination']['limit']
+                assert actual_limit == limit, f"Limit should be {limit}"
+                print(f"✓ Valid limit {limit} working correctly")
 
     @pytest.mark.asyncio
     async def test_pagination_consistency_during_uploads(self):
@@ -192,7 +200,7 @@ class TestPhotoPagination(BasePhotoTest):
         # Create initial photos using existing utilities
         initial_photo_ids = []
         for i in range(3):
-            photo_id = await self._create_simple_test_photo(f"initial_{i}.jpg")
+            photo_id = await self._create_simple_test_photo(f"initial_{i}.jpg", color_index=i)
             initial_photo_ids.append(photo_id)
             await asyncio.sleep(0.1)
         
@@ -203,72 +211,68 @@ class TestPhotoPagination(BasePhotoTest):
         self.assert_success(response, "Should retrieve first page")
         
         data = response.json()
-        if isinstance(data, dict) and 'photos' in data:
-            first_page_photos = data['photos']
-            first_page_ids = {p['id'] for p in first_page_photos}
-            pagination = data['pagination']
+        first_page_photos = data['photos']
+        first_page_ids = {p['id'] for p in first_page_photos}
+        pagination = data['pagination']
+        
+        if pagination.get('has_more'):
+            cursor = pagination['next_cursor']
             
-            if pagination.get('has_more'):
-                cursor = pagination['next_cursor']
-                
-                # Upload a new photo between pagination requests
-                new_photo_id = await self._create_simple_test_photo("during_pagination.jpg")
-                print("✓ Uploaded new photo during pagination")
-                
-                # Get second page using cursor
-                response_2 = requests.get(
-                    f"{API_URL}/photos/?cursor={cursor}&limit=2",
-                    headers=self.test_headers
-                )
-                self.assert_success(response_2, "Should retrieve second page")
-                
-                data_2 = response_2.json()
-                second_page_photos = data_2['photos']
-                second_page_ids = {p['id'] for p in second_page_photos}
-                
-                # Verify no overlap (cursor-based pagination prevents duplicates)
-                overlap = first_page_ids & second_page_ids
-                assert not overlap, "Cursor pagination should prevent duplicates even with new uploads"
-                
-                # The new photo should not appear in the second page (it's newer than cursor)
-                new_photo_in_second_page = new_photo_id in second_page_ids
-                assert not new_photo_in_second_page, "New photo should not appear in cursor-based second page"
-                
-                print("✓ Pagination consistency maintained during concurrent uploads")
-                print(f"✓ First page: {len(first_page_photos)} photos")
-                print(f"✓ Second page: {len(second_page_photos)} photos")
-                print("✓ No duplicates despite concurrent upload")
+            # Upload a new photo between pagination requests
+            new_photo_id = await self._create_simple_test_photo("during_pagination.jpg", color_index=5)
+            print("✓ Uploaded new photo during pagination")
+            
+            # Get second page using cursor
+            response_2 = requests.get(
+                f"{API_URL}/photos/",
+                params={"cursor": cursor, "limit": 2},
+                headers=self.test_headers
+            )
+            self.assert_success(response_2, "Should retrieve second page")
+            
+            data_2 = response_2.json()
+            second_page_photos = data_2['photos']
+            second_page_ids = {p['id'] for p in second_page_photos}
+            
+            # Verify no overlap (cursor-based pagination prevents duplicates)
+            overlap = first_page_ids & second_page_ids
+            assert not overlap, "Cursor pagination should prevent duplicates even with new uploads"
+            
+            # The new photo should not appear in the second page (it's newer than cursor)
+            new_photo_in_second_page = new_photo_id in second_page_ids
+            assert not new_photo_in_second_page, "New photo should not appear in cursor-based second page"
+            
+            print("✓ Pagination consistency maintained during concurrent uploads")
+            print(f"✓ First page: {len(first_page_photos)} photos")
+            print(f"✓ Second page: {len(second_page_photos)} photos")
+            print("✓ No duplicates despite concurrent upload")
 
     @pytest.mark.asyncio
-    async def test_backward_compatibility(self):
-        """Test that the API maintains backward compatibility with old format."""
-        print("\n=== Testing Backward Compatibility ===")
+    async def test_required_fields_in_response(self):
+        """Test that the API response includes all required fields."""
+        print("\n=== Testing Required Fields in Response ===")
         
         # Create a test photo using existing utilities
-        await self._create_simple_test_photo("compatibility_test.jpg")
+        await self._create_simple_test_photo("fields_test.jpg", color_index=0)
         
-        # Test without any pagination parameters (should work like old API)
+        # Test without any pagination parameters
         response = requests.get(f"{API_URL}/photos/", headers=self.test_headers)
-        self.assert_success(response, "Should work without pagination parameters")
+        self.assert_success(response, "Should retrieve photos")
         
         data = response.json()
         
-        if isinstance(data, dict) and 'photos' in data:
-            # New format - verify it includes required fields for compatibility
-            photos = data['photos']
-            for photo in photos:
-                assert 'id' in photo, "Photo should have id field"
-                assert 'uploaded_at' in photo, "Photo should have uploaded_at field"
-                assert 'created_at' in photo, "Photo should have created_at for backward compatibility"
-                assert 'original_filename' in photo, "Photo should have original_filename field"
-            print("✓ New format includes all required backward compatibility fields")
-        else:
-            # Old format - should still work
-            assert isinstance(data, list), "Old format should be a list"
-            for photo in data:
-                assert 'id' in photo, "Photo should have id field"
-                assert 'uploaded_at' in photo or 'created_at' in photo, "Photo should have timestamp"
-            print("✓ Old format still working")
+        # Verify new format structure
+        assert isinstance(data, dict), "Response should be an object"
+        photos = data['photos']
+        
+        for photo in photos:
+            assert 'id' in photo, "Photo should have id field"
+            assert 'uploaded_at' in photo, "Photo should have uploaded_at field"
+            assert 'created_at' in photo, "Photo should have created_at for backward compatibility"
+            assert 'original_filename' in photo, "Photo should have original_filename field"
+            assert 'processing_status' in photo, "Photo should have processing_status field"
+            
+        print("✓ All required fields present in response")
 
     @pytest.mark.asyncio 
     async def test_pagination_with_existing_photos(self):
@@ -293,27 +297,42 @@ class TestPhotoPagination(BasePhotoTest):
             self.assert_success(response, "Should retrieve photos created by existing utilities")
             
             data = response.json()
-            if isinstance(data, dict) and 'photos' in data:
-                photos = data['photos']
-                pagination = data['pagination']
-                
-                assert len(photos) <= 2, "Should respect limit parameter"
-                assert pagination['limit'] == 2, "Should return correct limit"
-                
-                # Verify all expected fields are present
-                for photo in photos:
-                    assert 'id' in photo, "Photo should have id"
-                    assert 'uploaded_at' in photo, "Photo should have uploaded_at"
-                    assert 'original_filename' in photo, "Photo should have filename"
-                    assert 'processing_status' in photo, "Photo should have processing status"
-                
-                print(f"✓ Retrieved {len(photos)} photos with pagination")
-                print("✓ All required fields present in paginated response")
+            photos = data['photos']
+            pagination = data['pagination']
+            counts = data['counts']
+            
+            assert len(photos) <= 2, "Should respect limit parameter"
+            assert pagination['limit'] == 2, "Should return correct limit"
+            assert counts['total'] >= photos_created, "Total count should include created photos"
+            
+            # Verify all expected fields are present
+            for photo in photos:
+                assert 'id' in photo, "Photo should have id"
+                assert 'uploaded_at' in photo, "Photo should have uploaded_at"
+                assert 'original_filename' in photo, "Photo should have filename"
+                assert 'processing_status' in photo, "Photo should have processing status"
+            
+            print(f"✓ Retrieved {len(photos)} photos with pagination")
+            print(f"✓ Total count: {counts['total']}")
+            print("✓ All required fields present in paginated response")
 
-    async def _create_simple_test_photo(self, filename: str) -> str:
+    async def _create_simple_test_photo(self, filename: str, color_index: int = 0) -> str:
         """Create a simple test photo using existing utilities and return photo ID."""
-        # Create test image using existing utility
-        image_data = create_test_image_full_gps(200, 150, (255, 0, 0), lat=50.0755, lon=14.4378, bearing=90.0)
+        # Create different colored images to ensure unique MD5 hashes
+        colors = [
+            (255, 0, 0),    # Red
+            (0, 255, 0),    # Green  
+            (0, 0, 255),    # Blue
+            (255, 255, 0),  # Yellow
+            (255, 0, 255),  # Magenta
+            (0, 255, 255),  # Cyan
+            (128, 128, 128), # Gray
+            (255, 165, 0),  # Orange
+        ]
+        color = colors[color_index % len(colors)]
+        
+        # Create test image using existing utility with different color
+        image_data = create_test_image_full_gps(200, 150, color, lat=50.0755, lon=14.4378, bearing=90.0)
         
         # Upload using existing utility
         photo_id = await upload_test_image(
@@ -341,7 +360,7 @@ if __name__ == "__main__":
     asyncio.run(test.test_cursor_validation())
     asyncio.run(test.test_limit_parameter_validation())
     asyncio.run(test.test_pagination_consistency_during_uploads())
-    asyncio.run(test.test_backward_compatibility())
+    asyncio.run(test.test_required_fields_in_response())
     asyncio.run(test.test_pagination_with_existing_photos())
     
     print("\n✅ All pagination tests completed!")

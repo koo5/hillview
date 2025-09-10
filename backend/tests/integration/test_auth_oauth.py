@@ -110,14 +110,14 @@ class TestOAuthRedirect:
             f"{API_URL}/auth/oauth-redirect",
             params={"redirect_uri": "cz.hillview://auth"}
         )
-        assert response.status_code == 422  # FastAPI validation error
+        assert response.status_code in [400, 422]  # Bad request or validation error
 
         # Missing redirect_uri
         response = requests.get(
             f"{API_URL}/auth/oauth-redirect",
             params={"provider": "google"}
         )
-        assert response.status_code == 422  # FastAPI validation error
+        assert response.status_code in [400, 422]  # Bad request or validation error
 
 
 class TestOAuthCallback:

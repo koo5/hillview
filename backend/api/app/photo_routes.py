@@ -230,13 +230,21 @@ async def list_photos(
 		if cursor:
 			try:
 				from datetime import datetime, timezone
-				cursor_timestamp = datetime.fromisoformat(cursor.replace('Z', '+00:00'))
+				# Handle both Z and +00:00 timezone formats, and fix URL decoding issues
+				cursor_fixed = cursor
+				if cursor.endswith('Z'):
+					cursor_fixed = cursor.replace('Z', '+00:00')
+				elif ' 00:00' in cursor:
+					# Fix URL decoding that converts + to space
+					cursor_fixed = cursor.replace(' 00:00', '+00:00')
+				
+				cursor_timestamp = datetime.fromisoformat(cursor_fixed)
 				query = query.where(Photo.uploaded_at < cursor_timestamp)
 			except (ValueError, TypeError) as e:
 				logger.warning(f"Invalid cursor format: {cursor}, error: {e}")
 				raise HTTPException(
 					status_code=status.HTTP_400_BAD_REQUEST,
-					detail="Invalid cursor format. Expected ISO 8601 timestamp."
+					detail=f"Invalid cursor format: {cursor}. Expected ISO 8601 timestamp. Error: {e}"
 				)
 
 		result = await db.execute(
