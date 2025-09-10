@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { createEventDispatcher, onDestroy } from 'svelte';
+    import { createEventDispatcher, onDestroy, onMount } from 'svelte';
     import { Camera, Zap, Turtle } from 'lucide-svelte';
 
     export let disabled = false;
@@ -16,12 +16,16 @@
     let longPressTimer: number | null = null;
     let hideTimer: number | null = null;
     let isLongPress = false;
-    let isDragging = false;
     let touchStartX = 0;
     let touchStartY = 0;
     let currentDragX = 0;
     let dragThreshold = 30;
     let selectedMode: 'slow' | 'fast' | null = null;
+    let isPointerDown = false;
+    let slowButtonEl: HTMLElement | null = null;
+    let fastButtonEl: HTMLElement | null = null;
+    let singleButtonEl: HTMLButtonElement | null = null;
+    let hoveredButton: 'slow' | 'fast' | null = null;
 
     function startCapture(mode: 'slow' | 'fast') {
 
@@ -100,10 +104,6 @@
             clearTimeout(hideTimer);
             hideTimer = null;
         }
-        // Auto-hide after 3 seconds of inactivity
-        hideTimer = window.setTimeout(() => {
-            hideButtons();
-        }, 3000);
     }
 
     function hideButtons() {
@@ -118,11 +118,11 @@
         if (disabled) return;
 
         e.preventDefault();
+        isPointerDown = true;
         touchStartX = e.clientX;
         touchStartY = e.clientY;
         currentDragX = 0;
         isLongPress = false;
-        isDragging = false;
         selectedMode = null;
 
         // Clear any existing timer
@@ -130,16 +130,18 @@
             clearTimeout(longPressTimer);
         }
 
-        // Start long press timer
+        // Start long press timer to show buttons
         longPressTimer = window.setTimeout(() => {
             isLongPress = true;
-            isDragging = true;
             showButtons();
         }, 300); // Shorter timeout for quicker response
     }
 
     function handleSinglePointerUp(e: PointerEvent | MouseEvent) {
         if (disabled) return;
+        if (!isPointerDown) return; // Ignore if we weren't tracking
+
+        isPointerDown = false;
 
         // Clear long press timer
         if (longPressTimer) {
@@ -147,23 +149,26 @@
             longPressTimer = null;
         }
 
-        if (isLongPress && selectedMode) {
-            // Long press with selection - start the selected mode
-            if (selectedMode === 'slow') {
-                handleSlowStart();
-            } else if (selectedMode === 'fast') {
-                handleFastStart();
+        // Check what element we're over for the final selection
+        if (isLongPress && showAllButtons) {
+            const target = document.elementFromPoint(e.clientX, e.clientY);
+            
+            if (slowButtonEl && slowButtonEl.contains(target as Node)) {
+                dispatch('capture', { mode: 'slow' });
+            } else if (fastButtonEl && fastButtonEl.contains(target as Node)) {
+                dispatch('capture', { mode: 'fast' });
             }
+            // If not over any button, no capture
         } else if (!isLongPress) {
             // Short press - single capture
             handleSingleCapture();
         }
 
-        // Reset state
+        // Reset state and hide buttons immediately
         isLongPress = false;
-        isDragging = false;
         selectedMode = null;
-        setTimeout(() => hideButtons(), 200); // Hide buttons after a short delay
+        hoveredButton = null;
+        hideButtons();
     }
 
     function handleSinglePointerMove(e: PointerEvent | MouseEvent) {
@@ -175,19 +180,19 @@
 
         currentDragX = deltaX;
 
-        // If we're in long press mode and dragging
-        if (isLongPress && isDragging) {
-            // Determine which mode is selected based on horizontal drag
-            if (Math.abs(deltaX) > dragThreshold) {
-                if (deltaX < 0) {
-                    // Dragging left - slow mode
-                    selectedMode = 'slow';
-                } else {
-                    // Dragging right - fast mode
-                    selectedMode = 'fast';
-                }
+        // If we're in long press mode
+        if (isLongPress && showAllButtons) {
+            // Check which button element the pointer is over
+            const target = document.elementFromPoint(e.clientX, e.clientY);
+            
+            if (slowButtonEl && slowButtonEl.contains(target as Node)) {
+                hoveredButton = 'slow';
+                selectedMode = 'slow';
+            } else if (fastButtonEl && fastButtonEl.contains(target as Node)) {
+                hoveredButton = 'fast';
+                selectedMode = 'fast';
             } else {
-                // In neutral zone
+                hoveredButton = null;
                 selectedMode = null;
             }
         } else if (longPressTimer && distance > 15) {
@@ -202,8 +207,36 @@
             clearTimeout(longPressTimer);
             longPressTimer = null;
         }
-        isLongPress = false;
+        
+        // Only hide if we're not actively pressing
+        if (!isPointerDown) {
+            if (showAllButtons) {
+                hideButtons();
+            }
+            isLongPress = false;
+            selectedMode = null;
+        }
     }
+
+    function handleGlobalPointerMove(e: PointerEvent) {
+        if (isPointerDown && isLongPress) {
+            handleSinglePointerMove(e);
+        }
+    }
+
+    function handleGlobalPointerUp(e: PointerEvent) {
+        if (isPointerDown) {
+            handleSinglePointerUp(e);
+        }
+    }
+
+    onMount(() => {
+        // Add global pointer listeners to track movement and releases anywhere
+        document.addEventListener('pointermove', handleGlobalPointerMove);
+        document.addEventListener('mousemove', handleGlobalPointerMove as any);
+        document.addEventListener('pointerup', handleGlobalPointerUp);
+        document.addEventListener('mouseup', handleGlobalPointerUp as any);
+    });
 
     onDestroy(() => {
         stopCapture();
@@ -213,32 +246,32 @@
         if (hideTimer) {
             clearTimeout(hideTimer);
         }
+        document.removeEventListener('pointermove', handleGlobalPointerMove);
+        document.removeEventListener('mousemove', handleGlobalPointerMove as any);
+        document.removeEventListener('pointerup', handleGlobalPointerUp);
+        document.removeEventListener('mouseup', handleGlobalPointerUp as any);
     });
 </script>
 
-<div class="capture-button-container" class:expanded={showAllButtons}>
+<div class="capture-button-container" class:expanded={showAllButtons} style="cursor: {isPointerDown && isLongPress ? 'pointer' : 'default'}">
     {#if showAllButtons}
-        <button
+        <div
+            bind:this={slowButtonEl}
             class="capture-button slow-mode"
             class:pressed={slowPressed}
             class:selected={selectedMode === 'slow'}
-            {disabled}
-            on:mousedown={handleSlowStart}
-            on:mouseup={handleSlowEnd}
-            on:mouseleave={handleSlowEnd}
-            on:touchstart={handleSlowStart}
-            on:touchend={handleSlowEnd}
-            on:click={handleSlowClick}
+            class:hovered={hoveredButton === 'slow'}
             data-testid="slow-capture-button"
         >
             <Turtle size={24} />
             <span class="mode-label">Slow</span>
-        </button>
+        </div>
 
         <div class="button-divider"></div>
     {/if}
 
     <button
+        bind:this={singleButtonEl}
         class="capture-button single-mode"
         class:long-pressed={isLongPress}
         {disabled}
@@ -259,22 +292,17 @@
     {#if showAllButtons}
         <div class="button-divider"></div>
 
-        <button
+        <div
+            bind:this={fastButtonEl}
             class="capture-button fast-mode"
             class:pressed={fastPressed}
             class:selected={selectedMode === 'fast'}
-            {disabled}
-            on:mousedown={handleFastStart}
-            on:mouseup={handleFastEnd}
-            on:mouseleave={handleFastEnd}
-            on:touchstart={handleFastStart}
-            on:touchend={handleFastEnd}
-            on:click={handleFastClick}
+            class:hovered={hoveredButton === 'fast'}
             data-testid="fast-capture-button"
         >
             <Zap size={24} />
             <span class="mode-label">Fast</span>
-        </button>
+        </div>
     {/if}
 
     {#if captureCount > 0}
@@ -324,6 +352,10 @@
         -webkit-user-select: none;
         -webkit-touch-callout: none;
     }
+    
+    .capture-button:not(button) {
+        pointer-events: all;
+    }
 
     .capture-button:disabled {
         opacity: 0.5;
@@ -334,16 +366,13 @@
         background: linear-gradient(135deg, #4CAF50, #45a049);
     }
 
-    .slow-mode:hover:not(:disabled) {
-        background: linear-gradient(135deg, #45a049, #3d8b40);
-    }
-
     .slow-mode.pressed {
         transform: scale(0.9);
         background: linear-gradient(135deg, #3d8b40, #357a38);
     }
 
-    .slow-mode.selected {
+    .slow-mode.selected,
+    .slow-mode.hovered {
         transform: scale(1.1);
         background: linear-gradient(135deg, #66BB6A, #4CAF50);
         box-shadow: 0 0 20px rgba(76, 175, 80, 0.6);
@@ -354,16 +383,13 @@
         background: linear-gradient(135deg, #ff6b6b, #ff5252);
     }
 
-    .fast-mode:hover:not(:disabled) {
-        background: linear-gradient(135deg, #ff5252, #ff4141);
-    }
-
     .fast-mode.pressed {
         transform: scale(0.9);
         background: linear-gradient(135deg, #ff4141, #ff3030);
     }
 
-    .fast-mode.selected {
+    .fast-mode.selected,
+    .fast-mode.hovered {
         transform: scale(1.1);
         background: linear-gradient(135deg, #FF7043, #ff6b6b);
         box-shadow: 0 0 20px rgba(255, 107, 107, 0.6);
