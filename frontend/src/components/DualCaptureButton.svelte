@@ -26,11 +26,13 @@
     let fastButtonEl: HTMLElement | null = null;
     let singleButtonEl: HTMLButtonElement | null = null;
     let hoveredButton: 'slow' | 'fast' | null = null;
+    let activeMode: 'slow' | 'fast' | null = null;
 
     function startCapture(mode: 'slow' | 'fast') {
 
 		stopCapture();
 
+        activeMode = mode;
         const interval = mode === 'slow' ? slowInterval : fastInterval;
 
         // Capture immediately
@@ -49,6 +51,7 @@
             clearInterval(captureInterval);
             captureInterval = null;
 			captureCount = 0;
+            activeMode = null;
         }
     }
 
@@ -274,6 +277,8 @@
         bind:this={singleButtonEl}
         class="capture-button single-mode"
         class:long-pressed={isLongPress}
+        class:slow-active={activeMode === 'slow'}
+        class:fast-active={activeMode === 'fast'}
         {disabled}
         on:pointerdown={handleSinglePointerDown}
         on:pointerup={handleSinglePointerUp}
@@ -286,7 +291,7 @@
         data-testid="single-capture-button"
     >
         <Camera size={24} />
-        <span class="mode-label">Single</span>
+        <span class="mode-label">{activeMode === 'slow' ? 'Slow' : activeMode === 'fast' ? 'Fast' : 'Single'}</span>
     </button>
 
     {#if showAllButtons}
@@ -415,6 +420,16 @@
         box-shadow: 0 0 20px rgba(33, 150, 243, 0.5);
     }
 
+    .single-mode.slow-active {
+        background: linear-gradient(135deg, #4CAF50, #45a049);
+        animation: pulse-slow 2s ease-in-out infinite;
+    }
+
+    .single-mode.fast-active {
+        background: linear-gradient(135deg, #ff6b6b, #ff5252);
+        animation: pulse-fast 0.8s ease-in-out infinite;
+    }
+
     .button-divider {
         width: 2px;
         height: 50px;
@@ -448,6 +463,36 @@
         0% { transform: scale(1); }
         50% { transform: scale(1.1); }
         100% { transform: scale(1); }
+    }
+
+    @keyframes pulse-slow {
+        0% { 
+            transform: scale(1); 
+            box-shadow: 0 0 0 rgba(76, 175, 80, 0);
+        }
+        50% { 
+            transform: scale(1.05); 
+            box-shadow: 0 0 20px rgba(76, 175, 80, 0.5);
+        }
+        100% { 
+            transform: scale(1); 
+            box-shadow: 0 0 0 rgba(76, 175, 80, 0);
+        }
+    }
+
+    @keyframes pulse-fast {
+        0% { 
+            transform: scale(1); 
+            box-shadow: 0 0 0 rgba(255, 107, 107, 0);
+        }
+        50% { 
+            transform: scale(1.05); 
+            box-shadow: 0 0 20px rgba(255, 107, 107, 0.5);
+        }
+        100% { 
+            transform: scale(1); 
+            box-shadow: 0 0 0 rgba(255, 107, 107, 0);
+        }
     }
 
     @keyframes expandContainer {
