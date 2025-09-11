@@ -257,7 +257,7 @@
 <div class="photos-container page-scrollable">
 	<StandardHeaderWithAlert 
 		title="My Photos" 
-		showMenuButton={false}
+		showMenuButton={true}
 		fallbackHref="/"
 	>
 		<div slot="actions">

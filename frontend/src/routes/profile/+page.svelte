@@ -2,7 +2,7 @@
     import { onMount } from 'svelte';
     import { myGoto } from '$lib/navigation.svelte';
     import { User, Mail, Calendar, Trash2, LogOut, Settings, Shield } from 'lucide-svelte';
-    import BackButton from '../../components/BackButton.svelte';
+    import StandardHeaderWithAlert from '../../components/StandardHeaderWithAlert.svelte';
     import { auth, logout } from '$lib/auth.svelte';
     import { invoke } from '@tauri-apps/api/core';
     import { http, handleApiError, TokenExpiredError } from '$lib/http';
@@ -94,16 +94,17 @@
 </script>
 
 <div class="profile-container page-scrollable">
-    <div class="back-button-container">
-        <BackButton title="Back to Map" />
-    </div>
+    <StandardHeaderWithAlert 
+        title="User Profile" 
+        showMenuButton={true}
+        fallbackHref="/"
+    />
 
     <div class="profile-card">
         <div class="profile-header">
             <div class="profile-icon">
                 <User size={48} />
             </div>
-            <h1>User Profile</h1>
         </div>
 
         {#if errorMessage}
@@ -244,9 +245,6 @@
         padding: 20px;
     }
 
-    .back-button-container {
-        margin-bottom: 20px;
-    }
 
     .profile-card {
         background: white;

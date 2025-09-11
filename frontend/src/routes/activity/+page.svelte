@@ -3,7 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { auth } from '$lib/auth.svelte';
 	import { http, handleApiError } from '$lib/http';
-	import BackButton from '../../components/BackButton.svelte';
+	import StandardHeaderWithAlert from '../../components/StandardHeaderWithAlert.svelte';
 	import Spinner from '../../components/Spinner.svelte';
 
 	interface ActivityPhoto {
@@ -118,10 +118,11 @@
 </svelte:head>
 
 <div class="activity-page page-scrollable">
-		<div class="header">
-			<BackButton />
-			<h1>Recent Activity</h1>
-		</div>
+		<StandardHeaderWithAlert 
+			title="Recent Activity" 
+			showMenuButton={true}
+			fallbackHref="/"
+		/>
 
 		{#if loading}
 			<div class="loading-container">

@@ -1,0 +1,207 @@
+<script lang="ts">
+    import { 
+        Images, Activity, Database, Info, Download, User, EyeOff, LogOut 
+    } from 'lucide-svelte';
+    import { auth, logout } from '$lib/auth.svelte';
+    import { FEATURE_USER_ACCOUNTS } from '$lib/config';
+
+    export let isOpen = false;
+    export let onClose: () => void = () => {};
+
+    // Subscribe to auth store
+    let isAuthenticated = false;
+    auth.subscribe(value => {
+        isAuthenticated = value.isAuthenticated;
+    });
+
+    function handleLogout() {
+        logout();
+        onClose();
+    }
+
+    function closeMenu() {
+        onClose();
+    }
+</script>
+
+{#if isOpen}
+    <!-- Menu backdrop for mobile -->
+    <div 
+        class="menu-backdrop" 
+        role="button" 
+        tabindex="0"
+        aria-label="Close menu"
+        on:click={closeMenu} 
+        on:keydown={(e) => e.key === 'Escape' && closeMenu()}
+    ></div>
+    
+    <nav class="nav-menu">
+        <div class="menu-header">
+            <span class="user-info">user: {$auth.user ? $auth.user.username : 'none'}</span>
+        </div>
+
+        <ul class="menu-list">
+            <li><a href="/photos" on:click={closeMenu}>
+                <Images size={18}/>
+                My Photos
+            </a></li>
+
+            <li><a href="/activity" on:click={closeMenu}>
+                <Activity size={18}/>
+                Activity
+            </a></li>
+
+            <li><a href="/sources" data-testid="sources-menu-link" on:click={closeMenu}>
+                <Database size={18}/>
+                Sources
+            </a></li>
+
+            <li><a href="/about" on:click={closeMenu}>
+                <Info size={18}/>
+                About
+            </a></li>
+            
+            <li>
+                <a href="/download" on:click={closeMenu}>
+                    <Download size={18}/>
+                    Download App
+                </a>
+            </li>
+
+            {#if FEATURE_USER_ACCOUNTS}
+                {#if isAuthenticated}
+                    <li>
+                        <a href="/profile" on:click={closeMenu}>
+                            <User size={18}/>
+                            Profile
+                        </a>
+                    </li>
+                    <li>
+                        <a href="/hidden" on:click={closeMenu}>
+                            <EyeOff size={18}/>
+                            Hidden Content
+                        </a>
+                    </li>
+                    <li>
+                        <button class="menu-button logout" on:click={handleLogout}>
+                            <LogOut size={18}/>
+                            Logout
+                        </button>
+                    </li>
+                {:else}
+                    <li>
+                        <a href="/login" on:click={closeMenu}>
+                            <User size={18}/>
+                            Login / Register
+                        </a>
+                    </li>
+                {/if}
+            {:else}
+                <li class="feature-disabled">FEATURE_USER_ACCOUNTS off</li>
+            {/if}
+        </ul>
+    </nav>
+{/if}
+
+<style>
+    .menu-backdrop {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.3);
+        z-index: 29999;
+    }
+
+    .nav-menu {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 280px;
+        height: 100vh;
+        background: white;
+        z-index: 30000;
+        box-shadow: 2px 0 10px rgba(0, 0, 0, 0.2);
+        padding: 0;
+        overflow-y: auto;
+        transform: translateX(0);
+        transition: transform 0.3s ease;
+    }
+
+    .menu-header {
+        padding: 20px 20px 10px;
+        border-bottom: 1px solid #e5e7eb;
+        background: #f9fafb;
+    }
+
+    .user-info {
+        font-family: monospace;
+        font-size: 0.85rem;
+        color: #6b7280;
+        display: block;
+    }
+
+    .menu-list {
+        list-style: none;
+        padding: 20px 0;
+        margin: 0;
+    }
+
+    .menu-list li {
+        margin: 0;
+    }
+
+    .menu-list li a,
+    .menu-button {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        text-decoration: none;
+        color: #374151;
+        font-size: 1rem;
+        padding: 12px 24px;
+        transition: background-color 0.2s, color 0.2s;
+        border: none;
+        background: none;
+        width: 100%;
+        text-align: left;
+        cursor: pointer;
+    }
+
+    .menu-list li a:hover,
+    .menu-button:hover {
+        background-color: #f3f4f6;
+        color: #1f2937;
+    }
+
+    .menu-button.logout {
+        color: #dc2626;
+    }
+
+    .menu-button.logout:hover {
+        background-color: #fef2f2;
+        color: #991b1b;
+    }
+
+    .feature-disabled {
+        padding: 12px 24px;
+        color: #9ca3af;
+        font-size: 0.9rem;
+        font-style: italic;
+    }
+
+    /* Mobile-specific adjustments */
+    @media (max-width: 640px) {
+        .nav-menu {
+            width: 85vw;
+            max-width: 320px;
+        }
+        
+        .menu-list li a,
+        .menu-button {
+            padding: 14px 20px;
+            font-size: 1.1rem;
+        }
+    }
+</style>

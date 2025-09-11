@@ -2,7 +2,7 @@
     import { onMount } from 'svelte';
     import { myGoto } from '$lib/navigation.svelte';
     import { EyeOff, Trash2, User, Image, MapPin } from 'lucide-svelte';
-    import BackButton from '../../components/BackButton.svelte';
+    import StandardHeaderWithAlert from '../../components/StandardHeaderWithAlert.svelte';
     import { auth } from '$lib/auth.svelte';
     import { http, handleApiError, TokenExpiredError } from '$lib/http';
 
@@ -137,12 +137,15 @@
 
 <div class="page-scrollable">
     <div class="hidden-content-page">
-        <BackButton />
+        <StandardHeaderWithAlert 
+            title="Hidden Content" 
+            showMenuButton={true}
+            fallbackHref="/"
+        />
         
-        <div class="header">
+        <div class="description">
             <div class="title-section">
                 <EyeOff size={32} />
-                <h1>Hidden Content</h1>
             </div>
             <p class="subtitle">Manage photos and users you've hidden from your view</p>
         </div>

@@ -2,7 +2,7 @@
     import { onMount } from 'svelte';
     import { User, Lock, Mail, Github } from 'lucide-svelte';
     import { myGoto } from '$lib/navigation.svelte';
-    import BackButton from '../../components/BackButton.svelte';
+    import StandardHeaderWithAlert from '../../components/StandardHeaderWithAlert.svelte';
     import { login, register, oauthLogin, auth } from '$lib/auth.svelte';
     import { invoke } from '@tauri-apps/api/core';
     import { buildOAuthUrl } from '$lib/authCallback';
@@ -291,11 +291,13 @@
 </script>
 
 <div class="login-container page-scrollable">
-    <div class="back-button-container">
-        <BackButton title="Back to Map" />
-    </div>
+    <StandardHeaderWithAlert 
+        title={isLogin ? 'Login' : 'Register'} 
+        showMenuButton={true}
+        fallbackHref="/"
+    />
+    
     <div class="login-card">
-        <h1>{isLogin ? 'Login' : 'Register'}</h1>
 
         {#if errorMessage}
             <div class="error-message">{errorMessage}</div>

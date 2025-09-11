@@ -1,6 +1,6 @@
 <script lang="ts">
     import { Info, MapPin, Camera, Globe, Github, Heart, Compass } from 'lucide-svelte';
-    import BackButton from '../../components/BackButton.svelte';
+    import StandardHeaderWithAlert from '../../components/StandardHeaderWithAlert.svelte';
     import { getCurrentProviderConfig, getProviderDisplayName, currentTileProvider } from '$lib/tileProviders';
 
     const appVersion = '0.0.1';
@@ -42,9 +42,11 @@
 </script>
 
 <div class="about-container page-scrollable">
-    <div class="back-button-container">
-        <BackButton title="Back to Map" />
-    </div>
+    <StandardHeaderWithAlert 
+        title="About Hillview" 
+        showMenuButton={true}
+        fallbackHref="/"
+    />
 
     <header class="about-header">
         <div class="app-icon">

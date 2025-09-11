@@ -3,7 +3,7 @@
     import { fetchSourcePhotos } from '$lib/sources';
     import { localStorageSharedStore } from '$lib/svelte-shared-store';
     import { Plus, Trash2, Globe, MapPin, Folder, Camera } from 'lucide-svelte';
-    import BackButton from '../../components/BackButton.svelte';
+    import StandardHeaderWithAlert from '../../components/StandardHeaderWithAlert.svelte';
     import { onMount } from 'svelte';
     import { goto } from '$app/navigation';
 
@@ -146,12 +146,13 @@
 </script>
 
 <div class="sources-container page-scrollable">
-    <div class="back-button-container">
-        <BackButton title="Back to Map" />
-    </div>
+    <StandardHeaderWithAlert 
+        title="Photo Sources" 
+        showMenuButton={true}
+        fallbackHref="/"
+    />
     
-    <div class="header">
-        <h1>Photo Sources</h1>
+    <div class="sources-description">
         <p>Manage where photos are loaded from</p>
     </div>
 

@@ -1,14 +1,14 @@
 <script lang="ts">
-    import { Download, Smartphone, ArrowLeft } from 'lucide-svelte';
+    import { Download, Smartphone } from 'lucide-svelte';
+    import StandardHeaderWithAlert from '../../components/StandardHeaderWithAlert.svelte';
 </script>
 
 <div class="download-page page-scrollable">
-    <nav class="nav-header">
-        <a href="/" class="back-link">
-            <ArrowLeft size={20} />
-            Back to Map
-        </a>
-    </nav>
+    <StandardHeaderWithAlert 
+        title="Download App" 
+        showMenuButton={true}
+        fallbackHref="/"
+    />
 
     <div class="content">
         <div class="hero">
