@@ -335,22 +335,8 @@
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     }
 
-    .header {
-        margin-bottom: 32px;
-    }
 
-    .header h1 {
-        font-size: 2rem;
-        font-weight: bold;
-        color: #1a1a1a;
-        margin: 0 0 8px 0;
-    }
 
-    .header p {
-        color: #666;
-        margin: 0;
-        font-size: 1rem;
-    }
 
     .section {
         margin-bottom: 32px;
@@ -639,9 +625,6 @@
         margin: 0;
     }
 
-    .back-button-container {
-        margin-top: 32px;
-    }
 
     .source-icon :global(svg) {
         width: 20px;

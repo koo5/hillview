@@ -288,10 +288,6 @@
         min-height: 100vh;
     }
 
-    .header {
-        margin-bottom: 2rem;
-        text-align: center;
-    }
 
     .title-section {
         display: flex;
@@ -301,11 +297,6 @@
         margin-bottom: 0.5rem;
     }
 
-    .title-section h1 {
-        margin: 0;
-        font-size: 2.5rem;
-        color: #333;
-    }
 
     .subtitle {
         color: #666;
@@ -510,9 +501,6 @@
             padding: 1rem;
         }
 
-        .title-section h1 {
-            font-size: 2rem;
-        }
 
         .item-header {
             flex-direction: column;

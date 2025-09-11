@@ -57,23 +57,8 @@
         margin: 0;
     }
 
-    .nav-header {
-        padding: 1rem 2rem;
-    }
 
-    .back-link {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.5rem;
-        color: rgba(255, 255, 255, 0.9);
-        text-decoration: none;
-        font-size: 1rem;
-        transition: color 0.2s ease;
-    }
 
-    .back-link:hover {
-        color: white;
-    }
 
     .content {
         max-width: 800px;

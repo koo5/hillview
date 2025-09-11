@@ -196,21 +196,7 @@
 		margin: 0 auto;
 	}
 
-	.header {
-		display: flex;
-		align-items: center;
-		gap: 1rem;
-		margin-bottom: 2rem;
-		padding: 1rem 0;
-		border-bottom: 1px solid #dee2e6;
-	}
 
-	.header h1 {
-		margin: 0;
-		color: #333;
-		font-size: 2rem;
-		font-weight: 600;
-	}
 
 	.loading-container {
 		display: flex;
@@ -380,8 +366,5 @@
 			padding: 1rem;
 		}
 		
-		.header h1 {
-			font-size: 1.5rem;
-		}
 	}
 </style>

@@ -24,7 +24,7 @@
     let devicePhotoUrl: string | null = null;
     let bg_style_stretched_photo;
     let border_style;
-    
+
     // Background loading state
     let displayedUrl: string | undefined;
     let isLoadingNewImage = false;
@@ -47,7 +47,7 @@
     //console.log('🢄border_style:', border_style);
 
     $: if (photo || clientWidth || containerElement) updateSelectedUrl();
-    
+
     // Handle selectedUrl changes with background loading
     $: if (selectedUrl !== undefined && selectedUrl !== displayedUrl) {
         handleImageChange(selectedUrl);
@@ -123,38 +123,38 @@
             selectedUrl = photo.sizes.full?.url || '';
         }
     }
-    
+
     async function handleImageChange(newUrl: string) {
         if (!newUrl || newUrl === displayedUrl) {
             return;
         }
-        
+
         // If this is the first image or no previous image, show immediately
         if (!displayedUrl) {
             displayedUrl = newUrl;
             return;
         }
-        
+
         // Start background loading
         isLoadingNewImage = true;
-        
+
         try {
             preloadImg = new Image();
-            
+
             preloadImg.onload = () => {
                 displayedUrl = newUrl;
                 isLoadingNewImage = false;
                 preloadImg = null;
             };
-            
+
             preloadImg.onerror = () => {
                 console.error('Failed to preload image:', newUrl);
                 isLoadingNewImage = false;
                 preloadImg = null;
             };
-            
+
             preloadImg.src = newUrl;
-            
+
         } catch (error) {
             console.error('Error preloading image:', error);
             isLoadingNewImage = false;
@@ -319,7 +319,7 @@
             data-testid="main-photo"
             data-photo={JSON.stringify(photo)}
         />
-        
+
         <!-- Loading spinner overlay -->
         {#if isLoadingNewImage}
             <div class="photo-loading-overlay" data-testid="photo-loading-spinner">
@@ -726,7 +726,7 @@
         opacity: 0.6;
         cursor: not-allowed;
     }
-    
+
     /* Photo loading overlay */
     .photo-loading-overlay {
         position: absolute;
@@ -737,11 +737,11 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        background-color: rgba(0, 0, 0, 0.3);
+        /*background-color: rgba(0, 0, 0, 0.3);*/
         z-index: 8;
         pointer-events: none;
     }
-    
+
     /* Simple spinner animation */
     .photo-spinner {
         width: 40px;
@@ -751,7 +751,7 @@
         border-radius: 50%;
         animation: spin 1s linear infinite;
     }
-    
+
     @keyframes spin {
         0% { transform: rotate(0deg); }
         100% { transform: rotate(360deg); }

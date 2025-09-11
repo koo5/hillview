@@ -439,11 +439,6 @@
         max-width: 400px;
     }
 
-    h1 {
-        text-align: center;
-        margin-bottom: 24px;
-        color: #333;
-    }
 
     .form-group {
         margin-bottom: 20px;
@@ -599,7 +594,4 @@
         background-color: #f5f5f5;
     }
 
-    .back-button-container {
-        margin-bottom: 20px;
-    }
 </style>

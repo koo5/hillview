@@ -84,7 +84,7 @@
         width: 100%;
         height: 100%;
         max-height: 100%;
-        background-color: rgba(100, 105, 105);
+        background: linear-gradient(135deg, #8BC34A, #689F38);
     }
 
     /*.thumbnails-top, .thumbnails-bottom {*/

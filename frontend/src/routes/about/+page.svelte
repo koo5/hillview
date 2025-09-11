@@ -175,11 +175,6 @@
         pointer-events: none;
     }
 
-    .back-button-container {
-        margin-bottom: 32px;
-        position: relative;
-        z-index: 10;
-    }
 
     .about-header {
         text-align: center;

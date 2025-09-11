@@ -24,6 +24,9 @@ export default defineConfig({
     trace: 'on-first-retry',
   },
 
+  /* Global test timeout - 90 seconds for long-running Mapillary tests */
+  timeout: 90000,
+
   /* Configure projects for major browsers */
   projects: [
     {

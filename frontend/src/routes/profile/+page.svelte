@@ -275,11 +275,6 @@
         margin-bottom: 15px;
     }
 
-    h1 {
-        margin: 0;
-        color: #333;
-        font-size: 28px;
-    }
 
     h2 {
         display: flex;

@@ -24,6 +24,7 @@ class AndroidConfigurer:
 		self.android_root = project_root / "src-tauri" / "gen" / "android"
 		self.manifest_file = self.android_root / "app" / "src" / "main" / "AndroidManifest.xml"
 		self.build_gradle_file = self.android_root / "app" / "build.gradle.kts"
+		self.colors_file = self.android_root / "app" / "src" / "main" / "res" / "values" / "colors.xml"
 		self.gitignore_file = project_root / ".gitignore"
 
 		# External keystore configuration (maintained by user)
@@ -348,7 +349,55 @@ class AndroidConfigurer:
 			self.log(f"Error configuring build.gradle.kts: {e}", "ERROR")
 			return False
 
-
+	def patch_colors_xml(self) -> bool:
+		"""Patch colors.xml with hillview colors using XML parsing"""
+		self.log("Patching colors.xml...")
+		
+		if not self.colors_file.exists():
+			self.log(f"colors.xml not found at {self.colors_file}", "WARNING")
+			return True
+		
+		try:
+			tree = ET.parse(self.colors_file)
+			root = tree.getroot()
+			changes_made = False
+			
+			# Define our hillview color mappings
+			hillview_colors = {
+				'hillview_green': '#8BC34A',
+				'hillview_green_dark': '#689F38', 
+				'hillview_green_light': '#DCEDC8',
+				'hillview_accent': '#4CAF50',
+				'hillview_accent_dark': '#388E3C'
+			}
+			
+			# Update existing color elements or add if missing
+			for color_name, color_value in hillview_colors.items():
+				color_elem = root.find(f".//color[@name='{color_name}']")
+				if color_elem is not None:
+					if color_elem.text != color_value:
+						color_elem.text = color_value
+						changes_made = True
+						self.log(f"Updated {color_name} to {color_value}", "SUCCESS")
+				else:
+					# Add missing color
+					new_color = ET.SubElement(root, 'color')
+					new_color.set('name', color_name)
+					new_color.text = color_value
+					changes_made = True
+					self.log(f"Added {color_name}: {color_value}", "SUCCESS")
+			
+			if changes_made:
+				tree.write(self.colors_file, encoding='utf-8', xml_declaration=True)
+				self.log("colors.xml updated successfully", "SUCCESS")
+			else:
+				self.log("colors.xml already has correct values", "SUCCESS")
+				
+			return True
+			
+		except Exception as e:
+			self.log(f"Error patching colors.xml: {e}", "ERROR")
+			return False
 
 	def run(self) -> bool:
 
@@ -361,6 +410,7 @@ class AndroidConfigurer:
 		steps = [
 			("Fix AndroidManifest.xml", self.fix_android_manifest),
 			("Configure build.gradle.kts", self.configure_build_gradle),
+			("Patch colors.xml", self.patch_colors_xml),
 		]
 
 		success = True

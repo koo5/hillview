@@ -286,7 +286,7 @@ test.describe('Mapillary Marker Consistency', () => {
     console.log('✅ All 15 markers are visible and properly positioned');
   });
 
-  test('should maintain marker count through repeated Mapillary toggles', { timeout: 90000 }, async ({ page }) => {
+  test('should maintain marker count through repeated Mapillary toggles', async ({ page }) => {
     console.log('🧪 Testing marker consistency through repeated Mapillary toggles');
     
     // Enable console logging
@@ -408,7 +408,7 @@ test.describe('Mapillary Marker Consistency', () => {
     
     // Log current map position and bounds
     const mapInfo = await page.evaluate(() => {
-      const leafletContainer = document.querySelector('.leaflet-container');
+      const leafletContainer = document.querySelector('.leaflet-container') as any;
       if (leafletContainer && leafletContainer._leaflet_map) {
         const map = leafletContainer._leaflet_map;
         const bounds = map.getBounds();
@@ -444,7 +444,7 @@ test.describe('Mapillary Marker Consistency', () => {
     console.log('✅ Map panning correctly filters markers based on geographic bounds');
   });
 
-  test('should handle rapid Mapillary toggles without losing markers', { timeout: 90000 }, async ({ page }) => {
+  test('should handle rapid Mapillary toggles without losing markers', async ({ page }) => {
     console.log('🧪 Testing rapid Mapillary toggles (stress test)');
     
     // Set up mock data using exact coordinates from backend logs
