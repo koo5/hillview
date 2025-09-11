@@ -8,3 +8,4 @@ frontend/src-tauri/gen/
 __pycache__
 venv
 backend/worker/Ultralytics/
+.playwright-mcp/

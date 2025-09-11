@@ -72,9 +72,11 @@
         background: white;
         border-bottom: 1px solid #e5e7eb;
         box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-        position: sticky;
+        position: fixed;
         top: 0;
-        z-index: 10;
+        left: 0;
+        right: 0;
+        z-index: 30001;
         min-height: 60px;
     }
 
@@ -113,26 +115,24 @@
         justify-content: center;
         width: 40px;
         height: 40px;
-        padding: 8px;
-        background-color: rgba(255, 255, 255, 0.9);
+        padding: 0;
+        background: white;
         color: #374151;
-        border: 1px solid #e5e7eb;
-        border-radius: 8px;
+        border: none;
+        border-radius: 50%;
         cursor: pointer;
         transition: all 0.2s ease;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
     }
     
     .header-button:hover {
-        background-color: #f9fafb;
-        border-color: #d1d5db;
-        transform: translateY(-1px);
-        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+        transform: scale(1.05);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.25);
     }
     
     .header-button:active {
-        transform: translateY(0);
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        transform: scale(0.95);
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
     }
 
     /* Responsive adjustments */

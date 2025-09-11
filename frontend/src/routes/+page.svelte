@@ -3,18 +3,10 @@
 	import PhotoGallery from '../components/Gallery.svelte';
 	import Map from '../components/Map.svelte';
 	import {
-		Activity,
 		Camera,
-		Database,
-		Download,
-		EyeOff,
-		Images,
-		Info,
-		LogOut,
 		Maximize2,
 		Menu,
-		Minimize2,
-		User
+		Minimize2
 	} from 'lucide-svelte';
 	import {app, sources, toggleDebug} from "$lib/data.svelte";
 	import {
@@ -30,6 +22,7 @@
 	import CameraCapture from '../components/CameraCapture.svelte';
 	import DebugOverlay from '../components/DebugOverlay.svelte';
 	import AlertArea from '../components/AlertArea.svelte';
+	import NavigationMenu from '../components/NavigationMenu.svelte';
 	import {FEATURE_USER_ACCOUNTS} from '$lib/config';
 	import {gpsLocation} from '$lib/location.svelte';
 	import type {DevicePhotoMetadata} from '$lib/types/photoTypes';
@@ -206,10 +199,6 @@
 		}
 	}
 
-	function handleLogout() {
-		logout();
-		menuOpen = false;
-	}
 
 	function createPlaceholderPhoto(captureLoc: any, id: string, timestamp: number): DevicePhotoMetadata {
 		return {
@@ -276,11 +265,6 @@
 		}
 	}
 
-	// Subscribe to auth store
-	let isAuthenticated = false;
-	auth.subscribe(value => {
-		isAuthenticated = value.isAuthenticated;
-	});
 
 	// Reactive statement to ensure geolocation and bearing are enabled when in capture mode
 	// This handles both toggle events and initial page load
@@ -353,74 +337,7 @@
     Debug
 </button>
 
-{#if menuOpen}
-
-    <pre>user: {$auth.user ? $auth.user.username : 'none'}</pre>
-
-    <nav class="nav-menu">
-
-        <ul>
-            <li><a href="/photos" on:click={() => menuOpen = false}>
-                <Images size={18}/>
-                My Photos
-            </a></li>
-
-            <li><a href="/activity" on:click={() => menuOpen = false}>
-                <Activity size={18}/>
-                Activity
-            </a></li>
-
-            <li><a href="/sources" data-testid="sources-menu-link" on:click={() => menuOpen = false}>
-                <Database size={18}/>
-                Sources
-            </a></li>
-
-            <li><a href="/about" on:click={() => menuOpen = false}>
-                <Info size={18}/>
-                About
-            </a></li>
-            <li>
-                <a href="/download" on:click={() => menuOpen = false}>
-                    <Download size={18}/>
-                    Download App
-                </a>
-            </li>
-
-            {#if FEATURE_USER_ACCOUNTS}
-                {#if isAuthenticated}
-                    <li>
-                        <a href="/profile" on:click={() => menuOpen = false}>
-                            <User size={18}/>
-                            Profile
-                        </a>
-                    </li>
-                    <li>
-                        <a href="/hidden" on:click={() => menuOpen = false}>
-                            <EyeOff size={18}/>
-                            Hidden Content
-                        </a>
-                    </li>
-                    <li>
-                        <button class="menu-button logout" on:click={handleLogout}>
-                            <LogOut size={18}/>
-                            Logout
-                        </button>
-                    </li>
-                {:else}
-                    <li>
-                        <a href="/login" on:click={() => menuOpen = false}>
-                            <User size={18}/>
-                            Login / Register
-                        </a>
-                    </li>
-                {/if}
-            {:else}
-                FEATURE_USER_ACCOUNTS off
-            {/if}
-
-        </ul>
-    </nav>
-{/if}
+<NavigationMenu isOpen={menuOpen} onClose={() => menuOpen = false} />
 
 <!-- Alert area for main page -->
 <div class="main-page-alert-area">

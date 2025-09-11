@@ -297,7 +297,8 @@
         fallbackHref="/"
     />
     
-    <div class="login-card">
+    <div class="login-content">
+        <div class="login-card">
 
         {#if errorMessage}
             <div class="error-message">{errorMessage}</div>
@@ -381,7 +382,6 @@
                 <span>OR</span>
             </div>
 
-            VITE_DEV_MODE: {import.meta.env.VITE_DEV_MODE}
 
             <div class="oauth-buttons">
             <button
@@ -409,16 +409,24 @@
             </div>
         {/if}
 
+        </div>
     </div>
 </div>
 
 <style>
     .login-container {
         display: flex;
-        justify-content: center;
-        align-items: center;
+        flex-direction: column;
         min-height: 100vh;
         background-color: #f5f5f5;
+        padding: 0;
+    }
+
+    .login-content {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        flex: 1;
         padding: 20px;
     }
 

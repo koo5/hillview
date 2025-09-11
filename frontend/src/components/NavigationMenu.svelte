@@ -1,6 +1,6 @@
 <script lang="ts">
     import { 
-        Images, Activity, Database, Info, Download, User, EyeOff, LogOut 
+        Map, Images, Activity, Database, Info, Download, User, EyeOff, LogOut 
     } from 'lucide-svelte';
     import { auth, logout } from '$lib/auth.svelte';
     import { FEATURE_USER_ACCOUNTS } from '$lib/config';
@@ -41,6 +41,11 @@
         </div>
 
         <ul class="menu-list">
+            <li><a href="/" on:click={closeMenu}>
+                <Map size={18}/>
+                Map
+            </a></li>
+
             <li><a href="/photos" on:click={closeMenu}>
                 <Images size={18}/>
                 My Photos
@@ -106,20 +111,20 @@
 <style>
     .menu-backdrop {
         position: fixed;
-        top: 0;
+        top: 60px; /* Start below header */
         left: 0;
         right: 0;
         bottom: 0;
-        background: rgba(0, 0, 0, 0.3);
+        background: transparent;
         z-index: 29999;
     }
 
     .nav-menu {
         position: fixed;
-        top: 0;
+        top: 60px; /* Align directly below header */
         left: 0;
         width: 280px;
-        height: 100vh;
+        height: calc(100vh - 60px);
         background: white;
         z-index: 30000;
         box-shadow: 2px 0 10px rgba(0, 0, 0, 0.2);

@@ -39,8 +39,6 @@
 
 <style>
     .header-with-alert {
-        position: sticky;
-        top: 0;
-        z-index: 20;
+        /* Fixed header is now positioned within StandardHeader itself */
     }
 </style>
