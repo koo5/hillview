@@ -518,64 +518,6 @@
         transform: scale(1.05);
     }
 
-    .nav-menu {
-        z-index: 30000;
-        background: white;
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 250px;
-        height: 100vh;
-        padding: 60px 1rem 1rem;
-        box-shadow: 0 0 10px rgba(0, 0, 0, 0.2);
-    }
-
-    .nav-menu ul {
-        list-style: none;
-        padding: 0;
-        margin: 0;
-    }
-
-    .nav-menu li {
-        margin-bottom: 1rem;
-    }
-
-    .nav-menu li a {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        text-decoration: none;
-        color: #333;
-        font-size: 1.2rem;
-        padding: 8px 0;
-    }
-
-    .menu-button {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        background: none;
-        border: none;
-        font-size: 1.2rem;
-        color: #333;
-        padding: 8px 0;
-        cursor: pointer;
-        width: 100%;
-        text-align: left;
-    }
-
-    .menu-button.logout {
-        color: #e53935;
-    }
-
-    .nav-menu li a:hover,
-    .menu-button:hover {
-        color: #4a90e2;
-    }
-
-    .menu-button.logout:hover {
-        color: #c62828;
-    }
 
     .main-page-alert-area {
         position: absolute;

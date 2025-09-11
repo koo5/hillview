@@ -196,4 +196,185 @@ export class TestWorkflows {
         await driver.pause(timeoutMs);
         await this.app.takeScreenshot('upload-processing-complete');
     }
+
+    /**
+     * Navigate to Photos > Import tab
+     */
+    async navigateToPhotoImport(): Promise<boolean> {
+        console.log('📂 Navigating to Photo Import tab...');
+        
+        try {
+            // Open menu
+            await this.app.openMenu();
+            await driver.pause(1000);
+
+            // Navigate to Photos
+            const photosLink = await $('android=new UiSelector().text("Photos")');
+            await photosLink.waitForDisplayed({timeout: 10000});
+            await photosLink.click();
+            await driver.pause(2000);
+            console.log('📸 Navigated to Photos section');
+
+            // Switch to Import tab
+            const importTab = await $('[data-testid="import-tab"]');
+            await importTab.waitForDisplayed({timeout: 10000});
+            await importTab.click();
+            await driver.pause(1000);
+            console.log('📂 Switched to Import tab');
+
+            return true;
+        } catch (error) {
+            console.error('❌ Failed to navigate to photo import:', error.message);
+            return false;
+        }
+    }
+
+    /**
+     * Interact with Android file picker to select photos
+     */
+    async selectPhotosFromFilePicker(): Promise<boolean> {
+        console.log('📱 Interacting with Android file picker...');
+        
+        try {
+            // Wait for file picker to appear
+            await driver.pause(3000);
+            await this.app.takeScreenshot('file-picker-opened');
+
+            // Look for Photos/Images category
+            const photosCategory = await $('android=new UiSelector().textContains("Photos")').catch(() => null) ||
+                                  await $('android=new UiSelector().textContains("Images")').catch(() => null) ||
+                                  await $('android=new UiSelector().textContains("Gallery")').catch(() => null);
+
+            if (photosCategory && await photosCategory.isDisplayed()) {
+                await photosCategory.click();
+                console.log('📷 Found and clicked Photos/Images category');
+                await driver.pause(2000);
+            }
+
+            // Find and select first available image
+            const imageFiles = await $$('android=new UiSelector().className("android.widget.ImageView")');
+            
+            if (imageFiles.length > 0) {
+                console.log(`📸 Found ${imageFiles.length} image elements`);
+                await imageFiles[0].click();
+                console.log('📸 Selected first image');
+                await driver.pause(1000);
+                await this.app.takeScreenshot('image-selected');
+
+                // Click confirmation button
+                const selectButtons = ['OK', 'Done', 'Select', 'DONE', 'SELECT'];
+                for (const buttonText of selectButtons) {
+                    try {
+                        const button = await $(`android=new UiSelector().text("${buttonText}")`);
+                        if (await button.isDisplayed()) {
+                            await button.click();
+                            console.log(`✅ Clicked ${buttonText} button`);
+                            return true;
+                        }
+                    } catch (e) {
+                        // Continue to next button
+                    }
+                }
+
+                console.warn('⚠️ Could not find confirmation button');
+                return false;
+            } else {
+                console.warn('⚠️ No image files found in file picker');
+                return false;
+            }
+        } catch (error) {
+            console.error('❌ File picker interaction failed:', error.message);
+            return false;
+        }
+    }
+
+    /**
+     * Cancel file picker
+     */
+    async cancelFilePicker(): Promise<boolean> {
+        console.log('❌ Cancelling file picker...');
+        
+        try {
+            const cancelButtons = ['Cancel', 'CANCEL'];
+            
+            for (const buttonText of cancelButtons) {
+                try {
+                    const button = await $(`android=new UiSelector().text("${buttonText}")`);
+                    if (await button.isDisplayed()) {
+                        await button.click();
+                        console.log(`❌ Clicked ${buttonText} button`);
+                        return true;
+                    }
+                } catch (e) {
+                    // Continue
+                }
+            }
+
+            // Try back button as fallback
+            await driver.back();
+            console.log('🔙 Used back button to cancel');
+            return true;
+            
+        } catch (error) {
+            console.error('❌ File picker cancellation failed:', error.message);
+            return false;
+        }
+    }
+
+    /**
+     * Complete photo import workflow
+     */
+    async performPhotoImportWorkflow(): Promise<boolean> {
+        console.log('📂 Starting photo import workflow...');
+        
+        try {
+            // Navigate to import section
+            const navigationSuccess = await this.navigateToPhotoImport();
+            if (!navigationSuccess) {
+                console.error('❌ Navigation to import failed');
+                return false;
+            }
+
+            // Click import button
+            const importButton = await $('[data-testid="import-from-device-button"]');
+            await importButton.waitForDisplayed({timeout: 10000});
+            
+            // Verify button is enabled
+            const isEnabled = await importButton.isEnabled();
+            if (!isEnabled) {
+                console.error('❌ Import button is disabled');
+                return false;
+            }
+
+            await importButton.click();
+            console.log('📂 Clicked Import from Device button');
+            await this.app.takeScreenshot('import-button-clicked');
+
+            // Interact with file picker
+            const selectionSuccess = await this.selectPhotosFromFilePicker();
+            if (!selectionSuccess) {
+                console.error('❌ Photo selection failed');
+                return false;
+            }
+
+            // Wait for import to process
+            await driver.pause(5000);
+            await this.app.takeScreenshot('import-processing');
+
+            console.log('✅ Photo import workflow completed');
+            return true;
+            
+        } catch (error) {
+            console.error('❌ Photo import workflow failed:', error.message);
+            await this.app.takeScreenshot('import-workflow-error');
+            return false;
+        }
+    }
+
+    /**
+     * Quick login using existing method from TestWorkflows
+     */
+    async quickLogin(username: string = 'test', password: string = 'test123'): Promise<boolean> {
+        return this.performCompleteLogin(username, password);
+    }
 }

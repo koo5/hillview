@@ -16,9 +16,11 @@ import androidx.work.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import app.tauri.annotation.ActivityCallback
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
+import androidx.activity.result.ActivityResult
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 import app.tauri.plugin.Invoke
@@ -86,14 +88,8 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         // Permission request codes
         private const val CAMERA_PERMISSION_REQUEST_CODE = 2001
 
-        // Activity request codes
-        private const val FILE_PICKER_REQUEST_CODE = 3001
-
         // Storage for pending WebView permission requests
         private var pendingWebViewPermissionRequest: PermissionRequest? = null
-
-        // Storage for pending file picker callback
-        private var pendingFilePickerInvoke: Invoke? = null
 
         fun getPluginInstance(): ExamplePlugin? {
             return pluginInstance
@@ -1115,16 +1111,6 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         try {
             Log.d(TAG, "📂 Starting photo import with file picker")
 
-            // Check if another file picker request is already pending
-            if (pendingFilePickerInvoke != null) {
-                Log.w(TAG, "📂 File picker already in progress")
-                invoke.reject("File picker already in progress")
-                return
-            }
-
-            // Store the pending request
-            pendingFilePickerInvoke = invoke
-
             // Create file picker intent
             val filePickerIntent = Intent(Intent.ACTION_GET_CONTENT).apply {
                 type = "image/*"
@@ -1133,12 +1119,11 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                 putExtra(Intent.EXTRA_LOCAL_ONLY, true)
             }
 
-            Log.i(TAG, "📂 Launching file picker with request code: $FILE_PICKER_REQUEST_CODE")
-            activity.startActivityForResult(filePickerIntent, FILE_PICKER_REQUEST_CODE)
+            Log.i(TAG, "📂 Launching file picker with callback")
+            startActivityForResult(invoke, filePickerIntent, "filePickerResult")
 
         } catch (e: Exception) {
             Log.e(TAG, "❌ Failed to start file picker", e)
-            pendingFilePickerInvoke = null
             invoke.reject("Failed to start file picker: ${e.message}")
         }
     }
@@ -1160,41 +1145,21 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         Log.e(TAG, "🔒 Permission result processing complete")
     }
 
-    // Handle activity results and forward to appropriate handlers
-    fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        Log.i(TAG, "📂 Activity result received: requestCode=$requestCode, resultCode=$resultCode")
+    @ActivityCallback
+    private fun filePickerResult(invoke: Invoke, result: ActivityResult) {
+        Log.i(TAG, "📂 File picker activity result received: ${result.resultCode}")
 
-        when (requestCode) {
-            FILE_PICKER_REQUEST_CODE -> {
-                handleFilePickerResult(resultCode, data)
-            }
-            else -> {
-                Log.w(TAG, "📂 Unhandled activity result: requestCode=$requestCode")
-            }
-        }
-    }
-
-    // Handle file picker results
-    private fun handleFilePickerResult(resultCode: Int, data: Intent?) {
-        val invoke = pendingFilePickerInvoke
-        if (invoke == null) {
-            Log.w(TAG, "📂 File picker result received but no pending request found")
-            return
-        }
-
-        pendingFilePickerInvoke = null
-
-        if (resultCode == Activity.RESULT_OK && data != null) {
+        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
             Log.i(TAG, "📂 File picker result: User selected files")
 
             val selectedUris = mutableListOf<Uri>()
 
             // Handle multiple files selection
-            data.clipData?.let { clipData ->
+            result.data!!.clipData?.let { clipData ->
                 for (i in 0 until clipData.itemCount) {
                     selectedUris.add(clipData.getItemAt(i).uri)
                 }
-            } ?: data.data?.let { singleUri ->
+            } ?: result.data!!.data?.let { singleUri: Uri ->
                 // Handle single file selection
                 selectedUris.add(singleUri)
             }

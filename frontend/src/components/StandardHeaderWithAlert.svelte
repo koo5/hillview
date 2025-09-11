@@ -37,8 +37,4 @@
     <NavigationMenu isOpen={menuOpen} onClose={closeMenu} />
 </div>
 
-<style>
-    .header-with-alert {
-        /* Fixed header is now positioned within StandardHeader itself */
-    }
-</style>
+<!-- No additional styles needed - header positioning is handled in StandardHeader -->
