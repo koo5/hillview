@@ -234,7 +234,8 @@ async def upload_and_process_photo(
 		except Exception as unexpected_error:
 			# Unexpected errors - retriable failures with longer delay
 			logger.error(f"Unexpected error processing photo {safe_filename}: {unexpected_error}")
-			logger.error(f"Traceback: {unexpected_error.__traceback__}")
+			exc_info = (type(exc), exc, exc.__traceback__)
+			logger.error('Exception occurred', exc_info=exc_info)
 			processing_status = "error"
 			error_message = f"Unexpected error: {unexpected_error}"
 			retry_after_minutes = 10  # Retry in 10 minutes
