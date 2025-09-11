@@ -23,17 +23,23 @@ export interface CaptureQueueItem {
 export interface QueueStats {
     size: number;
     processing: boolean;
+    processingCount: number;
     slowModeCount: number;
     fastModeCount: number;
     totalCaptured: number;
+    totalProcessed: number;
+    totalFailed: number;
 }
 
 class CaptureQueueManager {
     private queue: CaptureQueueItem[] = [];
-    private processing = false;
+    private processingSet = new Set<string>(); // Track items being processed
     private maxQueueSize = 50; // Default, can be configured
+    private maxConcurrency = 3; // Maximum parallel processing tasks
     private slowModeCount = 0;
     private fastModeCount = 0;
+    private totalProcessed = 0;
+    private totalFailed = 0;
     
     // Logging constants for greppability
     private readonly LOG_PREFIX = '[CAPTURE_QUEUE]';
@@ -43,16 +49,20 @@ class CaptureQueueManager {
         QUEUE_PROCESS: 'QUEUE_PROCESS',
         PHOTO_SAVE: 'PHOTO_SAVE',
         PHOTO_ERROR: 'PHOTO_ERROR',
-        STATS_UPDATE: 'STATS_UPDATE'
+        STATS_UPDATE: 'STATS_UPDATE',
+        CONCURRENCY: 'CONCURRENCY'
     };
     
     // Store for queue statistics
     public stats = writable<QueueStats>({
         size: 0,
         processing: false,
+        processingCount: 0,
         slowModeCount: 0,
         fastModeCount: 0,
-        totalCaptured: 0
+        totalCaptured: 0,
+        totalProcessed: 0,
+        totalFailed: 0
     });
 
     constructor() {
@@ -74,6 +84,11 @@ class CaptureQueueManager {
 
     setMaxQueueSize(size: number): void {
         this.maxQueueSize = size;
+    }
+
+    setMaxConcurrency(concurrency: number): void {
+        this.maxConcurrency = Math.max(1, concurrency);
+        this.log(this.LOG_TAGS.CONCURRENCY, `Max concurrency set to ${this.maxConcurrency}`);
     }
 
     async add(item: CaptureQueueItem): Promise<boolean> {
@@ -109,27 +124,33 @@ class CaptureQueueManager {
 
     private async processLoop(): Promise<void> {
         while (true) {
-            if (this.queue.length > 0 && !this.processing) {
-                await this.processNext();
-            } else {
-                // Wait a bit before checking again
-                await new Promise(resolve => setTimeout(resolve, 250));
+            // Process multiple items up to concurrency limit
+            while (this.queue.length > 0 && this.processingSet.size < this.maxConcurrency) {
+                const item = this.queue.shift();
+                if (item) {
+                    // Start processing without awaiting (parallel execution)
+                    this.processItem(item).catch(error => {
+                        console.error('Unhandled error in processItem:', error);
+                    });
+                }
             }
+            
+            // Wait a bit before checking again
+            await new Promise(resolve => setTimeout(resolve, 100));
         }
     }
 
-    private async processNext(): Promise<void> {
-        const item = this.queue.shift();
-        if (!item) return;
-
-        this.processing = true;
+    private async processItem(item: CaptureQueueItem): Promise<void> {
+        // Add to processing set
+        this.processingSet.add(item.id);
         this.updateStats();
 
         this.log(this.LOG_TAGS.QUEUE_PROCESS, 'Processing queued photo', {
             itemId: item.id,
             mode: item.mode,
             placeholderId: item.placeholderId,
-            timestamp: item.timestamp
+            timestamp: item.timestamp,
+            concurrentTasks: this.processingSet.size
         });
 
         try {
@@ -161,28 +182,33 @@ class CaptureQueueManager {
             // Remove from placeholder store
             removePlaceholder(item.placeholderId);
 
+            this.totalProcessed++;
             this.log(this.LOG_TAGS.PHOTO_SAVE, 'Photo processed successfully', {
                 itemId: item.id,
                 mode: item.mode,
                 savedPhotoId: savedPhoto.id,
                 filename: savedPhoto.filename,
-                placeholderReplaced: item.placeholderId
+                placeholderReplaced: item.placeholderId,
+                totalProcessed: this.totalProcessed
             });
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
             
+            this.totalFailed++;
             this.log(this.LOG_TAGS.PHOTO_ERROR, 'Failed to process queued photo', {
                 itemId: item.id,
                 mode: item.mode,
                 placeholderId: item.placeholderId,
-                error: errorMessage
+                error: errorMessage,
+                totalFailed: this.totalFailed
             });
             
             // Remove placeholder on error
             devicePhotos.update(photos => photos.filter(p => p.id !== item.placeholderId));
             removePlaceholder(item.placeholderId);
         } finally {
-            this.processing = false;
+            // Remove from processing set
+            this.processingSet.delete(item.id);
             this.updateStats();
         }
     }
@@ -190,17 +216,23 @@ class CaptureQueueManager {
     private updateStats(): void {
         this.stats.set({
             size: this.queue.length,
-            processing: this.processing,
+            processing: this.processingSet.size > 0,
+            processingCount: this.processingSet.size,
             slowModeCount: this.slowModeCount,
             fastModeCount: this.fastModeCount,
-            totalCaptured: this.slowModeCount + this.fastModeCount
+            totalCaptured: this.slowModeCount + this.fastModeCount,
+            totalProcessed: this.totalProcessed,
+            totalFailed: this.totalFailed
         });
     }
 
     reset(): void {
         this.queue = [];
+        this.processingSet.clear();
         this.slowModeCount = 0;
         this.fastModeCount = 0;
+        this.totalProcessed = 0;
+        this.totalFailed = 0;
         this.updateStats();
     }
 }

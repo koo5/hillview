@@ -15,24 +15,28 @@
             <span class="value" class:warning={stats.size > 30} class:danger={stats.size > 40}>
                 {stats.size}/50
             </span>
-            {#if stats.processing}
-                <span class="processing-indicator">⚡</span>
+            {#if stats.processingCount > 0}
+                <span class="processing-indicator">⚡ {stats.processingCount}</span>
             {/if}
         </div>
         
         <div class="stat-row">
-            <span class="label">Total:</span>
+            <span class="label">Captured:</span>
             <span class="value">{stats.totalCaptured}</span>
         </div>
         
         <div class="stat-row">
-            <span class="label">Slow:</span>
-            <span class="value slow">{stats.slowModeCount}</span>
+            <span class="label">Processed:</span>
+            <span class="value success">{stats.totalProcessed}</span>
+            {#if stats.totalFailed > 0}
+                <span class="value danger">({stats.totalFailed} failed)</span>
+            {/if}
         </div>
         
         <div class="stat-row">
-            <span class="label">Fast:</span>
-            <span class="value fast">{stats.fastModeCount}</span>
+            <span class="label">Mode:</span>
+            <span class="value slow">S:{stats.slowModeCount}</span>
+            <span class="value fast">F:{stats.fastModeCount}</span>
         </div>
     </div>
 {/if}
@@ -64,6 +68,10 @@
     
     .value {
         font-weight: bold;
+        color: #4CAF50;
+    }
+    
+    .value.success {
         color: #4CAF50;
     }
     
