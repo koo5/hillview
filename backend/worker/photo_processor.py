@@ -250,7 +250,7 @@ class PhotoProcessor:
 		anonymized_path = None
 
 		# Create output directory structure
-		output_base = os.getenv('PICS_DIR');
+		output_base = os.environ.get('PICS_DIR', self.upload_dir)
 
 		try:
 			# First anonymize the image
