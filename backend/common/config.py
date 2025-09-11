@@ -10,7 +10,7 @@ from . import env_init
 
 import os
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, List
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -18,6 +18,18 @@ logger = logging.getLogger(__name__)
 def is_rate_limiting_disabled() -> bool:
 	"""Check if rate limiting is globally disabled."""
 	return os.getenv("NO_LIMITS", "false").lower() in ("true", "1", "yes")
+
+def get_cors_origins() -> List[str]:
+	"""Get the allowed CORS origins for the application."""
+	return [
+		"http://localhost:8212",
+		"http://localhost:4173",
+		"http://127.0.0.1:8212",
+		"http://tauri.localhost",
+		"https://hillview.cz",
+		"https://api.hillview.cz",
+		"https://api.ipv4.hillview.cz",
+	]
 
 @dataclass
 class RateLimitConfig:
