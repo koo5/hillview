@@ -11,10 +11,14 @@ export interface User {
 export interface AuthState {
     isAuthenticated: boolean;
     user: User | null;
+    refreshStatus: 'idle' | 'refreshing' | 'retrying' | 'failed';
+    refreshAttempt?: number;
 }
 
 // Create the auth store
 export const auth = writable<AuthState>({
     isAuthenticated: false,
-    user: null
+    user: null,
+    refreshStatus: 'idle',
+    refreshAttempt: undefined
 });

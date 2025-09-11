@@ -29,6 +29,7 @@
 	import {auth, checkAuth, logout} from "$lib/auth.svelte";
 	import CameraCapture from '../components/CameraCapture.svelte';
 	import DebugOverlay from '../components/DebugOverlay.svelte';
+	import AlertArea from '../components/AlertArea.svelte';
 	import {FEATURE_USER_ACCOUNTS} from '$lib/config';
 	import {gpsLocation} from '$lib/location.svelte';
 	import type {DevicePhotoMetadata} from '$lib/types/photoTypes';
@@ -421,6 +422,11 @@
     </nav>
 {/if}
 
+<!-- Alert area for main page -->
+<div class="main-page-alert-area">
+    <AlertArea position="main" />
+</div>
+
 <div class="container" class:max-mode={$app.displayMode === 'max'}>
     <div class="panel photo-panel">
         {#if showCameraView}
@@ -654,7 +660,18 @@
         color: #c62828;
     }
 
+    .main-page-alert-area {
+        position: absolute;
+        top: 60px; /* Below the top buttons */
+        left: 10px;
+        right: 10px;
+        z-index: 30000;
+        pointer-events: none; /* Let clicks through unless there's an alert */
+    }
 
+    .main-page-alert-area :global(.alert-area) {
+        pointer-events: auto; /* Re-enable clicks on actual alerts */
+    }
 
     :global(#sentry-feedback) {
         --trigger-background: rgba(74, 144, 226, 0.6);

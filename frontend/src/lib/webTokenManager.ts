@@ -100,7 +100,7 @@ export class WebTokenManager implements TokenManager {
         }
     }
 
-    private async performRefresh(): Promise<TokenData> {
+    private async performRefresh(attempt: number = 1, maxAttempts: number = 3): Promise<TokenData> {
         const refreshToken = localStorage.getItem('refresh_token');
         if (!refreshToken) {
             throw new TokenRefreshError('No refresh token available');
@@ -129,10 +129,21 @@ export class WebTokenManager implements TokenManager {
         }
 
         const refreshStartTime = Date.now();
-        console.log(`${this.LOG_PREFIX} Performing token refresh... (started at ${new Date().toISOString()})`);
+        console.log(`${this.LOG_PREFIX} Performing token refresh (attempt ${attempt}/${maxAttempts})... (started at ${new Date().toISOString()})`);
         console.debug(`${this.LOG_PREFIX} Refresh token: ${refreshToken.substring(0, 20)}...`);
 
+        // Update auth store with refresh status
+        auth.update(state => ({
+            ...state,
+            refreshStatus: attempt === 1 ? 'refreshing' : 'retrying',
+            refreshAttempt: attempt
+        }));
+
         try {
+            // Create timeout controller for the fetch request
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+
             const response = await fetch(`${backendUrl}/auth/refresh`, {
                 method: 'POST',
                 headers: {
@@ -140,9 +151,11 @@ export class WebTokenManager implements TokenManager {
                 },
                 body: JSON.stringify({
                     refresh_token: refreshToken
-                })
+                }),
+                signal: controller.signal
             });
 
+            clearTimeout(timeoutId); // Clear timeout on successful response
             const refreshDuration = Date.now() - refreshStartTime;
             console.log(`${this.LOG_PREFIX} Refresh request completed in ${refreshDuration}ms, status: ${response.status}`);
 
@@ -156,7 +169,14 @@ export class WebTokenManager implements TokenManager {
                     errorDetail = errorText;
                 }
                 console.error(`${this.LOG_PREFIX} Refresh failed - Status: ${response.status}, Error: ${errorDetail}`);
-                throw new TokenRefreshError(`Refresh failed: ${errorDetail}`);
+                
+                // For 401/403 errors, don't retry - token is invalid
+                if (response.status === 401 || response.status === 403) {
+                    throw new TokenRefreshError(`Refresh failed: ${errorDetail}`);
+                }
+                
+                // For other errors, retry with exponential backoff
+                throw new Error(`HTTP ${response.status}: ${errorDetail}`);
             }
 
             const tokenData = await response.json() as TokenData;
@@ -166,12 +186,53 @@ export class WebTokenManager implements TokenManager {
             await this.storeTokens(tokenData);
 
             console.log(`${this.LOG_PREFIX} Token refresh successful (total time: ${Date.now() - refreshStartTime}ms)`);
+            
+            // Reset auth store refresh status on success
+            auth.update(state => ({
+                ...state,
+                refreshStatus: 'idle',
+                refreshAttempt: undefined
+            }));
+            
             return tokenData;
 
         } catch (error) {
             const refreshDuration = Date.now() - refreshStartTime;
-            console.error(`${this.LOG_PREFIX} Refresh failed after ${refreshDuration}ms:`, error);
-            throw error;
+            
+            if (error instanceof TokenRefreshError) {
+                // Don't retry TokenRefreshError (invalid tokens)
+                console.error(`${this.LOG_PREFIX} Token refresh failed permanently after ${refreshDuration}ms:`, error);
+                throw error;
+            }
+            
+            // Handle network/timeout errors with retry
+            const isTimeout = error instanceof Error && error.name === 'AbortError';
+            const isNetworkError = error instanceof TypeError && error.message.includes('fetch');
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            
+            console.warn(`${this.LOG_PREFIX} Refresh attempt ${attempt} failed after ${refreshDuration}ms:`, 
+                isTimeout ? 'Request timeout' : isNetworkError ? 'Network error' : errorMessage);
+                
+            if (attempt < maxAttempts && (isTimeout || isNetworkError || errorMessage.includes('HTTP 5'))) {
+                // Exponential backoff: 1s, 2s, 4s
+                const delayMs = Math.pow(2, attempt - 1) * 1000;
+                console.log(`${this.LOG_PREFIX} Retrying refresh in ${delayMs}ms...`);
+                
+                await new Promise(resolve => setTimeout(resolve, delayMs));
+                return this.performRefresh(attempt + 1, maxAttempts);
+            }
+            
+            // Max attempts reached or non-retryable error
+            console.error(`${this.LOG_PREFIX} Token refresh failed permanently after ${attempt} attempts:`, error);
+            
+            // Update auth store with failed status
+            auth.update(state => ({
+                ...state,
+                refreshStatus: 'failed',
+                refreshAttempt: attempt
+            }));
+            
+            throw new TokenRefreshError(`Refresh failed after ${attempt} attempts: ${errorMessage}`);
         }
     }
 

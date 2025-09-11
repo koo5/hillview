@@ -17,7 +17,8 @@
 
     // Close menu when clicking outside
     function handleClickOutside(event: MouseEvent) {
-        if (!event.target?.closest?.('.provider-selector')) {
+        const target = event.target as Element;
+        if (!target?.closest?.('.provider-selector')) {
             showMenu = false;
         }
     }

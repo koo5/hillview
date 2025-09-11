@@ -2,7 +2,7 @@
 	import {onMount} from 'svelte';
 	import {myGoto} from '$lib/navigation.svelte';
 	import {Upload, Trash2, Map, Settings} from 'lucide-svelte';
-	import BackButton from '../../components/BackButton.svelte';
+	import StandardHeaderWithAlert from '../../components/StandardHeaderWithAlert.svelte';
 	import Spinner from '../../components/Spinner.svelte';
 	import PhotoImport from '$lib/components/PhotoImport.svelte';
 	import PhotoUpload from '$lib/components/PhotoUpload.svelte';
@@ -255,19 +255,20 @@
 </script>
 
 <div class="photos-container page-scrollable">
-	<div class="back-button-container">
-		<BackButton fallbackHref="/" title="Back to Map"/>
-	</div>
-
-	<header>
-		<h1>My Photos</h1>
-		{#if TAURI}
-			<button class="settings-button" on:click={() => showSettings = !showSettings}>
-				<Settings size={20}/>
-				Settings
-			</button>
-		{/if}
-	</header>
+	<StandardHeaderWithAlert 
+		title="My Photos" 
+		showMenuButton={false}
+		fallbackHref="/"
+	>
+		<div slot="actions">
+			{#if TAURI}
+				<button class="settings-button" on:click={() => showSettings = !showSettings}>
+					<Settings size={20}/>
+					Settings
+				</button>
+			{/if}
+		</div>
+	</StandardHeaderWithAlert>
 
 	{#if error}
 		<div class="error-message">{error}</div>
@@ -454,22 +455,6 @@
 		max-width: 1200px;
 		margin: 0 auto;
 		padding: 20px;
-	}
-
-	.back-button-container {
-		margin-bottom: 20px;
-	}
-
-	header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		margin-bottom: 24px;
-	}
-
-	h1 {
-		margin: 0;
-		color: #333;
 	}
 
 	h2 {

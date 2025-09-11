@@ -2,7 +2,7 @@ import {photosInArea, photosInRange, spatialState} from './mapState';
 import {sourceLoadingStatus, sources} from './data.svelte';
 import {get} from 'svelte/store';
 import {auth, getCurrentToken} from './auth.svelte';
-import {addToast} from './toast.svelte';
+import {addAlert} from './alertSystem.svelte';
 import type {WorkerToastMessage} from './workerToast';
 
 declare const __WORKER_VERSION__: string;
@@ -107,7 +107,7 @@ class SimplePhotoWorker {
                 const duration = toastMessage.duration !== undefined ? toastMessage.duration : 
                     (toastMessage.level === 'error' ? 0 : 5000); // Persistent errors, auto-dismiss others
                 
-                addToast(toastMessage.message, toastMessage.level, duration, toastMessage.source);
+                addAlert(toastMessage.message, toastMessage.level, { duration, source: toastMessage.source });
                 break;
                 
             default:

@@ -988,6 +988,7 @@
                 zoom: $spatialState.zoom,
                 minZoom: 3,
                 maxZoom: 23,
+                // @ts-ignore - maxNativeZoom is a valid Leaflet option
                 maxNativeZoom: 19,
                 zoomControl: false, // We'll add it manually in the right order
                 scrollWheelZoom: !/Android/i.test(navigator.userAgent), // Disable on Android, we'll handle it manually

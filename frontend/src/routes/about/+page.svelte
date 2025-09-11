@@ -38,7 +38,7 @@
 
     // Get current tile provider config
     $: tileConfig = getCurrentProviderConfig();
-    $: tileProviderName = getProviderDisplayName(currentTileProvider);
+    $: tileProviderName = getProviderDisplayName($currentTileProvider);
 </script>
 
 <div class="about-container page-scrollable">

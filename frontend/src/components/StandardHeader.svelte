@@ -1,0 +1,153 @@
+<script lang="ts">
+    import { Menu, ArrowLeft } from 'lucide-svelte';
+    import { goBack, canNavigateBack, getPreviousPath } from '$lib/navigation.svelte';
+    import { goto } from '$app/navigation';
+
+    export let title: string;
+    export let showBackButton: boolean = true;
+    export let showMenuButton: boolean = true;
+    export let onMenuClick: (() => void) | null = null;
+    export let fallbackHref: string = '/';
+    export let useSmartBack: boolean = true;
+
+    function handleBackClick() {
+        if (useSmartBack && canNavigateBack()) {
+            goBack(fallbackHref);
+        } else {
+            goto(fallbackHref);
+        }
+    }
+
+    function handleMenuClick() {
+        if (onMenuClick) {
+            onMenuClick();
+        }
+    }
+
+    // For accessibility and SEO, provide a meaningful href
+    $: smartHref = useSmartBack ? getPreviousPath(fallbackHref) : fallbackHref;
+</script>
+
+<header class="standard-header">
+    <div class="header-left">
+        {#if showMenuButton}
+            <button
+                class="header-button menu-button"
+                on:click={handleMenuClick}
+                aria-label="Toggle menu"
+                data-testid="header-menu-button"
+            >
+                <Menu size={24} />
+            </button>
+        {/if}
+        
+        {#if showBackButton}
+            <button
+                class="header-button back-button"
+                on:click={handleBackClick}
+                aria-label="Go back"
+                data-testid="header-back-button"
+                data-href={smartHref}
+            >
+                <ArrowLeft size={24} />
+            </button>
+        {/if}
+    </div>
+    
+    <div class="header-center">
+        <h1 class="header-title">{title}</h1>
+    </div>
+    
+    <div class="header-right">
+        <slot name="actions" />
+    </div>
+</header>
+
+<style>
+    .standard-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 16px;
+        background: white;
+        border-bottom: 1px solid #e5e7eb;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        min-height: 60px;
+    }
+
+    .header-left,
+    .header-right {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex: 0 0 auto;
+        min-width: 40px; /* Ensure space for buttons */
+    }
+
+    .header-center {
+        flex: 1;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 0 16px;
+        overflow: hidden;
+    }
+
+    .header-title {
+        font-size: 1.25rem;
+        font-weight: 600;
+        color: #1f2937;
+        margin: 0;
+        text-align: center;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .header-button {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 40px;
+        height: 40px;
+        padding: 8px;
+        background-color: rgba(255, 255, 255, 0.9);
+        color: #374151;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+    
+    .header-button:hover {
+        background-color: #f9fafb;
+        border-color: #d1d5db;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+    }
+    
+    .header-button:active {
+        transform: translateY(0);
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    /* Responsive adjustments */
+    @media (max-width: 640px) {
+        .standard-header {
+            padding: 8px 12px;
+            min-height: 56px;
+        }
+
+        .header-title {
+            font-size: 1.125rem;
+        }
+
+        .header-center {
+            padding: 0 8px;
+        }
+    }
+</style>

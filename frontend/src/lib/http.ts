@@ -1,7 +1,7 @@
 import { get } from 'svelte/store';
 import { auth, logout } from './auth.svelte';
 import {backendUrl} from "$lib/config";
-import { addToast } from './toast.svelte';
+import { showNetworkError } from './alertSystem.svelte';
 import { createTokenManager } from './tokenManagerFactory';
 import type { TokenManager } from './tokenManager';
 import { TokenExpiredError as TokenManagerExpiredError, TokenRefreshError } from './tokenManager';
@@ -106,7 +106,7 @@ export class HttpClient {
       
       // Show toast for network errors
       const errorMessage = error instanceof Error ? error.message : 'Network error';
-      addToast(`Network error: ${errorMessage}`, 'error', 8000, 'http');
+      showNetworkError(`Network error: ${errorMessage}`, 'http');
       
       // Wrap other errors
       const apiError = new Error(errorMessage) as ApiError;
@@ -236,7 +236,7 @@ export class HttpClient {
                       }
                     } else {
                       const errorMessage = `Upload failed: ${retryXhr.status} ${retryXhr.statusText}`;
-                      addToast(`Upload error: ${errorMessage}`, 'error', 8000, 'http');
+                      showNetworkError(`Upload error: ${errorMessage}`, 'http');
                       const error = new Error(errorMessage) as ApiError;
                       error.status = retryXhr.status;
                       reject(error);
@@ -245,7 +245,7 @@ export class HttpClient {
                   
                   retryXhr.onerror = () => {
                     const errorMessage = 'Network error during upload retry';
-                    addToast(errorMessage, 'error', 8000, 'http');
+                    showNetworkError(errorMessage, 'http');
                     reject(new Error(errorMessage));
                   };
                   
@@ -274,7 +274,7 @@ export class HttpClient {
             }
           } else {
             const errorMessage = `Upload failed: ${xhr.status} ${xhr.statusText}`;
-            addToast(`Upload error: ${errorMessage}`, 'error', 8000, 'http');
+            showNetworkError(`Upload error: ${errorMessage}`, 'http');
             const error = new Error(errorMessage) as ApiError;
             error.status = xhr.status;
             reject(error);
@@ -283,7 +283,7 @@ export class HttpClient {
         
         xhr.onerror = () => {
           const errorMessage = 'Network error during upload';
-          addToast(errorMessage, 'error', 8000, 'http');
+          showNetworkError(errorMessage, 'http');
           reject(new Error(errorMessage));
         };
         

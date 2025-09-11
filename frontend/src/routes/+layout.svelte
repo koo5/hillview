@@ -2,7 +2,7 @@
 	import {onMount} from 'svelte';
 	import {setupDeepLinkListener} from '$lib/authCallback';
 	import {TAURI} from '$lib/tauri';
-	import ToastContainer from '../components/ToastContainer.svelte';
+	import AuthStatusWatcher from '../components/AuthStatusWatcher.svelte';
 	import {beforeNavigate, afterNavigate} from '$app/navigation';
 	import {page} from '$app/stores';
 	import {get} from 'svelte/store';
@@ -40,4 +40,4 @@
 </script>
 
 <slot/>
-<ToastContainer/>
+<AuthStatusWatcher/>
