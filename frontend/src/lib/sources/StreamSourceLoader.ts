@@ -17,18 +17,44 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
     private readyStateMonitorId?: NodeJS.Timeout;
     private wasConnected = false;
 	private wasErrored = false;
+    private retryCount = 0;
+    private maxRetries = 1; // Only retry once for auth errors
+    private currentBounds?: Bounds;
 
     constructor(source: any, callbacks: PhotoSourceCallbacks) {
         super(source, callbacks);
     }
 
-    private async getAuthTokenWithTimeout(timeoutMs: number = 5000): Promise<string | null> {
-        const tokenPromise = this.callbacks.getValidToken();
+    private async getAuthTokenWithTimeout(timeoutMs: number = 5000, forceRefresh: boolean = false): Promise<string | null> {
+        const tokenPromise = this.callbacks.getValidToken(forceRefresh);
         const timeoutPromise = new Promise<null>((_, reject) => {
             setTimeout(() => reject(new Error('Token request timeout')), timeoutMs);
         });
         
         return await Promise.race([tokenPromise, timeoutPromise]);
+    }
+
+    private handleFinalFailure(errorMessage: string, shouldShowToast: boolean): void {
+        // Mark as complete on final error
+        this.isComplete = true;
+        
+        this.updateLoadingStatus(false, undefined, errorMessage);
+        this.callbacks.onError?.(new Error(errorMessage));
+        
+        // Show toast based on pre-completion state
+        if (shouldShowToast) {
+            console.log(`🔍 StreamSourceLoader: Showing Connection lost toast for ${this.source.id} (connection lost during streaming)`);
+            postToast('error', 'Connection lost', this.source.name || this.source.id, 0);
+        } else {
+            console.log(`🔍 StreamSourceLoader: NOT showing Connection lost toast for ${this.source.id}`, {
+                reason: !this.wasConnected ? 'never connected' : 'stream already completed'
+            });
+        }
+        this.wasConnected = false;
+        this.wasErrored = true;
+        
+        // Resolve the completion promise even on error to prevent hanging
+        this.resolveCompletion();
     }
 
     private updateLoadingStatus(isLoading: boolean, progress?: string, error?: string): void {
@@ -54,11 +80,16 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
             return;
         }
 
+        this.currentBounds = bounds;
+        return this.attemptConnection(bounds);
+    }
+
+    private async attemptConnection(bounds: Bounds): Promise<void> {
         if (!this.source.url) {
             throw new Error('Stream source missing URL');
         }
 
-        console.log(`StreamSourceLoader: Starting stream from ${this.source.url}`);
+        console.log(`StreamSourceLoader: Starting stream from ${this.source.url} (attempt ${this.retryCount + 1}/${this.maxRetries + 1})`);
         
         // Create abort controller for this request
         this.abortController = new AbortController();
@@ -77,12 +108,13 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
         const clientId = this.source.clientId || 'default';
         url.searchParams.set('client_id', clientId);
         
-        // Add authentication token
+        // Add authentication token (force refresh on retry attempts)
         try {
-            const authToken = await this.getAuthTokenWithTimeout();
+            const forceRefresh = this.retryCount > 0;
+            const authToken = await this.getAuthTokenWithTimeout(5000, forceRefresh);
             if (authToken) {
                 url.searchParams.set('token', authToken);
-                console.log(`StreamSourceLoader: Authenticated request for ${this.source.id}`);
+                console.log(`StreamSourceLoader: Authenticated request for ${this.source.id}${forceRefresh ? ' (with refreshed token)' : ''}`);
             } else {
                 console.log(`StreamSourceLoader: Anonymous request for ${this.source.id}`);
             }
@@ -187,33 +219,43 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
                 willShowToast: shouldShowToast
             });
             
-            // Mark as complete on error to prevent further processing
-            this.isComplete = true;
-            
-            // Clean up the EventSource on error
+            // Clean up the current EventSource on error
             if (this.eventSource) {
                 console.log(`StreamSourceLoader: Closing EventSource on error for ${this.source.id}`);
                 this.eventSource.close();
                 this.eventSource = undefined;
             }
             
-            this.updateLoadingStatus(false, undefined, errorMessage);
-            this.callbacks.onError?.(new Error(errorMessage));
+            // Check if this could be an auth error and we should retry
+            const timeFromStart = Date.now() - this.startTime;
+            const isImmediateFailure = timeFromStart < 1000;
+            const couldBeAuthError = !this.wasConnected && isImmediateFailure;
+            const shouldRetry = couldBeAuthError && this.retryCount < this.maxRetries;
             
-            // Show toast based on pre-completion state
-            if (shouldShowToast) {
-                console.log(`🔍 StreamSourceLoader: Showing Connection lost toast for ${this.source.id} (connection lost during streaming)`);
-                postToast('error', 'Connection lost', this.source.name || this.source.id, 0);
-            } else {
-                console.log(`🔍 StreamSourceLoader: NOT showing Connection lost toast for ${this.source.id}`, {
-                    reason: !this.wasConnected ? 'never connected' : 'stream already completed'
-                });
+            if (shouldRetry) {
+                console.log(`🔄 StreamSourceLoader: Retrying with fresh token for ${this.source.id} (attempt ${this.retryCount + 1}/${this.maxRetries + 1}) - possible auth error`);
+                this.retryCount++;
+                this.wasErrored = false; // Reset error state for retry
+                this.isComplete = false; // Reset completion state
+                
+                // Retry with fresh token after a short delay
+                setTimeout(() => {
+                    if (this.currentBounds && !this.isAborted()) {
+                        this.attemptConnection(this.currentBounds).catch((retryError) => {
+                            console.error(`StreamSourceLoader: Retry failed for ${this.source.id}:`, retryError);
+                            // After retry failure, show toast for genuine connection issues
+                            const showToastAfterRetry = true; // Always show toast after retry failure
+                            this.handleFinalFailure(errorMessage, showToastAfterRetry);
+                        });
+                    }
+                }, 100);
+                return; // Don't mark as complete yet, we're retrying
             }
-            this.wasConnected = false;
-			this.wasErrored = true;
             
-            // Resolve the completion promise even on error to prevent hanging
-            this.resolveCompletion();
+            // No retry needed - handle final failure
+            // Show toast if we had a connection before OR if this was not an immediate failure (genuine network issue)
+            const shouldShowToastForGenuineError = shouldShowToast || (!couldBeAuthError && !this.wasConnected);
+            this.handleFinalFailure(errorMessage, shouldShowToastForGenuineError);
         };
 
         this.eventSource.onopen = () => {

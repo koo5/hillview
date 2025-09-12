@@ -1,5 +1,6 @@
 <script lang="ts">
 	import {onMount} from 'svelte';
+	import {get} from 'svelte/store';
 	import {myGoto} from '$lib/navigation.svelte';
 	import { Trash2, Map, Settings} from 'lucide-svelte';
 	import StandardHeaderWithAlert from '../../components/StandardHeaderWithAlert.svelte';
@@ -43,14 +44,14 @@
 	}
 
 
-	onMount(async () => {
-		// Check authentication status first
-		await checkAuth();
+	onMount(() => {
+		// Check authentication status first (async)
+		checkAuth();
 
 		// Subscribe to userId changes to avoid reactive loops from auth store updates during token refresh
 		const unsubscribe = userId.subscribe(async (currentUserId) => {
 			// Get the current auth state when userId changes
-			const currentAuth = $auth;
+			const currentAuth = get(auth);
 			user = currentAuth.isAuthenticated ? currentAuth.user : null;
 			
 			if (currentUserId && user) {
@@ -78,10 +79,8 @@
 			}
 		});
 
-		// Cleanup subscription on component destroy
-		return () => {
-			unsubscribe();
-		};
+		// Return cleanup function
+		return unsubscribe;
 	});
 
 	async function fetchPhotos(reset = false) {

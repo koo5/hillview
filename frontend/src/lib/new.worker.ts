@@ -289,7 +289,7 @@ async function startProcess(type: 'config' | 'area' | 'sourcesPhotosInArea', mes
         },
         sendPhotosInAreaUpdate: () => sendPhotosUpdate(),
         sendPhotosInRangeUpdate: () => sendPhotosUpdate(),
-        getValidToken: () => getValidToken()
+        getValidToken: (forceRefresh?: boolean) => getValidToken(forceRefresh || false)
     };
 
     // Start the actual business logic operations
@@ -337,7 +337,9 @@ function handleMessage(message: any): void {
 		if (authTokenPromiseResolve) {
 			authTokenPromiseResolve(message.token);
 			authTokenPromiseResolve = undefined;
+			authTokenPromise = undefined; // Clear promise for next request
 		}
+		return; // Don't process further
 	}
 
 	// Handle special cleanup message
@@ -735,17 +737,23 @@ function removeUserPhotosFromCache(userId: string, source: string): void {
 let authTokenPromise: Promise<string | null> | undefined;
 let authTokenPromiseResolve: ((value: string | null) => void) | undefined;
 
-async function getValidToken(): Promise<string | null>
+async function getValidToken(forceRefresh: boolean = false): Promise<string | null>
 {
-	if (authTokenPromise) {
+	if (authTokenPromise && !forceRefresh) {
 		return authTokenPromise;
+	}
+
+	// Clear existing promise on force refresh
+	if (forceRefresh) {
+		authTokenPromise = undefined;
+		authTokenPromiseResolve = undefined;
 	}
 
 	authTokenPromise = new Promise<string | null>(async (resolve) => {
 		if (TAURI)
 		{
 			try {
-				const result = await invoke('plugin:hillview|get_auth_token') as {
+				const result = await invoke('plugin:hillview|get_auth_token', { force: forceRefresh }) as {
 					token: string | null;
 					expires_at: string | null;
 					success: boolean;
@@ -758,7 +766,7 @@ async function getValidToken(): Promise<string | null>
 				}
 
 				if (result.token) {
-					console.log(`Valid token received from Android`);
+					console.log(`Valid token received from Android${forceRefresh ? ' (refreshed)' : ''}`);
 					resolve(result.token);
 				} else {
 					console.log(`No token available`);
@@ -771,7 +779,8 @@ async function getValidToken(): Promise<string | null>
 		} else {
 			authTokenPromiseResolve = resolve;
 			postMessage({
-        		type: 'getAuthToken'
+        		type: 'getAuthToken',
+				forceRefresh
 			});
 		}
 	});

@@ -47,7 +47,7 @@ export class WebTokenManager implements TokenManager {
                 if (force) {
                     console.log(`${this.LOG_PREFIX} Force refresh requested (e.g., after 401), attempting refresh`);
                 } else if (tokenExpired) {
-                    console.log(`${this.LOG_PREFIX} Access token expired, attempting refresh`);
+                    console.log(`${this.LOG_PREFIX} attempting refresh`);
                 } else {
                     console.log(`${this.LOG_PREFIX} Refresh token expiring soon, performing proactive renewal`);
                 }

@@ -2,6 +2,7 @@ import {photosInArea, photosInRange, spatialState} from './mapState';
 import {sourceLoadingStatus, sources} from './data.svelte';
 import {get} from 'svelte/store';
 import {getCurrentToken} from './auth.svelte';
+import {createTokenManager} from './tokenManagerFactory';
 import {addAlert} from './alertSystem.svelte';
 import type {WorkerToastMessage} from './workerToast';
 
@@ -112,7 +113,7 @@ class SimplePhotoWorker {
 
             case 'getAuthToken':
                 // Handle auth token requests from worker
-                this.handleAuthTokenRequest();
+                this.handleAuthTokenRequest(message.forceRefresh);
                 break;
                 
             default:
@@ -120,10 +121,12 @@ class SimplePhotoWorker {
         }
     }
 
-    private async handleAuthTokenRequest(): Promise<void> {
+    private async handleAuthTokenRequest(forceRefresh: boolean = false): Promise<void> {
         try {
-            const currentToken = await getCurrentToken();
-            console.log(`SimplePhotoWorker: Sending auth token to worker: ${currentToken ? 'token available' : 'no token'}`);
+            // Use the token manager to get a token with optional force refresh
+            const tokenManager = createTokenManager();
+            const currentToken = await tokenManager.getValidToken(forceRefresh);
+            console.log(`SimplePhotoWorker: Sending auth token to worker: ${currentToken ? 'token available' : 'no token'}${forceRefresh ? ' (refreshed)' : ''}`);
             
             this.worker?.postMessage({
                 type: 'authToken',
