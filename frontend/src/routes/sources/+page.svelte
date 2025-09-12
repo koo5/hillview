@@ -330,12 +330,6 @@
 </StandardBody>
 
 <style>
-    .sources-container {
-        max-width: 800px;
-        margin: 0 auto;
-        padding: 24px;
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    }
 
 
 

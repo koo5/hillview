@@ -190,13 +190,6 @@
 </StandardBody>
 
 <style>
-	.activity-page {
-		min-height: 100vh;
-		background-color: #f8f9fa;
-		padding: 1rem;
-		max-width: 1200px;
-		margin: 0 auto;
-	}
 
 
 
@@ -355,9 +348,6 @@
 	}
 
 	@media (max-width: 768px) {
-		.activity-page {
-			padding: 0.5rem;
-		}
 		
 		.photo-grid {
 			grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));

@@ -281,12 +281,6 @@
 </StandardBody>
 
 <style>
-    .hidden-content-page {
-        max-width: 800px;
-        margin: 0 auto;
-        padding: 2rem;
-        min-height: 100vh;
-    }
 
 
     .title-section {
@@ -497,9 +491,6 @@
 
     /* Responsive design */
     @media (max-width: 768px) {
-        .hidden-content-page {
-            padding: 1rem;
-        }
 
 
         .item-header {

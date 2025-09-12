@@ -238,13 +238,6 @@
 </StandardBody>
 
 <style>
-    .profile-container {
-        display: flex;
-        flex-direction: column;
-        min-height: 100vh;
-        background-color: #f5f5f5;
-        padding: 20px;
-    }
 
 
     .profile-card {
