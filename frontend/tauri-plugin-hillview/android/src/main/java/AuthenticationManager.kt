@@ -47,6 +47,20 @@ class AuthenticationManager(private val context: Context) {
             // Clear any auth expired notifications since user is now authenticated
             notificationHelper.clearAuthExpiredNotification()
 
+            // Register client public key after storing tokens (synchronous - must complete before uploads can start)
+            try {
+                Log.d(TAG, "Registering client public key after token storage")
+                val keyRegistered = registerClientPublicKey(token)
+                if (!keyRegistered) {
+                    Log.e(TAG, "Client public key registration failed - this will prevent photo uploads")
+                    return false // Fail token storage if key registration fails
+                }
+                Log.d(TAG, "Client public key registered successfully during token storage")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error registering client public key during token storage", e)
+                return false // Fail token storage if key registration fails
+            }
+
             true
         } catch (e: Exception) {
             Log.e(TAG, "Error storing auth token: ${e.message}")

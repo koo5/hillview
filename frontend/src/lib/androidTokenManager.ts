@@ -134,24 +134,8 @@ export class AndroidTokenManager implements TokenManager {
     }
 
     async registerClientPublicKey(): Promise<void> {
-        try {
-            console.log(`${this.LOG_PREFIX} Registering client public key with Android`);
-            
-            const result = await invoke('plugin:hillview|register_client_public_key') as {
-                success: boolean;
-                error?: string;
-            };
-            
-            if (!result.success) {
-                throw new Error(`Android client key registration failed: ${result.error}`);
-            }
-            
-            console.log(`${this.LOG_PREFIX} Client public key registered successfully`);
-            
-        } catch (error) {
-            console.error(`${this.LOG_PREFIX} Error registering client public key:`, error);
-            throw error;
-        }
+        // Client key registration is now handled automatically by Android during token storage
+        console.log(`${this.LOG_PREFIX} Client public key registration handled automatically by Android`);
     }
 
 }
