@@ -7,6 +7,7 @@
 	import PhotoImport from '$lib/components/PhotoImport.svelte';
 	import PhotoUpload from '$lib/components/PhotoUpload.svelte';
 	import {auth, checkAuth} from '$lib/auth.svelte';
+	import {userId} from '$lib/authStore';
 	import type {UserPhoto} from '$lib/stores';
 	import type {User} from '$lib/auth.svelte';
 	import {http, handleApiError, TokenExpiredError} from '$lib/http';
@@ -44,12 +45,15 @@
 
 	onMount(async () => {
 		// Check authentication status first
-		checkAuth();
+		await checkAuth();
 
-		// Check if user is authenticated
-		auth.subscribe(async (value) => {
-			user = value.isAuthenticated ? value.user : null;
-			if (user) {
+		// Subscribe to userId changes to avoid reactive loops from auth store updates during token refresh
+		const unsubscribe = userId.subscribe(async (currentUserId) => {
+			// Get the current auth state when userId changes
+			const currentAuth = $auth;
+			user = currentAuth.isAuthenticated ? currentAuth.user : null;
+			
+			if (currentUserId && user) {
 				autoUploadEnabled = user.auto_upload_enabled || false;
 
 				// Fetch user photos when authenticated
@@ -73,6 +77,11 @@
 				isLoading = false;
 			}
 		});
+
+		// Cleanup subscription on component destroy
+		return () => {
+			unsubscribe();
+		};
 	});
 
 	async function fetchPhotos(reset = false) {
