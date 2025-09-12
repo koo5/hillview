@@ -4,6 +4,7 @@
  */
 
 import { writable } from 'svelte/store';
+import { logout } from './auth.svelte';
 
 export interface Alert {
   id: string;
@@ -217,10 +218,7 @@ export function showTokenRefreshIssue(message: string, onRetry?: () => void): st
     onRetry,
     actions: onRetry ? [
       { label: 'Retry', action: onRetry, style: 'primary' },
-      { label: 'Logout', action: () => {
-        // Import and call logout
-        import('./auth.svelte').then(({ logout }) => logout('Authentication failed'));
-      }, style: 'danger' }
+      { label: 'Logout', action: () => logout('Authentication failed'), style: 'danger' }
     ] : undefined
   });
 }
