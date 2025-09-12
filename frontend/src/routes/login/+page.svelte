@@ -3,6 +3,7 @@
     import { User, Lock, Mail, Github } from 'lucide-svelte';
     import { myGoto } from '$lib/navigation.svelte';
     import StandardHeaderWithAlert from '../../components/StandardHeaderWithAlert.svelte';
+    import StandardBody from '../../components/StandardBody.svelte';
     import { login, register, oauthLogin, auth } from '$lib/auth.svelte';
     import { invoke } from '@tauri-apps/api/core';
     import { buildOAuthUrl } from '$lib/authCallback';
@@ -290,12 +291,13 @@
     }
 </script>
 
-<div class="login-container page-scrollable">
-    <StandardHeaderWithAlert 
-        title={isLogin ? 'Login' : 'Register'} 
-        showMenuButton={true}
-        fallbackHref="/"
-    />
+<StandardHeaderWithAlert 
+    title={isLogin ? 'Login' : 'Register'} 
+    showMenuButton={true}
+    fallbackHref="/"
+/>
+
+<StandardBody>
     
     <div class="login-content">
         <div class="login-card">
@@ -411,7 +413,7 @@
 
         </div>
     </div>
-</div>
+</StandardBody>
 
 <style>
     .login-container {

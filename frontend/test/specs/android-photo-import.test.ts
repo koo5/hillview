@@ -32,8 +32,11 @@ describe('Android Photo Import', () => {
 			try {
 				await screenshots.takeScreenshot('initial-state');
 
-				// Step 1: Login
-				const loginSuccess = await workflows.quickLogin();
+				// Step 1: Create test users and get password
+				const testPassword = await workflows.createTestUsers();
+				
+				// Step 2: Login
+				const loginSuccess = await workflows.quickLogin('test', testPassword);
 				expect(loginSuccess).toBe(true);
 				await screenshots.takeScreenshot('login-complete');
 
@@ -57,8 +60,9 @@ describe('Android Photo Import', () => {
 			console.log('❌ Testing file picker cancellation...');
 
 			try {
-				// Login and navigate to import
-				const loginSuccess = await workflows.quickLogin();
+				// Create test users and login
+				const testPassword = await workflows.createTestUsers();
+				const loginSuccess = await workflows.quickLogin('test', testPassword);
 				expect(loginSuccess).toBe(true);
 
 				const navigationSuccess = await workflows.navigateToPhotoImport();

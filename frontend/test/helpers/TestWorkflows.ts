@@ -9,11 +9,53 @@ export class TestWorkflows {
     private app = new HillviewAppPage();
     private auth = new WebViewAuthPage();
     private camera = new CameraFlowPage();
+    private testPassword: string | null = null;
+
+    /**
+     * Create test users via API and get dynamic password
+     */
+    async createTestUsers(): Promise<string> {
+        console.log('🧪 Creating test users via API...');
+        
+        try {
+            // Switch to WebView context to execute JavaScript
+            await this.auth.switchToWebView();
+            
+            // Make HTTP request to recreate test users
+            const response = await driver.executeScript(`
+                return fetch('http://10.0.2.2:8055/api/debug/recreate-test-users', {
+                    method: 'POST'
+                }).then(res => res.json());
+            `, []);
+
+            console.log('🢄Test user creation result:', response);
+            
+            const testPassword = response?.details?.user_passwords?.test;
+            if (!testPassword) {
+                throw new Error('Test user password not returned from recreate-test-users');
+            }
+            
+            // Switch back to native context
+            await driver.switchContext('NATIVE_APP');
+            
+            this.testPassword = testPassword;
+            console.log('✅ Test users created, password obtained');
+            return testPassword;
+            
+        } catch (error) {
+            console.error('❌ Failed to create test users:', error);
+            // Make sure we're back in native context
+            try {
+                await driver.switchContext('NATIVE_APP');
+            } catch (e) {}
+            throw error;
+        }
+    }
 
     /**
      * Complete login workflow
      */
-    async performCompleteLogin(username: string = 'test', password: string = 'test123'): Promise<boolean> {
+    async performCompleteLogin(username: string, password: string): Promise<boolean> {
         console.log('🔐 Starting complete login workflow...');
         
         try {
@@ -204,23 +246,22 @@ export class TestWorkflows {
         console.log('📂 Navigating to Photo Import tab...');
         
         try {
-            // Open menu
+            // Open menu and verify it opened
             await this.app.openMenu();
             await driver.pause(1000);
-
-            // Navigate to Photos
-            const photosLink = await $('android=new UiSelector().text("Photos")');
+            
+            // Verify menu is open by checking for My Photos link
+            console.log('🔍 Looking for My Photos menu item...');
+            const photosLink = await $('android=new UiSelector().text("My Photos")');
             await photosLink.waitForDisplayed({timeout: 10000});
+            
+            // Navigate to My Photos
             await photosLink.click();
             await driver.pause(2000);
-            console.log('📸 Navigated to Photos section');
+            console.log('📸 Navigated to My Photos section');
 
-            // Switch to Import tab
-            const importTab = await $('[data-testid="import-tab"]');
-            await importTab.waitForDisplayed({timeout: 10000});
-            await importTab.click();
-            await driver.pause(1000);
-            console.log('📂 Switched to Import tab');
+            // Import functionality is directly available, no tabs needed
+            console.log('📂 Import functionality is ready');
 
             return true;
         } catch (error) {
@@ -322,18 +363,111 @@ export class TestWorkflows {
     }
 
     /**
+     * Ensure a map source is enabled or disabled (on main page)
+     */
+    async ensureSourceEnabled(sourceName: string, enabled: boolean): Promise<boolean> {
+        console.log(`🗺️ Ensuring ${sourceName} source is ${enabled ? 'enabled' : 'disabled'}...`);
+        
+        try {
+            // Make sure we're in WebView context for source controls
+            await this.auth.switchToWebView();
+            
+            // Find the source toggle button on main page map
+            const sourceButton = await $(`[data-testid="source-toggle-${sourceName}"]`);
+            await sourceButton.waitForDisplayed({timeout: 10000});
+            
+            // Check current state by looking for 'active' class
+            const classes = await sourceButton.getAttribute('class');
+            const isCurrentlyEnabled = classes && classes.includes('active');
+            
+            // Click if we need to change the state
+            if (isCurrentlyEnabled !== enabled) {
+                await sourceButton.click();
+                await driver.pause(1000);
+                console.log(`🗺️ ${enabled ? 'Enabled' : 'Disabled'} ${sourceName} source`);
+            } else {
+                console.log(`🗺️ ${sourceName} source already ${enabled ? 'enabled' : 'disabled'}`);
+            }
+            
+            return true;
+        } catch (error) {
+            console.error(`❌ Failed to set ${sourceName} source to ${enabled}:`, error.message);
+            return false;
+        }
+    }
+
+    /**
+     * Configure auto-upload settings in the Photos page
+     */
+    async configureAutoUploadSettings(enabled: boolean): Promise<boolean> {
+        console.log(`⚙️ Configuring auto-upload settings (${enabled ? 'enabled' : 'disabled'})...`);
+        
+        try {
+            // Make sure we're in WebView context
+            await this.auth.switchToWebView();
+            
+            // Click the settings button to open settings panel
+            const settingsButton = await $('.settings-button');
+            await settingsButton.waitForDisplayed({timeout: 10000});
+            await settingsButton.click();
+            await driver.pause(1000);
+            console.log('⚙️ Opened settings panel');
+            
+            // Find the auto-upload checkbox
+            const autoUploadCheckbox = await $('[data-testid="auto-upload-checkbox"]');
+            await autoUploadCheckbox.waitForDisplayed({timeout: 10000});
+            
+            // Check current state
+            const isCurrentlyEnabled = await autoUploadCheckbox.isSelected();
+            
+            // Click if we need to change the state
+            if (isCurrentlyEnabled !== enabled) {
+                await autoUploadCheckbox.click();
+                await driver.pause(1000);
+                console.log(`⚙️ ${enabled ? 'Enabled' : 'Disabled'} auto-upload`);
+            } else {
+                console.log(`⚙️ Auto-upload already ${enabled ? 'enabled' : 'disabled'}`);
+            }
+            
+            // Close settings panel by clicking Cancel
+            const cancelButton = await $('.secondary-button');
+            await cancelButton.click();
+            await driver.pause(1000);
+            console.log('⚙️ Closed settings panel');
+            
+            return true;
+        } catch (error) {
+            console.error(`❌ Failed to configure auto-upload settings:`, error.message);
+            return false;
+        }
+    }
+
+    /**
      * Complete photo import workflow
      */
     async performPhotoImportWorkflow(): Promise<boolean> {
         console.log('📂 Starting photo import workflow...');
         
         try {
+            // First turn off map sources on main page
+            console.log('🗺️ Disabling map sources on main page...');
+            await this.ensureSourceEnabled('mapillary', false);
+            await this.ensureSourceEnabled('hillview', false);
+            await this.ensureSourceEnabled('device', false);
+
             // Navigate to import section
             const navigationSuccess = await this.navigateToPhotoImport();
             if (!navigationSuccess) {
                 console.error('❌ Navigation to import failed');
                 return false;
             }
+
+            // Configure auto-upload settings (turn on for testing)
+            console.log('⚙️ Configuring auto-upload settings...');
+            await this.configureAutoUploadSettings(true);
+
+            // Switch to WebView context to find the import button
+            await this.auth.switchToWebView();
 
             // Click import button
             const importButton = await $('[data-testid="import-from-device-button"]');
@@ -374,7 +508,7 @@ export class TestWorkflows {
     /**
      * Quick login using existing method from TestWorkflows
      */
-    async quickLogin(username: string = 'test', password: string = 'test123'): Promise<boolean> {
+    async quickLogin(username: string, password: string): Promise<boolean> {
         return this.performCompleteLogin(username, password);
     }
 }

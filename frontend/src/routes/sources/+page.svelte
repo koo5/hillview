@@ -4,6 +4,7 @@
     import { localStorageSharedStore } from '$lib/svelte-shared-store';
     import { Plus, Trash2, Globe, MapPin, Folder, Camera } from 'lucide-svelte';
     import StandardHeaderWithAlert from '../../components/StandardHeaderWithAlert.svelte';
+    import StandardBody from '../../components/StandardBody.svelte';
     import { onMount } from 'svelte';
     import { goto } from '$app/navigation';
 
@@ -145,12 +146,13 @@
     });
 </script>
 
-<div class="sources-container page-scrollable">
-    <StandardHeaderWithAlert 
-        title="Photo Sources" 
-        showMenuButton={true}
-        fallbackHref="/"
-    />
+<StandardHeaderWithAlert 
+    title="Photo Sources" 
+    showMenuButton={true}
+    fallbackHref="/"
+/>
+
+<StandardBody>
     
     <div class="sources-description">
         <p>Manage where photos are loaded from</p>
@@ -325,7 +327,7 @@
             {/if}
         </div>
     </div>
-</div>
+</StandardBody>
 
 <style>
     .sources-container {

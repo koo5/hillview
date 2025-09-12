@@ -1,14 +1,16 @@
 <script lang="ts">
     import { Download, Smartphone } from 'lucide-svelte';
     import StandardHeaderWithAlert from '../../components/StandardHeaderWithAlert.svelte';
+    import StandardBody from '../../components/StandardBody.svelte';
 </script>
 
-<div class="download-page page-scrollable">
-    <StandardHeaderWithAlert 
-        title="Download App" 
-        showMenuButton={true}
-        fallbackHref="/"
-    />
+<StandardHeaderWithAlert 
+    title="Download App" 
+    showMenuButton={true}
+    fallbackHref="/"
+/>
+
+<StandardBody>
 
     <div class="content">
         <div class="hero">
@@ -46,7 +48,7 @@
             </div>
         </div>
     </div>
-</div>
+</StandardBody>
 
 <style>
     .download-page {

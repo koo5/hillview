@@ -46,7 +46,9 @@ export class LoginHelper {
      */
     static async openMenu(): Promise<void> {
         console.log('🍔 Opening hamburger menu...');
-        const hamburgerMenu = await $('android=new UiSelector().text("Toggle menu")');
+        // Switch to WebView context to find the button by data-testid
+        await this.switchToWebView();
+        const hamburgerMenu = await $('[data-testid="header-menu-button"]');
         await hamburgerMenu.waitForDisplayed({ timeout: 10000 });
         await hamburgerMenu.click();
         await driver.pause(2000);

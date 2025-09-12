@@ -7,7 +7,8 @@ import { checkForCriticalErrors } from '../helpers/app-launcher';
 export class HillviewAppPage {
     // Selectors
     private get hamburgerMenu() {
-        return $('android=new UiSelector().text("Toggle menu")');
+        // Use data-testid which requires WebView context
+        return $('[data-testid="header-menu-button"]');
     }
 
     private get cameraButton() {
@@ -21,6 +22,8 @@ export class HillviewAppPage {
     // Navigation actions
     async openMenu(): Promise<void> {
         console.log('🍔 Opening hamburger menu...');
+        // Switch to WebView context to access data-testid
+        await driver.switchContext('WEBVIEW_cz.hillviedev');
         await this.hamburgerMenu.waitForDisplayed({ timeout: 10000 });
         await this.hamburgerMenu.click();
         await driver.pause(2000);

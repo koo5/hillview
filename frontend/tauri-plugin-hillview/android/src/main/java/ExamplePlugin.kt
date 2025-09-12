@@ -786,51 +786,48 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     @Command
     fun getAuthToken(invoke: Invoke) {
         try {
-            val args = try {
-                invoke.parseArgs(GetAuthTokenArgs::class.java)
+            val force = try {
+                val args = invoke.parseArgs(GetAuthTokenArgs::class.java)
+                args?.force ?: false
             } catch (e: Exception) {
-                // If parsing fails, use default values (force = false)
-                GetAuthTokenArgs()
+                Log.d(TAG, "🔐 No args provided or parsing failed, defaulting to force = false")
+                false
             }
-            val force = args.force
 
             Log.d(TAG, "🔐 Getting auth token (force: $force)")
 
-            if (force) {
-                Log.d(TAG, "🔐 Force refresh requested, using async version with refresh")
-                // Use async version for force refresh
-                CoroutineScope(Dispatchers.IO).launch {
-                    try {
-                        val validToken = authManager.getValidToken()  // Async version that can refresh
-                        val (_, expiresAt) = authManager.getTokenInfo()
-                        
-                        CoroutineScope(Dispatchers.Main).launch {
-                            val result = JSObject()
-                            result.put("success", true)
-                            result.put("token", validToken)
-                            result.put("expiresAt", expiresAt)
-                            invoke.resolve(result)
-                        }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "🔐 Error getting auth token with refresh", e)
-                        CoroutineScope(Dispatchers.Main).launch {
-                            val error = JSObject()
-                            error.put("success", false)
-                            error.put("error", e.message)
-                            invoke.resolve(error)
-                        }
+            // Always use async version that can refresh - both force and normal requests should refresh if needed
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val validToken = if (force) {
+                        Log.d(TAG, "🔐 Force refresh requested, performing explicit refresh first")
+                        // Force refresh: explicitly refresh first, then get token
+                        authManager.refreshTokenIfNeeded()
+                        authManager.getValidToken()
+                    } else {
+                        Log.d(TAG, "🔐 Normal token request with refresh capability")
+                        // Normal request: get valid token (will refresh if needed)
+                        authManager.getValidToken()
+                    }
+                    
+                    val (_, expiresAt) = authManager.getTokenInfo()
+                    
+                    CoroutineScope(Dispatchers.Main).launch {
+                        val result = JSObject()
+                        result.put("success", true)
+                        result.put("token", validToken)
+                        result.put("expiresAt", expiresAt)
+                        invoke.resolve(result)
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "🔐 Error getting auth token", e)
+                    CoroutineScope(Dispatchers.Main).launch {
+                        val error = JSObject()
+                        error.put("success", false)
+                        error.put("error", e.message)
+                        invoke.resolve(error)
                     }
                 }
-            } else {
-                Log.d(TAG, "🔐 Normal token request (sync version - no refresh)")
-                val (_, expiresAt) = authManager.getTokenInfo()
-                val validToken = authManager.getValidTokenSync()  // Use sync version for normal requests
-                
-                val result = JSObject()
-                result.put("success", true)
-                result.put("token", validToken)
-                result.put("expiresAt", expiresAt)
-                invoke.resolve(result)
             }
 
         } catch (e: Exception) {
@@ -1305,14 +1302,14 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                             }
                         }
 
-                        // Return result matching FileImportResponse structure
+                        // Return result matching FileImportResponse structure (camelCase for serde)
                         val response = JSObject()
                         response.put("success", importedFiles.isNotEmpty())
-                        response.put("selected_files", JSONArray(selectedUris.map { it.toString() }))
-                        response.put("imported_count", importedFiles.size)
-                        response.put("failed_count", failedFiles.size)
-                        response.put("failed_files", JSONArray(failedFiles))
-                        response.put("import_errors", JSONArray(errors))
+                        response.put("selectedFiles", JSONArray(selectedUris.map { it.toString() }))
+                        response.put("importedCount", importedFiles.size)
+                        response.put("failedCount", failedFiles.size)
+                        response.put("failedFiles", JSONArray(failedFiles))
+                        response.put("importErrors", JSONArray(errors))
 
                         Log.i(TAG, "📂 Import complete: ${importedFiles.size} successful, ${failedFiles.size} failed")
                         invoke.resolve(response)
@@ -1326,8 +1323,9 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                 Log.w(TAG, "📂 No files selected")
                 val response = JSObject()
                 response.put("success", false)
-                response.put("imported_count", 0)
-                response.put("failed_count", 0)
+                response.put("selectedFiles", JSONArray())
+                response.put("importedCount", 0)
+                response.put("failedCount", 0)
                 response.put("error", "No files selected")
                 invoke.resolve(response)
             }
@@ -1335,8 +1333,9 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             Log.i(TAG, "📂 File picker cancelled by user")
             val response = JSObject()
             response.put("success", false)
-            response.put("imported_count", 0)
-            response.put("failed_count", 0)
+            response.put("selectedFiles", JSONArray())
+            response.put("importedCount", 0)
+            response.put("failedCount", 0)
             response.put("error", "File selection cancelled")
             invoke.resolve(response)
         }

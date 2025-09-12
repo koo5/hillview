@@ -38,12 +38,11 @@ export const config: Options.Testrunner = {
     capabilities: [{
         platformName: 'Android',
         'appium:deviceName': 'Android Emulator',
-        'appium:platformVersion': '14',
+        'appium:platformVersion': '16',
         'appium:automationName': 'UiAutomator2',
         'appium:app': './src-tauri/gen/android/app/build/outputs/apk/x86_64/debug/app-x86_64-debug.apk',
         'appium:noReset': false,
         'appium:fullReset': false,
-        'appium:skipInstall': false,
         'appium:allowTestPackages': true,
         'appium:forceAppLaunch': true,
         'appium:appPackage': 'cz.hillviedev',
@@ -55,20 +54,10 @@ export const config: Options.Testrunner = {
         'appium:uiautomator2ServerLaunchTimeout': 60000,
         // Permission handling capabilities
         'appium:autoGrantPermissions': false, // Don't auto-grant to test permission flows
-        'appium:autoAcceptAlerts': false, // Don't auto-accept alerts
-        // Capabilities to improve screenshot stability
-        'appium:screenshotQuality': 50, // Reduce quality for faster screenshots
-        'appium:mjpegServerScreenshotQuality': 50,
-        'appium:mjpegScalingFactor': 50,
         // Reduce retry attempts for faster failure recovery
         'appium:uiautomator2ServerReadTimeout': 20000,
-        'appium:permissions': {
-            'cz.hillviedev': {
-                'android.permission.CAMERA': 'unset',
-                'android.permission.ACCESS_FINE_LOCATION': 'unset',
-                'android.permission.ACCESS_COARSE_LOCATION': 'unset'
-            }
-        }
+        // Chrome driver setup for WebView support
+        'appium:chromedriverExecutable': '/tmp/chromedriver-linux64/chromedriver'
     }],
 
     logLevel: 'info',

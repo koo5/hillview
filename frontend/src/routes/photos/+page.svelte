@@ -2,8 +2,9 @@
 	import {onMount} from 'svelte';
 	import {get} from 'svelte/store';
 	import {myGoto} from '$lib/navigation.svelte';
-	import { Trash2, Map, Settings} from 'lucide-svelte';
+	import { Trash2, Map, Settings, ThumbsUp, ThumbsDown} from 'lucide-svelte';
 	import StandardHeaderWithAlert from '../../components/StandardHeaderWithAlert.svelte';
+	import StandardBody from '../../components/StandardBody.svelte';
 	import Spinner from '../../components/Spinner.svelte';
 	import PhotoImport from '$lib/components/PhotoImport.svelte';
 	import PhotoUpload from '$lib/components/PhotoUpload.svelte';
@@ -53,7 +54,7 @@
 			// Get the current auth state when userId changes
 			const currentAuth = get(auth);
 			user = currentAuth.isAuthenticated ? currentAuth.user : null;
-			
+
 			if (currentUserId && user) {
 				autoUploadEnabled = user.auto_upload_enabled || false;
 
@@ -247,15 +248,96 @@
 			await fetchPhotos(true); // Reset and fetch from the beginning
 		}
 	}
+
+	async function setPhotoRating(photoId: number, rating: 'thumbs_up' | 'thumbs_down') {
+		console.log(`Setting ${rating} for photo ${photoId}`);
+		
+		try {
+			const response = await http.post(`/ratings/hillview/${photoId}`, { rating });
+			
+			if (!response.ok) {
+				throw new Error(`Failed to set rating: ${response.status}`);
+			}
+			
+			const data = await response.json();
+			console.log('Rating response:', data);
+			
+			// Update the photo in our local array
+			photos = photos.map(photo => {
+				if (photo.id === photoId) {
+					return {
+						...photo,
+						user_rating: data.user_rating,
+						rating_counts: data.rating_counts
+					};
+				}
+				return photo;
+			});
+			
+			addLogEntry(`Rated photo ${rating.replace('_', ' ')}`, 'success');
+			
+		} catch (err) {
+			console.error('Error setting rating:', err);
+			const errorMessage = handleApiError(err);
+			addLogEntry(`Rating failed: ${errorMessage}`, 'error');
+		}
+	}
+
+	async function removePhotoRating(photoId: number) {
+		console.log(`Removing rating for photo ${photoId}`);
+		
+		try {
+			const response = await http.delete(`/ratings/hillview/${photoId}`);
+			
+			if (!response.ok) {
+				throw new Error(`Failed to remove rating: ${response.status}`);
+			}
+			
+			const data = await response.json();
+			console.log('Rating removal response:', data);
+			
+			// Update the photo in our local array
+			photos = photos.map(photo => {
+				if (photo.id === photoId) {
+					return {
+						...photo,
+						user_rating: null,
+						rating_counts: data.rating_counts
+					};
+				}
+				return photo;
+			});
+			
+			addLogEntry('Rating removed', 'success');
+			
+		} catch (err) {
+			console.error('Error removing rating:', err);
+			const errorMessage = handleApiError(err);
+			addLogEntry(`Rating removal failed: ${errorMessage}`, 'error');
+		}
+	}
+
+	async function handleRatingClick(photoId: number, rating: 'thumbs_up' | 'thumbs_down') {
+		const photo = photos.find(p => p.id === photoId);
+		if (!photo) return;
+		
+		// If user clicks the same rating they already have, remove it
+		if (photo.user_rating === rating) {
+			await removePhotoRating(photoId);
+		} else {
+			// Otherwise set/change the rating
+			await setPhotoRating(photoId, rating);
+		}
+	}
 </script>
 
-<div class="photos-container page-scrollable">
-	<StandardHeaderWithAlert
-		title="My Photos"
-		showMenuButton={true}
-		fallbackHref="/"
-	/>
+<StandardHeaderWithAlert
+	title="My Photos"
+	showMenuButton={true}
+	fallbackHref="/"
+/>
 
+<StandardBody>
 	{#if TAURI}
 		<div class="page-actions">
 			<button class="settings-button" on:click={() => showSettings = !showSettings}>
@@ -264,7 +346,6 @@
 			</button>
 		</div>
 	{/if}
-
 	{#if error}
 		<div class="error-message">{error}</div>
 	{/if}
@@ -412,6 +493,28 @@
 										View on Map
 									</button>
 								{/if}
+								<button 
+									class="action-button rating {photo.user_rating === 'thumbs_up' ? 'active' : ''}"
+									data-testid="thumbs-up-button"
+									data-photo-id={photo.id}
+									on:click={() => handleRatingClick(photo.id, 'thumbs_up')}
+								>
+									<ThumbsUp size={16}/>
+									<span class="rating-count">
+										{photo.rating_counts?.thumbs_up || 0}
+									</span>
+								</button>
+								<button 
+									class="action-button rating {photo.user_rating === 'thumbs_down' ? 'active' : ''}"
+									data-testid="thumbs-down-button"
+									data-photo-id={photo.id}
+									on:click={() => handleRatingClick(photo.id, 'thumbs_down')}
+								>
+									<ThumbsDown size={16}/>
+									<span class="rating-count">
+										{photo.rating_counts?.thumbs_down || 0}
+									</span>
+								</button>
 								<button class="action-button delete" data-testid="delete-photo-button"
 										data-photo-id={photo.id} on:click={() => deletePhoto(photo.id)}>
 									<Trash2 size={16}/>
@@ -443,7 +546,7 @@
 			{/if}
 		{/if}
 	</div>
-</div>
+</StandardBody>
 
 <style>
 	.photos-container {
@@ -747,6 +850,33 @@
 
 	.action-button.delete:hover {
 		background-color: #ffebee;
+	}
+
+	.action-button.rating {
+		color: #6b7280;
+		position: relative;
+	}
+
+	.action-button.rating:hover {
+		background-color: #f0f9ff;
+		color: #1e40af;
+	}
+
+	.action-button.rating.active {
+		background-color: #dbeafe;
+		color: #1e40af;
+		border-color: #3b82f6;
+	}
+
+	.action-button.rating.active:hover {
+		background-color: #bfdbfe;
+	}
+
+	.rating-count {
+		font-size: 12px;
+		font-weight: 600;
+		min-width: 16px;
+		text-align: center;
 	}
 
 	.error-message {

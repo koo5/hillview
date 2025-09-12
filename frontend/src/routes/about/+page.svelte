@@ -1,6 +1,7 @@
 <script lang="ts">
     import { Info, MapPin, Camera, Globe, Github, Heart, Compass } from 'lucide-svelte';
     import StandardHeaderWithAlert from '../../components/StandardHeaderWithAlert.svelte';
+    import StandardBody from '../../components/StandardBody.svelte';
     import { getCurrentProviderConfig, getProviderDisplayName, currentTileProvider } from '$lib/tileProviders';
 
     const appVersion = '0.0.1';
@@ -41,12 +42,13 @@
     $: tileProviderName = getProviderDisplayName($currentTileProvider);
 </script>
 
-<div class="about-container page-scrollable">
-    <StandardHeaderWithAlert 
-        title="About Hillview" 
-        showMenuButton={true}
-        fallbackHref="/"
-    />
+<StandardHeaderWithAlert 
+    title="About Hillview" 
+    showMenuButton={true}
+    fallbackHref="/"
+/>
+
+<StandardBody>
 
     <header class="about-header">
         <div class="app-icon">
@@ -146,7 +148,7 @@
     <footer class="about-footer">
         <p>&copy; 2024 Hillview. Made with <Heart size={16} class="heart-icon" /> for photographers and explorers.</p>
     </footer>
-</div>
+</StandardBody>
 
 <style>
     .about-container {

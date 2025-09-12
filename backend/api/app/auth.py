@@ -33,7 +33,7 @@ if SECRET_KEY == DEFAULT_SECRET_KEY:
 	logger.warning("Using auto-generated JWT secret key. Set SECRET_KEY environment variable in production!")
 
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1"))
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "100"))
 
 # Test users configuration
 TEST_USERS = os.getenv("TEST_USERS", "false").lower() in ("true", "1", "yes")
@@ -294,13 +294,13 @@ async def get_current_user_optional_with_query(
 ) -> Optional[User]:
 	"""Get current user if authenticated, checking both header and query params.
 	Returns None if no token provided. Raises 401 if token provided but invalid."""
-	
+
 	credentials_exception = HTTPException(
 		status_code=status.HTTP_401_UNAUTHORIZED,
 		detail="Invalid authentication token",
 		headers={"WWW-Authenticate": "Bearer"},
 	)
-	
+
 	# First try header token
 	if token:
 		try:
@@ -324,7 +324,7 @@ async def get_current_user_optional_with_query(
 			if user is None:
 				logger.warning(f"User not found with ID: {user_id}")
 				raise credentials_exception
-				
+
 			if not user.is_active:
 				logger.warning(f"Inactive user attempted access: {user_id}")
 				raise credentials_exception
@@ -361,7 +361,7 @@ async def get_current_user_optional_with_query(
 				if user is None:
 					logger.warning(f"User not found with query token ID: {user_id}")
 					raise credentials_exception
-					
+
 				if not user.is_active:
 					logger.warning(f"Inactive user attempted access with query token: {user_id}")
 					raise credentials_exception

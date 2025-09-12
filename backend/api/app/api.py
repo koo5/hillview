@@ -220,6 +220,10 @@ if USER_ACCOUNTS:
 	import photo_routes
 	app.include_router(photo_routes.router)
 
+	# Include rating routes (only with user accounts)
+	import rating_routes
+	app.include_router(rating_routes.router)
+
 	# Include activity routes (only with user accounts)
 	import activity_routes
 	app.include_router(activity_routes.router)

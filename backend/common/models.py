@@ -11,6 +11,10 @@ class UserRole(enum.Enum):
 	ADMIN = "admin"
 	MODERATOR = "moderator"
 
+class PhotoRatingType(enum.Enum):
+	THUMBS_UP = "thumbs_up"
+	THUMBS_DOWN = "thumbs_down"
+
 def generate_uuid():
 	return str(uuid.uuid4())
 
@@ -197,6 +201,25 @@ class HiddenUser(Base):
 	# Table constraints are defined in the migration
 	__table_args__ = (
 		# Unique constraints and checks defined in migration
+		{"schema": None}  # Placeholder - actual constraints in migration
+	)
+
+class PhotoRating(Base):
+	__tablename__ = "photo_ratings"
+
+	id = Column(String, primary_key=True, default=generate_uuid)
+	user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+	photo_source = Column(String(20), nullable=False)  # 'mapillary' or 'hillview'
+	photo_id = Column(String(255), nullable=False)
+	rating = Column(Enum(PhotoRatingType), nullable=False)
+	created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+	
+	# Relationships
+	user = relationship("User")
+	
+	# Table constraints are defined in the migration
+	__table_args__ = (
+		# Unique constraint to prevent duplicate ratings per user per photo
 		{"schema": None}  # Placeholder - actual constraints in migration
 	)
 

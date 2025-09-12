@@ -149,11 +149,16 @@
     }
 
     .alert-area.header {
+        position: fixed;
+        top: 50px; /* Below StandardHeader */
+        left: 0;
+        right: 0;
         margin: 0;
         border-radius: 0;
         border-left: none;
         border-top: 4px solid;
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        z-index: 30002; /* Above header but below overlays */
     }
 
     .alert-content {
@@ -312,6 +317,10 @@
     @media (max-width: 640px) {
         .alert-area {
             padding: 10px 12px;
+        }
+
+        .alert-area.header {
+            top: 56px; /* Below mobile StandardHeader */
         }
 
         .alert-content {

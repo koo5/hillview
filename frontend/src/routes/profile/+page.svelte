@@ -3,6 +3,7 @@
     import { myGoto } from '$lib/navigation.svelte';
     import { User, Mail, Calendar, Trash2, LogOut, Settings, Shield } from 'lucide-svelte';
     import StandardHeaderWithAlert from '../../components/StandardHeaderWithAlert.svelte';
+    import StandardBody from '../../components/StandardBody.svelte';
     import { auth, logout } from '$lib/auth.svelte';
     import { http, handleApiError, TokenExpiredError } from '$lib/http';
 
@@ -92,12 +93,13 @@
     }
 </script>
 
-<div class="profile-container page-scrollable">
-    <StandardHeaderWithAlert
-        title="User Profile"
-        showMenuButton={true}
-        fallbackHref="/"
-    />
+<StandardHeaderWithAlert
+    title="User Profile"
+    showMenuButton={true}
+    fallbackHref="/"
+/>
+
+<StandardBody>
 
     <div class="profile-card">
         <div class="profile-header">
@@ -233,7 +235,7 @@
             </div>
         {/if}
     </div>
-</div>
+</StandardBody>
 
 <style>
     .profile-container {

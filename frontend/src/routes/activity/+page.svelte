@@ -4,6 +4,7 @@
 	import { auth } from '$lib/auth.svelte';
 	import { http, handleApiError } from '$lib/http';
 	import StandardHeaderWithAlert from '../../components/StandardHeaderWithAlert.svelte';
+	import StandardBody from '../../components/StandardBody.svelte';
 	import Spinner from '../../components/Spinner.svelte';
 
 	interface ActivityPhoto {
@@ -117,12 +118,13 @@
 	<title>Activity - Hillview</title>
 </svelte:head>
 
-<div class="activity-page page-scrollable">
-		<StandardHeaderWithAlert 
-			title="Recent Activity" 
-			showMenuButton={true}
-			fallbackHref="/"
-		/>
+<StandardHeaderWithAlert 
+	title="Recent Activity" 
+	showMenuButton={true}
+	fallbackHref="/"
+/>
+
+<StandardBody>
 
 		{#if loading}
 			<div class="loading-container">
@@ -185,7 +187,7 @@
 				{/each}
 			</div>
 		{/if}
-</div>
+</StandardBody>
 
 <style>
 	.activity-page {

@@ -3,6 +3,7 @@
     import { myGoto } from '$lib/navigation.svelte';
     import { EyeOff, Trash2, User, Image, MapPin } from 'lucide-svelte';
     import StandardHeaderWithAlert from '../../components/StandardHeaderWithAlert.svelte';
+    import StandardBody from '../../components/StandardBody.svelte';
     import { auth } from '$lib/auth.svelte';
     import { http, handleApiError, TokenExpiredError } from '$lib/http';
 
@@ -135,13 +136,13 @@
     <title>Hidden Content - Hillview</title>
 </svelte:head>
 
-<div class="page-scrollable">
-    <div class="hidden-content-page">
-        <StandardHeaderWithAlert 
-            title="Hidden Content" 
-            showMenuButton={true}
-            fallbackHref="/"
-        />
+<StandardHeaderWithAlert 
+    title="Hidden Content" 
+    showMenuButton={true}
+    fallbackHref="/"
+/>
+
+<StandardBody>
         
         <div class="description">
             <div class="title-section">
@@ -277,8 +278,7 @@
                 {/if}
             </div>
         {/if}
-    </div>
-</div>
+</StandardBody>
 
 <style>
     .hidden-content-page {
