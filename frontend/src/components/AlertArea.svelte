@@ -4,7 +4,7 @@
     import { createEventDispatcher } from 'svelte';
 
     export let position: 'header' | 'main' = 'header';
-    
+
     const dispatch = createEventDispatcher();
 
     function handleClick(alert: any) {
@@ -37,7 +37,7 @@
             case 'error': return AlertTriangle;
             case 'warning': return AlertCircle;
             case 'success': return CheckCircle;
-            case 'info': 
+            case 'info':
             default: return Info;
         }
     }
@@ -47,7 +47,7 @@
             case 'error': return 'alert-error';
             case 'warning': return 'alert-warning';
             case 'success': return 'alert-success';
-            case 'info': 
+            case 'info':
             default: return 'alert-info';
         }
     }
@@ -66,7 +66,7 @@
 </script>
 
 {#if $currentAlert}
-    <div 
+    <div
         class="alert-area {position} {getAlertClass($currentAlert.type)}"
         class:faded={$currentAlert.faded}
         on:click={() => handleClick($currentAlert)}
@@ -80,7 +80,7 @@
                 <div class="alert-icon">
                     <svelte:component this={getIcon($currentAlert.type)} size={20} />
                 </div>
-                
+
                 <div class="alert-text">
                     <span class="alert-message">{$currentAlert.message}</span>
                     {#if pendingCount > 0}
@@ -88,7 +88,7 @@
                     {/if}
                 </div>
             </div>
-            
+
             <div class="alert-actions">
                 {#if $currentAlert.retryable && $currentAlert.onRetry}
                     <button
@@ -100,7 +100,7 @@
                         <RotateCcw size={16} />
                     </button>
                 {/if}
-                
+
                 {#if $currentAlert.actions}
                     {#each $currentAlert.actions as action}
                         <button
@@ -112,7 +112,7 @@
                         </button>
                     {/each}
                 {/if}
-                
+
                 {#if $currentAlert.dismissible !== false}
                     <button
                         class="alert-button dismiss-button"
@@ -140,6 +140,7 @@
         transition: all 0.3s ease;
         animation: slide-in 0.3s ease-out;
         border-bottom: 1px solid #e5e7eb;
+		z-index: 30002;
     }
 
     .alert-area.faded {
