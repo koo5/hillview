@@ -7,8 +7,8 @@ import { checkForCriticalErrors } from '../helpers/app-launcher';
 export class HillviewAppPage {
     // Selectors
     private get hamburgerMenu() {
-        // Use data-testid which requires WebView context
-        return $('[data-testid="header-menu-button"]');
+        // Use data-testid which requires WebView context - main page uses hamburger-menu
+        return $('[data-testid="hamburger-menu"]');
     }
 
     private get cameraButton() {

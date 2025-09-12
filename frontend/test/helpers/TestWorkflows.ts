@@ -250,9 +250,9 @@ export class TestWorkflows {
             await this.app.openMenu();
             await driver.pause(1000);
             
-            // Verify menu is open by checking for My Photos link
+            // Verify menu is open by checking for My Photos link (already in WebView context from menu open)
             console.log('🔍 Looking for My Photos menu item...');
-            const photosLink = await $('android=new UiSelector().text("My Photos")');
+            const photosLink = await $('a[href="/photos"]');
             await photosLink.waitForDisplayed({timeout: 10000});
             
             // Navigate to My Photos

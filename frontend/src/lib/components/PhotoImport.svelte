@@ -49,8 +49,8 @@
 								onLogEntry(`⚠️ ${errorMsg}`, 'warning');
 							}
 						});
-						if (result.import_errors.length > 3) {
-							onLogEntry(`⚠️ ...and ${result.import_errors.length - 3} more errors`, 'warning');
+						if (result.importErrors.length > 3) {
+							onLogEntry(`⚠️ ...and ${result.importErrors.length - 3} more errors`, 'warning');
 						}
 					}
 
@@ -60,14 +60,14 @@
 					onLogEntry(`❌ All ${failedCount} files failed to import`, 'error');
 
 					// Show specific failure reasons
-					if (result.import_errors && result.import_errors.length > 0) {
-						result.import_errors.forEach((errorMsg: string, index: number) => {
+					if (result.importErrors && result.importErrors.length > 0) {
+						result.importErrors.forEach((errorMsg: string, index: number) => {
 							if (index < 5) { // Show more errors when everything failed
 								onLogEntry(`• ${errorMsg}`, 'error');
 							}
 						});
-						if (result.import_errors.length > 5) {
-							onLogEntry(`• ...and ${result.import_errors.length - 5} more errors`, 'error');
+						if (result.importErrors.length > 5) {
+							onLogEntry(`• ...and ${result.importErrors.length - 5} more errors`, 'error');
 						}
 					}
 				} else {

@@ -48,7 +48,7 @@ export class LoginHelper {
         console.log('🍔 Opening hamburger menu...');
         // Switch to WebView context to find the button by data-testid
         await this.switchToWebView();
-        const hamburgerMenu = await $('[data-testid="header-menu-button"]');
+        const hamburgerMenu = await $('[data-testid="hamburger-menu"]');
         await hamburgerMenu.waitForDisplayed({ timeout: 10000 });
         await hamburgerMenu.click();
         await driver.pause(2000);
