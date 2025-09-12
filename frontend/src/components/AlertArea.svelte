@@ -130,7 +130,7 @@
 
 <style>
     .alert-area {
-        background: white;
+        /*background: rgba(255, 255, 255, 0.15);*/
         border-radius: 8px;
         padding: 12px 16px;
         margin: 8px 0;
@@ -145,7 +145,7 @@
 
     .alert-area.faded {
         opacity: 0.6;
-        background: #f9fafb;
+        background: rgba(249, 250, 251, 0.8);
     }
 
     .alert-area.header {
@@ -288,7 +288,7 @@
     }
 
     .alert-info {
-        background: #eff6ff;
+        background: rgba(239, 246, 255, 0.55);
         border-left-color: #3b82f6;
         color: #1e40af;
     }

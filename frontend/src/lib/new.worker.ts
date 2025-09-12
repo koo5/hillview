@@ -49,6 +49,8 @@ import { MessageQueue } from './MessageQueue';
 import { PhotoOperations } from './photoOperations';
 import { CullingGrid } from './CullingGrid';
 import {AngularRangeCuller, sortPhotosByBearing} from './AngularRangeCuller';
+import { TAURI } from './tauri';
+import { invoke } from '@tauri-apps/api/core';
 // Note: Using CullingGrid and AngularRangeCuller instead of photoProcessingUtils functions
 
 declare const __WORKER_VERSION__: string;
@@ -286,7 +288,8 @@ async function startProcess(type: 'config' | 'area' | 'sourcesPhotosInArea', mes
             return [];
         },
         sendPhotosInAreaUpdate: () => sendPhotosUpdate(),
-        sendPhotosInRangeUpdate: () => sendPhotosUpdate()
+        sendPhotosInRangeUpdate: () => sendPhotosUpdate(),
+        getValidToken: () => getValidToken()
     };
 
     // Start the actual business logic operations
@@ -329,6 +332,14 @@ async function startProcess(type: 'config' | 'area' | 'sourcesPhotosInArea', mes
 
 
 function handleMessage(message: any): void {
+
+	if (message.type === 'authToken') {
+		if (authTokenPromiseResolve) {
+			authTokenPromiseResolve(message.token);
+			authTokenPromiseResolve = undefined;
+		}
+	}
+
 	// Handle special cleanup message
 	if (message.type === 'cleanup' || message.type === 'terminate') {
 		console.log('🢄NewWorker: Received cleanup/terminate message, cleaning up resources');
@@ -718,4 +729,52 @@ function removeUserPhotosFromCache(userId: string, source: string): void {
 	} else {
 		console.log(`NewWorker: No photos found for source ${source} when trying to remove photos by user ${userId}`);
 	}
+}
+
+
+let authTokenPromise: Promise<string | null> | undefined;
+let authTokenPromiseResolve: ((value: string | null) => void) | undefined;
+
+async function getValidToken(): Promise<string | null>
+{
+	if (authTokenPromise) {
+		return authTokenPromise;
+	}
+
+	authTokenPromise = new Promise<string | null>(async (resolve) => {
+		if (TAURI)
+		{
+			try {
+				const result = await invoke('plugin:hillview|get_auth_token') as {
+					token: string | null;
+					expires_at: string | null;
+					success: boolean;
+					error?: string;
+				};
+
+				if (!result.success) {
+					console.log(`Android reports no valid token: ${result.error}`);
+					resolve(null);
+				}
+
+				if (result.token) {
+					console.log(`Valid token received from Android`);
+					resolve(result.token);
+				} else {
+					console.log(`No token available`);
+					resolve(null);
+				}
+			} catch (error) {
+				console.error('Error getting token from Android:', error);
+				resolve(null);
+			}
+		} else {
+			authTokenPromiseResolve = resolve;
+			postMessage({
+        		type: 'getAuthToken'
+			});
+		}
+	});
+	
+	return authTokenPromise;
 }

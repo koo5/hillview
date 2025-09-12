@@ -3,7 +3,6 @@ import {staggeredLocalStorageSharedStore} from './svelte-shared-store';
 import {backendUrl} from './config';
 import {MAX_DEBUG_MODES} from './constants';
 import {auth} from './auth.svelte';
-import {userPhotos} from './stores';
 // Import new mapState for legacy compatibility only
 import {photoInFront, photoToLeft, photoToRight, updateBearing as mapStateUpdateBearing, bearingState} from './mapState';
 
@@ -49,7 +48,6 @@ export let app = writable<{
     displayMode: 'split' | 'max';
     loading?: boolean;
     isAuthenticated?: boolean;
-    userPhotos?: any[];
     activity: 'capture' | 'view';
 }>({
     error: null,
@@ -99,14 +97,6 @@ auth.subscribe(authState => {
     app.update(a => ({
         ...a,
         isAuthenticated: authState.isAuthenticated
-    }));
-});
-
-// Subscribe to userPhotos store to keep app state in sync
-userPhotos.subscribe(photos => {
-    app.update(a => ({
-        ...a,
-        userPhotos: photos
     }));
 });
 

@@ -22,6 +22,15 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
         super(source, callbacks);
     }
 
+    private async getAuthTokenWithTimeout(timeoutMs: number = 5000): Promise<string | null> {
+        const tokenPromise = this.callbacks.getValidToken();
+        const timeoutPromise = new Promise<null>((_, reject) => {
+            setTimeout(() => reject(new Error('Token request timeout')), timeoutMs);
+        });
+        
+        return await Promise.race([tokenPromise, timeoutPromise]);
+    }
+
     private updateLoadingStatus(isLoading: boolean, progress?: string, error?: string): void {
         // StreamSourceLoader runs only in worker context
         // Send loading status updates via postMessage to main thread
@@ -65,15 +74,22 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
         url.searchParams.set('bottom_right_lon', bounds.bottom_right.lng.toString()); // Changed from bottom_right_lng
 
         // Add client_id parameter (required by server)
-        const clientId = this.source.clientId || 'default'; // Provide default if not specified
+        const clientId = this.source.clientId || 'default';
         url.searchParams.set('client_id', clientId);
         
-        // Add JWT token if provided in source configuration (for EventSource authentication)
-        if (this.source.authToken) {
-            url.searchParams.set('token', this.source.authToken);
-            console.log(`StreamSourceLoader: Adding authentication token to ${this.source.id} request`);
-        } else {
-            console.log(`StreamSourceLoader: No authentication token provided for ${this.source.id} request`);
+        // Add authentication token
+        try {
+            const authToken = await this.getAuthTokenWithTimeout();
+            if (authToken) {
+                url.searchParams.set('token', authToken);
+                console.log(`StreamSourceLoader: Authenticated request for ${this.source.id}`);
+            } else {
+                console.log(`StreamSourceLoader: Anonymous request for ${this.source.id}`);
+            }
+        } catch (error) {
+            console.error(`StreamSourceLoader: Authentication failed for ${this.source.id}:`, error);
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            throw new Error(`Authentication failed: ${errorMessage}`);
         }
 
         // Create completion promise with timeout

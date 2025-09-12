@@ -20,9 +20,6 @@ export interface UserPhoto {
     sizes?: Record<string, { url: string; width: number; height: number; path?: string }>;
 }
 
-// Shared stores that can be imported by both auth and data modules
-export const userPhotos = writable<UserPhoto[]>([]);
-
 // Store for device-captured photos (loaded from backend)
 export const devicePhotos = writable<DevicePhotoMetadata[]>([]);
 

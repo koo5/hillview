@@ -30,7 +30,7 @@ async def get_hillview_images(
 	bottom_right_lon: float = Query(..., description="Bottom right longitude"),
 	client_id: str = Query(..., description="Client ID"),
 	db: AsyncSession = Depends(get_db),
-	current_user: Optional[User] = Depends(get_current_user_optional)
+	current_user: Optional[User] = Depends(get_current_user_optional_with_query)
 ):
 	"""Get Hillview images from database filtered by bounding box area"""
 	# Apply public read rate limiting

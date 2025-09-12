@@ -9,6 +9,7 @@ export interface PhotoSourceCallbacks {
     onProgress?: (loaded: number, total?: number) => void;
     onError?: (error: Error) => void;
     enqueueMessage: (message: any) => void;
+    getValidToken: () => Promise<string | null>;
 }
 
 export interface PhotoSourceLoader {

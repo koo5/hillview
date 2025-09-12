@@ -1,5 +1,4 @@
 import { get } from 'svelte/store';
-import { userPhotos } from './stores';
 import { backendUrl } from './config';
 import { createTokenManager } from './tokenManagerFactory';
 import { TAURI, TAURI_MOBILE } from './tauri';
@@ -11,6 +10,12 @@ import { http } from '$lib/http';
 // Re-export for backward compatibility
 export type { User, AuthState };
 export { auth };
+
+
+auth.subscribe(authState => {
+	console.log('auth store updated:', JSON.stringify(authState));
+});
+
 
 // Configure upload manager for Android
 async function configureUploadManager() {
@@ -50,7 +55,7 @@ export async function completeAuthentication(tokenData: {
             token_type: tokenData.token_type || 'bearer',
             refresh_token_expires_at: tokenData.refresh_token_expires_at
         };
-        
+
         console.log('🢄[AUTH] About to store tokens:', JSON.stringify({
             hasAccessToken: !!tokensToStore.access_token,
             hasRefreshToken: !!tokensToStore.refresh_token,
@@ -58,7 +63,7 @@ export async function completeAuthentication(tokenData: {
             refreshTokenExpiresAt: tokensToStore.refresh_token_expires_at,
             tokenType: tokensToStore.token_type
         }));
-        
+
         await tokenManager.storeTokens(tokensToStore);
         console.log('🢄[AUTH] Tokens stored successfully via TokenManager');
 
@@ -323,42 +328,12 @@ export async function fetchUserData() {
                 user: userData
             };
         });
-
-        // Fetch user photos
-        console.log('🢄[AUTH] Fetching user photos');
-        await fetchUserPhotos();
-
         console.log('🢄[AUTH] === USER DATA FETCH COMPLETE ===');
         return userData;
     } catch (error) {
         console.error('🢄[AUTH] Error fetching user data:', error);
         // If it's a TokenExpiredError, logout was already handled by the http client
         // For other errors, just return null
-        return null;
-    }
-}
-
-export async function fetchUserPhotos() {
-    const a = get(auth);
-
-    // If we're not authenticated, don't try to fetch photos
-    if (!a.isAuthenticated) return null;
-
-    try {
-        const response = await http.get('/photos');
-
-        if (!response.ok) {
-            return null;
-        }
-
-        const photos = await response.json();
-
-        // Update shared store with user photos
-        userPhotos.set(photos);
-
-        return photos;
-    } catch (error) {
-        console.error('🢄[AUTH] Error fetching user photos:', error);
         return null;
     }
 }

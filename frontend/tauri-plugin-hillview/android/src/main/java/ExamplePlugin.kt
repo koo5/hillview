@@ -78,6 +78,11 @@ class TokenExpiryCheckArgs {
   var bufferMinutes: Int = 2
 }
 
+@InvokeArg
+class GetAuthTokenArgs {
+  var force: Boolean = false
+}
+
 @TauriPlugin
 class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     companion object {
@@ -781,18 +786,52 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     @Command
     fun getAuthToken(invoke: Invoke) {
         try {
-            Log.d(TAG, "🔐 Getting auth token (sync version - no refresh)")
-            val (_, expiresAt) = authManager.getTokenInfo()
-            Log.d(TAG, "🔐 Token info retrieved, expires at: $expiresAt")
-            val validToken = authManager.getValidTokenSync()  // Use sync version for Tauri commands
-            Log.d(TAG, "🔐 Valid token result: ${if (validToken != null) "token retrieved" else "null"}")
+            val args = try {
+                invoke.parseArgs(GetAuthTokenArgs::class.java)
+            } catch (e: Exception) {
+                // If parsing fails, use default values (force = false)
+                GetAuthTokenArgs()
+            }
+            val force = args.force
 
-            val result = JSObject()
-            result.put("success", true)
-            result.put("token", validToken)
-            result.put("expiresAt", expiresAt)
+            Log.d(TAG, "🔐 Getting auth token (force: $force)")
 
-            invoke.resolve(result)
+            if (force) {
+                Log.d(TAG, "🔐 Force refresh requested, using async version with refresh")
+                // Use async version for force refresh
+                CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        val validToken = authManager.getValidToken()  // Async version that can refresh
+                        val (_, expiresAt) = authManager.getTokenInfo()
+                        
+                        CoroutineScope(Dispatchers.Main).launch {
+                            val result = JSObject()
+                            result.put("success", true)
+                            result.put("token", validToken)
+                            result.put("expiresAt", expiresAt)
+                            invoke.resolve(result)
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "🔐 Error getting auth token with refresh", e)
+                        CoroutineScope(Dispatchers.Main).launch {
+                            val error = JSObject()
+                            error.put("success", false)
+                            error.put("error", e.message)
+                            invoke.resolve(error)
+                        }
+                    }
+                }
+            } else {
+                Log.d(TAG, "🔐 Normal token request (sync version - no refresh)")
+                val (_, expiresAt) = authManager.getTokenInfo()
+                val validToken = authManager.getValidTokenSync()  // Use sync version for normal requests
+                
+                val result = JSObject()
+                result.put("success", true)
+                result.put("token", validToken)
+                result.put("expiresAt", expiresAt)
+                invoke.resolve(result)
+            }
 
         } catch (e: Exception) {
             Log.e(TAG, "🔐 Error getting auth token", e)

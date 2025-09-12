@@ -4,7 +4,6 @@
     import { User, Mail, Calendar, Trash2, LogOut, Settings, Shield } from 'lucide-svelte';
     import StandardHeaderWithAlert from '../../components/StandardHeaderWithAlert.svelte';
     import { auth, logout } from '$lib/auth.svelte';
-    import { invoke } from '@tauri-apps/api/core';
     import { http, handleApiError, TokenExpiredError } from '$lib/http';
 
     let userInfo: any = null;
@@ -33,7 +32,7 @@
         } catch (error) {
             console.error('🢄Error loading profile:', error);
             errorMessage = handleApiError(error);
-            
+
             // TokenExpiredError is handled automatically by the http client
             // which will call logout and redirect, but we can also check here
             if (error instanceof TokenExpiredError) {
@@ -69,7 +68,7 @@
             }
 
             successMessage = 'Account deleted successfully. You will be redirected...';
-            
+
             // Clear authentication and redirect after a delay
             setTimeout(async () => {
                 await logout();
@@ -94,8 +93,8 @@
 </script>
 
 <div class="profile-container page-scrollable">
-    <StandardHeaderWithAlert 
-        title="User Profile" 
+    <StandardHeaderWithAlert
+        title="User Profile"
         showMenuButton={true}
         fallbackHref="/"
     />
@@ -124,14 +123,14 @@
             <div class="profile-content">
                 <div class="info-section">
                     <h2><User size={20} /> Account Information</h2>
-                    
+
                     <div class="info-grid">
                         <div class="info-item">
                             <User size={16} />
                             <span class="label">Username:</span>
                             <span class="value">{userInfo.username}</span>
                         </div>
-                        
+
                         {#if userInfo.email}
                             <div class="info-item">
                                 <Mail size={16} />
@@ -172,15 +171,15 @@
 
                 <div class="actions-section">
                     <h2><Settings size={20} /> Account Actions</h2>
-                    
+
                     <div class="action-buttons">
                         <button class="action-button logout" on:click={handleLogout}>
                             <LogOut size={20} />
                             Sign Out
                         </button>
-                        
-                        <button 
-                            class="action-button delete" 
+
+                        <button
+                            class="action-button delete"
                             on:click={() => showDeleteConfirm = true}
                         >
                             <Trash2 size={20} />
@@ -196,16 +195,16 @@
                         <div class="delete-confirm-modal" role="dialog" tabindex="-1" on:click|stopPropagation>
                             <h3><Trash2 size={24} /> Delete Account</h3>
                             <p class="warning">
-                                <strong>Warning:</strong> This action cannot be undone. 
+                                <strong>Warning:</strong> This action cannot be undone.
                                 All your data will be permanently deleted.
                             </p>
-                            
+
                             <div class="confirm-input">
                                 <label for="delete-confirm">
                                     Type <strong>DELETE</strong> to confirm:
                                 </label>
-                                <input 
-                                    type="text" 
+                                <input
+                                    type="text"
                                     id="delete-confirm"
                                     bind:value={deleteConfirmText}
                                     placeholder="Type DELETE here"
@@ -213,14 +212,14 @@
                             </div>
 
                             <div class="modal-actions">
-                                <button 
-                                    class="cancel-button" 
+                                <button
+                                    class="cancel-button"
                                     on:click={() => showDeleteConfirm = false}
                                 >
                                     Cancel
                                 </button>
-                                <button 
-                                    class="delete-button" 
+                                <button
+                                    class="delete-button"
                                     on:click={handleDeleteAccount}
                                     disabled={deleteConfirmText !== 'DELETE'}
                                 >

@@ -2,6 +2,7 @@
     import { Menu, ArrowLeft } from 'lucide-svelte';
     import { goBack, canNavigateBack, getPreviousPath } from '$lib/navigation.svelte';
     import { goto } from '$app/navigation';
+    import AlertArea from './AlertArea.svelte';
 
     export let title: string;
     export let showBackButton: boolean = true;
@@ -62,6 +63,7 @@
         <slot name="actions" />
     </div>
 </header>
+<AlertArea position="header" />
 
 <style>
     .standard-header {

@@ -523,9 +523,10 @@
         position: absolute;
         top: 60px; /* Below the top buttons */
         left: 10px;
-        right: 10px;
+        right: 100px;
         z-index: 30000;
         pointer-events: none; /* Let clicks through unless there's an alert */
+		background: rgba(255, 255, 255, 0.2);
     }
 
     .main-page-alert-area :global(.alert-area) {

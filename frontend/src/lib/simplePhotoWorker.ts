@@ -1,7 +1,7 @@
 import {photosInArea, photosInRange, spatialState} from './mapState';
 import {sourceLoadingStatus, sources} from './data.svelte';
 import {get} from 'svelte/store';
-import {auth, getCurrentToken} from './auth.svelte';
+import {getCurrentToken} from './auth.svelte';
 import {addAlert} from './alertSystem.svelte';
 import type {WorkerToastMessage} from './workerToast';
 
@@ -109,9 +109,32 @@ class SimplePhotoWorker {
                 
                 addAlert(toastMessage.message, toastMessage.level, { duration, source: toastMessage.source });
                 break;
+
+            case 'getAuthToken':
+                // Handle auth token requests from worker
+                this.handleAuthTokenRequest();
+                break;
                 
             default:
                 console.warn('🢄SimplePhotoWorker: Unknown message type:', message.type);
+        }
+    }
+
+    private async handleAuthTokenRequest(): Promise<void> {
+        try {
+            const currentToken = await getCurrentToken();
+            console.log(`SimplePhotoWorker: Sending auth token to worker: ${currentToken ? 'token available' : 'no token'}`);
+            
+            this.worker?.postMessage({
+                type: 'authToken',
+                token: currentToken
+            });
+        } catch (error) {
+            console.error('SimplePhotoWorker: Error getting auth token for worker:', error);
+            this.worker?.postMessage({
+                type: 'authToken',
+                token: null
+            });
         }
     }
 
@@ -163,29 +186,10 @@ class SimplePhotoWorker {
 
             console.log('🢄SimplePhotoWorker: Sending config update with sources...');
             
-            // Add auth token to sources that need it
-            const sourcesWithAuth = await Promise.all(sourceList.map(async source => {
-                if (source.type === 'stream') {
-                    const authState = get(auth);
-                    if (authState.isAuthenticated) {
-                        const token = await getCurrentToken();
-                        return {
-                            ...source,
-                            authToken: token
-                        };
-                    }
-                    return {
-                        ...source,
-                        authToken: null
-                    };
-                }
-                return source;
-            }));
-            
             this.sendMessage('configUpdated', {
                 config: {
                     expectedWorkerVersion: __WORKER_VERSION__,
-                    sources: sourcesWithAuth
+                    sources: sourceList
                 }
             });
             

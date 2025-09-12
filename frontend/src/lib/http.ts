@@ -64,12 +64,9 @@ export class HttpClient {
           console.warn('🢄[HTTP] Received 401 Unauthorized response, attempting token refresh');
           
           try {
-            // Try to refresh the token
-            const refreshSuccess = await this.getTokenManager().refreshToken();
-          if (refreshSuccess) {
-            // Retry the request with the new token
-            const newToken = await this.getTokenManager().getValidToken();
-            if (newToken) {
+            // Get fresh token with force refresh (backend rejected the previous token)
+            const newToken = await this.getTokenManager().getValidToken(true);
+            if (newToken && newToken !== token) {
               const retryHeaders = {
                 ...headers,
                 'Authorization': `Bearer ${newToken}`
@@ -80,10 +77,9 @@ export class HttpClient {
                 headers: retryHeaders,
               });
             }
+          } catch (refreshError) {
+            console.error('🢄[HTTP] Token refresh failed:', refreshError);
           }
-        } catch (refreshError) {
-          console.error('🢄[HTTP] Token refresh failed:', refreshError);
-        }
         
         // If refresh failed, logout
         console.warn('🢄[HTTP] Token refresh failed, logging out');

@@ -16,9 +16,10 @@ export interface TokenData {
 export interface TokenManager {
     /**
      * Get a valid access token, refreshing if necessary
+     * @param force If true, force refresh even if token appears valid (e.g., after 401)
      * @returns Valid access token or null if unable to get one
      */
-    getValidToken(): Promise<string | null>;
+    getValidToken(force?: boolean): Promise<string | null>;
     
     /**
      * Manually refresh the current token

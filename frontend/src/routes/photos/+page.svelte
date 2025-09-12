@@ -1,17 +1,15 @@
 <script lang="ts">
 	import {onMount} from 'svelte';
 	import {myGoto} from '$lib/navigation.svelte';
-	import {Upload, Trash2, Map, Settings} from 'lucide-svelte';
+	import { Trash2, Map, Settings} from 'lucide-svelte';
 	import StandardHeaderWithAlert from '../../components/StandardHeaderWithAlert.svelte';
 	import Spinner from '../../components/Spinner.svelte';
 	import PhotoImport from '$lib/components/PhotoImport.svelte';
 	import PhotoUpload from '$lib/components/PhotoUpload.svelte';
 	import {auth, checkAuth} from '$lib/auth.svelte';
-	import {app} from '$lib/data.svelte';
 	import type {UserPhoto} from '$lib/stores';
 	import type {User} from '$lib/auth.svelte';
 	import {http, handleApiError, TokenExpiredError} from '$lib/http';
-	import {backendUrl} from '$lib/config';
 	import {TAURI} from '$lib/tauri';
 	import {navigateWithHistory} from '$lib/navigation.svelte';
 	import {invoke} from '@tauri-apps/api/core';
@@ -94,23 +92,18 @@
 			}
 
 			const data = await response.json();
-			
+
 			const newPhotos = data.photos || [];
 			if (reset) {
 				photos = newPhotos;
 			} else {
 				photos = [...photos, ...newPhotos];
 			}
-			
+
 			nextCursor = data.pagination?.next_cursor || null;
 			hasMore = data.pagination?.has_more || false;
 			totalCount = data.counts?.total || 0;
 
-			// Update app store with user photos
-			app.update(a => ({
-				...a,
-				userPhotos: photos
-			}));
 		} catch (err) {
 			console.error('🢄Error fetching photos:', err);
 			const errorMessage = handleApiError(err);
@@ -127,7 +120,7 @@
 
 	async function loadMorePhotos() {
 		if (!hasMore || loadingMore) return;
-		
+
 		loadingMore = true;
 		try {
 			await fetchPhotos(false);
@@ -168,12 +161,6 @@
 
 			// Remove the photo from the list
 			photos = photos.filter(photo => photo.id !== photoId);
-
-			// Update app store
-			app.update(a => ({
-				...a,
-				userPhotos: photos
-			}));
 
 			addLogEntry(`Deleted: ${photoName}`, 'success');
 
@@ -255,20 +242,20 @@
 </script>
 
 <div class="photos-container page-scrollable">
-	<StandardHeaderWithAlert 
-		title="My Photos" 
+	<StandardHeaderWithAlert
+		title="My Photos"
 		showMenuButton={true}
 		fallbackHref="/"
-	>
-		<div slot="actions">
-			{#if TAURI}
-				<button class="settings-button" on:click={() => showSettings = !showSettings}>
-					<Settings size={20}/>
-					Settings
-				</button>
-			{/if}
+	/>
+
+	{#if TAURI}
+		<div class="page-actions">
+			<button class="settings-button" on:click={() => showSettings = !showSettings}>
+				<Settings size={20}/>
+				Settings
+			</button>
 		</div>
-	</StandardHeaderWithAlert>
+	{/if}
 
 	{#if error}
 		<div class="error-message">{error}</div>
@@ -427,13 +414,13 @@
 					</div>
 				{/each}
 			</div>
-			
+
 			<!-- Load More Button -->
 			{#if hasMore}
 				<div class="load-more-container">
-					<button 
-						class="load-more-button" 
-						on:click={loadMorePhotos} 
+					<button
+						class="load-more-button"
+						on:click={loadMorePhotos}
 						disabled={loadingMore}
 						data-testid="load-more-button"
 					>
@@ -455,6 +442,12 @@
 		max-width: 1200px;
 		margin: 0 auto;
 		padding: 20px;
+	}
+
+	.page-actions {
+		display: flex;
+		justify-content: flex-end;
+		margin-bottom: 16px;
 	}
 
 	h2 {

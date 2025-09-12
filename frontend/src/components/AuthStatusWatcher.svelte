@@ -6,7 +6,7 @@
 
     let refreshStatusAlert: string | null = null;
     let retryTimeoutId: ReturnType<typeof setTimeout> | null = null;
-    
+
     onMount(() => {
         // Watch for auth store changes
         const unsubscribe = auth.subscribe(authState => {
@@ -28,12 +28,19 @@
     });
 
     function handleRefreshStatusChange(status: string, attempt?: number) {
+
+
         // Clear any existing refresh status alerts
         removeAlertsBySource('token_refresh_status');
 
         switch (status) {
             case 'refreshing':
-                // Only show alert after 5 seconds to avoid flashing for fast refreshes
+                // Clear any existing timeout first
+                if (retryTimeoutId) {
+                    clearTimeout(retryTimeoutId);
+                    retryTimeoutId = null;
+                }
+                // Only show alert after some seconds to avoid flashing for fast refreshes
                 retryTimeoutId = setTimeout(() => {
                     refreshStatusAlert = addAlert(
                         'Refreshing authentication...',
@@ -45,7 +52,8 @@
                             dismissible: false // Can't dismiss active refresh
                         }
                     );
-                }, 5000);
+                    retryTimeoutId = null; // Clear the timeout ID after it fires
+                }, 3000);
                 break;
 
             case 'retrying':
@@ -53,7 +61,7 @@
                     clearTimeout(retryTimeoutId);
                     retryTimeoutId = null;
                 }
-                
+
                 refreshStatusAlert = addAlert(
                     `Connection issues - retrying authentication (attempt ${attempt || 1})...`,
                     'warning',
@@ -71,7 +79,7 @@
                     clearTimeout(retryTimeoutId);
                     retryTimeoutId = null;
                 }
-                
+
                 refreshStatusAlert = showTokenRefreshIssue(
                     `Authentication failed after ${attempt || 1} attempts. Check your connection.`,
                     handleManualRetry
@@ -93,7 +101,7 @@
         try {
             const tokenManager = createTokenManager();
             const success = await tokenManager.refreshToken();
-            
+
             if (success) {
                 // Success will be handled by auth store update
                 removeAlertsBySource('token_refresh');
