@@ -22,6 +22,9 @@ logger = logging.getLogger(__name__)
 # API server keys (loaded once at startup - environment is now initialized)
 PRIVATE_KEY, PUBLIC_KEY = load_or_generate_keys("API server")
 
+# Import refresh token expiration configuration (in minutes)
+REFRESH_TOKEN_EXPIRE_MINUTES = int(os.getenv("REFRESH_TOKEN_EXPIRE_MINUTES", str(7 * 24 * 60)))  # Default 7 days
+
 def create_access_token(data: dict, expires_delta: Optional[int] = None) -> Tuple[str, datetime]:
 	"""Create an access token for user authentication."""
 	expires_minutes = expires_delta or 30  # Default 30 minutes
@@ -35,7 +38,7 @@ def create_access_token(data: dict, expires_delta: Optional[int] = None) -> Tupl
 
 def create_refresh_token(data: dict) -> Tuple[str, datetime]:
 	"""Create a refresh token with longer expiration."""
-	expires_minutes = 7 * 24 * 60  # 7 days
+	expires_minutes = REFRESH_TOKEN_EXPIRE_MINUTES
 	
 	to_encode = {
 		**data,

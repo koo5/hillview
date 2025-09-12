@@ -33,8 +33,7 @@ if SECRET_KEY == DEFAULT_SECRET_KEY:
 	logger.warning("Using auto-generated JWT secret key. Set SECRET_KEY environment variable in production!")
 
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
-REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1"))
 
 # Test users configuration
 TEST_USERS = os.getenv("TEST_USERS", "false").lower() in ("true", "1", "yes")
@@ -265,7 +264,7 @@ async def get_current_user_optional(
 		token_data_dict = validate_token(token)
 		if not token_data_dict:
 			return None
-			
+
 		user_id = token_data_dict.get("sub")
 		if user_id is None:
 			return None
@@ -274,7 +273,7 @@ async def get_current_user_optional(
 		if await is_token_blacklisted(token, db):
 			logger.warning(f"Blacklisted token used for user ID: {user_id}")
 			return None
-			
+
 		# Get user from database by ID
 		result = await db.execute(select(User).where(User.id == user_id))
 		user = result.scalars().first()
@@ -301,7 +300,7 @@ async def get_current_user_optional_with_query(
 			token_data_dict = validate_token(token)
 			if not token_data_dict:
 				return None
-				
+
 			user_id = token_data_dict.get("sub")
 			if user_id is None:
 				return None
@@ -331,7 +330,7 @@ async def get_current_user_optional_with_query(
 				token_data_dict = validate_token(query_token)
 				if not token_data_dict:
 					return None
-					
+
 				user_id = token_data_dict.get("sub")
 				if user_id is None:
 					return None

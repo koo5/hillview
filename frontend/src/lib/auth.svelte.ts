@@ -68,6 +68,13 @@ export async function completeAuthentication(tokenData: {
             isAuthenticated: true
         }));
 
+        // Register client public key for web (async, don't block authentication)
+        if ('registerClientPublicKey' in tokenManager) {
+            (tokenManager as any).registerClientPublicKey().catch((error: any) => {
+                console.debug('🢄[AUTH] Failed to register client public key:', error);
+            });
+        }
+
         // Fetch user data
         const userData = await fetchUserData();
         console.log('🢄[AUTH] User data fetched:', userData);
@@ -288,34 +295,14 @@ export async function fetchUserData() {
 
     console.log('🢄[AUTH] fetchUserData - Current auth state: isAuthenticated:', a.isAuthenticated, 'Has user:', !!a.user);
 
-    // Get token from TokenManager
-    const tokenToUse = await getCurrentToken();
-    console.log('🢄[AUTH] - Token from TokenManager:', tokenToUse ? 'exists' : 'none');
-    if (tokenToUse) {
-        console.log('🢄[AUTH]2   - Token preview:', tokenToUse.substring(0, 10) + '...');
-    }
-
-    if (!tokenToUse) {
-        console.error('🢄[AUTH] NO TOKEN AVAILABLE to fetch user data');
-        return null;
-    }
-
+    try {
         console.log('🢄[AUTH] Making API request to /api/auth/me');
-        const response = await fetch(backendUrl+'/auth/me', {
-            headers: {
-                'Authorization': `Bearer ${tokenToUse}`
-            }
-        });
+        const response = await http.get('/auth/me');
 
         console.log('🢄[AUTH] - API response status:', response.status);
 
         if (!response.ok) {
             console.error('🢄[AUTH] API request failed:', response.status, response.statusText);
-
-            if (response.status === 401) {
-                console.log('🢄[AUTH] UNAUTHORIZED: Token expired or invalid, logging out');
-                logout();
-            }
             return null;
         }
 
@@ -343,6 +330,12 @@ export async function fetchUserData() {
 
         console.log('🢄[AUTH] === USER DATA FETCH COMPLETE ===');
         return userData;
+    } catch (error) {
+        console.error('🢄[AUTH] Error fetching user data:', error);
+        // If it's a TokenExpiredError, logout was already handled by the http client
+        // For other errors, just return null
+        return null;
+    }
 }
 
 export async function fetchUserPhotos() {
@@ -351,24 +344,10 @@ export async function fetchUserPhotos() {
     // If we're not authenticated, don't try to fetch photos
     if (!a.isAuthenticated) return null;
 
-    // Get token from TokenManager
-    const tokenToUse = await getCurrentToken();
-    if (!tokenToUse) {
-        console.error('🢄[AUTH] No token available to fetch user photos');
-        return null;
-    }
-
-        const response = await fetch(backendUrl+'/photos', {
-            headers: {
-                'Authorization': `Bearer ${tokenToUse}`
-            }
-        });
+    try {
+        const response = await http.get('/photos');
 
         if (!response.ok) {
-            if (response.status === 401) {
-                // Token is invalid, log out
-                logout();
-            }
             return null;
         }
 
@@ -378,6 +357,10 @@ export async function fetchUserPhotos() {
         userPhotos.set(photos);
 
         return photos;
+    } catch (error) {
+        console.error('🢄[AUTH] Error fetching user photos:', error);
+        return null;
+    }
 }
 
 // Check token validity on app start

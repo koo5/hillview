@@ -59,11 +59,13 @@ export class HttpClient {
       
       // Handle authentication errors
       if (response.status === 401) {
-        console.warn('🢄[HTTP] Received 401 Unauthorized response, attempting token refresh');
-        
-        try {
-          // Try to refresh the token
-          const refreshSuccess = await this.getTokenManager().refreshToken();
+        // Only attempt refresh if we actually sent an auth token that was rejected
+        if (token) {
+          console.warn('🢄[HTTP] Received 401 Unauthorized response, attempting token refresh');
+          
+          try {
+            // Try to refresh the token
+            const refreshSuccess = await this.getTokenManager().refreshToken();
           if (refreshSuccess) {
             // Retry the request with the new token
             const newToken = await this.getTokenManager().getValidToken();
@@ -87,6 +89,10 @@ export class HttpClient {
         console.warn('🢄[HTTP] Token refresh failed, logging out');
         logout('Session expired');
         throw new TokenExpiredError();
+        } else {
+          // No token was sent, so this is just an unauthenticated request to a protected endpoint
+          // Don't attempt refresh or logout, just return the 401 response
+        }
       }
       
       return response;

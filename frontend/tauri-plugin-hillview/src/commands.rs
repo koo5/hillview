@@ -279,3 +279,21 @@ pub(crate) async fn import_photos<R: Runtime>(
         return Err(crate::Error::from("Photo import is only available on mobile devices"));
     }
 }
+
+#[command]
+pub(crate) async fn register_client_public_key<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<BasicResponse> {
+    #[cfg(mobile)]
+    {
+        return app.hillview().register_client_public_key();
+    }
+
+    #[cfg(desktop)]
+    {
+        return Ok(BasicResponse {
+            success: true,
+            error: None,
+        });
+    }
+}

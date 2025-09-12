@@ -997,6 +997,58 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     }
 
     @Command
+    fun registerClientPublicKey(invoke: Invoke) {
+        try {
+            Log.d(TAG, "🔐 Registering client public key")
+
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    // Get current valid token for the registration request
+                    val token = authManager.getValidToken()
+                    
+                    if (token == null) {
+                        CoroutineScope(Dispatchers.Main).launch {
+                            val error = JSObject()
+                            error.put("success", false)
+                            error.put("error", "No valid auth token available for client key registration")
+                            invoke.resolve(error)
+                        }
+                        return@launch
+                    }
+
+                    // Use the existing registerClientPublicKey method from AuthenticationManager
+                    val success = authManager.registerClientPublicKey(token)
+
+                    CoroutineScope(Dispatchers.Main).launch {
+                        val result = JSObject()
+                        result.put("success", success)
+                        if (!success) {
+                            result.put("error", "Client public key registration failed")
+                        }
+                        invoke.resolve(result)
+                    }
+
+                } catch (e: Exception) {
+                    Log.e(TAG, "🔐 Error during client key registration", e)
+                    CoroutineScope(Dispatchers.Main).launch {
+                        val error = JSObject()
+                        error.put("success", false)
+                        error.put("error", e.message)
+                        invoke.resolve(error)
+                    }
+                }
+            }
+
+        } catch (e: Exception) {
+            Log.e(TAG, "🔐 Error starting client key registration", e)
+            val error = JSObject()
+            error.put("success", false)
+            error.put("error", e.message)
+            invoke.resolve(error)
+        }
+    }
+
+    @Command
     fun getDevicePhotos(invoke: Invoke) {
         try {
             Log.d(TAG, "📸 Getting device photos from database")

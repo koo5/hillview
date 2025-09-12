@@ -257,18 +257,9 @@ export class WebTokenManager implements TokenManager {
                 ...state,
                 isAuthenticated: true
             }));
-
-            // Register client public key with server after successful authentication
-            try {
-                await this.registerClientPublicKey();
-            } catch (error) {
-                console.debug(`${this.LOG_PREFIX} Failed to register client public key:`, error);
-                // Don't fail the login process, but log the error
-            }
-
     }
 
-    private async registerClientPublicKey(): Promise<void> {
+    async registerClientPublicKey(): Promise<void> {
         try {
             console.log(`${this.LOG_PREFIX} Registering client public key with server`);
 

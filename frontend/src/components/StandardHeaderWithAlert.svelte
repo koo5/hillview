@@ -21,7 +21,7 @@
 </script>
 
 <div class="header-with-alert">
-    <StandardHeader 
+    <StandardHeader
         {title}
         {showBackButton}
         {showMenuButton}
@@ -29,11 +29,9 @@
         {fallbackHref}
         {useSmartBack}
     >
+		<AlertArea position="header" />
         <slot name="actions" slot="actions" />
     </StandardHeader>
-    
-    <AlertArea position="header" />
-    
     <NavigationMenu isOpen={menuOpen} onClose={closeMenu} />
 </div>
 

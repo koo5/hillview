@@ -51,6 +51,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
       commands::store_auth_token,
       commands::get_auth_token,
       commands::clear_auth_token,
+      commands::register_client_public_key,
       // Photo database bridge commands
       commands::get_device_photos,
       commands::refresh_photo_scan,

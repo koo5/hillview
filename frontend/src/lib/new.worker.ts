@@ -327,6 +327,7 @@ async function startProcess(type: 'config' | 'area' | 'sourcesPhotosInArea', mes
     }
 }
 
+
 function handleMessage(message: any): void {
 	// Handle special cleanup message
 	if (message.type === 'cleanup' || message.type === 'terminate') {
