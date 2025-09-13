@@ -12,9 +12,10 @@
     }
 
     // Log photo count changes
+    /*
     $: if ($photosInRange) {
         console.log(`Gallery: Displaying ${$photosInRange.length} photos in range`);
-    }
+    }*/
 </script>
 
 <div class="gallery-wrapper">

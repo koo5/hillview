@@ -6,6 +6,7 @@ import { auth, type User, type AuthState } from './authStore';
 import { invoke } from '@tauri-apps/api/core';
 import { myGoto } from './navigation.svelte';
 import { http } from '$lib/http';
+import { clearAlerts } from './alertSystem.svelte';
 
 // Re-export for backward compatibility
 export type { User, AuthState };
@@ -66,6 +67,9 @@ export async function completeAuthentication(tokenData: {
 
         await tokenManager.storeTokens(tokensToStore);
         console.log('🢄[AUTH] Tokens stored successfully via TokenManager');
+
+        // Clear accumulated alerts on successful login
+        clearAlerts();
 
         // Update auth store - tokens stored means authenticated
         auth.update(a => ({

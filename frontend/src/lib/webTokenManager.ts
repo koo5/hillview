@@ -19,7 +19,7 @@ export class WebTokenManager implements TokenManager {
 
     async getValidToken(force: boolean = false): Promise<string | null> {
         try {
-            console.log(`${this.LOG_PREFIX} getValidToken...`);
+            //console.log(`${this.LOG_PREFIX} getValidToken...`);
 
             // If refresh is already in progress, wait for it
             if (this.refreshPromise) {
@@ -68,7 +68,7 @@ export class WebTokenManager implements TokenManager {
                 }
             }
 
-            console.log(`${this.LOG_PREFIX} Returning token valid until ${localStorage.getItem('token_expires')}`);
+            //console.log(`${this.LOG_PREFIX} Returning token valid until ${localStorage.getItem('token_expires')}`);
             return token;
 
         } catch (error) {
@@ -331,7 +331,7 @@ export class WebTokenManager implements TokenManager {
             const bufferMs = bufferMinutes * 60 * 1000;
             const isExpired = (expiresAt.getTime() - bufferMs) <= now.getTime();
 
-            console.log(`${this.LOG_PREFIX} Token expires at ${expiresAtStr} -> ${expiresAt.toISOString()}, current time ${now.toISOString()}, expired: ${isExpired}`);
+            console.log(`${this.LOG_PREFIX} Token expires ${expiresAt.toISOString()}, now ${now.toISOString()}, expired: ${isExpired}`);
 
             if (isExpired) {
                 console.log(`${this.LOG_PREFIX} Token expired or expiring soon`);

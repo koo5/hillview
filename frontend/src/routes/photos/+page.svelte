@@ -51,6 +51,9 @@
 
 		// Subscribe to userId changes to avoid reactive loops from auth store updates during token refresh
 		const unsubscribe = userId.subscribe(async (currentUserId) => {
+
+			console.info(`🢄 [/PHOTOS] userId changed: ${currentUserId}, reloading photos...`);
+
 			// Get the current auth state when userId changes
 			const currentAuth = get(auth);
 			user = currentAuth.isAuthenticated ? currentAuth.user : null;
@@ -93,7 +96,7 @@
 				totalCount = 0;
 			}
 
-			const url = nextCursor ? `/photos?cursor=${encodeURIComponent(nextCursor)}` : '/photos';
+			const url = nextCursor ? `/photos/?cursor=${encodeURIComponent(nextCursor)}` : '/photos/';
 			const response = await http.get(url);
 
 			if (!response.ok) {
@@ -251,17 +254,17 @@
 
 	async function setPhotoRating(photoId: number, rating: 'thumbs_up' | 'thumbs_down') {
 		console.log(`Setting ${rating} for photo ${photoId}`);
-		
+
 		try {
 			const response = await http.post(`/ratings/hillview/${photoId}`, { rating });
-			
+
 			if (!response.ok) {
 				throw new Error(`Failed to set rating: ${response.status}`);
 			}
-			
+
 			const data = await response.json();
 			console.log('Rating response:', data);
-			
+
 			// Update the photo in our local array
 			photos = photos.map(photo => {
 				if (photo.id === photoId) {
@@ -273,9 +276,9 @@
 				}
 				return photo;
 			});
-			
+
 			addLogEntry(`Rated photo ${rating.replace('_', ' ')}`, 'success');
-			
+
 		} catch (err) {
 			console.error('Error setting rating:', err);
 			const errorMessage = handleApiError(err);
@@ -285,17 +288,17 @@
 
 	async function removePhotoRating(photoId: number) {
 		console.log(`Removing rating for photo ${photoId}`);
-		
+
 		try {
 			const response = await http.delete(`/ratings/hillview/${photoId}`);
-			
+
 			if (!response.ok) {
 				throw new Error(`Failed to remove rating: ${response.status}`);
 			}
-			
+
 			const data = await response.json();
 			console.log('Rating removal response:', data);
-			
+
 			// Update the photo in our local array
 			photos = photos.map(photo => {
 				if (photo.id === photoId) {
@@ -307,9 +310,9 @@
 				}
 				return photo;
 			});
-			
+
 			addLogEntry('Rating removed', 'success');
-			
+
 		} catch (err) {
 			console.error('Error removing rating:', err);
 			const errorMessage = handleApiError(err);
@@ -320,7 +323,7 @@
 	async function handleRatingClick(photoId: number, rating: 'thumbs_up' | 'thumbs_down') {
 		const photo = photos.find(p => p.id === photoId);
 		if (!photo) return;
-		
+
 		// If user clicks the same rating they already have, remove it
 		if (photo.user_rating === rating) {
 			await removePhotoRating(photoId);
@@ -493,7 +496,7 @@
 										View on Map
 									</button>
 								{/if}
-								<button 
+								<button
 									class="action-button rating {photo.user_rating === 'thumbs_up' ? 'active' : ''}"
 									data-testid="thumbs-up-button"
 									data-photo-id={photo.id}
@@ -504,7 +507,7 @@
 										{photo.rating_counts?.thumbs_up || 0}
 									</span>
 								</button>
-								<button 
+								<button
 									class="action-button rating {photo.user_rating === 'thumbs_down' ? 'active' : ''}"
 									data-testid="thumbs-down-button"
 									data-photo-id={photo.id}

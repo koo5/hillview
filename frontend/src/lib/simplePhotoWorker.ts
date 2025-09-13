@@ -76,9 +76,9 @@ class SimplePhotoWorker {
                 // New worker sends raw photo arrays directly (no serialization needed)
                 const areaPhotos = message.photosInArea || [];
                 const rangePhotos = message.photosInRange || [];
-                
-                console.log(`SimplePhotoWorker: Updated photos - Area: ${areaPhotos.length}, Range: ${rangePhotos.length}, Range: ${message.currentRange}m`);
-                
+
+                console.log(`SimplePhotoWorker: Updated photos - Area: ${areaPhotos.length}, Range: ${message.currentRange}m, rangePhotos.length: ${rangePhotos.length}`);
+
                 photosInArea.set(areaPhotos);
                 photosInRange.set(rangePhotos);
                 break;
@@ -103,11 +103,11 @@ class SimplePhotoWorker {
                 // Handle toast messages from worker
                 const toastMessage = message as WorkerToastMessage;
                 console.log(`SimplePhotoWorker: Received toast from worker: ${toastMessage.level} - ${toastMessage.message} (source: ${toastMessage.source})`);
-                
+
                 // Convert worker toast to main thread toast
-                const duration = toastMessage.duration !== undefined ? toastMessage.duration : 
+                const duration = toastMessage.duration !== undefined ? toastMessage.duration :
                     (toastMessage.level === 'error' ? 0 : 5000); // Persistent errors, auto-dismiss others
-                
+
                 addAlert(toastMessage.message, toastMessage.level, { duration, source: toastMessage.source });
                 break;
 
@@ -115,7 +115,7 @@ class SimplePhotoWorker {
                 // Handle auth token requests from worker
                 this.handleAuthTokenRequest(message.forceRefresh);
                 break;
-                
+
             default:
                 console.warn('🢄SimplePhotoWorker: Unknown message type:', message.type);
         }
@@ -127,7 +127,7 @@ class SimplePhotoWorker {
             const tokenManager = createTokenManager();
             const currentToken = await tokenManager.getValidToken(forceRefresh);
             console.log(`SimplePhotoWorker: Sending auth token to worker: ${currentToken ? 'token available' : 'no token'}${forceRefresh ? ' (refreshed)' : ''}`);
-            
+
             this.worker?.postMessage({
                 type: 'authToken',
                 token: currentToken
@@ -141,26 +141,32 @@ class SimplePhotoWorker {
         }
     }
 
-    private boundsChangeSignificant(oldBounds: any, newBounds: any): number {
+    private boundsChangeSignificant(oldBounds: any, newBounds: any): boolean {
         // Calculate old area dimensions
         const oldHeight = Math.abs(oldBounds.top_left.lat - oldBounds.bottom_right.lat);
         const oldWidth = Math.abs(oldBounds.bottom_right.lng - oldBounds.top_left.lng);
-        
-        // 10% threshold distances
-        const latThreshold = oldHeight * 0.1;
-        const lngThreshold = oldWidth * 0.1;
-        
+
+        const latThreshold = oldHeight * 0.001;
+        const lngThreshold = oldWidth * 0.001;
+
         // Check if both corners are within threshold distances
         const topLeftLatDiff = Math.abs(newBounds.top_left.lat - oldBounds.top_left.lat);
         const topLeftLngDiff = Math.abs(newBounds.top_left.lng - oldBounds.top_left.lng);
         const bottomRightLatDiff = Math.abs(newBounds.bottom_right.lat - oldBounds.bottom_right.lat);
         const bottomRightLngDiff = Math.abs(newBounds.bottom_right.lng - oldBounds.bottom_right.lng);
-        
+
         const topLeftWithinThreshold = topLeftLatDiff <= latThreshold && topLeftLngDiff <= lngThreshold;
         const bottomRightWithinThreshold = bottomRightLatDiff <= latThreshold && bottomRightLngDiff <= lngThreshold;
-        
+
+		/*console.log('SimplePhotoWorker: Bounds change differences:', {
+		oldHeight, oldWidth, latThreshold, lngThreshold, topLeftLatDiff, topLeftLngDiff, bottomRightLatDiff, bottomRightLngDiff,
+		topLeftWithinThreshold, bottomRightWithinThreshold
+		});*/
+
         // Return 0 if both corners are within threshold (no significant change), 1 otherwise
-        return (topLeftWithinThreshold && bottomRightWithinThreshold) ? 0 : 1;
+        const result = !(topLeftWithinThreshold && bottomRightWithinThreshold);
+		//console.log('SimplePhotoWorker: Bounds change significant:', result);
+		return result;
     }
 
     private setupReactivity(): void {
@@ -170,10 +176,10 @@ class SimplePhotoWorker {
 
             // Skip update if bounds haven't changed significantly (hysteresis)
 			// TODO: we could skip area load, but we can't skip range filter
-            /*if (this.lastBounds && this.boundsChangeSignificant(this.lastBounds, spatial.bounds) < 0.003) {
+            if (this.lastBounds && !this.boundsChangeSignificant(this.lastBounds, spatial.bounds)) {
                 console.log('🢄SimplePhotoWorker: Skipping area update - bounds change too small');
                 return;
-            }*/
+            }
 
             console.log(`SimplePhotoWorker: Sending area update with range ${spatial.range}m...`);
             this.lastBounds = spatial.bounds;
@@ -188,14 +194,14 @@ class SimplePhotoWorker {
             if (!this.isInitialized) return;
 
             console.log('🢄SimplePhotoWorker: Sending config update with sources...');
-            
+
             this.sendMessage('configUpdated', {
                 config: {
                     expectedWorkerVersion: __WORKER_VERSION__,
                     sources: sourceList
                 }
             });
-            
+
             // Also trigger area update after config to ensure streaming sources load with current bounds
             const currentSpatial = get(spatialState);
             if (currentSpatial.bounds) {

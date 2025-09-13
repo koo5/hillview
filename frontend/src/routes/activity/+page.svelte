@@ -16,6 +16,7 @@
 		longitude?: number;
 		width?: number;
 		height?: number;
+		sizes?: Record<string, { path: string; url: string; width: number; height: number }>;
 		owner_username: string;
 		owner_id: string;
 	}
@@ -38,21 +39,21 @@
 		try {
 			loading = true;
 			error = '';
-			
+
 			const response = await http.get('/activity/recent');
-			
+
 			if (!response.ok) {
 				throw new Error(`Failed to fetch activity data: ${response.status}`);
 			}
-			
+
 			const data = await response.json();
-			
+
 			// Group photos by date and then by user
 			const grouped: { [date: string]: ActivityGroup } = {};
-			
+
 			data.forEach((photo: ActivityPhoto) => {
 				const date = new Date(photo.uploaded_at).toISOString().split('T')[0];
-				
+
 				if (!grouped[date]) {
 					grouped[date] = {
 						date,
@@ -60,20 +61,20 @@
 						userGroups: {}
 					};
 				}
-				
+
 				grouped[date].photos.push(photo);
-				
+
 				if (!grouped[date].userGroups[photo.owner_username]) {
 					grouped[date].userGroups[photo.owner_username] = [];
 				}
 				grouped[date].userGroups[photo.owner_username].push(photo);
 			});
-			
+
 			// Convert to array and sort by date (newest first)
-			activityData = Object.values(grouped).sort((a, b) => 
+			activityData = Object.values(grouped).sort((a, b) =>
 				new Date(b.date).getTime() - new Date(a.date).getTime()
 			);
-			
+
 		} catch (err) {
 			console.error('🢄Error loading activity data:', err);
 			error = handleApiError(err);
@@ -87,30 +88,30 @@
 		const today = new Date();
 		const yesterday = new Date(today);
 		yesterday.setDate(yesterday.getDate() - 1);
-		
+
 		if (date.toDateString() === today.toDateString()) {
 			return 'Today';
 		} else if (date.toDateString() === yesterday.toDateString()) {
 			return 'Yesterday';
 		} else {
-			return date.toLocaleDateString('en-US', { 
-				weekday: 'long', 
-				year: 'numeric', 
-				month: 'long', 
-				day: 'numeric' 
+			return date.toLocaleDateString('en-US', {
+				weekday: 'long',
+				year: 'numeric',
+				month: 'long',
+				day: 'numeric'
 			});
 		}
 	}
 
 	function formatTime(dateStr: string): string {
-		return new Date(dateStr).toLocaleTimeString('en-US', { 
-			hour: '2-digit', 
-			minute: '2-digit' 
+		return new Date(dateStr).toLocaleTimeString('en-US', {
+			hour: '2-digit',
+			minute: '2-digit'
 		});
 	}
 
 	function getPhotoUrl(photo: ActivityPhoto): string {
-		return `/api/photos/${photo.id}/download?size=thumbnail`;
+		return photo.sizes?.['320']?.url;
 	}
 </script>
 
@@ -118,8 +119,8 @@
 	<title>Activity - Hillview</title>
 </svelte:head>
 
-<StandardHeaderWithAlert 
-	title="Recent Activity" 
+<StandardHeaderWithAlert
+	title="Recent Activity"
 	showMenuButton={true}
 	fallbackHref="/"
 />
@@ -148,20 +149,20 @@
 				{#each activityData as group}
 					<div class="day-group">
 						<h2 class="day-header">{formatDate(group.date)}</h2>
-						
+
 						{#each Object.entries(group.userGroups) as [username, userPhotos]}
 							<div class="user-group">
 								<h3 class="user-header">
 									{username}
 									<span class="photo-count">({userPhotos.length} photo{userPhotos.length !== 1 ? 's' : ''})</span>
 								</h3>
-								
+
 								<div class="photo-grid">
 									{#each userPhotos as photo}
 										<div class="photo-item">
 											<div class="photo-thumbnail">
-												<img 
-													src={getPhotoUrl(photo)} 
+												<img
+													src={getPhotoUrl(photo)}
 													alt={photo.original_filename}
 													loading="lazy"
 												/>
@@ -348,15 +349,15 @@
 	}
 
 	@media (max-width: 768px) {
-		
+
 		.photo-grid {
 			grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
 			gap: 0.75rem;
 		}
-		
+
 		.day-group {
 			padding: 1rem;
 		}
-		
+
 	}
 </style>

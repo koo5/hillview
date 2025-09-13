@@ -58,6 +58,7 @@ async def get_recent_activity(
 				"longitude": photo.longitude,
 				"width": photo.width,
 				"height": photo.height,
+				"sizes": photo.sizes,
 				"owner_username": username,
 				"owner_id": photo.owner_id
 			})
