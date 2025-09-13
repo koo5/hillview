@@ -123,6 +123,8 @@ async def save_processed_photo(
 				detail="Client public key not found or inactive"
 			)
 
+		logger.info(f"Verifying client signature for photo {photo_id} using public key ID {client_public_key.key_id}")
+
 		# Verify client signature
 		if not verify_client_signature(
 			signature_base64=processed_data.client_signature,
@@ -218,7 +220,7 @@ async def list_photos(
 			.group_by(Photo.processing_status)
 		)
 		counts_by_status = dict(counts_result.fetchall())
-		
+
 		# Calculate totals
 		total_count = sum(counts_by_status.values())
 		completed_count = counts_by_status.get("completed", 0)
@@ -237,7 +239,7 @@ async def list_photos(
 				elif ' 00:00' in cursor:
 					# Fix URL decoding that converts + to space
 					cursor_fixed = cursor.replace(' 00:00', '+00:00')
-				
+
 				cursor_timestamp = datetime.fromisoformat(cursor_fixed)
 				query = query.where(Photo.uploaded_at < cursor_timestamp)
 			except (ValueError, TypeError) as e:
@@ -533,7 +535,7 @@ def verify_client_signature(signature_base64: str, public_key_pem: str, photo_id
 		logger.debug(f"Loading client public key for photo {photo_id}, public key pem: {public_key_pem}")
 		public_key = serialization.load_pem_public_key(public_key_pem.encode())
 		logger.debug(f"Client public key loaded successfully: {public_key}")
-		
+
 		# Debug public key details
 		try:
 			public_key_info = public_key.public_numbers()
@@ -569,7 +571,7 @@ def verify_client_signature(signature_base64: str, public_key_pem: str, photo_id
 			r = int.from_bytes(signature_bytes[:32], byteorder='big')
 			s = int.from_bytes(signature_bytes[32:], byteorder='big')
 			logger.debug(f"P1363 components: r={r}, s={s}")
-			
+
 			try:
 				from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
 				signature_bytes = encode_dss_signature(r, s)
@@ -585,7 +587,7 @@ def verify_client_signature(signature_base64: str, public_key_pem: str, photo_id
 		logger.debug(f"About to verify signature using cryptography library")
 		logger.debug(f"Message bytes length: {len(message.encode('utf-8'))}")
 		logger.debug(f"Signature bytes length after conversion: {len(signature_bytes)}")
-		
+
 		# Test: Create a self-signature to verify our public key works
 		try:
 			logger.debug("Testing public key with self-verification...")
@@ -594,7 +596,7 @@ def verify_client_signature(signature_base64: str, public_key_pem: str, photo_id
 			logger.debug("Public key appears valid for verification operations")
 		except Exception as key_test_error:
 			logger.error(f"Public key test failed: {key_test_error}")
-		
+
 		try:
 			public_key.verify(
 				signature_bytes,
@@ -605,14 +607,14 @@ def verify_client_signature(signature_base64: str, public_key_pem: str, photo_id
 			return True
 		except Exception as verify_error:
 			logger.error(f"Cryptography library verification failed: {type(verify_error).__name__}: {verify_error}")
-			
+
 			# Additional debugging: try to understand why verification failed
 			logger.debug("Additional verification debugging:")
 			logger.debug(f"Message (raw string): '{message}'")
 			logger.debug(f"Message (UTF-8 bytes): {message.encode('utf-8')}")
 			logger.debug(f"Message (UTF-8 hex): {message.encode('utf-8').hex()}")
 			logger.debug(f"DER signature length: {len(signature_bytes)} bytes")
-			
+
 			# Check if there might be Unicode normalization issues
 			import unicodedata
 			normalized_message = unicodedata.normalize('NFC', message)
@@ -622,7 +624,7 @@ def verify_client_signature(signature_base64: str, public_key_pem: str, photo_id
 				logger.debug(f"Normalized UTF-8 hex: {normalized_message.encode('utf-8').hex()}")
 			else:
 				logger.debug("No Unicode normalization issues detected")
-			
+
 			return False
 
 	except Exception as e:

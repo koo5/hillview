@@ -53,6 +53,15 @@ WORKDIR /app/worker/
 COPY worker/requirements.txt /app/worker/requirements.txt
 RUN pip install --no-cache-dir -r /app/worker/requirements.txt
 
+
+#RUN echo "========================================="
+#RUN echo "===="; find / | grep -i yolo
+#RUN echo "========================================="
+#RUN echo "===="; find / | grep -i __pycache__ | wc -l
+#RUN echo "========================================="
+#RUN echo "===="; date --utc
+
+
 # Run as non-root user
 RUN useradd --create-home --shell /bin/bash worker
 
@@ -78,4 +87,14 @@ RUN chown -R worker:worker /app
 
 USER worker
 RUN chmod +x /app/worker/start*.sh
-CMD /app/worker/start.sh
+
+
+#RUN echo "========================================="
+#RUN find / | grep -i yolo
+#RUN echo "========================================="
+#RUN find / | grep -i __pycache__ | wc -l
+#RUN echo "========================================="
+#RUN date --utc
+
+
+CMD ["/app/worker/start.sh"]

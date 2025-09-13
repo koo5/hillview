@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 
-#set -x
+set -x
+
+
+#echo "========================================="
+#find / | grep -i yolo
+#echo "========================================="
+#find / | grep -i __pycache__ | wc -l
+#echo "========================================="
+#date --utc
+
 
 touch /home/worker/.config/Ultralytics/test
 
