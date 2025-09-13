@@ -56,6 +56,8 @@ export const config: Options.Testrunner = {
         'appium:autoGrantPermissions': false, // Don't auto-grant to test permission flows
         // Reduce retry attempts for faster failure recovery
         'appium:uiautomator2ServerReadTimeout': 20000,
+        // Increase ADB execution timeout to handle slow emulator responses
+        'appium:adbExecTimeout': 60000,
         // Chrome driver setup for WebView support
         'appium:chromedriverExecutable': '/tmp/chromedriver-linux64/chromedriver'
     }],
