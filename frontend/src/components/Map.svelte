@@ -1249,7 +1249,7 @@
                 class={source.enabled ? 'active' : ''}
                 on:click={() => toggleSourceVisibility(source.id)}
                 title={`Toggle ${source.name} photos`}
-                data-testid="source-toggle-{source.id}"
+                data-testid={`source-toggle-${source.id}`}
         >
             <div class="source-icon-wrapper">
                 <Spinner show={source.enabled && (source.type === 'stream' ? $sourceLoadingStatus[source.id]?.isLoading || false : !!(source.requests && source.requests.length))} color="#fff"></Spinner>

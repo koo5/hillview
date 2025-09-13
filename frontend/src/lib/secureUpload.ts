@@ -135,7 +135,14 @@ async function requestUploadAuthorization(request: UploadAuthorizationRequest): 
         throw new Error(error.detail || `Upload authorization failed: ${response.status}`);
     }
 
-    return await response.json();
+    const responseData = await response.json();
+
+    // Check if this is a duplicate file detection response
+    if (responseData.duplicate) {
+        throw new Error(`Duplicate file detected: ${responseData.message || 'This file has already been uploaded'}`);
+    }
+
+    return responseData;
 }
 
 /**

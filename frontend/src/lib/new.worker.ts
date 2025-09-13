@@ -1,7 +1,7 @@
 /*
  * New Worker Architecture
  *
- * This worker has async processor functions for individual message types and uses photoProcessingUtils.ts.
+ * This worker has async processor functions for individual message types and uses workerUtils.ts.
  *
  * Core Design:
  * - Main loop stores the last data received (sources, bearing, area, config)
@@ -51,7 +51,6 @@ import { CullingGrid } from './CullingGrid';
 import {AngularRangeCuller, sortPhotosByBearing} from './AngularRangeCuller';
 import { TAURI } from './tauri';
 import { invoke } from '@tauri-apps/api/core';
-// Note: Using CullingGrid and AngularRangeCuller instead of photoProcessingUtils functions
 
 declare const __WORKER_VERSION__: string;
 export const WORKER_VERSION = __WORKER_VERSION__;

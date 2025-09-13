@@ -1,6 +1,6 @@
 """API routes for hiding/unhiding photos and users."""
 import logging
-from typing import Optional
+from typing import Optional, Dict
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -29,6 +29,7 @@ class HideUserRequest(BaseModel):
 	target_user_source: str  # 'mapillary' or 'hillview'
 	target_user_id: str
 	reason: Optional[str] = None
+	extra_data: Optional[Dict] = None
 
 class UnhidePhotoRequest(BaseModel):
 	photo_source: str  # 'mapillary' or 'hillview'
@@ -146,7 +147,8 @@ async def hide_user(
 			hiding_user_id=current_user.id,
 			target_user_source=hide_request.target_user_source,
 			target_user_id=hide_request.target_user_id,
-			reason=hide_request.reason
+			reason=hide_request.reason,
+			extra_data=hide_request.extra_data
 		)
 		
 		db.add(hidden_user)

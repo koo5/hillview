@@ -8,6 +8,7 @@
  */
 
 import { calculateDistance } from './workerUtils';
+import { normalizeBearing } from './utils/bearingUtils';
 
 interface AngularBucket<T> {
     photos: T[];
@@ -100,8 +101,7 @@ export class AngularRangeCuller {
     }
 
     private getBucketIndex(bearing: number): number {
-        // Normalize bearing to 0-360 range
-        const normalizedBearing = ((bearing % 360) + 360) % 360;
+        const normalizedBearing = normalizeBearing(bearing);
         return Math.floor(normalizedBearing / this.DEGREES_PER_BUCKET) % this.ANGULAR_BUCKETS;
     }
 

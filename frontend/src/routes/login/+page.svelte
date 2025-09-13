@@ -334,6 +334,7 @@
                         on:input={generateUsername}
                         required
                         placeholder="Enter your email"
+                        autocomplete="email"
                     />
                 </div>
             {/if}
@@ -350,6 +351,7 @@
                     required
                     placeholder="Enter your username"
                     class:auto-generated={!isLogin && usernameGenerated}
+                    autocomplete="username"
                     on:focus={() => usernameGenerated = false}
                 />
             </div>
@@ -365,6 +367,7 @@
                     bind:value={password}
                     required
                     placeholder="Enter your password"
+                    autocomplete="current-password"
                 />
             </div>
 

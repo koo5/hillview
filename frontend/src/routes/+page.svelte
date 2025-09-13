@@ -28,7 +28,6 @@
 	import {gpsLocation} from '$lib/location.svelte';
 	import type {DevicePhotoMetadata} from '$lib/types/photoTypes';
 	import {startCompass, stopCompass} from '$lib/compass.svelte';
-	import '$lib/debugTauri';
 	import {bearingDiffColorsUpdateInterval} from "$lib/optimizedMarkers";
 
 	let map: any = null;

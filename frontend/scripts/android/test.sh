@@ -1,7 +1,12 @@
 #!/usr/bin/env fish
 
 # Run Android tests with proper environment
+
 source (dirname (status --current-filename))/../env/android-debug.env
+source (dirname (status --current-filename))/../env/android-base.env
+
+set -gx APPIUM_HOST 127.0.0.1
+set -gx APPIUM_PORT 4723
 
 # Parse arguments and set environment variables
 set -l clean_state true  # Default to clean state for proper test isolation

@@ -113,6 +113,13 @@ class SecureUploadManager(private val context: Context) {
                 }
 
                 val responseJson = JSONObject(response.body!!.string())
+
+                // Check if this is a duplicate file detection response
+                if (responseJson.optBoolean("duplicate", false)) {
+                    val duplicateMessage = responseJson.optString("message", "This file has already been uploaded")
+                    throw Exception("Duplicate file detected: $duplicateMessage")
+                }
+
                 return UploadAuthorizationResponse(
                     upload_jwt = responseJson.getString("upload_jwt"),
                     photo_id = responseJson.getString("photo_id"),

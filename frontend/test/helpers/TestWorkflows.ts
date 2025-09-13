@@ -284,25 +284,42 @@ export class TestWorkflows {
             // Simple approach: try to find any clickable image elements directly
             console.log('📸 Looking for clickable images...');
             
-            // Try simple class-based selectors for images
-            const imageElements = await $$('android.widget.ImageView');
-            if (imageElements.length > 0) {
-                console.log(`📸 Found ${imageElements.length} ImageView elements`);
-                // Click the first available image
-                await imageElements[0].click();
-                console.log('📸 Selected first image');
-                await driver.pause(1000);
-                await this.app.takeScreenshot('image-selected');
-            } else {
-                console.log('📸 No ImageView elements found, trying coordinate tap');
-                // Fallback: coordinate-based tap in center of screen
-                const { width, height } = await driver.getWindowSize();
-                const centerX = Math.round(width / 2);
-                const centerY = Math.round(height / 2);
-                await driver.touchAction('tap', centerX, centerY);
-                console.log(`📸 Tapped at center coordinates: ${centerX}, ${centerY}`);
-                await driver.pause(1000);
+            // Try multiple approaches to find and click images in the file picker
+            console.log('📸 Attempting to find and click images in file picker...');
+            
+            // Method 1: Try to find image elements using resource-id (more reliable)
+            try {
+                const thumbnails = await driver.$$({
+                    strategy: '-android uiautomator',
+                    selector: 'new UiSelector().resourceIdMatches(".*thumbnail.*")'
+                });
+                
+                if (thumbnails.length > 0) {
+                    console.log(`📸 Found ${thumbnails.length} thumbnail elements via resource-id`);
+                    await thumbnails[0].click();
+                    console.log('📸 Clicked first thumbnail');
+                    await driver.pause(1000);
+                    await this.app.takeScreenshot('image-selected');
+                    return true;
+                }
+            } catch (e) {
+                console.log('📸 Resource-id approach failed:', e.message);
             }
+
+            // Method 2: Try coordinate-based tap in likely image areas
+            console.log('📸 Trying coordinate-based tap approach');
+            const { width, height } = await driver.getWindowSize();
+            
+            // Tap in the upper portion where images are likely to be
+            const imageAreaX = Math.round(width / 3);
+            const imageAreaY = Math.round(height / 3);
+            
+            await driver.touchAction([
+                { action: 'tap', x: imageAreaX, y: imageAreaY }
+            ]);
+            console.log(`📸 Tapped at image area coordinates: ${imageAreaX}, ${imageAreaY}`);
+            await driver.pause(1000);
+            await this.app.takeScreenshot('coordinate-tap-attempt');
 
             // Look for any button with common confirmation text
             console.log('✅ Looking for confirmation buttons...');
@@ -477,7 +494,30 @@ export class TestWorkflows {
         console.log('📂 Starting photo import workflow...');
         
         try {
-            // First turn off map sources on main page
+            // First navigate to main page to access source toggles
+            console.log('🏠 Navigating to main page...');
+            await this.auth.switchToWebView();
+            
+            // Try multiple approaches to get to main page
+            try {
+                // Method 1: Direct navigation via URL
+                await driver.url('/');
+                console.log('✅ Navigated to main page via URL');
+            } catch (e) {
+                // Method 2: Look for home/main page link
+                try {
+                    const homeLink = await $('a[href="/"]');
+                    await homeLink.waitForDisplayed({timeout: 5000});
+                    await homeLink.click();
+                    console.log('✅ Navigated to main page via home link');
+                } catch (e2) {
+                    // Method 3: Already on main page or navigate via menu
+                    console.log('⚠️ Using current page as main page (may already be there)');
+                }
+            }
+            await driver.pause(3000);
+
+            // Now turn off map sources on main page
             console.log('🗺️ Disabling map sources on main page...');
             await this.ensureSourceEnabled('mapillary', false);
             await this.ensureSourceEnabled('hillview', false);

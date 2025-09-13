@@ -7,6 +7,7 @@ import {
 } from './svelte-shared-store';
 import type { PhotoData } from './types/photoTypes';
 import {AngularRangeCuller, sortPhotosByBearing} from './AngularRangeCuller';
+import { normalizeBearing } from './utils/bearingUtils';
 
 const angularRangeCuller = new AngularRangeCuller();
 
@@ -210,7 +211,7 @@ export function updateBearing(bearing: number) {
 
 export function updateBearingByDiff(diff: number) {
   const current = get(bearingState);
-  const newBearing = (current.bearing + diff + 360) % 360;
+  const newBearing = normalizeBearing(current.bearing + diff);
   updateBearing(newBearing);
 }
 

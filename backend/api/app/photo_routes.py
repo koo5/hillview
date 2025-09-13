@@ -625,8 +625,10 @@ def verify_client_signature(signature_base64: str, public_key_pem: str, photo_id
 				# logger.debug(f"Unicode normalization difference detected!")
 				# logger.debug(f"Normalized message: '{normalized_message}'")
 				# logger.debug(f"Normalized UTF-8 hex: {normalized_message.encode('utf-8').hex()}")
+				pass
 			else:
 				# logger.debug("No Unicode normalization issues detected")
+				pass
 
 			return False
 
