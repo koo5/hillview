@@ -286,11 +286,11 @@ export class TestWorkflows {
             
             // Method 1: Try resource-id based selectors for common photo picker layouts
             const photosSelectors = [
-                'id:android:id/icon',  // Standard Documents UI
-                'id:com.google.android.documentsui:id/icon',  // Google Files app
-                'accessibility id:Photos',  // Accessibility-based
-                'accessibility id:Images',
-                'accessibility id:Gallery'
+                'android:id/icon',  // Standard Documents UI
+                'com.google.android.documentsui:id/icon',  // Google Files app
+                '~Photos',  // Accessibility-based
+                '~Images',
+                '~Gallery'
             ];
 
             for (const selector of photosSelectors) {
@@ -313,9 +313,11 @@ export class TestWorkflows {
                 console.log('📷 Attempting coordinate-based interaction...');
                 // Tap center-left area where photos category typically appears
                 const { width, height } = await driver.getWindowSize();
-                await driver.touchAction([
-                    { action: 'tap', x: width * 0.25, y: height * 0.3 }
-                ]);
+                await driver.touchAction({
+                    action: 'tap', 
+                    x: Math.round(width * 0.25), 
+                    y: Math.round(height * 0.3)
+                });
                 await driver.pause(2000);
             }
 
@@ -325,8 +327,8 @@ export class TestWorkflows {
             // Strategy 1: Find clickable image elements
             const imageSelectors = [
                 'android.widget.ImageView',  // Direct class name
-                'id:android:id/thumbnail',   // Thumbnail elements
-                'id:com.google.android.documentsui:id/thumbnail'
+                'android:id/thumbnail',   // Thumbnail elements
+                'com.google.android.documentsui:id/thumbnail'
             ];
 
             for (const selector of imageSelectors) {
@@ -351,9 +353,11 @@ export class TestWorkflows {
                 console.log('📸 Attempting coordinate-based image selection...');
                 const { width, height } = await driver.getWindowSize();
                 // Tap center area where first image typically appears
-                await driver.touchAction([
-                    { action: 'tap', x: width * 0.3, y: height * 0.4 }
-                ]);
+                await driver.touchAction({
+                    action: 'tap', 
+                    x: Math.round(width * 0.3), 
+                    y: Math.round(height * 0.4)
+                });
                 selectedImage = true;
                 await driver.pause(1000);
                 await this.app.takeScreenshot('image-selected-coordinate');
@@ -362,11 +366,11 @@ export class TestWorkflows {
             if (selectedImage) {
                 // Click confirmation button using multiple strategies
                 const confirmationStrategies = [
-                    'id:android:id/button1',  // Standard positive button
-                    'id:com.google.android.documentsui:id/select_button',
-                    'accessibility id:Select',
-                    'accessibility id:OK',
-                    'accessibility id:Done'
+                    'android:id/button1',  // Standard positive button
+                    'com.google.android.documentsui:id/select_button',
+                    '~Select',
+                    '~OK',
+                    '~Done'
                 ];
 
                 for (const strategy of confirmationStrategies) {
@@ -385,9 +389,11 @@ export class TestWorkflows {
                 // Fallback: coordinate-based confirmation tap
                 console.log('✅ Attempting coordinate-based confirmation...');
                 const { width, height } = await driver.getWindowSize();
-                await driver.touchAction([
-                    { action: 'tap', x: width * 0.8, y: height * 0.9 }
-                ]);
+                await driver.touchAction({
+                    action: 'tap', 
+                    x: Math.round(width * 0.8), 
+                    y: Math.round(height * 0.9)
+                });
                 console.log('✅ Used coordinate-based confirmation');
                 return true;
             }

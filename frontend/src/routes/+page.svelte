@@ -197,6 +197,36 @@
 			e.preventDefault();
 			toggleDebug();
 		}
+		// Handle source toggle - if any enabled, disable all; if none enabled, enable all
+		else if (e.key === 's') {
+			e.preventDefault();
+			toggleAllSources();
+		}
+		// Handle navigation shortcuts
+		else if (e.key === 'z') {
+			e.preventDefault();
+			mapComponent?.triggerButtonClick('left');
+		}
+		else if (e.key === 'x') {
+			e.preventDefault();
+			mapComponent?.triggerButtonClick('rotate-ccw');
+		}
+		else if (e.key === 'c') {
+			e.preventDefault();
+			mapComponent?.triggerButtonClick('forward');
+		}
+		else if (e.key === 'v') {
+			e.preventDefault();
+			mapComponent?.triggerButtonClick('right');
+		}
+		else if (e.key === 'b') {
+			e.preventDefault();
+			mapComponent?.triggerButtonClick('rotate-cw');
+		}
+		else if (e.key === 'k') {
+			e.preventDefault();
+			mapComponent?.triggerButtonClick('backward');
+		}
 	}
 
 

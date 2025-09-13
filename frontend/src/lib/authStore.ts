@@ -4,7 +4,6 @@ export interface User {
     id: string;
     username: string;
     email: string;
-    auto_upload_enabled?: boolean;
     [key: string]: unknown;
 }
 

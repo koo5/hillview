@@ -59,7 +59,10 @@
 			user = currentAuth.isAuthenticated ? currentAuth.user : null;
 
 			if (currentUserId && user) {
-				autoUploadEnabled = user.auto_upload_enabled || false;
+				// Load auto-upload setting from Android if running on Tauri
+				if (TAURI) {
+					await loadAndroidAutoUploadSetting();
+				}
 
 				// Fetch user photos when authenticated
 				try {
@@ -189,30 +192,18 @@
 			}
 		}
 	}
-/*
-	async function saveSettingsToServer() {
-		try {
-			const settingsData = {
-				auto_upload_enabled: autoUploadEnabled
-			};
-			const response = await http.put('/auth/settings', settingsData);
-			if (!response.ok) {
-				throw new Error(`Failed to save settings: ${response.status}`);
-			}
-		} catch (err) {
-			console.error('🢄Error saving settings:', err);
-			const errorMessage = handleApiError(err);
-			addLogEntry(`Settings save failed: ${errorMessage}`, 'error');
-			error = errorMessage;
 
-			// TokenExpiredError is handled automatically by the http client
-			if (err instanceof TokenExpiredError) {
-				// No need to handle manually, http client already logged out
-				return;
-			}
+	async function loadAndroidAutoUploadSetting() {
+		try {
+			const result = await invoke('plugin:hillview|get_upload_status') as { autoUploadEnabled: boolean };
+			autoUploadEnabled = result.autoUploadEnabled || false;
+			console.log('📱 Loaded Android auto-upload setting:', autoUploadEnabled);
+		} catch (err) {
+			console.error('🢄Error loading Android auto-upload setting:', err);
+			autoUploadEnabled = false; // Default to false if we can't read it
 		}
 	}
-*/
+
 	async function saveSettings() {
 		// update the Android background service setting
 		if (TAURI) {
