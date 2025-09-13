@@ -1249,6 +1249,7 @@ class UploadAuthorizationRequest(BaseModel):
 	file_size: int
 	content_type: str
 	file_md5: str  # MD5 hash for duplicate detection
+	client_key_id: str  # Key ID that will be used for signing
 	description: Optional[str] = None
 	is_public: bool = True
 	# Geolocation data from client (EXIF or device GPS)
@@ -1318,19 +1319,20 @@ async def authorize_upload(
 				detail=f"File already exists. You previously uploaded this file as '{existing_photo.original_filename}' on {existing_photo.uploaded_at.strftime('%Y-%m-%d %H:%M:%S')}."
 			)
 
-		# Get user's active public key for inclusion in JWT
+		# Get the specific client public key that will be used for signing
 		result = await db.execute(
 			select(UserPublicKey).where(
 				UserPublicKey.user_id == current_user.id,
+				UserPublicKey.key_id == auth_request.client_key_id,
 				UserPublicKey.is_active == True
-			).order_by(UserPublicKey.registered_at.desc())
+			)
 		)
 		user_public_key = result.scalars().first()
 
 		if not user_public_key:
 			raise HTTPException(
 				status_code=status.HTTP_400_BAD_REQUEST,
-				detail="No active client public key found. Please register a public key first."
+				detail=f"Client public key '{auth_request.client_key_id}' not found or inactive. Please ensure the key is registered and active."
 			)
 
 		# Create pending photo record

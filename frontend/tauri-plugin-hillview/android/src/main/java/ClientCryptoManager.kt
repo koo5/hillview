@@ -178,7 +178,7 @@ class ClientCryptoManager(private val context: Context) {
      * Process:
      * 1. Creates canonical JSON representation of upload data
      * 2. Signs the JSON string using client's ECDSA private key from Keystore
-     * 3. Returns base64-encoded signature for transmission
+     * 3. Returns signature data containing both base64-encoded signature and key ID
      *
      * The signature covers:
      * - photo_id: Links to specific upload authorization
@@ -191,9 +191,9 @@ class ClientCryptoManager(private val context: Context) {
      * @param photoId Photo ID from upload authorization
      * @param filename Original filename being uploaded
      * @param timestamp Current timestamp (prevents replay)
-     * @return Base64-encoded ECDSA signature, or null on error
+     * @return SignatureData containing signature and key ID, or null on error
      */
-    fun signUploadData(photoId: String, filename: String, timestamp: Long): String? {
+    fun signUploadData(photoId: String, filename: String, timestamp: Long): SignatureData? {
         try {
             // Get private key from Android Keystore
             val privateKeyEntry = keyStore.getEntry(KEY_ALIAS, null) as? KeyStore.PrivateKeyEntry
@@ -221,8 +221,15 @@ class ClientCryptoManager(private val context: Context) {
             // Convert to base64 for transmission
             val signatureBase64 = Base64.encodeToString(signatureBytes, Base64.NO_WRAP)
 
-            Log.d(TAG, "Signed upload data: $message")
-            return signatureBase64
+            // Get the key ID for this signature
+            val keyId = prefs.getString(KEY_ID_PREF, null)
+            if (keyId == null) {
+                Log.e(TAG, "Key ID not found - key metadata may be corrupted")
+                return null
+            }
+
+            Log.d(TAG, "Signed upload data: $message with key $keyId")
+            return SignatureData(signatureBase64, keyId)
 
         } catch (e: Exception) {
             Log.e(TAG, "Error signing upload data: ${e.message}", e)
@@ -310,4 +317,12 @@ data class ClientKeyInfo(
     val publicKeyPem: String,
     val keyId: String,
     val createdAt: String
+)
+
+/**
+ * Data class for signature data containing both signature and key ID
+ */
+data class SignatureData(
+    val signature: String,
+    val keyId: String
 )

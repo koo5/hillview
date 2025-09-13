@@ -8,12 +8,13 @@
 		Menu,
 		Minimize2
 	} from 'lucide-svelte';
-	import {app, sources, toggleDebug} from "$lib/data.svelte";
+	import {app, sources, toggleDebug, turn_to_photo_to} from "$lib/data.svelte";
 	import {
 		bearingState,
 		spatialState,
 		updateSpatialState,
-		updateBearing as mapStateUpdateBearing
+		updateBearing as mapStateUpdateBearing,
+		updateBearingByDiff
 	} from "$lib/mapState";
 	import {LatLng} from 'leaflet';
 	import {replaceState} from "$app/navigation";
@@ -205,27 +206,27 @@
 		// Handle navigation shortcuts
 		else if (e.key === 'z') {
 			e.preventDefault();
-			mapComponent?.triggerButtonClick('left');
+			turn_to_photo_to('left');
 		}
 		else if (e.key === 'x') {
 			e.preventDefault();
-			mapComponent?.triggerButtonClick('rotate-ccw');
+			updateBearingByDiff(-15);
 		}
 		else if (e.key === 'c') {
 			e.preventDefault();
-			mapComponent?.triggerButtonClick('forward');
+			mapComponent?.moveForward?.();
 		}
 		else if (e.key === 'v') {
 			e.preventDefault();
-			mapComponent?.triggerButtonClick('right');
+			turn_to_photo_to('right');
 		}
 		else if (e.key === 'b') {
 			e.preventDefault();
-			mapComponent?.triggerButtonClick('rotate-cw');
+			updateBearingByDiff(15);
 		}
 		else if (e.key === 'k') {
 			e.preventDefault();
-			mapComponent?.triggerButtonClick('backward');
+			mapComponent?.moveBackward?.();
 		}
 	}
 
@@ -262,6 +263,28 @@
 		};
 	}
 
+	const toggleAllSources = () => {
+		const currentSources = get(sources);
+		const anyEnabled = currentSources.some(src => src.enabled);
+		
+		if (anyEnabled) {
+			// If any sources are enabled, disable all
+			sources.update(srcs => {
+				return srcs.map(src => ({
+					...src,
+					enabled: false
+				}));
+			});
+		} else {
+			// If no sources are enabled, enable all
+			sources.update(srcs => {
+				return srcs.map(src => ({
+					...src,
+					enabled: true
+				}));
+			});
+		}
+	}
 
 	function toggleCamera() {
 		const newActivity = get(app).activity === 'capture' ? 'view' : 'capture';

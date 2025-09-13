@@ -487,12 +487,12 @@
         }, 1000); // Allow time for flyTo animation
     }
 
-    // Convenience functions
-    function moveForward() {
+    // Convenience functions (exported for keyboard shortcuts)
+    export function moveForward() {
         move('forward');
     }
 
-    function moveBackward() {
+    export function moveBackward() {
         move('backward');
     }
 

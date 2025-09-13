@@ -60,6 +60,7 @@
 export interface ClientKeyPair {
     publicKey: CryptoKey;
     privateKey: CryptoKey;
+    keyId: string;
 }
 
 export interface ClientKeyInfo {
@@ -160,7 +161,7 @@ export class ClientCryptoManager {
      * Process:
      * 1. Creates canonical JSON representation of upload data
      * 2. Signs the JSON string using client's ECDSA private key
-     * 3. Returns base64-encoded signature for transmission
+     * 3. Returns base64-encoded signature and key ID for transmission
      *
      * The signature covers:
      * - photo_id: Links to specific upload authorization
@@ -171,13 +172,13 @@ export class ClientCryptoManager {
      * registered public key before accepting processed results.
      *
      * @param data Upload metadata to sign
-     * @returns Base64-encoded ECDSA signature
+     * @returns Object containing base64-encoded ECDSA signature and key ID
      */
     async signUploadData(data: {
         photo_id: string;
         filename: string;
         timestamp: number;
-    }): Promise<string> {
+    }): Promise<{ signature: string; keyId: string }> {
         try {
             const keyPair = await this.getOrCreateKeyPair();
 
@@ -209,9 +210,13 @@ export class ClientCryptoManager {
             // Convert to base64 for transmission
             const signatureBase64 = this.bufferToBase64(signatureBuffer);
 
-            console.log(`${this.LOG_PREFIX} Signed upload data for photo ${data.photo_id}`);
+            console.log(`${this.LOG_PREFIX} Signed upload data for photo ${data.photo_id} with key ${keyPair.keyId}`);
 			console.debug(`${this.LOG_PREFIX} Signature (base64): ${signatureBase64}`);
-            return signatureBase64;
+
+            return {
+                signature: signatureBase64,
+                keyId: keyPair.keyId
+            };
 
         } catch (error) {
             console.error(`${this.LOG_PREFIX} Error signing upload data:`, error);
@@ -245,9 +250,12 @@ export class ClientCryptoManager {
             ['sign', 'verify']
         );
 
+        const keyId = this.generateKeyId();
+
         return {
             publicKey: keyPair.publicKey,
-            privateKey: keyPair.privateKey
+            privateKey: keyPair.privateKey,
+            keyId: keyId
         };
     }
 
@@ -257,14 +265,13 @@ export class ClientCryptoManager {
             const privateKeyJwk = await crypto.subtle.exportKey('jwk', keyPair.privateKey);
             const publicKeyJwk = await crypto.subtle.exportKey('jwk', keyPair.publicKey);
 
-            // Generate unique key ID
-            const keyId = this.generateKeyId();
+            // Use the key ID from the keyPair
             const createdAt = new Date().toISOString();
 
             // Store in localStorage
             localStorage.setItem(this.STORAGE_KEYS.PRIVATE_KEY, JSON.stringify(privateKeyJwk));
             localStorage.setItem(this.STORAGE_KEYS.PUBLIC_KEY, JSON.stringify(publicKeyJwk));
-            localStorage.setItem(this.STORAGE_KEYS.KEY_ID, keyId);
+            localStorage.setItem(this.STORAGE_KEYS.KEY_ID, keyPair.keyId);
             localStorage.setItem(this.STORAGE_KEYS.KEY_CREATED, createdAt);
 
         } catch (error) {
@@ -277,8 +284,9 @@ export class ClientCryptoManager {
         try {
             const privateKeyJwkStr = localStorage.getItem(this.STORAGE_KEYS.PRIVATE_KEY);
             const publicKeyJwkStr = localStorage.getItem(this.STORAGE_KEYS.PUBLIC_KEY);
+            const keyId = localStorage.getItem(this.STORAGE_KEYS.KEY_ID);
 
-            if (!privateKeyJwkStr || !publicKeyJwkStr) {
+            if (!privateKeyJwkStr || !publicKeyJwkStr || !keyId) {
                 return null;
             }
 
@@ -302,7 +310,7 @@ export class ClientCryptoManager {
                 ['verify']
             );
 
-            return { publicKey, privateKey };
+            return { publicKey, privateKey, keyId };
 
         } catch (error) {
             console.error(`${this.LOG_PREFIX} Error loading stored keys:`, error);

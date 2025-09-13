@@ -76,11 +76,16 @@ class SecureUploadManager(private val context: Context) {
             null
         }
 
+        // Get client key ID for authorization
+        val keyInfo = clientCrypto.getPublicKeyInfo()
+            ?: throw Exception("Failed to get client key info - ensure crypto keys are available")
+
         val json = JSONObject().apply {
             put("filename", photo.filename)
             put("file_size", photo.fileSize)
             put("content_type", contentType)
             put("file_md5", photo.fileHash)  // MD5 hash for duplicate detection
+            put("client_key_id", keyInfo.keyId)  // Key ID that will be used for signing
             put("description", "Auto-uploaded from Hillview Android")  // Could be made configurable
             put("is_public", true)  // Could be made configurable
             // Use PhotoEntity geolocation data
@@ -128,7 +133,7 @@ class SecureUploadManager(private val context: Context) {
     /**
      * Generate client signature for upload using authorization timestamp
      */
-    private fun generateClientSignature(photoId: String, filename: String, authTimestamp: Long): String? {
+    private fun generateClientSignature(photoId: String, filename: String, authTimestamp: Long): SignatureData? {
         return clientCrypto.signUploadData(photoId, filename, authTimestamp)
     }
 
@@ -139,7 +144,7 @@ class SecureUploadManager(private val context: Context) {
         file: File,
         filename: String,
         uploadJwt: String,
-        clientSignature: String,
+        signature: String,
         workerUrl: String
     ): Boolean {
         val mediaType = when (file.extension.lowercase()) {
@@ -156,7 +161,7 @@ class SecureUploadManager(private val context: Context) {
                 filename,  // Use original filename from PhotoEntity
                 file.asRequestBody(mediaType)
             )
-            .addFormDataPart("client_signature", clientSignature)
+            .addFormDataPart("client_signature", signature)
             .build()
 
         val request = Request.Builder()
@@ -220,20 +225,20 @@ class SecureUploadManager(private val context: Context) {
             Log.d(TAG, "Upload authorized, response: $authResponse")
 
             // Step 2: Generate client signature using authorization timestamp
-            val clientSignature = generateClientSignature(authResponse.photo_id, photo.filename, authResponse.upload_authorized_at)
-            if (clientSignature == null) {
+            val signatureData = generateClientSignature(authResponse.photo_id, photo.filename, authResponse.upload_authorized_at)
+            if (signatureData == null) {
                 Log.e(TAG, "Failed to generate client signature for: ${photo.filename}")
                 return@withContext false
             }
 
-            Log.d(TAG, "Client signature generated for: ${photo.filename}")
+            Log.d(TAG, "Client signature generated for: ${photo.filename} with key ${signatureData.keyId}")
 
             // Step 3: Upload to worker (using worker_url from auth response)
             val uploadSuccess = uploadToWorker(
                 file,
                 photo.filename,
                 authResponse.upload_jwt,
-                clientSignature,
+                signatureData.signature,
                 authResponse.worker_url
             )
 

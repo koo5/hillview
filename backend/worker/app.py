@@ -166,9 +166,9 @@ async def upload_and_process_photo(
 	# Extract upload authorization data
 	photo_id = upload_auth["photo_id"]
 	user_id = upload_auth["user_id"]
-	client_public_key_id = upload_auth["client_public_key_id"]
+	client_key_id = upload_auth["client_public_key_id"]
 
-	logger.info(f"/upload photo {photo_id}, user {user_id}: {file.filename}")
+	logger.info(f"/upload photo {photo_id}, user {user_id}, key {client_key_id}: {file.filename}")
 
 	file_path = None
 	processing_status = "failed"

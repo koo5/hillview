@@ -111,7 +111,7 @@
 	}
 
 	function getPhotoUrl(photo: ActivityPhoto): string {
-		return photo.sizes?.['320']?.url;
+		return photo.sizes?.['320']?.url || '';
 	}
 </script>
 
