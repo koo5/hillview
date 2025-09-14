@@ -157,10 +157,9 @@ class SecureUploadClient:
 				key_data = response.json()
 				print(f"✅ Phase 1b: Client key registered successfully")
 				print(f"   Key ID: {key_data.get('key_id', 'unknown')}")
+				# Store the key_id for later use
+				self.key_id = key_data.get('key_id', key_id)
 				return key_data
-			elif response.status_code == 404:
-				print("⚠️ Phase 1b: Client key registration endpoint not implemented")
-				return {"key_id": "mock-key-id", "status": "mocked"}
 			else:
 				raise Exception(f"Client key registration failed: {response.status_code} - {response.text}")
 
@@ -195,11 +194,15 @@ class SecureUploadClient:
 			"content_type": "image/jpeg",
 			"file_size": 5120,
 			"file_md5": file_md5,  # Add required MD5 hash
+			"client_key_id": getattr(self, 'key_id', None),  # Add required client key ID
 			"latitude": 50.0755,
 			"longitude": 14.4378,
 			"description": "End-to-end secure upload test",
 			"is_public": True
 		}
+
+		if not upload_request["client_key_id"]:
+			raise Exception("client_key_id is required - make sure to call register_client_key first")
 
 		auth_data = await self._request_upload_authorization(auth_token, upload_request)
 		print(f"✅ Phase 2: Upload authorization successful")
@@ -224,11 +227,15 @@ class SecureUploadClient:
 			"content_type": "image/jpeg",
 			"file_size": file_size,
 			"file_md5": file_md5,  # Add required MD5 hash
+			"client_key_id": getattr(self, 'key_id', None),  # Add required client key ID
 			"latitude": latitude,
 			"longitude": longitude,
 			"description": description,
 			"is_public": is_public
 		}
+
+		if not upload_request["client_key_id"]:
+			raise Exception("client_key_id is required - make sure to call register_client_key first")
 
 		return await self._request_upload_authorization(auth_token, upload_request)
 

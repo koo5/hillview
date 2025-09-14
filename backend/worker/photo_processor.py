@@ -15,14 +15,18 @@ from uuid import UUID
 from datetime import datetime
 
 import exifread
+from throttle import Throttle
+
 
 from common.security_utils import sanitize_filename, validate_file_path, check_file_content, validate_image_dimensions, SecurityValidationError
-#from anonymize import anonymize_image
+
 from cdn_uploader import cdn_uploader
 
 logger = logging.getLogger(__name__)
 
 PICS_URL = os.environ.get("PICS_URL")
+
+throttle = Throttle('photo_processor')
 
 class PhotoProcessor:
 	"""Unified photo processing service for uploads."""
@@ -238,7 +242,7 @@ class PhotoProcessor:
 			return 0, 0
 
 
-	def create_optimized_sizes(self, source_path: str, unique_id: str, original_filename: str, width: int, height: int) -> Dict[str, Dict[str, Any]]:
+	async def create_optimized_sizes(self, source_path: str, unique_id: str, original_filename: str, width: int, height: int) -> Dict[str, Dict[str, Any]]:
 		"""Create optimized versions with anonymization and unique IDs."""
 		sizes_info = {}
 		anonymized_path = None
@@ -248,7 +252,7 @@ class PhotoProcessor:
 
 		try:
 			# First anonymize the image
-			anonymized_path = self._anonymize_image(source_path, unique_id)
+			anonymized_path = await self._anonymize_image(source_path, unique_id)
 			input_file_path = anonymized_path if anonymized_path else source_path
 
 			# Standard sizes from original importer
@@ -353,7 +357,7 @@ class PhotoProcessor:
 			# No URL generation configured
 			raise RuntimeError("Neither BUCKET_NAME nor PICS_URL configured")
 
-	def _anonymize_image(self, source_path: str, unique_id: str) -> Optional[str]:
+	async def _anonymize_image(self, source_path: str, unique_id: str) -> Optional[str]:
 		"""Anonymize image by blurring people and vehicles."""
 
 		temp_dir = tempfile.mkdtemp(prefix='hillview_anon_')
@@ -362,15 +366,18 @@ class PhotoProcessor:
 
 		from anonymize import anonymize_image
 
-		if anonymize_image(source_dir, temp_dir, filename):
-			anonymized_path = os.path.join(temp_dir, filename)
-			logger.info(f"Successfully anonymized {filename}")
-			return anonymized_path
-		else:
-			logger.info(f"No anonymization applied to {filename}")
-			# Clean up temp directory
-			shutil.rmtree(temp_dir, ignore_errors=True)
-			return None
+		async with throttle.rate_limit():
+			await throttle.wait_for_free_ram(400)
+
+			if anonymize_image(source_dir, temp_dir, filename):
+				anonymized_path = os.path.join(temp_dir, filename)
+				logger.info(f"Successfully anonymized {filename}")
+				return anonymized_path
+			else:
+				logger.info(f"No anonymization applied to {filename}")
+				# Clean up temp directory
+				shutil.rmtree(temp_dir, ignore_errors=True)
+				return None
 
 
 	async def process_uploaded_photo(
@@ -449,7 +456,7 @@ class PhotoProcessor:
 		# Create sizes information matching the original importer structure
 		sizes_info = {}
 		if width and height:
-			sizes_info = self.create_optimized_sizes(file_path, unique_id, filename, width, height)
+			sizes_info = await self.create_optimized_sizes(file_path, unique_id, filename, width, height)
 
 		# Return processing results for database creation
 		return {
