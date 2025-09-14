@@ -59,7 +59,7 @@ class TestParallelPhotoUploads(BasePhotoTest):
 			color = colors[photo_id % len(colors)]
 
 			image_data = create_test_image_full_gps(
-				width=200, height=200,
+				width=2048, height=1536,
 				color=color,
 				lat=lat, lon=lon,
 				bearing=photo_id * 10
