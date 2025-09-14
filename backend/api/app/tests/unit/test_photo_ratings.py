@@ -283,41 +283,47 @@ class TestRatingBusinessLogic:
     async def test_get_rating_counts_empty(self):
         """Test get_rating_counts with no ratings"""
         mock_db = AsyncMock()
-        mock_db.execute.return_value.fetchall.return_value = []
-        
+        mock_result = Mock()
+        mock_result.fetchall.return_value = []
+        mock_db.execute.return_value = mock_result
+
         counts = await get_rating_counts(mock_db, "hillview", "test_photo")
-        
+
         assert counts == {"thumbs_up": 0, "thumbs_down": 0}
     
     @pytest.mark.asyncio
     async def test_get_rating_counts_with_data(self):
         """Test get_rating_counts with actual ratings"""
         mock_db = AsyncMock()
-        
+        mock_result = Mock()
+
         # Mock result with both rating types
         mock_results = [
             (PhotoRatingType.THUMBS_UP, 3),
             (PhotoRatingType.THUMBS_DOWN, 1)
         ]
-        mock_db.execute.return_value.fetchall.return_value = mock_results
-        
+        mock_result.fetchall.return_value = mock_results
+        mock_db.execute.return_value = mock_result
+
         counts = await get_rating_counts(mock_db, "hillview", "test_photo")
-        
+
         assert counts == {"thumbs_up": 3, "thumbs_down": 1}
     
     @pytest.mark.asyncio
     async def test_get_rating_counts_only_thumbs_up(self):
         """Test get_rating_counts with only thumbs up"""
         mock_db = AsyncMock()
-        
+        mock_result = Mock()
+
         # Mock result with only thumbs up
         mock_results = [
             (PhotoRatingType.THUMBS_UP, 5)
         ]
-        mock_db.execute.return_value.fetchall.return_value = mock_results
-        
+        mock_result.fetchall.return_value = mock_results
+        mock_db.execute.return_value = mock_result
+
         counts = await get_rating_counts(mock_db, "hillview", "test_photo")
-        
+
         assert counts == {"thumbs_up": 5, "thumbs_down": 0}
     
     def test_rating_request_model_validation(self):

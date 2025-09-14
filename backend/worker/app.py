@@ -5,6 +5,7 @@ This service handles photo processing tasks with JWT authentication.
 It exposes the process_uploaded_photo function as a REST API endpoint.
 """
 import os
+
 import logging
 import sys
 import psutil
@@ -13,7 +14,7 @@ from dotenv import load_dotenv
 
 # Load environment variables from .env file in same directory as script
 load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
-import aiofiles, asyncio
+import aiofiles
 import httpx
 from typing import Optional
 from uuid import UUID
@@ -23,6 +24,9 @@ from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, Req
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
+from throttle import Throttle
+
+throttle = Throttle('app')
 
 # Add parent directories to path for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
@@ -183,15 +187,15 @@ async def upload_and_process_photo(
 	try:
 
 		# rate limit requests to one per two seconds:
-		with await rate_limit():
+		async with throttle.rate_limit():
 
 			# Wait for sufficient free RAM before processing
 			want_mb = 300
 			try:
-				await wait_for_free_ram(want_mb)
+				await throttle.wait_for_free_ram(want_mb)
 			except TimeoutError as te:
 				logger.error(f"wait_for_free_ram timeout for photo {photo_id}: {te}")
-				raise HTTPException(status_code=503, detail="Insufficient resources to process photo, please retry later")
+				raise
 
 			# Get file size and validate file
 			file_size = get_file_size_from_upload(file.file)
@@ -217,6 +221,8 @@ async def upload_and_process_photo(
 			# Process the photo
 			user_uuid = UUID(user_id)
 			try:
+
+
 				processing_result = await photo_processor.process_uploaded_photo(
 					file_path=str(file_path),
 					filename=safe_filename,
@@ -224,11 +230,19 @@ async def upload_and_process_photo(
 					photo_id=photo_id
 				)
 
+
+
 				if not processing_result:
 					raise ValueError("Processing returned no result")
 
 				logger.info(f"Photo processing completed for {safe_filename}")
 				processing_status = "completed"
+
+			except TimeoutError as te:
+				logger.error(f"TimeoutError (wait_for_free_ram?) for photo {photo_id}: {te}")
+				processing_status = "error"
+				error_message = f"Insufficient resources to process photo, please retry later"
+				retry_after_minutes = 5
 
 			except ValueError as processing_error:
 				# Processing errors (EXIF missing, corrupted data, etc.) - permanent failures
@@ -247,114 +261,76 @@ async def upload_and_process_photo(
 			except Exception as unexpected_error:
 				# Unexpected errors - retriable failures with longer delay
 				logger.error(f"Unexpected error processing photo {safe_filename}: {unexpected_error}")
-				exc_info = (type(exc), exc, exc.__traceback__)
-				logger.error('Exception occurred', exc_info=exc_info)
+				# exc_info = (type(exc), exc, exc.__traceback__)
+				# logger.error('Exception occurred', exc_info=exc_info)
 				processing_status = "error"
 				error_message = f"Unexpected error: {unexpected_error}"
 				retry_after_minutes = 10  # Retry in 10 minutes
 
 
-			# Always notify API server of result
-			try:
-				processed_data = ProcessedPhotoData(
-					photo_id=photo_id,
-					processing_status=processing_status,
-					client_signature=client_signature,
-					processed_by_worker=WORKER_IDENTITY,
-					error=error_message
+		# Always notify API server of result
+		try:
+			processed_data = ProcessedPhotoData(
+				photo_id=photo_id,
+				processing_status=processing_status,
+				client_signature=client_signature,
+				processed_by_worker=WORKER_IDENTITY,
+				error=error_message
+			)
+
+			# Add success data if processing succeeded
+			if processing_status == "completed" and processing_result:
+				processed_data.width = processing_result.get("width")
+				processed_data.height = processing_result.get("height")
+				processed_data.latitude = processing_result.get("latitude")
+				processed_data.longitude = processing_result.get("longitude")
+				processed_data.compass_angle = processing_result.get("compass_angle")
+				processed_data.altitude = processing_result.get("altitude")
+				processed_data.exif_data = processing_result.get("exif_data")
+				processed_data.sizes = processing_result.get("sizes")
+				processed_data.detected_objects = processing_result.get("detected_objects")
+				processed_data.filename = secure_filename
+				processed_data.filepath = str(file_path)
+
+			# Send to API server
+			worker_signature = sign_processing_result(processed_data.dict())
+			payload = {
+				"processed_data": processed_data.dict(),
+				"worker_signature": worker_signature
+			}
+
+			logger.info(f"Sending processing result to API server for photo {photo_id}")
+			logger.info(f"Payload: {payload}")
+
+			async with httpx.AsyncClient() as client:
+				response = await client.post(
+					f"{API_URL}/photos/processed",
+					json=payload,
+					headers={"Content-Type": "application/json"},
+					timeout=30.0
 				)
 
-				# Add success data if processing succeeded
-				if processing_status == "completed" and processing_result:
-					processed_data.width = processing_result.get("width")
-					processed_data.height = processing_result.get("height")
-					processed_data.latitude = processing_result.get("latitude")
-					processed_data.longitude = processing_result.get("longitude")
-					processed_data.compass_angle = processing_result.get("compass_angle")
-					processed_data.altitude = processing_result.get("altitude")
-					processed_data.exif_data = processing_result.get("exif_data")
-					processed_data.sizes = processing_result.get("sizes")
-					processed_data.detected_objects = processing_result.get("detected_objects")
-					processed_data.filename = secure_filename
-					processed_data.filepath = str(file_path)
+				if response.status_code != 200:
+					logger.error(f"Failed to notify API for photo {photo_id}: {response.status_code}")
+					raise HTTPException(status_code=500, detail="Failed to register result with API server")
 
-				# Send to API server
-				worker_signature = sign_processing_result(processed_data.dict())
-				payload = {
-					"processed_data": processed_data.dict(),
-					"worker_signature": worker_signature
-				}
+				logger.info(f"Successfully notified API server for photo {photo_id}")
 
-				logger.info(f"Sending processing result to API server for photo {photo_id}")
-				logger.info(f"Payload: {payload}")
+		except Exception as e:
+			logger.error(f"Error notifying API for photo {photo_id}: {e}")
+			raise HTTPException(status_code=500, detail="Failed to register result with API server")
 
-				async with httpx.AsyncClient() as client:
-					response = await client.post(
-						f"{API_URL}/photos/processed",
-						json=payload,
-						headers={"Content-Type": "application/json"},
-						timeout=30.0
-					)
+	finally:
+		if file_path:
+			cleanup_file_on_error(file_path)
 
-					if response.status_code != 200:
-						logger.error(f"Failed to notify API for photo {photo_id}: {response.status_code}")
-						raise HTTPException(status_code=500, detail="Failed to register result with API server")
+	# Return success response
+	return ProcessPhotoResponse(
+		success=processing_status == "completed",
+		message="Photo processed successfully" if processing_status == "completed" else "Photo processing failed",
+		photo_id=photo_id,
+		error=error_message if processing_status in ["failed", "error"] else None,
+		retry_after_minutes=retry_after_minutes
+	)
 
-					logger.info(f"Successfully notified API server for photo {photo_id}")
-
-			except Exception as e:
-				logger.error(f"Error notifying API for photo {photo_id}: {e}")
-				raise HTTPException(status_code=500, detail="Failed to register result with API server")
-
-
-		finally:
-
-			if file_path:
-				cleanup_file_on_error(file_path)
-
-
-		# Return success response
-		return ProcessPhotoResponse(
-			success=processing_status == "completed",
-			message="Photo processed successfully" if processing_status == "completed" else "Photo processing failed",
-			photo_id=photo_id,
-			error=error_message if processing_status in ["failed", "error"] else None,
-			retry_after_minutes=retry_after_minutes
-		)
-
-
-async def wait_for_free_ram(required_mb: int, check_interval: float = 1.0, timeout: float = 30.0):
-	"""
-	Wait until there is at least `required_bytes` of free RAM available.
-	Checks every `check_interval` seconds, up to `timeout` seconds.
-	Raises TimeoutError if timeout is reached without enough free RAM.
-	"""
-
-	required_bytes = required_mb * 1024 * 1024
-
-	start_time = time.time()
-	while True:
-		mem = psutil.virtual_memory()
-		if mem.available >= required_bytes:
-			return
-		if time.time() - start_time > timeout:
-			raise TimeoutError(f"Timeout waiting for {required_bytes} bytes of free RAM")
-		await asyncio.sleep(check_interval)
-
-
-# Simple rate limiter using asyncio.Lock and timestamps
-_rate_limit_lock = asyncio.Lock()
-async def rate_limit(interval_seconds: float = 2.0):
-	"""
-	Async context manager to enforce a rate limit of one operation per `interval_seconds`.
-	Usage:
-		async with rate_limit():
-			# your code here
-	"""
-	global _rate_limit_lock
-	async with _rate_limit_lock:
-		yield
-		logger.debug(f"Rate limit: waiting {interval_seconds} seconds")
-		await asyncio.sleep(interval_seconds)
-		logger.debug("Rate limit: done waiting")
 
