@@ -16,9 +16,11 @@ import androidx.work.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import app.tauri.annotation.ActivityCallback
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
+import androidx.activity.result.ActivityResult
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 import app.tauri.plugin.Invoke
@@ -76,6 +78,11 @@ class TokenExpiryCheckArgs {
   var bufferMinutes: Int = 2
 }
 
+@InvokeArg
+class GetAuthTokenArgs {
+  var force: Boolean = false
+}
+
 @TauriPlugin
 class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     companion object {
@@ -86,14 +93,8 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         // Permission request codes
         private const val CAMERA_PERMISSION_REQUEST_CODE = 2001
 
-        // Activity request codes
-        private const val FILE_PICKER_REQUEST_CODE = 3001
-
         // Storage for pending WebView permission requests
         private var pendingWebViewPermissionRequest: PermissionRequest? = null
-
-        // Storage for pending file picker callback
-        private var pendingFilePickerInvoke: Invoke? = null
 
         fun getPluginInstance(): ExamplePlugin? {
             return pluginInstance
@@ -785,18 +786,49 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     @Command
     fun getAuthToken(invoke: Invoke) {
         try {
-            Log.d(TAG, "🔐 Getting auth token (sync version - no refresh)")
-            val (_, expiresAt) = authManager.getTokenInfo()
-            Log.d(TAG, "🔐 Token info retrieved, expires at: $expiresAt")
-            val validToken = authManager.getValidTokenSync()  // Use sync version for Tauri commands
-            Log.d(TAG, "🔐 Valid token result: ${if (validToken != null) "token retrieved" else "null"}")
+            val force = try {
+                val args = invoke.parseArgs(GetAuthTokenArgs::class.java)
+                args?.force ?: false
+            } catch (e: Exception) {
+                Log.d(TAG, "🔐 No args provided or parsing failed, defaulting to force = false")
+                false
+            }
 
-            val result = JSObject()
-            result.put("success", true)
-            result.put("token", validToken)
-            result.put("expiresAt", expiresAt)
+            Log.d(TAG, "🔐 Getting auth token (force: $force)")
 
-            invoke.resolve(result)
+            // Always use async version that can refresh - both force and normal requests should refresh if needed
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val validToken = if (force) {
+                        Log.d(TAG, "🔐 Force refresh requested, performing explicit refresh first")
+                        // Force refresh: explicitly refresh first, then get token
+                        authManager.refreshTokenIfNeeded()
+                        authManager.getValidToken()
+                    } else {
+                        Log.d(TAG, "🔐 Normal token request with refresh capability")
+                        // Normal request: get valid token (will refresh if needed)
+                        authManager.getValidToken()
+                    }
+                    
+                    val (_, expiresAt) = authManager.getTokenInfo()
+                    
+                    CoroutineScope(Dispatchers.Main).launch {
+                        val result = JSObject()
+                        result.put("success", true)
+                        result.put("token", validToken)
+                        result.put("expiresAt", expiresAt)
+                        invoke.resolve(result)
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "🔐 Error getting auth token", e)
+                    CoroutineScope(Dispatchers.Main).launch {
+                        val error = JSObject()
+                        error.put("success", false)
+                        error.put("error", e.message)
+                        invoke.resolve(error)
+                    }
+                }
+            }
 
         } catch (e: Exception) {
             Log.e(TAG, "🔐 Error getting auth token", e)
@@ -1001,6 +1033,58 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     }
 
     @Command
+    fun registerClientPublicKey(invoke: Invoke) {
+        try {
+            Log.d(TAG, "🔐 Registering client public key")
+
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    // Get current valid token for the registration request
+                    val token = authManager.getValidToken()
+                    
+                    if (token == null) {
+                        CoroutineScope(Dispatchers.Main).launch {
+                            val error = JSObject()
+                            error.put("success", false)
+                            error.put("error", "No valid auth token available for client key registration")
+                            invoke.resolve(error)
+                        }
+                        return@launch
+                    }
+
+                    // Use the existing registerClientPublicKey method from AuthenticationManager
+                    val success = authManager.registerClientPublicKey(token)
+
+                    CoroutineScope(Dispatchers.Main).launch {
+                        val result = JSObject()
+                        result.put("success", success)
+                        if (!success) {
+                            result.put("error", "Client public key registration failed")
+                        }
+                        invoke.resolve(result)
+                    }
+
+                } catch (e: Exception) {
+                    Log.e(TAG, "🔐 Error during client key registration", e)
+                    CoroutineScope(Dispatchers.Main).launch {
+                        val error = JSObject()
+                        error.put("success", false)
+                        error.put("error", e.message)
+                        invoke.resolve(error)
+                    }
+                }
+            }
+
+        } catch (e: Exception) {
+            Log.e(TAG, "🔐 Error starting client key registration", e)
+            val error = JSObject()
+            error.put("success", false)
+            error.put("error", e.message)
+            invoke.resolve(error)
+        }
+    }
+
+    @Command
     fun getDevicePhotos(invoke: Invoke) {
         try {
             Log.d(TAG, "📸 Getting device photos from database")
@@ -1115,16 +1199,6 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         try {
             Log.d(TAG, "📂 Starting photo import with file picker")
 
-            // Check if another file picker request is already pending
-            if (pendingFilePickerInvoke != null) {
-                Log.w(TAG, "📂 File picker already in progress")
-                invoke.reject("File picker already in progress")
-                return
-            }
-
-            // Store the pending request
-            pendingFilePickerInvoke = invoke
-
             // Create file picker intent
             val filePickerIntent = Intent(Intent.ACTION_GET_CONTENT).apply {
                 type = "image/*"
@@ -1133,12 +1207,11 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                 putExtra(Intent.EXTRA_LOCAL_ONLY, true)
             }
 
-            Log.i(TAG, "📂 Launching file picker with request code: $FILE_PICKER_REQUEST_CODE")
-            activity.startActivityForResult(filePickerIntent, FILE_PICKER_REQUEST_CODE)
+            Log.i(TAG, "📂 Launching file picker with callback")
+            startActivityForResult(invoke, filePickerIntent, "filePickerResult")
 
         } catch (e: Exception) {
             Log.e(TAG, "❌ Failed to start file picker", e)
-            pendingFilePickerInvoke = null
             invoke.reject("Failed to start file picker: ${e.message}")
         }
     }
@@ -1160,41 +1233,21 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         Log.e(TAG, "🔒 Permission result processing complete")
     }
 
-    // Handle activity results and forward to appropriate handlers
-    fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        Log.i(TAG, "📂 Activity result received: requestCode=$requestCode, resultCode=$resultCode")
+    @ActivityCallback
+    private fun filePickerResult(invoke: Invoke, result: ActivityResult) {
+        Log.i(TAG, "📂 File picker activity result received: ${result.resultCode}")
 
-        when (requestCode) {
-            FILE_PICKER_REQUEST_CODE -> {
-                handleFilePickerResult(resultCode, data)
-            }
-            else -> {
-                Log.w(TAG, "📂 Unhandled activity result: requestCode=$requestCode")
-            }
-        }
-    }
-
-    // Handle file picker results
-    private fun handleFilePickerResult(resultCode: Int, data: Intent?) {
-        val invoke = pendingFilePickerInvoke
-        if (invoke == null) {
-            Log.w(TAG, "📂 File picker result received but no pending request found")
-            return
-        }
-
-        pendingFilePickerInvoke = null
-
-        if (resultCode == Activity.RESULT_OK && data != null) {
+        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
             Log.i(TAG, "📂 File picker result: User selected files")
 
             val selectedUris = mutableListOf<Uri>()
 
             // Handle multiple files selection
-            data.clipData?.let { clipData ->
+            result.data!!.clipData?.let { clipData ->
                 for (i in 0 until clipData.itemCount) {
                     selectedUris.add(clipData.getItemAt(i).uri)
                 }
-            } ?: data.data?.let { singleUri ->
+            } ?: result.data!!.data?.let { singleUri: Uri ->
                 // Handle single file selection
                 selectedUris.add(singleUri)
             }
@@ -1249,14 +1302,14 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                             }
                         }
 
-                        // Return result matching FileImportResponse structure
+                        // Return result matching FileImportResponse structure (camelCase for serde)
                         val response = JSObject()
                         response.put("success", importedFiles.isNotEmpty())
-                        response.put("selected_files", JSONArray(selectedUris.map { it.toString() }))
-                        response.put("imported_count", importedFiles.size)
-                        response.put("failed_count", failedFiles.size)
-                        response.put("failed_files", JSONArray(failedFiles))
-                        response.put("import_errors", JSONArray(errors))
+                        response.put("selectedFiles", JSONArray(selectedUris.map { it.toString() }))
+                        response.put("importedCount", importedFiles.size)
+                        response.put("failedCount", failedFiles.size)
+                        response.put("failedFiles", JSONArray(failedFiles))
+                        response.put("importErrors", JSONArray(errors))
 
                         Log.i(TAG, "📂 Import complete: ${importedFiles.size} successful, ${failedFiles.size} failed")
                         invoke.resolve(response)
@@ -1270,8 +1323,9 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                 Log.w(TAG, "📂 No files selected")
                 val response = JSObject()
                 response.put("success", false)
-                response.put("imported_count", 0)
-                response.put("failed_count", 0)
+                response.put("selectedFiles", JSONArray())
+                response.put("importedCount", 0)
+                response.put("failedCount", 0)
                 response.put("error", "No files selected")
                 invoke.resolve(response)
             }
@@ -1279,8 +1333,9 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             Log.i(TAG, "📂 File picker cancelled by user")
             val response = JSObject()
             response.put("success", false)
-            response.put("imported_count", 0)
-            response.put("failed_count", 0)
+            response.put("selectedFiles", JSONArray())
+            response.put("importedCount", 0)
+            response.put("failedCount", 0)
             response.put("error", "File selection cancelled")
             invoke.resolve(response)
         }

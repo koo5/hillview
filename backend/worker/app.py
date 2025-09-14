@@ -33,6 +33,7 @@ from common.file_utils import (
 	get_file_size_from_upload
 )
 from common.security_utils import SecurityValidationError
+from common.config import get_cors_origins
 from photo_processor import photo_processor
 
 # Setup logging
@@ -49,15 +50,7 @@ app = FastAPI(
 # CORS configuration
 app.add_middleware(
 	CORSMiddleware,
-	allow_origins=[
-		"http://localhost:8212",
-		"http://localhost:4173",
-		"http://127.0.0.1:8212",
-		"http://tauri.localhost",
-		"https://hillview.cz",
-		"https://api.hillview.cz",
-		"https://api.ipv4.hillview.cz",
-	],
+	allow_origins=get_cors_origins(),
 	allow_credentials=True,
 	allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
 	allow_headers=["Content-Type", "Authorization", "Accept"],
@@ -173,9 +166,9 @@ async def upload_and_process_photo(
 	# Extract upload authorization data
 	photo_id = upload_auth["photo_id"]
 	user_id = upload_auth["user_id"]
-	client_public_key_id = upload_auth["client_public_key_id"]
+	client_key_id = upload_auth["client_public_key_id"]
 
-	logger.info(f"/upload photo {photo_id}, user {user_id}: {file.filename}")
+	logger.info(f"/upload photo {photo_id}, user {user_id}, key {client_key_id}: {file.filename}")
 
 	file_path = None
 	processing_status = "failed"
@@ -241,6 +234,8 @@ async def upload_and_process_photo(
 		except Exception as unexpected_error:
 			# Unexpected errors - retriable failures with longer delay
 			logger.error(f"Unexpected error processing photo {safe_filename}: {unexpected_error}")
+			exc_info = (type(exc), exc, exc.__traceback__)
+			logger.error('Exception occurred', exc_info=exc_info)
 			processing_status = "error"
 			error_message = f"Unexpected error: {unexpected_error}"
 			retry_after_minutes = 10  # Retry in 10 minutes

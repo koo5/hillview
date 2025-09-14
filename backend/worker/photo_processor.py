@@ -15,15 +15,9 @@ from uuid import UUID
 from datetime import datetime
 
 import exifread
-import cv2
-import numpy as np
-from sqlalchemy import select, update
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from common.database import SessionLocal
-from common.models import Photo, User
 from common.security_utils import sanitize_filename, validate_file_path, check_file_content, validate_image_dimensions, SecurityValidationError
-from anonymize import anonymize_image
+#from anonymize import anonymize_image
 from cdn_uploader import cdn_uploader
 
 logger = logging.getLogger(__name__)
@@ -250,7 +244,7 @@ class PhotoProcessor:
 		anonymized_path = None
 
 		# Create output directory structure
-		output_base = os.getenv('PICS_DIR');
+		output_base = os.environ.get('PICS_DIR', self.upload_dir)
 
 		try:
 			# First anonymize the image
@@ -366,7 +360,8 @@ class PhotoProcessor:
 		source_dir = os.path.dirname(source_path)
 		filename = os.path.basename(source_path)
 
-		# Use anonymize_image function from the original script
+		from anonymize import anonymize_image
+
 		if anonymize_image(source_dir, temp_dir, filename):
 			anonymized_path = os.path.join(temp_dir, filename)
 			logger.info(f"Successfully anonymized {filename}")

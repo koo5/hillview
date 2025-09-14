@@ -1,5 +1,4 @@
 import { get } from 'svelte/store';
-import { userPhotos } from './stores';
 import { backendUrl } from './config';
 import { createTokenManager } from './tokenManagerFactory';
 import { TAURI, TAURI_MOBILE } from './tauri';
@@ -7,10 +6,17 @@ import { auth, type User, type AuthState } from './authStore';
 import { invoke } from '@tauri-apps/api/core';
 import { myGoto } from './navigation.svelte';
 import { http } from '$lib/http';
+import { clearAlerts } from './alertSystem.svelte';
 
 // Re-export for backward compatibility
 export type { User, AuthState };
 export { auth };
+
+
+auth.subscribe(authState => {
+	console.log('auth store updated:', JSON.stringify(authState));
+});
+
 
 // Configure upload manager for Android
 async function configureUploadManager() {
@@ -50,7 +56,7 @@ export async function completeAuthentication(tokenData: {
             token_type: tokenData.token_type || 'bearer',
             refresh_token_expires_at: tokenData.refresh_token_expires_at
         };
-        
+
         console.log('🢄[AUTH] About to store tokens:', JSON.stringify({
             hasAccessToken: !!tokensToStore.access_token,
             hasRefreshToken: !!tokensToStore.refresh_token,
@@ -58,15 +64,25 @@ export async function completeAuthentication(tokenData: {
             refreshTokenExpiresAt: tokensToStore.refresh_token_expires_at,
             tokenType: tokensToStore.token_type
         }));
-        
+
         await tokenManager.storeTokens(tokensToStore);
         console.log('🢄[AUTH] Tokens stored successfully via TokenManager');
+
+        // Clear accumulated alerts on successful login
+        clearAlerts();
 
         // Update auth store - tokens stored means authenticated
         auth.update(a => ({
             ...a,
             isAuthenticated: true
         }));
+
+        // Register client public key for web (async, don't block authentication)
+        if ('registerClientPublicKey' in tokenManager) {
+            (tokenManager as any).registerClientPublicKey().catch((error: any) => {
+                console.debug('🢄[AUTH] Failed to register client public key:', error);
+            });
+        }
 
         // Fetch user data
         const userData = await fetchUserData();
@@ -288,34 +304,14 @@ export async function fetchUserData() {
 
     console.log('🢄[AUTH] fetchUserData - Current auth state: isAuthenticated:', a.isAuthenticated, 'Has user:', !!a.user);
 
-    // Get token from TokenManager
-    const tokenToUse = await getCurrentToken();
-    console.log('🢄[AUTH] - Token from TokenManager:', tokenToUse ? 'exists' : 'none');
-    if (tokenToUse) {
-        console.log('🢄[AUTH]2   - Token preview:', tokenToUse.substring(0, 10) + '...');
-    }
-
-    if (!tokenToUse) {
-        console.error('🢄[AUTH] NO TOKEN AVAILABLE to fetch user data');
-        return null;
-    }
-
+    try {
         console.log('🢄[AUTH] Making API request to /api/auth/me');
-        const response = await fetch(backendUrl+'/auth/me', {
-            headers: {
-                'Authorization': `Bearer ${tokenToUse}`
-            }
-        });
+        const response = await http.get('/auth/me');
 
         console.log('🢄[AUTH] - API response status:', response.status);
 
         if (!response.ok) {
             console.error('🢄[AUTH] API request failed:', response.status, response.statusText);
-
-            if (response.status === 401) {
-                console.log('🢄[AUTH] UNAUTHORIZED: Token expired or invalid, logging out');
-                logout();
-            }
             return null;
         }
 
@@ -336,48 +332,14 @@ export async function fetchUserData() {
                 user: userData
             };
         });
-
-        // Fetch user photos
-        console.log('🢄[AUTH] Fetching user photos');
-        await fetchUserPhotos();
-
         console.log('🢄[AUTH] === USER DATA FETCH COMPLETE ===');
         return userData;
-}
-
-export async function fetchUserPhotos() {
-    const a = get(auth);
-
-    // If we're not authenticated, don't try to fetch photos
-    if (!a.isAuthenticated) return null;
-
-    // Get token from TokenManager
-    const tokenToUse = await getCurrentToken();
-    if (!tokenToUse) {
-        console.error('🢄[AUTH] No token available to fetch user photos');
+    } catch (error) {
+        console.error('🢄[AUTH] Error fetching user data:', error);
+        // If it's a TokenExpiredError, logout was already handled by the http client
+        // For other errors, just return null
         return null;
     }
-
-        const response = await fetch(backendUrl+'/photos', {
-            headers: {
-                'Authorization': `Bearer ${tokenToUse}`
-            }
-        });
-
-        if (!response.ok) {
-            if (response.status === 401) {
-                // Token is invalid, log out
-                logout();
-            }
-            return null;
-        }
-
-        const photos = await response.json();
-
-        // Update shared store with user photos
-        userPhotos.set(photos);
-
-        return photos;
 }
 
 // Check token validity on app start

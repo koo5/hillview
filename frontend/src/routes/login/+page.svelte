@@ -3,6 +3,7 @@
     import { User, Lock, Mail, Github } from 'lucide-svelte';
     import { myGoto } from '$lib/navigation.svelte';
     import StandardHeaderWithAlert from '../../components/StandardHeaderWithAlert.svelte';
+    import StandardBody from '../../components/StandardBody.svelte';
     import { login, register, oauthLogin, auth } from '$lib/auth.svelte';
     import { invoke } from '@tauri-apps/api/core';
     import { buildOAuthUrl } from '$lib/authCallback';
@@ -290,12 +291,13 @@
     }
 </script>
 
-<div class="login-container page-scrollable">
-    <StandardHeaderWithAlert 
-        title={isLogin ? 'Login' : 'Register'} 
-        showMenuButton={true}
-        fallbackHref="/"
-    />
+<StandardHeaderWithAlert 
+    title={isLogin ? 'Login' : 'Register'} 
+    showMenuButton={true}
+    fallbackHref="/"
+/>
+
+<StandardBody>
     
     <div class="login-content">
         <div class="login-card">
@@ -332,6 +334,7 @@
                         on:input={generateUsername}
                         required
                         placeholder="Enter your email"
+                        autocomplete="email"
                     />
                 </div>
             {/if}
@@ -348,6 +351,7 @@
                     required
                     placeholder="Enter your username"
                     class:auto-generated={!isLogin && usernameGenerated}
+                    autocomplete="username"
                     on:focus={() => usernameGenerated = false}
                 />
             </div>
@@ -363,6 +367,7 @@
                     bind:value={password}
                     required
                     placeholder="Enter your password"
+                    autocomplete="current-password"
                 />
             </div>
 
@@ -411,16 +416,9 @@
 
         </div>
     </div>
-</div>
+</StandardBody>
 
 <style>
-    .login-container {
-        display: flex;
-        flex-direction: column;
-        min-height: 100vh;
-        background-color: #f5f5f5;
-        padding: 0;
-    }
 
     .login-content {
         display: flex;
@@ -439,11 +437,6 @@
         max-width: 400px;
     }
 
-    h1 {
-        text-align: center;
-        margin-bottom: 24px;
-        color: #333;
-    }
 
     .form-group {
         margin-bottom: 20px;
@@ -599,7 +592,4 @@
         background-color: #f5f5f5;
     }
 
-    .back-button-container {
-        margin-bottom: 20px;
-    }
 </style>

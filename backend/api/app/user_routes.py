@@ -1,7 +1,7 @@
 import datetime
 import os
 import uuid
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Union
 import logging
 import asyncio
 from fastapi import APIRouter, Depends, HTTPException, status, Request
@@ -1249,6 +1249,7 @@ class UploadAuthorizationRequest(BaseModel):
 	file_size: int
 	content_type: str
 	file_md5: str  # MD5 hash for duplicate detection
+	client_key_id: str  # Key ID that will be used for signing
 	description: Optional[str] = None
 	is_public: bool = True
 	# Geolocation data from client (EXIF or device GPS)
@@ -1265,7 +1266,16 @@ class UploadAuthorizationResponse(BaseModel):
 	worker_url: str  # URL of worker service for upload
 	upload_authorized_at: int  # Unix timestamp for client signature generation
 
-@router.post("/photos/authorize-upload", response_model=UploadAuthorizationResponse)
+class DuplicateFileResponse(BaseModel):
+	duplicate: bool
+	message: str
+	existing_photo_id: str
+	existing_filename: str
+	existing_upload_date: Optional[str]
+
+UploadAuthorizationResponseUnion = Union[UploadAuthorizationResponse, DuplicateFileResponse]
+
+@router.post("/photos/authorize-upload", response_model=UploadAuthorizationResponseUnion)
 async def authorize_upload(
 	request: Request,
 	auth_request: UploadAuthorizationRequest,
@@ -1313,24 +1323,28 @@ async def authorize_upload(
 
 		if existing_photo:
 			log.info(f"Duplicate file detected for user {current_user.id}: MD5={auth_request.file_md5}, original photo={existing_photo.id}")
-			raise HTTPException(
-				status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-				detail=f"File already exists. You previously uploaded this file as '{existing_photo.original_filename}' on {existing_photo.uploaded_at.strftime('%Y-%m-%d %H:%M:%S')}."
-			)
+			return {
+				"duplicate": True,
+				"message": f"File already exists. You previously uploaded this file as '{existing_photo.original_filename}' on {existing_photo.uploaded_at.strftime('%Y-%m-%d %H:%M:%S')}.",
+				"existing_photo_id": existing_photo.id,
+				"existing_filename": existing_photo.original_filename,
+				"existing_upload_date": existing_photo.uploaded_at.isoformat() if existing_photo.uploaded_at else None
+			}
 
-		# Get user's active public key for inclusion in JWT
+		# Get the specific client public key that will be used for signing
 		result = await db.execute(
 			select(UserPublicKey).where(
 				UserPublicKey.user_id == current_user.id,
+				UserPublicKey.key_id == auth_request.client_key_id,
 				UserPublicKey.is_active == True
-			).order_by(UserPublicKey.registered_at.desc())
+			)
 		)
 		user_public_key = result.scalars().first()
 
 		if not user_public_key:
 			raise HTTPException(
 				status_code=status.HTTP_400_BAD_REQUEST,
-				detail="No active client public key found. Please register a public key first."
+				detail=f"Client public key '{auth_request.client_key_id}' not found or inactive. Please ensure the key is registered and active."
 			)
 
 		# Create pending photo record

@@ -8,12 +8,13 @@
 		Menu,
 		Minimize2
 	} from 'lucide-svelte';
-	import {app, sources, toggleDebug} from "$lib/data.svelte";
+	import {app, sources, toggleDebug, turn_to_photo_to} from "$lib/data.svelte";
 	import {
 		bearingState,
 		spatialState,
 		updateSpatialState,
-		updateBearing as mapStateUpdateBearing
+		updateBearing as mapStateUpdateBearing,
+		updateBearingByDiff
 	} from "$lib/mapState";
 	import {LatLng} from 'leaflet';
 	import {replaceState} from "$app/navigation";
@@ -27,7 +28,6 @@
 	import {gpsLocation} from '$lib/location.svelte';
 	import type {DevicePhotoMetadata} from '$lib/types/photoTypes';
 	import {startCompass, stopCompass} from '$lib/compass.svelte';
-	import '$lib/debugTauri';
 	import {bearingDiffColorsUpdateInterval} from "$lib/optimizedMarkers";
 
 	let map: any = null;
@@ -197,6 +197,36 @@
 			e.preventDefault();
 			toggleDebug();
 		}
+		// Handle source toggle - if any enabled, disable all; if none enabled, enable all
+		else if (e.key === 's') {
+			e.preventDefault();
+			toggleAllSources();
+		}
+		// Handle navigation shortcuts
+		else if (e.key === 'z') {
+			e.preventDefault();
+			turn_to_photo_to('left');
+		}
+		else if (e.key === 'x') {
+			e.preventDefault();
+			updateBearingByDiff(-15);
+		}
+		else if (e.key === 'c') {
+			e.preventDefault();
+			mapComponent?.moveForward?.();
+		}
+		else if (e.key === 'v') {
+			e.preventDefault();
+			turn_to_photo_to('right');
+		}
+		else if (e.key === 'b') {
+			e.preventDefault();
+			updateBearingByDiff(15);
+		}
+		else if (e.key === 'k') {
+			e.preventDefault();
+			mapComponent?.moveBackward?.();
+		}
 	}
 
 
@@ -232,6 +262,28 @@
 		};
 	}
 
+	const toggleAllSources = () => {
+		const currentSources = get(sources);
+		const anyEnabled = currentSources.some(src => src.enabled);
+		
+		if (anyEnabled) {
+			// If any sources are enabled, disable all
+			sources.update(srcs => {
+				return srcs.map(src => ({
+					...src,
+					enabled: false
+				}));
+			});
+		} else {
+			// If no sources are enabled, enable all
+			sources.update(srcs => {
+				return srcs.map(src => ({
+					...src,
+					enabled: true
+				}));
+			});
+		}
+	}
 
 	function toggleCamera() {
 		const newActivity = get(app).activity === 'capture' ? 'view' : 'capture';
@@ -518,72 +570,15 @@
         transform: scale(1.05);
     }
 
-    .nav-menu {
-        z-index: 30000;
-        background: white;
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 250px;
-        height: 100vh;
-        padding: 60px 1rem 1rem;
-        box-shadow: 0 0 10px rgba(0, 0, 0, 0.2);
-    }
-
-    .nav-menu ul {
-        list-style: none;
-        padding: 0;
-        margin: 0;
-    }
-
-    .nav-menu li {
-        margin-bottom: 1rem;
-    }
-
-    .nav-menu li a {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        text-decoration: none;
-        color: #333;
-        font-size: 1.2rem;
-        padding: 8px 0;
-    }
-
-    .menu-button {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        background: none;
-        border: none;
-        font-size: 1.2rem;
-        color: #333;
-        padding: 8px 0;
-        cursor: pointer;
-        width: 100%;
-        text-align: left;
-    }
-
-    .menu-button.logout {
-        color: #e53935;
-    }
-
-    .nav-menu li a:hover,
-    .menu-button:hover {
-        color: #4a90e2;
-    }
-
-    .menu-button.logout:hover {
-        color: #c62828;
-    }
 
     .main-page-alert-area {
         position: absolute;
         top: 60px; /* Below the top buttons */
         left: 10px;
-        right: 10px;
+        right: 100px;
         z-index: 30000;
         pointer-events: none; /* Let clicks through unless there's an alert */
+		background: rgba(255, 255, 255, 0.2);
     }
 
     .main-page-alert-area :global(.alert-area) {

@@ -1,6 +1,7 @@
 <script lang="ts">
     import { Info, MapPin, Camera, Globe, Github, Heart, Compass } from 'lucide-svelte';
     import StandardHeaderWithAlert from '../../components/StandardHeaderWithAlert.svelte';
+    import StandardBody from '../../components/StandardBody.svelte';
     import { getCurrentProviderConfig, getProviderDisplayName, currentTileProvider } from '$lib/tileProviders';
 
     const appVersion = '0.0.1';
@@ -41,12 +42,13 @@
     $: tileProviderName = getProviderDisplayName($currentTileProvider);
 </script>
 
-<div class="about-container page-scrollable">
-    <StandardHeaderWithAlert 
-        title="About Hillview" 
-        showMenuButton={true}
-        fallbackHref="/"
-    />
+<StandardHeaderWithAlert 
+    title="About Hillview" 
+    showMenuButton={true}
+    fallbackHref="/"
+/>
+
+<StandardBody>
 
     <header class="about-header">
         <div class="app-icon">
@@ -146,42 +148,13 @@
     <footer class="about-footer">
         <p>&copy; 2024 Hillview. Made with <Heart size={16} class="heart-icon" /> for photographers and explorers.</p>
     </footer>
-</div>
+</StandardBody>
 
 <style>
-    .about-container {
-        max-width: 800px;
-        margin: 0 auto;
-        padding: 24px;
+    .about-header {
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
         line-height: 1.6;
         color: #374151;
-        background: linear-gradient(180deg, #f0fdf4 0%, #dcfce7 25%, #bbf7d0 50%, #86efac 75%, #4ade80 100%);
-        min-height: 100vh;
-        position: relative;
-    }
-
-    .about-container::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        height: 200px;
-        background: 
-            radial-gradient(ellipse 800px 300px at 20% 100%, rgba(34, 197, 94, 0.3) 0%, transparent 70%),
-            radial-gradient(ellipse 600px 200px at 80% 100%, rgba(22, 163, 74, 0.4) 0%, transparent 70%),
-            radial-gradient(ellipse 400px 150px at 50% 100%, rgba(21, 128, 61, 0.2) 0%, transparent 70%);
-        pointer-events: none;
-    }
-
-    .back-button-container {
-        margin-bottom: 32px;
-        position: relative;
-        z-index: 10;
-    }
-
-    .about-header {
         text-align: center;
         margin-bottom: 48px;
         position: relative;
@@ -428,9 +401,6 @@
 
     /* Responsive adjustments */
     @media (max-width: 768px) {
-        .about-container {
-            padding: 16px;
-        }
 
         .about-header h1 {
             font-size: 2rem;

@@ -12,9 +12,10 @@
     }
 
     // Log photo count changes
+    /*
     $: if ($photosInRange) {
         console.log(`Gallery: Displaying ${$photosInRange.length} photos in range`);
-    }
+    }*/
 </script>
 
 <div class="gallery-wrapper">
@@ -84,7 +85,8 @@
         width: 100%;
         height: 100%;
         max-height: 100%;
-        background-color: rgba(100, 105, 105);
+        /*background: linear-gradient(135deg, #388E3C, #689F38);*/
+		background: linear-gradient(135deg, #000000, #388E3C);
     }
 
     /*.thumbnails-top, .thumbnails-bottom {*/

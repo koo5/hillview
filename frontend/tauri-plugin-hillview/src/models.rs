@@ -105,3 +105,4 @@ pub struct FileImportResponse {
   pub scan_result: Option<serde_json::Value>,
   pub error: Option<String>,
 }
+

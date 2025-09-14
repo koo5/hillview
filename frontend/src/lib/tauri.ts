@@ -19,7 +19,7 @@ if (TAURI && hasWindow) {
         console.warn('🢄🔍 [TAURI] Failed to detect Tauri platform:', error);
     }
 } else {
-    console.log('🢄🔍 [TAURI] Not running in Tauri, platform:', platformName);
+    //console.log('🢄🔍 [TAURI] Not running in Tauri, platform:', platformName);
 }
 
 export const TAURI_MOBILE = TAURI && (platformName === 'android' || platformName === 'ios');
@@ -92,7 +92,7 @@ export const tauriSensor = TAURI ? {
     }
 } : null;
 
-console.log('🢄🔍 TAURI environment:', JSON.stringify({
+console.log('🢄🔍 environment:', JSON.stringify({
     TAURI,
     hasWindow,
     platformName,

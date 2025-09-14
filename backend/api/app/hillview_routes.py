@@ -30,7 +30,7 @@ async def get_hillview_images(
 	bottom_right_lon: float = Query(..., description="Bottom right longitude"),
 	client_id: str = Query(..., description="Client ID"),
 	db: AsyncSession = Depends(get_db),
-	current_user: Optional[User] = Depends(get_current_user_optional)
+	current_user: Optional[User] = Depends(get_current_user_optional_with_query)
 ):
 	"""Get Hillview images from database filtered by bounding box area"""
 	# Apply public read rate limiting
@@ -38,8 +38,8 @@ async def get_hillview_images(
 
 	try:
 		# Query photos from database that fall within the bounding box
-		# Join with User table to check if photo owner is a test user
-		query = select(Photo).join(User, Photo.owner_id == User.id).where(
+		# Join with User table to get owner information
+		query = select(Photo, User.username).join(User, Photo.owner_id == User.id).where(
 			Photo.latitude.isnot(None),
 			Photo.longitude.isnot(None),
 			Photo.latitude >= bottom_right_lat,
@@ -67,12 +67,12 @@ async def get_hillview_images(
 		# 	log.info(f"Authenticated user {current_user.username} requesting photos (including test user photos)")
 
 		result = await db.execute(query)
-		photos = result.scalars().all()
+		photo_user_pairs = result.all()
 
 		# Transform photos to match Mapillary-like structure
 		filtered_photos = []
 
-		for photo in photos:
+		for photo, username in photo_user_pairs:
 			photo_data = {
 				'id': photo.id,
 				'geometry': {
@@ -87,7 +87,12 @@ async def get_hillview_images(
 				'filename': photo.filename,
 				'filepath': photo.filepath,
 				'dir_name': os.path.dirname(photo.filepath) if photo.filepath else '',
-				'sizes': photo.sizes or {}
+				'sizes': photo.sizes or {},
+				# Add creator info to match Mapillary format
+				'creator': {
+					'username': username,
+					'id': photo.owner_id
+				}
 			}
 			filtered_photos.append(photo_data)
 

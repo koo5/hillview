@@ -1,7 +1,7 @@
-import {app, hillview_photos, sources, type Source} from "$lib/data.svelte";
+import { hillview_photos, sources, type Source} from "$lib/data.svelte";
 import { LatLng } from 'leaflet';
-import {writable, get} from "svelte/store";
-import { userPhotos, devicePhotos } from './stores';
+import { get} from "svelte/store";
+import {  devicePhotos } from './stores';
 import { photoCaptureService } from './photoCapture';
 import type { PhotoData, PhotoSize, DevicePhotoMetadata } from './types/photoTypes';
 import { parseCoordinate, parseFraction } from './utils/photoParser';

@@ -12,7 +12,7 @@ import sys
 common_path = os.path.join(os.path.dirname(__file__), '..', '..', 'common')
 sys.path.append(common_path)
 from common.database import Base, engine
-from common.config import is_rate_limiting_disabled, rate_limit_config
+from common.config import is_rate_limiting_disabled, rate_limit_config, get_cors_origins
 
 logging.basicConfig(level=logging.DEBUG)
 log = logging.getLogger(__name__)
@@ -205,14 +205,7 @@ async def global_exception_handler(request, exc):
 # CORS configuration
 app.add_middleware(
 	CORSMiddleware,
-	allow_origins=[
-		"http://localhost:8212",
-		"http://127.0.0.1:8212",
-		"http://tauri.localhost",
-		"https://hillview.cz",
-		"https://api.hillview.cz",
-		"https://api.ipv4.hillview.cz",
-	],
+	allow_origins=get_cors_origins(),
 	allow_credentials=True,
 	allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
 	allow_headers=["Content-Type", "Authorization", "Accept"],
@@ -226,6 +219,10 @@ if USER_ACCOUNTS:
 	# Include photo routes (only with user accounts)
 	import photo_routes
 	app.include_router(photo_routes.router)
+
+	# Include rating routes (only with user accounts)
+	import rating_routes
+	app.include_router(rating_routes.router)
 
 	# Include activity routes (only with user accounts)
 	import activity_routes

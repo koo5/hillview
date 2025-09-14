@@ -17,9 +17,44 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
     private readyStateMonitorId?: NodeJS.Timeout;
     private wasConnected = false;
 	private wasErrored = false;
+    private retryCount = 0;
+    private maxRetries = 1; // Only retry once for auth errors
+    private currentBounds?: Bounds;
 
     constructor(source: any, callbacks: PhotoSourceCallbacks) {
         super(source, callbacks);
+    }
+
+    private async getAuthTokenWithTimeout(timeoutMs: number = 5000, forceRefresh: boolean = false): Promise<string | null> {
+        const tokenPromise = this.callbacks.getValidToken(forceRefresh);
+        const timeoutPromise = new Promise<null>((_, reject) => {
+            setTimeout(() => reject(new Error('Token request timeout')), timeoutMs);
+        });
+
+        return await Promise.race([tokenPromise, timeoutPromise]);
+    }
+
+    private handleFinalFailure(errorMessage: string, shouldShowToast: boolean): void {
+        // Mark as complete on final error
+        this.isComplete = true;
+
+        this.updateLoadingStatus(false, undefined, errorMessage);
+        this.callbacks.onError?.(new Error(errorMessage));
+
+        // Show toast based on pre-completion state
+        if (shouldShowToast) {
+            console.log(`🔍 StreamSourceLoader: Showing Connection lost toast for ${this.source.id} (connection lost during streaming)`);
+            postToast('error', 'Connection lost', this.source.name || this.source.id, 0);
+        } else {
+            console.log(`🔍 StreamSourceLoader: NOT showing Connection lost toast for ${this.source.id}`, {
+                reason: !this.wasConnected ? 'never connected' : 'stream already completed'
+            });
+        }
+        this.wasConnected = false;
+        this.wasErrored = true;
+
+        // Resolve the completion promise even on error to prevent hanging
+        this.resolveCompletion();
     }
 
     private updateLoadingStatus(isLoading: boolean, progress?: string, error?: string): void {
@@ -45,12 +80,17 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
             return;
         }
 
+        this.currentBounds = bounds;
+        return this.attemptConnection(bounds);
+    }
+
+    private async attemptConnection(bounds: Bounds): Promise<void> {
         if (!this.source.url) {
             throw new Error('Stream source missing URL');
         }
 
-        console.log(`StreamSourceLoader: Starting stream from ${this.source.url}`);
-        
+        console.log(`StreamSourceLoader: Starting stream from ${this.source.url} (attempt ${this.retryCount + 1}/${this.maxRetries + 1})`);
+
         // Create abort controller for this request
         this.abortController = new AbortController();
 
@@ -65,15 +105,23 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
         url.searchParams.set('bottom_right_lon', bounds.bottom_right.lng.toString()); // Changed from bottom_right_lng
 
         // Add client_id parameter (required by server)
-        const clientId = this.source.clientId || 'default'; // Provide default if not specified
+        const clientId = this.source.clientId || 'default';
         url.searchParams.set('client_id', clientId);
-        
-        // Add JWT token if provided in source configuration (for EventSource authentication)
-        if (this.source.authToken) {
-            url.searchParams.set('token', this.source.authToken);
-            console.log(`StreamSourceLoader: Adding authentication token to ${this.source.id} request`);
-        } else {
-            console.log(`StreamSourceLoader: No authentication token provided for ${this.source.id} request`);
+
+        // Add authentication token (force refresh on retry attempts)
+        try {
+            const forceRefresh = this.retryCount > 0;
+            const authToken = await this.getAuthTokenWithTimeout(5000, forceRefresh);
+            if (authToken) {
+                url.searchParams.set('token', authToken);
+                console.log(`StreamSourceLoader: Authenticated request for ${this.source.id}${forceRefresh ? ' (with refreshed token)' : ''}`);
+            } else {
+                console.log(`StreamSourceLoader: Anonymous request for ${this.source.id}`);
+            }
+        } catch (error) {
+            console.error(`StreamSourceLoader: Authentication failed for ${this.source.id}:`, error);
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            throw new Error(`Authentication failed: ${errorMessage}`);
         }
 
         // Create completion promise with timeout
@@ -86,7 +134,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
         this.eventSource = new EventSource(url.toString());
         console.log(`StreamSourceLoader: Created EventSource for ${this.source.id} with URL:`, url.toString());
         console.log(`StreamSourceLoader: Initial EventSource readyState: ${verbalizeEventSourceReadyState(this.eventSource.readyState)}`);
-        
+
         // Connect abort signal to EventSource
         this.abortController.signal.addEventListener('abort', () => {
             console.log(`StreamSourceLoader: Abort signal received, closing EventSource for ${this.source.id}`);
@@ -132,13 +180,13 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
                 console.log(`🔍 StreamSourceLoader: Set wasConnected=false for completed stream ${this.source.id}`);
                 return;
             }
-            
+
             // Check if we've been cancelled/aborted
             if (this.abortController?.signal.aborted) {
                 console.log(`StreamSourceLoader: EventSource error after abort for ${this.source.id} - ignoring`);
                 return;
             }
-            
+
             // Extract more meaningful error information
             let errorMessage = 'Stream connection error for ' + this.source.id + ' (' + this.source.url + ')';
             if (error instanceof ErrorEvent) {
@@ -146,7 +194,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
             } else if (error && typeof error === 'object') {
                 errorMessage = `Stream error: ${JSON.stringify(error, Object.getOwnPropertyNames(error))}`;
             }
-            
+
             console.error('🢄StreamSourceLoader: Stream error details:', JSON.stringify({
                 error,
                 errorType: error?.constructor?.name,
@@ -157,12 +205,12 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
                 connectionState: navigator.onLine ? 'online' : 'offline',
                 isComplete: this.isComplete
             }, null, 2));
-            
+
             // Check if this is an immediate connection failure
             if (this.eventSource?.readyState === EventSource.CLOSED && Date.now() - this.startTime < 1000) {
                 console.error('🢄StreamSourceLoader: EventSource failed immediately after creation - possible network/CORS/URL issue');
             }
-            
+
             // Check if we should show toast BEFORE marking as complete
             const shouldShowToast = this.wasConnected && !this.isComplete;
             console.log(`🔍 StreamSourceLoader: Checking toast conditions for ${this.source.id}`, {
@@ -170,34 +218,44 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
                 isComplete: this.isComplete,
                 willShowToast: shouldShowToast
             });
-            
-            // Mark as complete on error to prevent further processing
-            this.isComplete = true;
-            
-            // Clean up the EventSource on error
+
+            // Clean up the current EventSource on error
             if (this.eventSource) {
                 console.log(`StreamSourceLoader: Closing EventSource on error for ${this.source.id}`);
                 this.eventSource.close();
                 this.eventSource = undefined;
             }
-            
-            this.updateLoadingStatus(false, undefined, errorMessage);
-            this.callbacks.onError?.(new Error(errorMessage));
-            
-            // Show toast based on pre-completion state
-            if (shouldShowToast) {
-                console.log(`🔍 StreamSourceLoader: Showing Connection lost toast for ${this.source.id} (connection lost during streaming)`);
-                postToast('error', 'Connection lost', this.source.name || this.source.id, 0);
-            } else {
-                console.log(`🔍 StreamSourceLoader: NOT showing Connection lost toast for ${this.source.id}`, {
-                    reason: !this.wasConnected ? 'never connected' : 'stream already completed'
-                });
+
+            // Check if this could be an auth error and we should retry
+            const timeFromStart = Date.now() - this.startTime;
+            const isImmediateFailure = timeFromStart < 1000;
+            const couldBeAuthError = !this.wasConnected && isImmediateFailure;
+            const shouldRetry = couldBeAuthError && this.retryCount < this.maxRetries;
+
+            if (shouldRetry) {
+                console.log(`🔄 StreamSourceLoader: Retrying with fresh token for ${this.source.id} (attempt ${this.retryCount + 1}/${this.maxRetries + 1}) - possible auth error`);
+                this.retryCount++;
+                this.wasErrored = false; // Reset error state for retry
+                this.isComplete = false; // Reset completion state
+
+                // Retry with fresh token after a short delay
+                setTimeout(() => {
+                    if (this.currentBounds && !this.isAborted()) {
+                        this.attemptConnection(this.currentBounds).catch((retryError) => {
+                            console.error(`StreamSourceLoader: Retry failed for ${this.source.id}:`, retryError);
+                            // After retry failure, show toast for genuine connection issues
+                            const showToastAfterRetry = true; // Always show toast after retry failure
+                            this.handleFinalFailure(errorMessage, showToastAfterRetry);
+                        });
+                    }
+                }, 100);
+                return; // Don't mark as complete yet, we're retrying
             }
-            this.wasConnected = false;
-			this.wasErrored = true;
-            
-            // Resolve the completion promise even on error to prevent hanging
-            this.resolveCompletion();
+
+            // No retry needed - handle final failure
+            // Show toast if we had a connection before OR if this was not an immediate failure (genuine network issue)
+            const shouldShowToastForGenuineError = shouldShowToast || (!couldBeAuthError && !this.wasConnected);
+            this.handleFinalFailure(errorMessage, shouldShowToastForGenuineError);
         };
 
         this.eventSource.onopen = () => {
@@ -208,7 +266,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
                 wasErrored: this.wasErrored
             });
             this.updateLoadingStatus(true, 'Loading photos...');
-            
+
             // Toast only on reconnection
             if (this.wasErrored) {
                 postToast('success', 'Connection restored', this.source.name || this.source.id, 3000);
@@ -269,11 +327,11 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
             case 'photos':
                 if (data.photos && Array.isArray(data.photos)) {
                     console.log(`StreamSourceLoader: Received ${data.photos.length} photos`);
-                    
+
                     const convertedPhotos: PhotoData[] = data.photos.map((photo: any) => {
                         const convertedPhoto: any = {
                             id: photo.id,
-                            coord: photo.geometry ? 
+                            coord: photo.geometry ?
                                 { lat: photo.geometry.coordinates[1], lng: photo.geometry.coordinates[0] } :
                                 photo.coord,
                             bearing: photo.computed_compass_angle || photo.compass_angle || photo.bearing || 0,
@@ -305,7 +363,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
                     });
 
                     this.streamPhotos.push(...convertedPhotos);
-                    
+
                     // Send message to worker queue for each batch
                     this.callbacks.enqueueMessage({
                         type: 'photosAdded',
@@ -324,10 +382,10 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
                 });
                 this.isComplete = true;
                 const duration = Date.now() - this.startTime;
-                
+
                 // Update loading status to complete
                 this.updateLoadingStatus(false, `Loaded ${this.streamPhotos.length} photos`);
-                
+
                 // Send completion message to worker queue
                 this.callbacks.enqueueMessage({
                     type: 'streamComplete',
@@ -356,23 +414,23 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
                 break;
 
             default:
-                console.warn('🢄StreamSourceLoader: Unknown stream message type:', data.type);
+                console.info('🢄StreamSourceLoader: Unknown stream message type:', data.type);
         }
     }
 
     cancel(): void {
         console.log(`StreamSourceLoader: Cancelling stream for ${this.source.id} - called from:`, new Error().stack?.split('\n')[2]);
         super.cancel();
-        
+
         // Clear loading status
         this.updateLoadingStatus(false, 'Cancelled');
-        
+
         // Clear readyState monitor first
         if (this.readyStateMonitorId) {
             clearInterval(this.readyStateMonitorId);
             this.readyStateMonitorId = undefined;
         }
-        
+
         if (this.eventSource) {
             console.log(`StreamSourceLoader: Closing EventSource for ${this.source.id} (readyState: ${verbalizeEventSourceReadyState(this.eventSource.readyState)})`);
             this.eventSource.close();
@@ -381,7 +439,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
 
         // Resolve completion promise if still pending
         this.resolveCompletion();
-        
+
         // Clear all data and references
         this.streamPhotos = [];
         this.completionPromise = undefined;

@@ -1,7 +1,7 @@
 /*
  * New Worker Architecture
  *
- * This worker has async processor functions for individual message types and uses photoProcessingUtils.ts.
+ * This worker has async processor functions for individual message types and uses workerUtils.ts.
  *
  * Core Design:
  * - Main loop stores the last data received (sources, bearing, area, config)
@@ -49,7 +49,8 @@ import { MessageQueue } from './MessageQueue';
 import { PhotoOperations } from './photoOperations';
 import { CullingGrid } from './CullingGrid';
 import {AngularRangeCuller, sortPhotosByBearing} from './AngularRangeCuller';
-// Note: Using CullingGrid and AngularRangeCuller instead of photoProcessingUtils functions
+import { TAURI } from './tauri';
+import { invoke } from '@tauri-apps/api/core';
 
 declare const __WORKER_VERSION__: string;
 export const WORKER_VERSION = __WORKER_VERSION__;
@@ -286,7 +287,8 @@ async function startProcess(type: 'config' | 'area' | 'sourcesPhotosInArea', mes
             return [];
         },
         sendPhotosInAreaUpdate: () => sendPhotosUpdate(),
-        sendPhotosInRangeUpdate: () => sendPhotosUpdate()
+        sendPhotosInRangeUpdate: () => sendPhotosUpdate(),
+        getValidToken: (forceRefresh?: boolean) => getValidToken(forceRefresh || false)
     };
 
     // Start the actual business logic operations
@@ -327,7 +329,18 @@ async function startProcess(type: 'config' | 'area' | 'sourcesPhotosInArea', mes
     }
 }
 
+
 function handleMessage(message: any): void {
+
+	if (message.type === 'authToken') {
+		if (authTokenPromiseResolve) {
+			authTokenPromiseResolve(message.token);
+			authTokenPromiseResolve = undefined;
+			authTokenPromise = undefined; // Clear promise for next request
+		}
+		return; // Don't process further
+	}
+
 	// Handle special cleanup message
 	if (message.type === 'cleanup' || message.type === 'terminate') {
 		console.log('🢄NewWorker: Received cleanup/terminate message, cleaning up resources');
@@ -717,4 +730,59 @@ function removeUserPhotosFromCache(userId: string, source: string): void {
 	} else {
 		console.log(`NewWorker: No photos found for source ${source} when trying to remove photos by user ${userId}`);
 	}
+}
+
+
+let authTokenPromise: Promise<string | null> | undefined;
+let authTokenPromiseResolve: ((value: string | null) => void) | undefined;
+
+async function getValidToken(forceRefresh: boolean = false): Promise<string | null>
+{
+	if (authTokenPromise && !forceRefresh) {
+		return authTokenPromise;
+	}
+
+	// Clear existing promise on force refresh
+	if (forceRefresh) {
+		authTokenPromise = undefined;
+		authTokenPromiseResolve = undefined;
+	}
+
+	authTokenPromise = new Promise<string | null>(async (resolve) => {
+		if (TAURI)
+		{
+			try {
+				const result = await invoke('plugin:hillview|get_auth_token', { force: forceRefresh }) as {
+					token: string | null;
+					expires_at: string | null;
+					success: boolean;
+					error?: string;
+				};
+
+				if (!result.success) {
+					console.log(`Android reports no valid token: ${result.error}`);
+					resolve(null);
+				}
+
+				if (result.token) {
+					console.log(`Valid token received from Android${forceRefresh ? ' (refreshed)' : ''}`);
+					resolve(result.token);
+				} else {
+					console.log(`No token available`);
+					resolve(null);
+				}
+			} catch (error) {
+				console.error('Error getting token from Android:', error);
+				resolve(null);
+			}
+		} else {
+			authTokenPromiseResolve = resolve;
+			postMessage({
+        		type: 'getAuthToken',
+				forceRefresh
+			});
+		}
+	});
+	
+	return authTokenPromise;
 }

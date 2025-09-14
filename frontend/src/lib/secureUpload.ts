@@ -16,6 +16,7 @@ export interface UploadAuthorizationRequest {
     file_size: number;
     content_type: string;
     file_md5: string; // MD5 hash for duplicate detection
+    client_key_id: string; // Key ID that will be used for signing
     description?: string;
     is_public: boolean;
     // Geolocation data for immediate map display
@@ -134,20 +135,27 @@ async function requestUploadAuthorization(request: UploadAuthorizationRequest): 
         throw new Error(error.detail || `Upload authorization failed: ${response.status}`);
     }
 
-    return await response.json();
+    const responseData = await response.json();
+
+    // Check if this is a duplicate file detection response
+    if (responseData.duplicate) {
+        throw new Error(`Duplicate file detected: ${responseData.message || 'This file has already been uploaded'}`);
+    }
+
+    return responseData;
 }
 
 /**
  * Generate client signature for upload using authorization timestamp
  */
-async function generateClientSignature(photoId: string, filename: string, authTimestamp: number): Promise<string> {
-    const signature = await clientCrypto.signUploadData({
+async function generateClientSignature(photoId: string, filename: string, authTimestamp: number): Promise<{ signature: string; keyId: string }> {
+    const signatureData = await clientCrypto.signUploadData({
         photo_id: photoId,
         filename: filename,
         timestamp: authTimestamp
     });
 
-    return signature;
+    return signatureData;
 }
 
 /**
@@ -156,12 +164,12 @@ async function generateClientSignature(photoId: string, filename: string, authTi
 async function uploadToWorker(
     file: File,
     uploadJwt: string,
-    clientSignature: string,
+    signature: string,
     workerUrl?: string
 ): Promise<SecureUploadResult> {
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('client_signature', clientSignature);
+    formData.append('client_signature', signature);
 
     // Use configured worker URL or default to backend URL with worker port
     const workerEndpoint = workerUrl || `${backendUrl.replace(':8055', ':8056')}/upload`;
@@ -194,10 +202,11 @@ export async function secureUploadFile(
     try {
         console.log(`🔐 Starting secure upload for: ${file.name}`);
 
-        // Step 1: Calculate file MD5 hash and extract geolocation data
-        const [fileMD5, fileGeo/*, deviceGeo*/] = await Promise.all([
+        // Step 1: Calculate file MD5 hash, extract geolocation data, and get client key info
+        const [fileMD5, fileGeo, keyInfo/*, deviceGeo*/] = await Promise.all([
             calculateFileMD5(file),
             extractGeolocationFromFile(file),
+            clientCrypto.getPublicKeyInfo()
 			//getCurrentLocation()
         ]);
 
@@ -217,6 +226,7 @@ export async function secureUploadFile(
             file_size: file.size,
             content_type: file.type,
             file_md5: fileMD5,
+            client_key_id: keyInfo.keyId,
             description,
             is_public: isPublic,
             ...geolocation
@@ -230,14 +240,14 @@ export async function secureUploadFile(
 
         // Step 3: Generate client signature using authorization timestamp
         console.log(`🔐 Generating client signature for: ${file.name}`);
-        const clientSignature = await generateClientSignature(authResponse.photo_id, file.name, authResponse.upload_authorized_at);
+        const signatureData = await generateClientSignature(authResponse.photo_id, file.name, authResponse.upload_authorized_at);
 
         // Step 4: Upload to worker (use URL from authorization response)
         console.log(`🔐 Uploading to worker: ${file.name}`);
         const uploadResult = await uploadToWorker(
             file,
             authResponse.upload_jwt,
-            clientSignature,
+            signatureData.signature,
             authResponse.worker_url + '/upload'
         );
 

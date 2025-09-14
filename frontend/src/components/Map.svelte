@@ -1,6 +1,6 @@
 <script lang="ts">
     import {onMount, onDestroy, tick} from 'svelte';
-    import {Polygon, LeafletMap, TileLayer, Marker, Circle, ScaleControl} from 'svelte-leafletjs';
+    import {LeafletMap, TileLayer, Marker, Circle, ScaleControl} from 'svelte-leafletjs';
     import {LatLng} from 'leaflet';
     import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle, MapPin, Pause, ArrowUp, ArrowDown, Layers, Eye, Compass, Car, PersonStanding, Map as MapIcon} from 'lucide-svelte';
     import L from 'leaflet';
@@ -487,12 +487,12 @@
         }, 1000); // Allow time for flyTo animation
     }
 
-    // Convenience functions
-    function moveForward() {
+    // Convenience functions (exported for keyboard shortcuts)
+    export function moveForward() {
         move('forward');
     }
 
-    function moveBackward() {
+    export function moveBackward() {
         move('backward');
     }
 
@@ -1249,6 +1249,7 @@
                 class={source.enabled ? 'active' : ''}
                 on:click={() => toggleSourceVisibility(source.id)}
                 title={`Toggle ${source.name} photos`}
+                data-testid={`source-toggle-${source.id}`}
         >
             <div class="source-icon-wrapper">
                 <Spinner show={source.enabled && (source.type === 'stream' ? $sourceLoadingStatus[source.id]?.isLoading || false : !!(source.requests && source.requests.length))} color="#fff"></Spinner>

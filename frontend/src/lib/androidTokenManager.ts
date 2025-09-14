@@ -12,11 +12,11 @@ import { auth } from './authStore';
 export class AndroidTokenManager implements TokenManager {
     private readonly LOG_PREFIX = '🔐[ANDROID_TOKEN_MGR]';
 
-    async getValidToken(): Promise<string | null> {
-        console.log(`${this.LOG_PREFIX} Getting valid token from Android`);
+    async getValidToken(force: boolean = false): Promise<string | null> {
+        console.log(`${this.LOG_PREFIX} Getting valid token from Android (force: ${force})`);
         
         // Android plugin handles token validation and refresh internally
-        const result = await invoke('plugin:hillview|get_auth_token') as { 
+        const result = await invoke('plugin:hillview|get_auth_token', { force }) as { 
             token: string | null; 
             expires_at: string | null;
             success: boolean;
@@ -131,6 +131,11 @@ export class AndroidTokenManager implements TokenManager {
         }) as { expired: boolean };
         
         return result.expired;
+    }
+
+    async registerClientPublicKey(): Promise<void> {
+        // Client key registration is now handled automatically by Android during token storage
+        console.log(`${this.LOG_PREFIX} Client public key registration handled automatically by Android`);
     }
 
 }

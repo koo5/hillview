@@ -18,10 +18,9 @@ export interface UserPhoto {
     uploaded_at?: string;
     captured_at?: string;
     sizes?: Record<string, { url: string; width: number; height: number; path?: string }>;
+    user_rating?: 'thumbs_up' | 'thumbs_down' | null;  // User's current rating
+    rating_counts?: { thumbs_up: number; thumbs_down: number };  // Aggregate counts
 }
-
-// Shared stores that can be imported by both auth and data modules
-export const userPhotos = writable<UserPhoto[]>([]);
 
 // Store for device-captured photos (loaded from backend)
 export const devicePhotos = writable<DevicePhotoMetadata[]>([]);

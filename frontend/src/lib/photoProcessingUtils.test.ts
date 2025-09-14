@@ -3,9 +3,9 @@ import { LatLng } from 'leaflet';
 import {
   calculateDistance,
   isPhotoInBounds,
-  filterPhotosByArea,
-  type Bounds
-} from './photoProcessingUtils';
+  filterPhotosByArea
+} from './workerUtils';
+import type { Bounds } from './photoWorkerTypes';
 import { CullingGrid } from './CullingGrid';
 import { AngularRangeCuller } from './AngularRangeCuller';
 import type { PhotoData, PhotoId } from './types/photoTypes';

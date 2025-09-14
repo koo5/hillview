@@ -1,6 +1,5 @@
 <script lang="ts">
     import StandardHeader from './StandardHeader.svelte';
-    import AlertArea from './AlertArea.svelte';
     import NavigationMenu from './NavigationMenu.svelte';
 
     export let title: string;
@@ -21,7 +20,7 @@
 </script>
 
 <div class="header-with-alert">
-    <StandardHeader 
+    <StandardHeader
         {title}
         {showBackButton}
         {showMenuButton}
@@ -31,14 +30,7 @@
     >
         <slot name="actions" slot="actions" />
     </StandardHeader>
-    
-    <AlertArea position="header" />
-    
     <NavigationMenu isOpen={menuOpen} onClose={closeMenu} />
 </div>
 
-<style>
-    .header-with-alert {
-        /* Fixed header is now positioned within StandardHeader itself */
-    }
-</style>
+<!-- No additional styles needed - header positioning is handled in StandardHeader -->

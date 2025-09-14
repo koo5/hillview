@@ -4,7 +4,7 @@
     import { createEventDispatcher } from 'svelte';
 
     export let position: 'header' | 'main' = 'header';
-    
+
     const dispatch = createEventDispatcher();
 
     function handleClick(alert: any) {
@@ -37,7 +37,7 @@
             case 'error': return AlertTriangle;
             case 'warning': return AlertCircle;
             case 'success': return CheckCircle;
-            case 'info': 
+            case 'info':
             default: return Info;
         }
     }
@@ -47,7 +47,7 @@
             case 'error': return 'alert-error';
             case 'warning': return 'alert-warning';
             case 'success': return 'alert-success';
-            case 'info': 
+            case 'info':
             default: return 'alert-info';
         }
     }
@@ -66,7 +66,7 @@
 </script>
 
 {#if $currentAlert}
-    <div 
+    <div
         class="alert-area {position} {getAlertClass($currentAlert.type)}"
         class:faded={$currentAlert.faded}
         on:click={() => handleClick($currentAlert)}
@@ -80,7 +80,7 @@
                 <div class="alert-icon">
                     <svelte:component this={getIcon($currentAlert.type)} size={20} />
                 </div>
-                
+
                 <div class="alert-text">
                     <span class="alert-message">{$currentAlert.message}</span>
                     {#if pendingCount > 0}
@@ -88,7 +88,7 @@
                     {/if}
                 </div>
             </div>
-            
+
             <div class="alert-actions">
                 {#if $currentAlert.retryable && $currentAlert.onRetry}
                     <button
@@ -100,7 +100,7 @@
                         <RotateCcw size={16} />
                     </button>
                 {/if}
-                
+
                 {#if $currentAlert.actions}
                     {#each $currentAlert.actions as action}
                         <button
@@ -112,7 +112,7 @@
                         </button>
                     {/each}
                 {/if}
-                
+
                 {#if $currentAlert.dismissible !== false}
                     <button
                         class="alert-button dismiss-button"
@@ -130,7 +130,7 @@
 
 <style>
     .alert-area {
-        background: white;
+        /*background: rgba(255, 255, 255, 0.15);*/
         border-radius: 8px;
         padding: 12px 16px;
         margin: 8px 0;
@@ -140,19 +140,25 @@
         transition: all 0.3s ease;
         animation: slide-in 0.3s ease-out;
         border-bottom: 1px solid #e5e7eb;
+		z-index: 30002;
     }
 
     .alert-area.faded {
         opacity: 0.6;
-        background: #f9fafb;
+        background: rgba(249, 250, 251, 0.8);
     }
 
     .alert-area.header {
+        position: fixed;
+        top: 50px; /* Below StandardHeader */
+        left: 0;
+        right: 0;
         margin: 0;
         border-radius: 0;
         border-left: none;
         border-top: 4px solid;
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        z-index: 30002; /* Above header but below overlays */
     }
 
     .alert-content {
@@ -287,7 +293,7 @@
     }
 
     .alert-info {
-        background: #eff6ff;
+        background: rgba(239, 246, 255, 0.55);
         border-left-color: #3b82f6;
         color: #1e40af;
     }
@@ -311,6 +317,10 @@
     @media (max-width: 640px) {
         .alert-area {
             padding: 10px 12px;
+        }
+
+        .alert-area.header {
+            top: 56px; /* Below mobile StandardHeader */
         }
 
         .alert-content {

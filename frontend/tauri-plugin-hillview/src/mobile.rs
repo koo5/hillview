@@ -171,4 +171,11 @@ impl<R: Runtime> Hillview<R> {
       .run_mobile_plugin("importPhotos", ())
       .map_err(Into::into)
   }
+
+  pub fn register_client_public_key(&self) -> crate::Result<BasicResponse> {
+    self
+      .0
+      .run_mobile_plugin("registerClientPublicKey", ())
+      .map_err(Into::into)
+  }
 }

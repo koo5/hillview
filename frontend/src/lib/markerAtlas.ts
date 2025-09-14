@@ -3,6 +3,8 @@
  * Separates directional arrows from bearing diff colors for maximum efficiency
  */
 
+import { normalizeBearing } from './utils/bearingUtils';
+
 export interface ArrowAtlasConfig {
   bearingStep: number;  // Degrees between arrow orientations (e.g., 15°)
   arrowSize: number;    // Size of each arrow sprite in pixels
@@ -89,7 +91,7 @@ export class ArrowAtlas {
    * Get the background-position CSS for a specific bearing
    */
   getBackgroundPosition(bearing: number): string {
-    const normalizedBearing = ((bearing % 360) + 360) % 360;
+    const normalizedBearing = normalizeBearing(bearing);
     const index = Math.round(normalizedBearing / this.config.bearingStep) % this.orientationCount;
     const offsetX = index * this.config.arrowSize;
     return `-${offsetX}px 0px`;

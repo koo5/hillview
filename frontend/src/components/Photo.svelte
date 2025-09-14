@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
-    import { EyeOff, UserX } from 'lucide-svelte';
+    import { EyeOff, UserX, ThumbsUp, ThumbsDown } from 'lucide-svelte';
     import { app } from '$lib/data.svelte';
     import { auth } from '$lib/auth.svelte';
     import { http, handleApiError } from '$lib/http';
@@ -24,7 +24,7 @@
     let devicePhotoUrl: string | null = null;
     let bg_style_stretched_photo;
     let border_style;
-    
+
     // Background loading state
     let displayedUrl: string | undefined;
     let isLoadingNewImage = false;
@@ -37,6 +37,11 @@
     let isHiding = false;
     let hideMessage = '';
 
+    // Rating functionality state
+    let userRating: 'thumbs_up' | 'thumbs_down' | null = null;
+    let ratingCounts = { thumbs_up: 0, thumbs_down: 0 };
+    let isRating = false;
+
     // Get current user authentication state
     $: isAuthenticated = $auth.isAuthenticated;
 
@@ -47,7 +52,7 @@
     //console.log('🢄border_style:', border_style);
 
     $: if (photo || clientWidth || containerElement) updateSelectedUrl();
-    
+
     // Handle selectedUrl changes with background loading
     $: if (selectedUrl !== undefined && selectedUrl !== displayedUrl) {
         handleImageChange(selectedUrl);
@@ -123,38 +128,38 @@
             selectedUrl = photo.sizes.full?.url || '';
         }
     }
-    
+
     async function handleImageChange(newUrl: string) {
         if (!newUrl || newUrl === displayedUrl) {
             return;
         }
-        
+
         // If this is the first image or no previous image, show immediately
         if (!displayedUrl) {
             displayedUrl = newUrl;
             return;
         }
-        
+
         // Start background loading
         isLoadingNewImage = true;
-        
+
         try {
             preloadImg = new Image();
-            
+
             preloadImg.onload = () => {
                 displayedUrl = newUrl;
                 isLoadingNewImage = false;
                 preloadImg = null;
             };
-            
+
             preloadImg.onerror = () => {
                 console.error('Failed to preload image:', newUrl);
                 isLoadingNewImage = false;
                 preloadImg = null;
             };
-            
+
             preloadImg.src = newUrl;
-            
+
         } catch (error) {
             console.error('Error preloading image:', error);
             isLoadingNewImage = false;
@@ -162,11 +167,9 @@
     }
 
     // Helper functions to determine photo source and get user info
-    function getPhotoSource(photo: PhotoData): 'mapillary' | 'hillview' {
-        if (photo.source?.id === 'mapillary') return 'mapillary';
-        if (photo.source?.id === 'hillview') return 'hillview';
-        // Fallback based on source type
-        return photo.source_type === 'stream' ? 'mapillary' : 'hillview';
+    function getPhotoSource(photo: PhotoData): string {
+		if (!photo?.source?.id) throw new Error('Photo source information is missing');
+        return photo.source.id;
     }
 
     function getUserId(photo: PhotoData): string | null {
@@ -291,6 +294,84 @@
         }
     }
 
+    // Rating functionality
+    async function handleRatingClick(rating: 'thumbs_up' | 'thumbs_down') {
+        if (!photo || !isAuthenticated || isRating) return;
+
+        const photoSource = getPhotoSource(photo);
+        isRating = true;
+
+        try {
+            let response;
+
+            if (userRating === rating) {
+                // Remove rating if clicking the same rating
+                response = await http.delete(`/ratings/${photoSource}/${photo.id}`);
+                userRating = null;
+            } else {
+                // Set new rating
+                response = await http.post(`/ratings/${photoSource}/${photo.id}`, {
+                    rating: rating
+                });
+                const data = await response.json();
+                userRating = data.user_rating as 'thumbs_up' | 'thumbs_down' | null;
+                ratingCounts = data.rating_counts;
+            }
+
+            if (!response.ok) {
+                throw new Error(`Failed to update rating: ${response.status}`);
+            }
+
+            // If we removed a rating, get updated counts
+            if (!userRating) {
+                const getRatingResponse = await http.get(`/ratings/${photoSource}/${photo.id}`);
+                if (getRatingResponse.ok) {
+                    const data = await getRatingResponse.json();
+                    ratingCounts = data.rating_counts;
+                }
+            }
+        } catch (error) {
+            console.error('🢄Error updating rating:', error);
+            hideMessage = `Rating error: ${handleApiError(error)}`;
+            setTimeout(() => hideMessage = '', 3000);
+        } finally {
+            isRating = false;
+        }
+    }
+
+    // Load rating data when photo changes
+    async function loadPhotoRating() {
+        if (!photo || !isAuthenticated) {
+            userRating = null;
+            ratingCounts = { thumbs_up: 0, thumbs_down: 0 };
+            return;
+        }
+
+        try {
+            const photoSource = getPhotoSource(photo);
+            const response = await http.get(`/ratings/${photoSource}/${photo.id}`);
+
+            if (response.ok) {
+                const data = await response.json();
+                userRating = data.user_rating;
+                ratingCounts = data.rating_counts || { thumbs_up: 0, thumbs_down: 0 };
+            } else {
+                // If rating endpoint fails, set defaults
+                userRating = null;
+                ratingCounts = { thumbs_up: 0, thumbs_down: 0 };
+            }
+        } catch (error) {
+            console.error('🢄Error loading rating:', error);
+            userRating = null;
+            ratingCounts = { thumbs_up: 0, thumbs_down: 0 };
+        }
+    }
+
+    // Load rating when photo changes
+    $: if (photo && isAuthenticated) {
+        loadPhotoRating();
+    }
+
 
 
 </script>
@@ -319,7 +400,7 @@
             data-testid="main-photo"
             data-photo={JSON.stringify(photo)}
         />
-        
+
         <!-- Loading spinner overlay -->
         {#if isLoadingNewImage}
             <div class="photo-loading-overlay" data-testid="photo-loading-spinner">
@@ -339,6 +420,30 @@
             {/if}
 
             <div class="hide-buttons">
+
+                <!-- Rating buttons -->
+                <button
+                    class="hide-button rating-button {userRating === 'thumbs_up' ? 'active' : ''}"
+                    on:click={() => handleRatingClick('thumbs_up')}
+                    disabled={isRating}
+                    title="Thumbs up"
+                    data-testid="thumbs-up-button"
+                >
+                    <ThumbsUp size={16} />
+                    <span class="rating-count">{ratingCounts.thumbs_up}</span>
+                </button>
+
+                <button
+                    class="hide-button rating-button {userRating === 'thumbs_down' ? 'active' : ''}"
+                    on:click={() => handleRatingClick('thumbs_down')}
+                    disabled={isRating}
+                    title="Thumbs down"
+                    data-testid="thumbs-down-button"
+                >
+                    <ThumbsDown size={16} />
+                    <span class="rating-count">{ratingCounts.thumbs_down}</span>
+                </button>
+
                 <button
                     class="hide-button hide-photo"
                     on:click={hidePhoto}
@@ -570,6 +675,38 @@
         background: rgba(255, 133, 27, 1);
     }
 
+    /* Rating buttons */
+    .rating-button {
+        background: rgba(0, 0, 0, 0.7);
+        color: white;
+        position: relative;
+        width: auto !important;
+        min-width: 40px;
+        padding: 0 8px;
+        border-radius: 18px !important;
+        gap: 4px;
+    }
+
+    .rating-button:hover:not(:disabled) {
+        background: rgba(0, 0, 0, 0.9);
+    }
+
+    .rating-button.active {
+        background: rgba(40, 167, 69, 0.8);
+        color: white;
+    }
+
+    .rating-button.active:hover:not(:disabled) {
+        background: rgba(40, 167, 69, 1);
+    }
+
+    .rating-count {
+        font-size: 12px;
+        font-weight: 600;
+        min-width: 12px;
+        text-align: center;
+    }
+
     /* Status message */
     .hide-message {
         position: absolute;
@@ -726,7 +863,7 @@
         opacity: 0.6;
         cursor: not-allowed;
     }
-    
+
     /* Photo loading overlay */
     .photo-loading-overlay {
         position: absolute;
@@ -737,11 +874,11 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        background-color: rgba(0, 0, 0, 0.3);
+        /*background-color: rgba(0, 0, 0, 0.3);*/
         z-index: 8;
         pointer-events: none;
     }
-    
+
     /* Simple spinner animation */
     .photo-spinner {
         width: 40px;
@@ -751,7 +888,7 @@
         border-radius: 50%;
         animation: spin 1s linear infinite;
     }
-    
+
     @keyframes spin {
         0% { transform: rotate(0deg); }
         100% { transform: rotate(360deg); }

@@ -7,6 +7,7 @@ import {
 } from './svelte-shared-store';
 import type { PhotoData } from './types/photoTypes';
 import {AngularRangeCuller, sortPhotosByBearing} from './AngularRangeCuller';
+import { normalizeBearing } from './utils/bearingUtils';
 
 const angularRangeCuller = new AngularRangeCuller();
 
@@ -68,19 +69,29 @@ spatialState.subscribe(spatial => {
 
     // Sort by bearing for consistent navigation order
     sortPhotosByBearing(inRange);
+	console.log(`spatialState: photosInRange recalculated to ${inRange.length} photos within range ${spatial.range}m`);
     photosInRange.set(inRange);
 });
 
 export const photoInFront = writable<PhotoData | null>(null);
 
 // Navigation photos (front, left, right) - derived from bearing-sorted photosInRange (within spatialState.range)
+
+
+/* fixme:
+we have to make photo id a part of bearingState. (First, we have to ensure cross-source unique photo ids.)
+Then, photosInRange should already be sorted by bearing and id here, and then we can maybe make this work, where bearing takes precedence, but id is a tiebreaker.
+*/
+
 export const newPhotoInFront = derived(
   [photosInRange, bearingState],
   ([photos, visual]) => {
     if (photos.length === 0) {
-      //console.log('🢄Navigation: No photos available for photoInFront');
+      console.log('🢄Navigation: No photos available for photoInFront');
       return null;
     }
+
+	console.log(`🢄Navigation: Calculating photoInFront from ${JSON.stringify(photos.map(p => ({id: p.id, bearing: p.bearing})))} with current bearing ${visual.bearing}`);
 
     // Find photo closest to current bearing
     const currentBearing = visual.bearing;
@@ -95,8 +106,10 @@ export const newPhotoInFront = derived(
       }
     }
 
-    //console.log(`Navigation: photoInFront selected from ${photos.length} photos in range`);
-    return photos[closestIndex];
+	const p = photos[closestIndex];
+
+    console.log(`Navigation: (fixme) photoIFront ${p.id} selected from ${photos.length} photos in range`);
+    return p;
   }
 );
 
@@ -198,7 +211,7 @@ export function updateBearing(bearing: number) {
 
 export function updateBearingByDiff(diff: number) {
   const current = get(bearingState);
-  const newBearing = (current.bearing + diff + 360) % 360;
+  const newBearing = normalizeBearing(current.bearing + diff);
   updateBearing(newBearing);
 }
 

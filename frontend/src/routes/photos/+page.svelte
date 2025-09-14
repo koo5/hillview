@@ -1,17 +1,18 @@
 <script lang="ts">
 	import {onMount} from 'svelte';
+	import {get} from 'svelte/store';
 	import {myGoto} from '$lib/navigation.svelte';
-	import {Upload, Trash2, Map, Settings} from 'lucide-svelte';
+	import { Trash2, Map, Settings, ThumbsUp, ThumbsDown} from 'lucide-svelte';
 	import StandardHeaderWithAlert from '../../components/StandardHeaderWithAlert.svelte';
+	import StandardBody from '../../components/StandardBody.svelte';
 	import Spinner from '../../components/Spinner.svelte';
 	import PhotoImport from '$lib/components/PhotoImport.svelte';
 	import PhotoUpload from '$lib/components/PhotoUpload.svelte';
 	import {auth, checkAuth} from '$lib/auth.svelte';
-	import {app} from '$lib/data.svelte';
+	import {userId} from '$lib/authStore';
 	import type {UserPhoto} from '$lib/stores';
 	import type {User} from '$lib/auth.svelte';
 	import {http, handleApiError, TokenExpiredError} from '$lib/http';
-	import {backendUrl} from '$lib/config';
 	import {TAURI} from '$lib/tauri';
 	import {navigateWithHistory} from '$lib/navigation.svelte';
 	import {invoke} from '@tauri-apps/api/core';
@@ -44,15 +45,24 @@
 	}
 
 
-	onMount(async () => {
-		// Check authentication status first
+	onMount(() => {
+		// Check authentication status first (async)
 		checkAuth();
 
-		// Check if user is authenticated
-		auth.subscribe(async (value) => {
-			user = value.isAuthenticated ? value.user : null;
-			if (user) {
-				autoUploadEnabled = user.auto_upload_enabled || false;
+		// Subscribe to userId changes to avoid reactive loops from auth store updates during token refresh
+		const unsubscribe = userId.subscribe(async (currentUserId) => {
+
+			console.info(`🢄 [/PHOTOS] userId changed: ${currentUserId}, reloading photos...`);
+
+			// Get the current auth state when userId changes
+			const currentAuth = get(auth);
+			user = currentAuth.isAuthenticated ? currentAuth.user : null;
+
+			if (currentUserId && user) {
+				// Load auto-upload setting from Android if running on Tauri
+				if (TAURI) {
+					await loadAndroidAutoUploadSetting();
+				}
 
 				// Fetch user photos when authenticated
 				try {
@@ -75,6 +85,9 @@
 				isLoading = false;
 			}
 		});
+
+		// Return cleanup function
+		return unsubscribe;
 	});
 
 	async function fetchPhotos(reset = false) {
@@ -86,7 +99,7 @@
 				totalCount = 0;
 			}
 
-			const url = nextCursor ? `/photos?cursor=${encodeURIComponent(nextCursor)}` : '/photos';
+			const url = nextCursor ? `/photos/?cursor=${encodeURIComponent(nextCursor)}` : '/photos/';
 			const response = await http.get(url);
 
 			if (!response.ok) {
@@ -94,23 +107,18 @@
 			}
 
 			const data = await response.json();
-			
+
 			const newPhotos = data.photos || [];
 			if (reset) {
 				photos = newPhotos;
 			} else {
 				photos = [...photos, ...newPhotos];
 			}
-			
+
 			nextCursor = data.pagination?.next_cursor || null;
 			hasMore = data.pagination?.has_more || false;
 			totalCount = data.counts?.total || 0;
 
-			// Update app store with user photos
-			app.update(a => ({
-				...a,
-				userPhotos: photos
-			}));
 		} catch (err) {
 			console.error('🢄Error fetching photos:', err);
 			const errorMessage = handleApiError(err);
@@ -127,7 +135,7 @@
 
 	async function loadMorePhotos() {
 		if (!hasMore || loadingMore) return;
-		
+
 		loadingMore = true;
 		try {
 			await fetchPhotos(false);
@@ -169,12 +177,6 @@
 			// Remove the photo from the list
 			photos = photos.filter(photo => photo.id !== photoId);
 
-			// Update app store
-			app.update(a => ({
-				...a,
-				userPhotos: photos
-			}));
-
 			addLogEntry(`Deleted: ${photoName}`, 'success');
 
 		} catch (err) {
@@ -190,30 +192,18 @@
 			}
 		}
 	}
-/*
-	async function saveSettingsToServer() {
-		try {
-			const settingsData = {
-				auto_upload_enabled: autoUploadEnabled
-			};
-			const response = await http.put('/auth/settings', settingsData);
-			if (!response.ok) {
-				throw new Error(`Failed to save settings: ${response.status}`);
-			}
-		} catch (err) {
-			console.error('🢄Error saving settings:', err);
-			const errorMessage = handleApiError(err);
-			addLogEntry(`Settings save failed: ${errorMessage}`, 'error');
-			error = errorMessage;
 
-			// TokenExpiredError is handled automatically by the http client
-			if (err instanceof TokenExpiredError) {
-				// No need to handle manually, http client already logged out
-				return;
-			}
+	async function loadAndroidAutoUploadSetting() {
+		try {
+			const result = await invoke('plugin:hillview|get_upload_status') as { autoUploadEnabled: boolean };
+			autoUploadEnabled = result.autoUploadEnabled || false;
+			console.log('📱 Loaded Android auto-upload setting:', autoUploadEnabled);
+		} catch (err) {
+			console.error('🢄Error loading Android auto-upload setting:', err);
+			autoUploadEnabled = false; // Default to false if we can't read it
 		}
 	}
-*/
+
 	async function saveSettings() {
 		// update the Android background service setting
 		if (TAURI) {
@@ -252,24 +242,104 @@
 			await fetchPhotos(true); // Reset and fetch from the beginning
 		}
 	}
+
+	async function setPhotoRating(photoId: number, rating: 'thumbs_up' | 'thumbs_down') {
+		console.log(`Setting ${rating} for photo ${photoId}`);
+
+		try {
+			const response = await http.post(`/ratings/hillview/${photoId}`, { rating });
+
+			if (!response.ok) {
+				throw new Error(`Failed to set rating: ${response.status}`);
+			}
+
+			const data = await response.json();
+			console.log('Rating response:', data);
+
+			// Update the photo in our local array
+			photos = photos.map(photo => {
+				if (photo.id === photoId) {
+					return {
+						...photo,
+						user_rating: data.user_rating,
+						rating_counts: data.rating_counts
+					};
+				}
+				return photo;
+			});
+
+			addLogEntry(`Rated photo ${rating.replace('_', ' ')}`, 'success');
+
+		} catch (err) {
+			console.error('Error setting rating:', err);
+			const errorMessage = handleApiError(err);
+			addLogEntry(`Rating failed: ${errorMessage}`, 'error');
+		}
+	}
+
+	async function removePhotoRating(photoId: number) {
+		console.log(`Removing rating for photo ${photoId}`);
+
+		try {
+			const response = await http.delete(`/ratings/hillview/${photoId}`);
+
+			if (!response.ok) {
+				throw new Error(`Failed to remove rating: ${response.status}`);
+			}
+
+			const data = await response.json();
+			console.log('Rating removal response:', data);
+
+			// Update the photo in our local array
+			photos = photos.map(photo => {
+				if (photo.id === photoId) {
+					return {
+						...photo,
+						user_rating: null,
+						rating_counts: data.rating_counts
+					};
+				}
+				return photo;
+			});
+
+			addLogEntry('Rating removed', 'success');
+
+		} catch (err) {
+			console.error('Error removing rating:', err);
+			const errorMessage = handleApiError(err);
+			addLogEntry(`Rating removal failed: ${errorMessage}`, 'error');
+		}
+	}
+
+	async function handleRatingClick(photoId: number, rating: 'thumbs_up' | 'thumbs_down') {
+		const photo = photos.find(p => p.id === photoId);
+		if (!photo) return;
+
+		// If user clicks the same rating they already have, remove it
+		if (photo.user_rating === rating) {
+			await removePhotoRating(photoId);
+		} else {
+			// Otherwise set/change the rating
+			await setPhotoRating(photoId, rating);
+		}
+	}
 </script>
 
-<div class="photos-container page-scrollable">
-	<StandardHeaderWithAlert 
-		title="My Photos" 
-		showMenuButton={true}
-		fallbackHref="/"
-	>
-		<div slot="actions">
-			{#if TAURI}
-				<button class="settings-button" on:click={() => showSettings = !showSettings}>
-					<Settings size={20}/>
-					Settings
-				</button>
-			{/if}
-		</div>
-	</StandardHeaderWithAlert>
+<StandardHeaderWithAlert
+	title="My Photos"
+	showMenuButton={true}
+	fallbackHref="/"
+/>
 
+<StandardBody>
+	{#if TAURI}
+		<div class="page-actions">
+			<button class="settings-button" on:click={() => showSettings = !showSettings}>
+				<Settings size={20}/>
+				Settings
+			</button>
+		</div>
+	{/if}
 	{#if error}
 		<div class="error-message">{error}</div>
 	{/if}
@@ -417,6 +487,28 @@
 										View on Map
 									</button>
 								{/if}
+								<button
+									class="action-button rating {photo.user_rating === 'thumbs_up' ? 'active' : ''}"
+									data-testid="thumbs-up-button"
+									data-photo-id={photo.id}
+									on:click={() => handleRatingClick(photo.id, 'thumbs_up')}
+								>
+									<ThumbsUp size={16}/>
+									<span class="rating-count">
+										{photo.rating_counts?.thumbs_up || 0}
+									</span>
+								</button>
+								<button
+									class="action-button rating {photo.user_rating === 'thumbs_down' ? 'active' : ''}"
+									data-testid="thumbs-down-button"
+									data-photo-id={photo.id}
+									on:click={() => handleRatingClick(photo.id, 'thumbs_down')}
+								>
+									<ThumbsDown size={16}/>
+									<span class="rating-count">
+										{photo.rating_counts?.thumbs_down || 0}
+									</span>
+								</button>
 								<button class="action-button delete" data-testid="delete-photo-button"
 										data-photo-id={photo.id} on:click={() => deletePhoto(photo.id)}>
 									<Trash2 size={16}/>
@@ -427,13 +519,13 @@
 					</div>
 				{/each}
 			</div>
-			
+
 			<!-- Load More Button -->
 			{#if hasMore}
 				<div class="load-more-container">
-					<button 
-						class="load-more-button" 
-						on:click={loadMorePhotos} 
+					<button
+						class="load-more-button"
+						on:click={loadMorePhotos}
 						disabled={loadingMore}
 						data-testid="load-more-button"
 					>
@@ -448,13 +540,19 @@
 			{/if}
 		{/if}
 	</div>
-</div>
+</StandardBody>
 
 <style>
 	.photos-container {
 		max-width: 1200px;
 		margin: 0 auto;
 		padding: 20px;
+	}
+
+	.page-actions {
+		display: flex;
+		justify-content: flex-end;
+		margin-bottom: 16px;
 	}
 
 	h2 {
@@ -746,6 +844,33 @@
 
 	.action-button.delete:hover {
 		background-color: #ffebee;
+	}
+
+	.action-button.rating {
+		color: #6b7280;
+		position: relative;
+	}
+
+	.action-button.rating:hover {
+		background-color: #f0f9ff;
+		color: #1e40af;
+	}
+
+	.action-button.rating.active {
+		background-color: #dbeafe;
+		color: #1e40af;
+		border-color: #3b82f6;
+	}
+
+	.action-button.rating.active:hover {
+		background-color: #bfdbfe;
+	}
+
+	.rating-count {
+		font-size: 12px;
+		font-weight: 600;
+		min-width: 16px;
+		text-align: center;
 	}
 
 	.error-message {

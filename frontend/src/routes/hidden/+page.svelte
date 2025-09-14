@@ -3,6 +3,7 @@
     import { myGoto } from '$lib/navigation.svelte';
     import { EyeOff, Trash2, User, Image, MapPin } from 'lucide-svelte';
     import StandardHeaderWithAlert from '../../components/StandardHeaderWithAlert.svelte';
+    import StandardBody from '../../components/StandardBody.svelte';
     import { auth } from '$lib/auth.svelte';
     import { http, handleApiError, TokenExpiredError } from '$lib/http';
 
@@ -135,13 +136,13 @@
     <title>Hidden Content - Hillview</title>
 </svelte:head>
 
-<div class="page-scrollable">
-    <div class="hidden-content-page">
-        <StandardHeaderWithAlert 
-            title="Hidden Content" 
-            showMenuButton={true}
-            fallbackHref="/"
-        />
+<StandardHeaderWithAlert 
+    title="Hidden Content" 
+    showMenuButton={true}
+    fallbackHref="/"
+/>
+
+<StandardBody>
         
         <div class="description">
             <div class="title-section">
@@ -277,21 +278,10 @@
                 {/if}
             </div>
         {/if}
-    </div>
-</div>
+</StandardBody>
 
 <style>
-    .hidden-content-page {
-        max-width: 800px;
-        margin: 0 auto;
-        padding: 2rem;
-        min-height: 100vh;
-    }
 
-    .header {
-        margin-bottom: 2rem;
-        text-align: center;
-    }
 
     .title-section {
         display: flex;
@@ -301,11 +291,6 @@
         margin-bottom: 0.5rem;
     }
 
-    .title-section h1 {
-        margin: 0;
-        font-size: 2.5rem;
-        color: #333;
-    }
 
     .subtitle {
         color: #666;
@@ -506,13 +491,7 @@
 
     /* Responsive design */
     @media (max-width: 768px) {
-        .hidden-content-page {
-            padding: 1rem;
-        }
 
-        .title-section h1 {
-            font-size: 2rem;
-        }
 
         .item-header {
             flex-direction: column;

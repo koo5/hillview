@@ -19,6 +19,7 @@ export interface OperationCallbacks {
     getPhotosInRange: () => PhotoData[];
     sendPhotosInAreaUpdate: () => void;
     sendPhotosInRangeUpdate: () => void;
+    getValidToken: () => Promise<string | null>;
 }
 
 interface SourceCache {
@@ -268,7 +269,8 @@ export class PhotoOperations {
                 
                 // Forward message to worker queue
                 callbacks.postMessage(message);
-            }
+            },
+            getValidToken: callbacks.getValidToken
         };
 
         const loader = PhotoSourceFactory.createLoader(source, sourceCallbacks);

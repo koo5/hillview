@@ -2,6 +2,7 @@
     import { Menu, ArrowLeft } from 'lucide-svelte';
     import { goBack, canNavigateBack, getPreviousPath } from '$lib/navigation.svelte';
     import { goto } from '$app/navigation';
+    import AlertArea from './AlertArea.svelte';
 
     export let title: string;
     export let showBackButton: boolean = true;
@@ -40,7 +41,7 @@
                 <Menu size={24} />
             </button>
         {/if}
-        
+
         {#if showBackButton}
             <button
                 class="header-button back-button"
@@ -53,22 +54,23 @@
             </button>
         {/if}
     </div>
-    
+
     <div class="header-center">
         <h1 class="header-title">{title}</h1>
     </div>
-    
+
     <div class="header-right">
         <slot name="actions" />
     </div>
 </header>
+<AlertArea position="header" />
 
 <style>
     .standard-header {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 12px 16px;
+        padding: 0px 16px;
         background: white;
         border-bottom: 1px solid #e5e7eb;
         box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
@@ -77,7 +79,7 @@
         left: 0;
         right: 0;
         z-index: 30001;
-        min-height: 60px;
+        min-height: 50px;
     }
 
     .header-left,
@@ -124,12 +126,12 @@
         transition: all 0.2s ease;
         box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
     }
-    
+
     .header-button:hover {
         transform: scale(1.05);
         box-shadow: 0 4px 8px rgba(0, 0, 0, 0.25);
     }
-    
+
     .header-button:active {
         transform: scale(0.95);
         box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);

@@ -33,8 +33,7 @@ if SECRET_KEY == DEFAULT_SECRET_KEY:
 	logger.warning("Using auto-generated JWT secret key. Set SECRET_KEY environment variable in production!")
 
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
-REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "100"))
 
 # Test users configuration
 TEST_USERS = os.getenv("TEST_USERS", "false").lower() in ("true", "1", "yes")
@@ -265,7 +264,7 @@ async def get_current_user_optional(
 		token_data_dict = validate_token(token)
 		if not token_data_dict:
 			return None
-			
+
 		user_id = token_data_dict.get("sub")
 		if user_id is None:
 			return None
@@ -274,7 +273,7 @@ async def get_current_user_optional(
 		if await is_token_blacklisted(token, db):
 			logger.warning(f"Blacklisted token used for user ID: {user_id}")
 			return None
-			
+
 		# Get user from database by ID
 		result = await db.execute(select(User).where(User.id == user_id))
 		user = result.scalars().first()
@@ -293,65 +292,88 @@ async def get_current_user_optional_with_query(
 	token: Optional[str] = Depends(OAuth2PasswordBearer(tokenUrl="/api/auth/token", auto_error=False)),
 	db: AsyncSession = Depends(get_db)
 ) -> Optional[User]:
-	"""Get current user if authenticated, checking both header and query params"""
+	"""Get current user if authenticated, checking both header and query params.
+	Returns None if no token provided. Raises 401 if token provided but invalid."""
+
+	credentials_exception = HTTPException(
+		status_code=status.HTTP_401_UNAUTHORIZED,
+		detail="Invalid authentication token",
+		headers={"WWW-Authenticate": "Bearer"},
+	)
+
 	# First try header token
 	if token:
 		try:
-			# Use common JWT validation (same as get_current_user)
 			token_data_dict = validate_token(token)
 			if not token_data_dict:
-				return None
-				
+				logger.warning("Invalid token in Authorization header")
+				raise credentials_exception
+
 			user_id = token_data_dict.get("sub")
 			if user_id is None:
-				return None
+				logger.warning("Token missing user ID")
+				raise credentials_exception
 
-			# Check if token is blacklisted
 			if await is_token_blacklisted(token, db):
 				logger.warning(f"Blacklisted token used for user ID: {user_id}")
-				return None
+				raise credentials_exception
 
-			# Get user from database by ID
 			result = await db.execute(select(User).where(User.id == user_id))
 			user = result.scalars().first()
 
-			if user is None or not user.is_active:
-				return None
+			if user is None:
+				logger.warning(f"User not found with ID: {user_id}")
+				raise credentials_exception
+
+			if not user.is_active:
+				logger.warning(f"Inactive user attempted access: {user_id}")
+				raise credentials_exception
 
 			return user
-		except Exception:
-			pass
+		except HTTPException:
+			raise
+		except Exception as e:
+			logger.warning(f"Token validation error: {str(e)}")
+			raise credentials_exception
 
-	# If no header token or it failed, try query parameter
+	# If no header token, try query parameter
 	if request:
 		query_token = request.query_params.get('token')
 		if query_token:
 			try:
-				# Use common JWT validation (same as get_current_user)
 				token_data_dict = validate_token(query_token)
 				if not token_data_dict:
-					return None
-					
+					logger.warning("Invalid token in query parameter")
+					raise credentials_exception
+
 				user_id = token_data_dict.get("sub")
 				if user_id is None:
-					return None
+					logger.warning("Query token missing user ID")
+					raise credentials_exception
 
-				# Check if token is blacklisted
 				if await is_token_blacklisted(query_token, db):
-					logger.warning(f"Blacklisted token used for user ID: {user_id}")
-					return None
+					logger.warning(f"Blacklisted query token used for user ID: {user_id}")
+					raise credentials_exception
 
-				# Get user from database by ID
 				result = await db.execute(select(User).where(User.id == user_id))
 				user = result.scalars().first()
 
-				if user is None or not user.is_active:
-					return None
+				if user is None:
+					logger.warning(f"User not found with query token ID: {user_id}")
+					raise credentials_exception
+
+				if not user.is_active:
+					logger.warning(f"Inactive user attempted access with query token: {user_id}")
+					raise credentials_exception
 
 				return user
-			except Exception:
-				pass
+			except HTTPException:
+				raise
+			except Exception as e:
+				logger.warning(f"Query token validation error: {str(e)}")
+				raise credentials_exception
 
+	# No token provided - anonymous access allowed
 	return None
 
 def require_role(required_role: str):
