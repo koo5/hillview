@@ -130,17 +130,13 @@ class PhotoUploadWorker(
 
         for (photo in pendingUploads) {
             try {
-                // Check if file still exists
-                if (!File(photo.path).exists()) {
-                    Log.w(TAG, "Photo file no longer exists: ${photo.path}")
-                    photoDao.updateUploadStatus(photo.id, "failed", 0L)
+                if (!validatePhotoForUpload(photo)) {
                     continue
                 }
 
-                // Update status to uploading
+                Log.d(TAG, "Attempting upload for ${photo.filename} with hash: ${photo.fileHash}")
                 photoDao.updateUploadStatus(photo.id, "uploading", 0L)
 
-                // Attempt upload
                 val success = secureUploadManager.secureUploadPhoto(photo)
 
                 if (success) {
@@ -187,11 +183,11 @@ class PhotoUploadWorker(
             }
 
             try {
-                if (!File(photo.path).exists()) {
-                    Log.w(TAG, "Photo file no longer exists: ${photo.path}")
+                if (!validatePhotoForUpload(photo)) {
                     continue
                 }
 
+                Log.d(TAG, "Attempting retry upload for ${photo.filename} with hash: ${photo.fileHash}")
                 photoDao.updateUploadStatus(photo.id, "uploading", 0L)
 
                 val success = secureUploadManager.secureUploadPhoto(photo)
@@ -534,6 +530,36 @@ class PhotoUploadWorker(
 
         Log.v(TAG, "Using fallback timestamp: $fallbackTime")
         return fallbackTime
+    }
+
+    private suspend fun validatePhotoForUpload(photo: PhotoEntity): Boolean {
+        // Check if file still exists
+        if (!File(photo.path).exists()) {
+            Log.w(TAG, "Photo file no longer exists: ${photo.path}, marking as failed")
+            photoDao.updateUploadFailure(
+                photo.id,
+                "failed",
+                photo.retryCount + 1,
+                System.currentTimeMillis(),
+                "File no longer exists"
+            )
+            return false
+        }
+
+        // Validate MD5 hash
+        if (photo.fileHash.isEmpty() || photo.fileHash.length != 32 || !photo.fileHash.matches(Regex("[a-fA-F0-9]{32}"))) {
+            Log.w(TAG, "Invalid MD5 hash for ${photo.filename}: '${photo.fileHash}' (length: ${photo.fileHash.length})")
+            photoDao.updateUploadFailure(
+                photo.id,
+                "failed",
+                photo.retryCount + 1,
+                System.currentTimeMillis(),
+                "Invalid MD5 hash: ${photo.fileHash}"
+            )
+            return false
+        }
+
+        return true
     }
 
     private fun calculateBackoffTime(retryCount: Int): Long {

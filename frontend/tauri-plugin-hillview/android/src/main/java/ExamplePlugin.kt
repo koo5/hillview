@@ -1375,6 +1375,76 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         }
     }
 
+    private fun copyUriToPermanentLocation(uri: Uri): File? {
+        return try {
+            Log.d(TAG, "📂 Copying URI to permanent location: $uri")
+
+            // Get the original filename from URI
+            val originalName = getFileNameFromUri(uri)
+
+            // Create destination directory
+            val externalStorage = "/storage/emulated/0"
+            val hillviewDir = File(externalStorage, "Pictures/Hillview")
+            if (!hillviewDir.exists()) {
+                hillviewDir.mkdirs()
+            }
+
+            // Use original filename if available, otherwise generate one
+            val destinationFile = if (originalName != null) {
+                File(hillviewDir, originalName)
+            } else {
+                File(hillviewDir, "imported_${System.currentTimeMillis()}.jpg")
+            }
+
+            // Skip if file already exists with same name
+            if (destinationFile.exists()) {
+                Log.d(TAG, "📂 File already exists, skipping: ${destinationFile.path}")
+                return destinationFile // Return the existing file
+            }
+
+            Log.d(TAG, "📂 Copying to: ${destinationFile.path}")
+
+            // Copy the file
+            activity.contentResolver.openInputStream(uri)?.use { inputStream ->
+                destinationFile.outputStream().use { outputStream ->
+                    inputStream.copyTo(outputStream)
+                }
+            }
+
+            if (destinationFile.exists() && destinationFile.length() > 0) {
+                Log.d(TAG, "📂 Successfully copied file: ${destinationFile.path} (${destinationFile.length()} bytes)")
+                destinationFile
+            } else {
+                Log.e(TAG, "📂 Failed to copy file - destination doesn't exist or is empty")
+                null
+            }
+
+        } catch (e: Exception) {
+            Log.e(TAG, "📂 Error copying URI to permanent location: $uri", e)
+            null
+        }
+    }
+
+    private fun getFileNameFromUri(uri: Uri): String? {
+        return try {
+            activity.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                    if (nameIndex != -1) {
+                        cursor.getString(nameIndex)
+                    } else {
+                        null
+                    }
+                } else {
+                    null
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "📂 Failed to get filename from URI: $uri", e)
+            null
+        }
+    }
+
     // Handle permission request results and forward to PreciseLocationService
     fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         Log.e(TAG, "🔒🔒🔒 PERMISSION RESULT CALLBACK RECEIVED 🔒🔒🔒")
@@ -1423,32 +1493,35 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
 
                         for (uri in selectedUris) {
                             try {
-                                // Convert URI to file path using PhotoUtils
-                                val filePath = PhotoUtils.getFilePathFromUri(activity, uri)
-                                if (filePath != null) {
-                                    val file = File(filePath)
-                                    if (file.exists() && file.isFile) {
-                                        // Calculate hash and check for existing photo
-                                        val fileHash = PhotoUtils.calculateFileHash(file)
+                                // Copy the URI content to a permanent location in Hillview folder
+                                val copiedFile = copyUriToPermanentLocation(uri)
+                                if (copiedFile != null) {
+                                    // Calculate hash and check for existing photo
+                                    val fileHash = PhotoUtils.calculateFileHash(copiedFile)
+                                    if (fileHash != null) {
                                         val existingPhoto = database.photoDao().getPhotoByHash(fileHash)
 
                                         if (existingPhoto == null) {
-                                            // Create new PhotoEntity using PhotoUtils
-                                            val photoEntity = PhotoUtils.createPhotoEntityFromFile(file, fileHash, "imported")
+                                            // Create new PhotoEntity using the permanent file path
+                                            val photoEntity = PhotoUtils.createPhotoEntityFromFile(copiedFile, fileHash, "imported")
                                             database.photoDao().insertPhoto(photoEntity)
-                                            importedFiles.add(filePath)
-                                            Log.d(TAG, "📂 Successfully imported: ${file.name}")
+                                            importedFiles.add(copiedFile.path)
+                                            Log.d(TAG, "📂 Successfully imported: ${copiedFile.name}")
                                         } else {
-                                            Log.d(TAG, "📂 Photo already exists: ${file.name}")
-                                            importedFiles.add(filePath)  // Count as imported since it's in our database
+                                            Log.d(TAG, "📂 Photo already exists: ${copiedFile.name}")
+                                            // Remove the copied file since we already have it
+                                            copiedFile.delete()
+                                            importedFiles.add(copiedFile.path)  // Count as imported since it's in our database
                                         }
                                     } else {
                                         failedFiles.add(uri.toString())
-                                        errors.add("File not found or not readable: $filePath")
+                                        errors.add("Failed to calculate file hash for copied file")
+                                        // Clean up copied file on hash failure
+                                        copiedFile.delete()
                                     }
                                 } else {
                                     failedFiles.add(uri.toString())
-                                    errors.add("Could not resolve file path for URI: $uri")
+                                    errors.add("Failed to copy file from URI: $uri")
                                 }
                             } catch (e: IOException) {
                                 failedFiles.add(uri.toString())
