@@ -1241,21 +1241,46 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             
             // Parse the photo data using typed args
             val args = invoke.parseArgs(AddPhotoArgs::class.java)
-            
-            if (args == null || args.id.isNullOrEmpty() || args.filename.isNullOrEmpty() || args.path.isNullOrEmpty()) {
-                Log.e(TAG, "📸 Invalid photo data provided")
+
+            if (args == null) {
+                Log.e(TAG, "📸 Failed to parse photo args - null result")
                 val error = JSObject()
                 error.put("success", false)
-                error.put("error", "Invalid photo data - missing required fields")
+                error.put("error", "Failed to parse photo data")
+                invoke.resolve(error)
+                return
+            }
+
+            Log.d(TAG, "📸 Parsed photo args: id=${args.id}, filename=${args.filename}, path=${args.path}")
+
+            if (args.filename.isNullOrEmpty() || args.path.isNullOrEmpty()) {
+                Log.e(TAG, "📸 Invalid photo data - filename: ${args.filename}, path: ${args.path}")
+                val error = JSObject()
+                error.put("success", false)
+                error.put("error", "Invalid photo data - missing filename or path")
                 invoke.resolve(error)
                 return
             }
             
             CoroutineScope(Dispatchers.IO).launch {
                 try {
+                    // Generate ID if not provided
+                    val photoId = if (args.id.isNullOrEmpty()) {
+                        // Calculate file hash for ID generation if not provided
+                        val file = File(args.path!!)
+                        val fileHash = if (args.fileHash.isNullOrEmpty()) {
+                            PhotoUtils.calculateFileHash(file)
+                        } else {
+                            args.fileHash!!
+                        }
+                        PhotoUtils.generatePhotoId(fileHash)
+                    } else {
+                        args.id!!
+                    }
+
                     // Create PhotoEntity from args
                     val photoEntity = PhotoEntity(
-                        id = args.id!!,
+                        id = photoId,
                         filename = args.filename!!,
                         path = args.path!!,
                         latitude = args.latitude,
@@ -1274,13 +1299,13 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                     
                     // Insert into database (will replace if exists due to OnConflictStrategy.REPLACE)
                     database.photoDao().insertPhoto(photoEntity)
-                    
-                    Log.d(TAG, "📸 Photo added to Android database: ${photoEntity.id}")
-                    
+
+                    Log.d(TAG, "📸 Photo added to Android database: ${photoId}")
+
                     CoroutineScope(Dispatchers.Main).launch {
                         val result = JSObject()
                         result.put("success", true)
-                        result.put("photoId", photoEntity.id)
+                        result.put("photoId", photoId)
                         invoke.resolve(result)
                     }
                     
