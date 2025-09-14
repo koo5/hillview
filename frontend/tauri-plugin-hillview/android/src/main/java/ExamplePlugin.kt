@@ -1264,19 +1264,17 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             
             CoroutineScope(Dispatchers.IO).launch {
                 try {
-                    // Generate ID if not provided
+                    // Hash is always provided by Rust (calculated from bytes in memory)
+                    val fileHash = args.fileHash ?: throw Exception("File hash is required")
+
+                    // Generate ID if not provided (using the hash from Rust)
                     val photoId = if (args.id.isNullOrEmpty()) {
-                        // Calculate file hash for ID generation if not provided
-                        val file = File(args.path!!)
-                        val fileHash = if (args.fileHash.isNullOrEmpty()) {
-                            PhotoUtils.calculateFileHash(file)
-                        } else {
-                            args.fileHash!!
-                        }
                         PhotoUtils.generatePhotoId(fileHash)
                     } else {
                         args.id!!
                     }
+
+                    Log.d(TAG, "📸 Creating PhotoEntity: id=$photoId, hash=$fileHash")
 
                     // Create PhotoEntity from args
                     val photoEntity = PhotoEntity(
@@ -1294,7 +1292,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                         fileSize = args.fileSize,
                         createdAt = if (args.createdAt > 0) args.createdAt else System.currentTimeMillis(),
                         uploadStatus = "pending",
-                        fileHash = args.fileHash ?: ""
+                        fileHash = fileHash  // Always use the calculated/provided hash
                     )
                     
                     // Insert into database (will replace if exists due to OnConflictStrategy.REPLACE)

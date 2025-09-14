@@ -415,6 +415,10 @@ pub async fn save_photo_with_metadata(
 			.map_err(|e| format!("Failed to load image from memory: {}", e))?;
 		let (width, height) = (img.width(), img.height());
 
+		// Calculate MD5 hash from the bytes we already have
+		let hash_bytes = md5::compute(&processed.data);
+		let file_hash = format!("{:x}", hash_bytes);
+
 		// Send to Android database - let Kotlin generate the ID
 		let plugin_photo = tauri_plugin_hillview::shared_types::DevicePhotoMetadata {
 			id: String::new(), // Empty - Kotlin will generate this
@@ -432,7 +436,7 @@ pub async fn save_photo_with_metadata(
 			height,
 			file_size: file_metadata.len(),
 			created_at: chrono::Utc::now().timestamp(),
-			file_hash: None,
+			file_hash: Some(file_hash.clone()),
 		};
 
 		let photo_id = match app_handle.hillview().add_photo_to_database(plugin_photo.clone()) {

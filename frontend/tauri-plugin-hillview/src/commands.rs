@@ -237,7 +237,7 @@ pub(crate) async fn clear_auth_token<R: Runtime>(
 
 #[command]
 pub(crate) async fn get_device_photos<R: Runtime>(
-    app: AppHandle<R>,
+    #[allow(unused_variables)] app: AppHandle<R>,
 ) -> Result<crate::models::DevicePhotosResponse> {
     #[cfg(mobile)]
     {
@@ -252,7 +252,7 @@ pub(crate) async fn get_device_photos<R: Runtime>(
 
 #[command]
 pub(crate) async fn refresh_photo_scan<R: Runtime>(
-    app: AppHandle<R>,
+    #[allow(unused_variables)] app: AppHandle<R>,
 ) -> Result<crate::models::PhotoScanResponse> {
     #[cfg(mobile)]
     {
@@ -267,7 +267,7 @@ pub(crate) async fn refresh_photo_scan<R: Runtime>(
 
 #[command]
 pub(crate) async fn import_photos<R: Runtime>(
-    app: AppHandle<R>,
+    #[allow(unused_variables)] app: AppHandle<R>,
 ) -> Result<crate::models::FileImportResponse> {
     #[cfg(mobile)]
     {
@@ -282,7 +282,7 @@ pub(crate) async fn import_photos<R: Runtime>(
 
 #[command]
 pub(crate) async fn register_client_public_key<R: Runtime>(
-    app: AppHandle<R>,
+    #[allow(unused_variables)] app: AppHandle<R>,
 ) -> Result<BasicResponse> {
     #[cfg(mobile)]
     {
@@ -300,8 +300,8 @@ pub(crate) async fn register_client_public_key<R: Runtime>(
 
 #[command]
 pub(crate) async fn add_photo_to_database<R: Runtime>(
-    app: AppHandle<R>,
-    photo: crate::shared_types::DevicePhotoMetadata,
+    #[allow(unused_variables)] app: AppHandle<R>,
+    #[allow(unused_variables)] photo: crate::shared_types::DevicePhotoMetadata,
 ) -> Result<crate::shared_types::AddPhotoResponse> {
     #[cfg(mobile)]
     {

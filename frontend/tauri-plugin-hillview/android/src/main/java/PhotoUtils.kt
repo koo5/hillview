@@ -32,18 +32,23 @@ object PhotoUtils {
     
     /**
      * Calculate MD5 hash of a file
-     * @throws IOException if file cannot be read
+     * @return MD5 hash as hex string, or null if calculation fails
      */
-    fun calculateFileHash(file: File): String {
-        val digest = MessageDigest.getInstance("MD5")
-        file.inputStream().use { fis ->
-            val buffer = ByteArray(8192)
-            var bytesRead: Int
-            while (fis.read(buffer).also { bytesRead = it } != -1) {
-                digest.update(buffer, 0, bytesRead)
+    fun calculateFileHash(file: File): String? {
+        return try {
+            val digest = MessageDigest.getInstance("MD5")
+            file.inputStream().use { fis ->
+                val buffer = ByteArray(8192)
+                var bytesRead: Int
+                while (fis.read(buffer).also { bytesRead = it } != -1) {
+                    digest.update(buffer, 0, bytesRead)
+                }
             }
+            digest.digest().joinToString("") { "%02x".format(it) }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to calculate hash for ${file.path}", e)
+            null
         }
-        return digest.digest().joinToString("") { "%02x".format(it) }
     }
     
     /**

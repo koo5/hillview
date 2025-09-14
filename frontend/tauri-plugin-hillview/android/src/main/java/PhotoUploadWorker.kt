@@ -88,7 +88,7 @@ class PhotoUploadWorker(
                 	Log.w(TAG, "Processing file: ${file.path}")
 
                     // Calculate file hash for duplicate detection
-                    val fileHash = calculateFileHash(file)
+                    val fileHash = PhotoUtils.calculateFileHash(file)
                     if (fileHash == null) {
                         Log.w(TAG, "Failed to calculate hash for ${file.path}")
                         scanErrors++
@@ -297,22 +297,6 @@ class PhotoUploadWorker(
         )
     }
 
-    private fun calculateFileHash(file: File): String? {
-        return try {
-            val digest = MessageDigest.getInstance("MD5")
-            file.inputStream().use { fis ->
-                val buffer = ByteArray(8192)
-                var bytesRead: Int
-                while (fis.read(buffer).also { bytesRead = it } != -1) {
-                    digest.update(buffer, 0, bytesRead)
-                }
-            }
-            digest.digest().joinToString("") { "%02x".format(it) }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to calculate hash for ${file.path}", e)
-            null
-        }
-    }
 
     private fun extractGpsCoordinates(exif: ExifInterface): Pair<Double, Double> {
         var latitude: Double
