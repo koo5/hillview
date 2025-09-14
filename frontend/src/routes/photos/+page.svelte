@@ -45,9 +45,15 @@
 	}
 
 
-	onMount(() => {
+	onMount(async () => {
 		// Check authentication status first (async)
 		checkAuth();
+
+		// Load auto-upload setting immediately if running on Tauri, regardless of auth state
+		// This ensures the setting is loaded on app startup
+		if (TAURI) {
+			await loadAndroidAutoUploadSetting();
+		}
 
 		// Subscribe to userId changes to avoid reactive loops from auth store updates during token refresh
 		const unsubscribe = userId.subscribe(async (currentUserId) => {
@@ -59,7 +65,7 @@
 			user = currentAuth.isAuthenticated ? currentAuth.user : null;
 
 			if (currentUserId && user) {
-				// Load auto-upload setting from Android if running on Tauri
+				// Reload auto-upload setting from Android when user changes (in case user switched accounts)
 				if (TAURI) {
 					await loadAndroidAutoUploadSetting();
 				}

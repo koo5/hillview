@@ -509,30 +509,52 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             val args = invoke.parseArgs(AutoUploadArgs::class.java)
             val enabled = args.enabled
 
-            Log.d(TAG, "📤 Setting auto upload enabled: $enabled")
+            Log.i(TAG, "📤 [setAutoUploadEnabled] CALLED with enabled: $enabled")
 
-            // Update shared preferences
+            // Update shared preferences with detailed logging
             val prefs = activity.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
-            prefs.edit().putBoolean("auto_upload_enabled", enabled).apply()
+            val previousValue = prefs.getBoolean("auto_upload_enabled", false)
+
+            Log.i(TAG, "📤 [setAutoUploadEnabled] Previous value: $previousValue, New value: $enabled")
+
+            if (previousValue == enabled) {
+                Log.i(TAG, "📤 [setAutoUploadEnabled] Value unchanged, but proceeding with worker update")
+            }
+
+            // Apply the new setting
+            val editor = prefs.edit()
+            editor.putBoolean("auto_upload_enabled", enabled)
+            val commitSuccess = editor.commit() // Use commit() instead of apply() for immediate persistence
+
+            Log.i(TAG, "📤 [setAutoUploadEnabled] SharedPreferences commit result: $commitSuccess")
+
+            // Verify the setting was persisted correctly
+            val verifyValue = prefs.getBoolean("auto_upload_enabled", false)
+            Log.i(TAG, "📤 [setAutoUploadEnabled] Verification read: $verifyValue (matches: ${verifyValue == enabled})")
 
             // Schedule or cancel the upload worker
             val workManager = WorkManager.getInstance(activity)
+            Log.i(TAG, "📤 [setAutoUploadEnabled] WorkManager instance obtained")
 
             if (enabled) {
+                Log.i(TAG, "📤 [setAutoUploadEnabled] Scheduling upload worker...")
                 scheduleUploadWorker(workManager, enabled)
-                Log.d(TAG, "📤 Auto upload worker scheduled")
+                Log.i(TAG, "📤 [setAutoUploadEnabled] Auto upload worker scheduled successfully")
             } else {
+                Log.i(TAG, "📤 [setAutoUploadEnabled] Cancelling upload worker...")
                 workManager.cancelUniqueWork(PhotoUploadWorker.WORK_NAME)
-                Log.d(TAG, "📤 Auto upload worker cancelled")
+                Log.i(TAG, "📤 [setAutoUploadEnabled] Auto upload worker cancelled successfully")
             }
 
             val result = JSObject()
             result.put("success", true)
             result.put("enabled", enabled)
+
+            Log.i(TAG, "📤 [setAutoUploadEnabled] SUCCESS - returning result: enabled=$enabled")
             invoke.resolve(result)
 
         } catch (e: Exception) {
-            Log.e(TAG, "📤 Error setting auto upload enabled", e)
+            Log.e(TAG, "📤 [setAutoUploadEnabled] ERROR occurred", e)
             val error = JSObject()
             error.put("success", false)
             error.put("error", e.message)
@@ -542,26 +564,36 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
 
     @Command
     fun getUploadStatus(invoke: Invoke) {
+        Log.i(TAG, "📤 [getUploadStatus] CALLED - retrieving current auto-upload status")
+
         CoroutineScope(Dispatchers.IO).launch {
             try {
+                Log.d(TAG, "📤 [getUploadStatus] Getting database counts...")
                 val photoDao = database.photoDao()
                 val pendingCount = photoDao.getPendingUploadCount()
                 val failedCount = photoDao.getFailedUploadCount()
 
+                Log.d(TAG, "📤 [getUploadStatus] Database counts - pending: $pendingCount, failed: $failedCount")
+
+                Log.d(TAG, "📤 [getUploadStatus] Reading SharedPreferences...")
                 val prefs = activity.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
                 val autoUploadEnabled = prefs.getBoolean("auto_upload_enabled", false)
+
+                Log.i(TAG, "📤 [getUploadStatus] SharedPreferences read - autoUploadEnabled: $autoUploadEnabled")
 
                 val result = JSObject()
                 result.put("autoUploadEnabled", autoUploadEnabled)
                 result.put("pendingUploads", pendingCount)
                 result.put("failedUploads", failedCount)
 
+                Log.i(TAG, "📤 [getUploadStatus] SUCCESS - returning: autoUploadEnabled=$autoUploadEnabled, pendingUploads=$pendingCount, failedUploads=$failedCount")
+
                 CoroutineScope(Dispatchers.Main).launch {
                     invoke.resolve(result)
                 }
 
             } catch (e: Exception) {
-                Log.e(TAG, "📤 Error getting upload status", e)
+                Log.e(TAG, "📤 [getUploadStatus] ERROR occurred", e)
                 CoroutineScope(Dispatchers.Main).launch {
                     val error = JSObject()
                     error.put("error", e.message)
@@ -704,27 +736,43 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     }
 
     private fun scheduleUploadWorker(workManager: WorkManager, autoUploadEnabled: Boolean) {
-        val constraints = Constraints.Builder()
-            .setRequiredNetworkType(NetworkType.CONNECTED)
-            .setRequiresBatteryNotLow(true)
-            .build()
+        Log.i(TAG, "📤 [scheduleUploadWorker] CALLED with autoUploadEnabled: $autoUploadEnabled")
 
-        val uploadWorkRequest = PeriodicWorkRequestBuilder<PhotoUploadWorker>(
-            150, TimeUnit.MINUTES
-        )
-            .setConstraints(constraints)
-            .setInputData(
-                Data.Builder()
-                    .putBoolean(PhotoUploadWorker.KEY_AUTO_UPLOAD_ENABLED, autoUploadEnabled)
-                    .build()
+        try {
+            Log.d(TAG, "📤 [scheduleUploadWorker] Building work constraints...")
+            val constraints = Constraints.Builder()
+                .setRequiredNetworkType(NetworkType.CONNECTED)
+                .setRequiresBatteryNotLow(true)
+                .build()
+
+            Log.d(TAG, "📤 [scheduleUploadWorker] Constraints built - NetworkType.CONNECTED, RequiresBatteryNotLow=true")
+
+            Log.d(TAG, "📤 [scheduleUploadWorker] Creating periodic work request...")
+            val uploadWorkRequest = PeriodicWorkRequestBuilder<PhotoUploadWorker>(
+                150, TimeUnit.MINUTES
             )
-            .build()
+                .setConstraints(constraints)
+                .setInputData(
+                    Data.Builder()
+                        .putBoolean(PhotoUploadWorker.KEY_AUTO_UPLOAD_ENABLED, autoUploadEnabled)
+                        .build()
+                )
+                .build()
 
-        workManager.enqueueUniquePeriodicWork(
-            PhotoUploadWorker.WORK_NAME,
-            ExistingPeriodicWorkPolicy.UPDATE,
-            uploadWorkRequest
-        )
+            Log.d(TAG, "📤 [scheduleUploadWorker] Work request created - interval: 150 minutes, workId: ${uploadWorkRequest.id}")
+
+            Log.i(TAG, "📤 [scheduleUploadWorker] Enqueueing unique periodic work with name: ${PhotoUploadWorker.WORK_NAME}")
+            workManager.enqueueUniquePeriodicWork(
+                PhotoUploadWorker.WORK_NAME,
+                ExistingPeriodicWorkPolicy.UPDATE,
+                uploadWorkRequest
+            )
+
+            Log.i(TAG, "📤 [scheduleUploadWorker] SUCCESS - periodic work enqueued with UPDATE policy")
+
+        } catch (e: Exception) {
+            Log.e(TAG, "📤 [scheduleUploadWorker] ERROR occurred while scheduling worker", e)
+        }
     }
 
     // Authentication Commands
