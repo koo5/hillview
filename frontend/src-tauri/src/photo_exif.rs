@@ -386,7 +386,7 @@ pub async fn save_photo_with_metadata(
 			}
 		}
 
-		match read_photo_exif(file_path.to_string_lossy().to_string()).await {
+		/*match read_photo_exif(file_path.to_string_lossy().to_string()).await {
 			Ok(read_metadata) => {
 				info!(
 					"Verified EXIF after save: lat={}, lon={}, alt={:?}, bearing={:?}",
@@ -399,21 +399,75 @@ pub async fn save_photo_with_metadata(
 			Err(e) => {
 				info!("🢄Warning: Could not verify EXIF after save: {}", e);
 			}
-		}
+		}*/
 	}
 
 	#[cfg(target_os = "android")]
 	{
-		// Add to device photos database with dimensions
-		let device_photo = crate::device_photos::add_device_photo_to_db(
-			app_handle.clone(),
-			file_path.to_string_lossy().to_string(),
-			metadata,
-		)
-		.await?;
+		use tauri_plugin_hillview::HillviewExt;
+
+		// Get file metadata for the photo
+		let file_metadata = std::fs::metadata(&file_path)
+			.map_err(|e| format!("Failed to get file metadata: {}", e))?;
+
+		// Get dimensions from the JPEG data we already have in memory
+		let img = image::load_from_memory(&processed.data)
+			.map_err(|e| format!("Failed to load image from memory: {}", e))?;
+		let (width, height) = (img.width(), img.height());
+
+		// Send to Android database - let Kotlin generate the ID
+		let plugin_photo = tauri_plugin_hillview::shared_types::DevicePhotoMetadata {
+			id: String::new(), // Empty - Kotlin will generate this
+			filename: filename.clone(),
+			path: file_path.to_string_lossy().to_string(),
+			metadata: tauri_plugin_hillview::shared_types::PhotoMetadata {
+				latitude: metadata.latitude,
+				longitude: metadata.longitude,
+				altitude: metadata.altitude,
+				bearing: metadata.bearing,
+				timestamp: metadata.timestamp,
+				accuracy: metadata.accuracy,
+			},
+			width,
+			height,
+			file_size: file_metadata.len(),
+			created_at: chrono::Utc::now().timestamp(),
+			file_hash: None,
+		};
+
+		let photo_id = match app_handle.hillview().add_photo_to_database(plugin_photo.clone()) {
+			Ok(response) => {
+				if response.success {
+					let id = response.photo_id.unwrap_or_else(|| String::from("unknown"));
+					info!("📱 Photo saved to Android database with ID: {}", id);
+					id
+				} else {
+					return Err(format!("Failed to save photo to Android database: {:?}", response.error));
+				}
+			}
+			Err(e) => {
+				return Err(format!("Error saving photo to Android database: {}", e));
+			}
+		};
+
+		// Create the return value with the ID from Kotlin
+		let device_photo = crate::device_photos::DevicePhotoMetadata {
+			id: photo_id,
+			filename,
+			path: file_path.to_string_lossy().to_string(),
+			latitude: metadata.latitude,
+			longitude: metadata.longitude,
+			altitude: metadata.altitude,
+			bearing: metadata.bearing,
+			timestamp: metadata.timestamp,
+			accuracy: metadata.accuracy,
+			width,
+			height,
+			file_size: file_metadata.len(),
+			created_at: plugin_photo.created_at,
+		};
 
 		// Trigger immediate upload worker to process the new photo
-		use tauri_plugin_hillview::HillviewExt;
 		match app_handle.hillview().retry_failed_uploads() {
 			Ok(_) => {
 				info!(

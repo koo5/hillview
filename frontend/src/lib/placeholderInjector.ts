@@ -16,8 +16,8 @@ export class PlaceholderInjector {
         tempId: string
     ): void {
         const deviceSource = get(sources).find(s => s.id === 'device');
-        if (!deviceSource || !deviceSource.enabled) {
-            console.log('🢄Device source not enabled, skipping placeholder injection');
+        if (!deviceSource) {
+            console.log('🢄Device source not found, skipping placeholder injection');
             return;
         }
 

@@ -12,6 +12,25 @@ object PhotoUtils {
     private const val TAG = "🢄PhotoUtils"
     
     /**
+     * Generate a unique photo ID using timestamp and file hash
+     * @param fileHash MD5 hash of the photo file
+     * @param idPrefix Optional prefix for the ID (defaults to "device")
+     * @return Unique photo ID in format: "prefix_timestamp_hash8chars"
+     */
+    fun generatePhotoId(fileHash: String, idPrefix: String = "device"): String {
+        return "${idPrefix}_${System.currentTimeMillis()}_${fileHash.take(8)}"
+    }
+
+    /**
+     * Generate a unique photo ID using timestamp and file hash (simplified version)
+     * @param fileHash MD5 hash of the photo file
+     * @return Unique photo ID in format: "timestamp_hash8chars"
+     */
+    fun generatePhotoId(fileHash: String): String {
+        return "${System.currentTimeMillis()}_${fileHash.take(8)}"
+    }
+    
+    /**
      * Calculate MD5 hash of a file
      * @throws IOException if file cannot be read
      */
@@ -73,7 +92,7 @@ object PhotoUtils {
         }
 
         return PhotoEntity(
-            id = "${idPrefix}_${System.currentTimeMillis()}_${fileHash.take(8)}",
+            id = generatePhotoId(fileHash, idPrefix),
             filename = file.name,
             path = file.path,
             latitude = latitude,

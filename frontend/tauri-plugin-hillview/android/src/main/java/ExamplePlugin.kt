@@ -83,6 +83,24 @@ class GetAuthTokenArgs {
   var force: Boolean = false
 }
 
+@InvokeArg
+class AddPhotoArgs {
+  var id: String? = null
+  var filename: String? = null
+  var path: String? = null
+  var latitude: Double = 0.0
+  var longitude: Double = 0.0
+  var altitude: Double? = null
+  var bearing: Double? = null
+  var timestamp: Long = 0L
+  var accuracy: Double = 0.0
+  var width: Int = 0
+  var height: Int = 0
+  var fileSize: Long = 0L
+  var createdAt: Long = 0L
+  var fileHash: String? = null
+}
+
 @TauriPlugin
 class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     companion object {
@@ -1213,6 +1231,76 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         } catch (e: Exception) {
             Log.e(TAG, "❌ Failed to start file picker", e)
             invoke.reject("Failed to start file picker: ${e.message}")
+        }
+    }
+
+    @Command
+    fun addPhotoToDatabase(invoke: Invoke) {
+        try {
+            Log.d(TAG, "📸 Adding photo to database from JS/Rust")
+            
+            // Parse the photo data using typed args
+            val args = invoke.parseArgs(AddPhotoArgs::class.java)
+            
+            if (args == null || args.id.isNullOrEmpty() || args.filename.isNullOrEmpty() || args.path.isNullOrEmpty()) {
+                Log.e(TAG, "📸 Invalid photo data provided")
+                val error = JSObject()
+                error.put("success", false)
+                error.put("error", "Invalid photo data - missing required fields")
+                invoke.resolve(error)
+                return
+            }
+            
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    // Create PhotoEntity from args
+                    val photoEntity = PhotoEntity(
+                        id = args.id!!,
+                        filename = args.filename!!,
+                        path = args.path!!,
+                        latitude = args.latitude,
+                        longitude = args.longitude,
+                        altitude = args.altitude ?: 0.0,
+                        bearing = args.bearing ?: 0.0,
+                        timestamp = args.timestamp,
+                        accuracy = args.accuracy,
+                        width = args.width,
+                        height = args.height,
+                        fileSize = args.fileSize,
+                        createdAt = if (args.createdAt > 0) args.createdAt else System.currentTimeMillis(),
+                        uploadStatus = "pending",
+                        fileHash = args.fileHash ?: ""
+                    )
+                    
+                    // Insert into database (will replace if exists due to OnConflictStrategy.REPLACE)
+                    database.photoDao().insertPhoto(photoEntity)
+                    
+                    Log.d(TAG, "📸 Photo added to Android database: ${photoEntity.id}")
+                    
+                    CoroutineScope(Dispatchers.Main).launch {
+                        val result = JSObject()
+                        result.put("success", true)
+                        result.put("photoId", photoEntity.id)
+                        invoke.resolve(result)
+                    }
+                    
+                } catch (e: Exception) {
+                    Log.e(TAG, "📸 Error adding photo to database", e)
+                    CoroutineScope(Dispatchers.Main).launch {
+                        val error = JSObject()
+                        error.put("success", false)
+                        error.put("error", e.message)
+                        invoke.resolve(error)
+                    }
+                }
+            }
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "📸 Error parsing photo data", e)
+            val error = JSObject()
+            error.put("success", false)
+            error.put("error", e.message)
+            invoke.resolve(error)
         }
     }
 

@@ -297,3 +297,20 @@ pub(crate) async fn register_client_public_key<R: Runtime>(
         });
     }
 }
+
+#[command]
+pub(crate) async fn add_photo_to_database<R: Runtime>(
+    app: AppHandle<R>,
+    photo: crate::shared_types::DevicePhotoMetadata,
+) -> Result<crate::shared_types::AddPhotoResponse> {
+    #[cfg(mobile)]
+    {
+        return app.hillview().add_photo_to_database(photo);
+    }
+
+    #[cfg(desktop)]
+    {
+        // Desktop doesn't have Android database - return error
+        return Err(crate::Error::from("Photo database sync is only available on Android"));
+    }
+}

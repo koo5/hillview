@@ -178,4 +178,29 @@ impl<R: Runtime> Hillview<R> {
       .run_mobile_plugin("registerClientPublicKey", ())
       .map_err(Into::into)
   }
+
+  pub fn add_photo_to_database(&self, photo: crate::shared_types::DevicePhotoMetadata) -> crate::Result<crate::shared_types::AddPhotoResponse> {
+    // Convert to the format expected by Android (flattened structure)
+    let android_photo = serde_json::json!({
+      "id": photo.id,
+      "filename": photo.filename,
+      "path": photo.path,
+      "latitude": photo.metadata.latitude,
+      "longitude": photo.metadata.longitude,
+      "altitude": photo.metadata.altitude,
+      "bearing": photo.metadata.bearing,
+      "timestamp": photo.metadata.timestamp,
+      "accuracy": photo.metadata.accuracy,
+      "width": photo.width,
+      "height": photo.height,
+      "fileSize": photo.file_size,
+      "createdAt": photo.created_at,
+      "fileHash": photo.file_hash
+    });
+    
+    self
+      .0
+      .run_mobile_plugin("addPhotoToDatabase", android_photo)
+      .map_err(Into::into)
+  }
 }

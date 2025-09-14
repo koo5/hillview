@@ -13,8 +13,10 @@ mod mobile;
 mod commands;
 mod error;
 mod models;
+pub mod shared_types;  // Make it public so main app can use it
 
 pub use error::{Error, Result};
+pub use shared_types::{DevicePhotoMetadata, PhotoMetadata, AddPhotoResponse};
 
 #[cfg(desktop)]
 use desktop::Hillview;
@@ -56,6 +58,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
       commands::get_device_photos,
       commands::refresh_photo_scan,
       commands::import_photos,
+      commands::add_photo_to_database,
       ])
     .setup(|app, api| {
       #[cfg(mobile)]
