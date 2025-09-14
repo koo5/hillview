@@ -155,8 +155,8 @@ class SecureUploadClient:
 
 			if response.status_code in [200, 201]:
 				key_data = response.json()
-				print(f"✅ Phase 1b: Client key registered successfully")
-				print(f"   Key ID: {key_data.get('key_id', 'unknown')}")
+				#print(f"✅ Phase 1b: Client key registered successfully")
+				print(f"✅  Key ID: {key_data.get('key_id', 'unknown')}")
 				# Store the key_id for later use
 				self.key_id = key_data.get('key_id', key_id)
 				return key_data
@@ -188,7 +188,7 @@ class SecureUploadClient:
 		# Generate MD5 hash for test data
 		import hashlib
 		file_md5 = hashlib.md5(f"{filename}_5120".encode()).hexdigest()
-		
+
 		upload_request = {
 			"filename": filename,
 			"content_type": "image/jpeg",
@@ -221,7 +221,7 @@ class SecureUploadClient:
 		else:
 			# Generate a fake MD5 for test data if no file_data provided
 			file_md5 = hashlib.md5(f"{filename}_{file_size}".encode()).hexdigest()
-		
+
 		upload_request = {
 			"filename": filename,
 			"content_type": "image/jpeg",
@@ -239,7 +239,7 @@ class SecureUploadClient:
 
 		return await self._request_upload_authorization(auth_token, upload_request)
 
-	async def upload_to_worker(self, file_input, auth_data, client_keys, filename="secure_test.jpg"):
+	async def upload_to_worker(self, file_input, auth_data, client_keys, filename="secure_test.jpg", timeout: float = 60.0):
 		"""Phase 3: Upload file to worker with proper client signature.
 
 		Args:
@@ -278,12 +278,12 @@ class SecureUploadClient:
 				files=files,
 				data=data,
 				headers=headers,
-				timeout=60.0
+				timeout=timeout
 			)
 
 			if response.status_code == 200:
 				result = response.json()
-				print(f"✅ Phase 3: Worker processed upload successfully")
+				#print(f"✅ Phase 3: Worker processed upload successfully")
 				return result
 			else:
 				raise Exception(f"Worker upload failed: {response.status_code} - {response.text}")
