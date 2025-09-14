@@ -3,9 +3,10 @@
 Image generation utilities for photo processing tests.
 """
 
-from PIL import Image
+from PIL import Image, ImageDraw
 import piexif
 import io
+import random
 
 
 def create_test_image_no_exif(width: int = 100, height: int = 100, color: tuple = (255, 0, 0)) -> bytes:
@@ -65,10 +66,42 @@ def create_test_image_bearing_only(width: int = 100, height: int = 100, color: t
     return img_buffer.getvalue()
 
 
-def create_test_image_full_gps(width: int = 100, height: int = 100, color: tuple = (255, 255, 0),
+def create_test_image_full_gps(width: int = 2048, height: int = 1536, color: tuple = (255, 255, 0),
                                lat: float = 50.0755, lon: float = 14.4378, bearing: float = 90.0) -> bytes:
     """Create a JPEG image with both GPS coordinates and bearing data."""
+    # Create larger image with more complex content
     img = Image.new('RGB', (width, height), color)
+    draw = ImageDraw.Draw(img)
+
+    # Add random shapes to make the image more complex and realistic
+    random.seed(int(lat * 1000 + lon * 1000 + bearing))  # Deterministic randomness based on GPS data
+
+    # Draw random rectangles - more for larger image
+    for _ in range(random.randint(20, 50)):
+        x1 = random.randint(0, width - 200)
+        y1 = random.randint(0, height - 200)
+        x2 = x1 + random.randint(50, 300)
+        y2 = y1 + random.randint(50, 300)
+        rect_color = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
+        draw.rectangle([x1, y1, x2, y2], fill=rect_color)
+
+    # Draw random circles - more and larger for bigger image
+    for _ in range(random.randint(15, 30)):
+        x = random.randint(100, width - 100)
+        y = random.randint(100, height - 100)
+        radius = random.randint(20, 150)
+        circle_color = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
+        draw.ellipse([x - radius, y - radius, x + radius, y + radius], fill=circle_color)
+
+    # Draw random lines - more for complexity
+    for _ in range(random.randint(25, 50)):
+        x1 = random.randint(0, width)
+        y1 = random.randint(0, height)
+        x2 = random.randint(0, width)
+        y2 = random.randint(0, height)
+        line_color = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
+        line_width = random.randint(1, 10)
+        draw.line([x1, y1, x2, y2], fill=line_color, width=line_width)
     
     def decimal_to_dms(decimal_deg):
         deg = int(decimal_deg)

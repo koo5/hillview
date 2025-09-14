@@ -30,7 +30,7 @@ class Throttle:
 			if time_since_last < interval_seconds:
 				sleep_time = interval_seconds - time_since_last
 				logger.debug(f"[THROTTLE] {s.tag} Rate limit: waiting {sleep_time:.2f} seconds")
-				await asyncio.sleep(sleep_time)
+				#await asyncio.sleep(sleep_time)
 
 			logger.debug(f"[THROTTLE] {s.tag} Rate limit: proceeding with request")
 			s._last_request_time = time.time()
