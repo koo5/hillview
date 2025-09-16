@@ -40,52 +40,63 @@ class CDNUploader:
 			self.s3_client = None
 			logger.info("CDN upload disabled")
 
-	def upload_photo_sizes(self, sizes_info: Dict[str, Dict[str, Any]], unique_id: str) -> Dict[str, Dict[str, Any]]:
+
+	def delete_photo_sizes(self, sizes_info: Dict[str, Dict[str, Any]], unique_id: str) -> bool:
 		"""
-		Upload all photo sizes to CDN and return updated sizes_info with CDN URLs.
+		Delete all photo sizes from CDN.
 
 		Args:
-			sizes_info: Dictionary of size variants with local paths
+			sizes_info: Dictionary of size variants with CDN URLs
 			unique_id: Unique identifier for this photo
 
 		Returns:
-			Updated sizes_info with cdn_url fields added
-
-		Raises:
-			Exception: If any upload fails (fail fast)
+			True if all deletions succeeded, False if any failed
 		"""
 		if not self.enabled:
-			return sizes_info
+			return True  # Nothing to delete if CDN is disabled
 
-		updated_sizes = {}
+		success = True
+		deleted_count = 0
 
 		for size_key, size_data in sizes_info.items():
 			local_path = size_data.get('path')
 			if not local_path:
-				raise ValueError(f"No path found for size {size_key}")
+				logger.warning(f"No path found for size {size_key}, skipping deletion")
+				continue
 
-			# Full path to the file
-			full_local_path = os.path.join("/app/uploads", local_path)
-
-			if not os.path.exists(full_local_path):
-				raise FileNotFoundError(f"Local file not found: {full_local_path}")
-
-			# Generate CDN key/path
+			# Generate CDN key that matches upload format
 			cdn_key = f"photos/{unique_id}/{local_path}"
 
-			# Upload to S3 - fail fast on error
-			cdn_url = self._upload_file(full_local_path, cdn_key)
-			if not cdn_url:
-				raise RuntimeError(f"Failed to upload {size_key} to CDN")
+			if self._delete_file(cdn_key):
+				deleted_count += 1
+				logger.info(f"Deleted {size_key} from CDN: {cdn_key}")
+			else:
+				logger.error(f"Failed to delete {size_key} from CDN: {cdn_key}")
+				success = False
 
-			# Add CDN URL to size data
-			updated_size_data = size_data.copy()
-			updated_size_data['cdn_url'] = cdn_url
-			updated_sizes[size_key] = updated_size_data
-			logger.info(f"Uploaded {size_key} to CDN: {cdn_url}")
+		logger.info(f"CDN deletion completed: {deleted_count}/{len(sizes_info)} sizes deleted")
+		return success
 
-		logger.info(f"CDN upload completed: {len(updated_sizes)} sizes uploaded")
-		return updated_sizes
+	def _delete_file(self, cdn_key: str) -> bool:
+		"""
+		Delete a single file from S3.
+
+		Args:
+			cdn_key: S3 object key to delete
+
+		Returns:
+			True if deletion succeeded, False if failed
+		"""
+		try:
+			self.s3_client.delete_object(
+				Bucket=self.bucket_name,
+				Key=cdn_key
+			)
+			return True
+
+		except (ClientError, NoCredentialsError, Exception) as e:
+			logger.error(f"Error deleting {cdn_key}: {e}")
+			return False
 
 	def _upload_file(self, local_file_path: str, cdn_key: str) -> Optional[str]:
 		"""

@@ -261,7 +261,7 @@ async def refresh_access_token(
 			)
 
 		username: str = payload.get("sub")
-		user_id: str = payload.get("user_id") 
+		user_id: str = payload.get("user_id")
 		token_type: str = payload.get("type")
 
 		if not username or not user_id or token_type != "refresh":
@@ -1129,8 +1129,6 @@ async def get_user_profile(
 		"is_active": current_user.is_active,
 		"created_at": current_user.created_at,
 		"provider": current_user.oauth_provider,
-		"auto_upload_enabled": current_user.auto_upload_enabled,
-		"auto_upload_folder": current_user.auto_upload_folder
 	}
 
 @router.delete("/user/delete")
@@ -1355,7 +1353,6 @@ async def authorize_upload(
 			id=photo_id,
 			filename=None,  # Will be set by worker after file processing
 			original_filename=auth_request.filename,  # Store original filename from request
-			filepath=None,  # Will be set by worker after upload
 			file_md5=auth_request.file_md5,  # Store MD5 hash for duplicate detection
 			description=auth_request.description,
 			is_public=auth_request.is_public,

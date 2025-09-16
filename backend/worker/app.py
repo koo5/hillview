@@ -129,7 +129,6 @@ class ProcessedPhotoData(BaseModel):
 	client_signature: Optional[str] = None  # Base64-encoded ECDSA signature from client
 	processed_by_worker: Optional[str] = None  # Worker identity for audit trail
 	filename: Optional[str] = None  # Secure filename after processing
-	filepath: Optional[str] = None  # Final file path after processing
 
 # Authentication dependency for upload authorization
 async def get_upload_authorization(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
@@ -290,7 +289,6 @@ async def upload_and_process_photo(
 				processed_data.sizes = processing_result.get("sizes")
 				processed_data.detected_objects = processing_result.get("detected_objects")
 				processed_data.filename = secure_filename
-				processed_data.filepath = str(file_path)
 
 			# Send to API server
 			worker_signature = sign_processing_result(processed_data.dict())

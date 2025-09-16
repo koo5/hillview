@@ -58,7 +58,6 @@ class ProcessedPhotoData(BaseModel):
 	client_signature: Optional[str] = None  # Base64-encoded ECDSA signature from client
 	processed_by_worker: Optional[str] = None  # Worker identity for audit trail
 	filename: Optional[str] = None  # Secure filename after processing
-	filepath: Optional[str] = None  # Final file path after processing
 
 class WorkerProcessedPhotoRequest(BaseModel):
 	"""Request model for processed photo data from worker with signature."""
@@ -145,11 +144,9 @@ async def save_processed_photo(
 		photo.processing_status = processed_data.processing_status
 		photo.width = processed_data.width
 		photo.height = processed_data.height
-		# Update filename and filepath after successful processing
+		# Update filename after successful processing
 		if processed_data.filename:
 			photo.filename = processed_data.filename
-		if processed_data.filepath:
-			photo.filepath = processed_data.filepath
 		# Overwrite client-supplied geolocation data from authorization if EXIF/processing provides better data
 		if processed_data.latitude is not None:
 			photo.latitude = processed_data.latitude
@@ -277,7 +274,6 @@ async def list_photos(
 			"width": photo.width,
 			"height": photo.height,
 			"uploaded_at": photo.uploaded_at,
-			"created_at": photo.uploaded_at,  # For backward compatibility
 			"captured_at": photo.captured_at,
 			"processing_status": photo.processing_status,
 			"error": photo.error,
@@ -340,7 +336,6 @@ async def get_photo(
 			"id": photo.id,
 			"filename": photo.filename,
 			"original_filename": photo.original_filename,
-			"filepath": photo.filepath,
 			"description": photo.description,
 			"is_public": photo.is_public,
 			"latitude": photo.latitude,
@@ -369,62 +364,6 @@ async def get_photo(
 			detail="Failed to get photo"
 		)
 
-@router.get("/{photo_id}/download")
-async def download_photo(
-	request: Request,
-	photo_id: str,
-	size: Optional[str] = None,
-	current_user: User = Depends(get_current_active_user),
-	db: AsyncSession = Depends(get_db)
-):
-	"""Download a photo file."""
-	# Apply photo operations rate limiting
-	await rate_limit_photo_operations(request, current_user.id)
-
-	try:
-		result = await db.execute(
-			select(Photo).where(
-				Photo.id == photo_id,
-				Photo.owner_id == str(current_user.id)
-			)
-		)
-		photo = result.scalars().first()
-
-		if not photo:
-			raise HTTPException(
-				status_code=status.HTTP_404_NOT_FOUND,
-				detail="Photo not found"
-			)
-
-		# Determine file path based on requested size
-		if size and photo.sizes and size in photo.sizes:
-			file_path = os.path.join(UPLOAD_DIR, str(current_user.id), photo.sizes[size].get('path'))
-		else:
-			file_path = photo.filepath
-
-		# Validate file path to prevent traversal
-		file_path = validate_file_path(file_path, str(UPLOAD_DIR))
-
-		if not os.path.exists(file_path):
-			raise HTTPException(
-				status_code=status.HTTP_404_NOT_FOUND,
-				detail="Photo file not found"
-			)
-
-		return FileResponse(
-			file_path,
-			media_type="image/jpeg",
-			filename=photo.filename
-		)
-
-	except HTTPException:
-		raise
-	except Exception as e:
-		logger.error(f"Error downloading photo {photo_id}: {str(e)}")
-		raise HTTPException(
-			status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-			detail="Failed to download photo"
-		)
 
 @router.delete("/{photo_id}")
 async def delete_photo(
@@ -454,18 +393,53 @@ async def delete_photo(
 
 		# Delete physical files
 		try:
-			# Delete main file
-			if photo.filepath and os.path.exists(photo.filepath):
-				os.remove(photo.filepath)
-
 			# Delete size variants if they exist
 			if photo.sizes:
-				user_dir = os.path.join(UPLOAD_DIR, str(current_user.id))
-				for size_info in photo.sizes.values():
-					if 'path' in size_info:
-						size_path = os.path.join(user_dir, size_info['path'])
-						if os.path.exists(size_path):
-							os.remove(size_path)
+				# Check first size variant to determine storage type
+				first_size_data = next(iter(photo.sizes.values()), None)
+				if not first_size_data:
+					raise HTTPException(
+						status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+						detail="Photo has no size variants to determine storage type"
+					)
+
+				cdn_base_url = os.getenv("CDN_BASE_URL")
+				pics_url = os.getenv("PICS_URL")
+
+				# Determine storage type: CDN vs Local
+				is_cdn_stored = (
+					'url' in first_size_data and
+					cdn_base_url and
+					first_size_data['url'].startswith(cdn_base_url)
+				)
+
+				is_local_stored = (
+					'url' in first_size_data and
+					pics_url and
+					first_size_data['url'].startswith(pics_url)
+				)
+
+				if is_cdn_stored:
+					# Photo is stored on CDN, use CDN deletion
+					from common.cdn_uploader import cdn_uploader
+					success = cdn_uploader.delete_photo_sizes(photo.sizes, photo.id)
+					if not success:
+						logger.warning(f"Some CDN files failed to delete for photo {photo_id}")
+				elif is_local_stored:
+					# Photo is stored locally, use filesystem deletion
+					user_dir = os.path.join(UPLOAD_DIR, str(current_user.id))
+					for size_info in photo.sizes.values():
+						if 'path' in size_info:
+							size_path = os.path.join(user_dir, size_info['path'])
+							if os.path.exists(size_path):
+								os.remove(size_path)
+				else:
+					raise HTTPException(
+						status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+						detail="Cannot determine photo storage type (neither CDN nor local)"
+					)
+		except HTTPException:
+			raise
 		except Exception as e:
 			logger.warning(f"Error deleting photo files: {str(e)}")
 

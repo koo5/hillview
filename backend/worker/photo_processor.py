@@ -2,6 +2,7 @@
 photo processing service
 """
 import os
+import pathlib
 import json
 import logging
 import shutil
@@ -20,7 +21,7 @@ from throttle import Throttle
 
 from common.security_utils import sanitize_filename, validate_file_path, check_file_content, validate_image_dimensions, SecurityValidationError
 
-from cdn_uploader import cdn_uploader
+from common.cdn_uploader import cdn_uploader
 
 logger = logging.getLogger(__name__)
 
@@ -252,95 +253,73 @@ class PhotoProcessor:
 
 		try:
 			# First anonymize the image
-			anonymized_path = await self._anonymize_image(source_path, unique_id)
+			anonymized_path, detections = await self._anonymize_image(source_path, unique_id)
 			input_file_path = anonymized_path if anonymized_path else source_path
 
 			# Standard sizes from original importer
-			size_variants = ['full', 50, 320, 640, 1024, 1600, 2048, 2560, 3072]
+			size_variants = ['full', 320, 640, 1024, 2048, 3072]
 
 			# Get file extension from original filename
 			file_ext = os.path.splitext(original_filename)[1].lower()
 
 			for size in size_variants:
-				if size == 'full':
-					# Full size - copy the (anonymized) file with unique ID
-					unique_filename = f"{unique_id}{file_ext}"
-					full_output_path = os.path.join(output_base, unique_filename)
-					shutil.copy2(input_file_path, full_output_path)
 
-					relative_path = os.path.relpath(full_output_path, output_base)
-					size_info = {
+				# Skip if size is larger than original width
+				if isinstance(size, int) and size > width:
+					break
+
+				size_dir = os.path.join(output_base, 'opt', str(size))
+				unique_filename = sanitize_filename(f"{unique_id}{file_ext}")
+				output_file_path = validate_file_path(os.path.join(size_dir, unique_filename), output_base)
+				relative_path = os.path.relpath(output_file_path, output_base)
+
+				os.makedirs(pathlib.Path(output_file_path).parent, exist_ok=True)
+
+				# Copy and resize the image
+				shutil.copy2(input_file_path, output_file_path)
+
+				size_info = {
+					'path': relative_path,
+					'url': self._get_size_url(output_file_path, relative_path)
+				}
+
+				if size == 'full':
+
+					size_info.update({
 						'width': width,
 						'height': height,
-						'path': relative_path,
-						'url': self._get_size_url(full_output_path, relative_path)
-					}
+					})
 					sizes_info[size] = size_info
 				else:
-					# Skip if size is larger than original width
-					if isinstance(size, int) and size > width:
-						break
-
-					# Create size-specific directory: opt/320/, opt/640/, etc.
-					size_dir = os.path.join(output_base, 'opt', str(size))
-					os.makedirs(size_dir, exist_ok=True)
-
-					# Output file path for this size using unique ID - sanitize first
-					try:
-						unique_filename = sanitize_filename(f"{unique_id}{file_ext}")
-						output_file_path = validate_file_path(os.path.join(size_dir, unique_filename), output_base)
-					except SecurityValidationError as e:
-						logger.error(f"Security validation failed for {unique_id}: {e}")
-						continue
-					size_relative_path = os.path.join('opt', str(size), unique_filename)
-
-					# Copy and resize the image (use anonymized version)
-					shutil.copy2(input_file_path, output_file_path)
 
 					# Resize using ImageMagick mogrify (matching original)
 					# Use absolute path and validate inputs
 					cmd = ['mogrify', '-resize', str(int(size)), output_file_path]
-					result = subprocess.run(cmd, capture_output=True, timeout=30)
+					result = subprocess.check_call(cmd, capture_output=True, timeout=30)
+					new_width, new_height = self.get_image_dimensions(output_file_path)
 
-					if result.returncode == 0:
-						# Get new dimensions after resize
-						new_width, new_height = self.get_image_dimensions(output_file_path)
+					size_info.update({
+						'width': new_width,
+						'height': new_height,
+					})
+					sizes_info[size] = size_info
 
-						size_info = {
-							'width': new_width,
-							'height': new_height,
-							'path': size_relative_path,
-							'url': self._get_size_url(output_file_path, size_relative_path)
-						}
-						sizes_info[size] = size_info
+					# Optimize with jpegoptim (matching original)
+					cmd = ['jpegoptim', '--all-progressive', '--overwrite', output_file_path]
+					subprocess.check_call(cmd, capture_output=True, timeout=130)
 
-						# Optimize with jpegoptim (matching original)
-						cmd = ['jpegoptim', '--all-progressive', '--overwrite', output_file_path]
-						subprocess.run(cmd, capture_output=True, timeout=30)
-
-						logger.info(f"Created size {size} for {unique_id}: {new_width}x{new_height} at {output_file_path}");
-					else:
-						logger.warning(f"Failed to resize image to size {size}")
-						# Clean up failed file
-						try:
-							os.remove(output_file_path)
-						except Exception:
-							pass
+					logger.info(f"Created size {size} for {unique_id}: {new_width}x{new_height} at {output_file_path}");
 
 			logger.info(f"Created {len(sizes_info)} size variants for {unique_id}")
 
+		finally:
 			# Clean up temporary anonymized file
 			if anonymized_path and os.path.exists(anonymized_path):
-				temp_dir = os.path.dirname(anonymized_path)
-				shutil.rmtree(temp_dir, ignore_errors=True)
+				os.remove(anonymized_path)
 				logger.info(f"Cleaned up temporary anonymization files")
 
-			return sizes_info
-		finally:
-			# Always clean up temporary anonymized file
-			if anonymized_path and os.path.exists(anonymized_path):
-				temp_dir = os.path.dirname(anonymized_path)
-				shutil.rmtree(temp_dir, ignore_errors=True)
+		return sizes_info
+
 
 	def _get_size_url(self, file_path: str, relative_path: str) -> str:
 		"""Get URL for a size variant - either local PICS_URL or CDN upload."""
@@ -357,8 +336,13 @@ class PhotoProcessor:
 			# No URL generation configured
 			raise RuntimeError("Neither BUCKET_NAME nor PICS_URL configured")
 
-	async def _anonymize_image(self, source_path: str, unique_id: str) -> Optional[str]:
-		"""Anonymize image by blurring people and vehicles."""
+
+	async def _anonymize_image(self, source_path: str, unique_id: str) -> tuple[Optional[str], dict]:
+		"""Anonymize image by blurring people and vehicles.
+
+		Returns:
+			tuple: (anonymized_path: Optional[str], detections: dict)
+		"""
 
 		temp_dir = tempfile.mkdtemp(prefix='hillview_anon_')
 		source_dir = os.path.dirname(source_path)
@@ -369,15 +353,16 @@ class PhotoProcessor:
 		async with throttle.rate_limit():
 			await throttle.wait_for_free_ram(400)
 
-			if anonymize_image(source_dir, temp_dir, filename):
+			success, detections = anonymize_image(source_dir, temp_dir, filename)
+			if success:
 				anonymized_path = os.path.join(temp_dir, filename)
 				logger.info(f"Successfully anonymized {filename}")
-				return anonymized_path
+				return anonymized_path, detections
 			else:
 				logger.info(f"No anonymization applied to {filename}")
 				# Clean up temp directory
 				shutil.rmtree(temp_dir, ignore_errors=True)
-				return None
+				return None, detections
 
 
 	async def process_uploaded_photo(
@@ -461,7 +446,6 @@ class PhotoProcessor:
 		# Return processing results for database creation
 		return {
 			'filename': safe_filename,
-			'filepath': file_path,
 			'exif_data': exif_data,
 			'width': width,
 			'height': height,
@@ -470,7 +454,7 @@ class PhotoProcessor:
 			'compass_angle': gps_data.get('bearing'),
 			'altitude': gps_data.get('altitude'),
 			'sizes': sizes_info,  # Worker expects 'sizes', not 'sizes_info'
-			'detected_objects': {},  # TODO: Implement object detection when ML models are available
+			'detected_objects': detections,
 			'description': description,
 			'is_public': is_public,
 			'user_id': user_id

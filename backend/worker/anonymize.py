@@ -25,8 +25,21 @@ TARGET_CLASSES = {
 	7: "truck"
 }
 
+BLUR_SIZES = {
+	"person": 150,
+	"bicycle": 100,
+	"car": 50,
+	"motorcycle": 50,
+	"bus": 25,
+	"truck": 25
+}
+
+
 # Load YOLO model
 model = None
+model_dir = "/app/worker/models"
+model_name = "yolov5su.pt"
+model_path = os.path.join(model_dir, model_name)
 
 def detect_targets(image):
 	"""Detect target objects in the image using YOLO."""
@@ -35,7 +48,6 @@ def detect_targets(image):
 	if model is None:
 		# Secure model loading with path validation
 		from common.security_utils import verify_model_file
-		model_path = "/app/worker/models/yolov5su.pt"
 
 		# Verify model file exists and is valid before loading
 		#if not verify_model_file(model_path):
@@ -62,20 +74,39 @@ def detect_targets(image):
 	return boxes
 
 
-def apply_blur(image, boxes):
+def apply_blur(image, detections):
 	"""Apply Gaussian blur to the regions defined by boxes."""
 	import cv2
 
-	for cls_id, (x1, y1, x2, y2) in boxes:
+	#for cls_id, (x1, y1, x2, y2) in boxes:
+
+	for det in detections:
+		x1 = det['bbox']['x1']
+		y1 = det['bbox']['y1']
+		x2 = det['bbox']['x2']
+		y2 = det['bbox']['y2']
+		cls_id = det['class_id']
+		blur = det['blur']
+
 		x1, y1 = max(0, x1), max(0, y1)
 		x2, y2 = min(x2, image.shape[1]), min(y2, image.shape[0])
 		roi = image[y1:y2, x1:x2]
 		if roi.size > 0:
-			image[y1:y2, x1:x2] = cv2.GaussianBlur(roi, (151, 151), 0)
+			image[y1:y2, x1:x2] = cv2.GaussianBlur(roi, (blur, blur), 0)
+			label = TARGET_CLASSES[cls_id]
+			logging.info(f"Blurred {label} at ({x1},{y1})-({x2},{y2})")
+
 	return image
 
 
 def anonymize_image(input_dir, output_dir, filename, force_copy_all_images=False):
+	"""
+	Anonymize image by blurring detected objects and return detection results.
+
+	Returns:
+		tuple: (success: bool, detections: dict) where detections contains
+		       detected object information in standardized format
+	"""
 
 	input_path = os.path.join(input_dir, filename)
 
@@ -84,7 +115,7 @@ def anonymize_image(input_dir, output_dir, filename, force_copy_all_images=False
 		file_size = os.path.getsize(input_path)
 		if file_size > 50 * 1024 * 1024:  # 50MB limit
 			logging.warning(f"Image file too large for processing: {file_size} bytes")
-			return False
+			raise ValueError(f"Image file too large for processing: {file_size} bytes")
 	except OSError:
 		logging.warning(f"Could not access image file: {filename}")
 		raise ValueError("Invalid image file path")
@@ -100,18 +131,36 @@ def anonymize_image(input_dir, output_dir, filename, force_copy_all_images=False
 		raise ValueError(f"Image size too large or invalid ({width}x{height}). Please use a smaller image.")
 
 	boxes = detect_targets(image)
-	if len(boxes) == 0 and not force_copy_all_images:
-		logging.info(f"{filename}: No target objects detected. Skipping.")
-		return False
-	masked = apply_blur(image.copy(), boxes)
+
+	# Create detections data structure
+	detections = {
+		"objects": [],
+		"model_name": model_name
+	}
 
 	for cls_id, (x1, y1, x2, y2) in boxes:
 		label = TARGET_CLASSES[cls_id]
-		logging.info(f"{filename}: Blurred {label} at ({x1}, {y1}) → ({x2}, {y2})")
+
+		detections["objects"].append({
+			"class_id": cls_id,
+			"class_name": label,
+			'blur': BLUR_SIZES.get(label, 151),
+			"bbox": {
+				"x1": x1,
+				"y1": y1,
+				"x2": x2,
+				"y2": y2
+			}
+		})
+
+	if len(boxes) == 0 and not force_copy_all_images:
+		logging.info(f"{filename}: No target objects detected. Skipping.")
+		return False, detections
+	masked = apply_blur(image.copy(), detections["objects"])
 
 	output_path = os.path.join(output_dir, filename)
 	cv2.imwrite(output_path, masked)
 	logging.debug(f"Saved masked image to: {output_path}\n")
-	return True
+	return True, detections
 
 

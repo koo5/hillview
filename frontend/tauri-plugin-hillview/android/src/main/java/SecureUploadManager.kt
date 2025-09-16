@@ -86,7 +86,7 @@ class SecureUploadManager(private val context: Context) {
             put("content_type", contentType)
             put("file_md5", photo.fileHash)  // MD5 hash for duplicate detection
             put("client_key_id", keyInfo.keyId)  // Key ID that will be used for signing
-            put("description", "Auto-uploaded from Hillview Android")  // Could be made configurable
+            put("description", "")  // Could be made configurable
             put("is_public", true)  // Could be made configurable
             // Use PhotoEntity geolocation data
             put("latitude", photo.latitude)

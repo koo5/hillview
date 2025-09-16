@@ -59,13 +59,6 @@ async def get_hillview_images(
 			'hillview'
 		)
 
-		# Filter out test user photos if user is not authenticated
-		# if current_user is None:
-		# 	query = query.where(User.is_test == False)
-		# 	log.info("Filtering out test user photos for anonymous user")
-		# else:
-		# 	log.info(f"Authenticated user {current_user.username} requesting photos (including test user photos)")
-
 		result = await db.execute(query)
 		photo_user_pairs = result.all()
 
@@ -85,8 +78,6 @@ async def get_hillview_images(
 				'captured_at': photo.captured_at.isoformat() if photo.captured_at else '',
 				'is_pano': False,
 				'filename': photo.filename,
-				'filepath': photo.filepath,
-				'dir_name': os.path.dirname(photo.filepath) if photo.filepath else '',
 				'sizes': photo.sizes or {},
 				# Add creator info to match Mapillary format
 				'creator': {
@@ -118,10 +109,10 @@ async def get_hillview_images(
 					}
 				}
 				yield f"data: {json.dumps(data)}\n\n"
-				
+
 				# Send completion event to match Mapillary behavior
 				yield f"data: {json.dumps({'type': 'stream_complete', 'total_live_photos': 0, 'total_cached_photos': len(filtered_photos), 'total_all_photos': len(filtered_photos)})}\n\n"
-				
+
 			except Exception as e:
 				log.error(f"Stream error in hillview endpoint: {str(e)}")
 				yield f"data: {json.dumps({'type': 'error', 'message': f'Stream error: {str(e)}'})}\n\n"
