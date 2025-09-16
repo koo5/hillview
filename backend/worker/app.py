@@ -38,7 +38,11 @@ from common.file_utils import (
 	cleanup_file_on_error,
 	get_file_size_from_upload
 )
-from common.security_utils import SecurityValidationError
+from common.security_utils import (
+	SecurityValidationError,
+	validate_photo_id,
+	validate_user_id
+)
 from common.config import get_cors_origins
 from photo_processor import photo_processor
 
@@ -169,10 +173,22 @@ async def upload_and_process_photo(
 	Always notifies API server of result (success or failure).
 	"""
 	# Extract upload authorization data
-	photo_id = upload_auth["photo_id"]
-	user_id = upload_auth["user_id"]
+	raw_photo_id = upload_auth["photo_id"]
+	raw_user_id = upload_auth["user_id"]
 	client_key_id = upload_auth["client_public_key_id"]
 
+	# Sanitize and validate critical parameters for filesystem safety
+	try:
+		photo_id = validate_photo_id(raw_photo_id)
+		user_id = validate_user_id(raw_user_id)
+	except SecurityValidationError as e:
+		logger.error(f"Invalid upload parameters: {e}")
+		raise HTTPException(
+			status_code=400,
+			detail=f"Invalid upload parameters: {str(e)}"
+		)
+
+	# Now safe to use in logging and file paths
 	logger.info(f"/upload photo {photo_id}, user {user_id}, key {client_key_id}: {file.filename}")
 
 	file_path = None

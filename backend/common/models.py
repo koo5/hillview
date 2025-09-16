@@ -64,6 +64,7 @@ class Photo(Base):
 	# Metadata
 	captured_at = Column(DateTime(timezone=True), nullable=True)
 	uploaded_at = Column(DateTime(timezone=True), server_default=func.now())
+	record_created_ts = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 	description = Column(Text, nullable=True)
 	is_public = Column(Boolean, default=True)
 

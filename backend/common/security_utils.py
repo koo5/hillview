@@ -264,20 +264,20 @@ def validate_password_basic(password: str) -> str:
 	"""Validate password strength requirements."""
 	if not isinstance(password, str):
 		raise SecurityValidationError("Password must be a string")
-	
+
 	# Check basic length requirements
 	if len(password) < 8:
 		raise SecurityValidationError("Password must be at least 8 characters long")
-	
+
 	if len(password) > 128:
 		raise SecurityValidationError("Password must not exceed 128 characters")
-	
+
 	# Use password-strength library if available, otherwise fallback to basic checks
 	if _PASSWORD_STRENGTH_AVAILABLE:
 		policy = PasswordPolicy.from_names(
 			strength=0.5  # need a password that scores at least 0.5 with its strength
 		)
-		
+
 		# Test the password
 		issues = policy.test(password)
 		if issues:
@@ -293,17 +293,46 @@ def validate_password_basic(password: str) -> str:
 		# Check for at least one lowercase letter
 		if not re.search(r'[a-z]', password):
 			raise SecurityValidationError("Password must contain at least one lowercase letter")
-		
+
 		# Check for at least one uppercase letter or digit
 		if not (re.search(r'[A-Z]', password) or re.search(r'[0-9]', password)):
 			raise SecurityValidationError("Password must contain at least one uppercase letter or digit")
-		
+
 		# Check for common weak passwords
 		weak_passwords = {
-			"password", "password123", "12345678", "qwerty", "abc123", "letmein", 
+			"password", "password123", "12345678", "qwerty", "abc123", "letmein",
 			"welcome", "monkey", "123456789", "password1", "admin", "administrator"
 		}
 		if password.lower() in weak_passwords:
 			raise SecurityValidationError("Password is too common and easily guessable")
-	
+
 	return password
+
+def validate_filesystem_safe_id(id_string: str, field_name: str = "ID") -> str:
+	"""Validate ID contains only filesystem-safe characters (alphanumerics and dashes)."""
+	if not isinstance(id_string, str):
+		raise SecurityValidationError(f"{field_name} must be a string")
+
+	# Remove any whitespace
+	id_string = id_string.strip()
+
+	if not id_string:
+		raise SecurityValidationError(f"{field_name} cannot be empty")
+
+	# Check that it contains only alphanumerics and dashes
+	if not re.match(r'^[a-zA-Z0-9\-]+$', id_string):
+		raise SecurityValidationError(f"Invalid {field_name}: must contain only alphanumerics and dashes")
+
+	# Reasonable length limits
+	if len(id_string) < 1 or len(id_string) > 100:
+		raise SecurityValidationError(f"Invalid {field_name}: length must be between 1 and 100 characters")
+
+	return id_string
+
+def validate_photo_id(photo_id: str) -> str:
+	"""Validate photo ID for filesystem safety."""
+	return validate_filesystem_safe_id(photo_id, "photo_id")
+
+def validate_user_id(user_id: str) -> str:
+	"""Validate user ID for filesystem safety."""
+	return validate_filesystem_safe_id(user_id, "user_id")
