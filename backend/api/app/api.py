@@ -17,6 +17,7 @@ from common.config import is_rate_limiting_disabled, rate_limit_config, get_cors
 logging.basicConfig(level=logging.DEBUG)
 log = logging.getLogger(__name__)
 
+
 # Silence noisy HTTP libraries
 logging.getLogger("hpack").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
@@ -29,6 +30,7 @@ USER_ACCOUNTS = os.getenv("USER_ACCOUNTS", "false").lower() in ("true", "1", "ye
 async def lifespan(app: FastAPI):
 	# Startup
 	log.info(f"Application startup initiated, DEV_MODE: {os.getenv('DEV_MODE', 'false')}")
+	rate_limit_config.log_configuration()
 
 	# Start OAuth session cleanup task
 	try:

@@ -189,5 +189,3 @@ class RateLimitConfig:
 # Global configuration instance - now environment is loaded
 rate_limit_config = RateLimitConfig.from_env()
 
-# Log the final configuration on startup
-rate_limit_config.log_configuration()
