@@ -99,30 +99,24 @@ def apply_blur(image, detections):
 	return image
 
 
-def anonymize_image(input_dir, output_dir, filename, force_copy_all_images=False):
+def anonymize_image(source_path):
 	"""
 	Anonymize image by blurring detected objects and return detection results.
-
-	Returns:
-		tuple: (success: bool, detections: dict) where detections contains
-		       detected object information in standardized format
 	"""
-
-	input_path = os.path.join(input_dir, filename)
 
 	# Validate file size before processing to prevent memory exhaustion
 	try:
-		file_size = os.path.getsize(input_path)
+		file_size = os.path.getsize(source_path)
 		if file_size > 50 * 1024 * 1024:  # 50MB limit
 			logging.warning(f"Image file too large for processing: {file_size} bytes")
 			raise ValueError(f"Image file too large for processing: {file_size} bytes")
 	except OSError:
-		logging.warning(f"Could not access image file: {filename}")
+		logging.warning(f"Could not access image file: {source_path}")
 		raise ValueError("Invalid image file path")
 
-	image = cv2.imread(input_path)
+	image = cv2.imread(source_path)
 	if image is None:
-		logging.warning(f"Could not read image: {filename}")
+		logging.warning(f"Could not read image: {source_path}")
 		raise ValueError("Invalid image file content")
 
 	# Validate image dimensions to prevent memory exhaustion
@@ -153,14 +147,14 @@ def anonymize_image(input_dir, output_dir, filename, force_copy_all_images=False
 			}
 		})
 
-	if len(boxes) == 0 and not force_copy_all_images:
-		logging.info(f"{filename}: No target objects detected. Skipping.")
-		return False, detections
+	if len(boxes) == 0:
+		logging.info(f"{source_path}: No target objects detected. Skipping.")
+		return source_path, detections
 	masked = apply_blur(image.copy(), detections["objects"])
 
-	output_path = os.path.join(output_dir, filename)
+	output_path = source_path + '_anonymized'
 	cv2.imwrite(output_path, masked)
 	logging.debug(f"Saved masked image to: {output_path}\n")
-	return True, detections
+	return output_path, detections
 
 

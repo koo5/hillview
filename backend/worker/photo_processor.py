@@ -253,8 +253,9 @@ class PhotoProcessor:
 
 		try:
 			# First anonymize the image
-			anonymized_path, detections = await self._anonymize_image(source_path, unique_id)
+			anonymized_path, detections = await self._anonymize_image(source_path)
 			input_file_path = anonymized_path if anonymized_path else source_path
+			logger.info(f"Using {'anonymized' if anonymized_path else 'original'} image for resizing: {input_file_path}")
 
 			# Standard sizes from original importer
 			size_variants = ['full', 320, 640, 1024, 2048, 3072]
@@ -316,7 +317,7 @@ class PhotoProcessor:
 			# Clean up temporary anonymized file
 			if anonymized_path and os.path.exists(anonymized_path):
 				os.remove(anonymized_path)
-				logger.info(f"Cleaned up temporary anonymization files")
+				logger.info(f"Cleaned up temporary anonymization file.")
 
 		return sizes_info
 
@@ -337,32 +338,21 @@ class PhotoProcessor:
 			raise RuntimeError("Neither BUCKET_NAME nor PICS_URL configured")
 
 
-	async def _anonymize_image(self, source_path: str, unique_id: str) -> tuple[Optional[str], dict]:
+	async def _anonymize_image(self, source_path: str) -> tuple[Optional[str], dict]:
 		"""Anonymize image by blurring people and vehicles.
 
 		Returns:
 			tuple: (anonymized_path: Optional[str], detections: dict)
 		"""
 
-		temp_dir = tempfile.mkdtemp(prefix='hillview_anon_')
-		source_dir = os.path.dirname(source_path)
-		filename = os.path.basename(source_path)
-
 		from anonymize import anonymize_image
 
 		async with throttle.rate_limit():
 			await throttle.wait_for_free_ram(400)
 
-			success, detections = anonymize_image(source_dir, temp_dir, filename)
-			if success:
-				anonymized_path = os.path.join(temp_dir, filename)
-				logger.info(f"Successfully anonymized {filename}")
-				return anonymized_path, detections
-			else:
-				logger.info(f"No anonymization applied to {filename}")
-				# Clean up temp directory
-				shutil.rmtree(temp_dir, ignore_errors=True)
-				return None, detections
+			#os.makedirs(temp_dir, exist_ok=True)
+			anonymized_path, detections = anonymize_image(source_path)
+			return anonymized_path, detections
 
 
 	async def process_uploaded_photo(
@@ -375,6 +365,9 @@ class PhotoProcessor:
 		is_public: bool = True
 	) -> Optional[Dict[str, Any]]:
 		"""Process a user-uploaded photo and return processing results."""
+
+		unique_id = user_id + '/' + photo_id;
+
 		# Sanitize filename
 		try:
 			safe_filename = sanitize_filename(filename)
@@ -434,9 +427,6 @@ class PhotoProcessor:
 			error_msg = f"Image size too large or invalid ({width}x{height}). Please use a smaller image."
 			logger.error(f"Image dimensions validation failed for {safe_filename}: {width}x{height}")
 			raise ValueError(error_msg)
-
-		# Generate unique ID for this photo
-		unique_id = str(uuid.uuid4())
 
 		# Create sizes information matching the original importer structure
 		sizes_info = {}
