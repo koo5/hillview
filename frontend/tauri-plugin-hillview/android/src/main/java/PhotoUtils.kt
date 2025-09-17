@@ -111,7 +111,6 @@ object PhotoUtils {
             fileSize = file.length(),
             createdAt = System.currentTimeMillis(),
             uploadStatus = "pending",
-            autoUploadEnabled = true,
             fileHash = fileHash
         )
     }

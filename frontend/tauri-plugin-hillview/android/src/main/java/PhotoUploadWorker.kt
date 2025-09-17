@@ -288,8 +288,7 @@ class PhotoUploadWorker(
                 fileSize = file.length(),
                 createdAt = System.currentTimeMillis(),
                 uploadStatus = "pending",
-            autoUploadEnabled = true,
-            fileHash = fileHash
+                fileHash = fileHash
         )
     }
 

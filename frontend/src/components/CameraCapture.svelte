@@ -7,6 +7,7 @@
     import CaptureQueueStatus from './CaptureQueueStatus.svelte';
     import CaptureQueueIndicator from './CaptureQueueIndicator.svelte';
     import CameraOverlay from './CameraOverlay.svelte';
+    import AutoUploadPrompt from './AutoUploadPrompt.svelte';
     import {captureQueue } from '$lib/captureQueue';
     import {injectPlaceholder, removePlaceholder} from '$lib/placeholderInjector';
     import {generateTempId, type PlaceholderLocation} from '$lib/utils/placeholderUtils';
@@ -76,6 +77,7 @@
     let retryTimeout: number | null = null;
     let permissionRetryInterval: number | null = null;
     let showCameraSelector = false;
+    let photoCapturedCount = 0; // Track captures for auto-upload prompt
 
     async function checkCameraPermission(): Promise<PermissionState | null> {
         try {
@@ -414,6 +416,9 @@
                         mode,
                         placeholderId: tempId
                     });
+
+                    // Trigger auto-upload prompt check
+                    photoCapturedCount++;
                 }
             }, 'image/jpeg', quality);
         } catch (error) {
@@ -687,6 +692,12 @@
                         {locationReady}
                     />
                 {/if}
+
+                <!-- Auto-upload prompt (shows after photo capture) -->
+                <AutoUploadPrompt
+                    photoCaptured={photoCapturedCount > 0}
+                    on:hidden={() => photoCapturedCount = 0}
+                />
             </div>
 
             {#if zoomSupported && cameraReady}

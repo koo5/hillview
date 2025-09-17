@@ -24,7 +24,7 @@ interface SimplePhotoDao {
     @Query("SELECT * FROM photos WHERE uploadStatus = :status ORDER BY createdAt ASC")
     fun getPhotosByUploadStatus(status: String): List<PhotoEntity>
 
-    @Query("SELECT * FROM photos WHERE uploadStatus = 'pending' AND autoUploadEnabled = 1 ORDER BY createdAt ASC")
+    @Query("SELECT * FROM photos WHERE uploadStatus = 'pending' ORDER BY createdAt ASC")
     fun getPendingUploads(): List<PhotoEntity>
 
     @Query("SELECT * FROM photos WHERE uploadStatus = 'failed' AND retryCount < 5 ORDER BY lastUploadAttempt ASC")
@@ -50,9 +50,6 @@ interface SimplePhotoDao {
 
     @Query("UPDATE photos SET uploadStatus = :status, retryCount = :retryCount, lastUploadAttempt = :lastAttempt, uploadError = :error WHERE id = :photoId")
     fun updateUploadFailure(photoId: String, status: String, retryCount: Int, lastAttempt: Long, error: String)
-
-    @Query("UPDATE photos SET autoUploadEnabled = :enabled")
-    fun setAutoUploadForAllPhotos(enabled: Boolean)
 
     @Query("DELETE FROM photos WHERE id = :photoId")
     fun deletePhoto(photoId: String)

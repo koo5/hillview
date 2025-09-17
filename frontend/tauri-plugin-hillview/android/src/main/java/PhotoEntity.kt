@@ -27,7 +27,6 @@ data class PhotoEntity(
     val retryCount: Int = 0,
     val lastUploadAttempt: Long = 0L,
     val uploadError: String = "",
-    val autoUploadEnabled: Boolean = true,
     val fileHash: String = ""
 )
 

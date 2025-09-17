@@ -15,7 +15,7 @@
 	import {http, handleApiError, TokenExpiredError} from '$lib/http';
 	import {TAURI} from '$lib/tauri';
 	import {navigateWithHistory} from '$lib/navigation.svelte';
-	import {invoke} from '@tauri-apps/api/core';
+	import SettingsComponent from '$lib/components/Settings.svelte';
 
 	let photos: UserPhoto[] = [];
 	let isLoading = true;
@@ -24,7 +24,6 @@
 	let hasMore = false;
 	let loadingMore = false;
 	let totalCount = 0;
-	let autoUploadEnabled = false;
 	let showSettings = false;
 	let user: User | null = null;
 	let activityLog: Array<{ timestamp: Date, message: string, type: 'success' | 'warning' | 'error' | 'info' }> = [];
@@ -49,11 +48,7 @@
 		// Check authentication status first (async)
 		checkAuth();
 
-		// Load auto-upload setting immediately if running on Tauri, regardless of auth state
-		// This ensures the setting is loaded on app startup
-		if (TAURI) {
-			await loadAndroidAutoUploadSetting();
-		}
+		// Settings component will load its own settings
 
 		// Subscribe to userId changes to avoid reactive loops from auth store updates during token refresh
 		const unsubscribe = userId.subscribe(async (currentUserId) => {
@@ -65,11 +60,6 @@
 			user = currentAuth.isAuthenticated ? currentAuth.user : null;
 
 			if (currentUserId && user) {
-				// Reload auto-upload setting from Android when user changes (in case user switched accounts)
-				if (TAURI) {
-					await loadAndroidAutoUploadSetting();
-				}
-
 				// Fetch user photos when authenticated
 				try {
 					await fetchPhotos(true); // Reset and fetch from the beginning
@@ -199,33 +189,6 @@
 		}
 	}
 
-	async function loadAndroidAutoUploadSetting() {
-		try {
-			const result = await invoke('plugin:hillview|get_upload_status') as { autoUploadEnabled: boolean };
-			autoUploadEnabled = result.autoUploadEnabled || false;
-			console.log('📱 Loaded Android auto-upload setting:', autoUploadEnabled);
-		} catch (err) {
-			console.error('🢄Error loading Android auto-upload setting:', err);
-			autoUploadEnabled = false; // Default to false if we can't read it
-		}
-	}
-
-	async function saveSettings() {
-		// update the Android background service setting
-		if (TAURI) {
-			try {
-				console.log('📤 Setting Android auto-upload to:', autoUploadEnabled);
-				await invoke('plugin:hillview|set_auto_upload_enabled', {enabled: autoUploadEnabled});
-				addLogEntry(`Android auto-upload ${autoUploadEnabled ? 'enabled' : 'disabled'}`, 'success');
-			} catch (pluginErr) {
-				console.error('🢄Error updating Android plugin:', pluginErr);
-				addLogEntry('Warning: Android auto-upload setting may not be updated', 'warning');
-			}
-		}
-
-		showSettings = false;
-		addLogEntry('Settings saved successfully', 'success');
-	}
 
 	function formatDate(dateString: string) {
 		const date = new Date(dateString);
@@ -352,31 +315,14 @@
 
 	{#if TAURI && showSettings}
 		<div class="settings-panel">
-			<h2>Auto-Upload Settings</h2>
-			<div class="form-group">
-				<label>
-					<input type="checkbox" bind:checked={autoUploadEnabled} data-testid="auto-upload-checkbox"/>
-					Enable auto-upload
-				</label>
-				<p class="help-text">
-					Automatically upload photos taken with the app's camera to your account.
-				</p>
-				{#if !user}
-					<div class="login-notice {autoUploadEnabled ? 'urgent-login-notice' : ''}">
-						<p>Please
-							<button type="button" class="login-link" on:click={goToLogin}>log in</button>
-							to upload photos.
-						</p>
-					</div>
-				{/if}
-			</div>
-
-			<div class="button-group">
-				<button class="secondary-button" on:click={() => showSettings = false}>Cancel</button>
-				<button class="primary-button" on:click={saveSettings} data-testid="save-settings-button"
-						disabled={!user}>Save Settings
-				</button>
-			</div>
+			<SettingsComponent
+				onSaveSuccess={(message) => {
+					addLogEntry(message, 'success');
+					showSettings = false;
+				}}
+				onSaveError={(message) => addLogEntry(message, 'error')}
+				onCancel={() => showSettings = false}
+			/>
 		</div>
 	{/if}
 

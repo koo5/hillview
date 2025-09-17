@@ -47,7 +47,8 @@ class SensorModeArgs {
 
 @InvokeArg
 class AutoUploadArgs {
-  var enabled: Boolean = false
+  var enabled: Boolean? = null  // Legacy support
+  var status: String? = null     // New tri-state: "enabled" | "unconfigured" | "disabled"
 }
 
 @InvokeArg
@@ -508,31 +509,32 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         try {
             val args = invoke.parseArgs(AutoUploadArgs::class.java)
             val enabled = args.enabled
+            val promptEnabled = args.promptEnabled
 
-            Log.i(TAG, "📤 [setAutoUploadEnabled] CALLED with enabled: $enabled")
+            Log.i(TAG, "📤 [setAutoUploadEnabled] CALLED with enabled: $enabled, promptEnabled: $promptEnabled")
 
-            // Update shared preferences with detailed logging
+            // Update shared preferences
             val prefs = activity.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
-            val previousValue = prefs.getBoolean("auto_upload_enabled", false)
+            val previousEnabled = prefs.getBoolean("auto_upload_enabled", false)
+            val previousPromptEnabled = prefs.getBoolean("auto_upload_prompt_enabled", true)
 
-            Log.i(TAG, "📤 [setAutoUploadEnabled] Previous value: $previousValue, New value: $enabled")
+            Log.i(TAG, "📤 [setAutoUploadEnabled] Previous values - enabled: $previousEnabled, promptEnabled: $previousPromptEnabled")
+            Log.i(TAG, "📤 [setAutoUploadEnabled] New values - enabled: $enabled, promptEnabled: $promptEnabled")
 
-            if (previousValue == enabled) {
-                Log.i(TAG, "📤 [setAutoUploadEnabled] Value unchanged, but proceeding with worker update")
-            }
-
-            // Apply the new setting
+            // Apply the new settings
             val editor = prefs.edit()
             editor.putBoolean("auto_upload_enabled", enabled)
-            val commitSuccess = editor.commit() // Use commit() instead of apply() for immediate persistence
+            editor.putBoolean("auto_upload_prompt_enabled", promptEnabled)
+            val commitSuccess = editor.commit()
 
             Log.i(TAG, "📤 [setAutoUploadEnabled] SharedPreferences commit result: $commitSuccess")
 
-            // Verify the setting was persisted correctly
-            val verifyValue = prefs.getBoolean("auto_upload_enabled", false)
-            Log.i(TAG, "📤 [setAutoUploadEnabled] Verification read: $verifyValue (matches: ${verifyValue == enabled})")
+            // Verify the settings were persisted correctly
+            val verifyEnabled = prefs.getBoolean("auto_upload_enabled", false)
+            val verifyPromptEnabled = prefs.getBoolean("auto_upload_prompt_enabled", true)
+            Log.i(TAG, "📤 [setAutoUploadEnabled] Verification - enabled: $verifyEnabled, promptEnabled: $verifyPromptEnabled")
 
-            // Schedule or cancel the upload worker
+            // Schedule or cancel the upload worker based on enabled state
             val workManager = WorkManager.getInstance(activity)
             Log.i(TAG, "📤 [setAutoUploadEnabled] WorkManager instance obtained")
 
@@ -549,8 +551,9 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             val result = JSObject()
             result.put("success", true)
             result.put("enabled", enabled)
+            result.put("promptEnabled", promptEnabled)
 
-            Log.i(TAG, "📤 [setAutoUploadEnabled] SUCCESS - returning result: enabled=$enabled")
+            Log.i(TAG, "📤 [setAutoUploadEnabled] SUCCESS - returning result: enabled=$enabled, promptEnabled=$promptEnabled")
             invoke.resolve(result)
 
         } catch (e: Exception) {
@@ -578,15 +581,17 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                 Log.d(TAG, "📤 [getUploadStatus] Reading SharedPreferences...")
                 val prefs = activity.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
                 val autoUploadEnabled = prefs.getBoolean("auto_upload_enabled", false)
+                val autoUploadPromptEnabled = prefs.getBoolean("auto_upload_prompt_enabled", true)
 
-                Log.i(TAG, "📤 [getUploadStatus] SharedPreferences read - autoUploadEnabled: $autoUploadEnabled")
+                Log.i(TAG, "📤 [getUploadStatus] Settings - enabled: $autoUploadEnabled, promptEnabled: $autoUploadPromptEnabled")
 
                 val result = JSObject()
                 result.put("autoUploadEnabled", autoUploadEnabled)
+                result.put("autoUploadPromptEnabled", autoUploadPromptEnabled)
                 result.put("pendingUploads", pendingCount)
                 result.put("failedUploads", failedCount)
 
-                Log.i(TAG, "📤 [getUploadStatus] SUCCESS - returning: autoUploadEnabled=$autoUploadEnabled, pendingUploads=$pendingCount, failedUploads=$failedCount")
+                Log.i(TAG, "📤 [getUploadStatus] SUCCESS - returning: enabled=$autoUploadEnabled, promptEnabled=$autoUploadPromptEnabled, pendingUploads=$pendingCount, failedUploads=$failedCount")
 
                 CoroutineScope(Dispatchers.Main).launch {
                     invoke.resolve(result)
@@ -715,7 +720,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             val workRequest = OneTimeWorkRequestBuilder<PhotoUploadWorker>()
                 .setInputData(
                     Data.Builder()
-                        .putBoolean(PhotoUploadWorker.KEY_AUTO_UPLOAD_ENABLED, autoUploadEnabled)
+                        .putBoolean(PhotoUploadWorker.KEY_AUTO_UPLOAD_ENABLED, enabled)
                         .build()
                 )
                 .build()
@@ -735,8 +740,8 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         }
     }
 
-    private fun scheduleUploadWorker(workManager: WorkManager, autoUploadEnabled: Boolean) {
-        Log.i(TAG, "📤 [scheduleUploadWorker] CALLED with autoUploadEnabled: $autoUploadEnabled")
+    private fun scheduleUploadWorker(workManager: WorkManager, enabled: Boolean) {
+        Log.i(TAG, "📤 [scheduleUploadWorker] CALLED with enabled: $enabled")
 
         try {
             Log.d(TAG, "📤 [scheduleUploadWorker] Building work constraints...")
@@ -754,7 +759,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                 .setConstraints(constraints)
                 .setInputData(
                     Data.Builder()
-                        .putBoolean(PhotoUploadWorker.KEY_AUTO_UPLOAD_ENABLED, autoUploadEnabled)
+                        .putBoolean(PhotoUploadWorker.KEY_AUTO_UPLOAD_ENABLED, enabled)
                         .build()
                 )
                 .build()
