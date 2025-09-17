@@ -85,7 +85,7 @@ class Photo(Base):
 	processed_at = Column(DateTime(timezone=True), nullable=True)  # When worker completed processing
 
 	# Relationships
-	owner_id = Column(String, ForeignKey("users.id"))
+	owner_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"))
 	owner = relationship("User", back_populates="photos")
 
 class CachedRegion(Base):

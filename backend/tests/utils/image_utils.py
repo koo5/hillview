@@ -77,21 +77,32 @@ def create_test_image_full_gps(width: int = 2048, height: int = 1536, color: tup
     random.seed(int(lat * 1000 + lon * 1000 + bearing))  # Deterministic randomness based on GPS data
 
     # Draw random rectangles - more for larger image
+    # Ensure we don't exceed image boundaries
+    max_rect_width = min(300, width - 10)
+    max_rect_height = min(300, height - 10)
+    min_start_x = max(0, width - max_rect_width)
+    min_start_y = max(0, height - max_rect_height)
+
     for _ in range(random.randint(20, 50)):
-        x1 = random.randint(0, width - 200)
-        y1 = random.randint(0, height - 200)
-        x2 = x1 + random.randint(50, 300)
-        y2 = y1 + random.randint(50, 300)
+        x1 = random.randint(0, min_start_x) if min_start_x > 0 else 0
+        y1 = random.randint(0, min_start_y) if min_start_y > 0 else 0
+        x2 = x1 + random.randint(10, min(max_rect_width, width - x1 - 1))
+        y2 = y1 + random.randint(10, min(max_rect_height, height - y1 - 1))
         rect_color = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
         draw.rectangle([x1, y1, x2, y2], fill=rect_color)
 
     # Draw random circles - more and larger for bigger image
-    for _ in range(random.randint(15, 30)):
-        x = random.randint(100, width - 100)
-        y = random.randint(100, height - 100)
-        radius = random.randint(20, 150)
-        circle_color = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
-        draw.ellipse([x - radius, y - radius, x + radius, y + radius], fill=circle_color)
+    # Ensure circles fit within image boundaries
+    max_radius = min(150, min(width, height) // 4)
+    margin = max(10, max_radius)
+
+    if width > 2 * margin and height > 2 * margin:
+        for _ in range(random.randint(15, 30)):
+            x = random.randint(margin, width - margin)
+            y = random.randint(margin, height - margin)
+            radius = random.randint(5, max_radius)
+            circle_color = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
+            draw.ellipse([x - radius, y - radius, x + radius, y + radius], fill=circle_color)
 
     # Draw random lines - more for complexity
     for _ in range(random.randint(25, 50)):

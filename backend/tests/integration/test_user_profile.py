@@ -142,6 +142,59 @@ class TestAccountDeletion(BaseUserManagementTest):
         login_result = auth_helper.login_user("test", TEST_CREDENTIALS["test"])
         self.assert_unauthorized(login_result["response"])
 
+    def test_delete_account_cascades_photos(self):
+        """Test that deleting a user account also deletes their photos via CASCADE constraint"""
+        import asyncio
+        from utils.test_utils import create_test_image, upload_test_image
+
+        # Use the existing 'test' user for this test (will be deleted)
+        # Note: This test will actually delete the test user, similar to test_delete_account_success
+        # We'll create a separate test user to avoid conflicts with other tests
+        test_token = self.get_test_token()
+        test_headers = {"Authorization": f"Bearer {test_token}"}
+
+        # Create and upload a test photo
+        test_image_data = create_test_image(
+            width=200, height=150, color=(255, 128, 0), lat=50.0755, lon=14.4378
+        )
+
+        async def upload_photo():
+            return await upload_test_image(
+                filename="cascade_test.jpg",
+                image_data=test_image_data,
+                description="Test photo for cascade deletion",
+                token=test_token,
+                is_public=True
+            )
+
+        photo_id = asyncio.run(upload_photo())
+        assert photo_id, "Photo upload should return a photo ID"
+
+        # Verify photo exists in user's photos
+        photos_response = requests.get(f"{API_URL}/photos", headers=test_headers)
+        self.assert_success(photos_response)
+        photos_data = photos_response.json()
+        photos_list = photos_data["photos"]  # API returns {"photos": [...], "pagination": {...}, "counts": {...}}
+
+        photo_found = any(photo["id"] == photo_id for photo in photos_list)
+        assert photo_found, f"Uploaded photo {photo_id} should be in user's photos"
+
+        print(f"✅ Created test user with photo {photo_id}")
+
+        # Delete the user account - CASCADE should delete photos
+        delete_response = requests.delete(f"{API_URL}/user/delete", headers=test_headers)
+        self.assert_success(delete_response)
+
+        # Verify user is deleted (token no longer works)
+        verify_response = requests.get(f"{API_URL}/user/profile", headers=test_headers)
+        self.assert_unauthorized(verify_response)
+
+        # Verify photo is also deleted (CASCADE)
+        photo_response = requests.get(f"{API_URL}/photos/{photo_id}", headers=self.admin_headers)
+        assert photo_response.status_code == 404, f"Photo should be cascade deleted, got {photo_response.status_code}"
+
+        print(f"✅ Cascading delete test passed: User and photo {photo_id} both deleted")
+
 
 class TestProfileSecurity(BaseUserManagementTest):
     """Test security aspects of profile endpoints"""

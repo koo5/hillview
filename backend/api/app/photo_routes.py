@@ -32,6 +32,7 @@ from common.file_utils import (
 from common.security_utils import SecurityValidationError
 from jwt_service import validate_token
 from rate_limiter import rate_limit_photo_upload, rate_limit_photo_operations
+from photos import delete_photo_files, determine_storage_type, StorageType
 
 logger = logging.getLogger(__name__)
 
@@ -391,57 +392,13 @@ async def delete_photo(
 				detail="Photo not found"
 			)
 
-		# Delete physical files
-		try:
-			# Delete size variants if they exist
-			if photo.sizes:
-				# Check first size variant to determine storage type
-				first_size_data = next(iter(photo.sizes.values()), None)
-				if not first_size_data:
-					raise HTTPException(
-						status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-						detail="Photo has no size variants to determine storage type"
-					)
-
-				cdn_base_url = os.getenv("CDN_BASE_URL")
-				pics_url = os.getenv("PICS_URL")
-
-				# Determine storage type: CDN vs Local
-				is_cdn_stored = (
-					'url' in first_size_data and
-					cdn_base_url and
-					first_size_data['url'].startswith(cdn_base_url)
-				)
-
-				is_local_stored = (
-					'url' in first_size_data and
-					pics_url and
-					first_size_data['url'].startswith(pics_url)
-				)
-
-				if is_cdn_stored:
-					# Photo is stored on CDN, use CDN deletion
-					from common.cdn_uploader import cdn_uploader
-					success = cdn_uploader.delete_photo_sizes(photo.sizes, photo.id)
-					if not success:
-						logger.warning(f"Some CDN files failed to delete for photo {photo_id}")
-				elif is_local_stored:
-					# Photo is stored locally, use filesystem deletion
-					user_dir = os.path.join(UPLOAD_DIR, str(current_user.id))
-					for size_info in photo.sizes.values():
-						if 'path' in size_info:
-							size_path = os.path.join(user_dir, size_info['path'])
-							if os.path.exists(size_path):
-								os.remove(size_path)
-				else:
-					raise HTTPException(
-						status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-						detail="Cannot determine photo storage type (neither CDN nor local)"
-					)
-		except HTTPException:
-			raise
-		except Exception as e:
-			logger.warning(f"Error deleting photo files: {str(e)}")
+		# Delete physical files using shared utility
+		file_deletion_success = await delete_photo_files(photo)
+		if not file_deletion_success:
+			raise HTTPException(
+				status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+				detail="Failed to delete photo files"
+			)
 
 		# Delete database record
 		await db.delete(photo)

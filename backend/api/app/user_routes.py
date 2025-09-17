@@ -21,6 +21,7 @@ common_path = os.path.join(os.path.dirname(__file__), '..', '..', 'common')
 sys.path.append(common_path)
 from common.database import get_db
 from common.models import User, UserPublicKey, Photo
+from photos import delete_all_user_photo_files
 from jwt_service import create_upload_authorization_token
 from auth import (
 	authenticate_user, create_access_token, create_refresh_token, get_current_active_user,
@@ -1142,13 +1143,25 @@ async def delete_user_account(
 	await rate_limit_user_profile(request, current_user.id)
 
 	try:
-		# TODO: Add cascading delete for user's photos and other related data
-		# For now, we'll just delete the user record
-		# In a production app, you'd want to:
-		# 1. Delete all user's photos from filesystem
-		# 2. Delete all user's data from database (photos, sessions, etc.)
-		# 3. Optionally anonymize instead of hard delete for data integrity
+		# First, get all user's photos and delete their files before CASCADE deletes DB records
+		# Get all user's photos to delete their files
+		photos_result = await db.execute(
+			select(Photo).where(Photo.owner_id == current_user.id)
+		)
+		user_photos = photos_result.scalars().all()
 
+		# Delete photo files from filesystem - must succeed before DB deletion
+		if user_photos:
+			deleted_count = await delete_all_user_photo_files(user_photos)
+			if deleted_count != len(user_photos):
+				# Some file deletions failed - abort user deletion
+				raise HTTPException(
+					status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+					detail=f"Failed to delete all photo files ({deleted_count}/{len(user_photos)} succeeded). User deletion aborted."
+				)
+			log.info(f"Successfully deleted {deleted_count} photo files for user {current_user.id}")
+
+		# Now delete the user - CASCADE constraint will delete database records
 		await db.delete(current_user)
 		await db.commit()
 
