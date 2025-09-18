@@ -4,6 +4,7 @@
     import { app } from '$lib/data.svelte';
     import { auth } from '$lib/auth.svelte';
     import { http, handleApiError } from '$lib/http';
+    import { myGoto } from '$lib/navigation.svelte';
     import { getDevicePhotoUrl } from '$lib/devicePhotoHelper';
     import { simplePhotoWorker } from '$lib/simplePhotoWorker';
     import type { PhotoData } from '$lib/sources';
@@ -372,6 +373,18 @@
         loadPhotoRating();
     }
 
+    // Navigate to user profile for Hillview photos
+    function viewUserProfile() {
+        if (!photo) return;
+
+        const photoSource = getPhotoSource(photo);
+        const userId = getUserId(photo);
+
+        if (photoSource === 'hillview' && userId) {
+            myGoto(`/users/${userId}`);
+        }
+    }
+
 
 
 </script>
@@ -414,7 +427,13 @@
             <!-- Creator username display -->
             {#if getUserName(photo)}
                 <div class="creator-info">
-                    <span class="creator-name">@{getUserName(photo)}</span>
+                    {#if getPhotoSource(photo) === 'hillview'}
+                        <button class="creator-name clickable" on:click={viewUserProfile}>
+                            @{getUserName(photo)}
+                        </button>
+                    {:else}
+                        <span class="creator-name">@{getUserName(photo)}</span>
+                    {/if}
                     <span class="source-name">{getPhotoSource(photo)}</span>
                 </div>
             {/if}
@@ -614,6 +633,28 @@
         overflow: hidden;
         text-overflow: ellipsis;
         max-width: 100%;
+    }
+
+    .creator-name.clickable {
+        background: none;
+        border: none;
+        padding: 0;
+        margin: 0;
+        font-size: inherit;
+        font-weight: inherit;
+        font-family: inherit;
+        color: #4a90e2;
+        cursor: pointer;
+        text-decoration: underline;
+        transition: color 0.2s ease;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 100%;
+    }
+
+    .creator-name.clickable:hover {
+        color: #357abd;
     }
 
     .source-name {

@@ -98,7 +98,11 @@
 
 			<div class="grid">
 				{#each users as user}
-					<div class="user-card" on:click={() => viewUserPhotos(user.id)}>
+					<div class="user-card"
+						on:click={() => viewUserPhotos(user.id)}
+						on:keydown={(e) => e.key === 'Enter' && viewUserPhotos(user.id)}
+						role="button"
+						tabindex="0">
 						<div class="user-photo">
 							{#if user.latest_photo_url}
 								<img

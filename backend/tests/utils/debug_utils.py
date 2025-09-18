@@ -73,6 +73,7 @@ def debug_photo_details(photo_id: str):
 def recreate_users():
     """Recreate test users."""
     try:
+        print("recreate test users..")
         result = api_client.recreate_test_users()
         print("✅ Test users recreated")
         details = result.get("details", {})

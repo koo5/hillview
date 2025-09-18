@@ -136,6 +136,10 @@
 		}
 		return count.toString();
 	}
+
+	function viewUserProfile(userId: string) {
+		myGoto(`/users/${userId}`);
+	}
 </script>
 
 <svelte:head>
@@ -176,7 +180,9 @@
 						{#each Object.entries(group.userGroups) as [username, userPhotos], userIndex}
 							<div class="user-group">
 								<h3 class="user-header">
-									{username}
+									<button class="username-link" on:click={() => viewUserProfile(userPhotos[0].owner_id)}>
+										{username}
+									</button>
 									<span class="photo-count">({formatPhotoCount(userPhotos.length, groupIndex === activityData.length - 1, userIndex === Object.entries(group.userGroups).length - 1)} photo{userPhotos.length !== 1 ? 's' : ''})</span>
 								</h3>
 
@@ -299,6 +305,24 @@
 		font-size: 1.2rem;
 		font-weight: 500;
 		color: #495057;
+	}
+
+	.username-link {
+		background: none;
+		border: none;
+		color: #4a90e2;
+		font-size: inherit;
+		font-weight: inherit;
+		cursor: pointer;
+		text-decoration: underline;
+		padding: 0;
+		margin: 0;
+		font-family: inherit;
+		transition: color 0.2s ease;
+	}
+
+	.username-link:hover {
+		color: #357abd;
 	}
 
 	.photo-count {

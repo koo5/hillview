@@ -27,7 +27,7 @@ from auth import (
 	authenticate_user, create_access_token, create_refresh_token, get_current_active_user,
 	get_password_hash, Token, UserCreate, UserLogin, UserOut, UserOAuth, RefreshTokenRequest,
 	OAUTH_PROVIDERS, ACCESS_TOKEN_EXPIRE_MINUTES,
-	blacklist_token, get_current_user
+	blacklist_token, get_current_user, get_current_user_optional_with_query
 )
 from rate_limiter import auth_rate_limiter, check_auth_rate_limit, rate_limit_user_profile, rate_limit_user_registration
 from common.config import is_rate_limiting_disabled

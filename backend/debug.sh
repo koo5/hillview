@@ -5,11 +5,6 @@ set -e
 # Change to the correct directory
 cd "$(dirname "$0")"
 
-# Check if we're in tests directory, if so go up one level
-if [[ $(basename "$PWD") == "tests" ]]; then
-    cd ..
-fi
-
 # Set up environment
 export PYTHONPATH=".:tests:$PYTHONPATH"
 
