@@ -44,7 +44,7 @@
 	}
 
 
-	onMount(async () => {
+	onMount(() => {
 		// Check authentication status first (async)
 		checkAuth();
 

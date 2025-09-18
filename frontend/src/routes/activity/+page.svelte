@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { auth } from '$lib/auth.svelte';
 	import { http, handleApiError } from '$lib/http';
+	import { myGoto } from '$lib/navigation.svelte';
 	import StandardHeaderWithAlert from '../../components/StandardHeaderWithAlert.svelte';
 	import StandardBody from '../../components/StandardBody.svelte';
 	import Spinner from '../../components/Spinner.svelte';
@@ -14,6 +15,7 @@
 		processing_status: string;
 		latitude?: number;
 		longitude?: number;
+		bearing?: number;
 		width?: number;
 		height?: number;
 		sizes?: Record<string, { path: string; url: string; width: number; height: number }>;
@@ -30,6 +32,8 @@
 	let loading = true;
 	let error = '';
 	let activityData: ActivityGroup[] = [];
+	let totalPhotoCount = 0;
+	let hasMorePhotos = false;
 
 	onMount(async () => {
 		await loadActivityData();
@@ -47,6 +51,10 @@
 			}
 
 			const data = await response.json();
+
+			// Track total count and check if we might have more
+			totalPhotoCount = data.length;
+			hasMorePhotos = data.length === 100; // Backend limit is 100
 
 			// Group photos by date and then by user
 			const grouped: { [date: string]: ActivityGroup } = {};
@@ -113,6 +121,21 @@
 	function getPhotoUrl(photo: ActivityPhoto): string {
 		return photo.sizes?.['320']?.url || '';
 	}
+
+	function viewOnMap(photo: ActivityPhoto) {
+		if (photo.latitude && photo.longitude) {
+			const bearing = photo.bearing ?? 0;
+			myGoto(`/?lat=${photo.latitude}&lon=${photo.longitude}&zoom=18&bearing=${bearing}`);
+		}
+	}
+
+	function formatPhotoCount(count: number, isLastGroup: boolean, isLastUserInGroup: boolean): string {
+		// Show + only if this might be truncated (last user in last group and we hit the limit)
+		if (hasMorePhotos && isLastGroup && isLastUserInGroup) {
+			return `${count}+`;
+		}
+		return count.toString();
+	}
 </script>
 
 <svelte:head>
@@ -146,20 +169,24 @@
 			</div>
 		{:else}
 			<div class="activity-list">
-				{#each activityData as group}
+				{#each activityData as group, groupIndex}
 					<div class="day-group">
 						<h2 class="day-header">{formatDate(group.date)}</h2>
 
-						{#each Object.entries(group.userGroups) as [username, userPhotos]}
+						{#each Object.entries(group.userGroups) as [username, userPhotos], userIndex}
 							<div class="user-group">
 								<h3 class="user-header">
 									{username}
-									<span class="photo-count">({userPhotos.length} photo{userPhotos.length !== 1 ? 's' : ''})</span>
+									<span class="photo-count">({formatPhotoCount(userPhotos.length, groupIndex === activityData.length - 1, userIndex === Object.entries(group.userGroups).length - 1)} photo{userPhotos.length !== 1 ? 's' : ''})</span>
 								</h3>
 
 								<div class="photo-grid">
 									{#each userPhotos as photo}
-										<div class="photo-item">
+										<div class="photo-item" class:clickable={photo.latitude && photo.longitude}
+											on:click={() => viewOnMap(photo)}
+											on:keydown={(e) => e.key === 'Enter' && viewOnMap(photo)}
+											role="button"
+											tabindex={photo.latitude && photo.longitude ? 0 : -1}>
 											<div class="photo-thumbnail">
 												<img
 													src={getPhotoUrl(photo)}
@@ -297,6 +324,15 @@
 	.photo-item:hover {
 		transform: translateY(-2px);
 		box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+	}
+
+	.photo-item.clickable {
+		cursor: pointer;
+	}
+
+	.photo-item.clickable:hover {
+		transform: translateY(-4px);
+		box-shadow: 0 6px 12px rgba(0, 0, 0, 0.2);
 	}
 
 	.photo-thumbnail {

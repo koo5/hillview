@@ -9,7 +9,7 @@
 
 	export let onSaveSuccess = (message: string) => {};
 	export let onSaveError = (message: string) => {};
-	export let onCancel = null;
+	export let onCancel: (() => void) | null = null;
 
 	let autoUploadEnabled = false;
 	let autoUploadPromptEnabled = true;
@@ -19,7 +19,7 @@
 	$: radioState = autoUploadEnabled ? 'enabled' :
 	               (!autoUploadPromptEnabled ? 'disabled_never' : 'disabled');
 
-	onMount(async () => {
+	onMount(() => {
 		// Subscribe to auth state changes
 		const unsubscribe = auth.subscribe(authState => {
 			user = authState.isAuthenticated ? authState.user : null;
@@ -27,7 +27,7 @@
 
 		// Load auto-upload setting if on Tauri
 		if (TAURI) {
-			await loadAndroidAutoUploadSetting();
+			loadAndroidAutoUploadSetting();
 		}
 
 		// Return cleanup function

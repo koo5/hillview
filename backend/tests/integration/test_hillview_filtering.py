@@ -245,20 +245,12 @@ class TestHillviewFiltering(BaseUserManagementTest):
         # Find a photo with an owner to hide
         target_photo = None
         target_owner_id = None
-        
+
         for photo in baseline_photos:
-            # In hillview API, photos should have owner information or be identifiable by directory
-            if photo.get("dir_name") or photo.get("filepath"):
+            # In hillview API, photos have creator information
+            if photo.get("creator") and photo["creator"].get("id"):
                 target_photo = photo
-                # Extract owner ID from filepath or directory structure
-                # This is API-specific - may need adjustment based on actual response format
-                if "filepath" in photo and photo["filepath"]:
-                    # Assume filepath contains owner ID like "/uploads/{owner_id}/photo.jpg"
-                    path_parts = photo["filepath"].split("/")
-                    for part in path_parts:
-                        if part.isdigit() or (part.count("-") == 4 and len(part) == 36):  # UUID-like
-                            target_owner_id = part
-                            break
+                target_owner_id = photo["creator"]["id"]
                 break
         
         assert target_photo and target_owner_id, "No suitable photo with identifiable owner found"
@@ -328,12 +320,8 @@ class TestHillviewFiltering(BaseUserManagementTest):
         
         # Extract owner from user_photo
         target_owner_id = None
-        if user_photo.get("filepath"):
-            path_parts = user_photo["filepath"].split("/")
-            for part in path_parts:
-                if part.isdigit() or (part.count("-") == 4 and len(part) == 36):
-                    target_owner_id = part
-                    break
+        if user_photo.get("creator") and user_photo["creator"].get("id"):
+            target_owner_id = user_photo["creator"]["id"]
         
         assert target_owner_id, "Cannot extract owner ID for user hiding"
         

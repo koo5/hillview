@@ -5,6 +5,13 @@ Test Mapillary photo filtering functionality using mock data.
 
 import requests
 import json
+import os
+import sys
+
+# Add paths for imports
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+
 from tests.utils.test_utils import clear_test_database, API_URL
 from tests.utils.base_test import BaseUserManagementTest
 
@@ -98,8 +105,9 @@ class TestMapillaryFiltering(BaseUserManagementTest):
 			print(f"✓ Set mock Mapillary data: {result['details']['photos_count']} photos")
 			return True
 		else:
-			print(f"⚠ Failed to set mock data: {response.status_code} - {response.text}")
-			return False
+			error_msg = f"Failed to set mock data: {response.status_code} - {response.text}"
+			print(f"❌ {error_msg}")
+			raise Exception(error_msg)
 
 	def clear_mock_mapillary_data(self):
 		"""Clear mock Mapillary data via debug endpoint."""
@@ -108,8 +116,22 @@ class TestMapillaryFiltering(BaseUserManagementTest):
 			print("✓ Cleared mock Mapillary data")
 			return True
 		else:
-			print(f"⚠ Failed to clear mock data: {response.status_code}")
-			return False
+			error_msg = f"Failed to clear mock data: {response.status_code} - {response.text}"
+			print(f"❌ {error_msg}")
+			raise Exception(error_msg)
+
+	def clear_mapillary_cache(self):
+		"""Clear real Mapillary cache data via debug endpoint."""
+		response = requests.delete(f"{API_URL}/mapillary/debug/cache")
+		if response.status_code == 200:
+			result = response.json()
+			details = result.get('details', {})
+			print(f"✓ Cleared Mapillary cache: {details.get('mapillary_cache_deleted', 0)} photos, {details.get('cached_regions_deleted', 0)} regions")
+			return True
+		else:
+			error_msg = f"Failed to clear Mapillary cache: {response.status_code} - {response.text}"
+			print(f"❌ {error_msg}")
+			raise Exception(error_msg)
 
 	def verify_exact_mock_data(self, photos, expected_ids, test_name=""):
 		"""Verify that photos contain exactly the expected mock data and nothing else."""
@@ -170,16 +192,16 @@ class TestMapillaryFiltering(BaseUserManagementTest):
 		"""Test Mapillary photo filtering functionality."""
 		print("🧪 Starting Mapillary Filtering Tests")
 		print("=" * 50)
-		
-		# Clear database completely to remove cached Mapillary data
-		clear_test_database()
-		
-		# Clear any existing mock data first
+
+		# Clear both mock data and real cache data that might interfere
 		self.clear_mock_mapillary_data()
+
+		# Clear real Mapillary cache data to ensure clean test
+		self.clear_mapillary_cache()
 		
 		# Set mock data
 		mock_data = self.create_mock_mapillary_data()
-		assert self.set_mock_mapillary_data(mock_data), "Failed to set mock Mapillary data"
+		self.set_mock_mapillary_data(mock_data)
 		
 		# Prague area bbox [west, south, east, north]
 		prague_bbox = [14.40, 50.07, 14.45, 50.09]

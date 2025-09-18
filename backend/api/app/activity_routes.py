@@ -56,6 +56,7 @@ async def get_recent_activity(
 				"processing_status": photo.processing_status,
 				"latitude": photo.latitude,
 				"longitude": photo.longitude,
+				"bearing": photo.compass_angle,
 				"width": photo.width,
 				"height": photo.height,
 				"sizes": photo.sizes,

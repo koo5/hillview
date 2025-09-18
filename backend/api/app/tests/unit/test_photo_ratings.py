@@ -406,7 +406,7 @@ class TestRatingEndpointIntegration:
         # Invalid JSON
         response = client.post(
             "/api/ratings/hillview/photo123",
-            data="invalid json",
+            content="invalid json",
             headers={"Authorization": "Bearer mock_token", "Content-Type": "application/json"}
         )
         assert response.status_code in [400, 401, 422]

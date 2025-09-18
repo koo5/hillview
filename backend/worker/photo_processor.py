@@ -243,7 +243,7 @@ class PhotoProcessor:
 			return 0, 0
 
 
-	async def create_optimized_sizes(self, source_path: str, unique_id: str, original_filename: str, width: int, height: int) -> Dict[str, Dict[str, Any]]:
+	async def create_optimized_sizes(self, source_path: str, unique_id: str, original_filename: str, width: int, height: int) -> tuple[Dict[str, Dict[str, Any]], Optional[Dict[str, Any]]]:
 		"""Create optimized versions with anonymization and unique IDs."""
 		sizes_info = {}
 		anonymized_path = None
@@ -269,8 +269,12 @@ class PhotoProcessor:
 				if isinstance(size, int) and size > width:
 					break
 
-				size_dir = os.path.join(output_base, 'opt', str(size))
-				unique_filename = sanitize_filename(f"{unique_id}{file_ext}")
+				# Extract user_id and photo_id from unique_id (format: "user_id/photo_id")
+				user_id_part, photo_id_part = unique_id.split('/', 1)
+
+				# Create directory structure: opt/size/user_id/
+				size_dir = os.path.join(output_base, 'opt', str(size), user_id_part)
+				unique_filename = sanitize_filename(f"{photo_id_part}{file_ext}")
 				output_file_path = validate_file_path(os.path.join(size_dir, unique_filename), output_base)
 				relative_path = os.path.relpath(output_file_path, output_base)
 
@@ -296,7 +300,7 @@ class PhotoProcessor:
 					# Resize using ImageMagick mogrify (matching original)
 					# Use absolute path and validate inputs
 					cmd = ['mogrify', '-resize', str(int(size)), output_file_path]
-					result = subprocess.check_call(cmd, capture_output=True, timeout=30)
+					subprocess.run(cmd, capture_output=True, timeout=30, check=True)
 					new_width, new_height = self.get_image_dimensions(output_file_path)
 
 					size_info.update({
@@ -307,7 +311,7 @@ class PhotoProcessor:
 
 					# Optimize with jpegoptim (matching original)
 					cmd = ['jpegoptim', '--all-progressive', '--overwrite', output_file_path]
-					subprocess.check_call(cmd, capture_output=True, timeout=130)
+					subprocess.run(cmd, capture_output=True, timeout=130, check=True)
 
 					logger.info(f"Created size {size} for {unique_id}: {new_width}x{new_height} at {output_file_path}");
 
@@ -319,7 +323,7 @@ class PhotoProcessor:
 				os.remove(anonymized_path)
 				logger.info(f"Cleaned up temporary anonymization file.")
 
-		return sizes_info
+		return sizes_info, detections
 
 
 	def _get_size_url(self, file_path: str, relative_path: str) -> str:
@@ -366,7 +370,10 @@ class PhotoProcessor:
 	) -> Optional[Dict[str, Any]]:
 		"""Process a user-uploaded photo and return processing results."""
 
-		unique_id = user_id + '/' + photo_id;
+		unique_id = str(user_id) + '/' + str(photo_id);
+
+		# Initialize variables that might be used in exception handling
+		detections = None
 
 		# Sanitize filename
 		try:
@@ -431,7 +438,7 @@ class PhotoProcessor:
 		# Create sizes information matching the original importer structure
 		sizes_info = {}
 		if width and height:
-			sizes_info = await self.create_optimized_sizes(file_path, unique_id, filename, width, height)
+			sizes_info, detections = await self.create_optimized_sizes(file_path, unique_id, filename, width, height)
 
 		# Return processing results for database creation
 		return {

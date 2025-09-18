@@ -441,12 +441,23 @@ async def delete_users_by_usernames(db: AsyncSession, usernames: list[str]) -> d
 		user_ids = [row[0] for row in user_ids_result.fetchall()]
 
 		if user_ids:
-			# Delete photos owned by these users
+			# First, get all photos to delete their files
+			photos_query = select(Photo).where(Photo.owner_id.in_(user_ids))
+			photos_result = await db.execute(photos_query)
+			photos_to_delete = photos_result.scalars().all()
+
+			# Delete photo files from filesystem
+			if photos_to_delete:
+				from photos import delete_all_user_photo_files
+				deleted_files_count = await delete_all_user_photo_files(photos_to_delete)
+				logger.info(f"Deleted {deleted_files_count}/{len(photos_to_delete)} photo files for users: {usernames}")
+
+			# Delete photos from database
 			photo_delete_stmt = delete(Photo).where(Photo.owner_id.in_(user_ids))
 			photo_result = await db.execute(photo_delete_stmt)
 			summary["photos_deleted"] = photo_result.rowcount
 			if photo_result.rowcount > 0:
-				logger.info(f"Deleted {photo_result.rowcount} photos owned by users: {usernames}")
+				logger.info(f"Deleted {photo_result.rowcount} photos from database for users: {usernames}")
 
 		# Delete the users
 		user_delete_stmt = delete(User).where(User.username.in_(usernames))

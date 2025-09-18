@@ -2,10 +2,12 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Dict, Any
 from fastapi import FastAPI, HTTPException, status, Request, Depends
+from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
+
 import os
 import sys
 # Add common module path for both local development and Docker
@@ -13,6 +15,7 @@ common_path = os.path.join(os.path.dirname(__file__), '..', '..', 'common')
 sys.path.append(common_path)
 from common.database import Base, engine
 from common.config import is_rate_limiting_disabled, rate_limit_config, get_cors_origins
+from debug_utils import debug_only, safe_str_id, clear_system_tables, cleanup_upload_directories
 
 logging.basicConfig(level=logging.DEBUG)
 log = logging.getLogger(__name__)
@@ -52,7 +55,53 @@ async def lifespan(app: FastAPI):
 		log.error(f"Failed to stop OAuth session cleanup: {e}")
 	log.info("Application shutdown completed")
 
-app = FastAPI(title="Hillview API", description="API for Hillview application", lifespan=lifespan)
+
+
+
+from fastapi import FastAPI
+from fastapi.openapi.docs import (
+	get_redoc_html,
+	get_swagger_ui_html,
+	get_swagger_ui_oauth2_redirect_html,
+)
+
+
+# class Settings(BaseSettings):
+# 	openapi_url: str = "/openapi.json"
+#settings = Settings()
+
+app = FastAPI(
+	#openapi_url=settings.openapi_url,
+	docs_url=None, redoc_url=None,
+	title="Hillview API", description="API for Hillview application", lifespan=lifespan
+)
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+@app.get("/docs", include_in_schema=False)
+async def custom_swagger_ui_html():
+	return get_swagger_ui_html(
+		openapi_url=app.openapi_url,
+		title=app.title + " - Swagger UI",
+		oauth2_redirect_url=app.swagger_ui_oauth2_redirect_url,
+		swagger_js_url="static/swagger-ui-bundle.js",
+		swagger_css_url="static/swagger-ui.css",
+	)
+
+@app.get(app.swagger_ui_oauth2_redirect_url, include_in_schema=False)
+async def swagger_ui_redirect():
+	return get_swagger_ui_oauth2_redirect_html()
+
+
+
+
+
+
+
+
+
+
+
+
 
 # Security Headers Middleware
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -267,10 +316,8 @@ async def debug_endpoint():
 
 
 @app.post("/api/debug/recreate-test-users")
+@debug_only
 async def recreate_test_users():
-	"""Debug endpoint to delete and recreate test users (only available when DEBUG_ENDPOINTS=true)"""
-	if not os.getenv("DEBUG_ENDPOINTS", "false").lower() in ("true", "1", "yes"):
-		raise HTTPException(status_code=404, detail="Debug endpoints disabled")
 	if not USER_ACCOUNTS:
 		return {"error": "User accounts are not enabled"}
 
@@ -279,10 +326,8 @@ async def recreate_test_users():
 	return {"status": "success", "message": "Test users re-created", "details": result}
 
 @app.post("/api/debug/clear-database")
+@debug_only
 async def clear_database():
-	"""Debug endpoint to clear all data from the database (only available when DEBUG_ENDPOINTS=true)"""
-	if not os.getenv("DEBUG_ENDPOINTS", "false").lower() in ("true", "1", "yes"):
-		raise HTTPException(status_code=404, detail="Debug endpoints disabled")
 	from sqlalchemy import select, text
 	import auth
 	from common.database import get_db
@@ -298,15 +343,38 @@ async def clear_database():
 		# Use the existing safe deletion function to delete all users and their photos
 		delete_summary = await auth.delete_users_by_usernames(db, all_usernames)
 
+		# Clear any remaining orphaned photos (photos without owners)
+		from sqlalchemy import select
+		from common.models import Photo
+		from photos import delete_all_user_photo_files
+
+		# Get any remaining photos in the database
+		remaining_photos_query = select(Photo)
+		remaining_photos_result = await db.execute(remaining_photos_query)
+		remaining_photos = remaining_photos_result.scalars().all()
+
+		orphaned_photos_deleted = 0
+		if remaining_photos:
+			# Delete the physical files for orphaned photos
+			deleted_files_count = await delete_all_user_photo_files(remaining_photos)
+			log.info(f"Deleted {deleted_files_count}/{len(remaining_photos)} orphaned photo files")
+
+			# Delete orphaned photos from database
+			orphaned_delete_stmt = text("DELETE FROM photos")
+			orphaned_result = await db.execute(orphaned_delete_stmt)
+			orphaned_photos_deleted = orphaned_result.rowcount
+			log.info(f"Deleted {orphaned_photos_deleted} orphaned photos from database")
+
 		# Clear Mapillary cache tables (no foreign key dependencies from other tables)
-		mapillary_cache_result = await db.execute(text("DELETE FROM mapillary_photo_cache"))
-		cached_regions_result = await db.execute(text("DELETE FROM cached_regions"))
+		from mapillary_routes import clear_mapillary_cache_tables
+		mapillary_deletion_counts = await clear_mapillary_cache_tables(db)
 
 		# Clear other tables that might not be covered by user deletion
-		token_blacklist_result = await db.execute(text("DELETE FROM token_blacklist"))
-		audit_log_result = await db.execute(text("DELETE FROM security_audit_log"))
-		hidden_photos_result = await db.execute(text("DELETE FROM hidden_photos"))
-		hidden_users_result = await db.execute(text("DELETE FROM hidden_users"))
+		system_deletion_counts = await clear_system_tables(db)
+
+		# Final cleanup: remove any remaining files in upload directories
+		# This ensures we clean up files even if database records are inconsistent
+		upload_dirs_cleaned = await cleanup_upload_directories()
 
 		await db.commit()
 		break
@@ -318,20 +386,17 @@ async def clear_database():
 		"details": {
 			"users_deleted": delete_summary["users_deleted"],
 			"photos_deleted": delete_summary["photos_deleted"],
-			"mapillary_cache_deleted": mapillary_cache_result.rowcount,
-			"cached_regions_deleted": cached_regions_result.rowcount,
-			"token_blacklist_deleted": token_blacklist_result.rowcount,
-			"audit_log_deleted": audit_log_result.rowcount,
-			"hidden_photos_deleted": hidden_photos_result.rowcount,
-			"hidden_users_deleted": hidden_users_result.rowcount
+			"orphaned_photos_deleted": orphaned_photos_deleted,
+			"mapillary_cache_deleted": mapillary_deletion_counts["mapillary_cache_deleted"],
+			"cached_regions_deleted": mapillary_deletion_counts["cached_regions_deleted"],
+			**system_deletion_counts,
+			**upload_dirs_cleaned
 		}
 	}
 
 @app.post("/api/debug/mock-mapillary")
+@debug_only
 async def set_mock_mapillary_data(mock_data: Dict[str, Any]):
-	"""Debug endpoint to set mock Mapillary data for testing (only available when DEBUG_ENDPOINTS=true)"""
-	if not os.getenv("DEBUG_ENDPOINTS", "false").lower() in ("true", "1", "yes"):
-		raise HTTPException(status_code=404, detail="Debug endpoints disabled")
 
 	from mock_mapillary import mock_mapillary_service
 	mock_mapillary_service.set_mock_data(mock_data)
@@ -345,10 +410,8 @@ async def set_mock_mapillary_data(mock_data: Dict[str, Any]):
 	}
 
 @app.delete("/api/debug/mock-mapillary")
+@debug_only
 async def clear_mock_mapillary_data():
-	"""Debug endpoint to clear mock Mapillary data (only available when DEBUG_ENDPOINTS=true)"""
-	if not os.getenv("DEBUG_ENDPOINTS", "false").lower() in ("true", "1", "yes"):
-		raise HTTPException(status_code=404, detail="Debug endpoints disabled")
 
 	from mock_mapillary import mock_mapillary_service
 	mock_mapillary_service.clear_mock_data()

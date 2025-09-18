@@ -33,8 +33,7 @@ class TestPhotoRatingIntegration(BaseAuthTest):
         print(f"Status code: {response.status_code}")
         print(f"Response: {response.json()}")
         self.assert_success(response, "API debug endpoint should respond")
-        return True
-    
+
     def test_set_thumbs_up_rating(self):
         """Test setting a thumbs up rating"""
         print(f"\n=== Testing Set Thumbs Up Rating ===")
@@ -60,19 +59,14 @@ class TestPhotoRatingIntegration(BaseAuthTest):
             assert "thumbs_up" in data["rating_counts"]
             assert "thumbs_down" in data["rating_counts"]
             assert data["rating_counts"]["thumbs_up"] >= 1
-            
-            return True
-        else:
-            print(f"Failed to set thumbs up rating: {response.text}")
-            return False
-    
+
     def test_get_photo_rating(self):
         """Test getting photo rating information"""
         print(f"\n=== Testing Get Photo Rating ===")
         
         response = requests.get(
             f"{API_URL}/ratings/{self.test_source}/{self.test_photo_id}",
-            headers=self.get_auth_headers()
+            headers=self.test_headers
         )
         
         print(f"Get rating - Status: {response.status_code}")
@@ -85,12 +79,7 @@ class TestPhotoRatingIntegration(BaseAuthTest):
             assert "user_rating" in data
             assert "rating_counts" in data
             assert isinstance(data["rating_counts"], dict)
-            
-            return True
-        else:
-            print(f"Failed to get rating: {response.text}")
-            return False
-    
+
     def test_change_to_thumbs_down(self):
         """Test changing rating from thumbs up to thumbs down"""
         print(f"\n=== Testing Change to Thumbs Down ===")
@@ -99,7 +88,7 @@ class TestPhotoRatingIntegration(BaseAuthTest):
         response = requests.post(
             f"{API_URL}/ratings/{self.test_source}/{self.test_photo_id}",
             json=rating_data,
-            headers={**self.get_auth_headers(), "Content-Type": "application/json"}
+            headers={**self.test_headers, "Content-Type": "application/json"}
         )
         
         print(f"Change to thumbs down - Status: {response.status_code}")
@@ -111,19 +100,14 @@ class TestPhotoRatingIntegration(BaseAuthTest):
             # Verify rating changed
             assert data["user_rating"] == "thumbs_down"
             assert data["rating_counts"]["thumbs_down"] >= 1
-            
-            return True
-        else:
-            print(f"Failed to change to thumbs down: {response.text}")
-            return False
-    
+
     def test_delete_rating(self):
         """Test deleting a photo rating"""
         print(f"\n=== Testing Delete Rating ===")
         
         response = requests.delete(
             f"{API_URL}/ratings/{self.test_source}/{self.test_photo_id}",
-            headers=self.get_auth_headers()
+            headers=self.test_headers
         )
         
         print(f"Delete rating - Status: {response.status_code}")
@@ -136,19 +120,14 @@ class TestPhotoRatingIntegration(BaseAuthTest):
             assert "message" in data
             assert "rating_counts" in data
             assert "successfully" in data["message"].lower()
-            
-            return True
-        else:
-            print(f"Failed to delete rating: {response.text}")
-            return False
-    
+
     def test_get_rating_after_delete(self):
         """Test getting rating after deletion"""
         print(f"\n=== Testing Get Rating After Delete ===")
         
         response = requests.get(
             f"{API_URL}/ratings/{self.test_source}/{self.test_photo_id}",
-            headers=self.get_auth_headers()
+            headers=self.test_headers
         )
         
         print(f"Get rating after delete - Status: {response.status_code}")
@@ -159,12 +138,7 @@ class TestPhotoRatingIntegration(BaseAuthTest):
             
             # Verify no user rating exists
             assert data["user_rating"] is None
-            
-            return True
-        else:
-            print(f"Failed to get rating after delete: {response.text}")
-            return False
-    
+
     def test_invalid_photo_source(self):
         """Test rating with invalid photo source"""
         print(f"\n=== Testing Invalid Photo Source ===")
@@ -173,7 +147,7 @@ class TestPhotoRatingIntegration(BaseAuthTest):
         response = requests.post(
             f"{API_URL}/ratings/invalid_source/{self.test_photo_id}",
             json=rating_data,
-            headers={**self.get_auth_headers(), "Content-Type": "application/json"}
+            headers={**self.test_headers, "Content-Type": "application/json"}
         )
         
         print(f"Invalid source - Status: {response.status_code}")
@@ -185,8 +159,7 @@ class TestPhotoRatingIntegration(BaseAuthTest):
         print(f"Error response: {json.dumps(data, indent=2)}")
         assert "Invalid photo source" in data["detail"]
         
-        return True
-    
+
     def test_invalid_rating_type(self):
         """Test setting invalid rating type"""
         print(f"\n=== Testing Invalid Rating Type ===")
@@ -195,7 +168,7 @@ class TestPhotoRatingIntegration(BaseAuthTest):
         response = requests.post(
             f"{API_URL}/ratings/{self.test_source}/{self.test_photo_id}",
             json=rating_data,
-            headers={**self.get_auth_headers(), "Content-Type": "application/json"}
+            headers={**self.test_headers, "Content-Type": "application/json"}
         )
         
         print(f"Invalid rating - Status: {response.status_code}")
@@ -207,8 +180,7 @@ class TestPhotoRatingIntegration(BaseAuthTest):
         print(f"Error response: {json.dumps(data, indent=2)}")
         assert "Invalid rating" in data["detail"]
         
-        return True
-    
+
     def test_unauthorized_access(self):
         """Test rating endpoints without authentication"""
         print(f"\n=== Testing Unauthorized Access ===")
@@ -234,8 +206,7 @@ class TestPhotoRatingIntegration(BaseAuthTest):
         print(f"Delete no auth - Status: {response.status_code}")
         assert response.status_code == 401
         
-        return True
-    
+
     def test_mapillary_photo_rating(self):
         """Test rating a mapillary photo"""
         print(f"\n=== Testing Mapillary Photo Rating ===")
@@ -246,7 +217,7 @@ class TestPhotoRatingIntegration(BaseAuthTest):
         response = requests.post(
             f"{API_URL}/ratings/mapillary/{mapillary_photo_id}",
             json=rating_data,
-            headers={**self.get_auth_headers(), "Content-Type": "application/json"}
+            headers={**self.test_headers, "Content-Type": "application/json"}
         )
         
         print(f"Mapillary rating - Status: {response.status_code}")
@@ -262,15 +233,10 @@ class TestPhotoRatingIntegration(BaseAuthTest):
             # Clean up - delete the rating
             delete_response = requests.delete(
                 f"{API_URL}/ratings/mapillary/{mapillary_photo_id}",
-                headers=self.get_auth_headers()
+                headers=self.test_headers
             )
             print(f"Cleanup delete - Status: {delete_response.status_code}")
-            
-            return True
-        else:
-            print(f"Failed to rate mapillary photo: {response.text}")
-            return False
-    
+
     def run_all_tests(self):
         """Run all integration tests"""
         print("=" * 50)
@@ -323,10 +289,9 @@ class TestPhotoRatingIntegration(BaseAuthTest):
         
         if passed == total:
             print("🎉 All tests passed!")
-            return True
         else:
             print("⚠️  Some tests failed")
-            return False
+            assert False, "Some tests failed"
 
 
 def main():

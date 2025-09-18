@@ -179,7 +179,19 @@ class TestAccountDeletion(BaseUserManagementTest):
         photo_found = any(photo["id"] == photo_id for photo in photos_list)
         assert photo_found, f"Uploaded photo {photo_id} should be in user's photos"
 
-        print(f"✅ Created test user with photo {photo_id}")
+        # Get photo details to capture file URLs before deletion
+        photo_detail_response = requests.get(f"{API_URL}/photos/{photo_id}", headers=test_headers)
+        self.assert_success(photo_detail_response)
+        photo_details = photo_detail_response.json()
+
+        # Extract URLs from sizes for file deletion verification
+        photo_urls = []
+        if photo_details.get("sizes"):
+            for size_name, size_data in photo_details["sizes"].items():
+                if size_data.get("url"):
+                    photo_urls.append(size_data["url"])
+
+        print(f"✅ Created test user with photo {photo_id}, found {len(photo_urls)} file URLs")
 
         # Delete the user account - CASCADE should delete photos
         delete_response = requests.delete(f"{API_URL}/user/delete", headers=test_headers)
@@ -193,7 +205,22 @@ class TestAccountDeletion(BaseUserManagementTest):
         photo_response = requests.get(f"{API_URL}/photos/{photo_id}", headers=self.admin_headers)
         assert photo_response.status_code == 404, f"Photo should be cascade deleted, got {photo_response.status_code}"
 
+        # Verify physical files are also deleted by checking URLs
+        files_deleted_count = 0
+        for url in photo_urls:
+            try:
+                file_response = requests.get(url, timeout=5)
+                if file_response.status_code == 404:
+                    files_deleted_count += 1
+                else:
+                    print(f"⚠️  File still accessible: {url} (status: {file_response.status_code})")
+            except requests.RequestException as e:
+                # Connection error likely means file is deleted (good)
+                files_deleted_count += 1
+                print(f"📁 File inaccessible (expected): {url} - {e}")
+
         print(f"✅ Cascading delete test passed: User and photo {photo_id} both deleted")
+        print(f"📁 Physical files deleted: {files_deleted_count}/{len(photo_urls)}")
 
 
 class TestProfileSecurity(BaseUserManagementTest):

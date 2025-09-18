@@ -54,13 +54,13 @@ async def delete_photo_files(photo) -> bool:
 	"""
 	try:
 		if not photo.sizes:
-			logger.debug(f"Photo {photo.id} has no sizes to delete")
+			logger.debug(f"Photo {str(photo.id)} has no sizes to delete")
 			return True
 
 		# Check first size variant to determine storage type
 		first_size_data = next(iter(photo.sizes.values()), None)
 		if not first_size_data:
-			logger.warning(f"Photo {photo.id} has no size variants to determine storage type")
+			logger.warning(f"Photo {str(photo.id)} has no size variants to determine storage type")
 			return False
 
 		storage_type = determine_storage_type(first_size_data)
@@ -70,7 +70,7 @@ async def delete_photo_files(photo) -> bool:
 			from common.cdn_uploader import cdn_uploader
 			success = cdn_uploader.delete_photo_sizes(photo.sizes, photo.id)
 			if not success:
-				logger.warning(f"Some CDN files failed to delete for photo {photo.id}")
+				logger.warning(f"Some CDN files failed to delete for photo {str(photo.id)}")
 			return success
 
 		elif storage_type == StorageType.LOCAL:
@@ -87,11 +87,11 @@ async def delete_photo_files(photo) -> bool:
 			return True
 
 		else:
-			logger.warning(f"Cannot determine photo storage type for photo {photo.id}")
+			logger.warning(f"Cannot determine photo storage type for photo {str(photo.id)}")
 			return False
 
 	except Exception as e:
-		logger.warning(f"Error deleting files for photo {photo.id}: {str(e)}")
+		logger.warning(f"Error deleting files for photo {str(photo.id)}: {str(e)}")
 		return False
 
 
@@ -114,9 +114,9 @@ async def delete_all_user_photo_files(photos: List) -> int:
 			if success:
 				deleted_count += 1
 			else:
-				logger.error(f"Failed to delete files for photo {photo.id}")
+				logger.error(f"Failed to delete files for photo {str(photo.id)}")
 		except Exception as e:
-			logger.error(f"Exception deleting files for photo {photo.id}: {str(e)}")
+			logger.error(f"Exception deleting files for photo {str(photo.id)}: {str(e)}")
 
 	logger.info(f"Deleted files for {deleted_count}/{len(photos)} photos")
 	return deleted_count

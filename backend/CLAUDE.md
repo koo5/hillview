@@ -15,9 +15,42 @@ docker compose up --build --remove-orphans -d api
 # Run tests (use the test script for proper environment setup)
 ./tests/run_tests.sh
 
-# Run specific tests
-./tests/run_tests.sh integration/test_content_filtering.py -v
+# Run specific integration tests
+./tests/run_integration_tests.sh integration/test_content_filtering.py -v
+
+# Run specific test methods
+./tests/run_integration_tests.sh integration/test_user_profile.py::TestAccountDeletion::test_delete_account_cascades_photos -v -s
+
+# Run unit tests
+./api/app/run_unit_tests.sh tests/unit/test_photo_ratings.py -v
 ```
+
+### Debug Utilities
+
+```bash
+# Use debug script for troubleshooting (from backend directory)
+./debug.sh recreate    # Recreate test users and get passwords
+./debug.sh photos      # Show user's photos with error details
+./debug.sh photo <id>  # Show detailed info about specific photo
+./debug.sh cleanup     # Delete all user's photos for cleanup
+```
+
+#### Getting Authentication for Manual Testing
+
+The `./debug.sh recreate` command creates test users and displays their credentials:
+- Username: `test`, Password: `StrongTestPassword123!`
+- Username: `admin`, Password: `StrongAdminPassword123!`
+- Username: `testuser`, Password: `StrongTestUserPassword123!`
+
+Use these credentials with tools like curl or Postman for manual API testing.
+
+#### Centralized Debug Infrastructure
+
+The debug script uses centralized test utilities:
+- **`debug.sh`** - Wrapper script that sets up environment and runs debug utilities
+- **`tests/utils/api_client.py`** - Centralized API client eliminating code duplication
+- **`tests/utils/debug_utils.py`** - Debug functions for troubleshooting photo processing
+- **`api/app/debug_utils.py`** - Debug endpoint decorators and system cleanup utilities
 
 ### Database Operations
 ```bash

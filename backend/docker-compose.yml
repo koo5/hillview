@@ -33,12 +33,14 @@ services:
     volumes:
       - ./api/app:/app/app
       - ./common:/app/common
+      - pics:/app/pics
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-hillview}:${POSTGRES_PASSWORD:-hillview}@postgres:5432/${POSTGRES_DB:-hillview}
       #- REDIS_URL=redis://redis:6379/0
       - MAPILLARY_CLIENT_TOKEN_FILE=/run/secrets/mapillary_token
       - SECRET_KEY=${SECRET_KEY:-your-secret-key-change-in-production}
       - UPLOAD_DIR=/app/uploads
+      - PICS_DIR=/app/pics
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
       - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-}

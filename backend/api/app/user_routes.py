@@ -4,12 +4,12 @@ import uuid
 from typing import Optional, Dict, Any, Union
 import logging
 import asyncio
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.responses import RedirectResponse, HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import or_
+from sqlalchemy import or_, func, desc
 from pydantic import BaseModel
 import requests
 from urllib.parse import urlencode, quote
@@ -1333,7 +1333,7 @@ async def authorize_upload(
 		existing_photo = result.scalars().first()
 
 		if existing_photo:
-			log.info(f"Duplicate file detected for user {current_user.id}: MD5={auth_request.file_md5}, original photo={existing_photo.id}")
+			log.info(f"Duplicate file detected for user {current_user.id}: MD5={auth_request.file_md5}, original photo={str(existing_photo.id)}")
 			return {
 				"duplicate": True,
 				"message": f"File already exists. You previously uploaded this file as '{existing_photo.original_filename}' on {existing_photo.uploaded_at.strftime('%Y-%m-%d %H:%M:%S')}.",
@@ -1480,6 +1480,222 @@ async def cleanup_orphaned_photos(
 			status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
 			detail="Failed to cleanup orphaned photos"
 		)
+
+# User listing and profile endpoints
+@router.get("/users/")
+async def get_users(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional_with_query)
+):
+    """Get list of all users with their photo counts and latest photos."""
+    # Apply general rate limiting
+    if not is_rate_limiting_disabled():
+        identifier = auth_rate_limiter.get_identifier(request)
+        if not await auth_rate_limiter.check_rate_limit(identifier, max_requests=20, window_seconds=300):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many requests. Try again later.",
+                headers={"Retry-After": "300"}
+            )
+
+    try:
+        from hidden_content_filters import apply_hidden_content_filters
+
+        # Get users with photo counts and latest photo info
+        # First, get photo counts per user
+        photo_counts_query = select(
+            Photo.owner_id,
+            func.count(Photo.id).label('photo_count'),
+            func.max(Photo.uploaded_at).label('latest_photo_at')
+        ).group_by(Photo.owner_id)
+
+        # Apply hidden content filtering to photo counts
+        photo_counts_query = apply_hidden_content_filters(
+            photo_counts_query,
+            current_user.id if current_user else None,
+            'hillview'
+        )
+
+        photo_counts_result = await db.execute(photo_counts_query)
+        photo_stats = {row.owner_id: {'count': row.photo_count, 'latest_at': row.latest_photo_at}
+                      for row in photo_counts_result.all()}
+
+        # Get all active users
+        users_query = select(User).where(User.is_active == True)
+        users_result = await db.execute(users_query)
+        users = users_result.scalars().all()
+
+        # For each user, get their latest photo URL
+        user_list = []
+        for user in users:
+            stats = photo_stats.get(user.id, {'count': 0, 'latest_at': None})
+
+            latest_photo_url = None
+            if stats['latest_at']:
+                # Get the latest photo for this user
+                latest_photo_query = select(Photo).where(
+                    Photo.owner_id == user.id,
+                    Photo.uploaded_at == stats['latest_at']
+                ).limit(1)
+
+                # Apply hidden content filtering
+                latest_photo_query = apply_hidden_content_filters(
+                    latest_photo_query,
+                    current_user.id if current_user else None,
+                    'hillview'
+                )
+
+                latest_photo_result = await db.execute(latest_photo_query)
+                latest_photo = latest_photo_result.scalar_one_or_none()
+
+                if latest_photo and latest_photo.sizes:
+                    latest_photo_url = latest_photo.sizes.get('320', {}).get('url')
+
+            user_data = {
+                "id": user.id,
+                "username": user.username,
+                "photo_count": stats['count'],
+                "latest_photo_at": stats['latest_at'].isoformat() if stats['latest_at'] else None,
+                "latest_photo_url": latest_photo_url
+            }
+            user_list.append(user_data)
+
+        # Sort by photo count (descending) then by username
+        user_list.sort(key=lambda x: (-x['photo_count'], x['username']))
+
+        return user_list
+
+    except Exception as e:
+        log.error(f"Error getting users: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get users"
+        )
+
+@router.get("/users/{user_id}/photos")
+async def get_user_photos(
+    user_id: str,
+    request: Request,
+    cursor: Optional[str] = Query(None, description="Pagination cursor"),
+    limit: int = Query(20, ge=1, le=50, description="Number of photos per page"),
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional_with_query)
+):
+    """Get paginated photos for a specific user."""
+    # Apply general rate limiting
+    if not is_rate_limiting_disabled():
+        identifier = auth_rate_limiter.get_identifier(request)
+        if not await auth_rate_limiter.check_rate_limit(identifier, max_requests=30, window_seconds=300):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many requests. Try again later.",
+                headers={"Retry-After": "300"}
+            )
+
+    try:
+        from hidden_content_filters import apply_hidden_content_filters
+
+        # Verify user exists
+        user_query = select(User).where(User.id == user_id, User.is_active == True)
+        user_result = await db.execute(user_query)
+        user = user_result.scalar_one_or_none()
+
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+
+        # Build base query for user's photos
+        query = select(Photo).where(Photo.owner_id == user_id)
+
+        # Apply hidden content filtering
+        query = apply_hidden_content_filters(
+            query,
+            current_user.id if current_user else None,
+            'hillview'
+        )
+
+        # Apply cursor-based pagination
+        if cursor:
+            try:
+                cursor_date = datetime.datetime.fromisoformat(cursor.replace('Z', '+00:00'))
+                query = query.where(Photo.uploaded_at < cursor_date)
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid cursor format"
+                )
+
+        # Order by upload date (newest first) and apply limit
+        query = query.order_by(desc(Photo.uploaded_at)).limit(limit + 1)
+
+        result = await db.execute(query)
+        photos = result.scalars().all()
+
+        # Check if there are more photos
+        has_more = len(photos) > limit
+        if has_more:
+            photos = photos[:-1]  # Remove the extra photo used for pagination check
+
+        # Prepare response
+        photo_list = []
+        for photo in photos:
+            photo_data = {
+                "id": photo.id,
+                "original_filename": photo.original_filename,
+                "uploaded_at": photo.uploaded_at.isoformat() if photo.uploaded_at else None,
+                "captured_at": photo.captured_at.isoformat() if photo.captured_at else None,
+                "processing_status": photo.processing_status,
+                "latitude": photo.latitude,
+                "longitude": photo.longitude,
+                "bearing": photo.compass_angle,
+                "width": photo.width,
+                "height": photo.height,
+                "sizes": photo.sizes,
+                "description": photo.description
+            }
+            photo_list.append(photo_data)
+
+        # Get total count for this user
+        count_query = select(func.count(Photo.id)).where(Photo.owner_id == user_id)
+        count_query = apply_hidden_content_filters(
+            count_query,
+            current_user.id if current_user else None,
+            'hillview'
+        )
+        count_result = await db.execute(count_query)
+        total_count = count_result.scalar()
+
+        # Prepare pagination info
+        next_cursor = None
+        if has_more and photos:
+            next_cursor = photos[-1].uploaded_at.isoformat()
+
+        return {
+            "photos": photo_list,
+            "user": {
+                "id": user.id,
+                "username": user.username
+            },
+            "pagination": {
+                "next_cursor": next_cursor,
+                "has_more": has_more
+            },
+            "counts": {
+                "total": total_count
+            }
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"Error getting user photos: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get user photos"
+        )
 
 # TODO: Admin endpoints temporarily disabled until role system is working
 # Will be re-enabled after database migration and proper role handling

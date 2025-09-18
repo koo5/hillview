@@ -26,12 +26,12 @@ TARGET_CLASSES = {
 }
 
 BLUR_SIZES = {
-	"person": 150,
-	"bicycle": 100,
-	"car": 50,
-	"motorcycle": 50,
-	"bus": 25,
-	"truck": 25
+	"person": 151,
+	"bicycle": 123,
+	"car": 101,
+	"motorcycle": 91,
+	"bus": 55,
+	"truck": 55
 }
 
 

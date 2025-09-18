@@ -21,6 +21,7 @@ from rate_limiter import rate_limit_public_read
 from auth import get_current_user_optional_with_query
 from hidden_content_filters import filter_mapillary_photos_list
 from mock_mapillary import mock_mapillary_service
+from debug_utils import debug_only, safe_str_id
 
 log = logging.getLogger(__name__)
 
@@ -592,6 +593,36 @@ async def get_api_stats(request: Request):
 	await rate_limit_public_read(request)
 
 	return api_manager.get_stats()
+
+# Debug endpoints
+async def clear_mapillary_cache_tables(db: AsyncSession) -> Dict[str, int]:
+	"""Utility function to clear Mapillary cache tables.
+
+	Returns:
+		Dict with deletion counts
+	"""
+	from sqlalchemy import text
+
+	mapillary_cache_result = await db.execute(text("DELETE FROM mapillary_photo_cache"))
+	cached_regions_result = await db.execute(text("DELETE FROM cached_regions"))
+	await db.commit()
+
+	return {
+		"mapillary_cache_deleted": mapillary_cache_result.rowcount,
+		"cached_regions_deleted": cached_regions_result.rowcount
+	}
+
+@router.delete("/debug/cache")
+@debug_only
+async def clear_mapillary_cache(db: AsyncSession = Depends(get_db)):
+
+	deletion_counts = await clear_mapillary_cache_tables(db)
+
+	return {
+		"status": "success",
+		"message": "Mapillary cache cleared",
+		"details": deletion_counts
+	}
 
 # Cleanup function for graceful shutdown
 async def cleanup_mapillary_resources():

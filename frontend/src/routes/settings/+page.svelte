@@ -19,8 +19,6 @@
 	title="Settings"
 	showMenuButton={true}
 	fallbackHref="/"
-	{alertMessage}
-	{alertType}
 />
 
 <StandardBody>
