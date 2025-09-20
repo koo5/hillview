@@ -13,6 +13,7 @@
 	import {userId} from '$lib/authStore';
 	import type {UserPhoto} from '$lib/stores';
 	import type {User} from '$lib/auth.svelte';
+	import type { ActivityLogEntry } from '$lib/types/activityLog';
 	import {http, handleApiError, TokenExpiredError} from '$lib/http';
 	import {TAURI} from '$lib/tauri';
 	import {navigateWithHistory} from '$lib/navigation.svelte';
@@ -27,16 +28,21 @@
 	let totalCount = 0;
 	let showSettings = false;
 	let user: User | null = null;
-	let activityLog: Array<{ timestamp: Date, message: string, type: 'success' | 'warning' | 'error' | 'info' }> = [];
+	let activityLog: ActivityLogEntry[] = [];
 	let activeTab: 'upload' | 'import' = TAURI ? 'import' : 'upload';
 
 
-	function addLogEntry(message: string, type: 'success' | 'warning' | 'error' | 'info' = 'info') {
+	function addLogEntry(
+		message: string,
+		type: 'success' | 'warning' | 'error' | 'info' = 'info',
+		metadata?: ActivityLogEntry['metadata']
+	) {
 		console.info(`🢄 Log entry [${type}]: ${message}`);
 		activityLog = [{
 			timestamp: new Date(),
 			message,
-			type
+			type,
+			metadata
 		}, ...activityLog.slice(0, 9)]; // Keep only last 10 entries
 	}
 
@@ -86,6 +92,19 @@
 		// Return cleanup function
 		return unsubscribe;
 	});
+
+	async function fetchPhotoCount() {
+		try {
+			const response = await http.get('/photos/count');
+			if (!response.ok) {
+				throw new Error(`Failed to fetch photo count: ${response.status}`);
+			}
+			const data = await response.json();
+			totalCount = data.counts?.total || 0;
+		} catch (err) {
+			console.error('Error fetching photo count:', err);
+		}
+	}
 
 	async function fetchPhotos(reset = false) {
 		try {
@@ -174,8 +193,8 @@
 			// Remove the photo from the list
 			photos = photos.filter(photo => photo.id !== photoId);
 
-			// Refresh the count by running the fetch again (will update totalCount)
-			await fetchPhotos(false);
+			// Refresh just the count
+			await fetchPhotoCount();
 
 			addLogEntry(`Deleted: ${photoName}`, 'success');
 
@@ -378,11 +397,19 @@
 
 
 	{#if activityLog.length > 0}
-		<div class="activity-log">
+		<div class="activity-log" data-testid="activity-log">
 			<h2>Recent Activity</h2>
-			<div class="log-entries">
+			<div class="log-entries" data-testid="log-entries">
 				{#each activityLog as entry (entry.timestamp)}
-					<div class="log-entry log-{entry.type}">
+					<div
+						class="log-entry log-{entry.type}"
+						data-testid="log-entry"
+						data-log-type="{entry.type}"
+						data-operation="{entry.metadata?.operation || ''}"
+						data-filename="{entry.metadata?.filename || ''}"
+						data-photo-id="{entry.metadata?.photoId || ''}"
+						data-outcome="{entry.metadata?.outcome || ''}"
+					>
 						<span class="log-time">{formatLogTime(entry.timestamp)}</span>
 						<span class="log-message">{entry.message}</span>
 					</div>

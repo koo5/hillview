@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { configureSources, ensureSourceEnabled } from './helpers/sourceHelpers';
 
 // Helper function to set map location
 async function setMapLocation(page: any, lat: number, lng: number, zoom: number = 18, locationName?: string) {
@@ -10,89 +11,40 @@ async function setMapLocation(page: any, lat: number, lng: number, zoom: number 
   const mapContainer = page.locator('.leaflet-container').first();
   await mapContainer.waitFor({ state: 'visible', timeout: 10000 });
   
-  await page.evaluate(([lat, lng, zoom, locationName]: [number, number, number, string]) => {
+  const mapFound = await page.evaluate(([lat, lng, zoom, locationName]: [number, number, number, string]) => {
+    console.log(`🢄🗺️ Attempting to set map view to ${locationName || `${lat}, ${lng}`}`);
+
     // Try multiple ways to access the Leaflet map
     const maps = [
       (window as any).map,
       (window as any).leafletMap,
       (document.querySelector('.leaflet-container') as any)?._leaflet_map
     ];
-    
-    for (const mapComponent of maps) {
+
+    console.log(`🢄🗺️ Found ${maps.filter(m => m).length} potential map objects`);
+
+    for (let i = 0; i < maps.length; i++) {
+      const mapComponent = maps[i];
+      console.log(`🢄🗺️ Map ${i}: ${mapComponent ? 'exists' : 'null'}, has setView: ${mapComponent?.setView ? 'yes' : 'no'}`);
+
       if (mapComponent && mapComponent.setView) {
-        console.log(`📍 Setting map view to ${locationName || `${lat}, ${lng}`}`);
+        console.log(`🢄📍 Setting map view to ${locationName || `${lat}, ${lng}`}`);
         mapComponent.setView([lat, lng], zoom);
-        return;
+        return true;
       }
     }
-    console.log('🢄Could not find map component to set view');
+    console.log('🢄❌ Could not find map component to set view');
+    return false;
   }, [lat, lng, zoom, locationName]);
-  
-  // Wait a moment for the map to update
-  await page.waitForTimeout(500);
+
+  if (!mapFound) {
+    throw new Error(`Failed to set map location to ${locationName || `${lat}, ${lng}`} - could not find map component`);
+  }
+
+  // Give the map a moment to update (the photo worker successfully processes the move)
+  await page.waitForTimeout(1000);
 }
 
-// Helper function to manage source states
-async function configureSources(page: any, config: { [sourceName: string]: boolean }) {
-  console.log('🢄🔧 Configuring sources:', config);
-  
-  // Wait for initial load
-  await page.waitForTimeout(1000);
-  
-  // Find source buttons container
-  const sourceButtonsContainer = page.locator('.source-buttons-container');
-  await sourceButtonsContainer.waitFor({ state: 'visible', timeout: 5000 });
-  
-  // First, make sure buttons show labels by clicking the compact toggle if needed
-  try {
-    const compactToggle = sourceButtonsContainer.locator('button.toggle-compact');
-    await compactToggle.waitFor({ state: 'visible', timeout: 2000 });
-    
-    // Check if we're in compact mode (labels hidden)
-    const isCompact = await compactToggle.evaluate((el: HTMLElement) => el.classList.contains('active'));
-    if (isCompact) {
-      await compactToggle.click();
-      await page.waitForTimeout(500);
-      console.log('🢄🔄 Expanded source buttons to show labels');
-    }
-  } catch (e) {
-    console.log('🢄⚠️ Could not find compact toggle, trying hover method');
-    try {
-      await sourceButtonsContainer.hover();
-      await page.waitForSelector('.source-buttons-container:not(.compact)', { timeout: 2000 });
-      console.log('🢄🔄 Expanded source buttons via hover');
-    } catch (e2) {
-      console.log('🢄⚠️ Source buttons remain compact, using icons');
-    }
-  }
-  
-  // Configure each source
-  for (const [sourceName, shouldBeEnabled] of Object.entries(config)) {
-    try {
-      // Find button using flexible selectors (text or title attribute)
-      const sourceButton = sourceButtonsContainer
-        .locator('button')
-        .filter({ hasText: new RegExp(sourceName, 'i') })
-        .or(sourceButtonsContainer.locator(`button[title*="${sourceName}"]`));
-      
-      const isCurrentlyActive = await sourceButton.locator('.active').count() > 0;
-      
-      if (isCurrentlyActive !== shouldBeEnabled) {
-        await sourceButton.click();
-        const action = shouldBeEnabled ? 'Enabled' : 'Disabled';
-        console.log(`${action === 'Enabled' ? '🌍' : '🔘'} ${action} ${sourceName} source`);
-      } else {
-        console.log(`✓ ${sourceName} source already ${shouldBeEnabled ? 'enabled' : 'disabled'}`);
-      }
-    } catch (e) {
-      console.log(`⚠️ Could not configure ${sourceName} source: ${(e as Error).message}`);
-    }
-  }
-  
-  // Wait for source state changes to propagate to worker
-  await page.waitForTimeout(2000);
-  console.log('🢄⏳ Waiting for source configuration to propagate...');
-}
 
 test.describe('Source Buttons Toggle', () => {
   test.beforeEach(async ({ page }) => {
@@ -302,20 +254,22 @@ test.describe('Source Buttons Toggle', () => {
 
     // Configure sources: only Mapillary enabled
     await configureSources(page, {
-      'Hillview': false,
-      'Mapillary': true,
-      'My Device': false
+      'hillview': false,
+      'mapillary': true,
+      'device': false
     });
     
+    // Wait for initial photos to be loaded and available
+    await page.waitForSelector('[data-testid="main-photo"]', { timeout: 30000 });
+
     // Move to first location (Prague city center)
     await setMapLocation(page, 50.0755, 14.4378, 18, 'Prague city center');
-    
-    // Wait for initial photos to load
-    await page.waitForTimeout(3000);
-    
+
+    // Wait for new photos to be available after map move
+    await page.waitForSelector('[data-testid="main-photo"]', { timeout: 30000 });
+
     // Capture first photo data
     const firstMainPhoto = page.locator('[data-testid="main-photo"]');
-    await firstMainPhoto.waitFor({ state: 'visible', timeout: 10000 });
     
     const firstPhotoData = await firstMainPhoto.evaluate((img) => {
       const photoAttr = img.getAttribute('data-photo');
@@ -324,8 +278,8 @@ test.describe('Source Buttons Toggle', () => {
     
     console.log('🢄📸 First location photo:', {
       id: firstPhotoData?.id,
-      lat: firstPhotoData?.lat?.toFixed(6),
-      lng: firstPhotoData?.lng?.toFixed(6),
+      lat: firstPhotoData?.coord?.lat?.toFixed(6),
+      lng: firstPhotoData?.coord?.lng?.toFixed(6),
       source_type: firstPhotoData?.source_type
     });
     
@@ -335,13 +289,12 @@ test.describe('Source Buttons Toggle', () => {
     
     // Move to second location (different area of Prague)
     await setMapLocation(page, 50.0875, 14.4205, 18, 'Prague Castle area');
-    
-    // Wait for new photos to load after panning
-    await page.waitForTimeout(4000);
-    
+
+    // Wait for new photos to be available after map move
+    await page.waitForSelector('[data-testid="main-photo"]', { timeout: 30000 });
+
     // Check if new photos are loaded
     const secondMainPhoto = page.locator('[data-testid="main-photo"]');
-    await secondMainPhoto.waitFor({ state: 'visible', timeout: 10000 });
     
     const secondPhotoData = await secondMainPhoto.evaluate((img) => {
       const photoAttr = img.getAttribute('data-photo');
@@ -350,8 +303,8 @@ test.describe('Source Buttons Toggle', () => {
     
     console.log('🢄📸 Second location photo:', {
       id: secondPhotoData?.id,
-      lat: secondPhotoData?.lat?.toFixed(6),
-      lng: secondPhotoData?.lng?.toFixed(6),
+      lat: secondPhotoData?.coord?.lat?.toFixed(6),
+      lng: secondPhotoData?.coord?.lng?.toFixed(6),
       source_type: secondPhotoData?.source_type
     });
     
@@ -360,15 +313,12 @@ test.describe('Source Buttons Toggle', () => {
     expect(secondSourceId).toBe('mapillary');
     
     // Verify photos are different (different location should have different photos)
-    const photosAreDifferent = firstPhotoData.id !== secondPhotoData.id || 
-                              Math.abs(firstPhotoData.lat - secondPhotoData.lat) > 0.001 ||
-                              Math.abs(firstPhotoData.lng - secondPhotoData.lng) > 0.001;
+    const photosAreDifferent = firstPhotoData.id !== secondPhotoData.id;
     
     console.log('🢄🔍 Photos comparison:', {
       firstId: firstPhotoData.id,
       secondId: secondPhotoData.id,
       differentIds: firstPhotoData.id !== secondPhotoData.id,
-      coordinatesDifferent: Math.abs(firstPhotoData.lat - secondPhotoData.lat) > 0.001,
       photosAreDifferent
     });
     

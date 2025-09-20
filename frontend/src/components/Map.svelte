@@ -85,6 +85,11 @@
 
     $: map = elMap?.getMap();
 
+    // Expose map to window for testing
+    $: if (map && typeof window !== 'undefined') {
+        (window as any).leafletMap = map;
+    }
+
 
 
     // Export location tracking functions for use by parent

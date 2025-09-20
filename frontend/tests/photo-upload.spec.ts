@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { setupConsoleLogging } from './helpers/consoleLogging';
 
 test.describe('Photo Upload Tests', () => {
   test.describe.configure({ mode: 'serial' });
@@ -17,6 +18,9 @@ test.describe('Photo Upload Tests', () => {
   ];
 
   test.beforeEach(async ({ page }) => {
+    // Setup console logging if enabled
+    setupConsoleLogging(page);
+
     // Clean up test users and photos before each test
     const response = await fetch('http://localhost:8055/api/debug/recreate-test-users', {
       method: 'POST'
@@ -168,9 +172,13 @@ test.describe('Photo Upload Tests', () => {
     
     const logText = await activityLog.textContent();
     
-    // Should contain batch upload messages
-    expect(logText).toContain('Starting batch upload: 2 files');
-    expect(logText).toContain('Batch complete:');
+    // Check for semantic upload and completion entries
+    // For 2 files: 1 batch start + 2 individual uploads = 3 upload entries total
+    const uploadEntries = page.locator('[data-testid="log-entry"][data-operation="upload"]');
+    const batchCompleteEntries = page.locator('[data-testid="log-entry"][data-operation="batch_complete"]');
+
+    await expect(uploadEntries).toHaveCount(3, { timeout: 5000 });
+    await expect(batchCompleteEntries).toHaveCount(1, { timeout: 5000 });
     
     console.log('🢄✓ Batch upload completed successfully');
     
@@ -216,10 +224,11 @@ test.describe('Photo Upload Tests', () => {
       // Click upload button
       await page.locator('[data-testid="upload-submit-button"]').click();
       
-      // Wait for upload to complete - button should show "Upload Photo" not "Uploading..."
+      // Wait for upload to complete by checking for semantic upload success
       await page.waitForFunction(() => {
-        const uploadButton = document.querySelector('[data-testid="upload-submit-button"]') as HTMLButtonElement;
-        return uploadButton && uploadButton.textContent?.includes('Upload Photo');
+        const uploadSuccessEntry = document.querySelector('[data-testid="log-entry"][data-operation="upload"][data-outcome="success"]');
+        const batchCompleteEntry = document.querySelector('[data-testid="log-entry"][data-operation="batch_complete"]');
+        return uploadSuccessEntry || batchCompleteEntry;
       }, { timeout: 30000 });
       
       // Wait for file input to be cleared (indicating upload completed)
@@ -290,31 +299,33 @@ test.describe('Photo Upload Tests', () => {
       await page.waitForLoadState('networkidle');
     }
 
+
     // Find and delete photos with our test filenames
     for (const photoName of testPhotos) {
       const photoCard = page.locator(`[data-testid="photo-card"][data-filename="${photoName}"]`);
-      
+
       if (await photoCard.isVisible()) {
         console.log(`Deleting photo: ${photoName}`);
-        
+
         // Set up dialog handler before clicking
         page.once('dialog', dialog => {
           console.log(`Dialog message: ${dialog.message()}`);
           expect(dialog.message()).toContain('Are you sure you want to delete this photo?');
           dialog.accept();
         });
-        
+
         // Click delete button for this specific photo
         const deleteButton = photoCard.locator('[data-testid="delete-photo-button"]');
         await deleteButton.click();
-        
+
         // Wait for deletion to complete
-        await page.waitForTimeout(1000);
-        
+        await page.waitForTimeout(2000);
+
         // Verify photo is no longer visible
         await expect(photoCard).not.toBeVisible({ timeout: 5000 });
-        
+
         console.log(`✓ Deleted photo: ${photoName}`);
+
       } else {
         console.log(`Photo not found for deletion: ${photoName}`);
       }

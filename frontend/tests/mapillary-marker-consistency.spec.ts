@@ -166,7 +166,7 @@ async function setMapLocation(page: any, lat: number, lng: number, zoom: number 
 
 // Helper function to count visible markers
 async function countVisibleMarkers(page: any): Promise<number> {
-  return await page.locator('.optimized-photo-marker').count();
+  return await page.locator('.optimized-photo-marker:visible').count();
 }
 
 // Helper function to get current map bounds for debugging

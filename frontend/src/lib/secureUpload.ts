@@ -49,11 +49,11 @@ async function calculateFileMD5(file: File): Promise<string> {
     try {
         // Import crypto-js dynamically to avoid SSR issues
         const CryptoJS = await import('crypto-js');
-        
+
         // Read file as ArrayBuffer and convert to WordArray
         const buffer = await file.arrayBuffer();
         const wordArray = CryptoJS.lib.WordArray.create(buffer);
-        
+
         // Calculate MD5 hash
         const hash = CryptoJS.MD5(wordArray);
         return hash.toString();
@@ -258,7 +258,7 @@ export async function secureUploadFile(
         console.error(`🔐 Secure upload failed for ${file.name}:`, error);
         return {
             success: false,
-            message: 'Secure upload failed',
+            message: 'Upload failed',
             error: error instanceof Error ? error.message : String(error)
         };
     }

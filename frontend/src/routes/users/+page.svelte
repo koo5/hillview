@@ -100,6 +100,7 @@
 			<div class="grid">
 				{#each users as user}
 					<div class="user-card"
+						data-testid={`user-card-${user.username}`}
 						on:click={() => viewUserPhotos(user.id)}
 						on:keydown={(e) => e.key === 'Enter' && viewUserPhotos(user.id)}
 						role="button"

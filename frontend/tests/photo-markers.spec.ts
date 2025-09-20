@@ -21,7 +21,7 @@ test.describe('Photo Markers', () => {
     await page.waitForTimeout(2000);
     
     // Check that markers exist
-    const markers = await page.locator('.optimized-photo-marker').count();
+    const markers = await page.locator('.optimized-photo-marker:visible').count();
     console.log(`Found ${markers} markers`);
     
     if (markers > 0) {
@@ -63,17 +63,17 @@ test.describe('Photo Markers', () => {
     });
     
     await page.waitForTimeout(1000);
-    const initialMarkers = await page.locator('.optimized-photo-marker').count();
-    
+    const initialMarkers = await page.locator('.optimized-photo-marker:visible').count();
+
     // Pan to a different location (San Francisco)
     await page.evaluate(() => {
       if ((window as any).map) {
         (window as any).map.setView([37.7749, -122.4194], 12);
       }
     });
-    
+
     await page.waitForTimeout(2000);
-    const newMarkers = await page.locator('.optimized-photo-marker').count();
+    const newMarkers = await page.locator('.optimized-photo-marker:visible').count();
     
     console.log(`Initial markers: ${initialMarkers}, After pan: ${newMarkers}`);
     

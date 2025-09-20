@@ -3,9 +3,10 @@
 	import {secureUploadFiles} from '$lib/secureUpload';
 	import {handleApiError, TokenExpiredError} from '$lib/http';
 	import type {User} from '$lib/auth.svelte';
+	import type { LogEntryCallback } from '$lib/types/activityLog';
 
 	export let user: User | null = null;
-	export let onLogEntry: (message: string, type: 'success' | 'warning' | 'error' | 'info') => void = () => {};
+	export let onLogEntry: LogEntryCallback = () => {};
 	export let onUploadComplete: () => void = () => {};
 	export let goToLogin: () => void = () => {};
 
@@ -30,7 +31,10 @@
 		uploadProgress = 0;
 
 		const totalFiles = uploadFiles.length;
-		onLogEntry(`Starting secure batch upload: ${totalFiles} file${totalFiles > 1 ? 's' : ''}`, 'info');
+		onLogEntry(`Starting upload: ${totalFiles} file${totalFiles > 1 ? 's' : ''}`, 'info', {
+			operation: 'upload',
+			outcome: 'complete'
+		});
 
 		try {
 			// Use new secure upload service
@@ -51,9 +55,18 @@
 			uploadResult.results.forEach((result, index) => {
 				const file = uploadFiles[index];
 				if (result.success) {
-					onLogEntry(`✅ Uploaded: ${file.name}`, 'success');
+					onLogEntry(`✅ Uploaded: ${file.name}`, 'success', {
+						operation: 'upload',
+						filename: file.name,
+						photoId: result.photo_id, // Using correct property name
+						outcome: 'success'
+					});
 				} else {
-					onLogEntry(`❌ Failed: ${file.name} - ${result.error}`, 'error');
+					onLogEntry(`❌ Failed: ${file.name} - ${result.error}`, 'error', {
+						operation: 'upload',
+						filename: file.name,
+						outcome: 'failure'
+					});
 				}
 			});
 
@@ -64,8 +77,12 @@
 			if (uploadResult.errorCount > 0) summaryParts.push(`${uploadResult.errorCount} failed`);
 
 			onLogEntry(
-				`🔐 Secure batch complete: ${summaryParts.join(', ')}`,
-				uploadResult.errorCount > 0 ? 'warning' : 'success'
+				`Batch complete: ${summaryParts.join(', ')}`,
+				uploadResult.errorCount > 0 ? 'warning' : 'success',
+				{
+					operation: 'batch_complete',
+					outcome: uploadResult.errorCount > 0 ? 'failure' : 'success'
+				}
 			);
 
 			// Reset form
@@ -82,9 +99,9 @@
 			onUploadComplete();
 
 		} catch (err) {
-			console.error('🔐 Error in secure batch upload:', err);
+			console.error('Error in batch upload:', err);
 			const errorMessage = handleApiError(err);
-			onLogEntry(`🔐 Secure batch upload failed: ${errorMessage}`, 'error');
+			onLogEntry(`Batch upload failed: ${errorMessage}`, 'error');
 
 			// TokenExpiredError is handled automatically by the http client
 			if (err instanceof TokenExpiredError) {

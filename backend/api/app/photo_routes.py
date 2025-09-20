@@ -440,6 +440,49 @@ async def list_photos(
 			detail="Failed to list photos"
 		)
 
+@router.get("/count")
+async def get_photo_count(
+	request: Request,
+	current_user: User = Depends(get_current_active_user),
+	db: AsyncSession = Depends(get_db)
+):
+	"""Get user's photo counts by processing status."""
+	# Apply photo operations rate limiting
+	await rate_limit_photo_operations(request, current_user.id)
+
+	try:
+		# Get counts by processing status
+		from sqlalchemy import func
+		counts_result = await db.execute(
+			select(Photo.processing_status, func.count(Photo.id))
+			.where(Photo.owner_id == str(current_user.id))
+			.group_by(Photo.processing_status)
+		)
+		counts_by_status = dict(counts_result.fetchall())
+
+		# Calculate totals
+		total_count = sum(counts_by_status.values())
+		completed_count = counts_by_status.get("completed", 0)
+		failed_count = counts_by_status.get("failed", 0)
+		authorized_count = counts_by_status.get("authorized", 0)
+
+		return {
+			"counts": {
+				"total": total_count,
+				"completed": completed_count,
+				"failed": failed_count,
+				"authorized": authorized_count,
+				"by_status": counts_by_status
+			}
+		}
+
+	except Exception as e:
+		logger.error(f"Error getting photo counts for user {current_user.id}: {e}")
+		raise HTTPException(
+			status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+			detail="Failed to get photo counts"
+		)
+
 @router.get("/{photo_id}")
 async def get_photo(
 	request: Request,

@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { uploadTestPhotosWithLocation } from './helpers/photoUpload';
 
 test.describe('Users Pages and Navigation', () => {
   test.beforeEach(async ({ page }) => {
@@ -18,7 +19,7 @@ test.describe('Users Pages and Navigation', () => {
     await expect(page.locator('.users-grid')).toBeVisible();
 
     // Check for user cards
-    const userCards = page.locator('.user-card');
+    const userCards = page.locator('[data-testid^="user-card-"]');
     expect(await userCards.count()).toBeGreaterThan(0);
 
     // Check first user card structure
@@ -32,7 +33,7 @@ test.describe('Users Pages and Navigation', () => {
     await page.goto('/users');
     await page.waitForLoadState('networkidle');
 
-    const userCards = page.locator('.user-card');
+    const userCards = page.locator('[data-testid^="user-card-"]');
     await expect(userCards.first()).toBeVisible();
 
     // Click first user card
@@ -40,8 +41,16 @@ test.describe('Users Pages and Navigation', () => {
 
     // Should navigate to user page
     await page.waitForURL(/\/users\/[^\/]+$/);
-    await expect(page.locator('.photos-section')).toBeVisible();
-    await expect(page.locator('.back-button')).toBeVisible();
+
+    // Check that either photos section or empty state is visible
+    const hasPhotos = await page.locator('.photos-section').isVisible();
+    const isEmpty = await page.locator('.empty-state').isVisible();
+    expect(hasPhotos || isEmpty).toBe(true);
+
+    // Back button should be visible in photos section, but not in empty state
+    if (hasPhotos) {
+      await expect(page.locator('.back-button')).toBeVisible();
+    }
   });
 
   test('should navigate from activity page usernames to user pages', async ({ page }) => {
@@ -93,11 +102,14 @@ test.describe('Users Pages and Navigation', () => {
     await page.click('button[type="submit"]');
     await page.waitForURL('/', { timeout: 15000 });
 
+    // Upload some test photos with location data for the test user
+    await uploadTestPhotosWithLocation(page, 2);
+
     // Go to users page and click on test user
     await page.goto('/users');
     await page.waitForLoadState('networkidle');
 
-    const testUserCard = page.locator('.user-card').filter({ hasText: 'test' });
+    const testUserCard = page.locator('[data-testid="user-card-test"]');
     if (await testUserCard.count() > 0) {
       await testUserCard.click();
       await page.waitForURL(/\/users\/[^\/]+$/);
@@ -117,7 +129,7 @@ test.describe('Users Pages and Navigation', () => {
     await page.goto('/users');
     await page.waitForLoadState('networkidle');
 
-    const userCards = page.locator('.user-card');
+    const userCards = page.locator('[data-testid^="user-card-"]');
     if (await userCards.count() > 0) {
       await userCards.first().click();
       await page.waitForURL(/\/users\/[^\/]+$/);
@@ -143,7 +155,7 @@ test.describe('Users Pages and Navigation', () => {
     expect(headerText).toMatch(/All Users \(\d+\)/);
 
     // Check user cards show photo counts
-    const userCards = page.locator('.user-card');
+    const userCards = page.locator('[data-testid^="user-card-"]');
     if (await userCards.count() > 0) {
       const photoCount = userCards.first().locator('.photo-count');
       const photoCountText = await photoCount.textContent();

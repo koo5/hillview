@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { createTestUsers, loginAsTestUser } from './helpers/testUsers';
 
 test.describe('Authentication Integration', () => {
   test.beforeEach(async ({ page }) => {
@@ -11,22 +12,11 @@ test.describe('Authentication Integration', () => {
   });
 
   test('should login successfully with valid credentials', async ({ page }) => {
-    // Get test user credentials
-    const response = await fetch('http://localhost:8055/api/debug/recreate-test-users', {
-      method: 'POST'
-    });
-    const result = await response.json();
-    const testPassword = result.details?.user_passwords?.test;
-    
-    await page.goto('/login');
-    await page.waitForLoadState('networkidle');
-    
-    await page.fill('input[type="text"]', 'test');
-    await page.fill('input[type="password"]', testPassword);
-    await page.click('button[type="submit"]');
-    
-    // Should redirect to home page
-    await page.waitForURL('/', { timeout: 15000 });
+    // Create test users for this test
+    const result = await createTestUsers();
+    const testPassword = result.passwords.test;
+
+    await loginAsTestUser(page, testPassword);
     await expect(page).toHaveURL('/');
   });
 
