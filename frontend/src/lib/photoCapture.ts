@@ -60,7 +60,9 @@ class PhotoCaptureService {
 			altitude: photoData.location.altitude,
 			bearing: photoData.bearing,
 			timestamp: Math.floor(photoData.timestamp / 1000), // Convert to seconds
-			accuracy: photoData.location.accuracy
+			accuracy: photoData.location.accuracy,
+			locationSource: photoData.locationSource || 'unknown',
+			bearingSource: photoData.bearingSource || 'unknown'
 		};
 
 		// Generate filename with format: 2025-06-30-21-46-00_✨🌟💫🦋🌸🔮.jpg

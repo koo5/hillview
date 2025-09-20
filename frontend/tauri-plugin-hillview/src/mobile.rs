@@ -197,10 +197,24 @@ impl<R: Runtime> Hillview<R> {
       "createdAt": photo.created_at,
       "fileHash": photo.file_hash
     });
-    
+
     self
       .0
       .run_mobile_plugin("addPhotoToDatabase", android_photo)
+      .map_err(Into::into)
+  }
+
+  pub fn share_photo(&self, title: Option<String>, text: Option<String>, url: String) -> crate::Result<BasicResponse> {
+    #[derive(serde::Serialize)]
+    struct Args {
+      title: Option<String>,
+      text: Option<String>,
+      url: String,
+    }
+
+    self
+      .0
+      .run_mobile_plugin("sharePhoto", Args { title, text, url })
       .map_err(Into::into)
   }
 }

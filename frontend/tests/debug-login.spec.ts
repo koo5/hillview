@@ -1,17 +1,10 @@
 import { test, expect } from '@playwright/test';
+import { createTestUsers, loginAsTestUser } from './helpers/testUsers';
 
 test('debug login', async ({ page }) => {
-  // Get test user credentials first
-  const response = await fetch('http://localhost:8055/api/debug/recreate-test-users', {
-    method: 'POST'
-  });
-  const result = await response.json();
-  console.log('🢄Test cleanup result:', result);
-  
-  const testPassword = result.details?.user_passwords?.test;
-  if (!testPassword) {
-    throw new Error('Test user password not returned from recreate-test-users');
-  }
+  // Create test users for this test
+  const result = await createTestUsers();
+  const testPassword = result.passwords.test;
   
   // Navigate to login page
   await page.goto('/login');

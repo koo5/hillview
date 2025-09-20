@@ -613,7 +613,7 @@
                     zoom: map.getZoom(),
                     bounds: null, // Will be updated by onMapStateChange
                     range: get_range(new LatLng(latitude, longitude))
-                });
+                }, 'gps');
                 await tick();
                 map.flyTo(latLng);
                 await tick();
@@ -627,7 +627,7 @@
                     zoom: map.getZoom(),
                     bounds: null, // Will be updated by onMapStateChange
                     range: get_range(new LatLng(latitude, longitude))
-                });
+                }, 'gps');
             }
         }
     }

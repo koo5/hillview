@@ -21,10 +21,12 @@ export interface SpatialState {
   zoom: number;
   bounds: Bounds | null;
   range: number;
+  source: 'gps' | 'map';
 }
 
 export interface BearingState {
   bearing: number;
+  source: string;
 }
 
 // Bearing mode for controlling automatic bearing source
@@ -35,13 +37,15 @@ export const spatialState = localStorageReadOnceSharedStore<SpatialState>('spati
   center: new LatLng(50.114429599683604, 14.523528814315798),
   zoom: 20,
   bounds: null,
-  range: 1000
+  range: 1000,
+  source: 'map'
 });
 
 
 // Visual state - only affects rendering, optimized with debounced writes
 export const bearingState = staggeredLocalStorageSharedStore<BearingState>('bearingState', {
-  bearing: 230
+  bearing: 230,
+  source: 'map'
 }, 500);
 
 // Bearing mode state - controls automatic bearing source (car = GPS, walking = compass)
@@ -201,12 +205,12 @@ function getBearingColor(absBearingDiff: number): string {
 }
 
 // Update functions with selective reactivity
-export function updateSpatialState(updates: Partial<SpatialState>) {
-  spatialState.update(state => ({ ...state, ...updates }));
+export function updateSpatialState(updates: Partial<SpatialState>, source: 'gps' | 'map' = 'map') {
+  spatialState.update(state => ({ ...state, ...updates, source }));
 }
 
-export function updateBearing(bearing: number) {
-  bearingState.update(state => ({ ...state, bearing }));
+export function updateBearing(bearing: number, source: string = 'map') {
+  bearingState.update(state => ({ ...state, bearing, source }));
 }
 
 export function updateBearingByDiff(diff: number) {

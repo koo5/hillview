@@ -185,6 +185,139 @@ async def save_processed_photo(
 			detail="Failed to save processed photo data"
 		)
 
+
+@router.post("/upload-file")
+async def upload_processed_file(
+	photo_id: str = Form(...),
+	relative_path: str = Form(...),  # Path relative to pics folder where file should be saved
+	client_signature: str = Form(...),
+	file: UploadFile = File(...),
+	db: AsyncSession = Depends(get_db)
+):
+	"""Upload processed photo file from worker service to API server storage."""
+
+	# Check if CDN is enabled - if so, reject this request
+	use_cdn = os.getenv("USE_CDN", "false").lower() in ("true", "1", "yes")
+	if use_cdn:
+		raise HTTPException(
+			status_code=status.HTTP_400_BAD_REQUEST,
+			detail="File uploads not supported when USE_CDN is enabled"
+		)
+
+	try:
+		logger.info(f"Received file upload from worker for photo {photo_id}, path: {relative_path}")
+
+		# Get photo from database
+		result = await db.execute(select(Photo).where(Photo.id == photo_id))
+		photo = result.scalar_one_or_none()
+		if not photo:
+			raise HTTPException(
+				status_code=status.HTTP_404_NOT_FOUND,
+				detail="Photo not found"
+			)
+
+		# Verify that photo is in authorized status
+		if photo.processing_status != "authorized":
+			raise HTTPException(
+				status_code=status.HTTP_400_BAD_REQUEST,
+				detail=f"Photo not in valid state for file upload: {photo.processing_status}"
+			)
+
+		if not client_signature:
+			raise HTTPException(
+				status_code=status.HTTP_400_BAD_REQUEST,
+				detail="Client signature is required for secure uploads"
+			)
+
+		# Get client's public key for signature verification
+		from common.models import UserPublicKey
+		key_result = await db.execute(
+			select(UserPublicKey).where(
+				UserPublicKey.user_id == photo.owner_id,
+				UserPublicKey.key_id == photo.client_public_key_id,
+				UserPublicKey.is_active == True
+			)
+		)
+		client_public_key = key_result.scalars().first()
+
+		if not client_public_key:
+			raise HTTPException(
+				status_code=status.HTTP_400_BAD_REQUEST,
+				detail="Client public key not found or inactive"
+			)
+
+		# Verify client signature (same as save_processed_photo)
+		# verify_client_signature is defined in this file
+		if not verify_client_signature(
+			signature_base64=client_signature,
+			public_key_pem=client_public_key.public_key_pem,
+			photo_id=photo_id,
+			filename=photo.original_filename,
+			timestamp=int(photo.upload_authorized_at.timestamp()) if photo.upload_authorized_at else None
+		):
+			logger.error(f"Client signature verification failed for photo {photo_id}")
+			raise HTTPException(
+				status_code=status.HTTP_403_FORBIDDEN,
+				detail="Client signature verification failed"
+			)
+
+		# Validate and sanitize the relative path
+		if not relative_path or '..' in relative_path or relative_path.startswith('/'):
+			raise HTTPException(
+				status_code=status.HTTP_400_BAD_REQUEST,
+				detail="Invalid relative path"
+			)
+
+		# Construct full file path within PICS_DIR
+		pics_dir = Path(os.getenv("PICS_DIR", "/app/pics"))
+		pics_dir.mkdir(parents=True, exist_ok=True)
+
+		file_path = pics_dir / relative_path
+
+		# Ensure the file path is within pics directory (security check)
+		try:
+			file_path.resolve().relative_to(pics_dir.resolve())
+		except ValueError:
+			raise HTTPException(
+				status_code=status.HTTP_400_BAD_REQUEST,
+				detail="Path must be within pics directory"
+			)
+
+		# Ensure parent directory exists
+		file_path.parent.mkdir(parents=True, exist_ok=True)
+
+		# Save the file
+		file_size = get_file_size_from_upload(file.file)
+		async with aiofiles.open(file_path, 'wb') as f:
+			content = await file.read()
+			await f.write(content)
+
+		logger.info(f"Successfully uploaded file for photo {photo_id} to {file_path}")
+
+		return {
+			"message": "File uploaded successfully",
+			"photo_id": photo_id,
+			"relative_path": relative_path,
+			"file_path": str(file_path),
+			"file_size": file_size
+		}
+
+	except HTTPException:
+		raise
+	except Exception as e:
+		logger.error(f"Error uploading file for photo {photo_id}: {str(e)}")
+		# Cleanup file if it was partially written
+		if 'file_path' in locals() and file_path.exists():
+			try:
+				file_path.unlink()
+			except Exception:
+				pass
+		raise HTTPException(
+			status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+			detail="Failed to upload file"
+		)
+
+
 @router.get("/")
 async def list_photos(
 	request: Request,

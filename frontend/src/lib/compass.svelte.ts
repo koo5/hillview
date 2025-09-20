@@ -483,7 +483,7 @@ currentCompassHeading.subscribe(compass => {
     // Update map bearing
 	const currentBearing = get(bearingState).bearing;
 	if (isNaN(currentBearing) || currentBearing === null || (Math.abs(smoothedBearing - currentBearing) > 1)) {
-		updateBearing(smoothedBearing);
+		updateBearing(smoothedBearing, compass.source);
 	}
 });
 

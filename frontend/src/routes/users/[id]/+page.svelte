@@ -3,6 +3,7 @@
 	import { page } from '$app/stores';
 	import { http, handleApiError } from '$lib/http';
 	import { myGoto } from '$lib/navigation.svelte';
+	import { constructPhotoMapUrl, constructUserPhotosUrl } from '$lib/urlUtils';
 	import StandardHeaderWithAlert from '../../../components/StandardHeaderWithAlert.svelte';
 	import StandardBody from '../../../components/StandardBody.svelte';
 	import Spinner from '../../../components/Spinner.svelte';
@@ -74,9 +75,7 @@
 			}
 			error = '';
 
-			const url = nextCursor
-				? `/users/${userId}/photos?cursor=${encodeURIComponent(nextCursor)}`
-				: `/users/${userId}/photos`;
+			const url = constructUserPhotosUrl(userId, nextCursor || undefined);
 
 			const response = await http.get(url);
 
@@ -130,8 +129,7 @@
 
 	function viewOnMap(photo: UserPhoto) {
 		if (photo.latitude && photo.longitude) {
-			const bearing = photo.bearing ?? 0;
-			myGoto(`/?lat=${photo.latitude}&lon=${photo.longitude}&zoom=18&bearing=${bearing}`);
+			myGoto(constructPhotoMapUrl(photo));
 		}
 	}
 </script>

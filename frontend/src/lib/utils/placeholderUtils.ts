@@ -8,6 +8,8 @@ export interface PlaceholderLocation {
     altitude?: number | null;
     heading?: number | null;
     accuracy: number;
+    locationSource: 'gps' | 'map';
+    bearingSource: string;
 }
 
 /**

@@ -140,6 +140,19 @@ async def test_successful_processing():
 	assert photo_data.get('compass_angle') is not None, "Expected compass_angle to be set"
 
 	print(f"✓ Successfully processed: lat={photo_data['latitude']}, lon={photo_data['longitude']}, bearing={photo_data['compass_angle']}")
+
+	# Verify photo files are accessible
+	sizes = photo_data['sizes']
+	assert sizes, "No sizes data found in photo response"
+
+	import requests
+	for size_name, size_info in sizes.items():
+		url = size_info['url']
+		print(f"Testing {size_name} URL: {url}")
+		response = requests.head(url, timeout=10)
+		assert response.status_code == 200, f"{size_name} URL {url} returned status {response.status_code}"
+		print(f"✓ {size_name} URL is accessible")
+
 	print("✓ Successful processing test passed\n")
 
 

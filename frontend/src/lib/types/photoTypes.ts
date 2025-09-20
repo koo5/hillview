@@ -101,6 +101,8 @@ export interface PhotoMetadata {
     bearing?: number | null;
     timestamp: number;
     accuracy: number;
+    locationSource: 'gps' | 'map';
+    bearingSource: string;
 }
 
 /**
@@ -116,6 +118,8 @@ export interface CapturedPhotoData {
     };
     bearing?: number | null;
     timestamp: number;
+    locationSource: 'gps' | 'map';
+    bearingSource: string;
 }
 
 /**

@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { http, handleApiError } from '$lib/http';
 	import { myGoto } from '$lib/navigation.svelte';
+	import { constructUserProfileUrl } from '$lib/urlUtils';
 	import StandardHeaderWithAlert from '../../components/StandardHeaderWithAlert.svelte';
 	import StandardBody from '../../components/StandardBody.svelte';
 	import Spinner from '../../components/Spinner.svelte';
@@ -61,7 +62,7 @@
 	}
 
 	function viewUserPhotos(userId: string) {
-		myGoto(`/users/${userId}`);
+		myGoto(constructUserProfileUrl(userId));
 	}
 </script>
 

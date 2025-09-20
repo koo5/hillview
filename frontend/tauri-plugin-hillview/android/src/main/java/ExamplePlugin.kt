@@ -47,8 +47,8 @@ class SensorModeArgs {
 
 @InvokeArg
 class AutoUploadArgs {
-  var enabled: Boolean? = null  // Legacy support
-  var status: String? = null     // New tri-state: "enabled" | "unconfigured" | "disabled"
+  var enabled: Boolean? = null
+  var promptEnabled: Boolean? = null
 }
 
 @InvokeArg
@@ -100,6 +100,13 @@ class AddPhotoArgs {
   var fileSize: Long = 0L
   var createdAt: Long = 0L
   var fileHash: String? = null
+}
+
+@InvokeArg
+class SharePhotoArgs {
+  var title: String? = null
+  var text: String? = null
+  var url: String? = null
 }
 
 @TauriPlugin
@@ -508,8 +515,8 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     fun setAutoUploadEnabled(invoke: Invoke) {
         try {
             val args = invoke.parseArgs(AutoUploadArgs::class.java)
-            val enabled = args.enabled
-            val promptEnabled = args.promptEnabled
+            val enabled = args.enabled ?: false
+            val promptEnabled = args.promptEnabled ?: true
 
             Log.i(TAG, "📤 [setAutoUploadEnabled] CALLED with enabled: $enabled, promptEnabled: $promptEnabled")
 
@@ -550,8 +557,8 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
 
             val result = JSObject()
             result.put("success", true)
-            result.put("enabled", enabled)
-            result.put("promptEnabled", promptEnabled)
+            result.put("enabled", enabled as Boolean)
+            result.put("promptEnabled", promptEnabled as Boolean)
 
             Log.i(TAG, "📤 [setAutoUploadEnabled] SUCCESS - returning result: enabled=$enabled, promptEnabled=$promptEnabled")
             invoke.resolve(result)
@@ -720,7 +727,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             val workRequest = OneTimeWorkRequestBuilder<PhotoUploadWorker>()
                 .setInputData(
                     Data.Builder()
-                        .putBoolean(PhotoUploadWorker.KEY_AUTO_UPLOAD_ENABLED, enabled)
+                        .putBoolean(PhotoUploadWorker.KEY_AUTO_UPLOAD_ENABLED, autoUploadEnabled)
                         .build()
                 )
                 .build()
@@ -1575,6 +1582,64 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             response.put("failedCount", 0)
             response.put("error", "File selection cancelled")
             invoke.resolve(response)
+        }
+    }
+
+    @Command
+    fun sharePhoto(invoke: Invoke) {
+        try {
+            Log.d(TAG, "📤 Share photo command called")
+            val args = invoke.parseArgs(SharePhotoArgs::class.java)
+
+            val title = args.title ?: "Share Photo"
+            val text = args.text ?: "Check out this photo"
+            val url = args.url
+
+            Log.d(TAG, "📤 Share args - title: $title, text: $text, url: $url")
+
+            if (url.isNullOrEmpty()) {
+                Log.e(TAG, "📤 Share failed: URL is required")
+                val error = JSObject()
+                error.put("success", false)
+                error.put("error", "URL is required for sharing")
+                invoke.resolve(error)
+                return
+            }
+
+            // Create Android share intent
+            val shareIntent = Intent().apply {
+                action = Intent.ACTION_SEND
+                type = "text/plain"
+                putExtra(Intent.EXTRA_SUBJECT, title)
+                putExtra(Intent.EXTRA_TEXT, "$text\n$url")
+            }
+
+            // Create chooser to let user pick share destination
+            val chooserIntent = Intent.createChooser(shareIntent, title)
+
+            // Check if there are apps available to handle the share intent
+            if (shareIntent.resolveActivity(activity.packageManager) != null) {
+                Log.d(TAG, "📤 Launching share intent")
+                activity.startActivity(chooserIntent)
+
+                val result = JSObject()
+                result.put("success", true)
+                result.put("message", "Share intent launched successfully")
+                invoke.resolve(result)
+            } else {
+                Log.e(TAG, "📤 No apps available to handle share intent")
+                val error = JSObject()
+                error.put("success", false)
+                error.put("error", "No apps available for sharing")
+                invoke.resolve(error)
+            }
+
+        } catch (e: Exception) {
+            Log.e(TAG, "📤 Error sharing photo", e)
+            val error = JSObject()
+            error.put("success", false)
+            error.put("error", e.message)
+            invoke.resolve(error)
         }
     }
 }

@@ -1,10 +1,13 @@
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
-    import { EyeOff, UserX, ThumbsUp, ThumbsDown } from 'lucide-svelte';
+    import { EyeOff, UserX, ThumbsUp, ThumbsDown, Share } from 'lucide-svelte';
     import { app } from '$lib/data.svelte';
     import { auth } from '$lib/auth.svelte';
     import { http, handleApiError } from '$lib/http';
     import { myGoto } from '$lib/navigation.svelte';
+    import { constructUserProfileUrl, constructShareUrl } from '$lib/urlUtils';
+    import { TAURI } from '$lib/tauri.js';
+    import { invoke } from '@tauri-apps/api/core';
     import { getDevicePhotoUrl } from '$lib/devicePhotoHelper';
     import { simplePhotoWorker } from '$lib/simplePhotoWorker';
     import type { PhotoData } from '$lib/sources';
@@ -381,7 +384,55 @@
         const userId = getUserId(photo);
 
         if (photoSource === 'hillview' && userId) {
-            myGoto(`/users/${userId}`);
+            myGoto(constructUserProfileUrl(userId));
+        }
+    }
+
+    // Share photo functionality
+    async function sharePhoto() {
+        if (!photo) return;
+
+        try {
+            const shareUrl = constructShareUrl(photo);
+            const shareText = `Check out this photo on Hillview${getUserName(photo) ? ` by @${getUserName(photo)}` : ''}`;
+
+            if (TAURI) {
+                // Use native Android sharing through Tauri plugin
+                const result = await invoke('plugin:hillview|share_photo', {
+                    title: 'Photo on Hillview',
+                    text: shareText,
+                    url: shareUrl
+                }) as { success: boolean; error?: string; message?: string };
+
+                if (result.success) {
+                    hideMessage = 'Shared successfully!';
+                    setTimeout(() => hideMessage = '', 2000);
+                } else {
+                    throw new Error(result.error || 'Share failed');
+                }
+            } else {
+                // Web fallback - copy to clipboard
+                if (navigator.clipboard) {
+                    const fullShareText = `${shareText}\n${shareUrl}`;
+                    await navigator.clipboard.writeText(fullShareText);
+                    hideMessage = 'Share link copied to clipboard!';
+                    setTimeout(() => hideMessage = '', 2000);
+                } else {
+                    // Fallback for older browsers
+                    const textarea = document.createElement('textarea');
+                    textarea.value = `${shareText}\n${shareUrl}`;
+                    document.body.appendChild(textarea);
+                    textarea.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(textarea);
+                    hideMessage = 'Share link copied to clipboard!';
+                    setTimeout(() => hideMessage = '', 2000);
+                }
+            }
+        } catch (error) {
+            console.error('🢄Error sharing photo:', error);
+            hideMessage = 'Failed to share photo';
+            setTimeout(() => hideMessage = '', 3000);
         }
     }
 
@@ -439,6 +490,16 @@
             {/if}
 
             <div class="hide-buttons">
+
+                <!-- Share button -->
+                <button
+                    class="hide-button share-button"
+                    on:click={sharePhoto}
+                    title="Share photo"
+                    data-testid="share-button"
+                >
+                    <Share size={16} />
+                </button>
 
                 <!-- Rating buttons -->
                 <button
@@ -746,6 +807,15 @@
         font-weight: 600;
         min-width: 12px;
         text-align: center;
+    }
+
+    /* Share button */
+    .share-button {
+        background: rgba(74, 144, 226, 0.8);
+    }
+
+    .share-button:hover:not(:disabled) {
+        background: rgba(74, 144, 226, 1);
     }
 
     /* Status message */

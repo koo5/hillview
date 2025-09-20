@@ -42,6 +42,8 @@
         altitude?: number | null;
         accuracy?: number;
         heading?: number | null;
+        locationSource: 'gps' | 'map';
+        bearingSource: string;
     } | null = null;
 
 
@@ -376,6 +378,8 @@
             altitude: locationData.altitude,
             accuracy: locationData.accuracy || 1,
             heading: locationData.heading,
+            locationSource: locationData.locationSource,
+            bearingSource: locationData.bearingSource,
         };
         injectPlaceholder(validLocation, tempId);
 
@@ -531,6 +535,8 @@
             altitude: null,
             accuracy: undefined,
             heading: $bearingState.bearing,
+            locationSource: $spatialState.source || 'unknown',
+            bearingSource: $bearingState.source || 'unknown',
         };
         locationReady = true;
         locationError = null;

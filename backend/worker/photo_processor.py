@@ -16,6 +16,7 @@ from uuid import UUID
 from datetime import datetime
 
 import exifread
+import httpx
 from throttle import Throttle
 
 
@@ -243,7 +244,7 @@ class PhotoProcessor:
 			return 0, 0
 
 
-	async def create_optimized_sizes(self, source_path: str, unique_id: str, original_filename: str, width: int, height: int) -> tuple[Dict[str, Dict[str, Any]], Optional[Dict[str, Any]]]:
+	async def create_optimized_sizes(self, source_path: str, unique_id: str, original_filename: str, width: int, height: int, photo_id: str = None, client_signature: str = None) -> tuple[Dict[str, Dict[str, Any]], Optional[Dict[str, Any]]]:
 		"""Create optimized versions with anonymization and unique IDs."""
 		sizes_info = {}
 		anonymized_path = None
@@ -285,7 +286,7 @@ class PhotoProcessor:
 
 				size_info = {
 					'path': relative_path,
-					'url': self._get_size_url(output_file_path, relative_path)
+					'url': await self._get_size_url(output_file_path, relative_path, photo_id, client_signature)
 				}
 
 				if size == 'full':
@@ -326,20 +327,69 @@ class PhotoProcessor:
 		return sizes_info, detections
 
 
-	def _get_size_url(self, file_path: str, relative_path: str) -> str:
-		"""Get URL for a size variant - either local PICS_URL or CDN upload."""
-		if os.getenv("BUCKET_NAME"):
-			# Upload to CDN and return CDN URL
+	async def _upload_file_to_api(self, file_path: str, relative_path: str, photo_id: str, client_signature: str) -> str:
+		"""Upload file to API server storage."""
+		api_url = os.getenv("API_URL")
+		if not api_url:
+			raise RuntimeError("API_URL environment variable is required for file uploads")
+		upload_url = f"{api_url}/photos/upload-file"
+
+		try:
+			async with httpx.AsyncClient() as client:
+				with open(file_path, 'rb') as f:
+					files = {'file': (os.path.basename(relative_path), f, 'image/jpeg')}
+					data = {
+						'photo_id': photo_id,
+						'relative_path': relative_path,
+						'client_signature': client_signature
+					}
+
+					response = await client.post(upload_url, files=files, data=data)
+					response.raise_for_status()
+
+					result = response.json()
+					logger.info(f"Successfully uploaded {relative_path} to API server")
+
+					# Return the URL where the file can be accessed
+					if PICS_URL:
+						return PICS_URL + relative_path
+					else:
+						raise RuntimeError("PICS_URL not configured for file access")
+
+		except Exception as e:
+			logger.error(f"Failed to upload {relative_path} to API server: {e}")
+			raise RuntimeError(f"Failed to upload {relative_path} to API server: {e}")
+
+	async def _get_size_url(self, file_path: str, relative_path: str, photo_id: str = None, client_signature: str = None) -> str:
+		"""Get URL for a size variant - CDN upload, API server upload, or local only."""
+		keep_pics_in_worker = os.getenv("KEEP_PICS_IN_WORKER", "false").lower() in ("true", "1", "yes")
+		use_cdn = os.getenv("USE_CDN", "false").lower() in ("true", "1", "yes")
+
+		if keep_pics_in_worker:
+			# Keep files in worker, just return local URL
+			if PICS_URL:
+				return PICS_URL + relative_path
+			else:
+				raise RuntimeError("PICS_URL not configured for local file access")
+		elif use_cdn:
+			# Upload to CDN
+			if not os.getenv("BUCKET_NAME"):
+				raise RuntimeError("USE_CDN is true but BUCKET_NAME is not set")
 			cdn_url = cdn_uploader._upload_file(file_path, relative_path)
 			if not cdn_url:
 				raise RuntimeError(f"Failed to upload {relative_path} to CDN")
 			return cdn_url
-		elif PICS_URL:
-			# Use local PICS_URL
-			return PICS_URL + relative_path
+		elif photo_id and client_signature:
+			# Upload to API server storage
+			return await self._upload_file_to_api(file_path, relative_path, photo_id, client_signature)
+		elif not photo_id:
+			logger.error(f"Cannot upload {relative_path}: photo_id is None")
+			raise RuntimeError(f"photo_id is required for API upload of {relative_path}")
+		elif not client_signature:
+			logger.error(f"Cannot upload {relative_path}: client_signature is None")
+			raise RuntimeError(f"client_signature is required for API upload of {relative_path}")
 		else:
-			# No URL generation configured
-			raise RuntimeError("Neither BUCKET_NAME nor PICS_URL configured")
+			raise RuntimeError("No upload method configured: either set KEEP_PICS_IN_WORKER=true, USE_CDN=true (with BUCKET_NAME), or provide photo_id and client_signature for API upload")
 
 
 	async def _anonymize_image(self, source_path: str) -> tuple[Optional[str], dict]:
@@ -366,7 +416,8 @@ class PhotoProcessor:
 		user_id: UUID,
 		photo_id: Optional[str] = None,
 		description: Optional[str] = None,
-		is_public: bool = True
+		is_public: bool = True,
+		client_signature: Optional[str] = None
 	) -> Optional[Dict[str, Any]]:
 		"""Process a user-uploaded photo and return processing results."""
 
@@ -438,7 +489,7 @@ class PhotoProcessor:
 		# Create sizes information matching the original importer structure
 		sizes_info = {}
 		if width and height:
-			sizes_info, detections = await self.create_optimized_sizes(file_path, unique_id, filename, width, height)
+			sizes_info, detections = await self.create_optimized_sizes(file_path, unique_id, filename, width, height, photo_id, client_signature)
 
 		# Return processing results for database creation
 		return {

@@ -5,14 +5,16 @@ import { defineConfig, devices } from '@playwright/test';
  */
 export default defineConfig({
   testDir: './tests',
-  /* Run tests in files in parallel */
-  fullyParallel: true,
+  /* Global setup for database initialization */
+  globalSetup: './tests/helpers/globalSetup.ts',
+  /* Run tests in series to avoid database conflicts */
+  fullyParallel: false,
   /* Fail the build on CI if you accidentally left test.only in the source code. */
   forbidOnly: !!process.env.CI,
   /* Retry on CI only */
   retries: process.env.CI ? 2 : 0,
-  /* Use multiple workers for parallel execution */
-  workers: process.env.CI ? 4 : '50%',
+  /* Use single worker to avoid database race conditions */
+  workers: 1,
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
   reporter: 'html',
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */

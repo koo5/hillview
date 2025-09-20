@@ -70,7 +70,7 @@ app.add_middleware(
 security = HTTPBearer()
 
 # Configuration
-UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "./uploads"))
+UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "/app/uploads/"))
 UPLOAD_DIR.mkdir(exist_ok=True)
 API_URL = os.getenv("API_URL", "http://localhost:8055/api")
 
@@ -242,7 +242,8 @@ async def upload_and_process_photo(
 					file_path=str(file_path),
 					filename=safe_filename,
 					user_id=user_uuid,
-					photo_id=photo_id
+					photo_id=photo_id,
+					client_signature=client_signature
 				)
 
 

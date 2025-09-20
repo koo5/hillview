@@ -9,6 +9,8 @@ pub struct PhotoMetadata {
     pub bearing: Option<f64>,
     pub timestamp: i64,
     pub accuracy: f64,
+    pub location_source: String,
+    pub bearing_source: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

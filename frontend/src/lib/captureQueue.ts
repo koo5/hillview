@@ -9,6 +9,8 @@ export interface CaptureLocation {
     altitude?: number | null;
     accuracy: number;
     heading?: number | null;
+    locationSource: 'gps' | 'map';
+    bearingSource: string;
 }
 
 export interface CaptureQueueItem {
@@ -167,7 +169,9 @@ class CaptureQueueManager {
                     accuracy: item.location.accuracy
                 },
                 bearing: item.location.heading,
-                timestamp: item.timestamp
+                timestamp: item.timestamp,
+                locationSource: item.location.locationSource,
+                bearingSource: item.location.bearingSource
             };
 
             // Save photo with EXIF

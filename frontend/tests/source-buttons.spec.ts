@@ -208,8 +208,9 @@ test.describe('Source Buttons Toggle', () => {
         source_id: photoData.source?.id
       });
       
-      // Verify this is a Mapillary photo
-      expect(photoData.source_type, 'Expected photo to be from Mapillary source').toBe('mapillary');
+      // Verify this is a Mapillary photo (check source.id for streaming sources)
+      const sourceId = photoData.source?.id || photoData.source_type;
+      expect(sourceId, 'Expected photo to be from Mapillary source').toBe('mapillary');
       console.log('🢄✅ Confirmed photo is from Mapillary source');
       
     } else {
@@ -329,7 +330,8 @@ test.describe('Source Buttons Toggle', () => {
     });
     
     expect(firstPhotoData).toBeTruthy();
-    expect(firstPhotoData.source_type).toBe('mapillary');
+    const firstSourceId = firstPhotoData.source?.id || firstPhotoData.source_type;
+    expect(firstSourceId).toBe('mapillary');
     
     // Move to second location (different area of Prague)
     await setMapLocation(page, 50.0875, 14.4205, 18, 'Prague Castle area');
@@ -354,7 +356,8 @@ test.describe('Source Buttons Toggle', () => {
     });
     
     expect(secondPhotoData).toBeTruthy();
-    expect(secondPhotoData.source_type).toBe('mapillary');
+    const secondSourceId = secondPhotoData.source?.id || secondPhotoData.source_type;
+    expect(secondSourceId).toBe('mapillary');
     
     // Verify photos are different (different location should have different photos)
     const photosAreDifferent = firstPhotoData.id !== secondPhotoData.id || 

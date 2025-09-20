@@ -314,3 +314,22 @@ pub(crate) async fn add_photo_to_database<R: Runtime>(
         return Err(crate::Error::from("Photo database sync is only available on Android"));
     }
 }
+
+#[command]
+pub(crate) async fn share_photo<R: Runtime>(
+    #[allow(unused_variables)] app: AppHandle<R>,
+    title: Option<String>,
+    text: Option<String>,
+    url: String,
+) -> Result<BasicResponse> {
+    #[cfg(mobile)]
+    {
+        return app.hillview().share_photo(title, text, url);
+    }
+
+    #[cfg(desktop)]
+    {
+        // Desktop fallback - copy to clipboard or open in browser
+        return Err(crate::Error::from("Native sharing is only available on mobile devices"));
+    }
+}

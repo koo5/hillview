@@ -46,7 +46,9 @@ describe('CaptureQueue Parallel Processing', () => {
                 location: {
                     latitude: 0,
                     longitude: 0,
-                    accuracy: 10
+                    accuracy: 10,
+                    locationSource: 'map' as const,
+                    bearingSource: 'unknown'
                 },
                 timestamp: Date.now() + i,
                 mode: 'fast',
@@ -95,7 +97,9 @@ describe('CaptureQueue Parallel Processing', () => {
                 location: {
                     latitude: 0,
                     longitude: 0,
-                    accuracy: 10
+                    accuracy: 10,
+                    locationSource: 'map' as const,
+                    bearingSource: 'unknown'
                 },
                 timestamp: Date.now() + i,
                 mode: 'slow',
@@ -129,7 +133,7 @@ describe('CaptureQueue Parallel Processing', () => {
         await captureQueue.add({
             id: 'error_item',
             blob: new Blob(['test']),
-            location: { latitude: 0, longitude: 0, accuracy: 10 },
+            location: { latitude: 0, longitude: 0, accuracy: 10, locationSource: 'map' as const, bearingSource: 'unknown' },
             timestamp: Date.now(),
             mode: 'fast',
             placeholderId: 'error_placeholder'
@@ -138,7 +142,7 @@ describe('CaptureQueue Parallel Processing', () => {
         await captureQueue.add({
             id: 'good_item',
             blob: new Blob(['test']),
-            location: { latitude: 0, longitude: 0, accuracy: 10 },
+            location: { latitude: 0, longitude: 0, accuracy: 10, locationSource: 'map' as const, bearingSource: 'unknown' },
             timestamp: Date.now() + 1,
             mode: 'fast',
             placeholderId: 'good_placeholder'

@@ -2,8 +2,15 @@ use chrono;
 use img_parts::{jpeg::Jpeg, ImageEXIF};
 use log::info;
 use serde::{Deserialize, Serialize};
+use serde_json;
 use std::io::Cursor;
 use tauri::command;
+
+#[derive(Debug, Serialize, Deserialize)]
+struct ProvenanceData {
+	location_source: String,
+	bearing_source: String,
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PhotoMetadata {
@@ -13,12 +20,45 @@ pub struct PhotoMetadata {
 	pub bearing: Option<f64>,
 	pub timestamp: i64,
 	pub accuracy: f64,
+	pub location_source: String,
+	pub bearing_source: String,
 }
 
 #[derive(Debug, Serialize)]
 pub struct ProcessedPhoto {
 	pub data: Vec<u8>,
 	pub metadata: PhotoMetadata,
+}
+
+fn calculate_gps_entry_count(metadata: &PhotoMetadata) -> u16 {
+	let mut count = 5u16; // VersionID, LatRef, Lat, LonRef, Lon
+	if metadata.altitude.is_some() {
+		count += 2; // AltRef, Alt
+	}
+	if metadata.bearing.is_some() {
+		count += 4; // ImgDirectionRef, ImgDirection, DestBearingRef, DestBearing
+	}
+	count
+}
+
+fn calculate_gps_data_size(metadata: &PhotoMetadata) -> u32 {
+	let mut size = 0u32;
+
+	// GPS entries are always present: VersionID, LatRef, Lat, LonRef, Lon
+	// Latitude and longitude rationals: 3 rationals * 8 bytes each = 24 bytes each
+	size += 48; // lat (24) + lon (24)
+
+	// Optional altitude: 1 rational = 8 bytes
+	if metadata.altitude.is_some() {
+		size += 8;
+	}
+
+	// Optional bearing: 2 rationals (ImgDirection + DestBearing) = 16 bytes
+	if metadata.bearing.is_some() {
+		size += 16;
+	}
+
+	size
 }
 
 fn create_exif_segment_simple(metadata: &PhotoMetadata) -> Vec<u8> {
@@ -37,15 +77,57 @@ fn create_exif_segment_simple(metadata: &PhotoMetadata) -> Vec<u8> {
 	exif_data.extend_from_slice(&[0x2A, 0x00]); // 42
 	exif_data.extend_from_slice(&[0x08, 0x00, 0x00, 0x00]); // IFD0 offset (8 from TIFF start)
 
-	// IFD0 at offset 8 from TIFF - just one entry pointing to GPS IFD
-	exif_data.extend_from_slice(&[0x01, 0x00]); // 1 entry
+	// IFD0 at offset 8 from TIFF - two entries: GPS IFD and UserComment
+	exif_data.extend_from_slice(&[0x02, 0x00]); // 2 entries
 
-	// GPS IFD Pointer
+	// GPS IFD Pointer (tag 0x8825)
 	exif_data.extend_from_slice(&[0x25, 0x88]); // Tag 0x8825
 	exif_data.extend_from_slice(&[0x04, 0x00]); // Type: LONG
 	exif_data.extend_from_slice(&[0x01, 0x00, 0x00, 0x00]); // Count: 1
-	let gps_ifd_offset: u32 = 0x1A; // GPS IFD offset from TIFF start
+	let gps_ifd_offset: u32 = 0x32; // GPS IFD offset from TIFF start (moved to make room)
 	exif_data.extend_from_slice(&gps_ifd_offset.to_le_bytes());
+
+	// Create JSON provenance data using proper serialization
+	let provenance = ProvenanceData {
+		location_source: metadata.location_source.clone(),
+		bearing_source: metadata.bearing_source.clone(),
+	};
+	let provenance_json = serde_json::to_string(&provenance)
+		.map_err(|e| format!("Failed to serialize provenance data: {}", e))
+		.unwrap_or_else(|_| r#"{"location_source":"unknown","bearing_source":"unknown"}"#.to_string());
+
+	// EXIF UserComment has 8-byte character code header + comment text
+	let mut user_comment = b"ASCII\0\0\0".to_vec(); // Character code
+
+	// Limit UserComment size to prevent EXIF issues (max 65535 bytes per EXIF spec)
+	const MAX_COMMENT_SIZE: usize = 1000; // Conservative limit
+	let comment_bytes = if provenance_json.len() > MAX_COMMENT_SIZE {
+		info!("Warning: Provenance data too long ({}), truncating to {} bytes",
+			  provenance_json.len(), MAX_COMMENT_SIZE);
+		&provenance_json.as_bytes()[..MAX_COMMENT_SIZE]
+	} else {
+		provenance_json.as_bytes()
+	};
+
+	user_comment.extend_from_slice(comment_bytes);
+
+	// UserComment (tag 0x9286)
+	exif_data.extend_from_slice(&[0x86, 0x92]); // Tag 0x9286
+	exif_data.extend_from_slice(&[0x07, 0x00]); // Type: UNDEFINED
+	exif_data.extend_from_slice(&(user_comment.len() as u32).to_le_bytes()); // Count
+	if user_comment.len() <= 4 {
+		// Fits in the offset field
+		let mut padded = user_comment.clone();
+		padded.resize(4, 0);
+		exif_data.extend_from_slice(&padded);
+	} else {
+		// Store offset to comment data - calculate dynamically
+		let gps_data_size = calculate_gps_data_size(metadata);
+		let gps_entry_count = calculate_gps_entry_count(metadata);
+		let gps_ifd_size = 2 + (gps_entry_count as u32 * 12) + 4; // count + entries + next IFD
+		let comment_offset = gps_ifd_offset + gps_ifd_size + gps_data_size;
+		exif_data.extend_from_slice(&comment_offset.to_le_bytes());
+	}
 
 	// Next IFD offset (none)
 	exif_data.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
@@ -56,13 +138,7 @@ fn create_exif_segment_simple(metadata: &PhotoMetadata) -> Vec<u8> {
 	}
 
 	// Count GPS entries
-	let mut gps_entry_count = 5u16; // VersionID, LatRef, Lat, LonRef, Lon
-	if metadata.altitude.is_some() {
-		gps_entry_count += 2; // AltRef, Alt
-	}
-	if metadata.bearing.is_some() {
-		gps_entry_count += 4; // ImgDirectionRef, ImgDirection, DestBearingRef, DestBearing
-	}
+	let gps_entry_count = calculate_gps_entry_count(metadata);
 	exif_data.extend_from_slice(&gps_entry_count.to_le_bytes());
 
 	// GPS entries must be in ascending tag order
@@ -218,6 +294,22 @@ fn create_exif_segment_simple(metadata: &PhotoMetadata) -> Vec<u8> {
 		// DestBearing (same value)
 		exif_data.extend_from_slice(&bearing_num.to_le_bytes());
 		exif_data.extend_from_slice(&100u32.to_le_bytes());
+	}
+
+	// Add UserComment data if it was placed by offset
+	if user_comment.len() > 4 {
+		// Use same calculation as above
+		let gps_data_size = calculate_gps_data_size(metadata);
+		let gps_entry_count = calculate_gps_entry_count(metadata);
+		let gps_ifd_size = 2 + (gps_entry_count as u32 * 12) + 4;
+		let comment_offset = gps_ifd_offset + gps_ifd_size + gps_data_size;
+
+		// Pad to comment offset
+		while exif_data.len() < tiff_start + comment_offset as usize {
+			exif_data.push(0x00);
+		}
+		// Write the UserComment data
+		exif_data.extend_from_slice(&user_comment);
 	}
 
 	// Log final EXIF size and structure for debugging
@@ -386,20 +478,22 @@ pub async fn save_photo_with_metadata(
 			}
 		}
 
-		/*match read_photo_exif(file_path.to_string_lossy().to_string()).await {
+		match read_photo_exif(file_path.to_string_lossy().to_string()).await {
 			Ok(read_metadata) => {
 				info!(
-					"Verified EXIF after save: lat={}, lon={}, alt={:?}, bearing={:?}",
+					"Verified EXIF after save: lat={}, lon={}, alt={:?}, bearing={:?}, location_source={}, bearing_source={}",
 					read_metadata.latitude,
 					read_metadata.longitude,
 					read_metadata.altitude,
-					read_metadata.bearing
+					read_metadata.bearing,
+					read_metadata.location_source,
+					read_metadata.bearing_source
 				);
 			}
 			Err(e) => {
 				info!("🢄Warning: Could not verify EXIF after save: {}", e);
 			}
-		}*/
+		}
 	}
 
 	#[cfg(target_os = "android")]
@@ -431,6 +525,8 @@ pub async fn save_photo_with_metadata(
 				bearing: metadata.bearing,
 				timestamp: metadata.timestamp,
 				accuracy: metadata.accuracy,
+				location_source: metadata.location_source.clone(),
+				bearing_source: metadata.bearing_source.clone(),
 			},
 			width,
 			height,
@@ -529,6 +625,8 @@ pub async fn read_photo_exif(path: String) -> Result<PhotoMetadata, String> {
 		bearing: None,
 		timestamp: 0,
 		accuracy: 0.0,
+		location_source: "unknown".to_string(),
+		bearing_source: "unknown".to_string(),
 	};
 
 	// Read GPS coordinates - try PRIMARY first (GPS IFD is usually linked from PRIMARY)
@@ -639,6 +737,27 @@ pub async fn read_photo_exif(path: String) -> Result<PhotoMetadata, String> {
 					"%Y:%m:%d %H:%M:%S",
 				) {
 					metadata.timestamp = dt.and_utc().timestamp();
+				}
+			}
+		}
+	}
+
+	// Read UserComment for provenance data
+	if let Some(comment_field) = exif_reader.get_field(exif::Tag::UserComment, exif::In::PRIMARY) {
+		if let exif::Value::Undefined(ref comment_bytes, _) = &comment_field.value {
+			if comment_bytes.len() > 8 {
+				// Skip the 8-byte character code header
+				let comment_text = &comment_bytes[8..];
+				if let Ok(comment_str) = std::str::from_utf8(comment_text) {
+					// Try to parse as JSON
+					if let Ok(provenance) = serde_json::from_str::<ProvenanceData>(comment_str) {
+						metadata.location_source = provenance.location_source;
+						metadata.bearing_source = provenance.bearing_source;
+						info!("🢄Successfully read provenance from UserComment: location_source={}, bearing_source={}",
+							  metadata.location_source, metadata.bearing_source);
+					} else {
+						info!("🢄UserComment found but not valid JSON provenance: {}", comment_str);
+					}
 				}
 			}
 		}

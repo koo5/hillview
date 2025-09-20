@@ -2,6 +2,7 @@
 	import {onMount} from 'svelte';
 	import {get} from 'svelte/store';
 	import {myGoto} from '$lib/navigation.svelte';
+	import {constructPhotoMapUrl} from '$lib/urlUtils';
 	import { Trash2, Map, Settings, ThumbsUp, ThumbsDown} from 'lucide-svelte';
 	import StandardHeaderWithAlert from '../../components/StandardHeaderWithAlert.svelte';
 	import StandardBody from '../../components/StandardBody.svelte';
@@ -173,6 +174,9 @@
 			// Remove the photo from the list
 			photos = photos.filter(photo => photo.id !== photoId);
 
+			// Refresh the count by running the fetch again (will update totalCount)
+			await fetchPhotos(false);
+
 			addLogEntry(`Deleted: ${photoName}`, 'success');
 
 		} catch (err) {
@@ -197,7 +201,7 @@
 
 	function viewOnMap(photo: UserPhoto) {
 		if (photo.latitude && photo.longitude) {
-			myGoto(`/?lat=${photo.latitude}&lon=${photo.longitude}&zoom=18`);
+			myGoto(constructPhotoMapUrl(photo));
 		}
 	}
 

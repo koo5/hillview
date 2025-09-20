@@ -27,6 +27,7 @@ Default permissions for the plugin
 - `allow-get-device-photos`
 - `allow-refresh-photo-scan`
 - `allow-import-photos`
+- `allow-share-photo`
 
 ## Permission Table
 
@@ -423,6 +424,32 @@ Enables the set_upload_config command without any pre-configured scope.
 <td>
 
 Denies the set_upload_config command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:allow-share-photo`
+
+</td>
+<td>
+
+Enables the share_photo command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:deny-share-photo`
+
+</td>
+<td>
+
+Denies the share_photo command without any pre-configured scope.
 
 </td>
 </tr>

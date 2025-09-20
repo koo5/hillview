@@ -42,6 +42,8 @@ describe('CaptureQueueManager', () => {
       latitude: 50.0617 + Math.random() * 0.001,
       longitude: 14.5146 + Math.random() * 0.001,
       accuracy: 10,
+      locationSource: 'map' as const,
+      bearingSource: 'unknown',
     },
     timestamp: Date.now(),
     mode,

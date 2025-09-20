@@ -23,5 +23,6 @@ permissions = [
   "allow-test-auth-expired-notification",
   "allow-get-device-photos",
   "allow-refresh-photo-scan",
-  "allow-import-photos"
+  "allow-import-photos",
+  "allow-share-photo"
 ]

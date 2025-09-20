@@ -1,0 +1,168 @@
+import { test, expect } from '@playwright/test';
+
+test.describe('Users Pages and Navigation', () => {
+  test.beforeEach(async ({ page }) => {
+    // Clean up test users before each test
+    const response = await fetch('http://localhost:8055/api/debug/recreate-test-users', {
+      method: 'POST'
+    });
+    const result = await response.json();
+    console.log('🢄Test cleanup result:', result);
+  });
+
+  test('should load users list page and display user cards', async ({ page }) => {
+    await page.goto('/users');
+    await page.waitForLoadState('networkidle');
+
+    // Check for users grid
+    await expect(page.locator('.users-grid')).toBeVisible();
+
+    // Check for user cards
+    const userCards = page.locator('.user-card');
+    expect(await userCards.count()).toBeGreaterThan(0);
+
+    // Check first user card structure
+    const firstCard = userCards.first();
+    await expect(firstCard.locator('.user-photo')).toBeVisible();
+    await expect(firstCard.locator('.username')).toBeVisible();
+    await expect(firstCard.locator('.photo-count')).toBeVisible();
+  });
+
+  test('should navigate from users list to individual user page', async ({ page }) => {
+    await page.goto('/users');
+    await page.waitForLoadState('networkidle');
+
+    const userCards = page.locator('.user-card');
+    await expect(userCards.first()).toBeVisible();
+
+    // Click first user card
+    await userCards.first().click();
+
+    // Should navigate to user page
+    await page.waitForURL(/\/users\/[^\/]+$/);
+    await expect(page.locator('.photos-section')).toBeVisible();
+    await expect(page.locator('.back-button')).toBeVisible();
+  });
+
+  test('should navigate from activity page usernames to user pages', async ({ page }) => {
+    // Login first
+    const response = await fetch('http://localhost:8055/api/debug/recreate-test-users', {
+      method: 'POST'
+    });
+    const result = await response.json();
+    const testPassword = result.details?.user_passwords?.test;
+    if (!testPassword) {
+      throw new Error(`Test password not found in API response: ${JSON.stringify(result)}`);
+    }
+
+    await page.goto('/login');
+    await page.waitForLoadState('networkidle');
+    await page.fill('input[type="text"]', 'test');
+    await page.fill('input[type="password"]', testPassword);
+    await page.click('button[type="submit"]');
+    await page.waitForURL('/', { timeout: 15000 });
+
+    // Navigate to activity page
+    await page.goto('/activity');
+    await page.waitForLoadState('networkidle');
+
+    // Look for username links in activity
+    const usernameLinks = page.locator('.username-link');
+    if (await usernameLinks.count() > 0) {
+      await usernameLinks.first().click();
+      await page.waitForURL(/\/users\/[^\/]+$/);
+      await expect(page.locator('.photos-section')).toBeVisible();
+    }
+  });
+
+  test('should make photos clickable to navigate to map', async ({ page }) => {
+    // Login and ensure we have some photos
+    const response = await fetch('http://localhost:8055/api/debug/recreate-test-users', {
+      method: 'POST'
+    });
+    const result = await response.json();
+    const testPassword = result.details?.user_passwords?.test;
+    if (!testPassword) {
+      throw new Error(`Test password not found in API response: ${JSON.stringify(result)}`);
+    }
+
+    await page.goto('/login');
+    await page.waitForLoadState('networkidle');
+    await page.fill('input[type="text"]', 'test');
+    await page.fill('input[type="password"]', testPassword);
+    await page.click('button[type="submit"]');
+    await page.waitForURL('/', { timeout: 15000 });
+
+    // Go to users page and click on test user
+    await page.goto('/users');
+    await page.waitForLoadState('networkidle');
+
+    const testUserCard = page.locator('.user-card').filter({ hasText: 'test' });
+    if (await testUserCard.count() > 0) {
+      await testUserCard.click();
+      await page.waitForURL(/\/users\/[^\/]+$/);
+
+      // Look for clickable photos with location data
+      const clickablePhotos = page.locator('.photo-card.clickable');
+      if (await clickablePhotos.count() > 0) {
+        await clickablePhotos.first().click();
+        // Should navigate to map with coordinates
+        await page.waitForURL(/\/\?.*lat=.*&lon=/);
+        await expect(page.locator('.leaflet-container')).toBeVisible();
+      }
+    }
+  });
+
+  test('should handle user page pagination', async ({ page }) => {
+    await page.goto('/users');
+    await page.waitForLoadState('networkidle');
+
+    const userCards = page.locator('.user-card');
+    if (await userCards.count() > 0) {
+      await userCards.first().click();
+      await page.waitForURL(/\/users\/[^\/]+$/);
+
+      // Check if load more button exists (indicates pagination)
+      const loadMoreButton = page.locator('.load-more-button');
+      if (await loadMoreButton.isVisible()) {
+        await loadMoreButton.click();
+        // Should load more photos without errors
+        await page.waitForTimeout(2000);
+        await expect(page.locator('.photos-grid')).toBeVisible();
+      }
+    }
+  });
+
+  test('should display user statistics correctly', async ({ page }) => {
+    await page.goto('/users');
+    await page.waitForLoadState('networkidle');
+
+    // Check header shows user count
+    const header = page.locator('.users-grid h2');
+    const headerText = await header.textContent();
+    expect(headerText).toMatch(/All Users \(\d+\)/);
+
+    // Check user cards show photo counts
+    const userCards = page.locator('.user-card');
+    if (await userCards.count() > 0) {
+      const photoCount = userCards.first().locator('.photo-count');
+      const photoCountText = await photoCount.textContent();
+      expect(photoCountText).toMatch(/\d+ photos?/);
+    }
+  });
+
+  test('should handle pages without runtime errors', async ({ page }) => {
+    const errors: string[] = [];
+    page.on('console', (msg) => {
+      if (msg.type() === 'error' && !msg.text().includes('favicon.ico')) {
+        errors.push(msg.text());
+      }
+    });
+
+    await page.goto('/users');
+    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(1000);
+
+    expect(errors.length, `Found errors: ${errors.join(', ')}`).toBe(0);
+  });
+});

@@ -59,6 +59,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
       commands::refresh_photo_scan,
       commands::import_photos,
       commands::add_photo_to_database,
+      commands::share_photo,
       ])
     .setup(|app, api| {
       #[cfg(mobile)]

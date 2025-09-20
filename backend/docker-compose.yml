@@ -58,6 +58,12 @@ services:
       - DEV_MODE=${DEV_MODE:-}
       - NO_LIMITS=${NO_LIMITS:-}
       - WORKER_URL=${WORKER_URL:-http://localhost:8056}
+      - BUCKET_NAME=${BUCKET_NAME:-}
+      - CDN_BASE_URL=${CDN_BASE_URL:-}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - AWS_ENDPOINT_URL_S3=${AWS_ENDPOINT_URL_S3:-}
+
     command: >
       bash -c "cd /app/app && /app/prestart.sh && uvicorn api:app --host 0.0.0.0 --port 8055 $${DEV_MODE:+--reload}"
     secrets:
@@ -79,15 +85,21 @@ services:
       - ./worker:/app/worker
       - ./common:/app/common
       - uploads:/app/uploads
-      - pics:/app/pics
+      # - pics:/app/pics
     environment:
       - UPLOAD_DIR=/app/uploads
-      - PICS_DIR=/app/pics
+      #- PICS_DIR=/app/pics
       - PICS_URL=${PICS_URL:-}
       - WORKER_PORT=8056
       - WORKER_HOST=0.0.0.0
       - API_URL=http://api:8055/api
       - DEV_MODE=${DEV_MODE:-}
+      - BUCKET_NAME=${BUCKET_NAME:-}
+      - CDN_BASE_URL=${CDN_BASE_URL:-}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - AWS_ENDPOINT_URL_S3=${AWS_ENDPOINT_URL_S3:-}
+
 
 volumes:
   postgres_data:
