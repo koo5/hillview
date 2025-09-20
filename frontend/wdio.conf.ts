@@ -1,5 +1,5 @@
 import type { Options } from '@wdio/types';
-import { ensureAppIsRunning, prepareAppForTest, prepareAppForTestFast, verifyAppHealth } from './test/helpers/app-launcher';
+import { ensureAppIsRunning, prepareAppForTest, prepareAppForTestFast, verifyAppHealth } from './tests-appium/helpers/app-launcher';
 
 // Test configuration
 const TEST_CONFIG = {
@@ -29,7 +29,7 @@ export const config: Options.Testrunner = {
     hostname: APPIUM_CONFIG.hostname,
     port: APPIUM_CONFIG.port,
     specs: [
-        './test/specs/**/*.ts'
+        './tests-appium/specs/**/*.ts'
     ],
     exclude: [],
 
