@@ -42,6 +42,16 @@ test.describe('Users Pages and Navigation', () => {
     // Should navigate to user page
     await page.waitForURL(/\/users\/[^\/]+$/);
 
+    // Wait for the loading to complete and content to be rendered
+    await page.waitForLoadState('networkidle');
+
+    // Wait for loading container to disappear (if it exists)
+    try {
+      await page.waitForSelector('.loading-container', { state: 'hidden', timeout: 5000 });
+    } catch {
+      // Loading container might not appear if page loads quickly
+    }
+
     // Check that either photos section or empty state is visible
     const hasPhotos = await page.locator('.photos-section').isVisible();
     const isEmpty = await page.locator('.empty-state').isVisible();

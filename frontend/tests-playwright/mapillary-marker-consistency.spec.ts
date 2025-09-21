@@ -1,95 +1,14 @@
 import { test, expect } from '@playwright/test';
+import {
+  createMockMapillaryData,
+  setupMockMapillaryData,
+  clearMockMapillaryData
+} from './helpers/mapillaryMocks';
 
 /**
  * Test for Mapillary marker rendering consistency with mocked data
  * Based on backend test mocking approach in backend/tests/test_mapillary_filtering.py
  */
-
-// Mock data similar to backend tests - 15 photos in Prague area
-const createMockMapillaryData = (centerLat = 50.0755, centerLng = 14.4378) => {
-  const baseLatitude = centerLat;
-  const baseLongitude = centerLng;
-  const photos = [];
-  
-  for (let i = 1; i <= 15; i++) {
-    // Distribute photos very close to center to ensure they're within bbox
-    const angle = (i * 24) % 360; // Distribute in a circle  
-    const distance = 0.0001 * ((i % 3) + 1); // Very small distances (0.0001, 0.0002, 0.0003 degrees)
-    const latOffset = distance * Math.sin(angle * Math.PI / 180);
-    const lngOffset = distance * Math.cos(angle * Math.PI / 180);
-    
-    photos.push({
-      id: `mock_mapillary_${i.toString().padStart(3, '0')}`,
-      geometry: {
-        type: "Point",
-        coordinates: [baseLongitude + lngOffset, baseLatitude + latOffset]
-      },
-      compass_angle: (i * 24) % 360, // Vary angles
-      computed_compass_angle: (i * 24) % 360,
-      computed_rotation: 0.0,
-      computed_altitude: 200.0 + (i * 10),
-      captured_at: `2024-01-15T${String(10 + (i % 12)).padStart(2, '0')}:30:00Z`,
-      is_pano: false,
-      thumb_1024_url: `https://mock.mapillary.com/thumb${i.toString().padStart(3, '0')}.jpg`,
-      creator: {
-        username: `mock_creator_${((i - 1) % 3) + 1}`,
-        id: `mock_creator_${((i - 1) % 3) + 1}`
-      }
-    });
-  }
-  
-  return { data: photos };
-};
-
-// Helper function to set mock data via backend debug endpoint
-async function setMockMapillaryData(page: any, mockData: any) {
-  const response = await page.request.post('http://localhost:8055/api/debug/mock-mapillary', {
-    data: mockData
-  });
-  
-  if (response.status() !== 200) {
-    throw new Error(`Failed to set mock data: ${response.status()}`);
-  }
-  
-  const result = await response.json();
-  console.log(`✓ Set mock Mapillary data: ${result.details.photos_count} photos`);
-  return result;
-}
-
-// Helper function to setup mocked Mapillary data (set mock, clear database, reload)
-async function setupMockMapillaryData(page: any, mockData: any) {
-  // Set mock data (overwrites any existing mock data)
-  await setMockMapillaryData(page, mockData);
-
-  // Clear database/cache to remove any cached data (prevents cache+live duplication)
-  const cacheResponse = await page.request.post('http://localhost:8055/api/debug/clear-database');
-  if (cacheResponse.status() === 200) {
-    console.log('✓ Cleared database/cache');
-  }
-
-  // Reload page so frontend fetches the new mocked data
-  await page.reload();
-  await page.waitForLoadState('networkidle');
-}
-
-// Helper function to clear mock data and cache
-async function clearMockMapillaryData(page: any) {
-  try {
-    // Clear mock data
-    const mockResponse = await page.request.delete('http://localhost:8055/api/debug/mock-mapillary');
-    if (mockResponse.status() === 200) {
-      console.log('✓ Cleared mock Mapillary data');
-    }
-    
-    // Clear database/cache to force fresh requests
-    const cacheResponse = await page.request.post('http://localhost:8055/api/debug/clear-database');
-    if (cacheResponse.status() === 200) {
-      console.log('✓ Cleared database/cache');
-    }
-  } catch (e) {
-    console.log('⚠ Could not clear data:', (e as Error).message);
-  }
-}
 
 // Helper function to configure sources
 async function configureSources(page: any, config: { [sourceName: string]: boolean }) {

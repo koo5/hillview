@@ -7,7 +7,7 @@ const sentryEnabled = /^(true|1|yes|on)$/i.test((import.meta.env.VITE_SENTRY_ENA
 if (sentryEnabled)
 {
 	Sentry.init({
-		dsn: 'https://0cd95912362bc25ef123532e78c3d594@o4509657094881280.ingest.de.sentry.io/4509657109692496',
+		dsn: import.meta.env.VITE_SENTRY_DSN || 'https://0cd95912362bc25ef123532e78c3d594@o4509657094881280.ingest.de.sentry.io/4509657109692496',
 
 		_experiments: {enableLogs: true},
 
