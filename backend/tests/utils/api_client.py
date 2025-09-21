@@ -107,6 +107,62 @@ class APIClient:
 		response.raise_for_status()
 		return response.json()
 
+	# Mock Mapillary Operations
+	def set_mock_mapillary_data(self, mock_data: Dict[str, Any], timeout: float = 5.0) -> Dict[str, Any]:
+		"""Set mock Mapillary data."""
+		url = f"{self.api_url}/debug/mock-mapillary"
+		logger.debug(f"POST {url} (timeout={timeout}s)")
+		response = requests.post(url, json=mock_data, timeout=timeout)
+		response.raise_for_status()
+		return response.json()
+
+	def clear_mock_mapillary_data(self, timeout: float = 5.0) -> Dict[str, Any]:
+		"""Clear mock Mapillary data."""
+		url = f"{self.api_url}/debug/mock-mapillary"
+		logger.debug(f"DELETE {url} (timeout={timeout}s)")
+		response = requests.delete(url, timeout=timeout)
+		response.raise_for_status()
+		return response.json()
+
+	def get_mapillary_photos_by_bbox(self, top_left_lat: float, top_left_lng: float,
+									bottom_right_lat: float, bottom_right_lng: float,
+									timeout: float = 5.0) -> Dict[str, Any]:
+		"""Get Mapillary photos by bounding box (handles SSE stream)."""
+		import json
+
+		params = {
+			"top_left_lat": top_left_lat,
+			"top_left_lon": top_left_lng,  # Note: backend expects "lon" not "lng"
+			"bottom_right_lat": bottom_right_lat,
+			"bottom_right_lon": bottom_right_lng,  # Note: backend expects "lon" not "lng"
+			"client_id": "test_client",
+			"max_photos": 250
+		}
+		url = f"{self.api_url}/mapillary"
+		logger.debug(f"GET {url} (timeout={timeout}s)")
+		response = requests.get(url, params=params, timeout=timeout)
+		response.raise_for_status()
+
+		# Parse SSE response
+		all_photos = []
+		stream_info = {}
+
+		for line in response.text.split('\n'):
+			if line.startswith('data: '):
+				try:
+					data = json.loads(line[6:])  # Remove 'data: ' prefix
+					if data.get('type') == 'photos':
+						all_photos.extend(data.get('photos', []))
+					elif data.get('type') == 'stream_complete':
+						stream_info = data
+				except json.JSONDecodeError:
+					continue
+
+		return {
+			"data": all_photos,
+			"stream_info": stream_info
+		}
+
 	# Convenience Methods
 	def get_error_photos(self, token: str, timeout: float = 5.0) -> List[Dict[str, Any]]:
 		"""Get all photos with processing errors."""

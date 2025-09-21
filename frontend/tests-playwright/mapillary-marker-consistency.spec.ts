@@ -238,9 +238,9 @@ test.describe('Mapillary Marker Consistency', () => {
     
     // Configure sources: disable all except Mapillary (this will trigger API request)
     await configureSources(page, {
-      'Hillview': false,
-      'My Device': false,
-      'Mapillary': true
+      'hillview': false,
+      'device': false,
+      'mapillary': true
     });
     
     // Wait for the full loading cycle: API request → stream → markers
@@ -310,9 +310,9 @@ test.describe('Mapillary Marker Consistency', () => {
     
     // Initially disable all sources
     await configureSources(page, {
-      'Hillview': false,
-      'My Device': false,
-      'Mapillary': false
+      'hillview': false,
+      'device': false,
+      'mapillary': false
     });
     
     await page.waitForTimeout(2000);
@@ -330,7 +330,7 @@ test.describe('Mapillary Marker Consistency', () => {
       console.log(`\n🔄 Toggle cycle ${cycle}/5`);
       
       // Enable Mapillary
-      await configureSources(page, { 'Mapillary': true });
+      await configureSources(page, { 'mapillary': true });
       await page.waitForTimeout(2000); // Wait for markers to render
       
       const enabledMarkerCount = await countVisibleMarkers(page);
@@ -341,7 +341,7 @@ test.describe('Mapillary Marker Consistency', () => {
       expect(enabledMarkerCount).toBe(expectedMarkerCount);
       
       // Disable Mapillary
-      await configureSources(page, { 'Mapillary': false });
+      await configureSources(page, { 'mapillary': false });
       await page.waitForTimeout(2000); // Wait for markers to disappear
       
       const disabledMarkerCount = await countVisibleMarkers(page);
@@ -369,6 +369,26 @@ test.describe('Mapillary Marker Consistency', () => {
 
   test('should render correct markers after map pan within mock data area', async ({ page }) => {
     console.log('🧪 Testing marker rendering after map panning within mock data area');
+
+    // Listen to console logs to debug marker behavior
+    page.on('console', msg => {
+      if (msg.text().includes('OptimizedMarkerSystem') || msg.text().includes('Map: ') || msg.text().includes('Mapillary') || msg.text().includes('photo')) {
+        console.log('🢄BROWSER:', msg.text());
+      }
+    });
+
+    // Listen to network requests to see what API calls are made
+    page.on('request', request => {
+      if (request.url().includes('mapillary') || request.url().includes('photos')) {
+        console.log('🢄NETWORK REQUEST:', request.method(), request.url());
+      }
+    });
+
+    page.on('response', response => {
+      if (response.url().includes('mapillary') || response.url().includes('photos')) {
+        console.log('🢄NETWORK RESPONSE:', response.status(), response.url());
+      }
+    });
     
     // Set up mock data using exact coordinates from backend logs
     const centerLat = (50.114739147066835 + 50.114119952930224) / 2;
@@ -382,9 +402,9 @@ test.describe('Mapillary Marker Consistency', () => {
     
     // Enable only Mapillary
     await configureSources(page, {
-      'Hillview': false,
-      'My Device': false,
-      'Mapillary': true
+      'hillview': false,
+      'device': false,
+      'mapillary': true
     });
     await page.waitForTimeout(3000);
     
@@ -458,9 +478,9 @@ test.describe('Mapillary Marker Consistency', () => {
     
     // Initially disable Mapillary
     await configureSources(page, {
-      'Hillview': false,
-      'My Device': false,
-      'Mapillary': false
+      'hillview': false,
+      'device': false,
+      'mapillary': false
     });
     
     // Perform rapid toggles with shorter waits
@@ -468,7 +488,7 @@ test.describe('Mapillary Marker Consistency', () => {
     
     for (let i = 0; i < 10; i++) {
       // Quick enable
-      await configureSources(page, { 'Mapillary': true });
+      await configureSources(page, { 'mapillary': true });
       await page.waitForTimeout(1500); // Shorter wait
       
       const markerCount = await countVisibleMarkers(page);
@@ -476,12 +496,12 @@ test.describe('Mapillary Marker Consistency', () => {
       console.log(`🔄 Rapid toggle ${i + 1}: ${markerCount} markers`);
       
       // Quick disable
-      await configureSources(page, { 'Mapillary': false });
+      await configureSources(page, { 'mapillary': false });
       await page.waitForTimeout(500); // Very short wait
     }
     
     // Final enable to check end state
-    await configureSources(page, { 'Mapillary': true });
+    await configureSources(page, { 'mapillary': true });
     await page.waitForTimeout(3000); // Full wait for final state
     
     const finalMarkerCount = await countVisibleMarkers(page);

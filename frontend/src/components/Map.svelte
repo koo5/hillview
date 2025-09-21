@@ -176,15 +176,15 @@
         const updateId = Date.now();
         lastPhotosUpdate = updateId;
 
-		//console.log(`🢄Updating optimized markers (bearing color) with ${JSON.stringify(photos)}`);
+        console.log(`Map: updateOptimizedMarkers called with ${photos.length} photos, updateId: ${updateId}`);
 
         // Use the optimized marker system
         const updatedMarkers = optimizedMarkerSystem.updateMarkers(map, photos);
         if (updatedMarkers) {
             currentMarkers = updatedMarkers;
-            //console.log(`🢄Updated ${currentMarkers.length} optimized markers`);
+            console.log(`Map: Updated ${currentMarkers.length} optimized markers`);
         } else {
-            console.warn('🢄optimizedMarkerSystem.updateMarkers returned undefined');
+            console.warn('Map: optimizedMarkerSystem.updateMarkers returned undefined');
         }
     }
 
@@ -970,7 +970,7 @@
 
     // Reactive updates for spatial changes (new photos from worker)
     $: if ($visiblePhotos && map) {
-        //console.log(`Map: Updating markers with ${$visiblePhotos.length} visible photos`);
+        console.log(`Map: Reactive update triggered - updating markers with ${$visiblePhotos.length} visible photos`);
         updateOptimizedMarkers($visiblePhotos);
     }
 

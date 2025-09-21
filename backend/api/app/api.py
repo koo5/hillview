@@ -13,7 +13,7 @@ import sys
 # Add common module path for both local development and Docker
 common_path = os.path.join(os.path.dirname(__file__), '..', '..', 'common')
 sys.path.append(common_path)
-from common.database import Base, engine
+from common.database import Base, engine, get_db
 from common.config import is_rate_limiting_disabled, rate_limit_config, get_cors_origins
 from debug_utils import debug_only, safe_str_id, clear_system_tables, cleanup_upload_directories
 
@@ -396,16 +396,35 @@ async def clear_database():
 
 @app.post("/api/debug/mock-mapillary")
 @debug_only
-async def set_mock_mapillary_data(mock_data: Dict[str, Any]):
+async def set_mock_mapillary_data(mock_data: Dict[str, Any], db: AsyncSession = Depends(get_db)):
 
 	from mock_mapillary import mock_mapillary_service
 	mock_mapillary_service.set_mock_data(mock_data)
+
+	# Get cache info to warn about potential confusion
+	from sqlalchemy import text
+	try:
+		cache_photos_result = await db.execute(text("SELECT COUNT(*) as count FROM mapillary_cache"))
+		cache_photos_count = cache_photos_result.scalar()
+
+		cache_areas_result = await db.execute(text("SELECT COUNT(*) as count FROM mapillary_cached_areas"))
+		cache_areas_count = cache_areas_result.scalar()
+	except Exception as e:
+		# Tables might not exist yet - that's fine, means no cached data
+		log.debug(f"Cache tables don't exist yet (normal for fresh database): {e}")
+		cache_photos_count = 0
+		cache_areas_count = 0
 
 	return {
 		"status": "success",
 		"message": "Mock Mapillary data set",
 		"details": {
-			"photos_count": len(mock_data.get('data', []))
+			"photos_count": len(mock_data.get('data', [])),
+			"cache_info": {
+				"cached_photos": cache_photos_count,
+				"cached_areas": cache_areas_count,
+				"warning": "If cache_photos > 0, cached data may override mock data. Use clear-database first for pure mock testing." if cache_photos_count > 0 else None
+			}
 		}
 	}
 

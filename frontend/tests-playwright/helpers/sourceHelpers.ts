@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test';
+import { test, type Page } from '@playwright/test';
 
 /**
  * Playwright helpers for managing map source states in tests.
@@ -53,22 +53,24 @@ export async function ensureSourceEnabled(page: Page, sourceName: string, enable
  * @returns Promise<boolean> - True if all succeeded, false if any failed
  */
 export async function configureSources(page: Page, config: { [sourceName: string]: boolean }): Promise<boolean> {
-    console.log('🗺️ Configuring sources:', config);
+    return await test.step(`Configure sources: ${Object.entries(config).map(([name, enabled]) => `${name}=${enabled}`).join(', ')}`, async () => {
+        console.log('🗺️ Configuring sources:', config);
 
-    let allSucceeded = true;
+        let allSucceeded = true;
 
-    for (const [sourceName, shouldBeEnabled] of Object.entries(config)) {
-        const success = await ensureSourceEnabled(page, sourceName, shouldBeEnabled);
-        if (!success) {
-            allSucceeded = false;
+        for (const [sourceName, shouldBeEnabled] of Object.entries(config)) {
+            const success = await ensureSourceEnabled(page, sourceName, shouldBeEnabled);
+            if (!success) {
+                allSucceeded = false;
+            }
         }
-    }
 
-    // Wait for all source state changes to propagate to worker
-    await page.waitForTimeout(2000);
-    console.log('🗺️ Source configuration complete');
+        // Wait for all source state changes to propagate to worker
+        await page.waitForTimeout(2000);
+        console.log('🗺️ Source configuration complete');
 
-    return allSucceeded;
+        return allSucceeded;
+    });
 }
 
 /**
