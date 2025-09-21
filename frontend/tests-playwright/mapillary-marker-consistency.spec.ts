@@ -56,18 +56,18 @@ async function setMockMapillaryData(page: any, mockData: any) {
   return result;
 }
 
-// Helper function to setup mocked Mapillary data (clear database, set mock, reload)
+// Helper function to setup mocked Mapillary data (set mock, clear database, reload)
 async function setupMockMapillaryData(page: any, mockData: any) {
-  // Step 1: Clear database/cache to remove any existing real Mapillary data
+  // Set mock data (overwrites any existing mock data)
+  await setMockMapillaryData(page, mockData);
+
+  // Clear database/cache to remove any cached data (prevents cache+live duplication)
   const cacheResponse = await page.request.post('http://localhost:8055/api/debug/clear-database');
   if (cacheResponse.status() === 200) {
     console.log('✓ Cleared database/cache');
   }
-  
-  // Step 2: Set mock data
-  await setMockMapillaryData(page, mockData);
-  
-  // Step 3: Reload page so frontend fetches the new mocked data
+
+  // Reload page so frontend fetches the new mocked data
   await page.reload();
   await page.waitForLoadState('networkidle');
 }

@@ -14,8 +14,8 @@ import requests
 from typing import Dict, List, Any
 import math
 
-from tests.utils.api_client import APIClient
-from tests.utils.test_utils import recreate_test_users
+from utils.api_client import APIClient
+from utils.test_utils import recreate_test_users
 
 
 class TestMapillaryMarkerConsistency:
@@ -32,12 +32,7 @@ class TestMapillaryMarkerConsistency:
         """
         client = APIClient()
 
-        # Step 1: Clear any existing mock data
-        print("🧹 Clearing existing mock data...")
-        clear_response = client.clear_mock_mapillary_data()
-        print(f"✓ Cleared mock data: {clear_response}")
-
-        # Step 2: Create mock data with exact same structure as frontend
+        # Create mock data with exact same structure as frontend
         print("📍 Creating mock data with frontend-identical structure...")
         mock_data = self._create_mock_mapillary_data_frontend_identical()
 
@@ -54,10 +49,15 @@ class TestMapillaryMarkerConsistency:
         set_response = client.set_mock_mapillary_data(mock_data)
         print(f"✓ Set mock Mapillary data: {set_response}")
 
+        # Clear database to remove cached data (prevents cache+live duplication)
+        print("🗑️ Clearing database (including Mapillary cache)...")
+        clear_db_response = client.clear_database()
+        print(f"✓ Cleared database: {clear_db_response['message']}")
+
         # Verify backend stored exactly 15 photos
         assert set_response['details']['photos_count'] == 15
 
-        # Step 3: Make first request - should get 15 unique photos
+        # Make first request - should get 15 unique photos
         print("📍 First request - initial area...")
         bbox1 = {
             'top_left_lat': 50.115,
@@ -82,7 +82,7 @@ class TestMapillaryMarkerConsistency:
         assert len(photo_ids1) == len(unique_ids1), "First request should not have duplicate photo IDs"
         assert photo_count1 == 15, f"Expected 15 photos, got {photo_count1}"
 
-        # Step 4: Make second request with slightly different bbox (simulating map pan)
+        # Make second request with slightly different bbox (simulating map pan)
         print("📍 Second request - simulating map pan...")
         bbox2 = {
             'top_left_lat': 50.1155,  # Slightly different
@@ -106,7 +106,7 @@ class TestMapillaryMarkerConsistency:
 
         assert len(photo_ids2) == len(unique_ids2), "Second request should not have duplicate photo IDs"
 
-        # Step 5: Compare the two responses
+        # Compare the two responses
         print("🔍 Analyzing response differences...")
         common_ids = set(photo_ids1) & set(photo_ids2)
         only_in_first = set(photo_ids1) - set(photo_ids2)
@@ -137,10 +137,14 @@ class TestMapillaryMarkerConsistency:
         """
         client = APIClient()
 
-        # Clear and set mock data
+        # Clear mock data first, then set new mock data, then clear database
+        print("🧹 Clearing existing mock data...")
         client.clear_mock_mapillary_data()
+        print("📍 Setting up mock data...")
         mock_data = self._create_mock_mapillary_data_frontend_identical()
         client.set_mock_mapillary_data(mock_data)
+        print("🗑️ Clearing database to remove cached data...")
+        client.clear_database()
 
         # Simulate multiple rapid requests (like frontend map panning)
         print("🔄 Simulating rapid bbox changes like frontend map panning...")

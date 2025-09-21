@@ -291,6 +291,9 @@ async def stream_mapillary_images(
 		total_photo_count = 0
 		cached_photo_count = 0
 
+		# Track streamed photo IDs to prevent duplicates between cache and live sections
+		streamed_photo_ids = set()
+
 		try:
 			if not ENABLE_MAPILLARY_CACHE and ENABLE_MAPILLARY_LIVE:
 				# Live-only mode - stream directly from Mapillary API
@@ -311,6 +314,18 @@ async def stream_mapillary_images(
 
 					if not photos_data:
 						break
+
+					# Filter out photos that were already streamed to prevent duplicates
+					initial_count = len(photos_data)
+					photos_data = [photo for photo in photos_data if photo.get('id') not in streamed_photo_ids]
+					filtered_count = len(photos_data)
+
+					if initial_count != filtered_count:
+						log.info(f"Filtered out {initial_count - filtered_count} duplicate photos in live-only mode")
+
+					# Track newly streamed photo IDs
+					for photo in photos_data:
+						streamed_photo_ids.add(photo.get('id'))
 
 					# Apply photo limit
 					original_batch_size = len(photos_data)
@@ -401,7 +416,13 @@ async def stream_mapillary_images(
 							photo.pop('_grid_y', None)
 
 						cached_photo_count = len(sorted_cached)
+
+						# Track cached photo IDs to prevent duplication in live section
+						for photo in sorted_cached:
+							streamed_photo_ids.add(photo.get('id'))
+
 						log.info(f"Streaming {cached_photo_count} cached photos to client {client_id}")
+						log.info(f"Tracking {len(streamed_photo_ids)} photo IDs to prevent live duplication")
 						# For cached photos from complete cache, region is exhausted if we have fewer than limit
 						# (assuming cache service marks regions as complete when no more data available)
 						region_exhausted = len(cached_photos) < effective_max_photos
@@ -478,6 +499,18 @@ async def stream_mapillary_images(
 
 							# Apply photo limit only for streaming (accounting for cached photos)
 							stream_photos = photos_data
+
+							# Filter out photos that were already streamed from cache to prevent duplicates
+							initial_count = len(stream_photos)
+							stream_photos = [photo for photo in stream_photos if photo.get('id') not in streamed_photo_ids]
+							filtered_count = len(stream_photos)
+
+							if initial_count != filtered_count:
+								log.info(f"Filtered out {initial_count - filtered_count} duplicate photos that were already streamed from cache")
+
+							# Track newly streamed photo IDs
+							for photo in stream_photos:
+								streamed_photo_ids.add(photo.get('id'))
 
 							# Apply hidden content filtering for streaming
 							if user:
