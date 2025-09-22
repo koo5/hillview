@@ -221,10 +221,9 @@ async def fetch_mapillary_data(
 	top_left_lon: float,
 	bottom_right_lat: float,
 	bottom_right_lon: float,
-	cursor: Optional[str] = None,
 	limit: int = 250
 ) -> Dict[str, Any]:
-	"""Fetch data from Mapillary API with optional cursor for pagination"""
+	"""Fetch data from Mapillary API"""
 
 	# Check for mock data first
 	if mock_mapillary_service.has_mock_data():
@@ -238,9 +237,6 @@ async def fetch_mapillary_data(
 		"fields": "id,geometry,compass_angle,thumb_1024_url,computed_rotation,computed_compass_angle,computed_altitude,captured_at,is_pano,creator",
 		"access_token": get_mapillary_token(),
 	}
-
-	if cursor:
-		params["after"] = cursor
 
 	return await api_manager.make_request(params)
 
@@ -275,7 +271,7 @@ async def stream_mapillary_images(
 		# Check if any Mapillary functionality is enabled
 		if not ENABLE_MAPILLARY_CACHE and not ENABLE_MAPILLARY_LIVE:
 			log.info(f"Mapillary functionality disabled - both cache and live API are disabled")
-			yield f"data: {json.dumps({'type': 'photos', 'photos': [], 'hasNext': False})}\n\n"
+			yield f"data: {json.dumps({'type': 'photos', 'photos': []})}\n\n"
 			yield f"data: {json.dumps({'type': 'stream_complete', 'total_live_photos': 0, 'total_cached_photos': 0, 'total_all_photos': 0})}\n\n"
 			return
 
@@ -285,6 +281,17 @@ async def stream_mapillary_images(
 
 		# Track streamed photo IDs to prevent duplicates between cache and live sections
 		streamed_photo_ids = set()
+
+		event = {
+			'bbox': [top_left_lat, top_left_lon, bottom_right_lat, bottom_right_lon],
+			'client_id': client_id,
+			'request_id': request_id,
+			'user_id': user.id if user else None,
+			'inputs': [],
+
+
+
+		}
 
 		try:
 			if ENABLE_MAPILLARY_CACHE or ENABLE_MAPILLARY_LIVE:
@@ -331,15 +338,10 @@ async def stream_mapillary_images(
 					if not cache_ignored_due_to_distribution:
 						sorted_cached = sorted(cached_photos, key=lambda x: x.get('compass_angle', 0))
 
-						# Apply photo limit to cached photos (already limited by spatial sampling)
-						if len(sorted_cached) > effective_max_photos:
-							sorted_cached = sorted_cached[:effective_max_photos]
-							log.info(f"Limiting cached photos from {len(cached_photos)} to {effective_max_photos} due to effective_max_photos")
-
 						# Clean up grid info before sending to client
-						for photo in sorted_cached:
-							photo.pop('_grid_x', None)
-							photo.pop('_grid_y', None)
+						#for photo in sorted_cached:
+						#	photo.pop('_grid_x', None)
+						#	photo.pop('_grid_y', None)
 
 						cached_photo_count = len(sorted_cached)
 
@@ -348,34 +350,43 @@ async def stream_mapillary_images(
 							streamed_photo_ids.add(photo.get('id'))
 
 						log.info(f"Streaming {cached_photo_count} cached photos to client {client_id}")
-						log.info(f"Tracking {len(streamed_photo_ids)} photo IDs to prevent live duplication")
-						# For cached photos from complete cache, region is exhausted if we have fewer than limit
-						# (assuming cache service marks regions as complete when no more data available)
-						region_exhausted = len(cached_photos) < effective_max_photos
-						yield f"data: {json.dumps({'type': 'photos', 'photos': sorted_cached, 'hasNext': not region_exhausted})}\n\n"
+						yield f"data: {json.dumps({'type': 'photos', 'photos': sorted_cached})}\n\n"
+
 				else:
 					cached_photo_count = 0
 					log.info(f"Cache miss: No cached photos found for bbox")
-					log.info(f"Streaming 0 cached photos to client {client_id}")
-					# No cached photos means we haven't checked this region yet
-					yield f"data: {json.dumps({'type': 'photos', 'photos': [], 'hasNext': True})}\n\n"
+					yield f"data: {json.dumps({'type': 'photos', 'photos': []})}\n\n"
 
 				# Calculate uncached regions (or use full area if cache was ignored due to poor distribution)
 				if cache_ignored_due_to_distribution:
 					# Cache was ignored due to poor distribution, fetch entire area
-					log.info("Using entire requested area for live API due to poor cache distribution")
+					log.info("poor cache distribution.")
 					uncached_regions = [(top_left_lat, top_left_lon, bottom_right_lat, bottom_right_lon)]
 				else:
 					uncached_regions = await cache_service.calculate_uncached_regions(
 						top_left_lat, top_left_lon, bottom_right_lat, bottom_right_lon
 					)
 
+				event['inputs'].append({
+					'bbox': [top_left_lat, top_left_lon, bottom_right_lat, bottom_right_lon],
+					'photos': cached_photos,
+					'meta': {
+						'type': 'cache',
+						'cached_photo_count': cached_photo_count,
+						'is_complete_coverage': is_complete_coverage,
+						'distribution_score': distribution_score,
+						'cache_ignored_due_to_distribution': cache_ignored_due_to_distribution,
+						'uncached_regions': uncached_regions
+					}
+				})
+
+
 				log.info(f"Cache analysis: Found {len(uncached_regions)} uncached regions for bbox")
 				# Cache analysis complete - proceeding with any missing data fetch
 
 				# Stream live data from uncached regions (only if live API is enabled)
 				if uncached_regions and ENABLE_MAPILLARY_LIVE:
-					log.info(f"Need to fetch data from Mapillary API for {len(uncached_regions)} uncached regions (rate limiting handled by API manager)")
+					log.info(f"Need to fetch data from Mapillary API for {len(uncached_regions)} uncached regions")
 				elif uncached_regions and not ENABLE_MAPILLARY_LIVE:
 					log.info(f"Found {len(uncached_regions)} uncached regions but live API is disabled - skipping live data fetch")
 
@@ -397,7 +408,6 @@ async def stream_mapillary_images(
 							region_bbox[0], region_bbox[1], region_bbox[2], region_bbox[3]
 						)
 
-						cursor = None
 						region_photos = []
 
 						# Stream all pages for this region
@@ -405,8 +415,7 @@ async def stream_mapillary_images(
 						while True:
 							log.info(f"Query Mapillary for region {region.id} ...")
 							mapillary_response = await fetch_mapillary_data(
-								region_bbox[0], region_bbox[1], region_bbox[2], region_bbox[3], cursor,
-								limit=effective_max_photos
+								region_bbox[0], region_bbox[1], region_bbox[2], region_bbox[3], limit=effective_max_photos
 							)
 							if "error" in mapillary_response:
 								raise Exception(mapillary_response["error"])
@@ -476,7 +485,7 @@ async def stream_mapillary_images(
 
 						# Only mark region as complete if we actually fetched all available data from Mapillary
 						if region_fully_fetched:
-							await cache_service.mark_region_complete(region, cursor)
+							await cache_service.mark_region_complete(region)
 							log.info(f"Region {region.id} marked as complete: cached {len(region_photos)} total photos")
 						else:
 							log.info(f"Region {region.id} processing stopped due to limits but may have more data: cached {len(region_photos)} photos so far")
@@ -502,8 +511,10 @@ async def stream_mapillary_images(
 		finally:
 			log.info(f"Stream generator finished for request {request_id} from client {client_id}")
 
+			# todo: save event to db
+
 	try:
-		log.info(f"Creating StreamingResponse for client {client_id}")
+		log.debug(f"Creating StreamingResponse for client {client_id}")
 		response = StreamingResponse(
 			generate_stream(db, current_user),
 			media_type="text/event-stream",
@@ -518,7 +529,7 @@ async def stream_mapillary_images(
 				"Content-Type": "text/event-stream; charset=utf-8"
 			}
 		)
-		log.info(f"StreamingResponse created successfully for client {client_id}")
+		log.debug(f"StreamingResponse created successfully for client {client_id}")
 		return response
 	except Exception as e:
 		log.error(f"Failed to create StreamingResponse for client {client_id}: {str(e)}", exc_info=True)

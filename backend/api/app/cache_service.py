@@ -515,17 +515,10 @@ class MapillaryCacheService:
 
 		return cached_count
 
-	async def mark_region_complete(self, region: CachedRegion, last_cursor: Optional[str] = None):
+	async def mark_region_complete(self, region: CachedRegion):
 		"""Mark a region as completely cached"""
 		region.is_complete = True
 		region.has_more = False
-		region.last_cursor = last_cursor
-		region.last_updated = utcnow()
-		await self.db.commit()
-
-	async def update_region_cursor(self, region: CachedRegion, cursor: str):
-		"""Update region's pagination cursor"""
-		region.last_cursor = cursor
 		region.last_updated = utcnow()
 		await self.db.commit()
 
