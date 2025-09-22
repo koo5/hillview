@@ -175,7 +175,7 @@
 	function handleKeyDown(e: KeyboardEvent) {
 		// Only handle debug toggle when no modifier keys are pressed
 		// and when not typing in an input/textarea/contenteditable element
-		if (e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) {
+		if (e.ctrlKey || e.altKey || e.metaKey) {
 			return;
 		}
 
@@ -192,6 +192,8 @@
 			return;
 		}
 
+		const shift = e.shiftKey;
+
 		// Handle debug toggle
 		if (e.key === 'd') {
 			e.preventDefault();
@@ -202,6 +204,7 @@
 			e.preventDefault();
 			toggleAllSources();
 		}
+
 		// Handle navigation shortcuts
 		else if (e.key === 'z') {
 			e.preventDefault();
@@ -211,13 +214,21 @@
 			e.preventDefault();
 			updateBearingByDiff(-15);
 		}
+		else if (e.key === 'X') {
+			e.preventDefault();
+			updateBearingByDiff(-1);
+		}
 		else if (e.key === 'c') {
 			e.preventDefault();
 			mapComponent?.moveForward?.();
 		}
 		else if (e.key === 'v') {
 			e.preventDefault();
-			turn_to_photo_to('right');
+			mapComponent?.moveBackward?.();
+		}
+		else if (e.key === 'B') {
+			e.preventDefault();
+			updateBearingByDiff(1);
 		}
 		else if (e.key === 'b') {
 			e.preventDefault();
@@ -225,7 +236,7 @@
 		}
 		else if (e.key === 'k') {
 			e.preventDefault();
-			mapComponent?.moveBackward?.();
+			turn_to_photo_to('right');
 		}
 	}
 
@@ -265,7 +276,7 @@
 	const toggleAllSources = () => {
 		const currentSources = get(sources);
 		const anyEnabled = currentSources.some(src => src.enabled);
-		
+
 		if (anyEnabled) {
 			// If any sources are enabled, disable all
 			sources.update(srcs => {

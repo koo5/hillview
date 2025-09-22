@@ -369,7 +369,6 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
                         type: 'photosAdded',
                         sourceId: this.source.id,
                         photos: this.streamPhotos, // Send accumulated photos (growing list)
-                        hasNext: !!data.hasNext // Preserve hasNext for client caching decisions
                     });
                 }
                 break;

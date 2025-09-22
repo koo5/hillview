@@ -180,9 +180,9 @@ class GlobalRateLimitMiddleware(BaseHTTPMiddleware):
 # Request logging middleware
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
 	async def dispatch(self, request: Request, call_next):
-		log.error(f"DEBUG: Request {request.method} {request.url}")
+		log.debug(f"HTTP {request.method} {request.url}")
 		response = await call_next(request)
-		log.error(f"DEBUG: Response {response.status_code}")
+		log.debug(f"HTTP {response.status_code}")
 		return response
 
 # CORS request logging middleware
@@ -236,8 +236,8 @@ class ReverseProxyMiddleware(BaseHTTPMiddleware):
 		return await call_next(request)
 
 # Add middlewares (order matters - later added = executed first)
-app.add_middleware(CORSLoggingMiddleware)
-app.add_middleware(RequestLoggingMiddleware)
+#app.add_middleware(CORSLoggingMiddleware)
+#app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(GlobalRateLimitMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(ReverseProxyMiddleware)

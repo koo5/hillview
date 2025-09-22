@@ -32,7 +32,7 @@ class PhotoUploadWorker(
         try {
             Log.d(TAG, "Starting photo upload worker")
 
-            // Read current auto-upload setting from SharedPreferences (not stale inputData)
+            // Read current auto-upload setting from SharedPreferences
             val prefs = applicationContext.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
             val autoUploadEnabled = prefs.getBoolean("auto_upload_enabled", false)
             Log.d(TAG, "Auto upload enabled (from SharedPrefs): $autoUploadEnabled")
@@ -562,8 +562,10 @@ class PhotoUploadWorker(
     }
 
     private fun calculateBackoffTime(retryCount: Int): Long {
-        // Exponential backoff: 1min, 2min, 4min, 8min, 16min
+        // Exponential backoff: 1min, 2min, 4min, 8min, 16min, 32min, 1hr, 2hr, 4hr, 8hr, 16hr, 1.3days, 2.6days, 5.2days, 7days (max)
         val baseDelay = 60_000L // 1 minute
-        return baseDelay * (1L shl minOf(retryCount, 4))
+        val maxDelay = 7 * 24 * 60 * 60 * 1000L // 7 days in milliseconds
+        val exponentialDelay = baseDelay * (1L shl retryCount)
+        return minOf(exponentialDelay, maxDelay)
     }
 }
