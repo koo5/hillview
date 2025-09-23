@@ -5,6 +5,7 @@ import {MAX_DEBUG_MODES} from './constants';
 import {auth} from './auth.svelte';
 // Import new mapState for legacy compatibility only
 import {photoInFront, photoToLeft, photoToRight, updateBearing as mapStateUpdateBearing, bearingState} from './mapState';
+import {TAURI} from "$lib/tauri";
 
 // Device source subtypes
 export type subtype = 'hillview' | 'folder' | 'gallery';
@@ -23,11 +24,16 @@ export interface Source {
     subtype?: subtype;
 }
 
-export const sources = writable<Source[]>([
+const baseSources: Source[] = [
     {id: 'hillview', name: 'Hillview', type: 'stream', enabled: !import.meta.env.VITE_PICS_OFF, requests: [], color: '#000', url: `${backendUrl}/hillview`},
-    {id: 'mapillary', name: 'Mapillary', type: 'stream', enabled: !import.meta.env.VITE_PICS_OFF, requests: [], color: '#888', url: `${backendUrl}/mapillary`},
-    {id: 'device', name: 'My Device', type: 'device', enabled: !import.meta.env.VITE_PICS_OFF, requests: [], color: '#4a90e2', subtype: 'hillview'},
-]);
+    {id: 'mapillary', name: 'Mapillary', type: 'stream', enabled: !import.meta.env.VITE_PICS_OFF, requests: [], color: '#888', url: `${backendUrl}/mapillary`}
+];
+
+const deviceSources: Source[] = !TAURI ? [] : [
+    {id: 'device', name: 'My Device', type: 'device', enabled: !import.meta.env.VITE_PICS_OFF, requests: [], color: '#4a90e2', subtype: 'hillview'}
+];
+
+export const sources = writable<Source[]>([...baseSources, ...deviceSources]);
 
 export let client_id = staggeredLocalStorageSharedStore('client_id', Math.random().toString(36));
 

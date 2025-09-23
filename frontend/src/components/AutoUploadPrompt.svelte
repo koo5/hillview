@@ -203,21 +203,6 @@
 		background: rgba(0, 0, 0, 0.2);
 	}
 
-	.never-ask-btn {
-		width: 100%;
-		padding: 0.5rem;
-		background: transparent;
-		border: none;
-		border-top: 1px solid rgba(0, 0, 0, 0.1);
-		color: #666;
-		font-size: 0.8rem;
-		cursor: pointer;
-		transition: background 0.2s;
-	}
-
-	.never-ask-btn:hover {
-		background: rgba(0, 0, 0, 0.05);
-	}
 
 	@media (prefers-color-scheme: dark) {
 		.auto-upload-prompt {
@@ -234,13 +219,5 @@
 			background: rgba(255, 255, 255, 0.2);
 		}
 
-		.never-ask-btn {
-			border-top-color: rgba(255, 255, 255, 0.1);
-			color: #999;
-		}
-
-		.never-ask-btn:hover {
-			background: rgba(255, 255, 255, 0.05);
-		}
 	}
 </style>
