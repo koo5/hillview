@@ -237,7 +237,7 @@ class ReverseProxyMiddleware(BaseHTTPMiddleware):
 
 # Add middlewares (order matters - later added = executed first)
 #app.add_middleware(CORSLoggingMiddleware)
-#app.add_middleware(RequestLoggingMiddleware)
+app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(GlobalRateLimitMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(ReverseProxyMiddleware)
