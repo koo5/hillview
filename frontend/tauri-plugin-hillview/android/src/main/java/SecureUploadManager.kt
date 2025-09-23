@@ -16,6 +16,14 @@ import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.TimeUnit
 
+// Database imports for duplicate handling
+import cz.hillview.plugin.PhotoDatabase
+
+/**
+ * Exception thrown when a duplicate file is detected and handled
+ */
+class DuplicateFileException(message: String) : Exception(message)
+
 /**
  * Secure Upload Manager for Android Background Uploads
  *
@@ -117,7 +125,15 @@ class SecureUploadManager(private val context: Context) {
                 // Check if this is a duplicate file detection response
                 if (responseJson.optBoolean("duplicate", false)) {
                     val duplicateMessage = responseJson.optString("message", "This file has already been uploaded")
-                    throw Exception("Duplicate file detected: $duplicateMessage")
+                    Log.i(TAG, "Duplicate file detected for ${photo.filename}: $duplicateMessage")
+
+                    // Mark the local photo as completed since it already exists on the server
+                    val currentTime = System.currentTimeMillis()
+                    val dao = PhotoDatabase.getDatabase(context).photoDao()
+                    dao.updateUploadStatus(photo.id, "completed", currentTime)
+
+                    // Return a special response indicating duplicate was handled
+                    throw DuplicateFileException("Duplicate file successfully handled: $duplicateMessage")
                 }
 
                 return UploadAuthorizationResponse(
@@ -194,7 +210,7 @@ class SecureUploadManager(private val context: Context) {
                     Log.d(TAG, "✅ Secure upload completed: $filename")
                 } else {
                     val errorMsg = responseJson.optString("error", "Unknown worker error")
-                    Log.e(TAG, "❌ Worker processing failed: $errorMsg")
+                    Log.e(TAG, "❌ Secure upload $filename failed: $errorMsg")
                 }
 
                 return success
@@ -249,14 +265,11 @@ class SecureUploadManager(private val context: Context) {
                 authResponse.worker_url
             )
 
-            if (uploadSuccess) {
-                Log.d(TAG, "✅ Secure upload successful: ${photo.filename}")
-            } else {
-                Log.e(TAG, "❌ Secure upload failed: ${photo.filename}")
-            }
-
             return@withContext uploadSuccess
 
+        } catch (e: DuplicateFileException) {
+            Log.i(TAG, "✅ Duplicate file handled for ${photo.filename}: ${e.message}")
+            return@withContext true
         } catch (e: java.net.ConnectException) {
             Log.w(TAG, "🌐 Connection failed for ${photo.filename}: Server unreachable (${e.message})")
             return@withContext false

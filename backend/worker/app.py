@@ -192,7 +192,7 @@ async def upload_and_process_photo(
 	logger.info(f"/upload photo {photo_id}, user {user_id}, key {client_key_id}: {file.filename}")
 
 	file_path = None
-	processing_status = "failed"
+	processing_status = "error"
 	error_message = None
 	retry_after_minutes = None
 	processing_result = None

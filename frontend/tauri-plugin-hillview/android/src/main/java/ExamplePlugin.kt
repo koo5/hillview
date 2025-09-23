@@ -715,31 +715,26 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     }
 
     @Command
-    fun retryFailedUploads(invoke: Invoke) {
+    fun tryUploads(invoke: Invoke) {
         try {
-            Log.d(TAG, "📤 Retrying failed uploads")
 
             // Trigger the upload worker immediately
             val workManager = WorkManager.getInstance(activity)
             val prefs = activity.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
             val autoUploadEnabled = prefs.getBoolean("auto_upload_enabled", false)
 
-            val workRequest = OneTimeWorkRequestBuilder<PhotoUploadWorker>()
-                .setInputData(
-                    Data.Builder()
-                        .putBoolean(PhotoUploadWorker.KEY_AUTO_UPLOAD_ENABLED, autoUploadEnabled)
-                        .build()
-                )
-                .build()
-
-            workManager.enqueue(workRequest)
+			if (autoUploadEnabled) {
+	            Log.d(TAG, "🢄📤 workManager.enqueue(workRequest)")
+				val workRequest = OneTimeWorkRequestBuilder<PhotoUploadWorker>().build()
+				workManager.enqueue(workRequest)
+            }
 
             val result = JSObject()
             result.put("success", true)
             invoke.resolve(result)
 
         } catch (e: Exception) {
-            Log.e(TAG, "📤 Error retrying failed uploads", e)
+            Log.e(TAG, "🢄📤 tryUploads error", e)
             val error = JSObject()
             error.put("success", false)
             error.put("error", e.message)
@@ -887,9 +882,9 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                         // Normal request: get valid token (will refresh if needed)
                         authManager.getValidToken()
                     }
-                    
+
                     val (_, expiresAt) = authManager.getTokenInfo()
-                    
+
                     CoroutineScope(Dispatchers.Main).launch {
                         val result = JSObject()
                         result.put("success", true)
@@ -1119,7 +1114,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                 try {
                     // Get current valid token for the registration request
                     val token = authManager.getValidToken()
-                    
+
                     if (token == null) {
                         CoroutineScope(Dispatchers.Main).launch {
                             val error = JSObject()
@@ -1166,12 +1161,12 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     fun getDevicePhotos(invoke: Invoke) {
         try {
             Log.d(TAG, "📸 Getting device photos from database")
-            
+
             CoroutineScope(Dispatchers.IO).launch {
                 try {
                     val photoDao = database.photoDao()
                     val photos = photoDao.getAllPhotos()
-                    
+
                     // Convert PhotoEntity list to JSON array for response
                     val photoList = JSONArray()
                     for (photo in photos) {
@@ -1193,19 +1188,20 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                         photoJson.put("uploadStatus", photo.uploadStatus)
                         photoJson.put("uploadedAt", photo.uploadedAt)
                         photoJson.put("retryCount", photo.retryCount)
+                        photoJson.put("lastUploadAttempt", photo.lastUploadAttempt)
                         photoList.put(photoJson)
                     }
-                    
+
                     val response = JSObject()
                     response.put("photos", photoList)
                     response.put("lastUpdated", System.currentTimeMillis())
-                    
+
                     Log.d(TAG, "📸 Retrieved ${photos.size} photos from device database")
-                    
+
                     CoroutineScope(Dispatchers.Main).launch {
                         invoke.resolve(response)
                     }
-                    
+
                 } catch (e: Exception) {
                     Log.e(TAG, "📸 Error getting device photos", e)
                     CoroutineScope(Dispatchers.Main).launch {
@@ -1217,7 +1213,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                     }
                 }
             }
-            
+
         } catch (e: Exception) {
             Log.e(TAG, "📸 Error starting device photos retrieval", e)
             val error = JSObject()
@@ -1232,7 +1228,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     fun refreshPhotoScan(invoke: Invoke) {
         try {
             Log.d(TAG, "🔄 Starting photo scan refresh")
-            
+
             CoroutineScope(Dispatchers.IO).launch {
                 try {
                     // This would typically scan the device for new photos
@@ -1241,13 +1237,13 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                     response.put("photosAdded", 0)
                     response.put("scanErrors", 0)
                     response.put("success", true)
-                    
+
                     Log.d(TAG, "🔄 Photo scan refresh completed")
-                    
+
                     CoroutineScope(Dispatchers.Main).launch {
                         invoke.resolve(response)
                     }
-                    
+
                 } catch (e: Exception) {
                     Log.e(TAG, "🔄 Error during photo scan refresh", e)
                     CoroutineScope(Dispatchers.Main).launch {
@@ -1260,7 +1256,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                     }
                 }
             }
-            
+
         } catch (e: Exception) {
             Log.e(TAG, "🔄 Error starting photo scan refresh", e)
             val error = JSObject()
@@ -1298,7 +1294,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     fun addPhotoToDatabase(invoke: Invoke) {
         try {
             Log.d(TAG, "📸 Adding photo to database from JS/Rust")
-            
+
             // Parse the photo data using typed args
             val args = invoke.parseArgs(AddPhotoArgs::class.java)
 
@@ -1321,7 +1317,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                 invoke.resolve(error)
                 return
             }
-            
+
             CoroutineScope(Dispatchers.IO).launch {
                 try {
                     // Hash is always provided by Rust (calculated from bytes in memory)
@@ -1354,7 +1350,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                         uploadStatus = "pending",
                         fileHash = fileHash  // Always use the calculated/provided hash
                     )
-                    
+
                     // Insert into database (will replace if exists due to OnConflictStrategy.REPLACE)
                     database.photoDao().insertPhoto(photoEntity)
 
@@ -1366,7 +1362,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                         result.put("photoId", photoId)
                         invoke.resolve(result)
                     }
-                    
+
                 } catch (e: Exception) {
                     Log.e(TAG, "📸 Error adding photo to database", e)
                     CoroutineScope(Dispatchers.Main).launch {
@@ -1377,7 +1373,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                     }
                 }
             }
-            
+
         } catch (e: Exception) {
             Log.e(TAG, "📸 Error parsing photo data", e)
             val error = JSObject()

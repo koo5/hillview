@@ -98,10 +98,11 @@ impl<R: Runtime> Hillview<R> {
       .map_err(Into::into)
   }
 
+// todo rename to try_uploads
   pub fn retry_failed_uploads(&self) -> crate::Result<BasicResponse> {
     self
       .0
-      .run_mobile_plugin("retryFailedUploads", ())
+      .run_mobile_plugin("tryUploads", ())
       .map_err(Into::into)
   }
 

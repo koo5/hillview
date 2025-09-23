@@ -72,118 +72,114 @@ async def save_processed_photo(
 	db: AsyncSession = Depends(get_db)
 ):
 	"""Save processed photo data from worker service with client signature verification."""
-	try:
-		processed_data = request.processed_data
-		worker_signature = request.worker_signature
-		photo_id = processed_data.photo_id
+	processed_data = request.processed_data
+	worker_signature = request.worker_signature
+	photo_id = processed_data.photo_id
 
-		# TODO: Verify worker signature for security
-		logger.info(f"Received processed photo data from worker for {photo_id} (signature: {worker_signature[:20]}...)")
-		logger.info(f"Saving processed photo data for {photo_id}")
+	# TODO: Verify worker signature for security
+	logger.info(f"Received processed photo data from worker for {photo_id} (signature: {worker_signature[:20]}...)")
+	logger.info(f"Saving processed photo data for {photo_id}")
 
-		# Get the photo record (includes client signature info)
-		result = await db.execute(
-			select(Photo).where(Photo.id == photo_id)
-		)
-		photo = result.scalars().first()
+	# Get the photo record (includes client signature info)
+	result = await db.execute(
+		select(Photo).where(Photo.id == photo_id)
+	)
+	photo = result.scalars().first()
 
-		if not photo:
-			raise HTTPException(
-				status_code=status.HTTP_404_NOT_FOUND,
-				detail="Photo not found"
-			)
-
-		# Verify that photo is in authorized status (not already processed)
-		if photo.processing_status != "authorized":
-			raise HTTPException(
-				status_code=status.HTTP_400_BAD_REQUEST,
-				detail=f"Photo not in valid state for processing: {photo.processing_status}"
-			)
-
-		if not processed_data.client_signature:
-			raise HTTPException(
-				status_code=status.HTTP_400_BAD_REQUEST,
-				detail="Client signature is required for secure uploads"
-			)
-
-		# Get client's public key for signature verification
-		from common.models import UserPublicKey
-		key_result = await db.execute(
-			select(UserPublicKey).where(
-				UserPublicKey.user_id == photo.owner_id,
-				UserPublicKey.key_id == photo.client_public_key_id,
-				UserPublicKey.is_active == True
-			)
-		)
-		client_public_key = key_result.scalars().first()
-
-		if not client_public_key:
-			raise HTTPException(
-				status_code=status.HTTP_400_BAD_REQUEST,
-				detail="Client public key not found or inactive"
-			)
-
-		logger.info(f"Verifying client signature for photo {photo_id} using public key ID {client_public_key.key_id}")
-
-		# Verify client signature
-		if not verify_client_signature(
-			signature_base64=processed_data.client_signature,
-			public_key_pem=client_public_key.public_key_pem,
-			photo_id=photo_id,
-			filename=photo.original_filename,
-			timestamp=int(photo.upload_authorized_at.timestamp()) if photo.upload_authorized_at else None
-		):
-			logger.error(f"Client signature verification failed for photo {photo_id}")
-			raise HTTPException(
-				status_code=status.HTTP_403_FORBIDDEN,
-				detail="Client signature verification failed"
-			)
-
-		logger.info(f"Client signature verified for photo {photo_id}")
-
-		# Update photo with processed data, store signature, and track worker identity
-		photo.processing_status = processed_data.processing_status
-		photo.width = processed_data.width
-		photo.height = processed_data.height
-		# Update filename after successful processing
-		if processed_data.filename:
-			photo.filename = processed_data.filename
-		# Overwrite client-supplied geolocation data from authorization if EXIF/processing provides better data
-		if processed_data.latitude is not None:
-			photo.latitude = processed_data.latitude
-		if processed_data.longitude is not None:
-			photo.longitude = processed_data.longitude
-		if processed_data.compass_angle is not None:
-			photo.compass_angle = processed_data.compass_angle
-		if processed_data.altitude is not None:
-			photo.altitude = processed_data.altitude
-		photo.exif_data = processed_data.exif_data
-		photo.sizes = processed_data.sizes
-		photo.detected_objects = processed_data.detected_objects
-		photo.error = processed_data.error
-		photo.client_signature = processed_data.client_signature  # Store signature for audit trail
-		photo.processed_by_worker = processed_data.processed_by_worker  # Track which worker processed this
-		photo.processed_at = datetime.now(timezone.utc)  # When processing was completed
-
-		await db.commit()
-		await db.refresh(photo)
-
-		logger.info(f"Photo {photo_id} processing data saved successfully with verified client signature")
-
-		return {
-			"message": "Processed photo data saved successfully",
-			"photo_id": photo.id,
-			"processing_status": photo.processing_status
-		}
-
-	except HTTPException:
-		raise
-	except Exception as e:
-		logger.error(f"Error saving processed photo data for {processed_data.photo_id}: {str(e)}")
+	if not photo:
 		raise HTTPException(
-			status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-			detail="Failed to save processed photo data"
+			status_code=status.HTTP_404_NOT_FOUND,
+			detail="Photo not found"
 		)
+
+	# Verify that photo is in authorized status (not already processed)
+	if photo.processing_status != "authorized":
+		raise HTTPException(
+			status_code=status.HTTP_400_BAD_REQUEST,
+			detail=f"Photo not in valid state for processing: {photo.processing_status}"
+		)
+
+	if not processed_data.client_signature:
+		raise HTTPException(
+			status_code=status.HTTP_400_BAD_REQUEST,
+			detail="Client signature is required for secure uploads"
+		)
+
+	# Get client's public key for signature verification
+	from common.models import UserPublicKey
+	key_result = await db.execute(
+		select(UserPublicKey).where(
+			UserPublicKey.user_id == photo.owner_id,
+			UserPublicKey.key_id == photo.client_public_key_id,
+			UserPublicKey.is_active == True
+		)
+	)
+	client_public_key = key_result.scalars().first()
+
+	if not client_public_key:
+		raise HTTPException(
+			status_code=status.HTTP_400_BAD_REQUEST,
+			detail="Client public key not found or inactive"
+		)
+
+	logger.info(f"Verifying client signature for photo {photo_id} using public key ID {client_public_key.key_id}")
+
+	# Verify client signature
+	if not verify_client_signature(
+		signature_base64=processed_data.client_signature,
+		public_key_pem=client_public_key.public_key_pem,
+		photo_id=photo_id,
+		filename=photo.original_filename,
+		timestamp=int(photo.upload_authorized_at.timestamp()) if photo.upload_authorized_at else None
+	):
+		logger.error(f"Client signature verification failed for photo {photo_id}")
+		raise HTTPException(
+			status_code=status.HTTP_403_FORBIDDEN,
+			detail="Client signature verification failed"
+		)
+
+	logger.info(f"Client signature verified for photo {photo_id}")
+
+	# Update photo with processed data, store signature, and track worker identity
+
+	if processed_data.processing_status not in ("completed", "error"):
+		raise HTTPException(
+			status_code=status.HTTP_400_BAD_REQUEST,
+			detail="Invalid processing status"
+		)
+
+	photo.processing_status = processed_data.processing_status
+	photo.width = processed_data.width
+	photo.height = processed_data.height
+	# Update filename after successful processing
+	if processed_data.filename:
+		photo.filename = processed_data.filename
+	# Overwrite client-supplied geolocation data from authorization if EXIF/processing provides better data
+	if processed_data.latitude is not None:
+		photo.latitude = processed_data.latitude
+	if processed_data.longitude is not None:
+		photo.longitude = processed_data.longitude
+	if processed_data.compass_angle is not None:
+		photo.compass_angle = processed_data.compass_angle
+	if processed_data.altitude is not None:
+		photo.altitude = processed_data.altitude
+	photo.exif_data = processed_data.exif_data
+	photo.sizes = processed_data.sizes
+	photo.detected_objects = processed_data.detected_objects
+	photo.error = processed_data.error
+	photo.client_signature = processed_data.client_signature  # Store signature for audit trail
+	photo.processed_by_worker = processed_data.processed_by_worker  # Track which worker processed this
+	photo.processed_at = datetime.now(timezone.utc)  # When processing was completed
+
+	await db.commit()
+	await db.refresh(photo)
+
+	logger.info(f"Photo {photo_id} processing data saved successfully with verified client signature")
+
+	return {
+		"message": "Processed photo data saved successfully",
+		"photo_id": photo.id
+	}
 
 
 @router.post("/upload-file")

@@ -69,7 +69,11 @@ class Photo(Base):
 	is_public = Column(Boolean, default=True)
 
 	# Processing status and data
-	processing_status = Column(String, default="pending")  # pending, processing, completed, failed
+
+	# authorized, completed, error
+	processing_status = Column(String)
+
+
 	error = Column(Text, nullable=True)  # Detailed error message if any operation fails
 	exif_data = Column(JSON, nullable=True)
 	detected_objects = Column(JSON, nullable=True)

@@ -18,6 +18,7 @@
 	import {TAURI} from '$lib/tauri';
 	import {navigateWithHistory} from '$lib/navigation.svelte';
 	import SettingsComponent from '$lib/components/Settings.svelte';
+	import {invoke} from "@tauri-apps/api/core";
 
 	let photos: UserPhoto[] = [];
 	let isLoading = true;
@@ -89,9 +90,11 @@
 			}
 		});
 
+
 		// Return cleanup function
 		return unsubscribe;
 	});
+
 
 	async function fetchPhotoCount() {
 		try {
@@ -330,6 +333,9 @@
 				<Settings size={20}/>
 				Settings
 			</button>
+			<button class="device-photos-button" on:click={() => myGoto('/device-photos')} data-testid="device-photos-button">
+				Device Photos
+			</button>
 		</div>
 	{/if}
 	{#if error}
@@ -417,6 +423,7 @@
 			</div>
 		</div>
 	{/if}
+
 
 	<div class="photos-grid" data-testid="photos-grid">
 		<h2>My Photos ({totalCount})</h2>
@@ -535,6 +542,7 @@
 	.page-actions {
 		display: flex;
 		justify-content: flex-end;
+		gap: 12px;
 		margin-bottom: 16px;
 	}
 
@@ -556,6 +564,22 @@
 	}
 
 	.settings-button:hover {
+		background-color: #e5e5e5;
+	}
+
+	.device-photos-button {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 8px 16px;
+		background-color: #f5f5f5;
+		border: 1px solid #ddd;
+		border-radius: 4px;
+		cursor: pointer;
+		transition: background-color 0.3s;
+	}
+
+	.device-photos-button:hover {
 		background-color: #e5e5e5;
 	}
 

@@ -1323,6 +1323,10 @@ async def authorize_upload(
 				detail="Valid MD5 hash is required (32 hex characters)"
 			)
 
+		# Create pending photo record
+		photo_id = str(uuid.uuid4())
+		upload_authorized_at = datetime.datetime.now(datetime.timezone.utc)
+
 		# Check for duplicate files by MD5 hash (per-user scope)
 		result = await db.execute(
 			select(Photo).where(
@@ -1333,14 +1337,33 @@ async def authorize_upload(
 		existing_photo = result.scalars().first()
 
 		if existing_photo:
-			log.info(f"Duplicate file detected for user {current_user.id}: MD5={auth_request.file_md5}, original photo={str(existing_photo.id)}")
-			return {
-				"duplicate": True,
-				"message": f"File already exists. You previously uploaded this file as '{existing_photo.original_filename}' on {existing_photo.uploaded_at.strftime('%Y-%m-%d %H:%M:%S')}.",
-				"existing_photo_id": existing_photo.id,
-				"existing_filename": existing_photo.original_filename,
-				"existing_upload_date": existing_photo.uploaded_at.isoformat() if existing_photo.uploaded_at else None
-			}
+
+			if existing_photo.processing_status in ["authorized", "error"]:
+				# If there's already an authorized photo with this MD5, allow new upload
+				log.info(f"Existing authorized photo found with same MD5 for user {current_user.id}, allowing new upload: MD5={auth_request.file_md5}, row id={str(existing_photo.id)}")
+				# we should really just update the existing record instead of creating a new one, lets just reuse the existing id for now
+				photo_id = existing_photo.id
+				await db.delete(existing_photo)
+
+			elif existing_photo.processing_status == 'completed':
+
+				log.info(f"Duplicate file detected for user {current_user.id}: MD5={auth_request.file_md5}, row id={str(existing_photo.id)}, status={existing_photo.processing_status}")
+				return {
+					"duplicate": True,
+					# completed: client just marks its local item as completed
+					# - but it should probably also accept the new photo id
+					"processing_status": existing_photo.processing_status,
+
+					"message": f"File already exists. You previously uploaded this file as '{existing_photo.original_filename}' on {existing_photo.uploaded_at.strftime('%Y-%m-%d %H:%M:%S')}.",
+					"existing_photo_id": existing_photo.id,
+					"existing_filename": existing_photo.original_filename,
+					"existing_upload_date": existing_photo.uploaded_at.isoformat() if existing_photo.uploaded_at else None
+				}
+			else:
+				raise HTTPException(
+					status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+					detail="Unexpected existing photo processing status"
+				)
 
 		# Get the specific client public key that will be used for signing
 		result = await db.execute(
@@ -1358,19 +1381,15 @@ async def authorize_upload(
 				detail=f"Client public key '{auth_request.client_key_id}' not found or inactive. Please ensure the key is registered and active."
 			)
 
-		# Create pending photo record
-		photo_id = str(uuid.uuid4())
-		upload_authorized_at = datetime.datetime.now(datetime.timezone.utc)
-
 		photo = Photo(
 			id=photo_id,
 			filename=None,  # Will be set by worker after file processing
-			original_filename=auth_request.filename,  # Store original filename from request
-			file_md5=auth_request.file_md5,  # Store MD5 hash for duplicate detection
+			original_filename=auth_request.filename,
+			file_md5=auth_request.file_md5,
 			description=auth_request.description,
 			is_public=auth_request.is_public,
 			owner_id=current_user.id,
-			processing_status="authorized",  # Special status for authorized but not yet uploaded
+			processing_status="authorized",
 			client_public_key_id=user_public_key.key_id,
 			upload_authorized_at=upload_authorized_at,
 			# Store geolocation data from client for immediate map display

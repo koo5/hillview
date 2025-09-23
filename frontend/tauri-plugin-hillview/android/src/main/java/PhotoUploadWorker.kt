@@ -30,26 +30,26 @@ class PhotoUploadWorker(
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         try {
-            Log.d(TAG, "Starting photo upload worker")
+            Log.d(TAG, "doWork")
 
             // Read current auto-upload setting from SharedPreferences
             val prefs = applicationContext.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
             val autoUploadEnabled = prefs.getBoolean("auto_upload_enabled", false)
-            Log.d(TAG, "Auto upload enabled (from SharedPrefs): $autoUploadEnabled")
-
-            // First scan for new photos
-            scanForNewPhotos()
+            Log.d(TAG, "Auto upload enabled: $autoUploadEnabled")
 
             // Then process upload queue if auto upload is enabled
             if (autoUploadEnabled) {
+				// First scan for new photos
+				scanForNewPhotos()
+
                 // Get valid auth token (automatically refreshes if needed)
                 val authToken = authManager.getValidToken()
                 if (authToken == null) {
                     Log.w(TAG, "🔐 No valid auth token available (refresh failed or no refresh token), skipping upload work")
                     return@withContext Result.success()
                 }
-
                 Log.d(TAG, "🔐 Valid auth token obtained, proceeding with uploads")
+
                 processUploadQueue()
                 retryFailedUploads()
             }
@@ -140,7 +140,6 @@ class PhotoUploadWorker(
                 val success = secureUploadManager.secureUploadPhoto(photo)
 
                 if (success) {
-                    Log.d(TAG, "Successfully uploaded photo: ${photo.filename}")
                     photoDao.updateUploadStatus(photo.id, "completed", System.currentTimeMillis())
                 } else {
                     Log.w(TAG, "Failed to upload photo: ${photo.filename}")
@@ -170,7 +169,7 @@ class PhotoUploadWorker(
         Log.d(TAG, "Checking for failed uploads to retry")
 
         val failedUploads = photoDao.getFailedUploadsForRetry()
-        Log.d(TAG, "Found ${failedUploads.size} failed uploads eligible for retry")
+        Log.d(TAG, "Found ${failedUploads.size} failed uploads")// eligible for retry")
 
         for (photo in failedUploads) {
             // Exponential backoff: wait longer between retries
