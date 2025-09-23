@@ -702,7 +702,6 @@
                 <!-- Auto-upload prompt (shows after photo capture) -->
                 <AutoUploadPrompt
                     photoCaptured={photoCapturedCount > 0}
-                    on:hidden={() => photoCapturedCount = 0}
                 />
             </div>
 
@@ -784,7 +783,7 @@
                     <CaptureQueueStatus/>
                 </div>
             {/if}
-            
+
             <!-- Capture queue indicator (always visible when queue has items) -->
             <div class="queue-indicator-overlay">
                 <CaptureQueueIndicator/>

@@ -10,6 +10,7 @@ from typing import List, Optional, Tuple, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import and_, func, text
+from sqlalchemy.dialects.postgresql import insert
 from geoalchemy2 import functions as geo_func
 from geoalchemy2.shape import from_shape, to_shape
 from shapely.geometry import Point, Polygon
@@ -426,6 +427,8 @@ class MapillaryCacheService:
 		if not photos_data:
 			return 0
 
+		start_time = datetime.datetime.now()
+
 		# Get existing photo IDs in batch
 		photo_ids = [photo_data['id'] for photo_data in photos_data]
 		existing_query = select(MapillaryPhotoCache.mapillary_id).where(
@@ -437,9 +440,11 @@ class MapillaryCacheService:
 		# Prepare batch insert data
 		photos_to_insert = []
 		cached_count = 0
+		skipped_existing_count = 0
 
 		for photo_data in photos_data:
 			if photo_data['id'] in existing_ids:
+				skipped_existing_count += 1
 				continue  # Skip if already cached
 
 			# Extract coordinates from geometry
@@ -503,8 +508,11 @@ class MapillaryCacheService:
 
 		# Batch insert
 		if photos_to_insert:
-			from sqlalchemy import insert
+
+
 			stmt = insert(MapillaryPhotoCache).values(photos_to_insert)
+			stmt = stmt.on_conflict_do_nothing(index_elements=['mapillary_id'])
+
 			await self.db.execute(stmt)
 
 			# Update region stats
@@ -513,6 +521,9 @@ class MapillaryCacheService:
 
 			await self.db.commit()
 
+		end_time = datetime.datetime.now()
+		duration = (end_time - start_time).total_seconds()
+		log.info(f"Cached {cached_count} new photos into region {region.id} in {duration:.2f} seconds, skipped {skipped_existing_count} existing entries")
 		return cached_count
 
 	async def mark_region_complete(self, region: CachedRegion):

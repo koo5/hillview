@@ -11,8 +11,8 @@
 
 	let autoUploadEnabled = false;
 	let autoUploadPromptEnabled = true;
-	let loading = false;
 	let visible = false;
+	let dismissed = false;
 	let showTimer: ReturnType<typeof setTimeout> | null = null;
 	let hideTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -20,9 +20,6 @@
 	$: if (photoCaptured && TAURI) {
 		schedulePromptCheck();
 	}
-
-	// Only show if TAURI, prompt is enabled, and auto-upload is not already enabled
-	$: visible = TAURI && autoUploadPromptEnabled && !autoUploadEnabled && !loading;
 
 	function schedulePromptCheck() {
 		// Clear any existing timers
@@ -40,29 +37,25 @@
 	}
 
 	async function checkSettings() {
-		loading = true;
-		try {
 			const result = await invoke('plugin:hillview|get_upload_status') as {
 				autoUploadEnabled: boolean;
 				autoUploadPromptEnabled: boolean;
 			};
 
+			console.log('autoUpload status:', JSON.stringify(result));
+
 			autoUploadEnabled = result.autoUploadEnabled || false;
-			autoUploadPromptEnabled = result.autoUploadPromptEnabled !== false;
+			autoUploadPromptEnabled = result.autoUploadPromptEnabled || false;
+
+			visible = !autoUploadEnabled && autoUploadPromptEnabled;
+
 
 			// If we should show the prompt, auto-hide it after 10 seconds
-			if (!autoUploadEnabled && autoUploadPromptEnabled) {
+			if (visible) {
 				hideTimer = setTimeout(() => {
 					hidePrompt();
-				}, 10000);
+				}, 5000);
 			}
-		} catch (err) {
-			console.error('Failed to load auto-upload settings:', err);
-			// Default to not showing prompt on error
-			autoUploadPromptEnabled = false;
-		} finally {
-			loading = false;
-		}
 	}
 
 	function goToSettings() {
@@ -71,17 +64,13 @@
 	}
 
 	function dismissPrompt() {
-		// Just hide for this session - don't permanently disable prompting
+		dismissed = true;
 		hidePrompt();
 	}
 
 	function hidePrompt() {
-		// Reset state so prompt can show again on next capture
-		autoUploadPromptEnabled = false; // Hide for this capture
+		visible = false;
 		clearTimers();
-
-		// Reset photoCaptured so parent can trigger again
-		dispatch('hidden');
 	}
 
 	function clearTimers() {
@@ -114,7 +103,7 @@
 	}
 </script>
 
-{#if visible}
+{#if visible && !dismissed && TAURI && autoUploadPromptEnabled && !autoUploadEnabled}
 	<div class="auto-upload-prompt" data-testid="auto-upload-prompt">
 		<div class="prompt-content">
 			<button
@@ -134,30 +123,22 @@
 				×
 			</button>
 		</div>
-		<button
-			class="never-ask-btn"
-			on:click={neverAskAgain}
-			data-testid="never-ask-again"
-		>
-			Don't show this again
-		</button>
 	</div>
 {/if}
 
 <style>
 	.auto-upload-prompt {
-		position: absolute;
-		top: 140px; /* Below the location overlay */
-		left: 1rem;
-		background: rgba(255, 255, 255, 0.95);
-		backdrop-filter: blur(10px);
-		border-radius: 8px;
-		border: 1px solid rgba(255, 255, 255, 0.3);
-		padding: 0;
+       position: absolute;
+        top: 80px;
+        left: 1rem;
+        padding: 0.25rem;
+        border-radius: 8px;
+        max-width: 90%;
+        cursor: pointer;
+        transition: background 0.3s ease, border 0.3s ease, backdrop-filter 0.3s ease;
 		box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
 		display: flex;
 		flex-direction: column;
-		max-width: 250px;
 		animation: slideIn 0.3s ease-out;
 	}
 

@@ -42,7 +42,7 @@ class CaptureQueueManager {
     private fastModeCount = 0;
     private totalProcessed = 0;
     private totalFailed = 0;
-    
+
     // Logging constants for greppability
     private readonly LOG_PREFIX = '[CAPTURE_QUEUE]';
     private readonly LOG_TAGS = {
@@ -54,7 +54,7 @@ class CaptureQueueManager {
         STATS_UPDATE: 'STATS_UPDATE',
         CONCURRENCY: 'CONCURRENCY'
     };
-    
+
     // Store for queue statistics
     public stats = writable<QueueStats>({
         size: 0,
@@ -76,7 +76,7 @@ class CaptureQueueManager {
     private log(tag: string, message: string, data?: any): void {
         const timestamp = new Date().toISOString();
         const logMessage = `${this.LOG_PREFIX} [${tag}] ${timestamp} ${message}`;
-        
+
         if (data) {
             console.log(logMessage, data);
         } else {
@@ -105,7 +105,7 @@ class CaptureQueueManager {
         }
 
         this.queue.push(item);
-        
+
         // Update counters
         if (item.mode === 'slow') {
             this.slowModeCount++;
@@ -136,7 +136,7 @@ class CaptureQueueManager {
                     });
                 }
             }
-            
+
             // Wait a bit before checking again
             await new Promise(resolve => setTimeout(resolve, 100));
         }
@@ -158,7 +158,7 @@ class CaptureQueueManager {
         try {
             // Convert blob to File
             const file = new File([item.blob], `photo_${item.timestamp}.jpg`, { type: 'image/jpeg' });
-            
+
             // Prepare photo data
             const photoData = {
                 image: file,
@@ -176,13 +176,13 @@ class CaptureQueueManager {
 
             // Save photo with EXIF
             const savedPhoto = await photoCaptureService.savePhotoWithExif(photoData);
-            
+
             // Replace placeholder with real photo
             devicePhotos.update(photos => {
                 const filtered = photos.filter(p => p.id !== item.placeholderId);
                 return [...filtered, savedPhoto];
             });
-            
+
             // Remove from placeholder store
             removePlaceholder(item.placeholderId);
 
@@ -197,16 +197,16 @@ class CaptureQueueManager {
             });
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
-            
+
             this.totalFailed++;
-            this.log(this.LOG_TAGS.PHOTO_ERROR, 'Failed to process queued photo', {
+            this.log(this.LOG_TAGS.PHOTO_ERROR, 'Failed to process queued photo', JSON.stringify({
                 itemId: item.id,
                 mode: item.mode,
                 placeholderId: item.placeholderId,
                 error: errorMessage,
                 totalFailed: this.totalFailed
-            });
-            
+            }));
+
             // Remove placeholder on error
             devicePhotos.update(photos => photos.filter(p => p.id !== item.placeholderId));
             removePlaceholder(item.placeholderId);

@@ -210,7 +210,7 @@ def get_mapillary_token():
 # Configuration
 ENABLE_MAPILLARY_CACHE = os.getenv("ENABLE_MAPILLARY_CACHE", "false").lower() in ("true", "1", "yes")
 ENABLE_MAPILLARY_LIVE = os.getenv("ENABLE_MAPILLARY_LIVE", "false").lower() in ("true", "1", "yes")
-MAX_PHOTOS_PER_REQUEST = int(os.getenv("MAX_MAPILLARY_PHOTOS", "1000"))
+MAX_PHOTOS_PER_REQUEST = int(os.getenv("MAX_MAPILLARY_PHOTOS", "250"))
 
 clients = {}
 
@@ -221,7 +221,7 @@ async def fetch_mapillary_data(
 	top_left_lon: float,
 	bottom_right_lat: float,
 	bottom_right_lon: float,
-	limit: int = 250
+	limit: int
 ) -> Dict[str, Any]:
 	"""Fetch data from Mapillary API"""
 
@@ -249,7 +249,7 @@ async def stream_mapillary_images(
 	bottom_right_lat: float = Query(..., description="Bottom right latitude"),
 	bottom_right_lon: float = Query(..., description="Bottom right longitude"),
 	client_id: str = Query(..., description="Client ID"),
-	max_photos: int = Query(250, description="Maximum photos to return (cannot exceed server limit)", ge=1),
+	max_photos: int = Query(2500, description="Maximum photos to return (capped by server limit)", ge=1),
 	db: AsyncSession = Depends(get_db),
 	current_user: Optional[User] = Depends(get_current_user_optional_with_query)
 ):
@@ -289,15 +289,14 @@ async def stream_mapillary_images(
 			'user_id': user.id if user else None,
 			'inputs': [],
 
-
-
 		}
 
 		try:
 			if ENABLE_MAPILLARY_CACHE or ENABLE_MAPILLARY_LIVE:
 
+				cache_service = MapillaryCacheService(db_session)
+
 				if ENABLE_MAPILLARY_CACHE:
-					cache_service = MapillaryCacheService(db_session)
 
 					# Send initial response with cached data using spatial sampling
 					cache_result = await cache_service.get_cached_photos_in_bbox(
@@ -313,6 +312,8 @@ async def stream_mapillary_images(
 					cache_ignored_due_to_distribution = False
 
 				else:
+					is_complete_coverage = False
+					distribution_score = 0.0
 					cache_ignored_due_to_distribution = True
 					cached_photos = []
 
@@ -417,6 +418,20 @@ async def stream_mapillary_images(
 							mapillary_response = await fetch_mapillary_data(
 								region_bbox[0], region_bbox[1], region_bbox[2], region_bbox[3], limit=effective_max_photos
 							)
+
+							event['inputs'].append({
+								'bbox': region_bbox,
+								'photos': mapillary_response.get('data', []),
+								'meta': {
+									'type': 'live',
+									'region_id': region.id,
+									'limit': effective_max_photos,
+									'photo_count': len(mapillary_response.get('data', [])),
+									'error': mapillary_response.get('error'),
+								}
+							})
+
+
 							if "error" in mapillary_response:
 								raise Exception(mapillary_response["error"])
 
@@ -461,7 +476,7 @@ async def stream_mapillary_images(
 
 							total_photo_count += len(stream_photos)
 							total_photos_so_far = cached_photo_count + total_photo_count
-							log.info(f"Total photos streamed so far: {total_photos_so_far}/{effective_max_photos} (cached: {cached_photo_count}, live: {total_photo_count})")
+							log.info(f"Total photos streamed so far: {total_photos_so_far}/{effective_max_photos} (from cache: {cached_photo_count}, from live: {total_photo_count})")
 
 							# Stream this batch (limited)
 							sorted_batch = sorted(stream_photos, key=lambda x: x.get('compass_angle', 0))

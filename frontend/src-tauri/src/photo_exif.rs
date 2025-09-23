@@ -13,6 +13,7 @@ struct ProvenanceData {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct PhotoMetadata {
 	pub latitude: f64,
 	pub longitude: f64,

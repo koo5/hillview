@@ -60,10 +60,11 @@ pub(crate) async fn update_sensor_location<R: Runtime>(
 pub(crate) async fn set_auto_upload_enabled<R: Runtime>(
     app: AppHandle<R>,
     enabled: bool,
+    prompt_enabled: bool,
 ) -> Result<AutoUploadResponse> {
     #[cfg(mobile)]
     {
-        return app.hillview().set_auto_upload_enabled(enabled);
+        return app.hillview().set_auto_upload_enabled(enabled, prompt_enabled);
     }
 
     #[cfg(desktop)]

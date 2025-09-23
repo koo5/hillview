@@ -783,6 +783,6 @@ async function getValidToken(forceRefresh: boolean = false): Promise<string | nu
 			});
 		}
 	});
-	
+
 	return authTokenPromise;
 }

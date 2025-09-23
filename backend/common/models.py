@@ -99,7 +99,6 @@ class CachedRegion(Base):
 	total_requests = Column(Integer, default=1)  # How many times this region was requested
 
 	# Mapillary pagination info
-	last_cursor = Column(String, nullable=True)  # Last pagination cursor processed
 	has_more = Column(Boolean, default=True)  # Whether more data exists from Mapillary
 
 	# Relationships

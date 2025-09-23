@@ -24,18 +24,14 @@
 	import DebugOverlay from '../components/DebugOverlay.svelte';
 	import AlertArea from '../components/AlertArea.svelte';
 	import NavigationMenu from '../components/NavigationMenu.svelte';
-	import {FEATURE_USER_ACCOUNTS} from '$lib/config';
-	import {gpsLocation} from '$lib/location.svelte';
 	import type {DevicePhotoMetadata} from '$lib/types/photoTypes';
 	import {startCompass, stopCompass} from '$lib/compass.svelte';
-	import {bearingDiffColorsUpdateInterval} from "$lib/optimizedMarkers";
 
 	let map: any = null;
 	let mapComponent: any = null;
 	let update_url = false;
 	let menuOpen = false;
 	$: showCameraView = $app.activity === 'capture';
-	let debugOverlay: any = null;
 
 	onMount(async () => {
 		console.log('🢄Page mounted');
@@ -238,6 +234,11 @@
 			e.preventDefault();
 			turn_to_photo_to('right');
 		}
+
+		else if (e.key === 'm') {
+			e.preventDefault();
+			toggleSource('mapillary');
+		}
 	}
 
 
@@ -294,6 +295,15 @@
 				}));
 			});
 		}
+	}
+
+	function toggleSource(id: string) {
+		sources.update(srcs => {
+			return srcs.map(src => ({
+				...src,
+				enabled: src.id === id ? !src.enabled : src.enabled
+			}));
+		});
 	}
 
 	function toggleCamera() {
@@ -424,8 +434,7 @@
 </div>
 
 
-<!-- Debug Overlay -->
-<DebugOverlay bind:this={debugOverlay}/>
+<DebugOverlay/>
 
 <style>
     /* Reset default margin, padding and prevent body scroll for main app */

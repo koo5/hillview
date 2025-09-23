@@ -58,7 +58,7 @@
 	async function saveSettings() {
 		if (TAURI) {
 			try {
-				console.log('📤 Setting Android auto-upload:', {autoUploadEnabled, autoUploadPromptEnabled});
+				console.log('📤 Setting Android auto-upload:', JSON.stringify({autoUploadEnabled, autoUploadPromptEnabled}));
 				await invoke('plugin:hillview|set_auto_upload_enabled', {
 					enabled: autoUploadEnabled,
 					promptEnabled: autoUploadPromptEnabled
