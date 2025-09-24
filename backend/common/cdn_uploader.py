@@ -53,19 +53,13 @@ class CDNUploader:
 			True if all deletions succeeded, False if any failed
 		"""
 		if not self.enabled:
-			return True  # Nothing to delete if CDN is disabled
+			return False
 
 		success = True
 		deleted_count = 0
 
 		for size_key, size_data in sizes_info.items():
-			local_path = size_data.get('path')
-			if not local_path:
-				logger.warning(f"No path found for size {size_key}, skipping deletion")
-				continue
-
-			# Generate CDN key that matches upload format
-			cdn_key = f"photos/{unique_id}/{local_path}"
+			cdn_key = size_data.get('url').replace(f"{self.cdn_base_url.rstrip('/')}/", "")
 
 			if self._delete_file(cdn_key):
 				deleted_count += 1
