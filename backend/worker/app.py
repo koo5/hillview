@@ -48,6 +48,9 @@ from photo_processor import photo_processor
 
 # Setup logging
 logging.basicConfig(level=logging.DEBUG)
+# Quiet noisy HTTP logs
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
 
 # FastAPI app

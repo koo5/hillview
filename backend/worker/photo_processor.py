@@ -253,7 +253,8 @@ class PhotoProcessor:
 		output_base = os.environ.get('PICS_DIR', self.upload_dir)
 
 		try:
-			# First anonymize the image
+			logger.info(f"Starting anonymization for {unique_id}")
+
 			anonymized_path, detections = await self._anonymize_image(source_path)
 			input_file_path = anonymized_path if anonymized_path else source_path
 			logger.info(f"Using {'anonymized' if anonymized_path else 'original'} image for resizing: {input_file_path}")
@@ -286,7 +287,7 @@ class PhotoProcessor:
 
 				size_info = {
 					'path': relative_path,
-					'url': await self._get_size_url(output_file_path, relative_path, photo_id, client_signature)
+
 				}
 
 				if size == 'full':
@@ -294,6 +295,7 @@ class PhotoProcessor:
 					size_info.update({
 						'width': width,
 						'height': height,
+						'url': await self._get_size_url(output_file_path, relative_path, photo_id, client_signature)
 					})
 					sizes_info[size] = size_info
 				else:
@@ -301,20 +303,22 @@ class PhotoProcessor:
 					# Resize using ImageMagick mogrify (matching original)
 					# Use absolute path and validate inputs
 					cmd = ['mogrify', '-resize', str(int(size)), output_file_path]
+					logger.debug(f"Resizing image with command: {shlex.join(cmd)}")
 					subprocess.run(cmd, capture_output=True, timeout=30, check=True)
 					new_width, new_height = self.get_image_dimensions(output_file_path)
 
-					size_info.update({
-						'width': new_width,
-						'height': new_height,
-					})
-					sizes_info[size] = size_info
-
-					# Optimize with jpegoptim (matching original)
+					logger.debug(f"Optimizing JPEG with jpegoptim: {output_file_path}")
 					cmd = ['jpegoptim', '--all-progressive', '--overwrite', output_file_path]
 					subprocess.run(cmd, capture_output=True, timeout=130, check=True)
 
 					logger.info(f"Created size {size} for {unique_id}: {new_width}x{new_height} at {output_file_path}");
+
+					size_info.update({
+						'width': new_width,
+						'height': new_height,
+						'url': await self._get_size_url(output_file_path, relative_path, photo_id, client_signature)
+					})
+					sizes_info[size] = size_info
 
 			logger.info(f"Created {len(sizes_info)} size variants for {unique_id}")
 
@@ -380,7 +384,6 @@ class PhotoProcessor:
 				raise RuntimeError(f"Failed to upload {relative_path} to CDN")
 			return cdn_url
 		elif photo_id and client_signature:
-			# Upload to API server storage
 			return await self._upload_file_to_api(file_path, relative_path, photo_id, client_signature)
 		elif not photo_id:
 			logger.error(f"Cannot upload {relative_path}: photo_id is None")
