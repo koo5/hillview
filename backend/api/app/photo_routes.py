@@ -201,7 +201,7 @@ async def upload_processed_file(
 		)
 
 	try:
-		logger.info(f"Received file upload from worker for photo {photo_id}, path: {relative_path}")
+		logger.info(f"Processing file upload from worker for photo {photo_id}, path: {relative_path}")
 
 		# Get photo from database
 		result = await db.execute(select(Photo).where(Photo.id == photo_id))
@@ -288,15 +288,18 @@ async def upload_processed_file(
 			content = await file.read()
 			await f.write(content)
 
-		logger.info(f"Successfully uploaded file for photo {photo_id} to {file_path}")
-
-		return {
+		r = {
 			"message": "File uploaded successfully",
 			"photo_id": photo_id,
 			"relative_path": relative_path,
 			"file_path": str(file_path),
 			"file_size": file_size
 		}
+
+		logger.info(f"Processed file uploaded for photo {photo_id} to {file_path} ({file_size} bytes)")
+		return r
+
+
 
 	except HTTPException:
 		raise
