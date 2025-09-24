@@ -29,6 +29,7 @@ def determine_storage_type(size_data: Dict[str, Any]) -> StorageType:
 		StorageType enum indicating where the photo is stored
 	"""
 	if not size_data or 'url' not in size_data:
+		logger.warning(f"Size data is missing or lacks 'url' key: {size_data}")
 		return StorageType.UNKNOWN
 
 	cdn_base_url = os.getenv("CDN_BASE_URL")
@@ -39,6 +40,7 @@ def determine_storage_type(size_data: Dict[str, Any]) -> StorageType:
 	elif pics_url and size_data['url'].startswith(pics_url):
 		return StorageType.LOCAL
 	else:
+		logger.warning(f"Cannot determine storage type from URL: {size_data['url']}, CDN_BASE_URL: {cdn_base_url}, PICS_URL: {pics_url}")
 		return StorageType.UNKNOWN
 
 
@@ -59,10 +61,6 @@ async def delete_photo_files(photo) -> bool:
 
 		# Check first size variant to determine storage type
 		first_size_data = next(iter(photo.sizes.values()), None)
-		if not first_size_data:
-			logger.warning(f"Photo {str(photo.id)} has no size variants to determine storage type")
-			return False
-
 		storage_type = determine_storage_type(first_size_data)
 
 		if storage_type == StorageType.CDN:
