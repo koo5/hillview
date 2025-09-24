@@ -233,6 +233,33 @@ class ReverseProxyMiddleware(BaseHTTPMiddleware):
 		if forwarded_host:
 			request.scope["server"] = (forwarded_host, None)
 
+		# Extract and store the real client IP from proxy headers
+		real_client_ip = None
+
+		# Check for proxy headers in order of preference
+		# X-Forwarded-For can contain multiple IPs, use the first (original client)
+		forwarded_for = request.headers.get("X-Forwarded-For")
+		if forwarded_for:
+			# X-Forwarded-For format: "client_ip, proxy1_ip, proxy2_ip, ..."
+			client_ip = forwarded_for.split(",")[0].strip()
+			if client_ip:
+				real_client_ip = client_ip
+
+		# Check X-Real-IP (typically set by nginx)
+		if not real_client_ip:
+			real_ip = request.headers.get("X-Real-IP")
+			if real_ip:
+				real_client_ip = real_ip.strip()
+
+		# Check CF-Connecting-IP (Cloudflare)
+		if not real_client_ip:
+			cf_connecting_ip = request.headers.get("CF-Connecting-IP")
+			if cf_connecting_ip:
+				real_client_ip = cf_connecting_ip.strip()
+
+		# Store the real client IP in request state for get_client_ip() to use
+		request.state.real_client_ip = real_client_ip
+
 		return await call_next(request)
 
 # Add middlewares (order matters - later added = executed first)

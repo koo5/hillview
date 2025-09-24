@@ -29,7 +29,7 @@ from auth import (
 	OAUTH_PROVIDERS, ACCESS_TOKEN_EXPIRE_MINUTES,
 	blacklist_token, get_current_user, get_current_user_optional_with_query
 )
-from rate_limiter import auth_rate_limiter, check_auth_rate_limit, rate_limit_user_profile, rate_limit_user_registration
+from rate_limiter import auth_rate_limiter, check_auth_rate_limit, rate_limit_user_profile, rate_limit_user_registration, get_client_ip, general_rate_limiter
 from common.config import is_rate_limiting_disabled
 from security_utils import validate_username, validate_email, validate_password, validate_oauth_redirect_uri
 from security_audit import security_audit
@@ -299,7 +299,7 @@ async def refresh_access_token(
 			db=db,
 			event_type="token_refresh_success",
 			user_identifier=user.username,
-			ip_address=request.client.host if request.client else None,
+			ip_address=get_client_ip(request),
 			user_agent=request.headers.get("user-agent"),
 			event_details={"user_id": user.id},
 			severity="info",
@@ -351,7 +351,7 @@ async def create_oauth_session(
 		'status': 'pending',
 		'expires_at': expires_at,
 		'created_at': datetime.datetime.utcnow(),
-		'client_ip': request.client.host if request.client else None
+		'client_ip': get_client_ip(request)
 	}
 
 	log.info(f"Created OAuth session for polling: {session_id}")
@@ -409,7 +409,7 @@ async def oauth_redirect(
 				await security_audit.log_event(
 					db=db,
 					event_type="oauth_redirect_invalid",
-					ip_address=request.client.host if request.client else None,
+					ip_address=get_client_ip(request),
 					user_agent=request.headers.get("user-agent"),
 					event_details={"provider": provider, "invalid_redirect_uri": redirect_uri, "error": str(e)},
 					severity="warning"
@@ -504,7 +504,7 @@ async def oauth_callback(
 			await security_audit.log_event(
 				db=db,
 				event_type="oauth_callback_rate_limited",
-				ip_address=request.client.host if request.client else None,
+				ip_address=get_client_ip(request),
 				user_agent=request.headers.get("user-agent"),
 				event_details={"code_prefix": code[:10] if code else None, "state": state},
 				severity="warning"
@@ -589,7 +589,7 @@ async def oauth_callback(
 			db=db,
 			event_type="oauth_login_success",
 			user_identifier=user_info.get("username"),
-			ip_address=request.client.host if request.client else None,
+			ip_address=get_client_ip(request),
 			user_agent=request.headers.get("user-agent"),
 			event_details={
 				"provider": provider,
@@ -606,7 +606,7 @@ async def oauth_callback(
 		await security_audit.log_event(
 			db=db,
 			event_type="oauth_login_failed",
-			ip_address=request.client.host if request.client else None,
+			ip_address=get_client_ip(request),
 			user_agent=request.headers.get("user-agent"),
 			event_details={
 				"provider": provider,
@@ -1508,15 +1508,8 @@ async def get_users(
     current_user: Optional[User] = Depends(get_current_user_optional_with_query)
 ):
     """Get list of all users with their photo counts and latest photos."""
-    # Apply general rate limiting
-    if not is_rate_limiting_disabled():
-        identifier = auth_rate_limiter.get_identifier(request)
-        if not await auth_rate_limiter.check_rate_limit(identifier, max_requests=20, window_seconds=300):
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Too many requests. Try again later.",
-                headers={"Retry-After": "300"}
-            )
+    # Apply rate limiting with optional user context (better limits for authenticated users)
+    await general_rate_limiter.enforce_rate_limit(request, 'public_read', current_user)
 
     try:
         from hidden_content_filters import apply_hidden_content_filters
@@ -1602,15 +1595,8 @@ async def get_user_photos(
     current_user: Optional[User] = Depends(get_current_user_optional_with_query)
 ):
     """Get paginated photos for a specific user."""
-    # Apply general rate limiting
-    if not is_rate_limiting_disabled():
-        identifier = auth_rate_limiter.get_identifier(request)
-        if not await auth_rate_limiter.check_rate_limit(identifier, max_requests=30, window_seconds=300):
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Too many requests. Try again later.",
-                headers={"Retry-After": "300"}
-            )
+    # Apply rate limiting with optional user context (better limits for authenticated users)
+    await general_rate_limiter.enforce_rate_limit(request, 'public_read', current_user)
 
     try:
         from hidden_content_filters import apply_hidden_content_filters

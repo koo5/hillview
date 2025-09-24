@@ -8,7 +8,7 @@ common_path = os.path.join(os.path.dirname(__file__), '..', '..', 'common')
 sys.path.append(common_path)
 from common.utc import utcnow
 from collections import defaultdict
-from typing import Dict, Optional, Callable
+from typing import Dict, Optional, Callable, Union
 from fastapi import HTTPException, Request, status
 import logging
 from common.config import rate_limit_config, is_rate_limiting_disabled
@@ -70,9 +70,22 @@ class AsyncRateLimiter:
 			if client_id in self.active_tasks:
 				del self.active_tasks[client_id]
 
+def get_client_ip(request: Request) -> str:
+	"""Get the real client IP address (extracted once by ReverseProxyMiddleware)."""
+	# Use the real IP extracted by ReverseProxyMiddleware, fallback to direct connection
+	if hasattr(request.state, 'real_client_ip') and request.state.real_client_ip:
+		return request.state.real_client_ip
+
+	# Fallback to direct connection IP if middleware didn't process it
+	return request.client.host if request.client else "unknown"
+
+def get_user_id_for_rate_limiting(user) -> Optional[str]:
+	"""Extract user ID string for rate limiting from optional user dependency."""
+	return str(user.id) if user else None
+
 class AuthRateLimiter:
 	"""Rate limiter specifically for authentication endpoints with anti-brute-force features."""
-	
+
 	def __init__(self):
 		# Track failed login attempts: {identifier: [(timestamp, attempt_count)]}
 		self.failed_attempts: Dict[str, list] = defaultdict(list)
@@ -187,7 +200,7 @@ class AuthRateLimiter:
 	def get_identifier(self, request: Request, username: Optional[str] = None) -> str:
 		"""Get a unique identifier for rate limiting."""
 		# Combine IP address and username for more accurate tracking
-		client_ip = request.client.host if request.client else "unknown"
+		client_ip = get_client_ip(request)
 		if username:
 			return f"{client_ip}:{username}"
 		return client_ip
@@ -219,12 +232,12 @@ class GeneralRateLimiter:
 	def get_identifier(self, request: Request, user_id: Optional[str] = None, limit_type: str = 'general_api') -> str:
 		"""Get identifier for rate limiting based on limit type."""
 		limit_config = self.limits.get(limit_type, self.limits['general_api'])
-		
+
 		if limit_config['per_user'] and user_id:
 			return f"user:{user_id}"
 		else:
 			# Use IP address
-			client_ip = request.client.host if request.client else "unknown"
+			client_ip = get_client_ip(request)
 			return f"ip:{client_ip}"
 	
 	async def check_rate_limit(
@@ -263,14 +276,24 @@ class GeneralRateLimiter:
 		self,
 		request: Request,
 		limit_type: str,
-		user_id: Optional[str] = None
+		user_or_id: Optional[Union[str, object]] = None  # Accept user object or user_id string
 	) -> None:
-		"""Enforce rate limit and raise HTTPException if exceeded."""
+		"""Enforce rate limit and raise HTTPException if exceeded.
+
+		Args:
+			user_or_id: Either a User object or a user_id string, or None for anonymous
+		"""
 		# Check if rate limiting is globally disabled
 		if is_rate_limiting_disabled():
 			#logger.debug(f"Rate limiting bypassed (NO_LIMITS=true) for {limit_type}")
 			return
-			
+
+		# Handle both user object and user_id string
+		if isinstance(user_or_id, str):
+			user_id = user_or_id
+		else:
+			user_id = get_user_id_for_rate_limiting(user_or_id)
+
 		if not await self.check_rate_limit(request, limit_type, user_id):
 			limit_config = self.limits[limit_type]
 			raise HTTPException(

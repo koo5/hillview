@@ -1,10 +1,10 @@
 import {get, writable, derived} from "svelte/store";
-import {staggeredLocalStorageSharedStore} from './svelte-shared-store';
+import {localStorageSharedStore, staggeredLocalStorageSharedStore} from './svelte-shared-store';
 import {backendUrl} from './config';
 import {MAX_DEBUG_MODES} from './constants';
 import {auth} from './auth.svelte';
 // Import new mapState for legacy compatibility only
-import {photoInFront, photoToLeft, photoToRight, updateBearing as mapStateUpdateBearing, bearingState} from './mapState';
+import {photoInFront, photoToLeft, photoToRight, updateBearing as mapStateUpdateBearing} from './mapState';
 import {TAURI} from "$lib/tauri";
 
 // Device source subtypes
@@ -30,10 +30,38 @@ const baseSources: Source[] = [
 ];
 
 const deviceSources: Source[] = !TAURI ? [] : [
-    {id: 'device', name: 'My Device', type: 'device', enabled: !import.meta.env.VITE_PICS_OFF, requests: [], color: '#4a90e2', subtype: 'hillview'}
+    //{id: 'device', name: 'My Device', type: 'device', enabled: !import.meta.env.VITE_PICS_OFF, requests: [], color: '#4a90e2', subtype: 'hillview'}
 ];
 
+// Store source enabled states separately for persistence
+const sourceStates = localStorageSharedStore('sourceStates', {} as Record<string, boolean>);
+
+// Create reactive sources store that combines base config with persisted states
 export const sources = writable<Source[]>([...baseSources, ...deviceSources]);
+
+// Initialize sources with persisted enabled states
+sourceStates.subscribe(states => {
+    sources.update(srcs => {
+        return srcs.map(src => ({
+            ...src,
+            enabled: states[src.id] !== undefined ? states[src.id] : src.enabled
+        }));
+    });
+});
+
+// Save enabled state changes to persistence
+sources.subscribe(srcs => {
+    const states = srcs.reduce((acc, src) => {
+        acc[src.id] = src.enabled;
+        return acc;
+    }, {} as Record<string, boolean>);
+
+    // Only update if states actually changed to avoid infinite loops
+    const currentStates = get(sourceStates);
+    if (JSON.stringify(states) !== JSON.stringify(currentStates)) {
+        sourceStates.set(states);
+    }
+});
 
 export let client_id = staggeredLocalStorageSharedStore('client_id', Math.random().toString(36));
 

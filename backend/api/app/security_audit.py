@@ -7,6 +7,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.utc import utcnow, utc_minus_timedelta
 from typing import Optional, Dict, Any
 from fastapi import Request
+from rate_limiter import get_client_ip
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import and_
@@ -88,7 +89,7 @@ class SecurityAuditService:
 			db=db,
 			event_type="login_failed",
 			user_identifier=username,
-			ip_address=request.client.host if request.client else None,
+			ip_address=get_client_ip(request),
 			user_agent=request.headers.get("user-agent"),
 			event_details=event_details,
 			severity=severity
@@ -113,7 +114,7 @@ class SecurityAuditService:
 			db=db,
 			event_type="login_success",
 			user_identifier=user.username,
-			ip_address=request.client.host if request.client else None,
+			ip_address=get_client_ip(request),
 			user_agent=request.headers.get("user-agent"),
 			event_details=event_details,
 			severity="info",
@@ -131,7 +132,7 @@ class SecurityAuditService:
 			db=db,
 			event_type="password_change",
 			user_identifier=user.username,
-			ip_address=request.client.host if request and request.client else None,
+			ip_address=get_client_ip(request) if request else None,
 			user_agent=request.headers.get("user-agent") if request else None,
 			event_details={"user_role": user.role.value if user.role else "unknown"},
 			severity="info",
@@ -157,7 +158,7 @@ class SecurityAuditService:
 			db=db,
 			event_type="account_lockout",
 			user_identifier=username,
-			ip_address=request.client.host if request.client else None,
+			ip_address=get_client_ip(request),
 			user_agent=request.headers.get("user-agent"),
 			event_details=event_details,
 			severity="warning"

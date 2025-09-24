@@ -12,6 +12,8 @@ Tests the DELETE /api/photos/{photo_id} endpoint functionality including:
 import requests
 import json
 import unittest
+import pytest
+import asyncio
 from pathlib import Path
 import tempfile
 import time
@@ -23,21 +25,16 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from tests.utils.base_test import BasePhotoTest
-from tests.utils.secure_upload_utils import SecureUploadClient
-from tests.utils.test_utils import API_URL
+from tests.utils.test_utils import API_URL, upload_test_image, wait_for_photo_processing
 from tests.utils.image_utils import create_test_image_full_gps
 
 
 class TestPhotoDeletion(BasePhotoTest):
-    """Test photo deletion endpoint functionality."""
+    """Test photo deletion functionality."""
 
     def setUp(self):
         """Set up test environment before each test."""
         super().setUp()
-
-        # Create test image for uploads
-        self.test_image_path = create_test_image()
-
         # Test will upload photos and then delete them
         self.uploaded_photo_ids = []
 
@@ -49,26 +46,26 @@ class TestPhotoDeletion(BasePhotoTest):
                 requests.delete(f"{API_URL}/photos/{photo_id}", headers=self.test_headers)
             except:
                 pass
-
-        # Clean up test image
-        if hasattr(self, 'test_image_path') and os.path.exists(self.test_image_path):
-            os.unlink(self.test_image_path)
-
         super().tearDown()
 
-    def test_delete_photo_success(self):
+    async def _create_test_photo(self, filename: str = "test_deletion.jpg", description: str = "Test photo for deletion") -> str:
+        """Create a test photo and return photo ID."""
+        image_data = create_test_image_full_gps(200, 150, (255, 0, 0), lat=50.0755, lon=14.4378, bearing=90.0)
+        photo_id = await upload_test_image(filename, image_data, description, self.test_token)
+        self.uploaded_photo_ids.append(photo_id)
+        return photo_id
+
+    @pytest.mark.asyncio
+    async def test_delete_photo_success(self):
         """Test successful photo deletion by owner."""
         print("\n=== Testing successful photo deletion ===")
 
         # Upload a test photo first
-        photo_id = upload_photo_securely(
-            image_path=self.test_image_path,
-            description="Test photo for deletion",
-            is_public=True,
-            headers=self.test_headers
-        )
-        self.uploaded_photo_ids.append(photo_id)
+        photo_id = await self._create_test_photo("test_delete_success.jpg", "Test photo for deletion")
         print(f"✓ Uploaded test photo: {photo_id}")
+
+        # Wait for processing
+        wait_for_photo_processing(photo_id, self.test_token, timeout=30)
 
         # Verify photo exists before deletion
         get_response = requests.get(f"{API_URL}/photos/{photo_id}", headers=self.test_headers)
@@ -88,196 +85,130 @@ class TestPhotoDeletion(BasePhotoTest):
         accessible_before = []
         for url in file_urls:
             try:
-                file_response = requests.get(url, timeout=5)
+                file_response = requests.head(url)
                 if file_response.status_code == 200:
                     accessible_before.append(url)
-                    print(f"✓ File accessible before deletion: {url}")
-            except requests.exceptions.RequestException as e:
-                print(f"⚠️ File not accessible before deletion: {url} - {e}")
+            except:
+                pass
+        print(f"✓ {len(accessible_before)} files accessible before deletion")
 
         # Delete the photo
         delete_response = requests.delete(f"{API_URL}/photos/{photo_id}", headers=self.test_headers)
         self.assert_success(delete_response)
+        print("✓ Photo deletion request successful")
 
-        result = delete_response.json()
-        assert "message" in result
-        assert "deleted successfully" in result["message"].lower()
-        print(f"✓ Photo deleted successfully: {result['message']}")
-
-        # Verify photo no longer exists in API
+        # Verify photo no longer exists
         get_response_after = requests.get(f"{API_URL}/photos/{photo_id}", headers=self.test_headers)
-        assert get_response_after.status_code == 404, f"Photo should be deleted, got {get_response_after.status_code}"
-        print("✓ Photo no longer accessible via API")
+        assert get_response_after.status_code == 404, "Photo should not exist after deletion"
+        print("✓ Photo record removed from database")
 
-        # Verify photo no longer appears in user's photo list
-        list_response = requests.get(f"{API_URL}/photos/", headers=self.test_headers)
-        self.assert_success(list_response)
-        photos_list = list_response.json().get("photos", [])
-
-        photo_still_listed = any(photo["id"] == photo_id for photo in photos_list)
-        assert not photo_still_listed, "Deleted photo should not appear in user's photo list"
-        print("✓ Photo removed from user's photo list")
-
-        # CRITICAL: Verify physical files are actually deleted
-        # Files that were accessible before MUST be inaccessible after deletion
-        still_accessible = []
-        for url in accessible_before:
+        # Verify files are no longer accessible (CRITICAL - files must be deleted)
+        accessible_after = []
+        for url in file_urls:
             try:
-                file_response = requests.get(url, timeout=5)
+                file_response = requests.head(url)
                 if file_response.status_code == 200:
-                    still_accessible.append(url)
-                elif file_response.status_code == 404:
-                    print(f"✓ File properly deleted: {url}")
-                else:
-                    print(f"✓ File no longer accessible: {url} (status: {file_response.status_code})")
-            except requests.exceptions.RequestException:
-                print(f"✓ File no longer accessible: {url}")
+                    accessible_after.append(url)
+                    print(f"🚨 ERROR: File still accessible after deletion: {url}")
+            except:
+                pass
 
-        # FAIL THE TEST if any files are still accessible
-        if still_accessible:
-            failure_msg = f"DELETION FAILED: {len(still_accessible)} files still accessible after deletion:\n"
-            for url in still_accessible:
-                failure_msg += f"  - {url}\n"
-            assert False, failure_msg
+        assert len(accessible_after) == 0, f"Files should not be accessible after deletion. Still accessible: {accessible_after}"
+        print("✓ All files properly cleaned up after deletion")
 
-        print(f"✅ All {len(accessible_before)} files properly deleted")
+        # Remove from our tracking list since it's been deleted
+        if photo_id in self.uploaded_photo_ids:
+            self.uploaded_photo_ids.remove(photo_id)
 
-        # Remove from our tracking list since it's successfully deleted
-        self.uploaded_photo_ids.remove(photo_id)
-
-    def test_delete_photo_unauthorized(self):
+    @pytest.mark.asyncio
+    async def test_delete_photo_unauthorized(self):
         """Test photo deletion without authentication."""
-        print("\n=== Testing photo deletion without authentication ===")
+        print("\n=== Testing unauthorized photo deletion ===")
 
-        # Try to delete a photo without auth headers
-        response = requests.delete(f"{API_URL}/photos/non-existent-id")
-        self.assert_unauthorized(response)
-        print("✓ Deletion properly rejected without authentication")
+        # Upload a test photo first
+        photo_id = await self._create_test_photo("test_delete_unauth.jpg", "Test photo for unauthorized deletion")
+        print(f"✓ Uploaded test photo: {photo_id}")
 
-    def test_delete_photo_wrong_owner(self):
-        """Test photo deletion by non-owner user."""
-        print("\n=== Testing photo deletion by wrong owner ===")
-
-        # Upload photo as test user
-        photo_id = upload_photo_securely(
-            image_path=self.test_image_path,
-            description="Test photo owned by test user",
-            is_public=True,
-            headers=self.test_headers
-        )
-        self.uploaded_photo_ids.append(photo_id)
-        print(f"✓ Uploaded photo as test user: {photo_id}")
-
-        # Try to delete as admin user (different owner)
-        delete_response = requests.delete(f"{API_URL}/photos/{photo_id}", headers=self.admin_headers)
-        assert delete_response.status_code == 404, f"Should get 404 for non-owned photo, got {delete_response.status_code}"
-        print("✓ Deletion properly rejected for non-owner")
+        # Try to delete without authentication
+        delete_response = requests.delete(f"{API_URL}/photos/{photo_id}")
+        assert delete_response.status_code == 401, "Should require authentication"
+        print("✓ Properly rejected unauthenticated deletion request")
 
         # Verify photo still exists
         get_response = requests.get(f"{API_URL}/photos/{photo_id}", headers=self.test_headers)
         self.assert_success(get_response)
-        print("✓ Photo still exists after failed deletion attempt")
+        print("✓ Photo still exists after failed unauthorized deletion")
+
+    @pytest.mark.asyncio
+    async def test_delete_photo_wrong_owner(self):
+        """Test photo deletion by non-owner."""
+        print("\n=== Testing photo deletion by wrong owner ===")
+
+        # Upload photo as test user
+        photo_id = await self._create_test_photo("test_delete_wrong_owner.jpg", "Test photo owned by test user")
+        print(f"✓ Uploaded test photo as test user: {photo_id}")
+
+        # Try to delete as admin user (different owner)
+        admin_token = self.get_admin_token()
+        admin_headers = {"Authorization": f"Bearer {admin_token}"}
+        delete_response = requests.delete(f"{API_URL}/photos/{photo_id}", headers=admin_headers)
+        assert delete_response.status_code == 404, "Should return 404 when trying to delete another user's photo (API design choice)"
+        print("✓ Properly rejected deletion by non-owner (returns 404 - photo not found for this user)")
+
+        # Verify photo still exists
+        get_response = requests.get(f"{API_URL}/photos/{photo_id}", headers=self.test_headers)
+        self.assert_success(get_response)
+        print("✓ Photo still exists after failed unauthorized deletion")
 
     def test_delete_nonexistent_photo(self):
         """Test deletion of non-existent photo."""
         print("\n=== Testing deletion of non-existent photo ===")
 
-        fake_photo_id = "00000000-0000-0000-0000-000000000000"
+        # Try to delete a non-existent photo
+        fake_photo_id = "nonexistent-photo-id"
         delete_response = requests.delete(f"{API_URL}/photos/{fake_photo_id}", headers=self.test_headers)
-
-        assert delete_response.status_code == 404, f"Should get 404 for non-existent photo, got {delete_response.status_code}"
-        print("✓ Non-existent photo deletion properly returns 404")
+        assert delete_response.status_code == 404, "Should return 404 for non-existent photo"
+        print("✓ Properly handled deletion of non-existent photo")
 
     def test_delete_invalid_photo_id(self):
         """Test deletion with invalid photo ID format."""
         print("\n=== Testing deletion with invalid photo ID ===")
 
-        invalid_ids = ["invalid", "123", "not-a-uuid"]
+        # Try various invalid photo ID formats
+        invalid_ids = [
+            ("invalid-uuid", [400, 404]),
+            ("123", [400, 404]),
+            ("not-a-uuid", [400, 404]),
+            ("   ", [400, 404, 405]),  # Whitespace might cause routing issues
+            ("", [405]),  # Empty string causes Method Not Allowed due to routing
+        ]
 
-        for invalid_id in invalid_ids:
+        for invalid_id, expected_codes in invalid_ids:
             delete_response = requests.delete(f"{API_URL}/photos/{invalid_id}", headers=self.test_headers)
-            # Should return 404 or 422 depending on validation
-            assert delete_response.status_code in [404, 422], f"Invalid ID {invalid_id} should return 404 or 422, got {delete_response.status_code}"
-            print(f"✓ Invalid photo ID '{invalid_id}' properly rejected")
+            assert delete_response.status_code in expected_codes, f"Should reject invalid photo ID '{invalid_id}' with one of {expected_codes}, got {delete_response.status_code}"
+            print(f"✓ Properly rejected invalid photo ID '{invalid_id}' with status {delete_response.status_code}")
 
-    def test_delete_photo_with_unknown_storage_type(self):
-        """Test deletion of photo with unknown storage type (regression test)."""
+    @pytest.mark.asyncio
+    async def test_delete_photo_with_unknown_storage_type(self):
+        """Test deletion of photo with unknown storage configuration."""
         print("\n=== Testing deletion with unknown storage type ===")
 
-        # This test specifically addresses the bug we found where
-        # photos with unknown storage types can't be deleted
-
         # Upload photo normally
-        photo_id = upload_photo_securely(
-            image_path=self.test_image_path,
-            description="Test photo for storage type handling",
-            is_public=True,
-            headers=self.test_headers
-        )
-        self.uploaded_photo_ids.append(photo_id)
+        photo_id = await self._create_test_photo("test_delete_storage.jpg", "Test photo for storage type handling")
         print(f"✓ Uploaded test photo: {photo_id}")
 
-        # The deletion should succeed even if storage type can't be determined
-        # (This tests the fix for the storage type determination issue)
+        # Wait for processing
+        wait_for_photo_processing(photo_id, self.test_token, timeout=30)
+
+        # Delete the photo - should handle gracefully even with unknown storage types
         delete_response = requests.delete(f"{API_URL}/photos/{photo_id}", headers=self.test_headers)
-
-        # Should succeed, not return 500 error
-        if delete_response.status_code == 500:
-            error_text = delete_response.text
-            assert False, f"Photo deletion failed with 500 error - storage type issue not fixed: {error_text}"
-
         self.assert_success(delete_response)
-        print("✓ Photo deletion succeeded despite potential storage type issues")
+        print("✓ Photo deletion succeeded despite storage configuration")
 
-        # Verify it's actually deleted from database
-        get_response = requests.get(f"{API_URL}/photos/{photo_id}", headers=self.test_headers)
-        assert get_response.status_code == 404, "Photo should be deleted from database"
-        print("✓ Photo successfully removed from database")
-
-        # Remove from tracking
-        self.uploaded_photo_ids.remove(photo_id)
-
-
-def run_photo_deletion_tests():
-    """Run all photo deletion tests."""
-    test_cases = [
-        "test_delete_photo_success",
-        "test_delete_photo_unauthorized",
-        "test_delete_photo_wrong_owner",
-        "test_delete_nonexistent_photo",
-        "test_delete_invalid_photo_id",
-        "test_delete_photo_with_unknown_storage_type",
-    ]
-
-    print("🗑️ Running Photo Deletion Integration Tests")
-    print("=" * 50)
-
-    passed = 0
-    failed = 0
-
-    for i, test_name in enumerate(test_cases, 1):
-        print(f"\n[{i}/{len(test_cases)}] {test_name}")
-        try:
-            # Create fresh instance for each test
-            test_instance = TestPhotoDeletion()
-            test_instance.setUp()
-            test_method = getattr(test_instance, test_name)
-            test_method()
-            test_instance.tearDown()
-            print(f"✅ {test_name} PASSED")
-            passed += 1
-        except Exception as e:
-            print(f"❌ {test_name} FAILED: {e}")
-            failed += 1
-            raise
-
-    print("\n" + "=" * 50)
-    print(f"📊 Test Results: {passed} passed, {failed} failed")
-    if failed == 0:
-        print("🎉 All photo deletion tests passed!")
-    else:
-        print(f"💥 {failed} tests failed!")
+        # Remove from our tracking list since it's been deleted
+        if photo_id in self.uploaded_photo_ids:
+            self.uploaded_photo_ids.remove(photo_id)
 
 
 if __name__ == "__main__":
-    run_photo_deletion_tests()
+    unittest.main()

@@ -14,6 +14,7 @@
 	let autoUploadEnabled = false;
 	let autoUploadPromptEnabled = true;
 	let user: User | null = null;
+	let alert = null;
 
 	// Computed property for radio button state
 	$: radioState = autoUploadEnabled ? 'enabled' :
@@ -66,7 +67,9 @@
 
 				const statusText = autoUploadEnabled ? 'enabled' :
 								  !autoUploadPromptEnabled ? 'disabled (never prompt)' : 'disabled';
-				onSaveSuccess(`Auto-upload ${statusText}`);
+				const msg = `Auto-upload ${statusText}`;
+				onSaveSuccess(msg);
+				alert = {type: 'success', message: msg};
 
 				if (onCancel) {
 					onCancel();
@@ -147,12 +150,19 @@
 			<button class="secondary-button" on:click={onCancel}>Cancel</button>
 		{/if}
 		<button class="primary-button" on:click={saveSettings} data-testid="save-settings-button"
-				disabled={!user}>Save Settings
+				disabled={autoUploadEnabled && !user}>Save Settings
 		</button>
 	</div>
 {:else}
 	<p>Auto-upload settings are only available in the mobile application.</p>
 {/if}
+
+{#if alert}
+	<div class="alert {alert.type}" data-testid="alert-message">
+		{alert.message}
+	</div>
+{/if}
+
 
 <style>
 	.radio-group {
@@ -172,4 +182,23 @@
 	.radio-group input[type="radio"] {
 		cursor: pointer;
 	}
+
+	button {
+		margin-top: 1rem;
+	}
+
+	.alert {
+		margin-top: 1rem;
+		padding: 0.75rem 1rem;
+		border-radius: 4px;
+	}
+	.alert.success {
+		background-color: #d4edda;
+		color: #155724;
+	}
+	.alert.error {
+		background-color: #f8d7da;
+		color: #721c24;
+	}
+
 </style>

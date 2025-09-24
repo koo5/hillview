@@ -17,7 +17,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db, SessionLocal
 from common.models import CachedRegion, MapillaryPhotoCache, User
 from cache_service import MapillaryCacheService
-from rate_limiter import rate_limit_public_read
+from rate_limiter import rate_limit_public_read, general_rate_limiter
 from auth import get_current_user_optional_with_query
 from hidden_content_filters import filter_mapillary_photos_list
 from mock_mapillary import mock_mapillary_service
@@ -254,8 +254,8 @@ async def stream_mapillary_images(
 	current_user: Optional[User] = Depends(get_current_user_optional_with_query)
 ):
 	"""Stream Mapillary images with Server-Sent Events"""
-	# Apply public read rate limiting
-	await rate_limit_public_read(request)
+	# Apply rate limiting with optional user context (better limits for authenticated users)
+	await general_rate_limiter.enforce_rate_limit(request, 'public_read', current_user)
 
 	# Calculate effective maximum photos (client can't exceed server limit)
 	effective_max_photos = min(max_photos, MAX_PHOTOS_PER_REQUEST)
@@ -554,10 +554,14 @@ async def stream_mapillary_images(
 		)
 
 @router.get("/stats")
-async def get_cache_stats(request: Request, db: AsyncSession = Depends(get_db)):
+async def get_cache_stats(
+	request: Request,
+	db: AsyncSession = Depends(get_db),
+	current_user: Optional[User] = Depends(get_current_user_optional_with_query)
+):
 	"""Get cache statistics"""
-	# Apply public read rate limiting
-	await rate_limit_public_read(request)
+	# Apply rate limiting with optional user context (better limits for authenticated users)
+	await general_rate_limiter.enforce_rate_limit(request, 'public_read', current_user)
 
 	cache_service = MapillaryCacheService(db)
 	cache_stats = await cache_service.get_cache_stats()
@@ -569,10 +573,13 @@ async def get_cache_stats(request: Request, db: AsyncSession = Depends(get_db)):
 	}
 
 @router.get("/api-stats")
-async def get_api_stats(request: Request):
+async def get_api_stats(
+	request: Request,
+	current_user: Optional[User] = Depends(get_current_user_optional_with_query)
+):
 	"""Get Mapillary API usage statistics"""
-	# Apply public read rate limiting
-	await rate_limit_public_read(request)
+	# Apply rate limiting with optional user context (better limits for authenticated users)
+	await general_rate_limiter.enforce_rate_limit(request, 'public_read', current_user)
 
 	return api_manager.get_stats()
 

@@ -28,8 +28,8 @@ async def get_recent_activity(
 	current_user: Optional[User] = Depends(get_current_user_optional_with_query)
 ):
 	"""Get last 100 photos across all users with user information for activity feed."""
-	# Apply general rate limiting
-	await general_rate_limiter.enforce_rate_limit(request, 'activity_recent')
+	# Apply rate limiting with optional user context (better limits for authenticated users)
+	await general_rate_limiter.enforce_rate_limit(request, 'public_read', current_user)
 	
 	try:
 		# Join Photo with User to get usernames for all photos
