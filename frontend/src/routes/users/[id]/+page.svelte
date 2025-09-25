@@ -189,7 +189,7 @@
 							/>
 							{#if photo.processing_status !== 'completed'}
 								<div class="processing-badge">
-									{photo.processing_status}
+									processing
 								</div>
 							{/if}
 						</div>
