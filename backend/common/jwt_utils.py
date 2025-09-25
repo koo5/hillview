@@ -13,6 +13,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 import logging
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 # ECDSA configuration
 ALGORITHM = "ES256"
@@ -93,7 +94,7 @@ def validate_jwt_token(
 		logger.debug('JWT validation successful, payload: %s', payload)
 		return payload
 	except JWTError as e:
-		logger.debug(f"JWT validation failed: {e}")
+		logger.info(f"JWT validation failed: {e}")
 		return None
 
 def extract_bearer_token(authorization_header: Optional[str]) -> Optional[str]:

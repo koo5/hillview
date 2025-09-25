@@ -1295,7 +1295,7 @@ async def authorize_upload(
 ):
 	"""Create upload authorization JWT for secure photo upload to worker."""
 	try:
-		log.info(f"Creating upload authorization for user {current_user.id}: {auth_request.filename}")
+		log.info(f"Creating upload authorization for user {current_user.id}: {auth_request.filename}, {auth_request.file_size} bytes, MD5: {auth_request.file_md5}, lat/lon: {auth_request.latitude}/{auth_request.longitude}, bearing: {auth_request.compass_angle}, captured_at: {auth_request.captured_at}, key_id: {auth_request.client_key_id}")
 
 		# Basic validation of request parameters
 		if not auth_request.filename.strip():

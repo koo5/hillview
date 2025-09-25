@@ -33,14 +33,18 @@ throttle = Throttle('photo_processor')
 class PhotoProcessor:
 	"""Unified photo processing service for uploads."""
 
+
 	SUPPORTED_EXTENSIONS = ['.jpg', '.jpeg', '.tiff', '.png', '.heic', '.heif']
+
 
 	def __init__(self, upload_dir: str = "/app/uploads"):
 		self.upload_dir = upload_dir
 
+
 	def is_supported_image(self, filename: str) -> bool:
 		"""Check if file is a supported image format."""
 		return any(filename.lower().endswith(ext) for ext in self.SUPPORTED_EXTENSIONS)
+
 
 	def extract_exif_data(self, filepath: str) -> Dict[str, Any]:
 		"""Extract EXIF data including GPS and bearing information using known-good implementation."""
@@ -180,38 +184,40 @@ class PhotoProcessor:
 				if lon_ref == 'W':
 					longitude = -abs(longitude)
 
-				# Check bearing data
-				bearing_fields = ['GPSImgDirection', 'GPSTrack', 'GPSDestBearing']
-				bearing = None
-				for field in bearing_fields:
-					if data.get(field) is not None:
-						bearing = data.get(field)
-						result['debug']['found_bearing_tags'].append(field)
-						break
+			# Check bearing data
+			bearing_fields = ['GPSImgDirection', 'GPSTrack', 'GPSDestBearing']
+			bearing = None
+			for field in bearing_fields:
+				if data.get(field) is not None:
+					bearing = data.get(field)
+					result['debug']['found_bearing_tags'].append(field)
+					break
 
-				if not bearing:
-					result['debug']['has_bearing'] = False
-					logger.debug(f"No bearing data found via exiftool")
-				else:
-					result['debug']['has_bearing'] = True
-					altitude = data.get('GPSAltitude')
+			if not bearing:
+				result['debug']['has_bearing'] = False
+				logger.debug(f"No bearing data found via exiftool")
+			else:
+				result['debug']['has_bearing'] = True
 
-					logger.debug(f"Found complete GPS data via exiftool")
-					gps_data = {
-						'latitude': latitude,
-						'longitude': longitude,
-						'bearing': bearing
-					}
-					if altitude:
-						gps_data['altitude'] = altitude
+			altitude = data.get('GPSAltitude')
 
-					result['gps'] = gps_data
+			logger.debug(f"Found complete GPS data via exiftool")
+			gps_data = {
+				'latitude': latitude,
+				'longitude': longitude,
+				'bearing': bearing
+			}
+			if altitude:
+				gps_data['altitude'] = altitude
+
+			result['gps'] = gps_data
 
 		except Exception as e:
 			result['debug']['parsing_errors'].append(f"exiftool failed: {e}")
 			logger.debug(f"Error reading EXIF data from {filepath}: {e}")
 
 		return result
+
 
 	def _convert_to_degrees(self, value):
 		"""Convert GPS coordinates to decimal degrees."""
