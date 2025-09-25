@@ -59,7 +59,7 @@ export class OptimizedMarkerSystem {
 	createOptimizedMarker(photo: PhotoData): L.Marker {
 		const marker = this.getPooledMarker() || new L.Marker([0, 0]);
 
-		// Update marker position
+		// Update marker position (will be adjusted with CSS transform for bearing offset)
 		marker.setLatLng(photo.coord);
 
 		// Create the separated visual elements
@@ -95,10 +95,22 @@ export class OptimizedMarkerSystem {
 		const arrowScale = isSelected ? 1.2 : 1.0;
 		const strokeWidth = isSelected ? 3 : 1;
 
+		// Calculate bearing offset in pixels (forward direction)
+		const offsetPixels = 8; // pixels to offset forward
+		const bearingRad = (photo.bearing * Math.PI) / 180;
+		const offsetX = offsetPixels * Math.sin(bearingRad);
+		const offsetY = -offsetPixels * Math.cos(bearingRad); // negative because CSS Y increases downward
+
+		let color = photo.bearing_color || '#9E9E9E';
+
 		return L.divIcon({
 			className: 'optimized-photo-marker',
 			html: `
-        <div class="marker-container" style="width: ${arrowSize}px; height: ${arrowSize}px;">
+        <div class="marker-container" style="
+             width: ${arrowSize}px;
+             height: ${arrowSize}px;
+             transform: translate(${offsetX.toFixed(1)}px, ${offsetY.toFixed(1)}px);
+           ">
           <!-- Bearing diff circle (background) -->
           <div class="bearing-circle ${isSelected ? 'selected' : ''}"
                style="
@@ -106,6 +118,7 @@ export class OptimizedMarkerSystem {
                  width: ${circleSize}px;
                  height: ${circleSize}px;
                  border: ${strokeWidth}px solid ${photo.source?.color || '#666'};
+                 opacity: 0.8;
                "></div>
 
           <!-- Direction arrow (foreground) -->
@@ -117,6 +130,7 @@ export class OptimizedMarkerSystem {
                  width: ${arrowSize}px;
                  height: ${arrowSize}px;
                  transform: scale(${arrowScale});
+                 opacity: 0.7;
                "></div>
         </div>
       `,
@@ -345,11 +359,11 @@ export class OptimizedMarkerSystem {
 				const arrowSize = this.atlasDimensions.arrowSize;
 				(circle as HTMLElement).style.width = `${arrowSize * 1}px`;
 				(circle as HTMLElement).style.height = `${arrowSize * 1}px`;
-				(circle as HTMLElement).style.borderWidth = '3px';
+				(circle as HTMLElement).style.borderWidth = '2px';
 			}
 			const arrow = element.querySelector('.direction-arrow');
 			if (arrow) {
-				(arrow as HTMLElement).style.transform = 'scale(1.2)';
+				(arrow as HTMLElement).style.transform = 'scale(1.1)';
 			}
 		}
 	}

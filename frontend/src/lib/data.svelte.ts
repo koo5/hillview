@@ -26,7 +26,7 @@ export interface Source {
 
 const baseSources: Source[] = [
     {id: 'hillview', name: 'Hillview', type: 'stream', enabled: !import.meta.env.VITE_PICS_OFF, requests: [], color: '#000', url: `${backendUrl}/hillview`},
-    {id: 'mapillary', name: 'Mapillary', type: 'stream', enabled: !import.meta.env.VITE_PICS_OFF, requests: [], color: '#888', url: `${backendUrl}/mapillary`}
+    {id: 'mapillary', name: 'Mapillary', type: 'stream', enabled: false/*!import.meta.env.VITE_PICS_OFF*/, requests: [], color: '#888', url: `${backendUrl}/mapillary`}
 ];
 
 const deviceSources: Source[] = !TAURI ? [] : [

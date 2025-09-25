@@ -93,8 +93,8 @@ let sourcesPhotosInAreaVersion = 0;
 let lastProcessedSourcesPhotosInAreaVersion = -1;
 
 // Configuration
-const MAX_PHOTOS_IN_AREA = 1000;
-const MAX_PHOTOS_IN_RANGE = 300;
+const MAX_PHOTOS_IN_AREA = 400;
+const MAX_PHOTOS_IN_RANGE = 200;
 
 // Current range and center for range filtering
 let currentRange = 1000; // Default range in meters, updated from area updates
