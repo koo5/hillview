@@ -6,12 +6,14 @@
 	import {beforeNavigate, afterNavigate} from '$app/navigation';
 	import {page} from '$app/stores';
 	import {get} from 'svelte/store';
+	import {clearAlerts} from "$lib/alertSystem.svelte";
 
 	// Log navigation events
 	beforeNavigate((navigation) => {
+		clearAlerts();
 		const currentPath = get(page).url.pathname;
 		const newPath = navigation.to?.url.pathname;
-		console.log(`🧭 [NAV] Navigating from "${currentPath}" to "${newPath}" (type: ${navigation.type})`);
+		console.log(`🧭 [NAV] beforeNavigate: Navigating from "${currentPath}" to "${newPath}" (type: ${navigation.type})`);
 	});
 
 	afterNavigate((navigation) => {

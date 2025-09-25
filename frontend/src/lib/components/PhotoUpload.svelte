@@ -1,7 +1,8 @@
 <script lang="ts">
 	import {Upload} from 'lucide-svelte';
-	import {secureUploadFiles} from '$lib/secureUpload';
+	import {secureUploadFiles, NonRetryableUploadError, RetryableUploadError} from '$lib/secureUpload';
 	import {handleApiError, TokenExpiredError} from '$lib/http';
+	import {showNetworkError, removeAlertsBySource} from '$lib/alertSystem.svelte';
 	import type {User} from '$lib/auth.svelte';
 	import type { LogEntryCallback } from '$lib/types/activityLog';
 
@@ -48,6 +49,15 @@
 					if (currentFile) {
 						onLogEntry(`Uploading ${completed + 1}/${total}: ${currentFile}`, 'info');
 					}
+				},
+				(file, errorMessage) => {
+					// Immediate feedback when individual files fail
+					showNetworkError(`Failed to upload ${file.name}: ${errorMessage}`, 'photo-upload');
+					onLogEntry(`❌ Failed: ${file.name} - ${errorMessage}`, 'error', {
+						operation: 'upload',
+						filename: file.name,
+						outcome: 'failure'
+					});
 				}
 			);
 
@@ -100,13 +110,30 @@
 
 		} catch (err) {
 			console.error('Error in batch upload:', err);
-			const errorMessage = handleApiError(err);
-			onLogEntry(`Batch upload failed: ${errorMessage}`, 'error');
 
-			// TokenExpiredError is handled automatically by the http client
+			// Clear any previous upload alerts first
+			removeAlertsBySource('photo-upload');
+
+			// Handle different error types with appropriate feedback
 			if (err instanceof TokenExpiredError) {
+				// TokenExpiredError is handled automatically by the http client
 				// No need to handle manually, http client already logged out
 				return;
+			} else if (err instanceof NonRetryableUploadError) {
+				// Client-side errors (duplicates, validation, auth issues)
+				onLogEntry(`Upload failed: ${err.message}`, 'error');
+			} else if (err instanceof RetryableUploadError) {
+				// Network/server errors that were retried but still failed
+				showNetworkError(
+					`Upload failed after retries: ${err.message}. Check your connection and try again.`,
+					'photo-upload'
+				);
+				onLogEntry(`Connection failed: ${err.message}`, 'error');
+			} else {
+				// Fallback for any other error types
+				const errorMessage = handleApiError(err);
+				showNetworkError(`Upload failed: ${errorMessage}`, 'photo-upload');
+				onLogEntry(`Batch upload failed: ${errorMessage}`, 'error');
 			}
 		} finally {
 			isUploading = false;

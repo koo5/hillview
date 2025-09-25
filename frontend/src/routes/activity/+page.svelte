@@ -8,6 +8,7 @@
 	import StandardHeaderWithAlert from '../../components/StandardHeaderWithAlert.svelte';
 	import StandardBody from '../../components/StandardBody.svelte';
 	import Spinner from '../../components/Spinner.svelte';
+	import LoadMoreButton from '$lib/components/LoadMoreButton.svelte';
 
 	interface ActivityPhoto {
 		id: string;
@@ -31,36 +32,52 @@
 	}
 
 	let loading = true;
+	let loadingMore = false;
 	let error = '';
 	let activityData: ActivityGroup[] = [];
 	let totalPhotoCount = 0;
 	let hasMorePhotos = false;
+	let nextCursor: string | null = null;
 
 	onMount(async () => {
 		await loadActivityData();
 	});
 
-	async function loadActivityData() {
+	async function loadActivityData(cursor?: string) {
 		try {
-			loading = true;
+			if (cursor) {
+				loadingMore = true;
+			} else {
+				loading = true;
+			}
 			error = '';
 
-			const response = await http.get('/activity/recent');
+			const url = cursor
+				? `/activity/recent?cursor=${encodeURIComponent(cursor)}`
+				: '/activity/recent';
+			const response = await http.get(url);
 
 			if (!response.ok) {
 				throw new Error(`Failed to fetch activity data: ${response.status}`);
 			}
 
 			const data = await response.json();
+			const photos = data.photos || [];
 
-			// Track total count and check if we might have more
-			totalPhotoCount = data.length;
-			hasMorePhotos = data.length === 100; // Backend limit is 100
+			hasMorePhotos = data.has_more || false;
+			nextCursor = data.next_cursor || null;
 
 			// Group photos by date and then by user
 			const grouped: { [date: string]: ActivityGroup } = {};
 
-			data.forEach((photo: ActivityPhoto) => {
+			// If loading more, start with existing data
+			if (cursor && activityData.length > 0) {
+				activityData.forEach(group => {
+					grouped[group.date] = { ...group };
+				});
+			}
+
+			photos.forEach((photo: ActivityPhoto) => {
 				const date = new Date(photo.uploaded_at).toISOString().split('T')[0];
 
 				if (!grouped[date]) {
@@ -84,11 +101,25 @@
 				new Date(b.date).getTime() - new Date(a.date).getTime()
 			);
 
+			// Update total count
+			if (!cursor) {
+				totalPhotoCount = photos.length;
+			} else {
+				totalPhotoCount += photos.length;
+			}
+
 		} catch (err) {
 			console.error('🢄Error loading activity data:', err);
 			error = handleApiError(err);
 		} finally {
 			loading = false;
+			loadingMore = false;
+		}
+	}
+
+	async function loadMorePhotos() {
+		if (nextCursor && !loadingMore) {
+			await loadActivityData(nextCursor);
 		}
 	}
 
@@ -129,11 +160,7 @@
 		}
 	}
 
-	function formatPhotoCount(count: number, isLastGroup: boolean, isLastUserInGroup: boolean): string {
-		// Show + only if this might be truncated (last user in last group and we hit the limit)
-		if (hasMorePhotos && isLastGroup && isLastUserInGroup) {
-			return `${count}+`;
-		}
+	function formatPhotoCount(count: number): string {
 		return count.toString();
 	}
 
@@ -162,7 +189,7 @@
 		{:else if error}
 			<div class="error">
 				<p>Error loading activity: {error}</p>
-				<button on:click={loadActivityData} class="retry-button">
+				<button on:click={() => loadActivityData()} class="retry-button">
 					Try Again
 				</button>
 			</div>
@@ -183,7 +210,7 @@
 									<button class="username-link" on:click={() => viewUserProfile(userPhotos[0].owner_id)}>
 										{username}
 									</button>
-									<span class="photo-count">({formatPhotoCount(userPhotos.length, groupIndex === activityData.length - 1, userIndex === Object.entries(group.userGroups).length - 1)} photo{userPhotos.length !== 1 ? 's' : ''})</span>
+									<span class="photo-count">({formatPhotoCount(userPhotos.length)} photo{userPhotos.length !== 1 ? 's' : ''})</span>
 								</h3>
 
 								<div class="photo-grid">
@@ -220,6 +247,12 @@
 					</div>
 				{/each}
 			</div>
+
+			<LoadMoreButton
+				hasMore={hasMorePhotos && !loading}
+				loading={loadingMore}
+				onLoadMore={loadMorePhotos}
+			/>
 		{/if}
 </StandardBody>
 

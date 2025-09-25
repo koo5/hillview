@@ -43,6 +43,32 @@ export interface SecureUploadResult {
 }
 
 /**
+ * Upload error classes
+ */
+export class UploadError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'UploadError';
+    }
+}
+
+// Don't retry these - user/client issues
+export class NonRetryableUploadError extends UploadError {
+    constructor(message: string) {
+        super(message);
+        this.name = 'NonRetryableUploadError';
+    }
+}
+
+// Retry these - server/network issues
+export class RetryableUploadError extends UploadError {
+    constructor(message: string) {
+        super(message);
+        this.name = 'RetryableUploadError';
+    }
+}
+
+/**
  * Calculate MD5 hash of a file using crypto-js library
  */
 async function calculateFileMD5(file: File): Promise<string> {
@@ -125,24 +151,61 @@ async function getCurrentLocation(): Promise<{
 }
 
 /**
- * Request upload authorization from API server
+ * Request upload authorization from API server with retry logic
  */
 async function requestUploadAuthorization(request: UploadAuthorizationRequest): Promise<UploadAuthorizationResponse> {
-    const response = await http.post('/photos/authorize-upload', request);
+    const maxRetries = 3;
+    const baseDelay = 1000;
 
-    if (!response.ok) {
-        const error = await response.json().catch(() => ({ detail: 'Failed to authorize upload' }));
-        throw new Error(error.detail || `Upload authorization failed: ${response.status}`);
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+            const response = await http.post('/photos/authorize-upload', request);
+
+            if (response.ok) {
+                const responseData = await response.json();
+
+                // Check for duplicates (non-retryable)
+                if (responseData.duplicate) {
+                    throw new NonRetryableUploadError(`Duplicate file detected: ${responseData.message || 'This file has already been uploaded'}`);
+                }
+
+                return responseData;
+            }
+
+            // Got response but not OK
+            const error = await response.json().catch(() => ({ detail: 'Failed to authorize upload' }));
+            const errorMessage = error.detail || `Upload authorization failed: ${response.status}`;
+
+            if (response.status >= 500) {
+                throw new RetryableUploadError(errorMessage);
+            } else {
+                throw new NonRetryableUploadError(errorMessage);
+            }
+
+        } catch (error) {
+            // Let TokenExpiredError pass through unchanged
+            if (error instanceof Error && error.name === 'TokenExpiredError') {
+                throw error;
+            }
+
+            // Non-retryable errors should immediately propagate
+            if (error instanceof NonRetryableUploadError) {
+                throw error;
+            }
+
+            // Last attempt - give up
+            if (attempt === maxRetries) {
+                throw error instanceof RetryableUploadError ? error : new RetryableUploadError(error instanceof Error ? error.message : 'Network error');
+            }
+
+            // Retry logic
+            const delay = baseDelay * Math.pow(2, attempt);
+            console.log(`🔐 Upload authorization failed, retrying in ${delay}ms... (attempt ${attempt + 1}/${maxRetries + 1})`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
     }
 
-    const responseData = await response.json();
-
-    // Check if this is a duplicate file detection response
-    if (responseData.duplicate) {
-        throw new Error(`Duplicate file detected: ${responseData.message || 'This file has already been uploaded'}`);
-    }
-
-    return responseData;
+    throw new RetryableUploadError('Maximum retries exceeded');
 }
 
 /**
@@ -159,7 +222,7 @@ async function generateClientSignature(photoId: string, filename: string, authTi
 }
 
 /**
- * Upload file to worker with JWT and client signature
+ * Upload file to worker with JWT and client signature (with retry logic)
  */
 async function uploadToWorker(
     file: File,
@@ -167,27 +230,64 @@ async function uploadToWorker(
     signature: string,
     workerUrl?: string
 ): Promise<SecureUploadResult> {
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('client_signature', signature);
+    const maxRetries = 3;
+    const baseDelay = 2000; // Longer delay for file uploads
 
     // Use configured worker URL or default to backend URL with worker port
     const workerEndpoint = workerUrl || `${backendUrl.replace(':8055', ':8056')}/upload`;
 
-    const response = await fetch(workerEndpoint, {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${uploadJwt}`
-        },
-        body: formData
-    });
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('client_signature', signature);
 
-    if (!response.ok) {
-        const error = await response.json().catch(() => ({ detail: 'Worker upload failed' }));
-        throw new Error(error.detail || `Worker upload failed: ${response.status}`);
+            const response = await fetch(workerEndpoint, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${uploadJwt}`
+                },
+                body: formData
+            });
+
+            if (response.ok) {
+                return await response.json();
+            }
+
+            // Got response but not OK
+            const error = await response.json().catch(() => ({ detail: 'Worker upload failed' }));
+            const errorMessage = error.detail || `Worker upload failed: ${response.status}`;
+
+            if (response.status >= 500) {
+                throw new RetryableUploadError(errorMessage);
+            } else {
+                throw new NonRetryableUploadError(errorMessage);
+            }
+
+        } catch (error) {
+            // Let TokenExpiredError pass through unchanged
+            if (error instanceof Error && error.name === 'TokenExpiredError') {
+                throw error;
+            }
+
+            // Non-retryable errors should immediately propagate
+            if (error instanceof NonRetryableUploadError) {
+                throw error;
+            }
+
+            // Last attempt - give up
+            if (attempt === maxRetries) {
+                throw error instanceof RetryableUploadError ? error : new RetryableUploadError(error instanceof Error ? error.message : 'Network error');
+            }
+
+            // Retry logic
+            const delay = baseDelay * Math.pow(2, attempt);
+            console.log(`🔐 Worker upload failed, retrying in ${delay}ms... (attempt ${attempt + 1}/${maxRetries + 1})`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
     }
 
-    return await response.json();
+    throw new RetryableUploadError('Maximum retries exceeded');
 }
 
 /**
@@ -272,7 +372,8 @@ export async function secureUploadFiles(
     description?: string,
     isPublic: boolean = true,
     workerUrl?: string,
-    onProgress?: (completed: number, total: number, currentFile: string) => void
+    onProgress?: (completed: number, total: number, currentFile: string) => void,
+    onError?: (file: File, errorMessage: string) => void
 ): Promise<{
     results: SecureUploadResult[];
     successCount: number;
@@ -297,6 +398,10 @@ export async function secureUploadFiles(
             successCount++;
         } else {
             errorCount++;
+            // Call error callback immediately when file fails
+            if (onError && result.error) {
+                onError(file, result.error);
+            }
         }
     }
 

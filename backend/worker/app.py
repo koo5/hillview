@@ -26,6 +26,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from throttle import Throttle
 
+
 throttle = Throttle('app')
 
 # Add parent directories to path for imports
@@ -41,7 +42,8 @@ from common.file_utils import (
 from common.security_utils import (
 	SecurityValidationError,
 	validate_photo_id,
-	validate_user_id
+	validate_user_id,
+	sanitize_filename
 )
 from common.config import get_cors_origins
 from photo_processor import photo_processor
@@ -204,7 +206,6 @@ async def upload_and_process_photo(
 
 	try:
 
-		# rate limit requests to one per two seconds:
 		async with throttle.rate_limit():
 
 			# Wait for sufficient free RAM before processing
@@ -215,30 +216,33 @@ async def upload_and_process_photo(
 				logger.error(f"wait_for_free_ram timeout for photo {photo_id}: {te}")
 				raise
 
-			# Get file size and validate file
-			file_size = get_file_size_from_upload(file.file)
-			safe_filename, secure_filename, file_path = validate_and_prepare_photo_file(
-				filename=file.filename,
-				file_size=file_size,
-				content_type=file.content_type,
-				user_id=user_id,
-				upload_base_dir=str(UPLOAD_DIR)
-			)
+			safe_filename = sanitize_filename(file.filename)
 
-			# Save uploaded file
-			async with aiofiles.open(file_path, 'wb') as f:
-				content = await file.read()
-				await f.write(content)
-
-			# Verify file content
-			if not verify_saved_file_content(str(file_path), "image"):
-				raise ValueError("Invalid image file content")
-
-			logger.info(f"File saved successfully: {file_path}")
-
-			# Process the photo
-			user_uuid = UUID(user_id)
 			try:
+
+				# Get file size and validate file
+				file_size = get_file_size_from_upload(file.file)
+				safe_filename, secure_filename, file_path = validate_and_prepare_photo_file(
+					filename=file.filename,
+					file_size=file_size,
+					content_type=file.content_type,
+					user_id=user_id,
+					upload_base_dir=str(UPLOAD_DIR)
+				)
+
+				# Save uploaded file
+				async with aiofiles.open(file_path, 'wb') as f:
+					content = await file.read()
+					await f.write(content)
+
+				# Verify file content
+				if not verify_saved_file_content(str(file_path), "image"):
+					raise ValueError("Invalid image file content")
+
+				logger.info(f"File saved successfully: {file_path}")
+
+				# Process the photo
+				user_uuid = UUID(user_id)
 
 
 				processing_result = await photo_processor.process_uploaded_photo(

@@ -23,31 +23,55 @@ router = APIRouter(prefix="/api/activity", tags=["activity"])
 @router.get("/recent")
 async def get_recent_activity(
 	request: Request,
-	limit: int = 100,
+	limit: int = 20,
+	cursor: Optional[str] = None,
 	db: AsyncSession = Depends(get_db),
 	current_user: Optional[User] = Depends(get_current_user_optional_with_query)
 ):
-	"""Get last 100 photos across all users with user information for activity feed."""
+	"""Get recent photos across all users with cursor-based pagination for activity feed."""
 	# Apply rate limiting with optional user context (better limits for authenticated users)
 	await general_rate_limiter.enforce_rate_limit(request, 'public_read', current_user)
-	
+
 	try:
 		# Join Photo with User to get usernames for all photos
 		query = select(Photo, User.username).join(
 			User, Photo.owner_id == User.id
-		).order_by(Photo.uploaded_at.desc()).limit(limit)
-		
+		).order_by(Photo.uploaded_at.desc())
+
+		# Apply cursor-based pagination if cursor is provided
+		if cursor:
+			try:
+				# Cursor is the uploaded_at timestamp of the last photo from previous page
+				cursor_datetime = datetime.fromisoformat(cursor.replace('Z', '+00:00'))
+				query = query.filter(Photo.uploaded_at < cursor_datetime)
+			except (ValueError, TypeError) as e:
+				logger.warning(f"Invalid cursor format: {cursor}, error: {e}")
+				raise HTTPException(
+					status_code=status.HTTP_400_BAD_REQUEST,
+					detail="Invalid cursor format"
+				)
+
+		# Apply limit
+		query = query.limit(limit + 1)  # Fetch one extra to determine if there are more results
+
 		# Apply hidden content filtering
 		query = apply_hidden_content_filters(
 			query,
 			current_user.id if current_user else None,
 			'hillview'
 		)
-		
+
 		result = await db.execute(query)
 		photo_user_pairs = result.all()
-		
+
+		# Determine if there are more results
+		has_more = len(photo_user_pairs) > limit
+		if has_more:
+			photo_user_pairs = photo_user_pairs[:-1]  # Remove the extra item
+
 		activity_data = []
+		next_cursor = None
+
 		for photo, username in photo_user_pairs:
 			activity_data.append({
 				"id": photo.id,
@@ -63,9 +87,19 @@ async def get_recent_activity(
 				"owner_username": username,
 				"owner_id": photo.owner_id
 			})
-		
-		return activity_data
-		
+
+			# Set next_cursor to the last photo's uploaded_at timestamp
+			if photo.uploaded_at:
+				next_cursor = photo.uploaded_at.isoformat()
+
+		return {
+			"photos": activity_data,
+			"has_more": has_more,
+			"next_cursor": next_cursor if has_more else None
+		}
+
+	except HTTPException:
+		raise  # Re-raise HTTP exceptions (like bad cursor format)
 	except Exception as e:
 		logger.error(f"Error getting recent activity: {str(e)}")
 		raise HTTPException(

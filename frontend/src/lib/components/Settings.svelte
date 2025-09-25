@@ -14,7 +14,7 @@
 	let autoUploadEnabled = false;
 	let autoUploadPromptEnabled = true;
 	let user: User | null = null;
-	let alert = null;
+	let alert: {type: string, message: string} | null = null;
 
 	// Computed property for radio button state
 	$: radioState = autoUploadEnabled ? 'enabled' :
