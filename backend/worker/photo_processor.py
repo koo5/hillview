@@ -60,77 +60,77 @@ class PhotoProcessor:
 		}
 
 		# First try exifread
-		try:
-			with open(filepath, 'rb') as f:
-				tags = exifread.process_file(f, details=True, debug=False)
-
-			if len(tags) > 0:
-				result['debug']['has_exif'] = True
-				logger.info(f"EXIF tags found: {len(tags)} tags")
-				logger.info(f"All EXIF tags: {[str(tag) for tag in tags.keys()]}")
-
-				# Extract basic EXIF data
-				exif_dict = {}
-				for tag in tags.keys():
-					if tag not in ('JPEGThumbnail', 'TIFFThumbnail', 'Filename', 'EXIF MakerNote'):
-						exif_dict[tag] = str(tags[tag])
-				result['exif'] = exif_dict
-
-				gps_data = {}
-				bearing = None
-				latitude = tags.get('GPS GPSLatitude')
-				longitude = tags.get('GPS GPSLongitude')
-
-				# Track what GPS tags we found
-				if latitude:
-					result['debug']['found_gps_tags'].append('GPS GPSLatitude')
-				if longitude:
-					result['debug']['found_gps_tags'].append('GPS GPSLongitude')
-
-				# Check bearing data (any one of the possible keys) - independent of coordinates
-				bearing_keys = ['GPS GPSImgDirection', 'GPS GPSTrack', 'GPS GPSDestBearing']
-				for key in bearing_keys:
-					if key in tags:
-						bearing = tags.get(key)
-						result['debug']['found_bearing_tags'].append(key)
-						result['debug']['has_bearing'] = True
-						break
-
-				if latitude and longitude:
-					result['debug']['has_gps_coords'] = True
-
-					if bearing:
-
-						try:
-							altitude = tags.get('GPS GPSAltitude')
-							logger.info(f"Found GPS data via exifread")
-
-							# Convert coordinates to decimal degrees
-							lat = self._convert_to_degrees(latitude)
-							lon = self._convert_to_degrees(longitude)
-
-							# Apply hemisphere corrections
-							lat_ref = tags.get('GPS GPSLatitudeRef')
-							lon_ref = tags.get('GPS GPSLongitudeRef')
-							if lat_ref and str(lat_ref).upper().startswith('S'):
-								lat = -lat
-							if lon_ref and str(lon_ref).upper().startswith('W'):
-								lon = -lon
-
-							gps_data['latitude'] = lat
-							gps_data['longitude'] = lon
-							gps_data['bearing'] = float(str(bearing).split('/')[0]) if '/' in str(bearing) else float(str(bearing))
-							if altitude:
-								gps_data['altitude'] = float(str(altitude).split('/')[0]) if '/' in str(altitude) else float(str(altitude))
-
-							result['gps'] = gps_data
-							return result
-						except Exception as e:
-							result['debug']['parsing_errors'].append(f"GPS parsing failed: {e}")
-							logger.debug(f"GPS parsing failed: {e}")
-		except Exception as e:
-			result['debug']['parsing_errors'].append(f"exifread failed: {e}")
-			logger.debug(f"exifread failed: {e}")
+		# try:
+		# 	with open(filepath, 'rb') as f:
+		# 		tags = exifread.process_file(f, details=True, debug=False)
+		#
+		# 	if len(tags) > 0:
+		# 		result['debug']['has_exif'] = True
+		# 		logger.info(f"EXIF tags found: {len(tags)} tags")
+		# 		logger.info(f"All EXIF tags: {[str(tag) for tag in tags.keys()]}")
+		#
+		# 		# Extract basic EXIF data
+		# 		exif_dict = {}
+		# 		for tag in tags.keys():
+		# 			if tag not in ('JPEGThumbnail', 'TIFFThumbnail', 'Filename', 'EXIF MakerNote'):
+		# 				exif_dict[tag] = str(tags[tag])
+		# 		result['exif'] = exif_dict
+		#
+		# 		gps_data = {}
+		# 		bearing = None
+		# 		latitude = tags.get('GPS GPSLatitude')
+		# 		longitude = tags.get('GPS GPSLongitude')
+		#
+		# 		# Track what GPS tags we found
+		# 		if latitude:
+		# 			result['debug']['found_gps_tags'].append('GPS GPSLatitude')
+		# 		if longitude:
+		# 			result['debug']['found_gps_tags'].append('GPS GPSLongitude')
+		#
+		# 		# Check bearing data (any one of the possible keys) - independent of coordinates
+		# 		bearing_keys = ['GPS GPSImgDirection', 'GPS GPSTrack', 'GPS GPSDestBearing']
+		# 		for key in bearing_keys:
+		# 			if key in tags:
+		# 				bearing = tags.get(key)
+		# 				result['debug']['found_bearing_tags'].append(key)
+		# 				result['debug']['has_bearing'] = True
+		# 				break
+		#
+		# 		if latitude and longitude:
+		# 			result['debug']['has_gps_coords'] = True
+		#
+		# 			if bearing:
+		#
+		# 				try:
+		# 					altitude = tags.get('GPS GPSAltitude')
+		# 					logger.info(f"Found GPS data via exifread")
+		#
+		# 					# Convert coordinates to decimal degrees
+		# 					lat = self._convert_to_degrees(latitude)
+		# 					lon = self._convert_to_degrees(longitude)
+		#
+		# 					# Apply hemisphere corrections
+		# 					lat_ref = tags.get('GPS GPSLatitudeRef')
+		# 					lon_ref = tags.get('GPS GPSLongitudeRef')
+		# 					if lat_ref and str(lat_ref).upper().startswith('S'):
+		# 						lat = -lat
+		# 					if lon_ref and str(lon_ref).upper().startswith('W'):
+		# 						lon = -lon
+		#
+		# 					gps_data['latitude'] = lat
+		# 					gps_data['longitude'] = lon
+		# 					gps_data['bearing'] = float(str(bearing).split('/')[0]) if '/' in str(bearing) else float(str(bearing))
+		# 					if altitude:
+		# 						gps_data['altitude'] = float(str(altitude).split('/')[0]) if '/' in str(altitude) else float(str(altitude))
+		#
+		# 					result['gps'] = gps_data
+		# 					return result
+		# 				except Exception as e:
+		# 					result['debug']['parsing_errors'].append(f"GPS parsing failed: {e}")
+		# 					logger.debug(f"GPS parsing failed: {e}")
+		# except Exception as e:
+		# 	result['debug']['parsing_errors'].append(f"exifread failed: {e}")
+		# 	logger.debug(f"exifread failed: {e}")
 
 		# Fallback to exiftool
 		try:
