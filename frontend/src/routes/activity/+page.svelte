@@ -160,7 +160,15 @@
 		}
 	}
 
-	function formatPhotoCount(count: number): string {
+	function formatPhotoCount(count: number, username: string, groupIndex: number, userIndex: number): string {
+		// Show + if this is the last user group in the last day group and we have more photos to load
+		// This indicates there might be more photos from this user that haven't loaded yet
+		const isLastGroup = groupIndex === activityData.length - 1;
+		const isLastUserInGroup = userIndex === Object.entries(activityData[groupIndex].userGroups).length - 1;
+
+		if (hasMorePhotos && isLastGroup && isLastUserInGroup) {
+			return `${count}+`;
+		}
 		return count.toString();
 	}
 
@@ -210,7 +218,7 @@
 									<button class="username-link" on:click={() => viewUserProfile(userPhotos[0].owner_id)}>
 										{username}
 									</button>
-									<span class="photo-count">({formatPhotoCount(userPhotos.length)} photo{userPhotos.length !== 1 ? 's' : ''})</span>
+									<span class="photo-count">({formatPhotoCount(userPhotos.length, username, groupIndex, userIndex)} photo{userPhotos.length !== 1 ? 's' : ''})</span>
 								</h3>
 
 								<div class="photo-grid">
