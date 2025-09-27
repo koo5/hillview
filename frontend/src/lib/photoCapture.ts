@@ -48,10 +48,12 @@ class PhotoCaptureService {
 	}
 
 	async savePhotoWithExif(photoData: CapturedPhotoData): Promise<DevicePhotoMetadata> {
-		// Convert File to array buffer
+
+		let startTime = Date.now();
 		const arrayBuffer = await photoData.image.arrayBuffer();
 		const uint8Array = new Uint8Array(arrayBuffer);
 		const imageData = Array.from(uint8Array);
+		console.debug(`🢄Converted image to byte array in ${Date.now() - startTime}ms, size: ${imageData.length} bytes`);
 
 		// Prepare metadata for Rust
 		const metadata: PhotoMetadata = {
@@ -85,25 +87,24 @@ class PhotoCaptureService {
 			imageSizeBytes: imageData.length
 		});
 
-			// Get current settings
-			const settings = get(photoCaptureSettings);
+		const settings = get(photoCaptureSettings);
 
-			// Call Rust backend to embed EXIF and save
-			const devicePhoto = await invoke<DevicePhotoMetadata>('save_photo_with_metadata', {
-				imageData,
-				metadata,
-				filename,
-				hideFromGallery: settings.hideFromGallery
-			});
+		// Call Rust backend to embed EXIF and save
+		const devicePhoto = await invoke<DevicePhotoMetadata>('save_photo_with_metadata', {
+			imageData,
+			metadata,
+			filename,
+			hideFromGallery: settings.hideFromGallery
+		});
 
-			this.log(this.LOG_TAGS.SAVE_SUCCESS, 'Photo saved successfully', JSON.stringify({
-				photoId: devicePhoto.id,
-				filename: devicePhoto.filename,
-				path: devicePhoto.path,
-				hideFromGallery: settings.hideFromGallery
-			}));
+		this.log(this.LOG_TAGS.SAVE_SUCCESS, 'Photo saved successfully', JSON.stringify({
+			photoId: devicePhoto.id,
+			filename: devicePhoto.filename,
+			path: devicePhoto.path,
+			hideFromGallery: settings.hideFromGallery
+		}));
 
-			return devicePhoto;
+		return devicePhoto;
 	}
 
 	async loadDevicePhotos(): Promise<DevicePhotosDb> {

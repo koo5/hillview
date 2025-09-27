@@ -57,7 +57,7 @@ function toGeolocationPosition(data: PreciseLocationData): GeolocationPosition {
     };
 }
 
-// Convert browser GeolocationPosition to our unified interface  
+// Convert browser GeolocationPosition to our unified interface
 function fromBrowserGeolocation(position: globalThis.GeolocationPosition): GeolocationPosition {
     return {
         coords: {
@@ -80,7 +80,7 @@ function handleLocationUpdate(position: GeolocationPosition, source: string) {
         lng: position.coords.longitude,
         accuracy: position.coords.accuracy
     }));
-    
+
     // Only update GPS location if location tracking is enabled
     if (get(locationTracking)) {
         updateGpsLocation(position);
@@ -99,7 +99,7 @@ async function initializeLocationListeners(): Promise<void> {
     if (TAURI_MOBILE) {
         try {
             console.log('🢄📍 Initializing persistent Android location listeners');
-            
+
             // Set up the location update event listener (persistent)
             locationListener = await addPluginListener(
                 'hillview',
@@ -107,17 +107,17 @@ async function initializeLocationListeners(): Promise<void> {
                 (data: PreciseLocationData) => {
                     const position = toGeolocationPosition(data);
                     handleLocationUpdate(position, 'Android precise');
-                    
+
                     // Log extra precision data
                     if (data.bearingAccuracy !== undefined) {
-                        console.debug('🢄📍 Bearing accuracy:', data.bearingAccuracy, '°');
+                        //console.debug('🢄📍 Bearing accuracy:', data.bearingAccuracy, '°');
                     }
                     if (data.speedAccuracy !== undefined) {
-                        console.debug('🢄📍 Speed accuracy:', data.speedAccuracy, 'm/s');
+                        //console.debug('🢄📍 Speed accuracy:', data.speedAccuracy, 'm/s');
                     }
                 }
             );
-            
+
             // Set up the location stopped event listener (persistent)
             locationStoppedListener = await addPluginListener(
                 'hillview',
@@ -127,7 +127,7 @@ async function initializeLocationListeners(): Promise<void> {
                     setLocationTracking(false);
                 }
             );
-            
+
             listenersInitialized = true;
             console.log('🢄📍 Android location listeners initialized successfully');
         } catch (error) {
@@ -139,7 +139,7 @@ async function initializeLocationListeners(): Promise<void> {
         if (!navigator.geolocation) {
             throw new Error('Geolocation is not supported by this browser');
         }
-        
+
         console.log('🢄📍 Initializing web geolocation listener');
         webWatchId = navigator.geolocation.watchPosition(
             (position) => {
@@ -156,7 +156,7 @@ async function initializeLocationListeners(): Promise<void> {
                 maximumAge: 5000
             }
         );
-        
+
         listenersInitialized = true;
         console.log('🢄📍 Web geolocation listener initialized successfully');
     }
@@ -170,10 +170,10 @@ export async function startPreciseLocationUpdates(): Promise<void> {
     if (TAURI_MOBILE) {
         try {
             console.log('🢄📍 Starting Android precise location service');
-            
+
             // Just start the Android service - listeners are already set up
             await invoke('plugin:hillview|start_precise_location_listener');
-            
+
             console.log('🢄📍 Android precise location service started successfully');
         } catch (error) {
             console.error('🢄📍 Failed to start Android precise location service:', error);
@@ -188,14 +188,14 @@ export async function startPreciseLocationUpdates(): Promise<void> {
 // Stop location tracking (platform-aware)
 export async function stopPreciseLocationUpdates(): Promise<void> {
     console.log('🢄📍 Stopping location tracking');
-    
+
     if (TAURI_MOBILE) {
         // Just stop the Android service - listeners remain active
         await invoke('plugin:hillview|stop_precise_location_listener');
         console.log('🢄📍 Android precise location service stopped');
     } else {
         // Web: For now, don't clear the watch to keep it persistent
-        // In the future, we could add a flag to control whether web geolocation 
+        // In the future, we could add a flag to control whether web geolocation
         // should keep running in the background
         console.log('🢄📍 Web geolocation remains active (persistent mode)');
     }
@@ -217,7 +217,7 @@ export async function getCurrentPosition(): Promise<GeolocationPosition> {
         if (!navigator.geolocation) {
             throw new Error('Geolocation is not supported by this browser');
         }
-        
+
         return new Promise((resolve, reject) => {
             navigator.geolocation.getCurrentPosition(
                 (position) => {

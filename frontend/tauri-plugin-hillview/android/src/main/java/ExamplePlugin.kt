@@ -580,23 +580,23 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
 
     @Command
     fun getUploadStatus(invoke: Invoke) {
-        Log.i(TAG, "📤 [getUploadStatus] CALLED - retrieving current auto-upload status")
+        //Log.i(TAG, "📤 [getUploadStatus] CALLED - retrieving current auto-upload status")
 
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                Log.d(TAG, "📤 [getUploadStatus] Getting database counts...")
+                //Log.d(TAG, "📤 [getUploadStatus] Getting database counts...")
                 val photoDao = database.photoDao()
                 val pendingCount = photoDao.getPendingUploadCount()
                 val failedCount = photoDao.getFailedUploadCount()
 
-                Log.d(TAG, "📤 [getUploadStatus] Database counts - pending: $pendingCount, failed: $failedCount")
+                //Log.d(TAG, "📤 [getUploadStatus] Database counts - pending: $pendingCount, failed: $failedCount")
 
-                Log.d(TAG, "📤 [getUploadStatus] Reading SharedPreferences...")
+                //Log.d(TAG, "📤 [getUploadStatus] Reading SharedPreferences...")
                 val prefs = activity.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
                 val autoUploadEnabled = prefs.getBoolean("auto_upload_enabled", false)
                 val autoUploadPromptEnabled = prefs.getBoolean("auto_upload_prompt_enabled", true)
 
-                Log.i(TAG, "📤 [getUploadStatus] Settings - enabled: $autoUploadEnabled, promptEnabled: $autoUploadPromptEnabled")
+                //Log.i(TAG, "📤 [getUploadStatus] Settings - enabled: $autoUploadEnabled, promptEnabled: $autoUploadPromptEnabled")
 
                 val result = JSObject()
                 result.put("autoUploadEnabled", autoUploadEnabled)
@@ -604,7 +604,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                 result.put("pendingUploads", pendingCount)
                 result.put("failedUploads", failedCount)
 
-                Log.i(TAG, "📤 [getUploadStatus] SUCCESS - returning: enabled=$autoUploadEnabled, promptEnabled=$autoUploadPromptEnabled, pendingUploads=$pendingCount, failedUploads=$failedCount")
+                Log.i(TAG, "📤 [getUploadStatus] enabled=$autoUploadEnabled, promptEnabled=$autoUploadPromptEnabled, pendingUploads=$pendingCount, failedUploads=$failedCount")
 
                 CoroutineScope(Dispatchers.Main).launch {
                     invoke.resolve(result)
@@ -1331,7 +1331,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     @Command
     fun addPhotoToDatabase(invoke: Invoke) {
         try {
-            Log.d(TAG, "📸 Adding photo to database from JS/Rust")
+            Log.d(TAG, "addPhotoToDatabase")
 
             // Parse the photo data using typed args
             val args = invoke.parseArgs(AddPhotoArgs::class.java)

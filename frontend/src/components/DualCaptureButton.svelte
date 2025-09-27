@@ -100,7 +100,7 @@
 
     function handleSingleCapture() {
         if (disabled) return;
-        
+
         // If a mode is active, stop it
         if (activeMode) {
             stopCapture();
@@ -165,7 +165,7 @@
         // Check what element we're over for the final selection
         if (isLongPress && showAllButtons) {
             const target = document.elementFromPoint(e.clientX, e.clientY);
-            
+
             if (slowButtonEl && slowButtonEl.contains(target as Node)) {
                 // Start slow continuous capture
                 startCapture('slow');
@@ -199,7 +199,7 @@
         if (isLongPress && showAllButtons) {
             // Check which button element the pointer is over
             const target = document.elementFromPoint(e.clientX, e.clientY);
-            
+
             if (slowButtonEl && slowButtonEl.contains(target as Node)) {
                 hoveredButton = 'slow';
                 selectedMode = 'slow';
@@ -222,7 +222,7 @@
             clearTimeout(longPressTimer);
             longPressTimer = null;
         }
-        
+
         // Only hide if we're not actively pressing
         if (!isPointerDown) {
             if (showAllButtons) {
@@ -369,7 +369,7 @@
         -webkit-user-select: none;
         -webkit-touch-callout: none;
     }
-    
+
     .capture-button:not(button) {
         pointer-events: all;
     }
@@ -422,7 +422,7 @@
     }
 
     .single-mode:active {
-        transform: scale(0.9);
+        transform: scale(0.5);
         background: linear-gradient(135deg, #1565C0, #0D47A1);
     }
 
@@ -486,31 +486,31 @@
     }
 
     @keyframes pulse-slow {
-        0% { 
-            transform: scale(1); 
+        0% {
+            transform: scale(1);
             box-shadow: 0 0 0 rgba(76, 175, 80, 0);
         }
-        50% { 
-            transform: scale(1.05); 
+        50% {
+            transform: scale(1.05);
             box-shadow: 0 0 20px rgba(76, 175, 80, 0.5);
         }
-        100% { 
-            transform: scale(1); 
+        100% {
+            transform: scale(1);
             box-shadow: 0 0 0 rgba(76, 175, 80, 0);
         }
     }
 
     @keyframes pulse-fast {
-        0% { 
-            transform: scale(1); 
+        0% {
+            transform: scale(1);
             box-shadow: 0 0 0 rgba(255, 107, 107, 0);
         }
-        50% { 
-            transform: scale(1.05); 
+        50% {
+            transform: scale(1.05);
             box-shadow: 0 0 20px rgba(255, 107, 107, 0.5);
         }
-        100% { 
-            transform: scale(1); 
+        100% {
+            transform: scale(1);
             box-shadow: 0 0 0 rgba(255, 107, 107, 0);
         }
     }

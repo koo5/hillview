@@ -97,13 +97,14 @@ class PreciseLocationService(
         Log.i(TAG, "📍 SETUP: Setting up location callback...")
         locationCallback = object : LocationCallback() {
             override fun onLocationResult(locationResult: LocationResult) {
-                Log.i(TAG, "📍 CALLBACK: *** onLocationResult called! ***")
+                /*Log.i(TAG, "📍 CALLBACK: *** onLocationResult called! ***")
                 Log.i(TAG, "📍 CALLBACK: locationResult = $locationResult")
                 Log.i(TAG, "📍 CALLBACK: locations count = ${locationResult.locations.size}")
                 Log.i(TAG, "📍 CALLBACK: lastLocation = ${locationResult.lastLocation}")
+                */
 
                 locationResult.lastLocation?.let { location ->
-                    Log.i(TAG, "📍 CALLBACK: Processing location update...")
+                    //Log.i(TAG, "📍 CALLBACK: Processing location update...")
                     handleLocationUpdate(location)
                 } ?: run {
                     Log.w(TAG, "📍 CALLBACK: lastLocation is null!")
@@ -111,12 +112,12 @@ class PreciseLocationService(
 
                 // Log all locations if there are multiple
                 locationResult.locations.forEachIndexed { index, location ->
-                    Log.d(TAG, "📍 CALLBACK: Location $index: lat=${location.latitude}, lng=${location.longitude}, accuracy=${location.accuracy}m")
+                    //Log.d(TAG, "📍 CALLBACK: Location $index: lat=${location.latitude}, lng=${location.longitude}, accuracy=${location.accuracy}m")
                 }
             }
 
             override fun onLocationAvailability(availability: LocationAvailability) {
-                Log.i(TAG, "📍 CALLBACK: *** onLocationAvailability called! ***")
+                //Log.i(TAG, "📍 CALLBACK: *** onLocationAvailability called! ***")
                 Log.i(TAG, "📍 CALLBACK: Location availability changed: ${availability.isLocationAvailable}")
                 if (!availability.isLocationAvailable) {
                     Log.w(TAG, "📍⚠️ CALLBACK: Location is currently unavailable")
@@ -163,7 +164,7 @@ class PreciseLocationService(
   */
 
         // Create precise location data
-        Log.i(TAG, "📍 HANDLE: Creating PreciseLocationData object...")
+        //Log.i(TAG, "📍 HANDLE: Creating PreciseLocationData object...")
         val preciseData = PreciseLocationData(
             latitude = location.latitude,
             longitude = location.longitude,
@@ -179,7 +180,7 @@ class PreciseLocationService(
             elapsedRealtimeNanos = location.elapsedRealtimeNanos
         )
 
-        Log.i(TAG, "📍 HANDLE: Calling onLocationUpdate callback...")
+        //Log.i(TAG, "📍 HANDLE: Calling onLocationUpdate callback...")
         try {
             onLocationUpdate(preciseData)
             Log.i(TAG, "📍 HANDLE: ✅ onLocationUpdate callback completed successfully!")

@@ -365,7 +365,7 @@
             return;
         }
 
-        console.log('🢄Capture event:', JSON.stringify(event.detail));
+        //console.log('🢄Capture event:', JSON.stringify(event.detail));
 
         const {mode} = event.detail;
         const timestamp = Date.now();
@@ -403,13 +403,17 @@
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
 
+			let startBlobTime = Date.now();
+
             // Draw video frame to canvas
             context.drawImage(video, 0, 0);
+			console.log('🢄Capture: Drew video frame to canvas');
 
             // Convert canvas to blob with quality based on mode
-            const quality = mode === 'fast' ? 0.7 : 0.9;
+            const quality = mode === 'fast' ? 0.95 : 0.95;
 
             canvas.toBlob(async (blob) => {
+				console.log('🢄Capture: got blob from video in', Date.now() - startBlobTime, 'ms');
                 if (blob) {
                     // Add to capture queue
                     await captureQueue.add({
@@ -420,9 +424,9 @@
                         mode,
                         placeholderId: tempId
                     });
-
                     // Trigger auto-upload prompt check
                     photoCapturedCount++;
+					console.log(`🢄photoCapturedCount: ${photoCapturedCount}`);
                 }
             }, 'image/jpeg', quality);
         } catch (error) {
@@ -430,7 +434,7 @@
             // Remove placeholder on error
             removePlaceholder(tempId);
         }
-		console.log('🢄Capture process initiated');
+
     }
 
     function close() {

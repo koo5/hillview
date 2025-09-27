@@ -40,7 +40,7 @@ class PhotoUploadWorker(
             // Then process upload queue if auto upload is enabled
             if (autoUploadEnabled) {
 				// First scan for new photos
-				scanForNewPhotos()
+				//scanForNewPhotos()
 
                 // Get valid auth token (automatically refreshes if needed)
                 val authToken = authManager.getValidToken()

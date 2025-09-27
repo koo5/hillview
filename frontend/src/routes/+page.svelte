@@ -313,11 +313,6 @@
 	function toggleCamera() {
 		const newActivity = get(app).activity === 'capture' ? 'view' : 'capture';
 
-		app.update(a => ({
-			...a,
-			activity: newActivity
-		}));
-
 		if (newActivity === 'capture') {
 
 			// Entering capture mode - disable all photo sources
@@ -340,6 +335,13 @@
 			});
 			// Note: Compass stopping is now handled by reactive statement
 		}
+
+		app.update(a => ({
+			...a,
+			activity: newActivity
+		}));
+
+
 	}
 
 

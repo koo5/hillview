@@ -95,13 +95,13 @@ class CaptureQueueManager {
 
     async add(item: CaptureQueueItem): Promise<boolean> {
         // Check queue size limit
-        if (this.queue.length >= this.maxQueueSize) {
-            this.log(this.LOG_TAGS.QUEUE_FULL, 'Capture queue full, dropping oldest item', {
+        while (this.queue.length >= this.maxQueueSize) {
+            this.log(this.LOG_TAGS.QUEUE_FULL, 'Capture queue full', {
                 maxSize: this.maxQueueSize,
                 currentSize: this.queue.length,
                 droppedItemId: this.queue[0]?.id
             });
-            this.queue.shift(); // Remove oldest
+            await new Promise(resolve => setTimeout(resolve, 100));
         }
 
         this.queue.push(item);

@@ -42,7 +42,7 @@
 				autoUploadPromptEnabled: boolean;
 			};
 
-			console.log('autoUpload status:', JSON.stringify(result));
+			//console.log('autoUpload status:', JSON.stringify(result));
 
 			autoUploadEnabled = result.autoUploadEnabled || false;
 			autoUploadPromptEnabled = result.autoUploadPromptEnabled || false;
