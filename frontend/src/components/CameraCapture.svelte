@@ -391,36 +391,78 @@
             tempId
         });
 
-		const canvas = document.createElement('canvas');
-        const context = canvas.getContext('2d');
-        if (!context)
-		{
-			console.error('🢄Capture error: Unable to get canvas context');
+		// Create regular canvas and draw video to it
+		const sourceCanvas = document.createElement('canvas');
+		sourceCanvas.width = video.videoWidth;
+		sourceCanvas.height = video.videoHeight;
+
+		const sourceContext = sourceCanvas.getContext('2d');
+		if (!sourceContext) {
+			console.error('🢄Capture error: Unable to get source canvas context');
 			return;
 		}
 
         try {
-            // Set canvas size to match video
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-			context.drawImage(video, 0, 0);
-			console.log('🢄Capture: Drew video frame to canvas');
-			const offscreen = canvas.transferControlToOffscreen();
-			await captureQueue.add({
-				id: `capture_${timestamp}`,
-				canvas: offscreen,
-				location: validLocation,
-				timestamp,
-				mode,
-				placeholderId: tempId
+            // Draw video frame to source canvas
+            sourceContext.drawImage(video, 0, 0);
+            console.log('🢄Capture: Drew video frame to source canvas');
+
+            // Get image data and call Rust directly
+            const imageData = sourceContext.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
+
+			// Convert ImageData to format Rust can handle
+			const pixelData = Array.from(imageData.data);
+
+			// Prepare metadata
+			const metadata = {
+				latitude: validLocation.latitude,
+				longitude: validLocation.longitude,
+				altitude: validLocation.altitude,
+				bearing: validLocation.heading,
+				timestamp: Math.floor(timestamp / 1000),
+				accuracy: validLocation.accuracy,
+				locationSource: validLocation.locationSource,
+				bearingSource: validLocation.bearingSource
+			};
+
+			// Generate filename
+			const date = new Date(timestamp);
+			const year = date.getFullYear();
+			const month = String(date.getMonth() + 1).padStart(2, '0');
+			const day = String(date.getDate()).padStart(2, '0');
+			const hours = String(date.getHours()).padStart(2, '0');
+			const minutes = String(date.getMinutes()).padStart(2, '0');
+			const seconds = String(date.getSeconds()).padStart(2, '0');
+			const filename = `${year}-${month}-${day}-${hours}-${minutes}-${seconds}_${`capture_${timestamp}`}.jpg`;
+
+			// Call Rust to save photo with raw image data
+			const devicePhoto = await invoke('save_photo_with_imagedata', {
+				pixelData,
+				width: imageData.width,
+				height: imageData.height,
+				metadata,
+				filename,
+				hideFromGallery: false
 			});
+
+			console.log('🢄Photo saved successfully:', devicePhoto);
+			removePlaceholder(tempId);
 
 			// Trigger auto-upload prompt check
 			photoCapturedCount++;
 			console.log(`🢄photoCapturedCount: ${photoCapturedCount}`);
 
         } catch (error) {
-            console.error('🢄Capture error:', error);
+            // Get detailed error information
+            const errorInfo = {
+                name: error.name,
+                message: error.message,
+                code: error.code,
+                stack: error.stack
+            };
+            console.error('🢄Capture error details:', JSON.stringify(errorInfo, null, 2));
+            console.error('🢄Capture error object:', error);
+
             // Remove placeholder on error
             removePlaceholder(tempId);
         }

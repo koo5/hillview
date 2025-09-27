@@ -1,18 +1,19 @@
 // Photo capture worker - processes offscreen canvases
 import { invoke } from '@tauri-apps/api/core';
+import type { CaptureQueueItem } from '../lib/captureQueue';
 
 const LOG_PREFIX = '[CAPTURE_WORKER]';
 
-function log(message, data) {
+function log(message: string, data?: any): void {
     const timestamp = new Date().toISOString();
     console.log(`${LOG_PREFIX} ${timestamp} ${message}`, data || '');
 }
 
 // Queue to hold canvas processing tasks
-const canvasQueue = [];
+const canvasQueue: CaptureQueueItem[] = [];
 let processing = false;
 
-onmessage = async (event) => {
+onmessage = async (event: MessageEvent<CaptureQueueItem>) => {
     const item = event.data;
     log('Received canvas for processing', { itemId: item.id, mode: item.mode });
 
@@ -30,19 +31,40 @@ async function processQueue() {
 
     while (canvasQueue.length > 0) {
         const item = canvasQueue.shift();
-        await processCanvas(item);
+        if (item) {
+            await processCanvas(item);
+        }
     }
 
     processing = false;
 }
 
-async function processCanvas(item) {
+async function processCanvas(item: CaptureQueueItem): Promise<void> {
     try {
         log('Processing canvas', { itemId: item.id });
+        log('OffscreenCanvas available:', typeof OffscreenCanvas !== 'undefined');
+        log('ImageData size:', { width: item.imageData.width, height: item.imageData.height });
+
+        // Create new offscreen canvas in worker
+        if (typeof OffscreenCanvas === 'undefined') {
+            throw new Error('OffscreenCanvas not supported in worker');
+        }
+
+        log('Creating OffscreenCanvas...');
+        const canvas = new OffscreenCanvas(item.imageData.width, item.imageData.height);
+        log('OffscreenCanvas created successfully');
+        const context = canvas.getContext('2d');
+        if (!context) {
+            throw new Error('Failed to get offscreen canvas context');
+        }
+
+        // Draw image data to canvas
+        context.putImageData(item.imageData, 0, 0);
 
         // Convert canvas to blob
-        const blob = await new Promise((resolve) => {
-            item.canvas.toBlob(resolve, 'image/jpeg', 0.95);
+        const blob = await canvas.convertToBlob({
+            type: 'image/jpeg',
+            quality: 0.95
         });
 
         if (!blob) {
@@ -92,7 +114,7 @@ async function processCanvas(item) {
             metadata,
             filename,
             hideFromGallery: false // You might want to pass this from settings
-        });
+        }) as { id: string; filename: string; [key: string]: any };
 
         log('Photo saved successfully', {
             itemId: item.id,
@@ -109,17 +131,15 @@ async function processCanvas(item) {
         });
 
     } catch (error) {
-        log('Error processing canvas', {
-            itemId: item.id,
-            error: error.message
-        });
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        log('Error processing canvas', JSON.stringify(errorMessage));
 
         // Send error back to main thread
         postMessage({
             type: 'error',
             itemId: item.id,
             placeholderId: item.placeholderId,
-            error: error.message
+            error: errorMessage
         });
     }
 }

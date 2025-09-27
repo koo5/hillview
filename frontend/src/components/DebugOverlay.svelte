@@ -798,42 +798,6 @@
         font-weight: bold;
     }
 
-    .last-photo-info {
-        margin-top: 4px;
-        padding: 4px;
-        border: 1px solid rgba(255, 193, 7, 0.3);
-        border-radius: 3px;
-        background: rgba(0, 0, 0, 0.2);
-    }
-
-    .photo-basic-info, .photo-location-info, .photo-technical-info {
-        margin: 4px 0;
-        padding: 2px 0;
-    }
-
-    .photo-basic-info {
-        border-bottom: 1px solid rgba(255, 193, 7, 0.2);
-        padding-bottom: 4px;
-    }
-
-    .photo-location-info {
-        border-bottom: 1px solid rgba(255, 193, 7, 0.2);
-        padding-bottom: 4px;
-    }
-
-    .photo-filename, .photo-timestamp, .photo-id,
-    .photo-coordinates, .photo-bearing, .photo-altitude, .photo-accuracy,
-    .photo-dimensions, .photo-filesize, .photo-path {
-        font-size: 8px;
-        margin: 1px 0;
-        color: #fff3cd;
-    }
-
-    .photo-path {
-        word-break: break-all;
-        font-family: monospace;
-        color: #aaa;
-    }
 
     .no-photos-captured {
         font-size: 9px;

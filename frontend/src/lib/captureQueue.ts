@@ -18,7 +18,7 @@ export interface CaptureQueueItem {
 	timestamp: number;
 	mode: 'slow' | 'fast';
 	placeholderId: string;
-	canvas: OffscreenCanvas;
+	imageData: ImageData;
 }
 
 export interface QueueStats {
@@ -132,6 +132,13 @@ class CaptureQueueManager {
 				if (item) {
 					// Start processing without awaiting (parallel execution)
 					this.processItem(item).catch(error => {
+						const errorInfo = {
+							name: error?.name,
+							message: error?.message,
+							code: error?.code,
+							stack: error?.stack
+						};
+						console.error('Unhandled error in processItem details:', JSON.stringify(errorInfo, null, 2));
 						console.error('Unhandled error in processItem:', error);
 					});
 				}
@@ -149,12 +156,39 @@ class CaptureQueueManager {
 		this.processingSet.add(item.id);
 		this.updateStats();
 
-		// Send canvas to worker with transferable object
-		this.worker.postMessage(item, [item.canvas]);
+		try {
+			// Check if worker is available
+			if (!this.worker) {
+				throw new Error('Worker not initialized');
+			}
+
+			// Send image data to worker with transfer for better performance
+			this.log(this.LOG_TAGS.QUEUE_PROCESS, 'Transferring image data to worker', { itemId: item.id });
+			this.worker.postMessage(item, [item.imageData.data.buffer]);
+		} catch (error) {
+			const errorInfo = {
+				name: error?.name,
+				message: error?.message,
+				code: error?.code,
+				stack: error?.stack
+			};
+			this.log(this.LOG_TAGS.PHOTO_ERROR, 'Failed to post message to worker', {
+				itemId: item.id,
+				errorDetails: errorInfo
+			});
+
+			// Remove from processing set on error
+			this.processingSet.delete(item.id);
+			this.updateStats();
+			throw error;
+		}
 	}
 
 	private initWorker(): void {
-		this.worker = new Worker('/captureWorker.js', { type: 'module' });
+		this.worker = new Worker(
+			new URL('../workers/captureWorker.ts', import.meta.url),
+			{ type: 'module' }
+		);
 
 		this.worker.onmessage = (event) => {
 			const { type, itemId, placeholderId, devicePhoto, error } = event.data;
