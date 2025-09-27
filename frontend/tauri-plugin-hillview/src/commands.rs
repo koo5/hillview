@@ -105,22 +105,6 @@ pub(crate) async fn set_upload_config<R: Runtime>(
     }
 }
 
-#[command]
-#[allow(unused_variables)]
-pub(crate) async fn upload_photo<R: Runtime>(
-    app: AppHandle<R>,
-    photo_id: String,
-) -> Result<PhotoUploadResponse> {
-    #[cfg(mobile)]
-    {
-        return app.hillview().upload_photo(photo_id);
-    }
-
-    #[cfg(desktop)]
-    {
-        return Err(crate::Error::from("Photo upload is only available on mobile devices"));
-    }
-}
 
 #[command]
 pub(crate) async fn retry_failed_uploads<R: Runtime>(

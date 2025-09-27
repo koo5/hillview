@@ -14,7 +14,6 @@ Default permissions for the plugin
 - `allow-set-auto-upload-enabled`
 - `allow-get-upload-status`
 - `allow-set-upload-config`
-- `allow-upload-photo`
 - `allow-retry-failed-uploads`
 - `allow-store-auth-token`
 - `allow-get-auth-token`
@@ -632,32 +631,6 @@ Enables the update_sensor_location command without any pre-configured scope.
 <td>
 
 Denies the update_sensor_location command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`hillview:allow-upload-photo`
-
-</td>
-<td>
-
-Enables the upload_photo command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`hillview:deny-upload-photo`
-
-</td>
-<td>
-
-Denies the upload_photo command without any pre-configured scope.
 
 </td>
 </tr>

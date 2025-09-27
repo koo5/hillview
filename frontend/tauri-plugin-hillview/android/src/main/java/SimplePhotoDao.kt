@@ -36,6 +36,22 @@ interface SimplePhotoDao {
     @Query("SELECT * FROM photos WHERE uploadStatus = 'failed' ORDER BY lastUploadAttempt ASC")
     fun getFailedUploadsForRetry(): List<PhotoEntity>
 
+    @Query("""
+        SELECT * FROM photos
+        WHERE uploadStatus IN ('pending', 'failed')
+        ORDER BY
+            CASE uploadStatus
+                WHEN 'pending' THEN 1
+                WHEN 'failed' THEN 2
+            END,
+            CASE uploadStatus
+                WHEN 'pending' THEN createdAt
+                WHEN 'failed' THEN lastUploadAttempt
+            END ASC
+        LIMIT 1
+    """)
+    fun getNextPhotoForUpload(): PhotoEntity?
+
     @Query("SELECT COUNT(*) FROM photos WHERE uploadStatus = 'pending'")
     fun getPendingUploadCount(): Int
 

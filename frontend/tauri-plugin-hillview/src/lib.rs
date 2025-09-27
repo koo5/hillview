@@ -47,7 +47,6 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
       commands::set_auto_upload_enabled,
       commands::get_upload_status,
       commands::set_upload_config,
-      commands::upload_photo,
       commands::retry_failed_uploads,
       // Authentication commands
       commands::store_auth_token,

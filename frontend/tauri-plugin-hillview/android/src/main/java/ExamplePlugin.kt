@@ -642,83 +642,6 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         }
     }
 
-    @Command
-    fun uploadPhoto(invoke: Invoke) {
-        try {
-            val args = invoke.parseArgs(PhotoUploadArgs::class.java)
-            val photoId = args.photoId
-
-            if (photoId.isNullOrEmpty()) {
-                val error = JSObject()
-                error.put("success", false)
-                error.put("error", "Photo ID is required")
-                invoke.resolve(error)
-                return
-            }
-
-            Log.d(TAG, "📤 Manual upload requested for photo: $photoId")
-
-            CoroutineScope(Dispatchers.IO).launch {
-                try {
-                    val photoDao = database.photoDao()
-                    val photo = photoDao.getPhotoById(photoId)
-
-                    if (photo == null) {
-                        CoroutineScope(Dispatchers.Main).launch {
-                            val error = JSObject()
-                            error.put("success", false)
-                            error.put("error", "Photo not found")
-                            invoke.resolve(error)
-                        }
-                        return@launch
-                    }
-
-                    // Update status to uploading
-                    photoDao.updateUploadStatus(photoId, "uploading", 0L)
-
-                    // Attempt upload
-                    val success = secureUploadManager.secureUploadPhoto(photo)
-
-                    if (success) {
-                        photoDao.updateUploadStatus(photoId, "completed", System.currentTimeMillis())
-                        Log.d(TAG, "📤 Manual upload successful for photo: $photoId")
-                    } else {
-                        photoDao.updateUploadFailure(
-                            photoId,
-                            "failed",
-                            photo.retryCount + 1,
-                            System.currentTimeMillis(),
-                            "Manual upload failed"
-                        )
-                        Log.e(TAG, "📤 Manual upload failed for photo: $photoId")
-                    }
-
-                    CoroutineScope(Dispatchers.Main).launch {
-                        val result = JSObject()
-                        result.put("success", success)
-                        result.put("photoId", photoId)
-                        invoke.resolve(result)
-                    }
-
-                } catch (e: Exception) {
-                    Log.e(TAG, "📤 Error during manual upload", e)
-                    CoroutineScope(Dispatchers.Main).launch {
-                        val error = JSObject()
-                        error.put("success", false)
-                        error.put("error", e.message)
-                        invoke.resolve(error)
-                    }
-                }
-            }
-
-        } catch (e: Exception) {
-            Log.e(TAG, "📤 Error parsing upload photo args", e)
-            val error = JSObject()
-            error.put("success", false)
-            error.put("error", e.message)
-            invoke.resolve(error)
-        }
-    }
 
     @Command
     fun tryUploads(invoke: Invoke) {
@@ -1394,21 +1317,17 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
 
                     Log.d(TAG, "📸 Photo added to Android database: ${photoId}")
 
-                    CoroutineScope(Dispatchers.Main).launch {
-                        val result = JSObject()
-                        result.put("success", true)
-                        result.put("photoId", photoId)
-                        invoke.resolve(result)
-                    }
+                    val result = JSObject()
+                    result.put("success", true)
+                    result.put("photoId", photoId)
+                    invoke.resolve(result)
 
                 } catch (e: Exception) {
                     Log.e(TAG, "📸 Error adding photo to database", e)
-                    CoroutineScope(Dispatchers.Main).launch {
-                        val error = JSObject()
-                        error.put("success", false)
-                        error.put("error", e.message)
-                        invoke.resolve(error)
-                    }
+                    val error = JSObject()
+                    error.put("success", false)
+                    error.put("error", e.message)
+                    invoke.resolve(error)
                 }
             }
 

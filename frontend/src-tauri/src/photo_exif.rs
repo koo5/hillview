@@ -424,6 +424,52 @@ fn save_to_pictures_directory(
 	Ok(photo_path)
 }
 
+#[cfg(all(target_os = "android", debug_assertions))]
+async fn verify_exif_in_saved_file(file_path: &std::path::Path) {
+	// Verify EXIF can be read back
+	// Try reading with img-parts first to verify structure
+	if let Ok(file_data) = std::fs::read(&file_path) {
+		if let Ok(jpeg) = Jpeg::from_bytes(file_data.into()) {
+			if let Some(exif) = jpeg.exif() {
+				info!("🢄EXIF segment found, size: {} bytes", exif.len());
+				// Log first few bytes for debugging
+				if exif.len() > 16 {
+					info!("🢄EXIF header: {:?}", &exif[0..16]);
+				}
+				// Check if it starts with "Exif\0\0" or directly with TIFF header
+				let has_exif_header = exif.len() >= 6 && &exif[0..6] == b"Exif\0\0";
+				let has_tiff_header =
+					exif.len() >= 2 && (&exif[0..2] == b"II" || &exif[0..2] == b"MM");
+				info!(
+					"EXIF format check: has_exif_header={}, has_tiff_header={}",
+					has_exif_header, has_tiff_header
+				);
+			} else {
+				info!("🢄Warning: No EXIF segment found in saved file");
+			}
+		}
+	}
+
+	match read_photo_exif(file_path.to_string_lossy().to_string()).await {
+		Ok(read_metadata) => {
+			info!(
+				"Verified EXIF after save: lat={}, lon={}, alt={:?}, bearing={:?}, location_source={}, bearing_source={}",
+				read_metadata.latitude,
+				read_metadata.longitude,
+				read_metadata.altitude,
+				read_metadata.bearing,
+				read_metadata.location_source,
+				read_metadata.bearing_source
+			);
+		}
+		Err(e) => {
+			info!("🢄Warning: Could not verify EXIF after save: {}", e);
+		}
+	}
+}
+
+
+
 #[command]
 #[allow(unused_variables)]
 pub async fn save_photo_with_metadata(
@@ -433,86 +479,55 @@ pub async fn save_photo_with_metadata(
 	filename: String,
 	hide_from_gallery: bool,
 ) -> Result<crate::device_photos::DevicePhotoMetadata, String> {
-	// Process the photo with EXIF data
-	let processed = embed_photo_metadata(image_data, metadata.clone()).await?;
+	// Step 1: Process EXIF data (async)
+	let processed = embed_photo_metadata(image_data, metadata.clone()).await
+		.map_err(|e| format!("EXIF embedding failed: {}", e))?;
 
-	// Verify EXIF was embedded correctly
-	info!(
-		"Embedded EXIF metadata: lat={}, lon={}, alt={:?}, bearing={:?}",
-		metadata.latitude, metadata.longitude, metadata.altitude, metadata.bearing
-	);
+	// Step 2: File operations and processing (blocking, moved to background thread)
+	let (file_path, file_metadata, width, height, file_hash) = {
+		let processed_data = processed.data.clone();
+		let filename_clone = filename.clone();
 
-	// Determine where to save the photo
-	// Always save to Pictures directory - use dot folder if hiding from gallery - this isnt used
-	#[cfg(target_os = "android")]
-	let file_path = save_to_pictures_directory(&filename, &processed.data, hide_from_gallery)
-		.map_err(|e| format!("Failed to save to Pictures directory: {}", e))?;
+		tokio::task::spawn_blocking(move || -> Result<(std::path::PathBuf, std::fs::Metadata, u32, u32, String), String> {
+			// Save the photo file (blocking I/O)
+			#[cfg(target_os = "android")]
+			{
+				let file_path = save_to_pictures_directory(&filename_clone, &processed_data, hide_from_gallery)
+					.map_err(|e| format!("Failed to save to Pictures directory: {}", e))?;
 
-	#[cfg(not(target_os = "android"))]
-	{
-		return Err("Photo saving not implemented for non-Android platforms".to_string());
-	}
+				// Get file metadata (blocking I/O)
+				let file_metadata = std::fs::metadata(&file_path)
+					.map_err(|e| format!("Failed to get file metadata: {}", e))?;
 
-	// Verify EXIF can be read back
+				// Get image dimensions (CPU intensive)
+				let img = image::load_from_memory(&processed_data)
+					.map_err(|e| format!("Failed to load image from memory: {}", e))?;
+				let (width, height) = (img.width(), img.height());
+
+				// Calculate hash (CPU intensive)
+				let hash_bytes = md5::compute(&processed_data);
+				let file_hash = format!("{:x}", hash_bytes);
+
+				Ok((file_path, file_metadata, width, height, file_hash))
+			}
+
+			#[cfg(not(target_os = "android"))]
+			{
+				Err("Photo saving not implemented for non-Android platforms".to_string())
+			}
+		})
+		.await
+		.map_err(|e| format!("Background task failed: {}", e))??
+	};
+
+	// Step 3: Verify EXIF was embedded correctly (async, debug only)
 	#[cfg(all(target_os = "android", debug_assertions))]
-	{
-		// Try reading with img-parts first to verify structure
-		if let Ok(file_data) = std::fs::read(&file_path) {
-			if let Ok(jpeg) = Jpeg::from_bytes(file_data.into()) {
-				if let Some(exif) = jpeg.exif() {
-					info!("🢄EXIF segment found, size: {} bytes", exif.len());
-					// Log first few bytes for debugging
-					if exif.len() > 16 {
-						info!("🢄EXIF header: {:?}", &exif[0..16]);
-					}
-					// Check if it starts with "Exif\0\0" or directly with TIFF header
-					let has_exif_header = exif.len() >= 6 && &exif[0..6] == b"Exif\0\0";
-					let has_tiff_header =
-						exif.len() >= 2 && (&exif[0..2] == b"II" || &exif[0..2] == b"MM");
-					info!(
-						"EXIF format check: has_exif_header={}, has_tiff_header={}",
-						has_exif_header, has_tiff_header
-					);
-				} else {
-					info!("🢄Warning: No EXIF segment found in saved file");
-				}
-			}
-		}
+	verify_exif_in_saved_file(&file_path).await;
 
-		match read_photo_exif(file_path.to_string_lossy().to_string()).await {
-			Ok(read_metadata) => {
-				info!(
-					"Verified EXIF after save: lat={}, lon={}, alt={:?}, bearing={:?}, location_source={}, bearing_source={}",
-					read_metadata.latitude,
-					read_metadata.longitude,
-					read_metadata.altitude,
-					read_metadata.bearing,
-					read_metadata.location_source,
-					read_metadata.bearing_source
-				);
-			}
-			Err(e) => {
-				info!("🢄Warning: Could not verify EXIF after save: {}", e);
-			}
-		}
-	}
-
+	// Step 4: Add to database and return result (async)
 	#[cfg(target_os = "android")]
 	{
 		use tauri_plugin_hillview::HillviewExt;
-
-		// Get file metadata for the photo
-		let file_metadata = std::fs::metadata(&file_path)
-			.map_err(|e| format!("Failed to get file metadata: {}", e))?;
-
-		// Get dimensions from the JPEG data we already have in memory
-		let img = image::load_from_memory(&processed.data)
-			.map_err(|e| format!("Failed to load image from memory: {}", e))?;
-		let (width, height) = (img.width(), img.height());
-
-		// Calculate MD5 hash from the bytes we already have
-		let hash_bytes = md5::compute(&processed.data);
-		let file_hash = format!("{:x}", hash_bytes);
 
 		// Send to Android database - let Kotlin generate the ID
 		let plugin_photo = tauri_plugin_hillview::shared_types::DevicePhotoMetadata {
@@ -582,6 +597,11 @@ pub async fn save_photo_with_metadata(
 		}
 
 		Ok(device_photo)
+	}
+
+	#[cfg(not(target_os = "android"))]
+	{
+		Err("Photo saving not implemented for non-Android platforms".to_string())
 	}
 }
 

@@ -86,17 +86,6 @@ impl<R: Runtime> Hillview<R> {
       .map_err(Into::into)
   }
 
-  pub fn upload_photo(&self, photo_id: String) -> crate::Result<PhotoUploadResponse> {
-    #[derive(serde::Serialize)]
-    struct Args {
-      photo_id: String,
-    }
-
-    self
-      .0
-      .run_mobile_plugin("uploadPhoto", Args { photo_id })
-      .map_err(Into::into)
-  }
 
 // todo rename to try_uploads
   pub fn retry_failed_uploads(&self) -> crate::Result<BasicResponse> {

@@ -8,6 +8,8 @@ import androidx.work.WorkerParameters
 import androidx.work.Data
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
@@ -30,28 +32,83 @@ class PhotoUploadWorker(
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         try {
-            Log.d(TAG, "doWork")
+            Log.d(TAG, "doWork - starting unified upload processing")
 
-            // Read current auto-upload setting from SharedPreferences
-            val prefs = applicationContext.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
-            val autoUploadEnabled = prefs.getBoolean("auto_upload_enabled", false)
-            Log.d(TAG, "Auto upload enabled: $autoUploadEnabled")
+            // Process photos one at a time with validation on each iteration
+            while (true) {
+                // Check auto-upload setting on each iteration
+                val prefs = applicationContext.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
+                val autoUploadEnabled = prefs.getBoolean("auto_upload_enabled", false)
 
-            // Then process upload queue if auto upload is enabled
-            if (autoUploadEnabled) {
-				// First scan for new photos
-				//scanForNewPhotos()
+                if (!autoUploadEnabled) {
+                    Log.d(TAG, "Auto upload disabled, stopping upload work")
+                    break
+                }
 
-                // Get valid auth token (automatically refreshes if needed)
+                // Get next photo to upload (pending priority over failed)
+                val photo = photoDao.getNextPhotoForUpload()
+                if (photo == null) {
+                    Log.d(TAG, "No more photos to upload")
+                    break
+                }
+
+                // For failed uploads, check if enough time has elapsed for retry
+                if (photo.uploadStatus == "failed") {
+                    val timeSinceLastAttempt = System.currentTimeMillis() - photo.lastUploadAttempt
+                    val requiredWaitTime = calculateBackoffTime(photo.retryCount)
+
+                    if (timeSinceLastAttempt < requiredWaitTime) {
+                        Log.d(TAG, "Skipping retry for ${photo.filename} - not enough time elapsed")
+                        break // Stop processing as all remaining failed photos will also need more time
+                    }
+                }
+
+                // Validate auth token on each iteration
                 val authToken = authManager.getValidToken()
                 if (authToken == null) {
-                    Log.w(TAG, "🔐 No valid auth token available (refresh failed or no refresh token), skipping upload work")
-                    return@withContext Result.success()
+                    Log.w(TAG, "🔐 No valid auth token available, stopping upload work")
+                    break
                 }
-                Log.d(TAG, "🔐 Valid auth token obtained, proceeding with uploads")
 
-                processUploadQueue()
-                retryFailedUploads()
+                // Process this photo
+                try {
+                    if (!validatePhotoForUpload(photo)) {
+                        continue
+                    }
+
+                    val action = if (photo.uploadStatus == "failed") "retry" else "upload"
+                    Log.d(TAG, "Attempting $action for ${photo.filename} with hash: ${photo.fileHash}")
+
+                    // Mark as uploading to prevent parallel processing
+                    photoDao.updateUploadStatus(photo.id, "uploading", 0L)
+
+                    val success = secureUploadManager.secureUploadPhoto(photo)
+
+                    if (success) {
+                        Log.d(TAG, "✅ Successfully ${action}ed ${photo.filename}")
+                        photoDao.updateUploadStatus(photo.id, "completed", System.currentTimeMillis())
+                    } else {
+                        Log.w(TAG, "❌ Failed to $action ${photo.filename}")
+                        photoDao.updateUploadFailure(
+                            photo.id,
+                            "failed",
+                            photo.retryCount + 1,
+                            System.currentTimeMillis(),
+                            "${action.capitalize()} failed"
+                        )
+                    }
+
+                } catch (e: Exception) {
+                    val action = if (photo.uploadStatus == "failed") "retry" else "upload"
+                    Log.e(TAG, "💥 Error during $action for ${photo.filename}", e)
+                    photoDao.updateUploadFailure(
+                        photo.id,
+                        "failed",
+                        photo.retryCount + 1,
+                        System.currentTimeMillis(),
+                        e.message ?: "Unknown error"
+                    )
+                }
             }
 
             Log.d(TAG, "Photo upload worker completed successfully")
@@ -63,6 +120,7 @@ class PhotoUploadWorker(
         }
     }
 
+/*
     private fun scanForNewPhotos() {
         Log.d(TAG, "Scanning for new photos")
 
@@ -120,103 +178,8 @@ class PhotoUploadWorker(
         }
 
         Log.d(TAG, "Scan complete. Added $newPhotosFound new photos, $scanErrors errors")
-    }
+    }*/
 
-    private suspend fun processUploadQueue() {
-        Log.d(TAG, "Processing upload queue")
-
-        val pendingUploads = photoDao.getPendingUploads()
-        Log.d(TAG, "Found ${pendingUploads.size} pending uploads")
-
-        for (photo in pendingUploads) {
-            try {
-                if (!validatePhotoForUpload(photo)) {
-                    continue
-                }
-
-                Log.d(TAG, "Attempting upload for ${photo.filename} with hash: ${photo.fileHash}")
-                photoDao.updateUploadStatus(photo.id, "uploading", 0L)
-
-                val success = secureUploadManager.secureUploadPhoto(photo)
-
-                if (success) {
-                    photoDao.updateUploadStatus(photo.id, "completed", System.currentTimeMillis())
-                } else {
-                    Log.w(TAG, "Failed to upload photo: ${photo.filename}")
-                    photoDao.updateUploadFailure(
-                        photo.id,
-                        "failed",
-                        photo.retryCount + 1,
-                        System.currentTimeMillis(),
-                        "Upload failed"
-                    )
-                }
-
-            } catch (e: Exception) {
-                Log.e(TAG, "Error uploading photo ${photo.filename}", e)
-                photoDao.updateUploadFailure(
-                    photo.id,
-                    "failed",
-                    photo.retryCount + 1,
-                    System.currentTimeMillis(),
-                    e.message ?: "Unknown error"
-                )
-            }
-        }
-    }
-
-    private suspend fun retryFailedUploads() {
-        Log.d(TAG, "Checking for failed uploads to retry")
-
-        val failedUploads = photoDao.getFailedUploadsForRetry()
-        Log.d(TAG, "Found ${failedUploads.size} failed uploads")// eligible for retry")
-
-        for (photo in failedUploads) {
-            // Exponential backoff: wait longer between retries
-            val timeSinceLastAttempt = System.currentTimeMillis() - photo.lastUploadAttempt
-            val requiredWaitTime = calculateBackoffTime(photo.retryCount)
-
-            if (timeSinceLastAttempt < requiredWaitTime) {
-                Log.d(TAG, "Skipping retry for ${photo.filename} - not enough time elapsed")
-                continue
-            }
-
-            try {
-                if (!validatePhotoForUpload(photo)) {
-                    continue
-                }
-
-                Log.d(TAG, "Attempting retry upload for ${photo.filename} with hash: ${photo.fileHash}")
-                photoDao.updateUploadStatus(photo.id, "uploading", 0L)
-
-                val success = secureUploadManager.secureUploadPhoto(photo)
-
-                if (success) {
-                    Log.d(TAG, "Successfully retried upload for photo: ${photo.filename}")
-                    photoDao.updateUploadStatus(photo.id, "completed", System.currentTimeMillis())
-                } else {
-                    Log.w(TAG, "Retry failed for photo: ${photo.filename}")
-                    photoDao.updateUploadFailure(
-                        photo.id,
-                        "failed",
-                        photo.retryCount + 1,
-                        System.currentTimeMillis(),
-                        "Retry failed"
-                    )
-                }
-
-            } catch (e: Exception) {
-                Log.e(TAG, "Error retrying upload for photo ${photo.filename}", e)
-                photoDao.updateUploadFailure(
-                    photo.id,
-                    "failed",
-                    photo.retryCount + 1,
-                    System.currentTimeMillis(),
-                    e.message ?: "Unknown error"
-                )
-            }
-        }
-    }
 
     private fun getPhotoDirectories(): List<File> {
         val directories = mutableListOf<File>()
