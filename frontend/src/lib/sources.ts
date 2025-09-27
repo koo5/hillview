@@ -1,9 +1,10 @@
 import { hillview_photos, sources, type Source} from "$lib/data.svelte";
 import { LatLng } from 'leaflet';
-import { get} from "svelte/store";
-import {  devicePhotos } from './stores';
-import { photoCaptureService } from './photoCapture';
+import { get, writable } from "svelte/store";
 import type { PhotoData, PhotoSize, DevicePhotoMetadata } from './types/photoTypes';
+
+// Temporary devicePhotos store - TODO: move this to proper location
+const devicePhotos = writable<DevicePhotoMetadata[]>([]);
 import { parseCoordinate, parseFraction } from './utils/photoParser';
 
 
@@ -39,14 +40,15 @@ async function fetchDeviceSource(source: Source) {
             return srcs;
         });
 
-        const devicePhotosDb = await photoCaptureService.loadDevicePhotos();
+        // TODO: Implement device photo loading
+        const devicePhotosDb = { photos: [] };
         devicePhotos.set(devicePhotosDb.photos);
 
         const devicePhotosList = devicePhotosDb.photos;
         const newPhotos: PhotoData[] = [];
 
         if (devicePhotosList && devicePhotosList.length > 0) {
-            for (let photo of devicePhotosList) {
+            for (let photo of devicePhotosList as DevicePhotoMetadata[]) {
                 let devicePhoto: PhotoData = {
                     id: photo.id,
                     source_type: 'device',

@@ -1,6 +1,4 @@
-import { writable } from 'svelte/store';
 import { localStorageSharedStore } from './svelte-shared-store';
-import type { DevicePhotoMetadata } from './photoCapture';
 
 export interface UserPhoto {
     id: number;
@@ -21,9 +19,6 @@ export interface UserPhoto {
     user_rating?: 'thumbs_up' | 'thumbs_down' | null;  // User's current rating
     rating_counts?: { thumbs_up: number; thumbs_down: number };  // Aggregate counts
 }
-
-// Store for device-captured photos (loaded from backend)
-export const devicePhotos = writable<DevicePhotoMetadata[]>([]);
 
 // Store for photo capture settings
 export const photoCaptureSettings = localStorageSharedStore('photoCaptureSettings', {

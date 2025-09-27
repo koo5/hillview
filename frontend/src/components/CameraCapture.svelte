@@ -59,7 +59,7 @@
 
 
     let video: HTMLVideoElement;
-    let canvas: HTMLCanvasElement;
+
     let stream: MediaStream | null = null;
     let facing: 'user' | 'environment' = 'environment';
     let cameraReady = false;
@@ -359,7 +359,7 @@
     }
 
     async function handleCapture(event: CustomEvent<{ mode: 'slow' | 'fast' }>) {
-        if (!video || !canvas || !cameraReady || !locationData ||
+        if (!video || !cameraReady || !locationData ||
             locationData.latitude === undefined || locationData.longitude === undefined) {
             console.warn('🢄📍 Cannot capture: camera not ready or no location');
             return;
@@ -391,6 +391,7 @@
             tempId
         });
 
+		const canvas = document.createElement('canvas');
         const context = canvas.getContext('2d');
         if (!context)
 		{
@@ -402,33 +403,22 @@
             // Set canvas size to match video
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
-
-			let startBlobTime = Date.now();
-
-            // Draw video frame to canvas
-            context.drawImage(video, 0, 0);
+			context.drawImage(video, 0, 0);
 			console.log('🢄Capture: Drew video frame to canvas');
+			const offscreen = canvas.transferControlToOffscreen();
+			await captureQueue.add({
+				id: `capture_${timestamp}`,
+				canvas: offscreen,
+				location: validLocation,
+				timestamp,
+				mode,
+				placeholderId: tempId
+			});
 
-            // Convert canvas to blob with quality based on mode
-            const quality = mode === 'fast' ? 0.95 : 0.95;
+			// Trigger auto-upload prompt check
+			photoCapturedCount++;
+			console.log(`🢄photoCapturedCount: ${photoCapturedCount}`);
 
-            canvas.toBlob(async (blob) => {
-				console.log('🢄Capture: got blob from video in', Date.now() - startBlobTime, 'ms');
-                if (blob) {
-                    // Add to capture queue
-                    await captureQueue.add({
-                        id: `capture_${timestamp}`,
-                        blob,
-                        location: validLocation,
-                        timestamp,
-                        mode,
-                        placeholderId: tempId
-                    });
-                    // Trigger auto-upload prompt check
-                    photoCapturedCount++;
-					console.log(`🢄photoCapturedCount: ${photoCapturedCount}`);
-                }
-            }, 'image/jpeg', quality);
         } catch (error) {
             console.error('🢄Capture error:', error);
             // Remove placeholder on error
@@ -631,7 +621,6 @@
                 <video bind:this={video} class="camera-video" playsinline style:display={cameraError ? 'none' : 'block'}>
                     <track kind="captions"/>
                 </video>
-                <canvas bind:this={canvas} style="display: none;"></canvas>
 
                 {#if cameraError}
                     <div class="camera-error">

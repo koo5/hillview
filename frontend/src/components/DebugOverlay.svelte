@@ -7,7 +7,7 @@
     
     // Access the stats store properly
     $: queueStats = captureQueue.stats;
-    import {devicePhotos, photoCaptureSettings} from '$lib/stores';
+    import {photoCaptureSettings} from '$lib/stores';
     import {invoke} from '@tauri-apps/api/core';
     import DebugMode1 from './DebugMode1.svelte';
 
@@ -289,49 +289,11 @@
                     </div>
 
                     <!-- Last Captured Photo -->
-                    {#if $devicePhotos.length > 0}
-                        {@const lastPhoto = $devicePhotos[$devicePhotos.length - 1]}
-                        <div class="capture-subsection">
-                            <div class="subsection-header">📷 Last Captured Photo:</div>
-                            <div class="last-photo-info">
-                                <div class="photo-basic-info">
-                                    <div class="photo-filename">📁 {lastPhoto.filename}</div>
-                                    <div class="photo-timestamp">🕒 {new Date(lastPhoto.timestamp).toLocaleString()}</div>
-                                    <div class="photo-id">🆔 {lastPhoto.id}</div>
-                                </div>
-                                
-                                <div class="photo-location-info">
-                                    <div class="photo-coordinates">
-                                        📍 {lastPhoto.latitude?.toFixed(6)}, {lastPhoto.longitude?.toFixed(6)}
-                                    </div>
-                                    {#if lastPhoto.bearing !== null && lastPhoto.bearing !== undefined}
-                                        <div class="photo-bearing">🧭 {lastPhoto.bearing?.toFixed(1)}°</div>
-                                    {/if}
-                                    {#if lastPhoto.altitude !== null && lastPhoto.altitude !== undefined}
-                                        <div class="photo-altitude">⛰️ {lastPhoto.altitude?.toFixed(1)}m</div>
-                                    {/if}
-                                    <div class="photo-accuracy">🎯 ±{lastPhoto.accuracy?.toFixed(0)}m</div>
-                                </div>
-
-                                <div class="photo-technical-info">
-                                    <div class="photo-dimensions">
-                                        📐 {lastPhoto.width}×{lastPhoto.height}px
-                                    </div>
-                                    <div class="photo-filesize">
-                                        💾 {(lastPhoto.file_size / 1024 / 1024)?.toFixed(2)}MB
-                                    </div>
-                                    <div class="photo-path">
-                                        📂 {lastPhoto.path}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    {:else}
-                        <div class="capture-subsection">
-                            <div class="subsection-header">📷 Last Captured Photo:</div>
-                            <div class="no-photos-captured">No photos captured yet</div>
-                        </div>
-                    {/if}
+                    <!-- TODO: Restore device photos display when implementing new store -->
+                    <div class="capture-subsection">
+                        <div class="subsection-header">📷 Last Captured Photo:</div>
+                        <div class="no-photos-captured">Feature temporarily disabled</div>
+                    </div>
 
                     <!-- Camera Activity Status -->
                     <div class="capture-subsection">
