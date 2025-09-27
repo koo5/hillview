@@ -109,6 +109,12 @@ class SharePhotoArgs {
   var url: String? = null
 }
 
+@InvokeArg
+class GetDevicePhotosArgs {
+  var page: Int = 1
+  var pageSize: Int = 50
+}
+
 @TauriPlugin
 class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     companion object {
@@ -1160,12 +1166,28 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     @Command
     fun getDevicePhotos(invoke: Invoke) {
         try {
-            Log.d(TAG, "📸 Getting device photos from database")
+            val args = try {
+                invoke.parseArgs(GetDevicePhotosArgs::class.java)
+            } catch (e: Exception) {
+                Log.d(TAG, "📸 No pagination args provided, using defaults")
+                GetDevicePhotosArgs() // Use default values
+            }
+
+            val page = args.page.coerceAtLeast(1) // Ensure page is at least 1
+            val pageSize = args.pageSize.coerceIn(1, 100) // Limit page size between 1-100
+            val offset = (page - 1) * pageSize
+
+            Log.d(TAG, "📸 Getting device photos from database - page: $page, pageSize: $pageSize, offset: $offset")
 
             CoroutineScope(Dispatchers.IO).launch {
                 try {
                     val photoDao = database.photoDao()
-                    val photos = photoDao.getAllPhotos()
+
+                    // Get paginated photos and total count
+                    val photos = photoDao.getPhotosPaginated(pageSize, offset)
+                    val totalCount = photoDao.getTotalPhotoCount()
+                    val totalPages = (totalCount + pageSize - 1) / pageSize // Ceiling division
+                    val hasMore = page < totalPages
 
                     // Convert PhotoEntity list to JSON array for response
                     val photoList = JSONArray()
@@ -1195,8 +1217,14 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                     val response = JSObject()
                     response.put("photos", photoList)
                     response.put("lastUpdated", System.currentTimeMillis())
+                    // Pagination metadata
+                    response.put("page", page)
+                    response.put("pageSize", pageSize)
+                    response.put("totalCount", totalCount)
+                    response.put("totalPages", totalPages)
+                    response.put("hasMore", hasMore)
 
-                    Log.d(TAG, "📸 Retrieved ${photos.size} photos from device database")
+                    Log.d(TAG, "📸 Retrieved ${photos.size} photos (page $page/$totalPages, total: $totalCount)")
 
                     CoroutineScope(Dispatchers.Main).launch {
                         invoke.resolve(response)
@@ -1208,6 +1236,11 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                         val error = JSObject()
                         error.put("photos", JSONArray())
                         error.put("lastUpdated", 0)
+                        error.put("page", page)
+                        error.put("pageSize", pageSize)
+                        error.put("totalCount", 0)
+                        error.put("totalPages", 0)
+                        error.put("hasMore", false)
                         error.put("error", e.message)
                         invoke.resolve(error)
                     }
@@ -1219,6 +1252,11 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             val error = JSObject()
             error.put("photos", JSONArray())
             error.put("lastUpdated", 0)
+            error.put("page", 1)
+            error.put("pageSize", 50)
+            error.put("totalCount", 0)
+            error.put("totalPages", 0)
+            error.put("hasMore", false)
             error.put("error", e.message)
             invoke.resolve(error)
         }

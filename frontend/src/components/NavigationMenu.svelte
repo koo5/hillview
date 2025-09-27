@@ -4,6 +4,7 @@
     } from 'lucide-svelte';
     import { auth, logout } from '$lib/auth.svelte';
     import { FEATURE_USER_ACCOUNTS } from '$lib/config';
+    import { BUILD_TIME, BUILD_VERSION, formatBuildTime } from '$lib/buildInfo';
 
     export let isOpen = false;
     export let onClose: () => void = () => {};
@@ -26,15 +27,15 @@
 
 {#if isOpen}
     <!-- Menu backdrop for mobile -->
-    <div 
-        class="menu-backdrop" 
-        role="button" 
+    <div
+        class="menu-backdrop"
+        role="button"
         tabindex="0"
         aria-label="Close menu"
-        on:click={closeMenu} 
+        on:click={closeMenu}
         on:keydown={(e) => e.key === 'Escape' && closeMenu()}
     ></div>
-    
+
     <nav class="nav-menu">
         <div class="menu-header">
             <span class="user-info">user: {$auth.user ? $auth.user.username : 'none'}</span>
@@ -70,7 +71,7 @@
                 <Info size={18}/>
                 About
             </a></li>
-            
+
             <li>
                 <a href="/download" on:click={closeMenu}>
                     <Download size={18}/>
@@ -109,11 +110,32 @@
             {:else}
                 <li class="feature-disabled">FEATURE_USER_ACCOUNTS off</li>
             {/if}
+
+<li>
+
+        <div class="build-info">
+            <div class="build-timestamp">
+                Built:
+            </div>
+            <div class="build-timestamp">
+                {( new Date(BUILD_TIME)).toLocaleTimeString()}
+            </div>
+            <div class="build-timestamp">
+                {( new Date(BUILD_TIME)).toLocaleDateString()}
+            </div>
+            <div class="build-version">
+                v{BUILD_VERSION}
+            </div>
+        </div>
+
+</li>
         </ul>
+
     </nav>
 {/if}
 
 <style>
+
     .menu-backdrop {
         position: fixed;
         top: 60px; /* Start below header */
@@ -131,7 +153,7 @@
         width: 280px;
         height: calc(100vh - 60px);
         background: white;
-        z-index: 30000;
+        z-index: 30100;
         box-shadow: 2px 0 10px rgba(0, 0, 0, 0.2);
         padding: 0;
         overflow-y: auto;
@@ -154,12 +176,13 @@
 
     .menu-list {
         list-style: none;
-        padding: 20px 0;
+        padding: 20px 0 80px 0; /* Add bottom padding for build info */
         margin: 0;
     }
 
     .menu-list li {
         margin: 0;
+
     }
 
     .menu-list li a,
@@ -201,16 +224,35 @@
         font-style: italic;
     }
 
+    .build-info {
+        padding: 16px 24px;
+        border-top: 1px solid #e5e7eb;
+        background: #f9fafb;
+        font-family: monospace;
+        font-size: 0.75rem;
+        color: #6b7280;
+        line-height: 1.4;
+    }
+
+    .build-timestamp {
+        margin-bottom: 2px;
+    }
+
+    .build-version {
+        font-weight: 600;
+        color: #4b5563;
+    }
+
     /* Mobile-specific adjustments */
     @media (max-width: 640px) {
         .nav-menu {
             width: 85vw;
             max-width: 320px;
         }
-        
+
         .menu-list li a,
         .menu-button {
-            padding: 14px 20px;
+            /*padding: 14px 20px;*/
             font-size: 1.1rem;
         }
     }

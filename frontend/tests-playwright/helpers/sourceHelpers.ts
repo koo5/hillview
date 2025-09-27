@@ -17,7 +17,6 @@ import { test, type Page } from '@playwright/test';
 export async function ensureSourceEnabled(page: Page, sourceName: string, enabled: boolean): Promise<boolean> {
     console.log(`🗺️ Ensuring ${sourceName} source is ${enabled ? 'enabled' : 'disabled'}...`);
 
-    try {
         // Find the source toggle button using proper data-testid
         const sourceButton = page.locator(`[data-testid="source-toggle-${sourceName}"]`);
 
@@ -39,10 +38,7 @@ export async function ensureSourceEnabled(page: Page, sourceName: string, enable
         }
 
         return true;
-    } catch (error) {
-        console.error(`❌ Failed to set ${sourceName} source to ${enabled}:`, (error as Error).message);
-        return false;
-    }
+
 }
 
 /**
@@ -59,6 +55,9 @@ export async function configureSources(page: Page, config: { [sourceName: string
         let allSucceeded = true;
 
         for (const [sourceName, shouldBeEnabled] of Object.entries(config)) {
+			if (sourceName === 'device') {
+				continue;
+			}
             const success = await ensureSourceEnabled(page, sourceName, shouldBeEnabled);
             if (!success) {
                 allSucceeded = false;

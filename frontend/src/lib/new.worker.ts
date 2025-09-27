@@ -179,6 +179,9 @@ function sendPhotosUpdate(): void {
 const messageQueue = new MessageQueue();
 const photoOperations = new PhotoOperations();
 
+// Set the max photos configuration
+photoOperations.setMaxPhotosInArea(MAX_PHOTOS_IN_AREA);
+
 // Process priority levels for abortion logic
 const PROCESS_PRIORITY = {
     config: 1,

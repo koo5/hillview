@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { configureSources } from './helpers/sourceHelpers';
 
 test.describe('Photo Loading and Display', () => {
   test.beforeEach(async ({ page }) => {
@@ -13,7 +14,17 @@ test.describe('Photo Loading and Display', () => {
   });
 
   test('should display photo markers on the map', async ({ page }) => {
-    // Wait for map and photos to load
+    // Wait for initial map load
+    await page.waitForSelector('.leaflet-container', { timeout: 10000 });
+    await page.waitForSelector('.source-buttons-container', { timeout: 5000 });
+
+    // Enable available sources to ensure photos are loaded
+    await configureSources(page, {
+      'mapillary': true,
+      'hillview': true
+    });
+
+    // Wait for sources to load and photos to appear
     await page.waitForTimeout(5000);
 
     // Look for Leaflet markers on the map

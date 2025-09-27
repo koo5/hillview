@@ -815,6 +815,23 @@
 
             // Set up zoom control listeners
             setupZoomControlListeners();
+
+            // Firefox fix: Force map resize after initialization
+            if (navigator.userAgent.toLowerCase().includes('firefox')) {
+                setTimeout(() => {
+                    if (map && map.invalidateSize) {
+                        console.log('🢄Firefox detected - forcing map resize');
+                        map.invalidateSize({ reset: true, animate: false });
+                    }
+                }, 100);
+
+                // Also add a longer timeout as backup
+                setTimeout(() => {
+                    if (map && map.invalidateSize) {
+                        map.invalidateSize({ reset: true, animate: false });
+                    }
+                }, 500);
+            }
         })();
 
         // Add event listeners for visibility changes

@@ -1,3 +1,7 @@
+<svelte:head>
+	<title>Photo Sources - Hillview</title>
+</svelte:head>
+
 <script lang="ts">
     import { sources, type Source, type subtype } from '$lib/data.svelte';
     import { fetchSourcePhotos } from '$lib/sources';

@@ -12,6 +12,12 @@ interface SimplePhotoDao {
     @Query("SELECT * FROM photos ORDER BY createdAt DESC")
     fun getAllPhotos(): List<PhotoEntity>
 
+    @Query("SELECT * FROM photos ORDER BY createdAt DESC LIMIT :limit OFFSET :offset")
+    fun getPhotosPaginated(limit: Int, offset: Int): List<PhotoEntity>
+
+    @Query("SELECT COUNT(*) FROM photos")
+    fun getTotalPhotoCount(): Int
+
     @Query("SELECT * FROM photos WHERE id = :photoId")
     fun getPhotoById(photoId: String): PhotoEntity?
 

@@ -4,64 +4,13 @@ import {
   setupMockMapillaryData,
   clearMockMapillaryData
 } from './helpers/mapillaryMocks';
+import { configureSources } from './helpers/sourceHelpers';
 
 /**
  * Test for Mapillary marker rendering consistency with mocked data
  * Based on backend test mocking approach in backend/tests/test_mapillary_filtering.py
  */
 
-// Helper function to configure sources
-async function configureSources(page: any, config: { [sourceName: string]: boolean }) {
-  console.log('🔧 Configuring sources:', config);
-  
-  await page.waitForTimeout(1000);
-  
-  const sourceButtonsContainer = page.locator('.source-buttons-container');
-  await sourceButtonsContainer.waitFor({ state: 'visible', timeout: 5000 });
-  
-  // Expand source buttons if in compact mode
-  try {
-    const compactToggle = sourceButtonsContainer.locator('button.toggle-compact');
-    await compactToggle.waitFor({ state: 'visible', timeout: 2000 });
-    
-    const isCompact = await compactToggle.evaluate((el: HTMLElement) => el.classList.contains('active'));
-    if (isCompact) {
-      await compactToggle.click();
-      await page.waitForTimeout(500);
-    }
-  } catch (e) {
-    // Try hover method if compact toggle not found
-    try {
-      await sourceButtonsContainer.hover();
-      await page.waitForTimeout(500);
-    } catch (e2) {
-      // Continue if neither method works
-    }
-  }
-  
-  // Configure each source
-  for (const [sourceName, shouldBeEnabled] of Object.entries(config)) {
-    try {
-      const sourceButton = sourceButtonsContainer
-        .locator('button')
-        .filter({ hasText: new RegExp(sourceName, 'i') })
-        .or(sourceButtonsContainer.locator(`button[title*="${sourceName}"]`));
-      
-      const isCurrentlyActive = await sourceButton.evaluate((el: Element) => el.classList.contains('active'));
-      
-      if (isCurrentlyActive !== shouldBeEnabled) {
-        await sourceButton.click();
-        const action = shouldBeEnabled ? 'Enabled' : 'Disabled';
-        console.log(`${action === 'Enabled' ? '🌍' : '🔘'} ${action} ${sourceName} source`);
-        await page.waitForTimeout(500);
-      }
-    } catch (e) {
-      console.log(`⚠️ Could not configure ${sourceName} source: ${(e as Error).message}`);
-    }
-  }
-  
-  await page.waitForTimeout(1000); // Wait for source changes to propagate
-}
 
 // Helper function to set map location
 async function setMapLocation(page: any, lat: number, lng: number, zoom: number = 18) {

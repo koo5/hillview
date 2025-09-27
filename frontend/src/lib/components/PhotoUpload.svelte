@@ -1,10 +1,12 @@
 <script lang="ts">
-	import {Upload} from 'lucide-svelte';
+	import {Upload, FileImage} from 'lucide-svelte';
 	import {secureUploadFiles, NonRetryableUploadError, RetryableUploadError} from '$lib/secureUpload';
 	import {handleApiError, TokenExpiredError} from '$lib/http';
 	import {showNetworkError, removeAlertsBySource} from '$lib/alertSystem.svelte';
 	import type {User} from '$lib/auth.svelte';
 	import type { LogEntryCallback } from '$lib/types/activityLog';
+	import { TAURI_MOBILE } from '$lib/tauri';
+	import { invoke } from '@tauri-apps/api/core';
 
 	export let user: User | null = null;
 	export let onLogEntry: LogEntryCallback = () => {};
@@ -16,6 +18,14 @@
 	let isPublic = true;
 	let isUploading = false;
 	let uploadProgress = 0;
+	let isSelectingFiles = false;
+
+	interface ImportResult {
+		success: boolean;
+		selectedFiles: string[];
+		importedCount: number;
+		error?: string;
+	}
 
 	function autoResizeTextarea(event: Event) {
 		const textarea = event.target as HTMLTextAreaElement;
@@ -154,6 +164,7 @@
 	<form on:submit|preventDefault={handleUpload} data-testid="upload-form">
 		<div class="form-group">
 			<label for="photo-file">Select photos to upload:</label>
+			<!-- Hidden file input -->
 			<input
 				type="file"
 				id="photo-file"
@@ -168,7 +179,34 @@
 					uploadFiles = files ? Array.from(files) : [];
 				}}
 				required
+				style="display: none;"
 			/>
+			<!-- Custom file selection button -->
+			<button
+				type="button"
+				class="file-select-button"
+				data-testid="choose-files-button"
+				disabled={!user || isUploading}
+				aria-label="Choose photo files to upload"
+				on:click={() => {
+					const fileInput = document.getElementById('photo-file') as HTMLInputElement;
+					if (fileInput) {
+						fileInput.click();
+					}
+				}}
+				on:keydown={(e) => {
+					if (e.key === 'Enter' || e.key === ' ') {
+						e.preventDefault();
+						const fileInput = document.getElementById('photo-file') as HTMLInputElement;
+						if (fileInput) {
+							fileInput.click();
+						}
+					}
+				}}
+			>
+				<FileImage size={20} />
+				Choose Files
+			</button>
 		</div>
 
 		<div class="form-group">
@@ -363,5 +401,52 @@
 
 	.login-link:hover {
 		color: #0d47a1;
+	}
+
+	.file-select-button {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: 8px;
+		padding: 12px 20px;
+		background-color: #f8fafc;
+		color: #374151;
+		border: 2px solid #d1d5db;
+		border-radius: 6px;
+		font-size: 16px;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		min-height: 48px; /* Ensure good touch target size */
+		min-width: 140px;
+		touch-action: manipulation; /* Prevent zoom on touch */
+	}
+
+	.file-select-button:hover:not(:disabled) {
+		background-color: #f1f5f9;
+		border-color: #9ca3af;
+		transform: translateY(-1px);
+	}
+
+	.file-select-button:active {
+		transform: translateY(0);
+		background-color: #e2e8f0;
+	}
+
+	.file-select-button:disabled {
+		background-color: #f9fafb;
+		color: #9ca3af;
+		border-color: #e5e7eb;
+		cursor: not-allowed;
+		transform: none;
+	}
+
+	/* Ensure adequate spacing on mobile */
+	@media (max-width: 640px) {
+		.file-select-button {
+			width: 100%;
+			min-height: 52px;
+			font-size: 18px;
+		}
 	}
 </style>

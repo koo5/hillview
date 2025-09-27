@@ -443,7 +443,7 @@ pub async fn save_photo_with_metadata(
 	);
 
 	// Determine where to save the photo
-	// Always save to Pictures directory - use dot folder if hiding from gallery
+	// Always save to Pictures directory - use dot folder if hiding from gallery - this isnt used
 	#[cfg(target_os = "android")]
 	let file_path = save_to_pictures_directory(&filename, &processed.data, hide_from_gallery)
 		.map_err(|e| format!("Failed to save to Pictures directory: {}", e))?;

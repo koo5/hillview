@@ -52,7 +52,7 @@
     // Restore OAuth polling state from localStorage
     function restoreOAuthPollingState() {
         if (!browser) return false;
-        
+
         try {
             const storedState = localStorage.getItem(OAUTH_POLLING_KEY);
             if (storedState) {
@@ -291,14 +291,14 @@
     }
 </script>
 
-<StandardHeaderWithAlert 
-    title={isLogin ? 'Login' : 'Register'} 
+<StandardHeaderWithAlert
+    title={isLogin ? 'Login' : 'Register'}
     showMenuButton={true}
     fallbackHref="/"
 />
 
 <StandardBody>
-    
+
     <div class="login-content">
         <div class="login-card">
 
@@ -403,16 +403,26 @@
                 Continue with Google
             </button>
 
-            <button
-                class="oauth-button github"
-                on:click={() => handleOAuthLogin('github')}
-                disabled={isLoading}
-            >
-                <Github size={20} />
-                Continue with GitHub
-            </button>
+<!--            <button-->
+<!--                class="oauth-button github"-->
+<!--                on:click={() => handleOAuthLogin('github')}-->
+<!--                disabled={isLoading}-->
+<!--            >-->
+<!--                <Github size={20} />-->
+<!--                Continue with GitHub-->
+<!--            </button>-->
+
             </div>
         {/if}
+
+        <div class="legal-links">
+            <p>By using Hillview, you agree to our</p>
+            <div class="legal-links-row">
+                <a href="/terms" class="legal-link">Terms of Service</a>
+                <span class="separator">•</span>
+                <a href="/privacy" class="legal-link">Privacy Policy</a>
+            </div>
+        </div>
 
         </div>
     </div>
@@ -554,10 +564,10 @@
         color: #333;
     }
 
-    .oauth-button.github {
-        background-color: #24292e;
-        color: white;
-    }
+    /*.oauth-button.github {*/
+    /*    background-color: #24292e;*/
+    /*    color: white;*/
+    /*}*/
 
     .oauth-button:hover {
         opacity: 0.9;
@@ -590,6 +600,44 @@
 
     input.auto-generated {
         background-color: #f5f5f5;
+    }
+
+    .legal-links {
+        margin-top: 32px;
+        padding-top: 24px;
+        border-top: 1px solid #e5e7eb;
+        text-align: center;
+    }
+
+    .legal-links p {
+        margin: 0 0 12px 0;
+        color: #6b7280;
+        font-size: 0.875rem;
+    }
+
+    .legal-links-row {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .legal-link {
+        color: #3b82f6;
+        text-decoration: none;
+        font-size: 0.875rem;
+        font-weight: 500;
+        transition: color 0.2s ease;
+    }
+
+    .legal-link:hover {
+        color: #1d4ed8;
+        text-decoration: underline;
+    }
+
+    .separator {
+        color: #d1d5db;
+        font-size: 0.875rem;
     }
 
 </style>

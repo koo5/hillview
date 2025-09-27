@@ -176,7 +176,6 @@ class PhotoProcessor:
 				logger.debug(f"No GPS coordinates found via exiftool.")
 			else:
 				result['debug']['has_gps_coords'] = True
-				result['debug']['has_exif'] = True  # Mark as having EXIF data when GPS found via exiftool
 
 				# Apply sign based on reference
 				if lat_ref == 'S':
@@ -198,6 +197,10 @@ class PhotoProcessor:
 				logger.debug(f"No bearing data found via exiftool")
 			else:
 				result['debug']['has_bearing'] = True
+
+			# Mark as having EXIF data if we found any GPS-related data (coordinates or bearing)
+			if result['debug']['found_gps_tags'] or result['debug']['found_bearing_tags']:
+				result['debug']['has_exif'] = True
 
 			altitude = data.get('GPSAltitude')
 

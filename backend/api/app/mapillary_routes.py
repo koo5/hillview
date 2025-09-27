@@ -210,7 +210,7 @@ def get_mapillary_token():
 # Configuration
 ENABLE_MAPILLARY_CACHE = os.getenv("ENABLE_MAPILLARY_CACHE", "false").lower() in ("true", "1", "yes")
 ENABLE_MAPILLARY_LIVE = os.getenv("ENABLE_MAPILLARY_LIVE", "false").lower() in ("true", "1", "yes")
-MAX_PHOTOS_PER_REQUEST = int(os.getenv("MAX_MAPILLARY_PHOTOS", "250"))
+MAX_PHOTOS_PER_REQUEST = int(os.getenv("MAX_MAPILLARY_PHOTOS", "1000"))
 
 clients = {}
 
@@ -249,7 +249,7 @@ async def stream_mapillary_images(
 	bottom_right_lat: float = Query(..., description="Bottom right latitude"),
 	bottom_right_lon: float = Query(..., description="Bottom right longitude"),
 	client_id: str = Query(..., description="Client ID"),
-	max_photos: int = Query(2500, description="Maximum photos to return (capped by server limit)", ge=1),
+	max_photos: int = Query(MAX_PHOTOS_PER_REQUEST, description="Maximum photos to return (capped by server limit)", ge=1),
 	db: AsyncSession = Depends(get_db),
 	current_user: Optional[User] = Depends(get_current_user_optional_with_query)
 ):

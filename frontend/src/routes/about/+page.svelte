@@ -1,8 +1,15 @@
+<svelte:head>
+	<title>About - Hillview</title>
+</svelte:head>
+
 <script lang="ts">
-    import { Info, MapPin, Camera, Globe, Github, Heart, Compass } from 'lucide-svelte';
+    import { Info, MapPin, Camera, Globe, Github, Heart, Compass, FileText, Shield } from 'lucide-svelte';
     import StandardHeaderWithAlert from '../../components/StandardHeaderWithAlert.svelte';
     import StandardBody from '../../components/StandardBody.svelte';
     import { getCurrentProviderConfig, getProviderDisplayName, currentTileProvider } from '$lib/tileProviders';
+    import { TAURI } from '$lib/tauri';
+    import { invoke } from '@tauri-apps/api/core';
+    import { openUrl } from '@tauri-apps/plugin-opener';
 
     const appVersion = '0.0.1';
     const features = [
@@ -30,7 +37,7 @@
 
     const technologies = [
         'SvelteKit',
-        'TypeScript', 
+        'TypeScript',
         'Tauri',
         'Leaflet',
         'Lucide Icons',
@@ -40,10 +47,48 @@
     // Get current tile provider config
     $: tileConfig = getCurrentProviderConfig();
     $: tileProviderName = getProviderDisplayName($currentTileProvider);
+
+    // Process attribution HTML to handle external links
+    function processAttributionHTML(html: string): string {
+        if (!html) return '';
+
+        // Add target="_blank" and rel="noopener noreferrer" to all links
+        // Also add a custom data attribute to identify them for click handling
+        return html.replace(
+            /<a([^>]*)href="([^"]*)"([^>]*)>/gi,
+            '<a$1href="$2"$3 target="_blank" rel="noopener noreferrer" data-external-link="true">'
+        );
+    }
+
+    // Handle click events on external links
+    async function handleAttributionClick(event: Event) {
+        const target = event.target as HTMLElement;
+        const link = target.closest('a[data-external-link="true"]') as HTMLAnchorElement;
+
+        if (link && link.href) {
+            event.preventDefault(); // Prevent default navigation
+
+            console.log('Opening external attribution link:', link.href);
+
+            if (TAURI) {
+                // Use Tauri's openUrl to open in external browser
+                try {
+                    await openUrl(link.href);
+                } catch (error) {
+                    console.error('Failed to open external URL:', error);
+                    // Fallback to window.open if openUrl fails
+                    window.open(link.href, '_blank', 'noopener,noreferrer');
+                }
+            } else {
+                // For web, use window.open
+                window.open(link.href, '_blank', 'noopener,noreferrer');
+            }
+        }
+    }
 </script>
 
-<StandardHeaderWithAlert 
-    title="About Hillview" 
+<StandardHeaderWithAlert
+    title="About Hillview"
     showMenuButton={true}
     fallbackHref="/"
 />
@@ -62,13 +107,13 @@
     <section class="about-section">
         <h2>About Hillview</h2>
         <p>
-            Ever stood on a hilltop wondering "What am I looking at?" Hillview solves this age-old problem by using 
-            geotagged photos with directional data to help you identify distant landmarks, mountain peaks, and other 
-            features from any viewpoint. By combining GPS coordinates with compass bearing information, Hillview creates 
+            Ever stood on a hilltop wondering "What am I looking at?" Hillview solves this age-old problem by using
+            geotagged photos with directional data to help you identify distant landmarks, mountain peaks, and other
+            features from any viewpoint. By combining GPS coordinates with compass bearing information, Hillview creates
             a directional photo database that turns your device into a smart viewfinder for the landscape around you.
         </p>
         <p>
-            Whether you're hiking, exploring new cities, or just curious about your surroundings, Hillview helps you 
+            Whether you're hiking, exploring new cities, or just curious about your surroundings, Hillview helps you
             understand what you're seeing by showing you photos taken from similar positions pointing in the same direction.
         </p>
     </section>
@@ -100,20 +145,24 @@
     <section class="attribution-section">
         <h2>Acknowledgments</h2>
         <p>
-            Hillview is built with modern web technologies and open-source libraries. 
+            Hillview is built with modern web technologies and open-source libraries.
             We're grateful to the open-source community and photo services that make this project possible.
         </p>
-        
+
         <h3>Map Data</h3>
         <div class="map-attribution">
             <p class="current-provider">
                 <strong>Current Tile Provider:</strong> {tileProviderName}
             </p>
-            <div class="attribution-text">
-                {@html tileConfig.attribution}
+            <div
+                class="attribution-text"
+                on:click={handleAttributionClick}
+                role="presentation"
+            >
+                {@html processAttributionHTML(tileConfig.attribution)}
             </div>
         </div>
-        
+
         <h3>Libraries & Technologies</h3>
         <div class="attribution-links">
             <a href="https://leafletjs.com" target="_blank" rel="noopener noreferrer">
@@ -142,7 +191,36 @@
             </a>
         </div>
 
+    </section>
 
+    <section class="source-section">
+        <h2>Source Code</h2>
+        <p>
+            Hillview is source-available software. You can view the source code, report issues, or contribute to the project on GitHub.
+        </p>
+        <div class="attribution-links" on:click={handleAttributionClick} role="presentation">
+            <a href="https://github.com/koo5/hillview" target="_blank" rel="noopener noreferrer" data-external-link="true">
+                <Github size={16} />
+                GitHub Repository
+            </a>
+        </div>
+    </section>
+
+    <section class="legal-section">
+        <h2>Legal</h2>
+        <p>
+            Please review our legal policies and terms of use.
+        </p>
+        <div class="attribution-links">
+            <a href="/terms" class="legal-link">
+                <FileText size={16} />
+                Terms of Service
+            </a>
+            <a href="/privacy" class="legal-link">
+                <Shield size={16} />
+                Privacy Policy
+            </a>
+        </div>
     </section>
 
     <footer class="about-footer">
@@ -313,7 +391,9 @@
         background: #e5e7eb;
     }
 
-    .attribution-section {
+    .attribution-section,
+    .source-section,
+    .legal-section {
         margin-bottom: 48px;
         background: rgba(255, 255, 255, 0.8);
         padding: 32px;
@@ -322,7 +402,9 @@
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
     }
 
-    .attribution-section p {
+    .attribution-section p,
+    .source-section p,
+    .legal-section p {
         color: #4b5563;
         margin-bottom: 16px;
     }
@@ -369,15 +451,30 @@
         font-size: 0.875rem;
         color: #6b7280;
         line-height: 1.5;
+        cursor: default;
     }
 
     .attribution-text :global(a) {
         color: #4f46e5;
         text-decoration: underline;
+        cursor: pointer;
+        transition: color 0.2s ease;
     }
 
     .attribution-text :global(a:hover) {
         color: #3730a3;
+        text-decoration-color: #3730a3;
+    }
+
+    .attribution-text :global(a[data-external-link="true"]) {
+        position: relative;
+    }
+
+    .attribution-text :global(a[data-external-link="true"]:after) {
+        content: '↗';
+        font-size: 0.75em;
+        margin-left: 2px;
+        opacity: 0.7;
     }
 
     .about-footer {

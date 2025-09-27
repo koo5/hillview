@@ -3,7 +3,7 @@
  */
 
 import type { PhotoData, SourceConfig, Bounds } from './photoWorkerTypes';
-import { PhotoSourceFactory } from './sources/PhotoSourceFactory';
+import { PhotoSourceFactory, type PhotoSourceOptions } from './sources/PhotoSourceFactory';
 import type { PhotoSourceLoader, PhotoSourceCallbacks } from './sources/PhotoSourceLoader';
 import { filterPhotosByArea } from './workerUtils';
 
@@ -31,8 +31,13 @@ interface SourceCache {
 export class PhotoOperations {
     private loadingProcesses = new Map<string, PhotoSourceLoader>();
     private sourceCache = new Map<string, SourceCache>(); // Cache for each source
+    private maxPhotosInArea: number = 400; // Default value
 
     constructor() {}
+
+    setMaxPhotosInArea(maxPhotos: number): void {
+        this.maxPhotosInArea = maxPhotos;
+    }
 
     /**
      * Clean up all resources - call this when worker is being terminated
@@ -254,7 +259,11 @@ export class PhotoOperations {
             getValidToken: callbacks.getValidToken
         };
 
-        const loader = PhotoSourceFactory.createLoader(source, sourceCallbacks);
+        const options: PhotoSourceOptions = {
+            maxPhotos: this.maxPhotosInArea
+        };
+
+        const loader = PhotoSourceFactory.createLoader(source, sourceCallbacks, options);
         this.loadingProcesses.set(source.id, loader);
 
         try {

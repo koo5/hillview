@@ -1,3 +1,7 @@
+<svelte:head>
+	<title>My Photos - Hillview</title>
+</svelte:head>
+
 <script lang="ts">
 	import {onMount} from 'svelte';
 	import {get} from 'svelte/store';
@@ -19,6 +23,7 @@
 	import {navigateWithHistory} from '$lib/navigation.svelte';
 	import SettingsComponent from '$lib/components/Settings.svelte';
 	import {invoke} from "@tauri-apps/api/core";
+	import LoadMoreButton from '$lib/components/LoadMoreButton.svelte';
 
 	let photos: UserPhoto[] = [];
 	let isLoading = true;
@@ -510,24 +515,11 @@
 				{/each}
 			</div>
 
-			<!-- Load More Button -->
-			{#if hasMore}
-				<div class="load-more-container">
-					<button
-						class="load-more-button"
-						on:click={loadMorePhotos}
-						disabled={loadingMore}
-						data-testid="load-more-button"
-					>
-						{#if loadingMore}
-							<Spinner/>
-							Loading more...
-						{:else}
-							Load More Photos
-						{/if}
-					</button>
-				</div>
-			{/if}
+			<LoadMoreButton
+				hasMore={hasMore && !isLoading}
+				loading={loadingMore}
+				onLoadMore={loadMorePhotos}
+			/>
 		{/if}
 	</div>
 </StandardBody>
@@ -964,40 +956,5 @@
 		color: #0d47a1;
 	}
 
-	/* Load More Button Styles */
-	.load-more-container {
-		display: flex;
-		justify-content: center;
-		margin-top: 32px;
-		padding: 20px 0;
-	}
-
-	.load-more-button {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		padding: 12px 24px;
-		background-color: #4a90e2;
-		color: white;
-		border: none;
-		border-radius: 6px;
-		font-size: 16px;
-		font-weight: 500;
-		cursor: pointer;
-		transition: background-color 0.3s, transform 0.2s;
-		min-width: 160px;
-		justify-content: center;
-	}
-
-	.load-more-button:hover:not(:disabled) {
-		background-color: #357abd;
-		transform: translateY(-1px);
-	}
-
-	.load-more-button:disabled {
-		background-color: #94a3b8;
-		cursor: not-allowed;
-		transform: none;
-	}
 
 </style>

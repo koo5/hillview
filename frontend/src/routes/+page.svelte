@@ -1,3 +1,7 @@
+<svelte:head>
+	<title>Hillview</title>
+</svelte:head>
+
 <script lang="ts">
 	import {onDestroy, onMount, tick} from 'svelte';
 	import PhotoGallery from '../components/Gallery.svelte';

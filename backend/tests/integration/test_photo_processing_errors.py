@@ -80,7 +80,7 @@ class TestPhotoProcessingErrors(BasePhotoTest):
 		error_msg = photo_data.get('error', '')
 		expected_msg = "GPS coordinates missing"
 		assert expected_msg in error_msg, f"Expected '{expected_msg}' in error message, got: {error_msg}"
-		assert "GPS GPSImgDirection" in error_msg, f"Expected found bearing tag in error message, got: {error_msg}"
+		assert "GPSImgDirection" in error_msg, f"Expected found bearing tag in error message, got: {error_msg}"
 		assert "GPSLatitude, GPSLongitude" in error_msg, f"Expected coordinate requirements in error message, got: {error_msg}"
 
 		print(f"✓ Correct error message: {error_msg}")

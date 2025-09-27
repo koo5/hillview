@@ -74,14 +74,21 @@ async def delete_photo_files(photo) -> bool:
 		elif storage_type == StorageType.LOCAL:
 			# Photo is stored locally, use filesystem deletion
 			pics_url = os.getenv("PICS_URL")
+			logger.debug(f"Deleting local files for photo {str(photo.id)}, PICS_URL: {pics_url}")
+
 			for size_info in photo.sizes.values():
 				if 'url' in size_info:
+					logger.debug(f"Processing URL: {size_info['url']}")
 					# Cut off PICS_URL prefix to get local path suffix
 					local_path_suffix = size_info['url'][len(pics_url):].lstrip('/')
-					full_path = os.path.join(UPLOAD_DIR, local_path_suffix)
+					full_path = os.path.join(os.getenv("PICS_DIR"), local_path_suffix)
+					logger.debug(f"Attempting to delete: {full_path}")
+
 					if os.path.exists(full_path):
 						os.remove(full_path)
-						logger.debug(f"Deleted photo file: {full_path}")
+						logger.info(f"Deleted photo file: {full_path}")
+					else:
+						logger.warning(f"File not found for deletion: {full_path}")
 			return True
 
 		else:

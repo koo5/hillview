@@ -7,6 +7,7 @@ import type { PhotoData, Bounds } from '../photoWorkerTypes';
 import { BasePhotoSourceLoader, type PhotoSourceCallbacks } from './PhotoSourceLoader';
 import { verbalizeEventSourceReadyState } from './eventSourceUtils';
 import { postToast } from '../workerToast';
+import type { PhotoSourceOptions } from './PhotoSourceFactory';
 
 export class StreamSourceLoader extends BasePhotoSourceLoader {
     private eventSource?: EventSource;
@@ -20,9 +21,11 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
     private retryCount = 0;
     private maxRetries = 1; // Only retry once for auth errors
     private currentBounds?: Bounds;
+    private maxPhotos?: number;
 
-    constructor(source: any, callbacks: PhotoSourceCallbacks) {
+    constructor(source: any, callbacks: PhotoSourceCallbacks, options?: PhotoSourceOptions) {
         super(source, callbacks);
+        this.maxPhotos = options?.maxPhotos;
     }
 
     private async getAuthTokenWithTimeout(timeoutMs: number = 5000, forceRefresh: boolean = false): Promise<string | null> {
@@ -75,7 +78,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
         if (!bounds) {
             // Stream sources without bounds are valid during config setup
             // They will be started with bounds later when area is updated
-            console.log(`StreamSourceLoader: Started ${this.source.id} without bounds - waiting for area update`);
+            //console.log(`StreamSourceLoader: Started ${this.source.id} without bounds - waiting for area update`);
             this.isComplete = true;
             return;
         }
@@ -107,6 +110,11 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
         // Add client_id parameter (required by server)
         const clientId = this.source.clientId || 'default';
         url.searchParams.set('client_id', clientId);
+
+        // Add max_photos parameter if specified
+        if (this.maxPhotos !== undefined) {
+            url.searchParams.set('max_photos', this.maxPhotos.toString());
+        }
 
         // Add authentication token (force refresh on retry attempts)
         try {

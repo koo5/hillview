@@ -129,7 +129,7 @@ class TestContentFiltering(BaseUserManagementTest):
         
         assert response.status_code == 200, f"Activity API call failed: {response.status_code} - {response.text}"
         
-        baseline_activities = response.json()
+        baseline_activities = response.json()["photos"]
         baseline_count = len(baseline_activities)
         print(f"Baseline activity: {baseline_count} items")
         
@@ -169,7 +169,7 @@ class TestContentFiltering(BaseUserManagementTest):
         
         assert response.status_code == 200, f"Filtered activity query failed: {response.status_code}"
         
-        filtered_activities = response.json()
+        filtered_activities = response.json()["photos"]
         filtered_count = len(filtered_activities)
         
         # Check if activities from hidden user are removed
