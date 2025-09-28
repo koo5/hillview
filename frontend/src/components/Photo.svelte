@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
-    import { EyeOff, UserX, ThumbsUp, ThumbsDown, Share } from 'lucide-svelte';
+    import { EyeOff, UserX } from 'lucide-svelte';
+    import PhotoActionsMenu from './PhotoActionsMenu.svelte';
     import { app } from '$lib/data.svelte';
     import { auth } from '$lib/auth.svelte';
     import { http, handleApiError } from '$lib/http';
@@ -41,10 +42,6 @@
     let isHiding = false;
     let hideMessage = '';
 
-    // Rating functionality state
-    let userRating: 'thumbs_up' | 'thumbs_down' | null = null;
-    let ratingCounts = { thumbs_up: 0, thumbs_down: 0 };
-    let isRating = false;
 
     // Get current user authentication state
     $: isAuthenticated = $auth.isAuthenticated;
@@ -298,83 +295,7 @@
         }
     }
 
-    // Rating functionality
-    async function handleRatingClick(rating: 'thumbs_up' | 'thumbs_down') {
-        if (!photo || !isAuthenticated || isRating) return;
 
-        const photoSource = getPhotoSource(photo);
-        isRating = true;
-
-        try {
-            let response;
-
-            if (userRating === rating) {
-                // Remove rating if clicking the same rating
-                response = await http.delete(`/ratings/${photoSource}/${photo.id}`);
-                userRating = null;
-            } else {
-                // Set new rating
-                response = await http.post(`/ratings/${photoSource}/${photo.id}`, {
-                    rating: rating
-                });
-                const data = await response.json();
-                userRating = data.user_rating as 'thumbs_up' | 'thumbs_down' | null;
-                ratingCounts = data.rating_counts;
-            }
-
-            if (!response.ok) {
-                throw new Error(`Failed to update rating: ${response.status}`);
-            }
-
-            // If we removed a rating, get updated counts
-            if (!userRating) {
-                const getRatingResponse = await http.get(`/ratings/${photoSource}/${photo.id}`);
-                if (getRatingResponse.ok) {
-                    const data = await getRatingResponse.json();
-                    ratingCounts = data.rating_counts;
-                }
-            }
-        } catch (error) {
-            console.error('🢄Error updating rating:', error);
-            hideMessage = `Rating error: ${handleApiError(error)}`;
-            setTimeout(() => hideMessage = '', 3000);
-        } finally {
-            isRating = false;
-        }
-    }
-
-    // Load rating data when photo changes
-    async function loadPhotoRating() {
-        if (!photo || !isAuthenticated) {
-            userRating = null;
-            ratingCounts = { thumbs_up: 0, thumbs_down: 0 };
-            return;
-        }
-
-        try {
-            const photoSource = getPhotoSource(photo);
-            const response = await http.get(`/ratings/${photoSource}/${photo.id}`);
-
-            if (response.ok) {
-                const data = await response.json();
-                userRating = data.user_rating;
-                ratingCounts = data.rating_counts || { thumbs_up: 0, thumbs_down: 0 };
-            } else {
-                // If rating endpoint fails, set defaults
-                userRating = null;
-                ratingCounts = { thumbs_up: 0, thumbs_down: 0 };
-            }
-        } catch (error) {
-            console.error('🢄Error loading rating:', error);
-            userRating = null;
-            ratingCounts = { thumbs_up: 0, thumbs_down: 0 };
-        }
-    }
-
-    // Load rating when photo changes
-    $: if (photo && isAuthenticated) {
-        loadPhotoRating();
-    }
 
     // Navigate to user profile for Hillview photos
     function viewUserProfile() {
@@ -489,60 +410,13 @@
                 </div>
             {/if}
 
-            <div class="hide-buttons">
-
-                <!-- Share button -->
-                <button
-                    class="hide-button share-button"
-                    on:click={sharePhoto}
-                    title="Share photo"
-                    data-testid="share-button"
-                >
-                    <Share size={16} />
-                </button>
-
-                <!-- Rating buttons -->
-                <button
-                    class="hide-button rating-button {userRating === 'thumbs_up' ? 'active' : ''}"
-                    on:click={() => handleRatingClick('thumbs_up')}
-                    disabled={isRating}
-                    title="Thumbs up"
-                    data-testid="thumbs-up-button"
-                >
-                    <ThumbsUp size={16} />
-                    <span class="rating-count">{ratingCounts.thumbs_up}</span>
-                </button>
-
-                <button
-                    class="hide-button rating-button {userRating === 'thumbs_down' ? 'active' : ''}"
-                    on:click={() => handleRatingClick('thumbs_down')}
-                    disabled={isRating}
-                    title="Thumbs down"
-                    data-testid="thumbs-down-button"
-                >
-                    <ThumbsDown size={16} />
-                    <span class="rating-count">{ratingCounts.thumbs_down}</span>
-                </button>
-
-                <button
-                    class="hide-button hide-photo"
-                    on:click={hidePhoto}
-                    disabled={isHiding}
-                    title="Hide this photo"
-                    data-testid="hide-photo-button"
-                >
-                    <EyeOff size={16} />
-                </button>
-
-                <button
-                    class="hide-button hide-user"
-                    on:click={showUserHideDialog}
-                    disabled={isHiding || !getUserId(photo)}
-                    title="Hide all photos by {getUserName(photo) || 'this user'}"
-                    data-testid="hide-user-button"
-                >
-                    <UserX size={16} />
-                </button>
+            <div class="photo-actions-container">
+                <PhotoActionsMenu
+                    {photo}
+                    bind:showHideUserDialog
+                    bind:hideUserReason
+                    bind:flagUserForReview
+                />
             </div>
         {/if}
 
@@ -631,6 +505,14 @@
         object-fit: contain;
         background-size: cover;
         -o-background-size: cover;
+    }
+
+    .photo-actions-container {
+        position: absolute;
+        bottom: 12px;
+        right: 10px;
+        z-index: 100;
+		display: flex;
     }
 
 

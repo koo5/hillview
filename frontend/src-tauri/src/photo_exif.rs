@@ -3,8 +3,13 @@ use img_parts::{jpeg::Jpeg, ImageEXIF};
 use log::info;
 use serde::{Deserialize, Serialize};
 use serde_json;
+use std::collections::HashMap;
 use std::io::Cursor;
+use std::sync::Mutex;
 use tauri::command;
+
+// Global storage for photo chunks
+static PHOTO_CHUNKS: Mutex<HashMap<String, Vec<u8>>> = Mutex::new(HashMap::new());
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ProvenanceData {
@@ -471,15 +476,42 @@ async fn verify_exif_in_saved_file(file_path: &std::path::Path) {
 
 
 #[command]
+pub fn store_photo_chunk(photo_id: String, chunk: Vec<u8>, is_first_chunk: bool) -> Result<(), String> {
+	let mut chunks = PHOTO_CHUNKS.lock().map_err(|e| format!("Failed to lock chunks: {}", e))?;
+
+	if is_first_chunk {
+		// Initialize new photo with first chunk
+		chunks.insert(photo_id, chunk);
+	} else {
+		// Append to existing photo
+		if let Some(existing) = chunks.get_mut(&photo_id) {
+			existing.extend(chunk);
+		} else {
+			return Err(format!("Photo ID {} not found for chunk append", photo_id));
+		}
+	}
+
+	Ok(())
+}
+
+#[command]
 #[allow(unused_variables)]
 pub async fn save_photo_with_metadata(
 	app_handle: tauri::AppHandle,
-	image_data: Vec<u8>,
+	photo_id: String,
 	metadata: PhotoMetadata,
 	filename: String,
 	hide_from_gallery: bool,
 ) -> Result<crate::device_photos::DevicePhotoMetadata, String> {
-	// Step 1: Process EXIF data (async)
+	// Step 1: Get stored image data
+	let image_data = {
+		let mut chunks = PHOTO_CHUNKS.lock().map_err(|e| format!("Failed to lock chunks: {}", e))?;
+		chunks.remove(&photo_id).ok_or_else(|| format!("Photo data not found for ID: {}", photo_id))?
+	};
+
+	println!("Retrieved {} bytes for photo ID: {}", image_data.len(), photo_id);
+
+	// Step 2: Process EXIF data (async)
 	let processed = embed_photo_metadata(image_data, metadata.clone()).await
 		.map_err(|e| format!("EXIF embedding failed: {}", e))?;
 

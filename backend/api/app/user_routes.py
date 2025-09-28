@@ -29,7 +29,7 @@ from auth import (
 	OAUTH_PROVIDERS, ACCESS_TOKEN_EXPIRE_MINUTES,
 	blacklist_token, get_current_user, get_current_user_optional_with_query
 )
-from rate_limiter import auth_rate_limiter, check_auth_rate_limit, rate_limit_user_profile, rate_limit_user_registration, get_client_ip, general_rate_limiter
+from rate_limiter import auth_rate_limiter, check_auth_rate_limit, rate_limit_user_profile, rate_limit_user_registration, get_client_ip, general_rate_limiter, rate_limit_photo_operations
 from common.config import is_rate_limiting_disabled
 from security_utils import validate_username, validate_email, validate_password, validate_oauth_redirect_uri
 from security_audit import security_audit

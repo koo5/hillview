@@ -24,7 +24,7 @@
 			<div>({stats.totalCaptured})</div>
 		{/if}
 
-		{#if stats.capturing}
+		{#if stats.processing}
 			<div>...</div>
 		{/if}
 

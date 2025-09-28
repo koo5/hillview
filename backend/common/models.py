@@ -225,6 +225,26 @@ class PhotoRating(Base):
 		{"schema": None}  # Placeholder - actual constraints in migration
 	)
 
+class FlaggedPhoto(Base):
+	__tablename__ = "flagged_photos"
+
+	id = Column(String, primary_key=True, default=generate_uuid)
+	flagging_user_id = Column(String, nullable=True)  # Keep user ID for audit, no FK constraint
+	photo_source = Column(String(20), nullable=False)  # 'mapillary' or 'hillview'
+	photo_id = Column(String(255), nullable=False)
+	flagged_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+	reason = Column(Text, nullable=True)  # Text field for longer reason descriptions
+	extra_data = Column(JSON, nullable=True)  # Additional context like creator info, etc.
+	resolved = Column(Boolean, default=False, nullable=False)  # Admin can mark as resolved
+	resolved_at = Column(DateTime(timezone=True), nullable=True)  # When resolved
+	resolved_by = Column(String, nullable=True)  # Admin user ID who resolved it
+
+	# Table constraints are defined in the migration
+	__table_args__ = (
+		# Unique constraint to prevent duplicate flags
+		{"schema": None}  # Placeholder - actual constraints in migration
+	)
+
 class UserPublicKey(Base):
 	__tablename__ = "user_public_keys"
 

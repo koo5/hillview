@@ -81,12 +81,39 @@ async function processCanvas(item: CaptureQueueItem): Promise<void> {
         const uint8Array = new Uint8Array(arrayBuffer);
         const imageData = Array.from(uint8Array);
 
-        // Send success back to main thread with transferable buffer
-        postMessage({
-            type: 'blobReady',
-            imageData,
-			item,
-		}, [arrayBuffer]);
+        // Send image data in chunks to keep UI responsive
+        const CHUNK_SIZE = 100 * 1024; // 100KB chunks
+        const totalChunks = Math.ceil(imageData.length / CHUNK_SIZE);
+
+        log('Sending image data in chunks', {
+            itemId: item.id,
+            totalBytes: imageData.length,
+            totalChunks,
+            chunkSize: CHUNK_SIZE
+        });
+
+        // Send chunks with small delays to keep UI responsive
+        for (let i = 0; i < totalChunks; i++) {
+            const start = i * CHUNK_SIZE;
+            const end = Math.min(start + CHUNK_SIZE, imageData.length);
+            const chunk = imageData.slice(start, end);
+
+            postMessage({
+                type: 'photoChunk',
+                photoId: item.id,
+                chunk,
+                chunkIndex: i,
+                totalChunks,
+                isFirstChunk: i === 0,
+                isLastChunk: i === totalChunks - 1,
+                item: i === totalChunks - 1 ? item : undefined // Only send item with last chunk
+            });
+
+            // Small delay between chunks to keep UI responsive
+            if (i < totalChunks - 1) {
+                await new Promise(resolve => setTimeout(resolve, 50));
+            }
+        }
 	} catch (error) {
 		const errorMessage = error instanceof Error ? error.message : String(error);
 		log('Error processing canvas', JSON.stringify(errorMessage));

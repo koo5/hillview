@@ -316,6 +316,9 @@ app.include_router(hillview_routes.router)
 import hidden_content_routes
 app.include_router(hidden_content_routes.router)
 
+import flagged_photos_routes
+app.include_router(flagged_photos_routes.router)
+
 # Database migration function
 def run_migrations():
 	"""Run Alembic migrations on startup"""

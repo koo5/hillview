@@ -37,6 +37,7 @@ pub fn run() {
             commands::get_build_branch,
             commands::get_build_ts,
             photo_exif::embed_photo_metadata,
+            photo_exif::store_photo_chunk,
             photo_exif::save_photo_with_metadata,
             photo_exif::read_device_photo,
             photo_exif::read_photo_exif,
