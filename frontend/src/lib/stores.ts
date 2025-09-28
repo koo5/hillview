@@ -2,6 +2,7 @@ import { localStorageSharedStore } from './svelte-shared-store';
 
 export interface UserPhoto {
     id: number;
+    uid?: string;  // Cross-source unique identifier (hillview-{id})
     filename: string;  // Secure filename for storage
     original_filename: string;  // Original filename for display
     latitude: number;

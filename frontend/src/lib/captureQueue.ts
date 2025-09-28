@@ -80,9 +80,9 @@ class CaptureQueueManager {
 		const logMessage = `${this.LOG_PREFIX} [${tag}] ${timestamp} ${message}`;
 
 		if (data) {
-			console.log(logMessage, data);
+			console.log('🢄' + logMessage, data);
 		} else {
-			console.log(logMessage);
+			console.log('🢄' + logMessage);
 		}
 	}
 
@@ -139,8 +139,8 @@ class CaptureQueueManager {
 							code: error?.code,
 							stack: error?.stack
 						};
-						console.error('Unhandled error in processItem details:', JSON.stringify(errorInfo, null, 2));
-						console.error('Unhandled error in processItem:', error);
+						console.error('🢄Unhandled error in processItem details:', JSON.stringify(errorInfo, null, 2));
+						console.error('🢄Unhandled error in processItem:', error);
 					});
 				}
 			}

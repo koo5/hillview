@@ -77,7 +77,7 @@ class SimplePhotoWorker {
                 const areaPhotos = message.photosInArea || [];
                 const rangePhotos = message.photosInRange || [];
 
-                console.log(`SimplePhotoWorker: Updated photos - Area: ${areaPhotos.length}, Range: ${message.currentRange}m, rangePhotos.length: ${rangePhotos.length}`);
+                console.log(`🢄SimplePhotoWorker: Updated photos - Area: ${areaPhotos.length}, Range: ${message.currentRange}m, rangePhotos.length: ${rangePhotos.length}`);
 
                 photosInArea.set(areaPhotos);
                 photosInRange.set(rangePhotos);
@@ -102,7 +102,7 @@ class SimplePhotoWorker {
             case 'toast':
                 // Handle toast messages from worker
                 const toastMessage = message as WorkerToastMessage;
-                console.log(`SimplePhotoWorker: Received toast from worker: ${toastMessage.level} - ${toastMessage.message} (source: ${toastMessage.source})`);
+                console.log(`🢄SimplePhotoWorker: Received toast from worker: ${toastMessage.level} - ${toastMessage.message} (source: ${toastMessage.source})`);
 
                 // Convert worker toast to main thread toast
                 const duration = toastMessage.duration !== undefined ? toastMessage.duration :
@@ -126,14 +126,14 @@ class SimplePhotoWorker {
             // Use the token manager to get a token with optional force refresh
             const tokenManager = createTokenManager();
             const currentToken = await tokenManager.getValidToken(forceRefresh);
-            console.log(`SimplePhotoWorker: Sending auth token to worker: ${currentToken ? 'token available' : 'no token'}${forceRefresh ? ' (refreshed)' : ''}`);
+            console.log(`🢄SimplePhotoWorker: Sending auth token to worker: ${currentToken ? 'token available' : 'no token'}${forceRefresh ? ' (refreshed)' : ''}`);
 
             this.worker?.postMessage({
                 type: 'authToken',
                 token: currentToken
             });
         } catch (error) {
-            console.error('SimplePhotoWorker: Error getting auth token for worker:', error);
+            console.error('🢄SimplePhotoWorker: Error getting auth token for worker:', error);
             this.worker?.postMessage({
                 type: 'authToken',
                 token: null
@@ -181,7 +181,7 @@ class SimplePhotoWorker {
                 return;
             }
 
-            console.log(`SimplePhotoWorker: Sending area update with range ${spatial.range}m...`);
+            console.log(`🢄SimplePhotoWorker: Sending area update with range ${spatial.range}m...`);
             this.lastBounds = spatial.bounds;
             this.sendMessage('areaUpdated', {
                 area: spatial.bounds,
@@ -246,7 +246,7 @@ class SimplePhotoWorker {
             return;
         }
 
-        console.log(`SimplePhotoWorker: Removing photo ${photoId} from ${photoSource} cache...`);
+        console.log(`🢄SimplePhotoWorker: Removing photo ${photoId} from ${photoSource} cache...`);
         this.sendMessage('removePhoto', {
             photoId: photoId,
             source: photoSource
@@ -259,7 +259,7 @@ class SimplePhotoWorker {
             return;
         }
 
-        console.log(`SimplePhotoWorker: Removing all photos by user ${userId} from ${userSource} cache...`);
+        console.log(`🢄SimplePhotoWorker: Removing all photos by user ${userId} from ${userSource} cache...`);
         this.sendMessage('removeUserPhotos', {
             userId: userId,
             source: userSource

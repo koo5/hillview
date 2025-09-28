@@ -4,7 +4,7 @@ import {backendUrl} from './config';
 import {MAX_DEBUG_MODES} from './constants';
 import {auth} from './auth.svelte';
 // Import new mapState for legacy compatibility only
-import {photoInFront, photoToLeft, photoToRight, updateBearing as mapStateUpdateBearing} from './mapState';
+import {photoInFront, photoToLeft, photoToRight, updateBearing as mapStateUpdateBearing, updateBearingWithPhoto} from './mapState';
 import {TAURI} from "$lib/tauri";
 
 // Device source subtypes
@@ -232,11 +232,11 @@ export async function turn_to_photo_to(dir: string) {
     });
 
     if (dir === 'left' && currentPhotoToLeft) {
-        console.log('🢄Turning to left photo:', currentPhotoToLeft.id, 'bearing:', currentPhotoToLeft.bearing);
-        mapStateUpdateBearing(currentPhotoToLeft.bearing);
+        console.log('🢄Turning to left photo:', currentPhotoToLeft.uid, 'bearing:', currentPhotoToLeft.bearing);
+        updateBearingWithPhoto(currentPhotoToLeft, 'photo_navigation');
     } else if (dir === 'right' && currentPhotoToRight) {
-        console.log('🢄Turning to right photo:', currentPhotoToRight.id, 'bearing:', currentPhotoToRight.bearing);
-        mapStateUpdateBearing(currentPhotoToRight.bearing);
+        console.log('🢄Turning to right photo:', currentPhotoToRight.uid, 'bearing:', currentPhotoToRight.bearing);
+        updateBearingWithPhoto(currentPhotoToRight, 'photo_navigation');
     } else {
         console.warn(`🢄No photo to ${dir} available`);
     }

@@ -388,7 +388,7 @@ pub async fn delete_device_photo(
 
 		// Delete the actual file
 		if let Err(e) = std::fs::remove_file(&photo.path) {
-			eprintln!("Failed to delete photo file: {}", e);
+			error!("🢄Failed to delete photo file: {}", e);
 		}
 
 		// Remove from database

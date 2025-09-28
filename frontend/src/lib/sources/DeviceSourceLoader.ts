@@ -15,7 +15,7 @@ export class DeviceSourceLoader extends BasePhotoSourceLoader {
     }
 
     async start(bounds?: Bounds): Promise<void> {
-        console.log(`DeviceSourceLoader: Loading device photos from ${this.source.path || 'default location'}`);
+        console.log(`🢄DeviceSourceLoader: Loading device photos from ${this.source.path || 'default location'}`);
 
         try {
             // For now, device sources are handled by the frontend directly
@@ -37,11 +37,11 @@ export class DeviceSourceLoader extends BasePhotoSourceLoader {
                 fromCache: false
             });
 
-            console.log(`DeviceSourceLoader: Loaded ${this.photos.length} photos from device source ${this.source.id}`);
+            console.log(`🢄DeviceSourceLoader: Loaded ${this.photos.length} photos from device source ${this.source.id}`);
 
         } catch (error) {
             if (!this.isAborted()) {
-                console.error(`DeviceSourceLoader: Error loading device photos:`, error);
+                console.error(`🢄DeviceSourceLoader: Error loading device photos:`, error);
                 this.callbacks.onError?.(error as Error);
             }
             throw error;

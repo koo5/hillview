@@ -2,7 +2,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { CaptureQueueItem } from '../lib/captureQueue';
 
-const LOG_PREFIX = '[CAPTURE_WORKER]';
+const LOG_PREFIX = '🢄[CAPTURE_WORKER]';
 
 function log(message: string, data?: any): void {
     const timestamp = new Date().toISOString();

@@ -70,7 +70,7 @@
 				pageSize
 			}) as DevicePhotosResponse;
 
-			console.log('Device photos response:', response);
+			console.log('🢄Device photos response:', response);
 
 			if (append && photosData) {
 				// Append new photos to existing data
@@ -85,7 +85,7 @@
 			currentPage = response.page;
 			error = response.error || null;
 		} catch (err) {
-			console.error('Error fetching device photos:', err);
+			console.error('🢄Error fetching device photos:', err);
 			error = `Failed to fetch device photos: ${err}`;
 		} finally {
 			isLoading = false;
@@ -112,7 +112,7 @@
 			// Refresh the photos list after scan
 			await refreshDevicePhotos();
 		} catch (err) {
-			console.error('Error refreshing photo scan:', err);
+			console.error('🢄Error refreshing photo scan:', err);
 			error = `Failed to refresh photo scan: ${err}`;
 		} finally {
 			isLoading = false;

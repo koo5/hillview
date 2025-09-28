@@ -46,9 +46,9 @@
 
 			autoUploadEnabled = result.autoUploadEnabled || false;
 			autoUploadPromptEnabled = result.autoUploadPromptEnabled !== false; // Default to true
-			console.log('📱 Loaded Android auto-upload settings:', {autoUploadEnabled, autoUploadPromptEnabled});
+			console.log('🢄📱 Loaded Android auto-upload settings:', {autoUploadEnabled, autoUploadPromptEnabled});
 		} catch (err) {
-			console.error('Failed to load Android auto-upload settings:', err);
+			console.error('🢄Failed to load Android auto-upload settings:', err);
 			onSaveError('Failed to load settings. Using defaults.');
 			// Use defaults instead of crashing
 			autoUploadEnabled = false;
@@ -59,7 +59,7 @@
 	async function saveSettings() {
 		if (TAURI) {
 			try {
-				console.log('📤 Setting Android auto-upload:', JSON.stringify({autoUploadEnabled, autoUploadPromptEnabled}));
+				console.log('🢄📤 Setting Android auto-upload:', JSON.stringify({autoUploadEnabled, autoUploadPromptEnabled}));
 				await invoke('plugin:hillview|set_auto_upload_enabled', {
 					enabled: autoUploadEnabled,
 					promptEnabled: autoUploadPromptEnabled
@@ -75,7 +75,7 @@
 					onCancel();
 				}
 			} catch (err) {
-				console.error('Error updating Android plugin:', err);
+				console.error('🢄Error updating Android plugin:', err);
 				onSaveError('Failed to save settings');
 			}
 		}

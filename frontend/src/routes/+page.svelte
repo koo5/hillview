@@ -18,7 +18,9 @@
 		spatialState,
 		updateSpatialState,
 		updateBearing as mapStateUpdateBearing,
-		updateBearingByDiff
+		updateBearingByDiff,
+		updateBearingWithPhoto,
+		photosInRange
 	} from "$lib/mapState";
 	import {LatLng} from 'leaflet';
 	import {replaceState} from "$app/navigation";
@@ -49,6 +51,7 @@
 		const lon = urlParams.get('lon');
 		const zoom = urlParams.get('zoom');
 		const bearingParam = urlParams.get('bearing');
+		const photoParam = urlParams.get('photo');
 
 		let p = get(spatialState);
 		let update = false;
@@ -72,7 +75,9 @@
 
 		if (bearingParam) {
 			console.log('🢄Setting bearing to', bearingParam, 'from URL');
-			mapStateUpdateBearing(parseFloat(bearingParam));
+			const bearing = parseFloat(bearingParam);
+			const photoUid = photoParam ? decodeURIComponent(photoParam) : undefined;
+			mapStateUpdateBearing(bearing, 'url', photoUid);
 		}
 
 		setTimeout(() => {
@@ -91,7 +96,7 @@
 
 
 	let bearingUrlUpdateTimeout: ReturnType<typeof setTimeout> | null = null;
-	let lastVal: number | undefined = undefined;
+	let lastBearingState: any = undefined;
 
 	bearingState.subscribe(visual => {
 
@@ -99,7 +104,7 @@
 			return;
 		}
 
-		lastVal = visual.bearing;
+		lastBearingState = visual;
 
 		if (bearingUrlUpdateTimeout) {
 			return;
@@ -107,11 +112,18 @@
 
 		bearingUrlUpdateTimeout = setTimeout(() => {
 			bearingUrlUpdateTimeout = null;
-			if (lastVal === undefined || lastVal === null) {
+			if (lastBearingState === undefined || lastBearingState === null || lastBearingState.bearing === undefined) {
 				return;
 			}
 			const url = new URL(window.location.href);
-			url.searchParams.set('bearing', String(lastVal));
+			url.searchParams.set('bearing', String(lastBearingState.bearing));
+
+			if (lastBearingState.photoUid) {
+				url.searchParams.set('photo', encodeURIComponent(lastBearingState.photoUid));
+			} else {
+				url.searchParams.delete('photo');
+			}
+
 			replaceState2(url.toString());
 		}, 2000);
 

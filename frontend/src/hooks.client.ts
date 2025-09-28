@@ -35,7 +35,7 @@ if (sentryEnabled)
 }
 
 export async function handleError(eee: any): Promise<{ message: string }> {
-	console.error('handleError:', eee.error);
+	console.error('🢄handleError:', eee.error);
 	if (sentryEnabled) {
 		return await handleErrorWithSentry(eee);
 	} else return { message: eee.message || 'An error occurred' };

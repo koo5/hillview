@@ -512,7 +512,7 @@ pub async fn save_photo_with_metadata(
 		chunks.remove(&photo_id).ok_or_else(|| format!("Photo data not found for ID: {}", photo_id))?
 	};
 
-	println!("Retrieved {} bytes for photo ID: {}", image_data.len(), photo_id);
+	info!("🢄Retrieved {} bytes for photo ID: {}", image_data.len(), photo_id);
 
 	// Step 2: Process EXIF data (async)
 	let processed = embed_photo_metadata(image_data, metadata.clone()).await

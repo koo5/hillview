@@ -55,6 +55,7 @@ const HILLVIEW_BASE_URL = 'https://hillview.cz';
  * @param options.lon Longitude
  * @param options.zoom Map zoom level (uses current zoom if not provided)
  * @param options.bearing Camera bearing (optional)
+ * @param options.photoUid Photo unique identifier for navigation (optional)
  * @param options.baseUrl Base URL (defaults to relative path for internal navigation)
  * @returns Complete URL with location parameters
  */
@@ -63,9 +64,10 @@ export function constructMapUrl(options: {
     lon: number;
     zoom?: number;
     bearing?: number;
+    photoUid?: string;
     baseUrl?: string;
 }): string {
-    const { lat, lon, bearing, baseUrl = '' } = options;
+    const { lat, lon, bearing, photoUid, baseUrl = '' } = options;
 
     // Use provided zoom, current map zoom, or default to 18
     let zoom = options.zoom;
@@ -80,13 +82,17 @@ export function constructMapUrl(options: {
         url += `&bearing=${bearing}`;
     }
 
+    if (photoUid) {
+        url += `&photo=${encodeURIComponent(photoUid)}`;
+    }
+
     return url;
 }
 
 /**
  * Constructs a share URL for a photo on hillview.cz
- * @param photo Photo data containing location information
- * @returns Complete hillview.cz URL with location parameters
+ * @param photo Photo data containing location information and uid
+ * @returns Complete hillview.cz URL with location and photo parameters
  */
 export function constructShareUrl(photo: PhotoData | any): string {
     const coords = extractCoordinates(photo);
@@ -101,18 +107,25 @@ export function constructShareUrl(photo: PhotoData | any): string {
         return HILLVIEW_BASE_URL;
     }
 
+    // Construct uid if not present (for UserPhoto objects from hillview backend)
+    let photoUid = photo.uid;
+    if (!photoUid && photo.id) {
+        photoUid = `hillview-${photo.id}`;
+    }
+
     return constructMapUrl({
-		zoom: 22, // we dont have a way to reference individual photos yet, so zoom in close
+        zoom: 20, // now we can reference individual photos via uid
         lat: coords.lat,
         lon: coords.lon,
         bearing: coords.bearing,
+        photoUid: photoUid, // include photo uid for precise navigation
         baseUrl: HILLVIEW_BASE_URL
     });
 }
 
 /**
  * Constructs a map navigation URL for internal use
- * @param photo Photo data containing location information
+ * @param photo Photo data containing location information and uid
  * @returns Relative URL for internal navigation
  */
 export function constructPhotoMapUrl(photo: any): string {
@@ -122,10 +135,17 @@ export function constructPhotoMapUrl(photo: any): string {
         return '/';
     }
 
+    // Construct uid if not present (for UserPhoto objects from hillview backend)
+    let photoUid = photo.uid;
+    if (!photoUid && photo.id) {
+        photoUid = `hillview-${photo.id}`;
+    }
+
     return constructMapUrl({
         lat: coords.lat,
         lon: coords.lon,
-        bearing: coords.bearing
+        bearing: coords.bearing,
+        photoUid: photoUid
     });
 }
 

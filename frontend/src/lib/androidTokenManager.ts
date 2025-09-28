@@ -10,7 +10,7 @@ import { auth } from './authStore';
  * refresh logic with mutex protection to prevent race conditions.
  */
 export class AndroidTokenManager implements TokenManager {
-    private readonly LOG_PREFIX = '🔐[ANDROID_TOKEN_MGR]';
+    private readonly LOG_PREFIX = '🢄🔐[ANDROID_TOKEN_MGR]';
 
     async getValidToken(force: boolean = false): Promise<string | null> {
         console.log(`${this.LOG_PREFIX} Getting valid token from Android (force: ${force})`);

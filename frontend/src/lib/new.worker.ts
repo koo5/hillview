@@ -54,7 +54,7 @@ import { invoke } from '@tauri-apps/api/core';
 
 declare const __WORKER_VERSION__: string;
 export const WORKER_VERSION = __WORKER_VERSION__;
-console.log(`NewWorker: Worker script loaded with version: ${WORKER_VERSION}`);
+console.log(`🢄NewWorker: Worker script loaded with version: ${WORKER_VERSION}`);
 
 
 // Process tracking
@@ -109,28 +109,28 @@ function calculateCenterFromBounds(bounds: Bounds): { lat: number; lng: number }
 // Merge and cull photos from all sources, calculate range
 function mergeAndCullPhotos(): { photosInArea: PhotoData[], photosInRange: PhotoData[] } {
     if (!currentState.area.data || photosInAreaPerSource.size === 0) {
-        console.log(`NewWorker: mergeAndCullPhotos early return - area.data:`, currentState.area.data, 'sources:', photosInAreaPerSource.size);
+        console.log(`🢄NewWorker: mergeAndCullPhotos early return - area.data:`, currentState.area.data, 'sources:', photosInAreaPerSource.size);
         return { photosInArea: [], photosInRange: [] };
     }
 
-    console.log(`NewWorker: mergeAndCullPhotos - area bounds:`, currentState.area.data);
-    console.log(`NewWorker: mergeAndCullPhotos - source photos counts:`,
+    console.log(`🢄NewWorker: mergeAndCullPhotos - area bounds:`, currentState.area.data);
+    console.log(`🢄NewWorker: mergeAndCullPhotos - source photos counts:`,
         Array.from(photosInAreaPerSource.entries()).map(([id, photos]) => `${id}: ${photos.length}`));
 
     // Create/update culling grid for current area
     if (!cullingGrid || currentState.area.lastUpdateId > (cullingGrid as any).lastUpdateId) {
         cullingGrid = new CullingGrid(currentState.area.data);
         (cullingGrid as any).lastUpdateId = currentState.area.lastUpdateId;
-        console.log(`NewWorker: Created new culling grid for area bounds:`, currentState.area.data);
+        console.log(`🢄NewWorker: Created new culling grid for area bounds:`, currentState.area.data);
     }
 
     // Apply smart culling for uniform screen coverage
     const photosInArea = cullingGrid.cullPhotos(photosInAreaPerSource, MAX_PHOTOS_IN_AREA);
-    console.log(`NewWorker: After culling - ${photosInArea.length} photos in area (max: ${MAX_PHOTOS_IN_AREA})`);
+    console.log(`🢄NewWorker: After culling - ${photosInArea.length} photos in area (max: ${MAX_PHOTOS_IN_AREA})`);
 
     // Log a few photo locations for debugging
     if (photosInArea.length > 0) {
-        console.log(`NewWorker: First few photo locations:`,
+        console.log(`🢄NewWorker: First few photo locations:`,
             photosInArea.slice(0, 3).map(p => `[${p.coord.lat.toFixed(4)}, ${p.coord.lng.toFixed(4)}]`));
     }
 
@@ -148,7 +148,7 @@ function mergeAndCullPhotos(): { photosInArea: PhotoData[], photosInRange: Photo
     // sort photos in range by bearing for consistent navigation order
     sortPhotosByBearing(photosInRange);
 
-    console.log(`NewWorker: Merged ${photosInAreaPerSource.size} sources → ${photosInArea.length} in area → ${photosInRange.length} in range with angular coverage`);
+    console.log(`🢄NewWorker: Merged ${photosInAreaPerSource.size} sources → ${photosInArea.length} in area → ${photosInRange.length} in range with angular coverage`);
 
     return {
         photosInArea,
@@ -170,7 +170,7 @@ function sendPhotosUpdate(): void {
         timestamp: Date.now()
     });
 
-    console.log(`NewWorker: Sent ${photosInArea.length} area photos + ${photosInRange.length} range photos directly`);
+    console.log(`🢄NewWorker: Sent ${photosInArea.length} area photos + ${photosInRange.length} range photos directly`);
 }
 
 
@@ -207,7 +207,7 @@ function markConflictingProcessesForAbortion(newProcessType: 'config' | 'area' |
         // Config (priority 2) can abort Area (priority 1)
         // Area (priority 1) cannot abort Config (priority 2)
         if (newPriority > existingPriority) {
-            console.log(`NewWorker: Marking process ${processId} (${processInfo.type}) for abortion due to higher priority ${newProcessType} update`);
+            console.log(`🢄NewWorker: Marking process ${processId} (${processInfo.type}) for abortion due to higher priority ${newProcessType} update`);
             processInfo.shouldAbort = true;
         }
     }
@@ -215,7 +215,7 @@ function markConflictingProcessesForAbortion(newProcessType: 'config' | 'area' |
 
 function cleanupProcess(processId: string): void {
     processTable.delete(processId);
-    console.log(`NewWorker: Cleaned up process ${processId}`);
+    console.log(`🢄NewWorker: Cleaned up process ${processId}`);
 }
 
 async function startProcess(type: 'config' | 'area' | 'sourcesPhotosInArea', messageId: number): Promise<void> {
@@ -234,7 +234,7 @@ async function startProcess(type: 'config' | 'area' | 'sourcesPhotosInArea', mes
     };
 
     processTable.set(processId, processInfo);
-    console.log(`NewWorker: Started ${type} process ${processId}`);
+    console.log(`🢄NewWorker: Started ${type} process ${processId}`);
 
     // Start async operation via photoOperations - it will post completion messages back to the queue
     const operationCallbacks = {
@@ -252,7 +252,7 @@ async function startProcess(type: 'config' | 'area' | 'sourcesPhotosInArea', mes
                 // Remove photos from disabled sources
                 for (const sourceId of photosInAreaPerSource.keys()) {
                     if (!enabledSourceIds.has(sourceId)) {
-                        console.log(`NewWorker: Clearing photos from disabled source: ${sourceId}`);
+                        console.log(`🢄NewWorker: Clearing photos from disabled source: ${sourceId}`);
                         photosInAreaPerSource.delete(sourceId);
                     }
                 }
@@ -297,14 +297,14 @@ async function startProcess(type: 'config' | 'area' | 'sourcesPhotosInArea', mes
     // Start the actual business logic operations
     try {
         if (type === 'config') {
-            console.log(`NewWorker: Calling PROCESSCONFIG for ${processId}`);
+            console.log(`🢄NewWorker: Calling PROCESSCONFIG for ${processId}`);
             if (currentState.config.data) {
                 photoOperations.processConfig(processId, messageId, currentState.config.data, operationCallbacks);
             } else {
                 console.warn(`🢄NewWorker: PROCESSCONFIG - Config data is null for process ${processId}`);
             }
         } else if (type === 'area') {
-            console.log(`NewWorker: About to call processArea with area:`, currentState.area.data, 'sources:', currentState.config.data?.sources?.length || 0);
+            console.log(`🢄NewWorker: About to call processArea with area:`, currentState.area.data, 'sources:', currentState.config.data?.sources?.length || 0);
             if (currentState.area.data) {
                 photoOperations.processArea(
                     processId,
@@ -317,7 +317,7 @@ async function startProcess(type: 'config' | 'area' | 'sourcesPhotosInArea', mes
                 console.warn(`🢄NewWorker: Area data is null for process ${processId}`);
             }
         } else if (type === 'sourcesPhotosInArea') {
-            console.log(`NewWorker: Calling processCombinePhotos for ${processId}`);
+            console.log(`🢄NewWorker: Calling processCombinePhotos for ${processId}`);
             photoOperations.processCombinePhotos(
                 processId,
                 messageId,
@@ -327,7 +327,7 @@ async function startProcess(type: 'config' | 'area' | 'sourcesPhotosInArea', mes
             );
         }
     } catch (error) {
-        console.error(`NewWorker: Error in startProcess ${type}:`, error);
+        console.error(`🢄NewWorker: Error in startProcess ${type}:`, error);
         cleanupProcess(processId);
     }
 }
@@ -692,19 +692,19 @@ function removePhotoFromCache(photoId: string, source: string): void {
 	if (sourcePhotos) {
 		const updatedPhotos = sourcePhotos.filter(photo => photo.id !== photoId);
 		photosInAreaPerSource.set(source, updatedPhotos);
-		console.log(`NewWorker: Removed photo ${photoId} from ${source} - ${sourcePhotos.length - updatedPhotos.length} photos removed`);
+		console.log(`🢄NewWorker: Removed photo ${photoId} from ${source} - ${sourcePhotos.length - updatedPhotos.length} photos removed`);
 
 		// Trigger photo update
 		sourcesPhotosInAreaVersion++;
 		updateState('sourcesPhotosInArea', { id: sourcesPhotosInAreaVersion });
 		sendPhotosUpdate();
 	} else {
-		console.log(`NewWorker: No photos found for source ${source} when trying to remove photo ${photoId}`);
+		console.log(`🢄NewWorker: No photos found for source ${source} when trying to remove photo ${photoId}`);
 	}
 }
 
 function removeUserPhotosFromCache(userId: string, source: string): void {
-	console.log(`NewWorker: Removing all photos by user ${userId} from ${source} cache`);
+	console.log(`🢄NewWorker: Removing all photos by user ${userId} from ${source} cache`);
 
 	// Remove from photosInAreaPerSource
 	const sourcePhotos = photosInAreaPerSource.get(source);
@@ -714,7 +714,7 @@ function removeUserPhotosFromCache(userId: string, source: string): void {
 			// Check if photo has creator information
 			const photoAny = photo as any;
 			if (photoAny.creator?.id === userId) {
-				console.log(`NewWorker: Filtering out photo ${photo.id} by user ${userId}`);
+				console.log(`🢄NewWorker: Filtering out photo ${photo.id} by user ${userId}`);
 				return false;
 			}
 			return true;
@@ -722,7 +722,7 @@ function removeUserPhotosFromCache(userId: string, source: string): void {
 
 		photosInAreaPerSource.set(source, updatedPhotos);
 		const removedCount = beforeCount - updatedPhotos.length;
-		console.log(`NewWorker: Removed ${removedCount} photos by user ${userId} from ${source}`);
+		console.log(`🢄NewWorker: Removed ${removedCount} photos by user ${userId} from ${source}`);
 
 		if (removedCount > 0) {
 			// Trigger photo update if any photos were removed
@@ -731,7 +731,7 @@ function removeUserPhotosFromCache(userId: string, source: string): void {
 			sendPhotosUpdate();
 		}
 	} else {
-		console.log(`NewWorker: No photos found for source ${source} when trying to remove photos by user ${userId}`);
+		console.log(`🢄NewWorker: No photos found for source ${source} when trying to remove photos by user ${userId}`);
 	}
 }
 
@@ -763,19 +763,19 @@ async function getValidToken(forceRefresh: boolean = false): Promise<string | nu
 				};
 
 				if (!result.success) {
-					console.log(`Android reports no valid token: ${result.error}`);
+					console.log(`🢄Android reports no valid token: ${result.error}`);
 					resolve(null);
 				}
 
 				if (result.token) {
-					console.log(`Valid token received from Android${forceRefresh ? ' (refreshed)' : ''}`);
+					console.log(`🢄Valid token received from Android${forceRefresh ? ' (refreshed)' : ''}`);
 					resolve(result.token);
 				} else {
-					console.log(`No token available`);
+					console.log(`🢄No token available`);
 					resolve(null);
 				}
 			} catch (error) {
-				console.error('Error getting token from Android:', error);
+				console.error('🢄Error getting token from Android:', error);
 				resolve(null);
 			}
 		} else {
