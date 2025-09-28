@@ -192,7 +192,7 @@ class PhotoProcessor:
 					result['debug']['found_bearing_tags'].append(field)
 					break
 
-			if not bearing:
+			if bearing is None:
 				result['debug']['has_bearing'] = False
 				logger.debug(f"No bearing data found via exiftool")
 			else:
@@ -204,7 +204,7 @@ class PhotoProcessor:
 
 			altitude = data.get('GPSAltitude')
 
-			logger.debug(f"Found complete GPS data via exiftool")
+
 			gps_data = {
 				'latitude': latitude,
 				'longitude': longitude,
