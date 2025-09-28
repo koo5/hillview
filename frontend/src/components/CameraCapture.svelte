@@ -198,7 +198,8 @@
                     video: {
                         deviceId: { exact: selectedId },
                         width: { min: 1280, ideal: 1920 },
-                        height: { min: 720, ideal: 1920 }
+                        height: { min: 720, ideal: 1920 },
+						frameRate: { ideal: 10 }
                     }
                 };
                 console.log('🢄[CAMERA] Using selected camera device:', selectedId.slice(0, 8) + '...');
@@ -207,8 +208,9 @@
                 constraints = {
                     video: {
                         facingMode: { ideal: facing },  // Use ideal, not exact
-                        width: { min: 1280, ideal: 3840 },  // 4K ideal, 720p minimum
-                        height: { min: 720, ideal: 2160 }
+                        width: { min: 1280, ideal: 1920 },  // 4K ideal, 720p minimum
+                        height: { min: 720, ideal: 1920 },
+						frameRate: { ideal: 10 }
                     }
                 };
                 console.log('🢄[CAMERA] Probing with ideal facingMode:', facing);
