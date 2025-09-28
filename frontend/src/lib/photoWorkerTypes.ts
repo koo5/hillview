@@ -12,6 +12,7 @@ export interface SimpleCoord {
 // Photo data types
 export interface PhotoData {
     id: PhotoId;
+	uid: string;
     source_type: string;
     file: string;
     url: string;

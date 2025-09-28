@@ -221,6 +221,37 @@ sources.subscribe(async (s: Source[]) => {
     }
 });
 
+/**
+ * Enables the source for a given photo uid if it's not already enabled
+ * @param photoUid The photo uid in format "source-id"
+ * @returns The source type that was enabled, or null if no action taken
+ */
+export function enableSourceForPhotoUid(photoUid: string): string | null {
+    const sourceType = photoUid.split('-')[0];
+
+    if (sourceType && (sourceType === 'hillview' || sourceType === 'mapillary')) {
+        console.log('🢄Attempting to enable source for photo:', sourceType);
+
+        let wasEnabled = false;
+        sources.update(srcs => {
+            const updated = srcs.map(src => {
+                if (src.id === sourceType && !src.enabled) {
+                    console.log(`🢄Auto-enabled source ${sourceType} for photo ${photoUid}`);
+                    wasEnabled = true;
+                    return { ...src, enabled: true };
+                }
+                return src;
+            });
+            return updated;
+        });
+
+        return wasEnabled ? sourceType : null;
+    }
+
+    console.warn('🢄Invalid or unsupported photo uid format:', photoUid);
+    return null;
+}
+
 // Navigation functions using new mapState
 export async function turn_to_photo_to(dir: string) {
     const currentPhotoToLeft = get(photoToLeft);

@@ -12,7 +12,7 @@
 		Menu,
 		Minimize2
 	} from 'lucide-svelte';
-	import {app, sources, toggleDebug, turn_to_photo_to} from "$lib/data.svelte";
+	import {app, sources, toggleDebug, turn_to_photo_to, enableSourceForPhotoUid} from "$lib/data.svelte";
 	import {
 		bearingState,
 		spatialState,
@@ -71,6 +71,13 @@
 		if (update) {
 			updateSpatialState({...p});
 			map?.setView(p.center, p.zoom);
+		}
+
+		// Handle photo parameter and enable corresponding source
+		if (photoParam) {
+			const photoUid = decodeURIComponent(photoParam);
+			console.log('🢄Photo parameter from URL:', photoUid);
+			enableSourceForPhotoUid(photoUid);
 		}
 
 		if (bearingParam) {

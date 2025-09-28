@@ -139,6 +139,7 @@ afterEach(() => {
 // Test data
 const createTestPhoto = (id: string, lat: number, lng: number, bearing: number = 0): PhotoData => ({
   id,
+  uid: `test-${id}`,
   source_type: 'test',
   file: `${id}.jpg`,
   url: `https://example.com/${id}.jpg`,
