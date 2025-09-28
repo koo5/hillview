@@ -11,6 +11,7 @@
 
 {#if stats}
 	<div class="queue-indicator" data-testid="capture-queue-indicator">
+
 		{#if stats.size > 0}
 			<Save size={16}/>
 			<span class="queue-count">{stats.size}</span>
@@ -20,7 +21,11 @@
 		{/if}
 
 		{#if stats.totalCaptured}
-			<div>{stats.totalCaptured} captured</div>
+			<div>({stats.totalCaptured})</div>
+		{/if}
+
+		{#if stats.capturing}
+			<div>...</div>
 		{/if}
 
 	</div>

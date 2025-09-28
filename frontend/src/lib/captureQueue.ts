@@ -1,6 +1,7 @@
 import {writable, get} from 'svelte/store';
 import {removePlaceholder} from './placeholderInjector';
 import type {DevicePhotoMetadata} from './types/photoTypes';
+import {invoke} from "@tauri-apps/api/core";
 
 export interface CaptureLocation {
 	latitude: number;
@@ -22,6 +23,7 @@ export interface CaptureQueueItem {
 }
 
 export interface QueueStats {
+	capturing: boolean;
 	size: number;
 	processing: boolean;
 	processingCount: number;
@@ -33,6 +35,7 @@ export interface QueueStats {
 }
 
 class CaptureQueueManager {
+	public capturing = false; // Indicates if capturing is in progress
 	private queue: CaptureQueueItem[] = [];
 	private processingSet = new Set<string>(); // Track items being processed
 	private maxQueueSize = 50; // Default, can be configured
@@ -154,6 +157,7 @@ class CaptureQueueManager {
 	private async processItem(item: CaptureQueueItem): Promise<void> {
 		// Add to processing set
 		this.processingSet.add(item.id);
+		this.capturing = true;
 		this.updateStats();
 
 		try {
@@ -167,10 +171,10 @@ class CaptureQueueManager {
 			this.worker.postMessage(item, [item.imageData.data.buffer]);
 		} catch (error) {
 			const errorInfo = {
-				name: error?.name,
-				message: error?.message,
-				code: error?.code,
-				stack: error?.stack
+				name: (error as any)?.name,
+				message: (error as any)?.message,
+				code: (error as any)?.code,
+				stack: (error as any)?.stack
 			};
 			this.log(this.LOG_TAGS.PHOTO_ERROR, 'Failed to post message to worker', {
 				itemId: item.id,
@@ -190,39 +194,95 @@ class CaptureQueueManager {
 			{ type: 'module' }
 		);
 
-		this.worker.onmessage = (event) => {
-			const { type, itemId, placeholderId, devicePhoto, error } = event.data;
+		this.worker.onmessage = async (event) => {
+			const { type } = event.data;
 
-			if (type === 'photoSaved') {
-				this.totalProcessed++;
-				this.log(this.LOG_TAGS.PHOTO_SAVE, 'Photo processed successfully', {
-					itemId,
-					photoId: devicePhoto.id,
-					filename: devicePhoto.filename,
-					placeholderReplaced: placeholderId,
-					totalProcessed: this.totalProcessed
-				});
+			if (type === 'blobReady') {
+				const { item, imageData } = event.data;
 
-				// TODO: Handle successful photo save
-				// For now, just remove placeholder
-				removePlaceholder(placeholderId);
+				try {
+					// Prepare metadata
+					const metadata = {
+						latitude: item.location.latitude,
+						longitude: item.location.longitude,
+						altitude: item.location.altitude,
+						bearing: item.location.heading,
+						timestamp: Math.floor(item.timestamp / 1000),
+						accuracy: item.location.accuracy,
+						locationSource: item.location.locationSource,
+						bearingSource: item.location.bearingSource
+					};
+
+					// Generate filename
+					const date = new Date(item.timestamp);
+					const year = date.getFullYear();
+					const month = String(date.getMonth() + 1).padStart(2, '0');
+					const day = String(date.getDate()).padStart(2, '0');
+					const hours = String(date.getHours()).padStart(2, '0');
+					const minutes = String(date.getMinutes()).padStart(2, '0');
+					const seconds = String(date.getSeconds()).padStart(2, '0');
+					const filename = `${year}-${month}-${day}-${hours}-${minutes}-${seconds}_${item.id}.jpg`;
+
+					this.log(this.LOG_TAGS.QUEUE_PROCESS, 'Calling Rust save_photo_with_metadata', {
+						itemId: item.id,
+						filename,
+						imageDataSize: imageData.length
+					});
+
+					// Call Rust to save photo with JPEG bytes from worker
+					const devicePhoto = await invoke('save_photo_with_metadata', {
+						imageData,
+						metadata,
+						filename,
+						hideFromGallery: false
+					}) as { id: string; filename: string; [key: string]: any };
+
+					this.totalProcessed++;
+					this.log(this.LOG_TAGS.PHOTO_SAVE, 'Photo processed successfully', {
+						itemId: item.id,
+						photoId: devicePhoto.id,
+						filename: devicePhoto.filename,
+						placeholderReplaced: item.placeholderId,
+						totalProcessed: this.totalProcessed
+					});
+
+					// Remove placeholder
+					removePlaceholder(item.placeholderId);
+				} catch (error) {
+					this.totalFailed++;
+					this.log(this.LOG_TAGS.PHOTO_ERROR, 'Failed to process photo from worker', {
+						itemId: item.id,
+						placeholderId: item.placeholderId,
+						error: error instanceof Error ? error.message : String(error),
+						totalFailed: this.totalFailed
+					});
+
+					// Remove placeholder on error
+					removePlaceholder(item.placeholderId);
+				}
+
+				// Remove from processing set
+				this.processingSet.delete(item.id);
+				this.capturing = false;
+				this.updateStats();
 
 			} else if (type === 'error') {
+				const { item, error } = event.data;
 				this.totalFailed++;
 				this.log(this.LOG_TAGS.PHOTO_ERROR, 'Failed to process queued photo', {
-					itemId,
-					placeholderId,
+					itemId: item.id,
+					placeholderId: item.placeholderId,
 					error,
 					totalFailed: this.totalFailed
 				});
 
 				// Remove placeholder on error
-				removePlaceholder(placeholderId);
-			}
+				removePlaceholder(item.placeholderId);
 
-			// Remove from processing set
-			this.processingSet.delete(itemId);
-			this.updateStats();
+				// Remove from processing set
+				this.processingSet.delete(item.id);
+				this.updateStats();
+			}
 		};
 
 		this.worker.onerror = (error) => {
@@ -233,6 +293,7 @@ class CaptureQueueManager {
 
 	private updateStats(): void {
 		this.stats.set({
+			capturing: this.capturing,
 			size: this.queue.length,
 			processing: this.processingSet.size > 0,
 			processingCount: this.processingSet.size,
@@ -245,6 +306,7 @@ class CaptureQueueManager {
 	}
 
 	reset(): void {
+		this.capturing = false;
 		this.queue = [];
 		this.processingSet.clear();
 		this.slowModeCount = 0;

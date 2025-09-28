@@ -521,8 +521,8 @@ pub async fn save_photo_with_metadata(
 	};
 
 	// Step 3: Verify EXIF was embedded correctly (async, debug only)
-	#[cfg(all(target_os = "android", debug_assertions))]
-	verify_exif_in_saved_file(&file_path).await;
+	/*#[cfg(all(target_os = "android", debug_assertions))]
+	verify_exif_in_saved_file(&file_path).await;*/
 
 	// Step 4: Add to database and return result (async)
 	#[cfg(target_os = "android")]

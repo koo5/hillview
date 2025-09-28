@@ -197,8 +197,8 @@
                 constraints = {
                     video: {
                         deviceId: { exact: selectedId },
-                        width: { min: 1280, ideal: 3840 },  // 4K ideal, 720p minimum
-                        height: { min: 720, ideal: 2160 }
+                        width: { min: 1280, ideal: 1920 },
+                        height: { min: 720, ideal: 1920 }
                     }
                 };
                 console.log('🢄[CAMERA] Using selected camera device:', selectedId.slice(0, 8) + '...');
@@ -391,74 +391,47 @@
             tempId
         });
 
-		// Create regular canvas and draw video to it
-		const sourceCanvas = document.createElement('canvas');
-		sourceCanvas.width = video.videoWidth;
-		sourceCanvas.height = video.videoHeight;
-
-		const sourceContext = sourceCanvas.getContext('2d');
-		if (!sourceContext) {
-			console.error('🢄Capture error: Unable to get source canvas context');
-			return;
-		}
-
         try {
-            // Draw video frame to source canvas
-            sourceContext.drawImage(video, 0, 0);
-            console.log('🢄Capture: Drew video frame to source canvas');
+            // Get ImageData directly from canvas
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
 
-            // Get image data and call Rust directly
-            const imageData = sourceContext.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
+            const context = canvas.getContext('2d');
+            if (!context) {
+                console.error('🢄Capture error: Unable to get canvas context');
+                return;
+            }
 
-			// Convert ImageData to format Rust can handle
-			const pixelData = Array.from(imageData.data);
+            // Draw video frame to canvas
+            context.drawImage(video, 0, 0);
+            console.log('🢄Capture: Drew video frame to canvas');
 
-			// Prepare metadata
-			const metadata = {
-				latitude: validLocation.latitude,
-				longitude: validLocation.longitude,
-				altitude: validLocation.altitude,
-				bearing: validLocation.heading,
-				timestamp: Math.floor(timestamp / 1000),
-				accuracy: validLocation.accuracy,
-				locationSource: validLocation.locationSource,
-				bearingSource: validLocation.bearingSource
-			};
+            // Get ImageData from canvas
+            const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+            console.log('🢄Capture: Got ImageData from canvas');
 
-			// Generate filename
-			const date = new Date(timestamp);
-			const year = date.getFullYear();
-			const month = String(date.getMonth() + 1).padStart(2, '0');
-			const day = String(date.getDate()).padStart(2, '0');
-			const hours = String(date.getHours()).padStart(2, '0');
-			const minutes = String(date.getMinutes()).padStart(2, '0');
-			const seconds = String(date.getSeconds()).padStart(2, '0');
-			const filename = `${year}-${month}-${day}-${hours}-${minutes}-${seconds}_${`capture_${timestamp}`}.jpg`;
+            // Add to capture queue with ImageData
+            await captureQueue.add({
+                id: `capture_${timestamp}`,
+                imageData,
+                location: validLocation,
+                timestamp,
+                mode,
+                placeholderId: tempId
+            });
 
-			// Call Rust to save photo with raw image data
-			const devicePhoto = await invoke('save_photo_with_imagedata', {
-				pixelData,
-				width: imageData.width,
-				height: imageData.height,
-				metadata,
-				filename,
-				hideFromGallery: false
-			});
-
-			console.log('🢄Photo saved successfully:', devicePhoto);
-			removePlaceholder(tempId);
-
-			// Trigger auto-upload prompt check
-			photoCapturedCount++;
-			console.log(`🢄photoCapturedCount: ${photoCapturedCount}`);
+            // Trigger auto-upload prompt check
+            photoCapturedCount++;
+            console.log(`🢄photoCapturedCount: ${photoCapturedCount}`);
 
         } catch (error) {
             // Get detailed error information
             const errorInfo = {
-                name: error.name,
-                message: error.message,
-                code: error.code,
-                stack: error.stack
+                name: (error as any)?.name,
+                message: (error as any)?.message,
+                code: (error as any)?.code,
+                stack: (error as any)?.stack
             };
             console.error('🢄Capture error details:', JSON.stringify(errorInfo, null, 2));
             console.error('🢄Capture error object:', error);
@@ -1097,8 +1070,8 @@
 
     .queue-indicator-overlay {
         position: absolute;
-        bottom: 20px;
-        right: 20px;
+        bottom: 0px;
+        right: 0px;
         z-index: 1001;
     }
 </style>
