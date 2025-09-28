@@ -191,14 +191,17 @@
             // Use probe-then-enumerate pattern for better compatibility
             let constraints: MediaStreamConstraints;
 
+			const w = 2560;
+			const h = 2560;
+
             const selectedId = get(selectedCameraId);
             if (selectedId) {
                 // Use explicitly selected camera with exact deviceId
                 constraints = {
                     video: {
                         deviceId: { exact: selectedId },
-                        width: { min: 1280, ideal: 1920 },
-                        height: { min: 720, ideal: 1920 },
+                        width: { min: 1280, ideal: w },
+                        height: { min: 720, ideal: h },
 						frameRate: { ideal: 10 }
                     }
                 };
@@ -208,8 +211,8 @@
                 constraints = {
                     video: {
                         facingMode: { ideal: facing },  // Use ideal, not exact
-                        width: { min: 1280, ideal: 1920 },  // 4K ideal, 720p minimum
-                        height: { min: 720, ideal: 1920 },
+                        width: { min: 1280, ideal: w },
+                        height: { min: 720, ideal: h },
 						frameRate: { ideal: 10 }
                     }
                 };
