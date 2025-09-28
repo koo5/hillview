@@ -29,7 +29,7 @@
 			onLogEntry('Opening device file picker...', 'info');
 
 			const result = await invoke('plugin:hillview|import_photos') as ImportResult;
-			console.log('📂 Import result:', result);
+			console.log('🢄📂 Import result:', result);
 
 			if (result.success || result.importedCount > 0) {
 				const importedCount = result.importedCount || 0;

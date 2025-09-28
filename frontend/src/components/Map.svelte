@@ -176,15 +176,15 @@
         const updateId = Date.now();
         lastPhotosUpdate = updateId;
 
-        console.log(`Map: updateOptimizedMarkers called with ${photos.length} photos, updateId: ${updateId}`);
+        console.log(`🢄Map: updateOptimizedMarkers called with ${photos.length} photos, updateId: ${updateId}`);
 
         // Use the optimized marker system
         const updatedMarkers = optimizedMarkerSystem.updateMarkers(map, photos);
         if (updatedMarkers) {
             currentMarkers = updatedMarkers;
-            console.log(`Map: Updated ${currentMarkers.length} optimized markers`);
+            console.log(`🢄Map: Updated ${currentMarkers.length} optimized markers`);
         } else {
-            console.warn('Map: optimizedMarkerSystem.updateMarkers returned undefined');
+            console.warn('🢄Map: optimizedMarkerSystem.updateMarkers returned undefined');
         }
     }
 
@@ -523,7 +523,7 @@
             }
         } else {
             //console.log('🢄🧭 Stopping compass tracking...');
-            stopCompass().catch(err => console.error('Error stopping compass:', err));
+            stopCompass().catch(err => console.error('🢄Error stopping compass:', err));
         }
     }
 
@@ -987,7 +987,7 @@
 
     // Reactive updates for spatial changes (new photos from worker)
     $: if ($visiblePhotos && map) {
-        console.log(`Map: Reactive update triggered - updating markers with ${$visiblePhotos.length} visible photos`);
+        console.log(`🢄Map: Reactive update triggered - updating markers with ${$visiblePhotos.length} visible photos`);
         updateOptimizedMarkers($visiblePhotos);
     }
 

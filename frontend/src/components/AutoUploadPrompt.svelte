@@ -98,7 +98,7 @@
 			autoUploadPromptEnabled = false;
 			dispatch('dismiss');
 		} catch (err) {
-			console.error('Failed to save settings:', err);
+			console.error('🢄Failed to save settings:', err);
 		}
 	}
 </script>

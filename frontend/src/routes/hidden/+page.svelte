@@ -17,6 +17,7 @@
     interface HiddenUser {
         target_user_source: 'mapillary' | 'hillview';
         target_user_id: string;
+        target_username?: string;
         hidden_at: string;
         reason?: string;
     }
@@ -34,7 +35,7 @@
             myGoto('/login');
             return;
         }
-        
+
         await loadHiddenContent();
     });
 
@@ -62,7 +63,7 @@
         } catch (error) {
             console.error('🢄Error loading hidden content:', error);
             errorMessage = handleApiError(error);
-            
+
             if (error instanceof TokenExpiredError) {
                 myGoto('/login');
             }
@@ -83,7 +84,7 @@
             }
 
             // Remove from local state
-            hiddenPhotos = hiddenPhotos.filter(p => 
+            hiddenPhotos = hiddenPhotos.filter(p =>
                 !(p.photo_source === photo.photo_source && p.photo_id === photo.photo_id)
             );
             successMessage = 'Photo unhidden successfully';
@@ -107,7 +108,7 @@
             }
 
             // Remove from local state
-            hiddenUsers = hiddenUsers.filter(u => 
+            hiddenUsers = hiddenUsers.filter(u =>
                 !(u.target_user_source === user.target_user_source && u.target_user_id === user.target_user_id)
             );
             successMessage = 'User unhidden successfully';
@@ -124,7 +125,7 @@
     }
 
     function getSourceDisplayName(source: string): string {
-        return source === 'mapillary' ? 'Mapillary' : 'My Photos';
+        return source === 'mapillary' ? 'Mapillary' : 'Hillview';
     }
 
     function getSourceIcon(source: string) {
@@ -136,14 +137,14 @@
     <title>Hidden Content - Hillview</title>
 </svelte:head>
 
-<StandardHeaderWithAlert 
-    title="Hidden Content" 
+<StandardHeaderWithAlert
+    title="Hidden Content"
     showMenuButton={true}
     fallbackHref="/"
 />
 
 <StandardBody>
-        
+
         <div class="description">
             <div class="title-section">
                 <EyeOff size={32} />
@@ -164,8 +165,8 @@
         {/if}
 
         <div class="tabs">
-            <button 
-                class="tab-button" 
+            <button
+                class="tab-button"
                 class:active={activeTab === 'photos'}
                 on:click={() => activeTab = 'photos'}
                 data-testid="photos-tab"
@@ -173,8 +174,8 @@
                 <Image size={18} />
                 Hidden Photos ({hiddenPhotos.length})
             </button>
-            <button 
-                class="tab-button" 
+            <button
+                class="tab-button"
                 class:active={activeTab === 'users'}
                 on:click={() => activeTab = 'users'}
                 data-testid="users-tab"
@@ -212,7 +213,7 @@
                                                     <span class="item-id">ID: {photo.photo_id}</span>
                                                 </div>
                                             </div>
-                                            <button 
+                                            <button
                                                 class="unhide-button"
                                                 on:click={() => unhidePhoto(photo)}
                                                 title="Unhide this photo"
@@ -251,10 +252,15 @@
                                                 <svelte:component this={getSourceIcon(user.target_user_source)} size={20} />
                                                 <div class="item-details">
                                                     <span class="source-name">{getSourceDisplayName(user.target_user_source)}</span>
-                                                    <span class="item-id">User ID: {user.target_user_id}</span>
+                                                    {#if user.target_username}
+                                                        <span class="username">@{user.target_username}</span>
+                                                        <span class="item-id">ID: {user.target_user_id}</span>
+                                                    {:else}
+                                                        <span class="item-id">User ID: {user.target_user_id}</span>
+                                                    {/if}
                                                 </div>
                                             </div>
-                                            <button 
+                                            <button
                                                 class="unhide-button"
                                                 on:click={() => unhideUser(user)}
                                                 title="Unhide this user's photos"
@@ -446,6 +452,12 @@
         font-weight: 600;
         color: #333;
         font-size: 1.1rem;
+    }
+
+    .username {
+        color: #4a90e2;
+        font-weight: 500;
+        font-size: 1rem;
     }
 
     .item-id {

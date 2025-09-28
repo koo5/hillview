@@ -37,7 +37,7 @@
     // Helper function to get photo source
     function getPhotoSource(photo: PhotoData | null): string {
         if (!photo) return '';
-        return photo.source === 'mapillary' ? 'mapillary' : 'hillview';
+        return photo.source?.id === 'mapillary' ? 'mapillary' : 'hillview';
     }
 
     $: isAuthenticated = $auth.isAuthenticated;
@@ -590,14 +590,6 @@
         padding: 0 8px;
     }
 
-    .menu-section-title {
-        font-size: 12px;
-        font-weight: 600;
-        color: rgba(255, 255, 255, 0.7);
-        padding: 8px 12px 4px;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
 
     .menu-item {
         display: flex;
@@ -630,11 +622,6 @@
         margin: 8px 0;
     }
 
-    /* Rating items */
-    .rating-item.active {
-        background: rgba(0, 123, 255, 0.2);
-        color: #4fc3f7;
-    }
 
     .rating-count {
         margin-left: auto;

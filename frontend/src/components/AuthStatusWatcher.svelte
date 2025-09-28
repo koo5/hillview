@@ -116,7 +116,7 @@
                 );
             }
         } catch (error) {
-            console.error('Manual token refresh failed:', error);
+            console.error('🢄Manual token refresh failed:', error);
             // The auth store will update with failed status
         }
     }

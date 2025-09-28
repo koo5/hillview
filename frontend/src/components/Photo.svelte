@@ -154,7 +154,7 @@
             };
 
             preloadImg.onerror = () => {
-                console.error('Failed to preload image:', newUrl);
+                console.error('🢄Failed to preload image:', newUrl);
                 isLoadingNewImage = false;
                 preloadImg = null;
             };
@@ -162,7 +162,7 @@
             preloadImg.src = newUrl;
 
         } catch (error) {
-            console.error('Error preloading image:', error);
+            console.error('🢄Error preloading image:', error);
             isLoadingNewImage = false;
         }
     }
@@ -394,8 +394,8 @@
             </div>
         {/if}
 
-        <!-- Hide buttons for front photo only, and only for authenticated users -->
-        {#if className === 'front' && isAuthenticated}
+        <!-- Photo actions for front photo only -->
+        {#if className === 'front'}
             <!-- Creator username display -->
             {#if getUserName(photo)}
                 <div class="creator-info">

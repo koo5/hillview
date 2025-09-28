@@ -13,6 +13,7 @@ import type { PhotoData, PhotoId } from './types/photoTypes';
 describe('photoProcessingUtils', () => {
   const createTestPhoto = (id: PhotoId, lat: number, lng: number, bearing: number = 0): PhotoData => ({
     id,
+    uid: `test-${id}`,
     source_type: 'test',
     file: `photo_${id}.jpg`,
     url: `https://example.com/photo_${id}.jpg`,

@@ -6,10 +6,11 @@ use serde_json;
 use std::collections::HashMap;
 use std::io::Cursor;
 use std::sync::Mutex;
+use std::sync::OnceLock;
 use tauri::command;
 
 // Global storage for photo chunks
-static PHOTO_CHUNKS: Mutex<HashMap<String, Vec<u8>>> = Mutex::new(HashMap::new());
+static PHOTO_CHUNKS: OnceLock<Mutex<HashMap<String, Vec<u8>>>> = OnceLock::new();
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ProvenanceData {
@@ -477,7 +478,8 @@ async fn verify_exif_in_saved_file(file_path: &std::path::Path) {
 
 #[command]
 pub fn store_photo_chunk(photo_id: String, chunk: Vec<u8>, is_first_chunk: bool) -> Result<(), String> {
-	let mut chunks = PHOTO_CHUNKS.lock().map_err(|e| format!("Failed to lock chunks: {}", e))?;
+	let chunks_mutex = PHOTO_CHUNKS.get_or_init(|| Mutex::new(HashMap::new()));
+	let mut chunks = chunks_mutex.lock().map_err(|e| format!("Failed to lock chunks: {}", e))?;
 
 	if is_first_chunk {
 		// Initialize new photo with first chunk
@@ -505,7 +507,8 @@ pub async fn save_photo_with_metadata(
 ) -> Result<crate::device_photos::DevicePhotoMetadata, String> {
 	// Step 1: Get stored image data
 	let image_data = {
-		let mut chunks = PHOTO_CHUNKS.lock().map_err(|e| format!("Failed to lock chunks: {}", e))?;
+		let chunks_mutex = PHOTO_CHUNKS.get_or_init(|| Mutex::new(HashMap::new()));
+		let mut chunks = chunks_mutex.lock().map_err(|e| format!("Failed to lock chunks: {}", e))?;
 		chunks.remove(&photo_id).ok_or_else(|| format!("Photo data not found for ID: {}", photo_id))?
 	};
 

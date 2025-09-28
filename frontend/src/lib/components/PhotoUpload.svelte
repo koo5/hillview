@@ -119,7 +119,7 @@
 			onUploadComplete();
 
 		} catch (err) {
-			console.error('Error in batch upload:', err);
+			console.error('🢄Error in batch upload:', err);
 
 			// Clear any previous upload alerts first
 			removeAlertsBySource('photo-upload');

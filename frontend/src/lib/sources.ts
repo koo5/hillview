@@ -14,7 +14,7 @@ export async function fetchSourcePhotos(sourceId: string) {
     const source = get(sources).find(s => s.id === sourceId);
     if (!source || !source.enabled) return;
 
-    console.log(`Fetching photos from source: ${source.name}`);
+    console.log(`🢄Fetching photos from source: ${source.name}`);
 
     switch (source.type) {
         case 'device':
@@ -22,7 +22,7 @@ export async function fetchSourcePhotos(sourceId: string) {
             break;
         // Stream sources are handled separately through streaming
         case 'stream':
-            console.log(`Stream source ${source.name} is handled via streaming, not fetch`);
+            console.log(`🢄Stream source ${source.name} is handled via streaming, not fetch`);
             break;
         default:
             console.warn(`🢄Unknown source type: ${source.type}`);
@@ -51,6 +51,7 @@ async function fetchDeviceSource(source: Source) {
             for (let photo of devicePhotosList as DevicePhotoMetadata[]) {
                 let devicePhoto: PhotoData = {
                     id: photo.id,
+                    uid: `${source.id}-${photo.id}`,
                     source_type: 'device',
                     file: photo.filename,
                     url: photo.path,

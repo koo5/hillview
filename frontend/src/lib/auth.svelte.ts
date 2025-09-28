@@ -14,23 +14,23 @@ export { auth };
 
 
 auth.subscribe(authState => {
-	console.log('auth store updated:', JSON.stringify(authState));
+	console.log('🢄auth store updated:', JSON.stringify(authState));
 });
 
 
 // Configure upload manager for Android
 async function configureUploadManager() {
-    console.log('📤 [AUTH] configureUploadManager called, TAURI_MOBILE:', TAURI_MOBILE);
+    console.log('🢄📤 [AUTH] configureUploadManager called, TAURI_MOBILE:', TAURI_MOBILE);
     if (!TAURI_MOBILE) {
-        console.log('📤 [AUTH] Not on mobile, skipping upload manager config');
+        console.log('🢄📤 [AUTH] Not on mobile, skipping upload manager config');
         return;
     }
 
-    console.log('📤 [AUTH] Configuring upload manager with backend URL:', backendUrl);
+    console.log('🢄📤 [AUTH] Configuring upload manager with backend URL:', backendUrl);
     const result = await invoke('plugin:hillview|set_upload_config', {
         config:{serverUrl: backendUrl}
     });
-    console.log('📤 [AUTH] Upload manager configured successfully:', result);
+    console.log('🢄📤 [AUTH] Upload manager configured successfully:', result);
 }
 
 // Shared function to complete authentication after successful login (exported for authCallback)

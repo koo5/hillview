@@ -89,6 +89,7 @@ describe('bearingUtils', () => {
     it('should update photo with bearing data', () => {
       const photo: PhotoData = {
         id: 'test1',
+        uid: 'test-test1',
         source_type: 'test',
         file: 'test.jpg',
         url: 'test.jpg',
@@ -106,6 +107,7 @@ describe('bearingUtils', () => {
     it('should handle wrapped bearings', () => {
       const photo: PhotoData = {
         id: 'test2',
+        uid: 'test-test2',
         source_type: 'test',
         file: 'test.jpg',
         url: 'test.jpg',
@@ -123,6 +125,7 @@ describe('bearingUtils', () => {
     it('should preserve all original photo properties', () => {
       const photo: PhotoData = {
         id: 'test3',
+        uid: 'test-test3',
         source_type: 'test',
         file: 'test.jpg',
         url: 'test.jpg',

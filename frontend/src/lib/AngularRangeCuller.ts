@@ -24,7 +24,7 @@ export class AngularRangeCuller {
     /**
      * Cull photos for uniform angular coverage around center point
      */
-    cullPhotosInRange<T extends { bearing: number; coord: { lat: number; lng: number }; id: string }>(
+    cullPhotosInRange<T extends { bearing: number; coord: { lat: number; lng: number }; id: string; uid: string }>(
         photosInArea: T[],
         center: { lat: number; lng: number },
         range: number,
@@ -154,11 +154,11 @@ export class AngularRangeCuller {
     }
 }
 
-export function sortPhotosByBearing(photos: { bearing: number; id: string }[]) {
+export function sortPhotosByBearing(photos: { bearing: number; id: string; uid: string }[]) {
     photos.sort((a, b) => {
         if (a.bearing !== b.bearing) {
             return a.bearing - b.bearing;
         }
-        return a.id.localeCompare(b.id); // Stable sort with ID as tiebreaker
+        return a.uid.localeCompare(b.uid); // Stable sort with UID as tiebreaker for cross-source consistency
     });
 }

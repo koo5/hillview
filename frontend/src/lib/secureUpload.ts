@@ -84,7 +84,7 @@ async function calculateFileMD5(file: File): Promise<string> {
         const hash = CryptoJS.MD5(wordArray);
         return hash.toString();
     } catch (error) {
-        console.error('Failed to calculate MD5 hash:', error);
+        console.error('🢄Failed to calculate MD5 hash:', error);
         // Fall back to a simple hash based on file content and metadata
         const fallbackString = file.name + file.size + file.type + file.lastModified;
         const encoder = new TextEncoder();
@@ -111,7 +111,7 @@ async function extractGeolocationFromFile(file: File): Promise<{
         // For now, return empty object and let the worker extract EXIF data
         return {};
     } catch (error) {
-        console.warn('Failed to extract EXIF data:', error);
+        console.warn('🢄Failed to extract EXIF data:', error);
         return {};
     }
 }
@@ -139,7 +139,7 @@ async function getCurrentLocation(): Promise<{
                 });
             },
             (error) => {
-                console.warn('Failed to get current location:', error);
+                console.warn('🢄Failed to get current location:', error);
                 resolve({});
             },
             {
@@ -200,7 +200,7 @@ async function requestUploadAuthorization(request: UploadAuthorizationRequest): 
 
             // Retry logic
             const delay = baseDelay * Math.pow(2, attempt);
-            console.log(`🔐 Upload authorization failed, retrying in ${delay}ms... (attempt ${attempt + 1}/${maxRetries + 1})`);
+            console.log(`🢄🔐 Upload authorization failed, retrying in ${delay}ms... (attempt ${attempt + 1}/${maxRetries + 1})`);
             await new Promise(resolve => setTimeout(resolve, delay));
         }
     }
@@ -282,7 +282,7 @@ async function uploadToWorker(
 
             // Retry logic
             const delay = baseDelay * Math.pow(2, attempt);
-            console.log(`🔐 Worker upload failed, retrying in ${delay}ms... (attempt ${attempt + 1}/${maxRetries + 1})`);
+            console.log(`🢄🔐 Worker upload failed, retrying in ${delay}ms... (attempt ${attempt + 1}/${maxRetries + 1})`);
             await new Promise(resolve => setTimeout(resolve, delay));
         }
     }
@@ -300,7 +300,7 @@ export async function secureUploadFile(
     workerUrl?: string
 ): Promise<SecureUploadResult> {
     try {
-        console.log(`🔐 Starting secure upload for: ${file.name}`);
+        console.log(`🢄🔐 Starting secure upload for: ${file.name}`);
 
         // Step 1: Calculate file MD5 hash, extract geolocation data, and get client key info
         const [fileMD5, fileGeo, keyInfo/*, deviceGeo*/] = await Promise.all([
@@ -320,7 +320,7 @@ export async function secureUploadFile(
         };
 
         // Step 2: Request upload authorization
-        console.log(`🔐 Requesting upload authorization for: ${file.name} (MD5: ${fileMD5})`);
+        console.log(`🢄🔐 Requesting upload authorization for: ${file.name} (MD5: ${fileMD5})`);
         const authRequest: UploadAuthorizationRequest = {
             filename: file.name,
             file_size: file.size,
@@ -336,14 +336,14 @@ export async function secureUploadFile(
 
 		console.debug('Authorization response:', JSON.stringify(authResponse));
 
-        console.log(`🔐 Upload authorized, photo_id: ${authResponse.photo_id}`);
+        console.log(`🢄🔐 Upload authorized, photo_id: ${authResponse.photo_id}`);
 
         // Step 3: Generate client signature using authorization timestamp
-        console.log(`🔐 Generating client signature for: ${file.name}`);
+        console.log(`🢄🔐 Generating client signature for: ${file.name}`);
         const signatureData = await generateClientSignature(authResponse.photo_id, file.name, authResponse.upload_authorized_at);
 
         // Step 4: Upload to worker (use URL from authorization response)
-        console.log(`🔐 Uploading to worker: ${file.name}`);
+        console.log(`🢄🔐 Uploading to worker: ${file.name}`);
         const uploadResult = await uploadToWorker(
             file,
             authResponse.upload_jwt,
@@ -351,11 +351,11 @@ export async function secureUploadFile(
             authResponse.worker_url + '/upload'
         );
 
-        console.log(`🔐 Secure upload completed: ${file.name}`);
+        console.log(`🢄🔐 Secure upload completed: ${file.name}`);
         return uploadResult;
 
     } catch (error) {
-        console.error(`🔐 Secure upload failed for ${file.name}:`, error);
+        console.error(`🢄🔐 Secure upload failed for ${file.name}:`, error);
         return {
             success: false,
             message: 'Upload failed',

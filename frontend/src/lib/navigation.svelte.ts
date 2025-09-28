@@ -13,11 +13,11 @@ export async function myGoto(path: string, options?: any): Promise<void> {
 
     // Avoid navigation if already on the target page
     if (currentPath === path) {
-        console.log(`🧭 [NAV] myGoto: Already on "${path}", skipping navigation`);
+        console.log(`🢄🧭 [NAV] myGoto: Already on "${path}", skipping navigation`);
         return;
     }
 
-    console.log(`🧭 [NAV] myGoto: Navigating from "${currentPath}" to "${path}"`);
+    console.log(`🢄🧭 [NAV] myGoto: Navigating from "${currentPath}" to "${path}"`);
 
     // Clear alerts when navigating to a new page
     clearAlerts();
@@ -47,19 +47,19 @@ export function navigateWithHistory(path: string, options?: { replaceState?: boo
 
     // Check if we're already there
     if (currentPath === path) {
-        console.log(`🧭 [NAV] Already on "${path}", skipping navigation${options?.reason ? ` (reason: ${options.reason})` : ''}`);
+        console.log(`🢄🧭 [NAV] Already on "${path}", skipping navigation${options?.reason ? ` (reason: ${options.reason})` : ''}`);
         return Promise.resolve();
     }
 
     // Log navigation
-    console.log(`🧭 [NAV] navigateWithHistory: Programmatic navigation from "${currentPath}" to "${path}"${options?.reason ? ` (reason: ${options.reason})` : ''}`);
+    console.log(`🢄🧭 [NAV] navigateWithHistory: Programmatic navigation from "${currentPath}" to "${path}"${options?.reason ? ` (reason: ${options.reason})` : ''}`);
 
     // Only add to history if we're not replacing state
     if (!options?.replaceState) {
         navigationHistory.update(history => {
             // Limit history to last 10 pages to prevent memory issues
             const newHistory = [...history, currentPath].slice(-10);
-            console.log(`🧭 [NAV] History updated (depth: ${newHistory.length})`);
+            console.log(`🢄🧭 [NAV] History updated (depth: ${newHistory.length})`);
             return newHistory;
         });
 
@@ -89,7 +89,7 @@ export function goBack(fallbackPath: string = '/') {
             const previousPath = newHistory.pop();
 
             if (previousPath) {
-                console.log(`🧭 [NAV] Going back to "${previousPath}" (remaining history: ${newHistory.length})`);
+                console.log(`🢄🧭 [NAV] Going back to "${previousPath}" (remaining history: ${newHistory.length})`);
 
                 // Update state
                 navigationState.update(() => ({
@@ -105,7 +105,7 @@ export function goBack(fallbackPath: string = '/') {
         });
     } else {
         // No history, go to fallback
-        console.log(`🧭 [NAV] No history, using fallback: "${fallbackPath}"`);
+        console.log(`🢄🧭 [NAV] No history, using fallback: "${fallbackPath}"`);
         console.trace('🧭 [NAV] goBack() called from:');
         myGoto(fallbackPath);
     }
@@ -116,7 +116,7 @@ export function goBack(fallbackPath: string = '/') {
  */
 export function clearNavigationHistory() {
     const history = get(navigationHistory);
-    console.log(`🧭 [NAV] Clearing navigation history (had ${history.length} entries)`);
+    console.log(`🢄🧭 [NAV] Clearing navigation history (had ${history.length} entries)`);
     navigationHistory.set([]);
     navigationState.set({ canGoBack: false });
 }

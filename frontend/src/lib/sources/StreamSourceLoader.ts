@@ -339,6 +339,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
                     const convertedPhotos: PhotoData[] = data.photos.map((photo: any) => {
                         const convertedPhoto: any = {
                             id: photo.id,
+                            uid: `${this.source.id}-${photo.id}`,
                             coord: photo.geometry ?
                                 { lat: photo.geometry.coordinates[1], lng: photo.geometry.coordinates[0] } :
                                 photo.coord,

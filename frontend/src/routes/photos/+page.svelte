@@ -110,7 +110,7 @@
 			const data = await response.json();
 			totalCount = data.counts?.total || 0;
 		} catch (err) {
-			console.error('Error fetching photo count:', err);
+			console.error('🢄Error fetching photo count:', err);
 		}
 	}
 
@@ -173,22 +173,22 @@
 	}
 
 	async function deletePhoto(photoId: number) {
-		console.log(`DEBUG: deletePhoto called with photoId: ${photoId}`);
+		console.log(`🢄DEBUG: deletePhoto called with photoId: ${photoId}`);
 		if (!confirm('Are you sure you want to delete this photo?')) {
 			console.log('🢄DEBUG: User cancelled delete');
 			return;
 		}
 
-		console.log(`DEBUG: Attempting to delete photo: ${photoId}`);
+		console.log(`🢄DEBUG: Attempting to delete photo: ${photoId}`);
 
 		try {
 			const response = await http.delete(`/photos/${photoId}`);
 
-			console.log(`DEBUG: Delete response status: ${response.status}`);
+			console.log(`🢄DEBUG: Delete response status: ${response.status}`);
 
 			if (!response.ok) {
 				const errorText = await response.text();
-				console.log(`DEBUG: Delete failed with response: ${errorText}`);
+				console.log(`🢄DEBUG: Delete failed with response: ${errorText}`);
 				throw new Error(`Failed to delete photo: ${response.status} ${errorText}`);
 			}
 
@@ -244,7 +244,7 @@
 	}
 
 	async function setPhotoRating(photoId: number, rating: 'thumbs_up' | 'thumbs_down') {
-		console.log(`Setting ${rating} for photo ${photoId}`);
+		console.log(`🢄Setting ${rating} for photo ${photoId}`);
 
 		try {
 			const response = await http.post(`/ratings/hillview/${photoId}`, { rating });
@@ -254,7 +254,7 @@
 			}
 
 			const data = await response.json();
-			console.log('Rating response:', data);
+			console.log('🢄Rating response:', data);
 
 			// Update the photo in our local array
 			photos = photos.map(photo => {
@@ -271,14 +271,14 @@
 			addLogEntry(`Rated photo ${rating.replace('_', ' ')}`, 'success');
 
 		} catch (err) {
-			console.error('Error setting rating:', err);
+			console.error('🢄Error setting rating:', err);
 			const errorMessage = handleApiError(err);
 			addLogEntry(`Rating failed: ${errorMessage}`, 'error');
 		}
 	}
 
 	async function removePhotoRating(photoId: number) {
-		console.log(`Removing rating for photo ${photoId}`);
+		console.log(`🢄Removing rating for photo ${photoId}`);
 
 		try {
 			const response = await http.delete(`/ratings/hillview/${photoId}`);
@@ -288,7 +288,7 @@
 			}
 
 			const data = await response.json();
-			console.log('Rating removal response:', data);
+			console.log('🢄Rating removal response:', data);
 
 			// Update the photo in our local array
 			photos = photos.map(photo => {
@@ -305,7 +305,7 @@
 			addLogEntry('Rating removed', 'success');
 
 		} catch (err) {
-			console.error('Error removing rating:', err);
+			console.error('🢄Error removing rating:', err);
 			const errorMessage = handleApiError(err);
 			addLogEntry(`Rating removal failed: ${errorMessage}`, 'error');
 		}

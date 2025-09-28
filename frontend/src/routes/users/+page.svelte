@@ -38,7 +38,7 @@
 			users = data;
 
 		} catch (err) {
-			console.error('Error loading users:', err);
+			console.error('🢄Error loading users:', err);
 			error = handleApiError(err);
 		} finally {
 			loading = false;

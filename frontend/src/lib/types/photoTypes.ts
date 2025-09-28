@@ -20,6 +20,7 @@ export interface PhotoSize {
  */
 export interface PhotoData {
     id: PhotoId;
+    uid: string;
     source_type: string;
     file: string;
     url: string;

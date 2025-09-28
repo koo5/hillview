@@ -99,7 +99,7 @@
 			totalCount = data.counts.total;
 
 		} catch (err) {
-			console.error('Error loading user photos:', err);
+			console.error('🢄Error loading user photos:', err);
 			error = handleApiError(err);
 		} finally {
 			loading = false;

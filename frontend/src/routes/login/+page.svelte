@@ -45,7 +45,7 @@
                 timestamp: Date.now()
             };
             localStorage.setItem(OAUTH_POLLING_KEY, JSON.stringify(state));
-            console.log('🔐 Saved OAuth polling state:', pollingSessionId);
+            console.log('🢄🔐 Saved OAuth polling state:', pollingSessionId);
         }
     }
 
@@ -63,12 +63,12 @@
                     pollingSessionId = state.pollingSessionId;
                     pollingProgress = state.pollingProgress;
                     pollingMessage = state.pollingMessage || 'Continuing OAuth login...';
-                    console.log('🔐 Restored OAuth polling state:', pollingSessionId);
+                    console.log('🢄🔐 Restored OAuth polling state:', pollingSessionId);
                     return true;
                 }
             }
         } catch (error) {
-            console.warn('🔐 Failed to restore OAuth polling state:', error);
+            console.warn('🢄🔐 Failed to restore OAuth polling state:', error);
         }
         return false;
     }
@@ -77,7 +77,7 @@
     function clearOAuthPollingState() {
         if (browser) {
             localStorage.removeItem(OAUTH_POLLING_KEY);
-            console.log('🔐 Cleared OAuth polling state');
+            console.log('🢄🔐 Cleared OAuth polling state');
         }
     }
 
@@ -120,7 +120,7 @@
             // Try to restore OAuth polling state if app was reinitialized
             const restoredPolling = restoreOAuthPollingState();
             if (restoredPolling) {
-                console.log('🔐 Resumed OAuth polling after app reinitialization');
+                console.log('🢄🔐 Resumed OAuth polling after app reinitialization');
                 // Polling will restart automatically due to reactive statement
             }
         }
@@ -187,14 +187,14 @@
             return;
         }
 
-        console.log(`🔐 Starting ${provider} OAuth flow (${TAURI ? 'tauri polling' : 'web'} mode)`);
+        console.log(`🢄🔐 Starting ${provider} OAuth flow (${TAURI ? 'tauri polling' : 'web'} mode)`);
         isLoading = true;
         errorMessage = '';
 
         if (TAURI) {
             // Tauri app: use polling mechanism
             // Step 1: Create OAuth session for polling
-            console.log('🔐 Creating OAuth polling session...');
+            console.log('🢄🔐 Creating OAuth polling session...');
             const sessionResponse = await fetch(`${backendUrl}/auth/oauth-session`, {
                 method: 'POST',
                 headers: {
@@ -208,7 +208,7 @@
 
             const sessionData = await sessionResponse.json();
             const sessionId = sessionData.session_id;
-            console.log('🔐 Created polling session:', sessionId);
+            console.log('🢄🔐 Created polling session:', sessionId);
 
             // Step 2: Build OAuth URL with session_id (no redirect_uri needed for polling)
             const authUrl = `${backendUrl}/auth/oauth-redirect?provider=${provider}&session_id=${sessionId}`;
@@ -218,7 +218,7 @@
             await openUrl(authUrl);
 
             // Step 4: Start polling for completion
-            console.log('🔐 Starting OAuth polling...');
+            console.log('🢄🔐 Starting OAuth polling...');
             isPolling = true;
             pollingSessionId = sessionId;
             pollingProgress = 0;
@@ -234,7 +234,7 @@
     }
 
     function handleOAuthSuccess(event: CustomEvent) {
-        console.log('🔐 OAuth polling completed successfully');
+        console.log('🢄🔐 OAuth polling completed successfully');
         pollingMessage = 'Login successful! Redirecting...';
         clearOAuthPollingState(); // Clear persisted state on success
         setTimeout(() => {
@@ -249,7 +249,7 @@
     }
 
     function handleOAuthError(event: CustomEvent) {
-        console.error('🔐 OAuth polling failed:', event.detail.message);
+        console.error('🢄🔐 OAuth polling failed:', event.detail.message);
         clearOAuthPollingState(); // Clear persisted state on error
         isPolling = false;
         errorMessage = event.detail.message || 'OAuth login failed. Please try again.';
@@ -257,7 +257,7 @@
     }
 
     function handleOAuthCancel() {
-        console.log('🔐 OAuth polling cancelled by user');
+        console.log('🢄🔐 OAuth polling cancelled by user');
         clearOAuthPollingState(); // Clear persisted state on cancel
         isPolling = false;
         pollingMessage = '';

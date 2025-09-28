@@ -362,7 +362,7 @@
 	} else if ($app.activity === 'view') {
 		//console.log('🢄👁️ View mode detected, stopping compass');
 		// Stop compass when exiting capture mode (optional - can be removed if you want compass to stay active)
-		stopCompass().catch(err => console.error('Error stopping compass:', err));
+		stopCompass().catch(err => console.error('🢄Error stopping compass:', err));
 	}
 </script>
 

@@ -29,6 +29,7 @@ export function createPlaceholderPhoto(
 ): PlaceholderPhoto {
     return {
         id: tempId,
+        uid: `${source.id}-${tempId}`,
         source_type: 'device',
         file: 'placeholder.jpg',
         url: 'placeholder://arrow',

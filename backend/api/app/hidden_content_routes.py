@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import and_
+from sqlalchemy.orm import selectinload
 from pydantic import BaseModel
 
 import sys
@@ -327,8 +328,15 @@ async def list_hidden_users(
 	await rate_limit_photo_operations(request, current_user.id)
 	
 	try:
-		query = select(HiddenUser).where(HiddenUser.hiding_user_id == current_user.id)
-		
+		# Query hidden users with left join to get usernames for Hillview users
+		query = select(HiddenUser, User.username).outerjoin(
+			User,
+			and_(
+				HiddenUser.target_user_id == User.id,
+				HiddenUser.target_user_source == 'hillview'
+			)
+		).where(HiddenUser.hiding_user_id == current_user.id)
+
 		if target_user_source:
 			if target_user_source not in ['mapillary', 'hillview']:
 				raise HTTPException(
@@ -336,16 +344,17 @@ async def list_hidden_users(
 					detail="target_user_source must be 'mapillary' or 'hillview'"
 				)
 			query = query.where(HiddenUser.target_user_source == target_user_source)
-		
+
 		result = await db.execute(query.order_by(HiddenUser.hidden_at.desc()))
-		hidden_users = result.scalars().all()
-		
+		rows = result.all()
+
 		return [{
-			"target_user_source": user.target_user_source,
-			"target_user_id": user.target_user_id,
-			"hidden_at": user.hidden_at,
-			"reason": user.reason
-		} for user in hidden_users]
+			"target_user_source": hidden_user.target_user_source,
+			"target_user_id": hidden_user.target_user_id,
+			"target_username": username if hidden_user.target_user_source == 'hillview' else None,
+			"hidden_at": hidden_user.hidden_at,
+			"reason": hidden_user.reason
+		} for hidden_user, username in rows]
 		
 	except HTTPException:
 		raise

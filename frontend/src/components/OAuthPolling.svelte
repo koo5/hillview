@@ -25,14 +25,14 @@
         const poll = async () => {
             // Check for cancellation
             if (cancelled || !isActive) {
-                console.log('🔐 Polling cancelled');
+                console.log('🢄🔐 Polling cancelled');
                 return;
             }
 
             attempts++;
             progress = Math.min((attempts / maxAttempts) * 100, 95); // Cap at 95% until complete
             
-            console.log(`🔐 Polling attempt ${attempts}/${maxAttempts} for session ${sessionId}`);
+            console.log(`🢄🔐 Polling attempt ${attempts}/${maxAttempts} for session ${sessionId}`);
             
             // Dispatch progress update
             dispatch('progress', { progress, message });
@@ -43,7 +43,7 @@
                 if (response.ok) {
                     // OAuth completed successfully
                     const tokenData = await response.json();
-                    console.log('🔐 OAuth tokens received via polling');
+                    console.log('🢄🔐 OAuth tokens received via polling');
                     progress = 100;
                     message = 'Processing authentication...';
                     dispatch('progress', { progress, message });
@@ -66,7 +66,7 @@
                 } else if (response.status === 404) {
                     // Session not found or expired
                     if (attempts >= maxAttempts) {
-                        console.error('🔐 OAuth polling timed out');
+                        console.error('🢄🔐 OAuth polling timed out');
                         message = 'Login timed out. Please try again.';
                         dispatch('error', { message: 'OAuth polling timed out' });
                         return;
@@ -82,13 +82,13 @@
                     }
                 } else {
                     // Other error
-                    console.error('🔐 OAuth polling error:', response.status);
+                    console.error('🢄🔐 OAuth polling error:', response.status);
                     message = `Polling error (${response.status}). Please try again.`;
                     dispatch('error', { message: `Polling error: ${response.status}` });
                     return;
                 }
             } catch (error) {
-                console.error('🔐 OAuth polling request failed:', error);
+                console.error('🢄🔐 OAuth polling request failed:', error);
                 if (attempts >= maxAttempts) {
                     message = 'Connection error. Please try again.';
                     dispatch('error', { message: 'Connection error during polling' });
