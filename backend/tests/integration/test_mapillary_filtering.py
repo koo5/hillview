@@ -28,8 +28,8 @@ class TestMapillaryFiltering(BaseUserManagementTest):
 						"type": "Point",
 						"coordinates": [14.4378, 50.0755]  # Prague Castle area
 					},
-					"compass_angle": 45.0,
-					"computed_compass_angle": 45.0,
+					"bearing": 45.0,
+					"computed_bearing": 45.0,
 					"computed_rotation": 0.0,
 					"computed_altitude": 250.0,
 					"captured_at": "2024-01-15T10:30:00Z",
@@ -46,8 +46,8 @@ class TestMapillaryFiltering(BaseUserManagementTest):
 						"type": "Point",
 						"coordinates": [14.4175, 50.0865]  # Old Town Square area
 					},
-					"compass_angle": 90.0,
-					"computed_compass_angle": 90.0,
+					"bearing": 90.0,
+					"computed_bearing": 90.0,
 					"computed_rotation": 0.0,
 					"computed_altitude": 220.0,
 					"captured_at": "2024-01-15T11:00:00Z",
@@ -64,8 +64,8 @@ class TestMapillaryFiltering(BaseUserManagementTest):
 						"type": "Point",
 						"coordinates": [14.4362, 50.0819]  # Wenceslas Square area
 					},
-					"compass_angle": 135.0,
-					"computed_compass_angle": 135.0,
+					"bearing": 135.0,
+					"computed_bearing": 135.0,
 					"computed_rotation": 0.0,
 					"computed_altitude": 240.0,
 					"captured_at": "2024-01-15T11:30:00Z",
@@ -82,8 +82,8 @@ class TestMapillaryFiltering(BaseUserManagementTest):
 						"type": "Point", 
 						"coordinates": [14.4208, 50.0870]  # Charles Bridge area
 					},
-					"compass_angle": 180.0,
-					"computed_compass_angle": 180.0,
+					"bearing": 180.0,
+					"computed_bearing": 180.0,
 					"computed_rotation": 0.0,
 					"computed_altitude": 190.0,
 					"captured_at": "2024-01-15T12:00:00Z",

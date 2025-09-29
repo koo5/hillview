@@ -43,8 +43,8 @@ class TestMapillaryGeographicFiltering(BaseIntegrationTest):
 						"type": "Point",
 						"coordinates": [round(center_lon, 6), round(center_lat, 6)]
 					},
-					"compass_angle": 45.0 + (photo_id % 8) * 45,  # Vary angles
-					"computed_compass_angle": 45.0 + (photo_id % 8) * 45,
+					"bearing": 45.0 + (photo_id % 8) * 45,  # Vary angles
+					"computed_bearing": 45.0 + (photo_id % 8) * 45,
 					"computed_rotation": 0.0,
 					"computed_altitude": 200.0 + (photo_id % 100),  # Vary altitudes
 					"captured_at": f"2024-01-15T{10 + (photo_id % 12):02d}:30:00Z",
@@ -82,8 +82,8 @@ class TestMapillaryGeographicFiltering(BaseIntegrationTest):
 					"type": "Point", 
 					"coordinates": [round(lon, 6), round(lat, 6)]
 				},
-				"compass_angle": random.uniform(0, 360),
-				"computed_compass_angle": random.uniform(0, 360),
+				"bearing": random.uniform(0, 360),
+				"computed_bearing": random.uniform(0, 360),
 				"computed_rotation": 0.0,
 				"computed_altitude": 200.0 + random.uniform(-50, 50),
 				"captured_at": f"2024-01-15T{10 + (i % 12):02d}:30:00Z",

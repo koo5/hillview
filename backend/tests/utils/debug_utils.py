@@ -61,8 +61,8 @@ def debug_photo_details(photo_id: str):
 
         if photo.get('latitude') and photo.get('longitude'):
             print(f"   Location: {photo['latitude']}, {photo['longitude']}")
-        if photo.get('compass_angle'):
-            print(f"   Bearing: {photo['compass_angle']}°")
+        if photo.get('bearing'):
+            print(f"   Bearing: {photo['bearing']}°")
         if photo.get('sizes'):
             print(f"   Sizes: {list(photo['sizes'].keys())}")
 
@@ -133,8 +133,8 @@ def setup_mock_mapillary():
                     'type': "Point",
                     'coordinates': [base_longitude + lng_offset, base_latitude + lat_offset]
                 },
-                'compass_angle': (i * 24) % 360,
-                'computed_compass_angle': (i * 24) % 360,
+                'bearing': (i * 24) % 360,
+                'computed_bearing': (i * 24) % 360,
                 'computed_rotation': 0.0,
                 'sequence_id': f"mock_sequence_{(i-1)//5 + 1}",
                 'captured_at': f"2023-07-{10+i:02d}T12:00:00Z",

@@ -180,8 +180,8 @@ class MapillaryCacheService:
 					"type": "Point",
 					"coordinates": [row.lon, row.lat]
 				},
-				"compass_angle": row.compass_angle,
-				"computed_compass_angle": row.computed_compass_angle,
+				"bearing": row.compass_angle,
+				"computed_bearing": row.computed_compass_angle,
 				"computed_rotation": row.computed_rotation,
 				"computed_altitude": row.computed_altitude,
 				"captured_at": row.captured_at.isoformat() if row.captured_at else None,

@@ -87,7 +87,7 @@ export interface UserPhoto {
     filename: string;
     latitude: number;
     longitude: number;
-    compass_angle?: number;
+    bearing?: number;
     altitude?: number;
     uploaded_at: string;
 }
@@ -132,7 +132,7 @@ export interface MapillaryPhoto {
     lon: number;
     is_pano: boolean;
     camera_angle: number;
-    compass_angle: number;
+    bearing: number;
     sequence: string;
     organization_id: number;
     mesh?: {

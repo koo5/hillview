@@ -23,7 +23,7 @@ export interface UploadAuthorizationRequest {
     latitude?: number;
     longitude?: number;
     altitude?: number;
-    compass_angle?: number;
+    bearing?: number;
     captured_at?: string;
 }
 
@@ -103,7 +103,7 @@ async function extractGeolocationFromFile(file: File): Promise<{
     latitude?: number;
     longitude?: number;
     altitude?: number;
-    compass_angle?: number;
+    bearing?: number;
     captured_at?: string;
 }> {
     try {
@@ -315,7 +315,7 @@ export async function secureUploadFile(
             latitude: fileGeo.latitude,// || deviceGeo?.latitude,
             longitude: fileGeo.longitude,// || deviceGeo?.longitude,
             altitude: fileGeo.altitude,// || deviceGeo?.altitude,
-            compass_angle: fileGeo.compass_angle,
+            bearing: fileGeo.bearing,
             captured_at: fileGeo.captured_at
         };
 

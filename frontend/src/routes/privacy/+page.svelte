@@ -69,7 +69,7 @@
 						<ul>
 							<li>Some faces or license plates may not be detected</li>
 							<li>New types of identifying information may not be recognized</li>
-							<li>Users are encouraged to review photos and report any privacy concerns</li>
+							<li>Users are encouraged to review photos and use the "Flag for review" function to report specific privacy concerns</li>
 						</ul>
 					</div>
 				</div>
@@ -202,16 +202,16 @@
 				If you have questions about this Privacy Policy or our privacy practices, please contact us:
 			</p>
 			<ul>
-				<li>Through our <a href="https://github.com/koo5/hillview" target="_blank" rel="noopener noreferrer" class="legal-link">GitHub repository</a></li>
-				<li>Via the contact information provided in the application</li>
-				<li>For privacy-related concerns or failed anonymization reports</li>
+				<li>Use the "Flag for review" function on specific photos for failed anonymization reports</li>
+				<li>Through our <a href="/contact" class="legal-link">contact form</a> for general privacy questions</li>
+				<li>Via our <a href="https://github.com/koo5/hillview" target="_blank" rel="noopener noreferrer" class="legal-link">GitHub repository</a> for technical issues</li>
 			</ul>
 		</section>
 
 		<footer class="document-footer">
 			<div class="footer-note">
 				<Mail size={16} />
-				<span>For privacy questions or to report anonymization issues, please contact us via GitHub.</span>
+				<span>Use "Flag for review" on photos for anonymization issues, or our <a href="/contact" class="legal-link">contact form</a> for general privacy questions.</span>
 			</div>
 		</footer>
 	</div>

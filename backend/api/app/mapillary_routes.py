@@ -337,7 +337,7 @@ async def stream_mapillary_images(
 
 					# If we're using cache (complete coverage or good distribution), process the photos
 					if not cache_ignored_due_to_distribution:
-						sorted_cached = sorted(cached_photos, key=lambda x: x.get('compass_angle', 0))
+						sorted_cached = sorted(cached_photos, key=lambda x: x.get('bearing') or 0)
 
 						# Clean up grid info before sending to client
 						#for photo in sorted_cached:
@@ -479,7 +479,7 @@ async def stream_mapillary_images(
 							log.info(f"Total photos streamed so far: {total_photos_so_far}/{effective_max_photos} (from cache: {cached_photo_count}, from live: {total_photo_count})")
 
 							# Stream this batch (limited)
-							sorted_batch = sorted(stream_photos, key=lambda x: x.get('compass_angle', 0))
+							sorted_batch = sorted(stream_photos, key=lambda x: x.get('bearing') or 0)
 							# Region has more data if API indicates more pages available (regardless of our limit)
 							yield f"data: {json.dumps({'type': 'photos', 'photos': sorted_batch})}\n\n"
 

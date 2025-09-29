@@ -7,7 +7,7 @@ export interface UserPhoto {
     original_filename: string;  // Original filename for display
     latitude: number;
     longitude: number;
-    compass_angle?: number;
+    bearing?: number;
     altitude?: number;
     description?: string;
     is_public: boolean;

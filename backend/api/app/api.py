@@ -319,6 +319,9 @@ app.include_router(hidden_content_routes.router)
 import flagged_photos_routes
 app.include_router(flagged_photos_routes.router)
 
+import contact_routes
+app.include_router(contact_routes.router)
+
 # Database migration function
 def run_migrations():
 	"""Run Alembic migrations on startup"""

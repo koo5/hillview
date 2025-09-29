@@ -137,9 +137,9 @@ async def test_successful_processing():
 	assert photo_data.get('error') is None, f"Expected no error, got: {photo_data.get('error')}"
 	assert photo_data.get('latitude') is not None, "Expected latitude to be set"
 	assert photo_data.get('longitude') is not None, "Expected longitude to be set"
-	assert photo_data.get('compass_angle') is not None, "Expected compass_angle to be set"
+	assert photo_data.get('bearing') is not None, "Expected bearing to be set"
 
-	print(f"✓ Successfully processed: lat={photo_data['latitude']}, lon={photo_data['longitude']}, bearing={photo_data['compass_angle']}")
+	print(f"✓ Successfully processed: lat={photo_data['latitude']}, lon={photo_data['longitude']}, bearing={photo_data['bearing']}")
 
 	# Verify photo files are accessible
 	sizes = photo_data['sizes']

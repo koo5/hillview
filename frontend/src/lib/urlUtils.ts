@@ -27,7 +27,7 @@ function extractCoordinates(photo: any): { lat: number; lon: number; bearing?: n
         return {
             lat: photo.latitude,
             lon: photo.longitude,
-            bearing: photo.bearing || photo.compass_angle
+            bearing: photo.bearing
         };
     }
 
@@ -36,7 +36,7 @@ function extractCoordinates(photo: any): { lat: number; lon: number; bearing?: n
         return {
             lat: photo.lat,
             lon: photo.lon,
-            bearing: photo.compass_angle || photo.bearing
+            bearing: photo.bearing
         };
     }
 
@@ -78,7 +78,7 @@ export function constructMapUrl(options: {
 
     let url = `${baseUrl}/?lat=${lat}&lon=${lon}&zoom=${zoom}`;
 
-    if (bearing !== undefined) {
+    if (bearing !== undefined && bearing !== null) {
         url += `&bearing=${bearing}`;
     }
 

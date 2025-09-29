@@ -263,3 +263,23 @@ class UserPublicKey(Base):
 	__table_args__ = (
 		{"schema": None}  # Actual unique constraint in migration: (user_id, key_id)
 	)
+
+
+class ContactMessage(Base):
+	__tablename__ = "contact_messages"
+
+	id = Column(Integer, primary_key=True)
+	contact_info = Column(String(500), nullable=False)  # Email or other contact method
+	message = Column(Text, nullable=False)
+	user_id = Column(String, ForeignKey("users.id"), nullable=True)  # Optional - for logged in users
+	ip_address = Column(String(45), nullable=True)  # Store IP for spam prevention
+	user_agent = Column(String(1000), nullable=True)  # Store user agent for context
+	created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+	status = Column(String(20), default='new', nullable=False)  # new, read, replied, archived
+	admin_notes = Column(Text, nullable=True)  # For admin use
+	replied_at = Column(DateTime(timezone=True), nullable=True)
+	replied_by = Column(String, ForeignKey("users.id"), nullable=True)  # Admin user ID who replied
+
+	# Relationships
+	user = relationship("User", foreign_keys=[user_id], back_populates=None)
+	replied_by_user = relationship("User", foreign_keys=[replied_by], back_populates=None)

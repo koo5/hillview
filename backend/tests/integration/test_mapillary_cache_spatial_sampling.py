@@ -6,7 +6,10 @@ Verifies that complete regions return all photos without sampling reduction.
 
 import requests
 import json
-from tests.utils.test_utils import clear_test_database, API_URL
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+from utils.test_utils import clear_test_database, API_URL
 
 def create_clustered_mock_data_for_sampling(num_photos=20):
 	"""Create mock photos clustered in one grid cell to test spatial sampling."""
@@ -26,8 +29,8 @@ def create_clustered_mock_data_for_sampling(num_photos=20):
 				"type": "Point",
 				"coordinates": [base_lon + lon_offset, base_lat + lat_offset]
 			},
-			"compass_angle": 45.0 + (i * 10),
-			"computed_compass_angle": 45.0 + (i * 10),
+			"bearing": 45.0 + (i * 10),
+			"computed_bearing": 45.0 + (i * 10),
 			"computed_rotation": 0.0,
 			"computed_altitude": 200.0 + i,
 			"captured_at": f"2024-01-15T{10 + (i % 12):02d}:30:00Z",
@@ -73,8 +76,8 @@ def create_half_area_mock_data(num_photos=200):
 						"type": "Point",
 						"coordinates": [lon, lat]
 					},
-					"compass_angle": (photo_id * 15) % 360,
-					"computed_compass_angle": (photo_id * 15) % 360,
+					"bearing": (photo_id * 15) % 360,
+					"computed_bearing": (photo_id * 15) % 360,
 					"computed_rotation": 0.0,
 					"computed_altitude": 200.0 + photo_id,
 					"captured_at": f"2024-01-15T{10 + (photo_id % 12):02d}:30:00Z",
@@ -127,8 +130,8 @@ def create_full_area_mock_data(num_photos=1000):
 						"type": "Point",
 						"coordinates": [lon, lat]
 					},
-					"compass_angle": (photo_id * 15) % 360,
-					"computed_compass_angle": (photo_id * 15) % 360,
+					"bearing": (photo_id * 15) % 360,
+					"computed_bearing": (photo_id * 15) % 360,
 					"computed_rotation": 0.0,
 					"computed_altitude": 200.0 + photo_id,
 					"captured_at": f"2024-01-15T{10 + (photo_id % 12):02d}:30:00Z",

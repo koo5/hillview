@@ -73,12 +73,11 @@
 			</ul>
 		</section>
 
-		<section class="document-section privacy-emphasis">
+		<section class="document-section">
 			<h2>
-				<Shield size={24} />
 				5. Privacy Protection and Automatic Anonymization
 			</h2>
-			<div class="privacy-notice">
+
 				<p><strong>Important Privacy Features:</strong></p>
 				<p>
 					Hillview includes automatic privacy protection features designed to protect individuals' privacy:
@@ -99,7 +98,7 @@
 							information may be illegal in your jurisdiction, and users are responsible for:
 						</p>
 						<ul>
-							<li>Reviewing photos before making them public</li>
+							<li>Reviewing photos after uploading</li>
 							<li>Reporting any failed anonymization or privacy concerns</li>
 							<li>Ensuring compliance with local privacy laws</li>
 							<li>Respecting others' privacy rights regardless of technical safeguards</li>
@@ -109,11 +108,13 @@
 
 				<p>
 					<strong>Reporting Issues:</strong> If you notice any photos that contain unblurred faces,
-					license plates, or other identifying information, please report them immediately through
-					our <a href="https://github.com/koo5/hillview" target="_blank" rel="noopener noreferrer" class="legal-link">
-					GitHub repository</a> or contact mechanisms.
+					license plates, or other identifying information, please report them immediately by using
+					the "Flag for review" function on the specific photo. For general privacy concerns, you can
+					also contact us through our <a href="/contact" class="legal-link">contact form</a> or
+					<a href="https://github.com/koo5/hillview" target="_blank" rel="noopener noreferrer" class="legal-link">
+					GitHub repository</a>.
 				</p>
-			</div>
+
 		</section>
 
 		<section class="document-section">
@@ -189,17 +190,19 @@
 		<section class="document-section">
 			<h2>13. Contact Information</h2>
 			<p>
-				If you have questions about these Terms of Service, please contact us through our
-				<a href="https://github.com/koo5/hillview" target="_blank" rel="noopener noreferrer" class="legal-link">
-					GitHub repository
-				</a> or via the contact information provided in the application.
+				If you have questions about these Terms of Service, please contact us:
 			</p>
+			<ul>
+				<li>Through our <a href="/contact" class="legal-link">contact form</a></li>
+				<li>Via our <a href="https://github.com/koo5/hillview" target="_blank" rel="noopener noreferrer" class="legal-link">GitHub repository</a></li>
+				<li>For urgent legal or privacy matters</li>
+			</ul>
 		</section>
 
 		<footer class="document-footer">
 			<div class="footer-note">
 				<Mail size={16} />
-				<span>For questions or privacy concerns, please reach out via our GitHub repository.</span>
+				<span>For questions or privacy concerns, please use our <a href="/contact" class="legal-link">contact form</a> or GitHub repository.</span>
 			</div>
 		</footer>
 	</div>

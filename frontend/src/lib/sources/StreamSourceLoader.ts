@@ -343,7 +343,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
                             coord: photo.geometry ?
                                 { lat: photo.geometry.coordinates[1], lng: photo.geometry.coordinates[0] } :
                                 photo.coord,
-                            bearing: photo.computed_compass_angle || photo.compass_angle || photo.bearing || 0,
+                            bearing: photo.computed_bearing || photo.bearing || 0,
                             url: photo.thumb_1024_url || photo.url || '',
                             file: photo.file || `stream_${photo.id}`,
                             source_type: this.source.type,

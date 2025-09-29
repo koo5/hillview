@@ -182,7 +182,7 @@ class TestResetUploadPoll:
                     # Show photo details
                     lat = photo_data.get("latitude")
                     lon = photo_data.get("longitude")
-                    bearing = photo_data.get("compass_angle")
+                    bearing = photo_data.get("bearing")
                     print(f"   Photo coordinates: lat={lat}, lon={lon}, bearing={bearing}")
                     return True
                 elif status == "failed":
@@ -229,7 +229,7 @@ class TestResetUploadPoll:
                         coords = photo.get('geometry', {}).get('coordinates', [])
                         actual_lat = coords[1] if len(coords) > 1 else None
                         actual_lon = coords[0] if len(coords) > 0 else None
-                        actual_bearing = photo.get('compass_angle')
+                        actual_bearing = photo.get('bearing')
                         actual_altitude = photo.get('computed_altitude')
 
                         print(f"   📍 Expected: lat={expected_location['latitude']}, lon={expected_location['longitude']}, bearing={expected_location['bearing']}, alt={expected_location['altitude']}")

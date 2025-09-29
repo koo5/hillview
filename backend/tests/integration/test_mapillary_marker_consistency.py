@@ -215,8 +215,8 @@ class TestMapillaryMarkerConsistency:
                     'type': "Point",
                     'coordinates': [base_longitude + lng_offset, base_latitude + lat_offset]
                 },
-                'compass_angle': (i * 24) % 360,
-                'computed_compass_angle': (i * 24) % 360,
+                'bearing': (i * 24) % 360,
+                'computed_bearing': (i * 24) % 360,
                 'computed_rotation': 0.0,
                 'sequence_id': f"mock_sequence_{(i-1)//5 + 1}",  # Group into sequences of 5
                 'captured_at': f"2023-07-{10+i:02d}T12:00:00Z",

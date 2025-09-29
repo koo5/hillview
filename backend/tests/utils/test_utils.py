@@ -137,7 +137,7 @@ async def create_test_photos(test_users: list, auth_tokens: dict):
 		photo_data = wait_for_photo_processing(photo_id, token, timeout=30)
 		if photo_data['processing_status'] == 'completed':
 			created_photos += 1
-			print(f"  ✓ Processed: lat={photo_data.get('latitude')}, lon={photo_data.get('longitude')}, bearing={photo_data.get('compass_angle')}")
+			print(f"  ✓ Processed: lat={photo_data.get('latitude')}, lon={photo_data.get('longitude')}, bearing={photo_data.get('bearing')}")
 		else:
 			error_msg = photo_data.get('error', 'Unknown error')
 			raise Exception(f"Photo processing failed: {error_msg}")

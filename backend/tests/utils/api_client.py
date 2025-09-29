@@ -90,6 +90,20 @@ class APIClient:
 		response.raise_for_status()
 		return response.json()
 
+	def get_activity(self, token: str, limit: int = 20, timeout: float = 5.0) -> Dict[str, Any]:
+		"""Get user activity feed."""
+		params = {"limit": limit}
+		url = f"{self.api_url}/activity"
+		logger.debug(f"GET {url} (timeout={timeout}s)")
+		response = requests.get(
+			url,
+			headers=self.get_headers(token),
+			params=params,
+			timeout=timeout
+		)
+		response.raise_for_status()
+		return response.json()
+
 	# Debug Operations
 	def recreate_test_users(self, timeout: float = 5.0) -> Dict[str, Any]:
 		"""Recreate test users."""

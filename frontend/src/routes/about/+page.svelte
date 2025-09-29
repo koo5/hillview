@@ -3,7 +3,7 @@
 </svelte:head>
 
 <script lang="ts">
-    import { Info, MapPin, Camera, Globe, Github, Heart, Compass, FileText, Shield } from 'lucide-svelte';
+    import { Info, MapPin, Camera, Globe, Github, Heart, FileText, Shield, Mail } from 'lucide-svelte';
     import StandardHeaderWithAlert from '../../components/StandardHeaderWithAlert.svelte';
     import StandardBody from '../../components/StandardBody.svelte';
     import { getCurrentProviderConfig, getProviderDisplayName, currentTileProvider } from '$lib/tileProviders';
@@ -12,36 +12,14 @@
     import { openUrl } from '@tauri-apps/plugin-opener';
 
     const appVersion = '0.0.1';
-    const features = [
-        {
-            icon: Compass,
-            title: 'Directional Photos',
-            description: 'Photos with compass bearing data help you identify what you\'re looking at from your viewpoint.'
-        },
-        {
-            icon: MapPin,
-            title: 'Hillview Navigation',
-            description: 'Stand on a hill and use directional photos to identify distant landmarks, peaks, and features.'
-        },
-        {
-            icon: Camera,
-            title: 'Smart Capture',
-            description: 'Capture photos with GPS coordinates and compass bearing to build your hillview database.'
-        },
-        {
-            icon: Globe,
-            title: 'Multiple Sources',
-            description: 'Import photos from various sources to create comprehensive directional reference points.'
-        }
-    ];
 
     const technologies = [
-        'SvelteKit',
-        'TypeScript',
-        'Tauri',
-        'Leaflet',
-        'Lucide Icons',
-        'Vite'
+        { name: 'SvelteKit', url: 'https://kit.svelte.dev' },
+        { name: 'TypeScript', url: 'https://www.typescriptlang.org' },
+        { name: 'Tauri', url: 'https://tauri.app' },
+        { name: 'Leaflet', url: 'https://leafletjs.com' },
+        { name: 'Lucide Icons', url: 'https://lucide.dev' },
+        { name: 'Vite', url: 'https://vitejs.dev' }
     ];
 
     // Get current tile provider config
@@ -97,7 +75,7 @@
 
     <header class="about-header">
         <div class="app-icon">
-            <MapPin size={48} />
+            <img src="/icons/icon.png" alt="Hillview Icon" width="48" height="48" />
         </div>
         <h1>Hillview</h1>
         <p class="version">Version {appVersion}</p>
@@ -116,30 +94,6 @@
             Whether you're hiking, exploring new cities, or just curious about your surroundings, Hillview helps you
             understand what you're seeing by showing you photos taken from similar positions pointing in the same direction.
         </p>
-    </section>
-
-    <section class="features-section">
-        <h2>Features</h2>
-        <div class="features-grid">
-            {#each features as feature}
-                <div class="feature-card">
-                    <div class="feature-icon">
-                        <svelte:component this={feature.icon} size={24} />
-                    </div>
-                    <h3>{feature.title}</h3>
-                    <p>{feature.description}</p>
-                </div>
-            {/each}
-        </div>
-    </section>
-
-    <section class="tech-section">
-        <h2>Built With</h2>
-        <div class="tech-grid">
-            {#each technologies as tech}
-                <span class="tech-tag">{tech}</span>
-            {/each}
-        </div>
     </section>
 
     <section class="attribution-section">
@@ -164,28 +118,21 @@
         </div>
 
         <h3>Libraries & Technologies</h3>
-        <div class="attribution-links">
-            <a href="https://leafletjs.com" target="_blank" rel="noopener noreferrer">
-                <Globe size={16} />
-                Leaflet Maps
-            </a>
-            <a href="https://lucide.dev" target="_blank" rel="noopener noreferrer">
-                <Heart size={16} />
-                Lucide Icons
-            </a>
-            <a href="https://kit.svelte.dev" target="_blank" rel="noopener noreferrer">
-                <Info size={16} />
-                SvelteKit
-            </a>
+        <div class="attribution-links" on:click={handleAttributionClick} role="presentation">
+            {#each technologies as tech}
+                <a href={tech.url} target="_blank" rel="noopener noreferrer" data-external-link="true">
+                    {tech.name}
+                </a>
+            {/each}
         </div>
 
         <h3>Services</h3>
-        <div class="attribution-links">
-            <a href="https://tracestrack.com" target="_blank" rel="noopener noreferrer">
+        <div class="attribution-links" on:click={handleAttributionClick} role="presentation">
+            <a href="https://tracestrack.com" target="_blank" rel="noopener noreferrer" data-external-link="true">
                 <MapPin size={16} />
                 TracesTrack
             </a>
-            <a href="https://mapillary.com" target="_blank" rel="noopener noreferrer">
+            <a href="https://mapillary.com" target="_blank" rel="noopener noreferrer" data-external-link="true">
                 <Camera size={16} />
                 Mapillary
             </a>
@@ -223,8 +170,22 @@
         </div>
     </section>
 
+    <section class="contact-section">
+        <h2>Contact Us</h2>
+        <p>
+            Have questions, feedback, or suggestions? We'd love to hear from you!
+        </p>
+        <div class="attribution-links">
+            <a href="/contact">
+                <Mail size={16} />
+                Send us a message
+            </a>
+        </div>
+    </section>
+
+
     <footer class="about-footer">
-        <p>&copy; 2024 Hillview. Made with <Heart size={16} class="heart-icon" /> for photographers and explorers.</p>
+        <p>&copy; 2025 Hillview. Made with <Heart size={16} class="heart-icon" /> for photographers and explorers.</p>
     </footer>
 </StandardBody>
 
@@ -243,9 +204,6 @@
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        width: 80px;
-        height: 80px;
-        background: linear-gradient(135deg, #16a34a, #15803d);
         border-radius: 20px;
         color: white;
         margin-bottom: 16px;
@@ -283,9 +241,8 @@
     }
 
     .about-section h2,
-    .features-section h2,
-    .tech-section h2,
-    .attribution-section h2 {
+    .attribution-section h2,
+    .contact-section h2 {
         font-size: 1.5rem;
         font-weight: 600;
         color: #1f2937;
@@ -309,89 +266,9 @@
         margin: 0;
     }
 
-    .features-section {
-        margin-bottom: 48px;
-        background: rgba(255, 255, 255, 0.8);
-        padding: 32px;
-        border-radius: 16px;
-        backdrop-filter: blur(10px);
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-    }
-
-    .features-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-        gap: 24px;
-    }
-
-    .feature-card {
-        padding: 24px;
-        background: white;
-        border: 1px solid #e5e7eb;
-        border-radius: 12px;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-        transition: transform 0.2s ease, box-shadow 0.2s ease;
-    }
-
-    .feature-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-    }
-
-    .feature-icon {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 48px;
-        height: 48px;
-        background: linear-gradient(135deg, #dcfce7, #bbf7d0);
-        border-radius: 12px;
-        color: #15803d;
-        margin-bottom: 16px;
-    }
-
-    .feature-card h3 {
-        font-size: 1.125rem;
-        font-weight: 600;
-        color: #1f2937;
-        margin: 0 0 8px 0;
-    }
-
-    .feature-card p {
-        color: #6b7280;
-        margin: 0;
-    }
-
-    .tech-section {
-        margin-bottom: 48px;
-        background: rgba(255, 255, 255, 0.8);
-        padding: 32px;
-        border-radius: 16px;
-        backdrop-filter: blur(10px);
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-    }
-
-    .tech-grid {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 12px;
-    }
-
-    .tech-tag {
-        padding: 8px 16px;
-        background: #f3f4f6;
-        color: #374151;
-        border-radius: 20px;
-        font-size: 0.875rem;
-        font-weight: 500;
-        transition: background-color 0.2s ease;
-    }
-
-    .tech-tag:hover {
-        background: #e5e7eb;
-    }
 
     .attribution-section,
+    .contact-section,
     .source-section,
     .legal-section {
         margin-bottom: 48px;
@@ -403,6 +280,7 @@
     }
 
     .attribution-section p,
+    .contact-section p,
     .source-section p,
     .legal-section p {
         color: #4b5563;
@@ -426,11 +304,26 @@
         border-radius: 8px;
         transition: all 0.2s ease;
         font-size: 0.875rem;
+        position: relative;
     }
 
     .attribution-links a:hover {
         background: #f9fafb;
         border-color: #4f46e5;
+        transform: translateY(-1px);
+        box-shadow: 0 2px 8px rgba(79, 70, 229, 0.1);
+    }
+
+    .attribution-links a[data-external-link="true"]:after {
+        content: '↗';
+        font-size: 0.7em;
+        margin-left: 4px;
+        opacity: 0.6;
+        transition: opacity 0.2s ease;
+    }
+
+    .attribution-links a[data-external-link="true"]:hover:after {
+        opacity: 1;
     }
 
     .map-attribution {
@@ -503,9 +396,6 @@
             font-size: 2rem;
         }
 
-        .features-grid {
-            grid-template-columns: 1fr;
-        }
 
         .attribution-links {
             flex-direction: column;

@@ -71,9 +71,9 @@ async def get_hillview_images(
 				'geometry': {
 					'coordinates': [photo.longitude, photo.latitude]
 				},
-				'compass_angle': photo.compass_angle or 0,
+				'bearing': photo.compass_angle or 0,
 				'computed_rotation': 0,
-				'computed_compass_angle': photo.compass_angle or 0,
+				'computed_bearing': photo.compass_angle or 0,
 				'computed_altitude': photo.altitude or 0,
 				'captured_at': photo.captured_at.isoformat() if photo.captured_at else '',
 				'is_pano': False,
@@ -87,8 +87,8 @@ async def get_hillview_images(
 			}
 			filtered_photos.append(photo_data)
 
-		# Sort by compass angle like Mapillary endpoint
-		filtered_photos.sort(key=lambda x: x.get('compass_angle', 0))
+		# Sort by bearing like Mapillary endpoint
+		filtered_photos.sort(key=lambda x: x.get('bearing', 0))
 
 		log.info(f"Found {len(filtered_photos)} photos in database for bbox")
 

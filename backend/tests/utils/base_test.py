@@ -6,8 +6,8 @@ Reduces duplication and provides consistent test setup/teardown.
 import unittest
 import asyncio
 from typing import Dict, List, Optional
-from tests.utils.test_utils import recreate_test_users, API_URL
-from tests.utils.auth_utils import AuthTestHelper, TEST_CREDENTIALS
+from .test_utils import recreate_test_users, API_URL
+from .auth_utils import AuthTestHelper, TEST_CREDENTIALS
 
 class BaseIntegrationTest:
     """Base class for integration tests with common setup and utilities."""
