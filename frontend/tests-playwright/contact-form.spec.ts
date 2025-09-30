@@ -28,18 +28,19 @@ test.describe('Contact Form', () => {
     await page.goto('/contact');
     await page.waitForLoadState('networkidle');
 
-    // Check if user is logged in - should see user-info div, not guest-info
+    // Verify user is properly logged in - this should NOT be a guest
     const isLoggedIn = await page.locator('.user-info').isVisible();
     const isGuest = await page.locator('.guest-info').isVisible();
 
     console.log('Auth state check:', { isLoggedIn, isGuest });
 
-    if (!isLoggedIn) {
-      console.log('❌ User not logged in, but continuing test to check user_id capture anyway');
-    } else {
-      console.log('✅ User is logged in');
-      await expect(page.locator('text=Sending as:')).toBeVisible();
-    }
+    // FAIL the test if user is not logged in after login
+    expect(isLoggedIn).toBe(true);
+    expect(isGuest).toBe(false);
+
+    // Should see "Sending as: test"
+    await expect(page.locator('text=Sending as:')).toBeVisible();
+    await expect(page.locator('strong:has-text("test")')).toBeVisible();
 
     // Fill out contact form
     const contactInfo = 'test@example.com';

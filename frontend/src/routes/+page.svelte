@@ -25,7 +25,7 @@
 	import {LatLng} from 'leaflet';
 	import {replaceState} from "$app/navigation";
 	import {get} from "svelte/store";
-	import {auth, checkAuth, logout} from "$lib/auth.svelte";
+	import {auth, logout} from "$lib/auth.svelte";
 	import CameraCapture from '../components/CameraCapture.svelte';
 	import DebugOverlay from '../components/DebugOverlay.svelte';
 	import AlertArea from '../components/AlertArea.svelte';
@@ -42,9 +42,6 @@
 	onMount(async () => {
 		console.log('🢄Page mounted');
 		await tick();
-
-		// Check authentication status
-		checkAuth();
 
 		const urlParams = new URLSearchParams(window.location.search);
 		const lat = urlParams.get('lat');

@@ -1,10 +1,17 @@
 import { writable } from 'svelte/store';
 
+export interface Resolution {
+    width: number;
+    height: number;
+    label: string; // e.g., "1080p", "4K", "720p"
+}
+
 export interface CameraDevice {
     deviceId: string;
     label: string;
     facingMode: 'front' | 'back' | 'unknown';
     isPreferred?: boolean; // For marking the "standard" back camera
+    resolutions?: Resolution[]; // Available resolutions for this camera
 }
 
 // Store for available camera devices

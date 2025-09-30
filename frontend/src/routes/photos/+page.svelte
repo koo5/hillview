@@ -13,7 +13,7 @@
 	import Spinner from '../../components/Spinner.svelte';
 	import PhotoImport from '$lib/components/PhotoImport.svelte';
 	import PhotoUpload from '$lib/components/PhotoUpload.svelte';
-	import {auth, checkAuth} from '$lib/auth.svelte';
+	import {auth} from '$lib/auth.svelte';
 	import {userId} from '$lib/authStore';
 	import type {UserPhoto} from '$lib/stores';
 	import type {User} from '$lib/auth.svelte';
@@ -58,9 +58,6 @@
 
 
 	onMount(() => {
-		// Check authentication status first (async)
-		checkAuth();
-
 		// Settings component will load its own settings
 
 		// Subscribe to userId changes to avoid reactive loops from auth store updates during token refresh

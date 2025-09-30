@@ -7,6 +7,7 @@
 	import {page} from '$app/stores';
 	import {get} from 'svelte/store';
 	import {clearAlerts} from "$lib/alertSystem.svelte";
+	import {checkAuth} from '$lib/auth.svelte';
 
 	// Log navigation events
 	beforeNavigate((navigation) => {
@@ -34,6 +35,9 @@
 		// Log initial page load
 		const initialPath = get(page).url.pathname;
 		console.log(`🢄🧭 [NAV] Initial page load: "${initialPath}"`);
+
+		// Initialize auth state for all pages
+		checkAuth();
 
 		if (TAURI) {
 			await setupDeepLinkListener();
