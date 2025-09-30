@@ -16,9 +16,12 @@
     import {
         availableCameras,
         selectedCameraId,
+        selectedResolution,
         cameraEnumerationSupported,
         enumerateCameraDevices,
-        type CameraDevice
+        getCameraSupportedResolutions,
+        type CameraDevice,
+        type Resolution
     } from '$lib/cameraDevices.svelte';
     import { tauriCamera, isCameraPermissionCheckAvailable } from '$lib/tauri';
     import { addPluginListener, type PluginListener } from '@tauri-apps/api/core';
@@ -191,32 +194,37 @@
             // Use probe-then-enumerate pattern for better compatibility
             let constraints: MediaStreamConstraints;
 
-			const w = 2560;
-			const h = 2560;
-
             const selectedId = get(selectedCameraId);
+            const resolution = get(selectedResolution);
+
+            // Use selected resolution or fall back to default
+            const targetWidth = resolution?.width || 2560;
+            const targetHeight = resolution?.height || 2560;
+
             if (selectedId) {
                 // Use explicitly selected camera with exact deviceId
                 constraints = {
                     video: {
                         deviceId: { exact: selectedId },
-                        width: { min: 1280, ideal: w },
-                        height: { min: 720, ideal: h },
+                        width: { min: 1280, ideal: targetWidth },
+                        height: { min: 720, ideal: targetHeight },
 						frameRate: { ideal: 10 }
                     }
                 };
-                console.log('🢄[CAMERA] Using selected camera device:', selectedId.slice(0, 8) + '...');
+                console.log('🢄[CAMERA] Using selected camera device:', selectedId.slice(0, 8) + '...',
+                    resolution ? `at ${resolution.label}` : 'default resolution');
             } else {
                 // First attempt: probe with ideal facingMode (not exact) to trigger permission
                 constraints = {
                     video: {
                         facingMode: { ideal: facing },  // Use ideal, not exact
-                        width: { min: 1280, ideal: w },
-                        height: { min: 720, ideal: h },
+                        width: { min: 1280, ideal: targetWidth },
+                        height: { min: 720, ideal: targetHeight },
 						frameRate: { ideal: 10 }
                     }
                 };
-                console.log('🢄[CAMERA] Probing with ideal facingMode:', facing);
+                console.log('🢄[CAMERA] Probing with ideal facingMode:', facing,
+                    resolution ? `at ${resolution.label}` : 'default resolution');
             }
 
             console.log('🢄[CAMERA] Requesting camera with constraints:', constraints);
@@ -270,8 +278,23 @@
                 // Now enumerate cameras for the selector (after permission granted)
                 if (!get(selectedCameraId)) {
                     try {
-                        await enumerateCameraDevices();
+                        const cameras = await enumerateCameraDevices();
                         console.log('🢄[CAMERA] Camera enumeration completed');
+
+                        // Populate resolutions for each camera in the background
+                        for (const camera of cameras) {
+                            try {
+                                const resolutions = await getCameraSupportedResolutions(camera.deviceId);
+                                camera.resolutions = resolutions;
+                                console.log(`🢄[CAMERA] Found ${resolutions.length} resolutions for ${camera.label}`);
+                            } catch (error) {
+                                console.log(`🢄[CAMERA] Failed to get resolutions for ${camera.label}:`, error);
+                                camera.resolutions = [];
+                            }
+                        }
+
+                        // Update the store with cameras that now have resolution data
+                        availableCameras.set(cameras);
                     } catch (error) {
                         console.log('🢄[CAMERA] Camera enumeration failed, but stream is working:', error);
                     }
@@ -344,6 +367,9 @@
         // Set the selected camera in the store
         selectedCameraId.set(camera.deviceId);
 
+        // Clear selected resolution when switching cameras
+        selectedResolution.set(null);
+
         // Restart camera with new device
         if (cameraReady && stream) {
             console.log('🢄[CAMERA] Switching to camera:', camera.label);
@@ -359,6 +385,31 @@
             } catch (error) {
                 console.error('🢄[CAMERA] Failed to switch camera:', error);
                 cameraError = `Failed to switch to ${camera.label}`;
+            }
+        }
+    }
+
+    async function selectResolution(resolution: Resolution) {
+        console.log('🢄[CAMERA] Selecting resolution:', resolution.label);
+
+        // Set the selected resolution in the store
+        selectedResolution.set(resolution);
+
+        // Restart camera with new resolution
+        if (cameraReady && stream) {
+            console.log('🢄[CAMERA] Switching to resolution:', resolution.label);
+
+            // Stop current stream
+            stream.getTracks().forEach(track => track.stop());
+            stream = null;
+            cameraReady = false;
+
+            // Start with new resolution
+            try {
+                await startCamera();
+            } catch (error) {
+                console.error('🢄[CAMERA] Failed to switch resolution:', error);
+                cameraError = `Failed to switch to ${resolution.label}`;
             }
         }
     }
@@ -766,19 +817,37 @@
                         {#if showCameraSelector}
                             <div class="camera-selector-dropdown">
                                 {#each $availableCameras as camera}
-                                    <button
-                                        class="camera-option"
-                                        class:selected={$selectedCameraId === camera.deviceId}
-                                        on:click={() => selectCamera(camera)}
-                                    >
-                                        <span class="camera-facing">
-                                            {#if camera.facingMode === 'front'}🤳{:else if camera.facingMode === 'back'}📷{:else}📹{/if}
-                                        </span>
-                                        <span class="camera-label">
-                                            {camera.label}
-                                            {#if camera.isPreferred}⭐{/if}
-                                        </span>
-                                    </button>
+                                    <div class="camera-group">
+                                        <button
+                                            class="camera-option"
+                                            class:selected={$selectedCameraId === camera.deviceId}
+                                            on:click={() => selectCamera(camera)}
+                                            data-testid="camera-option-{camera.deviceId}"
+                                        >
+                                            <span class="camera-facing">
+                                                {#if camera.facingMode === 'front'}🤳{:else if camera.facingMode === 'back'}📷{:else}📹{/if}
+                                            </span>
+                                            <span class="camera-label">
+                                                {camera.label}
+                                                {#if camera.isPreferred}⭐{/if}
+                                            </span>
+                                        </button>
+
+                                        {#if $selectedCameraId === camera.deviceId && camera.resolutions && camera.resolutions.length > 0}
+                                            <div class="resolution-options">
+                                                {#each camera.resolutions as resolution}
+                                                    <button
+                                                        class="resolution-option"
+                                                        class:selected={$selectedResolution?.width === resolution.width && $selectedResolution?.height === resolution.height}
+                                                        on:click={() => selectResolution(resolution)}
+                                                        data-testid="resolution-option-{resolution.width}x{resolution.height}"
+                                                    >
+                                                        {resolution.label}
+                                                    </button>
+                                                {/each}
+                                            </div>
+                                        {/if}
+                                    </div>
                                 {/each}
                             </div>
                         {/if}
@@ -912,10 +981,21 @@
         background: rgba(0, 0, 0, 0.9);
         border-radius: 8px;
         padding: 0.5rem;
-        min-width: 200px;
+        min-width: 250px;
+        max-width: 350px;
         backdrop-filter: blur(20px);
         border: 1px solid rgba(255, 255, 255, 0.2);
         box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+        max-height: 400px;
+        overflow-y: auto;
+    }
+
+    .camera-group {
+        margin-bottom: 0.5rem;
+    }
+
+    .camera-group:last-child {
+        margin-bottom: 0;
     }
 
     .camera-option {
@@ -953,6 +1033,39 @@
         overflow: hidden;
         text-overflow: ellipsis;
         flex: 1;
+    }
+
+    .resolution-options {
+        margin-top: 0.5rem;
+        padding-left: 2rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+    }
+
+    .resolution-option {
+        display: block;
+        width: 100%;
+        padding: 0.5rem 0.75rem;
+        background: rgba(255, 255, 255, 0.05);
+        border: none;
+        color: rgba(255, 255, 255, 0.8);
+        cursor: pointer;
+        border-radius: 4px;
+        transition: all 0.2s;
+        text-align: left;
+        font-size: 0.8rem;
+    }
+
+    .resolution-option:hover {
+        background: rgba(255, 255, 255, 0.1);
+        color: white;
+    }
+
+    .resolution-option.selected {
+        background: rgba(74, 144, 226, 0.3);
+        border: 1px solid rgba(74, 144, 226, 0.5);
+        color: white;
     }
 
 

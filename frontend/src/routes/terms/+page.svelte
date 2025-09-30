@@ -54,7 +54,6 @@
 			<ul>
 				<li>Maintaining the confidentiality of your account credentials</li>
 				<li>All activities that occur under your account</li>
-				<li>Providing accurate and up-to-date information</li>
 				<li>Notifying us immediately of any unauthorized use of your account</li>
 			</ul>
 		</section>
@@ -68,7 +67,8 @@
 			<ul>
 				<li>You may upload photos that you own or have permission to use</li>
 				<li>Photos may be made public or kept private according to your settings</li>
-				<li>We may process photos to extract metadata (GPS, orientation, etc.)</li>
+				<li>We process photos to extract metadata (GPS, orientation, etc.)</li>
+				<li>Our algorithms detect and blur people and vehicles to try to protect privacy</li>
 				<li>You are responsible for ensuring your content doesn't violate any laws or rights</li>
 			</ul>
 		</section>
@@ -83,9 +83,8 @@
 					Hillview includes automatic privacy protection features designed to protect individuals' privacy:
 				</p>
 				<ul>
-					<li><strong>Automatic Face Blurring:</strong> Our system automatically detects and blurs human faces in uploaded photos</li>
-					<li><strong>License Plate Protection:</strong> Vehicle license plates are automatically detected and obscured</li>
-					<li><strong>Identifying Information Removal:</strong> Other potentially identifying features may be automatically processed</li>
+					<li><strong>Automatic Person Blurring:</strong> Our system automatically detects and blurs humans in uploaded photos</li>
+					<li><strong>Automatic Vehicle Blurring:</strong> Vehicles are automatically detected and blurred</li>
 				</ul>
 
 				<div class="warning-box">

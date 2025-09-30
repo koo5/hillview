@@ -1,4 +1,5 @@
 import { writable } from 'svelte/store';
+import { localStorageSharedStore } from './svelte-shared-store';
 
 export interface Resolution {
     width: number;
@@ -17,8 +18,11 @@ export interface CameraDevice {
 // Store for available camera devices
 export const availableCameras = writable<CameraDevice[]>([]);
 
-// Store for currently selected camera device ID
-export const selectedCameraId = writable<string | null>(null);
+// Store for currently selected camera device ID (persistent)
+export const selectedCameraId = localStorageSharedStore<string | null>('selectedCameraId', null);
+
+// Store for currently selected resolution (persistent)
+export const selectedResolution = localStorageSharedStore<Resolution | null>('selectedResolution', null);
 
 // Store for whether camera enumeration is supported
 export const cameraEnumerationSupported = writable<boolean>(false);
@@ -104,4 +108,60 @@ export function getPreferredBackCamera(cameras: CameraDevice[]): CameraDevice | 
 
 export function getFrontCamera(cameras: CameraDevice[]): CameraDevice | null {
     return cameras.find(c => c.facingMode === 'front') || null;
+}
+
+// Common widths to test - camera will choose natural height
+export function getTestWidths(): number[] {
+    return [640, 1280, 1920, 2560, 3840];
+}
+
+// Test a specific width with a camera and get the actual resolution
+export async function testCameraWidth(deviceId: string, width: number): Promise<Resolution | null> {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+                deviceId: { exact: deviceId },
+                width: { ideal: width }
+            }
+        });
+
+        const videoTrack = stream.getVideoTracks()[0];
+        const settings = videoTrack.getSettings();
+
+        // Clean up the test stream immediately
+        stream.getTracks().forEach(track => track.stop());
+
+        if (settings.width && settings.height) {
+            return {
+                width: settings.width,
+                height: settings.height,
+                label: `${settings.width}×${settings.height}`
+            };
+        }
+
+        return null;
+    } catch (error) {
+        return null;
+    }
+}
+
+// Get supported resolutions for a camera device
+export async function getCameraSupportedResolutions(deviceId: string): Promise<Resolution[]> {
+    const testWidths = getTestWidths();
+    const supportedResolutions: Resolution[] = [];
+    const seenResolutions = new Set<string>();
+
+    for (const width of testWidths) {
+        const resolution = await testCameraWidth(deviceId, width);
+        if (resolution) {
+            const key = `${resolution.width}x${resolution.height}`;
+            if (!seenResolutions.has(key)) {
+                seenResolutions.add(key);
+                supportedResolutions.push(resolution);
+            }
+        }
+    }
+
+    // Sort by width descending (highest resolution first)
+    return supportedResolutions.sort((a, b) => b.width - a.width);
 }
