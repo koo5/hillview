@@ -195,7 +195,6 @@
 			<ul>
 				<li>Through our <a href="/contact" class="legal-link">contact form</a></li>
 				<li>Via our <a href="https://github.com/koo5/hillview" target="_blank" rel="noopener noreferrer" class="legal-link">GitHub repository</a></li>
-				<li>For urgent legal or privacy matters</li>
 			</ul>
 		</section>
 
