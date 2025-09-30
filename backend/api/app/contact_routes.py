@@ -13,7 +13,7 @@ import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
-from common.models import ContactMessage, User
+from common.models import ContactMessage, User, UserRole
 from auth import get_current_user_optional
 from rate_limiter import general_rate_limiter, get_client_ip
 
@@ -109,7 +109,7 @@ async def get_contact_messages(
 ):
     """Get contact messages (admin only)."""
     # For now, just return empty - this would be implemented when admin interface is needed
-    if not current_user or current_user.role.value != 'admin':
+    if not current_user or current_user.role != UserRole.ADMIN:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access required"

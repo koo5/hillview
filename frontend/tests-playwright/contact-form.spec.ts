@@ -1,0 +1,218 @@
+import { test, expect } from '@playwright/test';
+import { createTestUsers, loginAsTestUser } from './helpers/testUsers';
+
+test.describe('Contact Form', () => {
+  test.beforeEach(async ({ page }) => {
+    // Clean up test users before each test
+    const response = await fetch('http://localhost:8055/api/debug/recreate-test-users', {
+      method: 'POST'
+    });
+    const result = await response.json();
+    console.log('🢄Test cleanup result:', result);
+  });
+
+  test('should submit contact form as logged-in user and verify via admin endpoint', async ({ page }) => {
+    // Create test users for this test
+    const result = await createTestUsers();
+    const testPassword = result.passwords.test;
+    const adminPassword = result.passwords.admin;
+
+    // Login as test user
+    await loginAsTestUser(page, testPassword);
+
+    // Navigate to contact page
+    await page.goto('/contact');
+    await page.waitForLoadState('networkidle');
+
+    // Verify user is logged in (should show "Sending as: test")
+    await expect(page.locator('text=Sending as:')).toBeVisible();
+    await expect(page.locator('text=test')).toBeVisible();
+
+    // Fill out contact form
+    const contactInfo = 'test@example.com';
+    const message = 'This is a test message from the automated test suite. Please verify that the user_id is correctly captured.';
+
+    await page.fill('input[id="contact"]', contactInfo);
+    await page.fill('textarea[id="message"]', message);
+
+    // Submit the form
+    await page.click('button[type="submit"]');
+
+    // Wait for success message
+    await expect(page.locator('text=Message Sent!')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('text=Thank you for contacting us')).toBeVisible();
+
+    // Now verify the message was stored correctly via admin endpoint
+    // First, we need to get an admin token by logging in as admin user
+
+    // Navigate to login page (this will log out the current user)
+    await page.goto('/login');
+    await page.waitForLoadState('networkidle');
+
+    // Login as admin user
+    await page.fill('input[type="text"]', 'admin');
+    await page.fill('input[type="password"]', adminPassword);
+    await page.click('button[type="submit"]');
+    await page.waitForURL('/', { timeout: 15000 });
+
+    // Get admin authentication token from localStorage
+    const authToken = await page.evaluate(() => {
+      const tokenManager = window.localStorage.getItem('auth_tokens');
+      if (tokenManager) {
+        const tokens = JSON.parse(tokenManager);
+        return tokens.access_token;
+      }
+      return null;
+    });
+
+    expect(authToken).toBeTruthy();
+
+    // Call admin endpoint to fetch contact messages
+    const adminResponse = await page.evaluate(async (token) => {
+      const response = await fetch('http://localhost:8055/api/admin/contact/messages', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json'
+        }
+      });
+      return {
+        status: response.status,
+        data: await response.json()
+      };
+    }, authToken);
+
+    expect(adminResponse.status).toBe(200);
+    expect(adminResponse.data.messages).toBeDefined();
+    expect(adminResponse.data.messages.length).toBeGreaterThan(0);
+
+    // Find our test message
+    const testMessage = adminResponse.data.messages.find((msg: any) =>
+      msg.contact_info === contactInfo && msg.message.includes('automated test suite')
+    );
+
+    expect(testMessage).toBeDefined();
+    expect(testMessage.contact_info).toBe(contactInfo);
+    expect(testMessage.message).toContain('automated test suite');
+    expect(testMessage.user_id).toBeTruthy(); // This is what we're testing - user_id should be set
+    expect(testMessage.status).toBe('new');
+    expect(testMessage.ip_address).toBeTruthy();
+
+    console.log('✅ Contact message verified:', {
+      id: testMessage.id,
+      user_id: testMessage.user_id,
+      contact_info: testMessage.contact_info,
+      message_preview: testMessage.message.substring(0, 50) + '...',
+      status: testMessage.status
+    });
+  });
+
+  test('should submit contact form as guest user', async ({ page }) => {
+    // Don't login - test as guest
+    await page.goto('/contact');
+    await page.waitForLoadState('networkidle');
+
+    // Verify user is NOT logged in (should show guest message)
+    await expect(page.locator('text=You\'re sending this message as a guest')).toBeVisible();
+    await expect(page.locator('a[href="/login"]')).toBeVisible();
+
+    // Fill out contact form
+    const contactInfo = 'guest@example.com';
+    const message = 'This is a test message from a guest user. The user_id should be null.';
+
+    await page.fill('input[id="contact"]', contactInfo);
+    await page.fill('textarea[id="message"]', message);
+
+    // Submit the form
+    await page.click('button[type="submit"]');
+
+    // Wait for success message
+    await expect(page.locator('text=Message Sent!')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('text=Thank you for contacting us')).toBeVisible();
+
+    // Create test users to get admin access
+    const result = await createTestUsers();
+    const adminPassword = result.passwords.admin;
+
+    // Login as admin to verify the message
+    await page.goto('/login');
+    await page.waitForLoadState('networkidle');
+
+    await page.fill('input[type="text"]', 'admin');
+    await page.fill('input[type="password"]', adminPassword);
+    await page.click('button[type="submit"]');
+    await page.waitForURL('/', { timeout: 15000 });
+
+    // Get admin token and check messages
+    const authToken = await page.evaluate(() => {
+      const tokenManager = window.localStorage.getItem('auth_tokens');
+      if (tokenManager) {
+        const tokens = JSON.parse(tokenManager);
+        return tokens.access_token;
+      }
+      return null;
+    });
+
+    const adminResponse = await page.evaluate(async (token) => {
+      const response = await fetch('http://localhost:8055/api/admin/contact/messages', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json'
+        }
+      });
+      return {
+        status: response.status,
+        data: await response.json()
+      };
+    }, authToken);
+
+    expect(adminResponse.status).toBe(200);
+
+    // Find our guest message
+    const guestMessage = adminResponse.data.messages.find((msg: any) =>
+      msg.contact_info === contactInfo && msg.message.includes('guest user')
+    );
+
+    expect(guestMessage).toBeDefined();
+    expect(guestMessage.contact_info).toBe(contactInfo);
+    expect(guestMessage.message).toContain('guest user');
+    expect(guestMessage.user_id).toBeNull(); // Guest users should have null user_id
+    expect(guestMessage.status).toBe('new');
+    expect(guestMessage.ip_address).toBeTruthy();
+
+    console.log('✅ Guest contact message verified:', {
+      id: guestMessage.id,
+      user_id: guestMessage.user_id,
+      contact_info: guestMessage.contact_info,
+      message_preview: guestMessage.message.substring(0, 50) + '...',
+      status: guestMessage.status
+    });
+  });
+
+  test('should validate form fields', async ({ page }) => {
+    await page.goto('/contact');
+    await page.waitForLoadState('networkidle');
+
+    // Try to submit empty form
+    await page.click('button[type="submit"]');
+
+    // Should show validation error
+    await expect(page.locator('text=Please fill in all fields')).toBeVisible();
+
+    // Fill contact but leave message empty
+    await page.fill('input[id="contact"]', 'test@example.com');
+    await page.click('button[type="submit"]');
+    await expect(page.locator('text=Please fill in all fields')).toBeVisible();
+
+    // Fill message too short
+    await page.fill('textarea[id="message"]', 'short');
+    await page.click('button[type="submit"]');
+    await expect(page.locator('text=Message must be at least 10 characters long')).toBeVisible();
+
+    // Fill valid form
+    await page.fill('textarea[id="message"]', 'This is a valid message with enough characters.');
+    await page.click('button[type="submit"]');
+
+    // Should succeed now
+    await expect(page.locator('text=Message Sent!')).toBeVisible({ timeout: 10000 });
+  });
+});
