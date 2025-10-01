@@ -1,890 +1,756 @@
 <script lang="ts">
-    import { onMount, onDestroy } from 'svelte';
-    import { EyeOff, UserX } from 'lucide-svelte';
-    import PhotoActionsMenu from './PhotoActionsMenu.svelte';
-    import { app } from '$lib/data.svelte';
-    import { auth } from '$lib/auth.svelte';
-    import { http, handleApiError } from '$lib/http';
-    import { myGoto } from '$lib/navigation.svelte';
-    import { constructUserProfileUrl, constructShareUrl } from '$lib/urlUtils';
-    import { TAURI } from '$lib/tauri.js';
-    import { invoke } from '@tauri-apps/api/core';
-    import { getDevicePhotoUrl } from '$lib/devicePhotoHelper';
-    import { simplePhotoWorker } from '$lib/simplePhotoWorker';
-    import type { PhotoData } from '$lib/sources';
+	import {onMount, onDestroy} from 'svelte';
+	import {EyeOff, UserX} from 'lucide-svelte';
+	import PhotoActionsMenu from './PhotoActionsMenu.svelte';
+	import {app} from '$lib/data.svelte';
+	import {auth} from '$lib/auth.svelte';
+	import {http, handleApiError} from '$lib/http';
+	import {myGoto} from '$lib/navigation.svelte';
+	import {constructUserProfileUrl, constructShareUrl, openExternalUrl} from '$lib/urlUtils';
+	import {TAURI} from '$lib/tauri.js';
+	import {invoke} from '@tauri-apps/api/core';
+	import {getDevicePhotoUrl} from '$lib/devicePhotoHelper';
+	import {simplePhotoWorker} from '$lib/simplePhotoWorker';
+	import type {PhotoData} from '$lib/sources';
 
-    export let photo: PhotoData | null = null;
-    export let className = '';
-    export let clientWidth: number | undefined = undefined;
+	export let photo: PhotoData | null = null;
+	export let className = '';
+	export let clientWidth: number | undefined = undefined;
 
-    let clientWidth2: number | undefined;
+	let clientWidth2: number | undefined;
 
-    let fetchPriority = className === 'front' ? 'high' : 'auto';
+	let fetchPriority = className === 'front' ? 'high' : 'auto';
 
-    let containerElement: HTMLElement | undefined;
-    let selectedUrl: string | undefined;
-    let selectedSize: any;
-    let width = 100;
-    let height = 100;
-    let devicePhotoUrl: string | null = null;
-    let bg_style_stretched_photo;
-    let border_style;
+	let containerElement: HTMLElement | undefined;
+	let selectedUrl: string | undefined;
+	let selectedSize: any;
+	let width = 100;
+	let height = 100;
+	let devicePhotoUrl: string | null = null;
+	let bg_style_stretched_photo;
+	let border_style;
 
-    // Background loading state
-    let displayedUrl: string | undefined;
-    let isLoadingNewImage = false;
-    let preloadImg: HTMLImageElement | null = null;
+	// Background loading state
+	let displayedUrl: string | undefined;
+	let isLoadingNewImage = false;
+	let preloadImg: HTMLImageElement | null = null;
 
-    // Hide functionality state
-    let showHideUserDialog = false;
-    let hideUserReason = '';
-    let flagUserForReview = false;
-    let isHiding = false;
-    let hideMessage = '';
+	// Hide functionality state
+	let showHideUserDialog = false;
+	let hideUserReason = '';
+	let flagUserForReview = false;
+	let isHiding = false;
+	let hideMessage = '';
 
 
-    // Get current user authentication state
-    $: isAuthenticated = $auth.isAuthenticated;
+	// Get current user authentication state
+	$: isAuthenticated = $auth.isAuthenticated;
 
-    // enable for stretched backdrop
-    //$: bg_style_stretched_photo = photo.sizes?.[50] ? `background-image: url(${photo.sizes[50].url});` : ''
+	// enable for stretched backdrop
+	//$: bg_style_stretched_photo = photo.sizes?.[50] ? `background-image: url(${photo.sizes[50].url});` : ''
 
-    $: border_style = className === 'front' && photo ? 'border: 4px dotted #4a90e2;' : '';
-    //console.log('🢄border_style:', border_style);
+	$: border_style = className === 'front' && photo ? 'border: 4px dotted #4a90e2;' : '';
+	//console.log('🢄border_style:', border_style);
 
-    $: if (photo || clientWidth || containerElement) updateSelectedUrl();
+	$: if (photo || clientWidth || containerElement) updateSelectedUrl();
 
-    // Handle selectedUrl changes with background loading
-    $: if (selectedUrl !== undefined && selectedUrl !== displayedUrl) {
-        handleImageChange(selectedUrl);
-    }
+	// Handle selectedUrl changes with background loading
+	$: if (selectedUrl !== undefined && selectedUrl !== displayedUrl) {
+		handleImageChange(selectedUrl);
+	}
 
-    async function updateSelectedUrl() {
+	async function updateSelectedUrl() {
 
-        if (clientWidth)
-            clientWidth2 = clientWidth;
-        else
-            if (!clientWidth2)
-                clientWidth2 = 500;
+		if (clientWidth)
+			clientWidth2 = clientWidth;
+		else if (!clientWidth2)
+			clientWidth2 = 500;
 
-        //console.log('🢄updateSelectedUrl clientWidth:', clientWidth2);
+		//console.log('🢄updateSelectedUrl clientWidth:', clientWidth2);
 
-        if (!containerElement) {
-            return;
-        }
+		if (!containerElement) {
+			return;
+		}
 
-        if (!photo) {
-            selectedUrl = '';
-            devicePhotoUrl = null;
-            return;
-        }
+		if (!photo) {
+			selectedUrl = '';
+			devicePhotoUrl = null;
+			return;
+		}
 
-        // Handle device photos specially
-        if (photo.isDevicePhoto && photo.url) {
-            try {
-                devicePhotoUrl = await getDevicePhotoUrl(photo.url);
-                selectedUrl = devicePhotoUrl;
-                return;
-            } catch (error) {
-                console.error('🢄Failed to load device photo:', error);
-                selectedUrl = '';
-                return;
-            }
-        }
+		// Handle device photos specially
+		if (photo.isDevicePhoto && photo.url) {
+			try {
+				devicePhotoUrl = await getDevicePhotoUrl(photo.url);
+				selectedUrl = devicePhotoUrl;
+				return;
+			} catch (error) {
+				console.error('🢄Failed to load device photo:', error);
+				selectedUrl = '';
+				return;
+			}
+		}
 
-        if (!photo.sizes) {
-            selectedUrl = photo.url;
-            return;
-        }
+		if (!photo.sizes) {
+			selectedUrl = photo.url;
+			return;
+		}
 
-        // Find the best scaled version based on container width. Take the 'full' size if this fails
-        const sizes = Object.keys(photo.sizes).filter(size => size !== 'full').sort((a, b) => Number(a) - Number(b));
-        let p: any;
-        for (let i = 0; i < sizes.length; i++) {
-            const size = sizes[i];
-            //console.log('🢄size:', size);
-            if (Number(size) >= clientWidth2 || ((i === sizes.length - 1) && !photo.sizes.full)) {
-                p = photo.sizes[sizes[i]];
-                selectedSize = size;
-                width = p.width;
-                height = p.height;
+		// Find the best scaled version based on container width. Take the 'full' size if this fails
+		const sizes = Object.keys(photo.sizes).filter(size => size !== 'full').sort((a, b) => Number(a) - Number(b));
+		let p: any;
+		for (let i = 0; i < sizes.length; i++) {
+			const size = sizes[i];
+			//console.log('🢄size:', size);
+			if (Number(size) >= clientWidth2 || ((i === sizes.length - 1) && !photo.sizes.full)) {
+				p = photo.sizes[sizes[i]];
+				selectedSize = size;
+				width = p.width;
+				height = p.height;
 
-                // Handle device photo URLs
-                if (photo.isDevicePhoto) {
-                    selectedUrl = await getDevicePhotoUrl(p.url);
-                } else {
-                    selectedUrl = p.url;
-                }
-                return;
-            }
-        }
-        selectedSize = 'full';
-        width = photo.sizes.full?.width || p?.width || 0;
-        height = photo.sizes.full?.height || p?.height || 0;
+				// Handle device photo URLs
+				if (photo.isDevicePhoto) {
+					selectedUrl = await getDevicePhotoUrl(p.url);
+				} else {
+					selectedUrl = p.url;
+				}
+				return;
+			}
+		}
+		selectedSize = 'full';
+		width = photo.sizes.full?.width || p?.width || 0;
+		height = photo.sizes.full?.height || p?.height || 0;
 
-        // Handle device photo URLs for full size
-        if (photo.isDevicePhoto && photo.sizes.full) {
-            selectedUrl = await getDevicePhotoUrl(photo.sizes.full.url);
-        } else {
-            selectedUrl = photo.sizes.full?.url || '';
-        }
-    }
+		// Handle device photo URLs for full size
+		if (photo.isDevicePhoto && photo.sizes.full) {
+			selectedUrl = await getDevicePhotoUrl(photo.sizes.full.url);
+		} else {
+			selectedUrl = photo.sizes.full?.url || '';
+		}
+	}
 
-    async function handleImageChange(newUrl: string) {
-        if (!newUrl || newUrl === displayedUrl) {
-            return;
-        }
+	async function handleImageChange(newUrl: string) {
+		if (!newUrl || newUrl === displayedUrl) {
+			return;
+		}
 
-        // If this is the first image or no previous image, show immediately
-        if (!displayedUrl) {
-            displayedUrl = newUrl;
-            return;
-        }
+		// If this is the first image or no previous image, show immediately
+		if (!displayedUrl) {
+			displayedUrl = newUrl;
+			return;
+		}
 
-        // Start background loading
-        isLoadingNewImage = true;
+		// Start background loading
+		isLoadingNewImage = true;
 
-        try {
-            preloadImg = new Image();
+		try {
+			preloadImg = new Image();
 
-            preloadImg.onload = () => {
-                displayedUrl = newUrl;
-                isLoadingNewImage = false;
-                preloadImg = null;
-            };
+			preloadImg.onload = () => {
+				displayedUrl = newUrl;
+				isLoadingNewImage = false;
+				preloadImg = null;
+			};
 
-            preloadImg.onerror = () => {
-                console.error('🢄Failed to preload image:', newUrl);
-                isLoadingNewImage = false;
-                preloadImg = null;
-            };
+			preloadImg.onerror = () => {
+				console.error('🢄Failed to preload image:', newUrl);
+				isLoadingNewImage = false;
+				preloadImg = null;
+			};
 
-            preloadImg.src = newUrl;
+			preloadImg.src = newUrl;
 
-        } catch (error) {
-            console.error('🢄Error preloading image:', error);
-            isLoadingNewImage = false;
-        }
-    }
+		} catch (error) {
+			console.error('🢄Error preloading image:', error);
+			isLoadingNewImage = false;
+		}
+	}
 
-    // Helper functions to determine photo source and get user info
-    function getPhotoSource(photo: PhotoData): string {
+	// Helper functions to determine photo source and get user info
+	function getPhotoSource(photo: PhotoData): string {
 		if (!photo?.source?.id) throw new Error('Photo source information is missing');
-        return photo.source.id;
-    }
+		return photo.source.id;
+	}
 
-    function getUserId(photo: PhotoData): string | null {
-        if (!photo) return null;
+	function getUserId(photo: PhotoData): string | null {
+		if (!photo) return null;
 
-        // For Mapillary photos, check if creator info exists in the photo data
-        if ((photo as any).creator?.id) {
-            return (photo as any).creator.id;
-        }
-        // For Hillview photos, check for owner_id field
-        if ((photo as any).owner_id) {
-            return (photo as any).owner_id;
-        }
-        return null;
-    }
+		// For Mapillary photos, check if creator info exists in the photo data
+		if ((photo as any).creator?.id) {
+			return (photo as any).creator.id;
+		}
+		// For Hillview photos, check for owner_id field
+		if ((photo as any).owner_id) {
+			return (photo as any).owner_id;
+		}
+		return null;
+	}
 
-    function getUserName(photo: PhotoData): string | null {
-        if (!photo) return null;
+	function getUserName(photo: PhotoData): string | null {
+		if (!photo) return null;
 
-        // For Mapillary photos, check if creator info exists in the photo data
-        if ((photo as any).creator?.username) {
-            return (photo as any).creator.username;
-        }
-        // For Hillview photos, check for owner_username field
-        if ((photo as any).owner_username) {
-            return (photo as any).owner_username;
-        }
-        return null;
-    }
+		// For Mapillary photos, check if creator info exists in the photo data
+		if ((photo as any).creator?.username) {
+			return (photo as any).creator.username;
+		}
+		// For Hillview photos, check for owner_username field
+		if ((photo as any).owner_username) {
+			return (photo as any).owner_username;
+		}
+		return null;
+	}
 
-    async function hidePhoto() {
-        if (!photo || !isAuthenticated || isHiding) return;
+	async function hidePhoto() {
+		if (!photo || !isAuthenticated || isHiding) return;
 
-        isHiding = true;
-        hideMessage = '';
+		isHiding = true;
+		hideMessage = '';
 
-        try {
-            const photoSource = getPhotoSource(photo);
-            const response = await http.post('/hidden/photos', {
-                photo_source: photoSource,
-                photo_id: photo.id,
-                reason: 'Hidden from gallery'
-            });
+		try {
+			const photoSource = getPhotoSource(photo);
+			const response = await http.post('/hidden/photos', {
+				photo_source: photoSource,
+				photo_id: photo.id,
+				reason: 'Hidden from gallery'
+			});
 
-            if (!response.ok) {
-                throw new Error(`Failed to hide photo: ${response.status}`);
-            }
+			if (!response.ok) {
+				throw new Error(`Failed to hide photo: ${response.status}`);
+			}
 
-            // Call webworker to remove from cache
-            simplePhotoWorker.removePhotoFromCache?.(photo.id, photoSource);
+			// Call webworker to remove from cache
+			simplePhotoWorker.removePhotoFromCache?.(photo.id, photoSource);
 
-            hideMessage = 'Photo hidden successfully';
-            setTimeout(() => hideMessage = '', 2000);
-        } catch (error) {
-            console.error('🢄Error hiding photo:', error);
-            hideMessage = `Error: ${handleApiError(error)}`;
-            setTimeout(() => hideMessage = '', 5000);
-        } finally {
-            isHiding = false;
-        }
-    }
+			hideMessage = 'Photo hidden successfully';
+			setTimeout(() => hideMessage = '', 2000);
+		} catch (error) {
+			console.error('🢄Error hiding photo:', error);
+			hideMessage = `Error: ${handleApiError(error)}`;
+			setTimeout(() => hideMessage = '', 5000);
+		} finally {
+			isHiding = false;
+		}
+	}
 
-    function showUserHideDialog() {
-        if (!photo || !isAuthenticated) return;
+	function showUserHideDialog() {
+		if (!photo || !isAuthenticated) return;
 
-        showHideUserDialog = true;
-        hideUserReason = '';
-        flagUserForReview = false;
-    }
+		showHideUserDialog = true;
+		hideUserReason = '';
+		flagUserForReview = false;
+	}
 
-    function cancelHideUser() {
-        showHideUserDialog = false;
-        hideUserReason = '';
-        flagUserForReview = false;
-    }
+	function cancelHideUser() {
+		showHideUserDialog = false;
+		hideUserReason = '';
+		flagUserForReview = false;
+	}
 
-    async function confirmHideUser() {
-        if (!photo || !isAuthenticated || isHiding) return;
+	async function confirmHideUser() {
+		if (!photo || !isAuthenticated || isHiding) return;
 
-        const userId = getUserId(photo);
-        if (!userId) {
-            hideMessage = 'Cannot hide user: User information not available';
-            setTimeout(() => hideMessage = '', 5000);
-            showHideUserDialog = false;
-            return;
-        }
+		const userId = getUserId(photo);
+		if (!userId) {
+			hideMessage = 'Cannot hide user: User information not available';
+			setTimeout(() => hideMessage = '', 5000);
+			showHideUserDialog = false;
+			return;
+		}
 
-        isHiding = true;
-        hideMessage = '';
+		isHiding = true;
+		hideMessage = '';
 
-        try {
-            const photoSource = getPhotoSource(photo);
-            const requestBody: any = {
-                target_user_source: photoSource,
-                target_user_id: userId,
-                reason: hideUserReason || 'Hidden from gallery'
-            };
+		try {
+			const photoSource = getPhotoSource(photo);
+			const requestBody: any = {
+				target_user_source: photoSource,
+				target_user_id: userId,
+				reason: hideUserReason || 'Hidden from gallery'
+			};
 
-            // Add metadata if user should be flagged for review
-            if (flagUserForReview) {
-                requestBody.extra_data = { flagged_for_review: true };
-            }
+			// Add metadata if user should be flagged for review
+			if (flagUserForReview) {
+				requestBody.extra_data = {flagged_for_review: true};
+			}
 
-            const response = await http.post('/hidden/users', requestBody);
+			const response = await http.post('/hidden/users', requestBody);
 
-            if (!response.ok) {
-                throw new Error(`Failed to hide user: ${response.status}`);
-            }
+			if (!response.ok) {
+				throw new Error(`Failed to hide user: ${response.status}`);
+			}
 
-            // Call webworker to remove all photos by this user from cache
-            simplePhotoWorker.removeUserPhotosFromCache?.(userId, photoSource);
+			// Call webworker to remove all photos by this user from cache
+			simplePhotoWorker.removeUserPhotosFromCache?.(userId, photoSource);
 
-            hideMessage = 'User hidden successfully';
-            setTimeout(() => hideMessage = '', 2000);
-            showHideUserDialog = false;
-        } catch (error) {
-            console.error('🢄Error hiding user:', error);
-            hideMessage = `Error: ${handleApiError(error)}`;
-            setTimeout(() => hideMessage = '', 5000);
-        } finally {
-            isHiding = false;
-        }
-    }
+			hideMessage = 'User hidden successfully';
+			setTimeout(() => hideMessage = '', 2000);
+			showHideUserDialog = false;
+		} catch (error) {
+			console.error('🢄Error hiding user:', error);
+			hideMessage = `Error: ${handleApiError(error)}`;
+			setTimeout(() => hideMessage = '', 5000);
+		} finally {
+			isHiding = false;
+		}
+	}
 
 
+	// Navigate to user profile for Hillview photos
+	async function viewUserProfile() {
+		if (!photo) return;
 
-    // Navigate to user profile for Hillview photos
-    function viewUserProfile() {
-        if (!photo) return;
+		const photoSource = getPhotoSource(photo);
+		const userId = getUserId(photo);
 
-        const photoSource = getPhotoSource(photo);
-        const userId = getUserId(photo);
+		if (photoSource === 'hillview' && userId) {
+			myGoto(constructUserProfileUrl(userId));
+		}
+		else if (photoSource === 'mapillary' && (photo as any).creator?.username) {
+			const username = (photo as any).creator.username;
+			const profileUrl = `https://www.mapillary.com/app/user/${username}`;
+			await openExternalUrl(profileUrl);
+		}
 
-        if (photoSource === 'hillview' && userId) {
-            myGoto(constructUserProfileUrl(userId));
-        }
-    }
-
-    // Share photo functionality
-    async function sharePhoto() {
-        if (!photo) return;
-
-        try {
-            const shareUrl = constructShareUrl(photo);
-            const shareText = `Check out this photo on Hillview${getUserName(photo) ? ` by @${getUserName(photo)}` : ''}`;
-
-            if (TAURI) {
-                // Use native Android sharing through Tauri plugin
-                const result = await invoke('plugin:hillview|share_photo', {
-                    title: 'Photo on Hillview',
-                    text: shareText,
-                    url: shareUrl
-                }) as { success: boolean; error?: string; message?: string };
-
-                if (result.success) {
-                    hideMessage = 'Shared successfully!';
-                    setTimeout(() => hideMessage = '', 2000);
-                } else {
-                    throw new Error(result.error || 'Share failed');
-                }
-            } else {
-                // Web fallback - copy to clipboard
-                if (navigator.clipboard) {
-                    const fullShareText = `${shareText}\n${shareUrl}`;
-                    await navigator.clipboard.writeText(fullShareText);
-                    hideMessage = 'Share link copied to clipboard!';
-                    setTimeout(() => hideMessage = '', 2000);
-                } else {
-                    // Fallback for older browsers
-                    const textarea = document.createElement('textarea');
-                    textarea.value = `${shareText}\n${shareUrl}`;
-                    document.body.appendChild(textarea);
-                    textarea.select();
-                    document.execCommand('copy');
-                    document.body.removeChild(textarea);
-                    hideMessage = 'Share link copied to clipboard!';
-                    setTimeout(() => hideMessage = '', 2000);
-                }
-            }
-        } catch (error) {
-            console.error('🢄Error sharing photo:', error);
-            hideMessage = 'Failed to share photo';
-            setTimeout(() => hideMessage = '', 3000);
-        }
-    }
-
+	}
 
 
 </script>
 {#if $app.debug === 5}
-    <div class="debug">
-        <b>Debug Information</b><br>
-        <b>clientWidth2:</b> {clientWidth2}<br>
-        <b>Selected URL:</b> {JSON.stringify(selectedUrl)}<br>
-        <b>Selected Size:</b> {selectedSize}
-        <b>Width:</b> {width}
-        <b>Height:</b> {height}
-        <b>Photo:</b> <pre>{JSON.stringify(photo, null, 2)}</pre>
-    </div>
+	<div class="debug">
+		<b>Debug Information</b><br>
+		<b>clientWidth2:</b> {clientWidth2}<br>
+		<b>Selected URL:</b> {JSON.stringify(selectedUrl)}<br>
+		<b>Selected Size:</b> {selectedSize}
+		<b>Width:</b> {width}
+		<b>Height:</b> {height}
+		<b>Photo:</b>
+		<pre>{JSON.stringify(photo, null, 2)}</pre>
+	</div>
 {/if}
 
 
-<div bind:this={containerElement} class="photo-wrapper" >
+<div bind:this={containerElement} class="photo-wrapper">
 
-    {#if photo && displayedUrl}
-        <img
-            src={displayedUrl}
-            alt={photo.file}
-            class="{className} photo"
-            style="{bg_style_stretched_photo} {border_style}"
-            fetchpriority={fetchPriority as any}
-            data-testid="main-photo"
-            data-photo={JSON.stringify(photo)}
-        />
+	{#if photo && displayedUrl}
+		<img
+			src={displayedUrl}
+			alt={photo.file}
+			class="{className} photo"
+			style="{bg_style_stretched_photo} {border_style}"
+			fetchpriority={fetchPriority as any}
+			data-testid="main-photo"
+			data-photo={JSON.stringify(photo)}
+		/>
 
-        <!-- Loading spinner overlay -->
-        {#if isLoadingNewImage}
-            <div class="photo-loading-overlay" data-testid="photo-loading-spinner">
-                <!-- Import spinner here since we don't want to import the full Spinner component -->
-                <div class="photo-spinner"></div>
-            </div>
-        {/if}
+		<!-- Loading spinner overlay -->
+		{#if isLoadingNewImage}
+			<div class="photo-loading-overlay" data-testid="photo-loading-spinner">
+				<!-- Import spinner here since we don't want to import the full Spinner component -->
+				<div class="photo-spinner"></div>
+			</div>
+		{/if}
 
-        <!-- Photo actions for front photo only -->
-        {#if className === 'front'}
-            <!-- Creator username display -->
-            {#if getUserName(photo)}
-                <div class="creator-info">
-                    {#if getPhotoSource(photo) === 'hillview'}
-                        <button class="creator-name clickable" on:click={viewUserProfile}>
-                            @{getUserName(photo)}
-                        </button>
-                    {:else}
-                        <span class="creator-name">@{getUserName(photo)}</span>
-                    {/if}
-                    <span class="source-name">{getPhotoSource(photo)}</span>
-                </div>
-            {/if}
+		<!-- Photo actions for front photo only -->
+		{#if className === 'front'}
+			<!-- Creator username display -->
+			{#if getUserName(photo)}
+				<button class="creator-name clickable" on:click={viewUserProfile}>
+					<div class="creator-info">
+						<span class="creator-name">@{getUserName(photo)}</span>
+						<span class="source-name">{getPhotoSource(photo)}</span>
+					</div>
+				</button>
+			{/if}
 
-            <div class="photo-actions-container">
-                <PhotoActionsMenu
-                    {photo}
-                    bind:showHideUserDialog
-                    bind:hideUserReason
-                    bind:flagUserForReview
-                />
-            </div>
-        {/if}
+			<div class="photo-actions-container">
+				<PhotoActionsMenu
+					{photo}
+					bind:showHideUserDialog
+					bind:hideUserReason
+					bind:flagUserForReview
+				/>
+			</div>
+		{/if}
 
-        <!-- Status message -->
-        {#if hideMessage}
-            <div class="hide-message" class:error={hideMessage.startsWith('Error')}>
-                {hideMessage}
-            </div>
-        {/if}
-    {/if}
+		<!-- Status message -->
+		{#if hideMessage}
+			<div class="hide-message" class:error={hideMessage.startsWith('Error')}>
+				{hideMessage}
+			</div>
+		{/if}
+	{/if}
 </div>
 
 <!-- Hide User Confirmation Dialog -->
 {#if showHideUserDialog}
-    <div class="dialog-overlay">
-        <div class="dialog">
-            <h3>Hide User</h3>
-            <p>This will hide all photos by <strong>{photo && getUserName(photo) ? `@${getUserName(photo)}` : 'this user'}</strong> from your view.</p>
+	<div class="dialog-overlay">
+		<div class="dialog">
+			<h3>Hide User</h3>
+			<p>This will hide all photos by
+				<strong>{photo && getUserName(photo) ? `@${getUserName(photo)}` : 'this user'}</strong> from your view.
+			</p>
 
-            <div class="form-group">
-                <label for="hide-reason">Reason (optional):</label>
-                <input
-                    id="hide-reason"
-                    type="text"
-                    bind:value={hideUserReason}
-                    placeholder="e.g., Inappropriate content, spam, etc."
-                    maxlength="100"
-                />
-            </div>
+			<div class="form-group">
+				<label for="hide-reason">Reason (optional):</label>
+				<input
+					id="hide-reason"
+					type="text"
+					bind:value={hideUserReason}
+					placeholder="e.g., Inappropriate content, spam, etc."
+					maxlength="100"
+				/>
+			</div>
 
-            <div class="form-group">
-                <label class="checkbox-label">
-                    <input
-                        type="checkbox"
-                        bind:checked={flagUserForReview}
-                    />
-                    Flag user for review by moderators
-                </label>
-            </div>
+			<div class="form-group">
+				<label class="checkbox-label">
+					<input
+						type="checkbox"
+						bind:checked={flagUserForReview}
+					/>
+					Flag user for review by moderators
+				</label>
+			</div>
 
-            <div class="dialog-buttons">
-                <button
-                    class="cancel-button"
-                    on:click={cancelHideUser}
-                    disabled={isHiding}
-                >
-                    Cancel
-                </button>
-                <button
-                    class="confirm-button"
-                    on:click={confirmHideUser}
-                    disabled={isHiding}
-                >
-                    {isHiding ? 'Hiding...' : 'Hide User'}
-                </button>
-            </div>
-        </div>
-    </div>
+			<div class="dialog-buttons">
+				<button
+					class="cancel-button"
+					on:click={cancelHideUser}
+					disabled={isHiding}
+				>
+					Cancel
+				</button>
+				<button
+					class="confirm-button"
+					on:click={confirmHideUser}
+					disabled={isHiding}
+				>
+					{isHiding ? 'Hiding...' : 'Hide User'}
+				</button>
+			</div>
+		</div>
+	</div>
 {/if}
 
 <style>
-    .debug {
-        overflow: auto;
-        position: absolute;
-        top: 130;
-        left: 100;
-        padding: 0.5rem;
-        background: #f0f070;
-        border: 1px solid black;
-        z-index: 1000;
-        width: 320px; /* Fixed width */
-        height: 320px; /* Fixed height */
-    }
-    .photo-wrapper {
-        display: flex;
-        justify-content: center;
-        /*width: 100%;*/
-        max-width: 100%;
-        max-height: 100%;
-        object-fit: contain;
-        background-repeat: no-repeat;
+	.debug {
+		overflow: auto;
+		position: absolute;
+		top: 130;
+		left: 100;
+		padding: 0.5rem;
+		background: #f0f070;
+		border: 1px solid black;
+		z-index: 1000;
+		width: 320px; /* Fixed width */
+		height: 320px; /* Fixed height */
+	}
 
-    }
-
-    .photo {
-        object-fit: contain;
-        background-size: cover;
-        -o-background-size: cover;
-    }
-
-    .photo-actions-container {
-        position: absolute;
-        bottom: 12px;
-        right: 10px;
-        z-index: 100;
+	.photo-wrapper {
 		display: flex;
-    }
+		justify-content: center;
+		/*width: 100%;*/
+		max-width: 100%;
+		max-height: 100%;
+		object-fit: contain;
+		background-repeat: no-repeat;
+
+	}
+
+	.photo {
+		object-fit: contain;
+		background-size: cover;
+		-o-background-size: cover;
+	}
+
+	.photo-actions-container {
+		position: absolute;
+		bottom: 12px;
+		right: 10px;
+		z-index: 100000;
+		display: flex;
+	}
 
 
-    /* Front image is centered and on top */
-    .front {
-        z-index: 2;
-    }
+	/* Front image is centered and on top */
+	.front {
+		z-index: 2;
+	}
 
-    /* Side images are absolutely positioned and vertically centered */
-    .left {
-        opacity: 0.4;
-        position: absolute;
-        top: 50%;
-        transform: translateY(-80%);
-        z-index: 1;
-        /* Optionally, set a width to control how much of the side image shows */
-        width: 90%;
-        left: 0;
-        mask-image: linear-gradient(to right, white 0%, white 70%, transparent 100%);
-        -webkit-mask-image: linear-gradient(to right, white 0%, white 70%, transparent 100%);
-    }
+	/* Side images are absolutely positioned and vertically centered */
+	.left {
+		opacity: 0.4;
+		position: absolute;
+		top: 50%;
+		transform: translateY(-80%);
+		z-index: 1;
+		/* Optionally, set a width to control how much of the side image shows */
+		width: 90%;
+		left: 0;
+		mask-image: linear-gradient(to right, white 0%, white 70%, transparent 100%);
+		-webkit-mask-image: linear-gradient(to right, white 0%, white 70%, transparent 100%);
+	}
 
-    .right {
-        opacity: 0.4;
-        position: absolute;
-        top: 50%;
-        transform: translateY(-20%);
-        z-index: 1;
-        /* Optionally, set a width to control how much of the side image shows */
-        width: 90%;
-        right: 0;
-        mask-image: linear-gradient(to left, white 0%, white 70%, transparent 100%);
-        -webkit-mask-image: linear-gradient(to left, white 0%, white 70%, transparent 100%);
-    }
+	.right {
+		opacity: 0.4;
+		position: absolute;
+		top: 50%;
+		transform: translateY(-20%);
+		z-index: 1;
+		/* Optionally, set a width to control how much of the side image shows */
+		width: 90%;
+		right: 0;
+		mask-image: linear-gradient(to left, white 0%, white 70%, transparent 100%);
+		-webkit-mask-image: linear-gradient(to left, white 0%, white 70%, transparent 100%);
+	}
 
-    /* Creator info display */
-    .creator-info {
-        position: absolute;
-        bottom: 60px;
-        right: 10px;
-        background: rgba(0, 0, 0, 0.8);
-        color: white;
-        padding: 6px 10px;
-        border-radius: 12px;
-        font-size: 12px;
-        font-weight: 500;
-        display: flex;
-        flex-direction: column;
-        align-items: flex-end;
-        gap: 2px;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-        z-index: 9;
-        max-width: 150px;
-        text-align: right;
-    }
+	/* Creator info display */
+	.creator-info {
+		position: absolute;
+		bottom: 10px;
+		right: 150px;
+		background: rgba(1, 1, 1, 0.7);
+		color: white;
+		padding: 6px 10px;
+		border-radius: 12px;
+		font-size: 12px;
+		font-weight: 500;
+		display: flex;
+		flex-direction: column;
+		align-items: flex-end;
+		gap: 2px;
+		/*box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);*/
+		z-index: 9;
+		max-width: 150px;
+		text-align: right;
+	}
 
-    .creator-name {
-        color: #4a90e2;
-        font-weight: 600;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        max-width: 100%;
-    }
+	.creator-name {
+		color: #fff;
+		font-weight: 600;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		max-width: 100%;
+	}
 
-    .creator-name.clickable {
-        background: none;
-        border: none;
-        padding: 0;
-        margin: 0;
-        font-size: inherit;
-        font-weight: inherit;
-        font-family: inherit;
-        color: #4a90e2;
-        cursor: pointer;
-        text-decoration: underline;
-        transition: color 0.2s ease;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        max-width: 100%;
-    }
+	.creator-name.clickable {
+		background: none;
+		border: none;
+		padding: 0;
+		margin: 0;
+		font-size: inherit;
+		font-weight: inherit;
+		font-family: inherit;
+		color: #dddde2;
+		cursor: pointer;
+		text-decoration: underline;
+		transition: color 0.2s ease;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		max-width: 100%;
+	}
 
-    .creator-name.clickable:hover {
-        color: #357abd;
-    }
+	.creator-name.clickable:hover {
+		color: #ffffff;
+	}
 
-    .source-name {
-        color: rgba(255, 255, 255, 0.7);
-        font-size: 10px;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
+	.source-name {
+		color: rgba(255, 255, 255, 0.7);
+		font-size: 10px;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+	}
 
-    /* Hide buttons */
-    .hide-buttons {
-        position: absolute;
-        bottom: 10px;
-        right: 10px;
-        display: flex;
-        gap: 6px;
-        z-index: 10;
-    }
+	/* Status message */
+	.hide-message {
+		position: absolute;
+		bottom: 60px;
+		right: 10px;
+		background: rgba(40, 167, 69, 0.9);
+		color: white;
+		padding: 8px 12px;
+		border-radius: 4px;
+		font-size: 14px;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+		z-index: 10;
+		animation: fadeIn 0.3s ease;
+	}
 
-    .hide-button {
-        background: rgba(0, 0, 0, 0.7);
-        color: white;
-        border: none;
-        border-radius: 50%;
-        width: 36px;
-        height: 36px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        transition: all 0.2s ease;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-    }
+	.hide-message.error {
+		background: rgba(220, 53, 69, 0.9);
+	}
 
-    .hide-button:hover:not(:disabled) {
-        background: rgba(0, 0, 0, 0.9);
-        transform: scale(1.1);
-    }
+	@keyframes fadeIn {
+		from {
+			opacity: 0;
+			transform: translateY(10px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
+	}
 
-    .hide-button:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-        transform: none;
-    }
+	/* Dialog styles */
+	.dialog-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(0, 0, 0, 0.7);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 1000;
+		animation: fadeIn 0.2s ease;
+	}
 
-    .hide-photo {
-        background: rgba(220, 53, 69, 0.8);
-    }
+	.dialog {
+		background: white;
+		padding: 24px;
+		border-radius: 12px;
+		max-width: 400px;
+		width: 90%;
+		box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+		animation: slideIn 0.2s ease;
+	}
 
-    .hide-photo:hover:not(:disabled) {
-        background: rgba(220, 53, 69, 1);
-    }
+	@keyframes slideIn {
+		from {
+			opacity: 0;
+			transform: translateY(-20px) scale(0.95);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0) scale(1);
+		}
+	}
 
-    .hide-user {
-        background: rgba(255, 133, 27, 0.8);
-    }
+	.dialog h3 {
+		margin: 0 0 16px 0;
+		color: #333;
+		font-size: 1.25rem;
+	}
 
-    .hide-user:hover:not(:disabled) {
-        background: rgba(255, 133, 27, 1);
-    }
+	.dialog p {
+		margin: 0 0 20px 0;
+		color: #666;
+		line-height: 1.4;
+	}
 
-    /* Rating buttons */
-    .rating-button {
-        background: rgba(0, 0, 0, 0.7);
-        color: white;
-        position: relative;
-        width: auto !important;
-        min-width: 40px;
-        padding: 0 8px;
-        border-radius: 18px !important;
-        gap: 4px;
-    }
+	.form-group {
+		margin-bottom: 16px;
+	}
 
-    .rating-button:hover:not(:disabled) {
-        background: rgba(0, 0, 0, 0.9);
-    }
+	.form-group label {
+		display: block;
+		margin-bottom: 6px;
+		color: #333;
+		font-weight: 500;
+	}
 
-    .rating-button.active {
-        background: rgba(40, 167, 69, 0.8);
-        color: white;
-    }
+	.form-group input[type="text"] {
+		width: 100%;
+		padding: 8px 12px;
+		border: 1px solid #ddd;
+		border-radius: 6px;
+		font-size: 14px;
+		box-sizing: border-box;
+	}
 
-    .rating-button.active:hover:not(:disabled) {
-        background: rgba(40, 167, 69, 1);
-    }
+	.form-group input[type="text"]:focus {
+		outline: none;
+		border-color: #4a90e2;
+		box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.2);
+	}
 
-    .rating-count {
-        font-size: 12px;
-        font-weight: 600;
-        min-width: 12px;
-        text-align: center;
-    }
+	.checkbox-label {
+		display: flex !important;
+		align-items: center;
+		gap: 8px;
+		cursor: pointer;
+	}
 
-    /* Share button */
-    .share-button {
-        background: rgba(74, 144, 226, 0.8);
-    }
+	.checkbox-label input[type="checkbox"] {
+		width: auto;
+		margin: 0;
+	}
 
-    .share-button:hover:not(:disabled) {
-        background: rgba(74, 144, 226, 1);
-    }
+	.dialog-buttons {
+		display: flex;
+		gap: 12px;
+		justify-content: flex-end;
+		margin-top: 24px;
+	}
 
-    /* Status message */
-    .hide-message {
-        position: absolute;
-        bottom: 60px;
-        right: 10px;
-        background: rgba(40, 167, 69, 0.9);
-        color: white;
-        padding: 8px 12px;
-        border-radius: 4px;
-        font-size: 14px;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-        z-index: 10;
-        animation: fadeIn 0.3s ease;
-    }
+	.dialog-buttons button {
+		padding: 10px 20px;
+		border: none;
+		border-radius: 6px;
+		font-size: 14px;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
 
-    .hide-message.error {
-        background: rgba(220, 53, 69, 0.9);
-    }
+	.cancel-button {
+		background: #f8f9fa;
+		color: #495057;
+		border: 1px solid #dee2e6;
+	}
 
-    @keyframes fadeIn {
-        from {
-            opacity: 0;
-            transform: translateY(10px);
-        }
-        to {
-            opacity: 1;
-            transform: translateY(0);
-        }
-    }
+	.cancel-button:hover:not(:disabled) {
+		background: #e9ecef;
+	}
 
-    /* Dialog styles */
-    .dialog-overlay {
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: rgba(0, 0, 0, 0.7);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: 1000;
-        animation: fadeIn 0.2s ease;
-    }
+	.confirm-button {
+		background: #ff851b;
+		color: white;
+	}
 
-    .dialog {
-        background: white;
-        padding: 24px;
-        border-radius: 12px;
-        max-width: 400px;
-        width: 90%;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-        animation: slideIn 0.2s ease;
-    }
+	.confirm-button:hover:not(:disabled) {
+		background: #e76500;
+	}
 
-    @keyframes slideIn {
-        from {
-            opacity: 0;
-            transform: translateY(-20px) scale(0.95);
-        }
-        to {
-            opacity: 1;
-            transform: translateY(0) scale(1);
-        }
-    }
+	.dialog-buttons button:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
 
-    .dialog h3 {
-        margin: 0 0 16px 0;
-        color: #333;
-        font-size: 1.25rem;
-    }
+	/* Photo loading overlay */
+	.photo-loading-overlay {
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		/*background-color: rgba(0, 0, 0, 0.3);*/
+		z-index: 8;
+		pointer-events: none;
+	}
 
-    .dialog p {
-        margin: 0 0 20px 0;
-        color: #666;
-        line-height: 1.4;
-    }
+	/* Simple spinner animation */
+	.photo-spinner {
+		width: 40px;
+		height: 40px;
+		border: 4px solid rgba(255, 255, 255, 0.3);
+		border-top: 4px solid #ffffff;
+		border-radius: 50%;
+		animation: spin 1s linear infinite;
+	}
 
-    .form-group {
-        margin-bottom: 16px;
-    }
-
-    .form-group label {
-        display: block;
-        margin-bottom: 6px;
-        color: #333;
-        font-weight: 500;
-    }
-
-    .form-group input[type="text"] {
-        width: 100%;
-        padding: 8px 12px;
-        border: 1px solid #ddd;
-        border-radius: 6px;
-        font-size: 14px;
-        box-sizing: border-box;
-    }
-
-    .form-group input[type="text"]:focus {
-        outline: none;
-        border-color: #4a90e2;
-        box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.2);
-    }
-
-    .checkbox-label {
-        display: flex !important;
-        align-items: center;
-        gap: 8px;
-        cursor: pointer;
-    }
-
-    .checkbox-label input[type="checkbox"] {
-        width: auto;
-        margin: 0;
-    }
-
-    .dialog-buttons {
-        display: flex;
-        gap: 12px;
-        justify-content: flex-end;
-        margin-top: 24px;
-    }
-
-    .dialog-buttons button {
-        padding: 10px 20px;
-        border: none;
-        border-radius: 6px;
-        font-size: 14px;
-        font-weight: 500;
-        cursor: pointer;
-        transition: all 0.2s ease;
-    }
-
-    .cancel-button {
-        background: #f8f9fa;
-        color: #495057;
-        border: 1px solid #dee2e6;
-    }
-
-    .cancel-button:hover:not(:disabled) {
-        background: #e9ecef;
-    }
-
-    .confirm-button {
-        background: #ff851b;
-        color: white;
-    }
-
-    .confirm-button:hover:not(:disabled) {
-        background: #e76500;
-    }
-
-    .dialog-buttons button:disabled {
-        opacity: 0.6;
-        cursor: not-allowed;
-    }
-
-    /* Photo loading overlay */
-    .photo-loading-overlay {
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        /*background-color: rgba(0, 0, 0, 0.3);*/
-        z-index: 8;
-        pointer-events: none;
-    }
-
-    /* Simple spinner animation */
-    .photo-spinner {
-        width: 40px;
-        height: 40px;
-        border: 4px solid rgba(255, 255, 255, 0.3);
-        border-top: 4px solid #ffffff;
-        border-radius: 50%;
-        animation: spin 1s linear infinite;
-    }
-
-    @keyframes spin {
-        0% { transform: rotate(0deg); }
-        100% { transform: rotate(360deg); }
-    }
+	@keyframes spin {
+		0% {
+			transform: rotate(0deg);
+		}
+		100% {
+			transform: rotate(360deg);
+		}
+	}
 
 </style>

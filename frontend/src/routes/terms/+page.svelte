@@ -294,19 +294,6 @@
 		margin-bottom: 8px;
 	}
 
-	.privacy-emphasis {
-		background: #f8fafc;
-		border: 2px solid #e2e8f0;
-		border-radius: 8px;
-		margin: 16px 0;
-	}
-
-	.privacy-notice {
-		background: white;
-		padding: 24px;
-		border-radius: 6px;
-		border: 1px solid #e5e7eb;
-	}
 
 	.warning-box {
 		background: #fef3c7;
@@ -381,9 +368,6 @@
 			padding: 24px;
 		}
 
-		.privacy-notice {
-			padding: 20px;
-		}
 
 		.warning-box {
 			flex-direction: column;

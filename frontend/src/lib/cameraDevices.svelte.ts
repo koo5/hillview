@@ -40,37 +40,37 @@ export async function enumerateCameraDevices(): Promise<CameraDevice[]> {
 
         console.log('🢄[CAMERAS] Found video devices:', videoDevices.length);
 
-        const cameraDevices: CameraDevice[] = videoDevices.map(device => {
-            const label = device.label.toLowerCase();
-            let facingMode: 'front' | 'back' | 'unknown' = 'unknown';
-            let isPreferred = false;
+        const cameraDevices: CameraDevice[] = videoDevices
+            .map(device => {
+                const label = device.label.toLowerCase();
+                let facingMode: 'front' | 'back' | 'unknown' = 'unknown';
+                let isPreferred = false;
 
-            // Determine facing mode from label
-            if (label.includes('front') || label.includes('user') || label.includes('selfie')) {
-                facingMode = 'front';
-            } else if (label.includes('back') || label.includes('rear') || label.includes('environment')) {
-                facingMode = 'back';
+                // Determine facing mode from label
+                if (label.includes('front') || label.includes('user') || label.includes('selfie')) {
+                    facingMode = 'front';
+                } else if (label.includes('back') || label.includes('rear') || label.includes('environment')) {
+                    facingMode = 'back';
 
-                // Mark as preferred if it's a standard back camera (not wide/ultra/telephoto)
-                if (!label.includes('wide') && !label.includes('ultra') && !label.includes('telephoto')) {
-                    isPreferred = true;
+                    // Mark as preferred if it's a standard back camera (not wide/ultra/telephoto)
+                    if (!label.includes('wide') && !label.includes('ultra') && !label.includes('telephoto')) {
+                        isPreferred = true;
+                    }
                 }
-            }
 
-            return {
-                deviceId: device.deviceId,
-                label: device.label || `Camera ${videoDevices.indexOf(device) + 1}`,
-                facingMode,
-                isPreferred
-            };
-        });
+                return {
+                    deviceId: device.deviceId,
+                    label: device.label || `Camera ${videoDevices.indexOf(device) + 1}`,
+                    facingMode,
+                    isPreferred
+                };
+            })
+            .filter(camera => camera.facingMode !== 'front'); // Skip front cameras
 
-        // Sort cameras: preferred back cameras first, then other back cameras, then front cameras
+        // Sort cameras: preferred back cameras first, then other back cameras
         cameraDevices.sort((a, b) => {
             if (a.isPreferred && !b.isPreferred) return -1;
             if (!a.isPreferred && b.isPreferred) return 1;
-            if (a.facingMode === 'back' && b.facingMode !== 'back') return -1;
-            if (a.facingMode !== 'back' && b.facingMode === 'back') return 1;
             return a.label.localeCompare(b.label);
         });
 
@@ -106,62 +106,21 @@ export function getPreferredBackCamera(cameras: CameraDevice[]): CameraDevice | 
     return cameras[0] || null;
 }
 
-export function getFrontCamera(cameras: CameraDevice[]): CameraDevice | null {
-    return cameras.find(c => c.facingMode === 'front') || null;
-}
 
-// Common widths to test - camera will choose natural height
-export function getTestWidths(): number[] {
-    return [640, 1280, 1920, 2560, 3840];
-}
 
-// Test a specific width with a camera and get the actual resolution
-export async function testCameraWidth(deviceId: string, width: number): Promise<Resolution | null> {
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-            video: {
-                deviceId: { exact: deviceId },
-                width: { ideal: width }
-            }
-        });
-
-        const videoTrack = stream.getVideoTracks()[0];
-        const settings = videoTrack.getSettings();
-
-        // Clean up the test stream immediately
-        stream.getTracks().forEach(track => track.stop());
-
-        if (settings.width && settings.height) {
-            return {
-                width: settings.width,
-                height: settings.height,
-                label: `${settings.width}×${settings.height}`
-            };
-        }
-
-        return null;
-    } catch (error) {
-        return null;
-    }
-}
-
-// Get supported resolutions for a camera device
+// Get hardcoded resolution options for camera
 export async function getCameraSupportedResolutions(deviceId: string): Promise<Resolution[]> {
-    const testWidths = getTestWidths();
-    const supportedResolutions: Resolution[] = [];
-    const seenResolutions = new Set<string>();
+    console.log(`🢄[CAMERA] Using hardcoded resolution options for device ${deviceId.slice(0, 8)}...`);
 
-    for (const width of testWidths) {
-        const resolution = await testCameraWidth(deviceId, width);
-        if (resolution) {
-            const key = `${resolution.width}x${resolution.height}`;
-            if (!seenResolutions.has(key)) {
-                seenResolutions.add(key);
-                supportedResolutions.push(resolution);
-            }
-        }
-    }
+    const hardcodedResolutions: Resolution[] = [
+        { width: 3840, height: 2160, label: "4K (3840×2160)" },
+        { width: 2560, height: 1440, label: "1440p (2560×1440)" },
+        { width: 1920, height: 1080, label: "1080p (1920×1080)" },
+        { width: 1280, height: 720, label: "720p (1280×720)" }
+    ];
 
-    // Sort by width descending (highest resolution first)
-    return supportedResolutions.sort((a, b) => b.width - a.width);
+    console.log(`🢄[CAMERA] Offering ${hardcodedResolutions.length} resolution options:`,
+        hardcodedResolutions.map(r => r.label));
+
+    return hardcodedResolutions;
 }

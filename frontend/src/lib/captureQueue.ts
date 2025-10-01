@@ -237,11 +237,11 @@ class CaptureQueueManager {
 						const seconds = String(date.getSeconds()).padStart(2, '0');
 						const filename = `${year}-${month}-${day}-${hours}-${minutes}-${seconds}_${item.id}.jpg`;
 
-						this.log(this.LOG_TAGS.QUEUE_PROCESS, 'All chunks received, saving photo with metadata', {
+						this.log(this.LOG_TAGS.QUEUE_PROCESS, 'All chunks sent, saving photo with metadata', JSON.stringify({
 							photoId: item.id,
 							filename,
 							totalChunks
-						});
+						}));
 
 						// Call Rust to save photo using stored chunks
 						const devicePhoto = await invoke('save_photo_with_metadata', {
@@ -252,13 +252,13 @@ class CaptureQueueManager {
 						}) as { id: string; filename: string; [key: string]: any };
 
 						this.totalProcessed++;
-						this.log(this.LOG_TAGS.PHOTO_SAVE, 'Photo processed successfully', {
+						this.log(this.LOG_TAGS.PHOTO_SAVE, 'Photo processed successfully', JSON.stringify({
 							itemId: item.id,
 							photoId: devicePhoto.id,
 							filename: devicePhoto.filename,
 							placeholderReplaced: item.placeholderId,
 							totalProcessed: this.totalProcessed
-						});
+						}));
 
 						// Remove placeholder
 						removePlaceholder(item.placeholderId);

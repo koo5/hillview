@@ -43,7 +43,8 @@ async function processCanvas(item: CaptureQueueItem): Promise<void> {
     try {
         log('Processing canvas', { itemId: item.id });
         log('OffscreenCanvas available:', typeof OffscreenCanvas !== 'undefined');
-        log('ImageData size:', { width: item.imageData.width, height: item.imageData.height });
+        log('ImageData size:', JSON.stringify(
+			{ width: item.imageData.width, height: item.imageData.height }));
 
         // Create new offscreen canvas in worker
         if (typeof OffscreenCanvas === 'undefined') {
@@ -71,10 +72,10 @@ async function processCanvas(item: CaptureQueueItem): Promise<void> {
             throw new Error('Failed to create blob from canvas');
         }
 
-        log('Canvas converted to blob', {
+        log('Canvas converted to blob', JSON.stringify({
             itemId: item.id,
             blobSize: blob.size
-        });
+        }));
 
         // Convert blob to array buffer for Rust
         const arrayBuffer = await blob.arrayBuffer();

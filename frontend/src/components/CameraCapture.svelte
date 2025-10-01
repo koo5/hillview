@@ -20,6 +20,7 @@
         cameraEnumerationSupported,
         enumerateCameraDevices,
         getCameraSupportedResolutions,
+        getPreferredBackCamera,
         type CameraDevice,
         type Resolution
     } from '$lib/cameraDevices.svelte';
@@ -83,6 +84,19 @@
     let permissionRetryInterval: number | null = null;
     let showCameraSelector = false;
     let photoCapturedCount = 0; // Track captures for auto-upload prompt
+    let switchingCamera = false; // Flag to prevent automatic startup during manual camera switching
+    let isBlinking = false; // Flag for camera blink effect
+
+    // Store to track which cameras are loading resolutions
+    import { writable } from 'svelte/store';
+    const resolutionsLoading = writable<Set<string>>(new Set());
+
+    function triggerCameraBlink() {
+        isBlinking = true;
+        setTimeout(() => {
+            isBlinking = false;
+        }, 50); // 50ms blink duration
+    }
 
     async function checkCameraPermission(): Promise<PermissionState | null> {
         try {
@@ -194,42 +208,46 @@
             // Use probe-then-enumerate pattern for better compatibility
             let constraints: MediaStreamConstraints;
 
-            const selectedId = get(selectedCameraId);
-            const resolution = get(selectedResolution);
+            // Check for saved resolution, default to 1440p if none saved
+            const savedResolution = get(selectedResolution);
+            const targetWidth = savedResolution?.width || 2560;
 
-            // Use selected resolution or fall back to default
-            const targetWidth = resolution?.width || 2560;
-            const targetHeight = resolution?.height || 2560;
+            // Use saved resolution or 1440p default
+            constraints = {
+                video: {
+                    facingMode: { ideal: facing },
+                    width: { ideal: targetWidth }
+                }
+            };
+            console.log('🢄[CAMERA] Probing with resolution width', targetWidth, 'for initial permission:', facing, 'constraints:', JSON.stringify(constraints));
 
-            if (selectedId) {
-                // Use explicitly selected camera with exact deviceId
-                constraints = {
-                    video: {
-                        deviceId: { exact: selectedId },
-                        width: { min: 1280, ideal: targetWidth },
-                        height: { min: 720, ideal: targetHeight },
-						frameRate: { ideal: 10 }
+            try {
+                stream = await navigator.mediaDevices.getUserMedia(constraints);
+                console.log('🢄[CAMERA] Got media stream:', stream);
+            } catch (constraintError) {
+                // If we get OverconstrainedError, try with absolute minimal constraints
+                if (constraintError instanceof DOMException && constraintError.name === 'OverconstrainedError') {
+                    console.log('🢄[CAMERA] Constraints failed, retrying with absolute minimal constraints');
+
+                    // Clear any problematic resolution
+                    const currentResolution = get(selectedResolution);
+                    if (currentResolution) {
+                        selectedResolution.set(null);
                     }
-                };
-                console.log('🢄[CAMERA] Using selected camera device:', selectedId.slice(0, 8) + '...',
-                    resolution ? `at ${resolution.label}` : 'default resolution');
-            } else {
-                // First attempt: probe with ideal facingMode (not exact) to trigger permission
-                constraints = {
-                    video: {
-                        facingMode: { ideal: facing },  // Use ideal, not exact
-                        width: { min: 1280, ideal: targetWidth },
-                        height: { min: 720, ideal: targetHeight },
-						frameRate: { ideal: 10 }
-                    }
-                };
-                console.log('🢄[CAMERA] Probing with ideal facingMode:', facing,
-                    resolution ? `at ${resolution.label}` : 'default resolution');
+
+                    // Retry with absolutely minimal constraints
+                    const fallbackConstraints = {
+                        video: true
+                    };
+
+                    console.log('🢄[CAMERA] Retrying with minimal constraints:', fallbackConstraints);
+                    stream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
+                    console.log('🢄[CAMERA] Got media stream with minimal constraints:', stream);
+                } else {
+                    // Re-throw if it's not a constraint issue
+                    throw constraintError;
+                }
             }
-
-            console.log('🢄[CAMERA] Requesting camera with constraints:', constraints);
-            stream = await navigator.mediaDevices.getUserMedia(constraints);
-            console.log('🢄[CAMERA] Got media stream:', stream);
 
             if (video) {
                 console.log('🢄[CAMERA] Setting video source');
@@ -275,29 +293,46 @@
                     cameraPermissionPollInterval = null;
                 }
 
-                // Now enumerate cameras for the selector (after permission granted)
-                if (!get(selectedCameraId)) {
-                    try {
-                        const cameras = await enumerateCameraDevices();
-                        console.log('🢄[CAMERA] Camera enumeration completed');
+                // Always enumerate cameras for the selector (after permission granted)
+                console.log('🢄[CAMERA] Enumerating cameras and selecting best back camera');
 
-                        // Populate resolutions for each camera in the background
-                        for (const camera of cameras) {
-                            try {
-                                const resolutions = await getCameraSupportedResolutions(camera.deviceId);
-                                camera.resolutions = resolutions;
-                                console.log(`🢄[CAMERA] Found ${resolutions.length} resolutions for ${camera.label}`);
-                            } catch (error) {
-                                console.log(`🢄[CAMERA] Failed to get resolutions for ${camera.label}:`, error);
-                                camera.resolutions = [];
-                            }
-                        }
+                try {
+                    console.log('🢄[CAMERA] Starting camera enumeration...');
+                    const cameras = await enumerateCameraDevices();
+                    console.log('🢄[CAMERA] Camera enumeration completed. Found cameras:', cameras.length);
+                    console.log('🢄[CAMERA] Available cameras:', JSON.stringify(
+						cameras.map(c => ({ label: c.label, id: c.deviceId.slice(0, 8) + '...' }))));
+                    console.log('🢄[CAMERA] cameraEnumerationSupported:', get(cameraEnumerationSupported));
+                    console.log('🢄[CAMERA] availableCameras store length:', get(availableCameras).length);
 
-                        // Update the store with cameras that now have resolution data
-                        availableCameras.set(cameras);
-                    } catch (error) {
-                        console.log('🢄[CAMERA] Camera enumeration failed, but stream is working:', error);
+                    // Find which camera we're actually using and sync selectedCameraId
+                    let actualDeviceId: string | null = null;
+                    if (videoTrack) {
+                        const settings = videoTrack.getSettings();
+                        actualDeviceId = settings.deviceId || null;
+                        console.log('🢄[CAMERA] Actually using camera device:', actualDeviceId?.slice(0, 8) + '...');
                     }
+
+                    // Find the camera that matches what we're actually using
+                    const activeCamera = actualDeviceId ? cameras.find(c => c.deviceId === actualDeviceId) : null;
+                    if (activeCamera) {
+                        console.log('🢄[CAMERA] Syncing selectedCameraId with actually active camera:', activeCamera.label);
+                        selectedCameraId.set(activeCamera.deviceId);
+                    } else {
+                        // Fallback: just pick the first back camera if we can't determine which one is active
+                        const bestCamera = getPreferredBackCamera(cameras);
+                        if (bestCamera) {
+                            console.log('🢄[CAMERA] Fallback: Setting selectedCameraId to best back camera:', bestCamera.label);
+                            selectedCameraId.set(bestCamera.deviceId);
+                        } else {
+                            console.log('🢄[CAMERA] No suitable back camera found');
+                            selectedCameraId.set(null);
+                        }
+                    }
+
+                    // Keep any stored resolution for next startup
+                } catch (error) {
+                    console.log('🢄[CAMERA] Camera enumeration failed, but stream is working:', error);
                 }
 
                 // Check zoom support
@@ -361,6 +396,9 @@
     async function selectCamera(camera: CameraDevice) {
         console.log('🢄[CAMERA] Selecting camera:', camera.label);
 
+        // Set flag to prevent automatic startup from interfering
+        switchingCamera = true;
+
         // Hide the dropdown
         showCameraSelector = false;
 
@@ -370,21 +408,130 @@
         // Clear selected resolution when switching cameras
         selectedResolution.set(null);
 
-        // Restart camera with new device
-        if (cameraReady && stream) {
-            console.log('🢄[CAMERA] Switching to camera:', camera.label);
+        // Always restart camera when switching, regardless of current state
+        console.log('🢄[CAMERA] Switching to camera:', camera.label);
 
-            // Stop current stream
+        // Stop current stream if it exists
+        if (stream) {
             stream.getTracks().forEach(track => track.stop());
             stream = null;
-            cameraReady = false;
+        }
 
-            // Start with new camera
-            try {
+        cameraReady = false;
+        cameraError = null;
+
+        // Start with new camera using device-specific constraints
+        try {
+            await startCameraWithDevice(camera.deviceId);
+        } catch (error) {
+            console.error('🢄[CAMERA] Failed to switch camera:', error);
+            cameraError = `Failed to switch to ${camera.label}`;
+        } finally {
+            // Clear the flag once camera switching is complete
+            switchingCamera = false;
+        }
+    }
+
+    async function startCameraWithDevice(deviceId: string, resolution?: Resolution) {
+        console.log('🢄[CAMERA] Starting camera with specific device:', deviceId.slice(0, 8) + '...');
+
+        // Clear any previous errors
+        cameraError = null;
+
+        let constraints: MediaStreamConstraints;
+
+        if (resolution && resolution.width) {
+            // Use specific resolution without device constraint
+            constraints = {
+                video: {
+                    facingMode: { ideal: 'environment' },
+                    width: { ideal: resolution.width }
+                }
+            };
+            console.log('🢄[CAMERA] Using environment camera with width:', resolution.width);
+        } else {
+            // Use environment camera with 1440p default resolution
+            constraints = {
+                video: {
+                    facingMode: { ideal: 'environment' },
+                    width: { ideal: 2560 }
+                }
+            };
+            console.log('🢄[CAMERA] Using environment camera with default 1440p resolution');
+        }
+
+        try {
+            console.log('🢄[CAMERA] Requesting specific camera with constraints:', JSON.stringify(constraints));
+            stream = await navigator.mediaDevices.getUserMedia(constraints);
+            console.log('🢄[CAMERA] Got device-specific stream:', stream);
+
+            if (video) {
+                console.log('🢄[CAMERA] Video element available, setting video source');
+                video.muted = true;
+                video.setAttribute('playsinline', 'true');
+                video.srcObject = stream;
+                console.log('🢄[CAMERA] Video srcObject set, waiting for metadata...');
+
+                await new Promise((resolve, reject) => {
+                    const timeout = setTimeout(() => {
+                        console.log('🢄[CAMERA] Metadata loading timeout after 5 seconds');
+                        reject(new Error('Video metadata loading timeout'));
+                    }, 5000);
+
+                    video.onloadedmetadata = () => {
+                        console.log('🢄[CAMERA] Video metadata loaded');
+                        clearTimeout(timeout);
+                        resolve(undefined);
+                    };
+
+                    video.onerror = (error) => {
+                        console.log('🢄[CAMERA] Video error:', error);
+                        clearTimeout(timeout);
+                        reject(error);
+                    };
+                });
+
+                console.log('🢄[CAMERA] Attempting to play video...');
+                await video.play();
+                console.log('🢄[CAMERA] Device-specific video playing');
+                cameraReady = true;
+                cameraError = null;
+                needsPermission = false;
+
+                // Check zoom support
+                if (stream && stream.getVideoTracks) {
+                    videoTrack = stream.getVideoTracks()[0];
+                    if (videoTrack) {
+                        const capabilities = videoTrack.getCapabilities() as any;
+                        console.log('🢄[CAMERA] Video track capabilities:', JSON.stringify(capabilities));
+                        if ('zoom' in capabilities && capabilities.zoom) {
+                            zoomSupported = true;
+                            minZoom = capabilities.zoom.min || 1;
+                            maxZoom = capabilities.zoom.max || 1;
+                            const settings = videoTrack.getSettings() as any;
+                            zoomLevel = settings.zoom || 1;
+                        }
+                    }
+                }
+            } else {
+                console.error('🢄[CAMERA] Video element not available in startCameraWithDevice!');
+                throw new Error('Video element not available');
+            }
+        } catch (error) {
+            console.error('🢄[CAMERA] Device-specific camera error:', error);
+
+            // If device-specific constraints fail, fall back to basic camera
+            if (error instanceof DOMException && error.name === 'OverconstrainedError') {
+                console.log('🢄[CAMERA] Device constraints failed, falling back to basic camera');
+                // Clear problematic selections
+                selectedCameraId.set(null);
+                if (resolution) {
+                    selectedResolution.set(null);
+                }
+                // Restart with basic constraints
                 await startCamera();
-            } catch (error) {
-                console.error('🢄[CAMERA] Failed to switch camera:', error);
-                cameraError = `Failed to switch to ${camera.label}`;
+            } else {
+                throw error;
             }
         }
     }
@@ -392,25 +539,40 @@
     async function selectResolution(resolution: Resolution) {
         console.log('🢄[CAMERA] Selecting resolution:', resolution.label);
 
+        // Set flag to prevent automatic startup from interfering
+        switchingCamera = true;
+
         // Set the selected resolution in the store
         selectedResolution.set(resolution);
 
-        // Restart camera with new resolution
-        if (cameraReady && stream) {
-            console.log('🢄[CAMERA] Switching to resolution:', resolution.label);
+        const currentSelectedId = get(selectedCameraId);
+        if (!currentSelectedId) {
+            console.log('🢄[CAMERA] No camera selected, cannot apply resolution');
+            switchingCamera = false;
+            return;
+        }
 
-            // Stop current stream
+        // Always restart camera when switching resolution
+        console.log('🢄[CAMERA] Switching to resolution:', resolution.label);
+
+        // Stop current stream if it exists
+        if (stream) {
             stream.getTracks().forEach(track => track.stop());
             stream = null;
-            cameraReady = false;
+        }
 
-            // Start with new resolution
-            try {
-                await startCamera();
-            } catch (error) {
-                console.error('🢄[CAMERA] Failed to switch resolution:', error);
-                cameraError = `Failed to switch to ${resolution.label}`;
-            }
+        cameraReady = false;
+        cameraError = null;
+
+        // Start with new resolution using device-specific constraints
+        try {
+            await startCameraWithDevice(currentSelectedId, resolution);
+        } catch (error) {
+            console.error('🢄[CAMERA] Failed to switch resolution:', error);
+            cameraError = `Failed to switch to ${resolution.label}`;
+        } finally {
+            // Clear the flag once resolution switching is complete
+            switchingCamera = false;
         }
     }
 
@@ -446,6 +608,9 @@
             mode,
             tempId
         });
+
+        // Trigger camera blink effect
+        triggerCameraBlink();
 
         try {
             // Get ImageData directly from canvas
@@ -554,6 +719,90 @@
         }
     }
 
+    async function handleCameraSelectorToggle() {
+        showCameraSelector = !showCameraSelector;
+
+        // If opening the selector, load resolutions for the currently active camera only
+        if (showCameraSelector) {
+
+            // Get the actual active camera from the video track, not the stored selection
+            let activeDeviceId: string | null = null;
+            if (videoTrack) {
+                const settings = videoTrack.getSettings();
+                activeDeviceId = settings.deviceId || null;
+                console.log('🢄[CAMERA] Active camera from video track:', JSON.stringify(activeDeviceId));
+            } else {
+                console.log('🢄[CAMERA] No active video track found');
+            }
+
+            const availableCamerasList = get(availableCameras);
+
+            console.log('🢄[CAMERA] Camera selector opened, loading resolutions for active camera...');
+            console.log('🢄[CAMERA] activeDeviceId from video track:', JSON.stringify(activeDeviceId));
+            console.log('🢄[CAMERA] availableCameras count:', availableCamerasList.length);
+            console.log('🢄[CAMERA] availableCameras IDs:', JSON.stringify(availableCamerasList.map(c => c.deviceId.slice(0, 8) + '...')));
+            console.log('🢄[CAMERA] availableCameras full IDs:', JSON.stringify(availableCamerasList.map(c => c.deviceId)));
+
+            // If no cameras have been enumerated yet, trigger enumeration first
+            if (availableCamerasList.length === 0) {
+                console.log('🢄[CAMERA] No cameras enumerated yet, triggering enumeration...');
+                try {
+                    await enumerateCameraDevices();
+                    console.log('🢄[CAMERA] Camera enumeration completed from selector');
+                } catch (error) {
+                    console.log('🢄[CAMERA] Camera enumeration failed from selector:', error);
+                    return;
+                }
+            }
+
+            if (activeDeviceId) {
+                // Refresh the list after potential enumeration
+                const refreshedCamerasList = get(availableCameras);
+                const activeCamera = refreshedCamerasList.find(cam => cam.deviceId === activeDeviceId);
+
+                if (activeCamera) {
+                    // Update the stored selectedCameraId to match the actual active camera
+                    console.log('🢄[CAMERA] Syncing selectedCameraId with active camera:', activeCamera.label);
+                    selectedCameraId.set(activeDeviceId);
+                    resolutionsLoading.update(loading => {
+                        if (!loading.has(activeCamera.deviceId)) {
+                            // Mark as loading
+                            const newLoading = new Set(loading);
+                            newLoading.add(activeCamera.deviceId);
+                            return newLoading;
+                        }
+                        return loading;
+                    });
+
+                    // Load hardcoded resolutions for active camera
+                    try {
+                        const resolutions = await getCameraSupportedResolutions(activeCamera.deviceId);
+                        activeCamera.resolutions = resolutions;
+                        console.log(`🢄[CAMERA] Found ${resolutions.length} resolutions for active camera: ${activeCamera.label}`);
+
+                        // Update the store to trigger UI update
+                        availableCameras.update(cams => [...cams]);
+                    } catch (error) {
+                        console.log(`🢄[CAMERA] Failed to get resolutions for active camera ${activeCamera.label}:`, error);
+                        activeCamera.resolutions = [];
+                    } finally {
+                        // Remove from loading set
+                        resolutionsLoading.update(loading => {
+                            const newLoading = new Set(loading);
+                            newLoading.delete(activeCamera.deviceId);
+                            return newLoading;
+                        });
+                    }
+                } else {
+                    console.log('🢄[CAMERA] Active camera from video track not found in enumerated cameras list');
+                    console.log('🢄[CAMERA] This might indicate an enumeration issue or the camera was disconnected');
+                }
+            } else {
+                console.log('🢄[CAMERA] No active camera selected, skipping resolution enumeration');
+            }
+        }
+    }
+
     function handleClickOutside(event: MouseEvent) {
         if (showCameraSelector) {
             const target = event.target as Element;
@@ -567,7 +816,7 @@
 
     // Try to auto-start camera with permission lock coordination
     $: if (show) {
-        if (!stream && !cameraError && !cameraReady && !hasRequestedPermission) {
+        if (!stream && !cameraError && !cameraReady && !hasRequestedPermission && !switchingCamera) {
             console.log('🢄[CAMERA] Modal shown, attempting to start camera with permission coordination');
             retryCount = 0; // Reset retry count when modal opens
             checkAndStartCamera();
@@ -605,6 +854,14 @@
         };
         locationReady = true;
         locationError = null;
+    }
+
+    // Debug: Log camera selector button visibility conditions
+    $: {
+        console.log('🢄[CAMERA] Button visibility check:');
+        console.log('🢄[CAMERA]   - cameraEnumerationSupported:', $cameraEnumerationSupported);
+        console.log('🢄[CAMERA]   - availableCameras.length:', $availableCameras.length);
+        console.log('🢄[CAMERA]   - show button:', $cameraEnumerationSupported && $availableCameras.length > 0);
     }
 
     onMount(async () => {
@@ -689,7 +946,7 @@
                 <!-- Debug: cameraError = {cameraError}, needsPermission = {needsPermission}, cameraReady = {cameraReady} -->
 
                 <!-- Always render video element so it's available for binding -->
-                <video bind:this={video} class="camera-video" playsinline style:display={cameraError ? 'none' : 'block'}>
+                <video bind:this={video} class="camera-video" class:blink={isBlinking} playsinline style:display={cameraError ? 'none' : 'block'}>
                     <track kind="captions"/>
                 </video>
 
@@ -788,27 +1045,14 @@
                 </div>
             {/if}
 
-            {#if $app.debug === 1}
-                <!-- Save to Gallery toggle -->
-                <div class="settings-control">
-                    <label class="toggle-label">
-                        <input
-                                type="checkbox"
-                                bind:checked={$photoCaptureSettings.hideFromGallery}
-                                class="toggle-checkbox"
-                        />
-                        <span class="toggle-text">Hide from Gallery</span>
-                    </label>
-                </div>
-            {/if}
 
             <div class="camera-controls">
                 <!-- Camera selector button (lower-left) -->
-                {#if cameraReady && $cameraEnumerationSupported && $availableCameras.length > 1}
+                <!-- Debug: cameraEnumerationSupported = {$cameraEnumerationSupported}, availableCameras.length = {$availableCameras.length} -->
                     <div class="camera-selector-container">
                         <button
                             class="camera-selector-button"
-                            on:click={() => showCameraSelector = !showCameraSelector}
+                            on:click={handleCameraSelectorToggle}
                             aria-label="Select camera"
                         >
                             📷
@@ -816,43 +1060,70 @@
 
                         {#if showCameraSelector}
                             <div class="camera-selector-dropdown">
-                                {#each $availableCameras as camera}
-                                    <div class="camera-group">
-                                        <button
-                                            class="camera-option"
-                                            class:selected={$selectedCameraId === camera.deviceId}
-                                            on:click={() => selectCamera(camera)}
-                                            data-testid="camera-option-{camera.deviceId}"
-                                        >
-                                            <span class="camera-facing">
-                                                {#if camera.facingMode === 'front'}🤳{:else if camera.facingMode === 'back'}📷{:else}📹{/if}
-                                            </span>
-                                            <span class="camera-label">
-                                                {camera.label}
-                                                {#if camera.isPreferred}⭐{/if}
-                                            </span>
-                                        </button>
+                                {#if $availableCameras.length > 0}
+                                    {#each $availableCameras as camera}
+                                        <div class="camera-group">
+                                            <button
+                                                class="camera-option"
+                                                class:selected={$selectedCameraId === camera.deviceId}
+                                                on:click={() => selectCamera(camera)}
+                                                data-testid="camera-option-{camera.deviceId}"
+                                            >
+                                                <span class="camera-facing">
+                                                    {#if camera.facingMode === 'front'}🤳{:else if camera.facingMode === 'back'}📷{:else}📹{/if}
+                                                </span>
+                                                <span class="camera-label">
+                                                    {camera.label}
+                                                    {#if camera.isPreferred}⭐{/if}
+                                                </span>
+                                            </button>
 
-                                        {#if $selectedCameraId === camera.deviceId && camera.resolutions && camera.resolutions.length > 0}
-                                            <div class="resolution-options">
-                                                {#each camera.resolutions as resolution}
-                                                    <button
-                                                        class="resolution-option"
-                                                        class:selected={$selectedResolution?.width === resolution.width && $selectedResolution?.height === resolution.height}
-                                                        on:click={() => selectResolution(resolution)}
-                                                        data-testid="resolution-option-{resolution.width}x{resolution.height}"
-                                                    >
-                                                        {resolution.label}
-                                                    </button>
-                                                {/each}
+                                            {#if $selectedCameraId === camera.deviceId}
+                                                <div class="resolution-options">
+                                                    {#if $resolutionsLoading.has(camera.deviceId)}
+                                                        <div class="resolution-loading">
+                                                            🔄 Loading resolutions...
+                                                        </div>
+                                                    {:else if camera.resolutions && camera.resolutions.length > 0}
+                                                        {#each camera.resolutions as resolution}
+                                                            <button
+                                                                class="resolution-option"
+                                                                class:selected={$selectedResolution?.width === resolution.width}
+                                                                on:click={() => selectResolution(resolution)}
+                                                                data-testid="resolution-option-{resolution.width}x{resolution.height}"
+                                                            >
+                                                                {resolution.label}
+                                                            </button>
+                                                        {/each}
+                                                    {:else if camera.resolutions && camera.resolutions.length === 0}
+                                                        <div class="resolution-error">
+                                                            No resolutions available
+                                                        </div>
+                                                    {/if}
+                                                </div>
+                                            {/if}
+                                        </div>
+                                    {/each}
+                                {:else}
+                                    <div class="camera-error-message">
+                                        {#if !$cameraEnumerationSupported}
+                                            <div class="error-icon">⚠️</div>
+                                            <div class="error-text">
+                                                <div class="error-title">Camera enumeration not supported</div>
+                                                <div class="error-subtitle">enumeration failed.</div>
+                                            </div>
+                                        {:else}
+                                            <div class="error-icon">📷</div>
+                                            <div class="error-text">
+                                                <div class="error-title">No cameras found</div>
+                                                <div class="error-subtitle">Make sure camera permissions are granted</div>
                                             </div>
                                         {/if}
                                     </div>
-                                {/each}
+                                {/if}
                             </div>
                         {/if}
                     </div>
-                {/if}
 
                 <DualCaptureButton
                         disabled={!cameraReady || !locationData}
@@ -909,6 +1180,11 @@
         width: 100%;
         height: 100%;
         object-fit: contain;
+        transition: opacity 0.05s ease-in-out;
+    }
+
+    .camera-video.blink {
+        opacity: 0.3;
     }
 
     .camera-error {
@@ -952,8 +1228,9 @@
 
     .camera-selector-container {
         position: absolute;
-        left: 2rem;
-        bottom: 2rem;
+		z-index: 1000000;
+        left: 0rem;
+        bottom: 0rem;
     }
 
     .camera-selector-button {
@@ -961,7 +1238,6 @@
         border: none;
         color: white;
         cursor: pointer;
-        padding: 0.75rem;
         border-radius: 50%;
         font-size: 1.5rem;
         transition: background 0.2s;
@@ -977,21 +1253,19 @@
         position: absolute;
         bottom: 100%;
         left: 0;
-        margin-bottom: 0.5rem;
         background: rgba(0, 0, 0, 0.9);
         border-radius: 8px;
-        padding: 0.5rem;
         min-width: 250px;
         max-width: 350px;
         backdrop-filter: blur(20px);
         border: 1px solid rgba(255, 255, 255, 0.2);
         box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
         max-height: 400px;
-        overflow-y: auto;
+        overflow-y: scroll;
     }
 
     .camera-group {
-        margin-bottom: 0.5rem;
+        margin-bottom: 0.1rem;
     }
 
     .camera-group:last-child {
@@ -1001,9 +1275,9 @@
     .camera-option {
         display: flex;
         align-items: center;
-        gap: 0.75rem;
+        gap: 0.1rem;
         width: 100%;
-        padding: 0.75rem;
+        padding: 0.1rem;
         background: transparent;
         border: none;
         color: white;
@@ -1068,17 +1342,66 @@
         color: white;
     }
 
+    .resolution-loading,
+    .resolution-error {
+        padding: 0.5rem 0.75rem;
+        text-align: center;
+        font-size: 0.8rem;
+        color: rgba(255, 255, 255, 0.6);
+        font-style: italic;
+    }
+
+    .resolution-loading {
+        animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+        0%, 100% { opacity: 0.6; }
+        50% { opacity: 1; }
+    }
+
+    .camera-error-message {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 1rem;
+        color: rgba(255, 255, 255, 0.8);
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 6px;
+        margin: 0.5rem;
+    }
+
+    .error-icon {
+        font-size: 1.5rem;
+        flex-shrink: 0;
+    }
+
+    .error-text {
+        flex: 1;
+    }
+
+    .error-title {
+        font-size: 0.9rem;
+        font-weight: 500;
+        margin-bottom: 0.25rem;
+        color: white;
+    }
+
+    .error-subtitle {
+        font-size: 0.8rem;
+        color: rgba(255, 255, 255, 0.6);
+        line-height: 1.3;
+    }
+
 
     .zoom-control {
         position: absolute;
-        right: 1rem;
-        top: 50%;
+        left: 0px;
+        bottom: 0px;
         transform: translateY(-50%);
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: 0.5rem;
-        padding: 1rem;
         background: rgba(0, 0, 0, 0.6);
         border-radius: 8px;
         backdrop-filter: blur(10px);
@@ -1131,35 +1454,6 @@
         cursor: pointer;
     }
 
-    .settings-control {
-        position: absolute;
-        bottom: 120px;
-        left: 50%;
-        transform: translateX(-50%);
-        background: rgba(0, 0, 0, 0.6);
-        padding: 0.75rem 1.5rem;
-        border-radius: 8px;
-        backdrop-filter: blur(10px);
-    }
-
-    .toggle-label {
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-        cursor: pointer;
-        color: white;
-        font-size: 0.95rem;
-    }
-
-    .toggle-checkbox {
-        width: 18px;
-        height: 18px;
-        cursor: pointer;
-    }
-
-    .toggle-text {
-        user-select: none;
-    }
 
     @media (max-width: 600px) {
 

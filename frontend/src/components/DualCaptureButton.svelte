@@ -4,7 +4,7 @@
 
     export let disabled = false;
     export let slowInterval = 10000;
-    export let fastInterval = 1000; // ms
+    export let fastInterval = 2000; // ms
 
     const dispatch = createEventDispatcher();
 
@@ -303,7 +303,7 @@
         data-testid="single-capture-button"
     >
         <Camera size={24} />
-        <span class="mode-label">{activeMode ? 'Stop' : 'Single'}</span>
+        <span class="mode-label">{activeMode ? 'Stop' : ''}</span>
     </button>
 
     {#if showAllButtons}

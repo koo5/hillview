@@ -214,8 +214,8 @@
                 }) as { success: boolean; error?: string; message?: string };
 
                 if (result.success) {
-                    hideMessage = 'Shared successfully!';
-                    setTimeout(() => hideMessage = '', 2000);
+                    /*hideMessage = 'Shared successfully!';
+                    setTimeout(() => hideMessage = '', 2000);*/
                 } else {
                     throw new Error(result.error || 'Share failed');
                 }
@@ -225,7 +225,7 @@
                     const fullShareText = `${shareText}\n${shareUrl}`;
                     await navigator.clipboard.writeText(fullShareText);
                     hideMessage = 'Share link copied to clipboard!';
-                    setTimeout(() => hideMessage = '', 2000);
+                    setTimeout(() => hideMessage = '', 4000);
                 } else {
                     // Fallback for older browsers
                     const textarea = document.createElement('textarea');
@@ -501,27 +501,29 @@
         position: relative;
         display: flex;
         align-items: center;
-        gap: 8px;
+        gap: 6px;
     }
 
     .action-button {
         display: flex;
         align-items: center;
         gap: 4px;
-        padding: 8px 12px;
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        border-radius: 6px;
-        background: rgba(0, 0, 0, 0.6);
-        color: white;
+        padding: 0px 6px;
+        border: 1px solid #e5e7eb;
+        border-radius: 4px;
+        background: white;
+        color: #fff;
         cursor: pointer;
         transition: all 0.2s ease;
         font-size: 12px;
-        min-height: 32px;
+        min-height: 40px;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        font-weight: 500;
     }
 
     .action-button:hover:not(:disabled) {
-        background: rgba(255, 255, 255, 0.1);
-        border-color: rgba(255, 255, 255, 0.4);
+        background: #f3f4f6;
+        color: #111827;
     }
 
     .action-button:disabled {
@@ -558,17 +560,18 @@
         justify-content: center;
         width: 40px;
         height: 40px;
-        border: 1px solid rgba(255, 255, 255, 0.3);
-        border-radius: 8px;
-        background: rgba(0, 0, 0, 0.7);
-        color: white;
+        border: 1px solid #e5e7eb;
+        border-radius: 26px;
+        background: white;
+        color: #000;
         cursor: pointer;
         transition: all 0.2s ease;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
     }
 
     .menu-trigger:hover {
-        background: rgba(255, 255, 255, 0.1);
-        border-color: rgba(255, 255, 255, 0.5);
+        background: #f3f4f6;
+        color: #111827;
     }
 
     .menu-dropdown {
@@ -576,14 +579,13 @@
         bottom: 100%;
         right: 0;
         min-width: 200px;
-        background: rgba(0, 0, 0, 0.95);
-        border: 1px solid rgba(255, 255, 255, 0.2);
+        background: white;
+        border: 1px solid #e5e7eb;
         border-radius: 8px;
-        backdrop-filter: blur(10px);
         z-index: 1000;
         margin-bottom: 4px;
         padding: 8px 0;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
     }
 
     .menu-section {
@@ -599,16 +601,18 @@
         padding: 10px 12px;
         border: none;
         background: transparent;
-        color: white;
+        color: #1f2937;
         cursor: pointer;
-        transition: background-color 0.2s ease;
+        transition: background-color 0.2s ease, color 0.2s ease;
         text-align: left;
         border-radius: 4px;
         margin: 2px 0;
+        font-weight: 600;
     }
 
     .menu-item:hover:not(:disabled) {
-        background: rgba(255, 255, 255, 0.1);
+        background: #f3f4f6;
+        color: #111827;
     }
 
     .menu-item:disabled {
@@ -631,16 +635,16 @@
 
     /* Flag item */
     .flag-item {
-        color: #ffc107;
+        color: #000001;
     }
 
     .flag-item.flagged {
-        color: #28a745;
+        color: #000000;
     }
 
     /* Hide items */
     .hide-item {
-        color: #dc3545;
+        color: #0c0000;
     }
 
     /* Status message */

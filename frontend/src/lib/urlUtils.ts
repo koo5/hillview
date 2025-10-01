@@ -6,6 +6,8 @@
 import { get } from 'svelte/store';
 import { spatialState } from './mapState';
 import type { PhotoData } from './sources';
+import { TAURI } from './tauri';
+import { openUrl } from '@tauri-apps/plugin-opener';
 
 /**
  * Extracts coordinates from various photo data formats
@@ -167,4 +169,26 @@ export function constructUserProfileUrl(userId: string): string {
 export function constructUserPhotosUrl(userId: string, cursor?: string): string {
     const baseUrl = `/users/${userId}/photos`;
     return cursor ? `${baseUrl}?cursor=${encodeURIComponent(cursor)}` : baseUrl;
+}
+
+/**
+ * Opens an external URL in the appropriate way for the current platform
+ * - Uses Tauri's openUrl for native app (opens in external browser)
+ * - Uses window.open for web platform
+ * @param url The URL to open
+ */
+export async function openExternalUrl(url: string): Promise<void> {
+    if (TAURI) {
+        // Use Tauri's openUrl to open in external browser
+        try {
+            await openUrl(url);
+        } catch (error) {
+            console.error('Failed to open external URL:', error);
+            // Fallback to window.open if openUrl fails
+            window.open(url, '_blank', 'noopener,noreferrer');
+        }
+    } else {
+        // For web, use window.open
+        window.open(url, '_blank', 'noopener,noreferrer');
+    }
 }

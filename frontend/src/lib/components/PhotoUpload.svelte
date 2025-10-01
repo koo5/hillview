@@ -214,7 +214,7 @@
 			<textarea
 				id="description"
 				bind:value={description}
-				placeholder="Optional description for this photo"
+				placeholder="Optional description"
 				rows="1"
 				class="auto-resize-textarea"
 				disabled={!user}
@@ -225,7 +225,7 @@
 		<div class="form-group">
 			<label>
 				<input type="checkbox" bind:checked={isPublic} disabled={!user}>
-				Make this photo public
+				Make these photos public
 			</label>
 		</div>
 

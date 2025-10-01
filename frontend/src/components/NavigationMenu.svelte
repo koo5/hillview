@@ -23,6 +23,13 @@
     function closeMenu() {
         onClose();
     }
+
+    function formatUtcDate(date: Date): string {
+        // Pad helper
+        const pad = (n: number) => n.toString().padStart(2, '0');
+        return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}_` +
+               `${pad(date.getUTCHours())}-${pad(date.getUTCMinutes())}-${pad(date.getUTCSeconds())}`;
+    }
 </script>
 
 {#if isOpen}
@@ -37,9 +44,6 @@
     ></div>
 
     <nav class="nav-menu">
-        <div class="menu-header">
-            <span class="user-info">user: {$auth.user ? $auth.user.username : 'none'}</span>
-        </div>
 
         <ul class="menu-list">
             <li><a href="/" on:click={closeMenu}>
@@ -49,7 +53,7 @@
 
             <li><a href="/photos" on:click={closeMenu}>
                 <Images size={18}/>
-                My Photos
+                My Photos{$auth.user ? ` (${$auth.user.username})` : ''}
             </a></li>
 
             <li><a href="/activity" on:click={closeMenu}>
@@ -112,19 +116,12 @@
             {/if}
 
 <li>
-
         <div class="build-info">
-            <div class="build-timestamp">
-                Built:
-            </div>
-            <div class="build-timestamp">
-                {( new Date(BUILD_TIME)).toLocaleTimeString()}
-            </div>
-            <div class="build-timestamp">
-                {( new Date(BUILD_TIME)).toLocaleDateString()}
-            </div>
             <div class="build-version">
-                v{BUILD_VERSION}
+                Hillview v{BUILD_VERSION}
+            </div>
+            <div class="build-timestamp">
+                {formatUtcDate(new Date(BUILD_TIME))}
             </div>
         </div>
 
@@ -153,7 +150,7 @@
         width: 280px;
         height: calc(100vh - 60px);
         background: white;
-        z-index: 30100;
+        z-index: 130100;
         box-shadow: 2px 0 10px rgba(0, 0, 0, 0.2);
         padding: 0;
         overflow-y: auto;
@@ -161,18 +158,6 @@
         transition: transform 0.3s ease;
     }
 
-    .menu-header {
-        padding: 20px 20px 10px;
-        border-bottom: 1px solid #e5e7eb;
-        background: #f9fafb;
-    }
-
-    .user-info {
-        font-family: monospace;
-        font-size: 0.85rem;
-        color: #6b7280;
-        display: block;
-    }
 
     .menu-list {
         list-style: none;
@@ -239,7 +224,6 @@
     }
 
     .build-version {
-        font-weight: 600;
         color: #4b5563;
     }
 

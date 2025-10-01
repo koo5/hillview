@@ -422,6 +422,7 @@
     <Camera size={24}/>
 </button>
 
+{#if import.meta.env.VITE_DEV_MODE === 'true'}
 <button
         on:click={toggleDebug}
         class="debug-toggle"
@@ -431,6 +432,7 @@
 >
     Debug
 </button>
+{/if}
 
 <NavigationMenu isOpen={menuOpen} onClose={() => menuOpen = false} />
 
@@ -606,6 +608,26 @@
         background: #4a90e2;
         color: white;
         box-shadow: 0 2px 8px rgba(74, 144, 226, 0.4);
+    }
+
+    /* Red animated style when not active (view mode) */
+    .camera-button:not(.active) {
+        background: white;
+        color: black;
+        animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+        0% {
+            box-shadow: 0 2px 5px rgba(100, 0, 100, 0.2);
+        }
+        50% {
+            box-shadow: 0 2px 12px rgba(131, 255, 60, 0.6);
+            transform: scale(1.10);
+        }
+        100% {
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        }
     }
 
     .camera-button:hover {

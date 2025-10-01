@@ -7,9 +7,7 @@
     import StandardHeaderWithAlert from '../../components/StandardHeaderWithAlert.svelte';
     import StandardBody from '../../components/StandardBody.svelte';
     import { getCurrentProviderConfig, getProviderDisplayName, currentTileProvider } from '$lib/tileProviders';
-    import { TAURI } from '$lib/tauri';
-    import { invoke } from '@tauri-apps/api/core';
-    import { openUrl } from '@tauri-apps/plugin-opener';
+    import { openExternalUrl } from '$lib/urlUtils';
 
     const appVersion = '0.0.1';
 
@@ -48,19 +46,7 @@
 
             console.log('Opening external attribution link:', link.href);
 
-            if (TAURI) {
-                // Use Tauri's openUrl to open in external browser
-                try {
-                    await openUrl(link.href);
-                } catch (error) {
-                    console.error('Failed to open external URL:', error);
-                    // Fallback to window.open if openUrl fails
-                    window.open(link.href, '_blank', 'noopener,noreferrer');
-                }
-            } else {
-                // For web, use window.open
-                window.open(link.href, '_blank', 'noopener,noreferrer');
-            }
+            await openExternalUrl(link.href);
         }
     }
 </script>

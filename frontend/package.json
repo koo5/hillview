@@ -1,6 +1,6 @@
 {
 	"name": "hillview",
-	"version": "0.0.1",
+	"version": "0.0.2",
 	"devDependencies": {
 		"@playwright/test": "^1.54.1",
 		"@sveltejs/adapter-auto": "^4.0.0",
