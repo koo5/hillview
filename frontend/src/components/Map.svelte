@@ -1245,7 +1245,7 @@
         <Compass />
     </button>
     <button
-        class="active"
+        class="bearing-mode-button { $bearingMode === 'car' ? 'car-mode' : 'walking-mode' }"
         on:click={(e) => handleButtonClick('bearing-mode', e)}
         title={$bearingMode === 'car' ? 'Car mode: GPS bearing' : 'Walking mode: Compass bearing'}
     >
@@ -1285,6 +1285,8 @@
 
 
 <style>
+
+
 
 
     .map {
@@ -1519,5 +1521,13 @@
         left: 10px;
         z-index: 30000;
     }
+
+	.bearing-mode-button.car-mode {
+		background-color: #ff5722;
+	}
+
+	.bearing-mode-button.walking-mode {
+		background-color: #4285F4;
+	}
 
 </style>
