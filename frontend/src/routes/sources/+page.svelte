@@ -57,7 +57,7 @@
             }
             return srcs;
         });
-        
+
         // When disabling, the data.svelte.ts subscription will handle filtering
         // When enabling a source, we need to fetch its photos
         const source = $sources.find(s => s.id === sourceId);
@@ -106,7 +106,7 @@
             name: newSourceName.trim(),
             type: newSourceType,
             ...(newSourceType === 'stream' ? { url: newSourceUrl.trim() } : {}),
-            ...(newSourceType === 'device' ? { 
+            ...(newSourceType === 'device' ? {
                 subtype: newsubtype,
                 ...(newsubtype === 'folder' ? { path: newSourcePath.trim() } : {})
             } : {}),
@@ -150,14 +150,14 @@
     });
 </script>
 
-<StandardHeaderWithAlert 
-    title="Photo Sources" 
+<StandardHeaderWithAlert
+    title="Photo Sources"
     showMenuButton={true}
     fallbackHref="/"
 />
 
 <StandardBody>
-    
+
     <div class="sources-description">
         <p>Manage where photos are loaded from</p>
     </div>
@@ -184,8 +184,8 @@
                                 </div>
                             </div>
                             <label class="toggle" data-testid="source-toggle-{source.id}">
-                                <input 
-                                    type="checkbox" 
+                                <input
+                                    type="checkbox"
                                     checked={source.enabled}
                                     on:change={() => toggleSource(source.id)}
                                     data-testid="source-checkbox-{source.id}"
@@ -211,13 +211,13 @@
                     <Globe />
                     Add Stream Source
                 </button>
-                <button
-                    on:click={() => {newSourceType = 'device'; showAddForm = true;}}
-                    class="add-button"
-                >
-                    <MapPin />
-                    Add Device Source
-                </button>
+<!--                <button-->
+<!--                    on:click={() => {newSourceType = 'device'; showAddForm = true;}}-->
+<!--                    class="add-button"-->
+<!--                >-->
+<!--                    <MapPin />-->
+<!--                    Add Device Source-->
+<!--                </button>-->
             </div>
         </div>
 
@@ -243,7 +243,7 @@
                                 bind:value={newSourceUrl}
                                 placeholder="https://example.com/api"
                             >
-                            <p class="help-text">The URL should point to a JSON file with photo metadata</p>
+                            <p class="help-text">The URL should point to an API service compatible with Hillview backend stream source API</p>
                         </div>
                     {:else if newSourceType === 'device'}
                         <div class="field">
@@ -307,8 +307,8 @@
                             </div>
                             <div class="source-controls">
                                 <label class="toggle">
-                                    <input 
-                                        type="checkbox" 
+                                    <input
+                                        type="checkbox"
                                         checked={source.enabled}
                                         on:change={() => toggleSource(source.id)}
                                     >

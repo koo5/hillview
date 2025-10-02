@@ -177,7 +177,7 @@ class SimplePhotoWorker {
             // Skip update if bounds haven't changed significantly (hysteresis)
 			// TODO: we could skip area load, but we can't skip range filter
             if (this.lastBounds && !this.boundsChangeSignificant(this.lastBounds, spatial.bounds)) {
-                console.log('🢄SimplePhotoWorker: Skipping area update - bounds change too small');
+                //console.log('🢄SimplePhotoWorker: Skipping area update - bounds change too small');
                 return;
             }
 

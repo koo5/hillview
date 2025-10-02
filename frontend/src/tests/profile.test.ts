@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import { render, fireEvent, waitFor, screen } from '@testing-library/svelte';
 import { goto } from '$app/navigation';
 import { invoke } from '@tauri-apps/api/core';
-import ProfilePage from '../routes/profile/+page.svelte';
+import ProfilePage from '../routes/account/+page.svelte';
 import { auth } from '$lib/auth.svelte';
 
 // Mock dependencies

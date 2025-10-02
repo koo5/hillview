@@ -67,7 +67,17 @@ bearingState.subscribe(v => {
 });
 
 // Recalculate photosInRange when map moves (spatialState changes)
+let oldPhotosInRangeSpatialState: SpatialState | null = null;
 spatialState.subscribe(spatial => {
+	if (oldPhotosInRangeSpatialState &&
+		oldPhotosInRangeSpatialState.center.lat === spatial.center.lat &&
+		oldPhotosInRangeSpatialState.center.lng === spatial.center.lng &&
+		oldPhotosInRangeSpatialState.range === spatial.range) {
+		// No significant change
+		return;
+	}
+	oldPhotosInRangeSpatialState = spatial;
+
 	const photos = get(photosInArea);
 	const center = {lat: spatial.center.lat, lng: spatial.center.lng};
 	const inRange = angularRangeCuller.cullPhotosInRange(photos, center, spatial.range, 300);

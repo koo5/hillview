@@ -225,37 +225,28 @@
 		else if (e.key === 'z') {
 			e.preventDefault();
 			turn_to_photo_to('left');
-		}
-		else if (e.key === 'x') {
+		} else if (e.key === 'x') {
 			e.preventDefault();
 			updateBearingByDiff(-15);
-		}
-		else if (e.key === 'X') {
+		} else if (e.key === 'X') {
 			e.preventDefault();
 			updateBearingByDiff(-1);
-		}
-		else if (e.key === 'c') {
+		} else if (e.key === 'c') {
 			e.preventDefault();
 			mapComponent?.moveForward?.();
-		}
-		else if (e.key === 'v') {
+		} else if (e.key === 'v') {
 			e.preventDefault();
 			mapComponent?.moveBackward?.();
-		}
-		else if (e.key === 'B') {
+		} else if (e.key === 'B') {
 			e.preventDefault();
 			updateBearingByDiff(1);
-		}
-		else if (e.key === 'b') {
+		} else if (e.key === 'b') {
 			e.preventDefault();
 			updateBearingByDiff(15);
-		}
-		else if (e.key === 'k') {
+		} else if (e.key === 'k') {
 			e.preventDefault();
 			turn_to_photo_to('right');
-		}
-
-		else if (e.key === 'm') {
+		} else if (e.key === 'm') {
 			e.preventDefault();
 			toggleSource('mapillary');
 		}
@@ -363,295 +354,299 @@
 
 	// Reactive statement to ensure geolocation and bearing are enabled when in capture mode
 	// This handles both toggle events and initial page load
-	$: if ($app.activity === 'capture') {
-		//console.log('🢄🎥 Capture mode detected, ensuring location and compass are enabled');
+	let appOldActivity = '';
+	$: if (appOldActivity != $app.activity) {
+		if ($app.activity === 'capture') {
+			//console.log('🢄🎥 Capture mode detected, ensuring location and compass are enabled');
 
-		// Enable location tracking when in capture mode
-		if (mapComponent) {
-			mapComponent.enableLocationTracking();
+			// Enable location tracking when in capture mode
+			if (mapComponent) {
+				mapComponent.enableLocationTracking();
+			}
+
+			// Enable compass/bearing when in capture mode
+			startCompass().catch(err => {
+				console.warn('🢄Failed to start compass for camera capture:', err);
+			});
+		} else if ($app.activity === 'view') {
+			//console.log('🢄👁️ View mode detected, stopping compass');
+			// Stop compass when exiting capture mode (optional - can be removed if you want compass to stay active)
+			stopCompass().catch(err => console.error('🢄Error stopping compass:', err));
 		}
-
-		// Enable compass/bearing when in capture mode
-		startCompass().catch(err => {
-			console.warn('🢄Failed to start compass for camera capture:', err);
-		});
-	} else if ($app.activity === 'view') {
-		//console.log('🢄👁️ View mode detected, stopping compass');
-		// Stop compass when exiting capture mode (optional - can be removed if you want compass to stay active)
-		stopCompass().catch(err => console.error('🢄Error stopping compass:', err));
+		appOldActivity = $app.activity;
 	}
 </script>
 
 
 <!-- Hamburger icon -->
 <button
-        class="hamburger"
-        data-testid="hamburger-menu"
-        on:click={toggleMenu}
-        on:keydown={(e) => e.key === 'Enter' && toggleMenu()}
-        aria-label="Toggle menu"
-        aria-expanded={menuOpen}
+	class="hamburger"
+	data-testid="hamburger-menu"
+	on:click={toggleMenu}
+	on:keydown={(e) => e.key === 'Enter' && toggleMenu()}
+	aria-label="Toggle menu"
+	aria-expanded={menuOpen}
 >
-    <Menu size={24}/>
+	<Menu size={24}/>
 </button>
 
 <!-- Display mode toggle -->
 <button
-        class="display-mode-toggle"
-        on:click={toggleDisplayMode}
-        on:keydown={(e) => e.key === 'Enter' && toggleDisplayMode()}
-        aria-label="Toggle display mode"
-        title={$app.displayMode === 'split' ? 'Maximize view' : 'Split view'}
+	class="display-mode-toggle"
+	on:click={toggleDisplayMode}
+	on:keydown={(e) => e.key === 'Enter' && toggleDisplayMode()}
+	aria-label="Toggle display mode"
+	title={$app.displayMode === 'split' ? 'Maximize view' : 'Split view'}
 >
-    {#if $app.displayMode === 'split'}
-        <Maximize2 size={24}/>
-    {:else}
-        <Minimize2 size={24}/>
-    {/if}
+	{#if $app.displayMode === 'split'}
+		<Maximize2 size={24}/>
+	{:else}
+		<Minimize2 size={24}/>
+	{/if}
 </button>
 
 <!-- Camera button -->
 <button
-        class="camera-button {showCameraView ? 'active' : ''}"
-        on:click={toggleCamera}
-        on:keydown={(e) => e.key === 'Enter' && toggleCamera()}
-        aria-label="{showCameraView ? 'Close camera' : 'Take photo'}"
-        title="{showCameraView ? 'Close camera' : 'Take photos'}"
-        data-testid="camera-button"
+	class="camera-button {showCameraView ? 'active' : ''}"
+	on:click={toggleCamera}
+	on:keydown={(e) => e.key === 'Enter' && toggleCamera()}
+	aria-label="{showCameraView ? 'Close camera' : 'Take photo'}"
+	title="{showCameraView ? 'Close camera' : 'Take photos'}"
+	data-testid="camera-button"
 >
-    <Camera size={24}/>
+	<Camera size={24}/>
 </button>
 
 {#if import.meta.env.VITE_DEV_MODE === 'true'}
-<button
-        on:click={toggleDebug}
-        class="debug-toggle"
-        on:keydown={(e) => e.key === 'Enter' && toggleDebug()}
-        aria-label="Toggle debug overlay"
-        title="Toggle debug overlay"
->
-    Debug
-</button>
+	<button
+		on:click={toggleDebug}
+		class="debug-toggle"
+		on:keydown={(e) => e.key === 'Enter' && toggleDebug()}
+		aria-label="Toggle debug overlay"
+		title="Toggle debug overlay"
+	>
+		Debug
+	</button>
 {/if}
 
-<NavigationMenu isOpen={menuOpen} onClose={() => menuOpen = false} />
+<NavigationMenu isOpen={menuOpen} onClose={() => menuOpen = false}/>
 
 <!-- Alert area for main page -->
 <div class="main-page-alert-area">
-    <AlertArea position="main" />
+	<AlertArea position="main"/>
 </div>
 
 <div class="container" class:max-mode={$app.displayMode === 'max'}>
-    <div class="panel photo-panel">
-        {#if showCameraView}
-            <CameraCapture
-                    show={true}
-                    on:close={() => app.update(a => ({...a, activity: 'view'}))}
-            />
-        {:else}
-            <PhotoGallery/>
-        {/if}
-    </div>
-    <div class="panel map-panel">
-        <Map bind:this={mapComponent}/>
-    </div>
+	<div class="panel photo-panel">
+		{#if showCameraView}
+			<CameraCapture
+				show={true}
+				on:close={() => app.update(a => ({...a, activity: 'view'}))}
+			/>
+		{:else}
+			<PhotoGallery/>
+		{/if}
+	</div>
+	<div class="panel map-panel">
+		<Map bind:this={mapComponent}/>
+	</div>
 </div>
 
 
 <DebugOverlay/>
 
 <style>
-    /* Reset default margin, padding and prevent body scroll for main app */
-    :global(html, body) {
-        margin: 0;
-        padding: 0;
-        overflow: hidden;
-        width: 100%;
-        height: 100%;
-    }
+	/* Reset default margin, padding and prevent body scroll for main app */
+	:global(html, body) {
+		margin: 0;
+		padding: 0;
+		overflow: hidden;
+		width: 100%;
+		height: 100%;
+	}
 
-    /* Allow specific pages to enable scrolling */
-    :global(body:has(.page-scrollable), html:has(.page-scrollable)) {
-        overflow: auto !important;
-        height: auto !important;
-    }
+	/* Allow specific pages to enable scrolling */
+	:global(body:has(.page-scrollable), html:has(.page-scrollable)) {
+		overflow: auto !important;
+		height: auto !important;
+	}
 
-    /* Fallback for browsers that don't support :has() */
-    :global(body.scrollable, html.scrollable) {
-        overflow: auto !important;
-        height: auto !important;
-    }
+	/* Fallback for browsers that don't support :has() */
+	:global(body.scrollable, html.scrollable) {
+		overflow: auto !important;
+		height: auto !important;
+	}
 
-    /* Ensure padding and borders are included in the elements' total size */
-    :global(*) {
-        box-sizing: border-box;
-    }
+	/* Ensure padding and borders are included in the elements' total size */
+	:global(*) {
+		box-sizing: border-box;
+	}
 
-    /* Container occupies the full viewport */
-    .container {
-        display: flex;
-        width: 100vw;
-        height: 100vh;
-        flex-direction: row; /* Default landscape mode */
-    }
+	/* Container occupies the full viewport */
+	.container {
+		display: flex;
+		width: 100vw;
+		height: 100vh;
+		flex-direction: row; /* Default landscape mode */
+	}
 
-    /* Each panel takes up equal space */
-    .panel {
-        flex: 1;
-        overflow: auto;
-    }
+	/* Each panel takes up equal space */
+	.panel {
+		flex: 1;
+		overflow: auto;
+	}
 
-    /* Max mode: photo panel takes up 7/8 of the screen */
-    .container.max-mode {
-        flex-direction: row;
-    }
+	/* Max mode: photo panel takes up 7/8 of the screen */
+	.container.max-mode {
+		flex-direction: row;
+	}
 
-    .container.max-mode .photo-panel {
-        flex: 7;
-    }
+	.container.max-mode .photo-panel {
+		flex: 7;
+	}
 
-    .container.max-mode .map-panel {
-        flex: 1;
-    }
+	.container.max-mode .map-panel {
+		flex: 1;
+	}
 
-    /* For portrait mode, stack panels vertically */
-    @media (orientation: portrait) {
-        .container {
-            flex-direction: column;
-        }
+	/* For portrait mode, stack panels vertically */
+	@media (orientation: portrait) {
+		.container {
+			flex-direction: column;
+		}
 
-        /* In portrait max mode, photo panel takes up 3/4 of height */
-        .container.max-mode {
-            flex-direction: column;
-        }
-    }
+		/* In portrait max mode, photo panel takes up 3/4 of height */
+		.container.max-mode {
+			flex-direction: column;
+		}
+	}
 
-    .hamburger {
-        position: absolute;
-        top: 10px;
-        left: 10px;
-        z-index: 30001;
-        background: white;
-        border-radius: 50%;
-        width: 40px;
-        height: 40px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
-        cursor: pointer;
-        border: none;
-        padding: 0;
-    }
+	.hamburger {
+		position: absolute;
+		top: 10px;
+		left: 10px;
+		z-index: 30001;
+		background: white;
+		border-radius: 50%;
+		width: 40px;
+		height: 40px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+		cursor: pointer;
+		border: none;
+		padding: 0;
+	}
 
-    .display-mode-toggle {
-        position: absolute;
-        top: 10px;
-        left: 60px;
-        z-index: 30001;
-        background: white;
-        border-radius: 50%;
-        width: 40px;
-        height: 40px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
-        cursor: pointer;
-        border: none;
-        padding: 0;
-    }
+	.display-mode-toggle {
+		position: absolute;
+		top: 10px;
+		left: 60px;
+		z-index: 30001;
+		background: white;
+		border-radius: 50%;
+		width: 40px;
+		height: 40px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+		cursor: pointer;
+		border: none;
+		padding: 0;
+	}
 
-    .camera-button {
-        position: absolute;
-        top: 10px;
-        left: 110px;
-        z-index: 30001;
-        background: white;
-        border-radius: 50%;
-        width: 40px;
-        height: 40px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
-        cursor: pointer;
-        border: none;
-        padding: 0;
-        touch-action: none;
-        user-select: none;
-        -webkit-user-select: none;
-        -webkit-touch-callout: none;
-        transition: all 0.2s ease;
-    }
+	.camera-button {
+		position: absolute;
+		top: 10px;
+		left: 110px;
+		z-index: 30001;
+		background: white;
+		border-radius: 50%;
+		width: 40px;
+		height: 40px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+		cursor: pointer;
+		border: none;
+		padding: 0;
+		touch-action: none;
+		user-select: none;
+		-webkit-user-select: none;
+		-webkit-touch-callout: none;
+		transition: all 0.2s ease;
+	}
 
-    .debug-toggle {
-        position: absolute;
-        top: 10px;
-        left: 160px;
-        z-index: 30001;
-        background: white;
-        border-radius: 50%;
-        width: 40px;
-        height: 40px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
-        cursor: pointer;
-        border: none;
-        padding: 0;
-        transition: all 0.2s ease;
-    }
+	.debug-toggle {
+		position: absolute;
+		top: 10px;
+		left: 160px;
+		z-index: 30001;
+		background: white;
+		border-radius: 50%;
+		width: 40px;
+		height: 40px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+		cursor: pointer;
+		border: none;
+		padding: 0;
+		transition: all 0.2s ease;
+	}
 
-    .camera-button.active {
-        background: #4a90e2;
-        color: white;
-        box-shadow: 0 2px 8px rgba(74, 144, 226, 0.4);
-    }
+	.camera-button.active {
+		background: #4a90e2;
+		color: white;
+		box-shadow: 0 2px 8px rgba(74, 144, 226, 0.4);
+	}
 
-    /* Red animated style when not active (view mode) */
-    .camera-button:not(.active) {
-        background: white;
-        color: black;
-        animation: pulse 2s infinite;
-    }
+	/* Red animated style when not active (view mode) */
+	.camera-button:not(.active) {
+		background: white;
+		color: black;
+		animation: pulse 2s infinite;
+	}
 
-    @keyframes pulse {
-        0% {
-            box-shadow: 0 2px 5px rgba(100, 0, 100, 0.2);
-        }
-        50% {
-            box-shadow: 0 2px 12px rgba(131, 255, 60, 0.6);
-            transform: scale(1.10);
-        }
-        100% {
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
-        }
-    }
+	@keyframes pulse {
+		0% {
+			box-shadow: 0 2px 5px rgba(100, 0, 100, 0.2);
+		}
+		50% {
+			box-shadow: 0 2px 12px rgba(131, 255, 60, 0.6);
+			transform: scale(1.10);
+		}
+		100% {
+			box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+		}
+	}
 
-    .camera-button:hover {
-        transform: scale(1.05);
-    }
+	.camera-button:hover {
+		transform: scale(1.05);
+	}
 
 
-    .main-page-alert-area {
-        position: absolute;
-        top: 60px; /* Below the top buttons */
-        left: 10px;
-        right: 100px;
-        z-index: 30000;
-        pointer-events: none; /* Let clicks through unless there's an alert */
+	.main-page-alert-area {
+		position: absolute;
+		top: 60px; /* Below the top buttons */
+		left: 10px;
+		right: 100px;
+		z-index: 30000;
+		pointer-events: none; /* Let clicks through unless there's an alert */
 		background: rgba(255, 255, 255, 0.2);
-    }
+	}
 
-    .main-page-alert-area :global(.alert-area) {
-        pointer-events: auto; /* Re-enable clicks on actual alerts */
-    }
+	.main-page-alert-area :global(.alert-area) {
+		pointer-events: auto; /* Re-enable clicks on actual alerts */
+	}
 
-    :global(#sentry-feedback) {
-        --trigger-background: rgba(74, 144, 226, 0.6);
-        --inset: auto auto 0 0;
-    }
+	:global(#sentry-feedback) {
+		--trigger-background: rgba(74, 144, 226, 0.6);
+		--inset: auto auto 0 0;
+	}
 
 </style>

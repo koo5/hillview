@@ -435,7 +435,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
 
         // Also stop precise location service
         Log.d(TAG, "📍 Stopping precise location service")
-        preciseLocationService?.stopLocationUpdates()
+        //preciseLocationService?.stopLocationUpdates()
 
         invoke.resolve()
     }

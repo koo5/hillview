@@ -8,7 +8,6 @@
     // Access the stats store properly
     $: queueStats = captureQueue.stats;
     import {photoCaptureSettings} from '$lib/stores';
-    import {invoke} from '@tauri-apps/api/core';
     import DebugMode1 from './DebugMode1.svelte';
 
     let debugPosition: 'left' | 'right' = 'left'; // Default to left to avoid photo thumbnails

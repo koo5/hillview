@@ -66,14 +66,15 @@
                 Users
             </a></li>
 
-            <li><a href="/sources" data-testid="sources-menu-link" on:click={closeMenu}>
-                <Database size={18}/>
-                Sources
-            </a></li>
 
             <li><a href="/about" on:click={closeMenu}>
                 <Info size={18}/>
                 About
+            </a></li>
+
+            <li><a href="/sources" data-testid="sources-menu-link" on:click={closeMenu}>
+                <Database size={18}/>
+                Sources
             </a></li>
 
             <li>
@@ -86,15 +87,15 @@
             {#if FEATURE_USER_ACCOUNTS}
                 {#if isAuthenticated}
                     <li>
-                        <a href="/profile" on:click={closeMenu}>
-                            <User size={18}/>
-                            Profile
-                        </a>
-                    </li>
-                    <li>
                         <a href="/hidden" on:click={closeMenu}>
                             <EyeOff size={18}/>
                             Hidden Content
+                        </a>
+                    </li>
+                    <li>
+                        <a href="/account" on:click={closeMenu}>
+                            <User size={18}/>
+                            Account
                         </a>
                     </li>
                     <li>

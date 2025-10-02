@@ -18,10 +18,10 @@ export class LoginHelper {
      */
     static async switchToWebView(): Promise<boolean> {
         console.log('🌐 Switching to WebView context...');
-        
+
         const contexts = await driver.getContexts();
         const webViewContexts = contexts.filter(ctx => ctx.includes('WEBVIEW'));
-        
+
         if (webViewContexts.length > 0) {
             await driver.switchContext(webViewContexts[0]);
             console.log(`✅ Switched to WebView: ${webViewContexts[0]}`);
@@ -73,12 +73,12 @@ export class LoginHelper {
         password: string = LoginHelper.DEFAULT_CREDENTIALS.password
     ): Promise<boolean> {
         console.log('🔐 Performing login in WebView...');
-        
+
         try {
             // Check if already logged in
             const loginLink = await $('a[href="/login"]');
             const loginVisible = await loginLink.isDisplayed();
-            
+
             if (!loginVisible) {
                 console.log('ℹ️ Already logged in or login link not found');
                 return true;
@@ -87,25 +87,25 @@ export class LoginHelper {
             console.log('🔗 Clicking login link...');
             await loginLink.click();
             await driver.pause(3000);
-            
+
             // Fill credentials
             const usernameInput = await $('input[type="text"]');
             await usernameInput.waitForDisplayed({ timeout: 10000 });
             await usernameInput.setValue(username);
             console.log('✅ Username entered');
-            
+
             const passwordInput = await $('input[type="password"]');
             await passwordInput.setValue(password);
             console.log('✅ Password entered');
-            
+
             const submitButton = await $('button[type="submit"]');
             await submitButton.click();
             console.log('✅ Login form submitted');
-            
+
             await driver.pause(5000);
             console.log('🎉 Login completed');
             return true;
-            
+
         } catch (e) {
             console.error('❌ Login failed:', e.message);
             return false;
@@ -120,34 +120,34 @@ export class LoginHelper {
         password: string = LoginHelper.DEFAULT_CREDENTIALS.password
     ): Promise<boolean> {
         console.log('🔐 Starting complete login workflow...');
-        
+
         try {
             // First check for critical errors
             await checkForCriticalErrors();
 
             // Step 1: Open menu
             await LoginHelper.openMenu();
-            
+
             // Step 2: Switch to WebView and login
             const webViewAvailable = await LoginHelper.switchToWebView();
             if (!webViewAvailable) {
                 console.error('❌ WebView not available for login');
                 return false;
             }
-            
+
             const loginSuccess = await LoginHelper.performLoginInWebView(username, password);
             if (!loginSuccess) {
                 console.error('❌ Login failed');
                 return false;
             }
-            
+
             // Step 3: Switch back to native and close menu
             await LoginHelper.switchToNativeApp();
             await LoginHelper.closeMenu();
-            
+
             console.log('🎉 Complete login workflow successful');
             return true;
-            
+
         } catch (error) {
             console.error('❌ Complete login workflow failed:', error.message);
             // Take screenshot for debugging
@@ -165,24 +165,24 @@ export class LoginHelper {
      */
     static async isUserAuthenticated(): Promise<boolean> {
         console.log('🔍 Checking authentication state...');
-        
+
         try {
             await LoginHelper.openMenu();
-            
+
             const webViewAvailable = await LoginHelper.switchToWebView();
             if (!webViewAvailable) {
                 await LoginHelper.closeMenu();
                 return false;
             }
-            
+
             // Look for profile link (indicates logged in)
             try {
-                const profileLink = await $('a[href="/profile"]');
+                const profileLink = await $('a[href="/account"]');
                 const isAuthenticated = await profileLink.isDisplayed();
-                
+
                 await LoginHelper.switchToNativeApp();
                 await LoginHelper.closeMenu();
-                
+
                 console.log(`🔍 User is ${isAuthenticated ? 'authenticated' : 'not authenticated'}`);
                 return isAuthenticated;
             } catch (e) {
@@ -190,7 +190,7 @@ export class LoginHelper {
                 await LoginHelper.closeMenu();
                 return false;
             }
-            
+
         } catch (error) {
             console.error('❌ Failed to check authentication state:', error.message);
             return false;
@@ -205,13 +205,13 @@ export class LoginHelper {
         password: string = LoginHelper.DEFAULT_CREDENTIALS.password
     ): Promise<boolean> {
         console.log('🔐 Ensuring user is authenticated...');
-        
+
         const isAuthenticated = await LoginHelper.isUserAuthenticated();
         if (isAuthenticated) {
             console.log('✅ User already authenticated');
             return true;
         }
-        
+
         console.log('🔑 User not authenticated, performing login...');
         return await LoginHelper.performCompleteLogin(username, password);
     }
@@ -227,12 +227,12 @@ export class LoginHelper {
         try {
             console.log('🌐 Logging in via API...');
             const bodyParams = `username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`;
-            
+
             const response = await driver.executeAsync((url, bodyParams, done) => {
                 const xhr = new XMLHttpRequest();
                 xhr.open('POST', url);
                 xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-                
+
                 xhr.onload = function() {
                     try {
                         const response = {
@@ -251,11 +251,11 @@ export class LoginHelper {
                         done({ error: e.message });
                     }
                 };
-                
+
                 xhr.onerror = function() {
                     done({ error: 'Network error' });
                 };
-                
+
                 xhr.send(bodyParams);
             }, `${baseUrl}/api/auth/token`, bodyParams);
 

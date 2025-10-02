@@ -94,7 +94,7 @@
 </script>
 
 <StandardHeaderWithAlert
-    title="User Profile"
+    title="User Account"
     showMenuButton={true}
     fallbackHref="/"
 />

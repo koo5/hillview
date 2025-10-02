@@ -40,9 +40,9 @@ class PreciseLocationService(
         private const val TAG = "🢄PreciseLocationService"
 
         // Update intervals in milliseconds
-        private const val UPDATE_INTERVAL = 1000L        // 1 second
-        private const val FASTEST_INTERVAL = 500L        // 0.5 seconds
-        private const val MAX_WAIT_TIME = 2000L          // 2 seconds
+        private const val UPDATE_INTERVAL = 500L
+        private const val FASTEST_INTERVAL = 250L
+        private const val MAX_WAIT_TIME = 2000L
 
         // Accuracy thresholds
         private const val HIGH_ACCURACY_THRESHOLD = 5.0f  // meters
@@ -117,13 +117,13 @@ class PreciseLocationService(
             }
 
             override fun onLocationAvailability(availability: LocationAvailability) {
-                //Log.i(TAG, "📍 CALLBACK: *** onLocationAvailability called! ***")
-                Log.i(TAG, "📍 CALLBACK: Location availability changed: ${availability.isLocationAvailable}")
+                ////Log.i(TAG, "📍 CALLBACK: *** onLocationAvailability called! ***")
+                Log.i(TAG, "📍 isLocationAvailable: ${availability.isLocationAvailable}")
                 if (!availability.isLocationAvailable) {
-                    Log.w(TAG, "📍⚠️ CALLBACK: Location is currently unavailable")
-                    Log.w(TAG, "📍⚠️ CALLBACK: This could mean GPS is turned off or no signal")
+                    //Log.w(TAG, "📍⚠️ CALLBACK: Location is currently unavailable")
+                    //Log.w(TAG, "📍⚠️ CALLBACK: This could mean GPS is turned off or no signal")
                 } else {
-                    Log.i(TAG, "📍✅ CALLBACK: Location is available!")
+                    //Log.i(TAG, "📍✅ CALLBACK: Location is available!")
                 }
             }
         }
@@ -131,7 +131,7 @@ class PreciseLocationService(
     }
 
     private fun handleLocationUpdate(location: Location) {
-        Log.i(TAG, "📍 HANDLE: *** handleLocationUpdate called! ***")
+        //Log.i(TAG, "📍 HANDLE: *** handleLocationUpdate called! ***")
 
         // accuracyLevel removed - was only used in commented logging
 /*
@@ -183,7 +183,7 @@ class PreciseLocationService(
         //Log.i(TAG, "📍 HANDLE: Calling onLocationUpdate callback...")
         try {
             onLocationUpdate(preciseData)
-            Log.i(TAG, "📍 HANDLE: ✅ onLocationUpdate callback completed successfully!")
+            //Log.i(TAG, "📍 HANDLE: ✅ onLocationUpdate callback completed successfully!")
         } catch (e: Exception) {
             Log.e(TAG, "📍 HANDLE: ❌ Error in onLocationUpdate callback: ${e.message}", e)
         }

@@ -663,32 +663,6 @@
 
     }
 
-    function close() {
-        if (stream) {
-            stream.getTracks().forEach(track => track.stop());
-            stream = null;
-        }
-        cameraReady = false;
-        cameraError = null;
-        needsPermission = false;
-
-        // Clear permission monitoring
-        if (permissionCheckInterval) {
-            clearInterval(permissionCheckInterval);
-            permissionCheckInterval = null;
-        }
-        hasRequestedPermission = false;
-
-        // Clear retry timeout
-        if (retryTimeout) {
-            clearTimeout(retryTimeout);
-            retryTimeout = null;
-        }
-        retryCount = 0;
-
-        show = false;
-        dispatch('close');
-    }
 
     function handleVisibilityChange() {
         if (document.hidden) {
@@ -1228,7 +1202,7 @@
 
     .camera-selector-container {
         position: absolute;
-		z-index: 1000000;
+		z-index: 100000;
         left: 0rem;
         bottom: 0rem;
     }

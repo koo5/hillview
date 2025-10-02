@@ -1,14 +1,11 @@
 <script lang="ts">
 	import {onMount, onDestroy} from 'svelte';
-	import {EyeOff, UserX} from 'lucide-svelte';
 	import PhotoActionsMenu from './PhotoActionsMenu.svelte';
 	import {app} from '$lib/data.svelte';
 	import {auth} from '$lib/auth.svelte';
 	import {http, handleApiError} from '$lib/http';
 	import {myGoto} from '$lib/navigation.svelte';
 	import {constructUserProfileUrl, constructShareUrl, openExternalUrl} from '$lib/urlUtils';
-	import {TAURI} from '$lib/tauri.js';
-	import {invoke} from '@tauri-apps/api/core';
 	import {getDevicePhotoUrl} from '$lib/devicePhotoHelper';
 	import {simplePhotoWorker} from '$lib/simplePhotoWorker';
 	import type {PhotoData} from '$lib/sources';

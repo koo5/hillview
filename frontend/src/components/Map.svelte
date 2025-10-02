@@ -216,7 +216,7 @@
             const currentCenter = map.getCenter();
             const currentZoom = map.getZoom();
             if (!currentCenter || currentCenter.lat !== spatial.center.lat || currentCenter.lng !== spatial.center.lng || currentZoom !== spatial.zoom) {
-                //console.log('🢄setView', spatial.center, spatial.zoom);
+                console.log('🢄setView', spatial.center, spatial.zoom);
                 map.setView(new LatLng(spatial.center.lat, spatial.center.lng), spatial.zoom);
                 onMapStateChange(true, 'spatialState.subscribe');
             }
@@ -248,17 +248,16 @@
             }
         }
 
-        // Don't reset the flag here - let the timer handle it
         await onMapStateChange(true, 'mapStateUserEvent');
 
         // Prune tiles after significant movement or every 10 move events
-        moveEventCount++;
+        /*moveEventCount++;
         const timeSinceLastPrune = Date.now() - lastPruneTime;
         if (moveEventCount >= 10 || timeSinceLastPrune > 10000) {
             pruneTiles();
             moveEventCount = 0;
             lastPruneTime = Date.now();
-        }
+        }*/
     }
 
 

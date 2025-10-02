@@ -7,6 +7,21 @@ export interface Resolution {
     label: string; // e.g., "1080p", "4K", "720p"
 }
 
+/**
+ * Utility functions for camera debugging and logging
+ */
+export function truncateDeviceId(deviceId: string): string {
+    return deviceId.slice(0, 8) + '...';
+}
+
+export function logCamera(message: string, ...args: any[]): void {
+    console.log(`🢄[CAMERA] ${message}`, ...args);
+}
+
+export function logCameraError(message: string, ...args: any[]): void {
+    console.error(`🢄[CAMERA] ${message}`, ...args);
+}
+
 export interface CameraDevice {
     deviceId: string;
     label: string;
@@ -38,7 +53,7 @@ export async function enumerateCameraDevices(): Promise<CameraDevice[]> {
         const devices = await navigator.mediaDevices.enumerateDevices();
         const videoDevices = devices.filter(device => device.kind === 'videoinput');
 
-        console.log('🢄[CAMERAS] Found video devices:', videoDevices.length);
+        logCamera('Found video devices:', videoDevices.length);
 
         const cameraDevices: CameraDevice[] = videoDevices
             .map(device => {
@@ -74,12 +89,12 @@ export async function enumerateCameraDevices(): Promise<CameraDevice[]> {
             return a.label.localeCompare(b.label);
         });
 
-        console.log('🢄[CAMERAS] Processed cameras:', JSON.stringify(
+        logCamera('Processed cameras:', JSON.stringify(
 			cameraDevices.map(c => ({
             label: c.label,
             facing: c.facingMode,
             preferred: c.isPreferred,
-            id: c.deviceId.slice(0, 8) + '...'
+            id: truncateDeviceId(c.deviceId)
         }))));
 
         availableCameras.set(cameraDevices);
@@ -110,7 +125,7 @@ export function getPreferredBackCamera(cameras: CameraDevice[]): CameraDevice | 
 
 // Get hardcoded resolution options for camera
 export async function getCameraSupportedResolutions(deviceId: string): Promise<Resolution[]> {
-    console.log(`🢄[CAMERA] Using hardcoded resolution options for device ${deviceId.slice(0, 8)}...`);
+    logCamera(`Using hardcoded resolution options for device ${truncateDeviceId(deviceId)}...`);
 
     const hardcodedResolutions: Resolution[] = [
         { width: 3840, height: 2160, label: "4K (3840×2160)" },
@@ -119,7 +134,7 @@ export async function getCameraSupportedResolutions(deviceId: string): Promise<R
         { width: 1280, height: 720, label: "720p (1280×720)" }
     ];
 
-    console.log(`🢄[CAMERA] Offering ${hardcodedResolutions.length} resolution options:`,
+    logCamera(`Offering ${hardcodedResolutions.length} resolution options:`,
         hardcodedResolutions.map(r => r.label));
 
     return hardcodedResolutions;
