@@ -1,6 +1,6 @@
 <script lang="ts">
     import {
-        Map, Images, Activity, Database, Info, Download, User, EyeOff, LogOut, Users
+        Map, Images, Activity, Database, Info, Download, User, EyeOff, LogOut, Users, Settings
     } from 'lucide-svelte';
     import { auth, logout } from '$lib/auth.svelte';
     import { FEATURE_USER_ACCOUNTS } from '$lib/config';
@@ -96,6 +96,12 @@
                         <a href="/account" on:click={closeMenu}>
                             <User size={18}/>
                             Account
+                        </a>
+                    </li>
+                    <li>
+                        <a href="/settings" on:click={closeMenu} data-testid="settings-menu-link">
+                            <Settings size={18}/>
+                            Settings
                         </a>
                     </li>
                     <li>

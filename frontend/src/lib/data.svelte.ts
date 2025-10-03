@@ -3,6 +3,9 @@ import {localStorageSharedStore, staggeredLocalStorageSharedStore} from './svelt
 import {backendUrl} from './config';
 import {MAX_DEBUG_MODES} from './constants';
 import {auth} from './auth.svelte';
+
+export type DisplayMode = 'split' | 'max' | 'min';
+export type AppActivity = 'capture' | 'view';
 // Import new mapState for legacy compatibility only
 import {photoInFront, photoToLeft, photoToRight, updateBearing as mapStateUpdateBearing, updateBearingWithPhoto} from './mapState';
 import {TAURI} from "$lib/tauri";
@@ -29,7 +32,7 @@ const baseSources: Source[] = [
     {id: 'mapillary', name: 'Mapillary', type: 'stream', enabled: false/*!import.meta.env.VITE_PICS_OFF*/, requests: [], color: '#888', url: `${backendUrl}/mapillary`}
 ];
 
-const deviceSources: Source[] = !TAURI ? [] : [
+const deviceSources: Source[] = !TAURI || (import.meta.env.VITE_DEV_MODE !== 'true') ? [] : [
     //{id: 'device', name: 'My Device', type: 'device', enabled: !import.meta.env.VITE_PICS_OFF, requests: [], color: '#4a90e2', subtype: 'hillview'}
 ];
 
@@ -71,18 +74,18 @@ export let cameraOverlayOpacity = staggeredLocalStorageSharedStore('cameraOverla
 // Separate persisted app settings from session-specific state
 export let appSettings = staggeredLocalStorageSharedStore('appSettings', {
     debug: 0,
-    displayMode: 'split' as 'split' | 'max',
-    activity: 'view' as 'capture' | 'view',
+    displayMode: 'split' as DisplayMode,
+    activity: 'view' as AppActivity,
 });
 
 // Main app store with both persisted and session-specific fields
 export let app = writable<{
     error: string | null;
     debug: number;
-    displayMode: 'split' | 'max';
+    displayMode: DisplayMode;
     loading?: boolean;
     isAuthenticated?: boolean;
-    activity: 'capture' | 'view';
+    activity: AppActivity;
 }>({
     error: null,
     debug: 0,

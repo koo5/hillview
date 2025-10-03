@@ -5,7 +5,7 @@
 	import {auth} from '$lib/auth.svelte';
 	import {http, handleApiError} from '$lib/http';
 	import {myGoto} from '$lib/navigation.svelte';
-	import {constructUserProfileUrl, constructShareUrl, openExternalUrl} from '$lib/urlUtils';
+	import {constructShareUrl} from '$lib/urlUtils';
 	import {getDevicePhotoUrl} from '$lib/devicePhotoHelper';
 	import {simplePhotoWorker} from '$lib/simplePhotoWorker';
 	import type {PhotoData} from '$lib/sources';
@@ -197,46 +197,6 @@
 		return null;
 	}
 
-	async function hidePhoto() {
-		if (!photo || !isAuthenticated || isHiding) return;
-
-		isHiding = true;
-		hideMessage = '';
-
-		try {
-			const photoSource = getPhotoSource(photo);
-			const response = await http.post('/hidden/photos', {
-				photo_source: photoSource,
-				photo_id: photo.id,
-				reason: 'Hidden from gallery'
-			});
-
-			if (!response.ok) {
-				throw new Error(`Failed to hide photo: ${response.status}`);
-			}
-
-			// Call webworker to remove from cache
-			simplePhotoWorker.removePhotoFromCache?.(photo.id, photoSource);
-
-			hideMessage = 'Photo hidden successfully';
-			setTimeout(() => hideMessage = '', 2000);
-		} catch (error) {
-			console.error('🢄Error hiding photo:', error);
-			hideMessage = `Error: ${handleApiError(error)}`;
-			setTimeout(() => hideMessage = '', 5000);
-		} finally {
-			isHiding = false;
-		}
-	}
-
-	function showUserHideDialog() {
-		if (!photo || !isAuthenticated) return;
-
-		showHideUserDialog = true;
-		hideUserReason = '';
-		flagUserForReview = false;
-	}
-
 	function cancelHideUser() {
 		showHideUserDialog = false;
 		hideUserReason = '';
@@ -292,23 +252,6 @@
 	}
 
 
-	// Navigate to user profile for Hillview photos
-	async function viewUserProfile() {
-		if (!photo) return;
-
-		const photoSource = getPhotoSource(photo);
-		const userId = getUserId(photo);
-
-		if (photoSource === 'hillview' && userId) {
-			myGoto(constructUserProfileUrl(userId));
-		}
-		else if (photoSource === 'mapillary' && (photo as any).creator?.username) {
-			const username = (photo as any).creator.username;
-			const profileUrl = `https://www.mapillary.com/app/user/${username}`;
-			await openExternalUrl(profileUrl);
-		}
-
-	}
 
 
 </script>
@@ -349,16 +292,6 @@
 
 		<!-- Photo actions for front photo only -->
 		{#if className === 'front'}
-			<!-- Creator username display -->
-			{#if getUserName(photo)}
-				<button class="creator-name clickable" on:click={viewUserProfile}>
-					<div class="creator-info">
-						<span class="creator-name">@{getUserName(photo)}</span>
-						<span class="source-name">{getPhotoSource(photo)}</span>
-					</div>
-				</button>
-			{/if}
-
 			<div class="photo-actions-container">
 				<PhotoActionsMenu
 					{photo}
@@ -500,64 +433,6 @@
 		-webkit-mask-image: linear-gradient(to left, white 0%, white 70%, transparent 100%);
 	}
 
-	/* Creator info display */
-	.creator-info {
-		position: absolute;
-		bottom: 10px;
-		right: 150px;
-		background: rgba(1, 1, 1, 0.7);
-		color: white;
-		padding: 6px 10px;
-		border-radius: 12px;
-		font-size: 12px;
-		font-weight: 500;
-		display: flex;
-		flex-direction: column;
-		align-items: flex-end;
-		gap: 2px;
-		/*box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);*/
-		z-index: 9;
-		max-width: 150px;
-		text-align: right;
-	}
-
-	.creator-name {
-		color: #fff;
-		font-weight: 600;
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		max-width: 100%;
-	}
-
-	.creator-name.clickable {
-		background: none;
-		border: none;
-		padding: 0;
-		margin: 0;
-		font-size: inherit;
-		font-weight: inherit;
-		font-family: inherit;
-		color: #dddde2;
-		cursor: pointer;
-		text-decoration: underline;
-		transition: color 0.2s ease;
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		max-width: 100%;
-	}
-
-	.creator-name.clickable:hover {
-		color: #ffffff;
-	}
-
-	.source-name {
-		color: rgba(255, 255, 255, 0.7);
-		font-size: 10px;
-		text-transform: uppercase;
-		letter-spacing: 0.5px;
-	}
 
 	/* Status message */
 	.hide-message {

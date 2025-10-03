@@ -32,7 +32,14 @@ class PhotoUploadWorker(
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         try {
-            Log.d(TAG, "doWork - starting unified upload processing")
+            val triggerSource = inputData.getString("trigger_source") ?: "unknown"
+            Log.d(TAG, "doWork - starting unified upload processing (triggered by: $triggerSource)")
+
+            // For scheduled runs, scan for new photos first
+            if (triggerSource == "scheduled") {
+                Log.d(TAG, "Scheduled run detected - scanning for new photos")
+                scanForNewPhotos()
+            }
 
             // Process photos one at a time with validation on each iteration
             while (true) {
@@ -120,7 +127,7 @@ class PhotoUploadWorker(
         }
     }
 
-/*
+
     private fun scanForNewPhotos() {
         Log.d(TAG, "Scanning for new photos")
 
@@ -178,7 +185,7 @@ class PhotoUploadWorker(
         }
 
         Log.d(TAG, "Scan complete. Added $newPhotosFound new photos, $scanErrors errors")
-    }*/
+    }
 
 
     private fun getPhotoDirectories(): List<File> {
@@ -191,7 +198,7 @@ class PhotoUploadWorker(
 
         // Add Hillview directories in Pictures (where photos are actually saved)
         directories.add(File(picturesDir, "Hillview"))    // /storage/emulated/0/Pictures/Hillview
-        directories.add(File(picturesDir, ".Hillview"))   // /storage/emulated/0/Pictures/.Hillview (hidden)
+        //directories.add(File(picturesDir, ".Hillview"))   // /storage/emulated/0/Pictures/.Hillview (hidden)
 
         Log.d(TAG, "Scanning photo directories: ${directories.map { it.path }}")
         return directories

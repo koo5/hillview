@@ -15,6 +15,15 @@ interface SimplePhotoDao {
     @Query("SELECT * FROM photos ORDER BY createdAt DESC LIMIT :limit OFFSET :offset")
     fun getPhotosPaginated(limit: Int, offset: Int): List<PhotoEntity>
 
+    @Query("""
+        SELECT * FROM photos
+        WHERE latitude BETWEEN :minLat AND :maxLat
+        AND longitude BETWEEN :minLng AND :maxLng
+        ORDER BY bearing ASC, createdAt DESC
+        LIMIT :limit
+    """)
+    fun getPhotosInBounds(minLat: Double, maxLat: Double, minLng: Double, maxLng: Double, limit: Int): List<PhotoEntity>
+
     @Query("SELECT COUNT(*) FROM photos")
     fun getTotalPhotoCount(): Int
 

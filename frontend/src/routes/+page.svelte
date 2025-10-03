@@ -10,9 +10,10 @@
 		Camera,
 		Maximize2,
 		Menu,
-		Minimize2
+		Minimize2,
+		Square
 	} from 'lucide-svelte';
-	import {app, sources, toggleDebug, turn_to_photo_to, enableSourceForPhotoUid} from "$lib/data.svelte";
+	import {app, sources, toggleDebug, turn_to_photo_to, enableSourceForPhotoUid, type DisplayMode} from "$lib/data.svelte";
 	import {
 		bearingState,
 		spatialState,
@@ -75,6 +76,8 @@
 			const photoUid = decodeURIComponent(photoParam);
 			console.log('🢄Photo parameter from URL:', photoUid);
 			enableSourceForPhotoUid(photoUid);
+			// Switch to view mode when opening a specific photo
+			app.update(a => ({ ...a, activity: 'view' }));
 		}
 
 		if (bearingParam) {
@@ -174,10 +177,23 @@
 	}
 
 	const toggleDisplayMode = async () => {
-		app.update(a => ({
-			...a,
-			displayMode: a.displayMode === 'split' ? 'max' : 'split'
-		}));
+		app.update(a => {
+			let nextMode: DisplayMode;
+			switch (a.displayMode) {
+				case 'split':
+					nextMode = 'max';
+					break;
+				case 'max':
+					nextMode = 'min';
+					break;
+				case 'min':
+					nextMode = 'split';
+					break;
+				default:
+					nextMode = 'split';
+			}
+			return { ...a, displayMode: nextMode };
+		});
 
 		// Wait for DOM to update
 		await tick();
@@ -396,10 +412,12 @@
 	on:click={toggleDisplayMode}
 	on:keydown={(e) => e.key === 'Enter' && toggleDisplayMode()}
 	aria-label="Toggle display mode"
-	title={$app.displayMode === 'split' ? 'Maximize view' : 'Split view'}
+	title={$app.displayMode === 'split' ? 'Maximize view' : $app.displayMode === 'max' ? 'Minimize view' : 'Split view'}
 >
 	{#if $app.displayMode === 'split'}
 		<Maximize2 size={24}/>
+	{:else if $app.displayMode === 'max'}
+		<Square size={24}/>
 	{:else}
 		<Minimize2 size={24}/>
 	{/if}
@@ -436,7 +454,7 @@
 	<AlertArea position="main"/>
 </div>
 
-<div class="container" class:max-mode={$app.displayMode === 'max'}>
+<div class="container" class:max-mode={$app.displayMode === 'max'} class:min-mode={$app.displayMode === 'min'}>
 	<div class="panel photo-panel">
 		{#if showCameraView}
 			<CameraCapture
@@ -509,6 +527,19 @@
 		flex: 1;
 	}
 
+	/* Min mode: map panel takes up 7/8 of the screen */
+	.container.min-mode {
+		flex-direction: row;
+	}
+
+	.container.min-mode .photo-panel {
+		flex: 1;
+	}
+
+	.container.min-mode .map-panel {
+		flex: 7;
+	}
+
 	/* For portrait mode, stack panels vertically */
 	@media (orientation: portrait) {
 		.container {
@@ -518,6 +549,19 @@
 		/* In portrait max mode, photo panel takes up 3/4 of height */
 		.container.max-mode {
 			flex-direction: column;
+		}
+
+		/* In portrait min mode, map panel takes up 7/8 of height */
+		.container.min-mode {
+			flex-direction: column;
+		}
+
+		.container.min-mode .photo-panel {
+			flex: 1;
+		}
+
+		.container.min-mode .map-panel {
+			flex: 7;
 		}
 	}
 

@@ -114,8 +114,8 @@ function mergeAndCullPhotos(): { photosInArea: PhotoData[], photosInRange: Photo
     }
 
     console.log(`🢄NewWorker: mergeAndCullPhotos - area bounds:`, currentState.area.data);
-    console.log(`🢄NewWorker: mergeAndCullPhotos - source photos counts:`,
-        Array.from(photosInAreaPerSource.entries()).map(([id, photos]) => `${id}: ${photos.length}`));
+	const photosInAreaPerSourceEntriesArray = Array.from(photosInAreaPerSource.entries());
+    console.log(`🢄NewWorker: mergeAndCullPhotos - source photos counts:`, photosInAreaPerSourceEntriesArray.map(([id, photos]) => `${id}: ${photos.length}`).join(', '));
 
     // Create/update culling grid for current area
     if (!cullingGrid || currentState.area.lastUpdateId > (cullingGrid as any).lastUpdateId) {
@@ -129,12 +129,12 @@ function mergeAndCullPhotos(): { photosInArea: PhotoData[], photosInRange: Photo
     console.log(`🢄NewWorker: After culling - ${photosInArea.length} photos in area (max: ${MAX_PHOTOS_IN_AREA})`);
 
     // Log a few photo locations for debugging
-    if (photosInArea.length > 0) {
+    /*if (photosInArea.length > 0) {
         console.log(`🢄NewWorker: First few photo locations:`,
             photosInArea.slice(0, 3).map(p => `[${p.coord.lat.toFixed(4)}, ${p.coord.lng.toFixed(4)}]`));
-    }
+    }*/
 
-    // Calculate center for range filtering
+    // Calculate center for range filtering // todo: should be already in currentState
     const center = calculateCenterFromBounds(currentState.area.data);
 
     // Apply angular range culling for uniform angular coverage

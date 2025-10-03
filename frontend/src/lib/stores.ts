@@ -23,5 +23,6 @@ export interface UserPhoto {
 
 // Store for photo capture settings
 export const photoCaptureSettings = localStorageSharedStore('photoCaptureSettings', {
-    hideFromGallery: false // Default to false (photos visible in gallery)
+    hideFromGallery: false, // Default to false (photos visible in gallery)
+    shutterSoundEnabled: true // Default to true (shutter sound enabled)
 });

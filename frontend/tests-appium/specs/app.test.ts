@@ -44,28 +44,33 @@ describe('Hillview App', () => {
 
     });
 
-    it('should toggle display mode when button is clicked', async () => {
+    it('should cycle through all display modes when button is clicked', async () => {
         // Find display mode toggle button
         const displayModeButton = await $('//android.widget.Button[@text="Toggle display mode"]');
         await displayModeButton.waitForExist({ timeout: 5000 });
-        
-        // Get initial hint
+
+        // Get initial hint (should be split mode)
         const initialHint = await displayModeButton.getAttribute('hint');
         expect(initialHint).toBe('Maximize view');
-        
-        // Click the button
+
+        // First click: split -> max
         await displayModeButton.click();
         await browser.pause(500); // Wait for animation
-        
-        // Check if hint changed (should now be 'Split view')
-        const newHint = await displayModeButton.getAttribute('hint');
-        expect(newHint).toBe('Split view');
-        
-        // Click again to toggle back
+
+        const maxHint = await displayModeButton.getAttribute('hint');
+        expect(maxHint).toBe('Minimize view');
+
+        // Second click: max -> min
         await displayModeButton.click();
         await browser.pause(500);
-        
-        // Verify it's back to original state
+
+        const minHint = await displayModeButton.getAttribute('hint');
+        expect(minHint).toBe('Split view');
+
+        // Third click: min -> split (back to original)
+        await displayModeButton.click();
+        await browser.pause(500);
+
         const finalHint = await displayModeButton.getAttribute('hint');
         expect(finalHint).toBe('Maximize view');
     });

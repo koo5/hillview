@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { myGoto } from '$lib/navigation.svelte';
 	import { constructPhotoMapUrl } from '$lib/urlUtils';
+	import { app } from '$lib/data.svelte';
 	import type { PhotoItemData } from '$lib/types/photoItemTypes';
 
 	// Props
@@ -30,7 +31,10 @@
 
 	function viewOnMap(photo: PhotoItemData) {
 		if (photo.latitude && photo.longitude) {
+			// Navigate to main page with photo coordinates and switch to gallery view
 			myGoto(constructPhotoMapUrl(photo));
+			// Set activity to 'view' to show gallery
+			app.update(a => ({ ...a, activity: 'view' }));
 		}
 	}
 

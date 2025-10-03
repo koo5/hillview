@@ -3,7 +3,7 @@
     import { http, handleApiError } from '$lib/http';
     import { auth } from '$lib/auth.svelte';
     import { simplePhotoWorker } from '$lib/simplePhotoWorker';
-    import { constructUserProfileUrl, constructShareUrl } from '$lib/urlUtils';
+    import { constructUserProfileUrl, constructShareUrl, openExternalUrl } from '$lib/urlUtils';
     import { myGoto } from '$lib/navigation.svelte';
     import { TAURI } from '$lib/tauri.js';
     import { invoke } from '@tauri-apps/api/core';
@@ -388,6 +388,23 @@
         checkFlagStatus();
     }
 
+    // Navigate to user profile for Hillview photos
+    async function viewUserProfile() {
+        if (!photo) return;
+
+        const photoSource = getPhotoSource(photo);
+        const userId = getUserId(photo);
+
+        if (photoSource === 'hillview' && userId) {
+            myGoto(constructUserProfileUrl(userId));
+        }
+        else if (photoSource === 'mapillary' && (photo as any).creator?.username) {
+            const username = (photo as any).creator.username;
+            const profileUrl = `https://www.mapillary.com/app/user/${username}`;
+            await openExternalUrl(profileUrl);
+        }
+    }
+
     // Bind click outside handler
     $: if (isMenuOpen && typeof window !== 'undefined') {
         setTimeout(() => window.addEventListener('click', handleClickOutside), 0);
@@ -434,6 +451,24 @@
         <!-- Dropdown menu -->
         {#if isMenuOpen}
             <div class="menu-dropdown">
+                <!-- User info section -->
+                {#if getUserName(photo)}
+                    <div class="menu-section">
+                        <button
+                            class="menu-item user-item"
+                            on:click={() => handleMenuAction(viewUserProfile)}
+                            data-testid="menu-user-profile"
+                            title="View user profile"
+                        >
+                            <div class="user-info">
+                                <span class="user-name">@{getUserName(photo)}</span>
+                                <span class="user-source">{getPhotoSource(photo)}</span>
+                            </div>
+                        </button>
+                    </div>
+                    <div class="menu-divider"></div>
+                {/if}
+
                 <!-- Actions section -->
                 <div class="menu-section">
                     <button
@@ -676,6 +711,41 @@
             opacity: 1;
             transform: translateY(0);
         }
+    }
+
+    /* User info in menu */
+    .user-item {
+        padding: 8px 12px !important;
+    }
+
+    .user-info {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 2px;
+        width: 100%;
+    }
+
+    .user-name {
+        font-weight: 600;
+        color: #1f2937;
+        font-size: 14px;
+    }
+
+    .user-source {
+        color: #6b7280;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        font-weight: 500;
+    }
+
+    .user-item:hover .user-name {
+        color: #111827;
+    }
+
+    .user-item:hover .user-source {
+        color: #4b5563;
     }
 
     /* Mobile responsive */

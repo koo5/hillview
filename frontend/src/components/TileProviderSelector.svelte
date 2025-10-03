@@ -5,7 +5,7 @@
 
     let showMenu = false;
     let availableProviders = getAvailableProviders();
-    
+
     function selectProvider(providerKey: ProviderName) {
         setTileProvider(providerKey);
         showMenu = false;
@@ -27,8 +27,8 @@
 <svelte:window on:click={handleClickOutside} />
 
 <div class="provider-selector">
-    <button 
-        class="provider-button" 
+    <button
+        class="provider-button"
         on:click={toggleMenu}
         title="Select map tile provider"
     >
@@ -44,7 +44,7 @@
         <div class="provider-menu">
             <div class="provider-menu-header">Map Style</div>
             {#each availableProviders as provider}
-                <button 
+                <button
                     class="provider-option {provider.key === $currentTileProvider ? 'active' : ''}"
                     on:click={() => selectProvider(provider.key)}
                 >
@@ -62,6 +62,8 @@
     }
 
     .provider-button {
+		position: absolute;
+		bottom: 4rem;
         display: flex;
         align-items: center;
         gap: 0.25rem;
@@ -85,7 +87,7 @@
 
     .provider-menu {
         position: absolute;
-        bottom: 100%;
+        bottom: 4rem;
         left: 0;
         margin-bottom: 0.25rem;
         background-color: white;

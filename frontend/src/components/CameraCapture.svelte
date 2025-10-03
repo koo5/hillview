@@ -98,6 +98,33 @@
         }, 50); // 50ms blink duration
     }
 
+    function playShutterSound() {
+        if (!$photoCaptureSettings.shutterSoundEnabled) return;
+
+        try {
+            // Create a simple camera shutter sound using Web Audio API
+            const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+
+            // Create a brief, crisp sound
+            oscillator.frequency.value = 800;
+            oscillator.type = 'sine';
+
+            gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+            gainNode.gain.linearRampToValueAtTime(0.1, audioContext.currentTime + 0.01);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.1);
+
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.1);
+        } catch (error) {
+            console.warn('Failed to play shutter sound:', error);
+        }
+    }
+
     async function checkCameraPermission(): Promise<PermissionState | null> {
         try {
             if ('permissions' in navigator && 'query' in navigator.permissions) {
@@ -611,6 +638,9 @@
 
         // Trigger camera blink effect
         triggerCameraBlink();
+
+        // Play shutter sound if enabled
+        playShutterSound();
 
         try {
             // Get ImageData directly from canvas

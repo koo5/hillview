@@ -113,6 +113,11 @@ class SharePhotoArgs {
 class GetDevicePhotosArgs {
   var page: Int = 1
   var pageSize: Int = 50
+  // Optional bounding box for spatial filtering
+  var minLat: Double? = null
+  var maxLat: Double? = null
+  var minLng: Double? = null
+  var maxLng: Double? = null
 }
 
 @TauriPlugin
@@ -654,7 +659,13 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
 
 			if (autoUploadEnabled) {
 	            Log.d(TAG, "🢄📤 workManager.enqueue(workRequest)")
-				val workRequest = OneTimeWorkRequestBuilder<PhotoUploadWorker>().build()
+				val workRequest = OneTimeWorkRequestBuilder<PhotoUploadWorker>()
+					.setInputData(
+						Data.Builder()
+							.putString("trigger_source", "manual")
+							.build()
+					)
+					.build()
 				workManager.enqueue(workRequest)
             }
 
@@ -691,6 +702,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                 .setInputData(
                     Data.Builder()
                         .putBoolean(PhotoUploadWorker.KEY_AUTO_UPLOAD_ENABLED, enabled)
+                        .putString("trigger_source", "scheduled")
                         .build()
                 )
                 .build()
@@ -1096,21 +1108,40 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                 GetDevicePhotosArgs() // Use default values
             }
 
-            val page = args.page.coerceAtLeast(1) // Ensure page is at least 1
-            val pageSize = args.pageSize.coerceIn(1, 100) // Limit page size between 1-100
-            val offset = (page - 1) * pageSize
-
-            Log.d(TAG, "📸 Getting device photos from database - page: $page, pageSize: $pageSize, offset: $offset")
+            // Check if spatial filtering is requested
+            val hasBounds = args.minLat != null && args.maxLat != null && args.minLng != null && args.maxLng != null
+            val pageSize = args.pageSize.coerceIn(1, 1000) // Allow larger limits for spatial queries
 
             CoroutineScope(Dispatchers.IO).launch {
                 try {
                     val photoDao = database.photoDao()
 
-                    // Get paginated photos and total count
-                    val photos = photoDao.getPhotosPaginated(pageSize, offset)
-                    val totalCount = photoDao.getTotalPhotoCount()
-                    val totalPages = (totalCount + pageSize - 1) / pageSize // Ceiling division
-                    val hasMore = page < totalPages
+                    val photos: List<PhotoEntity>
+                    val totalCount: Int
+                    val totalPages: Int
+                    val hasMore: Boolean
+
+                    if (hasBounds) {
+                        Log.d(TAG, "📸 Getting device photos in bounds: [${args.minLat}, ${args.minLng}] to [${args.maxLat}, ${args.maxLng}] limit: $pageSize (bearing order)")
+
+                        photos = photoDao.getPhotosInBounds(
+                            args.minLat!!, args.maxLat!!, args.minLng!!, args.maxLng!!, pageSize
+                        )
+
+                        // For spatial queries, return simple response without pagination metadata
+                        totalCount = photos.size
+                        totalPages = 1
+                        hasMore = false
+                    } else {
+                        Log.d(TAG, "📸 Getting all device photos - page: ${args.page}, pageSize: $pageSize")
+                        val page = args.page.coerceAtLeast(1)
+                        val offset = (page - 1) * pageSize
+
+                        photos = photoDao.getPhotosPaginated(pageSize, offset)
+                        totalCount = photoDao.getTotalPhotoCount()
+                        totalPages = (totalCount + pageSize - 1) / pageSize
+                        hasMore = page < totalPages
+                    }
 
                     // Convert PhotoEntity list to JSON array for response
                     val photoList = JSONArray()

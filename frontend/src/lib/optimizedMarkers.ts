@@ -96,7 +96,7 @@ export class OptimizedMarkerSystem {
 		const strokeWidth = isSelected ? 3 : 1;
 
 		// Calculate bearing offset in pixels (forward direction)
-		const offsetPixels = 8; // pixels to offset forward
+		const offsetPixels = 12; // pixels to offset forward
 		const bearingRad = (photo.bearing * Math.PI) / 180;
 		const offsetX = offsetPixels * Math.sin(bearingRad);
 		const offsetY = -offsetPixels * Math.cos(bearingRad); // negative because CSS Y increases downward
