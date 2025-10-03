@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File,
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from geoalchemy2.functions import ST_Point, ST_X, ST_Y
 
 import sys
 import os
@@ -155,10 +156,12 @@ async def save_processed_photo(
 	if processed_data.filename:
 		photo.filename = processed_data.filename
 	# Overwrite client-supplied geolocation data from authorization if EXIF/processing provides better data
-	if processed_data.latitude is not None:
-		photo.latitude = processed_data.latitude
-	if processed_data.longitude is not None:
-		photo.longitude = processed_data.longitude
+	if processed_data.latitude is not None and processed_data.longitude is not None:
+		# Create PostGIS geometry from lat/lng
+		photo.geometry = ST_Point(processed_data.longitude, processed_data.latitude, 4326)
+	elif processed_data.latitude is not None or processed_data.longitude is not None:
+		# If only one coordinate is provided, set geometry to None (incomplete data)
+		photo.geometry = None
 	if processed_data.compass_angle is not None:
 		photo.compass_angle = processed_data.compass_angle
 	if processed_data.altitude is not None:
@@ -337,7 +340,11 @@ async def list_photos(
 		elif limit < 1:
 			limit = 1
 
-		base_query = select(Photo).where(Photo.owner_id == str(current_user.id))
+		base_query = select(
+		Photo,
+		ST_X(Photo.geometry).label('longitude'),
+		ST_Y(Photo.geometry).label('latitude')
+	).where(Photo.owner_id == str(current_user.id))
 
 		if only_processed:
 			base_query = base_query.where(Photo.processing_status == "completed")
@@ -383,17 +390,17 @@ async def list_photos(
 			query.limit(limit + 1)  # Get one extra to check if there are more
 			.order_by(Photo.uploaded_at.desc())
 		)
-		photos = result.scalars().all()
+		photo_records = result.all()
 
 		# Check if there are more photos
-		has_more = len(photos) > limit
+		has_more = len(photo_records) > limit
 		if has_more:
-			photos = photos[:-1]  # Remove the extra photo
+			photo_records = photo_records[:-1]  # Remove the extra photo
 
 		# Generate next cursor
 		next_cursor = None
-		if has_more and photos:
-			next_cursor = photos[-1].uploaded_at.isoformat()
+		if has_more and photo_records:
+			next_cursor = photo_records[-1][0].uploaded_at.isoformat()
 
 		photos_data = [{
 			"id": photo.id,
@@ -401,8 +408,8 @@ async def list_photos(
 			"original_filename": photo.original_filename,
 			"description": photo.description,
 			"is_public": photo.is_public,
-			"latitude": photo.latitude,
-			"longitude": photo.longitude,
+			"latitude": latitude,
+			"longitude": longitude,
 			"bearing": photo.compass_angle,
 			"width": photo.width,
 			"height": photo.height,
@@ -413,7 +420,7 @@ async def list_photos(
 			"sizes": photo.sizes,
 			"owner_id": photo.owner_id,
 			"owner_username": current_user.username
-		} for photo in photos]
+		} for photo, longitude, latitude in photo_records]
 
 		return {
 			"photos": photos_data,

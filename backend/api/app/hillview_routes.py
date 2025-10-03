@@ -6,6 +6,7 @@ from fastapi import APIRouter, Query, HTTPException, status, Depends, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from geoalchemy2.functions import ST_MakeEnvelope, ST_Within, ST_X, ST_Y
 import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
@@ -37,17 +38,22 @@ async def get_hillview_images(
 	await general_rate_limiter.enforce_rate_limit(request, 'public_read', current_user)
 
 	try:
-		# Query photos from database that fall within the bounding box
+		# Query photos from database that fall within the bounding box using PostGIS
+		# Create bounding box geometry (min_lng, min_lat, max_lng, max_lat, srid)
+		bbox = ST_MakeEnvelope(top_left_lon, bottom_right_lat, bottom_right_lon, top_left_lat, 4326)
+
 		# Join with User table to get owner information
-		query = select(Photo, User.username).join(User, Photo.owner_id == User.id).where(
-			Photo.latitude.isnot(None),
-			Photo.longitude.isnot(None),
-			Photo.latitude >= bottom_right_lat,
-			Photo.latitude <= top_left_lat,
-			Photo.longitude >= top_left_lon,
-			Photo.longitude <= bottom_right_lon,
+		# Also select lat/lng from geometry for response formatting
+		query = select(
+			Photo,
+			User.username,
+			ST_X(Photo.geometry).label('longitude'),
+			ST_Y(Photo.geometry).label('latitude')
+		).join(User, Photo.owner_id == User.id).where(
+			Photo.geometry.isnot(None),
+			ST_Within(Photo.geometry, bbox),
 			Photo.is_public == True
-		)
+		).order_by(Photo.captured_at.desc())
 
 		log.debug(f"Querying photos from database for bbox: {top_left_lat}, {top_left_lon}, {bottom_right_lat}, {bottom_right_lon}, query: {query}")
 		log.info(f"Hillview endpoint - current_user: {current_user.username if current_user else 'None'} (ID: {current_user.id if current_user else 'None'})")
@@ -60,16 +66,16 @@ async def get_hillview_images(
 		)
 
 		result = await db.execute(query)
-		photo_user_pairs = result.all()
+		photo_records = result.all()
 
 		# Transform photos to match Mapillary-like structure
 		filtered_photos = []
 
-		for photo, username in photo_user_pairs:
+		for photo, username, longitude, latitude in photo_records:
 			photo_data = {
 				'id': photo.id,
 				'geometry': {
-					'coordinates': [photo.longitude, photo.latitude]
+					'coordinates': [longitude, latitude]
 				},
 				'bearing': photo.compass_angle or 0,
 				'computed_rotation': 0,
@@ -87,8 +93,7 @@ async def get_hillview_images(
 			}
 			filtered_photos.append(photo_data)
 
-		# Sort by bearing like Mapillary endpoint
-		filtered_photos.sort(key=lambda x: x.get('bearing', 0))
+		# Photos are already sorted by captured_at DESC from the database query
 
 		log.info(f"Found {len(filtered_photos)} photos in database for bbox")
 

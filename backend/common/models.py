@@ -52,8 +52,7 @@ class Photo(Base):
 	file_md5 = Column(String, nullable=True, index=True)  # MD5 hash for duplicate detection
 
 	# Location data
-	latitude = Column(Float, nullable=True)
-	longitude = Column(Float, nullable=True)
+	geometry = Column(Geometry('POINT', srid=4326), nullable=True)  # PostGIS geometry for spatial queries
 	altitude = Column(Float, nullable=True)
 	compass_angle = Column(Float, nullable=True)  # Same as bearing
 
@@ -62,7 +61,7 @@ class Photo(Base):
 	height = Column(Integer, nullable=True)
 
 	# Metadata
-	captured_at = Column(DateTime(timezone=True), nullable=True)
+	captured_at = Column(DateTime(timezone=False), nullable=True)  # UTC timestamps without timezone
 	uploaded_at = Column(DateTime(timezone=True), server_default=func.now())
 	record_created_ts = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 	description = Column(Text, nullable=True)
