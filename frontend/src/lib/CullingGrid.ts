@@ -12,16 +12,36 @@
 
 import type { PhotoData, Bounds } from './photoWorkerTypes';
 
+// Type aliases for clarity
+export type SourceId = string;
+export type CellKey = string; // Format: "row,col" e.g. "3,7"
+export type FileHash = string;
+export type PhotoIndex = number;
+export type Priority = 1 | 2 | 3 | 4; // 1 = highest priority
+
+// Source priority levels (lower number = higher priority)
+const SOURCE_PRIORITY: Record<SourceId, Priority> = {
+    'device': 1,
+    'hillview': 2,
+    'other': 3,
+    'mapillary': 4
+} as const;
+
 interface GridCell {
     photos: PhotoData[];
     nextIndex: number; // For round-robin within cell
 }
 
 interface SourceGrid {
-    sourceId: string;
-    grid: Map<string, GridCell>; // gridKey -> GridCell
-    cellKeys: string[]; // Ordered list of cells for iteration
+    sourceId: SourceId;
+    grid: Map<CellKey, GridCell>; // cellKey -> GridCell
+    cellKeys: CellKey[]; // Ordered list of cells for iteration
     nextCellIndex: number; // For round-robin across cells
+}
+
+interface CellPhotos {
+    photos: PhotoData[];
+    hashToIndex: Map<FileHash, PhotoIndex>; // For efficient duplicate detection
 }
 
 export class CullingGrid {
@@ -39,7 +59,7 @@ export class CullingGrid {
     /**
      * Apply smart culling to ensure uniform screen coverage
      */
-    cullPhotos(photosPerSource: Map<string, PhotoData[]>, maxPhotos: number): PhotoData[] {
+    cullPhotos(photosPerSource: Map<SourceId, PhotoData[]>, maxPhotos: number): PhotoData[] {
         if (photosPerSource.size === 0 || maxPhotos <= 0) {
             return [];
         }

@@ -3,8 +3,18 @@ package cz.hillview.plugin
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import androidx.room.ColumnInfo
+import androidx.room.Index
 
-@Entity(tableName = "photos")
+@Entity(
+    tableName = "photos",
+    indices = [
+        Index(value = ["createdAt"], name = "idx_photos_created_at"),
+        Index(value = ["uploadStatus", "createdAt"], name = "idx_photos_upload_status_created_at"),
+        Index(value = ["latitude", "longitude"], name = "idx_photos_location"),
+        Index(value = ["fileHash"], name = "idx_photos_file_hash"),
+        Index(value = ["path"], name = "idx_photos_path")
+    ]
+)
 data class PhotoEntity(
     @PrimaryKey
     val id: String,

@@ -502,18 +502,24 @@ async def get_photo(
 
 	try:
 		result = await db.execute(
-			select(Photo).where(
+			select(
+				Photo,
+				ST_X(Photo.geometry).label('longitude'),
+				ST_Y(Photo.geometry).label('latitude')
+			).where(
 				Photo.id == photo_id,
 				Photo.owner_id == str(current_user.id)
 			)
 		)
-		photo = result.scalars().first()
+		photo_record = result.first()
 
-		if not photo:
+		if not photo_record:
 			raise HTTPException(
 				status_code=status.HTTP_404_NOT_FOUND,
 				detail="Photo not found"
 			)
+
+		photo, longitude, latitude = photo_record
 
 		return {
 			"id": photo.id,
@@ -521,8 +527,8 @@ async def get_photo(
 			"original_filename": photo.original_filename,
 			"description": photo.description,
 			"is_public": photo.is_public,
-			"latitude": photo.latitude,
-			"longitude": photo.longitude,
+			"latitude": latitude,
+			"longitude": longitude,
 			"bearing": photo.compass_angle,
 			"altitude": photo.altitude,
 			"width": photo.width,
