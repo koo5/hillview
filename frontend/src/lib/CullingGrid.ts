@@ -104,7 +104,7 @@ export class CullingGrid {
         return selectedPhotos;
     }
 
-    private buildSourceGrids(photosPerSource: Map<string, PhotoData[]>): SourceGrid[] {
+    private buildSourceGrids(photosPerSource: Map<SourceId, PhotoData[]>): SourceGrid[] {
         const sourceGrids: SourceGrid[] = [];
 
         for (const [sourceId, photos] of photosPerSource.entries()) {
@@ -166,7 +166,7 @@ export class CullingGrid {
         return null;
     }
 
-    private getScreenGridKey(photo: PhotoData): string {
+    private getScreenGridKey(photo: PhotoData): CellKey {
         // Calculate position within viewport bounds (0-1)
         const latPos = (this.bounds.top_left.lat - photo.coord.lat) / this.latRange;
         const lngPos = (photo.coord.lng - this.bounds.top_left.lng) / this.lngRange;
@@ -190,11 +190,11 @@ export class CullingGrid {
     /**
      * Get statistics about screen coverage
      */
-    getCoverageStats(photosPerSource: Map<string, PhotoData[]>, culledPhotos: PhotoData[]): {
+    getCoverageStats(photosPerSource: Map<SourceId, PhotoData[]>, culledPhotos: PhotoData[]): {
         totalPhotos: number;
         selectedPhotos: number;
-        sourceStats: { sourceId: string; original: number; selected: number; percentage: number }[];
-        screenCoverage: { cellKey: string; photoCount: number }[];
+        sourceStats: { sourceId: SourceId; original: number; selected: number; percentage: number }[];
+        screenCoverage: { cellKey: CellKey; photoCount: number }[];
         emptyCells: number;
         totalCells: number;
     } {

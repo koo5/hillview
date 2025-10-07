@@ -10,10 +10,6 @@
 import { calculateDistance } from './workerUtils';
 import { normalizeBearing } from './utils/bearingUtils';
 
-interface AngularBucket<T> {
-    photos: T[];
-    nextIndex: number; // For round-robin within bucket
-}
 
 export class AngularRangeCuller {
     private readonly ANGULAR_BUCKETS = 36; // 10 degrees each
@@ -34,71 +30,53 @@ export class AngularRangeCuller {
             return [];
         }
 
-        // Create angular buckets
-        const angularBuckets = this.createAngularBuckets<T>();
+        // Create angular buckets and filter photos within range
+        const buckets: T[][] = new Array(this.ANGULAR_BUCKETS).fill(null).map(() => []);
 
-        // Distribute photos into angular buckets (only those within range)
         for (const photo of photosInArea) {
             const distance = calculateDistance(center.lat, center.lng, photo.coord.lat, photo.coord.lng);
 
             if (distance <= range) {
                 const bucketIndex = this.getBucketIndex(photo.bearing);
-
-                angularBuckets[bucketIndex].photos.push({
+                buckets[bucketIndex].push({
                     ...photo,
                     range_distance: distance
                 } as T);
             }
         }
 
-        // Get non-empty buckets for round-robin
-        const nonEmptyBuckets = angularBuckets.filter(bucket => bucket.photos.length > 0);
+        // Remove empty buckets initially
+        let activeBuckets = buckets.filter(bucket => bucket.length > 0);
 
-        if (nonEmptyBuckets.length === 0) {
+        if (activeBuckets.length === 0) {
             return [];
         }
 
-        // Round-robin selection across angular buckets
+        // Round-robin: outer loop = rounds, inner loop = buckets
         const selectedPhotos: T[] = [];
-        let bucketIndex = 0;
 
-        while (selectedPhotos.length < maxPhotos) {
-            let foundPhoto = false;
+        for (let round = 0; activeBuckets.length && selectedPhotos.length < maxPhotos; round++) {
+            let bucketIndex = 0;
 
-            // Try each bucket in round-robin fashion
-            for (let i = 0; i < nonEmptyBuckets.length && selectedPhotos.length < maxPhotos; i++) {
-                const currentBucketIndex = (bucketIndex + i) % nonEmptyBuckets.length;
-                const bucket = nonEmptyBuckets[currentBucketIndex];
-
-                // If this bucket has photos available
-                if (bucket.nextIndex < bucket.photos.length) {
-                    const photo = bucket.photos[bucket.nextIndex];
-                    bucket.nextIndex++;
-                    selectedPhotos.push(photo);
-                    foundPhoto = true;
+            while (bucketIndex < activeBuckets.length && selectedPhotos.length < maxPhotos) {
+                // Remove exhausted bucket if no photo at this round
+                if (!activeBuckets[bucketIndex][round]) {
+                    activeBuckets[bucketIndex] = activeBuckets[activeBuckets.length - 1];
+                    activeBuckets.pop();
+                    // Don't increment bucketIndex - check the swapped bucket
+                } else {
+                    // Take photo and move to next bucket
+                    selectedPhotos.push(activeBuckets[bucketIndex][round]);
+                    bucketIndex++;
                 }
-            }
-
-            // Move to next bucket for next iteration
-            bucketIndex = (bucketIndex + 1) % nonEmptyBuckets.length;
-
-            // If no bucket produced a photo in a full round, we're done
-            if (!foundPhoto) {
-                break;
             }
         }
 
-        console.log(`AngularRangeCuller: Culled ${photosInArea.length} area photos → ${selectedPhotos.length} range photos with angular coverage (${nonEmptyBuckets.length}/${this.ANGULAR_BUCKETS} angular sectors covered)`);
+        console.log(`AngularRangeCuller: Culled ${photosInArea.length} area photos → ${selectedPhotos.length} range photos with angular coverage (${activeBuckets.length}/${this.ANGULAR_BUCKETS} angular sectors covered)`);
 
         return selectedPhotos;
     }
 
-    private createAngularBuckets<T>(): AngularBucket<T>[] {
-        return new Array(this.ANGULAR_BUCKETS).fill(null).map(() => ({
-            photos: [],
-            nextIndex: 0
-        }));
-    }
 
     private getBucketIndex(bearing: number): number {
         const normalizedBearing = normalizeBearing(bearing);
