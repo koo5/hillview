@@ -74,7 +74,7 @@ let messageIdCounter = 0;
 const currentState = {
     config: { data: null as { sources: SourceConfig[]; [key: string]: any } | null, lastUpdateId: -1, lastProcessedId: -1 },
     area: { data: null as Bounds | null, lastUpdateId: -1, lastProcessedId: -1 },
-    sourcesPhotosInArea: { data: null, lastUpdateId: -1, lastProcessedId: -1 }
+    sourcesPhotosInArea: { data: new Map<SourceId, PhotoData[]>(), lastUpdateId: -1, lastProcessedId: -1 }
 };
 
 // Track if we're blocked by running processes
@@ -83,8 +83,7 @@ let isBlocked = false;
 // Debug timer for monitoring running processes
 let processMonitorInterval: NodeJS.Timeout | null = null;
 
-// Photo arrays - per-source tracking for smart culling
-const photosInAreaPerSource = new Map<SourceId, PhotoData[]>();
+// Photo storage now unified in currentState.sourcesPhotosInArea.data
 let cullingGrid: CullingGrid | null = null;
 const angularRangeCuller = new AngularRangeCuller();
 
@@ -108,6 +107,7 @@ function calculateCenterFromBounds(bounds: Bounds): { lat: number; lng: number }
 
 // Merge and cull photos from all sources, calculate range
 function mergeAndCullPhotos(): { photosInArea: PhotoData[], photosInRange: PhotoData[] } {
+    const photosInAreaPerSource = currentState.sourcesPhotosInArea.data;
     if (!currentState.area.data || photosInAreaPerSource.size === 0) {
         console.log(`🢄NewWorker: mergeAndCullPhotos early return - area.data:`, currentState.area.data, 'sources:', photosInAreaPerSource.size);
         return { photosInArea: [], photosInRange: [] };
@@ -115,7 +115,7 @@ function mergeAndCullPhotos(): { photosInArea: PhotoData[], photosInRange: Photo
 
     console.log(`🢄NewWorker: mergeAndCullPhotos - area bounds:`, currentState.area.data);
 	const photosInAreaPerSourceEntriesArray = Array.from(photosInAreaPerSource.entries());
-    console.log(`🢄NewWorker: mergeAndCullPhotos - source photos counts:`, photosInAreaPerSourceEntriesArray.map(([id, photos]) => `${id}: ${photos.length}`).join(', '));
+    console.log(`🢄NewWorker: mergeAndCullPhotos - source photos counts:`, photosInAreaPerSourceEntriesArray.map(([source_id, photos]) => `${source_id}: ${photos.length}`).join(', '));
 
     // Create/update culling grid for current area
     if (!cullingGrid || currentState.area.lastUpdateId > (cullingGrid as any).lastUpdateId) {
@@ -241,7 +241,7 @@ async function startProcess(type: 'config' | 'area' | 'sourcesPhotosInArea', mes
         shouldAbort: (id: string) => shouldAbortProcess(id),
         postMessage: (message: any) => messageQueue.addMessage(message),
         updatePhotosInArea: (photos: PhotoData[]) => {
-            // CRITICAL FIX: Clear photos from disabled sources BEFORE adding new photos
+            // Clear photos from disabled sources BEFORE adding new photos
             if (currentState.config.data?.sources) {
                 const enabledSourceIds = new Set(
                     currentState.config.data.sources
@@ -250,10 +250,10 @@ async function startProcess(type: 'config' | 'area' | 'sourcesPhotosInArea', mes
                 );
 
                 // Remove photos from disabled sources
-                for (const sourceId of photosInAreaPerSource.keys()) {
+                for (const sourceId of currentState.sourcesPhotosInArea.data.keys()) {
                     if (!enabledSourceIds.has(sourceId)) {
                         console.log(`🢄NewWorker: Clearing photos from disabled source: ${sourceId}`);
-                        photosInAreaPerSource.delete(sourceId);
+                        currentState.sourcesPhotosInArea.data.delete(sourceId);
                     }
                 }
             }
@@ -271,7 +271,7 @@ async function startProcess(type: 'config' | 'area' | 'sourcesPhotosInArea', mes
                 }
                 // Update per-source tracking
                 for (const [sourceId, sourcePhotos] of photosBySource.entries()) {
-                    photosInAreaPerSource.set(sourceId, sourcePhotos);
+                    currentState.sourcesPhotosInArea.data.set(sourceId, sourcePhotos);
                 }
             }
         },
@@ -280,7 +280,7 @@ async function startProcess(type: 'config' | 'area' | 'sourcesPhotosInArea', mes
         },
         getPhotosInArea: () => {
             const allPhotos: PhotoData[] = [];
-            for (const photos of photosInAreaPerSource.values()) {
+            for (const photos of currentState.sourcesPhotosInArea.data.values()) {
                 allPhotos.push(...photos);
             }
             return allPhotos;
@@ -476,7 +476,7 @@ async function loop(): Promise<void> {
 					console.log(`NewWorker: Photos updated from stream ${message.sourceId}: ${message.photos?.length || 0} photos`);
 					if (message.photos && Array.isArray(message.photos)) {
 						// Replace the photo array for this source (source handles accumulation)
-						photosInAreaPerSource.set(message.sourceId, message.photos);
+						currentState.sourcesPhotosInArea.data.set(message.sourceId, message.photos);
 						console.log(`NewWorker: Source ${message.sourceId} set to ${message.photos.length} photos`);
 
 						// Update sourcesPhotosInArea version to trigger combine operation
@@ -545,8 +545,10 @@ function hasUnprocessedUpdates(): boolean {
 
 function updateState(type: 'config' | 'area' | 'sourcesPhotosInArea', message: any): void {
 	if (!message.internal && message.data) {
-		// Update state immediately - no waiting
-		currentState[type].data = message.data[type] || message.data.area || message.data;
+
+		if (message.data[type] === undefined)
+			console.warn(`🢄NewWorker: Warning - ${type} update message missing expected data field`);
+		currentState[type].data = message.data[type] || message.data;
 		currentState[type].lastUpdateId = message.id;
 
 		// Update range if provided in area updates
@@ -687,11 +689,11 @@ console.log('🢄NewWorker: Initialization complete');
 function removePhotoFromCache(photoId: string, source: SourceId): void {
 	console.log(`NewWorker: Removing photo ${photoId} from ${source} cache`);
 
-	// Remove from photosInAreaPerSource
-	const sourcePhotos = photosInAreaPerSource.get(source);
+	// Remove from unified photo storage
+	const sourcePhotos = currentState.sourcesPhotosInArea.data.get(source);
 	if (sourcePhotos) {
 		const updatedPhotos = sourcePhotos.filter(photo => photo.id !== photoId);
-		photosInAreaPerSource.set(source, updatedPhotos);
+		currentState.sourcesPhotosInArea.data.set(source, updatedPhotos);
 		console.log(`🢄NewWorker: Removed photo ${photoId} from ${source} - ${sourcePhotos.length - updatedPhotos.length} photos removed`);
 
 		// Trigger photo update
@@ -706,8 +708,8 @@ function removePhotoFromCache(photoId: string, source: SourceId): void {
 function removeUserPhotosFromCache(userId: string, source: SourceId): void {
 	console.log(`🢄NewWorker: Removing all photos by user ${userId} from ${source} cache`);
 
-	// Remove from photosInAreaPerSource
-	const sourcePhotos = photosInAreaPerSource.get(source);
+	// Remove from unified photo storage
+	const sourcePhotos = currentState.sourcesPhotosInArea.data.get(source);
 	if (sourcePhotos) {
 		const beforeCount = sourcePhotos.length;
 		const updatedPhotos = sourcePhotos.filter(photo => {
@@ -720,7 +722,7 @@ function removeUserPhotosFromCache(userId: string, source: SourceId): void {
 			return true;
 		});
 
-		photosInAreaPerSource.set(source, updatedPhotos);
+		currentState.sourcesPhotosInArea.data.set(source, updatedPhotos);
 		const removedCount = beforeCount - updatedPhotos.length;
 		console.log(`🢄NewWorker: Removed ${removedCount} photos by user ${userId} from ${source}`);
 
