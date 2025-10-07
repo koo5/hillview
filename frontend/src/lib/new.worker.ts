@@ -47,7 +47,7 @@
 import type { PhotoData, SourceConfig, Bounds } from './photoWorkerTypes';
 import { MessageQueue } from './MessageQueue';
 import { PhotoOperations } from './photoOperations';
-import { CullingGrid } from './CullingGrid';
+import { CullingGrid, type SourceId } from './CullingGrid';
 import {AngularRangeCuller, sortPhotosByBearing} from './AngularRangeCuller';
 import { TAURI } from './tauri';
 import { invoke } from '@tauri-apps/api/core';
@@ -84,7 +84,7 @@ let isBlocked = false;
 let processMonitorInterval: NodeJS.Timeout | null = null;
 
 // Photo arrays - per-source tracking for smart culling
-const photosInAreaPerSource = new Map<string, PhotoData[]>();
+const photosInAreaPerSource = new Map<SourceId, PhotoData[]>();
 let cullingGrid: CullingGrid | null = null;
 const angularRangeCuller = new AngularRangeCuller();
 
@@ -684,7 +684,7 @@ loop().catch(error => {
 console.log('🢄NewWorker: Initialization complete');
 
 // Cache removal functions for hidden content
-function removePhotoFromCache(photoId: string, source: string): void {
+function removePhotoFromCache(photoId: string, source: SourceId): void {
 	console.log(`NewWorker: Removing photo ${photoId} from ${source} cache`);
 
 	// Remove from photosInAreaPerSource
@@ -703,7 +703,7 @@ function removePhotoFromCache(photoId: string, source: string): void {
 	}
 }
 
-function removeUserPhotosFromCache(userId: string, source: string): void {
+function removeUserPhotosFromCache(userId: string, source: SourceId): void {
 	console.log(`🢄NewWorker: Removing all photos by user ${userId} from ${source} cache`);
 
 	// Remove from photosInAreaPerSource

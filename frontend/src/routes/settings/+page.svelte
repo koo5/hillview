@@ -3,11 +3,12 @@
 	import StandardBody from '../../components/StandardBody.svelte';
 	import SettingsComponent from '$lib/components/Settings.svelte';
 	import UploadSettingsComponent from '$lib/components/UploadSettings.svelte';
+	import type { Alert } from '$lib/alertSystem.svelte';
 
 	let alertMessage = '';
-	let alertType: 'success' | 'warning' | 'error' | 'info' = 'info';
+	let alertType: Alert['type'] = 'info';
 
-	function showAlert(message: string, type: 'success' | 'warning' | 'error' | 'info' = 'info') {
+	function showAlert(message: string, type: Alert['type'] = 'info') {
 		alertMessage = message;
 		alertType = type;
 		setTimeout(() => {
