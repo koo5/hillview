@@ -360,6 +360,11 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
                             } : undefined)
                         };
 
+                        // Add file hash if available for deduplication with device photos
+                        if (photo.file_md5) {
+                            convertedPhoto.fileHash = photo.file_md5;
+                        }
+
                         // Add creator information if available (from Mapillary API)
                         if (photo.creator && typeof photo.creator === 'object') {
                             convertedPhoto.creator = {

@@ -32,9 +32,16 @@ const baseSources: Source[] = [
     {id: 'mapillary', name: 'Mapillary', type: 'stream', enabled: false/*!import.meta.env.VITE_PICS_OFF*/, requests: [], color: '#888', url: `${backendUrl}/mapillary`}
 ];
 
-const deviceSources: Source[] = !TAURI || (import.meta.env.VITE_DEV_MODE !== 'true') ? [] : [
-    //{id: 'device', name: 'My Device', type: 'device', enabled: !import.meta.env.VITE_PICS_OFF, requests: [], color: '#4a90e2', subtype: 'hillview'}
-];
+const deviceSources: Source[] = TAURI ? [
+    {id: 'device', name: 'My Device', type: 'device', enabled: !import.meta.env.VITE_PICS_OFF, requests: [], color: '#4a90e2', subtype: 'hillview'}
+] : [];
+
+console.log('🢄📸 Device sources configuration:', {
+    TAURI,
+    VITE_PICS_OFF: import.meta.env.VITE_PICS_OFF,
+    deviceSourcesCount: deviceSources.length,
+    deviceSourceEnabled: deviceSources.length > 0 ? deviceSources[0].enabled : 'N/A'
+});
 
 // Store source enabled states separately for persistence
 const sourceStates = localStorageSharedStore('sourceStates', {} as Record<string, boolean>);

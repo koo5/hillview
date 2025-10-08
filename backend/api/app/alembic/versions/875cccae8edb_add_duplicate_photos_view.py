@@ -19,22 +19,21 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # Create duplicate_photos view
+    # Create duplicate_photos view using PostGIS geometry extraction
     op.execute("""
         CREATE VIEW duplicate_photos AS
-        SELECT photos.latitude,
-               photos.longitude,
+        SELECT ST_Y(photos.geometry) AS latitude,
+               ST_X(photos.geometry) AS longitude,
                photos.compass_angle,
                count(*)                            AS duplicate_count,
                array_agg(photos.id)                AS photo_ids,
                array_agg(photos.original_filename) AS filenames
         FROM photos
-        WHERE photos.latitude IS NOT NULL
-          AND photos.longitude IS NOT NULL
+        WHERE photos.geometry IS NOT NULL
           AND photos.compass_angle IS NOT NULL
-        GROUP BY photos.latitude, photos.longitude, photos.compass_angle
+        GROUP BY ST_Y(photos.geometry), ST_X(photos.geometry), photos.compass_angle
         HAVING count(*) > 1
-        ORDER BY (count(*)) DESC, photos.latitude, photos.longitude, photos.compass_angle;
+        ORDER BY (count(*)) DESC, ST_Y(photos.geometry), ST_X(photos.geometry), photos.compass_angle;
     """)
 
 

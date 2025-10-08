@@ -27,18 +27,6 @@ const SOURCE_PRIORITY: Record<SourceId, Priority> = {
     'mapillary': 4
 } as const;
 
-interface GridCell {
-    photos: PhotoData[];
-    nextIndex: number; // For round-robin within cell
-}
-
-interface SourceGrid {
-    sourceId: SourceId;
-    grid: Map<CellKey, GridCell>; // cellKey -> GridCell
-    cellKeys: CellKey[]; // Ordered list of cells for iteration
-    nextCellIndex: number; // For round-robin across cells
-}
-
 interface CellPhotos {
     photos: PhotoData[];
     hashToIndex: Map<FileHash, PhotoIndex>; // For efficient duplicate detection
@@ -57,113 +45,132 @@ export class CullingGrid {
     }
 
     /**
-     * Apply smart culling to ensure uniform screen coverage
+     * Apply priority-based culling with hash deduplication and lazy evaluation
      */
     cullPhotos(photosPerSource: Map<SourceId, PhotoData[]>, maxPhotos: number): PhotoData[] {
         if (photosPerSource.size === 0 || maxPhotos <= 0) {
             return [];
         }
 
-        // Build screen grid for each source
-        const sourceGrids = this.buildSourceGrids(photosPerSource);
-        
-        if (sourceGrids.length === 0) {
-            return [];
+        const totalCells = this.GRID_SIZE * this.GRID_SIZE;
+        const photosPerCell = Math.max(1, Math.floor(maxPhotos / totalCells));
+
+        // Create grid to store photos by cell
+        const cellGrid = new Map<CellKey, CellPhotos>();
+
+        // Process each grid cell lazily
+        for (let row = 0; row < this.GRID_SIZE; row++) {
+            for (let col = 0; col < this.GRID_SIZE; col++) {
+                const cellKey: CellKey = `${row},${col}`;
+                const cellData: CellPhotos = { photos: [], hashToIndex: new Map() };
+
+                this.fillCell(cellKey, cellData, photosPerSource, photosPerCell);
+
+                if (cellData.photos.length > 0) {
+                    cellGrid.set(cellKey, cellData);
+                }
+            }
         }
 
-        // Round-robin selection across sources and screen cells
+        // Flatten all photos from cells
         const selectedPhotos: PhotoData[] = [];
-        let sourceIndex = 0;
-
-        while (selectedPhotos.length < maxPhotos) {
-            let foundPhoto = false;
-
-            // Try each source in round-robin fashion
-            for (let i = 0; i < sourceGrids.length && selectedPhotos.length < maxPhotos; i++) {
-                const currentSourceIndex = (sourceIndex + i) % sourceGrids.length;
-                const sourceGrid = sourceGrids[currentSourceIndex];
-
-                const photo = this.selectNextPhotoFromSource(sourceGrid);
-                if (photo) {
-                    selectedPhotos.push(photo);
-                    foundPhoto = true;
-                }
-            }
-
-            // Move to next source for next iteration
-            sourceIndex = (sourceIndex + 1) % sourceGrids.length;
-
-            // If no source produced a photo in a full round, we're done
-            if (!foundPhoto) {
-                break;
-            }
+        for (const cellData of cellGrid.values()) {
+            selectedPhotos.push(...cellData.photos);
         }
 
-        console.log(`CullingGrid: Culled ${photosPerSource.size} sources (${Array.from(photosPerSource.values()).reduce((sum, photos) => sum + photos.length, 0)} total photos) down to ${selectedPhotos.length} photos for uniform screen coverage`);
-        
-        return selectedPhotos;
+        // Limit to maxPhotos if we exceeded
+        const finalPhotos = selectedPhotos.slice(0, maxPhotos);
+
+        console.log(`CullingGrid: Priority-culled ${photosPerSource.size} sources (${Array.from(photosPerSource.values()).reduce((sum, photos) => sum + photos.length, 0)} total photos) down to ${finalPhotos.length} photos with geographic distribution`);
+
+        return finalPhotos;
     }
 
-    private buildSourceGrids(photosPerSource: Map<SourceId, PhotoData[]>): SourceGrid[] {
-        const sourceGrids: SourceGrid[] = [];
+    private fillCell(cellKey: CellKey, cellData: CellPhotos, photosPerSource: Map<SourceId, PhotoData[]>, photosPerCell: number): void {
+        let photosNeeded = photosPerCell;
 
-        for (const [sourceId, photos] of photosPerSource.entries()) {
-            if (photos.length === 0) continue;
+        // Process sources by priority (1 = highest priority)
+        const priorities = [1, 2, 3, 4] as const;
 
-            const grid = new Map<string, GridCell>();
-            
-            // Distribute photos into screen grid cells
-            for (const photo of photos) {
-                const gridKey = this.getScreenGridKey(photo);
-                
-                if (!grid.has(gridKey)) {
-                    grid.set(gridKey, { photos: [], nextIndex: 0 });
+        for (const priority of priorities) {
+            if (photosNeeded <= 0) break;
+
+            for (const [sourceId, photos] of photosPerSource.entries()) {
+                if (photosNeeded <= 0) break;
+
+                const sourcePriority = this.getSourcePriority(sourceId);
+                if (sourcePriority !== priority) continue;
+
+                const photosInCell = this.getPhotosInCell(photos, cellKey);
+                if (photosInCell.length === 0) continue;
+
+                if (priority === SOURCE_PRIORITY.device) {
+                    // Priority 1: Device photos (take first N, already sorted by created_at DESC)
+                    const toTake = Math.min(photosNeeded, photosInCell.length);
+                    const devicePhotos = photosInCell.slice(0, toTake);
+
+                    // Add to cell and build hash index
+                    for (const photo of devicePhotos) {
+                        const index = cellData.photos.length;
+                        cellData.photos.push(photo);
+
+                        if (photo.fileHash) {
+                            cellData.hashToIndex.set(photo.fileHash, index);
+                        }
+                    }
+
+                    photosNeeded -= devicePhotos.length;
+
+                } else if (priority === SOURCE_PRIORITY.hillview) {
+                    // Priority 2: Hillview photos with hash replacement (already sorted by created_at DESC)
+                    for (const hillviewPhoto of photosInCell) {
+                        if (photosNeeded <= 0) break;
+
+                        if (hillviewPhoto.fileHash) {
+                            const matchIndex = cellData.hashToIndex.get(hillviewPhoto.fileHash);
+                            if (matchIndex !== undefined) {
+                                // Replace device photo with hillview photo (embed device photo)
+                                const devicePhoto = cellData.photos[matchIndex];
+                                cellData.photos[matchIndex] = {
+                                    ...hillviewPhoto,
+                                    device_photo: devicePhoto
+                                } as PhotoData;
+                                continue; // Don't decrement photosNeeded for replacement
+                            }
+                        }
+
+                        // No duplicate found, add new hillview photo
+                        cellData.photos.push(hillviewPhoto);
+                        photosNeeded--;
+                    }
+
+                } else {
+                    // Priority 3 & 4: Other sources (order doesn't matter, just take first N)
+                    const toTake = Math.min(photosNeeded, photosInCell.length);
+                    cellData.photos.push(...photosInCell.slice(0, toTake));
+                    photosNeeded -= toTake;
                 }
-                
-                grid.get(gridKey)!.photos.push(photo);
             }
-
-            // Get ordered list of cell keys for iteration (ensures consistent ordering)
-            const cellKeys = Array.from(grid.keys()).sort();
-
-            sourceGrids.push({
-                sourceId,
-                grid,
-                cellKeys,
-                nextCellIndex: 0
-            });
         }
-
-        return sourceGrids;
     }
 
-    private selectNextPhotoFromSource(sourceGrid: SourceGrid): PhotoData | null {
-        if (sourceGrid.cellKeys.length === 0) {
-            return null;
-        }
+    private getSourcePriority(sourceId: SourceId): Priority {
+        if (sourceId === 'device') return SOURCE_PRIORITY.device;
+        if (sourceId === 'hillview') return SOURCE_PRIORITY.hillview;
+        if (sourceId === 'mapillary') return SOURCE_PRIORITY.mapillary;
+        return SOURCE_PRIORITY.other;
+    }
 
-        // Try each screen cell in the source, starting from the next cell
-        const startCellIndex = sourceGrid.nextCellIndex;
-        
-        for (let i = 0; i < sourceGrid.cellKeys.length; i++) {
-            const cellIndex = (startCellIndex + i) % sourceGrid.cellKeys.length;
-            const cellKey = sourceGrid.cellKeys[cellIndex];
-            const cell = sourceGrid.grid.get(cellKey)!;
+    private getPhotosInCell(photos: PhotoData[], cellKey: CellKey): PhotoData[] {
+        const photosInCell: PhotoData[] = [];
 
-            // If this screen cell has photos available
-            if (cell.nextIndex < cell.photos.length) {
-                const photo = cell.photos[cell.nextIndex];
-                cell.nextIndex++;
-
-                // Move to next cell for next iteration
-                sourceGrid.nextCellIndex = (cellIndex + 1) % sourceGrid.cellKeys.length;
-                
-                return photo;
+        for (const photo of photos) {
+            if (this.getScreenGridKey(photo) === cellKey) {
+                photosInCell.push(photo);
             }
         }
 
-        // No photos available in any screen cell of this source
-        return null;
+        return photosInCell;
     }
 
     private getScreenGridKey(photo: PhotoData): CellKey {

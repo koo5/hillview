@@ -564,9 +564,9 @@ pub async fn save_photo_with_metadata(
 	{
 		use tauri_plugin_hillview::HillviewExt;
 
-		// Send to Android database - let Kotlin generate the ID
+		// Send to Android database - use our photo_id
 		let plugin_photo = tauri_plugin_hillview::shared_types::DevicePhotoMetadata {
-			id: String::new(), // Empty - Kotlin will generate this
+			id: photo_id.clone(), // Use the photo_id from frontend
 			filename: filename.clone(),
 			path: file_path.to_string_lossy().to_string(),
 			metadata: tauri_plugin_hillview::shared_types::PhotoMetadata {

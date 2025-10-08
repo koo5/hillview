@@ -2,6 +2,7 @@ plugins {
     id("com.android.library")
     id("org.jetbrains.kotlin.android")
     id("kotlin-kapt")
+    id("org.jetbrains.kotlin.plugin.serialization") version "1.8.10"
 }
 
 android {
@@ -63,6 +64,9 @@ dependencies {
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.6.4")
+
+    // Kotlinx Serialization for JSON handling
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.5.1")
 
     // ExifInterface for EXIF data extraction
     implementation("androidx.exifinterface:exifinterface:1.3.6")

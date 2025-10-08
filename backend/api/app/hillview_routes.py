@@ -91,6 +91,10 @@ async def get_hillview_images(
 					'id': photo.owner_id
 				}
 			}
+
+			# Add file hash if available for deduplication
+			if photo.file_md5:
+				photo_data['file_md5'] = photo.file_md5
 			filtered_photos.append(photo_data)
 
 		# Photos are already sorted by captured_at DESC from the database query

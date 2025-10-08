@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-photo-worker-process"
+description = "Enables the photo_worker_process command without any pre-configured scope."
+commands.allow = ["photo_worker_process"]
+
+[[permission]]
+identifier = "deny-photo-worker-process"
+description = "Denies the photo_worker_process command without any pre-configured scope."
+commands.deny = ["photo_worker_process"]

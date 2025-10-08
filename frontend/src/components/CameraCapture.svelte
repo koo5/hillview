@@ -10,7 +10,7 @@
     import AutoUploadPrompt from './AutoUploadPrompt.svelte';
     import {captureQueue } from '$lib/captureQueue';
     import {injectPlaceholder, removePlaceholder} from '$lib/placeholderInjector';
-    import {generateTempId, type PlaceholderLocation} from '$lib/utils/placeholderUtils';
+    import {generatePhotoId, type PlaceholderLocation} from '$lib/utils/placeholderUtils';
     import {bearingState, spatialState} from '$lib/mapState';
     import { createPermissionManager } from '$lib/permissionManager';
     import {
@@ -614,7 +614,7 @@
 
         const {mode} = event.detail;
         const timestamp = Date.now();
-        const tempId = generateTempId();
+        const sharedId = generatePhotoId(); // Generate shared ID for entire pipeline
 
         // Inject placeholder for immediate display
         const validLocation: PlaceholderLocation = {
@@ -626,14 +626,14 @@
             locationSource: locationData.locationSource,
             bearingSource: locationData.bearingSource,
         };
-        injectPlaceholder(validLocation, tempId);
+        injectPlaceholder(validLocation, sharedId);
 
         // Dispatch capture start event
         dispatch('captureStart', {
             location: locationData,
             timestamp,
             mode,
-            tempId
+            sharedId // Use sharedId instead of tempId
         });
 
         // Trigger camera blink effect
@@ -664,12 +664,12 @@
 
             // Add to capture queue with ImageData
             await captureQueue.add({
-                id: `capture_${timestamp}`,
+                id: sharedId, // Use sharedId for the entire pipeline
                 imageData,
                 location: validLocation,
                 timestamp,
                 mode,
-                placeholderId: tempId
+                placeholderId: sharedId // Use sharedId as placeholder ID too
             });
 
             // Trigger auto-upload prompt check
@@ -688,7 +688,7 @@
             console.error('🢄Capture error object:', error);
 
             // Remove placeholder on error
-            removePlaceholder(tempId);
+            removePlaceholder(sharedId);
         }
 
     }

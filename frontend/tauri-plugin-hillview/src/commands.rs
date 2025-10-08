@@ -318,3 +318,19 @@ pub(crate) async fn share_photo<R: Runtime>(
         return Err(crate::Error::from("Native sharing is only available on mobile devices"));
     }
 }
+
+#[command]
+pub(crate) async fn photo_worker_process<R: Runtime>(
+    #[allow(unused_variables)] app: AppHandle<R>,
+    message_json: String,
+) -> Result<crate::models::PhotoWorkerResponse> {
+    #[cfg(mobile)]
+    {
+        return app.hillview().photo_worker_process(message_json);
+    }
+
+    #[cfg(desktop)]
+    {
+        return Err(crate::Error::from("Photo worker is only available on mobile devices"));
+    }
+}

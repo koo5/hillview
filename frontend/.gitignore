@@ -43,3 +43,6 @@ hillview.apk
 *apk
 
 .playwright-mcp/
+chromedriver*
+debug_*
+window_dump.xml

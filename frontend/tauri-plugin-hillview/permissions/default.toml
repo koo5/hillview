@@ -23,5 +23,6 @@ permissions = [
   "allow-get-device-photos",
   "allow-refresh-photo-scan",
   "allow-import-photos",
-  "allow-share-photo"
+  "allow-share-photo",
+  "allow-photo-worker-process"
 ]

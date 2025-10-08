@@ -19,4 +19,9 @@ impl<R: Runtime> Hillview<R> {
       value: payload.value,
     })
   }
+
+  pub fn photo_worker_process(&self, _message_json: String) -> crate::Result<PhotoWorkerResponse> {
+    // Desktop doesn't support photo worker - return error
+    Err(crate::Error::from("Photo worker is only available on mobile devices"))
+  }
 }

@@ -29,6 +29,7 @@ export interface PhotoData {
     bearing_color?: string;
     range_distance?: number | null;
     angular_distance_abs?: number;
+    fileHash?: string;
 }
 
 export interface PhotoSize {

@@ -491,6 +491,16 @@ async function loop(): Promise<void> {
 					// Stream is complete, no additional action needed
 					break;
 
+				case 'devicePhotosLoaded':
+					// Handle device photos loaded - forward to main thread for placeholder cleanup
+					console.log(`NewWorker: Device photos loaded for ${message.sourceId}: ${message.photoIds?.length || 0} photo IDs`);
+					postMessage({
+						type: 'cleanupPlaceholders',
+						sourceId: message.sourceId,
+						devicePhotoIds: message.photoIds
+					});
+					break;
+
 				case 'removePhoto':
 					// Handle removing a single photo from cache
 					console.log(`NewWorker: Removing photo ${message.data.photoId} from ${message.data.source} cache`);

@@ -342,7 +342,7 @@
 			sources.update(srcs => {
 				return srcs.map(src => ({
 					...src,
-					enabled: false
+					enabled: src.id === 'device' // Only enable device source
 				}));
 			});
 			// Note: Location and compass are now handled by reactive statement

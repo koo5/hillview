@@ -107,3 +107,11 @@ pub struct FileImportResponse {
   pub error: Option<String>,
 }
 
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PhotoWorkerResponse {
+  pub success: bool,
+  pub response_json: Option<String>,
+  pub error: Option<String>,
+}
+

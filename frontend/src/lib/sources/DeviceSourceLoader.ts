@@ -51,17 +51,24 @@ export class DeviceSourceLoader extends BasePhotoSourceLoader {
 
     async start(bounds?: Bounds): Promise<void> {
         console.log(`🢄DeviceSourceLoader: Loading device photos from ${this.source.path || 'default location'}`);
+        console.log(`🢄DeviceSourceLoader: Source config:`, this.source);
+        console.log(`🢄DeviceSourceLoader: Bounds:`, bounds);
+        console.log(`🢄DeviceSourceLoader: MaxPhotos:`, this.maxPhotos);
 
         try {
-            // Call Tauri command to get device photos
-            const response = await invoke<DevicePhotosResponse>('get_device_photos', {
+            const requestParams = {
                 page: 1,
                 pageSize: this.maxPhotos || 50,
                 minLat: bounds?.top_left.lat,
                 maxLat: bounds?.bottom_right.lat,
                 minLng: bounds?.top_left.lng,
                 maxLng: bounds?.bottom_right.lng
-            });
+            };
+
+            console.log(`🢄DeviceSourceLoader: Calling get_device_photos with params:`, requestParams);
+
+            // Call Tauri command to get device photos
+            const response = await invoke<DevicePhotosResponse>('plugin:hillview|get_device_photos', requestParams);
 
             if (response.error) {
                 throw new Error(response.error);
@@ -80,6 +87,16 @@ export class DeviceSourceLoader extends BasePhotoSourceLoader {
                 duration,
                 fromCache: false
             });
+
+            // Check for placeholder cleanup - send device photo IDs to main thread
+            if (this.photos.length > 0) {
+                const devicePhotoIds = this.photos.map(photo => photo.id);
+                this.callbacks.enqueueMessage({
+                    type: 'devicePhotosLoaded',
+                    sourceId: this.source.id,
+                    photoIds: devicePhotoIds
+                });
+            }
 
             console.log(`🢄DeviceSourceLoader: Loaded ${this.photos.length} photos from device source ${this.source.id}`);
 
@@ -116,7 +133,8 @@ export class DeviceSourceLoader extends BasePhotoSourceLoader {
             source: this.source,
             isDevicePhoto: true,
             timestamp: devicePhoto.timestamp,
-            accuracy: devicePhoto.accuracy
+            accuracy: devicePhoto.accuracy,
+            fileHash: devicePhoto.fileHash
         };
     }
 

@@ -5,27 +5,39 @@ import {getCurrentToken} from './auth.svelte';
 import {createTokenManager} from './tokenManagerFactory';
 import {addAlert} from './alertSystem.svelte';
 import type {WorkerToastMessage} from './workerToast';
+import {removePlaceholder, placeholderPhotos} from './placeholderInjector';
+import {TAURI} from './tauri';
+import {KotlinPhotoWorker} from './KotlinPhotoWorker';
 
 declare const __WORKER_VERSION__: string;
 
 
 class SimplePhotoWorker {
     private worker: Worker | null = null;
+    private kotlinWorker: KotlinPhotoWorker | null = null;
     private frontendMessageId = 0;
     private isInitialized = false;
     private lastBounds: any = null;
 
     async initialize(): Promise<void> {
-        if (this.worker && this.isInitialized) return;
+        if ((this.worker || this.kotlinWorker) && this.isInitialized) return;
 
         try {
-            // Create worker directly
-            this.worker = new Worker(
-                new URL('./new.worker.ts', import.meta.url),
-                {type: 'module'}
-            );
-
-            this.setupWorkerHandlers();
+            if (TAURI) {
+                console.log('🢄SimplePhotoWorker: Initializing Kotlin photo worker for Tauri');
+                // Use Kotlin PhotoWorkerService via Tauri
+                this.kotlinWorker = new KotlinPhotoWorker();
+                await this.kotlinWorker.initialize();
+                this.setupKotlinWorkerHandlers();
+            } else {
+                console.log('🢄SimplePhotoWorker: Initializing Web Worker for browser');
+                // Create worker directly
+                this.worker = new Worker(
+                    new URL('./new.worker.ts', import.meta.url),
+                    {type: 'module'}
+                );
+                this.setupWorkerHandlers();
+            }
 
             // Initialize worker with config update including version check
             this.sendMessage('configUpdated', {
@@ -56,6 +68,16 @@ class SimplePhotoWorker {
         }
     }
 
+    private setupKotlinWorkerHandlers(): void {
+        if (!this.kotlinWorker) return;
+
+        this.kotlinWorker.onmessage = (e: { data: any }) => {
+            const message = e.data;
+            console.log('🢄SimplePhotoWorker: Received message from Kotlin worker:', message.type);
+            this.handleWorkerUpdate(message);
+        };
+    }
+
     private setupWorkerHandlers(): void {
         if (!this.worker) return;
 
@@ -77,10 +99,19 @@ class SimplePhotoWorker {
                 const areaPhotos = message.photosInArea || [];
                 const rangePhotos = message.photosInRange || [];
 
-                console.log(`🢄SimplePhotoWorker: Updated photos - Area: ${areaPhotos.length}, Range: ${message.currentRange}m, rangePhotos.length: ${rangePhotos.length}`);
+                // Merge placeholders with worker photos for immediate display
+                const currentPlaceholders = get(placeholderPhotos);
 
-                photosInArea.set(areaPhotos);
-                photosInRange.set(rangePhotos);
+                // Add placeholders to area photos (they should appear on map)
+                const mergedAreaPhotos = [...areaPhotos, ...currentPlaceholders];
+
+                // Add placeholders to range photos (they should appear in navigation)
+                const mergedRangePhotos = [...rangePhotos, ...currentPlaceholders];
+
+                console.log(`🢄SimplePhotoWorker: Updated photos - Area: ${areaPhotos.length} + ${currentPlaceholders.length} placeholders = ${mergedAreaPhotos.length}, Range: ${message.currentRange}m, rangePhotos.length: ${rangePhotos.length} + ${currentPlaceholders.length} placeholders = ${mergedRangePhotos.length}`);
+
+                photosInArea.set(mergedAreaPhotos);
+                photosInRange.set(mergedRangePhotos);
                 break;
 
             case 'sourceLoadingStatus':
@@ -116,6 +147,11 @@ class SimplePhotoWorker {
                 this.handleAuthTokenRequest(message.forceRefresh);
                 break;
 
+            case 'cleanupPlaceholders':
+                // Handle placeholder cleanup when device photos are loaded
+                this.handlePlaceholderCleanup(message.devicePhotoIds);
+                break;
+
             default:
                 console.warn('🢄SimplePhotoWorker: Unknown message type:', message.type);
         }
@@ -138,6 +174,28 @@ class SimplePhotoWorker {
                 type: 'authToken',
                 token: null
             });
+        }
+    }
+
+    private handlePlaceholderCleanup(devicePhotoIds: string[]): void {
+        if (!devicePhotoIds || devicePhotoIds.length === 0) {
+            return;
+        }
+
+        const currentPlaceholders = get(placeholderPhotos);
+        let removedCount = 0;
+
+        // Check each placeholder to see if it matches any device photo ID
+        for (const placeholder of currentPlaceholders) {
+            if (devicePhotoIds.includes(placeholder.id)) {
+                removePlaceholder(placeholder.id);
+                removedCount++;
+                console.log(`🢄📍 Removed placeholder ${placeholder.id} - matching device photo found`);
+            }
+        }
+
+        if (removedCount > 0) {
+            console.log(`🢄SimplePhotoWorker: Cleaned up ${removedCount} placeholder(s) after device photos loaded`);
         }
     }
 
@@ -215,33 +273,43 @@ class SimplePhotoWorker {
     }
 
     private sendMessage(type: string, data?: any): void {
-        if (!this.worker) {
-            throw new Error('Worker not initialized');
-        }
-
         const frontendMessageId = `frontend_${++this.frontendMessageId}`;
-        this.worker.postMessage({frontendMessageId, type, data});
+        const message = {frontendMessageId, type, data};
+
+        if (this.kotlinWorker) {
+            console.log(`🢄SimplePhotoWorker: Sending message to Kotlin worker: ${type}`);
+            this.kotlinWorker.postMessage(message);
+        } else if (this.worker) {
+            console.log(`🢄SimplePhotoWorker: Sending message to Web worker: ${type}`);
+            this.worker.postMessage(message);
+        } else {
+            throw new Error('No worker initialized');
+        }
     }
 
 
     // All worker communication is now fire-and-forget via config and area updates
 
     terminate(): void {
+        if (this.kotlinWorker) {
+            this.kotlinWorker.terminate();
+            this.kotlinWorker = null;
+        }
         if (this.worker) {
             this.worker.terminate();
             this.worker = null;
-            this.isInitialized = false;
-            this.lastBounds = null;
         }
+        this.isInitialized = false;
+        this.lastBounds = null;
     }
 
     isReady(): boolean {
-        return this.isInitialized && this.worker !== null;
+        return this.isInitialized && (this.worker !== null || this.kotlinWorker !== null);
     }
 
     // Cache removal methods for hidden content
     removePhotoFromCache(photoId: string, photoSource: string): void {
-        if (!this.isInitialized || !this.worker) {
+        if (!this.isInitialized || (!this.worker && !this.kotlinWorker)) {
             console.warn('🢄SimplePhotoWorker: Cannot remove photo from cache - worker not initialized');
             return;
         }
@@ -254,7 +322,7 @@ class SimplePhotoWorker {
     }
 
     removeUserPhotosFromCache(userId: string, userSource: string): void {
-        if (!this.isInitialized || !this.worker) {
+        if (!this.isInitialized || (!this.worker && !this.kotlinWorker)) {
             console.warn('🢄SimplePhotoWorker: Cannot remove user photos from cache - worker not initialized');
             return;
         }

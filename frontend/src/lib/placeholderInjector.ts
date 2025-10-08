@@ -13,7 +13,7 @@ export class PlaceholderInjector {
      */
     static injectPlaceholder(
         location: PlaceholderLocation,
-        tempId: string
+        sharedId: string
     ): void {
         const deviceSource = get(sources).find(s => s.id === 'device');
         if (!deviceSource) {
@@ -21,20 +21,21 @@ export class PlaceholderInjector {
             return;
         }
 
-        const placeholderPhoto = createPlaceholderPhoto(location, tempId, deviceSource);
+        const placeholderPhoto = createPlaceholderPhoto(location, sharedId, deviceSource);
 
         // Add to our placeholder store
         placeholderPhotos.update(photos => [...photos, placeholderPhoto]);
 
-        console.log('🢄📍 Injected placeholder:', tempId, 'at', location);
+        console.log('🢄📍 Injected placeholder:', sharedId, 'at', location);
     }
 
     /**
      * Removes a placeholder when the real photo is ready
+     * Uses the photo ID (which is now the same as sharedId/tempId)
      */
-    static removePlaceholder(tempId: string): void {
-        placeholderPhotos.update(photos => photos.filter(p => p.tempId !== tempId));
-        console.log('🢄📍 Removed placeholder:', tempId);
+    static removePlaceholder(photoId: string): void {
+        placeholderPhotos.update(photos => photos.filter(p => p.id !== photoId && p.tempId !== photoId));
+        console.log('🢄📍 Removed placeholder:', photoId);
     }
 
     /**

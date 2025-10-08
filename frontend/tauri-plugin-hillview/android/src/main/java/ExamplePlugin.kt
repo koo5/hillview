@@ -120,6 +120,16 @@ class GetDevicePhotosArgs {
   var maxLng: Double? = null
 }
 
+@InvokeArg
+class PhotoWorkerProcessArgs {
+  var messageJson: String? = null
+  var message_json: String? = null  // Try snake_case version too
+
+  override fun toString(): String {
+    return "PhotoWorkerProcessArgs(messageJson=${messageJson?.let { "present(${it.length} chars)" } ?: "null"}, message_json=${message_json?.let { "present(${it.length} chars)" } ?: "null"})"
+  }
+}
+
 @TauriPlugin
 class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     companion object {
@@ -202,6 +212,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     private val secureUploadManager: SecureUploadManager = SecureUploadManager(activity)
     private val database: PhotoDatabase = PhotoDatabase.getDatabase(activity)
     private val authManager: AuthenticationManager = AuthenticationManager(activity)
+    private val photoWorkerService: PhotoWorkerService = PhotoWorkerService(activity)
 
     init {
         initializationCount++
@@ -1101,18 +1112,54 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     @Command
     fun getDevicePhotos(invoke: Invoke) {
         try {
+            Log.d(TAG, "📸 Starting device photos retrieval")
+
             val args = try {
-                invoke.parseArgs(GetDevicePhotosArgs::class.java)
+                val parsedArgs = invoke.parseArgs(GetDevicePhotosArgs::class.java)
+                Log.d(TAG, "📸 Successfully parsed args: page=${parsedArgs?.page}, pageSize=${parsedArgs?.pageSize}, bounds=[${parsedArgs?.minLat},${parsedArgs?.minLng}] to [${parsedArgs?.maxLat},${parsedArgs?.maxLng}]")
+                parsedArgs
             } catch (e: Exception) {
-                Log.d(TAG, "📸 No pagination args provided, using defaults")
+                Log.d(TAG, "📸 Failed to parse args (${e.message}), using defaults")
                 GetDevicePhotosArgs() // Use default values
             }
 
-            // Check if spatial filtering is requested
-            val hasBounds = args.minLat != null && args.maxLat != null && args.minLng != null && args.maxLng != null
-            val pageSize = args.pageSize.coerceIn(1, 1000) // Allow larger limits for spatial queries
+            if (args == null) {
+                Log.e(TAG, "📸 Args is null after parsing, creating default")
+                val defaultArgs = GetDevicePhotosArgs()
+                Log.d(TAG, "📸 Using default args: page=${defaultArgs.page}, pageSize=${defaultArgs.pageSize}")
+                // Use defaultArgs for the rest of the method
+                processDevicePhotosRequest(invoke, defaultArgs)
+                return
+            }
+
+            // Process the request with validated args
+            processDevicePhotosRequest(invoke, args)
+
+        } catch (e: Exception) {
+            Log.e(TAG, "📸 Error starting device photos retrieval", e)
+            CoroutineScope(Dispatchers.Main).launch {
+                val error = JSObject()
+                error.put("photos", JSONArray())
+                error.put("lastUpdated", 0)
+                error.put("page", 1)
+                error.put("pageSize", 50)
+                error.put("totalCount", 0)
+                error.put("totalPages", 0)
+                error.put("hasMore", false)
+                error.put("error", e.message ?: "Unknown error")
+                invoke.resolve(error)
+            }
+        }
+    }
+
+    private fun processDevicePhotosRequest(invoke: Invoke, args: GetDevicePhotosArgs) {
+        // Check if spatial filtering is requested
+        val hasBounds = args.minLat != null && args.maxLat != null && args.minLng != null && args.maxLng != null
+        val pageSize = args.pageSize.coerceIn(1, 1000) // Allow larger limits for spatial queries
 
             CoroutineScope(Dispatchers.IO).launch {
+                val page = if (hasBounds) 1 else args.page.coerceAtLeast(1)
+
                 try {
                     val photoDao = database.photoDao()
 
@@ -1133,8 +1180,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                         totalPages = 1
                         hasMore = false
                     } else {
-                        Log.d(TAG, "📸 Getting all device photos - page: ${args.page}, pageSize: $pageSize")
-                        val page = args.page.coerceAtLeast(1)
+                        Log.d(TAG, "📸 Getting all device photos - page: $page, pageSize: $pageSize")
                         val offset = (page - 1) * pageSize
 
                         photos = photoDao.getPhotosPaginated(pageSize, offset)
@@ -1200,20 +1246,6 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                     }
                 }
             }
-
-        } catch (e: Exception) {
-            Log.e(TAG, "📸 Error starting device photos retrieval", e)
-            val error = JSObject()
-            error.put("photos", JSONArray())
-            error.put("lastUpdated", 0)
-            error.put("page", 1)
-            error.put("pageSize", 50)
-            error.put("totalCount", 0)
-            error.put("totalPages", 0)
-            error.put("hasMore", false)
-            error.put("error", e.message)
-            invoke.resolve(error)
-        }
     }
 
     @Command
@@ -1566,6 +1598,87 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             response.put("failedCount", 0)
             response.put("error", "File selection cancelled")
             invoke.resolve(response)
+        }
+    }
+
+    @Command
+    fun photoWorkerProcess(invoke: Invoke) {
+        try {
+            Log.d(TAG, "🢄📸 photoWorkerProcess command called")
+
+            // Add debugging to see raw invoke data
+            Log.d(TAG, "🢄📸 invoke object: $invoke")
+
+            val args = invoke.parseArgs(PhotoWorkerProcessArgs::class.java)
+            Log.d(TAG, "🢄📸 args parsed: args = $args")
+
+            if (args == null) {
+                Log.e(TAG, "🢄📸 photoWorkerProcess failed: args is null")
+                val error = JSObject()
+                error.put("success", false)
+                error.put("error", "args is null")
+                invoke.resolve(error)
+                return
+            }
+
+            val messageJson = args.messageJson ?: args.message_json
+            Log.d(TAG, "🢄📸 messageJson extracted: '${messageJson}' (length: ${messageJson?.length ?: 0})")
+            Log.d(TAG, "🢄📸 field values - messageJson: ${args.messageJson}, message_json: ${args.message_json}")
+
+            if (messageJson.isNullOrEmpty()) {
+                Log.e(TAG, "🢄📸 photoWorkerProcess failed: messageJson is required")
+                val error = JSObject()
+                error.put("success", false)
+                error.put("error", "messageJson is required")
+                invoke.resolve(error)
+                return
+            }
+
+            Log.d(TAG, "🢄📸 Processing photos with message length: ${messageJson.length}")
+
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    // Create auth token provider that uses our existing AuthenticationManager
+                    val authTokenProvider: suspend () -> String? = {
+                        try {
+                            val token = authManager.getValidToken()
+                            Log.d(TAG, "🢄📸 Auth token provided: ${if (token != null) "present" else "null"}")
+                            token
+                        } catch (e: Exception) {
+                            Log.e(TAG, "🢄📸 Error getting auth token", e)
+                            null
+                        }
+                    }
+
+                    // Process the photos using PhotoWorkerService
+                    val responseJson = photoWorkerService.processPhotos(messageJson, authTokenProvider)
+
+                    Log.d(TAG, "🢄📸 PhotoWorkerService completed, response length: ${responseJson.length}")
+
+                    CoroutineScope(Dispatchers.Main).launch {
+                        val result = JSObject()
+                        result.put("success", true)
+                        result.put("responseJson", responseJson)
+                        invoke.resolve(result)
+                    }
+
+                } catch (e: Exception) {
+                    Log.e(TAG, "🢄📸 Error in photoWorkerProcess coroutine", e)
+                    CoroutineScope(Dispatchers.Main).launch {
+                        val error = JSObject()
+                        error.put("success", false)
+                        error.put("error", e.message ?: "Photo processing failed")
+                        invoke.resolve(error)
+                    }
+                }
+            }
+
+        } catch (e: Exception) {
+            Log.e(TAG, "🢄📸 Error parsing photoWorkerProcess args", e)
+            val error = JSObject()
+            error.put("success", false)
+            error.put("error", e.message ?: "Failed to parse arguments")
+            invoke.resolve(error)
         }
     }
 

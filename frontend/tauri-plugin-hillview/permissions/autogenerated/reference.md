@@ -27,6 +27,7 @@ Default permissions for the plugin
 - `allow-refresh-photo-scan`
 - `allow-import-photos`
 - `allow-share-photo`
+- `allow-photo-worker-process`
 
 ## Permission Table
 
@@ -215,6 +216,32 @@ Enables the is_token_expired command without any pre-configured scope.
 <td>
 
 Denies the is_token_expired command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:allow-photo-worker-process`
+
+</td>
+<td>
+
+Enables the photo_worker_process command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:deny-photo-worker-process`
+
+</td>
+<td>
+
+Denies the photo_worker_process command without any pre-configured scope.
 
 </td>
 </tr>

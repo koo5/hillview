@@ -23,12 +23,12 @@ for arg in $argv
             set restart_per_suite true
         case '--spec=*'
             set restart_per_suite true
-            set wdio_args $wdio_args --spec "./test/specs/"(string sub --start 8 $arg)
+            set wdio_args $wdio_args --spec "./tests-appium/specs/"(string sub --start 8 $arg)
         case '*'
             # If it's a .ts file without --spec prefix, assume it's a spec file
             if string match -q '*.ts' $arg
                 set restart_per_suite true
-                set wdio_args $wdio_args --spec "./test/specs/$arg"
+                set wdio_args $wdio_args --spec "./tests-appium/specs/$arg"
             else
                 set wdio_args $wdio_args $arg
             end
@@ -40,4 +40,4 @@ set -gx WDIO_CLEAN_STATE $clean_state
 set -gx WDIO_RESTART_PER_SUITE $restart_per_suite
 
 # Run wdio with processed arguments
-wdio run wdio.conf.ts $wdio_args
+npm run wdio run wdio.conf.ts $wdio_args

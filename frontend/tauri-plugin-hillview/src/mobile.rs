@@ -209,4 +209,16 @@ impl<R: Runtime> Hillview<R> {
       .run_mobile_plugin("sharePhoto", Args { title, text, url })
       .map_err(Into::into)
   }
+
+  pub fn photo_worker_process(&self, message_json: String) -> crate::Result<PhotoWorkerResponse> {
+    #[derive(serde::Serialize)]
+    struct Args {
+      message_json: String,
+    }
+
+    self
+      .0
+      .run_mobile_plugin("photoWorkerProcess", Args { message_json })
+      .map_err(Into::into)
+  }
 }

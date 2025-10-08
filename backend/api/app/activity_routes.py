@@ -6,6 +6,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from geoalchemy2.functions import ST_X, ST_Y
 
 import sys
 import os
@@ -33,8 +34,13 @@ async def get_recent_activity(
 	await general_rate_limiter.enforce_rate_limit(request, 'public_read', current_user)
 
 	try:
-		# Join Photo with User to get usernames for all photos
-		query = select(Photo, User.username).join(
+		# Join Photo with User to get usernames for all photos, and extract coordinates from geometry
+		query = select(
+			Photo,
+			User.username,
+			ST_Y(Photo.geometry).label('latitude'),
+			ST_X(Photo.geometry).label('longitude')
+		).join(
 			User, Photo.owner_id == User.id
 		).order_by(Photo.uploaded_at.desc())
 
@@ -62,24 +68,24 @@ async def get_recent_activity(
 		)
 
 		result = await db.execute(query)
-		photo_user_pairs = result.all()
+		photo_results = result.all()
 
 		# Determine if there are more results
-		has_more = len(photo_user_pairs) > limit
+		has_more = len(photo_results) > limit
 		if has_more:
-			photo_user_pairs = photo_user_pairs[:-1]  # Remove the extra item
+			photo_results = photo_results[:-1]  # Remove the extra item
 
 		activity_data = []
 		next_cursor = None
 
-		for photo, username in photo_user_pairs:
+		for photo, username, latitude, longitude in photo_results:
 			activity_data.append({
 				"id": photo.id,
 				"original_filename": photo.original_filename,
 				"uploaded_at": photo.uploaded_at.isoformat() if photo.uploaded_at else None,
 				"processing_status": photo.processing_status,
-				"latitude": photo.latitude,
-				"longitude": photo.longitude,
+				"latitude": latitude,
+				"longitude": longitude,
 				"bearing": photo.compass_angle,
 				"width": photo.width,
 				"height": photo.height,

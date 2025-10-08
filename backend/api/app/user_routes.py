@@ -10,6 +10,7 @@ from fastapi.responses import RedirectResponse, HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import or_, func, desc
+from geoalchemy2.functions import ST_X, ST_Y
 from pydantic import BaseModel
 import requests
 from urllib.parse import urlencode, quote
@@ -1612,8 +1613,12 @@ async def get_user_photos(
                 detail="User not found"
             )
 
-        # Build base query for user's photos
-        query = select(Photo).where(Photo.owner_id == user_id)
+        # Build base query for user's photos with extracted coordinates
+        query = select(
+            Photo,
+            ST_Y(Photo.geometry).label('latitude'),
+            ST_X(Photo.geometry).label('longitude')
+        ).where(Photo.owner_id == user_id)
 
         # Apply hidden content filtering
         query = apply_hidden_content_filters(
@@ -1637,24 +1642,24 @@ async def get_user_photos(
         query = query.order_by(desc(Photo.uploaded_at)).limit(limit + 1)
 
         result = await db.execute(query)
-        photos = result.scalars().all()
+        photo_results = result.all()
 
         # Check if there are more photos
-        has_more = len(photos) > limit
+        has_more = len(photo_results) > limit
         if has_more:
-            photos = photos[:-1]  # Remove the extra photo used for pagination check
+            photo_results = photo_results[:-1]  # Remove the extra photo used for pagination check
 
         # Prepare response
         photo_list = []
-        for photo in photos:
+        for photo, latitude, longitude in photo_results:
             photo_data = {
                 "id": photo.id,
                 "original_filename": photo.original_filename,
                 "uploaded_at": photo.uploaded_at.isoformat() if photo.uploaded_at else None,
                 "captured_at": photo.captured_at.isoformat() if photo.captured_at else None,
                 "processing_status": photo.processing_status,
-                "latitude": photo.latitude,
-                "longitude": photo.longitude,
+                "latitude": latitude,
+                "longitude": longitude,
                 "bearing": photo.compass_angle,
                 "width": photo.width,
                 "height": photo.height,

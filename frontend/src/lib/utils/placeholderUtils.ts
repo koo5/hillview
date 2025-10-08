@@ -13,7 +13,18 @@ export interface PlaceholderLocation {
 }
 
 /**
+ * Generate a unique photo ID that will be used throughout the entire pipeline
+ * Compatible with Kotlin PhotoUtils.generatePhotoId() format: timestamp_hash8chars
+ */
+export function generatePhotoId(): string {
+    const timestamp = Date.now();
+    const random = Math.random().toString(36).substr(2, 8); // 8 chars to match Kotlin hash8chars
+    return `photo_${timestamp}_${random}`;
+}
+
+/**
  * Generate a unique temporary ID for a placeholder
+ * @deprecated Use generatePhotoId() instead for shared ID system
  */
 export function generateTempId(): string {
     return `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -24,12 +35,12 @@ export function generateTempId(): string {
  */
 export function createPlaceholderPhoto(
     location: PlaceholderLocation,
-    tempId: string,
+    sharedId: string,
     source: Source
 ): PlaceholderPhoto {
     return {
-        id: tempId,
-        uid: `${source.id}-${tempId}`,
+        id: sharedId,
+        uid: `${source.id}-${sharedId}`,
         source_type: 'device',
         file: 'placeholder.jpg',
         url: 'placeholder://arrow',
@@ -39,7 +50,7 @@ export function createPlaceholderPhoto(
         source: source,
         isDevicePhoto: true,
         isPlaceholder: true,
-        tempId: tempId,
+        tempId: sharedId, // Use sharedId as tempId for compatibility
         timestamp: Date.now(),
         accuracy: location.accuracy
     };
@@ -50,11 +61,11 @@ export function createPlaceholderPhoto(
  */
 export function createPlaceholderMetadata(
     location: PlaceholderLocation,
-    tempId: string,
+    sharedId: string,
     timestamp: number = Date.now()
 ): DevicePhotoMetadata {
     return {
-        id: tempId,
+        id: sharedId,
         filename: 'processing.jpg',
         path: 'placeholder://processing',
         latitude: location.latitude,
@@ -74,5 +85,5 @@ export function createPlaceholderMetadata(
  * Check if a photo is a placeholder
  */
 export function isPlaceholder(photo: { id: string; isPlaceholder?: boolean }): boolean {
-    return photo.isPlaceholder === true || photo.id.startsWith('temp_');
+    return photo.isPlaceholder === true || photo.id.startsWith('temp_') || photo.id.startsWith('photo_');
 }

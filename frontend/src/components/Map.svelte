@@ -159,12 +159,12 @@
 
             if (zoomInButton) {
                 zoomInButton.addEventListener('click', handleZoomButtonClick);
-                console.log('🢄[LOCATION] Added zoom-in button listener');
+                //console.log('🢄[LOCATION] Added zoom-in button listener');
             }
 
             if (zoomOutButton) {
                 zoomOutButton.addEventListener('click', handleZoomButtonClick);
-                console.log('🢄[LOCATION] Added zoom-out button listener');
+                //console.log('🢄[LOCATION] Added zoom-out button listener');
             }
         }, 100);
     }
@@ -191,7 +191,7 @@
     // Calculate how many km are "visible" based on the current zoom/center
     function get_range(_center: LatLng) {
         if (!map) {
-            console.warn('🢄get_range called before map is ready');
+            //console.warn('🢄get_range called before map is ready');
             return 1000; // Default 1km
         }
         try {
