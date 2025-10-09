@@ -11,9 +11,26 @@ if not test -f $ADB_PATH
     exit 1
 end
 
-echo "📱 Starting Android logs (filtered for Hillview)..."
-echo "🔍 Press Ctrl+C to stop"
-echo ""
+# Check for --no-follow, --once, or -1 flag
+set FOLLOW_MODE true
+for arg in $argv
+    if test "$arg" = "--no-follow" -o "$arg" = "--once" -o "$arg" = "-1"
+        set FOLLOW_MODE false
+        break
+    end
+end
 
-# Filter for Hillview-specific logs
-l $ADB_PATH logcat | l grep -E "(🢄|📍|hillview|hillviedev|RustStdoutStderr|chromium)"
+if test "$FOLLOW_MODE" = "true"
+    echo "📱 Starting Android logs (filtered for Hillview)..."
+    echo "🔍 Press Ctrl+C to stop"
+    echo ""
+
+    # Filter for Hillview-specific logs (continuous)
+    $ADB_PATH logcat | grep -E "(🢄|📍|hillview|hillviedev|RustStdoutStderr|chromium)"
+else
+    echo "📱 Showing recent Android logs (filtered for Hillview)..."
+    echo ""
+
+    # Get recent logs and exit (last 500 lines, filtered)
+    $ADB_PATH logcat -d | tail -500 | grep -E "(🢄|📍|hillview|hillviedev|RustStdoutStderr|chromium)"
+end

@@ -60,8 +60,8 @@ export const config: WebdriverIO.Config = {
         'appium:automationName': 'UiAutomator2',
         'appium:appPackage': 'cz.hillviedev',
         'appium:appActivity': '.MainActivity',
-        'appium:noReset': true,
-        'appium:fullReset': false,
+        'appium:noReset': false, // Reset app state between tests
+        'appium:fullReset': false, // Don't reinstall, but clear app data
         'appium:chromedriverAutodownload': true,
         'appium:chromedriverExecutable': './chromedriver',
         'appium:ensureWebviewsHavePages': true,
@@ -217,9 +217,16 @@ export const config: WebdriverIO.Config = {
     // },
     /**
      * Function to be executed before a test (in Mocha/Jasmine) starts.
+     * Ensures app starts fresh for each test
      */
-    // beforeTest: function (test, context) {
-    // },
+    beforeTest: async function (test, context) {
+        console.log(`🚀 Starting fresh test: ${test.title}`);
+
+        // The noReset: false setting handles app state cleanup automatically
+        // Wait for app to be ready after automatic reset
+        await browser.pause(2000);
+        console.log('🎯 App should be ready for testing');
+    },
     /**
      * Hook that gets executed _before_ a hook within the suite starts (e.g. runs before calling
      * beforeEach in Mocha)
@@ -234,6 +241,7 @@ export const config: WebdriverIO.Config = {
     // },
     /**
      * Function to be executed after a test (in Mocha/Jasmine only)
+     * Cleans up after each test
      * @param {object}  test             test object
      * @param {object}  context          scope object the test was executed with
      * @param {Error}   result.error     error object in case the test fails, otherwise `undefined`
@@ -242,8 +250,17 @@ export const config: WebdriverIO.Config = {
      * @param {boolean} result.passed    true if test has passed, otherwise false
      * @param {object}  result.retries   information about spec related retries, e.g. `{ attempts: 0, limit: 0 }`
      */
-    // afterTest: function(test, context, { error, result, duration, passed, retries }) {
-    // },
+    afterTest: async function(test, context, { error, result, duration, passed, retries }) {
+        const status = passed ? '✅ PASSED' : '❌ FAILED';
+        console.log(`🏁 Test completed: ${test.title} - ${status} (${duration}ms)`);
+
+        if (error) {
+            console.log(`❌ Test error: ${error.message}`);
+        }
+
+        // App state will be automatically reset before next test due to noReset: false
+        console.log('🧹 Test cleanup complete - app will reset for next test');
+    },
 
 
     /**

@@ -6,6 +6,10 @@ import kotlinx.coroutines.*
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.double
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.decodeFromString
 import java.util.concurrent.ConcurrentHashMap
@@ -92,6 +96,91 @@ class PhotoWorkerService(private val context: Context) {
     }
 
     /**
+     * Parse ConfigData manually to avoid serialization issues
+     */
+    private fun parseConfigData(dataJson: String): ConfigData {
+        val jsonElement = json.parseToJsonElement(dataJson)
+        val jsonObject = jsonElement.jsonObject
+
+        val sourcesArray = jsonObject["sources"]?.jsonArray
+            ?: throw Exception("Missing 'sources' field in ConfigData")
+
+        val sources = sourcesArray.map { sourceElement ->
+            val sourceObj = sourceElement.jsonObject
+            SourceConfig(
+                id = sourceObj["id"]?.jsonPrimitive?.content ?: "",
+                name = sourceObj["name"]?.jsonPrimitive?.content ?: "",
+                type = sourceObj["type"]?.jsonPrimitive?.content ?: "",
+                enabled = sourceObj["enabled"]?.jsonPrimitive?.boolean ?: false,
+                color = sourceObj["color"]?.jsonPrimitive?.content ?: "#000",
+                url = sourceObj["url"]?.jsonPrimitive?.content,
+                subtype = sourceObj["subtype"]?.jsonPrimitive?.content,
+                requests = sourceObj["requests"]?.jsonArray?.map { it.jsonPrimitive.content } ?: emptyList()
+            )
+        }
+
+        val expectedWorkerVersion = jsonObject["expectedWorkerVersion"]?.jsonPrimitive?.content
+
+        return ConfigData(
+            sources = sources,
+            expectedWorkerVersion = expectedWorkerVersion
+        )
+    }
+
+    /**
+     * Parse AreaData manually to avoid serialization issues
+     */
+    private fun parseAreaData(dataJson: String): AreaData {
+        val jsonElement = json.parseToJsonElement(dataJson)
+        val jsonObject = jsonElement.jsonObject
+
+        val sourcesArray = jsonObject["sources"]?.jsonArray
+            ?: throw Exception("Missing 'sources' field in AreaData")
+
+        val sources = sourcesArray.map { sourceElement ->
+            val sourceObj = sourceElement.jsonObject
+            SourceConfig(
+                id = sourceObj["id"]?.jsonPrimitive?.content ?: "",
+                name = sourceObj["name"]?.jsonPrimitive?.content ?: "",
+                type = sourceObj["type"]?.jsonPrimitive?.content ?: "",
+                enabled = sourceObj["enabled"]?.jsonPrimitive?.boolean ?: false,
+                color = sourceObj["color"]?.jsonPrimitive?.content ?: "#000",
+                url = sourceObj["url"]?.jsonPrimitive?.content,
+                subtype = sourceObj["subtype"]?.jsonPrimitive?.content,
+                requests = sourceObj["requests"]?.jsonArray?.map { it.jsonPrimitive.content } ?: emptyList()
+            )
+        }
+
+        val boundsObj = jsonObject["bounds"]?.jsonObject
+            ?: throw Exception("Missing 'bounds' field in AreaData")
+
+        val topLeftObj = boundsObj["top_left"]?.jsonObject
+            ?: throw Exception("Missing 'top_left' in bounds")
+        val bottomRightObj = boundsObj["bottom_right"]?.jsonObject
+            ?: throw Exception("Missing 'bottom_right' in bounds")
+
+        val bounds = Bounds(
+            top_left = LatLng(
+                lat = topLeftObj["lat"]?.jsonPrimitive?.double ?: 0.0,
+                lng = topLeftObj["lng"]?.jsonPrimitive?.double ?: 0.0
+            ),
+            bottom_right = LatLng(
+                lat = bottomRightObj["lat"]?.jsonPrimitive?.double ?: 0.0,
+                lng = bottomRightObj["lng"]?.jsonPrimitive?.double ?: 0.0
+            )
+        )
+
+        val maxPhotos = jsonObject["maxPhotos"]?.jsonPrimitive?.intOrNull
+            ?: throw Exception("Missing or invalid 'maxPhotos' field in AreaData")
+
+        return AreaData(
+            sources = sources,
+            bounds = bounds,
+            maxPhotos = maxPhotos
+        )
+    }
+
+    /**
      * Main entry point - single general-purpose message processing
      * Translation of worker's message handling logic
      */
@@ -154,7 +243,7 @@ class PhotoWorkerService(private val context: Context) {
         message: WorkerMessage,
         authTokenProvider: suspend () -> String?
     ): String {
-        val config = json.decodeFromString<ConfigData>(message.data)
+        val config = parseConfigData(message.data)
 
         // Abort any existing lower priority processes
         abortLowerPriorityProcesses(message.priority)
@@ -226,7 +315,7 @@ class PhotoWorkerService(private val context: Context) {
         message: WorkerMessage,
         authTokenProvider: suspend () -> String?
     ): String {
-        val areaData = json.decodeFromString<AreaData>(message.data)
+        val areaData = parseAreaData(message.data)
 
         // Abort any existing lower priority processes
         abortLowerPriorityProcesses(message.priority)

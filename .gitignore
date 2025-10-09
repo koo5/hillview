@@ -10,3 +10,5 @@ venv
 backend/worker/Ultralytics/
 .playwright-mcp/
 .dev_intention
+**/chromedriver
+

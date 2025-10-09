@@ -26,7 +26,7 @@ for arg in $argv
             set wdio_args $wdio_args --spec "./tests-appium/specs/"(string sub --start 8 $arg)
         case '*'
             # If it's a .ts file without --spec prefix, assume it's a spec file
-            if string match -q '*.ts' $arg
+            if string match -q -- '*.ts' $arg
                 set restart_per_suite true
                 set wdio_args $wdio_args --spec "./tests-appium/specs/$arg"
             else
@@ -39,5 +39,13 @@ end
 set -gx WDIO_CLEAN_STATE $clean_state
 set -gx WDIO_RESTART_PER_SUITE $restart_per_suite
 
+# Ensure correct Node.js version
+source (dirname (status --current-filename))/ensure-node-version.sh
+
+# Add Android platform-tools to PATH if not already there
+if not string match -q -- '*platform-tools*' $PATH
+    set -gx PATH $PATH $ANDROID_HOME/platform-tools
+end
+
 # Run wdio with processed arguments
-npm run wdio run wdio.conf.ts $wdio_args
+npx @wdio/cli run wdio.conf.ts $wdio_args

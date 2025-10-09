@@ -430,7 +430,10 @@ fn save_to_pictures_directory(
 	Ok(photo_path)
 }
 
+/// Debug function to verify EXIF data can be read back from saved photos
+/// Only available in Android debug builds for troubleshooting EXIF issues
 #[cfg(all(target_os = "android", debug_assertions))]
+#[allow(dead_code)] // Debugging function - available for future use
 async fn verify_exif_in_saved_file(file_path: &std::path::Path) {
 	// Verify EXIF can be read back
 	// Try reading with img-parts first to verify structure
