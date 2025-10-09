@@ -17,14 +17,17 @@ export class PlaceholderInjector {
     ): void {
         const deviceSource = get(sources).find(s => s.id === 'device');
         if (!deviceSource) {
-            console.log('🢄Device source not found, skipping placeholder injection');
+            console.log('🢄📍 ERROR: Device source not found, skipping placeholder injection');
             return;
         }
 
         const placeholderPhoto = createPlaceholderPhoto(location, sharedId, deviceSource);
 
         // Add to our placeholder store
-        placeholderPhotos.update(photos => [...photos, placeholderPhoto]);
+        placeholderPhotos.update(photos => {
+            const newPhotos = [...photos, placeholderPhoto];
+            return newPhotos;
+        });
 
         console.log('🢄📍 Injected placeholder:', sharedId, 'at', location);
     }

@@ -626,6 +626,7 @@
             locationSource: locationData.locationSource,
             bearingSource: locationData.bearingSource,
         };
+
         injectPlaceholder(validLocation, sharedId);
 
         // Dispatch capture start event

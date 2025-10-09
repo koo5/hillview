@@ -106,11 +106,16 @@ export class OptimizedMarkerSystem {
 		return L.divIcon({
 			className: 'optimized-photo-marker',
 			html: `
-        <div class="marker-container" style="
-             width: ${arrowSize}px;
-             height: ${arrowSize}px;
-             transform: translate(${offsetX.toFixed(1)}px, ${offsetY.toFixed(1)}px);
-           ">
+        <div class="marker-container"
+             data-testid="photo-marker-${photo.id}"
+             data-photo-id="${photo.id}"
+             data-source="${photo.source?.id || 'unknown'}"
+             data-is-placeholder="${photo.isPlaceholder || false}"
+             style="
+               width: ${arrowSize}px;
+               height: ${arrowSize}px;
+               transform: translate(${offsetX.toFixed(1)}px, ${offsetY.toFixed(1)}px);
+             ">
           <!-- Bearing diff circle (background) -->
           <div class="bearing-circle ${isSelected ? 'selected' : ''}"
                style="
