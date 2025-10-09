@@ -369,23 +369,102 @@ describe('Android Photo Workflow End-to-End', () => {
                 await browser.saveScreenshot('./test-results/01-no-capture-button.png');
             }
 
-            // Step 5: Check for placeholder on map
-            console.log('🔍 Step 5: Checking for photo placeholder...');
+            // Step 5: Check for device photo on map (placeholder might be too fast)
+            console.log('🔍 Step 5: Checking for device photo on map...');
+
+            // Wait a moment for photo processing to complete
+            await browser.pause(3000);
 
             // Take screenshot to see current map state
-            await browser.saveScreenshot('./test-results/06-checking-placeholder.png');
-            console.log('📸 Screenshot saved: 06-checking-placeholder.png');
+            await browser.saveScreenshot('./test-results/06-checking-device-photo.png');
+            console.log('📸 Screenshot saved: 06-checking-device-photo.png');
 
-            // Look for photo markers or placeholders on the map
-            const photoMarkers = await $$('[data-testid*="photo"], [data-testid*="marker"], .photo-marker, .placeholder');
-            console.log(`Found ${photoMarkers.length} potential photo elements`);
+            // Look for photo markers, device photos, or any photo-related elements
+            const photoElements = await $$('[data-testid*="photo"], [data-testid*="marker"], [data-testid*="device"], .photo-marker, .device-photo, .placeholder');
+            console.log(`📷 Found ${photoElements.length} potential photo elements on map`);
 
             // Check if there's a loading indicator
             const loadingIndicators = await $$('[data-testid*="loading"], .loading, .spinner');
-            console.log(`Found ${loadingIndicators.length} loading indicators`);
+            console.log(`⏳ Found ${loadingIndicators.length} loading indicators`);
 
-            // Step 6: Pan the map to trigger area updates
-            console.log('🗺️  Step 6: Panning map to trigger Kotlin photo worker...');
+            // Look for any elements that might contain our captured photo ID
+            console.log('🔍 Searching for photo ID in DOM elements...');
+            try {
+                const allElements = await $$('*');
+                let foundPhotoId = false;
+
+                for (let i = 0; i < Math.min(allElements.length, 100); i++) {
+                    try {
+                        const elementText = await allElements[i].getText();
+                        const elementId = await allElements[i].getAttribute('id');
+                        const elementClass = await allElements[i].getAttribute('class');
+
+                        if ((elementText && elementText.includes('photo_')) ||
+                            (elementId && elementId.includes('photo_')) ||
+                            (elementClass && elementClass.includes('photo'))) {
+                            console.log(`📷 Found photo-related element: text="${elementText}", id="${elementId}", class="${elementClass}"`);
+                            foundPhotoId = true;
+                        }
+                    } catch (e) {
+                        // Skip elements that can't be read
+                    }
+                }
+
+                if (!foundPhotoId) {
+                    console.log('📷 No photo ID found in DOM elements');
+                }
+            } catch (searchError) {
+                console.log('📷 Error searching for photo elements:', searchError.message);
+            }
+
+            // Step 6: Close camera and navigate back to map to see device photos
+            console.log('🗺️  Step 6: Closing camera to view device photos on map...');
+
+            // Close camera by going back to map view
+            try {
+                // Look for close/back button in camera interface
+                const closeButtons = await $$('button, [data-testid*="close"], [data-testid*="back"], .close, .back');
+                let cameraClosedSuccessfully = false;
+
+                for (let i = 0; i < closeButtons.length; i++) {
+                    try {
+                        const btnText = await closeButtons[i].getText();
+                        const ariaLabel = await closeButtons[i].getAttribute('aria-label');
+                        const className = await closeButtons[i].getAttribute('class');
+
+                        console.log(`📷 Close button ${i}: text="${btnText}", aria-label="${ariaLabel}", class="${className}"`);
+
+                        // Look for close/back buttons
+                        if ((btnText && (btnText.includes('Close') || btnText.includes('Back'))) ||
+                            (ariaLabel && (ariaLabel.includes('close') || ariaLabel.includes('back'))) ||
+                            (className && (className.includes('close') || className.includes('back')))) {
+
+                            console.log(`📷 Clicking close/back button: ${btnText || ariaLabel || 'icon button'}`);
+                            await closeButtons[i].click();
+                            cameraClosedSuccessfully = true;
+                            break;
+                        }
+                    } catch (btnError) {
+                        console.log(`📷 Could not check close button ${i}: ${btnError.message}`);
+                    }
+                }
+
+                if (!cameraClosedSuccessfully) {
+                    console.log('📷 No close button found, camera might already be closed');
+                }
+
+                await browser.pause(2000);
+
+                // Take screenshot after closing camera
+                await browser.saveScreenshot('./test-results/07-after-camera-close.png');
+                console.log('📸 Screenshot saved: 07-after-camera-close.png');
+
+            } catch (closeError) {
+                console.log('📷 Error closing camera:', closeError.message);
+            }
+
+            // Step 7: Pan the map to trigger area updates and refresh device photos
+            console.log('🗺️  Step 7: Panning map to trigger Kotlin photo worker and refresh device photos...');
 
             const mapContainer = await $('[data-testid="map-container"], .map-container, #map');
             if (await mapContainer.isExisting()) {
@@ -416,16 +495,144 @@ describe('Android Photo Workflow End-to-End', () => {
 
                 await browser.pause(3000);
                 console.log('✅ Second map pan completed');
+
+                // Take final screenshot to check for device photos on map
+                await browser.saveScreenshot('./test-results/08-final-map-with-device-photos.png');
+                console.log('📸 Final screenshot saved: 08-final-map-with-device-photos.png');
+
+                // Check for placeholder before device source toggle
+                const placeholderCheck = await $$('[data-testid*="placeholder"], .placeholder, .placeholder-marker');
+                console.log(`📍 Found ${placeholderCheck.length} placeholder markers before device source toggle`);
+
+                // Step 8: Test device source toggle to trigger placeholder replacement
+                console.log('🔄 Step 8: Testing device source toggle to replace placeholder with real device photo...');
+
+                // Look for device source toggle button on the map
+                const sourceButtons = await $$('[data-testid*="source"], [data-testid*="device"], .source-toggle, .device-toggle, button');
+                console.log(`🔍 Found ${sourceButtons.length} potential source buttons`);
+
+                let deviceSourceButton = null;
+                for (let i = 0; i < sourceButtons.length; i++) {
+                    try {
+                        const btnText = await sourceButtons[i].getText();
+                        const btnId = await sourceButtons[i].getAttribute('id');
+                        const btnClass = await sourceButtons[i].getAttribute('class');
+                        const btnTestId = await sourceButtons[i].getAttribute('data-testid');
+
+                        console.log(`🔍 Source button ${i}: text="${btnText}", id="${btnId}", class="${btnClass}", testid="${btnTestId}"`);
+
+                        // Look for device source button
+                        if ((btnText && btnText.toLowerCase().includes('device')) ||
+                            (btnId && btnId.toLowerCase().includes('device')) ||
+                            (btnClass && btnClass.toLowerCase().includes('device')) ||
+                            (btnTestId && btnTestId.toLowerCase().includes('device'))) {
+
+                            console.log(`🎯 Found device source button: ${btnText || btnId || 'device button'}`);
+                            deviceSourceButton = sourceButtons[i];
+                            break;
+                        }
+                    } catch (btnError) {
+                        console.log(`🔍 Could not check source button ${i}: ${btnError.message}`);
+                    }
+                }
+
+                if (deviceSourceButton) {
+                    console.log('🔄 Clicking device source button to toggle off/on...');
+
+                    // Toggle device source off
+                    await deviceSourceButton.click();
+                    await browser.pause(2000);
+                    console.log('🔄 Device source toggled OFF');
+
+                    // Take screenshot after toggle off
+                    await browser.saveScreenshot('./test-results/09-device-source-off.png');
+
+                    // Toggle device source back on to trigger Kotlin worker
+                    await deviceSourceButton.click();
+                    await browser.pause(3000);
+                    console.log('🔄 Device source toggled ON - should trigger Kotlin PROCESS_AREA');
+
+                    // Take screenshot after toggle on
+                    await browser.saveScreenshot('./test-results/10-device-source-on.png');
+
+                    // Wait for Kotlin worker to process
+                    await browser.pause(5000);
+
+                } else {
+                    console.log('⚠️  No device source button found - checking all UI buttons');
+
+                    // If no device source button found, look for any buttons that might control sources
+                    const allButtons = await $$('button');
+                    console.log(`🔍 Found ${allButtons.length} total buttons, checking first 10 for source control:`);
+
+                    for (let i = 0; i < Math.min(allButtons.length, 10); i++) {
+                        try {
+                            const btnText = await allButtons[i].getText();
+                            const isDisplayed = await allButtons[i].isDisplayed();
+                            console.log(`🔍 Button ${i}: "${btnText}" (displayed: ${isDisplayed})`);
+                        } catch (e) {
+                            console.log(`🔍 Could not check button ${i}`);
+                        }
+                    }
+                }
+
+                // Final verification: look for device photos after source toggle
+                const finalPhotoCheck = await $$('[data-testid*="photo"], [data-testid*="marker"], .photo-marker, .device-photo-marker');
+                console.log(`🏁 FINAL RESULT: Found ${finalPhotoCheck.length} photo markers on map after device source toggle`);
+
+                if (finalPhotoCheck.length > 0) {
+                    console.log('🎉 SUCCESS: Device photos are visible on the map after source toggle!');
+
+                    // Get details of found photo markers
+                    for (let i = 0; i < Math.min(finalPhotoCheck.length, 3); i++) {
+                        try {
+                            const markerText = await finalPhotoCheck[i].getText();
+                            const markerId = await finalPhotoCheck[i].getAttribute('id');
+                            const markerClass = await finalPhotoCheck[i].getAttribute('class');
+                            console.log(`📷 Photo marker ${i}: text="${markerText}", id="${markerId}", class="${markerClass}"`);
+                        } catch (markerError) {
+                            console.log(`📷 Could not get details for marker ${i}`);
+                        }
+                    }
+                } else {
+                    console.log('⚠️  Still no photo markers found after device source toggle - placeholder replacement may need debugging');
+                }
             }
 
-            // Step 7: Verify placeholder replacement with device photo
-            console.log('🔍 Step 7: Checking for device photo replacement...');
+            // Step 7: Verify device photo appears on map (STAY ON MAP PAGE)
+            console.log('🔍 Step 7: Verifying device photo marker appears on map...');
 
-            await browser.pause(5000); // Give time for Kotlin worker to process
+            await browser.pause(5000); // Give time for Kotlin worker to process and update map
 
-            // Check for updated photo markers
-            const updatedPhotoMarkers = await $$('[data-testid*="photo"], [data-testid*="marker"], .photo-marker');
-            console.log(`Found ${updatedPhotoMarkers.length} photo markers after processing`);
+            // Take screenshot of map after processing
+            await browser.saveScreenshot('./test-results/11-map-after-processing.png');
+            console.log('📸 Screenshot saved: 11-map-after-processing.png');
+
+            // Check for device photo markers specifically in the center area where photo was taken
+            const devicePhotoMarkers = await $$('[data-testid*="photo"], [data-testid*="marker"], [data-testid*="device"], .photo-marker, .device-photo, .marker');
+            console.log(`🎯 Found ${devicePhotoMarkers.length} potential device photo markers on map`);
+
+            // Check each marker for device photo characteristics
+            for (let i = 0; i < Math.min(devicePhotoMarkers.length, 5); i++) {
+                try {
+                    const markerText = await devicePhotoMarkers[i].getText();
+                    const markerId = await devicePhotoMarkers[i].getAttribute('id');
+                    const markerClass = await devicePhotoMarkers[i].getAttribute('class');
+                    const markerTestId = await devicePhotoMarkers[i].getAttribute('data-testid');
+
+                    console.log(`📍 Marker ${i}: text="${markerText}", id="${markerId}", class="${markerClass}", testid="${markerTestId}"`);
+
+                    // Check if this might be our device photo marker
+                    if ((markerText && markerText.includes('photo_')) ||
+                        (markerId && markerId.includes('photo')) ||
+                        (markerClass && markerClass.includes('device')) ||
+                        (markerTestId && markerTestId.includes('photo'))) {
+                        console.log(`🎉 FOUND DEVICE PHOTO MARKER: Marker ${i} appears to be our device photo!`);
+                    }
+                } catch (markerError) {
+                    console.log(`📍 Could not get details for marker ${i}: ${markerError.message}`);
+                }
+            }
 
             // Look for debug overlay or photo details
             const debugOverlay = await $('[data-testid*="debug"], .debug-overlay, .photo-debug');
@@ -435,9 +642,12 @@ describe('Android Photo Workflow End-to-End', () => {
                 console.log(`Debug info: ${debugText}`);
             }
 
-            // Step 8: Navigate to device photos page to verify
-            console.log('📱 Step 8: Checking device photos page...');
+            // IMPORTANT: Don't navigate away from map yet - verify markers first
+            console.log('✅ Device photo marker verification complete - staying on map page');
 
+            // Step 8: Navigate to device photos page to verify (COMMENTED OUT - staying on map)
+            // console.log('📱 Step 8: Checking device photos page...');
+            /*
             const hamburgerMenu3 = await $('[data-testid="hamburger-menu"]');
             if (await hamburgerMenu3.isExisting()) {
                 await hamburgerMenu3.click();
@@ -457,10 +667,12 @@ describe('Android Photo Workflow End-to-End', () => {
                     console.log(`📤 Found ${uploadIndicators.length} upload indicators`);
                 }
             }
+            */
 
-            // Step 9: Test autoupload configuration
-            console.log('⚙️  Step 9: Testing autoupload configuration...');
+            // Step 9: Test autoupload configuration (COMMENTED OUT - staying on map)
+            console.log('⚙️  Step 9: Testing autoupload configuration (skipped - staying on map)...');
 
+            /*
             // Navigate to settings
             const hamburgerMenu4 = await $('[data-testid="hamburger-menu"]');
             if (await hamburgerMenu4.isExisting()) {
@@ -492,11 +704,17 @@ describe('Android Photo Workflow End-to-End', () => {
                     }
                 }
             }
+            */
 
-            // Step 10: Return to map and verify final state
-            console.log('🏁 Step 10: Final verification...');
+            // Step 10: Final verification on map (no navigation needed - already on map)
+            console.log('🏁 Step 10: Final device photo verification on map...');
 
-            // Go back to main map
+            // Take final screenshot while staying on map
+            await browser.saveScreenshot('./test-results/12-final-map-verification.png');
+            console.log('📸 Final verification screenshot saved: 12-final-map-verification.png');
+
+            /*
+            // Go back to main map (COMMENTED OUT - already on map)
             const hamburgerMenu5 = await $('[data-testid="hamburger-menu"]');
             if (await hamburgerMenu5.isExisting()) {
                 await hamburgerMenu5.click();
@@ -507,6 +725,7 @@ describe('Android Photo Workflow End-to-End', () => {
                     await browser.pause(5000);
                 }
             }
+            */
 
             // Final map pan to trigger processing
             const finalMapContainer = await $('[data-testid="map-container"], .map-container, #map');

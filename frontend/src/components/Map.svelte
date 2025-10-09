@@ -23,6 +23,7 @@
         type BearingMode,
         bearingMode
     } from "$lib/mapState";
+    import { placeholderPhotos } from '$lib/placeholderInjector';
     import { sources } from "$lib/data.svelte";
     import { simplePhotoWorker } from '$lib/simplePhotoWorker';
     import { turn_to_photo_to, app, mapillary_cache_status, sourceLoadingStatus } from "$lib/data.svelte";
@@ -985,9 +986,12 @@
     }
 
     // Reactive updates for spatial changes (new photos from worker)
-    $: if ($visiblePhotos && map) {
-        console.log(`🢄Map: Reactive update triggered - updating markers with ${$visiblePhotos.length} visible photos`);
-        updateOptimizedMarkers($visiblePhotos);
+    // Combine visible photos with placeholder photos for marker rendering
+    $: allPhotosForMarkers = [...($visiblePhotos || []), ...($placeholderPhotos || [])];
+
+    $: if (allPhotosForMarkers && map) {
+        console.log(`🢄Map: Reactive update triggered - updating markers with ${$visiblePhotos?.length || 0} visible photos + ${$placeholderPhotos?.length || 0} placeholder photos = ${allPhotosForMarkers.length} total`);
+        updateOptimizedMarkers(allPhotosForMarkers);
     }
 
     // Ultra-fast bearing color updates (no worker communication)

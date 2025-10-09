@@ -260,8 +260,10 @@ class CaptureQueueManager {
 							totalProcessed: this.totalProcessed
 						}));
 
-						// Remove placeholder
-						removePlaceholder(item.placeholderId);
+						// PLACEHOLDER SHOULD STAY VISIBLE until device source toggle
+						// The placeholder will be removed when device source toggle
+						// triggers Kotlin worker to return the real device photo
+						// removePlaceholder(item.placeholderId);
 
 						// Remove from processing set
 						this.processingSet.delete(item.id);
