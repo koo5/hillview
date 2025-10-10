@@ -94,6 +94,10 @@ class StreamPhotoLoader {
                             return@collect
                         }
 
+                        is StreamMessage.IgnoreMessage -> {
+                            // Do nothing, continue streaming
+                        }
+
                         is StreamMessage.Error -> {
                             Log.e(TAG, "StreamPhotoLoader: Stream error: ${message.message}")
                             streamError = message.message
@@ -225,6 +229,12 @@ class StreamPhotoLoader {
                 "stream_complete" -> {
                     val total = jsonData["total"]?.toString()?.toIntOrNull()
                     StreamMessage.StreamComplete(total)
+                }
+
+                "region_complete" -> {
+                    // Ignore region_complete messages - they're just progress info
+                    Log.d(TAG, "StreamPhotoLoader: Region completed (ignoring)")
+                    StreamMessage.IgnoreMessage
                 }
 
                 "error" -> {

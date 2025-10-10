@@ -143,6 +143,9 @@ sealed class StreamMessage {
     data class StreamComplete(val total: Int? = null) : StreamMessage()
 
     @Serializable
+    object IgnoreMessage : StreamMessage()
+
+    @Serializable
     data class Error(val message: String) : StreamMessage()
 }
 

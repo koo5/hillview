@@ -218,9 +218,11 @@ export class KotlinPhotoWorker {
             // Send error to frontend
             if (this.onMessageCallback) {
                 this.onMessageCallback({
-                    type: 'error',
-                    error: error instanceof Error ? error.message : 'Unknown error',
-                    frontendMessageId
+                    data: {
+                        type: 'error',
+                        error: error instanceof Error ? error.message : 'Unknown error',
+                        frontendMessageId
+                    }
                 });
             }
         }
@@ -269,10 +271,12 @@ export class KotlinPhotoWorker {
             if (this.onMessageCallback) {
                 console.log('🔥 DEBUG: Calling onMessageCallback with', photosInArea.length, 'area photos and', rangePhotos.length, 'range photos');
                 this.onMessageCallback({
-                    type: 'photosUpdate',
-                    photosInArea: photosInArea,
-                    photosInRange: rangePhotos,
-                    timestamp: timestamp
+                    data: {
+                        type: 'photosUpdate',
+                        photosInArea: photosInArea,
+                        photosInRange: rangePhotos,
+                        timestamp: timestamp
+                    }
                 });
                 console.log('🔥 DEBUG: onMessageCallback completed');
 
@@ -283,17 +287,15 @@ export class KotlinPhotoWorker {
                 if (devicePhotos.length > 0) {
                     const devicePhotoIds = devicePhotos.map((photo: any) => photo.id);
                     this.onMessageCallback({
-                        type: 'cleanupPlaceholders',
-                        devicePhotoIds
+                        data: {
+                            type: 'cleanupPlaceholders',
+                            devicePhotoIds
+                        }
                     });
                 }
 
-                // Trigger area update after config for streaming sources
-                // This happens after every photos update to maintain sync
-                if (photosInArea.length > 0) {
-                    console.log('🔧 KOTLIN FIX: Photos received - checking if area update needed for streaming sources');
-                    this.triggerAreaUpdateAfterConfig();
-                }
+                // Note: Do NOT trigger area update here - that creates infinite loops!
+                // Area updates should only happen from config changes or spatial changes
             }
         } catch (error) {
             console.error('🢄KotlinPhotoWorker: Error processing Tauri photo update event:', error);
@@ -319,10 +321,12 @@ export class KotlinPhotoWorker {
             // Send error to frontend using the same format as new.worker.ts
             if (this.onMessageCallback) {
                 this.onMessageCallback({
-                    type: 'error',
-                    error: {
-                        message: errorMessage,
-                        timestamp: timestamp
+                    data: {
+                        type: 'error',
+                        error: {
+                            message: errorMessage,
+                            timestamp: timestamp
+                        }
                     }
                 });
             }
