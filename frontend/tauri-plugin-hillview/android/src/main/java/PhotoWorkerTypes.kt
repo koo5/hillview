@@ -53,6 +53,17 @@ data class WorkerResponse(
 )
 
 @Serializable
+data class ConfigCompleteData(
+    val photos: List<PhotoData>
+)
+
+@Serializable
+data class AreaCompleteData(
+    val photos: List<PhotoData>,
+    val sourcesPhotosInArea: Map<String, List<PhotoData>>
+)
+
+@Serializable
 data class LatLng(
     val lat: Double,
     val lng: Double

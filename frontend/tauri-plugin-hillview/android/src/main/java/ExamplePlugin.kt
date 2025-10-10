@@ -1650,15 +1650,14 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                         }
                     }
 
-                    // Process the photos using PhotoWorkerService
-                    val responseJson = photoWorkerService.processPhotos(messageJson, authTokenProvider)
+                    // Process the photos using PhotoWorkerService (fire and forget like web worker)
+                    photoWorkerService.processPhotos(messageJson, authTokenProvider)
 
-                    Log.d(TAG, "🢄📸 PhotoWorkerService completed, response length: ${responseJson.length}")
+                    Log.d(TAG, "🢄📸 PhotoWorkerService message processed")
 
                     CoroutineScope(Dispatchers.Main).launch {
                         val result = JSObject()
                         result.put("success", true)
-                        result.put("responseJson", responseJson)
                         invoke.resolve(result)
                     }
 

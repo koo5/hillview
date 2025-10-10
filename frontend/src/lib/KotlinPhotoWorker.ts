@@ -7,6 +7,8 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
+import { get } from 'svelte/store';
+import { spatialState } from './mapState';
 
 // Kotlin Photo Worker message types
 type MessageType = 'PROCESS_CONFIG' | 'PROCESS_AREA' | 'ABORT_PROCESS' | 'CLEANUP';
@@ -41,6 +43,7 @@ export class KotlinPhotoWorker {
     private activeProcesses = new Set<string>();
     private currentRange = 1000; // Default range in meters
     private currentCenter: { lat: number; lng: number } | null = null;
+    private lastConfigSources: any[] = [];
 
     constructor() {
         console.log('🢄KotlinPhotoWorker: Initialized Kotlin photo worker adapter');
@@ -101,6 +104,9 @@ export class KotlinPhotoWorker {
                         sources: message.data?.config?.sources || []
                     })
                 };
+
+                // Store config for follow-up area update
+                this.lastConfigSources = message.data?.config?.sources || [];
                 break;
 
             case 'areaUpdated':
@@ -164,10 +170,16 @@ export class KotlinPhotoWorker {
             this.lastConfigData = data.config;
             return data.config.sources;
         }
-        // If no config in this message, try to use last stored config
+        // If no config in this message, use last stored sources (most common case for area updates)
+        if (this.lastConfigSources && this.lastConfigSources.length > 0) {
+            console.log(`🢄KotlinPhotoWorker: Using stored config sources (${this.lastConfigSources.length} sources)`);
+            return this.lastConfigSources;
+        }
+        // Fallback to lastConfigData if available
         if (this.lastConfigData?.sources) {
             return this.lastConfigData.sources;
         }
+        console.warn('🢄KotlinPhotoWorker: No sources available for area update - returning empty array');
         return [];
     }
 
@@ -242,6 +254,11 @@ export class KotlinPhotoWorker {
             case 'CONFIG_COMPLETE':
                 // Config processing complete - photos should be in response.data.photos
                 this.handlePhotosUpdate(response, 'config');
+
+                // Automatically trigger area update for streaming sources (like Mapillary)
+                // This matches the behavior of simplePhotoWorker.ts
+                console.log('🔧 KOTLIN FIX: CONFIG_COMPLETE - about to trigger area update for streaming sources');
+                this.triggerAreaUpdateAfterConfig();
                 break;
 
             case 'AREA_COMPLETE':
@@ -267,6 +284,34 @@ export class KotlinPhotoWorker {
 
             default:
                 console.warn('🢄KotlinPhotoWorker: Unknown response type:', response.type);
+        }
+    }
+
+    /**
+     * Trigger area update after config processing to ensure streaming sources get current bounds
+     * This matches the behavior of simplePhotoWorker.ts lines 263-271
+     */
+    private async triggerAreaUpdateAfterConfig(): Promise<void> {
+        console.log('🢄KotlinPhotoWorker: Triggering area update after config to load streaming sources...');
+
+        const currentSpatial = get(spatialState);
+        if (currentSpatial.bounds) {
+            console.log('🢄KotlinPhotoWorker: Sending area update after config to trigger streaming sources...');
+
+            // Create area update message with proper frontendMessageId
+            const areaMessage = {
+                frontendMessageId: `frontend_auto_${++this.messageIdCounter}`,
+                type: 'areaUpdated' as const,
+                data: {
+                    area: currentSpatial.bounds,
+                    range: currentSpatial.range
+                }
+            };
+
+            // Send the area update message
+            this.postMessage(areaMessage);
+        } else {
+            console.log('🢄KotlinPhotoWorker: No bounds available for area update after config');
         }
     }
 

@@ -35,7 +35,7 @@ import cz.hillview.plugin.ProcessId
  * - Event-based responses (or polling fallback)
  * - Maintains compatibility with existing frontend architecture
  */
-class PhotoWorkerService(private val context: Context) {
+class PhotoWorkerService(private val context: Context, private val pluginManager: app.tauri.plugin.PluginManager? = null) {
     companion object {
         private const val TAG = "PhotoWorkerService"
         private const val MAX_CONCURRENT_PROCESSES = 5
@@ -187,8 +187,8 @@ class PhotoWorkerService(private val context: Context) {
     suspend fun processPhotos(
         messageJson: String,
         authTokenProvider: suspend () -> String?
-    ): String {
-        return try {
+    ) {
+        try {
             val message = parseWorkerMessage(messageJson)
             Log.d(TAG, "PhotoWorkerService: Processing message type ${message.type} (${message.processId})")
 
@@ -201,38 +201,14 @@ class PhotoWorkerService(private val context: Context) {
                 }
                 MessageType.ABORT_PROCESS -> {
                     abortProcess(message.processId)
-                    buildString {
-                        append("{")
-                        append("\"messageId\":${message.messageId},")
-                        append("\"type\":\"${ResponseType.PROCESS_ABORTED.name}\",")
-                        append("\"processId\":\"${message.processId}\",")
-                        append("\"data\":\"{}\"")
-                        append("}")
-                    }
                 }
                 MessageType.CLEANUP -> {
                     cleanup()
-                    buildString {
-                        append("{")
-                        append("\"messageId\":${message.messageId},")
-                        append("\"type\":\"${ResponseType.CLEANUP_COMPLETE.name}\",")
-                        append("\"processId\":\"${message.processId}\",")
-                        append("\"data\":\"{}\"")
-                        append("}")
-                    }
                 }
             }
 
         } catch (error: Exception) {
             Log.e(TAG, "PhotoWorkerService: Error processing message", error)
-            buildString {
-                append("{")
-                append("\"messageId\":0,")
-                append("\"type\":\"${ResponseType.ERROR.name}\",")
-                append("\"processId\":\"\",")
-                append("\"data\":${json.encodeToString(mapOf("error" to (error.message ?: "Unknown error")))}")
-                append("}")
-            }
         }
     }
 
@@ -258,53 +234,45 @@ class PhotoWorkerService(private val context: Context) {
         )
         processTable[message.processId] = processInfo
 
-        // Launch async processing
-        val job = serviceScope.launch {
-            try {
-                val photos = photoOperations.processConfig(
-                    processId = message.processId,
+        return try {
+            // Process synchronously and return completion result
+            val photos = photoOperations.processConfig(
+                processId = message.processId,
+                messageId = message.messageId,
+                config = config,
+                shouldAbort = { processInfo.abortFlag.get() },
+                authTokenProvider = authTokenProvider
+            )
+
+            if (!processInfo.abortFlag.get()) {
+                // Return CONFIG_COMPLETE with photo data
+                sendProcessResult(
                     messageId = message.messageId,
-                    config = config,
-                    shouldAbort = { processInfo.abortFlag.get() },
-                    authTokenProvider = authTokenProvider
+                    processId = message.processId,
+                    type = ResponseType.CONFIG_COMPLETE,
+                    data = """{"photos":${json.encodeToString(photos)}}"""
                 )
-
-                if (!processInfo.abortFlag.get()) {
-                    // Send result event back to frontend
-                    sendProcessResult(
-                        messageId = message.messageId,
-                        processId = message.processId,
-                        type = ResponseType.CONFIG_COMPLETE,
-                        data = json.encodeToString(mapOf("photos" to photos))
-                    )
-                }
-
-            } catch (error: Exception) {
-                if (!processInfo.abortFlag.get()) {
-                    Log.e(TAG, "PhotoWorkerService: Config processing error (${message.processId})", error)
-                    sendProcessResult(
-                        messageId = message.messageId,
-                        processId = message.processId,
-                        type = ResponseType.ERROR,
-                        data = json.encodeToString(mapOf("error" to (error.message ?: "Config processing failed")))
-                    )
-                }
-            } finally {
-                processTable.remove(message.processId)
-                activeProcesses.remove(message.processId)
+            } else {
+                // Process was aborted
+                sendProcessResult(
+                    messageId = message.messageId,
+                    processId = message.processId,
+                    type = ResponseType.PROCESS_ABORTED,
+                    data = json.encodeToString(mapOf("status" to "Config processing aborted"))
+                )
             }
-        }
 
-        activeProcesses[message.processId] = job
-
-        // Return immediate acknowledgment
-        return buildString {
-            append("{")
-            append("\"messageId\":${message.messageId},")
-            append("\"type\":\"${ResponseType.PROCESS_STARTED.name}\",")
-            append("\"processId\":\"${message.processId}\",")
-            append("\"data\":${json.encodeToString(mapOf("status" to "Config processing started"))}")
-            append("}")
+        } catch (error: Exception) {
+            Log.e(TAG, "PhotoWorkerService: Config processing error (${message.processId})", error)
+            sendProcessResult(
+                messageId = message.messageId,
+                processId = message.processId,
+                type = ResponseType.ERROR,
+                data = json.encodeToString(mapOf("error" to (error.message ?: "Config processing failed")))
+            )
+        } finally {
+            processTable.remove(message.processId)
+            activeProcesses.remove(message.processId)
         }
     }
 
@@ -330,71 +298,59 @@ class PhotoWorkerService(private val context: Context) {
         )
         processTable[message.processId] = processInfo
 
-        // Launch async processing
-        val job = serviceScope.launch {
-            try {
-                // Process area photos
-                val sourcesPhotosInArea = photoOperations.processArea(
+        return try {
+            // Process area photos synchronously and return completion result
+            val sourcesPhotosInArea = photoOperations.processArea(
+                processId = message.processId,
+                sources = areaData.sources,
+                bounds = areaData.bounds,
+                shouldAbort = { processInfo.abortFlag.get() },
+                authTokenProvider = authTokenProvider
+            )
+
+            if (!processInfo.abortFlag.get()) {
+                // Apply culling if photos exceed maxPhotos
+                val totalPhotos = sourcesPhotosInArea.values.sumOf { it.size }
+                val finalPhotos = if (totalPhotos > areaData.maxPhotos) {
+                    Log.d(TAG, "PhotoWorkerService: Applying culling - $totalPhotos photos > ${areaData.maxPhotos} limit")
+
+                    val gridCuller = CullingGrid(areaData.bounds)
+                    val culledPhotos = gridCuller.cullPhotos(sourcesPhotosInArea, areaData.maxPhotos)
+
+                    Log.d(TAG, "PhotoWorkerService: Grid culling complete - ${culledPhotos.size} photos selected")
+                    culledPhotos
+                } else {
+                    sourcesPhotosInArea.values.flatten()
+                }
+
+                // Return AREA_COMPLETE with photo data
+                sendProcessResult(
+                    messageId = message.messageId,
                     processId = message.processId,
-                    sources = areaData.sources,
-                    bounds = areaData.bounds,
-                    shouldAbort = { processInfo.abortFlag.get() },
-                    authTokenProvider = authTokenProvider
+                    type = ResponseType.AREA_COMPLETE,
+                    data = """{"photos":${json.encodeToString(finalPhotos)},"sourcesPhotosInArea":${json.encodeToString(sourcesPhotosInArea)}}"""
                 )
-
-                if (!processInfo.abortFlag.get()) {
-                    // Apply culling if photos exceed maxPhotos
-                    val totalPhotos = sourcesPhotosInArea.values.sumOf { it.size }
-                    val finalPhotos = if (totalPhotos > areaData.maxPhotos) {
-                        Log.d(TAG, "PhotoWorkerService: Applying culling - $totalPhotos photos > ${areaData.maxPhotos} limit")
-
-                        val gridCuller = CullingGrid(areaData.bounds)
-                        val culledPhotos = gridCuller.cullPhotos(sourcesPhotosInArea, areaData.maxPhotos)
-
-                        Log.d(TAG, "PhotoWorkerService: Grid culling complete - ${culledPhotos.size} photos selected")
-                        culledPhotos
-                    } else {
-                        sourcesPhotosInArea.values.flatten()
-                    }
-
-                    // Send result event back to frontend
-                    sendProcessResult(
-                        messageId = message.messageId,
-                        processId = message.processId,
-                        type = ResponseType.AREA_COMPLETE,
-                        data = json.encodeToString(mapOf(
-                            "photos" to finalPhotos,
-                            "sourcesPhotosInArea" to sourcesPhotosInArea
-                        ))
-                    )
-                }
-
-            } catch (error: Exception) {
-                if (!processInfo.abortFlag.get()) {
-                    Log.e(TAG, "PhotoWorkerService: Area processing error (${message.processId})", error)
-                    sendProcessResult(
-                        messageId = message.messageId,
-                        processId = message.processId,
-                        type = ResponseType.ERROR,
-                        data = json.encodeToString(mapOf("error" to (error.message ?: "Area processing failed")))
-                    )
-                }
-            } finally {
-                processTable.remove(message.processId)
-                activeProcesses.remove(message.processId)
+            } else {
+                // Process was aborted
+                sendProcessResult(
+                    messageId = message.messageId,
+                    processId = message.processId,
+                    type = ResponseType.PROCESS_ABORTED,
+                    data = json.encodeToString(mapOf("status" to "Area processing aborted"))
+                )
             }
-        }
 
-        activeProcesses[message.processId] = job
-
-        // Return immediate acknowledgment
-        return buildString {
-            append("{")
-            append("\"messageId\":${message.messageId},")
-            append("\"type\":\"${ResponseType.PROCESS_STARTED.name}\",")
-            append("\"processId\":\"${message.processId}\",")
-            append("\"data\":${json.encodeToString(mapOf("status" to "Area processing started"))}")
-            append("}")
+        } catch (error: Exception) {
+            Log.e(TAG, "PhotoWorkerService: Area processing error (${message.processId})", error)
+            sendProcessResult(
+                messageId = message.messageId,
+                processId = message.processId,
+                type = ResponseType.ERROR,
+                data = json.encodeToString(mapOf("error" to (error.message ?: "Area processing failed")))
+            )
+        } finally {
+            processTable.remove(message.processId)
+            activeProcesses.remove(message.processId)
         }
     }
 
@@ -435,31 +391,27 @@ class PhotoWorkerService(private val context: Context) {
     }
 
     /**
-     * Send process result - placeholder for event mechanism
-     * TODO: Implement Tauri event emission or polling mechanism
+     * Send process result - store for immediate return to plugin
      */
     private suspend fun sendProcessResult(
         messageId: Int,
         processId: ProcessId,
         type: ResponseType,
         data: String
-    ) {
-        // Manually construct JSON to avoid serialization issues
-        val responseJson = buildString {
-            append("{")
-            append("\"messageId\":$messageId,")
-            append("\"type\":\"${type.name}\",")
-            append("\"processId\":\"$processId\",")
-            append("\"data\":${json.encodeToString(data)}")
-            append("}")
-        }
-        Log.d(TAG, "PhotoWorkerService: Process result ready for $processId - data: ${data.take(100)}...")
+    ): String {
+        // Create properly formatted response using WorkerResponse structure
+        val response = WorkerResponse(
+            messageId = messageId,
+            type = type,
+            processId = processId,
+            data = data
+        )
 
-        // TODO: Replace with actual Tauri event emission:
-        // emit_tauri_event("photo_worker_result", responseJson)
-        //
-        // Or implement polling mechanism where frontend can retrieve results
-        // For now, logging the result - integration will handle delivery
+        // Serialize to JSON for return
+        val responseJson = json.encodeToString(response)
+        Log.d(TAG, "PhotoWorkerService: Process result ready for $processId - type: ${type.name}")
+
+        return responseJson
     }
 
     /**
