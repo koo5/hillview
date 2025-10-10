@@ -242,8 +242,7 @@ class StreamPhotoLoader {
                 append("&token=$it")
             }
 
-            // Ensure SSE format
-            append("&format=stream")
+            // Note: format=stream not needed - /mapillary endpoint returns SSE by default
         }
     }
 

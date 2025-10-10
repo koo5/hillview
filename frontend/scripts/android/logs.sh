@@ -26,11 +26,11 @@ if test "$FOLLOW_MODE" = "true"
     echo ""
 
     # Filter for Hillview-specific logs (continuous)
-    $ADB_PATH logcat | grep -E "(🢄|📍|hillview|hillviedev|RustStdoutStderr|chromium)"
+    $ADB_PATH logcat #| grep -E "(🢄|📍|hillview|hillviedev|RustStdoutStderr|chromium)"
 else
     echo "📱 Showing recent Android logs (filtered for Hillview)..."
     echo ""
 
     # Get recent logs and exit (last 500 lines, filtered)
-    $ADB_PATH logcat -d | tail -500 | grep -E "(🢄|📍|hillview|hillviedev|RustStdoutStderr|chromium)"
+    $ADB_PATH logcat -d | tail -500 #| grep -E "(🢄|📍|hillview|hillviedev|RustStdoutStderr|chromium)"
 end

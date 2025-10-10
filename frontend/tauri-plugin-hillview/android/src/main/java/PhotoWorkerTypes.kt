@@ -44,24 +44,8 @@ data class WorkerMessage(
     val data: String // JSON string for flexible data structure
 )
 
-@Serializable
-data class WorkerResponse(
-    val messageId: Int,
-    val type: ResponseType,
-    val processId: ProcessId,
-    val data: String // JSON string for flexible data structure
-)
 
-@Serializable
-data class ConfigCompleteData(
-    val photos: List<PhotoData>
-)
 
-@Serializable
-data class AreaCompleteData(
-    val photos: List<PhotoData>,
-    val sourcesPhotosInArea: Map<String, List<PhotoData>>
-)
 
 @Serializable
 data class LatLng(

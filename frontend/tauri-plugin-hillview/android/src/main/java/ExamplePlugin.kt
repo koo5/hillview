@@ -212,7 +212,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     private val secureUploadManager: SecureUploadManager = SecureUploadManager(activity)
     private val database: PhotoDatabase = PhotoDatabase.getDatabase(activity)
     private val authManager: AuthenticationManager = AuthenticationManager(activity)
-    private val photoWorkerService: PhotoWorkerService = PhotoWorkerService(activity)
+    private val photoWorkerService: PhotoWorkerService = PhotoWorkerService(activity, manager)
 
     init {
         initializationCount++

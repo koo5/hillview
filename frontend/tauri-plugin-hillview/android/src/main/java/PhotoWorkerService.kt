@@ -182,7 +182,7 @@ class PhotoWorkerService(private val context: Context, private val pluginManager
 
     /**
      * Main entry point - single general-purpose message processing
-     * Translation of worker's message handling logic
+     * Like new.worker.ts: immediate response + async processing with events
      */
     suspend fun processPhotos(
         messageJson: String,
@@ -194,10 +194,16 @@ class PhotoWorkerService(private val context: Context, private val pluginManager
 
             when (message.type) {
                 MessageType.PROCESS_CONFIG -> {
-                    processConfigMessage(message, authTokenProvider)
+                    // Launch async processing like new.worker.ts
+                    serviceScope.launch {
+                        processConfigMessage(message, authTokenProvider)
+                    }
                 }
                 MessageType.PROCESS_AREA -> {
-                    processAreaMessage(message, authTokenProvider)
+                    // Launch async processing like new.worker.ts
+                    serviceScope.launch {
+                        processAreaMessage(message, authTokenProvider)
+                    }
                 }
                 MessageType.ABORT_PROCESS -> {
                     abortProcess(message.processId)
@@ -218,7 +224,7 @@ class PhotoWorkerService(private val context: Context, private val pluginManager
     private suspend fun processConfigMessage(
         message: WorkerMessage,
         authTokenProvider: suspend () -> String?
-    ): String {
+    ) {
         val config = parseConfigData(message.data)
 
         // Abort any existing lower priority processes
@@ -234,8 +240,8 @@ class PhotoWorkerService(private val context: Context, private val pluginManager
         )
         processTable[message.processId] = processInfo
 
-        return try {
-            // Process synchronously and return completion result
+        try {
+            // Process synchronously and send photos update
             val photos = photoOperations.processConfig(
                 processId = message.processId,
                 messageId = message.messageId,
@@ -245,31 +251,12 @@ class PhotoWorkerService(private val context: Context, private val pluginManager
             )
 
             if (!processInfo.abortFlag.get()) {
-                // Return CONFIG_COMPLETE with photo data
-                sendProcessResult(
-                    messageId = message.messageId,
-                    processId = message.processId,
-                    type = ResponseType.CONFIG_COMPLETE,
-                    data = """{"photos":${json.encodeToString(photos)}}"""
-                )
-            } else {
-                // Process was aborted
-                sendProcessResult(
-                    messageId = message.messageId,
-                    processId = message.processId,
-                    type = ResponseType.PROCESS_ABORTED,
-                    data = json.encodeToString(mapOf("status" to "Config processing aborted"))
-                )
+                // Send photos update to frontend like new.worker.ts does
+                sendPhotosUpdate(photos, emptyMap())
             }
 
         } catch (error: Exception) {
             Log.e(TAG, "PhotoWorkerService: Config processing error (${message.processId})", error)
-            sendProcessResult(
-                messageId = message.messageId,
-                processId = message.processId,
-                type = ResponseType.ERROR,
-                data = json.encodeToString(mapOf("error" to (error.message ?: "Config processing failed")))
-            )
         } finally {
             processTable.remove(message.processId)
             activeProcesses.remove(message.processId)
@@ -282,7 +269,7 @@ class PhotoWorkerService(private val context: Context, private val pluginManager
     private suspend fun processAreaMessage(
         message: WorkerMessage,
         authTokenProvider: suspend () -> String?
-    ): String {
+    ) {
         val areaData = parseAreaData(message.data)
 
         // Abort any existing lower priority processes
@@ -298,8 +285,8 @@ class PhotoWorkerService(private val context: Context, private val pluginManager
         )
         processTable[message.processId] = processInfo
 
-        return try {
-            // Process area photos synchronously and return completion result
+        try {
+            // Process area photos synchronously and send photos update
             val sourcesPhotosInArea = photoOperations.processArea(
                 processId = message.processId,
                 sources = areaData.sources,
@@ -323,31 +310,12 @@ class PhotoWorkerService(private val context: Context, private val pluginManager
                     sourcesPhotosInArea.values.flatten()
                 }
 
-                // Return AREA_COMPLETE with photo data
-                sendProcessResult(
-                    messageId = message.messageId,
-                    processId = message.processId,
-                    type = ResponseType.AREA_COMPLETE,
-                    data = """{"photos":${json.encodeToString(finalPhotos)},"sourcesPhotosInArea":${json.encodeToString(sourcesPhotosInArea)}}"""
-                )
-            } else {
-                // Process was aborted
-                sendProcessResult(
-                    messageId = message.messageId,
-                    processId = message.processId,
-                    type = ResponseType.PROCESS_ABORTED,
-                    data = json.encodeToString(mapOf("status" to "Area processing aborted"))
-                )
+                // Send photos update to frontend like new.worker.ts does
+                sendPhotosUpdate(finalPhotos, sourcesPhotosInArea)
             }
 
         } catch (error: Exception) {
             Log.e(TAG, "PhotoWorkerService: Area processing error (${message.processId})", error)
-            sendProcessResult(
-                messageId = message.messageId,
-                processId = message.processId,
-                type = ResponseType.ERROR,
-                data = json.encodeToString(mapOf("error" to (error.message ?: "Area processing failed")))
-            )
         } finally {
             processTable.remove(message.processId)
             activeProcesses.remove(message.processId)
@@ -391,27 +359,33 @@ class PhotoWorkerService(private val context: Context, private val pluginManager
     }
 
     /**
-     * Send process result - store for immediate return to plugin
+     * Send photos update to frontend via Tauri events (like new.worker.ts postMessage)
      */
-    private suspend fun sendProcessResult(
-        messageId: Int,
-        processId: ProcessId,
-        type: ResponseType,
-        data: String
-    ): String {
-        // Create properly formatted response using WorkerResponse structure
-        val response = WorkerResponse(
-            messageId = messageId,
-            type = type,
-            processId = processId,
-            data = data
-        )
+    private suspend fun sendPhotosUpdate(photos: List<PhotoData>, sourcesPhotosInArea: Map<String, List<PhotoData>>) {
+        try {
+            // Create photosUpdate message like new.worker.ts sends
+            val eventData = app.tauri.plugin.JSObject()
+            eventData.put("type", "photosUpdate")
+            eventData.put("photosInArea", json.encodeToString(photos))
+            eventData.put("photosInRange", json.encodeToString(photos)) // For now, same as area photos
+            eventData.put("currentRange", 1000)
+            eventData.put("timestamp", System.currentTimeMillis())
 
-        // Serialize to JSON for return
-        val responseJson = json.encodeToString(response)
-        Log.d(TAG, "PhotoWorkerService: Process result ready for $processId - type: ${type.name}")
+            Log.d(TAG, "PhotoWorkerService: Emitting photosUpdate event with ${photos.size} photos")
 
-        return responseJson
+            // Emit Tauri event like camera permission does
+            pluginManager?.let { pm ->
+                try {
+                    pm.trigger("photo-worker-update", eventData)
+                    Log.d(TAG, "PhotoWorkerService: Successfully emitted photo-worker-update event")
+                } catch (e: Exception) {
+                    Log.e(TAG, "PhotoWorkerService: Failed to emit photo-worker-update event: ${e.message}", e)
+                }
+            } ?: Log.w(TAG, "PhotoWorkerService: No plugin manager available for event emission")
+
+        } catch (error: Exception) {
+            Log.e(TAG, "PhotoWorkerService: Error creating photos update event", error)
+        }
     }
 
     /**

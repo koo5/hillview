@@ -7,25 +7,18 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { get } from 'svelte/store';
 import { spatialState } from './mapState';
 
 // Kotlin Photo Worker message types
 type MessageType = 'PROCESS_CONFIG' | 'PROCESS_AREA' | 'ABORT_PROCESS' | 'CLEANUP';
-type ResponseType = 'PROCESS_STARTED' | 'CONFIG_COMPLETE' | 'AREA_COMPLETE' | 'PROCESS_ABORTED' | 'CLEANUP_COMPLETE' | 'ERROR';
 
 interface WorkerMessage {
     type: MessageType;
     messageId: number;
     processId: string;
     priority: number;
-    data: string; // JSON string
-}
-
-interface WorkerResponse {
-    messageId: number;
-    type: ResponseType;
-    processId: string;
     data: string; // JSON string
 }
 
@@ -44,6 +37,7 @@ export class KotlinPhotoWorker {
     private currentRange = 1000; // Default range in meters
     private currentCenter: { lat: number; lng: number } | null = null;
     private lastConfigSources: any[] = [];
+    private eventUnlisteners: UnlistenFn[] = [];
 
     constructor() {
         console.log('🢄KotlinPhotoWorker: Initialized Kotlin photo worker adapter');
@@ -53,10 +47,21 @@ export class KotlinPhotoWorker {
         if (this.isInitialized) return;
 
         console.log('🢄KotlinPhotoWorker: Initializing Kotlin photo worker service');
-        this.isInitialized = true;
 
-        // TODO: Set up event listeners for Tauri events from Kotlin service
-        // For now, we'll use polling or immediate responses
+        // Set up Tauri event listeners for async photo updates from Kotlin
+        try {
+            const photoUpdateUnlisten = await listen('photo-worker-update', (event) => {
+                console.log('🢄KotlinPhotoWorker: Received photo-worker-update event:', event.payload);
+                this.handleTauriPhotoUpdate(event.payload as any);
+            });
+            this.eventUnlisteners.push(photoUpdateUnlisten);
+
+            console.log('🢄KotlinPhotoWorker: Event listeners set up successfully');
+        } catch (error) {
+            console.error('🢄KotlinPhotoWorker: Failed to set up event listeners:', error);
+        }
+
+        this.isInitialized = true;
     }
 
     set onmessage(callback: (event: { data: any }) => void) {
@@ -207,22 +212,8 @@ export class KotlinPhotoWorker {
                 throw new Error(response.error || 'Kotlin service returned error');
             }
 
-            if (response.responseJson) {
-                try {
-                    const workerResponse: WorkerResponse = JSON.parse(response.responseJson);
-                    if (workerResponse && typeof workerResponse === 'object' && workerResponse.type) {
-                        this.handleKotlinResponse(workerResponse, frontendMessageId);
-                    } else {
-                        console.error('🢄KotlinPhotoWorker: Invalid response structure:', workerResponse);
-                        throw new Error('Invalid response structure from Kotlin service');
-                    }
-                } catch (parseError) {
-                    console.error('🢄KotlinPhotoWorker: Failed to parse response JSON:', response.responseJson);
-                    throw new Error(`Failed to parse Kotlin response: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`);
-                }
-            } else {
-                console.log('🢄KotlinPhotoWorker: No response JSON returned from Kotlin service');
-            }
+            // Like new.worker.ts: just acknowledgment, actual results come via events
+            console.log('🢄KotlinPhotoWorker: Kotlin service acknowledged message, waiting for async events...');
 
             // Remove from active processes when complete
             this.activeProcesses.delete(workerMessage.processId);
@@ -242,48 +233,58 @@ export class KotlinPhotoWorker {
         }
     }
 
-    private handleKotlinResponse(response: WorkerResponse, frontendMessageId: string): void {
-        console.log(`🢄KotlinPhotoWorker: Received response from Kotlin: ${response.type} (${response.processId})`);
+    /**
+     * Handle Tauri photo update events from Kotlin PhotoWorkerService
+     * This is the async event handler like new.worker.ts onmessage
+     */
+    private handleTauriPhotoUpdate(eventData: any): void {
+        if (!eventData || eventData.type !== 'photosUpdate') {
+            console.warn('🢄KotlinPhotoWorker: Invalid or unknown Tauri event data:', eventData);
+            return;
+        }
 
-        switch (response.type) {
-            case 'PROCESS_STARTED':
-                // Process started - no immediate action needed
-                console.log(`🢄KotlinPhotoWorker: Process ${response.processId} started`);
-                break;
+        try {
+            // Parse the photos from the event data
+            const photosInArea = JSON.parse(eventData.photosInArea || '[]');
+            const photosInRange = JSON.parse(eventData.photosInRange || '[]');
+            const currentRange = eventData.currentRange || this.currentRange;
 
-            case 'CONFIG_COMPLETE':
-                // Config processing complete - photos should be in response.data.photos
-                this.handlePhotosUpdate(response, 'config');
+            console.log(`🢄KotlinPhotoWorker: Received async photos update via Tauri event: ${photosInArea.length} in area, ${photosInRange.length} in range`);
 
-                // Automatically trigger area update for streaming sources (like Mapillary)
-                // This matches the behavior of simplePhotoWorker.ts
-                console.log('🔧 KOTLIN FIX: CONFIG_COMPLETE - about to trigger area update for streaming sources');
-                this.triggerAreaUpdateAfterConfig();
-                break;
+            // Apply range filtering to ensure consistency
+            const rangePhotos = this.applyRangeFiltering(photosInArea);
 
-            case 'AREA_COMPLETE':
-                // Area processing complete - photos should be in response.data.photos
-                this.handlePhotosUpdate(response, 'area');
-                break;
+            // Send photos update to frontend (matching Web Worker interface)
+            if (this.onMessageCallback) {
+                this.onMessageCallback({
+                    type: 'photosUpdate',
+                    photosInArea: photosInArea,
+                    photosInRange: rangePhotos,
+                    currentRange: currentRange,
+                    timestamp: eventData.timestamp
+                });
 
-            case 'PROCESS_ABORTED':
-                console.log(`🢄KotlinPhotoWorker: Process ${response.processId} aborted`);
-                break;
-
-            case 'ERROR':
-                const errorData = JSON.parse(response.data);
-                console.error('🢄KotlinPhotoWorker: Kotlin service error:', errorData.error);
-                if (this.onMessageCallback) {
+                // Handle device photo cleanup if applicable
+                const devicePhotos = photosInArea.filter((photo: any) =>
+                    photo.isDevicePhoto || photo.source_type === 'device'
+                );
+                if (devicePhotos.length > 0) {
+                    const devicePhotoIds = devicePhotos.map((photo: any) => photo.id);
                     this.onMessageCallback({
-                        type: 'error',
-                        error: errorData.error,
-                        frontendMessageId
+                        type: 'cleanupPlaceholders',
+                        devicePhotoIds
                     });
                 }
-                break;
 
-            default:
-                console.warn('🢄KotlinPhotoWorker: Unknown response type:', response.type);
+                // Trigger area update after config for streaming sources
+                // This happens after every photos update to maintain sync
+                if (photosInArea.length > 0) {
+                    console.log('🔧 KOTLIN FIX: Photos received - checking if area update needed for streaming sources');
+                    this.triggerAreaUpdateAfterConfig();
+                }
+            }
+        } catch (error) {
+            console.error('🢄KotlinPhotoWorker: Error processing Tauri photo update event:', error);
         }
     }
 
@@ -315,47 +316,19 @@ export class KotlinPhotoWorker {
         }
     }
 
-    private handlePhotosUpdate(response: WorkerResponse, triggerType: 'config' | 'area'): void {
-        const responseData = JSON.parse(response.data);
-        const photos = responseData.photos as any[] || [];
-
-        console.log(`🢄KotlinPhotoWorker: Received ${photos.length} photos from ${triggerType} update`);
-
-        // Convert photos to the format expected by the frontend
-        const formattedPhotos = photos.map(photo => ({
-            ...photo,
-            // Ensure all required fields are present
-            uid: photo.uid || `${photo.source?.id || 'unknown'}-${photo.id}`,
-            isDevicePhoto: photo.isDevicePhoto || photo.source_type === 'device'
-        }));
-
-        // Apply range filtering if we have spatial state
-        const rangePhotos = this.applyRangeFiltering(formattedPhotos);
-
-        // Send photos update to frontend (matching Web Worker interface)
-        if (this.onMessageCallback) {
-            this.onMessageCallback({
-                type: 'photosUpdate',
-                photosInArea: formattedPhotos,
-                photosInRange: rangePhotos,
-                currentRange: this.currentRange,
-                triggerType
-            });
-
-            // Handle device photo cleanup if applicable
-            const devicePhotos = formattedPhotos.filter(photo => photo.isDevicePhoto);
-            if (devicePhotos.length > 0) {
-                const devicePhotoIds = devicePhotos.map(photo => photo.id);
-                this.onMessageCallback({
-                    type: 'cleanupPlaceholders',
-                    devicePhotoIds
-                });
-            }
-        }
-    }
 
     terminate(): void {
         console.log('🢄KotlinPhotoWorker: Terminating Kotlin photo worker');
+
+        // Cleanup event listeners
+        for (const unlisten of this.eventUnlisteners) {
+            try {
+                unlisten();
+            } catch (error) {
+                console.warn('🢄KotlinPhotoWorker: Error cleaning up event listener:', error);
+            }
+        }
+        this.eventUnlisteners = [];
 
         // Abort all active processes
         for (const processId of this.activeProcesses) {
