@@ -69,12 +69,21 @@ data class PhotoData(
     val coord: LatLng,
     val bearing: Double,
     val altitude: Double? = null,
-    val source: SourceConfig,
+    val source: String, // Just source ID
     val isDevicePhoto: Boolean = false,
     val timestamp: Long? = null,
     val accuracy: Double? = null,
     val fileHash: String? = null,
-    val range_distance: Double? = null // Added during range culling
+    val range_distance: Double? = null, // Added during range culling
+    val captured_at: String? = null, // ISO string from Mapillary
+    val is_pano: Boolean? = null,
+    val creator: Creator? = null
+)
+
+@Serializable
+data class Creator(
+    val id: String,
+    val username: String
 )
 
 @Serializable

@@ -17,9 +17,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 // Explicit imports for type definitions
 import cz.hillview.plugin.WorkerMessage
-import cz.hillview.plugin.WorkerResponse
 import cz.hillview.plugin.MessageType
-import cz.hillview.plugin.ResponseType
 import cz.hillview.plugin.ConfigData
 import cz.hillview.plugin.ProcessId
 
@@ -35,7 +33,7 @@ import cz.hillview.plugin.ProcessId
  * - Event-based responses (or polling fallback)
  * - Maintains compatibility with existing frontend architecture
  */
-class PhotoWorkerService(private val context: Context, private val pluginManager: app.tauri.plugin.PluginManager? = null) {
+class PhotoWorkerService(private val context: Context, private val plugin: ExamplePlugin? = null) {
     companion object {
         private const val TAG = "PhotoWorkerService"
         private const val MAX_CONCURRENT_PROCESSES = 5
@@ -215,6 +213,8 @@ class PhotoWorkerService(private val context: Context, private val pluginManager
 
         } catch (error: Exception) {
             Log.e(TAG, "PhotoWorkerService: Error processing message", error)
+            // Send error event to frontend like new.worker.ts does
+            sendErrorEvent("Error processing message: ${error.message}")
         }
     }
 
@@ -257,6 +257,8 @@ class PhotoWorkerService(private val context: Context, private val pluginManager
 
         } catch (error: Exception) {
             Log.e(TAG, "PhotoWorkerService: Config processing error (${message.processId})", error)
+            // Send error event to frontend like new.worker.ts does
+            sendErrorEvent("Config processing error: ${error.message}")
         } finally {
             processTable.remove(message.processId)
             activeProcesses.remove(message.processId)
@@ -316,6 +318,8 @@ class PhotoWorkerService(private val context: Context, private val pluginManager
 
         } catch (error: Exception) {
             Log.e(TAG, "PhotoWorkerService: Area processing error (${message.processId})", error)
+            // Send error event to frontend like new.worker.ts does
+            sendErrorEvent("Area processing error: ${error.message}")
         } finally {
             processTable.remove(message.processId)
             activeProcesses.remove(message.processId)
@@ -366,25 +370,38 @@ class PhotoWorkerService(private val context: Context, private val pluginManager
             // Create photosUpdate message like new.worker.ts sends
             val eventData = app.tauri.plugin.JSObject()
             eventData.put("type", "photosUpdate")
-            eventData.put("photosInArea", json.encodeToString(photos))
-            eventData.put("photosInRange", json.encodeToString(photos)) // For now, same as area photos
-            eventData.put("currentRange", 1000)
+            eventData.put("photosInArea", serializePhotoDataList(photos))
+            eventData.put("photosInRange", serializePhotoDataList(photos)) // For now, same as area photos
             eventData.put("timestamp", System.currentTimeMillis())
 
-            Log.d(TAG, "PhotoWorkerService: Emitting photosUpdate event with ${photos.size} photos")
+            Log.d(TAG, "PhotoWorkerService: Queuing photosUpdate message with ${photos.size} photos")
 
-            // Emit Tauri event like camera permission does
-            pluginManager?.let { pm ->
-                try {
-                    pm.trigger("photo-worker-update", eventData)
-                    Log.d(TAG, "PhotoWorkerService: Successfully emitted photo-worker-update event")
-                } catch (e: Exception) {
-                    Log.e(TAG, "PhotoWorkerService: Failed to emit photo-worker-update event: ${e.message}", e)
-                }
-            } ?: Log.w(TAG, "PhotoWorkerService: No plugin manager available for event emission")
+            // Use message queue instead of direct event triggering
+            plugin?.queueMessage("photo-worker-update", eventData)
 
         } catch (error: Exception) {
-            Log.e(TAG, "PhotoWorkerService: Error creating photos update event", error)
+            Log.e(TAG, "PhotoWorkerService: Error creating photos update message", error)
+        }
+    }
+
+    /**
+     * Send error event to frontend via Tauri events (like new.worker.ts postMessage error)
+     */
+    private fun sendErrorEvent(errorMessage: String) {
+        try {
+            // Create error message like new.worker.ts sends
+            val eventData = app.tauri.plugin.JSObject()
+            eventData.put("type", "error")
+            eventData.put("error", errorMessage)
+            eventData.put("timestamp", System.currentTimeMillis())
+
+            Log.d(TAG, "PhotoWorkerService: Queuing error message: $errorMessage")
+
+            // Use message queue instead of direct event triggering
+            plugin?.queueMessage("photo-worker-error", eventData)
+
+        } catch (error: Exception) {
+            Log.e(TAG, "PhotoWorkerService: Error creating error message", error)
         }
     }
 
@@ -425,6 +442,35 @@ class PhotoWorkerService(private val context: Context, private val pluginManager
      */
     fun setMaxPhotosInArea(maxPhotos: Int) {
         photoOperations.setMaxPhotosInArea(maxPhotos)
+    }
+
+    /**
+     * Manually serialize PhotoData list to JSON to avoid serialization compiler plugin issues
+     */
+    private fun serializePhotoDataList(photos: List<PhotoData>): String {
+        if (photos.isEmpty()) return "[]"
+
+        val jsonArray = photos.joinToString(separator = ",", prefix = "[", postfix = "]") { photo ->
+            """
+            {
+                "id": "${photo.id}",
+                "uid": "${photo.uid}",
+                "source_type": "${photo.source_type}",
+                "file": ${if (photo.file != null) "\"${photo.file}\"" else "null"},
+                "url": ${if (photo.url != null) "\"${photo.url}\"" else "null"},
+                "coord": {
+                    "lat": ${photo.coord.lat},
+                    "lng": ${photo.coord.lng}
+                },
+                "bearing": ${photo.bearing},
+                "altitude": ${photo.altitude ?: "null"},
+                "source": "${photo.source}",
+                "isDevicePhoto": ${photo.isDevicePhoto}
+            }
+            """.trimIndent()
+        }
+
+        return jsonArray
     }
 }
 

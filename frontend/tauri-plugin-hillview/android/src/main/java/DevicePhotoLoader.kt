@@ -81,7 +81,7 @@ class DevicePhotoLoader(private val context: Context) {
             ),
             bearing = photoEntity.bearing,
             altitude = photoEntity.altitude,
-            source = source,
+            source = source.id,
             isDevicePhoto = true,
             timestamp = photoEntity.timestamp,
             accuracy = photoEntity.accuracy,

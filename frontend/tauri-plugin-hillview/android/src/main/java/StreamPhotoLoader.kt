@@ -60,7 +60,7 @@ class StreamPhotoLoader {
 
         while (retryCount <= maxRetries && !shouldAbort()) {
             try {
-                val url = buildStreamUrl(source, bounds, authToken)
+                val url = buildStreamUrl(source, bounds, maxPhotos, authToken)
                 Log.d(TAG, "StreamPhotoLoader: Starting stream from $url (attempt ${retryCount + 1}/${maxRetries + 1})")
 
                 var streamCompleted = false
@@ -158,15 +158,21 @@ class StreamPhotoLoader {
                     val line = reader.readLine() ?: break
                     val currentLine = line
 
+                    // Debug: Log all raw SSE lines
+                    Log.d(TAG, "StreamPhotoLoader: Raw SSE line: '$currentLine'")
+
                     when {
                         currentLine.isEmpty() -> {
                             // Empty line signals end of event
                             if (eventData.isNotEmpty()) {
                                 try {
+                                    Log.d(TAG, "StreamPhotoLoader: Processing event data: '$eventData' with type: '$eventType'")
                                     val message = parseStreamMessage(eventData.toString(), eventType)
+                                    Log.d(TAG, "StreamPhotoLoader: Parsed message type: ${message::class.simpleName}")
                                     emit(message)
                                 } catch (e: Exception) {
                                     Log.e(TAG, "Failed to parse stream message: ${e.message}")
+                                    Log.e(TAG, "Raw data that failed to parse: '$eventData'")
                                     emit(StreamMessage.Error("Parse error: ${e.message}"))
                                 }
 
@@ -200,9 +206,19 @@ class StreamPhotoLoader {
             when (type) {
                 "photos" -> {
                     val photosArray = jsonData["photos"]?.jsonArray ?: JsonArray(emptyList())
-                    val photos = photosArray.map { photoElement ->
-                        json.decodeFromJsonElement<PhotoData>(photoElement)
+                    Log.d(TAG, "StreamPhotoLoader: Found photos array with ${photosArray.size} elements")
+                    val photos = photosArray.mapNotNull { photoElement ->
+                        try {
+                            val photo = parsePhotoJson(photoElement.jsonObject)
+                            Log.d(TAG, "StreamPhotoLoader: Successfully parsed photo ${photo.id}")
+                            photo
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Failed to parse photo: ${e.message}")
+                            Log.w(TAG, "Raw photo data: ${photoElement}")
+                            null
+                        }
                     }
+                    Log.d(TAG, "StreamPhotoLoader: Parsed ${photos.size} photos successfully")
                     StreamMessage.Photos(photos)
                 }
 
@@ -227,15 +243,25 @@ class StreamPhotoLoader {
         }
     }
 
-    private fun buildStreamUrl(source: SourceConfig, bounds: Bounds, authToken: String?): String {
+    private fun buildStreamUrl(source: SourceConfig, bounds: Bounds, maxPhotos: Int, authToken: String?): String {
         val baseUrl = source.url ?: throw IllegalArgumentException("Stream source missing URL")
 
         return buildString {
             append(baseUrl)
             append("?")
 
-            // Add bounds parameters
-            append("bounds=${bounds.top_left.lat},${bounds.top_left.lng},${bounds.bottom_right.lat},${bounds.bottom_right.lng}")
+            // Add bounds parameters using the same format as working TypeScript implementation
+            append("top_left_lat=${bounds.top_left.lat}")
+            append("&top_left_lon=${bounds.top_left.lng}")  // Note: lon not lng
+            append("&bottom_right_lat=${bounds.bottom_right.lat}")
+            append("&bottom_right_lon=${bounds.bottom_right.lng}")  // Note: lon not lng
+
+            // Add client_id parameter (required by server)
+            val clientId = "default"  // Match TypeScript default
+            append("&client_id=$clientId")
+
+            // Add max_photos parameter
+            append("&max_photos=$maxPhotos")
 
             // Add auth token if available
             authToken?.let {
@@ -246,11 +272,89 @@ class StreamPhotoLoader {
         }
     }
 
+    /**
+     * Parse photo JSON to handle external stream endpoint formats:
+     * 1. Mapillary endpoint: geometry.coordinates, thumb_1024_url, compass_angle, etc.
+     * 2. Hillview endpoint: geometry.coordinates, filename + sizes, bearing, etc.
+     */
+    private fun parsePhotoJson(photoJson: JsonObject): PhotoData {
+        val id = photoJson["id"]?.jsonPrimitive?.content
+            ?: throw IllegalArgumentException("Photo missing id")
+
+        // Extract coordinates from geometry.coordinates [lng, lat] (both endpoints use this format)
+        val coords = photoJson["geometry"]?.jsonObject?.get("coordinates")?.jsonArray
+            ?: throw IllegalArgumentException("Photo missing geometry.coordinates")
+
+        val lng = coords[0].jsonPrimitive.double
+        val lat = coords[1].jsonPrimitive.double
+        val coord = LatLng(lat, lng)
+
+        // Extract bearing with endpoint-specific fallbacks
+        // Mapillary: compass_angle, computed_compass_angle, computed_bearing
+        // Hillview: bearing, computed_bearing
+        val bearing = photoJson["bearing"]?.jsonPrimitive?.doubleOrNull
+            ?: photoJson["computed_bearing"]?.jsonPrimitive?.doubleOrNull
+            ?: photoJson["compass_angle"]?.jsonPrimitive?.doubleOrNull
+            ?: photoJson["computed_compass_angle"]?.jsonPrimitive?.doubleOrNull
+            ?: 0.0
+
+        // Extract altitude with fallbacks
+        val altitude = photoJson["computed_altitude"]?.jsonPrimitive?.doubleOrNull
+            ?: photoJson["altitude"]?.jsonPrimitive?.doubleOrNull
+            ?: 0.0
+
+        // Extract URL/file with endpoint-specific formats
+        // Mapillary: thumb_1024_url
+        // Hillview: filename (sizes handled separately)
+        val url = photoJson["thumb_1024_url"]?.jsonPrimitive?.content
+            ?: photoJson["url"]?.jsonPrimitive?.content
+            ?: ""
+
+        val file = photoJson["filename"]?.jsonPrimitive?.content
+            ?: photoJson["file"]?.jsonPrimitive?.content
+            ?: "stream_$id"
+
+        // Extract captured_at as-is (ISO string - no conversion)
+        val capturedAt = photoJson["captured_at"]?.jsonPrimitive?.content
+
+        // Extract is_pano
+        val isPano = photoJson["is_pano"]?.jsonPrimitive?.booleanOrNull
+
+        // Extract creator (both endpoints support this)
+        val creator = photoJson["creator"]?.jsonObject?.let { creatorObj ->
+            val creatorId = creatorObj["id"]?.jsonPrimitive?.content
+            val username = creatorObj["username"]?.jsonPrimitive?.content
+            if (creatorId != null && username != null) {
+                Creator(id = creatorId, username = username)
+            } else null
+        }
+
+        // Extract fileHash from file_md5 (Hillview endpoint)
+        val fileHash = photoJson["file_md5"]?.jsonPrimitive?.content
+
+        return PhotoData(
+            id = id,
+            uid = "stream-$id", // Will be replaced by convertToPhotoData
+            source_type = "stream",
+            file = file,
+            url = url,
+            coord = coord,
+            bearing = bearing,
+            altitude = altitude,
+            source = "stream", // Just source ID
+            isDevicePhoto = false,
+            captured_at = capturedAt,
+            is_pano = isPano,
+            creator = creator,
+            fileHash = fileHash
+        )
+    }
+
     private fun convertToPhotoData(photo: PhotoData, source: SourceConfig): PhotoData {
         return photo.copy(
             uid = "${source.id}-${photo.id}",
             source_type = source.type,
-            source = source
+            source = source.id
         )
     }
 

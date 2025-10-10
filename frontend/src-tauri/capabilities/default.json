@@ -17,6 +17,7 @@
     "os:default",
     "shell:allow-open",
     "hillview:default",
+    "hillview:allow-poll-messages",
     "shell:default",
     "opener:default"
   ]

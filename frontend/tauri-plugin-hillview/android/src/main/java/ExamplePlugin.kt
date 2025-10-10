@@ -28,6 +28,7 @@ import org.json.JSONArray
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.ConcurrentLinkedQueue
 
 @InvokeArg
 class PingArgs {
@@ -212,7 +213,16 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     private val secureUploadManager: SecureUploadManager = SecureUploadManager(activity)
     private val database: PhotoDatabase = PhotoDatabase.getDatabase(activity)
     private val authManager: AuthenticationManager = AuthenticationManager(activity)
-    private val photoWorkerService: PhotoWorkerService = PhotoWorkerService(activity, manager)
+    private val photoWorkerService: PhotoWorkerService = PhotoWorkerService(activity, this)
+
+    // Message queue system for reliable Kotlin-frontend communication
+    private val messageQueue = ConcurrentLinkedQueue<QueuedMessage>()
+
+    data class QueuedMessage(
+        val type: String,
+        val payload: JSObject,
+        val timestamp: Long = System.currentTimeMillis()
+    )
 
     init {
         initializationCount++
@@ -1734,6 +1744,55 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             Log.e(TAG, "📤 Error sharing photo", e)
             val error = JSObject()
             error.put("success", false)
+            error.put("error", e.message)
+            invoke.resolve(error)
+        }
+    }
+
+    // Message Queue System for reliable Kotlin-frontend communication
+    // ================================================================
+
+    /**
+     * Add a message to the queue for frontend polling
+     */
+    fun queueMessage(type: String, payload: JSObject) {
+        val message = QueuedMessage(type, payload)
+        messageQueue.offer(message)
+        Log.d(TAG, "🔔 Queued message: $type")
+    }
+
+    /**
+     * Poll for queued messages (called from frontend every 100ms)
+     * Drains ALL messages to avoid lag
+     */
+    @Command
+    fun pollMessages(invoke: Invoke) {
+        try {
+            val messages = mutableListOf<JSObject>()
+
+            // Drain ALL messages to avoid lag
+            while (true) {
+                val message = messageQueue.poll() ?: break
+                val messageObj = JSObject()
+                messageObj.put("type", message.type)
+                messageObj.put("payload", message.payload)
+                messageObj.put("timestamp", message.timestamp)
+                messages.add(messageObj)
+            }
+
+            val result = JSObject()
+            result.put("messages", JSONArray(messages))
+            result.put("count", messages.size)
+
+            if (messages.isNotEmpty()) {
+                Log.d(TAG, "📨 Polled ${messages.size} messages")
+            }
+
+            invoke.resolve(result)
+
+        } catch (e: Exception) {
+            Log.e(TAG, "📨 Error polling messages: ${e.message}", e)
+            val error = JSObject()
             error.put("error", e.message)
             invoke.resolve(error)
         }

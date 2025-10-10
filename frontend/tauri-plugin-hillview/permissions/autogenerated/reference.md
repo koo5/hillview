@@ -275,6 +275,32 @@ Denies the ping command without any pre-configured scope.
 <tr>
 <td>
 
+`hillview:allow-poll-messages`
+
+</td>
+<td>
+
+Enables the poll_messages command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:deny-poll-messages`
+
+</td>
+<td>
+
+Denies the poll_messages command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `hillview:allow-refresh-auth-token`
 
 </td>
