@@ -49,6 +49,9 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
     private val activeProcesses = ConcurrentHashMap<ProcessId, Job>()
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
+    // Persistent state like new.worker.ts currentState.sourcesPhotosInArea.data
+    private val sourcesPhotosInArea = ConcurrentHashMap<String, List<PhotoData>>()
+
     /**
      * Process info for tracking active operations
      */
@@ -241,19 +244,21 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
         processTable[message.processId] = processInfo
 
         try {
-            // Process synchronously and send photos update
-            val photos = photoOperations.processConfig(
-                processId = message.processId,
-                messageId = message.messageId,
-                config = config,
-                shouldAbort = { processInfo.abortFlag.get() },
-                authTokenProvider = authTokenProvider
-            )
+            // Implement selective clearing like new.worker.ts updatePhotosInArea callback
+            val enabledSourceIds = config.sources.filter { it.enabled }.map { it.id }.toSet()
 
-            if (!processInfo.abortFlag.get()) {
-                // Send photos update to frontend like new.worker.ts does
-                sendPhotosUpdate(photos, emptyMap())
+            // Remove photos from disabled sources (like new.worker.ts lines 253-258)
+            val sourcesToRemove = this.sourcesPhotosInArea.keys.filter { !enabledSourceIds.contains(it) }
+            sourcesToRemove.forEach { sourceId ->
+                Log.d(TAG, "PhotoWorkerService: Clearing photos from disabled source: $sourceId")
+                this.sourcesPhotosInArea.remove(sourceId)
             }
+
+            // Send current photos (enabled sources remain visible, disabled sources cleared)
+            val allPhotos = this.sourcesPhotosInArea.values.flatten()
+            sendPhotosUpdate(allPhotos, this.sourcesPhotosInArea.toMap())
+
+            Log.d(TAG, "PhotoWorkerService: Config processing complete - kept ${allPhotos.size} photos from enabled sources")
 
         } catch (error: Exception) {
             Log.e(TAG, "PhotoWorkerService: Config processing error (${message.processId})", error)
@@ -298,22 +303,25 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
             )
 
             if (!processInfo.abortFlag.get()) {
+                // Update persistent state with new photos from area processing
+                this.sourcesPhotosInArea.putAll(sourcesPhotosInArea)
+
                 // Apply culling if photos exceed maxPhotos
-                val totalPhotos = sourcesPhotosInArea.values.sumOf { it.size }
+                val totalPhotos = this.sourcesPhotosInArea.values.sumOf { it.size }
                 val finalPhotos = if (totalPhotos > areaData.maxPhotos) {
                     Log.d(TAG, "PhotoWorkerService: Applying culling - $totalPhotos photos > ${areaData.maxPhotos} limit")
 
                     val gridCuller = CullingGrid(areaData.bounds)
-                    val culledPhotos = gridCuller.cullPhotos(sourcesPhotosInArea, areaData.maxPhotos)
+                    val culledPhotos = gridCuller.cullPhotos(this.sourcesPhotosInArea.toMap(), areaData.maxPhotos)
 
                     Log.d(TAG, "PhotoWorkerService: Grid culling complete - ${culledPhotos.size} photos selected")
                     culledPhotos
                 } else {
-                    sourcesPhotosInArea.values.flatten()
+                    this.sourcesPhotosInArea.values.flatten()
                 }
 
                 // Send photos update to frontend like new.worker.ts does
-                sendPhotosUpdate(finalPhotos, sourcesPhotosInArea)
+                sendPhotosUpdate(finalPhotos, this.sourcesPhotosInArea.toMap())
             }
 
         } catch (error: Exception) {

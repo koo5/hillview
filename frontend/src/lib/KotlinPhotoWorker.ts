@@ -9,6 +9,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { get } from 'svelte/store';
 import { spatialState } from './mapState';
+import { sources } from './data.svelte';
 import { kotlinMessageQueue, type QueuedMessage } from './KotlinMessageQueue';
 
 // Kotlin Photo Worker message types
@@ -36,7 +37,6 @@ export class KotlinPhotoWorker {
     private activeProcesses = new Set<string>();
     private currentRange = 1000; // Default range in meters
     private currentCenter: { lat: number; lng: number } | null = null;
-    private lastConfigSources: any[] = [];
 
     constructor() {
         console.log('🢄KotlinPhotoWorker: Initialized Kotlin photo worker adapter');
@@ -88,7 +88,7 @@ export class KotlinPhotoWorker {
         let messageType: MessageType;
         let workerMessage: WorkerMessage;
 
-        console.log(`🢄KotlinPhotoWorker: Processing message type: ${message.type}, data:`, JSON.stringify(message.data));
+        console.log(`🢄KotlinPhotoWorker: postMessage: type: ${message.type}, data:`, JSON.stringify(message.data));
 
         switch (message.type) {
             case 'configUpdated':
@@ -102,15 +102,12 @@ export class KotlinPhotoWorker {
                         sources: message.data?.config?.sources || []
                     })
                 };
-
-                // Store config for follow-up area update
-                this.lastConfigSources = message.data?.config?.sources || [];
                 break;
 
             case 'areaUpdated':
                 messageType = 'PROCESS_AREA';
-                // Extract sources from current config if available
-                const sources = this.extractSourcesFromLastConfig(message.data);
+                // Get current sources from store (frontend context)
+                const currentSources = get(sources);
 
                 // Update current range and center for range filtering
                 if (message.data?.range) {
@@ -131,7 +128,7 @@ export class KotlinPhotoWorker {
                     processId,
                     priority: 2, // Lower priority for area updates
                     data: JSON.stringify({
-                        sources: sources,
+                        sources: currentSources,
                         bounds: message.data?.area,
                         maxPhotos: 400 // Default max photos
                     })
@@ -160,40 +157,20 @@ export class KotlinPhotoWorker {
             });
     }
 
-    private lastConfigData: any = null;
-
-    private extractSourcesFromLastConfig(data: any): any[] {
-        // Try to extract sources from the message data or use last known sources
-        if (data?.config?.sources) {
-            this.lastConfigData = data.config;
-            return data.config.sources;
-        }
-        // If no config in this message, use last stored sources (most common case for area updates)
-        if (this.lastConfigSources && this.lastConfigSources.length > 0) {
-            console.log(`🢄KotlinPhotoWorker: Using stored config sources (${this.lastConfigSources.length} sources)`);
-            return this.lastConfigSources;
-        }
-        // Fallback to lastConfigData if available
-        if (this.lastConfigData?.sources) {
-            return this.lastConfigData.sources;
-        }
-        console.warn('🢄KotlinPhotoWorker: No sources available for area update - returning empty array');
-        return [];
-    }
 
     private async processMessage(workerMessage: WorkerMessage, frontendMessageId: string): Promise<void> {
         try {
             // Validate message structure
             this.validateWorkerMessage(workerMessage);
 
-            console.log(`🢄KotlinPhotoWorker: Sending message to Kotlin service: ${workerMessage.type} (${workerMessage.processId})`);
-            console.log(`🢄KotlinPhotoWorker: Message data before validation:`, JSON.parse(workerMessage.data));
+            //console.log(`🢄KotlinPhotoWorker: Sending message to Kotlin service: ${workerMessage.type} (${workerMessage.processId})`);
+            //console.log(`🢄KotlinPhotoWorker: Message data before validation:`, JSON.parse(workerMessage.data));
 
             const messageJson = JSON.stringify(workerMessage);
-            console.log(`🢄KotlinPhotoWorker: Serialized message JSON (${messageJson.length} chars):`, messageJson);
+            //console.log(`🢄KotlinPhotoWorker: Serialized message JSON (${messageJson.length} chars):`, messageJson);
 
             const invokeArgs = { messageJson: messageJson };
-            console.log(`🢄KotlinPhotoWorker: Invoke args:`, invokeArgs);
+            //console.log(`🢄KotlinPhotoWorker: Invoke args:`, invokeArgs);
 
             // Try direct parameter assignment like other commands
             const response = await invoke<ProcessResponse>('plugin:hillview|photo_worker_process', {
