@@ -51,6 +51,7 @@ import { CullingGrid, type SourceId } from './CullingGrid';
 import {AngularRangeCuller, sortPhotosByBearing} from './AngularRangeCuller';
 import { TAURI } from './tauri';
 import { invoke } from '@tauri-apps/api/core';
+import { MAX_PHOTOS_IN_AREA, MAX_PHOTOS_IN_RANGE, DEFAULT_RANGE_METERS } from './photoWorkerConstants';
 
 declare const __WORKER_VERSION__: string;
 export const WORKER_VERSION = __WORKER_VERSION__;
@@ -91,12 +92,8 @@ const angularRangeCuller = new AngularRangeCuller();
 let sourcesPhotosInAreaVersion = 0;
 let lastProcessedSourcesPhotosInAreaVersion = -1;
 
-// Configuration
-const MAX_PHOTOS_IN_AREA = 400;
-const MAX_PHOTOS_IN_RANGE = 200;
-
 // Current range and center for range filtering
-let currentRange = 1000; // Default range in meters, updated from area updates
+let currentRange = DEFAULT_RANGE_METERS; // Default range in meters, updated from area updates
 
 function calculateCenterFromBounds(bounds: Bounds): { lat: number; lng: number } {
     return {

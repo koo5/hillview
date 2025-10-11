@@ -37,6 +37,11 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
     companion object {
         private const val TAG = "PhotoWorkerService"
         private const val MAX_CONCURRENT_PROCESSES = 5
+
+        // Photo processing constants - should match photoWorkerConstants.ts
+        private const val MAX_PHOTOS_IN_AREA = 400
+        private const val MAX_PHOTOS_IN_RANGE = 200
+        private const val DEFAULT_RANGE_METERS = 1000.0
     }
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -48,9 +53,15 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
     private val processTable = ConcurrentHashMap<ProcessId, ProcessInfo>()
     private val activeProcesses = ConcurrentHashMap<ProcessId, Job>()
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private var messageIdCounter = 0
 
     // Persistent state like new.worker.ts currentState.sourcesPhotosInArea.data
     private val sourcesPhotosInArea = ConcurrentHashMap<String, List<PhotoData>>()
+
+    // Store current sources, bounds and range state like new.worker.ts
+    private var currentSources: List<SourceConfig> = emptyList()
+    private var lastProcessedBounds: Bounds? = null
+    private var lastProcessedRange: Double = DEFAULT_RANGE_METERS
 
     /**
      * Process info for tracking active operations
@@ -174,10 +185,14 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
         val maxPhotos = jsonObject["maxPhotos"]?.jsonPrimitive?.intOrNull
             ?: throw Exception("Missing or invalid 'maxPhotos' field in AreaData")
 
+        val range = jsonObject["range"]?.jsonPrimitive?.content?.toDoubleOrNull()
+            ?: DEFAULT_RANGE_METERS // Default range if not provided
+
         return AreaData(
             sources = sources,
             bounds = bounds,
-            maxPhotos = maxPhotos
+            maxPhotos = maxPhotos,
+            range = range
         )
     }
 
@@ -244,6 +259,9 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
         processTable[message.processId] = processInfo
 
         try {
+            // Store current sources state like new.worker.ts
+            currentSources = config.sources
+
             // Implement selective clearing like new.worker.ts updatePhotosInArea callback
             val enabledSourceIds = config.sources.filter { it.enabled }.map { it.id }.toSet()
 
@@ -259,6 +277,31 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
             sendPhotosUpdate(allPhotos, this.sourcesPhotosInArea.toMap())
 
             Log.d(TAG, "PhotoWorkerService: Config processing complete - kept ${allPhotos.size} photos from enabled sources")
+
+            // Trigger area update after config to ensure streaming sources load with current bounds
+            // This matches the behavior of simplePhotoWorker.ts lines 263-271
+            if (lastProcessedBounds != null) {
+                Log.d(TAG, "PhotoWorkerService: Queuing area update after config to load streaming sources...")
+
+                // Create area message like web worker does (goes through message queue and priority system)
+                val areaMessage = WorkerMessage(
+                    type = MessageType.PROCESS_AREA,
+                    messageId = ++messageIdCounter,
+                    processId = "auto_area_after_config_${System.currentTimeMillis()}",
+                    priority = 2, // Same priority as normal area updates
+                    data = Json.encodeToString(AreaData(
+                        sources = currentSources,
+                        bounds = lastProcessedBounds!!,
+                        maxPhotos = MAX_PHOTOS_IN_AREA,
+                        range = lastProcessedRange
+                    ))
+                )
+
+                // Process through normal message handling (respects priority and queue)
+                serviceScope.launch {
+                    processAreaMessage(areaMessage, authTokenProvider)
+                }
+            }
 
         } catch (error: Exception) {
             Log.e(TAG, "PhotoWorkerService: Config processing error (${message.processId})", error)
@@ -293,6 +336,10 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
         processTable[message.processId] = processInfo
 
         try {
+            // Store current bounds and range for post-config area updates (like new.worker.ts)
+            lastProcessedBounds = areaData.bounds
+            lastProcessedRange = areaData.range
+
             // Process area photos synchronously and send photos update
             val sourcesPhotosInArea = photoOperations.processArea(
                 processId = message.processId,
@@ -321,7 +368,7 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
                 }
 
                 // Send photos update to frontend like new.worker.ts does
-                sendPhotosUpdate(finalPhotos, this.sourcesPhotosInArea.toMap())
+                sendPhotosUpdate(finalPhotos, this.sourcesPhotosInArea.toMap(), areaData.bounds, areaData.range)
             }
 
         } catch (error: Exception) {
@@ -373,16 +420,33 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
     /**
      * Send photos update to frontend via Tauri events (like new.worker.ts postMessage)
      */
-    private suspend fun sendPhotosUpdate(photos: List<PhotoData>, sourcesPhotosInArea: Map<String, List<PhotoData>>) {
+    private suspend fun sendPhotosUpdate(
+        photos: List<PhotoData>,
+        sourcesPhotosInArea: Map<String, List<PhotoData>>,
+        bounds: Bounds? = null,
+        range: Double? = null
+    ) {
         try {
+            // Apply angular range culling if bounds and range are available
+            val photosInRange = if (bounds != null && range != null) {
+                val center = LatLng(
+                    lat = (bounds.top_left.lat + bounds.bottom_right.lat) / 2,
+                    lng = (bounds.top_left.lng + bounds.bottom_right.lng) / 2
+                )
+                angularRangeCuller.cullPhotosInRange(photos, center, range, MAX_PHOTOS_IN_RANGE)
+            } else {
+                // For config updates without range info, use the photos as-is
+                photos
+            }
+
             // Create photosUpdate message like new.worker.ts sends
             val eventData = app.tauri.plugin.JSObject()
             eventData.put("type", "photosUpdate")
             eventData.put("photosInArea", serializePhotoDataList(photos))
-            eventData.put("photosInRange", serializePhotoDataList(photos)) // For now, same as area photos
+            eventData.put("photosInRange", serializePhotoDataList(photosInRange))
             eventData.put("timestamp", System.currentTimeMillis())
 
-            Log.d(TAG, "PhotoWorkerService: Queuing photosUpdate message with ${photos.size} photos")
+            Log.d(TAG, "PhotoWorkerService: Queuing photosUpdate message with ${photos.size} area photos and ${photosInRange.size} range photos")
 
             // Use message queue instead of direct event triggering
             plugin?.queueMessage("photo-worker-update", eventData)
@@ -489,5 +553,6 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
 private data class AreaData(
     val sources: List<SourceConfig>,
     val bounds: Bounds,
-    val maxPhotos: Int
+    val maxPhotos: Int,
+    val range: Double
 )

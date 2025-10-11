@@ -6,6 +6,7 @@ import type { PhotoData, SourceConfig, Bounds } from './photoWorkerTypes';
 import { PhotoSourceFactory, type PhotoSourceOptions } from './sources/PhotoSourceFactory';
 import type { PhotoSourceLoader, PhotoSourceCallbacks } from './sources/PhotoSourceLoader';
 import { filterPhotosByArea } from './workerUtils';
+import { MAX_PHOTOS_IN_AREA } from './photoWorkerConstants';
 
 // Import worker version for validation
 declare const __WORKER_VERSION__: string;
@@ -31,7 +32,7 @@ interface SourceCache {
 export class PhotoOperations {
     private loadingProcesses = new Map<string, PhotoSourceLoader>();
     private sourceCache = new Map<string, SourceCache>(); // Cache for each source
-    private maxPhotosInArea: number = 400; // Default value
+    private maxPhotosInArea: number = MAX_PHOTOS_IN_AREA;
 
     constructor() {}
 
