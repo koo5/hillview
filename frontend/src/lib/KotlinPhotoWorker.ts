@@ -34,7 +34,6 @@ export class KotlinPhotoWorker {
     private processIdCounter = 0;
     private isInitialized = false;
     private onMessageCallback: ((message: any) => void) | null = null;
-    private activeProcesses = new Set<string>();
     private currentRange = 1000; // Default range in meters
     private currentCenter: { lat: number; lng: number } | null = null;
 
@@ -146,14 +145,11 @@ export class KotlinPhotoWorker {
                 return;
         }
 
-        // Track active process
-        this.activeProcesses.add(processId);
 
         // Send to Kotlin service
         this.processMessage(workerMessage, message.frontendMessageId)
             .catch(error => {
                 console.error('🢄KotlinPhotoWorker: Error processing message:', error);
-                this.activeProcesses.delete(processId);
             });
     }
 
@@ -185,12 +181,8 @@ export class KotlinPhotoWorker {
             // Like new.worker.ts: just acknowledgment, actual results come via events
             //console.log('🢄KotlinPhotoWorker: Kotlin service acknowledged message, waiting for async events...');
 
-            // Remove from active processes when complete
-            this.activeProcesses.delete(workerMessage.processId);
-
         } catch (error) {
             console.error('🢄KotlinPhotoWorker: Error in processMessage:', error);
-            this.activeProcesses.delete(workerMessage.processId);
 
             // Send error to frontend
             if (this.onMessageCallback) {
@@ -352,12 +344,6 @@ export class KotlinPhotoWorker {
             this.handleErrorUpdate(message.payload);
         });
 
-        // Abort all active processes
-        for (const processId of this.activeProcesses) {
-            this.abortProcess(processId);
-        }
-
-        this.activeProcesses.clear();
         this.isInitialized = false;
         this.onMessageCallback = null;
     }
@@ -388,10 +374,6 @@ export class KotlinPhotoWorker {
         return this.isInitialized;
     }
 
-    // Get active process count for debugging
-    getActiveProcessCount(): number {
-        return this.activeProcesses.size;
-    }
 
     /**
      * Apply range filtering using simple distance calculation
