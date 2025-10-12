@@ -221,6 +221,7 @@ class MapillaryCacheService:
 			distribution_score = self.calculate_spatial_distribution(photos) if photos else 0.0
 			coverage_status = "COMPLETE (with sampling)" if is_complete_coverage else "INCOMPLETE"
 			log.info(f"Cache result: {len(photos)} photos from {coverage_status} coverage, distribution={distribution_score:.2%}")
+			# TODO: even with incomplete coverage, we should immediately send tne cached photos (just culling each cell to photos_per_cell)
 			return {
 				'photos': photos,
 				'is_complete_coverage': is_complete_coverage,
@@ -244,13 +245,38 @@ class MapillaryCacheService:
 		complete_regions = [r for r in cached_regions if r.is_complete]
 
 		if not complete_regions:
+			log.info(f"Completeness check: No complete cached regions found")
 			return False
 
-		# For simplicity, if we have any complete regions covering our bbox,
-		# and we retrieved photos, assume complete coverage
-		# (More sophisticated geometry checking could be added later)
-		log.info(f"Completeness check: found {len(complete_regions)} complete regions covering bbox")
-		return len(complete_regions) > 0
+		# Create the requested bbox as WKT polygon
+		request_bbox_wkt = f"POLYGON(({top_left_lon} {top_left_lat}, {bottom_right_lon} {top_left_lat}, {bottom_right_lon} {bottom_right_lat}, {top_left_lon} {bottom_right_lat}, {top_left_lon} {top_left_lat}))"
+
+		# Use PostGIS to check if the union of all complete regions covers the entire request bbox
+		from sqlalchemy import text
+		coverage_query = text("""
+			WITH complete_regions AS (
+				SELECT bbox FROM cached_regions
+				WHERE id = ANY(:region_ids) AND is_complete = true
+			),
+			regions_union AS (
+				SELECT ST_Union(bbox) as coverage_area FROM complete_regions
+			)
+			SELECT ST_Contains(coverage_area, ST_GeomFromText(:request_bbox, 4326)) as is_fully_covered
+			FROM regions_union
+		""")
+
+		region_ids = [r.id for r in complete_regions]
+		result = await self.db.execute(coverage_query, {
+			'region_ids': region_ids,
+			'request_bbox': request_bbox_wkt
+		})
+
+		coverage_result = result.scalar()
+		is_fully_covered = coverage_result is True
+
+		log.info(f"Completeness check: Found {len(complete_regions)} complete regions, full coverage: {is_fully_covered}")
+
+		return is_fully_covered
 
 	def calculate_spatial_distribution(self, photos: List[Dict[str, Any]], grid_size: int = 10) -> float:
 		"""Calculate spatial distribution score (0.0 = all clustered, 1.0 = perfectly distributed)"""

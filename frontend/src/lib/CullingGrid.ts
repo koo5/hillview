@@ -1,11 +1,11 @@
 /**
  * Culling Grid - Smart Photo Selection for Screen Coverage
- * 
+ *
  * Ensures uniform visual distribution across the screen by:
  * 1. Creating a 10x10 virtual grid over the current viewport bounds
  * 2. Round-robin selection: For each source → For each screen cell → Take 1 photo
  * 3. Continue until the limit is reached
- * 
+ *
  * This prevents visual clustering and ensures good screen coverage across all
  * visible areas, giving users a well-distributed overview of the entire viewport.
  */
@@ -59,6 +59,7 @@ export class CullingGrid {
         const cellGrid = new Map<CellKey, CellPhotos>();
 
         // Process each grid cell lazily
+		// FIXME: this only allows up to photosPerCell photos per cell, what we want to do is keep filling cells until we reach maxPhotos total
         for (let row = 0; row < this.GRID_SIZE; row++) {
             for (let col = 0; col < this.GRID_SIZE; col++) {
                 const cellKey: CellKey = `${row},${col}`;
@@ -177,11 +178,11 @@ export class CullingGrid {
         // Calculate position within viewport bounds (0-1)
         const latPos = (this.bounds.top_left.lat - photo.coord.lat) / this.latRange;
         const lngPos = (photo.coord.lng - this.bounds.top_left.lng) / this.lngRange;
-        
+
         // Convert to 0-9 screen grid cells (clamp to ensure valid range)
         const gridLat = Math.min(this.GRID_SIZE - 1, Math.max(0, Math.floor(latPos * this.GRID_SIZE)));
         const gridLng = Math.min(this.GRID_SIZE - 1, Math.max(0, Math.floor(lngPos * this.GRID_SIZE)));
-        
+
         return `${gridLat},${gridLng}`;
     }
 
@@ -206,15 +207,15 @@ export class CullingGrid {
         totalCells: number;
     } {
         const totalPhotos = Array.from(photosPerSource.values()).reduce((sum, photos) => sum + photos.length, 0);
-        
+
         // Count photos per source in result
         const selectedPerSource = new Map<string, number>();
         const selectedPerCell = new Map<string, number>();
-        
+
         for (const photo of culledPhotos) {
             const sourceId = photo.source?.id || 'unknown';
             selectedPerSource.set(sourceId, (selectedPerSource.get(sourceId) || 0) + 1);
-            
+
             const gridKey = this.getScreenGridKey(photo);
             selectedPerCell.set(gridKey, (selectedPerCell.get(gridKey) || 0) + 1);
         }
