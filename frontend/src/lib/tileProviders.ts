@@ -40,20 +40,27 @@ const CUSTOM_PROVIDERS: Record<string, TileProviderConfig> = {
         maxZoom: 19, // Allow zooming to higher levels
         maxNativeZoom: 12, // TracesTrack tiles likely go up to zoom 12 (conservative)
     },
+	'tiles.ueueeu.eu': {
+		url: 'https://tiles.ueueeu.eu/tile/{z}/{x}/{y}.png',
+		attribution: '',
+		maxZoom: 23,
+		maxNativeZoom: 20,
+	}
 };
 
 // Available tile providers with descriptions
 export const AVAILABLE_PROVIDERS = {
-    // Standard leaflet-providers
+    // Standard 'leaflet-providers' providers
     'OpenStreetMap.Mapnik': 'OpenStreetMap (Default)',
     'OpenStreetMap.DE': 'OpenStreetMap (German)',
     'CartoDB.DarkMatter': 'CartoDB Dark',
     'OpenTopoMap': 'OpenTopoMap',
     'CyclOSM': 'CyclOSM (Cycling)',
 
-    // Custom providers
+    // my Custom providers
     'TracesTrack.Topo': 'TracesTrack Topographic',
     /*'TracesTrack.TopoContrast': 'TracesTrack Topo (High Contrast)',*/
+	'tiles.ueueeu.eu': 'tiles.ueueeu.eu',
 } as const;
 
 export type ProviderName = keyof typeof AVAILABLE_PROVIDERS;

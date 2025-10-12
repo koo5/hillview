@@ -247,10 +247,31 @@ class SimplePhotoWorker {
             });
         });
 
-        // React to source changes - triggers config updates
+        // React to source config changes (filter out loading status changes)
+        let lastConfigHash = '';
         sources.subscribe(async (sourceList) => {
             if (!this.isInitialized) return;
 
+            // Create hash of config-relevant fields only (ignore loading states)
+            const configHash = JSON.stringify(sourceList.map(source => ({
+                id: source.id,
+                name: source.name,
+                type: source.type,
+                enabled: source.enabled,
+                url: source.url,
+                path: source.path,
+                subtype: source.subtype,
+                clientId: source.clientId,
+                backendUrl: source.backendUrl
+            })));
+
+            // Only trigger config update if actual config changed (not loading states)
+            if (configHash === lastConfigHash) {
+                console.log('🢄SimplePhotoWorker: Ignoring source change - only loading states changed');
+                return;
+            }
+
+            lastConfigHash = configHash;
             console.log('🢄SimplePhotoWorker: Sending config update with sources...');
 
             this.sendMessage('configUpdated', {

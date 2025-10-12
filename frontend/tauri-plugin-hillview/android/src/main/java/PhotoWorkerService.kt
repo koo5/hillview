@@ -10,6 +10,11 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.double
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.putJsonArray
+import kotlinx.serialization.json.putJsonObject
+import kotlinx.serialization.json.addJsonObject
+import kotlinx.serialization.json.put
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.decodeFromString
 import java.util.concurrent.ConcurrentHashMap
@@ -284,17 +289,38 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
                 Log.d(TAG, "PhotoWorkerService: Queuing area update after config to load streaming sources...")
 
                 // Create area message like web worker does (goes through message queue and priority system)
+                // Build JSON manually to match existing pattern (parseAreaData expects this format)
+                val areaDataJson = buildJsonObject {
+                    putJsonArray("sources") {
+                        currentSources.forEach { source ->
+                            addJsonObject {
+                                put("id", source.id)
+                                put("type", source.type)
+                                put("enabled", source.enabled)
+                                put("url", source.url ?: "")
+                            }
+                        }
+                    }
+                    putJsonObject("bounds") {
+                        putJsonObject("top_left") {
+                            put("lat", lastProcessedBounds!!.top_left.lat)
+                            put("lng", lastProcessedBounds!!.top_left.lng)
+                        }
+                        putJsonObject("bottom_right") {
+                            put("lat", lastProcessedBounds!!.bottom_right.lat)
+                            put("lng", lastProcessedBounds!!.bottom_right.lng)
+                        }
+                    }
+                    put("maxPhotos", MAX_PHOTOS_IN_AREA)
+                    put("range", lastProcessedRange)
+                }.toString()
+
                 val areaMessage = WorkerMessage(
                     type = MessageType.PROCESS_AREA,
                     messageId = ++messageIdCounter,
                     processId = "auto_area_after_config_${System.currentTimeMillis()}",
                     priority = 2, // Same priority as normal area updates
-                    data = Json.encodeToString(AreaData(
-                        sources = currentSources,
-                        bounds = lastProcessedBounds!!,
-                        maxPhotos = MAX_PHOTOS_IN_AREA,
-                        range = lastProcessedRange
-                    ))
+                    data = areaDataJson
                 )
 
                 // Process through normal message handling (respects priority and queue)

@@ -116,7 +116,9 @@ class MapillaryAPIManager:
 				# Wait for rate limit
 				await self.rate_limiter.wait_for_tokens(1)
 
-				log.info(f"Making Mapillary API call (attempt {attempt + 1}/{max_retries + 1}): {url} with params {(params | {'access_token': 'xxx'})}")
+				url_with_params = f"{url}?{'&'.join(f'{k}={v}' for k,v in params.items())}"
+				#log.info(f"Making Mapillary API call (attempt {attempt + 1}/{max_retries + 1}): {url} with params {(params | {'access_token': 'xxx'})}")
+				log.info(f"Making Mapillary API call (attempt {attempt + 1}/{max_retries + 1}): {url_with_params}")
 
 				#raise Exception('tests should not cause real mapillary api calls')
 				response = await self.client.get(url, params=params)
