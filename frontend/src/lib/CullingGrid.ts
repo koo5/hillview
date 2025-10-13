@@ -60,6 +60,46 @@ export class CullingGrid {
 
         // Process each grid cell lazily
 		// FIXME: this only allows up to photosPerCell photos per cell, what we want to do is keep filling cells until we reach maxPhotos total
+		/*
+
+		it should work like this with coroutines:
+
+		state = {}
+		photos = []
+		while len(photos) < maxPhotos:
+
+			deadCells = []
+			# just an id for each cell, 0 to totalCells-1
+			viableCells = [cellId for cellId in range(totalCells)]
+
+			while viableCells not empty and len(photos) < maxPhotos:
+				for cellId in viableCells:
+					state['cellId'] = cellId
+					yield from nextPhotoInCell(state)
+					if photo:
+						photos.append(photo)
+					else:
+						deadCells.append(cellId)
+				viableCells = viableCells - deadCells
+
+		# somehow the coroutine would keep a stash of photos that it has gone over but not used yet, categorized by cell. Once it'd run over a photo in the currently requested cell, it'd yield that, otherwise it would put it into the appropriate cell of the stash for later.
+
+		// def nextPhotoInCell(state):
+		// 	gridsBySource = {}
+		// 	for source in sourcesByPriority:
+		// 		gridsBySource[source] = {}
+		// 		for photo in photosPerSource[source]:
+		// 			cellKey = getScreenGridKey(photo)
+		//
+		// 			if cellKey == cellId:
+		// 				yield photo
+		// 			else:
+		// 				# store it for later
+		// 				if cellKey not in gridsBySource[source]:
+		// 					gridsBySource[source][cellKey] = []
+		// 				gridsBySource[source][cellKey].append(photo)
+
+		 */
         for (let row = 0; row < this.GRID_SIZE; row++) {
             for (let col = 0; col < this.GRID_SIZE; col++) {
                 const cellKey: CellKey = `${row},${col}`;
