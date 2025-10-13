@@ -47,14 +47,16 @@ interface SimplePhotoDao {
 
     @Query("""
         SELECT * FROM photos
-        WHERE uploadStatus IN ('pending', 'failed')
+        WHERE uploadStatus IN ('pending', 'uploading', 'failed')
         ORDER BY
             CASE uploadStatus
                 WHEN 'pending' THEN 1
-                WHEN 'failed' THEN 2
+                WHEN 'uploading' THEN 2
+                WHEN 'failed' THEN 3
             END,
             CASE uploadStatus
                 WHEN 'pending' THEN createdAt
+                WHEN 'uploading' THEN createdAt
                 WHEN 'failed' THEN lastUploadAttempt
             END ASC
         LIMIT 1
