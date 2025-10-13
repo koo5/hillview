@@ -9,7 +9,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { get } from 'svelte/store';
 import { spatialState } from './mapState';
-import { sources } from './data.svelte';
+import { sources, sourceLoadingStatus } from './data.svelte';
 import { kotlinMessageQueue, type QueuedMessage } from './KotlinMessageQueue';
 import { MAX_PHOTOS_IN_AREA, MAX_PHOTOS_IN_RANGE, DEFAULT_RANGE_METERS } from './photoWorkerConstants';
 
@@ -197,6 +197,10 @@ export class KotlinPhotoWorker {
         kotlinMessageQueue.on('photo-worker-error', (message) => {
             this.handleErrorUpdate(message.payload);
         });
+
+        kotlinMessageQueue.on('photo-worker-loading-status', (message) => {
+            this.handleLoadingStatusUpdate(message.payload);
+        });
     }
 
     /**
@@ -291,7 +295,34 @@ export class KotlinPhotoWorker {
         }
     }
 
+    /**
+     * Handle loading status update messages from Kotlin PhotoWorkerService
+     * Updates the sourceLoadingStatus store like the web worker does
+     */
+    private handleLoadingStatusUpdate(payload: any): void {
+        if (!payload) {
+            console.warn('🢄KotlinPhotoWorker: Invalid loading status payload:', payload);
+            return;
+        }
 
+        try {
+            const { sourceId, isLoading, progress, error } = payload;
+
+            console.log(`🢄KotlinPhotoWorker: Loading status update for ${sourceId}: loading=${isLoading}, progress=${progress}`);
+
+            // Update sourceLoadingStatus store like simplePhotoWorker does
+            sourceLoadingStatus.update(status => ({
+                ...status,
+                [sourceId]: {
+                    isLoading,
+                    progress,
+                    error
+                }
+            }));
+        } catch (error) {
+            console.error('🢄KotlinPhotoWorker: Error processing loading status update:', error);
+        }
+    }
 
     terminate(): void {
         console.log('🢄KotlinPhotoWorker: Terminating Kotlin photo worker');
@@ -302,6 +333,9 @@ export class KotlinPhotoWorker {
         });
         kotlinMessageQueue.off('photo-worker-error', (message) => {
             this.handleErrorUpdate(message.payload);
+        });
+        kotlinMessageQueue.off('photo-worker-loading-status', (message) => {
+            this.handleLoadingStatusUpdate(message.payload);
         });
 
         this.isInitialized = false;

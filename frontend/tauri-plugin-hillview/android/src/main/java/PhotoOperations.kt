@@ -18,7 +18,7 @@ class PhotoOperations(private val context: Context) {
     private val deviceLoader = DevicePhotoLoader(context)
     private val streamLoader = StreamPhotoLoader()
     private val sourceCache = mutableMapOf<String, SourceCache>()
-    private var maxPhotosInArea: Int = 400
+    private var maxPhotosInArea: Int = 200
 
     /**
      * Source cache for each source - matches TypeScript interface
@@ -117,7 +117,8 @@ class PhotoOperations(private val context: Context) {
         sources: List<SourceConfig>,
         bounds: Bounds,
         shouldAbort: () -> Boolean,
-        authTokenProvider: suspend () -> String?
+        authTokenProvider: suspend () -> String?,
+        onSourceLoadingStatus: ((sourceId: String, isLoading: Boolean, progress: String?, error: String?) -> Unit)? = null
     ): Map<String, List<PhotoData>> {
         Log.d(TAG, "PhotoOperations: Processing area update ($processId) with ${sources.size} sources")
 
@@ -127,6 +128,9 @@ class PhotoOperations(private val context: Context) {
             if (shouldAbort()) break
 
             try {
+                // Send loading status for this individual source
+                onSourceLoadingStatus?.invoke(source.id, true, "Loading photos...", null)
+
                 Log.d(TAG, "PhotoOperations: Processing area for source ${source.id}")
 
                 // Check if we have cached data that covers this area
@@ -158,10 +162,17 @@ class PhotoOperations(private val context: Context) {
                 if (!shouldAbort()) {
                     sourcesPhotosInArea[source.id] = photos
                     Log.d(TAG, "PhotoOperations: Area load complete for ${source.id}: ${photos.size} photos")
+
+                    // Send completion status for this individual source
+                    onSourceLoadingStatus?.invoke(source.id, false, "Loaded ${photos.size} photos", null)
                 }
 
             } catch (error: Exception) {
                 Log.e(TAG, "PhotoOperations: Error loading source ${source.id}: ${error.message}", error)
+
+                // Send error status for this individual source
+                onSourceLoadingStatus?.invoke(source.id, false, null, "Error: ${error.message}")
+
                 // Continue with other sources
             }
         }

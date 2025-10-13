@@ -118,6 +118,10 @@ class StreamPhotoLoader {
                 // If we reach here, stream completed normally
                 return filterPhotosInBounds(photos, bounds).take(maxPhotos)
 
+            } catch (e: CancellationException) {
+                // Handle coroutine cancellation gracefully - this is expected during aborts
+                Log.d(TAG, "StreamPhotoLoader: Stream cancelled for ${source.id} (expected during abort)")
+                throw e // Re-throw to propagate cancellation
             } catch (e: Exception) {
                 Log.e(TAG, "StreamPhotoLoader: Error on attempt ${retryCount + 1}: ${e.message}")
 

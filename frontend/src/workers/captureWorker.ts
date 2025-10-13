@@ -112,7 +112,7 @@ async function processCanvas(item: CaptureQueueItem): Promise<void> {
 
             // Small delay between chunks to keep UI responsive
             if (i < totalChunks - 1) {
-                await new Promise(resolve => setTimeout(resolve, 50));
+                await new Promise(resolve => setTimeout(resolve, 150));
             }
         }
 	} catch (error) {

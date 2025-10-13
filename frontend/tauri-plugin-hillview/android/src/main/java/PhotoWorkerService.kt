@@ -77,7 +77,8 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
         val priority: Priority,
         val type: ProcessType,
         val startTime: Long,
-        val abortFlag: AtomicBoolean = AtomicBoolean(false)
+        val abortFlag: AtomicBoolean = AtomicBoolean(false),
+        val cancellationScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     )
 
     /**
@@ -263,23 +264,25 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
         )
         processTable[message.processId] = processInfo
 
-        try {
-            // Store current sources state like new.worker.ts
-            currentSources = config.sources
+        // Launch config processing in the process's own cancellable scope
+        val job = processInfo.cancellationScope.launch {
+            try {
+                // Store current sources state like new.worker.ts
+                currentSources = config.sources
 
-            // Implement selective clearing like new.worker.ts updatePhotosInArea callback
-            val enabledSourceIds = config.sources.filter { it.enabled }.map { it.id }.toSet()
+                // Implement selective clearing like new.worker.ts updatePhotosInArea callback
+                val enabledSourceIds = config.sources.filter { it.enabled }.map { it.id }.toSet()
 
-            // Remove photos from disabled sources (like new.worker.ts lines 253-258)
-            val sourcesToRemove = this.sourcesPhotosInArea.keys.filter { !enabledSourceIds.contains(it) }
-            sourcesToRemove.forEach { sourceId ->
-                Log.d(TAG, "PhotoWorkerService: Clearing photos from disabled source: $sourceId")
-                this.sourcesPhotosInArea.remove(sourceId)
-            }
+                // Remove photos from disabled sources (like new.worker.ts lines 253-258)
+                val sourcesToRemove = this@PhotoWorkerService.sourcesPhotosInArea.keys.filter { !enabledSourceIds.contains(it) }
+                sourcesToRemove.forEach { sourceId ->
+                    Log.d(TAG, "PhotoWorkerService: Clearing photos from disabled source: $sourceId")
+                    this@PhotoWorkerService.sourcesPhotosInArea.remove(sourceId)
+                }
 
-            // Send current photos (enabled sources remain visible, disabled sources cleared)
-            val allPhotos = this.sourcesPhotosInArea.values.flatten()
-            sendPhotosUpdate(allPhotos, this.sourcesPhotosInArea.toMap())
+                // Send current photos (enabled sources remain visible, disabled sources cleared)
+                val allPhotos = this@PhotoWorkerService.sourcesPhotosInArea.values.flatten()
+                sendPhotosUpdate(allPhotos, this@PhotoWorkerService.sourcesPhotosInArea.toMap())
 
             Log.d(TAG, "PhotoWorkerService: Config processing complete - kept ${allPhotos.size} photos from enabled sources")
 
@@ -329,14 +332,18 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
                 }
             }
 
-        } catch (error: Exception) {
-            Log.e(TAG, "PhotoWorkerService: Config processing error (${message.processId})", error)
-            // Send error event to frontend like new.worker.ts does
-            sendErrorEvent("Config processing error: ${error.message}")
-        } finally {
-            processTable.remove(message.processId)
-            activeProcesses.remove(message.processId)
+            } catch (error: Exception) {
+                Log.e(TAG, "PhotoWorkerService: Config processing error (${message.processId})", error)
+                // Send error event to frontend like new.worker.ts does
+                sendErrorEvent("Config processing error: ${error.message}")
+            } finally {
+                processTable.remove(message.processId)
+                activeProcesses.remove(message.processId)
+            }
         }
+
+        // Store the job for potential cancellation
+        activeProcesses[message.processId] = job
     }
 
     /**
@@ -361,50 +368,60 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
         )
         processTable[message.processId] = processInfo
 
-        try {
-            // Store current bounds and range for post-config area updates (like new.worker.ts)
-            lastProcessedBounds = areaData.bounds
-            lastProcessedRange = areaData.range
+        // Launch area processing in the process's own cancellable scope
+        val job = processInfo.cancellationScope.launch {
+            try {
+                // Store current bounds and range for post-config area updates (like new.worker.ts)
+                lastProcessedBounds = areaData.bounds
+                lastProcessedRange = areaData.range
 
-            // Process area photos synchronously and send photos update
-            val sourcesPhotosInArea = photoOperations.processArea(
+                // Process area photos with per-source loading status callbacks
+                val sourcesPhotosInArea = photoOperations.processArea(
                 processId = message.processId,
                 sources = areaData.sources,
                 bounds = areaData.bounds,
                 shouldAbort = { processInfo.abortFlag.get() },
-                authTokenProvider = authTokenProvider
+                authTokenProvider = authTokenProvider,
+                onSourceLoadingStatus = { sourceId, isLoading, progress, error ->
+                    sendLoadingStatusEvent(sourceId, isLoading, progress, error)
+                }
             )
 
-            if (!processInfo.abortFlag.get()) {
-                // Update persistent state with new photos from area processing
-                this.sourcesPhotosInArea.putAll(sourcesPhotosInArea)
+                if (!processInfo.abortFlag.get()) {
+                    // Update persistent state with new photos from area processing
+                    this@PhotoWorkerService.sourcesPhotosInArea.putAll(sourcesPhotosInArea)
 
-                // Apply culling if photos exceed maxPhotos
-                val totalPhotos = this.sourcesPhotosInArea.values.sumOf { it.size }
-                val finalPhotos = if (totalPhotos > areaData.maxPhotos) {
-                    Log.d(TAG, "PhotoWorkerService: Applying culling - $totalPhotos photos > ${areaData.maxPhotos} limit")
+                    // Apply culling if photos exceed maxPhotos
+                    val totalPhotos = this@PhotoWorkerService.sourcesPhotosInArea.values.sumOf { it.size }
+                    val finalPhotos = if (totalPhotos > areaData.maxPhotos) {
+                        Log.d(TAG, "PhotoWorkerService: Applying culling - $totalPhotos photos > ${areaData.maxPhotos} limit")
 
-                    val gridCuller = CullingGrid(areaData.bounds)
-                    val culledPhotos = gridCuller.cullPhotos(this.sourcesPhotosInArea.toMap(), areaData.maxPhotos)
+                        val gridCuller = CullingGrid(areaData.bounds)
+                        val culledPhotos = gridCuller.cullPhotos(this@PhotoWorkerService.sourcesPhotosInArea.toMap(), areaData.maxPhotos)
 
-                    Log.d(TAG, "PhotoWorkerService: Grid culling complete - ${culledPhotos.size} photos selected")
-                    culledPhotos
-                } else {
-                    this.sourcesPhotosInArea.values.flatten()
+                        Log.d(TAG, "PhotoWorkerService: Grid culling complete - ${culledPhotos.size} photos selected")
+                        culledPhotos
+                    } else {
+                        this@PhotoWorkerService.sourcesPhotosInArea.values.flatten()
+                    }
+
+                    // Send photos update to frontend like new.worker.ts does
+                    sendPhotosUpdate(finalPhotos, this@PhotoWorkerService.sourcesPhotosInArea.toMap(), areaData.bounds, areaData.range)
                 }
 
-                // Send photos update to frontend like new.worker.ts does
-                sendPhotosUpdate(finalPhotos, this.sourcesPhotosInArea.toMap(), areaData.bounds, areaData.range)
-            }
+            } catch (error: Exception) {
+                Log.e(TAG, "PhotoWorkerService: Area processing error (${message.processId})", error)
 
-        } catch (error: Exception) {
-            Log.e(TAG, "PhotoWorkerService: Area processing error (${message.processId})", error)
-            // Send error event to frontend like new.worker.ts does
-            sendErrorEvent("Area processing error: ${error.message}")
-        } finally {
-            processTable.remove(message.processId)
-            activeProcesses.remove(message.processId)
+                // Send error event to frontend like new.worker.ts does
+                sendErrorEvent("Area processing error: ${error.message}")
+            } finally {
+                processTable.remove(message.processId)
+                activeProcesses.remove(message.processId)
+            }
         }
+
+        // Store the job for potential cancellation
+        activeProcesses[message.processId] = job
     }
 
     /**
@@ -420,15 +437,33 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
     }
 
     /**
-     * Abort a specific process
+     * Abort a specific process with proper coroutine cancellation
      */
     private fun abortProcess(processId: ProcessId) {
         Log.d(TAG, "PhotoWorkerService: Aborting process $processId")
 
-        processTable[processId]?.abortFlag?.set(true)
+        val processInfo = processTable[processId]
+        if (processInfo != null) {
+            // Set abort flag for legacy shouldAbort() checks
+            processInfo.abortFlag.set(true)
+
+            // Cancel the process's coroutine scope properly
+            try {
+                processInfo.cancellationScope.cancel("Process $processId aborted by higher priority operation")
+                Log.d(TAG, "PhotoWorkerService: Cancelled coroutine scope for process $processId")
+            } catch (e: Exception) {
+                Log.w(TAG, "PhotoWorkerService: Error cancelling scope for process $processId: ${e.message}")
+            }
+        }
+
+        // Cancel any active coroutine job
         activeProcesses[processId]?.cancel()
+
+        // Clean up tracking maps
         activeProcesses.remove(processId)
         processTable.remove(processId)
+
+        Log.d(TAG, "PhotoWorkerService: Process $processId cleanup complete")
     }
 
     /**
@@ -500,6 +535,32 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
 
         } catch (error: Exception) {
             Log.e(TAG, "PhotoWorkerService: Error creating error message", error)
+        }
+    }
+
+    /**
+     * Send loading status event to frontend via Tauri events (like StreamSourceLoader updateLoadingStatus)
+     */
+    private fun sendLoadingStatusEvent(sourceId: String, isLoading: Boolean, progress: String? = null, error: String? = null) {
+        try {
+            // Create loading status message like StreamSourceLoader sends
+            val eventData = app.tauri.plugin.JSObject()
+            eventData.put("sourceId", sourceId)
+            eventData.put("isLoading", isLoading)
+            if (progress != null) {
+                eventData.put("progress", progress)
+            }
+            if (error != null) {
+                eventData.put("error", error)
+            }
+
+            Log.d(TAG, "PhotoWorkerService: Queuing loading status for $sourceId: loading=$isLoading, progress=$progress")
+
+            // Use message queue instead of direct event triggering
+            plugin?.queueMessage("photo-worker-loading-status", eventData)
+
+        } catch (error: Exception) {
+            Log.e(TAG, "PhotoWorkerService: Error creating loading status message", error)
         }
     }
 
