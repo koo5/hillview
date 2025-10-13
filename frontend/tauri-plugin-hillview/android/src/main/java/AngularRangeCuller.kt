@@ -59,37 +59,34 @@ class AngularRangeCuller {
 
         Log.d(TAG, "Found photos in ${activeBuckets.size} angular buckets out of $ANGULAR_BUCKETS")
 
-        // Sort photos in each bucket by distance (closest first)
-        activeBuckets.forEach { bucket ->
-            bucket.sortBy { it.range_distance }
-        }
+        // Round-robin: outer loop = rounds, inner loop = buckets (exact match to TypeScript)
+        val selectedPhotos = mutableListOf<PhotoData>()
 
-        // Round-robin selection from active buckets
-        val result = mutableListOf<PhotoData>()
-        var bucketIndex = 0
+        for (round in 0 until Int.MAX_VALUE) {
+            if (activeBuckets.isEmpty() || selectedPhotos.size >= maxPhotos) break
 
-        while (result.size < maxPhotos && activeBuckets.isNotEmpty()) {
-            val currentBucket = activeBuckets[bucketIndex]
+            var bucketIndex = 0
 
-            if (currentBucket.isNotEmpty()) {
-                result.add(currentBucket.removeAt(0))
-            }
-
-            // Remove bucket if it's now empty
-            if (currentBucket.isEmpty()) {
-                activeBuckets.removeAt(bucketIndex)
-                // Adjust index if we removed a bucket
-                if (activeBuckets.isNotEmpty()) {
-                    bucketIndex = bucketIndex % activeBuckets.size
+            while (bucketIndex < activeBuckets.size && selectedPhotos.size < maxPhotos) {
+                // Remove exhausted bucket if no photo at this round
+                if (round >= activeBuckets[bucketIndex].size) {
+                    // Swap with last and remove (like TypeScript implementation)
+                    if (bucketIndex < activeBuckets.size - 1) {
+                        activeBuckets[bucketIndex] = activeBuckets[activeBuckets.lastIndex]
+                    }
+                    activeBuckets.removeAt(activeBuckets.lastIndex)
+                    // Don't increment bucketIndex - check the swapped bucket
+                } else {
+                    // Take photo and move to next bucket
+                    selectedPhotos.add(activeBuckets[bucketIndex][round])
+                    bucketIndex++
                 }
-            } else {
-                bucketIndex = (bucketIndex + 1) % activeBuckets.size
             }
         }
 
-        Log.d(TAG, "Angular range culling completed: selected ${result.size} photos")
+        Log.d(TAG, "Angular range culling completed: selected ${selectedPhotos.size} photos from ${activeBuckets.size}/${ANGULAR_BUCKETS} angular sectors")
 
-        return result
+        return selectedPhotos
     }
 
     /**
@@ -140,5 +137,10 @@ class AngularRangeCuller {
  * Translation from AngularRangeCuller.ts sortPhotosByBearing function
  */
 fun sortPhotosByBearing(photos: MutableList<PhotoData>) {
-    photos.sortBy { it.bearing }
+    photos.sortWith { a, b ->
+        when {
+            a.bearing != b.bearing -> a.bearing.compareTo(b.bearing)
+            else -> a.uid.compareTo(b.uid) // Stable sort with UID as tiebreaker for cross-source consistency
+        }
+    }
 }

@@ -494,7 +494,12 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
                     lat = (bounds.top_left.lat + bounds.bottom_right.lat) / 2,
                     lng = (bounds.top_left.lng + bounds.bottom_right.lng) / 2
                 )
-                angularRangeCuller.cullPhotosInRange(photos, center, range, MAX_PHOTOS_IN_RANGE)
+                val rangePhotos = angularRangeCuller.cullPhotosInRange(photos, center, range, MAX_PHOTOS_IN_RANGE).toMutableList()
+
+                // Sort photos in range by bearing for consistent navigation order (like new.worker.ts)
+                sortPhotosByBearing(rangePhotos)
+
+                rangePhotos
             } else {
                 // For config updates without range info, use the photos as-is
                 photos
