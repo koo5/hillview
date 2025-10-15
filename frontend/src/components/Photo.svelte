@@ -78,7 +78,7 @@
 		// Handle device photos specially
 		if (photo.isDevicePhoto && photo.url) {
 			try {
-				devicePhotoUrl = await getDevicePhotoUrl(photo.url);
+				devicePhotoUrl = getDevicePhotoUrl(photo.url);
 				selectedUrl = devicePhotoUrl;
 				return;
 			} catch (error) {
@@ -105,12 +105,7 @@
 				width = p.width;
 				height = p.height;
 
-				// Handle device photo URLs
-				if (photo.isDevicePhoto) {
-					selectedUrl = await getDevicePhotoUrl(p.url);
-				} else {
-					selectedUrl = p.url;
-				}
+				selectedUrl = p.url;
 				return;
 			}
 		}
@@ -120,7 +115,7 @@
 
 		// Handle device photo URLs for full size
 		if (photo.isDevicePhoto && photo.sizes.full) {
-			selectedUrl = await getDevicePhotoUrl(photo.sizes.full.url);
+			selectedUrl = getDevicePhotoUrl(photo.sizes.full.url);
 		} else {
 			selectedUrl = photo.sizes.full?.url || '';
 		}

@@ -1,35 +1,21 @@
-import { invoke } from '@tauri-apps/api/core';
+import { convertFileSrc } from '@tauri-apps/api/core';
 
-// Cache for device photo data URLs to avoid repeated file reads
-const devicePhotoCache = new Map<string, string>();
+/**
+ * Convert device photo path to asset URL for off-main-thread loading
+ * Uses Tauri's built-in asset protocol for better performance
+ */
+export function getDevicePhotoUrl(path: string): string {
+    // Remove "file://" prefix if present, as convertFileSrc expects just the path
+    const cleanPath = path.startsWith('file://') ? path.slice(7) : path;
 
-export async function getDevicePhotoUrl(path: string): Promise<string> {
-    // Check cache first
-    if (devicePhotoCache.has(path)) {
-        return devicePhotoCache.get(path)!;
-    }
-
-    try {
-        // Read photo data from Tauri backend
-        const photoData = await invoke<number[]>('read_device_photo', { path });
-        const uint8Array = new Uint8Array(photoData);
-        
-        // Convert to blob and create data URL
-        const blob = new Blob([uint8Array], { type: 'image/jpeg' });
-        const dataUrl = URL.createObjectURL(blob);
-        
-        // Cache the result
-        devicePhotoCache.set(path, dataUrl);
-        
-        return dataUrl;
-    } catch (error) {
-        console.error('🢄Failed to read device photo:', error);
-        throw error;
-    }
+    // Convert to asset URL (synchronous, no async needed!)
+    return convertFileSrc(cleanPath);
 }
 
-// Clean up cached URLs when component unmounts
+/**
+ * @deprecated No longer needed with convertFileSrc approach
+ * Kept for backward compatibility during transition
+ */
 export function cleanupDevicePhotoCache() {
-    devicePhotoCache.forEach(url => URL.revokeObjectURL(url));
-    devicePhotoCache.clear();
+    // No-op: convertFileSrc doesn't require manual cleanup
 }

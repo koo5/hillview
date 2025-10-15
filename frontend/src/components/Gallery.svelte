@@ -24,9 +24,7 @@
     <!--        {#each $photosInRange as photo}-->
     <!--            <div class="thumbnail" on:click={() => handleThumbnailClick(photo)} role="button" tabindex="0" on:keydown={e => e.key === 'Enter' && handleThumbnailClick(photo)}>-->
     <!--                {#if photo.isDevicePhoto}-->
-    <!--                    {#await getDevicePhotoUrl(photo.url) then url}-->
-    <!--                        <img src={url} alt="Thumbnail" style:border-color={photo.bearing_color || '#ccc'}/>-->
-    <!--                    {/await}-->
+    <!--                    <img src={getDevicePhotoUrl(photo.url)} alt="Thumbnail" style:border-color={photo.bearing_color || '#ccc'}/>-->
     <!--                {:else if photo.sizes && photo.sizes[50]}-->
     <!--                    <img src={photo.sizes[50].url} alt="Thumbnail" style:border-color={photo.bearing_color || '#ccc'}/>-->
     <!--                {/if}-->
@@ -63,9 +61,7 @@
     <!--        {#each $photosInRange as photo}-->
     <!--            <div class="thumbnail" on:click={() => handleThumbnailClick(photo)} role="button" tabindex="0" on:keydown={e => e.key === 'Enter' && handleThumbnailClick(photo)}>-->
     <!--                {#if photo.isDevicePhoto}-->
-    <!--                    {#await getDevicePhotoUrl(photo.url) then url}-->
-    <!--                        <img src={url} alt="Thumbnail" style="border-color: {photo.bearing_color || '#ccc'}"/>-->
-    <!--                    {/await}-->
+    <!--                    <img src={getDevicePhotoUrl(photo.url)} alt="Thumbnail" style="border-color: {photo.bearing_color || '#ccc'}"/>-->
     <!--                {:else if photo.sizes && photo.sizes[50]}-->
     <!--                    <img src={photo.sizes[50].url} alt="Thumbnail" style="border-color: {photo.bearing_color || '#ccc'}"/>-->
     <!--                {/if}-->
