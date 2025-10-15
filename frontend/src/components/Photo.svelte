@@ -105,7 +105,12 @@
 				width = p.width;
 				height = p.height;
 
-				selectedUrl = p.url;
+				// Handle device photo URLs
+				if (photo.isDevicePhoto) {
+					selectedUrl = getDevicePhotoUrl(p.url);
+				} else {
+					selectedUrl = p.url;
+				}
 				return;
 			}
 		}

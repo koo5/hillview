@@ -346,6 +346,21 @@ class StreamPhotoLoader {
         // Extract fileHash from file_md5 (Hillview endpoint)
         val fileHash = photoJson["file_md5"]?.jsonPrimitive?.content
 
+        // Extract sizes object (Hillview endpoint)
+        val sizes = photoJson["sizes"]?.jsonObject?.let { sizesObj ->
+            sizesObj.mapNotNull { (key, value) ->
+                value.jsonObject?.let { sizeObj ->
+                    val sizeUrl = sizeObj["url"]?.jsonPrimitive?.content
+                    val width = sizeObj["width"]?.jsonPrimitive?.intOrNull
+                    val height = sizeObj["height"]?.jsonPrimitive?.intOrNull
+
+                    if (sizeUrl != null && width != null && height != null) {
+                        key to PhotoSize(url = sizeUrl, width = width, height = height)
+                    } else null
+                }
+            }.toMap()
+        }
+
         return PhotoData(
             id = id,
             uid = "stream-$id", // Will be replaced by convertToPhotoData
@@ -356,6 +371,7 @@ class StreamPhotoLoader {
             bearing = bearing,
             altitude = altitude,
             source = "stream", // Just source ID
+            sizes = sizes,
             isDevicePhoto = false,
             captured_at = capturedAt,
             is_pano = isPano,

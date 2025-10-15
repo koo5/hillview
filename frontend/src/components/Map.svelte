@@ -23,7 +23,6 @@
         type BearingMode,
         bearingMode
     } from "$lib/mapState";
-    import { placeholderPhotos } from '$lib/placeholderInjector';
     import { sources } from "$lib/data.svelte";
     import { simplePhotoWorker } from '$lib/simplePhotoWorker';
     import { turn_to_photo_to, app, mapillary_cache_status, sourceLoadingStatus } from "$lib/data.svelte";

@@ -629,12 +629,26 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
                 "bearing": ${photo.bearing},
                 "altitude": ${photo.altitude ?: "null"},
                 "source": "${photo.source}",
+                "sizes": ${if (photo.sizes != null) serializeSizes(photo.sizes!!) else "null"},
                 "isDevicePhoto": ${photo.isDevicePhoto}
             }
             """.trimIndent()
         }
 
         return jsonArray
+    }
+
+    private fun serializeSizes(sizes: Map<String, PhotoSize>): String {
+        val sizesJson = sizes.entries.joinToString(", ") { (key, size) ->
+            """
+            "$key": {
+                "url": "${size.url}",
+                "width": ${size.width},
+                "height": ${size.height}
+            }
+            """.trimIndent()
+        }
+        return "{ $sizesJson }"
     }
 }
 

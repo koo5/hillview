@@ -53,7 +53,7 @@
 
             <li><a href="/photos" on:click={closeMenu}>
                 <Images size={18}/>
-                My Photos{$auth.user ? ` (${$auth.user.username})` : ''}
+                My Photos
             </a></li>
 
             <li><a href="/activity" on:click={closeMenu}>
@@ -107,7 +107,7 @@
                     <li>
                         <button class="menu-button logout" on:click={handleLogout}>
                             <LogOut size={18}/>
-                            Logout
+                            Logout{$auth.user ? ` (${$auth.user.username})` : ''}
                         </button>
                     </li>
                 {:else}

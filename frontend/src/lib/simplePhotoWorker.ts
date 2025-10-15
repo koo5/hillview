@@ -99,16 +99,18 @@ class SimplePhotoWorker {
                 const areaPhotos = message.photosInArea || [];
                 const rangePhotos = message.photosInRange || [];
 
-                // Merge placeholders with worker photos for immediate display
+                // Merge placeholders with worker photos for immediate display (only if device source is enabled)
                 const currentPlaceholders = get(placeholderPhotos);
+                const deviceSourceEnabled = this.isDeviceSourceEnabled();
+                const filteredPlaceholders = deviceSourceEnabled ? currentPlaceholders : [];
 
                 // Add placeholders to area photos (they should appear on map)
-                const mergedAreaPhotos = [...areaPhotos, ...currentPlaceholders];
+                const mergedAreaPhotos = [...areaPhotos, ...filteredPlaceholders];
 
                 // Add placeholders to range photos (they should appear in navigation)
-                const mergedRangePhotos = [...rangePhotos, ...currentPlaceholders];
+                const mergedRangePhotos = [...rangePhotos, ...filteredPlaceholders];
 
-                console.log(`🢄SimplePhotoWorker: Updated photos - Area: ${areaPhotos.length} + ${currentPlaceholders.length} placeholders = ${mergedAreaPhotos.length}, Range: ${message.currentRange}m, rangePhotos.length: ${rangePhotos.length} + ${currentPlaceholders.length} placeholders = ${mergedRangePhotos.length}`);
+                console.log(`🢄SimplePhotoWorker: Updated photos - Area: ${areaPhotos.length} + ${filteredPlaceholders.length}/${currentPlaceholders.length} placeholders (device source ${deviceSourceEnabled ? 'enabled' : 'disabled'}) = ${mergedAreaPhotos.length}, Range: ${message.currentRange}m, rangePhotos.length: ${rangePhotos.length} + ${filteredPlaceholders.length} placeholders = ${mergedRangePhotos.length}`);
 
                 photosInArea.set(mergedAreaPhotos);
                 photosInRange.set(mergedRangePhotos);
@@ -197,6 +199,15 @@ class SimplePhotoWorker {
         if (removedCount > 0) {
             console.log(`🢄SimplePhotoWorker: Cleaned up ${removedCount} placeholder(s) after device photos loaded`);
         }
+    }
+
+    /**
+     * Check if the device source is currently enabled
+     */
+    private isDeviceSourceEnabled(): boolean {
+        const currentSources = get(sources);
+        const deviceSource = currentSources.find(source => source.id === 'device');
+        return deviceSource?.enabled === true;
     }
 
     private boundsChangeSignificant(oldBounds: any, newBounds: any): boolean {

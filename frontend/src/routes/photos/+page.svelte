@@ -21,7 +21,7 @@
 	import {http, handleApiError, TokenExpiredError} from '$lib/http';
 	import {TAURI} from '$lib/tauri';
 	import {navigateWithHistory} from '$lib/navigation.svelte';
-	import SettingsComponent from '$lib/components/Settings.svelte';
+	import UploadSettingsComponent from '$lib/components/UploadSettings.svelte';
 	import {invoke} from "@tauri-apps/api/core";
 	import LoadMoreButton from '$lib/components/LoadMoreButton.svelte';
 
@@ -346,7 +346,7 @@
 
 	{#if TAURI && showSettings}
 		<div class="settings-panel">
-			<SettingsComponent
+			<UploadSettingsComponent
 				onSaveSuccess={(message) => {
 					addLogEntry(message, 'success');
 					showSettings = false;

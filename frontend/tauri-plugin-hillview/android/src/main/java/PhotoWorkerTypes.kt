@@ -60,6 +60,13 @@ data class Bounds(
 )
 
 @Serializable
+data class PhotoSize(
+    val url: String,
+    val width: Int,
+    val height: Int
+)
+
+@Serializable
 data class PhotoData(
     val id: String,
     val uid: String,
@@ -70,6 +77,7 @@ data class PhotoData(
     val bearing: Double,
     val altitude: Double? = null,
     val source: String, // Just source ID
+    val sizes: Map<String, PhotoSize>? = null,
     val isDevicePhoto: Boolean = false,
     val timestamp: Long? = null,
     val accuracy: Double? = null,

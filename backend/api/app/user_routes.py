@@ -10,7 +10,7 @@ from fastapi.responses import RedirectResponse, HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import or_, func, desc
-from geoalchemy2.functions import ST_X, ST_Y
+from geoalchemy2.functions import ST_X, ST_Y, ST_Point
 from pydantic import BaseModel
 import requests
 from urllib.parse import urlencode, quote
@@ -1382,6 +1382,21 @@ async def authorize_upload(
 				detail=f"Client public key '{auth_request.client_key_id}' not found or inactive. Please ensure the key is registered and active."
 			)
 
+		# Create geometry point from latitude/longitude if available
+		geometry = None
+		if auth_request.latitude is not None and auth_request.longitude is not None:
+			geometry = ST_Point(auth_request.longitude, auth_request.latitude, 4326)  # WGS84 SRID
+
+		# Convert timezone-aware captured_at to naive UTC for database storage
+		captured_at_naive = None
+		if auth_request.captured_at is not None:
+			if auth_request.captured_at.tzinfo is not None:
+				# Convert timezone-aware datetime to naive UTC
+				captured_at_naive = auth_request.captured_at.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+			else:
+				# Already naive, assume it's UTC
+				captured_at_naive = auth_request.captured_at
+
 		photo = Photo(
 			id=photo_id,
 			filename=None,  # Will be set by worker after file processing
@@ -1394,11 +1409,10 @@ async def authorize_upload(
 			client_public_key_id=user_public_key.key_id,
 			upload_authorized_at=upload_authorized_at,
 			# Store geolocation data from client for immediate map display
-			latitude=auth_request.latitude,
-			longitude=auth_request.longitude,
+			geometry=geometry,
 			altitude=auth_request.altitude,
 			compass_angle=auth_request.compass_angle,
-			captured_at=auth_request.captured_at
+			captured_at=captured_at_naive
 		)
 
 		db.add(photo)
@@ -1435,7 +1449,10 @@ async def authorize_upload(
 	except Exception as e:
 		await db.rollback()
 		log.error(f"Error creating upload authorization: {e}")
-		raise HTTPException()
+		raise HTTPException(
+			status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+			detail="Failed to create upload authorization"
+		)
 
 
 	except HTTPException:
