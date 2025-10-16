@@ -99,16 +99,21 @@ class SimplePhotoWorker {
                 const areaPhotos = message.photosInArea || [];
                 const rangePhotos = message.photosInRange || [];
 
+                // Clean up placeholders that match device photos
+                const devicePhotoIds = areaPhotos.filter(p => p.isDevicePhoto).map(p => p.id);
+                if (devicePhotoIds.length > 0) {
+                    this.handlePlaceholderCleanup(devicePhotoIds);
+                }
+
                 // Merge placeholders with worker photos for immediate display (only if device source is enabled)
                 const currentPlaceholders = get(placeholderPhotos);
                 const deviceSourceEnabled = this.isDeviceSourceEnabled();
                 const filteredPlaceholders = deviceSourceEnabled ? currentPlaceholders : [];
 
-                // Add placeholders to area photos (they should appear on map)
-                const mergedAreaPhotos = [...areaPhotos, ...filteredPlaceholders];
+				const withPlaceholders = embedPlaceholders(areaPhotos, rangePhotos, filteredPlaceholders);
 
-                // Add placeholders to range photos (they should appear in navigation)
-                const mergedRangePhotos = [...rangePhotos, ...filteredPlaceholders];
+                const mergedAreaPhotos = withPlaceholders.photosInArea;
+                const mergedRangePhotos = withPlaceholders.photosInRange;
 
                 console.log(`🢄SimplePhotoWorker: Updated photos - Area: ${areaPhotos.length} + ${filteredPlaceholders.length}/${currentPlaceholders.length} placeholders (device source ${deviceSourceEnabled ? 'enabled' : 'disabled'}) = ${mergedAreaPhotos.length}, Range: ${message.currentRange}m, rangePhotos.length: ${rangePhotos.length} + ${filteredPlaceholders.length} placeholders = ${mergedRangePhotos.length}`);
 
@@ -149,10 +154,6 @@ class SimplePhotoWorker {
                 this.handleAuthTokenRequest(message.forceRefresh);
                 break;
 
-            case 'cleanupPlaceholders':
-                // Handle placeholder cleanup when device photos are loaded
-                this.handlePlaceholderCleanup(message.devicePhotoIds);
-                break;
 
             default:
                 console.warn('🢄SimplePhotoWorker: Unknown message type:', message.type);

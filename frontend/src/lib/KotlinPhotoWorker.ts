@@ -240,19 +240,7 @@ export class KotlinPhotoWorker {
                 });
                 console.log('🔥 DEBUG: onMessageCallback completed');
 
-                // Handle device photo cleanup if applicable
-                const devicePhotos = photosInArea.filter((photo: any) =>
-                    photo.isDevicePhoto || photo.source_type === 'device'
-                );
-                if (devicePhotos.length > 0) {
-                    const devicePhotoIds = devicePhotos.map((photo: any) => photo.id);
-                    this.onMessageCallback({
-                        data: {
-                            type: 'cleanupPlaceholders',
-                            devicePhotoIds
-                        }
-                    });
-                }
+                // Cleanup is now handled automatically in simplePhotoWorker's photosUpdate case
 
                 // Note: Do NOT trigger area update here - that creates infinite loops!
                 // Area updates should only happen from config changes or spatial changes

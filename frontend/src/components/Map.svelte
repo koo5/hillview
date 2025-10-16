@@ -984,18 +984,10 @@
         tileConfig = getCurrentProviderConfig();
     }
 
-    // Reactive updates for spatial changes (new photos from worker)
-    // Combine visible photos with placeholder photos for marker rendering
-    $: allPhotosForMarkers = [...($visiblePhotos || []), ...($placeholderPhotos || [])];
-
-    // Log placeholder photos when they appear
-    $: if ($placeholderPhotos && $placeholderPhotos.length > 0) {
-        console.log(`🢄📍 Map: ${$placeholderPhotos.length} placeholder photos detected`);
-    }
-
-    $: if (allPhotosForMarkers && map) {
-        console.log(`🢄🗺️ Map: Reactive update triggered - updating markers with ${$visiblePhotos?.length || 0} visible photos + ${$placeholderPhotos?.length || 0} placeholder photos = ${allPhotosForMarkers.length} total`);
-        updateOptimizedMarkers(allPhotosForMarkers);
+    // Reactive updates for spatial changes (photos from worker include filtered placeholders)
+    $: if ($visiblePhotos && map) {
+        console.log(`🢄🗺️ Map: Reactive update triggered - updating markers with ${$visiblePhotos.length} total photos`);
+        updateOptimizedMarkers($visiblePhotos);
     }
 
     // Ultra-fast bearing color updates (no worker communication)

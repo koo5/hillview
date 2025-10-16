@@ -1,6 +1,7 @@
 <script lang="ts">
 	import {onMount, onDestroy} from 'svelte';
 	import PhotoActionsMenu from './PhotoActionsMenu.svelte';
+	import Spinner from './Spinner.svelte';
 	import {app} from '$lib/data.svelte';
 	import {auth} from '$lib/auth.svelte';
 	import {http, handleApiError} from '$lib/http';
@@ -271,7 +272,16 @@
 
 <div bind:this={containerElement} class="photo-wrapper">
 
-	{#if photo && displayedUrl}
+	{#if photo?.isPlaceholder}
+		<div class="placeholder-container" data-testid="placeholder-photo">
+			<div class="placeholder-content">
+				<Spinner />
+				<div class="placeholder-text">Saving photo...</div>
+			</div>
+		</div>
+	{/if}
+
+	{#if photo && !photo.isPlaceholder}
 		<img
 			src={displayedUrl}
 			alt={photo.file}
@@ -623,6 +633,34 @@
 		100% {
 			transform: rotate(360deg);
 		}
+	}
+
+	.placeholder-container {
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: linear-gradient(135deg, #f0f0f0 0%, #e0e0e0 100%);
+		border-radius: 8px;
+		z-index: 5;
+	}
+
+	.placeholder-content {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 12px;
+		opacity: 0.8;
+	}
+
+	.placeholder-text {
+		font-size: 14px;
+		color: #666;
+		font-weight: 500;
 	}
 
 </style>

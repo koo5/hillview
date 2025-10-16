@@ -7,7 +7,7 @@
 	import {get} from 'svelte/store';
 	import {myGoto} from '$lib/navigation.svelte';
 	import {constructPhotoMapUrl} from '$lib/urlUtils';
-	import { Trash2, Map, Settings, ThumbsUp, ThumbsDown} from 'lucide-svelte';
+	import { Trash2, Map, Settings, ThumbsUp, ThumbsDown, Upload} from 'lucide-svelte';
 	import StandardHeaderWithAlert from '../../components/StandardHeaderWithAlert.svelte';
 	import StandardBody from '../../components/StandardBody.svelte';
 	import Spinner from '../../components/Spinner.svelte';
@@ -226,6 +226,28 @@
 	function viewOnMap(photo: UserPhoto) {
 		if (photo.latitude && photo.longitude) {
 			myGoto(constructPhotoMapUrl(photo));
+		}
+	}
+
+	async function manualUpload(photoId: number) {
+		console.log(`🢄Manual upload requested for photo ${photoId}`);
+
+		try {
+			if (TAURI) {
+				const result = await invoke('plugin:hillview|retry_failed_uploads') as { success: boolean };
+				if (result.success) {
+					addLogEntry('Manual upload triggered successfully', 'success');
+					// Refresh photos to update processing status
+					await fetchPhotos(true);
+				} else {
+					addLogEntry('Failed to trigger manual upload', 'error');
+				}
+			} else {
+				addLogEntry('Manual upload is only available on mobile', 'warning');
+			}
+		} catch (error) {
+			console.error('🢄Error triggering manual upload:', error);
+			addLogEntry(`Manual upload failed: ${error}`, 'error');
 		}
 	}
 
@@ -501,6 +523,13 @@
 										{photo.rating_counts?.thumbs_down || 0}
 									</span>
 								</button>
+								{#if TAURI && photo.processing_status && photo.processing_status !== 'completed'}
+									<button class="action-button upload" data-testid="manual-upload-button"
+											data-photo-id={photo.id} on:click={() => manualUpload(photo.id)}>
+										<Upload size={16}/>
+										Manual Upload
+									</button>
+								{/if}
 								<button class="action-button delete" data-testid="delete-photo-button"
 										data-photo-id={photo.id} on:click={() => deletePhoto(photo.id)}>
 									<Trash2 size={16}/>
@@ -860,6 +889,14 @@
 
 	.action-button.rating.active:hover {
 		background-color: #bfdbfe;
+	}
+
+	.action-button.upload {
+		color: #059669;
+	}
+
+	.action-button.upload:hover {
+		background-color: #f0fdf4;
 	}
 
 	.rating-count {

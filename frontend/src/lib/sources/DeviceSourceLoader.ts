@@ -88,16 +88,6 @@ export class DeviceSourceLoader extends BasePhotoSourceLoader {
                 fromCache: false
             });
 
-            // Check for placeholder cleanup - send device photo IDs to main thread
-            if (this.photos.length > 0) {
-                const devicePhotoIds = this.photos.map(photo => photo.id);
-                this.callbacks.enqueueMessage({
-                    type: 'devicePhotosLoaded',
-                    sourceId: this.source.id,
-                    photoIds: devicePhotoIds
-                });
-            }
-
             console.log(`🢄DeviceSourceLoader: Loaded ${this.photos.length} photos from device source ${this.source.id}`);
 
         } catch (error) {
