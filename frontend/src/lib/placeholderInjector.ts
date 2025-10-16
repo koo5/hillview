@@ -70,7 +70,7 @@ export function embedPlaceholders(
 	currentPlaceholders: PlaceholderPhoto[]
 ): { photosInArea: any[]; photosInRange: any[] } {
 	return {
-		photosInArea: [currentPhotosInArea, ...currentPlaceholders],
-		photosInRange: [currentPhotosInRange, ...currentPlaceholders]
+		photosInArea: [...currentPhotosInArea, ...currentPlaceholders],
+		photosInRange: [...currentPhotosInRange, ...currentPlaceholders]
 	};
 }

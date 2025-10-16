@@ -5,7 +5,7 @@ import { TAURI } from './tauri';
 
 /**
  * Token Manager Factory
- * 
+ *
  * Creates the appropriate token manager based on the current platform.
  * Provides a singleton instance to prevent multiple managers.
  */
@@ -16,7 +16,7 @@ let tokenManagerInstance: TokenManager | null = null;
  * Detect if we're running on Android via Tauri
  */
 function isAndroidTauri(): boolean {
-    return TAURI && typeof window !== 'undefined' && 
+    return TAURI && typeof window !== 'undefined' &&
            window.navigator.userAgent.includes('Android');
 }
 
@@ -27,15 +27,15 @@ export function createTokenManager(): TokenManager {
     if (tokenManagerInstance) {
         return tokenManagerInstance;
     }
-    
+
     if (isAndroidTauri()) {
-        console.log('🔐[FACTORY] Creating AndroidTokenManager');
+        //console.log('🔐[FACTORY] Creating AndroidTokenManager');
         tokenManagerInstance = new AndroidTokenManager();
     } else {
-        console.log('🔐[FACTORY] Creating WebTokenManager');
+        //console.log('🔐[FACTORY] Creating WebTokenManager');
         tokenManagerInstance = new WebTokenManager();
     }
-    
+
     return tokenManagerInstance;
 }
 

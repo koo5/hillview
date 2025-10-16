@@ -48,7 +48,6 @@ export interface SourceConfig {
     name: string;
     type: 'stream' | 'device';
     enabled: boolean;
-    requests?: number[];
     color?: string;
     url?: string;
     path?: string;

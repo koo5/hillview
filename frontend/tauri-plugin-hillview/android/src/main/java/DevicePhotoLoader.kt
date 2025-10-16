@@ -15,12 +15,7 @@ class DevicePhotoLoader(private val context: Context) {
         private const val TAG = "DevicePhotoLoader"
     }
 
-    private val photoDatabase = Room.databaseBuilder(
-        context,
-        PhotoDatabase::class.java,
-        "photo-database"
-    ).build()
-
+    private val photoDatabase = PhotoDatabase.getDatabase(context)
     private val photoDao = photoDatabase.photoDao()
 
     suspend fun loadPhotos(
@@ -35,6 +30,7 @@ class DevicePhotoLoader(private val context: Context) {
             Log.d(TAG, "DevicePhotoLoader: Bounds: $bounds")
             Log.d(TAG, "DevicePhotoLoader: MaxPhotos: $maxPhotos")
 
+            /*
             val photoEntities = if (bounds != null) {
                 // Apply spatial filtering using Room query with bounds
                 photoDao.getPhotosInBounds(
@@ -48,6 +44,26 @@ class DevicePhotoLoader(private val context: Context) {
                 // No bounds specified, get all photos with limit
                 photoDao.getPhotosPaginated(limit = maxPhotos, offset = 0)
             }
+            */
+
+            // TEMPORARY: Load all photos without bounds filtering for debugging
+            // First, check database status
+            val totalCount = photoDao.getTotalPhotoCount()
+            Log.d(TAG, "DevicePhotoLoader: Database total photo count: $totalCount")
+
+            // Get all photos to see what's in the database
+            val allPhotos = photoDao.getAllPhotos()
+            Log.d(TAG, "DevicePhotoLoader: Found ${allPhotos.size} total photos in database")
+
+            if (allPhotos.isNotEmpty()) {
+                Log.d(TAG, "DevicePhotoLoader: Sample photo details:")
+                allPhotos.take(3).forEach { photo ->
+                    Log.d(TAG, "  Photo ID: ${photo.id}, Path: ${photo.path}, Lat: ${photo.latitude}, Lng: ${photo.longitude}, UploadStatus: ${photo.uploadStatus}")
+                }
+            }
+
+            val photoEntities = photoDao.getPhotosPaginated(limit = maxPhotos, offset = 0)
+            Log.d(TAG, "DevicePhotoLoader: DEBUG - Loading ALL photos (bounds disabled), found ${photoEntities.size} photos")
 
             if (shouldAbort()) {
                 Log.d(TAG, "DevicePhotoLoader: Aborted during photo loading")
@@ -69,12 +85,22 @@ class DevicePhotoLoader(private val context: Context) {
     }
 
     private fun convertToPhotoData(photoEntity: PhotoEntity, source: SourceConfig): PhotoData {
+        val fileUrl = "file://${photoEntity.path}"
+
+        // Create sizes dict with 'full' size entry for consistency with other photo sources
+        val sizes = mapOf(
+            "full" to PhotoSize(
+                url = fileUrl,
+                width = photoEntity.width,
+                height = photoEntity.height
+            )
+        )
+
         return PhotoData(
             id = photoEntity.id,
             uid = "${source.id}-${photoEntity.id}",
             source_type = source.type,
             file = photoEntity.filename,
-            url = "file://${photoEntity.path}",
             coord = LatLng(
                 lat = photoEntity.latitude,
                 lng = photoEntity.longitude
@@ -82,6 +108,7 @@ class DevicePhotoLoader(private val context: Context) {
             bearing = photoEntity.bearing,
             altitude = photoEntity.altitude,
             source = source.id,
+            sizes = sizes,
             isDevicePhoto = true,
             timestamp = photoEntity.timestamp,
             accuracy = photoEntity.accuracy,

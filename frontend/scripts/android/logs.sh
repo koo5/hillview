@@ -11,6 +11,11 @@ if not test -f $ADB_PATH
     exit 1
 end
 
+# Define filter chain for noise reduction
+function apply_log_filters
+    v adbd | v ClipboardService | v ClipboardListener | v getHotwordActive::active | v pollMessages | v WifiThroughputPredictor: | v WifiScoreCard: | v WifiClientModeImpl | v Wifi | v InetDiagMessage: | v ActivityManager: | v ranchu | v EGL_emulation: |v PlayCommon: | v GLSUser | v Dialer | v cr_CronetUrlRequestContext: | v GMS_MM_Logger: | v BoundBrokerSvc: | v ProcessStats: | v TapAndPay: | v KernelCpuUidUserSysTimeReader: | v Finsky | v ConnectivityService: | v libprocessgroup: | v androidtc: | v  CompatibilityChangeReporter: | v Zygote | v Volley | v gearhead:share: | v getEnergyData | v 'RustStdoutStderr: \[INFO:CONSOLE'  | v ThreadPoolForeg: | v HostConnection: | v ProtoDataStoreFlagStore: | v AsyncOperation:  | v PhBaseOp: | v libEGL | v cn_CronetLibraryLoader: | v FusedLocation: | v LocationTracker: | v NetworkMonitor | v AlarmManager: | v 'W Settings: Setting' | v GnssUtilsJni: | v FrewleTileCacheManagerV: | v s_glBindAttribLocation: | v UriGrantsManagerService: | v ActivityScheduler: | v .gms.persisten: | v NetworkScheduler.Stats:  | v AAudio
+end
+
 # Check for --no-follow, --once, or -1 flag
 set FOLLOW_MODE true
 for arg in $argv
@@ -26,11 +31,11 @@ if test "$FOLLOW_MODE" = "true"
     echo ""
 
     # Filter for Hillview-specific logs (continuous)
-    $ADB_PATH logcat #| grep -E "(🢄|📍|hillview|hillviedev|RustStdoutStderr|chromium)"
+    $ADB_PATH logcat | apply_log_filters
 else
     echo "📱 Showing recent Android logs (filtered for Hillview)..."
     echo ""
 
     # Get recent logs and exit (last 500 lines, filtered)
-    $ADB_PATH logcat -d | tail -500 #| grep -E "(🢄|📍|hillview|hillviedev|RustStdoutStderr|chromium)"
+    $ADB_PATH logcat -d | tail -500 | apply_log_filters
 end

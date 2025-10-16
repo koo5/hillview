@@ -1614,13 +1614,13 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     @Command
     fun photoWorkerProcess(invoke: Invoke) {
         try {
-            Log.d(TAG, "🢄📸 photoWorkerProcess command called")
+            //Log.d(TAG, "🢄📸 photoWorkerProcess command called")
 
             // Add debugging to see raw invoke data
-            Log.d(TAG, "🢄📸 invoke object: $invoke")
+            //Log.d(TAG, "🢄📸 invoke object: $invoke")
 
             val args = invoke.parseArgs(PhotoWorkerProcessArgs::class.java)
-            Log.d(TAG, "🢄📸 args parsed: args = $args")
+            //Log.d(TAG, "🢄📸 args parsed: args = $args")
 
             if (args == null) {
                 Log.e(TAG, "🢄📸 photoWorkerProcess failed: args is null")
@@ -1632,8 +1632,8 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             }
 
             val messageJson = args.messageJson ?: args.message_json
-            Log.d(TAG, "🢄📸 messageJson extracted: '${messageJson}' (length: ${messageJson?.length ?: 0})")
-            Log.d(TAG, "🢄📸 field values - messageJson: ${args.messageJson}, message_json: ${args.message_json}")
+            //Log.d(TAG, "🢄📸 messageJson extracted: '${messageJson}' (length: ${messageJson?.length ?: 0})")
+            //Log.d(TAG, "🢄📸 field values - messageJson: ${args.messageJson}, message_json: ${args.message_json}")
 
             if (messageJson.isNullOrEmpty()) {
                 Log.e(TAG, "🢄📸 photoWorkerProcess failed: messageJson is required")
@@ -1643,8 +1643,6 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                 invoke.resolve(error)
                 return
             }
-
-            Log.d(TAG, "🢄📸 Processing photos with message length: ${messageJson.length}")
 
             CoroutineScope(Dispatchers.IO).launch {
                 try {
@@ -1758,7 +1756,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     fun queueMessage(type: String, payload: JSObject) {
         val message = QueuedMessage(type, payload)
         messageQueue.offer(message)
-        Log.d(TAG, "🔔 Queued message: $type")
+        //Log.d(TAG, "🔔 Queued message: $type")
     }
 
     /**

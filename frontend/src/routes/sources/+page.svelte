@@ -4,7 +4,6 @@
 
 <script lang="ts">
     import { sources, type Source, type subtype } from '$lib/data.svelte';
-    import { fetchSourcePhotos } from '$lib/sources';
     import { localStorageSharedStore } from '$lib/svelte-shared-store';
     import { Plus, Trash2, Globe, MapPin, Folder, Camera } from 'lucide-svelte';
     import StandardHeaderWithAlert from '../../components/StandardHeaderWithAlert.svelte';
@@ -57,14 +56,6 @@
             }
             return srcs;
         });
-
-        // When disabling, the data.svelte.ts subscription will handle filtering
-        // When enabling a source, we need to fetch its photos
-        const source = $sources.find(s => s.id === sourceId);
-        if (source && source.enabled && source.type === 'device') {
-            // Only reload this specific source when enabling
-            fetchSourcePhotos(sourceId);
-        }
     }
 
     function validateUrl(url: string): boolean {
@@ -110,7 +101,6 @@
                 subtype: newsubtype,
                 ...(newsubtype === 'folder' ? { path: newSourcePath.trim() } : {})
             } : {}),
-            requests: [],
             enabled: false,
             color: `#${Math.floor(Math.random()*16777215).toString(16)}`
         };
@@ -143,7 +133,7 @@
                 const existingIds = new Set(srcs.map(s => s.id));
                 const newSources = customSrcs
                     .filter(cs => !existingIds.has(cs.id))
-                    .map(cs => ({ ...cs, requests: [] }));
+                    .map(cs => ({ ...cs }));
                 return [...srcs, ...newSources];
             });
         }
@@ -178,9 +168,6 @@
                                 <div class="source-details">
                                     <h3>{sourceInfo.name}</h3>
                                     <p class="description">{sourceInfo.description}</p>
-                                    {#if source.requests.length > 0}
-                                        <p class="loading">Loading...</p>
-                                    {/if}
                                 </div>
                             </div>
                             <label class="toggle" data-testid="source-toggle-{source.id}">
@@ -300,9 +287,6 @@
                                     <h3>{customSource.name}</h3>
                                     <p class="url">{customSource.type === 'stream' ? customSource.url : (customSource.subtype === 'folder' ? customSource.path : `Device (${customSource.subtype})`)}</p>
                                     <p class="source-type">{customSource.type === 'stream' ? 'Stream Source' : `Device Source (${customSource.subtype})`}</p>
-                                    {#if source.requests.length > 0}
-                                        <p class="loading">Loading...</p>
-                                    {/if}
                                 </div>
                             </div>
                             <div class="source-controls">

@@ -5,7 +5,7 @@ import {getCurrentToken} from './auth.svelte';
 import {createTokenManager} from './tokenManagerFactory';
 import {addAlert} from './alertSystem.svelte';
 import type {WorkerToastMessage} from './workerToast';
-import {removePlaceholder, placeholderPhotos} from './placeholderInjector';
+import {removePlaceholder, placeholderPhotos, embedPlaceholders} from './placeholderInjector';
 import {TAURI} from './tauri';
 import {KotlinPhotoWorker} from './KotlinPhotoWorker';
 
@@ -52,7 +52,7 @@ class SimplePhotoWorker {
 
             // Test: Check initial sources
             const initialSources = get(sources);
-            console.log('🢄SimplePhotoWorker: Initial sources on startup:', JSON.stringify(
+            /*console.log('🢄SimplePhotoWorker: Initial sources on startup:', JSON.stringify(
             initialSources.map(s => ({
                 id: s.id,
                 type: s.type,
@@ -60,7 +60,7 @@ class SimplePhotoWorker {
                 url: s.url,
                 keys: Object.keys(s),
                 JSON: JSON.stringify(s)
-            }))));
+            }))));*/
 
         } catch (error) {
             console.error('🢄SimplePhotoWorker: Failed to initialize', error);
@@ -279,12 +279,12 @@ class SimplePhotoWorker {
 
             // Only trigger config update if actual config changed (not loading states)
             if (configHash === lastConfigHash) {
-                console.log('🢄SimplePhotoWorker: Ignoring source change - only loading states changed');
+                //console.log('🢄SimplePhotoWorker: Ignoring source change - only loading states changed');
                 return;
             }
 
             lastConfigHash = configHash;
-            console.log('🢄SimplePhotoWorker: Sending config update with sources...');
+            //console.log('🢄SimplePhotoWorker: Sending config update with sources...');
 
             this.sendMessage('configUpdated', {
                 config: {
@@ -292,17 +292,7 @@ class SimplePhotoWorker {
                     sources: sourceList
                 }
             });
-
-            // Also trigger area update after config to ensure streaming sources load with current bounds
-            const currentSpatial = get(spatialState);
-            if (currentSpatial.bounds) {
-                console.log('🢄SimplePhotoWorker: Sending area update after config to trigger streaming sources...');
-                this.sendMessage('areaUpdated', {
-                    area: currentSpatial.bounds,
-                    range: currentSpatial.range
-                });
-            }
-        });
+		});
     }
 
     private sendMessage(type: string, data?: any): void {
@@ -310,10 +300,10 @@ class SimplePhotoWorker {
         const message = {frontendMessageId, type, data};
 
         if (this.kotlinWorker) {
-            console.log(`🢄SimplePhotoWorker: Sending message to Kotlin worker: ${type}`);
+            //console.log(`🢄SimplePhotoWorker: Sending message to Kotlin worker: ${type}`);
             this.kotlinWorker.postMessage(message);
         } else if (this.worker) {
-            console.log(`🢄SimplePhotoWorker: Sending message to Web worker: ${type}`);
+            //console.log(`🢄SimplePhotoWorker: Sending message to Web worker: ${type}`);
             this.worker.postMessage(message);
         } else {
             throw new Error('No worker initialized');

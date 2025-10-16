@@ -110,14 +110,7 @@
                                         {/if}
                                     {:else if source.type === 'device'}
                                         <div class="device-status">
-                                            {#if source.requests && source.requests.length > 0}
-                                                <span class="loading-indicator">
-                                                    <span class="spinner-small"></span>
-                                                    Processing ({source.requests.length} requests)
-                                                </span>
-                                            {:else}
-                                                <span class="status-ready">Ready</span>
-                                            {/if}
+                                            <span class="status-ready">Ready</span>
                                         </div>
                                     {/if}
                                     

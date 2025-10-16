@@ -19,7 +19,6 @@ export interface Source {
     name: string;
     type: 'stream' | 'device';
     enabled: boolean;
-    requests: number[];
     color: string;
     url?: string;
     path?: string;
@@ -28,12 +27,12 @@ export interface Source {
 }
 
 const baseSources: Source[] = [
-    {id: 'hillview', name: 'Hillview', type: 'stream', enabled: !import.meta.env.VITE_PICS_OFF, requests: [], color: '#000', url: `${backendUrl}/hillview`},
-    {id: 'mapillary', name: 'Mapillary', type: 'stream', enabled: false/*!import.meta.env.VITE_PICS_OFF*/, requests: [], color: '#888', url: `${backendUrl}/mapillary`}
+    {id: 'hillview', name: 'Hillview', type: 'stream', enabled: !import.meta.env.VITE_PICS_OFF, color: '#000', url: `${backendUrl}/hillview`},
+    {id: 'mapillary', name: 'Mapillary', type: 'stream', enabled: false/*!import.meta.env.VITE_PICS_OFF*/, color: '#888', url: `${backendUrl}/mapillary`}
 ];
 
 const deviceSources: Source[] = TAURI ? [
-    {id: 'device', name: 'My Device', type: 'device', enabled: !import.meta.env.VITE_PICS_OFF, requests: [], color: '#4a90e2', subtype: 'hillview'}
+    {id: 'device', name: 'My Device', type: 'device', enabled: !import.meta.env.VITE_PICS_OFF, color: '#4a90e2', subtype: 'hillview'}
 ] : [];
 
 console.log('🢄📸 Device sources configuration:', {
@@ -195,12 +194,7 @@ export const anySourceLoading = derived(
     ([sources, loadingStatus]) => {
         return sources.some(source => {
             if (!source.enabled) return false;
-            // For stream sources, check loading status
-            if (source.type === 'stream') {
-                return loadingStatus[source.id]?.isLoading || false;
-            }
-            // For device sources, check if requests are pending
-            return !!(source.requests && source.requests.length);
+            return loadingStatus[source.id]?.isLoading || false;
         });
     }
 );
@@ -217,7 +211,7 @@ sources.subscribe(async (s: Source[]) => {
     let old = JSON.parse(JSON.stringify(old_sources));
     old_sources = JSON.parse(JSON.stringify(s));
 
-	console.log('🢄sources changed: old vs new', old, s);
+	//console.log('🢄sources changed: old vs new', old, s);
 
     const changedSources = s.filter((src, i) => {
         const oldSrc = old.find((o: Source) => o.id === src.id);
@@ -225,9 +219,7 @@ sources.subscribe(async (s: Source[]) => {
     });
 
     if (changedSources.length > 0) {
-        console.log('🢄Source enabled states changed:', changedSources.map(s => ({id: s.id, enabled: s.enabled})));
-
-        // Mapillary source changes now handled by worker
+        //console.log('🢄Source enabled states changed:', changedSources.map(s => ({id: s.id, enabled: s.enabled})));
     }
 });
 
