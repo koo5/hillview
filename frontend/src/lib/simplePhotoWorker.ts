@@ -100,7 +100,7 @@ class SimplePhotoWorker {
                 const rangePhotos = message.photosInRange || [];
 
                 // Clean up placeholders that match device photos
-                const devicePhotoIds = areaPhotos.filter(p => p.isDevicePhoto).map(p => p.id);
+                const devicePhotoIds = areaPhotos.filter((p: any) => p.isDevicePhoto).map((p: any) => p.id);
                 if (devicePhotoIds.length > 0) {
                     this.handlePlaceholderCleanup(devicePhotoIds);
                 }

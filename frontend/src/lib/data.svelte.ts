@@ -24,6 +24,9 @@ export interface Source {
     path?: string;
     // Device-specific properties
     subtype?: subtype;
+    // Mapillary-specific properties
+    clientId?: string;
+    backendUrl?: string;
 }
 
 const baseSources: Source[] = [

@@ -409,11 +409,6 @@
         font-weight: 500;
     }
 
-    .loading {
-        color: #2563eb;
-        font-size: 0.75rem;
-        margin: 8px 0 0 0;
-    }
 
     .source-controls {
         display: flex;

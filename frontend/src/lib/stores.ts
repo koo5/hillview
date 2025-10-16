@@ -19,6 +19,7 @@ export interface UserPhoto {
     sizes?: Record<string, { url: string; width: number; height: number; path?: string }>;
     user_rating?: 'thumbs_up' | 'thumbs_down' | null;  // User's current rating
     rating_counts?: { thumbs_up: number; thumbs_down: number };  // Aggregate counts
+    processing_status?: string;  // Photo processing status
 }
 
 // Store for photo capture settings

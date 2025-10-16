@@ -10,7 +10,7 @@
 	import PhotoItem from '$lib/components/PhotoItem.svelte';
 	import LoadMoreButton from '$lib/components/LoadMoreButton.svelte';
 
-	interface UserPhoto {
+	interface UsersPhotosItem {
 		id: string;
 		original_filename: string;
 		uploaded_at: string;
@@ -31,7 +31,7 @@
 	}
 
 	interface PhotosResponse {
-		photos: UserPhoto[];
+		photos: UsersPhotosItem[];
 		user: User;
 		pagination: {
 			next_cursor: string | null;
@@ -43,7 +43,7 @@
 	}
 
 	let userId: string;
-	let photos: UserPhoto[] = [];
+	let photos: UsersPhotosItem[] = [];
 	let user: User | null = null;
 	let loading = true;
 	let loadingMore = false;

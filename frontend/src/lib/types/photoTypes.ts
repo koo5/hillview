@@ -82,15 +82,6 @@ export interface PlaceholderPhoto extends PhotoData {
 /**
  * User uploaded photo
  */
-export interface UserPhoto {
-    id: number;
-    filename: string;
-    latitude: number;
-    longitude: number;
-    bearing?: number;
-    altitude?: number;
-    uploaded_at: string;
-}
 
 /**
  * Photo metadata for capture

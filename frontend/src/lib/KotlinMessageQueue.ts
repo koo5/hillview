@@ -19,7 +19,7 @@ export interface MessageHandler {
 
 export class KotlinMessageQueue {
     private handlers = new Map<string, MessageHandler[]>();
-    private pollingInterval: number | null = null;
+    private pollingInterval: ReturnType<typeof setInterval> | null = null;
     private isPolling = false;
 
     constructor() {
