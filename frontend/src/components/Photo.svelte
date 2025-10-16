@@ -83,6 +83,11 @@
 			try {
 				devicePhotoUrl = getDevicePhotoUrl(photo.url);
 				selectedUrl = devicePhotoUrl;
+				console.log('🢄Photo.svelte: Device photo URL conversion:', {
+					originalUrl: photo.url,
+					convertedUrl: devicePhotoUrl,
+					photoId: photo.id
+				});
 				return;
 			} catch (error) {
 				console.error('🢄Failed to load device photo:', error);
@@ -92,9 +97,12 @@
 		}
 
 		if (!photo.sizes) {
+			console.log('🢄Photo.svelte: No sizes, using photo.url:', photo.url);
 			selectedUrl = photo.url;
 			return;
 		}
+
+		console.log('🢄Photo.svelte: Processing sizes for photo:', photo.id, 'isDevice:', photo.isDevicePhoto, 'sizes:', Object.keys(photo.sizes), 'clientWidth:', clientWidth2);
 
 		// Find the best scaled version based on container width. Take the 'full' size if this fails
 		const sizes = Object.keys(photo.sizes).filter(size => size !== 'full').sort((a, b) => Number(a) - Number(b));
@@ -124,8 +132,13 @@
 		// Handle device photo URLs for full size
 		if (photo.isDevicePhoto && photo.sizes.full) {
 			selectedUrl = getDevicePhotoUrl(photo.sizes.full.url);
+			console.log('🢄Photo.svelte: Using full size for device photo:', photo.id, 'original:', photo.sizes.full.url, 'converted:', selectedUrl);
 		} else {
 			selectedUrl = photo.sizes.full?.url || '';
+			console.log('🢄Photo.svelte: Using full size for regular photo:', {
+				photoId: photo.id,
+				selectedUrl: selectedUrl
+			});
 		}
 	}
 

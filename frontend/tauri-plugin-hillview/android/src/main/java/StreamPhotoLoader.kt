@@ -167,14 +167,14 @@ class StreamPhotoLoader {
                     val currentLine = line
 
                     // Debug: Log all raw SSE lines
-                    Log.d(TAG, "StreamPhotoLoader: Raw SSE line: '$currentLine'")
+                    //Log.d(TAG, "StreamPhotoLoader: Raw SSE line: '$currentLine'")
 
                     when {
                         currentLine.isEmpty() -> {
                             // Empty line signals end of event
                             if (eventData.isNotEmpty()) {
                                 try {
-                                    Log.d(TAG, "StreamPhotoLoader: Processing event data: '$eventData' with type: '$eventType'")
+                                    //Log.d(TAG, "StreamPhotoLoader: Processing event data: '$eventData' with type: '$eventType'")
                                     val message = parseStreamMessage(eventData.toString(), eventType)
                                     Log.d(TAG, "StreamPhotoLoader: Parsed message type: ${message::class.simpleName}")
                                     emit(message)

@@ -215,21 +215,21 @@ export class KotlinPhotoWorker {
 
         try {
             // Parse the photos from the payload data
-            console.log('🔥 DEBUG: payload structure:', JSON.stringify(payload, null, 2));
+            //console.log('🔥 DEBUG: payload structure:', JSON.stringify(payload, null, 2));
             const photosInArea = JSON.parse(payload.photosInArea || '[]');
             const photosInRange = JSON.parse(payload.photosInRange || '[]');
             const timestamp = payload.timestamp;
 
-            console.log(`🢄KotlinPhotoWorker: Received async photos update via Tauri event: ${photosInArea.length} in area, ${photosInRange.length} in range`);
-            console.log('🔥 DEBUG: First photo:', photosInArea[0]);
+            //console.log(`🢄KotlinPhotoWorker: Received async photos update via Tauri event: ${photosInArea.length} in area, ${photosInRange.length} in range`);
+            //console.log('🔥 DEBUG: First photo:', photosInArea[0]);
 
             // Use photosInRange from Kotlin worker (should already be properly culled)
-            console.log('🔥 DEBUG: Using photosInRange from Kotlin worker:', photosInRange.length, 'photos');
+            //console.log('🔥 DEBUG: Using photosInRange from Kotlin worker:', photosInRange.length, 'photos');
 
             // Send photos update to frontend (matching Web Worker interface)
-            console.log('🔥 DEBUG: About to call onMessageCallback...');
+            //console.log('🔥 DEBUG: About to call onMessageCallback...');
             if (this.onMessageCallback) {
-                console.log('🔥 DEBUG: Calling onMessageCallback with', photosInArea.length, 'area photos and', photosInRange.length, 'range photos');
+                //console.log('🔥 DEBUG: Calling onMessageCallback with', photosInArea.length, 'area photos and', photosInRange.length, 'range photos');
                 this.onMessageCallback({
                     data: {
                         type: 'photosUpdate',
@@ -238,7 +238,7 @@ export class KotlinPhotoWorker {
                         timestamp: timestamp
                     }
                 });
-                console.log('🔥 DEBUG: onMessageCallback completed');
+                //console.log('🔥 DEBUG: onMessageCallback completed');
 
                 // Cleanup is now handled automatically in simplePhotoWorker's photosUpdate case
 
