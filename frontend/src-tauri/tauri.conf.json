@@ -22,14 +22,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' ipc: http://ipc.localhost; img-src 'self' asset: http://asset.localhost data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'",
-      "assetProtocol": {
-        "enable": true,
-        "scope": [
-          "/storage/emulated/0/Pictures/Hillview/**",
-          "/storage/emulated/0/Android/data/cz.hillview.dev/files/Pictures/**"
-        ]
-      }
+      "csp": null
     }
   },
   "plugins": {
