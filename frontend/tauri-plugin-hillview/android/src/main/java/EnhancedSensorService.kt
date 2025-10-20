@@ -97,9 +97,9 @@ class EnhancedSensorService(
     private var lastComplementaryUpdate = 0L
 
     // Calibration state
-    private var magnetometerCalibrationStatus = SensorManager.SENSOR_STATUS_UNRELIABLE
-    private var accelerometerCalibrationStatus = SensorManager.SENSOR_STATUS_UNRELIABLE
-    private var gyroscopeCalibrationStatus = SensorManager.SENSOR_STATUS_UNRELIABLE
+    private var magnetometerCalibrationStatus = -1
+    private var accelerometerCalibrationStatus = -1
+    private var gyroscopeCalibrationStatus = -1
 
     private var isRunning = false
     private var currentMode = MODE_ROTATION_VECTOR

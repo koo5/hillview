@@ -88,6 +88,9 @@ export const sensorAccuracy = writable<{
     timestamp: 0
 });
 
+// Store to track compass lag (time since last update)
+export const compassLag = writable<number | null>(null);
+
 // Permission state
 let permissionGranted = false;
 
@@ -97,6 +100,9 @@ let tauriSensorListener: PluginListener | null = null;
 
 // Accuracy polling
 let accuracyPollingInterval: number | null = null;
+
+// Lag monitoring
+let lagMonitoringInterval: number | null = null;
 
 // Throttling for compass updates using requestAnimationFrame
 let pendingCompassUpdate: CompassData | null = null;
@@ -270,6 +276,9 @@ export async function stopCompass() {
     // Stop accuracy polling
     stopAccuracyPolling();
 
+    // Stop lag monitoring
+    stopLagMonitoring();
+
     // Stop Tauri sensor if active
     if (tauriSensorListener) {
         // Try to unregister listener (may fail if backend doesn't have remove_listener)
@@ -383,6 +392,9 @@ export async function startCompass(mode?: SensorMode) {
             // Start accuracy polling for Android
             startAccuracyPolling();
 
+            // Start lag monitoring
+            startLagMonitoring();
+
             // Request location service for compass (needed for true north calculation)
             if (TAURI_MOBILE) {
                 try {
@@ -415,6 +427,10 @@ export async function startCompass(mode?: SensorMode) {
         compassError.set(null);
         currentSensorMode.set(sensorMode);
         // Note: No accuracy polling for web compass since it doesn't have sensor accuracy
+
+        // Start lag monitoring for web compass too
+        startLagMonitoring();
+
         return true;
     }
 
@@ -528,6 +544,35 @@ function stopAccuracyPolling() {
         console.log('🢄🔍🛑 Stopping sensor accuracy polling');
         clearInterval(accuracyPollingInterval);
         accuracyPollingInterval = null;
+    }
+}
+
+// Function to start monitoring compass lag
+function startLagMonitoring() {
+    if (lagMonitoringInterval !== null) {
+        return;
+    }
+
+    console.log('🢄🔍🕒 Starting compass lag monitoring');
+
+    // Check lag every 50ms
+    lagMonitoringInterval = window.setInterval(() => {
+        const currentData = get(compassData);
+        if (currentData.timestamp > 0) {
+            const now = Date.now();
+            const lag = now - currentData.timestamp;
+            compassLag.set(lag);
+        }
+    }, 100);
+}
+
+// Function to stop monitoring compass lag
+function stopLagMonitoring() {
+    if (lagMonitoringInterval !== null) {
+        console.log('🢄🔍🛑 Stopping compass lag monitoring');
+        clearInterval(lagMonitoringInterval);
+        lagMonitoringInterval = null;
+        compassLag.set(null);
     }
 }
 

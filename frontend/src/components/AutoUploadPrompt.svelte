@@ -54,7 +54,7 @@
 			if (visible) {
 				hideTimer = setTimeout(() => {
 					hidePrompt();
-				}, 5000);
+				}, 10000);
 			}
 	}
 

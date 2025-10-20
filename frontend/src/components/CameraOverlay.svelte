@@ -1,7 +1,7 @@
 <script lang="ts">
     import {cameraOverlayOpacity} from "$lib/data.svelte";
 	import {get} from "svelte/store";
-    import {sensorAccuracy} from "$lib/compass.svelte";
+    import {sensorAccuracy, compassLag} from "$lib/compass.svelte";
     import {bearingState} from "$lib/mapState";
 
     export let locationData: {
@@ -11,9 +11,28 @@
         accuracy?: number;
         heading?: number | null;
     } | null = null;
-    
+
     export let locationError: string | null = null;
     export let locationReady = false;
+
+    // Convert Android sensor accuracy integer to human-readable string
+    function accuracyToString(accuracy: number): string {
+        switch (accuracy) {
+            case 3: return "HIGH";
+            case 2: return "MEDIUM";
+            case 1: return "LOW";
+            case 0: return "UNRELIABLE";
+            default: return "UNKNOWN";
+        }
+    }
+
+    // Get lag color class based on lag value (100ms = good, 400ms = bad)
+    function getLagColorClass(lag: number): string {
+        if (lag <= 100) return "lag-good";
+        if (lag <= 200) return "lag-medium";
+        if (lag <= 300) return "lag-poor";
+        return "lag-bad";
+    }
 
     // Toggle overlay opacity through 6 levels: 0 (fully transparent) to 5 (most opaque)
     function toggleOverlayOpacity() {
@@ -23,8 +42,8 @@
     }
 </script>
 
-<div 
-    class="location-overlay {locationReady ? 'ready' : ''} {locationError ? 'error' : ''}" 
+<div
+    class="location-overlay {locationReady ? 'ready' : ''} {locationError ? 'error' : ''}"
     class:opacity-0={$cameraOverlayOpacity === 0}
     class:opacity-1={$cameraOverlayOpacity === 1}
     class:opacity-2={$cameraOverlayOpacity === 2}
@@ -78,7 +97,7 @@
         <div class="accuracy-section">
             <div class="location-row accuracy-row">
                 <span class="icon">⚙️</span>
-                <span class="accuracy-title">Sensor Status</span>
+                <span class="accuracy-title">Accuracy</span>
             </div>
             <div class="accuracy-details">
                 {#if $sensorAccuracy.magnetometer}
@@ -110,7 +129,15 @@
     {#if $bearingState.accuracy !== null && $bearingState.accuracy !== undefined}
         <div class="location-row">
             <span class="icon">🧭</span>
-            <span>Heading ±{$bearingState.accuracy.toFixed(1)}°</span>
+            <span>Compass: <span class="accuracy-value accuracy-{accuracyToString($bearingState.accuracy).toLowerCase()}">{accuracyToString($bearingState.accuracy)}</span></span>
+        </div>
+    {/if}
+
+    <!-- Compass Lag Information -->
+    {#if $compassLag !== null}
+        <div class="location-row">
+            <span class="icon">⏱️</span>
+            <span>Lag: <span class="accuracy-value {getLagColorClass($compassLag)}">{$compassLag}ms</span></span>
         </div>
     {/if}
 </div>
@@ -119,8 +146,8 @@
     .location-overlay {
         position: absolute;
         top: 80px;
-        left: 1rem;
-        padding: 0.25rem;
+        left: 0rem;
+        padding: 0rem;
         border-radius: 8px;
         font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
         font-size: 0.85rem;
@@ -274,6 +301,27 @@
 
     .accuracy-unknown {
         background: rgba(158, 158, 158, 0.7);
+        color: white;
+    }
+
+    /* Lag level styling */
+    .lag-good {
+        background: rgba(76, 175, 80, 0.7);
+        color: white;
+    }
+
+    .lag-medium {
+        background: rgba(255, 193, 7, 0.7);
+        color: black;
+    }
+
+    .lag-poor {
+        background: rgba(255, 152, 0, 0.7);
+        color: white;
+    }
+
+    .lag-bad {
+        background: rgba(244, 67, 54, 0.7);
         color: white;
     }
 </style>
