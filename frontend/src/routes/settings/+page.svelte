@@ -41,6 +41,8 @@
 			onSaveError={(message) => showAlert(message, 'error')}
 		/>
 
+		<div class="section-divider"></div>
+		<h2>Sources Settings</h2>
            <a href="/settings/sources" data-testid="sources-menu-link">
                 <Database size={18}/>
                 Sources
