@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-get-sensor-accuracy"
+description = "Enables the getSensorAccuracy command without any pre-configured scope."
+commands.allow = ["getSensorAccuracy"]
+
+[[permission]]
+identifier = "deny-get-sensor-accuracy"
+description = "Denies the getSensorAccuracy command without any pre-configured scope."
+commands.deny = ["getSensorAccuracy"]

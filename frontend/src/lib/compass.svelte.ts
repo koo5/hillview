@@ -104,7 +104,7 @@ let compassUpdateScheduled = false;
 
 function scheduleCompassUpdate(data: CompassData) {
     pendingCompassUpdate = data;
-    
+
     if (!compassUpdateScheduled) {
         compassUpdateScheduled = true;
         requestAnimationFrame(() => {
@@ -140,9 +140,9 @@ async function startTauriSensor(mode: SensorMode = SensorMode.UPRIGHT_ROTATION_V
             console.warn('🢄🔍 Tauri sensor not available');
             return false;
         }
-        
+
         const sensor = tauriSensor!;
-        
+
         console.log('🢄🔍🔄 Starting Tauri sensor with mode:', SensorMode[mode]);
         console.log('🢄🔍 About to call sensor.startSensor()...');
         try {
@@ -155,7 +155,7 @@ async function startTauriSensor(mode: SensorMode = SensorMode.UPRIGHT_ROTATION_V
 
         // Set up sensor data listener
         console.log('🢄🔍 About to set up sensor data listener...');
-        
+
         tauriSensorListener = await sensor.onSensorData((data: SensorData) => {
             //console.log('🢄🔍📡 Native sensor data received:', JSON.stringify(data));
 
@@ -169,7 +169,7 @@ async function startTauriSensor(mode: SensorMode = SensorMode.UPRIGHT_ROTATION_V
                 timestamp: sensorData.timestamp,
                 source: sensorData.source || 'tauri'
             };
-            
+
             scheduleCompassUpdate(compassUpdate);
 
             if (false) {
@@ -214,7 +214,7 @@ async function startWebCompass(): Promise<boolean> {
             // Extract compass data
             const magneticHeading = event.webkitCompassHeading ?? event.alpha;
             const accuracy = event.webkitCompassAccuracy ?? null;
-            
+
             // Some browsers provide true heading directly
             const trueHeading = event.compassHeading ?? null;
 
@@ -225,10 +225,10 @@ async function startWebCompass(): Promise<boolean> {
                 timestamp: Date.now(),
                 source: 'web'
             };
-            
+
             scheduleCompassUpdate(data);
             lastSensorUpdate.set(Date.now());
-            
+
             // Log occasional updates
             if (false) {
                 console.log('🢄🌐 Web Compass update:', JSON.stringify({
@@ -340,7 +340,7 @@ export async function requestCompassPermission(): Promise<boolean> {
         permissionGranted = true;
         return true;
     }
-    
+
     // Check if we need permission (iOS 13+)
     if (typeof (DeviceOrientationEvent as any).requestPermission === 'function') {
         try {
@@ -355,7 +355,7 @@ export async function requestCompassPermission(): Promise<boolean> {
             return false;
         }
     }
-    
+
     // No permission needed
     permissionGranted = true;
     return true;
@@ -365,7 +365,7 @@ export async function requestCompassPermission(): Promise<boolean> {
 export async function startCompass(mode?: SensorMode) {
     const sensorMode = mode ?? get(currentSensorMode);
     //console.log('🢄🧭 Starting compass with mode:', SensorMode[sensorMode]);
-    
+
     // If WEB_DEVICE_ORIENTATION mode is selected, skip Tauri and go straight to web API
     if (sensorMode === SensorMode.WEB_DEVICE_ORIENTATION) {
         console.log('🢄🌐 WEB_DEVICE_ORIENTATION mode selected, using web API');
@@ -398,7 +398,7 @@ export async function startCompass(mode?: SensorMode) {
         }
         console.warn('🢄🔍⚠️ Tauri sensor failed, falling back to web APIs');
     }
-    
+
     // Check permission for web APIs
     if (!permissionGranted) {
         const granted = await requestCompassPermission();
@@ -407,7 +407,7 @@ export async function startCompass(mode?: SensorMode) {
             return false;
         }
     }
-    
+
     // Try web compass
     const webSuccess = await startWebCompass();
     if (webSuccess) {
@@ -417,7 +417,7 @@ export async function startCompass(mode?: SensorMode) {
         // Note: No accuracy polling for web compass since it doesn't have sensor accuracy
         return true;
     }
-    
+
     compassError.set('No compass available on this device');
     return false;
 }
@@ -434,8 +434,8 @@ declare global {
 
 // Export a function to get compass availability
 export function isCompassAvailable(): boolean {
-    return isSensorAvailable() || 
-           'ondeviceorientationabsolute' in window || 
+    return isSensorAvailable() ||
+           'ondeviceorientationabsolute' in window ||
            'ondeviceorientation' in window;
 }
 
@@ -486,9 +486,9 @@ export async function getSensorAccuracy(): Promise<{
     }
 
     try {
-        console.log('🢄🔍📊 Getting sensor accuracy from native plugin');
+        //console.log('🢄🔍📊 Getting sensor accuracy from native plugin');
         const result = await invoke('plugin:hillview|getSensorAccuracy');
-        console.log('🢄🔍✅ Sensor accuracy retrieved:', result);
+        //console.log('🢄🔍✅ Sensor accuracy retrieved:', result);
         return result as {
             magnetometer: string;
             accelerometer: string;
@@ -573,7 +573,7 @@ currentCompassHeading.subscribe(compass => {
     // Update map bearing
 	const currentBearing = get(bearingState).bearing;
 	if (isNaN(currentBearing) || currentBearing === null || (Math.abs(smoothedBearing - currentBearing) > 1)) {
-		updateBearing(smoothedBearing, compass.source);
+		updateBearing(smoothedBearing, compass.source, undefined, compass.accuracy);
 	}
 });
 

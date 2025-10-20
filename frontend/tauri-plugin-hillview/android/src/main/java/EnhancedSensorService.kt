@@ -297,17 +297,17 @@ class EnhancedSensorService(
         Log.d(TAG, "📍 Updated location: $latitude, $longitude")
     }
 
-    fun getSensorAccuracy(): Map<String, String> {
-        val accuracyToString = { accuracy: Int ->
-            when (accuracy) {
-                SensorManager.SENSOR_STATUS_ACCURACY_HIGH -> "HIGH"
-                SensorManager.SENSOR_STATUS_ACCURACY_MEDIUM -> "MEDIUM"
-                SensorManager.SENSOR_STATUS_ACCURACY_LOW -> "LOW"
-                SensorManager.SENSOR_STATUS_UNRELIABLE -> "UNRELIABLE"
-                else -> "UNKNOWN"
-            }
+    private fun accuracyToString(accuracy: Int): String {
+        return when (accuracy) {
+            SensorManager.SENSOR_STATUS_ACCURACY_HIGH -> "HIGH"
+            SensorManager.SENSOR_STATUS_ACCURACY_MEDIUM -> "MEDIUM"
+            SensorManager.SENSOR_STATUS_ACCURACY_LOW -> "LOW"
+            SensorManager.SENSOR_STATUS_UNRELIABLE -> "UNRELIABLE"
+            else -> "UNKNOWN"
         }
+    }
 
+    fun getSensorAccuracy(): Map<String, String> {
         return mapOf(
             "magnetometer" to accuracyToString(magnetometerCalibrationStatus),
             "accelerometer" to accuracyToString(accelerometerCalibrationStatus),
@@ -365,13 +365,7 @@ class EnhancedSensorService(
     }
 
     override fun onAccuracyChanged(sensor: Sensor, accuracy: Int) {
-        val accuracyStr = when (accuracy) {
-            SensorManager.SENSOR_STATUS_ACCURACY_HIGH -> "HIGH"
-            SensorManager.SENSOR_STATUS_ACCURACY_MEDIUM -> "MEDIUM"
-            SensorManager.SENSOR_STATUS_ACCURACY_LOW -> "LOW"
-            SensorManager.SENSOR_STATUS_UNRELIABLE -> "UNRELIABLE"
-            else -> "UNKNOWN"
-        }
+        val accuracyStr = accuracyToString(accuracy)
 
         when (sensor.type) {
             Sensor.TYPE_MAGNETIC_FIELD -> {
@@ -437,12 +431,8 @@ class EnhancedSensorService(
         val declination = getMagneticDeclination()
         val trueHeading = (heading + declination + 360) % 360
 
-        // Calculate accuracy based on sensor type and device orientation
-        val accuracy = when (source) {
-            "TYPE_GAME_ROTATION_VECTOR" -> getGameRotationAccuracy(pitch, roll)
-            "TYPE_GEOMAGNETIC_ROTATION_VECTOR" -> getGeomagneticAccuracy(pitch, roll)
-            else -> getStandardAccuracy(pitch, roll)
-        }
+        // Use the actual sensor accuracy reported by the system
+        val accuracy = event.accuracy.toFloat()
 
         // Log every 20th update to avoid spam
         /*if (Math.random() < 0.05) {

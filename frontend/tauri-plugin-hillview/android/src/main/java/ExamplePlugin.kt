@@ -497,7 +497,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
 
     @Command
     fun getSensorAccuracy(invoke: Invoke) {
-        Log.d(TAG, "🔍 get_sensor_accuracy command called")
+        //Log.d(TAG, "🔍 get_sensor_accuracy command called")
 
         val accuracy = sensorService?.getSensorAccuracy() ?: mapOf(
             "magnetometer" to "UNKNOWN",

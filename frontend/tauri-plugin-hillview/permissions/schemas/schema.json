@@ -343,6 +343,18 @@
           "markdownDescription": "Denies the get_device_photos command without any pre-configured scope."
         },
         {
+          "description": "Enables the getSensorAccuracy command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-sensor-accuracy",
+          "markdownDescription": "Enables the getSensorAccuracy command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the getSensorAccuracy command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-sensor-accuracy",
+          "markdownDescription": "Denies the getSensorAccuracy command without any pre-configured scope."
+        },
+        {
           "description": "Enables the get_upload_status command without any pre-configured scope.",
           "type": "string",
           "const": "allow-get-upload-status",
@@ -595,10 +607,10 @@
           "markdownDescription": "Denies the update_sensor_location command without any pre-configured scope."
         },
         {
-          "description": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-ping`\n- `allow-start-sensor`\n- `allow-stop-sensor`\n- `allow-update-sensor-location`\n- `allow-registerListener`\n- `allow-start-precise-location-listener`\n- `allow-stop-precise-location-listener`\n- `allow-set-auto-upload-enabled`\n- `allow-get-upload-status`\n- `allow-set-upload-config`\n- `allow-retry-failed-uploads`\n- `allow-store-auth-token`\n- `allow-get-auth-token`\n- `allow-clear-auth-token`\n- `allow-refresh-auth-token`\n- `allow-is-token-expired`\n- `allow-check-camera-permission`\n- `allow-request-camera-permission`\n- `allow-test-auth-expired-notification`\n- `allow-get-device-photos`\n- `allow-refresh-photo-scan`\n- `allow-import-photos`\n- `allow-share-photo`\n- `allow-photo-worker-process`",
+          "description": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-ping`\n- `allow-start-sensor`\n- `allow-stop-sensor`\n- `allow-get-sensor-accuracy`\n- `allow-update-sensor-location`\n- `allow-registerListener`\n- `allow-start-precise-location-listener`\n- `allow-stop-precise-location-listener`\n- `allow-set-auto-upload-enabled`\n- `allow-get-upload-status`\n- `allow-set-upload-config`\n- `allow-retry-failed-uploads`\n- `allow-store-auth-token`\n- `allow-get-auth-token`\n- `allow-clear-auth-token`\n- `allow-refresh-auth-token`\n- `allow-is-token-expired`\n- `allow-check-camera-permission`\n- `allow-request-camera-permission`\n- `allow-test-auth-expired-notification`\n- `allow-get-device-photos`\n- `allow-refresh-photo-scan`\n- `allow-import-photos`\n- `allow-share-photo`\n- `allow-photo-worker-process`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-ping`\n- `allow-start-sensor`\n- `allow-stop-sensor`\n- `allow-update-sensor-location`\n- `allow-registerListener`\n- `allow-start-precise-location-listener`\n- `allow-stop-precise-location-listener`\n- `allow-set-auto-upload-enabled`\n- `allow-get-upload-status`\n- `allow-set-upload-config`\n- `allow-retry-failed-uploads`\n- `allow-store-auth-token`\n- `allow-get-auth-token`\n- `allow-clear-auth-token`\n- `allow-refresh-auth-token`\n- `allow-is-token-expired`\n- `allow-check-camera-permission`\n- `allow-request-camera-permission`\n- `allow-test-auth-expired-notification`\n- `allow-get-device-photos`\n- `allow-refresh-photo-scan`\n- `allow-import-photos`\n- `allow-share-photo`\n- `allow-photo-worker-process`"
+          "markdownDescription": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-ping`\n- `allow-start-sensor`\n- `allow-stop-sensor`\n- `allow-get-sensor-accuracy`\n- `allow-update-sensor-location`\n- `allow-registerListener`\n- `allow-start-precise-location-listener`\n- `allow-stop-precise-location-listener`\n- `allow-set-auto-upload-enabled`\n- `allow-get-upload-status`\n- `allow-set-upload-config`\n- `allow-retry-failed-uploads`\n- `allow-store-auth-token`\n- `allow-get-auth-token`\n- `allow-clear-auth-token`\n- `allow-refresh-auth-token`\n- `allow-is-token-expired`\n- `allow-check-camera-permission`\n- `allow-request-camera-permission`\n- `allow-test-auth-expired-notification`\n- `allow-get-device-photos`\n- `allow-refresh-photo-scan`\n- `allow-import-photos`\n- `allow-share-photo`\n- `allow-photo-worker-process`"
         }
       ]
     }

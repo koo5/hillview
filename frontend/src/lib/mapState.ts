@@ -28,6 +28,7 @@ export interface BearingState {
 	bearing: number;
 	source: string;
 	photoUid?: string;
+	accuracy?: number | null;
 }
 
 // Bearing mode for controlling automatic bearing source
@@ -46,7 +47,8 @@ export const spatialState = localStorageReadOnceSharedStore<SpatialState>('spati
 // Visual state - only affects rendering, optimized with debounced writes
 export const bearingState = staggeredLocalStorageSharedStore<BearingState>('bearingState', {
 	bearing: 230,
-	source: 'map'
+	source: 'map',
+	accuracy: null
 }, 500);
 
 // Bearing mode state - controls automatic bearing source (car = GPS, walking = compass)
@@ -204,8 +206,8 @@ export function updateSpatialState(updates: Partial<SpatialState>, source: 'gps'
 	spatialState.update(state => ({...state, ...updates, source}));
 }
 
-export function updateBearing(bearing: number, source: string = 'map', photoUid?: string) {
-	bearingState.update(state => ({...state, bearing, source, photoUid}));
+export function updateBearing(bearing: number, source: string = 'map', photoUid?: string, accuracy?: number | null) {
+	bearingState.update(state => ({...state, bearing, source, photoUid, accuracy}));
 }
 
 export function updateBearingByDiff(diff: number) {

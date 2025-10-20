@@ -7,6 +7,7 @@ Default permissions for the plugin
 - `allow-ping`
 - `allow-start-sensor`
 - `allow-stop-sensor`
+- `allow-get-sensor-accuracy`
 - `allow-update-sensor-location`
 - `allow-registerListener`
 - `allow-start-precise-location-listener`
@@ -138,6 +139,32 @@ Enables the get_device_photos command without any pre-configured scope.
 <td>
 
 Denies the get_device_photos command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:allow-get-sensor-accuracy`
+
+</td>
+<td>
+
+Enables the getSensorAccuracy command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:deny-get-sensor-accuracy`
+
+</td>
+<td>
+
+Denies the getSensorAccuracy command without any pre-configured scope.
 
 </td>
 </tr>
