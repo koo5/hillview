@@ -28,9 +28,9 @@
 
     // Get lag color class based on lag value (100ms = good, 400ms = bad)
     function getLagColorClass(lag: number): string {
-        if (lag <= 100) return "lag-good";
-        if (lag <= 200) return "lag-medium";
-        if (lag <= 300) return "lag-poor";
+        if (lag <= 200) return "lag-good";
+        if (lag <= 400) return "lag-medium";
+        if (lag <= 600) return "lag-poor";
         return "lag-bad";
     }
 
