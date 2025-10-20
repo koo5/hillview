@@ -527,7 +527,7 @@
 									<button class="action-button upload" data-testid="manual-upload-button"
 											data-photo-id={photo.id} on:click={() => manualUpload(photo.id)}>
 										<Upload size={16}/>
-										Manual Upload
+										Retry Uploads
 									</button>
 								{/if}
 								<button class="action-button delete" data-testid="delete-photo-button"

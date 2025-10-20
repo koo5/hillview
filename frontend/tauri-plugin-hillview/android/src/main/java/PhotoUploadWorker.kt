@@ -66,7 +66,7 @@ class PhotoUploadWorker(
 
                     if (timeSinceLastAttempt < requiredWaitTime) {
                         Log.d(TAG, "Skipping retry for ${photo.filename} - not enough time elapsed")
-                        break // Stop processing as all remaining failed photos will also need more time
+                        //break // Stop processing as all remaining failed photos will also need more time
                     }
                 }
 
