@@ -8,6 +8,7 @@ import android.hardware.SensorManager
 import android.hardware.GeomagneticField
 import android.location.Location
 import android.location.LocationManager
+import android.os.Process
 import android.util.Log
 import kotlin.math.*
 
@@ -83,6 +84,9 @@ class EnhancedSensorService(
 
     // Sensor fusion algorithms
     private val madgwickAHRS = MadgwickAHRS(sampleFreq = 50f, beta = 0.1f)
+
+    // Thread priority management
+    private var originalThreadPriority: Int? = null
 
     // Sensor data buffers
     private var accelerometerData = FloatArray(3)
@@ -168,6 +172,17 @@ class EnhancedSensorService(
         currentMode = mode
         Log.i(TAG, "🔍🚀 Starting enhanced sensor service")
         Log.i(TAG, "🔍📋 Mode: ${MODE_NAMES[mode]} (code: $mode)")
+
+        // Boost thread priority for sensor processing to prevent starvation during photo capture
+        try {
+            if (originalThreadPriority == null) {
+                originalThreadPriority = Process.getThreadPriority(Process.myTid())
+            }
+            Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_DISPLAY)
+            Log.i(TAG, "🚀 SENSOR THREAD PRIORITY: boosted from ${originalThreadPriority} to ${Process.THREAD_PRIORITY_URGENT_DISPLAY}")
+        } catch (e: Exception) {
+            Log.w(TAG, "⚠️ Failed to set sensor thread priority: ${e.message}")
+        }
 
         when (mode) {
             MODE_ROTATION_VECTOR -> {
@@ -729,6 +744,8 @@ class EnhancedSensorService(
         roll: Float,
         source: String
     ) {
+        val startTime = System.currentTimeMillis()
+        Log.v(TAG, "TIMING 🕐 sendSensorData START: ${startTime} from $source")
         // Apply EMA smoothing
         smoothedMagneticHeading = applySmoothingEMA(magneticHeading, smoothedMagneticHeading, isAngle = true)
         smoothedTrueHeading = applySmoothingEMA(trueHeading, smoothedTrueHeading, isAngle = true)
@@ -745,12 +762,8 @@ class EnhancedSensorService(
 
         // Check if changes are significant enough to warrant an update
         if (!hasSignificantChange(finalMagneticHeading, finalTrueHeading, finalAccuracy, finalPitch, finalRoll)) {
-            // Log suppressed update occasionally
-            /*if (Math.random() < 0.01) {
-                Log.v(TAG, "🔇 Suppressing update - changes below significance threshold")
-                Log.v(TAG, "  Raw: mag=${magneticHeading.format(1)}°, true=${trueHeading.format(1)}°, pitch=${pitch.format(1)}°, roll=${roll.format(1)}°")
-                Log.v(TAG, "  Smoothed: mag=${finalMagneticHeading.format(1)}°, true=${finalTrueHeading.format(1)}°, pitch=${finalPitch.format(1)}°, roll=${finalRoll.format(1)}°")
-            }*/
+            val suppressTime = System.currentTimeMillis()
+            Log.v(TAG, "TIMING 🔇 sendSensorData SUPPRESSED: ${suppressTime} (${suppressTime - startTime}ms) - changes below threshold")
             return
         }
 
@@ -779,6 +792,12 @@ class EnhancedSensorService(
             source = "$source (EMA smoothed)"
         )
 
+        val sendTime = System.currentTimeMillis()
+        Log.v(TAG, "TIMING 📡 sendSensorData SENDING: ${sendTime} (${sendTime - startTime}ms) bearing=${finalMagneticHeading.format(1)}°")
+
         onSensorUpdate(data)
+
+        val endTime = System.currentTimeMillis()
+        Log.v(TAG, "TIMING ✅ sendSensorData COMPLETE: ${endTime} (total: ${endTime - startTime}ms, send: ${endTime - sendTime}ms)")
     }
 }

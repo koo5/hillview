@@ -41,7 +41,8 @@ async function processQueue() {
 
 async function processCanvas(item: CaptureQueueItem): Promise<void> {
     try {
-        log('Processing canvas', { itemId: item.id });
+        const workerStartTime = performance.now();
+        log(`TIMING 🕐 WORKER START: ${workerStartTime.toFixed(1)}ms - Processing canvas`, { itemId: item.id });
         log('OffscreenCanvas available:', typeof OffscreenCanvas !== 'undefined');
         log('ImageData size:', JSON.stringify(
 			{ width: item.imageData.width, height: item.imageData.height }));
@@ -51,22 +52,31 @@ async function processCanvas(item: CaptureQueueItem): Promise<void> {
             throw new Error('OffscreenCanvas not supported in worker');
         }
 
+        const canvasCreateStartTime = performance.now();
         log('Creating OffscreenCanvas...');
         const canvas = new OffscreenCanvas(item.imageData.width, item.imageData.height);
-        log('OffscreenCanvas created successfully');
+        const canvasCreateEndTime = performance.now();
+        log(`TIMING 🖼️ WORKER CANVAS CREATE: ${(canvasCreateEndTime - canvasCreateStartTime).toFixed(1)}ms`);
+
         const context = canvas.getContext('2d');
         if (!context) {
             throw new Error('Failed to get offscreen canvas context');
         }
 
         // Draw image data to canvas
+        const putDataStartTime = performance.now();
         context.putImageData(item.imageData, 0, 0);
+        const putDataEndTime = performance.now();
+        log(`TIMING 📊 WORKER PUT IMAGE DATA: ${(putDataEndTime - putDataStartTime).toFixed(1)}ms`);
 
         // Convert canvas to blob
+        const blobStartTime = performance.now();
         const blob = await canvas.convertToBlob({
             type: 'image/jpeg',
             quality: 0.95
         });
+        const blobEndTime = performance.now();
+        log(`TIMING 🗜️ WORKER CONVERT TO BLOB: ${(blobEndTime - blobStartTime).toFixed(1)}ms`);
 
         if (!blob) {
             throw new Error('Failed to create blob from canvas');
@@ -78,9 +88,12 @@ async function processCanvas(item: CaptureQueueItem): Promise<void> {
         }));
 
         // Convert blob to array buffer for Rust
+        const arrayBufferStartTime = performance.now();
         const arrayBuffer = await blob.arrayBuffer();
         const uint8Array = new Uint8Array(arrayBuffer);
         const imageData = Array.from(uint8Array);
+        const arrayBufferEndTime = performance.now();
+        log(`TIMING 🔄 WORKER ARRAY BUFFER CONVERSION: ${(arrayBufferEndTime - arrayBufferStartTime).toFixed(1)}ms, size: ${imageData.length} bytes`);
 
         // Send image data in chunks to keep UI responsive
         const CHUNK_SIZE = 100 * 1024; // 100KB chunks
@@ -93,8 +106,12 @@ async function processCanvas(item: CaptureQueueItem): Promise<void> {
             chunkSize: CHUNK_SIZE
         });
 
+        const chunkingStartTime = performance.now();
+        let totalDelayTime = 0;
+
         // Send chunks with small delays to keep UI responsive
         for (let i = 0; i < totalChunks; i++) {
+            const chunkStartTime = performance.now();
             const start = i * CHUNK_SIZE;
             const end = Math.min(start + CHUNK_SIZE, imageData.length);
             const chunk = imageData.slice(start, end);
@@ -110,11 +127,23 @@ async function processCanvas(item: CaptureQueueItem): Promise<void> {
                 item: i === totalChunks - 1 ? item : undefined // Only send item with last chunk
             });
 
-            // Small delay between chunks to keep UI responsive
+            const chunkEndTime = performance.now();
+
+            // Small delay between chunks to keep UI responsive - reduced from 150ms to 25ms
             if (i < totalChunks - 1) {
-                await new Promise(resolve => setTimeout(resolve, 150));
+                const delayStartTime = performance.now();
+                await new Promise(resolve => setTimeout(resolve, 25));
+                const delayEndTime = performance.now();
+                totalDelayTime += (delayEndTime - delayStartTime);
+                log(`TIMING ⏱️ WORKER CHUNK ${i+1}/${totalChunks}: ${(chunkEndTime - chunkStartTime).toFixed(1)}ms + 25ms delay`);
+            } else {
+                log(`TIMING 📦 WORKER FINAL CHUNK ${i+1}/${totalChunks}: ${(chunkEndTime - chunkStartTime).toFixed(1)}ms`);
             }
         }
+
+        const chunkingEndTime = performance.now();
+        const workerEndTime = performance.now();
+        log(`TIMING ✅ WORKER COMPLETE: total=${(workerEndTime - workerStartTime).toFixed(1)}ms, chunking=${(chunkingEndTime - chunkingStartTime).toFixed(1)}ms, delays=${totalDelayTime.toFixed(1)}ms`);
 	} catch (error) {
 		const errorMessage = error instanceof Error ? error.message : String(error);
 		log('Error processing canvas', JSON.stringify(errorMessage));

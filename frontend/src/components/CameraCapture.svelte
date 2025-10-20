@@ -698,7 +698,11 @@
         playShutterSound();
 
         try {
+            const captureStartTime = performance.now();
+            console.log(`TIMING 🕐 PHOTO CAPTURE START: ${captureStartTime.toFixed(1)}ms`);
+
             // Get ImageData directly from canvas
+            const canvasStartTime = performance.now();
             const canvas = document.createElement('canvas');
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
@@ -710,12 +714,16 @@
             }
 
             // Draw video frame to canvas
+            const drawStartTime = performance.now();
             context.drawImage(video, 0, 0);
-            console.log('🢄Capture: Drew video frame to canvas');
+            const drawEndTime = performance.now();
+            console.log(`TIMING 🖼️ CANVAS DRAW: ${(drawEndTime - drawStartTime).toFixed(1)}ms`);
 
             // Get ImageData from canvas
+            const getDataStartTime = performance.now();
             const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-            console.log('🢄Capture: Got ImageData from canvas');
+            const getDataEndTime = performance.now();
+            console.log(`TIMING 📊 GET IMAGE DATA: ${(getDataEndTime - getDataStartTime).toFixed(1)}ms, size: ${imageData.data.length} bytes`);
 
             // Add to capture queue with ImageData
             await captureQueue.add({
@@ -731,7 +739,12 @@
             photoCapturedCount++;
             console.log(`🢄photoCapturedCount: ${photoCapturedCount}`);
 
+            const captureEndTime = performance.now();
+            console.log(`TIMING ✅ PHOTO CAPTURE COMPLETE: ${(captureEndTime - captureStartTime).toFixed(1)}ms total`);
+
         } catch (error) {
+            const captureErrorTime = performance.now();
+            console.log(`TIMING ❌ PHOTO CAPTURE ERROR: ${(captureErrorTime - captureStartTime).toFixed(1)}ms before error`);
             // Get detailed error information
             const errorInfo = {
                 name: (error as any)?.name,
