@@ -4,8 +4,8 @@
     import StandardBody from '../../components/StandardBody.svelte';
 </script>
 
-<StandardHeaderWithAlert 
-    title="Download App" 
+<StandardHeaderWithAlert
+    title="Download App"
     showMenuButton={true}
     fallbackHref="/"
 />
@@ -22,18 +22,17 @@
         </div>
 
         <div class="download-section">
-            <a href="/downloads/hillview.apk" download class="download-button" data-testid="download-apk-button">
+            <a href="/downloads/release.html" download class="download-button" data-testid="download-apk-button">
                 <Download size={24} />
                 Download Android APK
             </a>
-            
+
             <div class="info">
                 <h3>Installation Instructions</h3>
                 <ol>
                     <li>Download the APK file above</li>
                     <li>Enable "Install from unknown sources" in your Android settings</li>
                     <li>Open the downloaded APK file and follow the installation prompts</li>
-                    <li>Launch Hillview and start mapping your photos!</li>
                 </ol>
             </div>
 
@@ -41,9 +40,7 @@
                 <h3>System Requirements</h3>
                 <ul>
                     <li>Android 7.0 (API level 24) or higher</li>
-                    <li>Camera permissions for photo capture</li>
-                    <li>Location permissions for GPS tracking</li>
-                    <li>Internet connection for map data</li>
+                    <li>Internet connection</li>
                 </ul>
             </div>
         </div>

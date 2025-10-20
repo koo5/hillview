@@ -5,6 +5,8 @@
     import { auth, logout } from '$lib/auth.svelte';
     import { FEATURE_USER_ACCOUNTS } from '$lib/config';
     import { BUILD_TIME, BUILD_VERSION, formatBuildTime } from '$lib/buildInfo';
+    import { TAURI } from '$lib/tauri.js';
+    import { openExternalUrl } from '$lib/urlUtils';
 
     export let isOpen = false;
     export let onClose: () => void = () => {};
@@ -22,6 +24,18 @@
 
     function closeMenu() {
         onClose();
+    }
+
+    // Handle click events on external links (same pattern as about page)
+    async function handleExternalClick(event: Event) {
+        const target = event.target as HTMLElement;
+        const link = target.closest('a[data-external-link="true"]') as HTMLAnchorElement;
+
+        if (link && link.href) {
+            event.preventDefault(); // Prevent default navigation
+            closeMenu();
+            await openExternalUrl(link.href);
+        }
     }
 
     function formatUtcDate(date: Date): string {
@@ -45,7 +59,7 @@
 
     <nav class="nav-menu">
 
-        <ul class="menu-list">
+        <ul class="menu-list" on:click={handleExternalClick} role="presentation">
             <li><a href="/" on:click={closeMenu}>
                 <Map size={18}/>
                 Map
@@ -73,7 +87,7 @@
             </a></li>
 
             <li>
-                <a href="/download" on:click={closeMenu}>
+                <a href="/download" data-external-link="true" target="_blank" rel="noopener noreferrer">
                     <Download size={18}/>
                     Download App
                 </a>
