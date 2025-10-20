@@ -1,6 +1,7 @@
 import { writable, derived, get } from 'svelte/store';
 import { TAURI, TAURI_MOBILE, tauriSensor, isSensorAvailable, type SensorData, SensorMode } from './tauri';
 import {PluginListener} from "@tauri-apps/api/core";
+import { invoke } from '@tauri-apps/api/core';
 import { locationManager } from './locationManager';
 import {bearingMode, bearingState, updateBearing} from "$lib/mapState";
 
@@ -74,12 +75,28 @@ export const lastSensorUpdate = writable<number | null>(null);
 // Store to track current sensor mode
 export const currentSensorMode = writable<SensorMode>(SensorMode.UPRIGHT_ROTATION_VECTOR);
 
+// Store to track sensor accuracy status
+export const sensorAccuracy = writable<{
+    magnetometer: string | null;
+    accelerometer: string | null;
+    gyroscope: string | null;
+    timestamp: number;
+}>({
+    magnetometer: null,
+    accelerometer: null,
+    gyroscope: null,
+    timestamp: 0
+});
+
 // Permission state
 let permissionGranted = false;
 
 // Track active listeners
 let orientationHandler: ((event: DeviceOrientationEvent) => void) | null = null;
 let tauriSensorListener: PluginListener | null = null;
+
+// Accuracy polling
+let accuracyPollingInterval: number | null = null;
 
 // Throttling for compass updates using requestAnimationFrame
 let pendingCompassUpdate: CompassData | null = null;
@@ -249,7 +266,10 @@ async function startWebCompass(): Promise<boolean> {
 export async function stopCompass() {
     //console.log('🢄🛑 Stopping compass');
     compassActive.set(false);
-    
+
+    // Stop accuracy polling
+    stopAccuracyPolling();
+
     // Stop Tauri sensor if active
     if (tauriSensorListener) {
         // Try to unregister listener (may fail if backend doesn't have remove_listener)
@@ -259,14 +279,14 @@ export async function stopCompass() {
             console.debug('🢄🧙 Could not unregister sensor listener (expected on Android):', error);
         });
         tauriSensorListener = null;
-        
+
         // Try to stop the sensor service
         if (tauriSensor) {
             tauriSensor.stopSensor().catch((error: unknown) => {
                 console.error('🢄🔍 Failed to stop Tauri sensor:', error);
             });
         }
-        
+
         // Release location service for compass
         if (TAURI_MOBILE) {
             try {
@@ -277,7 +297,7 @@ export async function stopCompass() {
             }
         }
     }
-    
+
     // Stop DeviceOrientation if active
     if (orientationHandler) {
         window.removeEventListener('deviceorientation', orientationHandler);
@@ -286,7 +306,7 @@ export async function stopCompass() {
         }
         orientationHandler = null;
     }
-    
+
     // Reset stores
     compassData.set({
         magneticHeading: null,
@@ -294,6 +314,14 @@ export async function stopCompass() {
         headingAccuracy: null,
         timestamp: Date.now(),
         source: 'unknown'
+    });
+
+    // Reset sensor accuracy store
+    sensorAccuracy.set({
+        magnetometer: null,
+        accelerometer: null,
+        gyroscope: null,
+        timestamp: 0
     });
 
     // Reset throttling state
@@ -351,7 +379,10 @@ export async function startCompass(mode?: SensorMode) {
             compassActive.set(true);
             compassError.set(null);
             currentSensorMode.set(sensorMode);
-            
+
+            // Start accuracy polling for Android
+            startAccuracyPolling();
+
             // Request location service for compass (needed for true north calculation)
             if (TAURI_MOBILE) {
                 try {
@@ -362,7 +393,7 @@ export async function startCompass(mode?: SensorMode) {
                     // Don't fail compass startup if location fails - magnetic heading still works
                 }
             }
-            
+
             return true;
         }
         console.warn('🢄🔍⚠️ Tauri sensor failed, falling back to web APIs');
@@ -383,6 +414,7 @@ export async function startCompass(mode?: SensorMode) {
         compassActive.set(true);
         compassError.set(null);
         currentSensorMode.set(sensorMode);
+        // Note: No accuracy polling for web compass since it doesn't have sensor accuracy
         return true;
     }
     
@@ -414,31 +446,89 @@ export const compassAvailable = writable(isCompassAvailable());
 export async function switchSensorMode(mode: SensorMode) {
     const oldMode = get(currentSensorMode);
     console.log('🢄🔄 Switching sensor mode:', SensorMode[oldMode], '→', SensorMode[mode]);
-    
+
     if (!get(compassActive)) {
         console.warn('🢄⚠️ Compass not active, starting with new mode:', SensorMode[mode]);
         return startCompass(mode);
     }
-    
+
     console.log('🢄🛑 Stopping current sensor...');
     // Stop current sensor
     await stopCompass();
-    
+
     // Wait a bit for cleanup
     console.log('🢄⏳ Waiting for cleanup...');
     await new Promise(resolve => setTimeout(resolve, 100));
-    
+
     // Start with new mode
     console.log('🢄🚀 Starting sensor with new mode:', SensorMode[mode]);
     const success = await startCompass(mode);
-    
+
     if (success) {
         console.log('🢄✅ Successfully switched to mode:', SensorMode[mode]);
     } else {
         console.error('🢄❌ Failed to switch to mode:', SensorMode[mode]);
     }
-    
+
     return success;
+}
+
+// Function to get current sensor accuracy status
+export async function getSensorAccuracy(): Promise<{
+    magnetometer: string;
+    accelerometer: string;
+    gyroscope: string;
+    timestamp: number;
+} | null> {
+    if (!TAURI_MOBILE) {
+        console.log('🢄🔍 Sensor accuracy not available on non-mobile platform');
+        return null;
+    }
+
+    try {
+        console.log('🢄🔍📊 Getting sensor accuracy from native plugin');
+        const result = await invoke('plugin:hillview|getSensorAccuracy');
+        console.log('🢄🔍✅ Sensor accuracy retrieved:', result);
+        return result as {
+            magnetometer: string;
+            accelerometer: string;
+            gyroscope: string;
+            timestamp: number;
+        };
+    } catch (error) {
+        console.error('🢄🔍❌ Failed to get sensor accuracy:', error);
+        return null;
+    }
+}
+
+// Function to start polling sensor accuracy
+function startAccuracyPolling() {
+    if (!TAURI_MOBILE || accuracyPollingInterval !== null) {
+        return;
+    }
+
+    console.log('🢄🔍🕒 Starting sensor accuracy polling');
+
+    // Poll every 2 seconds
+    accuracyPollingInterval = window.setInterval(async () => {
+        try {
+            const accuracy = await getSensorAccuracy();
+            if (accuracy) {
+                sensorAccuracy.set(accuracy);
+            }
+        } catch (error) {
+            console.warn('🢄🔍⚠️ Accuracy polling failed:', error);
+        }
+    }, 2000);
+}
+
+// Function to stop polling sensor accuracy
+function stopAccuracyPolling() {
+    if (accuracyPollingInterval !== null) {
+        console.log('🢄🔍🛑 Stopping sensor accuracy polling');
+        clearInterval(accuracyPollingInterval);
+        accuracyPollingInterval = null;
+    }
 }
 
 let lastBearing: number | null = null;

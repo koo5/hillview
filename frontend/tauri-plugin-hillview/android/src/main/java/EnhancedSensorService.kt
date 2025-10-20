@@ -97,7 +97,9 @@ class EnhancedSensorService(
     private var lastComplementaryUpdate = 0L
 
     // Calibration state
-    private var magnetometerCalibrationStatus = SensorManager.SENSOR_STATUS_ACCURACY_LOW
+    private var magnetometerCalibrationStatus = SensorManager.SENSOR_STATUS_UNRELIABLE
+    private var accelerometerCalibrationStatus = SensorManager.SENSOR_STATUS_UNRELIABLE
+    private var gyroscopeCalibrationStatus = SensorManager.SENSOR_STATUS_UNRELIABLE
 
     private var isRunning = false
     private var currentMode = MODE_ROTATION_VECTOR
@@ -295,6 +297,24 @@ class EnhancedSensorService(
         Log.d(TAG, "📍 Updated location: $latitude, $longitude")
     }
 
+    fun getSensorAccuracy(): Map<String, String> {
+        val accuracyToString = { accuracy: Int ->
+            when (accuracy) {
+                SensorManager.SENSOR_STATUS_ACCURACY_HIGH -> "HIGH"
+                SensorManager.SENSOR_STATUS_ACCURACY_MEDIUM -> "MEDIUM"
+                SensorManager.SENSOR_STATUS_ACCURACY_LOW -> "LOW"
+                SensorManager.SENSOR_STATUS_UNRELIABLE -> "UNRELIABLE"
+                else -> "UNKNOWN"
+            }
+        }
+
+        return mapOf(
+            "magnetometer" to accuracyToString(magnetometerCalibrationStatus),
+            "accelerometer" to accuracyToString(accelerometerCalibrationStatus),
+            "gyroscope" to accuracyToString(gyroscopeCalibrationStatus)
+        )
+    }
+
     override fun onSensorChanged(event: SensorEvent) {
         when (event.sensor.type) {
             Sensor.TYPE_ROTATION_VECTOR -> {
@@ -362,9 +382,11 @@ class EnhancedSensorService(
                 }
             }
             Sensor.TYPE_ACCELEROMETER -> {
+                accelerometerCalibrationStatus = accuracy
                 Log.d(TAG, "🔍📈 Accelerometer accuracy: $accuracyStr")
             }
             Sensor.TYPE_GYROSCOPE -> {
+                gyroscopeCalibrationStatus = accuracy
                 Log.d(TAG, "🔍🔄 Gyroscope accuracy: $accuracyStr")
             }
         }

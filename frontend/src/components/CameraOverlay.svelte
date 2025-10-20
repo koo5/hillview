@@ -1,6 +1,8 @@
 <script lang="ts">
     import {cameraOverlayOpacity} from "$lib/data.svelte";
 	import {get} from "svelte/store";
+    import {sensorAccuracy} from "$lib/compass.svelte";
+    import {bearingState} from "$lib/mapState";
 
     export let locationData: {
         latitude?: number;
@@ -68,6 +70,47 @@
         <div class="location-row">
             <span class="spinner"></span>
             <span>Getting location...</span>
+        </div>
+    {/if}
+
+    <!-- Sensor Accuracy Information -->
+    {#if $sensorAccuracy.timestamp > 0}
+        <div class="accuracy-section">
+            <div class="location-row accuracy-row">
+                <span class="icon">⚙️</span>
+                <span class="accuracy-title">Sensor Status</span>
+            </div>
+            <div class="accuracy-details">
+                {#if $sensorAccuracy.magnetometer}
+                    <div class="location-row accuracy-item">
+                        <span class="icon">🧭</span>
+                        <span class="sensor-name">Mag:</span>
+                        <span class="accuracy-value accuracy-{$sensorAccuracy.magnetometer.toLowerCase()}">{$sensorAccuracy.magnetometer}</span>
+                    </div>
+                {/if}
+                {#if $sensorAccuracy.accelerometer}
+                    <div class="location-row accuracy-item">
+                        <span class="icon">📈</span>
+                        <span class="sensor-name">Acc:</span>
+                        <span class="accuracy-value accuracy-{$sensorAccuracy.accelerometer.toLowerCase()}">{$sensorAccuracy.accelerometer}</span>
+                    </div>
+                {/if}
+                {#if $sensorAccuracy.gyroscope}
+                    <div class="location-row accuracy-item">
+                        <span class="icon">🔄</span>
+                        <span class="sensor-name">Gyro:</span>
+                        <span class="accuracy-value accuracy-{$sensorAccuracy.gyroscope.toLowerCase()}">{$sensorAccuracy.gyroscope}</span>
+                    </div>
+                {/if}
+            </div>
+        </div>
+    {/if}
+
+    <!-- Heading Accuracy Information -->
+    {#if $bearingState.accuracy !== null && $bearingState.accuracy !== undefined}
+        <div class="location-row">
+            <span class="icon">🧭</span>
+            <span>Heading ±{$bearingState.accuracy.toFixed(1)}°</span>
         </div>
     {/if}
 </div>
@@ -168,5 +211,69 @@
         100% {
             transform: rotate(360deg);
         }
+    }
+
+    /* Accuracy section styling */
+    .accuracy-section {
+        margin-top: 0.5rem;
+        padding-top: 0.25rem;
+        border-top: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    .accuracy-row {
+        margin-bottom: 0.25rem;
+    }
+
+    .accuracy-title {
+        font-weight: 500;
+        font-size: 0.8rem;
+    }
+
+    .accuracy-details {
+        margin-left: 0.5rem;
+    }
+
+    .accuracy-item {
+        margin: 0.1rem 0;
+        font-size: 0.75rem;
+    }
+
+    .sensor-name {
+        min-width: 2.5rem;
+        font-weight: 400;
+    }
+
+    .accuracy-value {
+        font-weight: 500;
+        padding: 0.1rem 0.3rem;
+        border-radius: 3px;
+        font-size: 0.7rem;
+        margin-left: 0.2rem;
+    }
+
+    /* Accuracy level styling */
+    .accuracy-high {
+        background: rgba(76, 175, 80, 0.7);
+        color: white;
+    }
+
+    .accuracy-medium {
+        background: rgba(255, 193, 7, 0.7);
+        color: black;
+    }
+
+    .accuracy-low {
+        background: rgba(255, 152, 0, 0.7);
+        color: white;
+    }
+
+    .accuracy-unreliable {
+        background: rgba(244, 67, 54, 0.7);
+        color: white;
+    }
+
+    .accuracy-unknown {
+        background: rgba(158, 158, 158, 0.7);
+        color: white;
     }
 </style>

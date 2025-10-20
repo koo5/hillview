@@ -495,6 +495,26 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         invoke.resolve()
     }
 
+    @Command
+    fun getSensorAccuracy(invoke: Invoke) {
+        Log.d(TAG, "🔍 get_sensor_accuracy command called")
+
+        val accuracy = sensorService?.getSensorAccuracy() ?: mapOf(
+            "magnetometer" to "UNKNOWN",
+            "accelerometer" to "UNKNOWN",
+            "gyroscope" to "UNKNOWN"
+        )
+
+        val result = JSObject()
+        result.put("magnetometer", accuracy["magnetometer"])
+        result.put("accelerometer", accuracy["accelerometer"])
+        result.put("gyroscope", accuracy["gyroscope"])
+        result.put("timestamp", System.currentTimeMillis())
+
+        Log.d(TAG, "🔍 Returning sensor accuracy: $accuracy")
+        invoke.resolve(result)
+    }
+
     private fun initializePreciseLocationService() {
         preciseLocationService = PreciseLocationService(activity, { locationData ->
             // Update sensor service with precise location for magnetic declination

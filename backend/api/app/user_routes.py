@@ -1700,8 +1700,8 @@ async def get_user_photos(
 
         # Prepare pagination info
         next_cursor = None
-        if has_more and photos:
-            next_cursor = photos[-1].uploaded_at.isoformat()
+        if has_more and photo_results:
+            next_cursor = photo_results[-1][0].uploaded_at.isoformat()
 
         return {
             "photos": photo_list,
