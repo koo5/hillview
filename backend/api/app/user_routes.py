@@ -674,7 +674,7 @@ async def oauth_callback(
 				deep_link_url = f"cz.hillview://auth?session_id={session_id}"
 		else:
 			# Default deep link for development
-			deep_link_url = f"cz.hillviedev://auth?session_id={session_id}"
+			deep_link_url = f"cz.hillview://auth?session_id={session_id}"
 
 		# Create a simple success page that automatically tries to redirect to the app
 		success_html = f"""
