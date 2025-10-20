@@ -744,13 +744,16 @@ async def oauth_callback(
         <h1>Login Successful!</h1>
         <div class="redirect-info">
             <strong>Redirecting to app...</strong><br>
-            <small>If the app doesn't open automatically, use the button below.</small>
         </div>
         <a href="{deep_link_url}" class="manual-link">Open Hillview App</a>
-        <div class="session-id">Session: {session_id}</div>
+
         <div class="message">
-            <small>You can safely close this browser tab after the app opens.</small>
+            <small>You can safely close this browser tab now.</small>
         </div>
+
+        <div class="session-id">Session: {session_id}</div>
+        <small><a href="{deep_link_url}" class="session-id">{deep_link_url}</a></small>
+
     </div>
 
     <script>

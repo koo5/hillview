@@ -72,11 +72,6 @@
                 About
             </a></li>
 
-            <li><a href="/sources" data-testid="sources-menu-link" on:click={closeMenu}>
-                <Database size={18}/>
-                Sources
-            </a></li>
-
             <li>
                 <a href="/download" on:click={closeMenu}>
                     <Download size={18}/>

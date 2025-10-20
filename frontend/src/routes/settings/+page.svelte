@@ -1,9 +1,10 @@
 <script lang="ts">
 	import StandardHeaderWithAlert from '../../components/StandardHeaderWithAlert.svelte';
 	import StandardBody from '../../components/StandardBody.svelte';
-	import SettingsComponent from '$lib/components/Settings.svelte';
+	import SettingsComponent from '$lib/components/CameraSettings.svelte';
 	import UploadSettingsComponent from '$lib/components/UploadSettings.svelte';
 	import type { Alert } from '$lib/alertSystem.svelte';
+	import {Database} from "lucide-svelte";
 
 	let alertMessage = '';
 	let alertType: Alert['type'] = 'info';
@@ -39,7 +40,16 @@
 			onSaveSuccess={(message) => showAlert(message, 'success')}
 			onSaveError={(message) => showAlert(message, 'error')}
 		/>
+
+           <a href="/settings/sources" data-testid="sources-menu-link">
+                <Database size={18}/>
+                Sources
+            </a>
+
+
+
 	</div>
+
 </StandardBody>
 
 <style>

@@ -3,11 +3,12 @@
 </svelte:head>
 
 <script lang="ts">
-    import { sources, type Source, type subtype } from '$lib/data.svelte';
+
+    import { sources, type Source, type subtype } from '$lib/data.svelte.js';
     import { localStorageSharedStore } from '$lib/svelte-shared-store';
     import { Plus, Trash2, Globe, MapPin, Folder, Camera } from 'lucide-svelte';
-    import StandardHeaderWithAlert from '../../components/StandardHeaderWithAlert.svelte';
-    import StandardBody from '../../components/StandardBody.svelte';
+    import StandardHeaderWithAlert from '../../../components/StandardHeaderWithAlert.svelte';
+    import StandardBody from '../../../components/StandardBody.svelte';
     import { onMount } from 'svelte';
     import { goto } from '$app/navigation';
 
