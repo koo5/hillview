@@ -22,7 +22,7 @@
         </div>
 
         <div class="download-section">
-            <a href="/downloads/release.html" download class="download-button" data-testid="download-apk-button">
+            <a href="/downloads/release.html" class="download-button" data-testid="download-apk-button">
                 <Download size={24} />
                 Download Android APK
             </a>
