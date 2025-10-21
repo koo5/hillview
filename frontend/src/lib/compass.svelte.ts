@@ -562,6 +562,7 @@ function startLagMonitoring() {
             const now = Date.now();
             const lag = now - currentData.timestamp;
             compassLag.set(lag);
+			console.log(`🢄🔍 TIMING: Compass lag: ${lag} ms`);
         }
     }, 100);
 }

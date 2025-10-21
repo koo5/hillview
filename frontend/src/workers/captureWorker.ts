@@ -96,7 +96,7 @@ async function processCanvas(item: CaptureQueueItem): Promise<void> {
         log(`TIMING 🔄 WORKER ARRAY BUFFER CONVERSION: ${(arrayBufferEndTime - arrayBufferStartTime).toFixed(1)}ms, size: ${imageData.length} bytes`);
 
         // Send image data in chunks to keep UI responsive
-        const CHUNK_SIZE = 100 * 1024; // 100KB chunks
+        const CHUNK_SIZE = 1*1024;
         const totalChunks = Math.ceil(imageData.length / CHUNK_SIZE);
 
         log('Sending image data in chunks', {
@@ -116,29 +116,35 @@ async function processCanvas(item: CaptureQueueItem): Promise<void> {
             const end = Math.min(start + CHUNK_SIZE, imageData.length);
             const chunk = imageData.slice(start, end);
 
+            // Convert to transferable Uint8Array for zero-copy transfer
+            const chunkBuffer = new Uint8Array(chunk);
+
             postMessage({
                 type: 'photoChunk',
                 photoId: item.id,
-                chunk,
+                chunk: chunkBuffer,
                 chunkIndex: i,
                 totalChunks,
                 isFirstChunk: i === 0,
                 isLastChunk: i === totalChunks - 1,
                 item: i === totalChunks - 1 ? item : undefined // Only send item with last chunk
-            });
+            }, [chunkBuffer.buffer]); // Transfer the ArrayBuffer
 
+			await new Promise(resolve => setTimeout(resolve, 30));
+
+			/*
             const chunkEndTime = performance.now();
 
             // Small delay between chunks to keep UI responsive - reduced from 150ms to 25ms
             if (i < totalChunks - 1) {
                 const delayStartTime = performance.now();
-                await new Promise(resolve => setTimeout(resolve, 25));
+                //await new Promise(resolve => setTimeout(resolve, 15));
                 const delayEndTime = performance.now();
                 totalDelayTime += (delayEndTime - delayStartTime);
                 log(`TIMING ⏱️ WORKER CHUNK ${i+1}/${totalChunks}: ${(chunkEndTime - chunkStartTime).toFixed(1)}ms + 25ms delay`);
             } else {
                 log(`TIMING 📦 WORKER FINAL CHUNK ${i+1}/${totalChunks}: ${(chunkEndTime - chunkStartTime).toFixed(1)}ms`);
-            }
+            }*/
         }
 
         const chunkingEndTime = performance.now();

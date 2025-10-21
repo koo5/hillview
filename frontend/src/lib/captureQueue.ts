@@ -205,13 +205,15 @@ class CaptureQueueManager {
 						isFirstChunk
 					});
 
-					this.log(this.LOG_TAGS.QUEUE_PROCESS, 'Stored photo chunk', {
+					//await new Promise(resolve => setTimeout(resolve, 25));
+
+					/*this.log(this.LOG_TAGS.QUEUE_PROCESS, 'Stored photo chunk', {
 						photoId,
 						chunkIndex,
 						totalChunks,
 						chunkSize: chunk.length,
 						isLastChunk
-					});
+					});*/
 
 					// If this is the last chunk, save the complete photo
 					if (isLastChunk && item) {
