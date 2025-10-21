@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::io::Cursor;
 use std::sync::Mutex;
 use std::sync::OnceLock;
-use tauri::command;
+use tauri::{command, Manager};
 
 // Global storage for photo chunks
 static PHOTO_CHUNKS: OnceLock<Mutex<HashMap<String, Vec<u8>>>> = OnceLock::new();
@@ -648,6 +648,163 @@ pub async fn read_device_photo(path: String) -> Result<Vec<u8>, String> {
 	use std::fs;
 
 	fs::read(&path).map_err(|e| format!("Failed to read photo: {}", e))
+}
+
+#[command]
+pub async fn save_photo_from_file(
+	app_handle: tauri::AppHandle,
+	photo_id: String,
+	metadata: PhotoMetadata,
+	file_path: String,
+	filename: String,
+	hide_from_gallery: bool,
+) -> Result<crate::device_photos::DevicePhotoMetadata, String> {
+	// Do everything in one background thread
+	tokio::task::spawn_blocking(move || -> Result<crate::device_photos::DevicePhotoMetadata, String> {
+		// Resolve file path (frontend passes relative to cache directory)
+		let resolved_file_path = if file_path.starts_with("temp_photos/") {
+			// Resolve relative to cache directory
+			let cache_dir = app_handle.path().app_cache_dir()
+				.map_err(|e| format!("Failed to get cache directory: {}", e))?;
+			cache_dir.join(&file_path)
+		} else {
+			// Use absolute path as-is
+			std::path::PathBuf::from(&file_path)
+		};
+
+		// Read image data from file (blocking I/O)
+		let image_data = std::fs::read(&resolved_file_path)
+			.map_err(|e| format!("Failed to read photo from file: {}", e))?;
+
+		info!("🢄Retrieved {} bytes for photo ID: {}", image_data.len(), photo_id);
+
+		// Process EXIF data synchronously and get dimensions (reuse embed_photo_metadata logic)
+		let (processed_data, width, height) = {
+			// Parse the JPEG
+			let mut jpeg = img_parts::jpeg::Jpeg::from_bytes(image_data.clone().into())
+				.map_err(|e| format!("Failed to parse JPEG: {:?}", e))?;
+
+			// Get dimensions from the original image data using image crate
+			let img = image::load_from_memory(&image_data)
+				.map_err(|e| format!("Failed to load image from memory: {}", e))?;
+			let (width, height) = (img.width(), img.height());
+
+			// Create EXIF segment - reuse proven logic
+			let exif_segment = create_exif_segment_simple(&metadata);
+
+			// Set the EXIF data
+			jpeg.set_exif(Some(exif_segment.into()));
+
+			// Convert back to bytes
+			let mut output = Vec::new();
+			let mut output_cursor = std::io::Cursor::new(&mut output);
+			jpeg.encoder()
+				.write_to(&mut output_cursor)
+				.map_err(|e| format!("Failed to write JPEG: {:?}", e))?;
+
+			(output, width, height)
+		};
+
+		// Save the photo file (blocking I/O) - reuse save_photo_with_metadata pattern
+		#[cfg(target_os = "android")]
+		let file_path = {
+			save_to_pictures_directory(&filename, &processed_data, hide_from_gallery)
+				.map_err(|e| format!("Failed to save to Pictures directory: {}", e))?
+		};
+
+		#[cfg(not(target_os = "android"))]
+		return Err("Photo saving not implemented for non-Android platforms".to_string());
+
+		// Get file metadata (blocking I/O)
+		let file_metadata = std::fs::metadata(&file_path)
+			.map_err(|e| format!("Failed to get file metadata: {}", e))?;
+
+		// Calculate hash from processed data (CPU intensive)
+		let hash_bytes = md5::compute(&processed_data);
+		let file_hash = format!("{:x}", hash_bytes);
+
+		// Add to database (still in background thread) - reuse save_photo_with_metadata pattern
+		#[cfg(target_os = "android")]
+		{
+			use tauri_plugin_hillview::HillviewExt;
+
+			// Send to Android database - use our photo_id
+			let plugin_photo = tauri_plugin_hillview::shared_types::DevicePhotoMetadata {
+				id: photo_id.clone(), // Use the photo_id from frontend
+				filename: filename.clone(),
+				path: file_path.to_string_lossy().to_string(),
+				metadata: tauri_plugin_hillview::shared_types::PhotoMetadata {
+					latitude: metadata.latitude,
+					longitude: metadata.longitude,
+					altitude: metadata.altitude,
+					bearing: metadata.bearing,
+					timestamp: metadata.timestamp,
+					accuracy: metadata.accuracy,
+					location_source: metadata.location_source.clone(),
+					bearing_source: metadata.bearing_source.clone(),
+				},
+				width,
+				height,
+				file_size: file_metadata.len(),
+				created_at: chrono::Utc::now().timestamp(),
+				file_hash: Some(file_hash.clone()),
+			};
+
+			let final_photo_id = match app_handle.hillview().add_photo_to_database(plugin_photo.clone()) {
+				Ok(response) => {
+					if response.success {
+						let id = response.photo_id.unwrap_or_else(|| String::from("unknown"));
+						info!("📱 Photo saved to Android database with ID: {}", id);
+						id
+					} else {
+						return Err(format!("Failed to save photo to Android database: {:?}", response.error));
+					}
+				}
+				Err(e) => {
+					return Err(format!("Error saving photo to Android database: {}", e));
+				}
+			};
+
+			// Create the return value with the ID from Kotlin
+			let device_photo = crate::device_photos::DevicePhotoMetadata {
+				id: final_photo_id,
+				filename,
+				path: file_path.to_string_lossy().to_string(),
+				latitude: metadata.latitude,
+				longitude: metadata.longitude,
+				altitude: metadata.altitude,
+				bearing: metadata.bearing,
+				timestamp: metadata.timestamp,
+				accuracy: metadata.accuracy,
+				width,
+				height,
+				file_size: file_metadata.len(),
+				created_at: plugin_photo.created_at,
+			};
+
+			// Trigger immediate upload worker to process the new photo
+			match app_handle.hillview().retry_failed_uploads() {
+				Ok(_) => {
+					info!(
+						"📤[UPLOAD_TRIGGER] Upload worker triggered for new photo: {}",
+						device_photo.filename
+					);
+				}
+				Err(e) => {
+					info!("📤[UPLOAD_TRIGGER] Failed to trigger upload worker: {}", e);
+				}
+			}
+
+			Ok(device_photo)
+		}
+
+		#[cfg(not(target_os = "android"))]
+		{
+			Err("Photo saving not implemented for non-Android platforms".to_string())
+		}
+	})
+	.await
+	.map_err(|e| format!("Background task failed: {}", e))?
 }
 
 #[command]

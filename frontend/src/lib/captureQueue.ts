@@ -2,6 +2,7 @@ import {writable, get} from 'svelte/store';
 import {removePlaceholder} from './placeholderInjector';
 import type {DevicePhotoMetadata} from './types/photoTypes';
 import {invoke} from "@tauri-apps/api/core";
+import {BaseDirectory, writeFile} from '@tauri-apps/plugin-fs';
 
 export interface CaptureLocation {
 	latitude: number;
@@ -68,8 +69,6 @@ class CaptureQueueManager {
 	});
 
 	constructor() {
-		// Initialize worker
-		this.initWorker();
 		// Start processing loop
 		this.processLoop();
 		this.log(this.LOG_TAGS.QUEUE_ADD, 'Capture queue manager initialized');
@@ -150,168 +149,106 @@ class CaptureQueueManager {
 		}
 	}
 
-	private worker!: Worker;
-
 	private async processItem(item: CaptureQueueItem): Promise<void> {
 		// Add to processing set
 		this.processingSet.add(item.id);
 		this.updateStats();
 
 		try {
-			// Check if worker is available
-			if (!this.worker) {
-				throw new Error('Worker not initialized');
+			// Step 1: Convert ImageData to Canvas and then to Blob
+			this.log(this.LOG_TAGS.QUEUE_PROCESS, 'Converting ImageData to file', { itemId: item.id });
+
+			const canvas = new OffscreenCanvas(item.imageData.width, item.imageData.height);
+			const context = canvas.getContext('2d');
+			if (!context) {
+				throw new Error('Failed to get canvas context');
 			}
 
-			// Send image data to worker with transfer for better performance
-			this.log(this.LOG_TAGS.QUEUE_PROCESS, 'Transferring image data to worker', { itemId: item.id });
-			this.worker.postMessage(item, [item.imageData.data.buffer]);
-		} catch (error) {
-			const errorInfo = {
-				name: (error as any)?.name,
-				message: (error as any)?.message,
-				code: (error as any)?.code,
-				stack: (error as any)?.stack
-			};
-			this.log(this.LOG_TAGS.PHOTO_ERROR, 'Failed to post message to worker', {
-				itemId: item.id,
-				errorDetails: errorInfo
+			// Draw image data to canvas
+			context.putImageData(item.imageData, 0, 0);
+
+			// Convert canvas to blob
+			const blob = await canvas.convertToBlob({
+				type: 'image/jpeg',
+				quality: 0.95
 			});
 
-			// Remove from processing set on error
+			// Convert blob to Uint8Array for file writing
+			const arrayBuffer = await blob.arrayBuffer();
+			const uint8Array = new Uint8Array(arrayBuffer);
+
+			// Step 2: Generate filename using same pattern as before
+			const date = new Date(item.timestamp);
+			const year = date.getFullYear();
+			const month = String(date.getMonth() + 1).padStart(2, '0');
+			const day = String(date.getDate()).padStart(2, '0');
+			const hours = String(date.getHours()).padStart(2, '0');
+			const minutes = String(date.getMinutes()).padStart(2, '0');
+			const seconds = String(date.getSeconds()).padStart(2, '0');
+			const filename = `${year}-${month}-${day}-${hours}-${minutes}-${seconds}_${item.id}.jpg`;
+
+			// Step 3: Write file to temp directory
+			const tempFilePath = `temp_photos/${filename}`;
+			await writeFile(tempFilePath, uint8Array, { baseDir: BaseDirectory.Cache });
+
+			this.log(this.LOG_TAGS.QUEUE_PROCESS, 'File written, calling Rust to process', {
+				itemId: item.id,
+				filename,
+				tempFilePath
+			});
+
+			// Step 4: Prepare metadata
+			const metadata = {
+				latitude: item.location.latitude,
+				longitude: item.location.longitude,
+				altitude: item.location.altitude,
+				bearing: item.location.heading,
+				timestamp: Math.floor(item.timestamp / 1000),
+				accuracy: item.location.accuracy,
+				locationSource: item.location.locationSource,
+				bearingSource: item.location.bearingSource
+			};
+
+			// Step 5: Call Rust to process photo with EXIF and save
+			const devicePhoto = await invoke('save_photo_from_file', {
+				photoId: item.id,
+				metadata,
+				filePath: tempFilePath, // Tauri will resolve this relative to Cache directory
+				filename,
+				hideFromGallery: false
+			}) as DevicePhotoMetadata;
+
+			this.totalProcessed++;
+			this.log(this.LOG_TAGS.PHOTO_SAVE, 'Photo processed successfully', {
+				itemId: item.id,
+				photoId: devicePhoto.id,
+				filename: devicePhoto.filename,
+				placeholderReplaced: item.placeholderId,
+				totalProcessed: this.totalProcessed
+			});
+
+			// PLACEHOLDER SHOULD STAY VISIBLE until device source toggle
+			// The placeholder will be removed when device source toggle
+			// triggers Kotlin worker to return the real device photo
+			// removePlaceholder(item.placeholderId);
+
+		} catch (error) {
+			this.totalFailed++;
+			this.log(this.LOG_TAGS.PHOTO_ERROR, 'Failed to process queued photo', {
+				itemId: item.id,
+				placeholderId: item.placeholderId,
+				error: error instanceof Error ? error.message : String(error),
+				totalFailed: this.totalFailed
+			});
+
+			// Remove placeholder on error
+			removePlaceholder(item.placeholderId);
+		} finally {
+			// Remove from processing set
 			this.processingSet.delete(item.id);
 			this.updateStats();
-			throw error;
 		}
 	}
-
-	private initWorker(): void {
-		this.worker = new Worker(
-			new URL('../workers/captureWorker.ts', import.meta.url),
-			{ type: 'module' }
-		);
-
-		this.worker.onmessage = async (event) => {
-			const { type } = event.data;
-
-			if (type === 'photoChunk') {
-				const { photoId, chunk, chunkIndex, totalChunks, isFirstChunk, isLastChunk, item } = event.data;
-
-				try {
-					// Store chunk in Rust
-					await invoke('store_photo_chunk', {
-						photoId,
-						chunk,
-						isFirstChunk
-					});
-
-					//await new Promise(resolve => setTimeout(resolve, 25));
-
-					/*this.log(this.LOG_TAGS.QUEUE_PROCESS, 'Stored photo chunk', {
-						photoId,
-						chunkIndex,
-						totalChunks,
-						chunkSize: chunk.length,
-						isLastChunk
-					});*/
-
-					// If this is the last chunk, save the complete photo
-					if (isLastChunk && item) {
-						// Prepare metadata
-						const metadata = {
-							latitude: item.location.latitude,
-							longitude: item.location.longitude,
-							altitude: item.location.altitude,
-							bearing: item.location.heading,
-							timestamp: Math.floor(item.timestamp / 1000),
-							accuracy: item.location.accuracy,
-							locationSource: item.location.locationSource,
-							bearingSource: item.location.bearingSource
-						};
-
-						// Generate filename
-						const date = new Date(item.timestamp);
-						const year = date.getFullYear();
-						const month = String(date.getMonth() + 1).padStart(2, '0');
-						const day = String(date.getDate()).padStart(2, '0');
-						const hours = String(date.getHours()).padStart(2, '0');
-						const minutes = String(date.getMinutes()).padStart(2, '0');
-						const seconds = String(date.getSeconds()).padStart(2, '0');
-						const filename = `${year}-${month}-${day}-${hours}-${minutes}-${seconds}_${item.id}.jpg`;
-
-						this.log(this.LOG_TAGS.QUEUE_PROCESS, 'All chunks sent, saving photo with metadata', JSON.stringify({
-							photoId: item.id,
-							filename,
-							totalChunks
-						}));
-
-						// Call Rust to save photo using stored chunks
-						const devicePhoto = await invoke('save_photo_with_metadata', {
-							photoId: item.id,
-							metadata,
-							filename,
-							hideFromGallery: false
-						}) as { id: string; filename: string; [key: string]: any };
-
-						this.totalProcessed++;
-						this.log(this.LOG_TAGS.PHOTO_SAVE, 'Photo processed successfully', JSON.stringify({
-							itemId: item.id,
-							photoId: devicePhoto.id,
-							filename: devicePhoto.filename,
-							placeholderReplaced: item.placeholderId,
-							totalProcessed: this.totalProcessed
-						}));
-
-						// PLACEHOLDER SHOULD STAY VISIBLE until device source toggle
-						// The placeholder will be removed when device source toggle
-						// triggers Kotlin worker to return the real device photo
-						// removePlaceholder(item.placeholderId);
-
-						// Remove from processing set
-						this.processingSet.delete(item.id);
-						this.updateStats();
-					}
-				} catch (error) {
-					this.totalFailed++;
-					this.log(this.LOG_TAGS.PHOTO_ERROR, 'Failed to process photo chunk', {
-						photoId,
-						chunkIndex,
-						error: error instanceof Error ? error.message : String(error),
-						totalFailed: this.totalFailed
-					});
-
-					// If this chunk failed and we have the item, clean up
-					if (item) {
-						removePlaceholder(item.placeholderId);
-						this.processingSet.delete(item.id);
-						this.updateStats();
-					}
-				}
-
-			} else if (type === 'error') {
-				const { item, error } = event.data;
-				this.totalFailed++;
-				this.log(this.LOG_TAGS.PHOTO_ERROR, 'Failed to process queued photo', {
-					itemId: item.id,
-					placeholderId: item.placeholderId,
-					error,
-					totalFailed: this.totalFailed
-				});
-
-				// Remove placeholder on error
-				removePlaceholder(item.placeholderId);
-
-				// Remove from processing set
-				this.processingSet.delete(item.id);
-				this.updateStats();
-			}
-		};
-
-		this.worker.onerror = (error) => {
-			this.log(this.LOG_TAGS.PHOTO_ERROR, 'Worker error', error);
-		};
-	}
-
 
 	private updateStats(): void {
 		this.stats.set({
