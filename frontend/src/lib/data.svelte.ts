@@ -292,3 +292,5 @@ export function closeDebug() {
     app.update(a => ({...a, debug: 0}));
     console.log('🢄Debug mode closed');
 }
+
+export let frontendBusy = writable(0);

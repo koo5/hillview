@@ -131,6 +131,11 @@ class PhotoWorkerProcessArgs {
   }
 }
 
+@InvokeArg
+class GetBearingForTimestampArgs {
+  var timestamp: Long? = null
+}
+
 @TauriPlugin
 class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     companion object {
@@ -230,6 +235,16 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
 
         // Clean up static state from any previous plugin instance
         cleanupStaticState()
+
+        // Clear bearing history table on app startup to ensure fresh sensor data
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                database.bearingDao().clearAllBearings()
+                Log.i(TAG, "🢄📡 Bearing history table cleared on app startup")
+            } catch (e: Exception) {
+                Log.w(TAG, "🢄📡 Failed to clear bearing history table: ${e.message}")
+            }
+        }
 
         pluginInstance = this
         Log.i(TAG, "🢄🎥 Plugin init #$initializationCount - Process ID: $processId")
@@ -1783,6 +1798,69 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
      * Poll for queued messages (called from frontend every 100ms)
      * Drains ALL messages to avoid lag
      */
+    @Command
+    fun getBearingForTimestamp(invoke: Invoke) {
+        try {
+            val args = invoke.parseArgs(GetBearingForTimestampArgs::class.java)
+
+            if (args == null || args.timestamp == null) {
+                Log.e(TAG, "📡 getBearingForTimestamp: Invalid arguments")
+                val error = JSObject()
+                error.put("success", false)
+                error.put("error", "Invalid timestamp argument")
+                invoke.resolve(error)
+                return
+            }
+
+            val timestamp = args.timestamp!!
+            Log.d(TAG, "📡 getBearingForTimestamp: Looking up bearing for timestamp $timestamp")
+
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val bearingEntity = database.bearingDao().getBearingNearTimestamp(timestamp)
+
+                    CoroutineScope(Dispatchers.Main).launch {
+                        val result = JSObject()
+                        if (bearingEntity != null) {
+                            result.put("success", true)
+                            result.put("found", true)
+                            result.put("magneticHeading", bearingEntity.magneticHeading.toDouble())
+                            result.put("trueHeading", bearingEntity.trueHeading.toDouble())
+                            result.put("headingAccuracy", bearingEntity.headingAccuracy.toDouble())
+                            result.put("accuracy", bearingEntity.accuracyLevel)
+                            result.put("source", bearingEntity.source)
+                            result.put("pitch", bearingEntity.pitch.toDouble())
+                            result.put("roll", bearingEntity.roll.toDouble())
+                            result.put("timestamp", bearingEntity.timestamp)
+                            Log.d(TAG, "📡 getBearingForTimestamp: Found bearing ${bearingEntity.trueHeading}° from ${bearingEntity.source} at ${bearingEntity.timestamp}")
+                        } else {
+                            result.put("success", true)
+                            result.put("found", false)
+                            Log.d(TAG, "📡 getBearingForTimestamp: No bearing found for timestamp $timestamp")
+                        }
+                        invoke.resolve(result)
+                    }
+
+                } catch (e: Exception) {
+                    Log.e(TAG, "📡 getBearingForTimestamp: Database error", e)
+                    CoroutineScope(Dispatchers.Main).launch {
+                        val error = JSObject()
+                        error.put("success", false)
+                        error.put("error", e.message)
+                        invoke.resolve(error)
+                    }
+                }
+            }
+
+        } catch (e: Exception) {
+            Log.e(TAG, "📡 getBearingForTimestamp: Error parsing arguments", e)
+            val error = JSObject()
+            error.put("success", false)
+            error.put("error", e.message)
+            invoke.resolve(error)
+        }
+    }
+
     @Command
     fun pollMessages(invoke: Invoke) {
         try {

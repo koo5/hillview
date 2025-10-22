@@ -96,7 +96,7 @@ async function processCanvas(item: CaptureQueueItem): Promise<void> {
         log(`TIMING 🔄 WORKER ARRAY BUFFER CONVERSION: ${(arrayBufferEndTime - arrayBufferStartTime).toFixed(1)}ms, size: ${imageData.length} bytes`);
 
         // Send image data in chunks to keep UI responsive
-        const CHUNK_SIZE = 1*1024;
+        const CHUNK_SIZE = 1024*1024;
         const totalChunks = Math.ceil(imageData.length / CHUNK_SIZE);
 
         log('Sending image data in chunks', {

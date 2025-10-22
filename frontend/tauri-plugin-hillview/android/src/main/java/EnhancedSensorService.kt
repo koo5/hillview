@@ -10,12 +10,16 @@ import android.location.Location
 import android.location.LocationManager
 import android.os.Process
 import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlin.math.*
 
 data class SensorData(
     val magneticHeading: Float,  // Compass bearing in degrees from magnetic north (0-360°)
     val trueHeading: Float,       // Compass bearing corrected for magnetic declination
-    val headingAccuracy: Float,
+    val headingAccuracy: Float,  // Calculated accuracy in degrees (for future use)
+    val accuracyLevel: Int,      // Android sensor accuracy constants: -1=unknown, 0=unreliable, 1=low, 2=medium, 3=high
     val pitch: Float,
     val roll: Float,
     val timestamp: Long,
@@ -125,6 +129,11 @@ class EnhancedSensorService(
     // Rotation matrices
     private val rotationMatrix = FloatArray(9)
     private val orientation = FloatArray(3)
+
+    // Database storage for bearing history
+    private val database = PhotoDatabase.getDatabase(context)
+    private var lastDatabaseStorageTime = 0L
+    private val databaseStorageIntervalMs = 100L // Store at most every 100ms (10 Hz)
 
     init {
         // Initialize sensors
@@ -470,6 +479,7 @@ class EnhancedSensorService(
             magneticHeading = heading,
             trueHeading = trueHeading,
             headingAccuracy = accuracy,
+            accuracyLevel = event.accuracy,
             pitch = pitch,
             roll = roll,
             source = sourceWithMode
@@ -534,6 +544,7 @@ class EnhancedSensorService(
             magneticHeading = normalizedHeading,
             trueHeading = trueHeading,
             headingAccuracy = getMadgwickAccuracy(pitchDeg, rollDeg),
+            accuracyLevel = magnetometerCalibrationStatus,
             pitch = pitchDeg,
             roll = rollDeg,
             source = "Madgwick_AHRS"
@@ -597,6 +608,7 @@ class EnhancedSensorService(
                 magneticHeading = complementaryAngle,
                 trueHeading = trueHeading,
                 headingAccuracy = getComplementaryAccuracy(pitch, roll),
+                accuracyLevel = magnetometerCalibrationStatus,
                 pitch = pitch,
                 roll = roll,
                 source = "Complementary_Filter"
@@ -740,6 +752,7 @@ class EnhancedSensorService(
         magneticHeading: Float,
         trueHeading: Float,
         headingAccuracy: Float,
+        accuracyLevel: Int,
         pitch: Float,
         roll: Float,
         source: String
@@ -786,6 +799,7 @@ class EnhancedSensorService(
             magneticHeading = finalMagneticHeading,
             trueHeading = finalTrueHeading,
             headingAccuracy = finalAccuracy,
+            accuracyLevel = accuracyLevel,
             pitch = finalPitch,
             roll = finalRoll,
             timestamp = System.currentTimeMillis(),
@@ -796,6 +810,31 @@ class EnhancedSensorService(
         Log.v(TAG, "TIMING 📡 sendSensorData SENDING: ${sendTime} (${sendTime - startTime}ms) bearing=${finalMagneticHeading.format(1)}°")
 
         onSensorUpdate(data)
+
+        // Store in database with rate limiting (max 10 Hz)
+        val currentTime = System.currentTimeMillis()
+        if (currentTime - lastDatabaseStorageTime >= databaseStorageIntervalMs) {
+            lastDatabaseStorageTime = currentTime
+
+            // Store asynchronously to avoid blocking sensor updates
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val bearingEntity = BearingEntity(
+                        timestamp = data.timestamp,
+                        magneticHeading = data.magneticHeading,
+                        trueHeading = data.trueHeading,
+                        headingAccuracy = data.headingAccuracy,
+                        accuracyLevel = data.accuracyLevel,
+                        source = data.source,
+                        pitch = data.pitch,
+                        roll = data.roll
+                    )
+                    database.bearingDao().insertBearing(bearingEntity)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to store bearing in database: ${e.message}")
+                }
+            }
+        }
 
         val endTime = System.currentTimeMillis()
         Log.v(TAG, "TIMING ✅ sendSensorData COMPLETE: ${endTime} (total: ${endTime - startTime}ms, send: ${endTime - sendTime}ms)")

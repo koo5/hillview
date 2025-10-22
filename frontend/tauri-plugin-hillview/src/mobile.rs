@@ -221,4 +221,16 @@ impl<R: Runtime> Hillview<R> {
       .run_mobile_plugin("photoWorkerProcess", Args { message_json })
       .map_err(Into::into)
   }
+
+  pub fn get_bearing_for_timestamp(&self, timestamp: i64) -> crate::Result<BearingLookupResponse> {
+    #[derive(serde::Serialize)]
+    struct Args {
+      timestamp: i64,
+    }
+
+    self
+      .0
+      .run_mobile_plugin("getBearingForTimestamp", Args { timestamp })
+      .map_err(Into::into)
+  }
 }

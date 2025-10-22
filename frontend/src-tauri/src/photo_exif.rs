@@ -517,124 +517,10 @@ pub async fn save_photo_with_metadata(
 
 	info!("🢄Retrieved {} bytes for photo ID: {}", image_data.len(), photo_id);
 
-	// Step 2: Process EXIF data (async)
-	let processed = embed_photo_metadata(image_data, metadata.clone()).await
-		.map_err(|e| format!("EXIF embedding failed: {}", e))?;
-
-	// Step 2: File operations and processing (blocking, moved to background thread)
-	let (file_path, file_metadata, width, height, file_hash) = {
-		let processed_data = processed.data.clone();
-		let filename_clone = filename.clone();
-
-		tokio::task::spawn_blocking(move || -> Result<(std::path::PathBuf, std::fs::Metadata, u32, u32, String), String> {
-			// Save the photo file (blocking I/O)
-			#[cfg(target_os = "android")]
-			{
-				let file_path = save_to_pictures_directory(&filename_clone, &processed_data, hide_from_gallery)
-					.map_err(|e| format!("Failed to save to Pictures directory: {}", e))?;
-
-				// Get file metadata (blocking I/O)
-				let file_metadata = std::fs::metadata(&file_path)
-					.map_err(|e| format!("Failed to get file metadata: {}", e))?;
-
-				// Get image dimensions (CPU intensive)
-				let img = image::load_from_memory(&processed_data)
-					.map_err(|e| format!("Failed to load image from memory: {}", e))?;
-				let (width, height) = (img.width(), img.height());
-
-				// Calculate hash (CPU intensive)
-				let hash_bytes = md5::compute(&processed_data);
-				let file_hash = format!("{:x}", hash_bytes);
-
-				Ok((file_path, file_metadata, width, height, file_hash))
-			}
-
-			#[cfg(not(target_os = "android"))]
-			{
-				Err("Photo saving not implemented for non-Android platforms".to_string())
-			}
-		})
-		.await
-		.map_err(|e| format!("Background task failed: {}", e))??
-	};
-
-	// Step 3: Verify EXIF was embedded correctly (async, debug only)
-	/*#[cfg(all(target_os = "android", debug_assertions))]
-	verify_exif_in_saved_file(&file_path).await;*/
-
-	// Step 4: Add to database and return result (async)
+	// Call the internal function with the image data
 	#[cfg(target_os = "android")]
 	{
-		use tauri_plugin_hillview::HillviewExt;
-
-		// Send to Android database - use our photo_id
-		let plugin_photo = tauri_plugin_hillview::shared_types::DevicePhotoMetadata {
-			id: photo_id.clone(), // Use the photo_id from frontend
-			filename: filename.clone(),
-			path: file_path.to_string_lossy().to_string(),
-			metadata: tauri_plugin_hillview::shared_types::PhotoMetadata {
-				latitude: metadata.latitude,
-				longitude: metadata.longitude,
-				altitude: metadata.altitude,
-				bearing: metadata.bearing,
-				timestamp: metadata.timestamp,
-				accuracy: metadata.accuracy,
-				location_source: metadata.location_source.clone(),
-				bearing_source: metadata.bearing_source.clone(),
-			},
-			width,
-			height,
-			file_size: file_metadata.len(),
-			created_at: chrono::Utc::now().timestamp(),
-			file_hash: Some(file_hash.clone()),
-		};
-
-		let photo_id = match app_handle.hillview().add_photo_to_database(plugin_photo.clone()) {
-			Ok(response) => {
-				if response.success {
-					let id = response.photo_id.unwrap_or_else(|| String::from("unknown"));
-					info!("📱 Photo saved to Android database with ID: {}", id);
-					id
-				} else {
-					return Err(format!("Failed to save photo to Android database: {:?}", response.error));
-				}
-			}
-			Err(e) => {
-				return Err(format!("Error saving photo to Android database: {}", e));
-			}
-		};
-
-		// Create the return value with the ID from Kotlin
-		let device_photo = crate::device_photos::DevicePhotoMetadata {
-			id: photo_id,
-			filename,
-			path: file_path.to_string_lossy().to_string(),
-			latitude: metadata.latitude,
-			longitude: metadata.longitude,
-			altitude: metadata.altitude,
-			bearing: metadata.bearing,
-			timestamp: metadata.timestamp,
-			accuracy: metadata.accuracy,
-			width,
-			height,
-			file_size: file_metadata.len(),
-			created_at: plugin_photo.created_at,
-		};
-
-		// Trigger immediate upload worker to process the new photo
-		match app_handle.hillview().retry_failed_uploads() {
-			Ok(_) => {
-				info!(
-					"📤[UPLOAD_TRIGGER] Upload worker triggered for new photo: {}",
-					device_photo.filename
-				);
-			}
-			Err(e) => {
-				info!("📤[UPLOAD_TRIGGER] Failed to trigger upload worker: {}", e);
-			}
-		}
-
-		Ok(device_photo)
+		save_photo_from_bytes(app_handle, photo_id, metadata, image_data, filename, hide_from_gallery).await
 	}
 
 	#[cfg(not(target_os = "android"))]
@@ -650,33 +536,18 @@ pub async fn read_device_photo(path: String) -> Result<Vec<u8>, String> {
 	fs::read(&path).map_err(|e| format!("Failed to read photo: {}", e))
 }
 
-#[command]
-pub async fn save_photo_from_file(
+#[cfg(target_os = "android")]
+async fn save_photo_from_bytes(
 	app_handle: tauri::AppHandle,
 	photo_id: String,
 	metadata: PhotoMetadata,
-	file_path: String,
+	image_data: Vec<u8>,
 	filename: String,
 	hide_from_gallery: bool,
 ) -> Result<crate::device_photos::DevicePhotoMetadata, String> {
 	// Do everything in one background thread
 	tokio::task::spawn_blocking(move || -> Result<crate::device_photos::DevicePhotoMetadata, String> {
-		// Resolve file path (frontend passes relative to cache directory)
-		let resolved_file_path = if file_path.starts_with("temp_photos/") {
-			// Resolve relative to cache directory
-			let cache_dir = app_handle.path().app_cache_dir()
-				.map_err(|e| format!("Failed to get cache directory: {}", e))?;
-			cache_dir.join(&file_path)
-		} else {
-			// Use absolute path as-is
-			std::path::PathBuf::from(&file_path)
-		};
-
-		// Read image data from file (blocking I/O)
-		let image_data = std::fs::read(&resolved_file_path)
-			.map_err(|e| format!("Failed to read photo from file: {}", e))?;
-
-		info!("🢄Retrieved {} bytes for photo ID: {}", image_data.len(), photo_id);
+		info!("🢄Processing {} bytes for photo ID: {}", image_data.len(), photo_id);
 
 		// Process EXIF data synchronously and get dimensions (reuse embed_photo_metadata logic)
 		let (processed_data, width, height) = {
@@ -706,14 +577,8 @@ pub async fn save_photo_from_file(
 		};
 
 		// Save the photo file (blocking I/O) - reuse save_photo_with_metadata pattern
-		#[cfg(target_os = "android")]
-		let file_path = {
-			save_to_pictures_directory(&filename, &processed_data, hide_from_gallery)
-				.map_err(|e| format!("Failed to save to Pictures directory: {}", e))?
-		};
-
-		#[cfg(not(target_os = "android"))]
-		return Err("Photo saving not implemented for non-Android platforms".to_string());
+		let file_path = save_to_pictures_directory(&filename, &processed_data, hide_from_gallery)
+			.map_err(|e| format!("Failed to save to Pictures directory: {}", e))?;
 
 		// Get file metadata (blocking I/O)
 		let file_metadata = std::fs::metadata(&file_path)
@@ -724,9 +589,49 @@ pub async fn save_photo_from_file(
 		let file_hash = format!("{:x}", hash_bytes);
 
 		// Add to database (still in background thread) - reuse save_photo_with_metadata pattern
-		#[cfg(target_os = "android")]
 		{
 			use tauri_plugin_hillview::HillviewExt;
+
+			// Check if we should use database bearing instead of frontend bearing
+			let final_bearing = if is_sensor_bearing_source(&metadata.bearing_source) {
+				info!("🢄📡 Bearing source '{}' indicates sensor data, looking up database bearing for timestamp {}",
+					metadata.bearing_source, metadata.timestamp);
+
+				match app_handle.hillview().get_bearing_for_timestamp(metadata.timestamp * 1000) { // Convert to milliseconds
+					Ok(response) => {
+						if response.success {
+							if let Some(found) = response.found {
+								if found {
+									if let Some(true_heading) = response.true_heading {
+										info!("🢄📡 Found database bearing: {}° (replacing frontend bearing: {}°)",
+											true_heading, metadata.bearing.unwrap_or(-1.0));
+										Some(true_heading)
+									} else {
+										info!("🢄📡 Database bearing found but no trueHeading, using frontend bearing");
+										metadata.bearing
+									}
+								} else {
+									info!("🢄📡 No database bearing found for timestamp, using frontend bearing");
+									metadata.bearing
+								}
+							} else {
+								info!("🢄📡 Database bearing lookup returned success but no 'found' field, using frontend bearing");
+								metadata.bearing
+							}
+						} else {
+							info!("🢄📡 Database bearing lookup failed, using frontend bearing");
+							metadata.bearing
+						}
+					}
+					Err(e) => {
+						info!("🢄📡 Error looking up database bearing: {}, using frontend bearing", e);
+						metadata.bearing
+					}
+				}
+			} else {
+				info!("🢄📡 Bearing source '{}' indicates manual input, using frontend bearing", metadata.bearing_source);
+				metadata.bearing
+			};
 
 			// Send to Android database - use our photo_id
 			let plugin_photo = tauri_plugin_hillview::shared_types::DevicePhotoMetadata {
@@ -737,7 +642,7 @@ pub async fn save_photo_from_file(
 					latitude: metadata.latitude,
 					longitude: metadata.longitude,
 					altitude: metadata.altitude,
-					bearing: metadata.bearing,
+					bearing: final_bearing,
 					timestamp: metadata.timestamp,
 					accuracy: metadata.accuracy,
 					location_source: metadata.location_source.clone(),
@@ -773,7 +678,7 @@ pub async fn save_photo_from_file(
 				latitude: metadata.latitude,
 				longitude: metadata.longitude,
 				altitude: metadata.altitude,
-				bearing: metadata.bearing,
+				bearing: final_bearing,
 				timestamp: metadata.timestamp,
 				accuracy: metadata.accuracy,
 				width,
@@ -805,6 +710,22 @@ pub async fn save_photo_from_file(
 	})
 	.await
 	.map_err(|e| format!("Background task failed: {}", e))?
+}
+
+/// Helper function to determine if a bearing source indicates sensor data
+#[cfg(target_os = "android")]
+fn is_sensor_bearing_source(bearing_source: &str) -> bool {
+	let source_lower = bearing_source.to_lowercase();
+
+	// Check for sensor-related keywords
+	source_lower.contains("sensor") ||
+	source_lower.contains("compass") ||
+	source_lower.contains("tauri") ||
+	source_lower.contains("gyro") ||
+	source_lower.contains("magnetometer") ||
+	source_lower.contains("rotation") ||
+	source_lower.contains("magnetic") ||
+	source_lower.contains("enhanced")
 }
 
 #[command]
@@ -980,4 +901,46 @@ pub async fn read_photo_exif(path: String) -> Result<PhotoMetadata, String> {
 	}
 
 	Ok(metadata)
+}
+
+#[command]
+pub async fn save_photo_from_file(
+	app_handle: tauri::AppHandle,
+	photo_id: String,
+	metadata: PhotoMetadata,
+	file_path: String,
+	filename: String,
+	hide_from_gallery: bool,
+) -> Result<crate::device_photos::DevicePhotoMetadata, String> {
+	// Read image data from file (temp directory resolution done in blocking task)
+	let app_handle_clone = app_handle.clone();
+	let image_data = tokio::task::spawn_blocking(move || -> Result<Vec<u8>, String> {
+		// Resolve file path (frontend passes relative to temp directory)
+		let resolved_file_path = if file_path.starts_with("temp_") {
+			// Resolve relative to temp directory
+			let temp_dir = app_handle_clone.path().temp_dir()
+				.map_err(|e| format!("Failed to get temp directory: {}", e))?;
+			temp_dir.join(&file_path)
+		} else {
+			// Use absolute path as-is
+			std::path::PathBuf::from(&file_path)
+		};
+
+		// Read image data from file (blocking I/O)
+		std::fs::read(&resolved_file_path)
+			.map_err(|e| format!("Failed to read photo from file: {}", e))
+	})
+	.await
+	.map_err(|e| format!("File read task failed: {}", e))??;
+
+	// Call the internal function with the image data
+	#[cfg(target_os = "android")]
+	{
+		save_photo_from_bytes(app_handle, photo_id, metadata, image_data, filename, hide_from_gallery).await
+	}
+
+	#[cfg(not(target_os = "android"))]
+	{
+		Err("Photo saving not implemented for non-Android platforms".to_string())
+	}
 }

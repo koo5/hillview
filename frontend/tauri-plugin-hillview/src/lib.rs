@@ -60,6 +60,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
       commands::add_photo_to_database,
       commands::share_photo,
       commands::photo_worker_process,
+
       ])
     .setup(|app, api| {
       #[cfg(mobile)]

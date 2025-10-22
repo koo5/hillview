@@ -1,6 +1,7 @@
 <script lang="ts">
     import { createEventDispatcher, onDestroy, onMount } from 'svelte';
     import { Camera, Zap, Turtle } from 'lucide-svelte';
+	import {frontendBusy} from "$lib/data.svelte";
 
     export let disabled = false;
     export let slowInterval = 10000;
@@ -291,7 +292,7 @@
         class:long-pressed={isLongPress}
         class:slow-active={activeMode === 'slow'}
         class:fast-active={activeMode === 'fast'}
-        {disabled}
+        disabled={disabled || $frontendBusy}
         on:pointerdown={handleSinglePointerDown}
         on:pointerup={handleSinglePointerUp}
         on:pointermove={handleSinglePointerMove}

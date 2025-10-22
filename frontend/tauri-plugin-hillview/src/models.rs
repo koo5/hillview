@@ -115,3 +115,18 @@ pub struct PhotoWorkerResponse {
   pub error: Option<String>,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BearingLookupResponse {
+  pub success: bool,
+  pub found: Option<bool>,
+  pub magnetic_heading: Option<f64>,
+  pub true_heading: Option<f64>,
+  pub accuracy: Option<i32>,
+  pub source: Option<String>,
+  pub pitch: Option<f64>,
+  pub roll: Option<f64>,
+  pub timestamp: Option<i64>,
+  pub error: Option<String>,
+}
+
