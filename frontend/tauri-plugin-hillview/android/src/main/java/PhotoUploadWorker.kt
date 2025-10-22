@@ -23,6 +23,9 @@ class PhotoUploadWorker(
         private const val TAG = "🢄PhotoUploadWorker"
         const val WORK_NAME = "photo_upload_work"
         const val KEY_AUTO_UPLOAD_ENABLED = "auto_upload_enabled"
+
+        // Shared mutex to prevent multiple workers from running simultaneously
+        private val workerMutex = Mutex()
     }
 
     private val database = PhotoDatabase.getDatabase(applicationContext)
@@ -31,6 +34,13 @@ class PhotoUploadWorker(
     private val authManager = AuthenticationManager(applicationContext)
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        workerMutex.withLock {
+
+            doWorkInternal()
+        }
+    }
+
+    private suspend fun doWorkInternal(): Result {
         try {
             val triggerSource = inputData.getString("trigger_source") ?: "unknown"
             Log.d(TAG, "doWork - starting unified upload processing (triggered by: $triggerSource)")
@@ -101,7 +111,7 @@ class PhotoUploadWorker(
                             "failed",
                             photo.retryCount + 1,
                             System.currentTimeMillis(),
-                            "${action.capitalize()} failed"
+                            "$action failed"
                         )
                     }
 
@@ -119,11 +129,11 @@ class PhotoUploadWorker(
             }
 
             Log.d(TAG, "Photo upload worker completed successfully")
-            Result.success()
+            return Result.success()
 
         } catch (e: Exception) {
             Log.e(TAG, "Photo upload worker failed", e)
-            Result.retry()
+            return Result.retry()
         }
     }
 
