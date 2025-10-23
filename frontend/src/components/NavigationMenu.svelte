@@ -87,7 +87,7 @@
             </a></li>
 
             <li>
-                <a href="/download" data-external-link="true" target="_blank" rel="noopener noreferrer">
+                <a href="http://hillview.cz/download" data-external-link="true" target="_blank" rel="noopener noreferrer">
                     <Download size={18}/>
                     Download App
                 </a>
