@@ -239,21 +239,19 @@ async function startProcess(type: 'config' | 'area' | 'sourcesPhotosInArea', mes
         postMessage: (message: any) => messageQueue.addMessage(message),
         updatePhotosInArea: (photos: PhotoData[]) => {
             // Clear photos from disabled sources BEFORE adding new photos
-            if (currentState.config.data?.sources) {
-                const enabledSourceIds = new Set(
-                    currentState.config.data.sources
-                        .filter(s => s.enabled)
-                        .map(s => s.id)
-                );
+			const enabledSourceIds = new Set(
+				(currentState.config.data?.sources||[])
+					.filter(s => s.enabled)
+					.map(s => s.id)
+			);
 
-                // Remove photos from disabled sources
-                for (const sourceId of currentState.sourcesPhotosInArea.data.keys()) {
-                    if (!enabledSourceIds.has(sourceId)) {
-                        console.log(`🢄NewWorker: Clearing photos from disabled source: ${sourceId}`);
-                        currentState.sourcesPhotosInArea.data.delete(sourceId);
-                    }
-                }
-            }
+			// Remove photos from disabled sources
+			for (const sourceId of currentState.sourcesPhotosInArea.data.keys()) {
+				if (!enabledSourceIds.has(sourceId)) {
+					console.log(`🢄NewWorker: Clearing photos from disabled source: ${sourceId}`);
+					currentState.sourcesPhotosInArea.data.delete(sourceId);
+				}
+			}
 
             // For config updates, distribute photos across per-source tracking
             if (photos.length > 0) {
@@ -449,6 +447,7 @@ async function loop(): Promise<void> {
 					updateState('area', message);
 					break;
 
+					// fixme: this probably shoulnt be a message, each operation should set something like lastProcessedId = messageId directly
 				case 'processComplete':
 					handleProcessCompletion(message);
 					break;
@@ -551,7 +550,7 @@ function updateState(type: 'config' | 'area' | 'sourcesPhotosInArea', message: a
 		// Update range if provided in area updates
 		if (type === 'area' && message.data.range) {
 			currentRange = message.data.range;
-			console.log(`NewWorker: Updated range to ${currentRange}m`);
+			//console.log(`NewWorker: Updated range to ${currentRange}m`);
 		}
 
 		console.log(`NewWorker: Updated ${type} state (id: ${message.id})`);
@@ -570,13 +569,6 @@ function handleProcessCompletion(message: any): void {
 		console.log(`NewWorker: Marked ${processType} as processed (id: ${messageId})`);
 	}
 
-	// Incorporate any results into state
-	if (results) {
-		// TODO: Handle specific result types
-		console.log(`NewWorker: Incorporating results from ${processType} process`);
-	}
-
-	// Clean up the process
 	cleanupProcess(processId);
 }
 

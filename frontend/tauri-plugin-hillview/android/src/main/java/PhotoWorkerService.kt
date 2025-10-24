@@ -29,7 +29,6 @@ import cz.hillview.plugin.ProcessId
 /**
  * Photo Worker Service - Main orchestration class for Kotlin photo processing
  *
- * Replaces the Web Worker implementation to solve "window is not defined" issues.
  * Provides single entry point for all photo operations with process management,
  * prioritization, and aborting support.
  *

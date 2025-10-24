@@ -72,7 +72,10 @@ export class PhotoOperations {
     ): Promise<void> {
         console.log(`🢄PhotoOperations: Processing config update (${processId})`);
 
-        if (callbacks.shouldAbort(processId)) return;
+        if (callbacks.shouldAbort(processId)) {
+            console.log(`🢄PhotoOperations: PROCESSCONFIG: Config process ${processId} aborted before completion`);
+            return;
+        }
 
         // Check worker version if provided
         if (config.expectedWorkerVersion && config.expectedWorkerVersion !== __WORKER_VERSION__) {
@@ -80,22 +83,12 @@ export class PhotoOperations {
         }
 
         if (!config?.sources) {
-            console.log(`🢄PhotoOperations: PROCESSCONFIG: No sources in config (${processId})`);
-            callbacks.postMessage({
-                type: 'processComplete',
-                processId,
-                processType: 'config',
-                messageId
-            });
-            return;
+            throw new Error('Invalid config: missing sources array');
         }
 
         const sources = config.sources;
         let allLoadedPhotos: PhotoData[] = [];
-
-        // Cancel any existing loading processes that are no longer needed
         const enabledSourceIds = new Set(sources.filter(s => s.enabled).map(s => s.id));
-
         console.log(`🢄PhotoOperations: PROCESSCONFIG: enabledSourceIds: ${Array.from(enabledSourceIds).join(', ')}, loadingProcesses: ${Array.from(this.loadingProcesses.keys()).join(', ')}`);
 
         for (const [sourceId, process] of this.loadingProcesses.entries()) {
@@ -104,41 +97,9 @@ export class PhotoOperations {
                 process.cancel();
                 this.loadingProcesses.delete(sourceId);
                 // Also clear the cache for disabled sources to free memory
-                this.sourceCache.delete(sourceId);
-                console.log(`🢄PhotoOperations: PROCESSCONFIG: Cleared cache for disabled source ${sourceId}`);
+                //this.sourceCache.delete(sourceId);
+                //console.log(`🢄PhotoOperations: PROCESSCONFIG: Cleared cache for disabled source ${sourceId}`);
             }
-        }
-
-        /*// Process each enabled source - perform global preloading for cache
-        for (const source of sources.filter(s => s.enabled)) {
-            if (callbacks.shouldAbort(processId)) return;
-
-            console.log(`🢄PhotoOperations: PROCESSCONFIG: Processing enabled source ${source.id} (${processId})`);
-
-            // Check if we already have a cache for this source
-            const existingCache = this.sourceCache.get(source.id);
-            if (!existingCache) {
-                console.log(`🢄PhotoOperations: No cache for ${source.id}, performing global preload`);
-
-                // Perform global load with full globe bounds
-                const globalBounds: Bounds = {
-                    top_left: { lat: 90, lng: -180 },
-                    bottom_right: { lat: -90, lng: 180 }
-                };
-                await this.loadSource(source, processId, callbacks, globalBounds);
-            } else {
-                console.log(`🢄PhotoOperations: Using existing cache for ${source.id} (${existingCache.photos.length} photos, complete: ${existingCache.isComplete})`);
-
-                // Add cached photos to the current operation
-                if (existingCache.photos.length > 0) {
-                    callbacks.updatePhotosInArea(existingCache.photos);
-                }
-            }
-        }*/
-
-        if (callbacks.shouldAbort(processId)) {
-            console.log(`🢄PhotoOperations: PROCESSCONFIG: Config process ${processId} aborted before completion`);
-            return;
         }
 
         // Update photosInArea with all loaded photos
@@ -210,7 +171,6 @@ export class PhotoOperations {
 
         if (callbacks.shouldAbort(processId)) return;
 
-        // Update shared state with NEW array (not in-place modification)
         callbacks.updatePhotosInArea(newPhotosInArea);
         callbacks.sendPhotosInAreaUpdate();
 

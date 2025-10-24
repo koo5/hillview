@@ -95,7 +95,7 @@ class SimplePhotoWorker {
     private handleWorkerUpdate(message: any): void {
         switch (message.type) {
             case 'photosUpdate':
-                // New worker sends raw photo arrays directly (no serialization needed)
+
                 const areaPhotos = message.photosInArea || [];
                 const rangePhotos = message.photosInRange || [];
 
@@ -122,7 +122,6 @@ class SimplePhotoWorker {
                 break;
 
             case 'sourceLoadingStatus':
-                // Handle loading status updates from worker
                 sourceLoadingStatus.update(status => ({
                     ...status,
                     [message.sourceId]: {
@@ -138,7 +137,6 @@ class SimplePhotoWorker {
                 break;
 
             case 'toast':
-                // Handle toast messages from worker
                 const toastMessage = message as WorkerToastMessage;
                 console.log(`🢄SimplePhotoWorker: Received toast from worker: ${toastMessage.level} - ${toastMessage.message} (source: ${toastMessage.source})`);
 
@@ -150,10 +148,8 @@ class SimplePhotoWorker {
                 break;
 
             case 'getAuthToken':
-                // Handle auth token requests from worker
                 this.handleAuthTokenRequest(message.forceRefresh);
                 break;
-
 
             default:
                 console.warn('🢄SimplePhotoWorker: Unknown message type:', message.type);
