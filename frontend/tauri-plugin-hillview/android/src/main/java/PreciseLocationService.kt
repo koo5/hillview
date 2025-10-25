@@ -119,7 +119,7 @@ class PreciseLocationService(
 
             override fun onLocationAvailability(availability: LocationAvailability) {
                 ////Log.i(TAG, "📍 CALLBACK: *** onLocationAvailability called! ***")
-                Log.i(TAG, "📍 isLocationAvailable: ${availability.isLocationAvailable}")
+                //Log.i(TAG, "📍 isLocationAvailable: ${availability.isLocationAvailable}")
                 if (!availability.isLocationAvailable) {
                     //Log.w(TAG, "📍⚠️ CALLBACK: Location is currently unavailable")
                     //Log.w(TAG, "📍⚠️ CALLBACK: This could mean GPS is turned off or no signal")

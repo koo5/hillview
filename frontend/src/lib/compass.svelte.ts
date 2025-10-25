@@ -4,6 +4,8 @@ import {PluginListener} from "@tauri-apps/api/core";
 import { invoke } from '@tauri-apps/api/core';
 import { locationManager } from './locationManager';
 import {bearingMode, bearingState, updateBearing} from "$lib/mapState";
+import { page } from '$app/stores';
+import { browser } from '$app/environment';
 
 export interface CompassData {
     magneticHeading: number | null;  // 0-360 degrees from magnetic north
@@ -63,10 +65,15 @@ export const currentCompassHeading = derived(
     }
 );
 
-// Store to track if compass is active
-export const compassActive = writable(false);
+// Compass state machine - single source of truth
+export type CompassState =
+  | 'inactive'        // User hasn't enabled compass
+  | 'starting'        // User enabled, trying to start (permissions, sensor init)
+  | 'active'          // Compass working successfully
+  | 'error'           // Failed to start (permissions denied, no sensor, etc.)
+  | 'paused';         // User enabled but paused due to route (not on map)
 
-// Store to track compass errors
+export const compassState = writable<CompassState>('inactive');
 export const compassError = writable<string | null>(null);
 
 // Store to track last sensor update time
@@ -90,6 +97,9 @@ export const sensorAccuracy = writable<{
 
 // Store to track compass lag (time since last update)
 export const compassLag = writable<number | null>(null);
+
+// Route state - whether we're on map route where compass should work
+export const isOnMapRoute = writable<boolean>(false);
 
 // Permission state
 let permissionGranted = false;
@@ -129,7 +139,7 @@ function normalizeHeading(heading: number): number {
 }
 
 // Log compass availability once
-if (TAURI_MOBILE) {
+/*if (TAURI_MOBILE) {
     console.log('🢄📱 Tauri Mobile detected, sensor-based compass will be available');
 } else if (TAURI) {
     console.log('🢄💻 Tauri Desktop detected, compass not available');
@@ -137,7 +147,7 @@ if (TAURI_MOBILE) {
     console.log('🢄🧭 Web DeviceOrientation API detected');
 } else {
     console.log('🢄❌ No compass API available');
-}
+}*/
 
 // Tauri sensor implementation
 async function startTauriSensor(mode: SensorMode = SensorMode.UPRIGHT_ROTATION_VECTOR): Promise<boolean> {
@@ -162,34 +172,37 @@ async function startTauriSensor(mode: SensorMode = SensorMode.UPRIGHT_ROTATION_V
         // Set up sensor data listener
         console.log('🢄🔍 About to set up sensor data listener...');
 
-        tauriSensorListener = await sensor.onSensorData((data: SensorData) => {
-            //console.log('🢄🔍📡 Native sensor data received:', JSON.stringify(data));
+		if (!tauriSensorListener)
+		{
+			tauriSensorListener = await sensor.onSensorData((data: SensorData) => {
+				//console.log('🢄🔍📡 Native sensor data received:', JSON.stringify(data));
 
-            // Handle potentially different event formats
-            const sensorData = data;
+				// Handle potentially different event formats
+				const sensorData = data;
 
-            const compassUpdate = {
-                magneticHeading: sensorData.magneticHeading,
-                trueHeading: sensorData.trueHeading,
-                headingAccuracy: sensorData.headingAccuracy,
-                timestamp: sensorData.timestamp,
-                source: sensorData.source || 'tauri'
-            };
+				const compassUpdate = {
+					magneticHeading: sensorData.magneticHeading,
+					trueHeading: sensorData.trueHeading,
+					headingAccuracy: sensorData.headingAccuracy,
+					timestamp: sensorData.timestamp,
+					source: sensorData.source || 'tauri'
+				};
 
-            scheduleCompassUpdate(compassUpdate);
+				scheduleCompassUpdate(compassUpdate);
 
-            if (false) {
-                const modeStr = get(currentSensorMode);
-                console.log(`🔍🧭 Compass update from ${data.source || 'Unknown'} (Mode: ${SensorMode[modeStr]}):`, JSON.stringify({
-                    'compass bearing (magnetic)': compassUpdate.magneticHeading?.toFixed(1) + '°',
-                    'compass bearing (true)': compassUpdate.trueHeading?.toFixed(1) + '°',
-                    accuracy: '±' + compassUpdate.headingAccuracy?.toFixed(1) + '°',
-                    pitch: data.pitch?.toFixed(1) + '°',
-                    roll: data.roll?.toFixed(1) + '°',
-                    timestamp: new Date(data.timestamp).toLocaleTimeString()
-                }));
-            }
-        });
+				if (false) {
+					const modeStr = get(currentSensorMode);
+					console.log(`🔍🧭 Compass update from ${data.source || 'Unknown'} (Mode: ${SensorMode[modeStr]}):`, JSON.stringify({
+						'compass bearing (magnetic)': compassUpdate.magneticHeading?.toFixed(1) + '°',
+						'compass bearing (true)': compassUpdate.trueHeading?.toFixed(1) + '°',
+						accuracy: '±' + compassUpdate.headingAccuracy?.toFixed(1) + '°',
+						pitch: data.pitch?.toFixed(1) + '°',
+						roll: data.roll?.toFixed(1) + '°',
+						timestamp: new Date(data.timestamp).toLocaleTimeString()
+					}));
+				}
+			});
+		}
 
         console.log('🢄🔍✅ Tauri sensor listener:', JSON.stringify(tauriSensorListener));
 
@@ -268,36 +281,49 @@ async function startWebCompass(): Promise<boolean> {
     });
 }
 
-// Stop all compass services
-export async function stopCompass() {
-    //console.log('🢄🛑 Stopping compass');
-    compassActive.set(false);
+// Simple user-level API functions
+export function enableCompass() {
+    console.log('🢄🧭 User enabled compass');
+    compassEnabled.set(true);
+}
 
+export function disableCompass() {
+    console.log('🢄🛑 User disabled compass');
+    compassEnabled.set(false);
+}
+
+export function setCompassMode(mode: SensorMode) {
+    console.log('🢄🔄 User changed compass mode to:', SensorMode[mode]);
+    compassMode.set(mode);
+}
+
+
+async function stopCompassInternal() {
     // Stop accuracy polling
-    stopAccuracyPolling();
+    //stopAccuracyPolling();
 
     // Stop lag monitoring
-    stopLagMonitoring();
+    //stopLagMonitoring();
 
     // Stop Tauri sensor if active
-    if (tauriSensorListener) {
-        // Try to unregister listener (may fail if backend doesn't have remove_listener)
-        tauriSensorListener.unregister().catch((error: unknown) => {
-            // Ignore error if remove_listener command doesn't exist
-            // The listener will be cleaned up when the plugin is destroyed
-            console.debug('🢄🧙 Could not unregister sensor listener (expected on Android):', error);
-        });
-        tauriSensorListener = null;
+    // if (tauriSensorListener) {
+    //     // Try to unregister listener (may fail if backend doesn't have remove_listener)
+    //     tauriSensorListener.unregister().catch((error: unknown) => {
+    //         // Ignore error if remove_listener command doesn't exist
+    //         // The listener will be cleaned up when the plugin is destroyed
+    //         console.debug('🢄🧙 Could not unregister sensor listener (expected on Android):', error);
+    //     });
+    //     tauriSensorListener = null;
 
-        // Try to stop the sensor service
-        if (tauriSensor) {
-            tauriSensor.stopSensor().catch((error: unknown) => {
-                console.error('🢄🔍 Failed to stop Tauri sensor:', error);
-            });
-        }
-
-        // Release location service for compass
         if (TAURI_MOBILE) {
+			// Try to stop the sensor service
+			if (tauriSensor) {
+				tauriSensor.stopSensor().catch((error: unknown) => {
+					console.error('🢄🔍 Failed to stop Tauri sensor:', error);
+				});
+			}
+
+			// Release location service for compass
             try {
                 await locationManager.releaseLocation('compass');
                 console.log('🢄🔍 ✅ Compass released location service');
@@ -305,7 +331,7 @@ export async function stopCompass() {
                 console.error('🢄🔍 ❌ Compass failed to release location service:', err);
             }
         }
-    }
+    // }
 
     // Stop DeviceOrientation if active
     if (orientationHandler) {
@@ -370,8 +396,80 @@ export async function requestCompassPermission(): Promise<boolean> {
     return true;
 }
 
-// Main compass start function
-export async function startCompass(mode?: SensorMode) {
+// User preference stores - UI controls these directly
+export const compassEnabled = writable(false);
+export const compassMode = writable<SensorMode>(SensorMode.UPRIGHT_ROTATION_VECTOR);
+
+// Track if compass is actually running internally (separate from user preference and success state)
+let compassInternallyActive = false;
+
+// Flag to prevent recursion when reverting user preference
+let revertingUserPreference = false;
+
+// State machine that manages compass based on user preferences + route state
+async function updateCompassState() {
+	// Don't process updates if we're reverting user preference to avoid recursion
+	if (revertingUserPreference) {
+		return;
+	}
+	const userEnabled = get(compassEnabled);
+	const onMapRoute = get(isOnMapRoute);
+	const currentState = get(compassState);
+	const userMode = get(compassMode);
+
+	console.log('🢄🎛️ Compass state update:', { userEnabled, onMapRoute, currentState });
+
+	if (!userEnabled) {
+		// User disabled compass
+		if (currentState !== 'inactive') {
+			compassState.set('inactive');
+			if (compassInternallyActive) {
+				compassInternallyActive = false;
+				await stopCompassInternal();
+			}
+		}
+	} else if (!onMapRoute) {
+		// User enabled but not on map route
+		if (currentState !== 'paused') {
+			compassState.set('paused');
+			if (compassInternallyActive) {
+				compassInternallyActive = false;
+				await stopCompassInternal();
+			}
+		}
+	} else {
+		// User enabled and on map route - should be active
+		if (currentState === 'inactive' || currentState === 'paused') {
+			compassState.set('starting');
+			compassError.set(null);
+
+			// Try to start sensor
+			compassInternallyActive = true;
+			const success = await startCompassInternal(userMode);
+
+			if (success) {
+				compassState.set('active');
+			} else {
+				compassState.set('error');
+				compassInternallyActive = false;
+				// Revert user preference on failure (permission denied, etc.)
+				console.log('🢄🧭 Compass start failed, reverting user preference');
+				revertingUserPreference = true;
+				compassEnabled.set(false);
+				// After setting compassEnabled to false, reset the state to inactive and clear the flag
+				compassState.set('inactive');
+				revertingUserPreference = false;
+			}
+		}
+	}
+}
+
+// Subscribe to state changes
+compassEnabled.subscribe(updateCompassState);
+compassMode.subscribe(updateCompassState);
+isOnMapRoute.subscribe(updateCompassState);
+
+async function startCompassInternal(mode?: SensorMode) {
     const sensorMode = mode ?? get(currentSensorMode);
     //console.log('🢄🧭 Starting compass with mode:', SensorMode[sensorMode]);
 
@@ -385,15 +483,14 @@ export async function startCompass(mode?: SensorMode) {
         const success = await startTauriSensor(sensorMode);
         if (success) {
             //console.log('🢄🔍✅ Tauri sensor started successfully');
-            compassActive.set(true);
             compassError.set(null);
             currentSensorMode.set(sensorMode);
 
             // Start accuracy polling for Android
-            startAccuracyPolling();
+            //startAccuracyPolling();
 
             // Start lag monitoring
-            startLagMonitoring();
+            //startLagMonitoring();
 
             // Request location service for compass (needed for true north calculation)
             if (TAURI_MOBILE) {
@@ -423,13 +520,12 @@ export async function startCompass(mode?: SensorMode) {
     // Try web compass
     const webSuccess = await startWebCompass();
     if (webSuccess) {
-        compassActive.set(true);
         compassError.set(null);
         currentSensorMode.set(sensorMode);
         // Note: No accuracy polling for web compass since it doesn't have sensor accuracy
 
         // Start lag monitoring for web compass too
-        startLagMonitoring();
+        //startLagMonitoring();
 
         return true;
     }
@@ -458,39 +554,9 @@ export function isCompassAvailable(): boolean {
 // Reactive store for compass availability
 export const compassAvailable = writable(isCompassAvailable());
 
-// Function to switch sensor mode while running
-export async function switchSensorMode(mode: SensorMode) {
-    const oldMode = get(currentSensorMode);
-    console.log('🢄🔄 Switching sensor mode:', SensorMode[oldMode], '→', SensorMode[mode]);
-
-    if (!get(compassActive)) {
-        console.warn('🢄⚠️ Compass not active, starting with new mode:', SensorMode[mode]);
-        return startCompass(mode);
-    }
-
-    console.log('🢄🛑 Stopping current sensor...');
-    // Stop current sensor
-    await stopCompass();
-
-    // Wait a bit for cleanup
-    console.log('🢄⏳ Waiting for cleanup...');
-    await new Promise(resolve => setTimeout(resolve, 100));
-
-    // Start with new mode
-    console.log('🢄🚀 Starting sensor with new mode:', SensorMode[mode]);
-    const success = await startCompass(mode);
-
-    if (success) {
-        console.log('🢄✅ Successfully switched to mode:', SensorMode[mode]);
-    } else {
-        console.error('🢄❌ Failed to switch to mode:', SensorMode[mode]);
-    }
-
-    return success;
-}
 
 // Function to get current sensor accuracy status
-export async function getSensorAccuracy(): Promise<{
+/*export async function getSensorAccuracy(): Promise<{
     magnetometer: string;
     accelerometer: string;
     gyroscope: string;
@@ -515,10 +581,10 @@ export async function getSensorAccuracy(): Promise<{
         console.error('🢄🔍❌ Failed to get sensor accuracy:', error);
         return null;
     }
-}
+}*/
 
 // Function to start polling sensor accuracy
-function startAccuracyPolling() {
+/*function startAccuracyPolling() {
     if (!TAURI_MOBILE || accuracyPollingInterval !== null) {
         return;
     }
@@ -536,46 +602,46 @@ function startAccuracyPolling() {
             console.warn('🢄🔍⚠️ Accuracy polling failed:', error);
         }
     }, 2000);
-}
+}*/
 
 // Function to stop polling sensor accuracy
-function stopAccuracyPolling() {
+/*function stopAccuracyPolling() {
     if (accuracyPollingInterval !== null) {
         console.log('🢄🔍🛑 Stopping sensor accuracy polling');
         clearInterval(accuracyPollingInterval);
         accuracyPollingInterval = null;
     }
-}
+}*/
 
 // Function to start monitoring compass lag
-function startLagMonitoring() {
-    if (lagMonitoringInterval !== null) {
-        return;
-    }
+// function startLagMonitoring() {
+//     if (lagMonitoringInterval !== null) {
+//         return;
+//     }
+//
+//     console.log('🢄🔍🕒 Starting compass lag monitoring');
+//
+//     // Check lag every 50ms
+//     /*lagMonitoringInterval = window.setInterval(() => {
+//         const currentData = get(compassData);
+//         if (currentData.timestamp > 0) {
+//             const now = Date.now();
+//             const lag = now - currentData.timestamp;
+//             compassLag.set(lag);
+// 			//console.log(`🢄🔍 TIMING: Compass lag: ${lag} ms`);
+//         }
+//     }, 100);*/
+// }
 
-    console.log('🢄🔍🕒 Starting compass lag monitoring');
-
-    // Check lag every 50ms
-    lagMonitoringInterval = window.setInterval(() => {
-        const currentData = get(compassData);
-        if (currentData.timestamp > 0) {
-            const now = Date.now();
-            const lag = now - currentData.timestamp;
-            compassLag.set(lag);
-			console.log(`🢄🔍 TIMING: Compass lag: ${lag} ms`);
-        }
-    }, 100);
-}
-
-// Function to stop monitoring compass lag
-function stopLagMonitoring() {
-    if (lagMonitoringInterval !== null) {
-        console.log('🢄🔍🛑 Stopping compass lag monitoring');
-        clearInterval(lagMonitoringInterval);
-        lagMonitoringInterval = null;
-        compassLag.set(null);
-    }
-}
+// // Function to stop monitoring compass lag
+// function stopLagMonitoring() {
+//     if (lagMonitoringInterval !== null) {
+//         console.log('🢄🔍🛑 Stopping compass lag monitoring');
+//         clearInterval(lagMonitoringInterval);
+//         lagMonitoringInterval = null;
+//         compassLag.set(null);
+//     }
+// }
 
 let lastBearing: number | null = null;
 /* refactor, smoothing happens in EnhancedSensorService.kt already (and also it only fires on changes), so smoothing on the frontend would only be useful if we need to smoothen web compass api
@@ -599,7 +665,7 @@ function lerpAngle(current: number, target: number, factor: number): number {
 // Subscribe to compass heading changes
 currentCompassHeading.subscribe(compass => {
 	if (get(bearingMode) !== 'walking') return;
-    if (!compass || compass.heading === null || !get(compassActive)) return;
+    if (!compass || compass.heading === null || get(compassState) !== 'active') return;
 	if (isNaN(compass.heading)) return;
 
     const targetBearing = (360 + compass.heading) % 360;
@@ -623,9 +689,9 @@ currentCompassHeading.subscribe(compass => {
 	}
 });
 
-// Reset smoothing when tracking stops
-compassActive.subscribe(tracking => {
-    if (!tracking) {
+// Reset smoothing when compass stops
+compassState.subscribe(state => {
+    if (state !== 'active') {
         lastBearing = null;
     }
 });

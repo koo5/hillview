@@ -343,6 +343,30 @@
           "markdownDescription": "Denies the get_device_photos command without any pre-configured scope."
         },
         {
+          "description": "Enables the get_push_distributors command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-push-distributors",
+          "markdownDescription": "Enables the get_push_distributors command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_push_distributors command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-push-distributors",
+          "markdownDescription": "Denies the get_push_distributors command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_push_registration_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-push-registration-status",
+          "markdownDescription": "Enables the get_push_registration_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_push_registration_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-push-registration-status",
+          "markdownDescription": "Denies the get_push_registration_status command without any pre-configured scope."
+        },
+        {
           "description": "Enables the getSensorAccuracy command without any pre-configured scope.",
           "type": "string",
           "const": "allow-get-sensor-accuracy",
@@ -451,16 +475,16 @@
           "markdownDescription": "Denies the refresh_photo_scan command without any pre-configured scope."
         },
         {
-          "description": "Enables the registerListener command without any pre-configured scope.",
+          "description": "Enables the register_listener command without any pre-configured scope.",
           "type": "string",
-          "const": "allow-registerListener",
-          "markdownDescription": "Enables the registerListener command without any pre-configured scope."
+          "const": "allow-register-listener",
+          "markdownDescription": "Enables the register_listener command without any pre-configured scope."
         },
         {
-          "description": "Denies the registerListener command without any pre-configured scope.",
+          "description": "Denies the register_listener command without any pre-configured scope.",
           "type": "string",
-          "const": "deny-registerListener",
-          "markdownDescription": "Denies the registerListener command without any pre-configured scope."
+          "const": "deny-register-listener",
+          "markdownDescription": "Denies the register_listener command without any pre-configured scope."
         },
         {
           "description": "Enables the request_camera_permission command without any pre-configured scope.",
@@ -485,6 +509,18 @@
           "type": "string",
           "const": "deny-retry-failed-uploads",
           "markdownDescription": "Denies the retry_failed_uploads command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the select_push_distributor command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-select-push-distributor",
+          "markdownDescription": "Enables the select_push_distributor command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the select_push_distributor command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-select-push-distributor",
+          "markdownDescription": "Denies the select_push_distributor command without any pre-configured scope."
         },
         {
           "description": "Enables the set_auto_upload_enabled command without any pre-configured scope.",
@@ -607,10 +643,10 @@
           "markdownDescription": "Denies the update_sensor_location command without any pre-configured scope."
         },
         {
-          "description": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-ping`\n- `allow-start-sensor`\n- `allow-stop-sensor`\n- `allow-get-sensor-accuracy`\n- `allow-update-sensor-location`\n- `allow-registerListener`\n- `allow-start-precise-location-listener`\n- `allow-stop-precise-location-listener`\n- `allow-set-auto-upload-enabled`\n- `allow-get-upload-status`\n- `allow-set-upload-config`\n- `allow-retry-failed-uploads`\n- `allow-store-auth-token`\n- `allow-get-auth-token`\n- `allow-clear-auth-token`\n- `allow-refresh-auth-token`\n- `allow-is-token-expired`\n- `allow-check-camera-permission`\n- `allow-request-camera-permission`\n- `allow-test-auth-expired-notification`\n- `allow-get-device-photos`\n- `allow-refresh-photo-scan`\n- `allow-import-photos`\n- `allow-share-photo`\n- `allow-photo-worker-process`",
+          "description": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-ping`\n- `allow-start-sensor`\n- `allow-stop-sensor`\n- `allow-get-sensor-accuracy`\n- `allow-update-sensor-location`\n- `allow-register-listener`\n- `allow-start-precise-location-listener`\n- `allow-stop-precise-location-listener`\n- `allow-set-auto-upload-enabled`\n- `allow-get-upload-status`\n- `allow-set-upload-config`\n- `allow-retry-failed-uploads`\n- `allow-store-auth-token`\n- `allow-get-auth-token`\n- `allow-clear-auth-token`\n- `allow-refresh-auth-token`\n- `allow-is-token-expired`\n- `allow-check-camera-permission`\n- `allow-request-camera-permission`\n- `allow-test-auth-expired-notification`\n- `allow-get-device-photos`\n- `allow-refresh-photo-scan`\n- `allow-import-photos`\n- `allow-share-photo`\n- `allow-photo-worker-process`\n- `allow-get-push-distributors`\n- `allow-get-push-registration-status`\n- `allow-select-push-distributor`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-ping`\n- `allow-start-sensor`\n- `allow-stop-sensor`\n- `allow-get-sensor-accuracy`\n- `allow-update-sensor-location`\n- `allow-registerListener`\n- `allow-start-precise-location-listener`\n- `allow-stop-precise-location-listener`\n- `allow-set-auto-upload-enabled`\n- `allow-get-upload-status`\n- `allow-set-upload-config`\n- `allow-retry-failed-uploads`\n- `allow-store-auth-token`\n- `allow-get-auth-token`\n- `allow-clear-auth-token`\n- `allow-refresh-auth-token`\n- `allow-is-token-expired`\n- `allow-check-camera-permission`\n- `allow-request-camera-permission`\n- `allow-test-auth-expired-notification`\n- `allow-get-device-photos`\n- `allow-refresh-photo-scan`\n- `allow-import-photos`\n- `allow-share-photo`\n- `allow-photo-worker-process`"
+          "markdownDescription": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-ping`\n- `allow-start-sensor`\n- `allow-stop-sensor`\n- `allow-get-sensor-accuracy`\n- `allow-update-sensor-location`\n- `allow-register-listener`\n- `allow-start-precise-location-listener`\n- `allow-stop-precise-location-listener`\n- `allow-set-auto-upload-enabled`\n- `allow-get-upload-status`\n- `allow-set-upload-config`\n- `allow-retry-failed-uploads`\n- `allow-store-auth-token`\n- `allow-get-auth-token`\n- `allow-clear-auth-token`\n- `allow-refresh-auth-token`\n- `allow-is-token-expired`\n- `allow-check-camera-permission`\n- `allow-request-camera-permission`\n- `allow-test-auth-expired-notification`\n- `allow-get-device-photos`\n- `allow-refresh-photo-scan`\n- `allow-import-photos`\n- `allow-share-photo`\n- `allow-photo-worker-process`\n- `allow-get-push-distributors`\n- `allow-get-push-registration-status`\n- `allow-select-push-distributor`"
         }
       ]
     }

@@ -3,7 +3,6 @@
 
 	export let onSaveSuccess = (message: string) => {};
 	export let onSaveError = (message: string) => {};
-	export let onCancel = () => {};
 
 	let shutterSoundEnabled = $photoCaptureSettings.shutterSoundEnabled;
 
@@ -43,11 +42,6 @@
 	</p>
 </div>
 
-<div class="form-actions">
-	<button type="button" class="cancel-button" on:click={onCancel}>
-		Close Settings
-	</button>
-</div>
 
 <style>
 	h2 {
@@ -86,25 +80,4 @@
 		line-height: 1.4;
 	}
 
-	.form-actions {
-		margin-top: 2rem;
-		display: flex;
-		justify-content: flex-end;
-	}
-
-	.cancel-button {
-		padding: 0.5rem 1rem;
-		background-color: #f3f4f6;
-		color: #374151;
-		border: 1px solid #d1d5db;
-		border-radius: 0.375rem;
-		font-size: 0.875rem;
-		cursor: pointer;
-		transition: all 0.2s ease;
-	}
-
-	.cancel-button:hover {
-		background-color: #e5e7eb;
-		border-color: #9ca3af;
-	}
 </style>

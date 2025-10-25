@@ -130,3 +130,41 @@ pub struct BearingLookupResponse {
   pub error: Option<String>,
 }
 
+// Push Notification Models
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PushDistributorInfo {
+  pub package_name: String,
+  pub display_name: String,
+  pub is_available: bool,
+  pub is_selected: bool,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PushDistributorsResponse {
+  pub distributors: Vec<PushDistributorInfo>,
+  pub success: bool,
+  pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PushRegistrationStatusResponse {
+  pub status: String, // "not_configured", "registered", "distributor_missing", "registration_failed", "disabled"
+  pub status_message: String,
+  pub selected_distributor: Option<String>,
+  pub push_endpoint: Option<String>,
+  pub last_error: Option<String>,
+  pub push_enabled: bool,
+  pub success: bool,
+  pub error: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SelectDistributorRequest {
+  pub package_name: String, // Empty string means "disabled"
+}
+

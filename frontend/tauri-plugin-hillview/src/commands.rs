@@ -334,3 +334,51 @@ pub(crate) async fn photo_worker_process<R: Runtime>(
         return Err(crate::Error::from("Photo worker is only available on mobile devices"));
     }
 }
+
+// Push Notification Commands
+
+#[command]
+pub(crate) async fn get_push_distributors<R: Runtime>(
+    #[allow(unused_variables)] app: AppHandle<R>,
+) -> Result<crate::models::PushDistributorsResponse> {
+    #[cfg(mobile)]
+    {
+        return app.hillview().get_push_distributors();
+    }
+
+    #[cfg(desktop)]
+    {
+        return Err(crate::Error::from("Push notifications are only available on mobile devices"));
+    }
+}
+
+#[command]
+pub(crate) async fn get_push_registration_status<R: Runtime>(
+    #[allow(unused_variables)] app: AppHandle<R>,
+) -> Result<crate::models::PushRegistrationStatusResponse> {
+    #[cfg(mobile)]
+    {
+        return app.hillview().get_push_registration_status();
+    }
+
+    #[cfg(desktop)]
+    {
+        return Err(crate::Error::from("Push notifications are only available on mobile devices"));
+    }
+}
+
+#[command]
+pub(crate) async fn select_push_distributor<R: Runtime>(
+    #[allow(unused_variables)] app: AppHandle<R>,
+    request: crate::models::SelectDistributorRequest,
+) -> Result<BasicResponse> {
+    #[cfg(mobile)]
+    {
+        return app.hillview().select_push_distributor(request.package_name);
+    }
+
+    #[cfg(desktop)]
+    {
+        return Err(crate::Error::from("Push notifications are only available on mobile devices"));
+    }
+}

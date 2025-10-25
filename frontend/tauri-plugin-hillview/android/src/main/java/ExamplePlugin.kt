@@ -136,6 +136,11 @@ class GetBearingForTimestampArgs {
   var timestamp: Long? = null
 }
 
+@InvokeArg
+class SelectDistributorArgs {
+  var packageName: String? = null
+}
+
 @TauriPlugin
 class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     companion object {
@@ -254,6 +259,16 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         Log.i(TAG, "🢄🎥 Plugin load() called with WebView: $webView")
         super.load(webView)
         setupWebViewCameraPermissions(webView)
+
+        // Auto-register push distributor on app start
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val pushManager = PushDistributorManager(activity)
+                pushManager.autoRegisterIfNeeded()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error during auto-registration on plugin load", e)
+            }
+        }
     }
 
     private fun setupWebViewCameraPermissions(webView: WebView) {
@@ -556,7 +571,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             data.put("bearingAccuracy", locationData.bearingAccuracy)
             data.put("speedAccuracy", locationData.speedAccuracy)
 
-            Log.v(TAG, "📍 ExamplePlugin.kt relaying location update: lat=${locationData.latitude}, lng=${locationData.longitude}, accuracy=${locationData.accuracy}m")
+            Log.v(TAG, "📍 lat=${locationData.latitude}, lng=${locationData.longitude}, accuracy=${locationData.accuracy}m")
 
             try {
                 // Use the same event name as the geolocation plugin would use
@@ -1891,6 +1906,119 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             val error = JSObject()
             error.put("error", e.message)
             invoke.resolve(error)
+        }
+    }
+
+    // Push Notification Commands
+
+    @Command
+    fun getPushDistributors(invoke: Invoke) {
+        try {
+            Log.d(TAG, "📨 getPushDistributors called")
+            val manager = PushDistributorManager(activity)
+            val distributors = manager.getAvailableDistributors()
+
+            Log.d(TAG, "📨 Found ${distributors.size} distributors:")
+            distributors.forEach { distributor ->
+                Log.d(TAG, "📨   - ${distributor.displayName} (${distributor.packageName}): available=${distributor.isAvailable}, selected=${distributor.isSelected}")
+            }
+
+            val result = JSObject()
+            val distributorsArray = JSONArray()
+
+            distributors.forEach { distributor ->
+                val distObj = JSObject()
+                distObj.put("packageName", distributor.packageName)
+                distObj.put("displayName", distributor.displayName)
+                distObj.put("isAvailable", distributor.isAvailable)
+                distObj.put("isSelected", distributor.isSelected)
+                distributorsArray.put(distObj)
+            }
+
+            result.put("distributors", distributorsArray)
+            result.put("success", true)
+
+            Log.d(TAG, "📨 Returning distributors result: $result")
+            invoke.resolve(result)
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting push distributors", e)
+            val error = JSObject()
+            error.put("success", false)
+            error.put("error", e.message)
+            invoke.resolve(error)
+        }
+    }
+
+    @Command
+    fun getPushRegistrationStatus(invoke: Invoke) {
+        try {
+            Log.d(TAG, "📨 getPushRegistrationStatus called")
+            val manager = PushDistributorManager(activity)
+            val status = manager.getRegistrationStatus()
+            val statusMessage = manager.getStatusMessage()
+            val selectedDistributor = manager.getSelectedDistributor()
+            val pushEndpoint = manager.getPushEndpoint()
+            val lastError = manager.getLastError()
+            val pushEnabled = manager.isPushEnabled()
+
+            Log.d(TAG, "📨 Push status details:")
+            Log.d(TAG, "📨   status: ${status.name.lowercase()}")
+            Log.d(TAG, "📨   statusMessage: $statusMessage")
+            Log.d(TAG, "📨   selectedDistributor: $selectedDistributor")
+            Log.d(TAG, "📨   pushEndpoint: $pushEndpoint")
+            Log.d(TAG, "📨   lastError: $lastError")
+            Log.d(TAG, "📨   pushEnabled: $pushEnabled")
+
+            val result = JSObject()
+            result.put("status", status.name.lowercase())
+            result.put("statusMessage", statusMessage)
+            result.put("selectedDistributor", selectedDistributor)
+            result.put("pushEndpoint", pushEndpoint)
+            result.put("lastError", lastError)
+            result.put("pushEnabled", pushEnabled)
+            result.put("success", true)
+
+            Log.d(TAG, "📨 Returning result: $result")
+            invoke.resolve(result)
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting push registration status", e)
+            val error = JSObject()
+            error.put("success", false)
+            error.put("error", e.message)
+            invoke.resolve(error)
+        }
+    }
+
+    @Command
+    fun selectPushDistributor(invoke: Invoke) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val args = invoke.parseArgs(SelectDistributorArgs::class.java)
+                val packageName = args.packageName ?: ""
+
+                val manager = PushDistributorManager(activity)
+                val success = if (packageName.isEmpty()) {
+                    manager.unregister()
+                } else {
+                    manager.selectDistributor(packageName)
+                }
+
+                val result = JSObject()
+                result.put("success", success)
+                if (!success) {
+                    result.put("error", manager.getLastError() ?: "Unknown error")
+                }
+                invoke.resolve(result)
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Error selecting push distributor", e)
+                val error = JSObject()
+                error.put("success", false)
+                error.put("error", e.message)
+                invoke.resolve(error)
+            }
         }
     }
 }

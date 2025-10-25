@@ -9,7 +9,7 @@ Default permissions for the plugin
 - `allow-stop-sensor`
 - `allow-get-sensor-accuracy`
 - `allow-update-sensor-location`
-- `allow-registerListener`
+- `allow-register-listener`
 - `allow-start-precise-location-listener`
 - `allow-stop-precise-location-listener`
 - `allow-set-auto-upload-enabled`
@@ -29,6 +29,9 @@ Default permissions for the plugin
 - `allow-import-photos`
 - `allow-share-photo`
 - `allow-photo-worker-process`
+- `allow-get-push-distributors`
+- `allow-get-push-registration-status`
+- `allow-select-push-distributor`
 
 ## Permission Table
 
@@ -139,6 +142,58 @@ Enables the get_device_photos command without any pre-configured scope.
 <td>
 
 Denies the get_device_photos command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:allow-get-push-distributors`
+
+</td>
+<td>
+
+Enables the get_push_distributors command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:deny-get-push-distributors`
+
+</td>
+<td>
+
+Denies the get_push_distributors command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:allow-get-push-registration-status`
+
+</td>
+<td>
+
+Enables the get_push_registration_status command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:deny-get-push-registration-status`
+
+</td>
+<td>
+
+Denies the get_push_registration_status command without any pre-configured scope.
 
 </td>
 </tr>
@@ -380,12 +435,12 @@ Denies the refresh_photo_scan command without any pre-configured scope.
 <tr>
 <td>
 
-`hillview:allow-registerListener`
+`hillview:allow-register-listener`
 
 </td>
 <td>
 
-Enables the registerListener command without any pre-configured scope.
+Enables the register_listener command without any pre-configured scope.
 
 </td>
 </tr>
@@ -393,12 +448,12 @@ Enables the registerListener command without any pre-configured scope.
 <tr>
 <td>
 
-`hillview:deny-registerListener`
+`hillview:deny-register-listener`
 
 </td>
 <td>
 
-Denies the registerListener command without any pre-configured scope.
+Denies the register_listener command without any pre-configured scope.
 
 </td>
 </tr>
@@ -451,6 +506,32 @@ Enables the retry_failed_uploads command without any pre-configured scope.
 <td>
 
 Denies the retry_failed_uploads command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:allow-select-push-distributor`
+
+</td>
+<td>
+
+Enables the select_push_distributor command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:deny-select-push-distributor`
+
+</td>
+<td>
+
+Denies the select_push_distributor command without any pre-configured scope.
 
 </td>
 </tr>

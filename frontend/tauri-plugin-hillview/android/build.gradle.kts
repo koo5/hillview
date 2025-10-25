@@ -41,6 +41,15 @@ kapt {
     correctErrorTypes = true
 }
 
+configurations.all {
+    resolutionStrategy {
+        force("org.jetbrains.kotlin:kotlin-stdlib:1.9.25")
+        force("org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.9.25")
+        force("org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.9.25")
+        force("org.jetbrains.kotlin:kotlin-reflect:1.9.25")
+    }
+}
+
 dependencies {
 
     implementation("androidx.core:core-ktx:1.9.0")
@@ -70,6 +79,9 @@ dependencies {
 
     // ExifInterface for EXIF data extraction
     implementation("androidx.exifinterface:exifinterface:1.3.6")
+
+    // UnifiedPush for push notifications
+    implementation("org.unifiedpush.android:connector:3.1.2")
 
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")

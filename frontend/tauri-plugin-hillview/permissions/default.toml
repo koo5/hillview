@@ -6,7 +6,7 @@ permissions = [
   "allow-stop-sensor",
   "allow-get-sensor-accuracy",
   "allow-update-sensor-location",
-  "allow-registerListener",
+  "allow-register-listener",
   "allow-start-precise-location-listener",
   "allow-stop-precise-location-listener",
   "allow-set-auto-upload-enabled",
@@ -25,5 +25,8 @@ permissions = [
   "allow-refresh-photo-scan",
   "allow-import-photos",
   "allow-share-photo",
-  "allow-photo-worker-process"
+  "allow-photo-worker-process",
+  "allow-get-push-distributors",
+  "allow-get-push-registration-status",
+  "allow-select-push-distributor"
 ]

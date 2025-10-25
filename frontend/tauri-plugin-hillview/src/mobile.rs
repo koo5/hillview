@@ -233,4 +233,33 @@ impl<R: Runtime> Hillview<R> {
       .run_mobile_plugin("getBearingForTimestamp", Args { timestamp })
       .map_err(Into::into)
   }
+
+  // Push Notification methods
+
+  pub fn get_push_distributors(&self) -> crate::Result<PushDistributorsResponse> {
+    self
+      .0
+      .run_mobile_plugin("getPushDistributors", ())
+      .map_err(Into::into)
+  }
+
+  pub fn get_push_registration_status(&self) -> crate::Result<PushRegistrationStatusResponse> {
+    self
+      .0
+      .run_mobile_plugin("getPushRegistrationStatus", ())
+      .map_err(Into::into)
+  }
+
+  pub fn select_push_distributor(&self, package_name: String) -> crate::Result<BasicResponse> {
+    #[derive(serde::Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Args {
+      package_name: String,
+    }
+
+    self
+      .0
+      .run_mobile_plugin("selectPushDistributor", Args { package_name })
+      .map_err(Into::into)
+  }
 }

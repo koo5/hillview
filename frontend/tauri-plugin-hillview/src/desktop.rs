@@ -24,4 +24,17 @@ impl<R: Runtime> Hillview<R> {
     // Desktop doesn't support photo worker - return error
     Err(crate::Error::from("Photo worker is only available on mobile devices"))
   }
+
+  // Push notification methods - desktop stubs
+  pub fn get_push_distributors(&self) -> crate::Result<PushDistributorsResponse> {
+    Err(crate::Error::from("Push notifications are only available on mobile devices"))
+  }
+
+  pub fn get_push_registration_status(&self) -> crate::Result<PushRegistrationStatusResponse> {
+    Err(crate::Error::from("Push notifications are only available on mobile devices"))
+  }
+
+  pub fn select_push_distributor(&self, _package_name: String) -> crate::Result<BasicResponse> {
+    Err(crate::Error::from("Push notifications are only available on mobile devices"))
+  }
 }

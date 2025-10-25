@@ -94,6 +94,12 @@
             </li>
 
             {#if FEATURE_USER_ACCOUNTS}
+                <li>
+                    <a href="/settings" on:click={closeMenu} data-testid="settings-menu-link">
+                        <Settings size={18}/>
+                        Settings
+                    </a>
+                </li>
                 {#if isAuthenticated}
                     <li>
                         <a href="/hidden" on:click={closeMenu}>
@@ -105,12 +111,6 @@
                         <a href="/account" on:click={closeMenu}>
                             <User size={18}/>
                             Account
-                        </a>
-                    </li>
-                    <li>
-                        <a href="/settings" on:click={closeMenu} data-testid="settings-menu-link">
-                            <Settings size={18}/>
-                            Settings
                         </a>
                     </li>
                     <li>
