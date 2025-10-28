@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = '008_push_notifications'
-down_revision: Union[str, None] = '4becdf297d3c'
+down_revision: Union[str, None] = '007_contact_messages'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -22,19 +22,16 @@ def upgrade() -> None:
         'push_registrations',
         sa.Column('id', sa.String(), nullable=False),
         sa.Column('client_key_id', sa.String(), nullable=False),
-        sa.Column('user_id', sa.String(), nullable=False),
         sa.Column('push_endpoint', sa.Text(), nullable=False),
         sa.Column('distributor_package', sa.String(), nullable=True),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False),
         sa.Column('updated_at', sa.DateTime(timezone=True), nullable=True),
         sa.PrimaryKeyConstraint('id'),
-        sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
         sa.UniqueConstraint('client_key_id')
     )
 
     # Create indexes for push_registrations
     op.create_index('ix_push_registrations_client_key_id', 'push_registrations', ['client_key_id'], unique=True)
-    op.create_index('ix_push_registrations_user_id', 'push_registrations', ['user_id'], unique=False)
 
     # Create notifications table
     op.create_table(
@@ -66,7 +63,6 @@ def downgrade() -> None:
     op.drop_index('ix_notifications_expires_at', table_name='notifications')
     op.drop_index('ix_notifications_user_type', table_name='notifications')
     op.drop_index('ix_notifications_user_unread', table_name='notifications')
-    op.drop_index('ix_push_registrations_user_id', table_name='push_registrations')
     op.drop_index('ix_push_registrations_client_key_id', table_name='push_registrations')
 
     # Drop tables

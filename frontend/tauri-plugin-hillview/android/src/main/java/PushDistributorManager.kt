@@ -261,13 +261,28 @@ class PushDistributorManager(private val context: Context) {
                     return@withLock false
                 }
 
+                // Generate signature for push registration
+                val timestamp = System.currentTimeMillis()
+                val selectedDistributor = getSelectedDistributor()
+                val signatureData = clientCrypto.signPushRegistration(endpoint, selectedDistributor, timestamp)
+                if (signatureData == null) {
+                    val error = "Failed to generate push registration signature"
+                    Log.e(TAG, error)
+                    setLastError(error)
+                    setRegistrationStatus("failed")
+                    return@withLock false
+                }
+
                 // Prepare registration request
                 val url = "$serverUrl/push/register"
-                val selectedDistributor = getSelectedDistributor()
                 val json = JSONObject().apply {
                     put("client_key_id", keyInfo.keyId)
                     put("push_endpoint", endpoint)
                     put("distributor_package", selectedDistributor)
+                    put("timestamp", timestamp)
+                    put("client_signature", signatureData.signature)
+                    put("public_key_pem", keyInfo.publicKeyPem)
+                    put("key_created_at", keyInfo.createdAt)
                 }
 
                 // Make HTTP request

@@ -289,14 +289,10 @@ class PushRegistration(Base):
 
 	id = Column(String, primary_key=True, default=generate_uuid)
 	client_key_id = Column(String, nullable=False, unique=True, index=True)  # From ClientCryptoManager
-	user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
 	push_endpoint = Column(Text, nullable=False)  # URL for sending push messages
 	distributor_package = Column(String, nullable=True)  # Package name of distributor app
 	created_at = Column(DateTime(timezone=True), server_default=func.now())
 	updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-
-	# Relationships
-	user = relationship("User")
 
 
 class Notification(Base):

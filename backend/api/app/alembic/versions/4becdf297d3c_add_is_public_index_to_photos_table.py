@@ -1,7 +1,7 @@
 """Add is_public index to photos table
 
 Revision ID: 4becdf297d3c
-Revises: d075e1120235
+Revises: 875cccae8edb
 Create Date: 2025-10-04 20:28:21.614589
 
 """
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = '4becdf297d3c'
-down_revision: Union[str, None] = 'd075e1120235'
+down_revision: Union[str, None] = '875cccae8edb'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

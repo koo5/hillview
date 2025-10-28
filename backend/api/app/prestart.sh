@@ -11,7 +11,7 @@ echo "========================================="
 if [ "${GUNICORN_PROCESS_INDEX:-0}" = "0" ]; then
     echo "Running database migrations (worker 0)..."
     cd /app/app
-    alembic upgrade head
+    alembic upgrade heads
     echo "Migrations completed successfully!"
 else
     echo "Skipping migrations (worker ${GUNICORN_PROCESS_INDEX})"

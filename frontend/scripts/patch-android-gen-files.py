@@ -24,6 +24,10 @@ class AndroidConfigurer:
 		self.android_root = project_root / "src-tauri" / "gen" / "android"
 		self.manifest_file = self.android_root / "app" / "src" / "main" / "AndroidManifest.xml"
 		self.build_gradle_file = self.android_root / "app" / "build.gradle.kts"
+		self.root_build_gradle_file = self.android_root / "build.gradle.kts"
+		self.buildsrc_build_gradle_file = self.android_root / "buildSrc" / "build.gradle.kts"
+		self.gradle_properties_file = self.android_root / "gradle.properties"
+		self.plugin_build_gradle_file = project_root / "tauri-plugin-hillview" / "android" / "build.gradle.kts"
 		self.colors_file = self.android_root / "app" / "src" / "main" / "res" / "values" / "colors.xml"
 		self.gitignore_file = project_root / ".gitignore"
 
@@ -399,6 +403,257 @@ class AndroidConfigurer:
 			self.log(f"Error patching colors.xml: {e}", "ERROR")
 			return False
 
+	def fix_kotlin_versions(self) -> bool:
+		"""Fix Kotlin version compatibility issues in generated files"""
+		self.log("Fixing Kotlin version compatibility...")
+
+		success = True
+
+		# Fix root build.gradle.kts
+		if not self._fix_root_build_gradle():
+			success = False
+
+		# Fix buildSrc build.gradle.kts
+		if not self._fix_buildsrc_build_gradle():
+			success = False
+
+		# Fix gradle.properties
+		if not self._fix_gradle_properties():
+			success = False
+
+		# Fix app build.gradle.kts
+		if not self._fix_app_build_gradle():
+			success = False
+
+		# Fix plugin build.gradle.kts
+		if not self._fix_plugin_build_gradle():
+			success = False
+
+		return success
+
+	def _fix_root_build_gradle(self) -> bool:
+		"""Fix root build.gradle.kts Kotlin version"""
+		if not self.root_build_gradle_file.exists():
+			self.log(f"Root build.gradle.kts not found at {self.root_build_gradle_file}", "WARNING")
+			return True
+
+		try:
+			content = self.root_build_gradle_file.read_text()
+			original_content = content
+
+			# Update Kotlin version to 2.0.20 for compatibility
+			kotlin_pattern = r'classpath\("org\.jetbrains\.kotlin:kotlin-gradle-plugin:[\d\.]+"\)'
+			new_kotlin = 'classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:2.0.20")'
+
+			if re.search(kotlin_pattern, content):
+				content = re.sub(kotlin_pattern, new_kotlin, content)
+				self.log("Updated Kotlin gradle plugin to 2.0.20", "SUCCESS")
+			else:
+				self.log("Kotlin gradle plugin version not found", "WARNING")
+
+			if content != original_content:
+				self.root_build_gradle_file.write_text(content)
+
+			return True
+
+		except Exception as e:
+			self.log(f"Error fixing root build.gradle.kts: {e}", "ERROR")
+			return False
+
+	def _fix_buildsrc_build_gradle(self) -> bool:
+		"""Fix buildSrc build.gradle.kts to ensure Kotlin DSL version consistency"""
+		if not self.buildsrc_build_gradle_file.exists():
+			self.log(f"buildSrc build.gradle.kts not found at {self.buildsrc_build_gradle_file}", "WARNING")
+			return True
+
+		try:
+			content = self.buildsrc_build_gradle_file.read_text()
+			original_content = content
+
+			# Add explicit Kotlin version to buildSrc dependencies
+			if "org.jetbrains.kotlin:kotlin-gradle-plugin" not in content:
+				# Add Kotlin plugin dependency after the existing dependencies
+				deps_pattern = r'(dependencies\s*\{[^}]*)(implementation\("com\.android\.tools\.build:gradle:[^"]+"\))([^}]*\})'
+				if re.search(deps_pattern, content, re.DOTALL):
+					replacement = r'\1\2\n    implementation("org.jetbrains.kotlin:kotlin-gradle-plugin:2.0.20")\3'
+					content = re.sub(deps_pattern, replacement, content, flags=re.DOTALL)
+					self.log("Added Kotlin gradle plugin to buildSrc dependencies", "SUCCESS")
+			else:
+				self.log("Kotlin gradle plugin already in buildSrc dependencies", "SUCCESS")
+
+			if content != original_content:
+				self.buildsrc_build_gradle_file.write_text(content)
+
+			return True
+
+		except Exception as e:
+			self.log(f"Error fixing buildSrc build.gradle.kts: {e}", "ERROR")
+			return False
+
+	def _fix_gradle_properties(self) -> bool:
+		"""Fix gradle.properties to suppress warnings"""
+		if not self.gradle_properties_file.exists():
+			self.log(f"gradle.properties not found at {self.gradle_properties_file}", "WARNING")
+			return True
+
+		try:
+			content = self.gradle_properties_file.read_text()
+			original_content = content
+
+			# Add suppressUnsupportedCompileSdk if not present
+			suppress_compile_sdk = "android.suppressUnsupportedCompileSdk=36"
+			if suppress_compile_sdk not in content:
+				content = content.rstrip() + "\n" + suppress_compile_sdk + "\n"
+				self.log("Added suppressUnsupportedCompileSdk=36", "SUCCESS")
+
+			# Add Java compile deprecation warning suppression
+			suppress_java_deprecation = "android.javaCompile.suppressSourceTargetDeprecationWarning=true"
+			if suppress_java_deprecation not in content:
+				content = content.rstrip() + "\n" + suppress_java_deprecation + "\n"
+				self.log("Added suppressSourceTargetDeprecationWarning=true", "SUCCESS")
+
+			if content != original_content:
+				self.gradle_properties_file.write_text(content)
+
+			return True
+
+		except Exception as e:
+			self.log(f"Error fixing gradle.properties: {e}", "ERROR")
+			return False
+
+	def _fix_app_build_gradle(self) -> bool:
+		"""Fix app build.gradle.kts to force Kotlin versions"""
+		if not self.build_gradle_file.exists():
+			self.log(f"App build.gradle.kts not found at {self.build_gradle_file}", "ERROR")
+			return False
+
+		try:
+			content = self.build_gradle_file.read_text()
+			original_content = content
+
+			# Add version forcing if not present
+			version_forcing = '''configurations.all {
+    resolutionStrategy {
+        force("org.jetbrains.kotlin:kotlin-stdlib:2.0.20")
+        force("org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.0.20")
+        force("org.jetbrains.kotlin:kotlin-stdlib-jdk7:2.0.20")
+        force("org.jetbrains.kotlin:kotlin-reflect:2.0.20")
+    }
+}'''
+
+			if "configurations.all" not in content:
+				# Find position after rust block
+				rust_pattern = r'(rust\s*\{[^}]*\}\s*)'
+				if re.search(rust_pattern, content, re.DOTALL):
+					replacement = r'\1\n' + version_forcing + '\n\n'
+					content = re.sub(rust_pattern, replacement, content, flags=re.DOTALL)
+					self.log("Added Kotlin version forcing to app build.gradle.kts", "SUCCESS")
+				else:
+					self.log("Could not find rust block to insert version forcing", "WARNING")
+			else:
+				self.log("Version forcing already present in app build.gradle.kts", "SUCCESS")
+
+			# Ensure kotlinOptions.jvmTarget is set in app build.gradle.kts
+			if "kotlinOptions" not in content:
+				# Add kotlinOptions block after compileOptions
+				compile_options_pattern = r'(compileOptions\s*\{[^}]*\}\s*)'
+				kotlin_options_block = '''    kotlinOptions {
+        jvmTarget = "1.8"
+    }
+'''
+				if re.search(compile_options_pattern, content, re.DOTALL):
+					replacement = r'\1' + kotlin_options_block
+					content = re.sub(compile_options_pattern, replacement, content, flags=re.DOTALL)
+					self.log("Added kotlinOptions with jvmTarget 1.8 to app", "SUCCESS")
+			else:
+				# Update existing kotlinOptions to ensure jvmTarget is 1.8
+				kotlin_options_pattern = r'kotlinOptions\s*\{[^}]*\}'
+				kotlin_options_replacement = '''kotlinOptions {
+        jvmTarget = "1.8"
+    }'''
+				if re.search(kotlin_options_pattern, content, re.DOTALL):
+					content = re.sub(kotlin_options_pattern, kotlin_options_replacement, content, flags=re.DOTALL)
+					self.log("Fixed kotlinOptions jvmTarget to 1.8 in app", "SUCCESS")
+
+			if content != original_content:
+				self.build_gradle_file.write_text(content)
+
+			return True
+
+		except Exception as e:
+			self.log(f"Error fixing app build.gradle.kts: {e}", "ERROR")
+			return False
+
+	def _fix_plugin_build_gradle(self) -> bool:
+		"""Fix plugin build.gradle.kts for Kotlin 2.x compatibility"""
+		if not self.plugin_build_gradle_file.exists():
+			self.log(f"Plugin build.gradle.kts not found at {self.plugin_build_gradle_file}", "WARNING")
+			return True
+
+		try:
+			content = self.plugin_build_gradle_file.read_text()
+			original_content = content
+
+			# Update Kotlin serialization plugin version
+			serialization_pattern = r'id\("org\.jetbrains\.kotlin\.plugin\.serialization"\) version "[\d\.]+"\)?'
+			new_serialization = 'id("org.jetbrains.kotlin.plugin.serialization") version "2.0.20"'
+
+			if re.search(serialization_pattern, content):
+				content = re.sub(serialization_pattern, new_serialization, content)
+				self.log("Updated Kotlin serialization plugin to 2.0.20", "SUCCESS")
+
+			# Update forced Kotlin versions
+			for version in ["1.9.25", "2.0.21", "2.2.0"]:
+				content = content.replace(f'kotlin-stdlib:{version}"', 'kotlin-stdlib:2.0.20"')
+				content = content.replace(f'kotlin-stdlib-jdk8:{version}"', 'kotlin-stdlib-jdk8:2.0.20"')
+				content = content.replace(f'kotlin-stdlib-jdk7:{version}"', 'kotlin-stdlib-jdk7:2.0.20"')
+				content = content.replace(f'kotlin-reflect:{version}"', 'kotlin-reflect:2.0.20"')
+
+			# Fix KAPT arguments block for Kotlin 2.x compatibility
+			kapt_block_pattern = r'kapt\s*\{[^}]*arguments\s*\{[^}]*\}[^}]*correctErrorTypes\s*=\s*true[^}]*\}'
+			kapt_new_block = '''kapt {
+    arguments {
+        arg("room.schemaLocation", "$projectDir/schemas")
+    }
+    correctErrorTypes = true
+}'''
+
+			if re.search(kapt_block_pattern, content, re.DOTALL):
+				content = re.sub(kapt_block_pattern, kapt_new_block, content, flags=re.DOTALL)
+				self.log("Fixed KAPT arguments block for Kotlin 2.x", "SUCCESS")
+
+			# Ensure kotlinOptions.jvmTarget is set correctly
+			if "kotlinOptions" not in content:
+				# Add kotlinOptions block after compileOptions
+				compile_options_pattern = r'(compileOptions\s*\{[^}]*\}\s*)'
+				kotlin_options_block = '''    kotlinOptions {
+        jvmTarget = "1.8"
+    }
+'''
+				if re.search(compile_options_pattern, content, re.DOTALL):
+					replacement = r'\1' + kotlin_options_block
+					content = re.sub(compile_options_pattern, replacement, content, flags=re.DOTALL)
+					self.log("Added kotlinOptions with jvmTarget 1.8", "SUCCESS")
+			else:
+				# Update existing kotlinOptions to ensure jvmTarget is 1.8
+				kotlin_options_pattern = r'kotlinOptions\s*\{[^}]*\}'
+				kotlin_options_replacement = '''kotlinOptions {
+        jvmTarget = "1.8"
+    }'''
+				if re.search(kotlin_options_pattern, content, re.DOTALL):
+					content = re.sub(kotlin_options_pattern, kotlin_options_replacement, content, flags=re.DOTALL)
+					self.log("Fixed kotlinOptions jvmTarget to 1.8", "SUCCESS")
+
+			if content != original_content:
+				self.plugin_build_gradle_file.write_text(content)
+				self.log("Updated plugin Kotlin versions to 2.0.20", "SUCCESS")
+
+			return True
+
+		except Exception as e:
+			self.log(f"Error fixing plugin build.gradle.kts: {e}", "ERROR")
+			return False
+
 	def run(self) -> bool:
 
 		"""Run all configuration steps"""
@@ -411,6 +666,7 @@ class AndroidConfigurer:
 			("Fix AndroidManifest.xml", self.fix_android_manifest),
 			("Configure build.gradle.kts", self.configure_build_gradle),
 			("Patch colors.xml", self.patch_colors_xml),
+			("Fix Kotlin versions", self.fix_kotlin_versions),
 		]
 
 		success = True

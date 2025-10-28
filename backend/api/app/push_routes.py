@@ -14,18 +14,57 @@ import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
-from common.models import PushRegistration, Notification, User
-from auth import get_current_user
+from common.models import PushRegistration, Notification, User, UserPublicKey
+from common.security_utils import verify_ecdsa_signature
+from auth import get_current_user, get_current_user_optional
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["push"])
+
+# Helper functions
+async def validate_client_key_ownership(
+    client_key_id: str,
+    current_user: User,
+    db: AsyncSession
+) -> None:
+    """
+    Validate that the client_key_id belongs to the current user.
+    Raises HTTPException if key belongs to different user or is not found.
+
+    Returns special error code CLIENT_KEY_CONFLICT (409) if key belongs to different user,
+    which tells the client to generate a new key.
+    """
+    # Check if this client_key_id is registered to any user
+    result = await db.execute(
+        select(UserPublicKey).where(
+            UserPublicKey.key_id == client_key_id,
+            UserPublicKey.is_active == True
+        )
+    )
+    existing_key = result.scalar_one_or_none()
+
+    if existing_key:
+        if existing_key.user_id != current_user.id:
+            # Key belongs to different user - client needs to generate new key
+            logger.warning(f"Client key {client_key_id} belongs to user {existing_key.user_id}, "
+                          f"but used by user {current_user.id}")
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="CLIENT_KEY_CONFLICT: This client key belongs to a different user. "
+                       "Please generate a new client key."
+            )
+    # If key not found, that's OK - user just hasn't registered it yet
 
 # Request/Response models
 class PushRegistrationRequest(BaseModel):
     client_key_id: str = Field(..., min_length=1, max_length=255)
     push_endpoint: str = Field(..., min_length=10, pattern=r'^https?://')
     distributor_package: Optional[str] = None
+    timestamp: int = Field(...)  # Unix timestamp for replay protection
+    client_signature: str = Field(..., min_length=1)  # Base64 ECDSA signature
+    public_key_pem: str = Field(..., min_length=100)  # PEM-formatted ECDSA public key
+    key_created_at: str = Field(...)  # ISO timestamp when key was created
 
 class PushRegistrationResponse(BaseModel):
     success: bool
@@ -104,13 +143,27 @@ async def create_notification_for_user(
 
 async def send_push_to_user(user_id: str, db: AsyncSession):
     """Send push notification poke to all registered devices for a user."""
-    # Get all push registrations for the user
-    query = select(PushRegistration).where(PushRegistration.user_id == user_id)
-    result = await db.execute(query)
-    registrations = result.scalars().all()
+    # Get all client_key_ids for the user, then find push registrations for those keys
+    user_keys_query = select(UserPublicKey.key_id).where(
+        UserPublicKey.user_id == user_id,
+        UserPublicKey.is_active == True
+    )
+    user_keys_result = await db.execute(user_keys_query)
+    client_key_ids = [row[0] for row in user_keys_result.fetchall()]
+
+    if not client_key_ids:
+        logger.info(f"No active client keys found for user {user_id}")
+        return
+
+    # Get push registrations for all user's client keys
+    registrations_query = select(PushRegistration).where(
+        PushRegistration.client_key_id.in_(client_key_ids)
+    )
+    registrations_result = await db.execute(registrations_query)
+    registrations = registrations_result.scalars().all()
 
     if not registrations:
-        logger.info(f"No push registrations found for user {user_id}")
+        logger.info(f"No push registrations found for user {user_id} (checked {len(client_key_ids)} client keys)")
         return
 
     # Send "smart poke" to each registered endpoint
@@ -139,10 +192,39 @@ async def send_push_to_user(user_id: str, db: AsyncSession):
 @router.post("/push/register", response_model=PushRegistrationResponse)
 async def register_push(
     request: PushRegistrationRequest,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional)
 ):
-    """Register a push endpoint for the current user's client."""
+    """Register a push endpoint for a client (authentication optional for rate limiting)."""
+    # Check timestamp for replay protection (allow 5 minute window)
+    current_time = datetime.utcnow().timestamp() * 1000  # Convert to milliseconds
+    if abs(current_time - request.timestamp) > 300000:  # 5 minutes in milliseconds
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Request timestamp too old or too far in future"
+        )
+
+    # Verify client signature
+    message_data = {
+        "push_endpoint": request.push_endpoint,
+        "timestamp": request.timestamp
+    }
+    if request.distributor_package:
+        message_data["distributor_package"] = request.distributor_package
+
+    if not verify_ecdsa_signature(request.client_signature, request.public_key_pem, message_data):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid client signature"
+        )
+
+    # If user is authenticated, validate that the client_key_id belongs to them
+    if current_user:
+        await validate_client_key_ownership(request.client_key_id, current_user, db)
+
+    # Apply rate limiting with optional user context (better limits for authenticated users)
+    # TODO: Implement actual rate limiting based on current_user presence
+
     # Check if registration already exists for this client_key_id
     existing_query = select(PushRegistration).where(
         PushRegistration.client_key_id == request.client_key_id
@@ -152,7 +234,6 @@ async def register_push(
 
     if existing:
         # Update existing registration
-        existing.user_id = current_user.id
         existing.push_endpoint = request.push_endpoint
         existing.distributor_package = request.distributor_package
         existing.updated_at = datetime.utcnow()
@@ -161,7 +242,6 @@ async def register_push(
         # Create new registration
         registration = PushRegistration(
             client_key_id=request.client_key_id,
-            user_id=current_user.id,
             push_endpoint=request.push_endpoint,
             distributor_package=request.distributor_package
         )
@@ -169,7 +249,8 @@ async def register_push(
         message = "Push registration created"
 
     await db.commit()
-    logger.info(f"Push registration for client {request.client_key_id}, user {current_user.id}: {message}")
+    user_info = f", user {current_user.id}" if current_user else " (anonymous)"
+    logger.info(f"Push registration for client {request.client_key_id}{user_info}: {message}")
     return PushRegistrationResponse(success=True, message=message)
 
 
@@ -180,11 +261,12 @@ async def unregister_push(
     db: AsyncSession = Depends(get_db)
 ):
     """Unregister a push endpoint for the specified client."""
+    # Validate that the client_key_id belongs to the current user
+    await validate_client_key_ownership(client_key_id, current_user, db)
+
+    # Find the push registration for this client key
     query = select(PushRegistration).where(
-        and_(
-            PushRegistration.client_key_id == client_key_id,
-            PushRegistration.user_id == current_user.id
-        )
+        PushRegistration.client_key_id == client_key_id
     )
     result = await db.execute(query)
     registration = result.scalar_one_or_none()
@@ -192,7 +274,7 @@ async def unregister_push(
     if not registration:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Push registration not found"
+            detail="Push registration not found for this client key"
         )
 
     await db.delete(registration)

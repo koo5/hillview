@@ -479,6 +479,7 @@
 		overflow: hidden;
 		width: 100%;
 		height: 100%;
+		touch-action: manipulation;
 	}
 
 	/* Allow specific pages to enable scrolling */
@@ -615,7 +616,6 @@
 		cursor: pointer;
 		border: none;
 		padding: 0;
-		touch-action: none;
 		user-select: none;
 		-webkit-user-select: none;
 		-webkit-touch-callout: none;

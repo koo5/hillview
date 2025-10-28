@@ -2,7 +2,7 @@ plugins {
     id("com.android.library")
     id("org.jetbrains.kotlin.android")
     id("kotlin-kapt")
-    id("org.jetbrains.kotlin.plugin.serialization") version "1.8.10"
+    id("org.jetbrains.kotlin.plugin.serialization") version "2.0.20"
 }
 
 android {
@@ -29,6 +29,7 @@ android {
         sourceCompatibility = JavaVersion.VERSION_1_8
         targetCompatibility = JavaVersion.VERSION_1_8
     }
+    
     kotlinOptions {
         jvmTarget = "1.8"
     }
@@ -43,10 +44,10 @@ kapt {
 
 configurations.all {
     resolutionStrategy {
-        force("org.jetbrains.kotlin:kotlin-stdlib:1.9.25")
-        force("org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.9.25")
-        force("org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.9.25")
-        force("org.jetbrains.kotlin:kotlin-reflect:1.9.25")
+        force("org.jetbrains.kotlin:kotlin-stdlib:2.0.20")
+        force("org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.0.20")
+        force("org.jetbrains.kotlin:kotlin-stdlib-jdk7:2.0.20")
+        force("org.jetbrains.kotlin:kotlin-reflect:2.0.20")
     }
 }
 

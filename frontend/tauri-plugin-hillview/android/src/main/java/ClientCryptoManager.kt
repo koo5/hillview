@@ -194,6 +194,32 @@ class ClientCryptoManager(private val context: Context) {
      * @return SignatureData containing signature and key ID, or null on error
      */
     fun signUploadData(photoId: String, filename: String, timestamp: Long): SignatureData? {
+        val uploadData = JSONObject().apply {
+            put("photo_id", photoId)
+            put("filename", filename)
+            put("timestamp", timestamp)
+        }
+        return signJsonData(uploadData, "upload")
+    }
+
+    /**
+     * Sign push registration data with client private key
+     */
+    fun signPushRegistration(endpoint: String, distributorPackage: String?, timestamp: Long): SignatureData? {
+        val pushData = JSONObject().apply {
+            put("push_endpoint", endpoint)
+            if (distributorPackage != null) {
+                put("distributor_package", distributorPackage)
+            }
+            put("timestamp", timestamp)
+        }
+        return signJsonData(pushData, "push registration")
+    }
+
+    /**
+     * Generic method to sign JSON data with client private key
+     */
+    private fun signJsonData(data: JSONObject, logPrefix: String): SignatureData? {
         try {
             // Get private key from Android Keystore
             val privateKeyEntry = keyStore.getEntry(KEY_ALIAS, null) as? KeyStore.PrivateKeyEntry
@@ -202,15 +228,8 @@ class ClientCryptoManager(private val context: Context) {
                     return null
                 }
 
-            // Create canonical JSON representation (same format as web client)
-            val uploadData = JSONObject().apply {
-                put("photo_id", photoId)
-                put("filename", filename)
-                put("timestamp", timestamp)
-            }
-            val message = uploadData.toString() // Compact JSON, no spaces
-
-            Log.d(TAG, "📝 Signing message: $message")
+            val message = data.toString() // Compact JSON, no spaces
+            Log.d(TAG, "📝 Signing $logPrefix message: $message")
 
             // Sign the message using ECDSA with SHA-256
             val signature = Signature.getInstance("SHA256withECDSA")
@@ -222,19 +241,26 @@ class ClientCryptoManager(private val context: Context) {
             val signatureBase64 = Base64.encodeToString(signatureBytes, Base64.NO_WRAP)
 
             // Get the key ID for this signature
-            val keyId = prefs.getString(KEY_ID_PREF, null)
+            val keyId = getKeyId()
             if (keyId == null) {
-                Log.e(TAG, "Key ID not found - key metadata may be corrupted")
+                Log.e(TAG, "Failed to get key ID for $logPrefix signature")
                 return null
             }
 
-            Log.d(TAG, "Signed upload data: $message with key $keyId")
             return SignatureData(signatureBase64, keyId)
 
         } catch (e: Exception) {
-            Log.e(TAG, "Error signing upload data: ${e.message}", e)
+            Log.e(TAG, "Error signing $logPrefix data", e)
             return null
         }
+    }
+
+    /**
+     * Get the stored key ID from SharedPreferences
+     */
+    private fun getKeyId(): String? {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getString(KEY_ID_PREF, null)
     }
 
     /**
