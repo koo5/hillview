@@ -10,7 +10,7 @@
         currentCompassHeading,
         currentSensorMode,
         deviceOrientation,
-        switchSensorMode
+        setCompassMode
     } from '$lib/compass.svelte';
     import {invoke} from '@tauri-apps/api/core';
     import {SensorMode, TAURI_MOBILE} from '$lib/tauri';

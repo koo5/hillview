@@ -8,6 +8,9 @@
 	import {get} from 'svelte/store';
 	import {clearAlerts} from "$lib/alertSystem.svelte";
 	import {checkAuth} from '$lib/auth.svelte';
+	import {backendUrl} from '$lib/config';
+	import {TAURI_MOBILE} from '$lib/tauri';
+	import {invoke} from '@tauri-apps/api/core';
 
 	// Log navigation events
 	beforeNavigate((navigation) => {
@@ -35,6 +38,19 @@
 		// Log initial page load
 		const initialPath = get(page).url.pathname;
 		console.log(`🢄🧭 [NAV] Initial page load: "${initialPath}"`);
+
+		// Configure backend URL for Android features (push notifications, etc.)
+		if (TAURI_MOBILE) {
+			try {
+				console.log('🢄🌐 [APP] Configuring backend URL on app load:', backendUrl);
+				await invoke('plugin:hillview|set_backend_url', {
+					backendUrl: backendUrl
+				});
+				console.log('🢄🌐 [APP] Backend URL configured successfully');
+			} catch (error) {
+				console.error('🢄🌐 [APP] Failed to configure backend URL:', error);
+			}
+		}
 
 		// Initialize auth state for all pages
 		checkAuth();

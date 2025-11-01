@@ -1,7 +1,7 @@
 """Add contact messages table
 
 Revision ID: 007_contact_messages
-Revises: 875cccae8edb
+Revises: 006_flagged_photos
 Create Date: 2025-09-29 20:30:00.000000
 
 """
@@ -12,7 +12,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision: str = '007_contact_messages'
-down_revision: Union[str, None] = '875cccae8edb'
+down_revision: Union[str, None] = '006_flagged_photos'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

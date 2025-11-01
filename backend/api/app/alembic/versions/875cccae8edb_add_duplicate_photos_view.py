@@ -1,7 +1,7 @@
 """Add duplicate_photos view
 
 Revision ID: 875cccae8edb
-Revises: 006_flagged_photos
+Revises: d075e1120235
 Create Date: 2025-09-28 22:47:31.663785
 
 """
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = '875cccae8edb'
-down_revision: Union[str, None] = '006_flagged_photos'
+down_revision: Union[str, None] = 'd075e1120235'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

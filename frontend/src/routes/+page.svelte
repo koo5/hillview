@@ -32,7 +32,7 @@
 	import AlertArea from '../components/AlertArea.svelte';
 	import NavigationMenu from '../components/NavigationMenu.svelte';
 	import type {DevicePhotoMetadata} from '$lib/types/photoTypes';
-	import {startCompass, stopCompass} from '$lib/compass.svelte';
+	import {enableCompass, disableCompass} from '$lib/compass.svelte';
 
 	let map: any = null;
 	let mapComponent: any = null;
@@ -381,13 +381,11 @@
 			}
 
 			// Enable compass/bearing when in capture mode
-			startCompass().catch(err => {
-				console.warn('🢄Failed to start compass for camera capture:', err);
-			});
+			enableCompass();
 		} else if ($app.activity === 'view') {
 			//console.log('🢄👁️ View mode detected, stopping compass');
 			// Stop compass when exiting capture mode (optional - can be removed if you want compass to stay active)
-			stopCompass().catch(err => console.error('🢄Error stopping compass:', err));
+			disableCompass();
 		}
 		appOldActivity = $app.activity;
 	}
@@ -481,6 +479,7 @@
 		overflow: hidden;
 		width: 100%;
 		height: 100%;
+		touch-action: manipulation;
 	}
 
 	/* Allow specific pages to enable scrolling */
@@ -617,7 +616,6 @@
 		cursor: pointer;
 		border: none;
 		padding: 0;
-		touch-action: none;
 		user-select: none;
 		-webkit-user-select: none;
 		-webkit-touch-callout: none;

@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-select-push-distributor"
+description = "Enables the select_push_distributor command without any pre-configured scope."
+commands.allow = ["select_push_distributor"]
+
+[[permission]]
+identifier = "deny-select-push-distributor"
+description = "Denies the select_push_distributor command without any pre-configured scope."
+commands.deny = ["select_push_distributor"]

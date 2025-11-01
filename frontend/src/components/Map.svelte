@@ -27,7 +27,7 @@
     import { simplePhotoWorker } from '$lib/simplePhotoWorker';
     import { turn_to_photo_to, app, mapillary_cache_status, sourceLoadingStatus } from "$lib/data.svelte";
     import { updateGpsLocation, setLocationTracking, setLocationError, gpsLocation, locationTracking } from "$lib/location.svelte";
-    import { compassActive, compassAvailable, startCompass, stopCompass, currentCompassHeading } from "$lib/compass.svelte";
+    import { compassState, compassEnabled, compassAvailable, enableCompass, disableCompass, currentCompassHeading, isOnMapRoute, compassError } from "$lib/compass.svelte";
     import { optimizedMarkerSystem } from '$lib/optimizedMarkers';
     import '$lib/styles/optimizedMarkers.css';
 
@@ -57,8 +57,7 @@
     let wasTrackingBeforeHidden = false;
     let orientationRestartTimer: any = null;
 
-    // Compass tracking variables
-    let compassTrackingEnabled = false;
+    // Compass state is now managed by stores in compass.svelte.ts
 
     // Optimized marker system variables
     let currentMarkers: L.Marker[] = [];
@@ -71,8 +70,7 @@
     let isZoomButtonEvent = false;
     let zoomButtonEventTimer: number | null = null;
 
-    // Subscribe to compass tracking state
-    $: compassTrackingEnabled = $compassActive;
+    // Compass button state is derived from stores
 
     // Debug bounds rectangle
     let boundsRectangle: any = null;
@@ -335,10 +333,9 @@
 
         // Disable compass tracking when any turn button is clicked
         if (action === 'left' || action === 'right' || action === 'rotate-ccw' || action === 'rotate-cw') {
-            if (compassTrackingEnabled) {
+            if ($compassEnabled) {
                 console.log('🢄🧭 Disabling compass tracking due to manual turn');
-                await stopCompass();
-                compassTrackingEnabled = false;
+                disableCompass();
             }
         }
 
@@ -510,19 +507,13 @@
         }
     }
 
-    async function toggleCompassTracking() {
-        compassTrackingEnabled = !compassTrackingEnabled;
-
-        if (compassTrackingEnabled) {
-            console.log('🢄🧭 Starting compass tracking...');
-            const success = await startCompass();
-            if (!success) {
-                console.error('🢄Failed to start compass');
-                compassTrackingEnabled = false;
-            }
+    function toggleCompassTracking() {
+        if ($compassEnabled) {
+            console.log('🢄🧭 User disabling compass...');
+            disableCompass();
         } else {
-            //console.log('🢄🧭 Stopping compass tracking...');
-            stopCompass().catch(err => console.error('🢄Error stopping compass:', err));
+            console.log('🢄🧭 User enabling compass...');
+            enableCompass();
         }
     }
 
@@ -634,37 +625,6 @@
                 }, 'gps');
             }
         }
-    }
-
-    // Handle GPS bearing updates (only when compass button active + car mode)
-    function handleGpsBearingUpdate(position: GeolocationPosition) {
-        const { heading } = position.coords;
-
-        // Only update bearing if compass tracking is enabled AND in car mode
-        if (compassTrackingEnabled && $bearingMode === 'car' && heading !== null && heading !== undefined) {
-            userHeading = heading;
-            console.log("handleGpsBearingUpdate: GPS heading", heading);
-            updateBearing(heading);
-        }
-    }
-
-
-    // Add tile pruning function for memory management
-    function pruneTiles() {
-        if (map && map.eachLayer) {
-            map.eachLayer((layer: any) => {
-                if (layer._tiles && layer._pruneTiles) {
-                    layer._pruneTiles();
-                }
-            });
-        }
-    }
-
-    // Periodically prune tiles to free memory
-    let tilePruneInterval: any = null;
-    $: if (map && !tilePruneInterval) {
-        // Prune tiles every 30 seconds
-        tilePruneInterval = setInterval(pruneTiles, 30000);
     }
 
     // Fix Android mouse wheel behavior when map is ready
@@ -792,6 +752,9 @@
     onMount(() => {
         console.log('🢄Map component mounted');
 
+        // Signal that we're now on map route
+        isOnMapRoute.set(true);
+
         // Initialize the simplified photo worker (async)
         (async () => {
             try {
@@ -861,6 +824,9 @@
 
     onDestroy(async () => {
         console.log('🢄Map component destroyed');
+
+        // Signal that we're no longer on map route
+        isOnMapRoute.set(false);
         // Clean up location tracking if active
         try {
             await locationManager.releaseLocation('user');
@@ -926,10 +892,10 @@
         optimizedMarkerSystem.destroy();
 
         // Clean up tile pruning interval
-        if (tilePruneInterval) {
+        /*if (tilePruneInterval) {
             clearInterval(tilePruneInterval);
             tilePruneInterval = null;
-        }
+        }*/
 
         // Clean up Android wheel event listener
         if (map && /Android/i.test(navigator.userAgent)) {
@@ -1237,9 +1203,9 @@
         {/if}
     </button>
     <button
-        class={compassTrackingEnabled ? 'active' : ''}
+        class="{$compassState === 'active' ? 'active' : ''} {$compassState === 'starting' ? 'loading' : ''} {$compassState === 'error' ? 'error' : ''}"
         on:click={(e) => handleButtonClick('compass', e)}
-        title="Auto bearing updates ({$bearingMode === 'car' ? 'GPS' : 'compass'} mode)"
+        title="Auto bearing updates ({$bearingMode === 'car' ? 'GPS' : 'compass'} mode){$compassError ? ' - Error: ' + $compassError : ''}"
         disabled={$bearingMode === 'walking' && !$compassAvailable}
     >
         <Compass />

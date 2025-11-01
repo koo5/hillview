@@ -45,8 +45,8 @@ class EnhancedSensorService(
         // Smoothing and filtering parameters
         private const val EMA_ALPHA = 1f // EMA smoothing factor (0.1-0.3 range, lower = more smoothing)
         private const val HEADING_THRESHOLD = 1.0f // Minimum heading change to trigger update (degrees)
-        private const val PITCH_THRESHOLD = 3.0f // Minimum pitch change to trigger update (degrees)
-        private const val ROLL_THRESHOLD = 3.0f // Minimum roll change to trigger update (degrees)
+        private const val PITCH_THRESHOLD = 1.0f // Minimum pitch change to trigger update (degrees)
+        private const val ROLL_THRESHOLD = 1.0f // Minimum roll change to trigger update (degrees)
         private const val ACCURACY_THRESHOLD = 1.0f // Minimum accuracy change to trigger update (degrees)
 
         // Sensor fusion modes
@@ -318,7 +318,7 @@ class EnhancedSensorService(
             this.latitude = latitude
             this.longitude = longitude
         }
-        Log.d(TAG, "📍 Updated location: $latitude, $longitude")
+        //Log.d(TAG, "📍 Updated location: $latitude, $longitude")
     }
 
     private fun accuracyToString(accuracy: Int): String {
@@ -758,7 +758,7 @@ class EnhancedSensorService(
         source: String
     ) {
         val startTime = System.currentTimeMillis()
-        Log.v(TAG, "TIMING 🕐 sendSensorData START: ${startTime} from $source")
+        //Log.v(TAG, "TIMING 🕐 sendSensorData START: ${startTime} from $source")
         // Apply EMA smoothing
         smoothedMagneticHeading = applySmoothingEMA(magneticHeading, smoothedMagneticHeading, isAngle = true)
         smoothedTrueHeading = applySmoothingEMA(trueHeading, smoothedTrueHeading, isAngle = true)
@@ -775,8 +775,8 @@ class EnhancedSensorService(
 
         // Check if changes are significant enough to warrant an update
         if (!hasSignificantChange(finalMagneticHeading, finalTrueHeading, finalAccuracy, finalPitch, finalRoll)) {
-            val suppressTime = System.currentTimeMillis()
-            Log.v(TAG, "TIMING 🔇 sendSensorData SUPPRESSED: ${suppressTime} (${suppressTime - startTime}ms) - changes below threshold")
+            //val suppressTime = System.currentTimeMillis()
+            //Log.v(TAG, "TIMING 🔇 sendSensorData SUPPRESSED: ${suppressTime} (${suppressTime - startTime}ms) - changes below threshold")
             return
         }
 
@@ -806,8 +806,9 @@ class EnhancedSensorService(
             source = "$source (EMA smoothed)"
         )
 
-        val sendTime = System.currentTimeMillis()
+        /*val sendTime = System.currentTimeMillis()
         Log.v(TAG, "TIMING 📡 sendSensorData SENDING: ${sendTime} (${sendTime - startTime}ms) bearing=${finalMagneticHeading.format(1)}°")
+        */
 
         onSensorUpdate(data)
 
@@ -836,7 +837,7 @@ class EnhancedSensorService(
             }
         }
 
-        val endTime = System.currentTimeMillis()
-        Log.v(TAG, "TIMING ✅ sendSensorData COMPLETE: ${endTime} (total: ${endTime - startTime}ms, send: ${endTime - sendTime}ms)")
+        /*val endTime = System.currentTimeMillis()
+        Log.v(TAG, "TIMING ✅ sendSensorData COMPLETE: ${endTime} (total: ${endTime - startTime}ms, send: ${endTime - sendTime}ms)")*/
     }
 }

@@ -60,6 +60,10 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
       commands::add_photo_to_database,
       commands::share_photo,
       commands::photo_worker_process,
+      // Push notification commands
+      commands::get_push_distributors,
+      commands::get_push_registration_status,
+      commands::select_push_distributor,
 
       ])
     .setup(|app, api| {

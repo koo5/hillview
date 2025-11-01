@@ -282,3 +282,32 @@ class ContactMessage(Base):
 	# Relationships
 	user = relationship("User", foreign_keys=[user_id], back_populates=None)
 	replied_by_user = relationship("User", foreign_keys=[replied_by], back_populates=None)
+
+
+class PushRegistration(Base):
+	__tablename__ = "push_registrations"
+
+	id = Column(String, primary_key=True, default=generate_uuid)
+	client_key_id = Column(String, nullable=False, unique=True, index=True)  # From ClientCryptoManager
+	push_endpoint = Column(Text, nullable=False)  # URL for sending push messages
+	distributor_package = Column(String, nullable=True)  # Package name of distributor app
+	created_at = Column(DateTime(timezone=True), server_default=func.now())
+	updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class Notification(Base):
+	__tablename__ = "notifications"
+
+	id = Column(Integer, primary_key=True)  # Use BIGSERIAL for high volume
+	user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+	type = Column(String(50), nullable=False)  # 'user_upload', 'photo_liked', 'follow', etc.
+	title = Column(Text, nullable=False)
+	body = Column(Text, nullable=False)
+	action_type = Column(String(50), nullable=True)  # 'open_profile', 'open_photo', etc.
+	action_data = Column(JSON, nullable=True)  # {user_id: "123", photo_id: "456"}
+	read_at = Column(DateTime(timezone=True), nullable=True)
+	created_at = Column(DateTime(timezone=True), server_default=func.now())
+	expires_at = Column(DateTime(timezone=True), nullable=True)  # Auto-cleanup old notifications
+
+	# Relationships
+	user = relationship("User")

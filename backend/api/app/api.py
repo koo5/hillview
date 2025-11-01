@@ -306,6 +306,10 @@ if USER_ACCOUNTS:
 	import activity_routes
 	app.include_router(activity_routes.router)
 
+	# Include push notification routes (only with user accounts)
+	import push_routes
+	app.include_router(push_routes.router)
+
 # Include core routes
 import mapillary_routes
 app.include_router(mapillary_routes.router)

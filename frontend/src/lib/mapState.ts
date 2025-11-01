@@ -104,7 +104,7 @@ export const newPhotoInFront = derived(
 	[photosInRange, bearingState],
 	([photos, visual]) => {
 		if (photos.length === 0) {
-			console.log('🢄Navigation: No photos available for photoInFront');
+			//console.log('🢄Navigation: No photos available for photoInFront');
 			return null;
 		}
 

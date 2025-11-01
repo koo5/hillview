@@ -3,9 +3,14 @@ import os
 import re
 import hashlib
 import mimetypes
+import json
+import base64
 from pathlib import Path
-from typing import Optional, Set, Tuple
+from typing import Optional, Set, Tuple, Dict, Any
 import logging
+from cryptography.hazmat.primitives import serialization, hashes
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
 
 try:
 	from password_strength import PasswordPolicy
@@ -336,3 +341,48 @@ def validate_photo_id(photo_id: str) -> str:
 def validate_user_id(user_id: str) -> str:
 	"""Validate user ID for filesystem safety."""
 	return validate_filesystem_safe_id(user_id, "user_id")
+
+def verify_ecdsa_signature(signature_base64: str, public_key_pem: str, message_data: Dict[str, Any]) -> bool:
+	"""
+	Verify ECDSA P-256 signature using the client's public key.
+
+	Args:
+		signature_base64: Base64-encoded ECDSA signature
+		public_key_pem: PEM-formatted ECDSA P-256 public key
+		message_data: Dictionary containing the signed data
+
+	Returns:
+		True if signature is valid, False otherwise
+	"""
+	try:
+		# Load the client's public key
+		public_key = serialization.load_pem_public_key(public_key_pem.encode())
+
+		# Create canonical JSON message (same format as ClientCryptoManager)
+		message = json.dumps(message_data, separators=(',', ':'), ensure_ascii=False)
+
+		# Decode the base64 signature
+		signature_bytes = base64.b64decode(signature_base64)
+
+		# Auto-detect signature format and convert if needed
+		# Web Crypto API produces 64-byte IEEE P1363 format (r||s)
+		# Android/Java produces variable-length ASN.1 DER format
+		if len(signature_bytes) == 64:
+			# Convert P1363 to DER format
+			r = int.from_bytes(signature_bytes[:32], byteorder='big')
+			s = int.from_bytes(signature_bytes[32:], byteorder='big')
+			signature_bytes = encode_dss_signature(r, s)
+
+		# Verify the signature
+		public_key.verify(
+			signature_bytes,
+			message.encode('utf-8'),
+			ec.ECDSA(hashes.SHA256())
+		)
+
+		logger.debug(f"Signature verification successful for message: {message}")
+		return True
+
+	except Exception as e:
+		logger.warning(f"Signature verification failed: {str(e)}")
+		return False

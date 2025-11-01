@@ -31,6 +31,25 @@
 
     <application>
         <!-- Deep link intent filters are added directly to MainActivity by Tauri's deep-link plugin -->
+
+        <!-- UnifiedPush service for push notifications -->
+        <service android:name="cz.hillview.plugin.HillviewUnifiedPushService" android:exported="false">
+            <intent-filter>
+                <action android:name="org.unifiedpush.android.connector.MESSAGE"/>
+                <action android:name="org.unifiedpush.android.connector.UNREGISTERED"/>
+                <action android:name="org.unifiedpush.android.connector.NEW_ENDPOINT"/>
+                <action android:name="org.unifiedpush.android.connector.REGISTRATION_FAILED"/>
+            </intent-filter>
+        </service>
+
+        <!-- Firebase Cloud Messaging service for direct FCM support -->
+        <service
+            android:name="cz.hillview.plugin.FcmDirectService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
     </application>
 
 </manifest>

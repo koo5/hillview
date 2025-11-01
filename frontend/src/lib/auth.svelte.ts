@@ -18,21 +18,6 @@ auth.subscribe(authState => {
 });
 
 
-// Configure upload manager for Android
-async function configureUploadManager() {
-    console.log('🢄📤 [AUTH] configureUploadManager called, TAURI_MOBILE:', TAURI_MOBILE);
-    if (!TAURI_MOBILE) {
-        console.log('🢄📤 [AUTH] Not on mobile, skipping upload manager config');
-        return;
-    }
-
-    console.log('🢄📤 [AUTH] Configuring upload manager with backend URL:', backendUrl);
-    const result = await invoke('plugin:hillview|set_upload_config', {
-        config:{serverUrl: backendUrl}
-    });
-    console.log('🢄📤 [AUTH] Upload manager configured successfully:', result);
-}
-
 // Shared function to complete authentication after successful login (exported for authCallback)
 export async function completeAuthentication(tokenData: {
     access_token: string;
@@ -42,10 +27,6 @@ export async function completeAuthentication(tokenData: {
     refresh_token_expires_at: string;
 }, source: 'login' | 'oauth' = 'login'): Promise<boolean> {
         console.log(`🢄[AUTH] Completing ${source} authentication...`);
-
-        // IMPORTANT: Configure upload manager BEFORE storing tokens
-        // The Android AuthenticationManager needs the server URL to register client keys
-        await configureUploadManager();
 
         // Store tokens using the unified TokenManager
         const tokenManager = createTokenManager();
