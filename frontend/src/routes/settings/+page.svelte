@@ -29,6 +29,14 @@
 
 <StandardBody>
 	<div class="settings-container">
+		<!-- Push Notification Settings -->
+		<div class="section-divider"></div>
+		<PushSettingsComponent
+			onSaveSuccess={(message) => showAlert(message, 'success')}
+			onSaveError={(message) => showAlert(message, 'error')}
+		/>
+
+
 		<!-- General Settings -->
 		<SettingsComponent
 			onSaveSuccess={(message) => showAlert(message, 'success')}
@@ -38,13 +46,6 @@
 		<!-- Upload Settings -->
 		<div class="section-divider"></div>
 		<UploadSettingsComponent
-			onSaveSuccess={(message) => showAlert(message, 'success')}
-			onSaveError={(message) => showAlert(message, 'error')}
-		/>
-
-		<!-- Push Notification Settings -->
-		<div class="section-divider"></div>
-		<PushSettingsComponent
 			onSaveSuccess={(message) => showAlert(message, 'success')}
 			onSaveError={(message) => showAlert(message, 'error')}
 		/>

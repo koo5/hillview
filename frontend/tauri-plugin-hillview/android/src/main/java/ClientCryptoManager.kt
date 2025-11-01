@@ -258,7 +258,7 @@ class ClientCryptoManager(private val context: Context) {
     /**
      * Get the stored key ID from SharedPreferences
      */
-    private fun getKeyId(): String? {
+    fun getKeyId(): String? {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         return prefs.getString(KEY_ID_PREF, null)
     }

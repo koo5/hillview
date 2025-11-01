@@ -14,11 +14,13 @@
 	let isLoading = false;
 	let lastError: string | null = null;
 
+	// Debug reactive statement to track state changes
+	$: console.log('🔄 Reactive update - isLoading:', isLoading, 'distributors.length:', distributors.length);
+
 	interface PushDistributorInfo {
 		packageName: string;
 		displayName: string;
 		isAvailable: boolean;
-		isSelected: boolean;
 	}
 
 	interface PushDistributorsResponse {
@@ -44,59 +46,78 @@
 
 	async function loadPushSettings() {
 		try {
+			console.log('🔄 Loading push settings...');
 			isLoading = true;
 
 			// Load available distributors
+			console.log('📡 Calling get_push_distributors...');
 			const distributorsResult = await invoke('plugin:hillview|get_push_distributors') as PushDistributorsResponse;
+			console.log('📡 Distributors result:', distributorsResult);
+
 			if (distributorsResult.success) {
 				distributors = distributorsResult.distributors;
+				console.log('✅ Distributors loaded:', distributors.length, 'items');
 			} else {
+				console.error('❌ Failed to load distributors:', distributorsResult.error);
 				throw new Error(distributorsResult.error || 'Failed to load distributors');
 			}
 
 			// Load current status
+			console.log('📡 Calling get_push_registration_status...');
 			const statusResult = await invoke('plugin:hillview|get_push_registration_status') as PushRegistrationStatusResponse;
+			console.log('📡 Status result:', statusResult);
+
 			if (statusResult.success) {
 				registrationStatus = statusResult.status;
 				statusMessage = statusResult.statusMessage;
 				selectedDistributor = statusResult.selectedDistributor || '';
 				lastError = statusResult.lastError || null;
+				console.log('✅ Status loaded:', { registrationStatus, statusMessage, selectedDistributor });
 			} else {
+				console.error('❌ Failed to load status:', statusResult.error);
 				throw new Error(statusResult.error || 'Failed to load status');
 			}
 
 		} catch (err) {
-			console.error('Error loading push settings:', err);
+			console.error('❌ Error loading push settings:', err);
 			onSaveError(`Failed to load push notification settings: ${err}`);
 		} finally {
 			isLoading = false;
+			console.log('🏁 Loading push settings complete. isLoading:', false, 'distributors:', distributors.length);
 		}
 	}
 
 	async function selectDistributor(packageName: string) {
 		try {
+			console.log('🎯 Starting distributor selection:', packageName);
 			isLoading = true;
-			console.log('Selecting distributor:', packageName);
 
+			console.log('📡 Calling select_push_distributor...');
 			const result = await invoke('plugin:hillview|select_push_distributor', {
 				request: { packageName }
 			}) as { success: boolean; error?: string };
+			console.log('📡 Selection result:', result);
 
 			if (result.success) {
 				selectedDistributor = packageName;
+				console.log('✅ Distributor selected successfully:', packageName);
 				onSaveSuccess(packageName ? 'Push distributor selected successfully' : 'Push notifications disabled');
 
 				// Reload status after selection
+				console.log('🔄 Reloading settings after selection...');
 				await loadPushSettings();
+				console.log('🎯 Selection complete!');
 			} else {
+				console.error('❌ Selection failed:', result.error);
 				throw new Error(result.error || 'Failed to select distributor');
 			}
 
 		} catch (err) {
-			console.error('Error selecting distributor:', err);
+			console.error('❌ Error selecting distributor:', err);
 			onSaveError(`Failed to select push distributor: ${err}`);
 		} finally {
 			isLoading = false;
+			console.log('🏁 Distributor selection complete. isLoading:', false, 'distributors:', distributors.length);
 		}
 	}
 

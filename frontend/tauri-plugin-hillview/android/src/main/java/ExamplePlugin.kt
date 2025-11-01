@@ -141,6 +141,11 @@ class SelectDistributorArgs {
   var packageName: String? = null
 }
 
+@InvokeArg
+class BackendUrlArgs {
+  var backendUrl: String? = null
+}
+
 @TauriPlugin
 class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     companion object {
@@ -711,6 +716,58 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
 
         } catch (e: Exception) {
             Log.e(TAG, "📤 Error setting upload config", e)
+            val error = JSObject()
+            error.put("success", false)
+            error.put("error", e.message)
+            invoke.resolve(error)
+        }
+    }
+
+    @Command
+    fun setBackendUrl(invoke: Invoke) {
+        try {
+            val args = invoke.parseArgs(BackendUrlArgs::class.java)
+            val backendUrl = args.backendUrl
+
+            if (backendUrl.isNullOrEmpty()) {
+                Log.e(TAG, "🌐 Backend URL is required")
+                val error = JSObject()
+                error.put("success", false)
+                error.put("error", "Backend URL is required")
+                invoke.resolve(error)
+                return
+            }
+
+            Log.d(TAG, "🌐 Setting backend URL: $backendUrl")
+
+            // Store in upload preferences for all managers to use
+            val uploadPrefs = activity.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
+            val previousUrl = uploadPrefs.getString("server_url", null)
+
+            uploadPrefs.edit()
+                .putString("server_url", backendUrl)
+                .apply()
+
+            Log.d(TAG, "🌐 Backend URL stored in preferences")
+
+            // Trigger push registration (enhanced autoRegisterIfNeeded will handle retries)
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val pushManager = PushDistributorManager(activity)
+                    pushManager.autoRegisterIfNeeded()
+                    Log.d(TAG, "🌐 Push registration check completed")
+                } catch (e: Exception) {
+                    Log.e(TAG, "🌐 Error during push registration", e)
+                }
+            }
+
+            val result = JSObject()
+            result.put("success", true)
+            result.put("previousUrl", previousUrl)
+            invoke.resolve(result)
+
+        } catch (e: Exception) {
+            Log.e(TAG, "🌐 Error setting backend URL", e)
             val error = JSObject()
             error.put("success", false)
             error.put("error", e.message)
@@ -1920,7 +1977,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
 
             Log.d(TAG, "📨 Found ${distributors.size} distributors:")
             distributors.forEach { distributor ->
-                Log.d(TAG, "📨   - ${distributor.displayName} (${distributor.packageName}): available=${distributor.isAvailable}, selected=${distributor.isSelected}")
+                Log.d(TAG, "📨   - ${distributor.displayName} (${distributor.packageName}): available=${distributor.isAvailable}")
             }
 
             val result = JSObject()
@@ -1931,7 +1988,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                 distObj.put("packageName", distributor.packageName)
                 distObj.put("displayName", distributor.displayName)
                 distObj.put("isAvailable", distributor.isAvailable)
-                distObj.put("isSelected", distributor.isSelected)
+                // Note: Use getPushRegistrationStatus to get selected distributor
                 distributorsArray.put(distObj)
             }
 

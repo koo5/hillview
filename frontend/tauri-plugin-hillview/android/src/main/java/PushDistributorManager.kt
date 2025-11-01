@@ -53,6 +53,18 @@ class PushDistributorManager(private val context: Context) {
         private const val KEY_REGISTRATION_STATUS = "registration_status"
         private const val KEY_LAST_ERROR = "last_error"
         private const val KEY_ENABLED = "push_enabled"
+
+        @Volatile
+        private var INSTANCE: PushDistributorManager? = null
+
+        /**
+         * Get singleton instance of PushDistributorManager
+         */
+        fun getInstance(context: Context): PushDistributorManager {
+            return INSTANCE ?: synchronized(this) {
+                INSTANCE ?: PushDistributorManager(context.applicationContext).also { INSTANCE = it }
+            }
+        }
     }
 
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -99,6 +111,20 @@ class PushDistributorManager(private val context: Context) {
                 isSelected = packageName == selectedDistributor
             )
         }.toMutableList()
+
+        // Add direct FCM as a distributor option if available
+        val fcmPackageName = "com.google.firebase.messaging.direct"
+        val isFcmAvailable = FcmDirectService.isAvailable(context)
+        val isFcmSelected = selectedDistributor == fcmPackageName
+
+        Log.d(TAG, "📨 FCM direct availability: $isFcmAvailable, selected: $isFcmSelected")
+
+        distributorInfoList.add(0, DistributorInfo(  // Add at the beginning for priority
+            packageName = fcmPackageName,
+            displayName = "Google Firebase (Direct)",
+            isAvailable = isFcmAvailable,
+            isSelected = isFcmSelected
+        ))
 
         // If we have a selected distributor that's not in the current list,
         // add it as unavailable (like DAVx5 does)
@@ -168,23 +194,44 @@ class PushDistributorManager(private val context: Context) {
     }
 
     /**
-     * Auto-register with first available distributor if none selected
+     * Auto-register with distributor if needed (no selection or failed registration)
      */
     suspend fun autoRegisterIfNeeded() {
         val selectedDistributor = getSelectedDistributor()
-        if (selectedDistributor != null) {
-            return // Already have a distributor selected
-        }
+        val registrationStatus = getRegistrationStatus()
 
-        val availableDistributors = getAvailableDistributors().filter { it.isAvailable }
-        if (availableDistributors.isEmpty()) {
-            Log.d(TAG, "No available distributors for auto-registration")
+        // Already registered successfully - nothing to do
+        if (selectedDistributor != null && registrationStatus == RegistrationStatus.REGISTERED) {
+            Log.d(TAG, "Push notifications already registered with $selectedDistributor")
             return
         }
 
-        val firstDistributor = availableDistributors[0]
-        Log.d(TAG, "Auto-registering with first available distributor: ${firstDistributor.packageName}")
-        selectDistributor(firstDistributor.packageName)
+        // Has distributor but registration failed - retry with same distributor
+        if (selectedDistributor != null && registrationStatus == RegistrationStatus.REGISTRATION_FAILED) {
+            Log.d(TAG, "Retrying failed registration with existing distributor: $selectedDistributor")
+            selectDistributor(selectedDistributor)
+            return
+        }
+
+        // Distributor missing - clear selection and auto-select new one
+        if (selectedDistributor != null && registrationStatus == RegistrationStatus.DISTRIBUTOR_MISSING) {
+            Log.d(TAG, "Selected distributor '$selectedDistributor' no longer available, clearing selection")
+            unregister()
+            // Fall through to auto-select new distributor
+        }
+
+        // No distributor selected - auto-select first available
+        if (getSelectedDistributor() == null) {
+            val availableDistributors = getAvailableDistributors().filter { it.isAvailable }
+            if (availableDistributors.isEmpty()) {
+                Log.d(TAG, "No available distributors for auto-registration")
+                return
+            }
+
+            val firstDistributor = availableDistributors[0]
+            Log.d(TAG, "Auto-registering with first available distributor: ${firstDistributor.packageName}")
+            selectDistributor(firstDistributor.packageName)
+        }
     }
 
     /**
@@ -194,8 +241,19 @@ class PushDistributorManager(private val context: Context) {
         return registrationMutex.withLock {
             Log.d(TAG, "Selecting distributor: $packageName")
 
-            if (!isDistributorAvailable(packageName)) {
+            // Check if this is direct FCM or UnifiedPush distributor
+            val isFcmDirect = packageName == "com.google.firebase.messaging.direct"
+
+            if (!isFcmDirect && !isDistributorAvailable(packageName)) {
                 val error = "Selected distributor is not available"
+                Log.e(TAG, error)
+                setLastError(error)
+                setRegistrationStatus("failed")
+                return@withLock false
+            }
+
+            if (isFcmDirect && !FcmDirectService.isAvailable(context)) {
+                val error = "Direct FCM is not available on this device"
                 Log.e(TAG, error)
                 setLastError(error)
                 setRegistrationStatus("failed")
@@ -208,13 +266,27 @@ class PushDistributorManager(private val context: Context) {
                     .putString(KEY_SELECTED_DISTRIBUTOR, packageName)
                     .apply()
 
-                // Register with UnifiedPush distributor
-                UnifiedPush.registerApp(context, packageName, "hillview_notifications")
+                if (isFcmDirect) {
+                    // Handle direct FCM registration
+                    Log.d(TAG, "Registering with direct FCM")
+                    val fcmToken = FcmDirectService.getRegistrationToken()
 
-                // Note: The actual endpoint will be received via UnifiedPushService.onNewEndpoint
-                // and then we'll register with the backend
+                    // For FCM, the "endpoint" is a special format that includes the token
+                    val fcmEndpoint = "fcm:$fcmToken"
+                    Log.d(TAG, "🔗 FCM endpoint generated: ${fcmEndpoint.take(50)}...")
 
-                Log.d(TAG, "UnifiedPush registration initiated for $packageName")
+                    // Register endpoint directly (we already hold the mutex)
+                    registerEndpointDirectly(fcmEndpoint)
+
+                    Log.d(TAG, "Direct FCM registration completed with token: ${fcmToken.take(20)}...")
+                } else {
+                    // Register with UnifiedPush distributor
+                    UnifiedPush.register(context, packageName, "hillview_notifications")
+
+                    // Note: The actual endpoint will be received via UnifiedPushService.onNewEndpoint
+                    Log.d(TAG, "UnifiedPush registration initiated for $packageName")
+                }
+
                 return@withLock true
 
             } catch (e: Exception) {
@@ -232,98 +304,131 @@ class PushDistributorManager(private val context: Context) {
      * Called from UnifiedPushService when endpoint is received
      */
     suspend fun registerWithBackend(endpoint: String): Boolean {
-        return registrationMutex.withLock {
-            Log.d(TAG, "Registering push endpoint with backend: $endpoint")
-
-            try {
-                // Get client key ID for stable device identification
-                val keyInfo = clientCrypto.getPublicKeyInfo()
-                if (keyInfo == null) {
-                    val error = "Client key not available"
-                    Log.e(TAG, error)
-                    setLastError(error)
-                    setRegistrationStatus("failed")
-                    return@withLock false
-                }
-
-                // Get auth token if available (but don't require it)
-                val token = authManager.getValidToken()
-                Log.d(TAG, "Auth token available: ${token != null}")
-
-                // Get server URL
-                val uploadPrefs = context.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
-                val serverUrl = uploadPrefs.getString("server_url", null)
-                if (serverUrl == null) {
-                    val error = "Server URL not configured"
-                    Log.e(TAG, error)
-                    setLastError(error)
-                    setRegistrationStatus("failed")
-                    return@withLock false
-                }
-
-                // Generate signature for push registration
-                val timestamp = System.currentTimeMillis()
-                val selectedDistributor = getSelectedDistributor()
-                val signatureData = clientCrypto.signPushRegistration(endpoint, selectedDistributor, timestamp)
-                if (signatureData == null) {
-                    val error = "Failed to generate push registration signature"
-                    Log.e(TAG, error)
-                    setLastError(error)
-                    setRegistrationStatus("failed")
-                    return@withLock false
-                }
-
-                // Prepare registration request
-                val url = "$serverUrl/push/register"
-                val json = JSONObject().apply {
-                    put("client_key_id", keyInfo.keyId)
-                    put("push_endpoint", endpoint)
-                    put("distributor_package", selectedDistributor)
-                    put("timestamp", timestamp)
-                    put("client_signature", signatureData.signature)
-                    put("public_key_pem", keyInfo.publicKeyPem)
-                    put("key_created_at", keyInfo.createdAt)
-                }
-
-                // Make HTTP request
-                val client = okhttp3.OkHttpClient()
-                val mediaType = "application/json".toMediaType()
-                val requestBody = json.toString().toRequestBody(mediaType)
-
-                val request = okhttp3.Request.Builder()
-                    .url(url)
-                    .post(requestBody)
-                    .addHeader("Content-Type", "application/json")
-                    .addHeader("Authorization", "Bearer $token")
-                    .build()
-
-                val response = client.newCall(request).execute()
-
-                if (response.isSuccessful) {
-                    // Store endpoint and mark as registered
-                    prefs.edit()
-                        .putString(KEY_PUSH_ENDPOINT, endpoint)
-                        .putString(KEY_REGISTRATION_STATUS, "registered")
-                        .remove(KEY_LAST_ERROR)
-                        .apply()
-
-                    Log.d(TAG, "Push endpoint registered successfully with backend")
-                    return@withLock true
-                } else {
-                    val error = "Backend registration failed: HTTP ${response.code}"
-                    Log.e(TAG, error)
-                    setLastError(error)
-                    setRegistrationStatus("failed")
-                    return@withLock false
-                }
-
-            } catch (e: Exception) {
-                val error = "Exception during backend registration: ${e.message}"
-                Log.e(TAG, error, e)
+        Log.d(TAG, "🔑 Starting backend registration for endpoint: ${endpoint.take(50)}...")
+        // Note: Caller should hold registrationMutex to avoid race conditions
+        try {
+            // Get client key ID for stable device identification
+            Log.d(TAG, "🔑 Getting client key info...")
+            val keyInfo = clientCrypto.getPublicKeyInfo()
+            Log.d(TAG, "🔑 Client key info result: ${if (keyInfo != null) "success" else "null"}")
+            if (keyInfo == null) {
+                val error = "Client key not available"
+                Log.e(TAG, error)
                 setLastError(error)
                 setRegistrationStatus("failed")
-                return@withLock false
+                return false
             }
+
+            // Get auth token if available (but don't require it)
+            Log.d(TAG, "🎫 Getting auth token...")
+            val token = authManager.getValidToken()
+            Log.d(TAG, "🎫 Auth token available: ${token != null}")
+
+            // Get server URL
+            Log.d(TAG, "🌐 Getting server URL from preferences...")
+            val uploadPrefs = context.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
+            val serverUrl = uploadPrefs.getString("server_url", null)
+            Log.d(TAG, "🌐 Server URL: $serverUrl")
+            if (serverUrl == null) {
+                val error = "Server URL not configured"
+                Log.e(TAG, error)
+                setLastError(error)
+                setRegistrationStatus("failed")
+                return false
+            }
+
+            // Generate signature for push registration
+            Log.d(TAG, "✍️ Generating signature for push registration...")
+            val timestamp = System.currentTimeMillis()
+            val selectedDistributor = getSelectedDistributor()
+            Log.d(TAG, "✍️ Selected distributor: $selectedDistributor")
+            val signatureData = clientCrypto.signPushRegistration(endpoint, selectedDistributor, timestamp)
+            Log.d(TAG, "✍️ Signature generation result: ${if (signatureData != null) "success" else "null"}")
+            if (signatureData == null) {
+                val error = "Failed to generate push registration signature"
+                Log.e(TAG, error)
+                setLastError(error)
+                setRegistrationStatus("failed")
+                return false
+            }
+
+            // Prepare registration request
+            val url = "$serverUrl/push/register"
+            val json = JSONObject().apply {
+                put("client_key_id", keyInfo.keyId)
+                put("push_endpoint", endpoint)
+                put("distributor_package", selectedDistributor)
+                put("timestamp", timestamp)
+                put("client_signature", signatureData.signature)
+                put("public_key_pem", keyInfo.publicKeyPem)
+                put("key_created_at", keyInfo.createdAt)
+            }
+
+            // Make HTTP request with timeout configuration
+            Log.d(TAG, "🌐 Sending push registration request to: $url")
+            val client = okhttp3.OkHttpClient.Builder()
+                .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                .writeTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                .callTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                .build()
+
+            val mediaType = "application/json".toMediaType()
+            val requestBody = json.toString().toRequestBody(mediaType)
+
+            val request = okhttp3.Request.Builder()
+                .url(url)
+                .post(requestBody)
+                .addHeader("Content-Type", "application/json")
+                .addHeader("Authorization", "Bearer $token")
+                .build()
+
+            Log.d(TAG, "📤 Making HTTP POST request...")
+            val response = client.newCall(request).execute()
+            Log.d(TAG, "📥 Received response: HTTP ${response.code}")
+
+            if (response.isSuccessful) {
+                // Store endpoint and mark as registered
+                prefs.edit()
+                    .putString(KEY_PUSH_ENDPOINT, endpoint)
+                    .putString(KEY_REGISTRATION_STATUS, "registered")
+                    .remove(KEY_LAST_ERROR)
+                    .apply()
+
+                Log.d(TAG, "Push endpoint registered successfully with backend")
+                return true
+            } else {
+                val error = "Backend registration failed: HTTP ${response.code}"
+                Log.e(TAG, error)
+                setLastError(error)
+                setRegistrationStatus("failed")
+                return false
+            }
+
+        } catch (e: java.net.SocketTimeoutException) {
+            val error = "Backend registration timeout - server may be unreachable"
+            Log.e(TAG, "⏰ $error", e)
+            setLastError(error)
+            setRegistrationStatus("failed")
+            return false
+        } catch (e: java.net.ConnectException) {
+            val error = "Backend registration failed - connection refused"
+            Log.e(TAG, "🔌 $error", e)
+            setLastError(error)
+            setRegistrationStatus("failed")
+            return false
+        } catch (e: java.io.IOException) {
+            val error = "Backend registration failed - network error: ${e.message}"
+            Log.e(TAG, "🌐 $error", e)
+            setLastError(error)
+            setRegistrationStatus("failed")
+            return false
+        } catch (e: Exception) {
+            val error = "Exception during backend registration: ${e.javaClass.simpleName}: ${e.message}"
+            Log.e(TAG, "❌ $error", e)
+            setLastError(error)
+            setRegistrationStatus("failed")
+            return false
         }
     }
 
@@ -342,7 +447,7 @@ class PushDistributorManager(private val context: Context) {
                 }
 
                 // Unregister from UnifiedPush
-                UnifiedPush.unregisterApp(context)
+                UnifiedPush.unregister(context)
 
                 // Clear all stored data
                 prefs.edit()
@@ -405,11 +510,17 @@ class PushDistributorManager(private val context: Context) {
      * Check if a distributor package is currently available
      */
     private fun isDistributorAvailable(packageName: String): Boolean {
-        return try {
-            context.packageManager.getPackageInfo(packageName, 0)
-            true
-        } catch (e: PackageManager.NameNotFoundException) {
-            false
+        return if (packageName == "com.google.firebase.messaging.direct") {
+            // Special case: FCM direct is a virtual distributor, check if FCM is actually available
+            FcmDirectService.isAvailable(context)
+        } else {
+            // Regular UnifiedPush distributor: check if app package exists
+            try {
+                context.packageManager.getPackageInfo(packageName, 0)
+                true
+            } catch (e: PackageManager.NameNotFoundException) {
+                false
+            }
         }
     }
 
@@ -475,6 +586,82 @@ class PushDistributorManager(private val context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "Exception during backend unregistration: ${e.message}", e)
         }
+    }
+
+    /**
+     * Handle FCM token refresh (called from FcmDirectService)
+     */
+    suspend fun onFcmTokenRefresh(newToken: String) {
+        val selectedDistributor = getSelectedDistributor()
+        if (selectedDistributor == "com.google.firebase.messaging.direct") {
+            Log.d(TAG, "🔄 FCM token refreshed, updating backend registration")
+            val fcmEndpoint = "fcm:$newToken"
+            onNewEndpoint(fcmEndpoint)
+        }
+    }
+
+    /**
+     * Register endpoint directly (assumes caller already holds registrationMutex)
+     */
+    private suspend fun registerEndpointDirectly(endpoint: String) {
+        Log.d(TAG, "💾 Storing endpoint directly: ${endpoint.take(50)}...")
+        // Store the endpoint
+        prefs.edit()
+            .putString(KEY_PUSH_ENDPOINT, endpoint)
+            .apply()
+
+        try {
+            // Register endpoint with backend using existing method
+            Log.d(TAG, "🔑 Calling registerWithBackend...")
+            val success = registerWithBackend(endpoint)
+            Log.d(TAG, "🔙 Returned from registerWithBackend with success: $success")
+
+            if (success) {
+                Log.d(TAG, "✅ Successfully registered push endpoint with backend")
+            } else {
+                Log.e(TAG, "❌ Failed to register push endpoint with backend")
+            }
+        } catch (e: Exception) {
+            setRegistrationStatus(RegistrationStatus.REGISTRATION_FAILED.name)
+            setLastError("Backend registration error: ${e.message}")
+            Log.e(TAG, "❌ Exception during backend registration", e)
+        }
+    }
+
+    /**
+     * Handle new endpoint received from UnifiedPush or FCM
+     */
+    suspend fun onNewEndpoint(endpoint: String) {
+        Log.d(TAG, "🔗 Received new push endpoint: ${endpoint.take(50)}...")
+
+        Log.d(TAG, "🔒 Attempting to acquire mutex for endpoint registration...")
+        registrationMutex.withLock {
+            Log.d(TAG, "🔓 Mutex acquired for onNewEndpoint")
+            registerEndpointDirectly(endpoint)
+        }
+    }
+
+    /**
+     * Handle smart poke from FCM (called from FcmDirectService)
+     */
+    suspend fun handleSmartPoke(notificationId: String?) {
+        Log.d(TAG, "🔔 Handling smart poke notification: $notificationId")
+        // Fetch actual notifications from backend API
+        // This would trigger your notification fetch logic
+        // TODO: Implement notification fetching logic
+    }
+
+    /**
+     * Handle direct notification from FCM (called from FcmDirectService)
+     */
+    suspend fun handleDirectNotification(
+        title: String?,
+        body: String?,
+        data: Map<String, String>
+    ) {
+        Log.d(TAG, "📬 Handling direct notification: $title")
+        // Display notification directly without fetching from backend
+        // TODO: Implement direct notification display logic
     }
 
     /**
