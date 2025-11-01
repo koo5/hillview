@@ -697,9 +697,10 @@
         // Play shutter sound if enabled
         playShutterSound();
 
+        const captureStartTime = performance.now();
+        console.log(`TIMING 🕐 PHOTO CAPTURE START: ${captureStartTime.toFixed(1)}ms`);
+
         try {
-            const captureStartTime = performance.now();
-            console.log(`TIMING 🕐 PHOTO CAPTURE START: ${captureStartTime.toFixed(1)}ms`);
 
             // Get ImageData directly from canvas
             const canvasStartTime = performance.now();

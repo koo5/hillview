@@ -1,6 +1,7 @@
 name: hillview
 
 services:
+
   postgres:
     init: true
     image: postgis/postgis:15-3.3
@@ -21,18 +22,20 @@ services:
       timeout: 5s
       retries: 5
 
+
+
   api:
     init: true
     restart: always
     build:
-      context: .
+      context: backend
       dockerfile: api/app/Dockerfile
     container_name: hillview_api
     ports:
       - "${API_PORT:-8055}:8055"
     volumes:
-      - ./api/app:/app/app
-      - ./common:/app/common
+      - ./backend/api/app:/app/app
+      - ./backend/common:/app/common
       - pics:/app/pics
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-hillview}:${POSTGRES_PASSWORD:-hillview}@postgres:5432/${POSTGRES_DB:-hillview}
@@ -73,18 +76,19 @@ services:
       postgres:
         condition: service_healthy
 
+
   worker:
     init: true
     restart: always
     build:
-      context: .
+      context: backend
       dockerfile: worker/Dockerfile
     container_name: hillview_worker
     ports:
       - "${WORKER_PORT:-8056}:8056"
     volumes:
-      - ./worker:/app/worker
-      - ./common:/app/common
+      - ./backend/worker:/app/worker
+      - ./backend/common:/app/common
       - uploads:/app/uploads
       # - pics:/app/pics
     environment:

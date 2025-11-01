@@ -292,7 +292,7 @@
         class:long-pressed={isLongPress}
         class:slow-active={activeMode === 'slow'}
         class:fast-active={activeMode === 'fast'}
-        disabled={disabled || $frontendBusy}
+        disabled={disabled || $frontendBusy > 0}
         on:pointerdown={handleSinglePointerDown}
         on:pointerup={handleSinglePointerUp}
         on:pointermove={handleSinglePointerMove}
