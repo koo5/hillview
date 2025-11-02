@@ -1,9 +1,51 @@
 <svelte:head>
-	<title>Hillview</title>
+	{#if data?.photoMeta}
+		<title>Photo on Hillview</title>
+		<meta name="description" content={data.photoMeta.description} />
+
+		<!-- OpenGraph tags for social sharing -->
+		<meta property="og:title" content="Photo on Hillview" />
+		<meta property="og:description" content={data.photoMeta.description} />
+		<meta property="og:type" content="article" />
+		<meta property="og:url" content={$page.url.href} />
+
+		{#if data.photoMeta.imageUrl}
+			<meta property="og:image" content={data.photoMeta.imageUrl} />
+			{#if data.photoMeta.width}
+				<meta property="og:image:width" content={data.photoMeta.width.toString()} />
+			{/if}
+			{#if data.photoMeta.height}
+				<meta property="og:image:height" content={data.photoMeta.height.toString()} />
+			{/if}
+		{/if}
+
+		<!-- Twitter Card tags -->
+		<meta name="twitter:card" content="summary_large_image" />
+		<meta name="twitter:title" content="Photo on Hillview" />
+		<meta name="twitter:description" content={data.photoMeta.description} />
+		{#if data.photoMeta.imageUrl}
+			<meta name="twitter:image" content={data.photoMeta.imageUrl} />
+		{/if}
+
+		<!-- Additional geo/location tags if available -->
+		{#if data.photoMeta.latitude && data.photoMeta.longitude}
+			<meta property="place:location:latitude" content={data.photoMeta.latitude.toString()} />
+			<meta property="place:location:longitude" content={data.photoMeta.longitude.toString()} />
+		{/if}
+	{:else}
+		<title>Hillview</title>
+		<meta name="description" content="Hillview - Photo mapping application" />
+		<meta property="og:title" content="Hillview" />
+		<meta property="og:description" content="Hillview - Photo mapping application" />
+		<meta property="og:type" content="website" />
+	{/if}
 </svelte:head>
 
 <script lang="ts">
+	export let data;
 	import {onDestroy, onMount, tick} from 'svelte';
+	import {page} from '$app/stores';
+	import {parsePhotoUid} from '$lib/urlUtils';
 	import PhotoGallery from '../components/Gallery.svelte';
 	import Map from '../components/Map.svelte';
 	import {
@@ -72,8 +114,8 @@
 		}
 
 		// Handle photo parameter and enable corresponding source
-		if (photoParam) {
-			const photoUid = decodeURIComponent(photoParam);
+		const photoUid = parsePhotoUid(photoParam);
+		if (photoUid) {
 			console.log('🢄Photo parameter from URL:', photoUid);
 			enableSourceForPhotoUid(photoUid);
 			// Switch to view mode when opening a specific photo
@@ -83,7 +125,6 @@
 		if (bearingParam) {
 			console.log('🢄Setting bearing to', bearingParam, 'from URL');
 			const bearing = parseFloat(bearingParam);
-			const photoUid = photoParam ? decodeURIComponent(photoParam) : undefined;
 			mapStateUpdateBearing(bearing, 'url', photoUid);
 		}
 

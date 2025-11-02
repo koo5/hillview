@@ -755,3 +755,99 @@ def verify_client_signature(signature_base64: str, public_key_pem: str, photo_id
 		logger.error(f"Error in signature verification setup:")
 		logger.error(f"{type(e).__name__}: {e}")
 		return False
+
+
+@router.get("/share/{photo_uid}")
+async def get_photo_share_metadata(
+	request: Request,
+	photo_uid: str,
+	db: AsyncSession = Depends(get_db)
+):
+	"""Get photo metadata for social sharing (no authentication required for SEO/social sharing)."""
+	try:
+		# Parse photo UID format: {source}-{id}
+		parts = photo_uid.split('-', 1)
+		if len(parts) != 2:
+			raise HTTPException(
+				status_code=status.HTTP_400_BAD_REQUEST,
+				detail="Invalid photo UID format"
+			)
+
+		source, photo_id = parts
+
+		if source == "hillview":
+			# Query Hillview photos from the database
+			result = await db.execute(
+				select(
+					Photo.id,
+					Photo.original_filename,
+					Photo.created_at,
+					Photo.sizes,
+					ST_X(Photo.geometry).label('longitude'),
+					ST_Y(Photo.geometry).label('latitude')
+				).where(Photo.id == photo_id)
+			)
+
+			photo_data = result.first()
+			if not photo_data:
+				raise HTTPException(
+					status_code=status.HTTP_404_NOT_FOUND,
+					detail="Photo not found"
+				)
+
+			# Extract image URL from sizes JSON
+			photo_url = None
+			thumbnail_url = None
+			width = None
+			height = None
+
+			if photo_data.sizes:
+				# Try to find a good resolution for OpenGraph (prefer 1024 or 800)
+				for size_key in ['1024', '800', '600', '400']:
+					if size_key in photo_data.sizes:
+						size_data = photo_data.sizes[size_key]
+						photo_url = size_data.get('url')
+						width = size_data.get('width')
+						height = size_data.get('height')
+						break
+
+				# Try to find thumbnail (prefer smaller sizes)
+				for size_key in ['400', '200', '100']:
+					if size_key in photo_data.sizes:
+						thumbnail_url = photo_data.sizes[size_key].get('url')
+						break
+
+			return {
+				"id": photo_data.id,
+				"source": "hillview",
+				"description": f"Photo taken at {photo_data.latitude:.6f}, {photo_data.longitude:.6f}",
+				"image_url": photo_url,
+				"thumbnail_url": thumbnail_url,
+				"width": width,
+				"height": height,
+				"created_at": photo_data.created_at.isoformat() if photo_data.created_at else None,
+				"latitude": photo_data.latitude,
+				"longitude": photo_data.longitude
+			}
+
+		elif source == "mapillary":
+			# For Mapillary photos, we'd need to implement lookup from cached data
+			# For now, return basic info
+			raise HTTPException(
+				status_code=status.HTTP_501_NOT_IMPLEMENTED,
+				detail="Mapillary photo metadata not yet implemented"
+			)
+		else:
+			raise HTTPException(
+				status_code=status.HTTP_400_BAD_REQUEST,
+				detail=f"Unknown photo source: {source}"
+			)
+
+	except HTTPException:
+		raise
+	except Exception as e:
+		logger.error(f"Error getting photo metadata for sharing: {str(e)}")
+		raise HTTPException(
+			status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+			detail="Failed to get photo metadata"
+		)

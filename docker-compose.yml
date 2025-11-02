@@ -105,6 +105,34 @@ services:
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
       - AWS_ENDPOINT_URL_S3=${AWS_ENDPOINT_URL_S3:-}
 
+  frontend:
+    init: true
+    restart: always
+    build:
+      context: frontend
+      dockerfile: Dockerfile
+    container_name: hillview_frontend
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    environment:
+      - NODE_ENV=production
+      - HOST=0.0.0.0
+      - PORT=3000
+      - VITE_BACKEND=http://api:8055/api
+      - VITE_GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - VITE_GOOGLE_REDIRECT_URI=${VITE_GOOGLE_REDIRECT_URI:-}
+      - VITE_GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-}
+      - VITE_GITHUB_REDIRECT_URI=${VITE_GITHUB_REDIRECT_URI:-}
+      - VITE_FEATURE_USER_ACCOUNTS=${USER_ACCOUNTS:-true}
+      - VITE_DEV_MODE=${DEV_MODE:-false}
+      - VITE_SENTRY_ENABLED=${VITE_SENTRY_ENABLED:-false}
+      - VITE_SENTRY_DSN=${VITE_SENTRY_DSN:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_started
+
 
 volumes:
   postgres_data:

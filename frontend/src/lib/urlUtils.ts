@@ -172,6 +172,36 @@ export function constructUserPhotosUrl(userId: string, cursor?: string): string 
 }
 
 /**
+ * Parses photo UID from URL parameter
+ * @param photoParam - The raw photo parameter from URL
+ * @returns Decoded photo UID or null if invalid
+ */
+export function parsePhotoUid(photoParam: string | null): string | null {
+	if (!photoParam) return null;
+
+	try {
+		return decodeURIComponent(photoParam);
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Extracts source and ID from photo UID
+ * @param photoUid - The photo UID in format "source-id"
+ * @returns Object with source and id, or null if invalid format
+ */
+export function parsePhotoUidParts(photoUid: string): { source: string; id: string } | null {
+	const parts = photoUid.split('-', 2);
+	if (parts.length !== 2) return null;
+
+	return {
+		source: parts[0],
+		id: parts[1]
+	};
+}
+
+/**
  * Opens an external URL in the appropriate way for the current platform
  * - Uses Tauri's openUrl for native app (opens in external browser)
  * - Uses window.open for web platform

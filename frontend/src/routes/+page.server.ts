@@ -1,0 +1,43 @@
+import type { PageServerLoad } from './$types';
+import { backendUrl } from '$lib/config';
+import { parsePhotoUid } from '$lib/urlUtils';
+
+export const load: PageServerLoad = async ({ url, fetch }) => {
+	// Check for photo parameter in URL
+	const photoParam = url.searchParams.get('photo');
+	const photoUid = parsePhotoUid(photoParam);
+
+	if (photoUid) {
+		try {
+
+			// Safely construct API URL with proper escaping
+			const apiUrl = new URL(`/api/photos/share/${encodeURIComponent(photoUid)}`, backendUrl);
+			const response = await fetch(apiUrl.toString());
+
+			if (response.ok) {
+				const photoMeta = await response.json();
+
+				return {
+					photoMeta: {
+						description: photoMeta.description || 'Photo on Hillview',
+						imageUrl: photoMeta.image_url,
+						thumbnailUrl: photoMeta.thumbnail_url,
+						width: photoMeta.width,
+						height: photoMeta.height,
+						latitude: photoMeta.latitude,
+						longitude: photoMeta.longitude,
+						createdAt: photoMeta.created_at,
+						photoUid: photoUid
+					}
+				};
+			}
+		} catch (error) {
+			console.error('Failed to fetch photo metadata for OpenGraph:', error);
+		}
+	}
+
+	// Return default metadata if no photo or fetch failed
+	return {
+		photoMeta: null
+	};
+};
