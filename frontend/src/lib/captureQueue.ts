@@ -227,7 +227,7 @@ class CaptureQueueManager {
 							longitude: item.location.longitude,
 							altitude: item.location.altitude,
 							bearing: item.location.heading,
-							timestamp: Math.floor(item.timestamp / 1000),
+							timestamp: item.timestamp,
 							accuracy: item.location.accuracy,
 							locationSource: item.location.locationSource,
 							bearingSource: item.location.bearingSource

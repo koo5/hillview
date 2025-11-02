@@ -490,7 +490,7 @@
 							{#if photo.description}
 								<p class="description">{photo.description}</p>
 							{/if}
-							<p class="meta">Uploaded: {formatDate(photo.uploaded_at || photo.created_at)}</p>
+							<p class="meta">Uploaded: {formatDate(photo.uploaded_at)}</p>
 							{#if photo.captured_at}
 								<p class="meta">Captured: {formatDate(photo.captured_at)}</p>
 							{/if}
