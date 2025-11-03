@@ -1,11 +1,12 @@
 import { get } from 'svelte/store';
+import { TAURI, TAURI_MOBILE } from './tauri';
+import { invoke } from '@tauri-apps/api/core';
+import { http } from '$lib/http';
+
 import { backendUrl } from './config';
 import { createTokenManager } from './tokenManagerFactory';
-import { TAURI, TAURI_MOBILE } from './tauri';
 import { auth, type User, type AuthState } from './authStore';
-import { invoke } from '@tauri-apps/api/core';
 import { myGoto } from './navigation.svelte';
-import { http } from '$lib/http';
 import { clearAlerts } from './alertSystem.svelte';
 
 // Re-export for backward compatibility

@@ -651,7 +651,7 @@ async fn save_photo_from_bytes(
 				width,
 				height,
 				file_size: file_metadata.len(),
-				created_at: chrono::Utc::now().timestamp(),
+				created_at: metadata.timestamp,
 				file_hash: Some(file_hash.clone()),
 			};
 

@@ -781,8 +781,9 @@ async def get_photo_share_metadata(
 				select(
 					Photo.id,
 					Photo.original_filename,
-					Photo.created_at,
+					Photo.captured_at,
 					Photo.sizes,
+					Photo.description,
 					ST_X(Photo.geometry).label('longitude'),
 					ST_Y(Photo.geometry).label('latitude')
 				).where(Photo.id == photo_id)
@@ -820,12 +821,12 @@ async def get_photo_share_metadata(
 			return {
 				"id": photo_data.id,
 				"source": "hillview",
-				"description": f"Photo taken at {photo_data.latitude:.6f}, {photo_data.longitude:.6f}",
+				"description": photo_data.description, #f"Photo taken at {photo_data.latitude:.6f}, {photo_data.longitude:.6f}",
 				"image_url": photo_url,
 				"thumbnail_url": thumbnail_url,
 				"width": width,
 				"height": height,
-				"created_at": photo_data.created_at.isoformat() if photo_data.created_at else None,
+				"captured_at": photo_data.captured_at.isoformat() if hasattr(photo_data, 'captured_at') and photo_data.captured_at else None,
 				"latitude": photo_data.latitude,
 				"longitude": photo_data.longitude
 			}

@@ -1,0 +1,9 @@
+**/node_modules
+**/playwright-report
+**/test
+**/test-assets
+**/test-results
+**/.playwright-mcp
+src-tauri
+tauri-plugin-hillview/android/
+

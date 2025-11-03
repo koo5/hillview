@@ -170,7 +170,7 @@ pub async fn add_device_photo_to_db(
 		width,
 		height,
 		file_size,
-		created_at: chrono::Utc::now().timestamp(),
+		created_at: metadata.timestamp,
 	};
 
 	// Load existing db, add photo, and save
@@ -280,7 +280,7 @@ async fn create_device_photo_metadata(file_path: &Path) -> Result<DevicePhotoMet
 		width,
 		height,
 		file_size,
-		created_at: chrono::Utc::now().timestamp(),
+		created_at: timestamp,
 	})
 }
 

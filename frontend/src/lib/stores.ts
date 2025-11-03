@@ -11,11 +11,10 @@ export interface UserPhoto {
     altitude?: number;
     description?: string;
     is_public: boolean;
-    created_at: string;
     updated_at: string;
     thumbnail_url?: string;
     uploaded_at?: string;
-    captured_at?: string;
+    captured_at: string;
     sizes?: Record<string, { url: string; width: number; height: number; path?: string }>;
     user_rating?: 'thumbs_up' | 'thumbs_down' | null;  // User's current rating
     rating_counts?: { thumbs_up: number; thumbs_down: number };  // Aggregate counts

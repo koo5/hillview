@@ -1,16 +1,17 @@
 <script lang="ts">
-	import {onMount} from 'svelte';
-	import {setupDeepLinkListener} from '$lib/authCallback';
-	import {TAURI} from '$lib/tauri';
-	import AuthStatusWatcher from '../components/AuthStatusWatcher.svelte';
-	import {beforeNavigate, afterNavigate} from '$app/navigation';
+	import {browser} from '$app/environment';
 	import {page} from '$app/stores';
 	import {get} from 'svelte/store';
+	import {onMount} from 'svelte';
+	import {beforeNavigate, afterNavigate} from '$app/navigation';
+	import {invoke} from '@tauri-apps/api/core';
+
+	import {TAURI_MOBILE, TAURI} from '$lib/tauri';
+	import {backendUrl} from '$lib/config';
+	import {setupDeepLinkListener} from '$lib/authCallback';
+	import AuthStatusWatcher from '../components/AuthStatusWatcher.svelte';
 	import {clearAlerts} from "$lib/alertSystem.svelte";
 	import {checkAuth} from '$lib/auth.svelte';
-	import {backendUrl} from '$lib/config';
-	import {TAURI_MOBILE} from '$lib/tauri';
-	import {invoke} from '@tauri-apps/api/core';
 
 	// Log navigation events
 	beforeNavigate((navigation) => {

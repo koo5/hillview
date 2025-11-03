@@ -1,6 +1,12 @@
 import type { PageServerLoad } from './$types';
+import { TAURI } from '$lib/tauri';
 import { backendUrl } from '$lib/config';
-import { parsePhotoUid } from '$lib/urlUtils';
+import { parsePhotoUid } from '$lib/urlUtilsServer';
+
+// Enable SSR for this route to generate OpenGraph metadata
+export const ssr = !TAURI;
+// Disable prerendering since we need dynamic URL parameters
+export const prerender = false;
 
 export const load: PageServerLoad = async ({ url, fetch }) => {
 	// Check for photo parameter in URL
@@ -26,7 +32,7 @@ export const load: PageServerLoad = async ({ url, fetch }) => {
 						height: photoMeta.height,
 						latitude: photoMeta.latitude,
 						longitude: photoMeta.longitude,
-						createdAt: photoMeta.created_at,
+						capturedAt: photoMeta.captured_at,
 						photoUid: photoUid
 					}
 				};

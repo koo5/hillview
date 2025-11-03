@@ -82,9 +82,7 @@ export class PhotoOperations {
             throw new Error(`Worker version mismatch! Expected: ${config.expectedWorkerVersion}, Actual: ${__WORKER_VERSION__}`);
         }
 
-        if (!config?.sources) {
-            throw new Error('Invalid config: missing sources array');
-        }
+        config.sources = config.sources || [];
 
         const sources = config.sources;
         let allLoadedPhotos: PhotoData[] = [];
