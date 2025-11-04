@@ -1,6 +1,7 @@
 .aider*
 backend/uploads/
-.#.env
+**/.env
+**/.#.env
 backend/__pycache__/
 yolov5su.pt
 backend/worker/models/

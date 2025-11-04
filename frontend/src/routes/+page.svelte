@@ -1,7 +1,7 @@
 <script lang="ts">
 	export let data;
 
-	let Main;
+	let Main: any;
 	if (browser) {
 		async function loadMain() {
 			const module = await import('../components/Main.svelte');

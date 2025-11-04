@@ -147,7 +147,7 @@
             <div><strong>Sensor Mode:</strong></div>
             <select
                     value={$currentSensorMode}
-                    on:change={(e) => switchSensorMode(Number(e.currentTarget.value))}
+                    on:change={(e) => setCompassMode(Number(e.currentTarget.value))}
                     class="sensor-mode-select"
             >
                 <option value={SensorMode.ROTATION_VECTOR}>Rotation Vector</option>

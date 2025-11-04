@@ -4,6 +4,8 @@ import os
 import logging
 import cv2
 import torch
+import subprocess
+import shlex
 from ultralytics import YOLO
 
 
@@ -154,7 +156,25 @@ def anonymize_image(source_path):
 
 	output_path = source_path + '_anonymized'
 	cv2.imwrite(output_path, masked)
-	logging.debug(f"Saved masked image to: {output_path}\n")
+
+	# Preserve all EXIF data from original image
+	try:
+		# Copy all EXIF data from source to output using exiftool
+		cmd = ['exiftool', '-overwrite_original', '-TagsFromFile', source_path, '-all:all', output_path]
+		logging.debug(f"Preserving EXIF data from {os.path.basename(source_path)} to anonymized version: {shlex.join(cmd)}")
+
+		result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+		if result.returncode == 0:
+			logging.info(f"Successfully preserved all EXIF metadata in anonymized image: {os.path.basename(output_path)}")
+		else:
+			logging.warning(f"Failed to preserve EXIF metadata in {os.path.basename(output_path)}: {result.stderr}")
+
+	except subprocess.TimeoutExpired:
+		logging.warning(f"Timeout while preserving EXIF data for {os.path.basename(output_path)}")
+	except Exception as e:
+		logging.warning(f"Error preserving EXIF data for {os.path.basename(output_path)}: {e}")
+
+	logging.debug(f"Saved anonymized image with preserved metadata to: {output_path}")
 	return output_path, detections
 
 

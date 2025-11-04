@@ -5,7 +5,7 @@
 
 	export let onSaveSuccess = (message: string) => {};
 	export let onSaveError = (message: string) => {};
-	export let onCancel: (() => void) | null = null;
+	export const onCancel: (() => void) | null = null;
 
 	let distributors: PushDistributorInfo[] = [];
 	let selectedDistributor = '';

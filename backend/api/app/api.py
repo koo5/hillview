@@ -1,4 +1,5 @@
 import logging
+import time
 from contextlib import asynccontextmanager
 from typing import Dict, Any
 from fastapi import FastAPI, HTTPException, status, Request, Depends
@@ -177,12 +178,23 @@ class GlobalRateLimitMiddleware(BaseHTTPMiddleware):
 
 		return await call_next(request)
 
-# Request logging middleware
+# Request logging middleware with real client IP
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
 	async def dispatch(self, request: Request, call_next):
-		log.debug(f"HTTP {request.method} {request.url}")
+		from rate_limiter import get_client_ip
+
+		# Get real client IP (handles proxy headers)
+		client_ip = get_client_ip(request)
+		start_time = time.time()
+
 		response = await call_next(request)
-		log.debug(f"HTTP {response.status_code}")
+
+		# Calculate response time
+		process_time = time.time() - start_time
+
+		# Log access in a format similar to standard access logs but with real client IP
+		log.info(f'{client_ip} - "{request.method} {request.url.path}" {response.status_code} {process_time:.3f}s')
+
 		return response
 
 # CORS request logging middleware

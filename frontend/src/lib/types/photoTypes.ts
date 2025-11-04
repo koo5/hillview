@@ -68,7 +68,7 @@ export interface DevicePhotoMetadata {
     width: number;
     height: number;
     file_size: number;
-    created_at: number;
+    captured_at: number;
 }
 
 /**

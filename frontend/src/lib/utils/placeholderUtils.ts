@@ -77,7 +77,7 @@ export function createPlaceholderMetadata(
         width: 0,
         height: 0,
         file_size: 0,
-        created_at: timestamp
+        captured_at: timestamp
     };
 }
 

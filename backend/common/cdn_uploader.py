@@ -32,7 +32,7 @@ class CDNUploader:
 					's3',
 					endpoint_url=os.getenv("AWS_ENDPOINT_URL_S3"),
 					config=Config(s3={'addressing_style': 'virtual'}))
-				logger.info(f"CDN upload enabled for bucket: {self.bucket_name}")
+				logger.info(f"CDN configured for bucket: {self.bucket_name}")
 			except Exception as e:
 				logger.error(f"Failed to initialize S3 client: {e}")
 				raise
