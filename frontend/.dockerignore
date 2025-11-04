@@ -4,6 +4,8 @@
 **/test-assets
 **/test-results
 **/.playwright-mcp
-src-tauri
+src-tauri/target
+src-tauri/gen
+
 tauri-plugin-hillview/android/
 

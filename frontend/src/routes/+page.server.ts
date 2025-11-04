@@ -17,7 +17,8 @@ export const load: PageServerLoad = async ({ url, fetch }) => {
 		try {
 
 			// Safely construct API URL with proper escaping
-			const apiUrl = new URL(`/api/photos/share/${encodeURIComponent(photoUid)}`, backendUrl);
+			const apiUrl = new URL(`http://api:8055/api/photos/share/${encodeURIComponent(photoUid)}`);
+			console.log('Fetching photo metadata for OpenGraph from:', apiUrl.toString());
 			const response = await fetch(apiUrl.toString());
 
 			if (response.ok) {
@@ -36,6 +37,9 @@ export const load: PageServerLoad = async ({ url, fetch }) => {
 						photoUid: photoUid
 					}
 				};
+			}
+			else {
+				console.error('Failed to fetch photo metadata for OpenGraph: HTTP', response.status);
 			}
 		} catch (error) {
 			console.error('Failed to fetch photo metadata for OpenGraph:', error);

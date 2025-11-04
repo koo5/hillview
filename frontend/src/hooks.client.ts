@@ -1,6 +1,9 @@
 import * as Sentry from "@sentry/sveltekit";
 import {handleErrorWithSentry, replayIntegration} from "@sentry/sveltekit";
-import {sequence} from "@sveltejs/kit/hooks";
+import {invoke} from "@tauri-apps/api/core";
+import {backendUrl} from "$lib/config";
+import {TAURI} from "$lib/tauri";
+
 
 const sentryEnabled = /^(true|1|yes|on)$/i.test((import.meta.env.VITE_SENTRY_ENABLED || '').trim());
 
@@ -41,4 +44,11 @@ export async function handleError(eee: any): Promise<{ message: string }> {
 	} else return { message: eee.message || 'An error occurred' };
 }
 
-export const init = () => {console.log('🢄client initialized');};
+export const init = () => {
+	if (TAURI)
+	{
+		invoke('plugin:hillview|set_upload_config', { config: {serverUrl: backendUrl }});
+	}
+
+
+	console.log('🢄client initialized');};

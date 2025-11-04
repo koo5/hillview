@@ -65,7 +65,7 @@
 			// Load current status
 			console.log('📡 Calling get_push_registration_status...');
 			const statusResult = await invoke('plugin:hillview|get_push_registration_status') as PushRegistrationStatusResponse;
-			console.log('📡 Status result:', statusResult);
+			console.log('📡 Status result:', JSON.stringify(statusResult));
 
 			if (statusResult.success) {
 				registrationStatus = statusResult.status;
@@ -96,7 +96,7 @@
 			const result = await invoke('plugin:hillview|select_push_distributor', {
 				request: { packageName }
 			}) as { success: boolean; error?: string };
-			console.log('📡 Selection result:', result);
+			console.log('📡 Selection result:', JSON.stringify(result));
 
 			if (result.success) {
 				selectedDistributor = packageName;

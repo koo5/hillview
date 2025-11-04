@@ -138,7 +138,6 @@ pub struct PushDistributorInfo {
   pub package_name: String,
   pub display_name: String,
   pub is_available: bool,
-  pub is_selected: bool,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]

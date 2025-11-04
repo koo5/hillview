@@ -40,11 +40,11 @@ class SimplePhotoWorker {
             }
 
             // Initialize worker with config update including version check
-            this.sendMessage('configUpdated', {
-                config: {
-                    expectedWorkerVersion: __WORKER_VERSION__
-                }
-            });
+            // this.sendMessage('configUpdated', {
+            //     config: {
+            //         expectedWorkerVersion: __WORKER_VERSION__
+            //     }
+            // });
             this.isInitialized = true;
 
             // Set up reactive subscriptions

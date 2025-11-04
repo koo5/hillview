@@ -7,26 +7,17 @@ WORKDIR /app
 
 # Copy source code
 COPY . .
+#bun.lock package.json tsconfig.json svelte.config.* vite.config.ts tauri-plugin-hillview ./
 
 # Install dependencies
-RUN bun install --frozen-lockfile
+RUN bun install # --frozen-lockfile
 
+COPY src ./src
+COPY src-tauri/icons ./src-tauri/icons
 
 # Build the app with Node adapter
 ENV ADAPTER=node
 RUN bun run build
-
-# Production stage
-FROM node:20-alpine AS runtime
-
-WORKDIR /app
-
-# Copy built application
-COPY --from=builder /app/build ./build
-COPY --from=builder /app/package.json ./
-
-# Install only production dependencies
-RUN npm ci --omit=dev && npm cache clean --force
 
 # Create non-root user
 RUN addgroup -g 1001 -S nodejs && \

@@ -79,6 +79,7 @@ impl<R: Runtime> Hillview<R> {
       .map_err(Into::into)
   }
 
+// todo delete me
   pub fn set_upload_config(&self, config: UploadConfig) -> crate::Result<BasicResponse> {
     self
       .0

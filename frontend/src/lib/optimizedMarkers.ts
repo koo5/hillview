@@ -261,12 +261,12 @@ export class OptimizedMarkerSystem {
 	 */
 	updateMarkers(map: L.Map, photos: PhotoData[]): L.Marker[] {
 
-		console.log(`OptimizedMarkerSystem: updateMarkers called with ${photos.length} photos`);
-		console.log(`OptimizedMarkerSystem: current activeMarkers count: ${this.activeMarkers.length}`);
+		////console.log(`OptimizedMarkerSystem: updateMarkers called with ${photos.length} photos`);
+		////console.log(`OptimizedMarkerSystem: current activeMarkers count: ${this.activeMarkers.length}`);
 
 		// Return unused markers to pool
 		this.returnMarkersToPool();
-		console.log(`OptimizedMarkerSystem: after returnMarkersToPool, activeMarkers count: ${this.activeMarkers.length}`);
+		//console.log(`OptimizedMarkerSystem: after returnMarkersToPool, activeMarkers count: ${this.activeMarkers.length}`);
 
 		// Create/reuse markers for new photos
 		this.activeMarkers = photos.map((photo, index) => {
@@ -291,7 +291,7 @@ export class OptimizedMarkerSystem {
 			return marker;
 		});
 
-		console.log(`OptimizedMarkerSystem: Created ${this.activeMarkers.length} markers, added to map`);
+		//console.log(`OptimizedMarkerSystem: Created ${this.activeMarkers.length} markers, added to map`);
 		return this.activeMarkers;
 	}
 
@@ -310,14 +310,14 @@ export class OptimizedMarkerSystem {
 	 * Return markers to pool for reuse
 	 */
 	private returnMarkersToPool(): void {
-		console.log(`OptimizedMarkerSystem: returnMarkersToPool called, activeMarkers: ${this.activeMarkers.length}, poolSize: ${this.markerPool.length}`);
+		//console.log(`OptimizedMarkerSystem: returnMarkersToPool called, activeMarkers: ${this.activeMarkers.length}, poolSize: ${this.markerPool.length}`);
 
 		// Clear selected marker reference
 		this.currentSelectedMarker = null;
 
 		if (!this.options.enablePooling) {
 			// If not pooling, just remove markers
-			console.log(`OptimizedMarkerSystem: pooling disabled, removing ${this.activeMarkers.length} markers`);
+			//console.log(`OptimizedMarkerSystem: pooling disabled, removing ${this.activeMarkers.length} markers`);
 			this.activeMarkers.forEach(marker => marker && marker.remove());
 			this.activeMarkers = [];
 			return;
@@ -338,7 +338,7 @@ export class OptimizedMarkerSystem {
 		});
 
 		this.activeMarkers = [];
-		console.log(`OptimizedMarkerSystem: returnMarkersToPool complete, activeMarkers: ${this.activeMarkers.length}, poolSize: ${this.markerPool.length}`);
+		//console.log(`OptimizedMarkerSystem: returnMarkersToPool complete, activeMarkers: ${this.activeMarkers.length}, poolSize: ${this.markerPool.length}`);
 	}
 
 	/**

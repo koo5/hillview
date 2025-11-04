@@ -89,8 +89,7 @@ class PushDistributorManager(private val context: Context) {
     data class DistributorInfo(
         val packageName: String,
         val displayName: String,
-        val isAvailable: Boolean,
-        val isSelected: Boolean
+        val isAvailable: Boolean
     )
 
     /**
@@ -107,23 +106,20 @@ class PushDistributorManager(private val context: Context) {
             DistributorInfo(
                 packageName = packageName,
                 displayName = getDistributorDisplayName(packageName),
-                isAvailable = isDistributorAvailable(packageName),
-                isSelected = packageName == selectedDistributor
+                isAvailable = isDistributorAvailable(packageName)
             )
         }.toMutableList()
 
         // Add direct FCM as a distributor option if available
         val fcmPackageName = "com.google.firebase.messaging.direct"
         val isFcmAvailable = FcmDirectService.isAvailable(context)
-        val isFcmSelected = selectedDistributor == fcmPackageName
 
-        Log.d(TAG, "📨 FCM direct availability: $isFcmAvailable, selected: $isFcmSelected")
+        Log.d(TAG, "📨 FCM direct availability: $isFcmAvailable")
 
         distributorInfoList.add(0, DistributorInfo(  // Add at the beginning for priority
             packageName = fcmPackageName,
             displayName = "Google Firebase (Direct)",
-            isAvailable = isFcmAvailable,
-            isSelected = isFcmSelected
+            isAvailable = isFcmAvailable
         ))
 
         // If we have a selected distributor that's not in the current list,
@@ -134,8 +130,7 @@ class PushDistributorManager(private val context: Context) {
                     DistributorInfo(
                         packageName = selected,
                         displayName = getDistributorDisplayName(selected),
-                        isAvailable = false,
-                        isSelected = true
+                        isAvailable = false
                     )
                 )
             }
@@ -143,7 +138,7 @@ class PushDistributorManager(private val context: Context) {
 
         Log.d(TAG, "📨 Final distributor list size: ${distributorInfoList.size}")
         distributorInfoList.forEach { dist ->
-            Log.d(TAG, "📨   - ${dist.displayName} (${dist.packageName}): available=${dist.isAvailable}, selected=${dist.isSelected}")
+            Log.d(TAG, "📨   - ${dist.displayName} (${dist.packageName}): available=${dist.isAvailable}")
         }
 
         return distributorInfoList
@@ -197,6 +192,14 @@ class PushDistributorManager(private val context: Context) {
      * Auto-register with distributor if needed (no selection or failed registration)
      */
     suspend fun autoRegisterIfNeeded() {
+        // Check if server URL is configured first
+        val uploadPrefs = context.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
+        val serverUrl = uploadPrefs.getString("server_url", null)
+        if (serverUrl == null) {
+            Log.d(TAG, "Server URL not configured - skipping push notification auto-registration")
+            return
+        }
+
         val selectedDistributor = getSelectedDistributor()
         val registrationStatus = getRegistrationStatus()
 
