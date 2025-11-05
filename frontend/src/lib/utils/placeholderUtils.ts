@@ -51,7 +51,7 @@ export function createPlaceholderPhoto(
         isDevicePhoto: true,
         isPlaceholder: true,
         tempId: sharedId, // Use sharedId as tempId for compatibility
-        timestamp: Date.now(),
+        captured_at: Date.now(),
         accuracy: location.accuracy
     };
 }
@@ -72,12 +72,12 @@ export function createPlaceholderMetadata(
         longitude: location.longitude,
         altitude: location.altitude,
         bearing: location.heading,
-        timestamp,
+        captured_at: timestamp,
         accuracy: location.accuracy || 1,
         width: 0,
         height: 0,
         file_size: 0,
-        captured_at: timestamp
+        created_at: timestamp
     };
 }
 

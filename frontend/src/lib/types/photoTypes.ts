@@ -33,9 +33,9 @@ export interface PhotoData {
     isDevicePhoto?: boolean;
     isPlaceholder?: boolean;
     isDirectoryPhoto?: boolean;
-    timestamp?: number;
+    capturedAt?: number;
     accuracy?: number;
-    captured_at?: string;
+    captured_at?: number;
     // Computed properties (added by processing)
     abs_bearing_diff?: number;
     bearing_color?: string;
@@ -63,12 +63,12 @@ export interface DevicePhotoMetadata {
     longitude: number;
     altitude?: number | null;
     bearing?: number | null;
-    timestamp: number;
+    captured_at: number;
     accuracy: number;
     width: number;
     height: number;
     file_size: number;
-    captured_at: number;
+    created_at: number;
 }
 
 /**

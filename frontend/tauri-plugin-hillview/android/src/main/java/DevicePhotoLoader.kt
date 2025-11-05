@@ -110,7 +110,7 @@ class DevicePhotoLoader(private val context: Context) {
             source = source.id,
             sizes = sizes,
             isDevicePhoto = true,
-            timestamp = photoEntity.timestamp,
+            capturedAt = photoEntity.timestamp,
             accuracy = photoEntity.accuracy,
             fileHash = photoEntity.fileHash
         )

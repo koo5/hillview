@@ -132,14 +132,14 @@ describe('bearingUtils', () => {
         coord: { lat: 0, lng: 0 } as any,
         bearing: 0,
         altitude: 100,
-        timestamp: 12345,
+        capturedAt: 12345,
         accuracy: 10,
       };
 
       const updated = updatePhotoBearingDiffData(photo, 0);
 
       expect(updated.id).toBe(photo.id);
-      expect(updated.timestamp).toBe(photo.timestamp);
+      expect(updated.capturedAt).toBe(photo.capturedAt);
       expect(updated.accuracy).toBe(photo.accuracy);
       expect(updated.abs_bearing_diff).toBe(0);
       expect(updated.bearing_color).toBe('hsl(100, 100%, 70%)');

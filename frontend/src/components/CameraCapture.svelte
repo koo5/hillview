@@ -89,6 +89,7 @@
 
     // Store to track which cameras are loading resolutions
     import { writable } from 'svelte/store';
+	import {deviceOrientationExif, calculateWebviewRelativeOrientation, type ExifOrientation} from "$lib/deviceOrientationExif";
     const resolutionsLoading = writable<Set<string>>(new Set());
 
     function triggerCameraBlink() {
@@ -691,12 +692,6 @@
             sharedId // Use sharedId instead of tempId
         });
 
-        // Trigger camera blink effect
-        triggerCameraBlink();
-
-        // Play shutter sound if enabled
-        playShutterSound();
-
         const captureStartTime = performance.now();
         console.log(`TIMING 🕐 PHOTO CAPTURE START: ${captureStartTime.toFixed(1)}ms`);
 
@@ -733,7 +728,8 @@
                 location: validLocation,
                 timestamp,
                 mode,
-                placeholderId: sharedId // Use sharedId as placeholder ID too
+                placeholderId: sharedId, // Use sharedId as placeholder ID too
+                orientationCode: get(deviceOrientationExif) // Current device orientation
             });
 
             // Trigger auto-upload prompt check
@@ -742,6 +738,9 @@
 
             const captureEndTime = performance.now();
             console.log(`TIMING ✅ PHOTO CAPTURE COMPLETE: ${(captureEndTime - captureStartTime).toFixed(1)}ms total`);
+
+			triggerCameraBlink();
+			playShutterSound();
 
         } catch (error) {
             const captureErrorTime = performance.now();
@@ -930,16 +929,50 @@
     }
 
     // Debug: Log camera selector button visibility conditions
-    $: {
-        console.log('🢄[CAMERA] Button visibility check:');
-        console.log('🢄[CAMERA]   - cameraEnumerationSupported:', $cameraEnumerationSupported);
-        console.log('🢄[CAMERA]   - availableCameras.length:', $availableCameras.length);
-        console.log('🢄[CAMERA]   - show button:', $cameraEnumerationSupported && $availableCameras.length > 0);
-    }
+    // $: {
+    //     console.log('🢄[CAMERA] Button visibility check:');
+    //     console.log('🢄[CAMERA]   - cameraEnumerationSupported:', $cameraEnumerationSupported);
+    //     console.log('🢄[CAMERA]   - availableCameras.length:', $availableCameras.length);
+    //     console.log('🢄[CAMERA]   - show button:', $cameraEnumerationSupported && $availableCameras.length > 0);
+    // }
+
+	function exifOrientationFromAngles(alpha: number | null, beta: number | null, gamma: number | null): number {
+		// Simple heuristic to determine orientation based on device angles
+		if (beta !== null && gamma !== null) {
+			if (Math.abs(beta) < 45 && Math.abs(gamma) > 45
+				&& gamma > 0) {
+				return 6; // Landscape right
+			} else if (Math.abs(beta) < 45 && Math.abs(gamma)
+				> 45 && gamma < 0) {
+				return 8; // Landscape left
+			} else if (Math.abs(beta) > 45 && Math.abs(gamma)
+				< 45 && beta > 0) {
+				return 1; // Portrait
+			} else if (Math.abs(beta) > 45 && Math.abs(gamma)
+				< 45 && beta < 0) {
+				return 3; // Upside-down portrait
+			}
+		}
+		return 1; // Default to normal portrait
+	}
+
+	function handleDeviceOrientation(event: DeviceOrientationEvent) {
+		const o = calculateWebviewRelativeOrientation(event.alpha, event.beta, event.gamma);
+		updateDeviceOrientationExif(o);
+	}
+
+	function updateDeviceOrientationExif(o: ExifOrientation) {
+		if (o !== get(deviceOrientationExif)) {
+			deviceOrientationExif.set(o);
+			console.log('🢄[CAMERA] Device orientation changed, EXIF orientation set to', o);
+		}
+	}
+
 
     onMount(async () => {
         document.addEventListener('visibilitychange', handleVisibilityChange);
         document.addEventListener('click', handleClickOutside);
+		window.addEventListener('deviceorientation', handleDeviceOrientation);
 
         // Listen for native camera permission granted event
         if (isCameraPermissionCheckAvailable()) {
@@ -1006,9 +1039,12 @@
         }
         document.removeEventListener('visibilitychange', handleVisibilityChange);
         document.removeEventListener('click', handleClickOutside);
+		window.removeEventListener('deviceorientation', handleDeviceOrientation);
+		updateDeviceOrientationExif(1);
 
         // Clean up permission manager
         permissionManager.cleanup();
+
     });
 </script>
 

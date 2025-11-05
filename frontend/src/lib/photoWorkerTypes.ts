@@ -23,7 +23,7 @@ export interface PhotoData {
     sizes?: Record<string, PhotoSize>;
     isUserPhoto?: boolean;
     isDevicePhoto?: boolean;
-    timestamp?: number;
+    capturedAt?: number;
     accuracy?: number;
     abs_bearing_diff?: number;
     bearing_color?: string;

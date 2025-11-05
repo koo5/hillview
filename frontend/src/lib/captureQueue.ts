@@ -21,6 +21,7 @@ export interface CaptureQueueItem {
 	mode: 'slow' | 'fast';
 	placeholderId: string;
 	imageData: ImageData;
+	orientationCode: number; // EXIF orientation value (1, 3, 6, 8)
 }
 
 export interface QueueStats {
@@ -230,7 +231,8 @@ class CaptureQueueManager {
 							timestamp: item.timestamp,
 							accuracy: item.location.accuracy,
 							locationSource: item.location.locationSource,
-							bearingSource: item.location.bearingSource
+							bearingSource: item.location.bearingSource,
+							orientationCode: item.orientationCode
 						};
 
 						// Generate filename

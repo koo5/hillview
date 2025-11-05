@@ -16,7 +16,7 @@ interface DevicePhoto {
     fileName: string;
     fileHash: string;
     fileSize: number;
-    timestamp: number;
+    capturedAt: number;
     createdAt: number;
     latitude: number;
     longitude: number;
@@ -122,7 +122,7 @@ export class DeviceSourceLoader extends BasePhotoSourceLoader {
             altitude: devicePhoto.altitude,
             source: this.source,
             isDevicePhoto: true,
-            timestamp: devicePhoto.timestamp,
+            capturedAt: devicePhoto.capturedAt,
             accuracy: devicePhoto.accuracy,
             fileHash: devicePhoto.fileHash
         };

@@ -1315,7 +1315,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                         photoJson.put("fileName", photo.filename)
                         photoJson.put("fileHash", photo.fileHash)
                         photoJson.put("fileSize", photo.fileSize)
-                        photoJson.put("timestamp", photo.timestamp)
+                        photoJson.put("capturedAt", photo.timestamp)
                         photoJson.put("createdAt", photo.createdAt)
                         photoJson.put("latitude", photo.latitude)
                         photoJson.put("longitude", photo.longitude)

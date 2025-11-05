@@ -28,6 +28,7 @@
 	import {auth, logout} from "$lib/auth.svelte";
 	import CameraCapture from '../components/CameraCapture.svelte';
 	import DebugOverlay from '../components/DebugOverlay.svelte';
+	import {deviceOrientationExif, getRotationFromOrientation} from "$lib/deviceOrientationExif";
 	import AlertArea from '../components/AlertArea.svelte';
 	import NavigationMenu from '../components/NavigationMenu.svelte';
 	import type {DevicePhotoMetadata} from '$lib/types/photoTypes';
@@ -276,12 +277,12 @@
 			longitude: captureLoc.longitude,
 			altitude: captureLoc.altitude,
 			bearing: captureLoc.heading,
-			timestamp,
+			captured_at: timestamp,
 			accuracy: captureLoc.accuracy || 1,
 			width: 0,
 			height: 0,
 			file_size: 0,
-			captured_at: timestamp
+			created_at: timestamp
 		};
 	}
 
@@ -422,6 +423,7 @@
 <!-- Camera button -->
 <button
 	class="camera-button {showCameraView ? 'active' : ''}"
+	style="transform: rotate({getRotationFromOrientation($deviceOrientationExif)}deg);"
 	on:click={toggleCamera}
 	on:keydown={(e) => e.key === 'Enter' && toggleCamera()}
 	aria-label="{showCameraView ? 'Close camera' : 'Take photo'}"
@@ -617,7 +619,7 @@
 		user-select: none;
 		-webkit-user-select: none;
 		-webkit-touch-callout: none;
-		transition: all 0.2s ease;
+		transition: all 0.2s ease, transform 0.3s ease;
 	}
 
 	.debug-toggle {

@@ -12,7 +12,7 @@
 		fileName: string;
 		fileHash: string;
 		fileSize: number;
-		timestamp: number;
+		capturedAt: number;
 		createdAt: number;
 		latitude: number;
 		longitude: number;
@@ -70,7 +70,7 @@
 				pageSize
 			}) as DevicePhotosResponse;
 
-			console.log('🢄Device photos response:', response);
+			//console.log('🢄Device photos response:', response);
 
 			if (append && photosData) {
 				// Append new photos to existing data
@@ -237,11 +237,11 @@
 							</div>
 							<div class="detail-row">
 								<span class="detail-label">Date:</span>
-								<span class="detail-value">{formatDate(photo.timestamp)}</span>
+								<span class="detail-value">{formatDate(photo.capturedAt)}</span>
 							</div>
 							<div class="detail-row">
 								<span class="detail-label">Time:</span>
-								<span class="detail-value">{formatTime(photo.timestamp)}</span>
+								<span class="detail-value">{formatTime(photo.capturedAt)}</span>
 							</div>
 							{#if photo.latitude !== 0 && photo.longitude !== 0}
 								<div class="detail-row">

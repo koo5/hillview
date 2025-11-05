@@ -175,8 +175,7 @@
 		<div class="distributor-section">
 			<h3>Push Notification Provider</h3>
 			<p class="description">
-				Choose how you want to receive push notifications. UnifiedPush provides privacy-focused
-				alternatives to Google's Firebase Cloud Messaging (FCM).
+				Choose your preferred push notification distributor.
 			</p>
 
 			<div class="distributor-options">
@@ -239,17 +238,15 @@
 
 		<!-- Help Section -->
 		<div class="help-section">
-			<h3>About UnifiedPush</h3>
+			<details><summary>
+			About UnifiedPush
+			</summary>
 			<p>
-				UnifiedPush is an open standard for push notifications that gives you control over
-				how notifications are delivered. Instead of relying solely on Google's servers,
-				you can choose from various privacy-focused providers.
+				UnifiedPush is an open standard that enables privacy-focused
+				alternatives to Google's Firebase Cloud Messaging (FCM). Instead of relying on Google's servers,
+				you can choose from various distributors, for example <a href="https://ntfy.sh/" target="_blank" rel="noopener noreferrer">ntfy.sh</a>.
 			</p>
-			<p>
-				<strong>Privacy Benefits:</strong> Your notification content never leaves your device
-				unencrypted. The app only sends a "wake up" signal through the selected provider,
-				then fetches the actual notification content directly from Hillview's servers.
-			</p>
+			</details>
 		</div>
 	{/if}
 </div>
