@@ -58,11 +58,14 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
       commands::refresh_photo_scan,
       commands::import_photos,
       commands::add_photo_to_database,
+      #[cfg(mobile)]
       commands::share_photo,
+      #[cfg(mobile)]
       commands::photo_worker_process,
       // Push notification commands
       commands::get_push_distributors,
       commands::get_push_registration_status,
+      #[cfg(mobile)]
       commands::select_push_distributor,
 
       ])

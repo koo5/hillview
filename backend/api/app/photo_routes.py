@@ -672,7 +672,7 @@ def verify_client_signature(signature_base64: str, public_key_pem: str, photo_id
 			"filename": filename,
 			"timestamp": timestamp
 		}
-		message = json.dumps(message_data, separators=(',', ':'), ensure_ascii=False)  # Compact JSON, no spaces, preserve Unicode
+		message = json.dumps(message_data, separators=(',', ':'), ensure_ascii=False, sort_keys=True)  # Compact JSON, no spaces, preserve Unicode, sorted keys
 
 		# logger.debug(f"Verifying signature for photo {photo_id}")
 		# logger.debug(f"Message to verify: {message}")

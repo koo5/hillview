@@ -110,7 +110,8 @@ class DevicePhotoLoader(private val context: Context) {
             source = source.id,
             sizes = sizes,
             isDevicePhoto = true,
-            capturedAt = photoEntity.timestamp,
+            captured_at = photoEntity.capturedAt,
+            created_at = photoEntity.createdAt,
             accuracy = photoEntity.accuracy,
             fileHash = photoEntity.fileHash
         )
@@ -152,7 +153,7 @@ class DevicePhotoLoader(private val context: Context) {
                     fileName = entity.filename,
                     fileHash = entity.fileHash,
                     fileSize = entity.fileSize,
-                    timestamp = entity.timestamp,
+                    capturedAt = entity.capturedAt,
                     createdAt = entity.createdAt,
                     latitude = entity.latitude,
                     longitude = entity.longitude,
@@ -199,7 +200,7 @@ data class DevicePhoto(
     val fileName: String,
     val fileHash: String,
     val fileSize: Long,
-    val timestamp: Long,
+    val capturedAt: Long,
     val createdAt: Long,
     val latitude: Double,
     val longitude: Double,

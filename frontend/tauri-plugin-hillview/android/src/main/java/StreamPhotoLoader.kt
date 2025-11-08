@@ -7,6 +7,8 @@ import kotlinx.serialization.json.*
 import okhttp3.*
 import java.io.BufferedReader
 import java.io.InputStreamReader
+import java.text.SimpleDateFormat
+import java.util.*
 import java.util.concurrent.TimeUnit
 
 /**
@@ -328,8 +330,10 @@ class StreamPhotoLoader {
             ?: photoJson["file"]?.jsonPrimitive?.content
             ?: "stream_$id"
 
-        // Extract captured_at as-is (ISO string - no conversion)
-        val capturedAt = photoJson["captured_at"]?.jsonPrimitive?.content
+        // Extract captured_at and convert from ISO string to timestamp
+        val capturedAt = photoJson["captured_at"]?.jsonPrimitive?.content?.let { isoString ->
+            parseIsoToTimestamp(isoString)
+        }
 
         // Extract is_pano
         val isPano = photoJson["is_pano"]?.jsonPrimitive?.booleanOrNull
@@ -394,6 +398,23 @@ class StreamPhotoLoader {
             photo.coord.lat >= bounds.bottom_right.lat &&
             photo.coord.lng >= bounds.top_left.lng &&
             photo.coord.lng <= bounds.bottom_right.lng
+        }
+    }
+
+    /**
+     * Parse ISO 8601 timestamp string to Unix timestamp in milliseconds
+     * @param isoString ISO 8601 formatted string (e.g., "2023-12-01T15:30:45Z")
+     * @return Unix timestamp in milliseconds, or null if parsing fails
+     */
+    private fun parseIsoToTimestamp(isoString: String): Long? {
+        return try {
+            val format = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
+            format.parse(isoString)?.time
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to parse ISO timestamp: $isoString", e)
+            null
         }
     }
 }

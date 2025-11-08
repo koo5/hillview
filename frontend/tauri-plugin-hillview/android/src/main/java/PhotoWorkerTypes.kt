@@ -79,11 +79,11 @@ data class PhotoData(
     val source: String, // Just source ID
     val sizes: Map<String, PhotoSize>? = null,
     val isDevicePhoto: Boolean = false,
-    val timestamp: Long? = null,
+    val captured_at: Long? = null,
+    val created_at: Long? = null,
     val accuracy: Double? = null,
     val fileHash: String? = null,
     val range_distance: Double? = null, // Added during range culling
-    val captured_at: String? = null, // ISO string from Mapillary
     val is_pano: Boolean? = null,
     val creator: Creator? = null
 )

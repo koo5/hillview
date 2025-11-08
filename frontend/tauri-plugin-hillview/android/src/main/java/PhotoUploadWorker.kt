@@ -260,7 +260,7 @@ class PhotoUploadWorker(
                 longitude = longitude,
                 altitude = altitude,
                 bearing = bearing,
-                timestamp = timestamp,
+                capturedAt = timestamp,
                 accuracy = 0.0, // Not available from EXIF
                 width = width,
                 height = height,

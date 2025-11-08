@@ -5,7 +5,7 @@
   "identifier": "cz.hillview",
   "build": {
     "frontendDist": "../build",
-    "devUrl": "http://0.0.0.0:8218",
+    "devUrl": "http://localhost:8218",
     "beforeDevCommand": "VITE_DEV_PORT=8218 bun run dev",
     "beforeBuildCommand": "bun ./build.js"
   },

@@ -59,7 +59,7 @@ async def validate_client_key_ownership(
 # Request/Response models
 class PushRegistrationRequest(BaseModel):
     client_key_id: str = Field(..., min_length=1, max_length=255)
-    push_endpoint: str = Field(..., min_length=10, pattern=r'^https?://')
+    push_endpoint: str = Field(..., min_length=10)  # Allow FCM endpoints (fcm:token) and HTTP URLs
     distributor_package: Optional[str] = None
     timestamp: int = Field(...)  # Unix timestamp for replay protection
     client_signature: str = Field(..., min_length=1)  # Base64 ECDSA signature
@@ -196,9 +196,21 @@ async def register_push(
     current_user: Optional[User] = Depends(get_current_user_optional)
 ):
     """Register a push endpoint for a client (authentication optional for rate limiting)."""
+    logger.info(f"📨 Push registration request received:")
+    logger.info(f"  client_key_id: {request.client_key_id}")
+    logger.info(f"  push_endpoint: {request.push_endpoint[:50]}...")
+    logger.info(f"  distributor_package: {request.distributor_package}")
+    logger.info(f"  timestamp: {request.timestamp}")
+    logger.info(f"  key_created_at: {request.key_created_at}")
+    logger.info(f"  current_user: {current_user.id if current_user else 'None'}")
+
     # Check timestamp for replay protection (allow 5 minute window)
     current_time = datetime.utcnow().timestamp() * 1000  # Convert to milliseconds
-    if abs(current_time - request.timestamp) > 300000:  # 5 minutes in milliseconds
+    time_diff = abs(current_time - request.timestamp)
+    logger.info(f"⏰ Timestamp validation: current={current_time}, request={request.timestamp}, diff={time_diff}ms")
+
+    if time_diff > 300000:  # 5 minutes in milliseconds
+        logger.error(f"❌ Timestamp validation failed: difference {time_diff}ms > 300000ms")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Request timestamp too old or too far in future"
@@ -212,7 +224,16 @@ async def register_push(
     if request.distributor_package:
         message_data["distributor_package"] = request.distributor_package
 
-    if not verify_ecdsa_signature(request.client_signature, request.public_key_pem, message_data):
+    logger.info(f"🔐 Verifying client signature:")
+    logger.info(f"  message_data: {message_data}")
+    logger.info(f"  signature (first 50 chars): {request.client_signature[:50]}...")
+    logger.info(f"  public_key_pem (first 100 chars): {request.public_key_pem[:100]}...")
+
+    signature_valid = verify_ecdsa_signature(request.client_signature, request.public_key_pem, message_data)
+    logger.info(f"🔐 Signature verification result: {signature_valid}")
+
+    if not signature_valid:
+        logger.error(f"❌ Client signature verification failed for client_key_id: {request.client_key_id}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid client signature"
@@ -226,6 +247,7 @@ async def register_push(
     # TODO: Implement actual rate limiting based on current_user presence
 
     # Check if registration already exists for this client_key_id
+    logger.info(f"💾 Checking for existing registration for client_key_id: {request.client_key_id}")
     existing_query = select(PushRegistration).where(
         PushRegistration.client_key_id == request.client_key_id
     )
@@ -233,12 +255,14 @@ async def register_push(
     existing = result.scalar_one_or_none()
 
     if existing:
+        logger.info(f"💾 Found existing registration, updating...")
         # Update existing registration
         existing.push_endpoint = request.push_endpoint
         existing.distributor_package = request.distributor_package
         existing.updated_at = datetime.utcnow()
         message = "Push registration updated"
     else:
+        logger.info(f"💾 Creating new registration...")
         # Create new registration
         registration = PushRegistration(
             client_key_id=request.client_key_id,
@@ -248,9 +272,10 @@ async def register_push(
         db.add(registration)
         message = "Push registration created"
 
+    logger.info(f"💾 Committing to database...")
     await db.commit()
     user_info = f", user {current_user.id}" if current_user else " (anonymous)"
-    logger.info(f"Push registration for client {request.client_key_id}{user_info}: {message}")
+    logger.info(f"✅ Push registration for client {request.client_key_id}{user_info}: {message}")
     return PushRegistrationResponse(success=True, message=message)
 
 

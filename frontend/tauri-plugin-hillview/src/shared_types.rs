@@ -34,7 +34,7 @@ impl DevicePhotoMetadata {
     pub fn longitude(&self) -> f64 { self.metadata.longitude }
     pub fn altitude(&self) -> Option<f64> { self.metadata.altitude }
     pub fn bearing(&self) -> Option<f64> { self.metadata.bearing }
-    pub fn capturedAt(&self) -> i64 { self.metadata.timestamp }
+    pub fn captured_at(&self) -> i64 { self.metadata.timestamp }
     pub fn accuracy(&self) -> f64 { self.metadata.accuracy }
 }
 

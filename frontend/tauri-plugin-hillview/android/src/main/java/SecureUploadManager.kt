@@ -76,7 +76,7 @@ class SecureUploadManager(private val context: Context) {
 
         // Convert timestamp to ISO format for captured_at
         val capturedAt = try {
-            val date = Date(photo.timestamp)
+            val date = Date(photo.capturedAt)
             SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
                 timeZone = TimeZone.getTimeZone("UTC")
             }.format(date)
@@ -292,8 +292,4 @@ class SecureUploadManager(private val context: Context) {
         return prefs.getString(PREF_SERVER_URL, null)
     }
 
-    fun setServerUrl(url: String) {
-        prefs.edit().putString(PREF_SERVER_URL, url).apply()
-        Log.d(TAG, "Server URL set to: $url")
-    }
 }

@@ -300,39 +300,24 @@ pub(crate) async fn add_photo_to_database<R: Runtime>(
     }
 }
 
+#[cfg(mobile)]
 #[command]
 pub(crate) async fn share_photo<R: Runtime>(
-    #[allow(unused_variables)] app: AppHandle<R>,
+    app: AppHandle<R>,
     title: Option<String>,
     text: Option<String>,
     url: String,
 ) -> Result<BasicResponse> {
-    #[cfg(mobile)]
-    {
-        return app.hillview().share_photo(title, text, url);
-    }
-
-    #[cfg(desktop)]
-    {
-        // Desktop fallback - copy to clipboard or open in browser
-        return Err(crate::Error::from("Native sharing is only available on mobile devices"));
-    }
+    app.hillview().share_photo(title, text, url)
 }
 
+#[cfg(mobile)]
 #[command]
 pub(crate) async fn photo_worker_process<R: Runtime>(
-    #[allow(unused_variables)] app: AppHandle<R>,
+    app: AppHandle<R>,
     message_json: String,
 ) -> Result<crate::models::PhotoWorkerResponse> {
-    #[cfg(mobile)]
-    {
-        return app.hillview().photo_worker_process(message_json);
-    }
-
-    #[cfg(desktop)]
-    {
-        return Err(crate::Error::from("Photo worker is only available on mobile devices"));
-    }
+    app.hillview().photo_worker_process(message_json)
 }
 
 // Push Notification Commands
@@ -367,18 +352,11 @@ pub(crate) async fn get_push_registration_status<R: Runtime>(
     }
 }
 
+#[cfg(mobile)]
 #[command]
 pub(crate) async fn select_push_distributor<R: Runtime>(
-    #[allow(unused_variables)] app: AppHandle<R>,
+    app: AppHandle<R>,
     request: crate::models::SelectDistributorRequest,
 ) -> Result<BasicResponse> {
-    #[cfg(mobile)]
-    {
-        return app.hillview().select_push_distributor(request.package_name);
-    }
-
-    #[cfg(desktop)]
-    {
-        return Err(crate::Error::from("Push notifications are only available on mobile devices"));
-    }
+    app.hillview().select_push_distributor(request.package_name)
 }

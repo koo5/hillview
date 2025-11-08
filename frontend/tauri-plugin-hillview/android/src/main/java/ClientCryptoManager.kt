@@ -170,6 +170,19 @@ class ClientCryptoManager(private val context: Context) {
     }
 
     /**
+     * Create JSONObject with deterministic field ordering for signature consistency
+     */
+    private fun createOrderedJsonData(vararg pairs: Pair<String, Any?>): JSONObject {
+        // Filter out null values and sort by key name for deterministic ordering
+        val orderedMap = linkedMapOf<String, Any>()
+        pairs.filterNot { it.second == null }
+             .sortedBy { it.first }
+             .forEach { orderedMap[it.first] = it.second!! }
+
+        return JSONObject(orderedMap)
+    }
+
+    /**
      * Sign upload data with client private key
      *
      * Creates a cryptographic signature proving the client authorized this specific upload.
@@ -194,11 +207,11 @@ class ClientCryptoManager(private val context: Context) {
      * @return SignatureData containing signature and key ID, or null on error
      */
     fun signUploadData(photoId: String, filename: String, timestamp: Long): SignatureData? {
-        val uploadData = JSONObject().apply {
-            put("photo_id", photoId)
-            put("filename", filename)
-            put("timestamp", timestamp)
-        }
+        val uploadData = createOrderedJsonData(
+            "photo_id" to photoId,
+            "filename" to filename,
+            "timestamp" to timestamp
+        )
         return signJsonData(uploadData, "upload")
     }
 
@@ -206,13 +219,11 @@ class ClientCryptoManager(private val context: Context) {
      * Sign push registration data with client private key
      */
     fun signPushRegistration(endpoint: String, distributorPackage: String?, timestamp: Long): SignatureData? {
-        val pushData = JSONObject().apply {
-            put("push_endpoint", endpoint)
-            if (distributorPackage != null) {
-                put("distributor_package", distributorPackage)
-            }
-            put("timestamp", timestamp)
-        }
+        val pushData = createOrderedJsonData(
+            "push_endpoint" to endpoint,
+            "distributor_package" to distributorPackage,
+            "timestamp" to timestamp
+        )
         return signJsonData(pushData, "push registration")
     }
 

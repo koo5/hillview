@@ -24,7 +24,7 @@ data class PhotoEntity(
     val longitude: Double,
     val altitude: Double = 0.0,
     val bearing: Double = 0.0,
-    val timestamp: Long,
+    val capturedAt: Long,
     val accuracy: Double,
     val width: Int,
     val height: Int,

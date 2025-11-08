@@ -39,6 +39,7 @@ pub fn run() {
             photo_exif::embed_photo_metadata,
             photo_exif::store_photo_chunk,
             photo_exif::save_photo_with_metadata,
+            #[cfg(target_os = "android")]
             photo_exif::save_photo_from_file,
             photo_exif::read_device_photo,
             photo_exif::read_photo_exif,

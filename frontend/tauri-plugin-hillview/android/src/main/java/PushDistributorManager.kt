@@ -379,12 +379,20 @@ class PushDistributorManager(private val context: Context) {
             val mediaType = "application/json".toMediaType()
             val requestBody = json.toString().toRequestBody(mediaType)
 
-            val request = okhttp3.Request.Builder()
+            val requestBuilder = okhttp3.Request.Builder()
                 .url(url)
                 .post(requestBody)
                 .addHeader("Content-Type", "application/json")
-                .addHeader("Authorization", "Bearer $token")
-                .build()
+
+            // Only add Authorization header if we have a valid token
+            if (token != null) {
+                requestBuilder.addHeader("Authorization", "Bearer $token")
+                Log.d(TAG, "📤 Adding Authorization header with token")
+            } else {
+                Log.d(TAG, "📤 No auth token available, sending request without Authorization header")
+            }
+
+            val request = requestBuilder.build()
 
             Log.d(TAG, "📤 Making HTTP POST request...")
             val response = client.newCall(request).execute()

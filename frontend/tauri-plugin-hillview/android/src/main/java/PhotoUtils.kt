@@ -7,10 +7,29 @@ import androidx.exifinterface.media.ExifInterface
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
+import java.text.SimpleDateFormat
+import java.util.*
 
 object PhotoUtils {
     private const val TAG = "🢄PhotoUtils"
-    
+
+    /**
+     * Convert timestamp to ISO 8601 format string
+     * @param timestamp Unix timestamp in milliseconds
+     * @return ISO 8601 formatted string (e.g., "2023-12-01T15:30:45Z") or null if conversion fails
+     */
+    fun formatTimestampToIso(timestamp: Long): String? {
+        return try {
+            val date = Date(timestamp)
+            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }.format(date)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to format timestamp $timestamp to ISO format", e)
+            null
+        }
+    }
+
     /**
      * Generate a unique photo ID using timestamp and file hash
      * @param fileHash MD5 hash of the photo file
@@ -104,7 +123,7 @@ object PhotoUtils {
             longitude = longitude,
             altitude = altitude,
             bearing = bearing,
-            timestamp = timestamp,
+            capturedAt = timestamp,
             accuracy = 0.0, // Not available from EXIF
             width = width,
             height = height,

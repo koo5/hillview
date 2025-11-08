@@ -379,12 +379,6 @@
 		color: #0c4a6e;
 	}
 
-	.help-section h3 {
-		margin-top: 0;
-		margin-bottom: 0.75rem;
-		color: #0c4a6e;
-	}
-
 	.help-section p {
 		margin-bottom: 0.75rem;
 		line-height: 1.5;

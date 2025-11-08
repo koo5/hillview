@@ -358,8 +358,9 @@ def verify_ecdsa_signature(signature_base64: str, public_key_pem: str, message_d
 		# Load the client's public key
 		public_key = serialization.load_pem_public_key(public_key_pem.encode())
 
-		# Create canonical JSON message (same format as ClientCryptoManager)
-		message = json.dumps(message_data, separators=(',', ':'), ensure_ascii=False)
+		# Create canonical JSON message (same format as ClientCryptoManager with sorted keys)
+		message = json.dumps(message_data, separators=(',', ':'), ensure_ascii=False, sort_keys=True)
+		logger.info(f"🔐 Generated message for verification: '{message}'")
 
 		# Decode the base64 signature
 		signature_bytes = base64.b64decode(signature_base64)

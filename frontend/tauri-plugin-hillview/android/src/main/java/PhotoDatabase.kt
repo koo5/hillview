@@ -4,9 +4,11 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 @Database(
     entities = [PhotoEntity::class, BearingEntity::class],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 abstract class PhotoDatabase : RoomDatabase() {
@@ -18,6 +20,13 @@ abstract class PhotoDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: PhotoDatabase? = null
 
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                // Rename timestamp column to capturedAt
+                database.execSQL("ALTER TABLE photos RENAME COLUMN timestamp TO capturedAt")
+            }
+        }
+
         fun getDatabase(context: Context): PhotoDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -25,7 +34,7 @@ abstract class PhotoDatabase : RoomDatabase() {
                     PhotoDatabase::class.java,
                     "hillview_photos_database"
                 )
-                    .fallbackToDestructiveMigration() // Since no users yet
+                    .addMigrations(MIGRATION_6_7)
                     .build()
                 INSTANCE = instance
                 instance

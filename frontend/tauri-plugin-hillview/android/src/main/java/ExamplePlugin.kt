@@ -142,9 +142,6 @@ class SelectDistributorArgs {
 }
 
 @InvokeArg
-class BackendUrlArgs {
-  var backendUrl: String? = null
-}
 
 @TauriPlugin
 class ExamplePlugin(private val activity: Activity): Plugin(activity) {
@@ -707,7 +704,40 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         try {
             val args = invoke.parseArgs(UploadConfigArgs::class.java)
 
-            args.serverUrl?.let { secureUploadManager.setServerUrl(it) }
+            args.serverUrl?.let { backendUrl ->
+                if (backendUrl.isBlank()) {
+                    Log.e(TAG, "📤 Backend URL is required")
+                    val error = JSObject()
+                    error.put("success", false)
+                    error.put("error", "Backend URL is required")
+                    invoke.resolve(error)
+                    return
+                }
+
+                Log.d(TAG, "📤 Setting backend URL: $backendUrl")
+
+                // Store in upload preferences for all managers to use
+                val uploadPrefs = activity.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
+                val previousUrl = uploadPrefs.getString("server_url", null)
+
+                uploadPrefs.edit()
+                    .putString("server_url", backendUrl)
+                    .apply()
+
+                Log.d(TAG, "📤 Backend URL stored in preferences")
+
+                // Trigger push registration (enhanced autoRegisterIfNeeded will handle retries)
+                CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        val pushManager = PushDistributorManager(activity)
+                        pushManager.autoRegisterIfNeeded()
+                        Log.d(TAG, "📤 Push registration check completed")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "📤 Error during push registration", e)
+                    }
+                }
+            }
+
             Log.d(TAG, "📤 Upload config updated")
 
             val result = JSObject()
@@ -722,59 +752,6 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             invoke.resolve(error)
         }
     }
-
-    @Command
-    fun setBackendUrl(invoke: Invoke) {
-        try {
-            val args = invoke.parseArgs(BackendUrlArgs::class.java)
-            val backendUrl = args.backendUrl
-
-            if (backendUrl.isNullOrEmpty()) {
-                Log.e(TAG, "🌐 Backend URL is required")
-                val error = JSObject()
-                error.put("success", false)
-                error.put("error", "Backend URL is required")
-                invoke.resolve(error)
-                return
-            }
-
-            Log.d(TAG, "🌐 Setting backend URL: $backendUrl")
-
-            // Store in upload preferences for all managers to use
-            val uploadPrefs = activity.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
-            val previousUrl = uploadPrefs.getString("server_url", null)
-
-            uploadPrefs.edit()
-                .putString("server_url", backendUrl)
-                .apply()
-
-            Log.d(TAG, "🌐 Backend URL stored in preferences")
-
-            // Trigger push registration (enhanced autoRegisterIfNeeded will handle retries)
-            CoroutineScope(Dispatchers.IO).launch {
-                try {
-                    val pushManager = PushDistributorManager(activity)
-                    pushManager.autoRegisterIfNeeded()
-                    Log.d(TAG, "🌐 Push registration check completed")
-                } catch (e: Exception) {
-                    Log.e(TAG, "🌐 Error during push registration", e)
-                }
-            }
-
-            val result = JSObject()
-            result.put("success", true)
-            result.put("previousUrl", previousUrl)
-            invoke.resolve(result)
-
-        } catch (e: Exception) {
-            Log.e(TAG, "🌐 Error setting backend URL", e)
-            val error = JSObject()
-            error.put("success", false)
-            error.put("error", e.message)
-            invoke.resolve(error)
-        }
-    }
-
 
     @Command
     fun tryUploads(invoke: Invoke) {
@@ -1315,7 +1292,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                         photoJson.put("fileName", photo.filename)
                         photoJson.put("fileHash", photo.fileHash)
                         photoJson.put("fileSize", photo.fileSize)
-                        photoJson.put("capturedAt", photo.timestamp)
+                        photoJson.put("captured_at", photo.capturedAt)
                         photoJson.put("createdAt", photo.createdAt)
                         photoJson.put("latitude", photo.latitude)
                         photoJson.put("longitude", photo.longitude)
@@ -1482,7 +1459,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                         longitude = args.longitude,
                         altitude = args.altitude ?: 0.0,
                         bearing = args.bearing ?: 0.0,
-                        timestamp = args.timestamp,
+                        capturedAt = args.timestamp,
                         accuracy = args.accuracy,
                         width = args.width,
                         height = args.height,

@@ -7,7 +7,9 @@ use std::collections::HashMap;
 use std::io::Cursor;
 use std::sync::Mutex;
 use std::sync::OnceLock;
-use tauri::{command, Manager};
+use tauri::command;
+#[cfg(target_os = "android")]
+use tauri::Manager;
 
 // EXIF tag constants for readability
 mod exif_tags {
@@ -34,6 +36,7 @@ mod exif_tags {
 
 // EXIF data types
 #[derive(Debug)]
+#[allow(dead_code)]
 enum ExifValue {
     Short(u16),
     Long(u32),
@@ -385,7 +388,7 @@ impl ExifBuilder {
                 exif_data.extend_from_slice(&val.to_le_bytes());
                 exif_data.extend_from_slice(&[0x00, 0x00]);
             }
-            ExifValue::Rational(num, denom) => {
+            ExifValue::Rational(_, _) => {
                 exif_data.extend_from_slice(&[0x05, 0x00]); // Type: RATIONAL
                 exif_data.extend_from_slice(&[0x01, 0x00, 0x00, 0x00]); // Count: 1
                 exif_data.extend_from_slice(&data_offset.to_le_bytes());
@@ -575,6 +578,7 @@ pub struct ProcessedPhoto {
 	pub metadata: PhotoMetadata,
 }
 
+#[allow(dead_code)]
 fn calculate_gps_entry_count(metadata: &PhotoMetadata) -> u16 {
 	let mut count = 5u16; // VersionID, LatRef, Lat, LonRef, Lon
 	if metadata.altitude.is_some() {
@@ -586,6 +590,7 @@ fn calculate_gps_entry_count(metadata: &PhotoMetadata) -> u16 {
 	count
 }
 
+#[allow(dead_code)]
 fn calculate_gps_data_size(metadata: &PhotoMetadata) -> u32 {
 	let mut size = 0u32;
 
@@ -606,6 +611,7 @@ fn calculate_gps_data_size(metadata: &PhotoMetadata) -> u32 {
 	size
 }
 
+#[allow(dead_code)]
 fn create_exif_segment_simple(metadata: &PhotoMetadata) -> Vec<u8> {
 	info!(
 		"Creating EXIF for: lat={}, lon={}, alt={:?}, bearing={:?}",
@@ -974,6 +980,7 @@ fn save_to_pictures_directory(
 /// Debug function to verify EXIF data can be read back from saved photos
 /// Available in debug builds for troubleshooting EXIF issues
 #[cfg(debug_assertions)]
+#[allow(dead_code)]
 async fn verify_exif_in_saved_file(file_path: &std::path::Path, expected_metadata: &PhotoMetadata) {
 	// Verify EXIF can be read back
 	// Try reading with img-parts first to verify structure
@@ -1507,6 +1514,7 @@ pub async fn read_photo_exif(path: String) -> Result<PhotoMetadata, String> {
 	Ok(metadata)
 }
 
+#[cfg(target_os = "android")]
 #[command]
 pub async fn save_photo_from_file(
 	app_handle: tauri::AppHandle,
@@ -1538,13 +1546,5 @@ pub async fn save_photo_from_file(
 	.map_err(|e| format!("File read task failed: {}", e))??;
 
 	// Call the internal function with the image data
-	#[cfg(target_os = "android")]
-	{
-		save_photo_from_bytes(app_handle, photo_id, metadata, image_data, filename, hide_from_gallery).await
-	}
-
-	#[cfg(not(target_os = "android"))]
-	{
-		Err("Photo saving not implemented for non-Android platforms".to_string())
-	}
+	save_photo_from_bytes(app_handle, photo_id, metadata, image_data, filename, hide_from_gallery).await
 }
