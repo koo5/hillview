@@ -2,6 +2,7 @@
 	import {onMount} from 'svelte';
 	import {TAURI} from "$lib/tauri.js";
 	import {invoke} from '@tauri-apps/api/core';
+	import ExternalLink from './ExternalLink.svelte';
 
 	export let onSaveSuccess = (message: string) => {};
 	export let onSaveError = (message: string) => {};
@@ -244,7 +245,7 @@
 			<p>
 				UnifiedPush is an open standard that enables privacy-focused
 				alternatives to Google's Firebase Cloud Messaging (FCM). Instead of relying on Google's servers,
-				you can choose from various distributors, for example <a href="https://ntfy.sh/" target="_blank" rel="noopener noreferrer">ntfy.sh</a>.
+				you can choose from various distributors, for example <ExternalLink href="https://ntfy.sh/">ntfy.sh</ExternalLink>.
 			</p>
 			</details>
 		</div>
