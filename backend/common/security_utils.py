@@ -342,6 +342,54 @@ def validate_user_id(user_id: str) -> str:
 	"""Validate user ID for filesystem safety."""
 	return validate_filesystem_safe_id(user_id, "user_id")
 
+def generate_client_key_id(public_key_pem: str) -> str:
+	"""
+	Generate client_key_id from public key PEM using SHA256 fingerprint.
+
+	Args:
+		public_key_pem: PEM-formatted public key
+
+	Returns:
+		Client key ID in format "key_<sha256_hex>"
+	"""
+	try:
+		hash_value = hashlib.sha256(public_key_pem.encode('utf-8')).hexdigest()
+		return f"key_{hash_value}"
+	except Exception as e:
+		logger.error(f"Error generating client key ID: {e}")
+		raise
+
+def validate_client_key_id_fingerprint(client_key_id: str, public_key_pem: str) -> bool:
+	"""
+	Validate that client_key_id is the correct SHA256 fingerprint of public_key_pem.
+
+	This prevents impersonation attacks where a malicious client could provide
+	an arbitrary client_key_id with their own public key.
+
+	Args:
+		client_key_id: Client-provided key ID (should be "key_<sha256_hex>")
+		public_key_pem: PEM-formatted public key
+
+	Returns:
+		True if client_key_id matches the SHA256 fingerprint of public_key_pem
+	"""
+	try:
+		# Generate expected fingerprint
+		expected_hash = hashlib.sha256(public_key_pem.encode('utf-8')).hexdigest()
+		expected_key_id = f"key_{expected_hash}"
+
+		# Compare with provided client_key_id
+		is_valid = client_key_id == expected_key_id
+
+		if not is_valid:
+			logger.warning(f"Client key ID fingerprint mismatch: provided={client_key_id[:20]}..., expected={expected_key_id[:20]}...")
+
+		return is_valid
+
+	except Exception as e:
+		logger.error(f"Error validating client key ID fingerprint: {e}")
+		return False
+
 def verify_ecdsa_signature(signature_base64: str, public_key_pem: str, message_data: Dict[str, Any]) -> bool:
 	"""
 	Verify ECDSA P-256 signature using the client's public key.

@@ -321,8 +321,8 @@ class ClientCryptoManager(private val context: Context) {
             val publicKeyBytes = publicKey.encoded
             val publicKeyPem = formatAsPem(publicKeyBytes, "PUBLIC KEY")
 
-            // Generate unique key ID
-            val keyId = "key_" + UUID.randomUUID().toString().replace("-", "")
+            // Generate deterministic key ID as SHA256 fingerprint of public key (prevents impersonation)
+            val keyId = generateKeyFingerprint(publicKeyPem)
             val createdAt = Date().toInstant().toString()
 
             // Store in SharedPreferences
@@ -338,6 +338,16 @@ class ClientCryptoManager(private val context: Context) {
             Log.e(TAG, "Error storing key metadata: ${e.message}", e)
             throw e
         }
+    }
+
+    /**
+     * Generate deterministic key ID from public key PEM
+     * Uses SHA256 fingerprint to prevent impersonation attacks
+     */
+    private fun generateKeyFingerprint(publicKeyPem: String): String {
+        val messageDigest = java.security.MessageDigest.getInstance("SHA-256")
+        val hash = messageDigest.digest(publicKeyPem.toByteArray(Charsets.UTF_8))
+        return "key_" + hash.joinToString("") { "%02x".format(it) }
     }
 
     private fun formatAsPem(keyBytes: ByteArray, type: String): String {

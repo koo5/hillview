@@ -358,7 +358,6 @@ class PushDistributorManager(private val context: Context) {
             // Prepare registration request
             val url = "$serverUrl/push/register"
             val json = JSONObject().apply {
-                put("client_key_id", keyInfo.keyId)
                 put("push_endpoint", endpoint)
                 put("distributor_package", selectedDistributor)
                 put("timestamp", timestamp)
