@@ -958,7 +958,10 @@
 
     // Ultra-fast bearing color updates (no worker communication)
     $: if ($bearingState && currentMarkers && currentMarkers.length > 0) {
-        optimizedMarkerSystem.scheduleColorUpdate($bearingState.bearing);
+		if ($app.activity != 'capture')
+		{
+        	optimizedMarkerSystem.scheduleColorUpdate($bearingState.bearing);
+		}
     }
 
 </script>

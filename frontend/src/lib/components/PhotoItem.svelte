@@ -2,6 +2,9 @@
 	import { myGoto } from '$lib/navigation.svelte';
 	import { constructPhotoMapUrl } from '$lib/urlUtils';
 	import { app } from '$lib/data.svelte';
+	import { zoomViewData } from '$lib/zoomView.svelte';
+	import { doubleTap } from '$lib/actions/doubleTap';
+	import { getFullPhotoInfo } from '$lib/photoUtils';
 	import type { PhotoItemData } from '$lib/types/photoItemTypes';
 
 	// Props
@@ -38,6 +41,19 @@
 		}
 	}
 
+	function openZoomView(photo: PhotoItemData) {
+		const fallbackUrl = getPhotoUrl(photo);
+		const fullPhotoInfo = getFullPhotoInfo(photo);
+
+		zoomViewData.set({
+			fallback_url: fallbackUrl,
+			url: fullPhotoInfo.url,
+			filename: photo.original_filename,
+			width: fullPhotoInfo.width,
+			height: fullPhotoInfo.height
+		});
+	}
+
 	$: isClickable = photo.latitude && photo.longitude;
 	$: imageHeight = variant === 'card' ? '200px' : '150px';
 </script>
@@ -55,6 +71,7 @@
 			src={getPhotoUrl(photo)}
 			alt={photo.original_filename}
 			loading="lazy"
+			use:doubleTap={() => openZoomView(photo)}
 		/>
 		{#if photo.processing_status !== 'completed'}
 			<div class="processing-badge">

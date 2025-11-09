@@ -10,8 +10,10 @@
 	import {backendUrl} from '$lib/config';
 	import {setupDeepLinkListener} from '$lib/authCallback';
 	import AuthStatusWatcher from '../components/AuthStatusWatcher.svelte';
+	import ZoomView from '$lib/components/ZoomView.svelte';
 	import {clearAlerts} from "$lib/alertSystem.svelte";
 	import {checkAuth} from '$lib/auth.svelte';
+	import {zoomViewData} from '$lib/zoomView.svelte';
 
 	// Log navigation events
 	beforeNavigate((navigation) => {
@@ -34,6 +36,13 @@
 			console.log(`🢄🧭 [NAV] Query params:`, pageData.url.search);
 		}
 	});
+
+	// Handle body scroll prevention for zoom view
+	$: {
+		if (browser && document?.body) {
+			document.body.style.overflow = $zoomViewData ? 'hidden' : '';
+		}
+	}
 
 	onMount(async () => {
 		// Log initial page load
@@ -64,3 +73,6 @@
 
 <slot/>
 <AuthStatusWatcher/>
+{#if $zoomViewData }
+	<ZoomView/>
+{/if}

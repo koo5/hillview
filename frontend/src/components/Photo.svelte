@@ -9,6 +9,9 @@
 	import {constructShareUrl} from '$lib/urlUtils';
 	import {getDevicePhotoUrl} from '$lib/devicePhotoHelper';
 	import {simplePhotoWorker} from '$lib/simplePhotoWorker';
+	import {zoomViewData} from '$lib/zoomView.svelte';
+	import {doubleTap} from '$lib/actions/doubleTap';
+	import {getFullPhotoInfo} from '$lib/photoUtils';
 	import type {PhotoData} from '$lib/sources';
 
 	export let photo: PhotoData | null = null;
@@ -267,6 +270,21 @@
 		}
 	}
 
+	function openZoomView(photo: PhotoData) {
+		if (!photo) return;
+
+		const fallbackUrl = displayedUrl || selectedUrl || '';
+		const fullPhotoInfo = getFullPhotoInfo(photo);
+
+		zoomViewData.set({
+			fallback_url: fallbackUrl,
+			url: fullPhotoInfo.url,
+			filename: photo.file || 'Photo',
+			width: fullPhotoInfo.width,
+			height: fullPhotoInfo.height
+		});
+	}
+
 
 
 
@@ -305,6 +323,7 @@
 			fetchpriority={fetchPriority as any}
 			data-testid="main-photo"
 			data-photo={JSON.stringify(photo)}
+			use:doubleTap={() => openZoomView(photo)}
 		/>
 
 		<!-- Loading spinner overlay -->
