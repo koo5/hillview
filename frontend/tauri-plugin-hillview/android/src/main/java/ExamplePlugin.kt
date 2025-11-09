@@ -21,6 +21,8 @@ import app.tauri.annotation.ActivityCallback
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
+import app.tauri.annotation.Permission
+import android.Manifest
 import androidx.activity.result.ActivityResult
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
@@ -147,9 +149,14 @@ class NotificationSettingsArgs {
   var enabled: Boolean? = null
 }
 
-@InvokeArg
-
-@TauriPlugin
+@TauriPlugin(
+    permissions = [
+        Permission(
+            strings = [Manifest.permission.POST_NOTIFICATIONS],
+            alias = "postNotification"
+        )
+    ]
+)
 class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     companion object {
         private const val TAG = "🢄HillviewPlugin"

@@ -319,6 +319,18 @@
           "markdownDescription": "Denies the check_notification_permission command without any pre-configured scope."
         },
         {
+          "description": "Enables the check_tauri_permissions command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-check-tauri-permissions",
+          "markdownDescription": "Enables the check_tauri_permissions command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the check_tauri_permissions command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-check-tauri-permissions",
+          "markdownDescription": "Denies the check_tauri_permissions command without any pre-configured scope."
+        },
+        {
           "description": "Enables the clear_auth_token command without any pre-configured scope.",
           "type": "string",
           "const": "allow-clear-auth-token",
@@ -535,6 +547,18 @@
           "markdownDescription": "Denies the request_notification_permission command without any pre-configured scope."
         },
         {
+          "description": "Enables the request_post_notification_permission command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-request-post-notification-permission",
+          "markdownDescription": "Enables the request_post_notification_permission command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the request_post_notification_permission command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-request-post-notification-permission",
+          "markdownDescription": "Denies the request_post_notification_permission command without any pre-configured scope."
+        },
+        {
           "description": "Enables the retry_failed_uploads command without any pre-configured scope.",
           "type": "string",
           "const": "allow-retry-failed-uploads",
@@ -691,10 +715,10 @@
           "markdownDescription": "Denies the update_sensor_location command without any pre-configured scope."
         },
         {
-          "description": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-ping`\n- `allow-start-sensor`\n- `allow-stop-sensor`\n- `allow-get-sensor-accuracy`\n- `allow-update-sensor-location`\n- `allow-register-listener`\n- `allow-start-precise-location-listener`\n- `allow-stop-precise-location-listener`\n- `allow-set-auto-upload-enabled`\n- `allow-get-upload-status`\n- `allow-set-upload-config`\n- `allow-retry-failed-uploads`\n- `allow-store-auth-token`\n- `allow-get-auth-token`\n- `allow-clear-auth-token`\n- `allow-refresh-auth-token`\n- `allow-is-token-expired`\n- `allow-check-camera-permission`\n- `allow-request-camera-permission`\n- `allow-check-notification-permission`\n- `allow-request-notification-permission`\n- `allow-get-notification-settings`\n- `allow-set-notification-settings`\n- `allow-test-auth-expired-notification`\n- `allow-get-device-photos`\n- `allow-refresh-photo-scan`\n- `allow-import-photos`\n- `allow-share-photo`\n- `allow-photo-worker-process`\n- `allow-get-push-distributors`\n- `allow-get-push-registration-status`\n- `allow-select-push-distributor`",
+          "description": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-ping`\n- `allow-start-sensor`\n- `allow-stop-sensor`\n- `allow-get-sensor-accuracy`\n- `allow-update-sensor-location`\n- `allow-register-listener`\n- `allow-start-precise-location-listener`\n- `allow-stop-precise-location-listener`\n- `allow-set-auto-upload-enabled`\n- `allow-get-upload-status`\n- `allow-set-upload-config`\n- `allow-retry-failed-uploads`\n- `allow-store-auth-token`\n- `allow-get-auth-token`\n- `allow-clear-auth-token`\n- `allow-refresh-auth-token`\n- `allow-is-token-expired`\n- `allow-check-camera-permission`\n- `allow-request-camera-permission`\n- `allow-check-notification-permission`\n- `allow-request-notification-permission`\n- `allow-get-notification-settings`\n- `allow-set-notification-settings`\n- `allow-test-auth-expired-notification`\n- `allow-check-tauri-permissions`\n- `allow-request-post-notification-permission`\n- `allow-get-device-photos`\n- `allow-refresh-photo-scan`\n- `allow-import-photos`\n- `allow-share-photo`\n- `allow-photo-worker-process`\n- `allow-get-push-distributors`\n- `allow-get-push-registration-status`\n- `allow-select-push-distributor`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-ping`\n- `allow-start-sensor`\n- `allow-stop-sensor`\n- `allow-get-sensor-accuracy`\n- `allow-update-sensor-location`\n- `allow-register-listener`\n- `allow-start-precise-location-listener`\n- `allow-stop-precise-location-listener`\n- `allow-set-auto-upload-enabled`\n- `allow-get-upload-status`\n- `allow-set-upload-config`\n- `allow-retry-failed-uploads`\n- `allow-store-auth-token`\n- `allow-get-auth-token`\n- `allow-clear-auth-token`\n- `allow-refresh-auth-token`\n- `allow-is-token-expired`\n- `allow-check-camera-permission`\n- `allow-request-camera-permission`\n- `allow-check-notification-permission`\n- `allow-request-notification-permission`\n- `allow-get-notification-settings`\n- `allow-set-notification-settings`\n- `allow-test-auth-expired-notification`\n- `allow-get-device-photos`\n- `allow-refresh-photo-scan`\n- `allow-import-photos`\n- `allow-share-photo`\n- `allow-photo-worker-process`\n- `allow-get-push-distributors`\n- `allow-get-push-registration-status`\n- `allow-select-push-distributor`"
+          "markdownDescription": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-ping`\n- `allow-start-sensor`\n- `allow-stop-sensor`\n- `allow-get-sensor-accuracy`\n- `allow-update-sensor-location`\n- `allow-register-listener`\n- `allow-start-precise-location-listener`\n- `allow-stop-precise-location-listener`\n- `allow-set-auto-upload-enabled`\n- `allow-get-upload-status`\n- `allow-set-upload-config`\n- `allow-retry-failed-uploads`\n- `allow-store-auth-token`\n- `allow-get-auth-token`\n- `allow-clear-auth-token`\n- `allow-refresh-auth-token`\n- `allow-is-token-expired`\n- `allow-check-camera-permission`\n- `allow-request-camera-permission`\n- `allow-check-notification-permission`\n- `allow-request-notification-permission`\n- `allow-get-notification-settings`\n- `allow-set-notification-settings`\n- `allow-test-auth-expired-notification`\n- `allow-check-tauri-permissions`\n- `allow-request-post-notification-permission`\n- `allow-get-device-photos`\n- `allow-refresh-photo-scan`\n- `allow-import-photos`\n- `allow-share-photo`\n- `allow-photo-worker-process`\n- `allow-get-push-distributors`\n- `allow-get-push-registration-status`\n- `allow-select-push-distributor`"
         }
       ]
     }

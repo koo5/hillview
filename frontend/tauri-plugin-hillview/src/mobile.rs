@@ -1,3 +1,4 @@
+use log::info;
 use serde::de::DeserializeOwned;
 use tauri::{
   plugin::{PluginApi, PluginHandle},
@@ -296,6 +297,25 @@ impl<R: Runtime> Hillview<R> {
     self
       .0
       .run_mobile_plugin("setNotificationSettings", Args { enabled })
+      .map_err(Into::into)
+  }
+
+  // Tauri permission system methods
+
+  pub fn check_tauri_permissions(&self) -> crate::Result<crate::models::TauriPermissionResponse> {
+    self
+      .0
+      .run_mobile_plugin("checkPermissions", ())
+      .map_err(Into::into)
+  }
+
+  pub fn request_post_notification_permission(&self) -> crate::Result<tauri::plugin::PermissionState> {
+	  // logging doesnt work
+    info!("🢄🔔request_post_notification_permission invoking requestPermissions...");
+    //Err(crate::Error::from("🢄🔔request_post_notification_permission is currently disabled"))
+    self.0
+      .run_mobile_plugin::<crate::models::TauriPermissionResponse>("requestPermissions", crate::models::RequestPermission { post_notification: true })
+      .map(|r| r.post_notification)
       .map_err(Into::into)
   }
 }

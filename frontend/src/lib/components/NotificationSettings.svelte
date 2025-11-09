@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { Bell, BellOff, AlertTriangle } from 'lucide-svelte';
 	import { invoke } from '@tauri-apps/api/core';
+	import TauriPermissionTester from './TauriPermissionTester.svelte';
 
 	// Type definitions for API responses
 	interface NotificationSettingsResponse {
@@ -182,6 +183,12 @@
 			</div>
 		</div>
 	{/if}
+
+	<!-- Test Tauri Permissions -->
+	<TauriPermissionTester
+		onResult={(message) => onSaveSuccess(message)}
+		onError={(message) => onSaveError(message)}
+	/>
 
 	<!-- Help text -->
 	<div class="help-section">

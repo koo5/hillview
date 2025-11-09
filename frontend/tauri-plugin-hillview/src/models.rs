@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use tauri::plugin::PermissionState;
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -183,5 +184,25 @@ pub struct NotificationSettingsResponse {
   pub enabled: bool,
   pub success: bool,
   pub error: Option<String>,
+}
+
+// Permission-related models
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TauriPermissionResponse {
+  pub post_notification: PermissionState,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TauriPermissionStringResponse {
+  pub post_notification: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RequestPermission {
+  pub post_notification: bool,
 }
 

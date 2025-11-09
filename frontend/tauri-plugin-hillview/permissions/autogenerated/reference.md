@@ -28,6 +28,8 @@ Default permissions for the plugin
 - `allow-get-notification-settings`
 - `allow-set-notification-settings`
 - `allow-test-auth-expired-notification`
+- `allow-check-tauri-permissions`
+- `allow-request-post-notification-permission`
 - `allow-get-device-photos`
 - `allow-refresh-photo-scan`
 - `allow-import-photos`
@@ -94,6 +96,32 @@ Enables the check_notification_permission command without any pre-configured sco
 <td>
 
 Denies the check_notification_permission command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:allow-check-tauri-permissions`
+
+</td>
+<td>
+
+Enables the check_tauri_permissions command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:deny-check-tauri-permissions`
+
+</td>
+<td>
+
+Denies the check_tauri_permissions command without any pre-configured scope.
 
 </td>
 </tr>
@@ -562,6 +590,32 @@ Enables the request_notification_permission command without any pre-configured s
 <td>
 
 Denies the request_notification_permission command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:allow-request-post-notification-permission`
+
+</td>
+<td>
+
+Enables the request_post_notification_permission command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:deny-request-post-notification-permission`
+
+</td>
+<td>
+
+Denies the request_post_notification_permission command without any pre-configured scope.
 
 </td>
 </tr>

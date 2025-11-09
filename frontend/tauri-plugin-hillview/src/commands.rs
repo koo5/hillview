@@ -1,3 +1,4 @@
+use log::info;
 use tauri::{AppHandle, command, Runtime};
 
 use crate::models::*;
@@ -394,4 +395,30 @@ pub(crate) async fn set_notification_settings<R: Runtime>(
     enabled: bool,
 ) -> Result<crate::models::BasicResponse> {
     app.hillview().set_notification_settings(enabled)
+}
+
+// Tauri permission system commands
+
+#[cfg(mobile)]
+#[command]
+pub(crate) async fn check_tauri_permissions<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<crate::models::TauriPermissionStringResponse> {
+    // Convert PermissionState to String for serialization
+    let response = app.hillview().check_tauri_permissions()?;
+    Ok(crate::models::TauriPermissionStringResponse {
+        post_notification: format!("{:?}", response.post_notification),
+    })
+}
+
+#[cfg(mobile)]
+#[command]
+pub(crate) async fn request_post_notification_permission<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<String> {
+	// logging doesnt seem to work here in plugin?
+	info!("🢄🔔request_post_notification_permission invoking app.hillview().request_post_notification_permission()...");
+	//Err(crate::Error::from("🢄🔔request_post_notification_permission is currently disabled"))
+    let permission_state = app.hillview().request_post_notification_permission()?;
+    Ok(format!("{:?}", permission_state))
 }

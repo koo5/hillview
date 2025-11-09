@@ -25,6 +25,8 @@ permissions = [
   "allow-get-notification-settings",
   "allow-set-notification-settings",
   "allow-test-auth-expired-notification",
+  "allow-check-tauri-permissions",
+  "allow-request-post-notification-permission",
   "allow-get-device-photos",
   "allow-refresh-photo-scan",
   "allow-import-photos",
