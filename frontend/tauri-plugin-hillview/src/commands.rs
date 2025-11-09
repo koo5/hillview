@@ -422,3 +422,13 @@ pub(crate) async fn request_post_notification_permission<R: Runtime>(
     let permission_state = app.hillview().request_post_notification_permission()?;
     Ok(format!("{:?}", permission_state))
 }
+
+#[cfg(mobile)]
+#[command]
+pub(crate) async fn test_show_notification<R: Runtime>(
+    app: AppHandle<R>,
+    title: String,
+    message: String,
+) -> Result<crate::models::BasicResponse> {
+    app.hillview().test_show_notification(title, message)
+}

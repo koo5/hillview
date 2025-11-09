@@ -149,6 +149,12 @@ class NotificationSettingsArgs {
   var enabled: Boolean? = null
 }
 
+@InvokeArg
+class TestShowNotificationArgs {
+  var title: String? = null
+  var message: String? = null
+}
+
 @TauriPlugin(
     permissions = [
         Permission(
@@ -2219,6 +2225,44 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                 error.put("error", e.message)
                 invoke.resolve(error)
             }
+        }
+    }
+
+    @Command
+    fun testShowNotification(invoke: Invoke) {
+        try {
+            Log.d(TAG, "🔔 testShowNotification called")
+            val args = invoke.parseArgs(TestShowNotificationArgs::class.java)
+            val title = args.title ?: "Test Notification"
+            val message = args.message ?: "This is a test notification from Hillview"
+
+            Log.d(TAG, "🔔 Showing test notification: $title - $message")
+
+            // Use NotificationHelper to show the notification
+            val notificationHelper = NotificationHelper(activity)
+
+            // Use a unique notification ID for test notifications
+            val testNotificationId = 9999
+            notificationHelper.showNotification(
+                notificationId = testNotificationId,
+                title = title,
+                message = message,
+                autoCancel = true
+            )
+
+            val result = JSObject()
+            result.put("success", true)
+            result.put("message", "Test notification sent")
+
+            Log.d(TAG, "🔔 Test notification result: $result")
+            invoke.resolve(result)
+
+        } catch (e: Exception) {
+            Log.e(TAG, "🔔 Error showing test notification", e)
+            val error = JSObject()
+            error.put("success", false)
+            error.put("error", e.message ?: "Failed to show test notification")
+            invoke.resolve(error)
         }
     }
 }

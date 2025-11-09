@@ -10,14 +10,14 @@
 		isLoading = true;
 
 		try {
-			// Test direct Tauri permission commands (likely to fail)
-			console.log('🔔 ttttttttttTesting direct Tauri checkPermissions...');
+			// Test direct Tauri permission commands (likely to fail) (from js directly to kotlin)
+			/*console.log('🔔 ttttttttttTesting direct Tauri checkPermissions...');
 			try {
 				const directCheck = await invoke('plugin:hillview|checkPermissions');
 				console.log('🔔 Direct checkPermissions result:', JSON.stringify(directCheck));
 			} catch (e) {
 				console.log('🔔 Direct checkPermissions failed (expected):', e);
-			}
+			}*/
 
 			// Test our Rust wrapper commands
 			console.log('🔔 Testing Rust wrapper checkTauriPermissions...');

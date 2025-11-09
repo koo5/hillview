@@ -100,12 +100,12 @@ class NotificationHelper(private val context: Context) {
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                 .build()
 
-            if (NotificationManagerCompat.from(context).areNotificationsEnabled()) {
+            if (areNotificationsAllowed()) {
                 NotificationManagerCompat.from(context)
                     .notify(NOTIFICATION_ID_AUTH_EXPIRED, notification)
                 Log.d(TAG, "Auth expired notification sent successfully")
             } else {
-                Log.w(TAG, "Notifications are disabled by user")
+                Log.w(TAG, "Notifications are not allowed (system or user preference)")
             }
 
         } catch (e: SecurityException) {
@@ -149,10 +149,12 @@ class NotificationHelper(private val context: Context) {
                 .setCategory(NotificationCompat.CATEGORY_STATUS)
                 .build()
 
-            if (NotificationManagerCompat.from(context).areNotificationsEnabled()) {
+            if (areNotificationsAllowed()) {
                 NotificationManagerCompat.from(context)
                     .notify(NOTIFICATION_ID_UPLOAD_STATUS, notification)
                 Log.d(TAG, "Upload status notification sent: $message")
+            } else {
+                Log.d(TAG, "Upload status notification skipped (user preference)")
             }
 
         } catch (e: Exception) {
@@ -178,5 +180,77 @@ class NotificationHelper(private val context: Context) {
      */
     fun areNotificationsEnabled(): Boolean {
         return NotificationManagerCompat.from(context).areNotificationsEnabled()
+    }
+
+    /**
+     * Check if notifications are enabled both at system level and user preference level
+     */
+    fun areNotificationsAllowed(): Boolean {
+        // Check system-level permission
+        if (!areNotificationsEnabled()) {
+            Log.d(TAG, "System notifications are disabled")
+            return false
+        }
+
+        // Check user preference from SharedPreferences
+        val prefs = context.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
+        val userEnabled = prefs.getBoolean("notifications_enabled", true)
+
+        if (!userEnabled) {
+            Log.d(TAG, "User has disabled notifications in app settings")
+            return false
+        }
+
+        return true
+    }
+
+    /**
+     * Show a general notification with title and message
+     */
+    fun showNotification(
+        notificationId: Int,
+        title: String,
+        message: String,
+        channelId: String = CHANNEL_ID_AUTH,
+        priority: Int = NotificationCompat.PRIORITY_DEFAULT,
+        autoCancel: Boolean = true
+    ) {
+        try {
+            if (!areNotificationsAllowed()) {
+                Log.d(TAG, "Notifications not allowed, skipping: $title")
+                return
+            }
+
+            Log.d(TAG, "Showing notification: $title")
+
+            // Create intent to open the app
+            val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+            val pendingIntent = PendingIntent.getActivity(
+                context,
+                notificationId,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val notification = NotificationCompat.Builder(context, channelId)
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setContentTitle(title)
+                .setContentText(message)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(message))
+                .setPriority(priority)
+                .setContentIntent(pendingIntent)
+                .setAutoCancel(autoCancel)
+                .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .build()
+
+            NotificationManagerCompat.from(context).notify(notificationId, notification)
+            Log.d(TAG, "Notification sent successfully: $title")
+
+        } catch (e: SecurityException) {
+            Log.e(TAG, "Missing notification permission", e)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error showing notification: $title", e)
+        }
     }
 }

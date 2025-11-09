@@ -20,6 +20,7 @@
 	}
 </script>
 
+
 <StandardHeaderWithAlert
 	title="Settings"
 	showMenuButton={true}
@@ -29,6 +30,7 @@
 />
 
 <StandardBody>
+
 	<div class="settings-container">
 
 		<!-- Notification Settings -->
@@ -81,6 +83,5 @@
 	.section-divider {
 		height: 1px;
 		background-color: #e5e7eb;
-		margin: 2rem 0;
 	}
 </style>

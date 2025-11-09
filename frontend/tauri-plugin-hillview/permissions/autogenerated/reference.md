@@ -30,6 +30,7 @@ Default permissions for the plugin
 - `allow-test-auth-expired-notification`
 - `allow-check-tauri-permissions`
 - `allow-request-post-notification-permission`
+- `allow-test-show-notification`
 - `allow-get-device-photos`
 - `allow-refresh-photo-scan`
 - `allow-import-photos`
@@ -928,6 +929,32 @@ Enables the test_auth_expired_notification command without any pre-configured sc
 <td>
 
 Denies the test_auth_expired_notification command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:allow-test-show-notification`
+
+</td>
+<td>
+
+Enables the test_show_notification command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:deny-test-show-notification`
+
+</td>
+<td>
+
+Denies the test_show_notification command without any pre-configured scope.
 
 </td>
 </tr>

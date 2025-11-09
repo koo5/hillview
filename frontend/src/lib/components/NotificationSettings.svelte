@@ -20,6 +20,7 @@
 	interface BasicResponse {
 		success: boolean;
 		error?: string;
+		message?: string;
 	}
 
 	export let onSaveSuccess = (message: string) => {};
@@ -63,6 +64,8 @@
 
 		try {
 			const result = await invoke<PermissionResponse>('plugin:hillview|request_notification_permission');
+
+			console.log('🔔Notification permission request result:', JSON.stringify(result));
 
 			if (result.granted) {
 				permissionGranted = true;
@@ -132,6 +135,38 @@
 		}
 	}
 
+	// Test notification function
+	async function testNotification() {
+		isLoading = true;
+		lastError = null;
+
+		try {
+			console.log('🔔 Testing notification...');
+			const result = await invoke<BasicResponse>('plugin:hillview|test_show_notification', {
+				title: 'Test Notification',
+				message: 'This is a test notification from Hillview. If you see this, notifications are working!'
+			});
+
+			console.log('🔔 Test notification result:', JSON.stringify(result));
+
+			if (result.success) {
+				onSaveSuccess(result.message || 'Test notification sent successfully!');
+			} else {
+				const errorMessage = result.error || 'Failed to send test notification';
+				lastError = errorMessage;
+				onSaveError(errorMessage);
+			}
+
+		} catch (error) {
+			console.error('🔔 Test notification failed:', error);
+			const errorMessage = error instanceof Error ? error.message : 'Test notification failed';
+			lastError = errorMessage;
+			onSaveError(errorMessage);
+		} finally {
+			isLoading = false;
+		}
+	}
+
 	onMount(() => {
 		loadNotificationSettings();
 	});
@@ -189,6 +224,20 @@
 		onResult={(message) => onSaveSuccess(message)}
 		onError={(message) => onSaveError(message)}
 	/>
+
+	<!-- Test Notification Button -->
+	<div class="test-section">
+		<button
+			class="test-button"
+			on:click={testNotification}
+			disabled={isLoading || !permissionGranted}
+		>
+			{isLoading ? 'Sending...' : 'Test Notification'}
+		</button>
+		<p class="test-description">
+			Send a test notification to verify the notification system is working
+		</p>
+	</div>
 
 	<!-- Help text -->
 	<div class="help-section">

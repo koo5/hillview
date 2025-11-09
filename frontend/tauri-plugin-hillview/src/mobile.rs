@@ -318,4 +318,17 @@ impl<R: Runtime> Hillview<R> {
       .map(|r| r.post_notification)
       .map_err(Into::into)
   }
+
+  pub fn test_show_notification(&self, title: String, message: String) -> crate::Result<BasicResponse> {
+    #[derive(serde::Serialize)]
+    struct Args {
+      title: String,
+      message: String,
+    }
+
+    self
+      .0
+      .run_mobile_plugin("testShowNotification", Args { title, message })
+      .map_err(Into::into)
+  }
 }

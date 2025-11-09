@@ -36,12 +36,13 @@
     </StandardHeader>
     <NavigationMenu isOpen={menuOpen} onClose={closeMenu} />
 
-    {#if alertMessage}
-        <div class="alert alert-{alertType}">
-            {alertMessage}
-        </div>
-    {/if}
 </div>
+
+{#if alertMessage}
+	<div class="alert alert-{alertType}">
+		{alertMessage}
+	</div>
+{/if}
 
 <style>
     .header-with-alert {
@@ -49,6 +50,11 @@
     }
 
     .alert {
+        position: fixed;
+        top: var(--header-height, 60px);
+        left: 0;
+        right: 0;
+        z-index: 1000;
         padding: 0.75rem 1rem;
         border-radius: 0.375rem;
         margin: 0.5rem 1rem;
