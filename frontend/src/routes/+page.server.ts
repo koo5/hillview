@@ -9,6 +9,12 @@ export const ssr = !TAURI;
 export const prerender = false;
 
 export const load: PageServerLoad = async ({ url, fetch }) => {
+	// Skip OpenGraph fetching in Tauri (should not happen due to ssr = !TAURI, but double-check)
+	if (TAURI) {
+		console.log('🢄+page.server.ts: Skipping OpenGraph fetch in Tauri');
+		return { photoMeta: null };
+	}
+
 	// Check for photo parameter in URL
 	const photoParam = url.searchParams.get('photo');
 	const photoUid = parsePhotoUid(photoParam);

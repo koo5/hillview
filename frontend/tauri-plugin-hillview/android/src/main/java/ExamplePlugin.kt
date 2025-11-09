@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.util.Log
 import android.webkit.ConsoleMessage
 import android.webkit.PermissionRequest
@@ -415,6 +416,33 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             // If neither pending request exists, log warning
             if (pendingWebViewRequest == null && pendingNativeRequest == null) {
                 Log.w(TAG, "🢄🎥 Camera permission result received but no pending requests found")
+            }
+        } else if (requestCode == NOTIFICATION_PERMISSION_REQUEST_CODE) {
+            Log.i(TAG, "🔔 Notification permission result received")
+            Log.i(TAG, "🔔 Permissions requested: ${permissions.joinToString(", ")}")
+            Log.i(TAG, "🔔 Grant results: ${grantResults.joinToString(", ") { if (it == PackageManager.PERMISSION_GRANTED) "GRANTED" else "DENIED" }}")
+
+            val allGranted = grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }
+
+            val pendingRequest = pendingNotificationPermissionInvoke
+            if (pendingRequest != null) {
+                val result = JSObject()
+                result.put("granted", allGranted)
+
+                if (allGranted) {
+                    Log.i(TAG, "🔔 Notification permission granted")
+                } else {
+                    Log.i(TAG, "🔔 Notification permission denied")
+                    result.put("error", "Notification permission denied by user")
+                }
+
+                pendingRequest.resolve(result)
+
+                // Release permission lock and clear pending request
+                releasePermissionLock("notification_permission")
+                pendingNotificationPermissionInvoke = null
+            } else {
+                Log.w(TAG, "🔔 Notification permission result received but no pending request found")
             }
         }
     }
@@ -1128,6 +1156,74 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         )
 
         Log.i(TAG, "🎥 Camera permission request sent to Android system")
+    }
+
+    // Notification permission handling (Android 13+/API 33+)
+    private var pendingNotificationPermissionInvoke: Invoke? = null
+    private val NOTIFICATION_PERMISSION_REQUEST_CODE = 1002
+
+    @Command
+    fun checkNotificationPermission(invoke: Invoke) {
+        val result = JSObject()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val hasPermission = ContextCompat.checkSelfPermission(
+                activity,
+                android.Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+
+            result.put("granted", hasPermission)
+            Log.i(TAG, "🔔 Notification permission check: $hasPermission")
+        } else {
+            // Pre-API 33: notifications allowed by default
+            result.put("granted", true)
+            Log.i(TAG, "🔔 Notification permission check: granted by default (pre-API 33)")
+        }
+
+        invoke.resolve(result)
+    }
+
+    @Command
+    fun requestNotificationPermission(invoke: Invoke) {
+        Log.i(TAG, "🔔 Notification permission request")
+
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            val result = JSObject()
+            result.put("granted", true)
+            invoke.resolve(result)
+            return
+        }
+
+        val hasPermission = ContextCompat.checkSelfPermission(
+            activity,
+            android.Manifest.permission.POST_NOTIFICATIONS
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (hasPermission) {
+            val result = JSObject()
+            result.put("granted", true)
+            invoke.resolve(result)
+            return
+        }
+
+        // Try to acquire permission lock
+        if (!acquirePermissionLock("notification_permission")) {
+            val error = JSObject()
+            error.put("granted", false)
+            error.put("error", "Permission system busy")
+            invoke.resolve(error)
+            return
+        }
+
+        pendingNotificationPermissionInvoke = invoke
+
+        ActivityCompat.requestPermissions(
+            activity,
+            arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),
+            NOTIFICATION_PERMISSION_REQUEST_CODE
+        )
+
+        Log.i(TAG, "🔔 Notification permission request sent")
     }
 
     @Command

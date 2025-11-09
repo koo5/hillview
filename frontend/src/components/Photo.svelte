@@ -143,9 +143,23 @@
 				selectedUrl: selectedUrl
 			});
 		}
+
+		console.log('🢄Photo.svelte: URL flow debug:', JSON.stringify({
+			photoId: photo.id,
+			isDevicePhoto: photo.isDevicePhoto,
+			selectedUrl: selectedUrl,
+			currentDisplayedUrl: displayedUrl,
+			willTriggerImageChange: selectedUrl !== displayedUrl
+		}));
 	}
 
 	async function handleImageChange(newUrl: string) {
+		console.log('🢄Photo.svelte: handleImageChange called:', JSON.stringify({
+			newUrl: newUrl,
+			currentDisplayedUrl: displayedUrl,
+			willReturn: !newUrl || newUrl === displayedUrl
+		}));
+
 		if (!newUrl || newUrl === displayedUrl) {
 			return;
 		}
@@ -324,6 +338,22 @@
 			data-testid="main-photo"
 			data-photo={JSON.stringify(photo)}
 			use:doubleTap={() => openZoomView(photo)}
+			onerror={(e) => {
+				console.error('🢄Photo.svelte: Image load error:', JSON.stringify({
+					photoId: photo?.id,
+					displayedUrl: displayedUrl,
+					isDevicePhoto: photo?.isDevicePhoto,
+					originalUrl: photo?.url,
+					errorMessage: e?.toString?.() || 'Unknown error'
+				}));
+			}}
+			onload={() => {
+				console.log('🢄Photo.svelte: Image loaded successfully:', JSON.stringify({
+					photoId: photo?.id,
+					displayedUrl: displayedUrl,
+					isDevicePhoto: photo?.isDevicePhoto
+				}));
+			}}
 		/>
 
 		<!-- Loading spinner overlay -->
@@ -388,14 +418,14 @@
 			<div class="dialog-buttons">
 				<button
 					class="cancel-button"
-					on:click={cancelHideUser}
+					onclick={cancelHideUser}
 					disabled={isHiding}
 				>
 					Cancel
 				</button>
 				<button
 					class="confirm-button"
-					on:click={confirmHideUser}
+					onclick={confirmHideUser}
 					disabled={isHiding}
 				>
 					{isHiding ? 'Hiding...' : 'Hide User'}

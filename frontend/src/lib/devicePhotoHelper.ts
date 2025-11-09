@@ -9,7 +9,15 @@ export function getDevicePhotoUrl(path: string): string {
     const cleanPath = path.startsWith('file://') ? path.slice(7) : path;
 
     // Convert to asset URL (synchronous, no async needed!)
-    return convertFileSrc(cleanPath);
+    const assetUrl = convertFileSrc(cleanPath);
+
+    console.log('🢄[devicePhotoHelper] URL conversion:', JSON.stringify({
+        originalPath: path,
+        cleanPath: cleanPath,
+        assetUrl: assetUrl
+    }));
+
+    return assetUrl;
 }
 
 /**

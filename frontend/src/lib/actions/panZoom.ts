@@ -76,8 +76,6 @@ export function panZoom(node: HTMLElement, options: PanZoomOptions) {
 			const maxTranslateY = centerY + excess / 2; // Can pan down from center
 			translateY = Math.max(minTranslateY, Math.min(maxTranslateY, translateY));
 		}
-
-		});
 	}
 
 	// Convert screen coordinates to image-space coordinates
