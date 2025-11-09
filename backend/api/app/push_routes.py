@@ -170,6 +170,15 @@ async def send_push_to_user(user_id: str, db: AsyncSession):
 	async with httpx.AsyncClient(timeout=30.0) as client:
 		for registration in registrations:
 			try:
+				# Check if this is an FCM token or UnifiedPush URL
+				if registration.push_endpoint.startswith('fcm:'):
+					# FCM token - needs Firebase Admin SDK integration
+					# For now, log that we would send FCM message
+					logger.info(f"FCM token detected for {registration.client_key_id}: {registration.push_endpoint[:20]}...")
+					logger.warning(f"FCM integration not yet implemented - skipping FCM token {registration.client_key_id}")
+					continue
+
+				# UnifiedPush HTTP endpoint
 				response = await client.post(
 					registration.push_endpoint,
 					json={

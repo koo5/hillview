@@ -9,6 +9,8 @@ import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -36,26 +38,29 @@ class NotificationManager(private val context: Context) {
 
     /**
      * Check for new notifications and display them
+     * Handles its own threading - safe to call from any thread
      */
-    suspend fun checkForNewNotifications() {
-        try {
-            val token = authManager.getValidToken() ?: run {
-                Log.w(TAG, "No auth token available")
-                return
-            }
+    fun checkForNewNotifications() {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val token = authManager.getValidToken() ?: run {
+                    Log.w(TAG, "No auth token available")
+                    return@launch
+                }
 
-            val serverUrl = getServerUrl() ?: run {
-                Log.e(TAG, "No server URL configured")
-                return
-            }
+                val serverUrl = getServerUrl() ?: run {
+                    Log.e(TAG, "No server URL configured")
+                    return@launch
+                }
 
-            val notifications = fetchNotifications(serverUrl, token)
-            if (notifications.isNotEmpty()) {
-                displayNotifications(notifications)
-            }
+                val notifications = fetchNotifications(serverUrl, token)
+                if (notifications.isNotEmpty()) {
+                    displayNotifications(notifications)
+                }
 
-        } catch (e: Exception) {
-            Log.e(TAG, "Error checking notifications", e)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error checking notifications", e)
+            }
         }
     }
 

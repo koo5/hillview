@@ -656,9 +656,14 @@ class PushDistributorManager(private val context: Context) {
      */
     suspend fun handleSmartPoke(notificationId: String?) {
         Log.d(TAG, "🔔 Handling smart poke notification: $notificationId")
-        // Fetch actual notifications from backend API
-        // This would trigger your notification fetch logic
-        // TODO: Implement notification fetching logic
+        try {
+            // Use NotificationManager to fetch and display notifications
+            val notificationManager = NotificationManager(context)
+            notificationManager.checkForNewNotifications()
+            Log.d(TAG, "✅ Smart poke handled successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Failed to handle smart poke", e)
+        }
     }
 
     /**

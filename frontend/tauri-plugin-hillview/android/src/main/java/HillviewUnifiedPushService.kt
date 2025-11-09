@@ -1,9 +1,6 @@
 package cz.hillview.plugin
 
 import android.util.Log
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import org.unifiedpush.android.connector.PushService
 import org.unifiedpush.android.connector.FailedReason
 import org.unifiedpush.android.connector.data.PushEndpoint
@@ -35,8 +32,6 @@ class HillviewUnifiedPushService : PushService() {
 
     override fun onMessage(message: PushMessage, instance: String) {
         Log.d(TAG, "Smart poke received")
-        CoroutineScope(Dispatchers.IO).launch {
-            NotificationManager(this@HillviewUnifiedPushService).checkForNewNotifications()
-        }
+        NotificationManager(this@HillviewUnifiedPushService).checkForNewNotifications()
     }
 }
