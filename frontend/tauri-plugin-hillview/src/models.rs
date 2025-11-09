@@ -167,3 +167,21 @@ pub struct SelectDistributorRequest {
   pub package_name: String, // Empty string means "disabled"
 }
 
+// Notification Models
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PermissionResponse {
+  pub granted: bool,
+  pub success: bool,
+  pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationSettingsResponse {
+  pub enabled: bool,
+  pub success: bool,
+  pub error: Option<String>,
+}
+

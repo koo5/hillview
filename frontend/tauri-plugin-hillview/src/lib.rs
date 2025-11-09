@@ -67,6 +67,15 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
       commands::get_push_registration_status,
       #[cfg(mobile)]
       commands::select_push_distributor,
+      // Notification permission commands
+      #[cfg(mobile)]
+      commands::check_notification_permission,
+      #[cfg(mobile)]
+      commands::request_notification_permission,
+      #[cfg(mobile)]
+      commands::get_notification_settings,
+      #[cfg(mobile)]
+      commands::set_notification_settings,
 
       ])
     .setup(|app, api| {

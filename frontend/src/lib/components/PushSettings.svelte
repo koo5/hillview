@@ -84,7 +84,7 @@
 			onSaveError(`Failed to load push notification settings: ${err}`);
 		} finally {
 			isLoading = false;
-			console.log('🏁 Loading push settings complete. isLoading:', false, 'distributors:', distributors.length);
+			console.log('🏁 Loading push distributor settings complete. isLoading:', false, 'distributors:', distributors.length);
 		}
 	}
 

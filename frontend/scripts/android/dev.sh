@@ -12,4 +12,4 @@ echo "🌐 VITE_BACKEND_ANDROID: $VITE_BACKEND_ANDROID"
 echo "🏠 TAURI_DEV_HOST: $TAURI_DEV_HOST"
 echo "🔄 This will start Vite server AND launch dev APK with hot reload"
 
-bun run tauri android dev --verbose --config src-tauri/tauri.android-dev.conf.json
+bun run tauri android dev --config src-tauri/tauri.android-dev.conf.json # --verbose 

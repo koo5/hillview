@@ -23,6 +23,10 @@ Default permissions for the plugin
 - `allow-is-token-expired`
 - `allow-check-camera-permission`
 - `allow-request-camera-permission`
+- `allow-check-notification-permission`
+- `allow-request-notification-permission`
+- `allow-get-notification-settings`
+- `allow-set-notification-settings`
 - `allow-test-auth-expired-notification`
 - `allow-get-device-photos`
 - `allow-refresh-photo-scan`
@@ -64,6 +68,32 @@ Enables the check_camera_permission command without any pre-configured scope.
 <td>
 
 Denies the check_camera_permission command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:allow-check-notification-permission`
+
+</td>
+<td>
+
+Enables the check_notification_permission command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:deny-check-notification-permission`
+
+</td>
+<td>
+
+Denies the check_notification_permission command without any pre-configured scope.
 
 </td>
 </tr>
@@ -142,6 +172,32 @@ Enables the get_device_photos command without any pre-configured scope.
 <td>
 
 Denies the get_device_photos command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:allow-get-notification-settings`
+
+</td>
+<td>
+
+Enables the get_notification_settings command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:deny-get-notification-settings`
+
+</td>
+<td>
+
+Denies the get_notification_settings command without any pre-configured scope.
 
 </td>
 </tr>
@@ -487,6 +543,32 @@ Denies the request_camera_permission command without any pre-configured scope.
 <tr>
 <td>
 
+`hillview:allow-request-notification-permission`
+
+</td>
+<td>
+
+Enables the request_notification_permission command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:deny-request-notification-permission`
+
+</td>
+<td>
+
+Denies the request_notification_permission command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `hillview:allow-retry-failed-uploads`
 
 </td>
@@ -558,6 +640,32 @@ Enables the set_auto_upload_enabled command without any pre-configured scope.
 <td>
 
 Denies the set_auto_upload_enabled command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:allow-set-notification-settings`
+
+</td>
+<td>
+
+Enables the set_notification_settings command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:deny-set-notification-settings`
+
+</td>
+<td>
+
+Denies the set_notification_settings command without any pre-configured scope.
 
 </td>
 </tr>

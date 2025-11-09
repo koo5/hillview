@@ -143,6 +143,11 @@ class SelectDistributorArgs {
 }
 
 @InvokeArg
+class NotificationSettingsArgs {
+  var enabled: Boolean? = null
+}
+
+@InvokeArg
 
 @TauriPlugin
 class ExamplePlugin(private val activity: Activity): Plugin(activity) {
@@ -416,33 +421,6 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             // If neither pending request exists, log warning
             if (pendingWebViewRequest == null && pendingNativeRequest == null) {
                 Log.w(TAG, "🢄🎥 Camera permission result received but no pending requests found")
-            }
-        } else if (requestCode == NOTIFICATION_PERMISSION_REQUEST_CODE) {
-            Log.i(TAG, "🔔 Notification permission result received")
-            Log.i(TAG, "🔔 Permissions requested: ${permissions.joinToString(", ")}")
-            Log.i(TAG, "🔔 Grant results: ${grantResults.joinToString(", ") { if (it == PackageManager.PERMISSION_GRANTED) "GRANTED" else "DENIED" }}")
-
-            val allGranted = grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }
-
-            val pendingRequest = pendingNotificationPermissionInvoke
-            if (pendingRequest != null) {
-                val result = JSObject()
-                result.put("granted", allGranted)
-
-                if (allGranted) {
-                    Log.i(TAG, "🔔 Notification permission granted")
-                } else {
-                    Log.i(TAG, "🔔 Notification permission denied")
-                    result.put("error", "Notification permission denied by user")
-                }
-
-                pendingRequest.resolve(result)
-
-                // Release permission lock and clear pending request
-                releasePermissionLock("notification_permission")
-                pendingNotificationPermissionInvoke = null
-            } else {
-                Log.w(TAG, "🔔 Notification permission result received but no pending request found")
             }
         }
     }
@@ -1173,10 +1151,12 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             ) == PackageManager.PERMISSION_GRANTED
 
             result.put("granted", hasPermission)
+            result.put("success", true)
             Log.i(TAG, "🔔 Notification permission check: $hasPermission")
         } else {
             // Pre-API 33: notifications allowed by default
             result.put("granted", true)
+            result.put("success", true)
             Log.i(TAG, "🔔 Notification permission check: granted by default (pre-API 33)")
         }
 
@@ -1190,6 +1170,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
             val result = JSObject()
             result.put("granted", true)
+            result.put("success", true)
             invoke.resolve(result)
             return
         }
@@ -1202,6 +1183,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         if (hasPermission) {
             val result = JSObject()
             result.put("granted", true)
+            result.put("success", true)
             invoke.resolve(result)
             return
         }
@@ -1210,6 +1192,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         if (!acquirePermissionLock("notification_permission")) {
             val error = JSObject()
             error.put("granted", false)
+            error.put("success", false)
             error.put("error", "Permission system busy")
             invoke.resolve(error)
             return
@@ -1224,6 +1207,62 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         )
 
         Log.i(TAG, "🔔 Notification permission request sent")
+    }
+
+    // Notification settings management (stored in hillview_upload_prefs)
+    @Command
+    fun getNotificationSettings(invoke: Invoke) {
+        try {
+            val prefs = activity.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
+            val notificationsEnabled = prefs.getBoolean("notifications_enabled", true) // Default to true
+
+            val result = JSObject()
+            result.put("enabled", notificationsEnabled)
+            result.put("success", true)
+
+            Log.i(TAG, "🔔 Retrieved notification settings: enabled=$notificationsEnabled")
+            invoke.resolve(result)
+
+        } catch (e: Exception) {
+            Log.e(TAG, "🔔 Error getting notification settings", e)
+            val error = JSObject()
+            error.put("success", false)
+            error.put("error", e.message)
+            invoke.resolve(error)
+        }
+    }
+
+    @Command
+    fun setNotificationSettings(invoke: Invoke) {
+        try {
+            val args = invoke.parseArgs(NotificationSettingsArgs::class.java)
+            val enabled = args.enabled ?: true // Default to true
+
+            val prefs = activity.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
+            val success = prefs.edit()
+                .putBoolean("notifications_enabled", enabled)
+                .commit()
+
+            val result = JSObject()
+            result.put("success", success)
+
+            if (success) {
+                Log.i(TAG, "🔔 Notification settings saved: enabled=$enabled")
+                result.put("message", "Notification settings saved")
+            } else {
+                Log.e(TAG, "🔔 Failed to save notification settings")
+                result.put("error", "Failed to save settings")
+            }
+
+            invoke.resolve(result)
+
+        } catch (e: Exception) {
+            Log.e(TAG, "🔔 Error setting notification settings", e)
+            val error = JSObject()
+            error.put("success", false)
+            error.put("error", e.message)
+            invoke.resolve(error)
+        }
     }
 
     @Command
@@ -1313,14 +1352,8 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                 GetDevicePhotosArgs() // Use default values
             }
 
-            if (args == null) {
-                Log.e(TAG, "📸 Args is null after parsing, creating default")
-                val defaultArgs = GetDevicePhotosArgs()
-                Log.d(TAG, "📸 Using default args: page=${defaultArgs.page}, pageSize=${defaultArgs.pageSize}")
-                // Use defaultArgs for the rest of the method
-                processDevicePhotosRequest(invoke, defaultArgs)
-                return
-            }
+            // Args is never null from parseArgs(), proceed with parsed values
+            Log.d(TAG, "📸 Using parsed args: page=${args.page}, pageSize=${args.pageSize}")
 
             // Process the request with validated args
             processDevicePhotosRequest(invoke, args)
@@ -1512,14 +1545,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             // Parse the photo data using typed args
             val args = invoke.parseArgs(AddPhotoArgs::class.java)
 
-            if (args == null) {
-                Log.e(TAG, "📸 Failed to parse photo args - null result")
-                val error = JSObject()
-                error.put("success", false)
-                error.put("error", "Failed to parse photo data")
-                invoke.resolve(error)
-                return
-            }
+            // Args is never null from parseArgs(), proceed directly
 
             Log.d(TAG, "📸 Parsed photo args: id=${args.id}, filename=${args.filename}, path=${args.path}")
 
@@ -1669,15 +1695,59 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         Log.e(TAG, "🔒 requestCode: $requestCode")
         Log.e(TAG, "🔒 permissions: ${permissions.joinToString(", ")}")
         Log.e(TAG, "🔒 grantResults: ${grantResults.joinToString(", ") { if (it == PackageManager.PERMISSION_GRANTED) "GRANTED" else "DENIED" }}")
-        Log.e(TAG, "🔒 CAMERA_PERMISSION_REQUEST_CODE: $CAMERA_PERMISSION_REQUEST_CODE")
 
-        // Handle camera permission results
-        handleCameraPermissionResult(requestCode, permissions, grantResults)
-
-        // Handle location permission results
-        preciseLocationService?.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        when (requestCode) {
+            CAMERA_PERMISSION_REQUEST_CODE -> {
+                Log.e(TAG, "🔒 Routing to camera permission handler")
+                handleCameraPermissionResult(requestCode, permissions, grantResults)
+            }
+            NOTIFICATION_PERMISSION_REQUEST_CODE -> {
+                Log.e(TAG, "🔒 Routing to notification permission handler")
+                handleNotificationPermissionResult(requestCode, permissions, grantResults)
+            }
+            1001 -> { // LOCATION_PERMISSION_REQUEST_CODE
+                Log.e(TAG, "🔒 Routing to location permission handler")
+                preciseLocationService?.onRequestPermissionsResult(requestCode, permissions, grantResults)
+            }
+            else -> {
+                Log.w(TAG, "🔒 Unknown permission request code: $requestCode")
+                // Still try location service as fallback
+                preciseLocationService?.onRequestPermissionsResult(requestCode, permissions, grantResults)
+            }
+        }
 
         Log.e(TAG, "🔒 Permission result processing complete")
+    }
+
+    // Handle notification permission results
+    private fun handleNotificationPermissionResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
+        Log.i(TAG, "🔔 Notification permission result received")
+        Log.i(TAG, "🔔 Permissions requested: ${permissions.joinToString(", ")}")
+        Log.i(TAG, "🔔 Grant results: ${grantResults.joinToString(", ") { if (it == PackageManager.PERMISSION_GRANTED) "GRANTED" else "DENIED" }}")
+
+        val allGranted = grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }
+        val pendingRequest = pendingNotificationPermissionInvoke
+
+        if (pendingRequest != null) {
+            val result = JSObject()
+            result.put("granted", allGranted)
+            result.put("success", true)
+
+            if (allGranted) {
+                Log.i(TAG, "🔔 Notification permission granted")
+            } else {
+                Log.i(TAG, "🔔 Notification permission denied")
+                result.put("error", "Notification permission denied by user")
+            }
+
+            pendingRequest.resolve(result)
+
+            // Release permission lock and clear pending request
+            releasePermissionLock("notification_permission")
+            pendingNotificationPermissionInvoke = null
+        } else {
+            Log.w(TAG, "🔔 Notification permission result received but no pending request found")
+        }
     }
 
     @ActivityCallback
@@ -1802,14 +1872,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             val args = invoke.parseArgs(PhotoWorkerProcessArgs::class.java)
             //Log.d(TAG, "🢄📸 args parsed: args = $args")
 
-            if (args == null) {
-                Log.e(TAG, "🢄📸 photoWorkerProcess failed: args is null")
-                val error = JSObject()
-                error.put("success", false)
-                error.put("error", "args is null")
-                invoke.resolve(error)
-                return
-            }
+            // Args is never null from parseArgs(), proceed directly
 
             val messageJson = args.messageJson ?: args.message_json
             //Log.d(TAG, "🢄📸 messageJson extracted: '${messageJson}' (length: ${messageJson?.length ?: 0})")
@@ -1948,7 +2011,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         try {
             val args = invoke.parseArgs(GetBearingForTimestampArgs::class.java)
 
-            if (args == null || args.timestamp == null) {
+            if (args.timestamp == null) {
                 Log.e(TAG, "📡 getBearingForTimestamp: Invalid arguments")
                 val error = JSObject()
                 error.put("success", false)

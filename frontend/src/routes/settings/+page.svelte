@@ -4,6 +4,7 @@
 	import SettingsComponent from '$lib/components/CameraSettings.svelte';
 	import UploadSettingsComponent from '$lib/components/UploadSettings.svelte';
 	import PushSettingsComponent from '$lib/components/PushSettings.svelte';
+	import NotificationSettingsComponent from '$lib/components/NotificationSettings.svelte';
 	import type { Alert } from '$lib/alertSystem.svelte';
 	import {Database} from "lucide-svelte";
 
@@ -29,13 +30,20 @@
 
 <StandardBody>
 	<div class="settings-container">
+
+		<!-- Notification Settings -->
+		<div class="section-divider"></div>
+		<NotificationSettingsComponent
+			onSaveSuccess={(message) => showAlert(message, 'success')}
+			onSaveError={(message) => showAlert(message, 'error')}
+		/>
+
 		<!-- Push Notification Settings -->
 		<div class="section-divider"></div>
 		<PushSettingsComponent
 			onSaveSuccess={(message) => showAlert(message, 'success')}
 			onSaveError={(message) => showAlert(message, 'error')}
 		/>
-
 
 		<!-- General Settings -->
 		<SettingsComponent

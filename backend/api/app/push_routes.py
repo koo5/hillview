@@ -70,7 +70,8 @@ class PushRegistrationResponse(BaseModel):
 	message: str
 
 class NotificationRequest(BaseModel):
-	user_id: str
+	user_id: Optional[str] = None
+	client_key_id: Optional[str] = None
 	type: str = Field(..., max_length=50)
 	title: str
 	body: str

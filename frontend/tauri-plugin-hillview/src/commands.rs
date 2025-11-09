@@ -360,3 +360,38 @@ pub(crate) async fn select_push_distributor<R: Runtime>(
 ) -> Result<BasicResponse> {
     app.hillview().select_push_distributor(request.package_name)
 }
+
+// Notification Commands
+
+#[cfg(mobile)]
+#[command]
+pub(crate) async fn check_notification_permission<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<crate::models::PermissionResponse> {
+    app.hillview().check_notification_permission()
+}
+
+#[cfg(mobile)]
+#[command]
+pub(crate) async fn request_notification_permission<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<crate::models::PermissionResponse> {
+    app.hillview().request_notification_permission()
+}
+
+#[cfg(mobile)]
+#[command]
+pub(crate) async fn get_notification_settings<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<crate::models::NotificationSettingsResponse> {
+    app.hillview().get_notification_settings()
+}
+
+#[cfg(mobile)]
+#[command]
+pub(crate) async fn set_notification_settings<R: Runtime>(
+    app: AppHandle<R>,
+    enabled: bool,
+) -> Result<crate::models::BasicResponse> {
+    app.hillview().set_notification_settings(enabled)
+}

@@ -263,4 +263,39 @@ impl<R: Runtime> Hillview<R> {
       .run_mobile_plugin("selectPushDistributor", Args { package_name })
       .map_err(Into::into)
   }
+
+  // Notification methods
+
+  pub fn check_notification_permission(&self) -> crate::Result<PermissionResponse> {
+    self
+      .0
+      .run_mobile_plugin("checkNotificationPermission", ())
+      .map_err(Into::into)
+  }
+
+  pub fn request_notification_permission(&self) -> crate::Result<PermissionResponse> {
+    self
+      .0
+      .run_mobile_plugin("requestNotificationPermission", ())
+      .map_err(Into::into)
+  }
+
+  pub fn get_notification_settings(&self) -> crate::Result<NotificationSettingsResponse> {
+    self
+      .0
+      .run_mobile_plugin("getNotificationSettings", ())
+      .map_err(Into::into)
+  }
+
+  pub fn set_notification_settings(&self, enabled: bool) -> crate::Result<BasicResponse> {
+    #[derive(serde::Serialize)]
+    struct Args {
+      enabled: bool,
+    }
+
+    self
+      .0
+      .run_mobile_plugin("setNotificationSettings", Args { enabled })
+      .map_err(Into::into)
+  }
 }
