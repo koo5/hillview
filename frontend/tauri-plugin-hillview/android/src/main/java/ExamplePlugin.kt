@@ -220,8 +220,9 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                     Log.i(TAG, "🔒 Permission lock released by: $requester")
                     return true
                 } else {
-                    Log.w(TAG, "🔒 Permission lock release failed: held by $permissionLockHolder, not $requester")
-                    return false
+                	permissionLockHolder = null
+                    Log.w(TAG, "🔒 Permission lock warning: held by $permissionLockHolder, not $requester")
+                    return true
                 }
             }
         }
@@ -280,16 +281,6 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         Log.i(TAG, "🢄🎥 Plugin load() called with WebView: $webView")
         super.load(webView)
         setupWebViewCameraPermissions(webView)
-
-        // Auto-register push distributor on app start
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val pushManager = PushDistributorManager(activity)
-                pushManager.autoRegisterIfNeeded()
-            } catch (e: Exception) {
-                Log.e(TAG, "Error during auto-registration on plugin load", e)
-            }
-        }
     }
 
     private fun setupWebViewCameraPermissions(webView: WebView) {

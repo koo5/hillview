@@ -2,11 +2,9 @@
 	import {onMount} from 'svelte';
 	import {TAURI} from "$lib/tauri.js";
 	import {invoke} from '@tauri-apps/api/core';
+	import { Smartphone, Wifi, WifiOff, CheckCircle, AlertCircle, Clock } from 'lucide-svelte';
+	import { addAlert } from '$lib/alertSystem.svelte';
 	import ExternalLink from './ExternalLink.svelte';
-
-	export let onSaveSuccess = (message: string) => {};
-	export let onSaveError = (message: string) => {};
-	export const onCancel: (() => void) | null = null;
 
 	let distributors: PushDistributorInfo[] = [];
 	let selectedDistributor = '';
@@ -81,7 +79,7 @@
 
 		} catch (err) {
 			console.error('❌ Error loading push settings:', err);
-			onSaveError(`Failed to load push notification settings: ${err}`);
+			addAlert(`Failed to load push notification settings: ${err}`, 'error');
 		} finally {
 			isLoading = false;
 			console.log('🏁 Loading push distributor settings complete. isLoading:', false, 'distributors:', distributors.length);
@@ -102,7 +100,7 @@
 			if (result.success) {
 				selectedDistributor = packageName;
 				console.log('✅ Distributor selected successfully:', packageName);
-				onSaveSuccess(packageName ? 'Push distributor selected successfully' : 'Push notifications disabled');
+				addAlert(packageName ? 'Push distributor selected successfully' : 'Push notifications disabled', 'success');
 
 				// Reload status after selection
 				console.log('🔄 Reloading settings after selection...');
@@ -115,7 +113,7 @@
 
 		} catch (err) {
 			console.error('❌ Error selecting distributor:', err);
-			onSaveError(`Failed to select push distributor: ${err}`);
+			addAlert(`Failed to select push distributor: ${err}`, 'error');
 		} finally {
 			isLoading = false;
 			console.log('🏁 Distributor selection complete. isLoading:', false, 'distributors:', distributors.length);

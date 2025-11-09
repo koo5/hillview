@@ -245,24 +245,6 @@
 		</div>
 	{/if}
 
-	<!-- Help text -->
-	<div class="help-section">
-		<details>
-			<summary>About Notifications</summary>
-			<p>
-				Notifications will alert you about important events like when your login expires
-				or when photo uploads complete. You can still use the app even with notifications
-				disabled - they're just helpful reminders.
-			</p>
-			{#if !permissionGranted}
-			<p>
-				<strong>Note:</strong> You'll need to grant notification permission in Android
-				settings for notifications to work.
-			</p>
-			{/if}
-		</details>
-	</div>
-
 	{#if lastError}
 		<div class="error-message">
 			{lastError}

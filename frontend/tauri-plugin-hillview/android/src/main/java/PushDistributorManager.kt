@@ -118,7 +118,7 @@ class PushDistributorManager(private val context: Context) {
 
         distributorInfoList.add(0, DistributorInfo(  // Add at the beginning for priority
             packageName = fcmPackageName,
-            displayName = "Google Firebase (Direct)",
+            displayName = "Google Firebase",
             isAvailable = isFcmAvailable
         ))
 

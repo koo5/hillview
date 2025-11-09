@@ -50,6 +50,7 @@ const CUSTOM_PROVIDERS: Record<string, TileProviderConfig> = {
 
 // Available tile providers with descriptions
 export const AVAILABLE_PROVIDERS = {
+	'tiles.ueueeu.eu': 'tiles.ueueeu.eu',
     // Standard 'leaflet-providers' providers
     'OpenStreetMap.Mapnik': 'OpenStreetMap (Default)',
     'OpenStreetMap.DE': 'OpenStreetMap (German)',
@@ -60,13 +61,13 @@ export const AVAILABLE_PROVIDERS = {
     // my Custom providers
     'TracesTrack.Topo': 'TracesTrack Topographic',
     /*'TracesTrack.TopoContrast': 'TracesTrack Topo (High Contrast)',*/
-	'tiles.ueueeu.eu': 'tiles.ueueeu.eu',
+
 } as const;
 
 export type ProviderName = keyof typeof AVAILABLE_PROVIDERS;
 
 // Default tile provider
-export const DEFAULT_TILE_PROVIDER: ProviderName = 'TracesTrack.Topo';//'OpenStreetMap.Mapnik';
+export const DEFAULT_TILE_PROVIDER: ProviderName = 'tiles.ueueeu.eu';//'OpenStreetMap.Mapnik';
 
 // Current selected provider (can be changed at runtime)
 export const currentTileProvider = writable<ProviderName>(DEFAULT_TILE_PROVIDER);
