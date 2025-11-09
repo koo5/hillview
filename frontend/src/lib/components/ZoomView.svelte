@@ -255,17 +255,13 @@
 		height: 100%;
 		object-fit: cover;
 		user-select: none;
+		background: transparent;
+		
 	}
 
 	.zoom-image-wrapper:active {
 		cursor: grabbing;
 	}
-
-	.zoom-image {
-		opacity: 0;
-		transition: opacity 0.3s ease;
-	}
-
 
 	/* Show full image once it's loaded */
 	.zoom-image[src]:not([src=""]) {

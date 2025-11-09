@@ -92,9 +92,6 @@
 		background-color: #e5e7eb;
 	}
 
-	.settings-link-section {
-		margin: 0;
-	}
 
 	.settings-navigation-link {
 		display: flex;

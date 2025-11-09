@@ -257,16 +257,6 @@
 		margin-bottom: 2rem;
 	}
 
-	h3 {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		margin-bottom: 1rem;
-		font-size: 1.125rem;
-		font-weight: 600;
-		color: #374151;
-	}
-
 	.setting-item {
 		margin-bottom: 1rem;
 	}
@@ -377,30 +367,6 @@
 		cursor: not-allowed;
 	}
 
-	.help-section {
-		margin-top: 1rem;
-	}
-
-	.help-section details {
-		cursor: pointer;
-	}
-
-	.help-section summary {
-		color: #4f46e5;
-		font-size: 0.875rem;
-		font-weight: 500;
-		margin-bottom: 0.5rem;
-		user-select: none;
-	}
-
-	.help-section p {
-		color: #6b7280;
-		font-size: 0.875rem;
-		line-height: 1.5;
-		margin: 0;
-		padding-left: 1rem;
-	}
-
 	.error-message {
 		color: #dc2626;
 		background: #fef2f2;
@@ -454,18 +420,9 @@
 		margin-top: 0.5rem;
 	}
 
-	.status-indicator.success {
-		color: #059669;
-		background: #d1fae5;
-	}
-
 	.status-indicator.warning {
 		color: #d97706;
 		background: #fef3c7;
 	}
 
-	.status-indicator.disabled {
-		color: #6b7280;
-		background: #f3f4f6;
-	}
 </style>
