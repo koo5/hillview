@@ -23,8 +23,6 @@ Default permissions for the plugin
 - `allow-is-token-expired`
 - `allow-check-camera-permission`
 - `allow-request-camera-permission`
-- `allow-check-notification-permission`
-- `allow-request-notification-permission`
 - `allow-get-notification-settings`
 - `allow-set-notification-settings`
 - `allow-test-auth-expired-notification`
@@ -71,32 +69,6 @@ Enables the check_camera_permission command without any pre-configured scope.
 <td>
 
 Denies the check_camera_permission command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`hillview:allow-check-notification-permission`
-
-</td>
-<td>
-
-Enables the check_notification_permission command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`hillview:deny-check-notification-permission`
-
-</td>
-<td>
-
-Denies the check_notification_permission command without any pre-configured scope.
 
 </td>
 </tr>
@@ -565,32 +537,6 @@ Enables the request_camera_permission command without any pre-configured scope.
 <td>
 
 Denies the request_camera_permission command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`hillview:allow-request-notification-permission`
-
-</td>
-<td>
-
-Enables the request_notification_permission command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`hillview:deny-request-notification-permission`
-
-</td>
-<td>
-
-Denies the request_notification_permission command without any pre-configured scope.
 
 </td>
 </tr>

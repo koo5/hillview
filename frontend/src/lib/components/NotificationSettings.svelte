@@ -2,7 +2,6 @@
 	import { onMount } from 'svelte';
 	import { Bell, BellOff, AlertTriangle } from 'lucide-svelte';
 	import { invoke } from '@tauri-apps/api/core';
-	import TauriPermissionTester from './TauriPermissionTester.svelte';
 
 	// Type definitions for API responses
 	interface NotificationSettingsResponse {
@@ -11,10 +10,8 @@
 		error?: string;
 	}
 
-	interface PermissionResponse {
-		granted: boolean;
-		success: boolean;
-		error?: string;
+	interface TauriPermissionResponse {
+		postNotification: string; // "Granted" | "Denied" | "Prompt"
 	}
 
 	interface BasicResponse {
@@ -39,13 +36,16 @@
 		try {
 			// Get user-level notification setting
 			const settingsResult = await invoke<NotificationSettingsResponse>('plugin:hillview|get_notification_settings');
+			console.log('🔔 Notification settings result:', JSON.stringify(settingsResult));
 			if (settingsResult.success) {
 				notificationsEnabled = settingsResult.enabled;
 			}
 
-			// Check system notification permission status
-			const permissionResult = await invoke<PermissionResponse>('plugin:hillview|check_notification_permission');
-			permissionGranted = permissionResult.granted || false;
+			// Check system notification permission status via Tauri permission system
+			const permissionResult = await invoke<TauriPermissionResponse>('plugin:hillview|check_tauri_permissions');
+			console.log('🔔 Permission check result:', JSON.stringify(permissionResult));
+			permissionGranted = permissionResult.postNotification === 'Granted';
+			console.log('🔔 Permission granted:', permissionGranted);
 
 		} catch (error) {
 			console.error('Failed to load notification settings:', error);
@@ -57,22 +57,27 @@
 		}
 	}
 
-	// Request notification permission from Android
+	// Request notification permission via Tauri permission system
 	async function requestNotificationPermission() {
 		isLoading = true;
 		lastError = null;
 
 		try {
-			const result = await invoke<PermissionResponse>('plugin:hillview|request_notification_permission');
+			console.log('🔔 Requesting notification permission via Tauri...');
+			console.log('🔔 Current permission state before request:', permissionGranted);
 
-			console.log('🔔Notification permission request result:', JSON.stringify(result));
+			const result = await invoke<string>('plugin:hillview|request_post_notification_permission');
 
-			if (result.granted) {
+			console.log('🔔 Notification permission request result:', JSON.stringify(result));
+
+			if (result === 'Granted') {
 				permissionGranted = true;
+				console.log('🔔 Permission successfully granted, updated state to:', permissionGranted);
 				onSaveSuccess('Notification permission granted');
 			} else {
 				permissionGranted = false;
-				const errorMsg = result.error || 'Notification permission denied';
+				console.log('🔔 Permission not granted, result was:', result, 'updated state to:', permissionGranted);
+				const errorMsg = `Permission ${result.toLowerCase()}. Please enable notifications in Android settings.`;
 				lastError = errorMsg;
 				onSaveError(errorMsg);
 			}
@@ -173,14 +178,14 @@
 </script>
 
 <div class="notification-settings">
-	<h3>
-		{#if notificationsEnabled}
+	<h2>
+	{#if notificationsEnabled}
 			<Bell size={20} />
 		{:else}
 			<BellOff size={20} />
 		{/if}
 		Notifications
-	</h3>
+	</h2>
 
 	<!-- Main notification toggle -->
 	<div class="setting-item">
@@ -195,8 +200,11 @@
 			<div class="toggle-text">
 				<strong>Enable Notifications</strong>
 				<span class="toggle-description">
-					Show system notifications for authentication, uploads, and other app events
+					Get alerts for login expiry, upload status, and other important events
 				</span>
+				{#if notificationsEnabled && !permissionGranted}
+					<span class="status-indicator warning">⚠ Permission needed</span>
+				{/if}
 			</div>
 		</label>
 	</div>
@@ -207,7 +215,7 @@
 			<AlertTriangle size={16} />
 			<div>
 				<p><strong>Permission Required</strong></p>
-				<p>Notification permission is needed to show system notifications.</p>
+				<p>Android permission is needed to show notifications.</p>
 				<button
 					class="permission-button"
 					on:click={requestNotificationPermission}
@@ -219,36 +227,39 @@
 		</div>
 	{/if}
 
-	<!-- Test Tauri Permissions -->
-	<TauriPermissionTester
-		onResult={(message) => onSaveSuccess(message)}
-		onError={(message) => onSaveError(message)}
-	/>
 
-	<!-- Test Notification Button -->
-	<div class="test-section">
-		<button
-			class="test-button"
-			on:click={testNotification}
-			disabled={isLoading || !permissionGranted}
-		>
-			{isLoading ? 'Sending...' : 'Test Notification'}
-		</button>
-		<p class="test-description">
-			Send a test notification to verify the notification system is working
-		</p>
-	</div>
+	<!-- Test Notification -->
+	{#if notificationsEnabled}
+		<div class="test-notification">
+			<button
+				class="test-notification-button"
+				on:click={testNotification}
+				disabled={isLoading || !permissionGranted}
+				title={!permissionGranted ? 'Grant permission first to test notifications' : 'Send a test notification'}
+			>
+				{isLoading ? 'Sending...' : 'Send Test Notification'}
+			</button>
+			{#if !permissionGranted}
+				<p class="test-note">Grant permission above to enable testing</p>
+			{/if}
+		</div>
+	{/if}
 
 	<!-- Help text -->
 	<div class="help-section">
 		<details>
 			<summary>About Notifications</summary>
 			<p>
-				Notifications are separate from push messaging. You can receive push messages
-				to wake up the app even if notifications are disabled. Enabling notifications
-				allows the app to show system notifications for important events like
-				authentication expiry or upload status.
+				Notifications will alert you about important events like when your login expires
+				or when photo uploads complete. You can still use the app even with notifications
+				disabled - they're just helpful reminders.
 			</p>
+			{#if !permissionGranted}
+			<p>
+				<strong>Note:</strong> You'll need to grant notification permission in Android
+				settings for notifications to work.
+			</p>
+			{/if}
 		</details>
 	</div>
 
@@ -416,5 +427,63 @@
 		padding: 0.75rem;
 		font-size: 0.875rem;
 		margin-top: 1rem;
+	}
+
+	.test-notification {
+		margin-top: 1rem;
+		text-align: center;
+	}
+
+	.test-notification-button {
+		background: #e5e7eb;
+		color: #374151;
+		border: 1px solid #d1d5db;
+		padding: 0.5rem 1rem;
+		border-radius: 0.375rem;
+		font-size: 0.75rem;
+		font-weight: 400;
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.test-notification-button:hover:not(:disabled) {
+		background: #d1d5db;
+		border-color: #9ca3af;
+	}
+
+	.test-notification-button:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.test-note {
+		color: #6b7280;
+		font-size: 0.7rem;
+		margin: 0.5rem 0 0 0;
+		font-style: italic;
+	}
+
+	.status-indicator {
+		display: inline-block;
+		font-size: 0.75rem;
+		font-weight: 500;
+		padding: 0.25rem 0.5rem;
+		border-radius: 0.25rem;
+		margin-top: 0.5rem;
+	}
+
+	.status-indicator.success {
+		color: #059669;
+		background: #d1fae5;
+	}
+
+	.status-indicator.warning {
+		color: #d97706;
+		background: #fef3c7;
+	}
+
+	.status-indicator.disabled {
+		color: #6b7280;
+		background: #f3f4f6;
 	}
 </style>

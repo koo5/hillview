@@ -180,26 +180,6 @@
 			</p>
 
 			<div class="distributor-options">
-				<!-- Disabled option -->
-				<label class="distributor-option">
-					<input
-						type="radio"
-						bind:group={selectedDistributor}
-						value=""
-						on:change={() => selectDistributor('')}
-						disabled={isLoading}
-					/>
-					<div class="option-content">
-						<div class="option-header">
-							<span class="option-icon">🔇</span>
-							<span class="option-name">Push notifications disabled</span>
-						</div>
-						<div class="option-description">
-							Turn off all push notifications
-						</div>
-					</div>
-				</label>
-
 				<!-- Available distributors -->
 				{#each distributors as distributor}
 					<label class="distributor-option" class:unavailable={!distributor.isAvailable}>
@@ -234,6 +214,27 @@
 						</div>
 					</label>
 				{/each}
+
+				<!-- Disabled option -->
+				<label class="distributor-option">
+					<input
+						type="radio"
+						bind:group={selectedDistributor}
+						value=""
+						on:change={() => selectDistributor('')}
+						disabled={isLoading}
+					/>
+					<div class="option-content">
+						<div class="option-header">
+							<span class="option-icon">🔇</span>
+							<span class="option-name">Push notifications disabled</span>
+						</div>
+						<div class="option-description">
+							Turn off all push notifications
+						</div>
+					</div>
+				</label>
+
 			</div>
 		</div>
 

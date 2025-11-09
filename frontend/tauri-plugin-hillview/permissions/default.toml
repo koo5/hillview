@@ -20,8 +20,6 @@ permissions = [
   "allow-is-token-expired",
   "allow-check-camera-permission",
   "allow-request-camera-permission",
-  "allow-check-notification-permission",
-  "allow-request-notification-permission",
   "allow-get-notification-settings",
   "allow-set-notification-settings",
   "allow-test-auth-expired-notification",

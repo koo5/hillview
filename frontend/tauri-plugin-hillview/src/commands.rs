@@ -364,21 +364,6 @@ pub(crate) async fn select_push_distributor<R: Runtime>(
 
 // Notification Commands
 
-#[cfg(mobile)]
-#[command]
-pub(crate) async fn check_notification_permission<R: Runtime>(
-    app: AppHandle<R>,
-) -> Result<crate::models::PermissionResponse> {
-    app.hillview().check_notification_permission()
-}
-
-#[cfg(mobile)]
-#[command]
-pub(crate) async fn request_notification_permission<R: Runtime>(
-    app: AppHandle<R>,
-) -> Result<crate::models::PermissionResponse> {
-    app.hillview().request_notification_permission()
-}
 
 #[cfg(mobile)]
 #[command]

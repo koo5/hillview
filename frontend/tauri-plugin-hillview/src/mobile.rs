@@ -265,21 +265,7 @@ impl<R: Runtime> Hillview<R> {
       .map_err(Into::into)
   }
 
-  // Notification methods
-
-  pub fn check_notification_permission(&self) -> crate::Result<PermissionResponse> {
-    self
-      .0
-      .run_mobile_plugin("checkNotificationPermission", ())
-      .map_err(Into::into)
-  }
-
-  pub fn request_notification_permission(&self) -> crate::Result<PermissionResponse> {
-    self
-      .0
-      .run_mobile_plugin("requestNotificationPermission", ())
-      .map_err(Into::into)
-  }
+  // Notification settings methods
 
   pub fn get_notification_settings(&self) -> crate::Result<NotificationSettingsResponse> {
     self

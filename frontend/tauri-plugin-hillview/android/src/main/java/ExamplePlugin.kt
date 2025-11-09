@@ -1149,78 +1149,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         Log.i(TAG, "🎥 Camera permission request sent to Android system")
     }
 
-    // Notification permission handling (Android 13+/API 33+)
-    private var pendingNotificationPermissionInvoke: Invoke? = null
-    private val NOTIFICATION_PERMISSION_REQUEST_CODE = 1002
 
-    @Command
-    fun checkNotificationPermission(invoke: Invoke) {
-        val result = JSObject()
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val hasPermission = ContextCompat.checkSelfPermission(
-                activity,
-                android.Manifest.permission.POST_NOTIFICATIONS
-            ) == PackageManager.PERMISSION_GRANTED
-
-            result.put("granted", hasPermission)
-            result.put("success", true)
-            Log.i(TAG, "🔔 Notification permission check: $hasPermission")
-        } else {
-            // Pre-API 33: notifications allowed by default
-            result.put("granted", true)
-            result.put("success", true)
-            Log.i(TAG, "🔔 Notification permission check: granted by default (pre-API 33)")
-        }
-
-        invoke.resolve(result)
-    }
-
-    @Command
-    fun requestNotificationPermission(invoke: Invoke) {
-        Log.i(TAG, "🔔 Notification permission request")
-
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-            val result = JSObject()
-            result.put("granted", true)
-            result.put("success", true)
-            invoke.resolve(result)
-            return
-        }
-
-        val hasPermission = ContextCompat.checkSelfPermission(
-            activity,
-            android.Manifest.permission.POST_NOTIFICATIONS
-        ) == PackageManager.PERMISSION_GRANTED
-
-        if (hasPermission) {
-            val result = JSObject()
-            result.put("granted", true)
-            result.put("success", true)
-            invoke.resolve(result)
-            return
-        }
-
-        // Try to acquire permission lock
-        if (!acquirePermissionLock("notification_permission")) {
-            val error = JSObject()
-            error.put("granted", false)
-            error.put("success", false)
-            error.put("error", "Permission system busy")
-            invoke.resolve(error)
-            return
-        }
-
-        pendingNotificationPermissionInvoke = invoke
-
-        ActivityCompat.requestPermissions(
-            activity,
-            arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),
-            NOTIFICATION_PERMISSION_REQUEST_CODE
-        )
-
-        Log.i(TAG, "🔔 Notification permission request sent")
-    }
 
     // Notification settings management (stored in hillview_upload_prefs)
     @Command
@@ -1714,10 +1643,6 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                 Log.e(TAG, "🔒 Routing to camera permission handler")
                 handleCameraPermissionResult(requestCode, permissions, grantResults)
             }
-            NOTIFICATION_PERMISSION_REQUEST_CODE -> {
-                Log.e(TAG, "🔒 Routing to notification permission handler")
-                handleNotificationPermissionResult(requestCode, permissions, grantResults)
-            }
             1001 -> { // LOCATION_PERMISSION_REQUEST_CODE
                 Log.e(TAG, "🔒 Routing to location permission handler")
                 preciseLocationService?.onRequestPermissionsResult(requestCode, permissions, grantResults)
@@ -1732,36 +1657,6 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         Log.e(TAG, "🔒 Permission result processing complete")
     }
 
-    // Handle notification permission results
-    private fun handleNotificationPermissionResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
-        Log.i(TAG, "🔔 Notification permission result received")
-        Log.i(TAG, "🔔 Permissions requested: ${permissions.joinToString(", ")}")
-        Log.i(TAG, "🔔 Grant results: ${grantResults.joinToString(", ") { if (it == PackageManager.PERMISSION_GRANTED) "GRANTED" else "DENIED" }}")
-
-        val allGranted = grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }
-        val pendingRequest = pendingNotificationPermissionInvoke
-
-        if (pendingRequest != null) {
-            val result = JSObject()
-            result.put("granted", allGranted)
-            result.put("success", true)
-
-            if (allGranted) {
-                Log.i(TAG, "🔔 Notification permission granted")
-            } else {
-                Log.i(TAG, "🔔 Notification permission denied")
-                result.put("error", "Notification permission denied by user")
-            }
-
-            pendingRequest.resolve(result)
-
-            // Release permission lock and clear pending request
-            releasePermissionLock("notification_permission")
-            pendingNotificationPermissionInvoke = null
-        } else {
-            Log.w(TAG, "🔔 Notification permission result received but no pending request found")
-        }
-    }
 
     @ActivityCallback
     private fun filePickerResult(invoke: Invoke, result: ActivityResult) {
