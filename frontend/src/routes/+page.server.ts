@@ -14,6 +14,10 @@ export const load: PageServerLoad = async ({ url, fetch }) => {
 		console.log('🢄+page.server.ts: Skipping OpenGraph fetch in Tauri');
 		return { photoMeta: null };
 	}
+	else
+	{
+		console.log('🢄+page.server.ts: Running OpenGraph fetch on server');
+	}
 
 	// Check for photo parameter in URL
 	const photoParam = url.searchParams.get('photo');

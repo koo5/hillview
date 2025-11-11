@@ -1,14 +1,30 @@
+/*
 import * as Sentry from "@sentry/sveltekit";
 import {handleErrorWithSentry, replayIntegration} from "@sentry/sveltekit";
+ */
+
 import {invoke} from "@tauri-apps/api/core";
 import {backendUrl} from "$lib/config";
 import {TAURI} from "$lib/tauri";
 
 
-const sentryEnabled = /^(true|1|yes|on)$/i.test((import.meta.env.VITE_SENTRY_ENABLED || '').trim());
 
+function handleException(event: any)
+{
+	console.warn('UNCAUGHT ERROR:', event);
+	console.error(JSON.stringify(event, null, 2));
+	console.error('Stack trace:\n', event.error?.stack);
+}
+
+window?.addEventListener('unhandledrejection', handleException);
+window?.addEventListener('error', handleException);
+
+
+/*const sentryEnabled = /^(true|1|yes|on)$/i.test((import.meta.env.VITE_SENTRY_ENABLED || '').trim());
+console.log('🢄Sentry enabled:', sentryEnabled);
 if (sentryEnabled)
 {
+	console.log('🢄Initializing Sentry');
 	Sentry.init({
 		dsn: import.meta.env.VITE_SENTRY_DSN || 'https://0cd95912362bc25ef123532e78c3d594@o4509657094881280.ingest.de.sentry.io/4509657109692496',
 
@@ -43,6 +59,7 @@ export async function handleError(eee: any): Promise<{ message: string }> {
 		return await handleErrorWithSentry(eee);
 	} else return { message: eee.message || 'An error occurred' };
 }
+*/
 
 export const init = () => {
 	if (TAURI)
