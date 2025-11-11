@@ -7,7 +7,7 @@ echo "🔨 Building release APK..."
 echo "📱 VITE_DEV_MODE: $VITE_DEV_MODE"
 echo "🌐 VITE_BACKEND_ANDROID: $VITE_BACKEND_ANDROID"
 
-bun run tauri android build --apk
+bun run tauri android build --apk true
 
 if test $status -eq 0
     echo ""

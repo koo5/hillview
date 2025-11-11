@@ -2,7 +2,7 @@
     import {getBuildInfo} from '$lib/build-info';
     import {onMount} from 'svelte';
     import {spatialState, bearingState} from '$lib/mapState';
-	import {gpsLocation, locationError, locationTracking} from '$lib/location.svelte';
+	import {gpsLocation, locationError, locationTracking} from '$lib/location.svelte.js';
 
     import {
         compassAvailable,
@@ -11,7 +11,7 @@
         currentSensorMode,
         deviceOrientation,
         setCompassMode
-    } from '$lib/compass.svelte';
+    } from '$lib/compass.svelte.js';
     import {invoke} from '@tauri-apps/api/core';
     import {SensorMode, TAURI_MOBILE} from '$lib/tauri';
     import {backendUrl} from "$lib/config";

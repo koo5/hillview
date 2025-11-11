@@ -1,10 +1,10 @@
 <script lang="ts">
     import {onMount} from 'svelte';
     import {photoInFront, photosInRange, photoToLeft, photoToRight, spatialState, bearingState, visiblePhotos} from '$lib/mapState';
-    import {app, mapillary_cache_status, sources, sourceLoadingStatus, toggleDebug, closeDebug} from '$lib/data.svelte';
+    import {app, mapillary_cache_status, sources, sourceLoadingStatus, toggleDebug, closeDebug} from '$lib/data.svelte.js';
     import {MAX_DEBUG_MODES} from '$lib/config';
     import {captureQueue, type QueueStats} from '$lib/captureQueue';
-    
+
     // Access the stats store properly
     $: queueStats = captureQueue.stats;
     import {photoCaptureSettings} from '$lib/stores';
@@ -80,7 +80,7 @@
                                     {source.enabled ? '●' : '○'}
                                 </span>
                             </div>
-                            
+
                             {#if source.enabled}
                                 <div class="source-details">
                                     <div class="source-type">Type: {source.type}</div>
@@ -113,7 +113,7 @@
                                             <span class="status-ready">Ready</span>
                                         </div>
                                     {/if}
-                                    
+
                                     {#if source.url}
                                         <div class="source-url">URL: {source.url}</div>
                                     {/if}
@@ -137,18 +137,18 @@
                                 <span class="cache-complete">Ready</span>
                             {/if}
                         </div>
-                        
+
                         <div class="cache-stat">
                             <span class="cache-label">Total Photos:</span>
                             <span class="cache-value">{$mapillary_cache_status.total_live_photos || 0}</span>
                         </div>
-                        
+
                         <div class="cache-stat">
                             <span class="cache-label">Stream Phase:</span>
                             <span class="cache-value">{$mapillary_cache_status.stream_phase || 'idle'}</span>
                         </div>
                     </div>
-                    
+
                     {#if $mapillary_cache_status.last_bounds}
                         <div class="bounds-info">
                             <div class="cache-label">Last Request Area:</div>
@@ -175,7 +175,7 @@
                                         📍 {photo.coord.lat?.toFixed(6)}, {photo.coord.lng?.toFixed(6)}
                                     </div>
                                     <div class="photo-details">
-                                        🧭 {photo.bearing?.toFixed(1)}° 
+                                        🧭 {photo.bearing?.toFixed(1)}°
                                         {#if photo.altitude}| ⛰️ {photo.altitude?.toFixed(0)}m{/if}
                                         {#if photo.captured_at}| 📅 {new Date(photo.captured_at).toLocaleDateString()}{/if}
                                     </div>
@@ -241,7 +241,7 @@
             {#if $app.debug === 4}
                 <div class="debug-section capture-system-section">
                     <div><strong>📸 Capture System Status:</strong></div>
-                    
+
                     <!-- Capture Queue Status -->
                     <div class="capture-subsection">
                         <div class="subsection-header">🔄 Queue Status:</div>

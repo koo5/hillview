@@ -8,9 +8,9 @@
 	import {myGoto} from '$lib/navigation.svelte';
 	import {constructPhotoMapUrl} from '$lib/urlUtils';
 	import { Trash2, Map, Settings, ThumbsUp, ThumbsDown, Upload} from 'lucide-svelte';
-	import StandardHeaderWithAlert from '../../components/StandardHeaderWithAlert.svelte';
-	import StandardBody from '../../components/StandardBody.svelte';
-	import Spinner from '../../components/Spinner.svelte';
+	import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';
+	import StandardBody from '$lib/components/StandardBody.svelte';
+	import Spinner from '$lib/components/Spinner.svelte';
 	import PhotoImport from '$lib/components/PhotoImport.svelte';
 	import PhotoUpload from '$lib/components/PhotoUpload.svelte';
 	import {auth} from '$lib/auth.svelte';

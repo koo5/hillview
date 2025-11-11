@@ -1,7 +1,7 @@
 <script lang="ts">
     import { createEventDispatcher, onDestroy, onMount } from 'svelte';
     import { Camera, Zap, Turtle } from 'lucide-svelte';
-	import {frontendBusy} from "$lib/data.svelte";
+	import {frontendBusy} from "$lib/data.svelte.js";
 
     export let disabled = false;
     export let slowInterval = 10000;

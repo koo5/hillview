@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { currentAlert, removeAlert, fadeAlert, unfadeAlert, alerts } from '$lib/alertSystem.svelte';
+    import { currentAlert, removeAlert, fadeAlert, unfadeAlert, alerts } from '$lib/alertSystem.svelte.js';
     import { X, RotateCcw, AlertTriangle, CheckCircle, Info, AlertCircle } from 'lucide-svelte';
     import { createEventDispatcher } from 'svelte';
 

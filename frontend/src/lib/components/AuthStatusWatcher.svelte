@@ -1,7 +1,7 @@
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
     import { auth } from '$lib/authStore';
-    import { showTokenRefreshIssue, removeAlertsBySource, addAlert } from '$lib/alertSystem.svelte';
+    import { showTokenRefreshIssue, removeAlertsBySource, addAlert } from '$lib/alertSystem.svelte.js';
     import { createTokenManager } from '$lib/tokenManagerFactory';
 
     let refreshStatusAlert: string | null = null;

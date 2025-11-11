@@ -1,7 +1,7 @@
 <script lang="ts">
-    import {cameraOverlayOpacity} from "$lib/data.svelte";
+    import {cameraOverlayOpacity} from "$lib/data.svelte.js";
 	import {get} from "svelte/store";
-    import {sensorAccuracy, compassLag} from "$lib/compass.svelte";
+    import {sensorAccuracy, compassLag} from "$lib/compass.svelte.js";
     import {bearingState} from "$lib/mapState";
 
     export let locationData: {

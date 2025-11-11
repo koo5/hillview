@@ -1,10 +1,10 @@
 <script lang="ts">
     import { EyeOff, UserX, ThumbsUp, ThumbsDown, Share, Flag, MoreVertical } from 'lucide-svelte';
     import { http, handleApiError } from '$lib/http';
-    import { auth } from '$lib/auth.svelte';
+    import { auth } from '$lib/auth.svelte.js';
     import { simplePhotoWorker } from '$lib/simplePhotoWorker';
     import { constructUserProfileUrl, constructShareUrl, openExternalUrl } from '$lib/urlUtils';
-    import { myGoto } from '$lib/navigation.svelte';
+    import { myGoto } from '$lib/navigation.svelte.js';
     import { TAURI } from '$lib/tauri.js';
     import { invoke } from '@tauri-apps/api/core';
     import type { PhotoData } from '$lib/sources';

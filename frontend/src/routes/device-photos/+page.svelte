@@ -1,7 +1,7 @@
 <script lang="ts">
 	import {onMount} from 'svelte';
-	import StandardHeaderWithAlert from '../../components/StandardHeaderWithAlert.svelte';
-	import StandardBody from '../../components/StandardBody.svelte';
+	import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';
+	import StandardBody from '$lib/components/StandardBody.svelte';
 	import {TAURI} from '$lib/tauri';
 	import {invoke} from "@tauri-apps/api/core";
 	import { RefreshCw, Download, Upload, Clock, MapPin, Camera, AlertCircle, ChevronLeft, ChevronRight } from 'lucide-svelte';

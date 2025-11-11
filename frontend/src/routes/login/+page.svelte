@@ -2,8 +2,8 @@
     import { onMount } from 'svelte';
     import { User, Lock, Mail, Github } from 'lucide-svelte';
     import { myGoto } from '$lib/navigation.svelte';
-    import StandardHeaderWithAlert from '../../components/StandardHeaderWithAlert.svelte';
-    import StandardBody from '../../components/StandardBody.svelte';
+    import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';
+    import StandardBody from '$lib/components/StandardBody.svelte';
     import { login, register, oauthLogin, auth } from '$lib/auth.svelte';
     import { invoke } from '@tauri-apps/api/core';
     import { buildOAuthUrl } from '$lib/authCallback';
@@ -11,7 +11,7 @@
     import { goBack, clearNavigationHistory, canNavigateBack } from '$lib/navigation.svelte';
     import { page } from '$app/stores';
     import { browser } from '$app/environment';
-    import OAuthPolling from '../../components/OAuthPolling.svelte';
+    import OAuthPolling from '$lib/components/OAuthPolling.svelte';
     import { TAURI } from '$lib/tauri';
     import { backendUrl } from '$lib/config';
     import { openUrl } from '@tauri-apps/plugin-opener';

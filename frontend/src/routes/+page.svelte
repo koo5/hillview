@@ -4,7 +4,7 @@
 	let Main: any;
 	if (browser) {
 		async function loadMain() {
-			const module = await import('../components/Main.svelte');
+			const module = await import('$lib/components/Main.svelte');
 			Main = module.default;
 		}
 		loadMain();

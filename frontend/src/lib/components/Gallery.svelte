@@ -2,7 +2,7 @@
     import {photoInFront, photosInRange, updateBearing} from "$lib/mapState";
     import Photo from "./Photo.svelte";
     import Spinner from "./Spinner.svelte";
-    import {anySourceLoading} from "$lib/data.svelte";
+    import {anySourceLoading} from "$lib/data.svelte.js";
     import type {PhotoData} from '$lib/sources';
 
     let clientWidth: number;

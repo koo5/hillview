@@ -49,6 +49,5 @@ export const init = () => {
 	{
 		invoke('plugin:hillview|set_upload_config', { config: {serverUrl: backendUrl }});
 	}
-
-
-	console.log('🢄client initialized');};
+	console.log('🢄client initialized');
+};

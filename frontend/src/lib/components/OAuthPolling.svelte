@@ -1,7 +1,7 @@
 <script lang="ts">
     import { createEventDispatcher } from 'svelte';
     import { backendUrl } from '$lib/config';
-    import { completeAuthentication } from '$lib/auth.svelte';
+    import { completeAuthentication } from '$lib/auth.svelte.js';
 
     export let sessionId: string;
     export let isActive: boolean = true;
@@ -31,15 +31,15 @@
 
             attempts++;
             progress = Math.min((attempts / maxAttempts) * 100, 95); // Cap at 95% until complete
-            
+
             console.log(`🢄🔐 Polling attempt ${attempts}/${maxAttempts} for session ${sessionId}`);
-            
+
             // Dispatch progress update
             dispatch('progress', { progress, message });
 
             try {
                 const response = await fetch(`${backendUrl}/auth/oauth-status/${sessionId}`);
-                
+
                 if (response.ok) {
                     // OAuth completed successfully
                     const tokenData = await response.json();
@@ -47,7 +47,7 @@
                     progress = 100;
                     message = 'Processing authentication...';
                     dispatch('progress', { progress, message });
-                    
+
                     // Complete authentication using existing logic
                     const authSuccess = await completeAuthentication({
                         access_token: tokenData.access_token,
@@ -121,13 +121,13 @@
     <div class="polling-header">
         <h3>Completing OAuth Login</h3>
     </div>
-    
+
     <div class="progress-bar">
         <div class="progress-fill" style="width: {progress}%"></div>
     </div>
-    
+
     <div class="polling-message">{message}</div>
-    
+
     <div class="polling-actions">
         <button type="button" class="cancel-button" on:click={handleCancel}>
             Cancel Login

@@ -2,8 +2,8 @@
     import { onMount } from 'svelte';
     import { myGoto } from '$lib/navigation.svelte';
     import { EyeOff, Trash2, User, Image, MapPin } from 'lucide-svelte';
-    import StandardHeaderWithAlert from '../../components/StandardHeaderWithAlert.svelte';
-    import StandardBody from '../../components/StandardBody.svelte';
+    import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';
+    import StandardBody from '$lib/components/StandardBody.svelte';
     import { auth } from '$lib/auth.svelte';
     import { http, handleApiError, TokenExpiredError } from '$lib/http';
 

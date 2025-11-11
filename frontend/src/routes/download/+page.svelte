@@ -1,7 +1,7 @@
 <script lang="ts">
     import { Download, Smartphone } from 'lucide-svelte';
-    import StandardHeaderWithAlert from '../../components/StandardHeaderWithAlert.svelte';
-    import StandardBody from '../../components/StandardBody.svelte';
+    import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';
+    import StandardBody from '$lib/components/StandardBody.svelte';
 </script>
 
 <StandardHeaderWithAlert

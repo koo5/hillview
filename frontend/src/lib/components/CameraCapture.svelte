@@ -2,7 +2,7 @@
     import {createEventDispatcher, onDestroy, onMount} from 'svelte';
     import {get} from 'svelte/store';
     import {photoCaptureSettings} from '$lib/stores';
-    import {app} from "$lib/data.svelte";
+    import {app} from "$lib/data.svelte.js";
     import DualCaptureButton from './DualCaptureButton.svelte';
     import CaptureQueueStatus from './CaptureQueueStatus.svelte';
     import CaptureQueueIndicator from './CaptureQueueIndicator.svelte';
@@ -23,7 +23,7 @@
         getPreferredBackCamera,
         type CameraDevice,
         type Resolution
-    } from '$lib/cameraDevices.svelte';
+    } from '$lib/cameraDevices.svelte.js';
     import { tauriCamera, isCameraPermissionCheckAvailable } from '$lib/tauri';
     import { addPluginListener, type PluginListener } from '@tauri-apps/api/core';
 

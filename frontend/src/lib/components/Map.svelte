@@ -23,11 +23,11 @@
         type BearingMode,
         bearingMode
     } from "$lib/mapState";
-    import { sources } from "$lib/data.svelte";
+    import { sources } from "$lib/data.svelte.js";
     import { simplePhotoWorker } from '$lib/simplePhotoWorker';
-    import { turn_to_photo_to, app, mapillary_cache_status, sourceLoadingStatus } from "$lib/data.svelte";
-    import { updateGpsLocation, setLocationTracking, setLocationError, gpsLocation, locationTracking } from "$lib/location.svelte";
-    import { compassState, compassEnabled, compassAvailable, enableCompass, disableCompass, currentCompassHeading, isOnMapRoute, compassError } from "$lib/compass.svelte";
+    import { turn_to_photo_to, app, mapillary_cache_status, sourceLoadingStatus } from "$lib/data.svelte.js";
+    import { updateGpsLocation, setLocationTracking, setLocationError, gpsLocation, locationTracking } from "$lib/location.svelte.js";
+    import { compassState, compassEnabled, compassAvailable, enableCompass, disableCompass, currentCompassHeading, isOnMapRoute, compassError } from "$lib/compass.svelte.js";
     import { optimizedMarkerSystem } from '$lib/optimizedMarkers';
     import '$lib/styles/optimizedMarkers.css';
 

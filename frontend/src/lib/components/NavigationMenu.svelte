@@ -2,7 +2,7 @@
     import {
         Map, Images, Activity, Database, Info, Download, User, EyeOff, LogOut, Users, Settings
     } from 'lucide-svelte';
-    import { auth, logout } from '$lib/auth.svelte';
+    import { auth, logout } from '$lib/auth.svelte.js';
     import { FEATURE_USER_ACCOUNTS } from '$lib/config';
     import { BUILD_TIME, BUILD_VERSION, formatBuildTime } from '$lib/buildInfo';
     import { TAURI } from '$lib/tauri.js';
@@ -60,7 +60,7 @@
     <nav class="nav-menu">
 
         <ul class="menu-list" on:click={handleExternalClick} role="presentation">
-            <li><a href="/" on:click={closeMenu}>
+            <li><a href="/static" on:click={closeMenu}>
                 <Map size={18}/>
                 Map
             </a></li>

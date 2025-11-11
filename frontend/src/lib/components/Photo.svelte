@@ -2,14 +2,14 @@
 	import {onMount, onDestroy} from 'svelte';
 	import PhotoActionsMenu from './PhotoActionsMenu.svelte';
 	import Spinner from './Spinner.svelte';
-	import {app} from '$lib/data.svelte';
-	import {auth} from '$lib/auth.svelte';
+	import {app} from '$lib/data.svelte.js';
+	import {auth} from '$lib/auth.svelte.js';
 	import {http, handleApiError} from '$lib/http';
-	import {myGoto} from '$lib/navigation.svelte';
+	import {myGoto} from '$lib/navigation.svelte.js';
 	import {constructShareUrl} from '$lib/urlUtils';
 	import {getDevicePhotoUrl} from '$lib/devicePhotoHelper';
 	import {simplePhotoWorker} from '$lib/simplePhotoWorker';
-	import {zoomViewData} from '$lib/zoomView.svelte';
+	import {zoomViewData} from '$lib/zoomView.svelte.js';
 	import {doubleTap} from '$lib/actions/doubleTap';
 	import {getFullPhotoInfo} from '$lib/photoUtils';
 	import type {PhotoData} from '$lib/sources';

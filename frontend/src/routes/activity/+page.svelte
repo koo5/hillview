@@ -5,9 +5,9 @@
 	import { http, handleApiError } from '$lib/http';
 	import { myGoto } from '$lib/navigation.svelte';
 	import { constructPhotoMapUrl, constructUserProfileUrl } from '$lib/urlUtils';
-	import StandardHeaderWithAlert from '../../components/StandardHeaderWithAlert.svelte';
-	import StandardBody from '../../components/StandardBody.svelte';
-	import Spinner from '../../components/Spinner.svelte';
+	import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';
+	import StandardBody from '$lib/components/StandardBody.svelte';
+	import Spinner from '$lib/components/Spinner.svelte';
 	import LoadMoreButton from '$lib/components/LoadMoreButton.svelte';
 	import PhotoItem from '$lib/components/PhotoItem.svelte';
 

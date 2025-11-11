@@ -4,8 +4,8 @@
 
 <script lang="ts">
     import { Info, MapPin, Camera, Globe, Github, Heart, FileText, Shield, Mail } from 'lucide-svelte';
-    import StandardHeaderWithAlert from '../../components/StandardHeaderWithAlert.svelte';
-    import StandardBody from '../../components/StandardBody.svelte';
+    import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';
+    import StandardBody from '$lib/components/StandardBody.svelte';
     import { getCurrentProviderConfig, getProviderDisplayName, currentTileProvider } from '$lib/tileProviders';
     import { openExternalUrl } from '$lib/urlUtils';
 

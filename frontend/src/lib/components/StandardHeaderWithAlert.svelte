@@ -2,7 +2,7 @@
     import StandardHeader from './StandardHeader.svelte';
     import NavigationMenu from './NavigationMenu.svelte';
 
-    import type { Alert } from '$lib/alertSystem.svelte';
+    import type { Alert } from '$lib/alertSystem.svelte.js';
 
     export let title: string;
     export let showBackButton: boolean = true;

@@ -1,6 +1,6 @@
 <script lang="ts">
-	import StandardHeaderWithAlert from '../../components/StandardHeaderWithAlert.svelte';
-	import StandardBody from '../../components/StandardBody.svelte';
+	import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';
+	import StandardBody from '$lib/components/StandardBody.svelte';
 	import SettingsComponent from '$lib/components/CameraSettings.svelte';
 	import UploadSettingsComponent from '$lib/components/UploadSettings.svelte';
 	import NotificationSettingsComponent from '$lib/components/NotificationSettings.svelte';

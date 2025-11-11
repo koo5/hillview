@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
-	import Spinner from '../../components/Spinner.svelte';
+	import Spinner from './Spinner.svelte';
 
 	export let hasMore: boolean = false;
 	export let loading: boolean = false;

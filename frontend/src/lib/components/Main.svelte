@@ -3,8 +3,8 @@
 	import {page} from '$app/stores';
 	import {browser} from '$app/environment';
 	import {parsePhotoUid} from '$lib/urlUtils';
-	import PhotoGallery from '../components/Gallery.svelte';
-	import Map from '../components/Map.svelte';
+	import PhotoGallery from './Gallery.svelte';
+	import Map from './Map.svelte';
 	import {
 		Camera,
 		Maximize2,
@@ -12,7 +12,7 @@
 		Minimize2,
 		Square
 	} from 'lucide-svelte';
-	import {app, sources, toggleDebug, turn_to_photo_to, enableSourceForPhotoUid, type DisplayMode} from "$lib/data.svelte";
+	import {app, sources, toggleDebug, turn_to_photo_to, enableSourceForPhotoUid, type DisplayMode} from "$lib/data.svelte.js";
 	import {
 		bearingState,
 		spatialState,
@@ -25,14 +25,14 @@
 	import {LatLng} from 'leaflet';
 	import {replaceState} from "$app/navigation";
 	import {get} from "svelte/store";
-	import {auth, logout} from "$lib/auth.svelte";
-	import CameraCapture from '../components/CameraCapture.svelte';
-	import DebugOverlay from '../components/DebugOverlay.svelte';
+	import {auth, logout} from "$lib/auth.svelte.js";
+	import CameraCapture from './CameraCapture.svelte';
+	import DebugOverlay from './DebugOverlay.svelte';
 	import {deviceOrientationExif, getRotationFromOrientation} from "$lib/deviceOrientationExif";
-	import AlertArea from '../components/AlertArea.svelte';
-	import NavigationMenu from '../components/NavigationMenu.svelte';
+	import AlertArea from './AlertArea.svelte';
+	import NavigationMenu from './NavigationMenu.svelte';
 	import type {DevicePhotoMetadata} from '$lib/types/photoTypes';
-	import {enableCompass, disableCompass} from '$lib/compass.svelte';
+	import {enableCompass, disableCompass} from '$lib/compass.svelte.js';
 
 	let map: any = null;
 	let mapComponent: any = null;

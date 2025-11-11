@@ -4,8 +4,8 @@
 
 <script lang="ts">
     import { Mail, Send, MessageSquare, User, CheckCircle, AlertCircle } from 'lucide-svelte';
-    import StandardHeaderWithAlert from '../../components/StandardHeaderWithAlert.svelte';
-    import StandardBody from '../../components/StandardBody.svelte';
+    import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';
+    import StandardBody from '$lib/components/StandardBody.svelte';
     import { http } from '$lib/http';
     import { auth } from '$lib/auth.svelte';
 

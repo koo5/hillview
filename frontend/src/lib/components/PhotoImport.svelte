@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { invoke } from '@tauri-apps/api/core';
 	import { FolderOpen } from 'lucide-svelte';
-	import Spinner from '../../components/Spinner.svelte';
+	import Spinner from './Spinner.svelte';
 	import type {User} from '$lib/auth.svelte';
 
 	export let user: User | null = null;

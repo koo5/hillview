@@ -1,6 +1,6 @@
 <script lang="ts">
     import { Menu, ArrowLeft } from 'lucide-svelte';
-    import { goBack, canNavigateBack, getPreviousPath } from '$lib/navigation.svelte';
+    import { goBack, canNavigateBack, getPreviousPath } from '$lib/navigation.svelte.js';
     import { goto } from '$app/navigation';
     import AlertArea from './AlertArea.svelte';
 

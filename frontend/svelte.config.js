@@ -1,6 +1,6 @@
 import adapterStatic from '@sveltejs/adapter-static';
 import adapterNode from '@sveltejs/adapter-node';
-import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
+import {vitePreprocess} from '@sveltejs/vite-plugin-svelte';
 
 // Use Node adapter for Docker/server deployment, static for Tauri builds
 const adapter = process.env.ADAPTER === 'node' ? adapterNode() : adapterStatic({
@@ -21,6 +21,16 @@ const config = {
 		// If your environment is not supported, or you settled on a specific environment, switch out the adapter.
 		// See https://svelte.dev/docs/kit/adapters for more information about adapters.
 		adapter,
+
+		experimental: {
+			tracing: {
+				server: true
+			},
+
+			instrumentation: {
+				server: true
+			}
+		}
 	}
 };
 
