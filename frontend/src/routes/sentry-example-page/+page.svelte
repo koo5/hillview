@@ -6,7 +6,7 @@ Feel free to delete this file and the entire sentry route.
 <script>
   import * as Sentry from '@sentry/sveltekit';
   import { onMount } from 'svelte';
-  
+
   // Svelte Runes (requires Svelte 5)
   // let hasSentError = $state(false);
   let hasSentError = false;
@@ -47,7 +47,7 @@ Feel free to delete this file and the entire sentry route.
     </h1>
 
     <p class="description">
-      Click the button below, and view the sample error on the Sentry <a target="_blank" href="https://ook-sy.sentry.io/issues/?project=4509657109692496">Issues Page</a>. 
+      Click the button below, and view the sample error on the Sentry <a target="_blank" href="https://ook-sy.sentry.io/issues/?project=4509657109692496">Issues Page</a>.
       For more details about setting up Sentry, <a target="_blank" href="https://docs.sentry.io/platforms/javascript/guides/sveltekit/">read our docs</a>.
     </p>
 
@@ -203,9 +203,5 @@ Feel free to delete this file and the entire sentry route.
     text-align: center;
     margin: 0;
   }
-  
-  .connectivity-error a {
-    color: #FFFFFF;
-    text-decoration: underline;
-  }
+
 </style>

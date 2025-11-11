@@ -22,7 +22,7 @@ const config = {
 		// See https://svelte.dev/docs/kit/adapters for more information about adapters.
 		adapter,
 
-		experimental: {
+		/*experimental: {
 			tracing: {
 				server: true
 			},
@@ -30,7 +30,7 @@ const config = {
 			instrumentation: {
 				server: true
 			}
-		}
+		}*/
 	}
 };
 

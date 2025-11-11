@@ -9,7 +9,7 @@
 	import {TAURI_MOBILE, TAURI} from '$lib/tauri';
 	import {backendUrl} from '$lib/config';
 	import {setupDeepLinkListener} from '$lib/authCallback';
-	import AuthStatusWatcher from '../components/AuthStatusWatcher.svelte';
+	import AuthStatusWatcher from '$lib/components/AuthStatusWatcher.svelte';
 	import ZoomView from '$lib/components/ZoomView.svelte';
 	import {clearAlerts} from "$lib/alertSystem.svelte";
 	import {checkAuth} from '$lib/auth.svelte';
