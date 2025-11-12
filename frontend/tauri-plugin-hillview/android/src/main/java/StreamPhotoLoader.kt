@@ -22,6 +22,29 @@ class StreamPhotoLoader {
         private const val TAG = "StreamPhotoLoader"
         private const val CONNECTION_TIMEOUT_SECONDS = 30L
         private const val READ_TIMEOUT_SECONDS = 60L
+
+        /**
+         * Sanitize captured_at timestamps to handle common formatting issues
+         */
+        private fun sanitizeCapturedAt(timestamp: String?): String? {
+            if (timestamp.isNullOrBlank()) {
+                Log.w(TAG, "Skipping empty captured_at timestamp")
+                return null
+            }
+
+            return try {
+                // Handle ISO timestamps without timezone by adding 'Z'
+                if (timestamp.matches(Regex("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}$"))) {
+                    Log.d(TAG, "Adding timezone to ISO timestamp: $timestamp")
+                    "${timestamp}Z"
+                } else {
+                    timestamp
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to sanitize timestamp '$timestamp': ${e.message}")
+                null
+            }
+        }
     }
 
     private val client = OkHttpClient.Builder()
@@ -332,7 +355,7 @@ class StreamPhotoLoader {
 
         // Extract captured_at and convert from ISO string to timestamp
         val capturedAt = photoJson["captured_at"]?.jsonPrimitive?.content?.let { isoString ->
-            parseIsoToTimestamp(isoString)
+            parseIsoToTimestamp(sanitizeCapturedAt(isoString))
         }
 
         // Extract is_pano

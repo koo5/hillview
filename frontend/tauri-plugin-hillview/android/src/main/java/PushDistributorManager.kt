@@ -190,6 +190,7 @@ class PushDistributorManager(private val context: Context) {
 
     /**
      * Auto-register with distributor if needed (no selection or failed registration)
+     * Synchronized wrapper to prevent race conditions.
      */
     suspend fun autoRegisterIfNeeded() {
         // Check if server URL is configured first
@@ -200,6 +201,15 @@ class PushDistributorManager(private val context: Context) {
             return
         }
 
+        registrationMutex.withLock {
+            autoRegisterIfNeededInternal()
+        }
+    }
+
+    /**
+     * Internal auto-register logic (assumes caller holds registrationMutex)
+     */
+    private suspend fun autoRegisterIfNeededInternal() {
         val selectedDistributor = getSelectedDistributor()
         val registrationStatus = getRegistrationStatus()
 
