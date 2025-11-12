@@ -1,63 +1,7 @@
 <script lang="ts">
-	export let data;
 
-	let Main: any;
-	if (browser) {
-		async function loadMain() {
-			const module = await import('$lib/components/Main.svelte');
-			Main = module.default;
-		}
-		loadMain();
-	}
+	import Main from '$lib/components/Main.svelte';
 
-	import {browser} from '$app/environment';
-	import {page} from '$app/stores';
 </script>
 
-
-<svelte:head>
-	{#if data?.photoMeta}
-		<title>Photo on Hillview</title>
-		<meta name="description" content={data.photoMeta.description} />
-
-		<!-- OpenGraph tags for social sharing -->
-		<meta property="og:title" content="Photo on Hillview" />
-		<meta property="og:description" content={data.photoMeta.description} />
-		<meta property="og:type" content="article" />
-		<meta property="og:url" content={$page.url.href} />
-
-		{#if data.photoMeta.imageUrl}
-			<meta property="og:image" content={data.photoMeta.imageUrl} />
-			{#if data.photoMeta.width}
-				<meta property="og:image:width" content={data.photoMeta.width.toString()} />
-			{/if}
-			{#if data.photoMeta.height}
-				<meta property="og:image:height" content={data.photoMeta.height.toString()} />
-			{/if}
-		{/if}
-
-		<!-- Twitter Card tags -->
-		<meta name="twitter:card" content="summary_large_image" />
-		<meta name="twitter:title" content="Photo on Hillview" />
-		<meta name="twitter:description" content={data.photoMeta.description} />
-		{#if data.photoMeta.imageUrl}
-			<meta name="twitter:image" content={data.photoMeta.imageUrl} />
-		{/if}
-
-		<!-- Additional geo/location tags if available -->
-		{#if data.photoMeta.latitude && data.photoMeta.longitude}
-			<meta property="place:location:latitude" content={data.photoMeta.latitude.toString()} />
-			<meta property="place:location:longitude" content={data.photoMeta.longitude.toString()} />
-		{/if}
-	{:else}
-		<title>Hillview</title>
-		<meta name="description" content="Hillview - Photo mapping application" />
-		<meta property="og:title" content="Hillview" />
-		<meta property="og:description" content="Hillview - Photo mapping application" />
-		<meta property="og:type" content="website" />
-	{/if}
-</svelte:head>
-
-{#if browser && Main}
-	<svelte:component this={Main}/>
-{/if}
+<Main />

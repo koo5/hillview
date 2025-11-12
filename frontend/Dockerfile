@@ -8,6 +8,8 @@ WORKDIR /app
 # Copy source code
 COPY . .
 #bun.lock package.json tsconfig.json svelte.config.* vite.config.ts tauri-plugin-hillview ./
+COPY src/routes/+page.server.ts.ssr src/routes/+page.server.ts
+COPY src/routes/+page.svelte.ssr    src/routes/+page.svelte
 
 # Install dependencies
 RUN bun install # --frozen-lockfile

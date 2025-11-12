@@ -1,8 +1,6 @@
 #!/usr/bin/env fish
 
-# Initialize Tauri Android project for release builds
 source (dirname (status --current-filename))/../env/android-release.env
-
-rm -rf src-tauri/gen tauri-plugin-hillview/android/build/
-
+rm -rf src-tauri/gen tauri-plugin-hillview/android/build/  .svelte-kit/ build
 bun run tauri android init
+./scripts/patch-android-gen-files.py
