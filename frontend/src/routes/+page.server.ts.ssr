@@ -16,7 +16,7 @@ export const load: PageServerLoad = async ({ url, fetch }) => {
 	}
 	else
 	{
-		console.log('🢄+page.server.ts: Fetching OpenGraph metadata from backend');
+		console.log('🢄+page.server.ts: Running OpenGraph fetch on server');
 	}
 
 	// Check for photo parameter in URL
