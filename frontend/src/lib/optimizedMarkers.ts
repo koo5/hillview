@@ -168,6 +168,7 @@ export class OptimizedMarkerSystem {
 				const circle = element.querySelector('.bearing-circle') as HTMLElement;
 				if (circle && circle.style.backgroundColor !== bearingColor) {
 					circle.style.backgroundColor = bearingColor;
+					console.log(`Updated marker ${photoData.id} bearing color to ${bearingColor}`);
 					updatedCount++;
 				}
 			}
@@ -414,11 +415,14 @@ export class OptimizedMarkerSystem {
 	}*/
 	private getBearingColor(absBearingDiff: number): string {
 		if (absBearingDiff === null || absBearingDiff === undefined) return '#9E9E9E';
-		const steps = 16;
+		const steps = 8;
 		const stepSize = 100 / (steps - 1);
 		const step = Math.round(absBearingDiff / (200 / (steps - 1)));
-		const hue = 100 - step * stepSize;
-		return `hsl(${hue}, 100%, 70%)`;
+		const hue = (1 / step);
+		const r = `hsla(120, 100%, 70%, ${hue})`;
+		console.log(`Calculated bearing color for diff ${absBearingDiff}: step ${step}, hue ${hue}, color ${r}`);
+		return r;
+
 	}
 
 	/**

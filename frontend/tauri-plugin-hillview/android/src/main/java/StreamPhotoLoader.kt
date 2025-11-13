@@ -355,7 +355,9 @@ class StreamPhotoLoader {
 
         // Extract captured_at and convert from ISO string to timestamp
         val capturedAt = photoJson["captured_at"]?.jsonPrimitive?.content?.let { isoString ->
-            parseIsoToTimestamp(sanitizeCapturedAt(isoString))
+            sanitizeCapturedAt(isoString)?.let { sanitizedString ->
+                parseIsoToTimestamp(sanitizedString)
+            }
         }
 
         // Extract is_pano
