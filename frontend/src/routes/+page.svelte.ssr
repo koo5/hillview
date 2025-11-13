@@ -2,7 +2,7 @@
 	export let data;
 
 	let Main: any;
-	if (browser) {
+	if (browser && typeof window !== 'undefined') {
 		async function loadMain() {
 			const module = await import('$lib/components/Main.svelte');
 			Main = module.default;
