@@ -16,7 +16,7 @@ export const load: PageServerLoad = async ({ url, fetch }) => {
 	}
 	else
 	{
-		console.log('🢄+page.server.ts: Running OpenGraph fetch on server');
+
 	}
 
 	// Check for photo parameter in URL
@@ -24,6 +24,7 @@ export const load: PageServerLoad = async ({ url, fetch }) => {
 	const photoUid = parsePhotoUid(photoParam);
 
 	if (photoUid) {
+		console.log('🢄+page.server.ts: Running OpenGraph fetch on server');
 		try {
 
 			// Safely construct API URL with proper escaping

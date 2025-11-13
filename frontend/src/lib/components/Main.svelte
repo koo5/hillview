@@ -20,7 +20,7 @@
 		updateBearing as mapStateUpdateBearing,
 		updateBearingByDiff,
 		updateBearingWithPhoto,
-		photosInRange
+		photosInRange, photoInFront
 	} from "$lib/mapState";
 	import {LatLng} from 'leaflet';
 	import {replaceState} from "$app/navigation";
@@ -93,6 +93,18 @@
 		// Add keyboard event listener for debug toggle
 		window.addEventListener('keydown', handleKeyDown);
 
+		return photoInFront.subscribe(photo => {
+				const url = new URL(window.location.href);
+
+				if (photo?.uid) {
+					url.searchParams.set('photo', encodeURIComponent(photo.uid));
+				} else {
+					url.searchParams.delete('photo');
+				}
+
+				replaceState2(url.toString());
+		});
+
 	});
 
 	onDestroy(() => {
@@ -124,11 +136,13 @@
 			const url = new URL(window.location.href);
 			url.searchParams.set('bearing', String(lastBearingState.bearing));
 
-			if (lastBearingState.photoUid) {
+			/*
+			if (lastBearingState?.photoUid) {
 				url.searchParams.set('photo', encodeURIComponent(lastBearingState.photoUid));
 			} else {
 				url.searchParams.delete('photo');
 			}
+			*/
 
 			replaceState2(url.toString());
 		}, 2000);
@@ -167,8 +181,6 @@
 			url.searchParams.set('zoom', String(p.zoom));
 			replaceState2(url.toString());
 		}, 500);
-
-
 	});
 
 	const toggleMenu = () => {

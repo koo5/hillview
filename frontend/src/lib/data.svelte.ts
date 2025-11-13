@@ -7,7 +7,7 @@ import {auth} from './auth.svelte';
 export type DisplayMode = 'split' | 'max' | 'min';
 export type AppActivity = 'capture' | 'view';
 // Import new mapState for legacy compatibility only
-import {photoInFront, photoToLeft, photoToRight, updateBearing as mapStateUpdateBearing, updateBearingWithPhoto} from './mapState';
+import {photoToLeft, photoToRight, updateBearingWithPhoto} from './mapState';
 import {TAURI} from "$lib/tauri";
 
 // Device source subtypes
@@ -201,11 +201,6 @@ export const anySourceLoading = derived(
         });
     }
 );
-
-// Essential exports still used by components
-export {photoInFront as photo_in_front};
-export {photoToLeft as photo_to_left};
-export {photoToRight as photo_to_right};
 
 let old_sources: Source[] = [];
 
