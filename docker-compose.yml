@@ -67,6 +67,9 @@ services:
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
       - AWS_ENDPOINT_URL_S3=${AWS_ENDPOINT_URL_S3:-}
+      #- FIREBASE_CONFIG=${FIREBASE_CONFIG:/run/secrets/firebase_config}
+      - GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/firebase_credentials
+      - FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID:-}
 
     command: >
       bash -c "cd /app/app && /app/prestart.sh && uvicorn api:app --host 0.0.0.0 --port 8055 $${DEV_MODE:+--reload}"
@@ -144,7 +147,12 @@ volumes:
 
 secrets:
   mapillary_token:
-    file: ./secrets/MAPILLARY_CLIENT_TOKEN
+      file: ./secrets/MAPILLARY_CLIENT_TOKEN
+  firebase_config:
+      file: ./secrets/FIREBASE_CONFIG.json
+  firebase_credentials:
+      file: ./secrets/firebase_credentials
+
 
 networks:
   default:

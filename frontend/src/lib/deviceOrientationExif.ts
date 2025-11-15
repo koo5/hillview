@@ -96,20 +96,20 @@ function getDeviceOrientationFromAngles(alpha: number | null, beta: number | nul
 		return 0; // Default to portrait if we can't determine orientation
 	}
 
-	// Determine device orientation based on tilt angles
-	// This logic matches the original exifOrientationFromAngles but returns degrees instead of EXIF codes
-	if (Math.abs(gamma) > Math.abs(beta)) {
+	// Check landscape first - if gamma indicates landscape, stay in landscape
+	// regardless of beta (front-to-back tilt)
+	if (Math.abs(gamma) > 45) {
 		// Landscape orientation
-		if (gamma > 45) {
+		if (gamma > 0) {
 			return 270; // Landscape left (device rotated 90° counter-clockwise)
-		} else if (gamma < -45) {
+		} else {
 			return 90;  // Landscape right (device rotated 90° clockwise)
 		}
-	} else {
-		// Portrait orientation
-		if (Math.abs(beta) > 45 && beta < 0) {
-			return 180; // Upside-down portrait
-		}
+	}
+
+	// Only check portrait orientations if we're not in landscape
+	if (Math.abs(beta) > 45 && beta < 0) {
+		return 180; // Upside-down portrait
 	}
 
 	return 0; // Normal portrait

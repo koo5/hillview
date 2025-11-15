@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, ForeignKey, Integer, String, Float, DateTime, Text, JSON, Enum
+from sqlalchemy import Boolean, Column, ForeignKey, Integer, String, Float, DateTime, Text, JSON, Enum, CheckConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from geoalchemy2 import Geometry
@@ -299,7 +299,8 @@ class Notification(Base):
 	__tablename__ = "notifications"
 
 	id = Column(Integer, primary_key=True)  # Use BIGSERIAL for high volume
-	user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+	user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+	client_key_id = Column(String, ForeignKey("push_registrations.client_key_id", ondelete="CASCADE"), nullable=True, index=True)
 	type = Column(String(50), nullable=False)  # 'user_upload', 'photo_liked', 'follow', etc.
 	title = Column(Text, nullable=False)
 	body = Column(Text, nullable=False)
@@ -311,3 +312,11 @@ class Notification(Base):
 
 	# Relationships
 	user = relationship("User")
+	push_registration = relationship("PushRegistration", foreign_keys=[client_key_id])
+
+	__table_args__ = (
+		CheckConstraint(
+			'(user_id IS NOT NULL AND client_key_id IS NULL) OR (user_id IS NULL AND client_key_id IS NOT NULL)',
+			name='notifications_user_or_key_check'
+		),
+	)

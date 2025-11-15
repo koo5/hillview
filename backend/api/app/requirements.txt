@@ -30,3 +30,6 @@ numpy<2
 # Database migrations
 alembic==1.13.1
 psycopg2-binary==2.9.9
+
+
+firebase-admin

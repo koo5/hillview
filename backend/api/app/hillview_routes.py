@@ -91,7 +91,7 @@ async def get_hillview_images(
 					'id': photo.owner_id
 				}
 			}
-			
+
 			for k, v in (photo.sizes or {}).items():
 				photo_data['sizes'][k] = {'url': v.get('url'), 'width': v.get('width'), 'height': v.get('height')}
 

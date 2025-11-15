@@ -21,6 +21,7 @@
       <excludeFolder url="file://$MODULE_DIR$/frontend/src-tauri/target" />
       <excludeFolder url="file://$MODULE_DIR$/backend/scraps" />
       <excludeFolder url="file://$MODULE_DIR$/frontend/build" />
+      <excludeFolder url="file://$MODULE_DIR$/secrets" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />

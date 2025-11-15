@@ -51,25 +51,28 @@ set -e
 # Get the directory of this script
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND_DIR="$(dirname "$SCRIPT_DIR")"
+REPO_ROOT="$(dirname "$BACKEND_DIR")"
 API_APP_DIR="$BACKEND_DIR/api/app"
 
-# Change to the backend directory to ensure .env is loaded correctly
+# Change to the backend directory
 cd "$BACKEND_DIR"
 
-# Check if .env file exists
-if [ ! -f ".env" ]; then
-    echo "Warning: No .env file found in $BACKEND_DIR"
+# .env file is always in repo root now
+ENV_FILE="$REPO_ROOT/.env"
+if [ ! -f "$ENV_FILE" ]; then
+    echo "Warning: No .env file found in $REPO_ROOT"
     echo "Using default database connection settings"
+    ENV_FILE=""
 fi
 
 echo "Running alembic migration: $*"
 echo "Backend directory: $BACKEND_DIR"
 echo "Working directory: api/app"
 
-# Run alembic with current .env file loaded
+# Run alembic with .env file from repo root
 docker run --rm --network hillview_network \
     -v "$BACKEND_DIR:/app" \
     -w "/app/api/app" \
-    --env-file .env \
+    --env-file "$ENV_FILE" \
     -e ALEMBIC_SYNC_MODE=1 \
     hillview-api:latest alembic "$@"

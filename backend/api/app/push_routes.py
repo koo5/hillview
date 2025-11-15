@@ -17,6 +17,7 @@ from common.database import get_db
 from common.models import PushRegistration, Notification, User, UserPublicKey
 from common.security_utils import verify_ecdsa_signature, generate_client_key_id
 from auth import get_current_user, get_current_user_optional
+from push_notifications import create_notification_for_user, create_notification_for_client
 
 logger = logging.getLogger(__name__)
 
@@ -105,96 +106,6 @@ class NotificationListResponse(BaseModel):
 
 class UnreadCountResponse(BaseModel):
 	unread_count: int
-
-
-# Core notification functions (for use by other parts of the app)
-async def create_notification_for_user(
-	db: AsyncSession,
-	user_id: str,
-	notification_type: str,
-	title: str,
-	body: str,
-	action_type: Optional[str] = None,
-	action_data: Optional[Dict[str, Any]] = None,
-	expires_at: Optional[datetime] = None
-) -> int:
-	"""Create a notification for a user and send push. Returns notification ID."""
-	# Create notification
-	notification = Notification(
-		user_id=user_id,
-		type=notification_type,
-		title=title,
-		body=body,
-		action_type=action_type,
-		action_data=action_data,
-		expires_at=expires_at
-	)
-
-	db.add(notification)
-	await db.commit()
-	await db.refresh(notification)
-
-	# Send push notification to user's registered devices
-	await send_push_to_user(user_id, db)
-
-	logger.info(f"Created notification for user {user_id}: {title}")
-	return notification.id
-
-
-async def send_push_to_user(user_id: str, db: AsyncSession):
-	"""Send push notification poke to all registered devices for a user."""
-	# Get all client_key_ids for the user, then find push registrations for those keys
-	user_keys_query = select(UserPublicKey.key_id).where(
-		UserPublicKey.user_id == user_id,
-		UserPublicKey.is_active == True
-	)
-	user_keys_result = await db.execute(user_keys_query)
-	client_key_ids = [row[0] for row in user_keys_result.fetchall()]
-
-	if not client_key_ids:
-		logger.info(f"No active client keys found for user {user_id}")
-		return
-
-	# Get push registrations for all user's client keys
-	registrations_query = select(PushRegistration).where(
-		PushRegistration.client_key_id.in_(client_key_ids)
-	)
-	registrations_result = await db.execute(registrations_query)
-	registrations = registrations_result.scalars().all()
-
-	if not registrations:
-		logger.info(f"No push registrations found for user {user_id} (checked {len(client_key_ids)} client keys)")
-		return
-
-	# Send "smart poke" to each registered endpoint
-	async with httpx.AsyncClient(timeout=30.0) as client:
-		for registration in registrations:
-			try:
-				# Check if this is an FCM token or UnifiedPush URL
-				if registration.push_endpoint.startswith('fcm:'):
-					# FCM token - needs Firebase Admin SDK integration
-					# For now, log that we would send FCM message
-					logger.info(f"FCM token detected for {registration.client_key_id}: {registration.push_endpoint[:20]}...")
-					logger.warning(f"FCM integration not yet implemented - skipping FCM token {registration.client_key_id}")
-					continue
-
-				# UnifiedPush HTTP endpoint
-				response = await client.post(
-					registration.push_endpoint,
-					json={
-						"content": "activity_update",  # Generic wake-up signal
-						"encrypted": False
-					},
-					headers={"Content-Type": "application/json"}
-				)
-
-				if response.status_code == 200:
-					logger.info(f"Push sent successfully to {registration.client_key_id}")
-				else:
-					logger.warning(f"Push failed for {registration.client_key_id}: {response.status_code}")
-
-			except Exception as e:
-				logger.error(f"Error sending push to {registration.client_key_id}: {e}")
 
 
 # API Routes
@@ -430,22 +341,60 @@ async def create_notification(
 	request: NotificationRequest,
 	db: AsyncSession = Depends(get_db)
 ):
-	"""Create a notification for a user (internal/admin use)."""
-	# Use the core function
-	notification_id = await create_notification_for_user(
-		db=db,
-		user_id=request.user_id,
-		notification_type=request.type,
-		title=request.title,
-		body=request.body,
-		action_type=request.action_type,
-		action_data=request.action_data,
-		expires_at=request.expires_at
-	)
+	"""Create a notification for a user or client device (internal/admin use).
+
+	Accepts either user_id or client_key_id. If client_key_id is provided,
+	the notification will be sent to that specific device without requiring
+	a user account.
+	"""
+	# Validate that exactly one of user_id or client_key_id is provided
+	if not request.user_id and not request.client_key_id:
+		raise HTTPException(
+			status_code=status.HTTP_400_BAD_REQUEST,
+			detail="Either user_id or client_key_id must be provided"
+		)
+	if request.user_id and request.client_key_id:
+		raise HTTPException(
+			status_code=status.HTTP_400_BAD_REQUEST,
+			detail="Provide either user_id or client_key_id, not both"
+		)
+
+	if request.client_key_id:
+		# Create notification for specific client device
+		try:
+			notification_id = await create_notification_for_client(
+				db=db,
+				client_key_id=request.client_key_id,
+				notification_type=request.type,
+				title=request.title,
+				body=request.body,
+				action_type=request.action_type,
+				action_data=request.action_data,
+				expires_at=request.expires_at
+			)
+		except ValueError as e:
+			raise HTTPException(
+				status_code=status.HTTP_404_NOT_FOUND,
+				detail=str(e)
+			)
+		message = f"Notification created for client {request.client_key_id}"
+	else:
+		# Create notification for user (all their devices)
+		notification_id = await create_notification_for_user(
+			db=db,
+			user_id=request.user_id,
+			notification_type=request.type,
+			title=request.title,
+			body=request.body,
+			action_type=request.action_type,
+			action_data=request.action_data,
+			expires_at=request.expires_at
+		)
+		message = f"Notification created for user {request.user_id}"
 
 	return NotificationCreationResponse(
 		success=True,
-		message="Notification created",
+		message=message,
 		id=notification_id
 	)
 

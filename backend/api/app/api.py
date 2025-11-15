@@ -17,6 +17,9 @@ sys.path.append(common_path)
 from common.database import Base, engine, get_db
 from common.config import is_rate_limiting_disabled, rate_limit_config, get_cors_origins
 from debug_utils import debug_only, safe_str_id, clear_system_tables, cleanup_upload_directories
+from user_routes import start_session_cleanup
+
+
 
 logging.basicConfig(level=logging.DEBUG)
 log = logging.getLogger(__name__)
@@ -35,27 +38,15 @@ async def lifespan(app: FastAPI):
 	# Startup
 	log.info(f"Application startup initiated, DEV_MODE: {os.getenv('DEV_MODE', 'false')}")
 	rate_limit_config.log_configuration()
-
-	# Start OAuth session cleanup task
-	try:
-		from user_routes import start_session_cleanup
-		await start_session_cleanup()
-	except Exception as e:
-		log.error(f"Failed to start OAuth session cleanup: {e}")
-
+	await start_session_cleanup()
+	google.init()
 	log.info("Application startup completed")
-
 	yield
-
 	# Shutdown
 	log.info("Application shutdown initiated")
-	try:
-		from user_routes import stop_session_cleanup
-		await stop_session_cleanup()
-	except Exception as e:
-		log.error(f"Failed to stop OAuth session cleanup: {e}")
+	from user_routes import stop_session_cleanup
+	await stop_session_cleanup()
 	log.info("Application shutdown completed")
-
 
 
 
