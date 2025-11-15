@@ -5,7 +5,7 @@ import { auth } from './authStore';
 
 /**
  * Android Token Manager
- * 
+ *
  * Delegates all token operations to the Android plugin, which handles
  * refresh logic with mutex protection to prevent race conditions.
  */
@@ -14,25 +14,25 @@ export class AndroidTokenManager implements TokenManager {
 
     async getValidToken(force: boolean = false): Promise<string | null> {
         // console.log(`${this.LOG_PREFIX} Getting valid token from Android (force: ${force})`);
-        
+
         // Android plugin handles token validation and refresh internally
-        const result = await invoke('plugin:hillview|get_auth_token', { force }) as { 
-            token: string | null; 
+        const result = await invoke('plugin:hillview|get_auth_token', { force }) as {
+            token: string | null;
             expires_at: string | null;
             success: boolean;
             error?: string;
         };
-        
+
         if (!result.success) {
             console.log(`${this.LOG_PREFIX} Android reports no valid token: ${result.error}`);
             return null;
         }
-        
+
         if (result.token) {
             // console.log(`${this.LOG_PREFIX} Valid token received from Android`);
             return result.token;
         }
-        
+
         console.log(`${this.LOG_PREFIX} No token available`);
         return null;
     }
@@ -40,12 +40,12 @@ export class AndroidTokenManager implements TokenManager {
     async refreshToken(): Promise<boolean> {
         try {
             // console.log(`${this.LOG_PREFIX} Requesting token refresh from Android`);
-            
+
             const result = await invoke('plugin:hillview|refresh_auth_token') as {
                 success: boolean;
                 error?: string;
             };
-            
+
             if (result.success) {
                 // console.log(`${this.LOG_PREFIX} Token refresh successful`);
                 return true;
@@ -53,7 +53,7 @@ export class AndroidTokenManager implements TokenManager {
                 console.log(`${this.LOG_PREFIX} Token refresh failed: ${result.error}`);
                 return false;
             }
-            
+
         } catch (error) {
             console.error(`${this.LOG_PREFIX} Error refreshing token:`, error);
             throw new TokenRefreshError(`Android token refresh failed: ${error}`);
@@ -69,35 +69,35 @@ export class AndroidTokenManager implements TokenManager {
             //     expiresAt: tokenData.expires_at,
             //     refreshTokenExpiresAt: tokenData.refresh_token_expires_at
             // }));
-            
+
             // console.log(`${this.LOG_PREFIX} - Calling plugin with:`, JSON.stringify({
             //     token: tokenData.access_token ? 'present' : 'missing',
             //     refreshToken: tokenData.refresh_token ? 'present' : 'missing',
             //     expiresAt: tokenData.expires_at,
             //     refreshExpiry: tokenData.refresh_token_expires_at
             // }));
-            
+
             const result = await invoke('plugin:hillview|store_auth_token', {
                 token: tokenData.access_token,
-                refreshToken: tokenData.refresh_token,
-                expiresAt: tokenData.expires_at,
-                refreshExpiry: tokenData.refresh_token_expires_at
+                refresh_token: tokenData.refresh_token,
+                expires_at: tokenData.expires_at,
+                refresh_expiry: tokenData.refresh_token_expires_at
             }) as { success: boolean; error?: string };
-            
+
             if (!result.success) {
                 const errorMsg = result.error || 'Unknown error storing tokens';
                 console.error(`${this.LOG_PREFIX} Plugin returned error: ${errorMsg}`);
                 throw new Error(`Failed to store tokens in Android: ${errorMsg}`);
             }
-            
+
             // console.log(`${this.LOG_PREFIX} Tokens stored successfully in Android`);
-            
+
             // Update auth store - tokens stored means authenticated
             auth.update(state => ({
                 ...state,
                 is_authenticated: true
             }));
-            
+
         } catch (error) {
             console.error(`${this.LOG_PREFIX} Error storing tokens in Android:`, error);
             throw error;
@@ -107,18 +107,18 @@ export class AndroidTokenManager implements TokenManager {
     async clearTokens(): Promise<void> {
         try {
             // console.log(`${this.LOG_PREFIX} Clearing tokens in Android`);
-            
+
             await invoke('plugin:hillview|clear_auth_token');
-            
+
             // console.log(`${this.LOG_PREFIX} Tokens cleared successfully from Android`);
-            
+
             // Update auth store - no tokens means not authenticated
             auth.update(state => ({
                 ...state,
                 is_authenticated: false,
                 user: null
             }));
-            
+
         } catch (error) {
             console.error(`${this.LOG_PREFIX} Error clearing tokens from Android:`, error);
             throw error;
@@ -127,9 +127,9 @@ export class AndroidTokenManager implements TokenManager {
 
     async isTokenExpired(bufferMinutes: number = 2): Promise<boolean> {
         const result = await invoke('plugin:hillview|is_token_expired', {
-            bufferMinutes
+            buffer_minutes
         }) as { expired: boolean };
-        
+
         return result.expired;
     }
 

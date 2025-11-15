@@ -72,7 +72,7 @@ pub struct AuthTokenResponse {
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct DevicePhotosResponse {
   pub photos: Vec<serde_json::Value>,
-  pub last_updated: i64,  // This will be renamed to lastUpdated by serde
+  pub last_updated: i64,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]

@@ -102,11 +102,8 @@ impl<R: Runtime> Hillview<R> {
     #[derive(serde::Serialize)]
     struct Args {
       token: String,
-      #[serde(rename = "expiresAt")]
       expires_at: String,
-      #[serde(rename = "refreshToken")]
       refresh_token: Option<String>,
-      #[serde(rename = "refreshExpiry")]
       refresh_expiry: Option<String>,
     }
 

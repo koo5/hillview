@@ -62,7 +62,7 @@
 
 			const response = await invoke('plugin:hillview|get_device_photos', {
 				page,
-				pageSize
+				page_size
 			}) as DevicePhotosResponse;
 
 			console.log('🢄Device photos response:', JSON.stringify(response));

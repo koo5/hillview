@@ -5,7 +5,7 @@ use crate::models::*;
 use crate::Result;
 use crate::HillviewExt;
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub(crate) async fn ping<R: Runtime>(
     app: AppHandle<R>,
     payload: PingRequest,
@@ -13,7 +13,7 @@ pub(crate) async fn ping<R: Runtime>(
     app.hillview().ping(payload)
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 #[allow(unused_variables)]
 pub(crate) async fn start_sensor<R: Runtime>(
     app: AppHandle<R>,
@@ -31,7 +31,7 @@ pub(crate) async fn start_sensor<R: Runtime>(
     }
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub(crate) async fn stop_sensor<R: Runtime>(
     _app: AppHandle<R>,
 ) -> Result<()> {
@@ -43,7 +43,7 @@ pub(crate) async fn stop_sensor<R: Runtime>(
     Ok(())
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub(crate) async fn update_sensor_location<R: Runtime>(
     _app: AppHandle<R>,
     _location: LocationUpdate,
@@ -56,7 +56,7 @@ pub(crate) async fn update_sensor_location<R: Runtime>(
     Ok(())
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 #[allow(unused_variables)]
 pub(crate) async fn set_auto_upload_enabled<R: Runtime>(
     app: AppHandle<R>,
@@ -74,7 +74,7 @@ pub(crate) async fn set_auto_upload_enabled<R: Runtime>(
     }
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub(crate) async fn get_upload_status<R: Runtime>(
     _app: AppHandle<R>,
 ) -> Result<UploadStatusResponse> {
@@ -89,7 +89,7 @@ pub(crate) async fn get_upload_status<R: Runtime>(
     }
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 #[allow(unused_variables)]
 pub(crate) async fn set_upload_config<R: Runtime>(
     app: AppHandle<R>,
@@ -107,7 +107,7 @@ pub(crate) async fn set_upload_config<R: Runtime>(
 }
 
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub(crate) async fn retry_failed_uploads<R: Runtime>(
     _app: AppHandle<R>,
 ) -> Result<BasicResponse> {
@@ -122,7 +122,7 @@ pub(crate) async fn retry_failed_uploads<R: Runtime>(
     }
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub(crate) async fn start_precise_location_listener<R: Runtime>(
     _app: AppHandle<R>,
 ) -> Result<()> {
@@ -138,7 +138,7 @@ pub(crate) async fn start_precise_location_listener<R: Runtime>(
     }
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub(crate) async fn stop_precise_location_listener<R: Runtime>(
     _app: AppHandle<R>,
 ) -> Result<()> {
@@ -156,7 +156,7 @@ pub(crate) async fn stop_precise_location_listener<R: Runtime>(
 
 // Authentication Commands
 
-#[command]
+#[command(rename_all = "snake_case")]
 #[allow(unused_variables)]
 pub(crate) async fn store_auth_token<R: Runtime>(
     app: AppHandle<R>,
@@ -181,7 +181,7 @@ pub(crate) async fn store_auth_token<R: Runtime>(
     }
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub(crate) async fn get_auth_token<R: Runtime>(
     _app: AppHandle<R>,
 ) -> Result<AuthTokenResponse> {
@@ -202,7 +202,7 @@ pub(crate) async fn get_auth_token<R: Runtime>(
     }
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub(crate) async fn clear_auth_token<R: Runtime>(
     _app: AppHandle<R>,
 ) -> Result<BasicResponse> {
@@ -221,7 +221,7 @@ pub(crate) async fn clear_auth_token<R: Runtime>(
     }
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub(crate) async fn get_device_photos<R: Runtime>(
     #[allow(unused_variables)] app: AppHandle<R>,
 ) -> Result<crate::models::DevicePhotosResponse> {
@@ -236,7 +236,7 @@ pub(crate) async fn get_device_photos<R: Runtime>(
     }
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub(crate) async fn refresh_photo_scan<R: Runtime>(
     #[allow(unused_variables)] app: AppHandle<R>,
 ) -> Result<crate::models::PhotoScanResponse> {
@@ -251,7 +251,7 @@ pub(crate) async fn refresh_photo_scan<R: Runtime>(
     }
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub(crate) async fn import_photos<R: Runtime>(
     #[allow(unused_variables)] app: AppHandle<R>,
 ) -> Result<crate::models::FileImportResponse> {
@@ -266,7 +266,7 @@ pub(crate) async fn import_photos<R: Runtime>(
     }
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub(crate) async fn register_client_public_key<R: Runtime>(
     #[allow(unused_variables)] app: AppHandle<R>,
 ) -> Result<BasicResponse> {
@@ -284,7 +284,7 @@ pub(crate) async fn register_client_public_key<R: Runtime>(
     }
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub(crate) async fn add_photo_to_database<R: Runtime>(
     #[allow(unused_variables)] app: AppHandle<R>,
     #[allow(unused_variables)] photo: crate::shared_types::DevicePhotoMetadata,
@@ -302,7 +302,7 @@ pub(crate) async fn add_photo_to_database<R: Runtime>(
 }
 
 #[cfg(mobile)]
-#[command]
+#[command(rename_all = "snake_case")]
 pub(crate) async fn share_photo<R: Runtime>(
     app: AppHandle<R>,
     title: Option<String>,
@@ -313,7 +313,7 @@ pub(crate) async fn share_photo<R: Runtime>(
 }
 
 #[cfg(mobile)]
-#[command]
+#[command(rename_all = "snake_case")]
 pub(crate) async fn photo_worker_process<R: Runtime>(
     app: AppHandle<R>,
     message_json: String,
@@ -323,7 +323,7 @@ pub(crate) async fn photo_worker_process<R: Runtime>(
 
 // Push Notification Commands
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub(crate) async fn get_push_distributors<R: Runtime>(
     #[allow(unused_variables)] app: AppHandle<R>,
 ) -> Result<crate::models::PushDistributorsResponse> {
@@ -338,7 +338,7 @@ pub(crate) async fn get_push_distributors<R: Runtime>(
     }
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub(crate) async fn get_push_registration_status<R: Runtime>(
     #[allow(unused_variables)] app: AppHandle<R>,
 ) -> Result<crate::models::PushRegistrationStatusResponse> {
@@ -354,7 +354,7 @@ pub(crate) async fn get_push_registration_status<R: Runtime>(
 }
 
 #[cfg(mobile)]
-#[command]
+#[command(rename_all = "snake_case")]
 pub(crate) async fn select_push_distributor<R: Runtime>(
     app: AppHandle<R>,
     request: crate::models::SelectDistributorRequest,
@@ -366,7 +366,7 @@ pub(crate) async fn select_push_distributor<R: Runtime>(
 
 
 #[cfg(mobile)]
-#[command]
+#[command(rename_all = "snake_case")]
 pub(crate) async fn get_notification_settings<R: Runtime>(
     app: AppHandle<R>,
 ) -> Result<crate::models::NotificationSettingsResponse> {
@@ -374,7 +374,7 @@ pub(crate) async fn get_notification_settings<R: Runtime>(
 }
 
 #[cfg(mobile)]
-#[command]
+#[command(rename_all = "snake_case")]
 pub(crate) async fn set_notification_settings<R: Runtime>(
     app: AppHandle<R>,
     enabled: bool,
@@ -385,7 +385,7 @@ pub(crate) async fn set_notification_settings<R: Runtime>(
 // Tauri permission system commands
 
 #[cfg(mobile)]
-#[command]
+#[command(rename_all = "snake_case")]
 pub(crate) async fn check_tauri_permissions<R: Runtime>(
     app: AppHandle<R>,
 ) -> Result<crate::models::TauriPermissionStringResponse> {
@@ -397,7 +397,7 @@ pub(crate) async fn check_tauri_permissions<R: Runtime>(
 }
 
 #[cfg(mobile)]
-#[command]
+#[command(rename_all = "snake_case")]
 pub(crate) async fn request_post_notification_permission<R: Runtime>(
     app: AppHandle<R>,
 ) -> Result<String> {
@@ -409,7 +409,7 @@ pub(crate) async fn request_post_notification_permission<R: Runtime>(
 }
 
 #[cfg(mobile)]
-#[command]
+#[command(rename_all = "snake_case")]
 pub(crate) async fn test_show_notification<R: Runtime>(
     app: AppHandle<R>,
     title: String,

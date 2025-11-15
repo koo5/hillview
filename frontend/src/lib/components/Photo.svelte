@@ -86,11 +86,11 @@
 			try {
 				devicePhotoUrl = getDevicePhotoUrl(photo.url);
 				selectedUrl = devicePhotoUrl;
-				console.log('🢄Photo.svelte: Device photo URL conversion:', {
+				/*console.log('🢄Photo.svelte: Device photo URL conversion:', {
 					originalUrl: photo.url,
 					convertedUrl: devicePhotoUrl,
 					photoId: photo.id
-				});
+				});*/
 				return;
 			} catch (error) {
 				console.error('🢄Failed to load device photo:', error);

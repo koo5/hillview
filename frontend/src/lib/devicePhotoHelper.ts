@@ -11,11 +11,11 @@ export function getDevicePhotoUrl(path: string): string {
     // Convert to asset URL (synchronous, no async needed!)
     const assetUrl = convertFileSrc(cleanPath);
 
-    console.log('🢄[devicePhotoHelper] URL conversion:', JSON.stringify({
+    /*console.log('🢄[devicePhotoHelper] URL conversion:', JSON.stringify({
         originalPath: path,
         cleanPath: cleanPath,
         assetUrl: assetUrl
-    }));
+    }));*/
 
     return assetUrl;
 }

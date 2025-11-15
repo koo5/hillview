@@ -125,7 +125,6 @@ class DevicePhotoLoader(private val context: Context) {
         pageSize: Int = 50,
         bounds: Bounds? = null
     ): DevicePhotosResponse {
-        return try {
             val offset = (page - 1) * pageSize
 
             val photoEntities = if (bounds != null) {
@@ -167,7 +166,7 @@ class DevicePhotoLoader(private val context: Context) {
                 )
             }
 
-            DevicePhotosResponse(
+            return DevicePhotosResponse(
                 photos = devicePhotos,
                 lastUpdated = System.currentTimeMillis(),
                 page = page,
@@ -176,20 +175,6 @@ class DevicePhotoLoader(private val context: Context) {
                 totalPages = totalPages,
                 hasMore = hasMore
             )
-
-        } catch (error: Exception) {
-            Log.e(TAG, "Error getting device photos response", error)
-            DevicePhotosResponse(
-                photos = emptyList(),
-                lastUpdated = System.currentTimeMillis(),
-                page = page,
-                pageSize = pageSize,
-                totalCount = 0,
-                totalPages = 0,
-                hasMore = false,
-                error = error.message
-            )
-        }
     }
 }
 

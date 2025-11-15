@@ -204,9 +204,9 @@ class CaptureQueueManager {
 					await new Promise(resolve => {requestAnimationFrame(resolve);});
 
 					await invoke('store_photo_chunk', {
-						photoId,
+						photo_id,
 						chunk,
-						isFirstChunk
+						is_first_chunk
 					});
 
 					frontendBusy.update(n => n - 1);
@@ -253,10 +253,10 @@ class CaptureQueueManager {
 
 						// Call Rust to save photo using stored chunks
 						const devicePhoto = await invoke('save_photo_with_metadata', {
-							photoId: item.id,
+							photo_id: item.id,
 							metadata,
 							filename,
-							hideFromGallery: false
+							hide_from_gallery: false
 						}) as { id: string; filename: string; [key: string]: any };
 
 						this.totalProcessed++;

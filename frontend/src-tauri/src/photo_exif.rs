@@ -875,7 +875,7 @@ fn create_exif_segment_simple(metadata: &PhotoMetadata) -> Vec<u8> {
 	exif_data
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn embed_photo_metadata(
 	image_data: Vec<u8>,
 	metadata: PhotoMetadata,
@@ -1062,7 +1062,7 @@ async fn verify_exif_in_saved_file(file_path: &std::path::Path, expected_metadat
 
 
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub fn store_photo_chunk(photo_id: String, chunk: Vec<u8>, is_first_chunk: bool) -> Result<(), String> {
 	let chunks_mutex = PHOTO_CHUNKS.get_or_init(|| Mutex::new(HashMap::new()));
 	let mut chunks = chunks_mutex.lock().map_err(|e| format!("Failed to lock chunks: {}", e))?;
@@ -1082,7 +1082,7 @@ pub fn store_photo_chunk(photo_id: String, chunk: Vec<u8>, is_first_chunk: bool)
 	Ok(())
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 #[allow(unused_variables)]
 pub async fn save_photo_with_metadata(
 	app_handle: tauri::AppHandle,
@@ -1112,7 +1112,7 @@ pub async fn save_photo_with_metadata(
 	}
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn read_device_photo(path: String) -> Result<Vec<u8>, String> {
 	use std::fs;
 
@@ -1326,7 +1326,7 @@ fn is_sensor_bearing_source(bearing_source: &str) -> bool {
 	source_lower.contains("enhanced")
 }
 
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn read_photo_exif(path: String) -> Result<PhotoMetadata, String> {
 	// First try using img-parts to extract EXIF data
 	let file_data = std::fs::read(&path).map_err(|e| format!("Failed to read file: {}", e))?;
@@ -1513,7 +1513,7 @@ pub async fn read_photo_exif(path: String) -> Result<PhotoMetadata, String> {
 }
 
 #[cfg(target_os = "android")]
-#[command]
+#[command(rename_all = "snake_case")]
 pub async fn save_photo_from_file(
 	app_handle: tauri::AppHandle,
 	photo_id: String,
