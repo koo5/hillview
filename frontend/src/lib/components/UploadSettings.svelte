@@ -1,88 +1,66 @@
 <script lang="ts">
 	import {onMount} from 'svelte';
-	import {get} from 'svelte/store';
 	import {TAURI} from "$lib/tauri.js";
-	import {invoke} from '@tauri-apps/api/core';
 	import {auth} from '$lib/auth.svelte';
 	import type {User} from '$lib/auth.svelte';
 	import {navigateWithHistory} from '$lib/navigation.svelte';
+	import {autoUploadSettings} from "$lib/autoUploadSettings";
 
-	export let onSaveSuccess = (message: string) => {};
-	export let onSaveError = (message: string) => {};
+	export let onSaveSuccess = (message: string) => {
+	};
+	export let onSaveError = (message: string) => {
+	};
 	export let onCancel: (() => void) | null = null;
 
 	let autoUploadEnabled = false;
 	let autoUploadPromptEnabled = true;
 	let user: User | null = null;
-	let alert: {type: string, message: string} | null = null;
+	let alert: { type: string, message: string } | null = null;
 
 	// Computed property for radio button state
 	$: radioState = autoUploadEnabled ? 'enabled' :
-	               (!autoUploadPromptEnabled ? 'disabled_never' : 'disabled');
+		(!autoUploadPromptEnabled ? 'disabled_never' : 'disabled');
 
 	onMount(() => {
 		// Subscribe to auth state changes
-		const unsubscribe = auth.subscribe(authState => {
+		const unsubscribe1 = auth.subscribe(authState => {
 			user = authState.isAuthenticated ? authState.user : null;
 		});
 
-		// Load auto-upload setting if on Tauri
-		if (TAURI) {
-			loadAndroidAutoUploadSetting();
-		}
+		const unsubscribe2 = autoUploadSettings.subscribe(value => {
+			console.log('Auto-upload settings loaded:', JSON.stringify(value));
+			autoUploadEnabled = value.value?.autoUploadEnabled || false;
+			autoUploadPromptEnabled = value.value?.autoUploadPromptEnabled !== false;
+		});
 
 		// Return cleanup function
 		return () => {
-			unsubscribe();
+			unsubscribe1();
+			unsubscribe2();
 		};
 	});
 
-	async function loadAndroidAutoUploadSetting() {
-		try {
-			const result = await invoke('plugin:hillview|get_upload_status') as {
-				autoUploadEnabled: boolean;
-				autoUploadPromptEnabled: boolean;
-			};
-
-			autoUploadEnabled = result.autoUploadEnabled || false;
-			autoUploadPromptEnabled = result.autoUploadPromptEnabled !== false; // Default to true
-			console.log('🢄📱 Loaded Android auto-upload settings:', {autoUploadEnabled, autoUploadPromptEnabled});
-		} catch (err) {
-			console.error('🢄Failed to load Android auto-upload settings:', err);
-			onSaveError('Failed to load settings. Using defaults.');
-			// Use defaults instead of crashing
-			autoUploadEnabled = false;
-			autoUploadPromptEnabled = true;
-		}
-	}
-
 	async function saveSettings() {
-		if (TAURI) {
-			try {
-				console.log('🢄📤 Setting Android auto-upload:', JSON.stringify({autoUploadEnabled, autoUploadPromptEnabled}));
-				await invoke('plugin:hillview|set_auto_upload_enabled', {
-					enabled: autoUploadEnabled,
-					promptEnabled: autoUploadPromptEnabled
-				});
-
-				const statusText = autoUploadEnabled ? 'enabled' :
-								  !autoUploadPromptEnabled ? 'disabled (never prompt)' : 'disabled';
-				const msg = `Auto-upload ${statusText}`;
-				onSaveSuccess(msg);
-				alert = {type: 'success', message: msg};
-
-				if (onCancel) {
-					onCancel();
-				}
-			} catch (err) {
-				console.error('🢄Error updating Android plugin:', err);
-				onSaveError('Failed to save settings');
+		await autoUploadSettings.persist(
+			{
+				autoUploadEnabled,
+				autoUploadPromptEnabled
 			}
+		);
+
+		const statusText = autoUploadEnabled ? 'enabled' :
+			!autoUploadPromptEnabled ? 'disabled (never prompt)' : 'disabled';
+		const msg = `Auto-upload ${statusText}`;
+		onSaveSuccess(msg);
+		alert = {type: 'success', message: msg};
+
+		if (onCancel) {
+			onCancel();
 		}
 	}
 
 	function handleRadioChange(value: string) {
-		switch(value) {
+		switch (value) {
 			case 'enabled':
 				autoUploadEnabled = true;
 				autoUploadPromptEnabled = true;
@@ -112,26 +90,26 @@
 		<div class="radio-group">
 			<label>
 				<input type="radio"
-					name="autoUpload"
-					checked={radioState === 'enabled'}
-					on:change={() => handleRadioChange('enabled')}
-					data-testid="auto-upload-enabled"/>
+					   name="autoUpload"
+					   checked={radioState === 'enabled'}
+					   on:change={() => handleRadioChange('enabled')}
+					   data-testid="auto-upload-enabled"/>
 				Enabled
 			</label>
 			<label>
 				<input type="radio"
-					name="autoUpload"
-					checked={radioState === 'disabled'}
-					on:change={() => handleRadioChange('disabled')}
-					data-testid="auto-upload-disabled"/>
+					   name="autoUpload"
+					   checked={radioState === 'disabled'}
+					   on:change={() => handleRadioChange('disabled')}
+					   data-testid="auto-upload-disabled"/>
 				Disabled
 			</label>
 			<label>
 				<input type="radio"
-					name="autoUpload"
-					checked={radioState === 'disabled_never'}
-					on:change={() => handleRadioChange('disabled_never')}
-					data-testid="auto-upload-disabled-never"/>
+					   name="autoUpload"
+					   checked={radioState === 'disabled_never'}
+					   on:change={() => handleRadioChange('disabled_never')}
+					   data-testid="auto-upload-disabled-never"/>
 				Disabled (Never prompt)
 			</label>
 		</div>
@@ -192,10 +170,12 @@
 		padding: 0.75rem 1rem;
 		border-radius: 4px;
 	}
+
 	.alert.success {
 		background-color: #d4edda;
 		color: #155724;
 	}
+
 	.alert.error {
 		background-color: #f8d7da;
 		color: #721c24;

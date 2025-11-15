@@ -21,12 +21,12 @@ pub struct DevicePhotoMetadata {
 	pub longitude: f64,
 	pub altitude: Option<f64>,
 	pub bearing: Option<f64>,
-	pub timestamp: i64,
+	pub captured_at: i64,
 	pub accuracy: f64,
 	pub width: u32,
 	pub height: u32,
 	pub file_size: u64,
-	pub created_at: i64,
+	pub created_at: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -165,12 +165,11 @@ pub async fn add_device_photo_to_db(
 		longitude: metadata.longitude,
 		altitude: metadata.altitude,
 		bearing: metadata.bearing,
-		timestamp: metadata.timestamp,
+		captured_at: metadata.captured_at,
 		accuracy: metadata.accuracy,
 		width,
 		height,
 		file_size,
-		created_at: metadata.timestamp,
 	};
 
 	// Load existing db, add photo, and save
@@ -182,10 +181,10 @@ pub async fn add_device_photo_to_db(
 
 	save_device_photos_db(app_handle, db).await?;
 
-	info!("🢄Added device photo to database: id: {}, path: {}, filename: {}, dimensions: {}x{}, size: {} bytes, lat: {}, lon: {}, alt: {:?}, bearing: {:?}, timestamp: {}, accuracy: {}",
+	info!("🢄Added device photo to database: id: {}, path: {}, filename: {}, dimensions: {}x{}, size: {} bytes, lat: {}, lon: {}, alt: {:?}, bearing: {:?}, captured_at: {}, accuracy: {}",
           device_photo.id, device_photo.path, device_photo.filename, device_photo.width, device_photo.height,
           device_photo.file_size, device_photo.latitude, device_photo.longitude, device_photo.altitude,
-          device_photo.bearing, device_photo.timestamp, device_photo.accuracy);
+          device_photo.bearing, device_photo.captured_at, device_photo.accuracy);
 
 	Ok(device_photo)
 }
@@ -253,7 +252,7 @@ async fn create_device_photo_metadata(file_path: &Path) -> Result<DevicePhotoMet
 				exif_data.longitude,
 				exif_data.altitude,
 				exif_data.bearing,
-				exif_data.timestamp,
+				exif_data.captured_at,
 				exif_data.accuracy,
 			),
 			Err(_) => {

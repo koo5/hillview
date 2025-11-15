@@ -28,14 +28,14 @@ class StreamPhotoLoader {
          */
         private fun sanitizeCapturedAt(timestamp: String?): String? {
             if (timestamp.isNullOrBlank()) {
-                Log.w(TAG, "Skipping empty captured_at timestamp")
+                //Log.w(TAG, "Skipping empty captured_at timestamp")
                 return null
             }
 
             return try {
                 // Handle ISO timestamps without timezone by adding 'Z'
                 if (timestamp.matches(Regex("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}$"))) {
-                    Log.d(TAG, "Adding timezone to ISO timestamp: $timestamp")
+                    //Log.d(TAG, "Adding timezone to ISO timestamp: $timestamp")
                     "${timestamp}Z"
                 } else {
                     timestamp
@@ -243,7 +243,7 @@ class StreamPhotoLoader {
                     val photos = photosArray.mapNotNull { photoElement ->
                         try {
                             val photo = parsePhotoJson(photoElement.jsonObject)
-                            Log.d(TAG, "StreamPhotoLoader: Successfully parsed photo ${photo.id}")
+                            //Log.d(TAG, "StreamPhotoLoader: Successfully parsed photo ${photo.id}")
                             photo
                         } catch (e: Exception) {
                             Log.w(TAG, "Failed to parse photo: ${e.message}")

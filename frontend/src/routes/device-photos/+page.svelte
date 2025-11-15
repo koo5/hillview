@@ -5,6 +5,7 @@
 	import {TAURI} from '$lib/tauri';
 	import {invoke} from "@tauri-apps/api/core";
 	import { RefreshCw, Download, Upload, Clock, MapPin, Camera, AlertCircle, ChevronLeft, ChevronRight } from 'lucide-svelte';
+	import { getDevicePhotoUrl } from '$lib/devicePhotoHelper';
 
 	interface DevicePhoto {
 		id: string;
@@ -48,7 +49,7 @@
 	onMount(() => {
 		setTimeout(() => {
 			fetchDevicePhotos();
-		}, 100);
+		}, 10);
 	});
 
 	async function fetchDevicePhotos(page: number = 1, append: boolean = false) {
@@ -70,7 +71,7 @@
 				pageSize
 			}) as DevicePhotosResponse;
 
-			//console.log('🢄Device photos response:', response);
+			console.log('🢄Device photos response:', JSON.stringify(response));
 
 			if (append && photosData) {
 				// Append new photos to existing data
@@ -222,12 +223,23 @@
 			<div class="photos-grid" data-testid="photos-grid">
 				{#each photosData.photos as photo}
 					<div class="photo-card" data-testid="photo-card">
+						<div class="photo-image">
+							<img
+								src={getDevicePhotoUrl(photo.filePath)}
+								alt={photo.fileName}
+								loading="lazy"
+								data-testid="photo-thumbnail"
+							/>
+							<div class="photo-overlay">
+								<div class="photo-status" style="color: {getStatusColor(photo.uploadStatus)}">
+									<svelte:component this={getStatusIcon(photo.uploadStatus)} size={16} />
+									{photo.uploadStatus}
+								</div>
+							</div>
+						</div>
+
 						<div class="photo-header">
 							<div class="photo-name">{photo.fileName}</div>
-							<div class="photo-status" style="color: {getStatusColor(photo.uploadStatus)}">
-								<svelte:component this={getStatusIcon(photo.uploadStatus)} size={16} />
-								{photo.uploadStatus}
-							</div>
 						</div>
 
 						<div class="photo-details">
@@ -426,6 +438,41 @@
 	.photo-card:hover {
 		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 		transform: translateY(-2px);
+	}
+
+	.photo-image {
+		position: relative;
+		width: 100%;
+		aspect-ratio: 1;
+		border-radius: 8px;
+		overflow: hidden;
+		margin-bottom: 12px;
+		background-color: #f3f4f6;
+	}
+
+	.photo-image img {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		transition: transform 0.3s ease;
+	}
+
+	.photo-card:hover .photo-image img {
+		transform: scale(1.05);
+	}
+
+	.photo-overlay {
+		position: absolute;
+		top: 8px;
+		right: 8px;
+		background-color: rgba(0, 0, 0, 0.7);
+		border-radius: 4px;
+		padding: 4px 8px;
+	}
+
+	.photo-overlay .photo-status {
+		color: white !important;
+		font-size: 0.7rem;
 	}
 
 	.photo-header {

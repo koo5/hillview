@@ -97,12 +97,11 @@ class AddPhotoArgs {
   var longitude: Double = 0.0
   var altitude: Double? = null
   var bearing: Double? = null
-  var timestamp: Long = 0L
+  var capturedAt: Long = 0L
   var accuracy: Double = 0.0
   var width: Int = 0
   var height: Int = 0
   var fileSize: Long = 0L
-  var createdAt: Long = 0L
   var fileHash: String? = null
 }
 
@@ -783,6 +782,10 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
 					.build()
 				workManager.enqueue(workRequest)
             }
+            else
+            {
+            	Log.d(TAG, "🢄📤 auto_upload_enabled === false")
+            }
 
             val result = JSObject()
             result.put("success", true)
@@ -1279,7 +1282,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             val args = try {
                 val parsedArgs = invoke.parseArgs(GetDevicePhotosArgs::class.java)
                 Log.d(TAG, "📸 Successfully parsed args: page=${parsedArgs?.page}, pageSize=${parsedArgs?.pageSize}, bounds=[${parsedArgs?.minLat},${parsedArgs?.minLng}] to [${parsedArgs?.maxLat},${parsedArgs?.maxLng}]")
-                parsedArgs
+                parsedArgs ?: GetDevicePhotosArgs() // Use defaults if null
             } catch (e: Exception) {
                 Log.d(TAG, "📸 Failed to parse args (${e.message}), using defaults")
                 GetDevicePhotosArgs() // Use default values
@@ -1514,12 +1517,12 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                         longitude = args.longitude,
                         altitude = args.altitude ?: 0.0,
                         bearing = args.bearing ?: 0.0,
-                        capturedAt = args.timestamp,
+                        capturedAt = args.capturedAt,
                         accuracy = args.accuracy,
                         width = args.width,
                         height = args.height,
                         fileSize = args.fileSize,
-                        createdAt = if (args.createdAt > 0) args.createdAt else System.currentTimeMillis(),
+                        createdAt = System.currentTimeMillis(),
                         uploadStatus = "pending",
                         fileHash = fileHash  // Always use the calculated/provided hash
                     )

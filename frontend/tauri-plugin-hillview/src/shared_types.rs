@@ -7,7 +7,7 @@ pub struct PhotoMetadata {
     pub longitude: f64,
     pub altitude: Option<f64>,
     pub bearing: Option<f64>,
-    pub timestamp: i64,
+    pub captured_at: i64,
     pub accuracy: f64,
     pub location_source: String,
     pub bearing_source: String,
@@ -23,7 +23,8 @@ pub struct DevicePhotoMetadata {
     pub width: u32,
     pub height: u32,
     pub file_size: u64,
-    pub created_at: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file_hash: Option<String>,
 }
@@ -34,7 +35,7 @@ impl DevicePhotoMetadata {
     pub fn longitude(&self) -> f64 { self.metadata.longitude }
     pub fn altitude(&self) -> Option<f64> { self.metadata.altitude }
     pub fn bearing(&self) -> Option<f64> { self.metadata.bearing }
-    pub fn captured_at(&self) -> i64 { self.metadata.timestamp }
+    pub fn captured_at(&self) -> i64 { self.metadata.captured_at }
     pub fn accuracy(&self) -> f64 { self.metadata.accuracy }
 }
 

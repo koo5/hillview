@@ -565,7 +565,7 @@ pub struct PhotoMetadata {
 	pub longitude: f64,
 	pub altitude: Option<f64>,
 	pub bearing: Option<f64>,
-	pub timestamp: i64,
+	pub captured_at: i64,
 	pub accuracy: f64,
 	pub location_source: String,
 	pub bearing_source: String,
@@ -1195,9 +1195,9 @@ async fn save_photo_from_bytes(
 			// Check if we should use database bearing instead of frontend bearing
 			let final_bearing = if is_sensor_bearing_source(&validated_metadata.bearing_source) {
 				info!("🢄📡 Bearing source '{}' indicates sensor data, looking up database bearing for timestamp {}",
-					validated_metadata.bearing_source, validated_metadata.timestamp);
+					validated_metadata.bearing_source, validated_metadata.captured_at);
 
-				match app_handle.hillview().get_bearing_for_timestamp(validated_metadata.timestamp * 1000) { // Convert to milliseconds
+				match app_handle.hillview().get_bearing_for_timestamp(validated_metadata.captured_at * 1000) { // Convert to milliseconds
 					Ok(response) => {
 						if response.success {
 							if let Some(found) = response.found {
@@ -1243,7 +1243,7 @@ async fn save_photo_from_bytes(
 					longitude: validated_metadata.longitude,
 					altitude: validated_metadata.altitude,
 					bearing: final_bearing,
-					timestamp: validated_metadata.timestamp,
+					captured_at: validated_metadata.captured_at,
 					accuracy: validated_metadata.accuracy,
 					location_source: validated_metadata.location_source.clone(),
 					bearing_source: validated_metadata.bearing_source.clone(),
@@ -1251,7 +1251,6 @@ async fn save_photo_from_bytes(
 				width,
 				height,
 				file_size: file_metadata.len(),
-				created_at: validated_metadata.timestamp,
 				file_hash: Some(file_hash.clone()),
 			};
 
@@ -1279,7 +1278,7 @@ async fn save_photo_from_bytes(
 				longitude: validated_metadata.longitude,
 				altitude: validated_metadata.altitude,
 				bearing: final_bearing,
-				timestamp: validated_metadata.timestamp,
+				captured_at: validated_metadata.captured_at,
 				accuracy: validated_metadata.accuracy,
 				width,
 				height,
@@ -1360,7 +1359,7 @@ pub async fn read_photo_exif(path: String) -> Result<PhotoMetadata, String> {
 		longitude: 0.0,
 		altitude: None,
 		bearing: None,
-		timestamp: 0,
+		created_at: 0,
 		accuracy: 0.0,
 		location_source: "unknown".to_string(),
 		bearing_source: "unknown".to_string(),
@@ -1484,7 +1483,7 @@ pub async fn read_photo_exif(path: String) -> Result<PhotoMetadata, String> {
 					std::str::from_utf8(&date_str[0]).unwrap_or(""),
 					"%Y:%m:%d %H:%M:%S",
 				) {
-					metadata.timestamp = dt.and_utc().timestamp();
+					metadata.captured_at = dt.and_utc().timestamp();
 				}
 			}
 		}

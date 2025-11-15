@@ -23,7 +23,8 @@
 	import {navigateWithHistory} from '$lib/navigation.svelte';
 	import UploadSettingsComponent from '$lib/components/UploadSettings.svelte';
 	import {invoke} from "@tauri-apps/api/core";
-	import LoadMoreButton from '$lib/components/LoadMoreButton.svelte';
+	import {autoUploadSettings} from "$lib/autoUploadSettings";
+	import LoadMoreButton from "$lib/components/LoadMoreButton.svelte";
 
 	let photos: UserPhoto[] = [];
 	let isLoading = true;
@@ -58,7 +59,6 @@
 
 
 	onMount(() => {
-		// Settings component will load its own settings
 
 		// Subscribe to userId changes to avoid reactive loops from auth store updates during token refresh
 		const unsubscribe = userId.subscribe(async (currentUserId) => {
@@ -524,11 +524,17 @@
 									</span>
 								</button>
 								{#if TAURI && photo.processing_status && photo.processing_status !== 'completed'}
-									<button class="action-button upload" data-testid="manual-upload-button"
-											data-photo-id={photo.id} on:click={() => manualUpload(photo.id)}>
-										<Upload size={16}/>
-										Retry Uploads
-									</button>
+									{#if $autoUploadSettings.value?.autoUploadEnabled}
+										<button class="action-button upload" data-testid="manual-upload-button"
+												data-photo-id={photo.id} on:click={() => manualUpload(photo.id)}>
+											<Upload size={16}/>
+											Retry Uploads
+										</button>
+									{:else}
+										<span class="help-text">
+											Enable auto-upload in settings to retry failed uploads.
+										</span>
+									{/if}
 								{/if}
 								<button class="action-button delete" data-testid="delete-photo-button"
 										data-photo-id={photo.id} on:click={() => deletePhoto(photo.id)}>

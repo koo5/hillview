@@ -69,6 +69,8 @@ class PhotoUploadWorker(
                     break
                 }
 
+                Log.d(TAG, "Next photo to process: ${photo.filename} (status: ${photo.uploadStatus})")
+
                 // For failed uploads, check if enough time has elapsed for retry
                 if (photo.uploadStatus == "failed") {
                     val timeSinceLastAttempt = System.currentTimeMillis() - photo.lastUploadAttempt

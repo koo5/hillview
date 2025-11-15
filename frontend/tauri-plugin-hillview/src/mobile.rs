@@ -183,7 +183,7 @@ impl<R: Runtime> Hillview<R> {
       "longitude": photo.metadata.longitude,
       "altitude": photo.metadata.altitude,
       "bearing": photo.metadata.bearing,
-      "capturedAt": photo.metadata.timestamp,
+      "capturedAt": photo.metadata.captured_at,
       "accuracy": photo.metadata.accuracy,
       "width": photo.width,
       "height": photo.height,
