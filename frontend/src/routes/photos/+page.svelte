@@ -523,7 +523,7 @@
 									</span>
 								</button>
 								{#if TAURI && photo.processing_status && photo.processing_status !== 'completed'}
-									{#if $autoUploadSettings.value?.autoUploadEnabled}
+									{#if $autoUploadSettings.value?.auto_upload_enabled}
 										<button class="action-button upload" data-testid="manual-upload-button"
 												data-photo-id={photo.id} on:click={() => manualUpload(photo.id)}>
 											<Upload size={16}/>

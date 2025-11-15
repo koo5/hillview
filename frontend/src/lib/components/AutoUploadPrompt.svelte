@@ -38,14 +38,14 @@
 
 	async function checkSettings() {
 			const result = await invoke('plugin:hillview|get_upload_status') as {
-				autoUploadEnabled: boolean;
-				autoUploadPromptEnabled: boolean;
+				auto_upload_enabled: boolean;
+				auto_upload_prompt_enabled: boolean;
 			};
 
 			//console.log('autoUpload status:', JSON.stringify(result));
 
-			autoUploadEnabled = result.autoUploadEnabled || false;
-			autoUploadPromptEnabled = result.autoUploadPromptEnabled || false;
+			autoUploadEnabled = result.auto_upload_enabled || false;
+			autoUploadPromptEnabled = result.auto_upload_prompt_enabled || false;
 
 			visible = !autoUploadEnabled && autoUploadPromptEnabled;
 
@@ -93,7 +93,7 @@
 		try {
 			await invoke('plugin:hillview|set_auto_upload_enabled', {
 				enabled: false,
-				promptEnabled: false
+				prompt_enabled: false
 			});
 			autoUploadPromptEnabled = false;
 			dispatch('dismiss');

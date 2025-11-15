@@ -108,7 +108,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
         url.searchParams.set('bottom_right_lon', bounds.bottom_right.lng.toString()); // Changed from bottom_right_lng
 
         // Add client_id parameter (required by server)
-        const clientId = this.source.clientId || 'default';
+        const clientId = this.source.client_id || 'default';
         url.searchParams.set('client_id', clientId);
 
         // Add max_photos parameter if specified
