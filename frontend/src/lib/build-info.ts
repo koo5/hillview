@@ -5,9 +5,9 @@ export const DEBUG_MODE = __DEBUG_MODE__;
 
 export function getBuildInfo() {
     return {
-        buildTime: BUILD_TIME,
-        buildVersion: BUILD_VERSION,
-        debugMode: DEBUG_MODE,
-        formattedTime: new Date(BUILD_TIME).toLocaleString(undefined, {hour12: false})
+        build_time: BUILD_TIME,
+        build_version: BUILD_VERSION,
+        debug_mode: DEBUG_MODE,
+        formatted_time: new Date(BUILD_TIME).toLocaleString(undefined, {hour12: false})
     };
 }

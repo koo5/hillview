@@ -10,18 +10,18 @@ export interface CaptureLocation {
 	altitude?: number | null;
 	accuracy: number;
 	heading?: number | null;
-	locationSource: 'gps' | 'map';
-	bearingSource: string;
+	location_source: 'gps' | 'map';
+	bearing_source: string;
 }
 
 export interface CaptureQueueItem {
 	id: string;
 	location: CaptureLocation;
-	timestamp: number;
+	captured_at: number;
 	mode: 'slow' | 'fast';
-	placeholderId: string;
-	imageData: ImageData;
-	orientationCode: number; // EXIF orientation value (1, 3, 6, 8)
+	placeholder_id: string;
+	image_data: ImageData;
+	orientation_code: number; // EXIF orientation value (1, 3, 6, 8)
 }
 
 export interface QueueStats {
@@ -120,7 +120,7 @@ class CaptureQueueManager {
 			itemId: item.id,
 			mode: item.mode,
 			queueSize: this.queue.length,
-			placeholderId: item.placeholderId
+			placeholder_id: item.placeholder_id
 		});
 
 		this.updateStats();
@@ -167,7 +167,7 @@ class CaptureQueueManager {
 
 			// Send image data to worker with transfer for better performance
 			this.log(this.LOG_TAGS.QUEUE_PROCESS, 'Transferring image data to worker', { itemId: item.id });
-			this.worker.postMessage(item, [item.imageData.data.buffer]);
+			this.worker.postMessage(item, [item.image_data.data.buffer]);
 		} catch (error) {
 			const errorInfo = {
 				name: (error as any)?.name,
@@ -228,15 +228,15 @@ class CaptureQueueManager {
 							longitude: item.location.longitude,
 							altitude: item.location.altitude,
 							bearing: item.location.heading,
-							capturedAt: item.timestamp,
+							captured_at: item.captured_at,
 							accuracy: item.location.accuracy,
-							locationSource: item.location.locationSource,
-							bearingSource: item.location.bearingSource,
-							orientationCode: item.orientationCode
+							location_source: item.location.location_source,
+							bearing_source: item.location.bearing_source,
+							orientation_code: item.orientation_code
 						};
 
 						// Generate filename
-						const date = new Date(item.timestamp);
+						const date = new Date(item.captured_at);
 						const year = date.getFullYear();
 						const month = String(date.getMonth() + 1).padStart(2, '0');
 						const day = String(date.getDate()).padStart(2, '0');
@@ -264,7 +264,7 @@ class CaptureQueueManager {
 							itemId: item.id,
 							photoId: devicePhoto.id,
 							filename: devicePhoto.filename,
-							placeholderReplaced: item.placeholderId,
+							placeholder_replaced: item.placeholder_id,
 							totalProcessed: this.totalProcessed
 						}));
 
@@ -283,7 +283,7 @@ class CaptureQueueManager {
 
 					// If this chunk failed and we have the item, clean up
 					if (item) {
-						removePlaceholder(item.placeholderId);
+						removePlaceholder(item.placeholder_id);
 						this.processingSet.delete(item.id);
 						this.updateStats();
 					}
@@ -294,13 +294,13 @@ class CaptureQueueManager {
 				this.totalFailed++;
 				this.log(this.LOG_TAGS.PHOTO_ERROR, 'Failed to process queued photo', {
 					itemId: item.id,
-					placeholderId: item.placeholderId,
+					placeholder_id: item.placeholder_id,
 					error,
 					totalFailed: this.totalFailed
 				});
 
 				// Remove placeholder on error
-				removePlaceholder(item.placeholderId);
+				removePlaceholder(item.placeholder_id);
 
 				// Remove from processing set
 				this.processingSet.delete(item.id);

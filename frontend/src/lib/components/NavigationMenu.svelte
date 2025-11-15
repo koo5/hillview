@@ -12,9 +12,9 @@
     export let onClose: () => void = () => {};
 
     // Subscribe to auth store
-    let isAuthenticated = false;
+    let is_authenticated = false;
     auth.subscribe(value => {
-        isAuthenticated = value.isAuthenticated;
+        is_authenticated = value.is_authenticated;
     });
 
     function handleLogout() {
@@ -100,7 +100,7 @@
                         Settings
                     </a>
                 </li>
-                {#if isAuthenticated}
+                {#if is_authenticated}
                     <li>
                         <a href="/hidden" on:click={closeMenu}>
                             <EyeOff size={18}/>

@@ -93,7 +93,7 @@ let sourcesPhotosInAreaVersion = 0;
 let lastProcessedSourcesPhotosInAreaVersion = -1;
 
 // Current range and center for range filtering
-let currentRange = DEFAULT_RANGE_METERS; // Default range in meters, updated from area updates
+let current_range = DEFAULT_RANGE_METERS; // Default range in meters, updated from area updates
 
 function calculateCenterFromBounds(bounds: Bounds): { lat: number; lng: number } {
     return {
@@ -103,11 +103,11 @@ function calculateCenterFromBounds(bounds: Bounds): { lat: number; lng: number }
 }
 
 // Merge and cull photos from all sources, calculate range
-function mergeAndCullPhotos(): { photosInArea: PhotoData[], photosInRange: PhotoData[] } {
+function mergeAndCullPhotos(): { photos_in_area: PhotoData[], photos_in_range: PhotoData[] } {
     const photosInAreaPerSource = currentState.sourcesPhotosInArea.data;
     if (!currentState.area.data || photosInAreaPerSource.size === 0) {
         console.log(`🢄NewWorker: mergeAndCullPhotos early return - area.data:`, currentState.area.data, 'sources:', photosInAreaPerSource.size);
-        return { photosInArea: [], photosInRange: [] };
+        return { photos_in_area: [], photos_in_range: [] };
     }
 
     console.log(`🢄NewWorker: mergeAndCullPhotos - area bounds:`, currentState.area.data);
@@ -138,7 +138,7 @@ function mergeAndCullPhotos(): { photosInArea: PhotoData[], photosInRange: Photo
     const photosInRange = angularRangeCuller.cullPhotosInRange(
         photosInArea,
         center,
-        currentRange,
+        current_range,
         MAX_PHOTOS_IN_RANGE
     );
 
@@ -148,26 +148,26 @@ function mergeAndCullPhotos(): { photosInArea: PhotoData[], photosInRange: Photo
     console.log(`🢄NewWorker: Merged ${photosInAreaPerSource.size} sources → ${photosInArea.length} in area → ${photosInRange.length} in range with angular coverage`);
 
     return {
-        photosInArea,
-        photosInRange
+        photos_in_area: photosInArea,
+        photos_in_range: photosInRange
     };
 }
 
 // Direct photo array transfer (no serialization needed)
 function sendPhotosUpdate(): void {
     // Merge and cull photos from all sources
-    const { photosInArea, photosInRange } = mergeAndCullPhotos();
+    const { photos_in_area, photos_in_range } = mergeAndCullPhotos();
 
     // Send raw arrays directly - structured clone algorithm handles transfer efficiently
     postMessage({
         type: 'photosUpdate',
-        photosInArea: [...photosInArea],
-        photosInRange: [...photosInRange],
-        currentRange: currentRange,
+        photos_in_area: [...photos_in_area],
+        photos_in_range: [...photos_in_range],
+        current_range: current_range,
         timestamp: Date.now()
     });
 
-    console.log(`🢄NewWorker: Sent ${photosInArea.length} area photos + ${photosInRange.length} range photos directly`);
+    console.log(`🢄NewWorker: Sent ${photos_in_area.length} area photos + ${photos_in_range.length} range photos directly`);
 }
 
 
@@ -463,17 +463,17 @@ async function loop(): Promise<void> {
 
 				case 'loadProgress':
 					// Handle loading progress updates from PhotoLoadingProcess
-					console.log(`NewWorker: Load progress from ${message.sourceId}: ${message.loaded}${message.total ? `/${message.total}` : ''}`);
+					console.log(`NewWorker: Load progress from ${message.source_id}: ${message.loaded}${message.total ? `/${message.total}` : ''}`);
 					// Just log progress, no action needed
 					break;
 
 				case 'photosAdded':
 					// Handle streaming photo updates from StreamSourceLoader
-					console.log(`NewWorker: Photos updated from stream ${message.sourceId}: ${message.photos?.length || 0} photos`);
+					console.log(`NewWorker: Photos updated from stream ${message.source_id}: ${message.photos?.length || 0} photos`);
 					if (message.photos && Array.isArray(message.photos)) {
 						// Replace the photo array for this source (source handles accumulation)
-						currentState.sourcesPhotosInArea.data.set(message.sourceId, message.photos);
-						console.log(`NewWorker: Source ${message.sourceId} set to ${message.photos.length} photos`);
+						currentState.sourcesPhotosInArea.data.set(message.source_id, message.photos);
+						console.log(`NewWorker: Source ${message.source_id} set to ${message.photos.length} photos`);
 
 						// Update sourcesPhotosInArea version to trigger combine operation
 						sourcesPhotosInAreaVersion++;
@@ -549,8 +549,8 @@ function updateState(type: 'config' | 'area' | 'sourcesPhotosInArea', message: a
 
 		// Update range if provided in area updates
 		if (type === 'area' && message.data.range) {
-			currentRange = message.data.range;
-			//console.log(`NewWorker: Updated range to ${currentRange}m`);
+			current_range = message.data.range;
+			//console.log(`NewWorker: Updated range to ${current_range}m`);
 		}
 
 		console.log(`NewWorker: Updated ${type} state (id: ${message.id})`);

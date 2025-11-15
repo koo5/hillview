@@ -78,7 +78,7 @@ data class PhotoData(
     val altitude: Double? = null,
     val source: String, // Just source ID
     val sizes: Map<String, PhotoSize>? = null,
-    val isDevicePhoto: Boolean = false,
+    val is_device_photo: Boolean = false,
     val captured_at: Long? = null,
     val created_at: Long? = null,
     val accuracy: Double? = null,
@@ -128,8 +128,8 @@ data class ConfigData(
 
 @Serializable
 data class PhotoResponse(
-    val photosInArea: List<PhotoData>,
-    val photosInRange: List<PhotoData>,
+    val photos_in_area: List<PhotoData>,
+    val photos_in_range: List<PhotoData>,
     val hasMore: Boolean,
     val error: String? = null
 )

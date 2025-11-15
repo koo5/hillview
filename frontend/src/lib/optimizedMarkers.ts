@@ -110,7 +110,7 @@ export class OptimizedMarkerSystem {
              data-testid="photo-marker-${photo.id}"
              data-photo-id="${photo.id}"
              data-source="${photo.source?.id || 'unknown'}"
-             data-is-placeholder="${photo.isPlaceholder || false}"
+             data-is-placeholder="${photo.is_placeholder || false}"
              style="
                width: ${arrowSize}px;
                height: ${arrowSize}px;

@@ -138,8 +138,8 @@ export class WebTokenManager implements TokenManager {
         // Update auth store with refresh status
         auth.update(state => ({
             ...state,
-            refreshStatus: attempt === 1 ? 'refreshing' : 'retrying',
-            refreshAttempt: attempt
+            refresh_status: attempt === 1 ? 'refreshing' : 'retrying',
+            refresh_attempt: attempt
         }));
 
         try {
@@ -193,8 +193,8 @@ export class WebTokenManager implements TokenManager {
             // Reset auth store refresh status on success
             auth.update(state => ({
                 ...state,
-                refreshStatus: 'idle',
-                refreshAttempt: undefined
+                refresh_status: 'idle',
+                refresh_attempt: undefined
             }));
 
             return tokenData;
@@ -231,8 +231,8 @@ export class WebTokenManager implements TokenManager {
             // Update auth store with failed status
             auth.update(state => ({
                 ...state,
-                refreshStatus: 'failed',
-                refreshAttempt: attempt
+                refresh_status: 'failed',
+                refresh_attempt: attempt
             }));
 
             throw new TokenRefreshError(`Refresh failed after ${attempt} attempts: ${errorMessage}`);
@@ -258,7 +258,7 @@ export class WebTokenManager implements TokenManager {
             // Update auth store - tokens stored means authenticated
             auth.update(state => ({
                 ...state,
-                isAuthenticated: true
+                is_authenticated: true
             }));
     }
 
@@ -272,9 +272,9 @@ export class WebTokenManager implements TokenManager {
             // Use the HttpClient for authenticated requests
 
             const response = await http.post('/auth/register-client-key', {
-                public_key_pem: keyInfo.publicKeyPem,
-                key_id: keyInfo.keyId,
-                created_at: keyInfo.createdAt
+                public_key_pem: keyInfo.public_key_pem,
+                key_id: keyInfo.key_id,
+                created_at: keyInfo.created_at
             });
 
             if (!response.ok) {
@@ -304,7 +304,7 @@ export class WebTokenManager implements TokenManager {
             // Update auth store - no tokens means not authenticated
             auth.update(state => ({
                 ...state,
-                isAuthenticated: false,
+                is_authenticated: false,
                 user: null
             }));
 

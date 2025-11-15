@@ -33,10 +33,10 @@ export class FrontendState {
     private areaState: StateItem = { lastUpdateId: -1, lastProcessedId: -1 };
     private configData: { sources: SourceConfig[]; [key: string]: any } | null = null;
     private areaData: Bounds | null = null;
-    private currentRange: number;
+    private current_range: number;
 
     constructor(defaultRange: number) {
-        this.currentRange = defaultRange;
+        this.current_range = defaultRange;
     }
 
     // Config methods - source configuration from frontend
@@ -69,7 +69,7 @@ export class FrontendState {
         this.areaState.lastUpdateId = messageId;
 
         if (range !== undefined) {
-            this.currentRange = range;
+            this.current_range = range;
         }
 
         console.log(`FrontendState: Updated area state (id: ${messageId})`);
@@ -94,7 +94,7 @@ export class FrontendState {
 
     // Range methods - photo range filtering distance
     getCurrentRange(): number {
-        return this.currentRange;
+        return this.current_range;
     }
 
     // Work scheduling methods - used by main worker loop

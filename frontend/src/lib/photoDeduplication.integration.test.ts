@@ -15,7 +15,7 @@ describe('Photo Deduplication - Core Functionality', () => {
         id: string,
         sourceId: string,
         coord: { lat: number, lng: number },
-        fileHash?: string
+        file_hash?: string
     ): PhotoData => ({
         id,
         uid: `${sourceId}-${id}`,
@@ -26,7 +26,7 @@ describe('Photo Deduplication - Core Functionality', () => {
         bearing: 45,
         altitude: 100,
         source: { id: sourceId, name: sourceId, type: 'stream', enabled: true },
-        fileHash
+        file_hash
     });
 
     describe('Priority-based selection', () => {

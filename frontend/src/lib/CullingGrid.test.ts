@@ -21,7 +21,7 @@ describe('CullingGrid', () => {
         bearing: 0,
         altitude: 100,
         source: { id: 'device', name: 'Device', type: 'device', enabled: true },
-        isDevicePhoto: true,
+        is_device_photo: true,
         ...overrides
     });
 
@@ -34,7 +34,7 @@ describe('CullingGrid', () => {
                     id: 'device1',
                     uid: 'device-device1',
                     source: { id: 'device', name: 'Device', type: 'device', enabled: true },
-                    fileHash: 'hash1'
+                    file_hash: 'hash1'
                 })
             ];
 
@@ -43,8 +43,8 @@ describe('CullingGrid', () => {
                     id: 'hillview1',
                     uid: 'hillview-hillview1',
                     source: { id: 'hillview', name: 'Hillview', type: 'stream', enabled: true },
-                    isDevicePhoto: false,
-                    fileHash: 'hash2'
+                    is_device_photo: false,
+                    file_hash: 'hash2'
                 })
             ];
 
@@ -67,7 +67,7 @@ describe('CullingGrid', () => {
                     id: 'device1',
                     coord: { lat: 50.09, lng: 14.31 }, // Different grid cell
                     source: { id: 'device', name: 'Device', type: 'device', enabled: true },
-                    fileHash: 'hash1'
+                    file_hash: 'hash1'
                 })
             ];
 
@@ -76,8 +76,8 @@ describe('CullingGrid', () => {
                     id: 'hillview1',
                     coord: { lat: 50.01, lng: 14.39 }, // Different grid cell
                     source: { id: 'hillview', name: 'Hillview', type: 'stream', enabled: true },
-                    isDevicePhoto: false,
-                    fileHash: 'hash2'
+                    is_device_photo: false,
+                    file_hash: 'hash2'
                 })
             ];
 
@@ -101,7 +101,7 @@ describe('CullingGrid', () => {
                     id: 'mapillary1',
                     coord: { lat: 50.09, lng: 14.31 }, // Different grid cell
                     source: { id: 'mapillary', name: 'Mapillary', type: 'stream', enabled: true },
-                    isDevicePhoto: false
+                    is_device_photo: false
                 })
             ];
 
@@ -110,7 +110,7 @@ describe('CullingGrid', () => {
                     id: 'other1',
                     coord: { lat: 50.01, lng: 14.39 }, // Different grid cell
                     source: { id: 'other', name: 'Other', type: 'stream', enabled: true },
-                    isDevicePhoto: false
+                    is_device_photo: false
                 })
             ];
 
@@ -141,7 +141,7 @@ describe('CullingGrid', () => {
                     id: 'device1',
                     coord: sameCoord,
                     source: { id: 'device', name: 'Device', type: 'device', enabled: true },
-                    fileHash: 'sameHash123',
+                    file_hash: 'sameHash123',
                     file: 'device_file.jpg'
                 })
             ];
@@ -151,8 +151,8 @@ describe('CullingGrid', () => {
                     id: 'hillview1',
                     coord: sameCoord,
                     source: { id: 'hillview', name: 'Hillview', type: 'stream', enabled: true },
-                    isDevicePhoto: false,
-                    fileHash: 'sameHash123',
+                    is_device_photo: false,
+                    file_hash: 'sameHash123',
                     file: 'hillview_file.jpg'
                 })
             ];
@@ -186,7 +186,7 @@ describe('CullingGrid', () => {
                     id: 'device1',
                     coord: { lat: 50.09, lng: 14.31 }, // Different grid cell
                     source: { id: 'device', name: 'Device', type: 'device', enabled: true },
-                    fileHash: 'hash1',
+                    file_hash: 'hash1',
                     file: 'device_file.jpg'
                 })
             ];
@@ -196,8 +196,8 @@ describe('CullingGrid', () => {
                     id: 'hillview1',
                     coord: { lat: 50.01, lng: 14.39 }, // Different grid cell
                     source: { id: 'hillview', name: 'Hillview', type: 'stream', enabled: true },
-                    isDevicePhoto: false,
-                    fileHash: 'hash2',
+                    is_device_photo: false,
+                    file_hash: 'hash2',
                     file: 'hillview_file.jpg'
                 })
             ];
@@ -224,7 +224,7 @@ describe('CullingGrid', () => {
                     id: 'device1',
                     coord: { lat: 50.09, lng: 14.31 }, // Different grid cell
                     source: { id: 'device', name: 'Device', type: 'device', enabled: true },
-                    // No fileHash
+                    // No file_hash
                 })
             ];
 
@@ -233,8 +233,8 @@ describe('CullingGrid', () => {
                     id: 'hillview1',
                     coord: { lat: 50.01, lng: 14.39 }, // Different grid cell
                     source: { id: 'hillview', name: 'Hillview', type: 'stream', enabled: true },
-                    isDevicePhoto: false,
-                    fileHash: 'hash1'
+                    is_device_photo: false,
+                    file_hash: 'hash1'
                 })
             ];
 
@@ -261,13 +261,13 @@ describe('CullingGrid', () => {
                     id: 'device1',
                     coord: { lat: 50.09, lng: 14.31 }, // Top-left area
                     source: { id: 'device', name: 'Device', type: 'device', enabled: true },
-                    fileHash: 'hash1'
+                    file_hash: 'hash1'
                 }),
                 createPhotoData({
                     id: 'device2',
                     coord: { lat: 50.01, lng: 14.39 }, // Bottom-right area
                     source: { id: 'device', name: 'Device', type: 'device', enabled: true },
-                    fileHash: 'hash2'
+                    file_hash: 'hash2'
                 })
             ];
 
@@ -294,19 +294,19 @@ describe('CullingGrid', () => {
                     id: 'device1',
                     coord: { lat: 50.05, lng: 14.35 }, // Same cell
                     source: { id: 'device', name: 'Device', type: 'device', enabled: true },
-                    fileHash: 'hash1'
+                    file_hash: 'hash1'
                 }),
                 createPhotoData({
                     id: 'device2',
                     coord: { lat: 50.05, lng: 14.35 }, // Same cell
                     source: { id: 'device', name: 'Device', type: 'device', enabled: true },
-                    fileHash: 'hash2'
+                    file_hash: 'hash2'
                 }),
                 createPhotoData({
                     id: 'device3',
                     coord: { lat: 50.05, lng: 14.35 }, // Same cell
                     source: { id: 'device', name: 'Device', type: 'device', enabled: true },
-                    fileHash: 'hash3'
+                    file_hash: 'hash3'
                 })
             ];
 
@@ -383,7 +383,7 @@ describe('CullingGrid', () => {
                     id: 'hillview1',
                     coord: { lat: 50.01, lng: 14.39 }, // Different grid cell
                     source: { id: 'hillview', name: 'Hillview', type: 'stream', enabled: true },
-                    isDevicePhoto: false
+                    is_device_photo: false
                 })
             ];
 
@@ -398,8 +398,8 @@ describe('CullingGrid', () => {
             expect(stats.totalPhotos).toBe(2);
             expect(stats.selectedPhotos).toBe(2);
             expect(stats.sourceStats).toHaveLength(2);
-            expect(stats.sourceStats[0].sourceId).toBe('device');
-            expect(stats.sourceStats[1].sourceId).toBe('hillview');
+            expect(stats.sourceStats[0].source_id).toBe('device');
+            expect(stats.sourceStats[1].source_id).toBe('hillview');
             expect(stats.totalCells).toBe(100); // 10x10 grid
             expect(stats.emptyCells).toBeLessThanOrEqual(100);
         });

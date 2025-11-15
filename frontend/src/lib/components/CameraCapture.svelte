@@ -46,8 +46,8 @@
         altitude?: number | null;
         accuracy?: number;
         heading?: number | null;
-        locationSource: 'gps' | 'map';
-        bearingSource: string;
+        location_source: 'gps' | 'map';
+        bearing_source: string;
     } | null = null;
 
 
@@ -678,8 +678,8 @@
             altitude: locationData.altitude,
             accuracy: locationData.accuracy || 1,
             heading: locationData.heading,
-            locationSource: locationData.locationSource,
-            bearingSource: locationData.bearingSource,
+            location_source: locationData.location_source,
+            bearing_source: locationData.bearing_source,
         };
 
         injectPlaceholder(validLocation, sharedId);
@@ -689,7 +689,7 @@
             location: locationData,
             timestamp,
             mode,
-            sharedId // Use sharedId instead of tempId
+            sharedId // Use sharedId instead of temp_id
         });
 
         const captureStartTime = performance.now();
@@ -724,12 +724,12 @@
             // Add to capture queue with ImageData
             await captureQueue.add({
                 id: sharedId, // Use sharedId for the entire pipeline
-                imageData,
+                image_data: imageData,
                 location: validLocation,
-                timestamp,
+                captured_at: timestamp,
                 mode,
-                placeholderId: sharedId, // Use sharedId as placeholder ID too
-                orientationCode: get(deviceOrientationExif) // Current device orientation
+                placeholder_id: sharedId, // Use sharedId as placeholder ID too
+                orientation_code: get(deviceOrientationExif) // Current device orientation
             });
 
             // Trigger auto-upload prompt check
@@ -921,8 +921,8 @@
             altitude: null,
             accuracy: undefined,
             heading: $bearingState.bearing,
-            locationSource: $spatialState.source || 'unknown',
-            bearingSource: $bearingState.source || 'unknown',
+            location_source: $spatialState.source || 'unknown',
+            bearing_source: $bearingState.source || 'unknown',
         };
         locationReady = true;
         locationError = null;

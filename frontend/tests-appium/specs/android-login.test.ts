@@ -50,7 +50,7 @@ describe('Android Login', () => {
             const profileLink = await $('a[href="/account"]');
             const userInfo = await $('.user-info, .username, [data-testid="user-display"]');
 
-            const isAuthenticated = await logoutLink.isExisting() ||
+            const is_authenticated = await logoutLink.isExisting() ||
                                    await profileLink.isExisting() ||
                                    await userInfo.isExisting();
 
@@ -58,7 +58,7 @@ describe('Android Login', () => {
             await app.closeMenu();
 
             // FIXED: Real verification of login state
-            expect(isAuthenticated).toBe(true);
+            expect(is_authenticated).toBe(true);
 
             await app.takeScreenshot('login-verified');
             console.log('✅ Login functionality verified');

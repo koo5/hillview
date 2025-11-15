@@ -401,7 +401,7 @@ class StreamPhotoLoader {
             altitude = altitude,
             source = "stream", // Just source ID
             sizes = sizes,
-            isDevicePhoto = false,
+            is_device_photo = false,
             captured_at = capturedAt,
             is_pano = isPano,
             creator = creator,

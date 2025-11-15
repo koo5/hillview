@@ -8,9 +8,9 @@ import { page } from '$app/stores';
 import { browser } from '$app/environment';
 
 export interface CompassData {
-    magneticHeading: number | null;  // 0-360 degrees from magnetic north
-    trueHeading: number | null;       // 0-360 degrees from true north
-    headingAccuracy: number | null;   // Accuracy in degrees
+    magnetic_heading: number | null;  // 0-360 degrees from magnetic north
+    true_heading: number | null;       // 0-360 degrees from true north
+    heading_accuracy: number | null;   // Accuracy in degrees
     timestamp: number;
     source: string;
 }
@@ -24,9 +24,9 @@ export interface DeviceOrientation {
 
 // compassData - feeds into currentCompassHeading
 export const compassData = writable<CompassData>({
-    magneticHeading: null,
-    trueHeading: null,
-    headingAccuracy: null,
+    magnetic_heading: null,
+    true_heading: null,
+    heading_accuracy: null,
     timestamp: Date.now(),
     source: 'unknown'
 });
@@ -43,18 +43,18 @@ export const deviceOrientation = writable<DeviceOrientation>({
 export const currentCompassHeading = derived(
     [compassData],
     ([$compassData]) => {
-        if ($compassData && $compassData.trueHeading !== null) {
+        if ($compassData && $compassData.true_heading !== null) {
             return {
-                heading: $compassData.trueHeading,
+                heading: $compassData.true_heading,
                 source: ($compassData.source + '-compass-true') as string,
-                accuracy: $compassData.headingAccuracy
+                accuracy: $compassData.heading_accuracy
             };
         }
-        if ($compassData && $compassData.magneticHeading !== null) {
+        if ($compassData && $compassData.magnetic_heading !== null) {
             return {
-                heading: $compassData.magneticHeading,
+                heading: $compassData.magnetic_heading,
                 source: ($compassData.source + '-compass-magnetic') as string,
-                accuracy: $compassData.headingAccuracy
+                accuracy: $compassData.heading_accuracy
             };
         }
         return {
@@ -181,9 +181,9 @@ async function startTauriSensor(mode: SensorMode = SensorMode.UPRIGHT_ROTATION_V
 				const sensorData = data;
 
 				const compassUpdate = {
-					magneticHeading: sensorData.magneticHeading,
-					trueHeading: sensorData.trueHeading,
-					headingAccuracy: sensorData.headingAccuracy,
+					magnetic_heading: sensorData.magnetic_heading,
+					true_heading: sensorData.true_heading,
+					heading_accuracy: sensorData.heading_accuracy,
 					timestamp: sensorData.timestamp,
 					source: sensorData.source || 'tauri'
 				};
@@ -193,9 +193,9 @@ async function startTauriSensor(mode: SensorMode = SensorMode.UPRIGHT_ROTATION_V
 				if (false) {
 					const modeStr = get(currentSensorMode);
 					console.log(`🔍🧭 Compass update from ${data.source || 'Unknown'} (Mode: ${SensorMode[modeStr]}):`, JSON.stringify({
-						'compass bearing (magnetic)': compassUpdate.magneticHeading?.toFixed(1) + '°',
-						'compass bearing (true)': compassUpdate.trueHeading?.toFixed(1) + '°',
-						accuracy: '±' + compassUpdate.headingAccuracy?.toFixed(1) + '°',
+						'compass bearing (magnetic)': compassUpdate.magnetic_heading?.toFixed(1) + '°',
+						'compass bearing (true)': compassUpdate.true_heading?.toFixed(1) + '°',
+						accuracy: '±' + compassUpdate.heading_accuracy?.toFixed(1) + '°',
 						pitch: data.pitch?.toFixed(1) + '°',
 						roll: data.roll?.toFixed(1) + '°',
 						timestamp: new Date(data.timestamp).toLocaleTimeString()
@@ -238,9 +238,9 @@ async function startWebCompass(): Promise<boolean> {
             const trueHeading = event.compassHeading ?? null;
 
             const data = {
-                magneticHeading: magneticHeading !== null ? normalizeHeading(magneticHeading) : null,
-                trueHeading: trueHeading !== null ? normalizeHeading(trueHeading) : null,
-                headingAccuracy: accuracy,
+                magnetic_heading: magneticHeading !== null ? normalizeHeading(magneticHeading) : null,
+                true_heading: trueHeading !== null ? normalizeHeading(trueHeading) : null,
+                heading_accuracy: accuracy,
                 timestamp: Date.now(),
                 source: 'web'
             };
@@ -252,9 +252,9 @@ async function startWebCompass(): Promise<boolean> {
             if (false) {
                 console.log('🢄🌐 Web Compass update:', JSON.stringify({
                     source: event.source || 'deviceorientation',
-                    magneticHeading: data.magneticHeading?.toFixed(1) + '°',
-                    trueHeading: data.trueHeading?.toFixed(1) + '°',
-                    accuracy: data.headingAccuracy ? '±' + data.headingAccuracy?.toFixed(1) + '°' : 'unknown',
+                    magneticHeading: data.magnetic_heading?.toFixed(1) + '°',
+                    trueHeading: data.true_heading?.toFixed(1) + '°',
+                    accuracy: data.heading_accuracy ? '±' + data.heading_accuracy?.toFixed(1) + '°' : 'unknown',
                     alpha: event.alpha?.toFixed(1) + '°',
                     beta: event.beta?.toFixed(1) + '°',
                     gamma: event.gamma?.toFixed(1) + '°',
@@ -344,9 +344,9 @@ async function stopCompassInternal() {
 
     // Reset stores
     compassData.set({
-        magneticHeading: null,
-        trueHeading: null,
-        headingAccuracy: null,
+        magnetic_heading: null,
+        true_heading: null,
+        heading_accuracy: null,
         timestamp: Date.now(),
         source: 'unknown'
     });

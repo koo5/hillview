@@ -56,7 +56,7 @@ export async function completeAuthentication(tokenData: {
         // Update auth store - tokens stored means authenticated
         auth.update(a => ({
             ...a,
-            isAuthenticated: true
+            is_authenticated: true
         }));
 
         // Register client public key for web (async, don't block authentication)
@@ -75,13 +75,13 @@ export async function completeAuthentication(tokenData: {
             return false;
         }
 
-        // Ensure isAuthenticated is still true after fetching user data
+        // Ensure is_authenticated is still true after fetching user data
         auth.update(a => {
-            if (!a.isAuthenticated && a.user) {
+            if (!a.is_authenticated && a.user) {
                 console.log('🢄[AUTH] Fixing inconsistent state: user exists but not authenticated');
                 return {
                     ...a,
-                    isAuthenticated: true
+                    is_authenticated: true
                 };
             }
             return a;
@@ -109,7 +109,7 @@ async function ensureAuthInitialized() {
         console.log('🢄[AUTH] Valid token found during initialization');
         auth.update(state => ({
             ...state,
-            isAuthenticated: true
+            is_authenticated: true
         }));
         fetchUserData();
     } else {
@@ -222,11 +222,11 @@ export async function logout(reason?: string) {
 
     console.log('🢄[AUTH] - Updating auth store');
     auth.update(a => {
-        console.log('🢄[AUTH]   - Setting isAuthenticated to false');
+        console.log('🢄[AUTH]   - Setting is_authenticated to false');
         console.log('🢄[AUTH]   - Clearing token and user data');
         return {
             ...a,
-            isAuthenticated: false,
+            is_authenticated: false,
             user: null
         };
     });
@@ -284,7 +284,7 @@ export async function authenticatedFetch(url: string, options: RequestInit = {})
 export async function fetchUserData() {
     const a = get(auth);
 
-    console.log('🢄[AUTH] fetchUserData - Current auth state: isAuthenticated:', a.isAuthenticated, 'Has user:', !!a.user);
+    console.log('🢄[AUTH] fetchUserData - Current auth state: is_authenticated:', a.is_authenticated, 'Has user:', !!a.user);
 
     try {
         console.log('🢄[AUTH] Making API request to /api/auth/me');
@@ -303,14 +303,14 @@ export async function fetchUserData() {
         console.log('🢄[AUTH] - Username:', userData.username);
         console.log('🢄[AUTH] - Email:', userData.email);
 
-        // If we successfully got user data, ensure isAuthenticated is true
+        // If we successfully got user data, ensure is_authenticated: is true
         console.log('🢄[AUTH] Updating auth store with user data');
         auth.update(a => {
-            console.log('🢄[AUTH] - Setting isAuthenticated to true');
+            console.log('🢄[AUTH] - Setting is_authenticated: to true');
             console.log('🢄[AUTH] - Updating user data');
             return {
                 ...a,
-                isAuthenticated: true,
+                is_authenticated: true,
                 user: userData
             };
         });
@@ -328,7 +328,7 @@ export async function fetchUserData() {
 export async function checkAuth() {
     const a = get(auth);
 
-    console.log('🢄[AUTH] - isAuthenticated:', a.isAuthenticated, 'a.user:', JSON.stringify(a.user));
+    console.log('🢄[AUTH] - is_authenticated:', a.is_authenticated, 'a.user:', JSON.stringify(a.user));
 
     // Check token validity through TokenManager
     const validToken = await getCurrentToken();
@@ -346,7 +346,7 @@ export async function checkAuth() {
         console.warn('🢄[AUTH] INCONSISTENT STATE: User data exists but no valid token');
         console.warn('🢄[AUTH] Logging out due to invalid token');
         logout('Invalid token');
-    } else if (a.isAuthenticated && !a.user) {
+    } else if (a.is_authenticated && !a.user) {
         // We think we're authenticated but have no user data - fetch it
         console.warn('🢄[AUTH] INCONSISTENT STATE: Authenticated but no user data');
         console.warn('🢄[AUTH] Attempting to fetch user data');
@@ -361,7 +361,7 @@ export async function checkAuth() {
 export function debugAuth() {
     const a = get(auth);
     console.log('🢄[AUTH] Auth state:', {
-        isAuthenticated: a.isAuthenticated,
+        is_authenticated: a.is_authenticated,
         hasUser: !!a.user,
         user: a.user
     });

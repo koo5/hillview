@@ -8,8 +8,7 @@
 
 	export let onSaveSuccess = (message: string) => {
 	};
-	export let onSaveError = (message: string) => {
-	};
+
 	export let onCancel: (() => void) | null = null;
 
 	let autoUploadEnabled = false;
@@ -24,7 +23,7 @@
 	onMount(() => {
 		// Subscribe to auth state changes
 		const unsubscribe1 = auth.subscribe(authState => {
-			user = authState.isAuthenticated ? authState.user : null;
+			user = authState.is_authenticated ? authState.user : null;
 		});
 
 		const unsubscribe2 = autoUploadSettings.subscribe(value => {

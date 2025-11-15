@@ -92,11 +92,11 @@ export class AngularRangeCuller {
         center: { lat: number; lng: number },
         range: number
     ): {
-        totalPhotosInRange: number;
-        selectedPhotos: number;
-        coveredSectors: number;
-        totalSectors: number;
-        angularCoverage: { sector: number; startAngle: number; endAngle: number; photoCount: number }[];
+        total_photos_in_range: number;
+        selected_photos: number;
+        covered_sectors: number;
+        total_sectors: number;
+        angular_coverage: { sector: number; start_angle: number; end_angle: number; photo_count: number }[];
     } {
         // Count photos per angular sector in result
         const sectorCounts = new Array(this.ANGULAR_BUCKETS).fill(0);
@@ -115,19 +115,19 @@ export class AngularRangeCuller {
         // Build angular coverage info
         const angularCoverage = sectorCounts.map((photoCount, sector) => ({
             sector,
-            startAngle: sector * this.DEGREES_PER_BUCKET,
-            endAngle: (sector + 1) * this.DEGREES_PER_BUCKET,
-            photoCount
+            start_angle: sector * this.DEGREES_PER_BUCKET,
+            end_angle: (sector + 1) * this.DEGREES_PER_BUCKET,
+            photo_count: photoCount
         }));
 
         const coveredSectors = sectorCounts.filter(count => count > 0).length;
 
         return {
-            totalPhotosInRange,
-            selectedPhotos: culledPhotos.length,
-            coveredSectors,
-            totalSectors: this.ANGULAR_BUCKETS,
-            angularCoverage
+            total_photos_in_range: totalPhotosInRange,
+            selected_photos: culledPhotos.length,
+            covered_sectors: coveredSectors,
+            total_sectors: this.ANGULAR_BUCKETS,
+            angular_coverage: angularCoverage
         };
     }
 }

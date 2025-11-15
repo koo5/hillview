@@ -9,12 +9,12 @@
 
 	interface DevicePhoto {
 		id: string;
-		filePath: string;
-		fileName: string;
-		fileHash: string;
-		fileSize: number;
-		capturedAt: number;
-		createdAt: number;
+		file_path: string;
+		file_name: string;
+		file_hash: string;
+		file_size: number;
+		captured_at: number;
+		created_at: number;
 		latitude: number;
 		longitude: number;
 		altitude: number;
@@ -22,20 +22,20 @@
 		accuracy: number;
 		width: number;
 		height: number;
-		uploadStatus: string;
-		uploadedAt: number;
-		retryCount: number;
-		lastUploadAttempt: number;
+		upload_status: string;
+		uploaded_at: number;
+		retry_count: number;
+		last_upload_attempt: number;
 	}
 
 	interface DevicePhotosResponse {
 		photos: DevicePhoto[];
-		lastUpdated: number;
+		last_updated: number;
 		page: number;
-		pageSize: number;
-		totalCount: number;
-		totalPages: number;
-		hasMore: boolean;
+		page_size: number;
+		total_count: number;
+		total_pages: number;
+		has_more: boolean;
 		error?: string;
 	}
 
@@ -53,12 +53,6 @@
 	});
 
 	async function fetchDevicePhotos(page: number = 1, append: boolean = false) {
-		if (!TAURI) {
-			error = "Device photos are only available in the Android app";
-			isLoading = false;
-			return;
-		}
-
 		try {
 			if (append) {
 				isLoadingMore = true;
@@ -77,7 +71,7 @@
 				// Append new photos to existing data
 				photosData.photos = [...photosData.photos, ...response.photos];
 				photosData.page = response.page;
-				photosData.hasMore = response.hasMore;
+				photosData.has_more = response.has_more;
 			} else {
 				// Replace with new data
 				photosData = response;
@@ -101,7 +95,7 @@
 	}
 
 	async function loadMore() {
-		if (photosData?.hasMore && !isLoadingMore) {
+		if (photosData?.has_more && !isLoadingMore) {
 			await fetchDevicePhotos(currentPage + 1, true);
 		}
 	}
@@ -179,11 +173,11 @@
 					<div class="photo-stats">
 						<span class="stat">
 							<Camera size={16} />
-							{photosData.totalCount} photos
+							{photosData.total_count} photos
 						</span>
 						<span class="stat">
 							<Download size={16} />
-							Page {photosData.page} of {photosData.totalPages}
+							Page {photosData.page} of {photosData.total_pages}
 						</span>
 					</div>
 				{/if}
@@ -225,35 +219,35 @@
 					<div class="photo-card" data-testid="photo-card">
 						<div class="photo-image">
 							<img
-								src={getDevicePhotoUrl(photo.filePath)}
-								alt={photo.fileName}
+								src={getDevicePhotoUrl(photo.file_path)}
+								alt={photo.file_name}
 								loading="lazy"
 								data-testid="photo-thumbnail"
 							/>
 							<div class="photo-overlay">
-								<div class="photo-status" style="color: {getStatusColor(photo.uploadStatus)}">
-									<svelte:component this={getStatusIcon(photo.uploadStatus)} size={16} />
-									{photo.uploadStatus}
+								<div class="photo-status" style="color: {getStatusColor(photo.upload_status)}">
+									<svelte:component this={getStatusIcon(photo.upload_status)} size={16} />
+									{photo.upload_status}
 								</div>
 							</div>
 						</div>
 
 						<div class="photo-header">
-							<div class="photo-name">{photo.fileName}</div>
+							<div class="photo-name">{photo.file_name}</div>
 						</div>
 
 						<div class="photo-details">
 							<div class="detail-row">
 								<span class="detail-label">Size:</span>
-								<span class="detail-value">{formatFileSize(photo.fileSize)}</span>
+								<span class="detail-value">{formatFileSize(photo.file_size)}</span>
 							</div>
 							<div class="detail-row">
 								<span class="detail-label">Date:</span>
-								<span class="detail-value">{formatDate(photo.capturedAt)}</span>
+								<span class="detail-value">{formatDate(photo.captured_at)}</span>
 							</div>
 							<div class="detail-row">
 								<span class="detail-label">Time:</span>
-								<span class="detail-value">{formatTime(photo.capturedAt)}</span>
+								<span class="detail-value">{formatTime(photo.captured_at)}</span>
 							</div>
 							{#if photo.latitude !== 0 && photo.longitude !== 0}
 								<div class="detail-row">
@@ -274,23 +268,23 @@
 								<span class="detail-label">Dimensions:</span>
 								<span class="detail-value">{photo.width} × {photo.height}</span>
 							</div>
-							{#if photo.retryCount > 0}
+							{#if photo.retry_count > 0}
 								<div class="detail-row">
 									<span class="detail-label">Retries:</span>
-									<span class="detail-value">{photo.retryCount}</span>
+									<span class="detail-value">{photo.retry_count}</span>
 								</div>
 							{/if}
 						</div>
 
 						<div class="photo-path">
 							<span class="path-label">Path:</span>
-							<span class="path-value">{photo.filePath}</span>
+							<span class="path-value">{photo.file_path}</span>
 						</div>
 					</div>
 				{/each}
 			</div>
 
-			{#if photosData.hasMore}
+			{#if photosData.has_more}
 				<div class="load-more-container">
 					<button
 						class="load-more-button"

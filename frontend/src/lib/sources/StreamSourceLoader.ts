@@ -66,8 +66,8 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
         if (typeof postMessage === 'function') {
             postMessage({
                 type: 'sourceLoadingStatus',
-                sourceId: this.source.id,
-                isLoading,
+                source_id: this.source.id,
+                is_loading: isLoading,
                 progress,
                 error
             });
@@ -362,7 +362,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
 
                         // Add file hash if available for deduplication with device photos
                         if (photo.file_md5) {
-                            convertedPhoto.fileHash = photo.file_md5;
+                            convertedPhoto.file_hash = photo.file_md5;
                         }
 
                         // Add creator information if available (from Mapillary API)
@@ -381,7 +381,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
                     // Send message to worker queue for each batch
                     this.callbacks.enqueueMessage({
                         type: 'photosAdded',
-                        sourceId: this.source.id,
+                        source_id: this.source.id,
                         photos: this.streamPhotos, // Send accumulated photos (growing list)
                     });
                 }
@@ -402,7 +402,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
                 // Send completion message to worker queue
                 this.callbacks.enqueueMessage({
                     type: 'streamComplete',
-                    sourceId: this.source.id,
+                    source_id: this.source.id,
                     totalPhotos: this.streamPhotos.length,
                     duration
                 });

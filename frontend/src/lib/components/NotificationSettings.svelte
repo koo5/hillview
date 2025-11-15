@@ -11,7 +11,7 @@
 	}
 
 	interface TauriPermissionResponse {
-		postNotification: string; // "Granted" | "Denied" | "Prompt"
+		post_notification: string; // "Granted" | "Denied" | "Prompt"
 	}
 
 	interface BasicResponse {
@@ -44,7 +44,7 @@
 			// Check system notification permission status via Tauri permission system
 			const permissionResult = await invoke<TauriPermissionResponse>('plugin:hillview|check_tauri_permissions');
 			console.log('🔔 Permission check result:', JSON.stringify(permissionResult));
-			permissionGranted = permissionResult.postNotification === 'Granted';
+			permissionGranted = permissionResult.post_notification === 'Granted';
 			console.log('🔔 Permission granted:', permissionGranted);
 
 		} catch (error) {

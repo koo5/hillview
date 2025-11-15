@@ -12,12 +12,12 @@ import { invoke } from '@tauri-apps/api/core';
 // Device photo format from Android
 interface DevicePhoto {
     id: string;
-    filePath: string;
-    fileName: string;
-    fileHash: string;
-    fileSize: number;
-    capturedAt: number;
-    createdAt: number;
+    file_path: string;
+    file_name: string;
+    file_hash: string;
+    file_size: number;
+    captured_at: number;
+    created_at: number;
     latitude: number;
     longitude: number;
     altitude: number;
@@ -25,18 +25,18 @@ interface DevicePhoto {
     accuracy: number; // GPS positioning accuracy in meters
     width: number;
     height: number;
-    uploadStatus: string;
-    uploadedAt?: number;
+    upload_status: string;
+    uploaded_at?: number;
 }
 
 interface DevicePhotosResponse {
     photos: DevicePhoto[];
-    lastUpdated: number;
+    last_updated: number;
     page: number;
-    pageSize: number;
-    totalCount: number;
-    totalPages: number;
-    hasMore: boolean;
+    page_size: number;
+    total_count: number;
+    total_pages: number;
+    has_more: boolean;
     error?: string;
 }
 
@@ -58,7 +58,7 @@ export class DeviceSourceLoader extends BasePhotoSourceLoader {
         try {
             const requestParams = {
                 page: 1,
-                pageSize: this.maxPhotos || 50,
+                page_size: this.maxPhotos || 50,
                 minLat: bounds?.top_left.lat,
                 maxLat: bounds?.bottom_right.lat,
                 minLng: bounds?.top_left.lng,
@@ -82,7 +82,7 @@ export class DeviceSourceLoader extends BasePhotoSourceLoader {
 
             this.callbacks.enqueueMessage({
                 type: 'photosAdded',
-                sourceId: this.source.id,
+                source_id: this.source.id,
                 photos: this.photos,
                 duration,
                 fromCache: false
@@ -112,8 +112,8 @@ export class DeviceSourceLoader extends BasePhotoSourceLoader {
             id: devicePhoto.id,
             uid: `${this.source.id}-${devicePhoto.id}`,
             source_type: this.source.type,
-            file: devicePhoto.fileName,
-            url: `file://${devicePhoto.filePath}`,
+            file: devicePhoto.file_name,
+            url: `file://${devicePhoto.file_path}`,
             coord: {
                 lat: devicePhoto.latitude,
                 lng: devicePhoto.longitude
@@ -121,10 +121,10 @@ export class DeviceSourceLoader extends BasePhotoSourceLoader {
             bearing: devicePhoto.bearing,
             altitude: devicePhoto.altitude,
             source: this.source,
-            isDevicePhoto: true,
-            capturedAt: devicePhoto.capturedAt,
+            is_device_photo: true,
+            captured_at: devicePhoto.captured_at,
             accuracy: devicePhoto.accuracy,
-            fileHash: devicePhoto.fileHash
+            file_hash: devicePhoto.file_hash
         };
     }
 

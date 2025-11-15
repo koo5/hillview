@@ -92,7 +92,7 @@
                                         {@const loadingStatus = $sourceLoadingStatus[source.id]}
                                         {#if loadingStatus}
                                             <div class="loading-status">
-                                                {#if loadingStatus.isLoading}
+                                                {#if loadingStatus.is_loading}
                                                     <span class="loading-indicator">
                                                         <span class="spinner-small"></span>
                                                         Loading

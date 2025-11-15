@@ -10,7 +10,7 @@
     onMount(() => {
         // Watch for auth store changes
         const unsubscribe = auth.subscribe(authState => {
-            handleRefreshStatusChange(authState.refreshStatus, authState.refreshAttempt);
+            handleRefreshStatusChange(authState.refresh_status, authState.refresh_attempt);
         });
 
         return () => {

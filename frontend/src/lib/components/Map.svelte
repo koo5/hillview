@@ -1242,7 +1242,7 @@
                 data-testid={`source-toggle-${source.id}`}
         >
             <div class="source-icon-wrapper">
-                <Spinner show={source.enabled && ($sourceLoadingStatus[source.id]?.isLoading || false)} color="#fff"></Spinner>
+                <Spinner show={source.enabled && ($sourceLoadingStatus[source.id]?.is_loading || false)} color="#fff"></Spinner>
                 <div class="source-icon" style="background-color: {source.color}"></div>
             </div>
             {#if !compactSourceButtons}

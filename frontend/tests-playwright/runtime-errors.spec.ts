@@ -4,7 +4,7 @@ test.describe('Runtime Error Detection', () => {
   test.beforeEach(async ({ page }) => {
     // Navigate to the main page
     await page.goto('/');
-    
+
     // Wait for the app to load
     await page.waitForLoadState('networkidle');
   });
@@ -29,7 +29,7 @@ test.describe('Runtime Error Detection', () => {
     await page.waitForTimeout(2000);
 
     // Trigger actions that previously caused "pos is not defined" errors
-    
+
     // 1. Try map interaction that previously used get(pos)
     const mapContainer = page.locator('.leaflet-container').first();
     if (await mapContainer.isVisible()) {
@@ -38,7 +38,7 @@ test.describe('Runtime Error Detection', () => {
         // Click on map to trigger position updates
         await page.mouse.click(mapBox.x + mapBox.width / 2, mapBox.y + mapBox.height / 2);
         await page.waitForTimeout(200);
-        
+
         // Pan the map to trigger spatial state updates
         await page.mouse.move(mapBox.x + mapBox.width / 2, mapBox.y + mapBox.height / 2);
         await page.mouse.down();
@@ -105,7 +105,7 @@ test.describe('Runtime Error Detection', () => {
     await page.waitForTimeout(2000);
 
     // Perform various actions that might trigger legacy store references
-    
+
     // Camera button interaction
     const cameraButton = page.locator('[data-testid="camera-button"]');
     if (await cameraButton.isVisible()) {
@@ -135,13 +135,13 @@ test.describe('Runtime Error Detection', () => {
 
     // Check for legacy store reference errors
     const legacyStoreErrors = [
-      ...errors.filter(error => 
+      ...errors.filter(error =>
         error.includes('bearing is not defined') ||
         error.includes('pos2 is not defined') ||
         error.includes('photos_in_area is not defined') ||
         error.includes('photos_in_range is not defined')
       ),
-      ...uncaughtExceptions.filter(error => 
+      ...uncaughtExceptions.filter(error =>
         error.includes('bearing is not defined') ||
         error.includes('pos2 is not defined') ||
         error.includes('photos_in_area is not defined') ||
@@ -176,13 +176,13 @@ test.describe('Runtime Error Detection', () => {
 
     // Verify no initialization errors related to position/bearing
     const initErrors = [
-      ...errors.filter(error => 
+      ...errors.filter(error =>
         error.includes('pos is not defined') ||
         error.includes('spatialState') ||
         error.includes('bearingState') ||
         error.includes('mapState')
       ),
-      ...uncaughtExceptions.filter(error => 
+      ...uncaughtExceptions.filter(error =>
         error.includes('pos is not defined') ||
         error.includes('spatialState') ||
         error.includes('bearingState') ||
@@ -213,7 +213,7 @@ test.describe('Runtime Error Detection', () => {
     // Try photo navigation operations
     await page.keyboard.press('c'); // Turn to left photo
     await page.waitForTimeout(300);
-    await page.keyboard.press('v'); // Turn to right photo  
+    await page.keyboard.press('v'); // Turn to right photo
     await page.waitForTimeout(300);
 
     // Try multiple rapid navigation
@@ -229,14 +229,14 @@ test.describe('Runtime Error Detection', () => {
 
     // Check for photo-related legacy errors
     const photoErrors = [
-      ...errors.filter(error => 
+      ...errors.filter(error =>
         error.includes('turn_to_photo_to') ||
         error.includes('combinedPhotos') ||
         error.includes('photosInArea') ||
         error.includes('photos_in_area is not defined') ||
         error.includes('photos_in_range is not defined')
       ),
-      ...uncaughtExceptions.filter(error => 
+      ...uncaughtExceptions.filter(error =>
         error.includes('turn_to_photo_to') ||
         error.includes('combinedPhotos') ||
         error.includes('photosInArea') ||
@@ -282,15 +282,15 @@ test.describe('Runtime Error Detection', () => {
 
     // Check for display mode related errors
     const displayErrors = [
-      ...errors.filter(error => 
+      ...errors.filter(error =>
         error.includes('pos is not defined') ||
-        error.includes('displayMode') ||
+        error.includes('display_mode') ||
         error.includes('spatialState') ||
         error.includes('app.update')
       ),
-      ...uncaughtExceptions.filter(error => 
+      ...uncaughtExceptions.filter(error =>
         error.includes('pos is not defined') ||
-        error.includes('displayMode') ||
+        error.includes('display_mode') ||
         error.includes('spatialState') ||
         error.includes('app.update')
       )

@@ -56,18 +56,18 @@ export class MessageRouter {
                 return true;
 
             case 'loadProgress':
-                console.log(`MessageRouter: Load progress from ${message.sourceId}: ${message.loaded}${message.total ? `/${message.total}` : ''}`);
+                console.log(`MessageRouter: Load progress from ${message.source_id}: ${message.loaded}${message.total ? `/${message.total}` : ''}`);
                 return true;
 
             case 'photosAdded':
                 // StreamSourceLoader accumulated more photos - update source photos and trigger combine
-                console.log(`MessageRouter: Photos updated from stream ${message.sourceId}: ${message.photos?.length || 0} photos`);
-                this.handlers.updateSourcePhotos(message.sourceId, message.photos);
+                console.log(`MessageRouter: Photos updated from stream ${message.source_id}: ${message.photos?.length || 0} photos`);
+                this.handlers.updateSourcePhotos(message.source_id, message.photos);
                 this.handlers.triggerPhotoCombineProcess();
                 return true;
 
             case 'streamComplete':
-                console.log(`MessageRouter: Stream completed for ${message.sourceId}: ${message.totalPhotos || 0} total photos`);
+                console.log(`MessageRouter: Stream completed for ${message.source_id}: ${message.total_photos || 0} total photos`);
                 return true;
 
             case 'removePhoto':

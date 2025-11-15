@@ -8,8 +8,8 @@ export interface PlaceholderLocation {
     altitude?: number | null;
     heading?: number | null;
     accuracy: number;
-    locationSource: 'gps' | 'map';
-    bearingSource: string;
+    location_source: 'gps' | 'map';
+    bearing_source: string;
 }
 
 /**
@@ -48,9 +48,9 @@ export function createPlaceholderPhoto(
         bearing: location.heading || 0,
         altitude: location.altitude || 0,
         source: source,
-        isDevicePhoto: true,
-        isPlaceholder: true,
-        tempId: sharedId, // Use sharedId as tempId for compatibility
+        is_device_photo: true,
+        is_placeholder: true,
+        temp_id: sharedId, // Use sharedId as temp_id for compatibility
         captured_at: Date.now(),
         accuracy: location.accuracy
     };
@@ -84,6 +84,6 @@ export function createPlaceholderMetadata(
 /**
  * Check if a photo is a placeholder
  */
-export function isPlaceholder(photo: { id: string; isPlaceholder?: boolean }): boolean {
-    return photo.isPlaceholder === true || photo.id.startsWith('temp_') || photo.id.startsWith('photo_');
+export function isPlaceholder(photo: { id: string; is_placeholder?: boolean }): boolean {
+    return photo.is_placeholder === true || photo.id.startsWith('temp_') || photo.id.startsWith('photo_');
 }

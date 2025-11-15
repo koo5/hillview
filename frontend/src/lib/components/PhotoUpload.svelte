@@ -22,8 +22,8 @@
 
 	interface ImportResult {
 		success: boolean;
-		selectedFiles: string[];
-		importedCount: number;
+		selected_files: string[];
+		imported_count: number;
 		error?: string;
 	}
 
@@ -78,7 +78,7 @@
 					onLogEntry(`✅ Uploaded: ${file.name}`, 'success', {
 						operation: 'upload',
 						filename: file.name,
-						photoId: result.photo_id, // Using correct property name
+						photo_id: result.photo_id, // Using correct property name
 						outcome: 'success'
 					});
 				} else {

@@ -2,19 +2,16 @@ use serde::{Deserialize, Serialize};
 use tauri::plugin::PermissionState;
 
 #[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct PingRequest {
   pub value: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct PingResponse {
   pub value: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct SensorData {
   pub magnetic_heading: f32,
   pub true_heading: f32,
@@ -25,14 +22,12 @@ pub struct SensorData {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct LocationUpdate {
   pub latitude: f64,
   pub longitude: f64,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct AutoUploadResponse {
   pub success: bool,
   pub enabled: bool,
@@ -40,7 +35,6 @@ pub struct AutoUploadResponse {
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct UploadStatusResponse {
   pub auto_upload_enabled: bool,
   pub auto_upload_prompt_enabled: bool,
@@ -50,20 +44,17 @@ pub struct UploadStatusResponse {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct UploadConfig {
   pub server_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct BasicResponse {
   pub success: bool,
   pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct PhotoUploadResponse {
   pub success: bool,
   pub photo_id: String,
@@ -71,7 +62,6 @@ pub struct PhotoUploadResponse {
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct AuthTokenResponse {
   pub token: Option<String>,
   pub expires_at: Option<String>,
@@ -80,14 +70,12 @@ pub struct AuthTokenResponse {
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct DevicePhotosResponse {
   pub photos: Vec<serde_json::Value>,
   pub last_updated: i64,  // This will be renamed to lastUpdated by serde
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct PhotoScanResponse {
   pub photos_added: i32,
   pub scan_errors: i32,
@@ -96,7 +84,6 @@ pub struct PhotoScanResponse {
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct FileImportResponse {
   pub success: bool,
   pub selected_files: Vec<String>,
@@ -109,7 +96,6 @@ pub struct FileImportResponse {
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct PhotoWorkerResponse {
   pub success: bool,
   pub response_json: Option<String>,
@@ -117,7 +103,6 @@ pub struct PhotoWorkerResponse {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct BearingLookupResponse {
   pub success: bool,
   pub found: Option<bool>,
@@ -134,7 +119,6 @@ pub struct BearingLookupResponse {
 // Push Notification Models
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct PushDistributorInfo {
   pub package_name: String,
   pub display_name: String,
@@ -142,7 +126,6 @@ pub struct PushDistributorInfo {
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct PushDistributorsResponse {
   pub distributors: Vec<PushDistributorInfo>,
   pub success: bool,
@@ -150,7 +133,6 @@ pub struct PushDistributorsResponse {
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct PushRegistrationStatusResponse {
   pub status: String, // "not_configured", "registered", "distributor_missing", "registration_failed", "disabled"
   pub status_message: String,
@@ -163,7 +145,6 @@ pub struct PushRegistrationStatusResponse {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct SelectDistributorRequest {
   pub package_name: String, // Empty string means "disabled"
 }
@@ -171,7 +152,6 @@ pub struct SelectDistributorRequest {
 // Notification Models
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct PermissionResponse {
   pub granted: bool,
   pub success: bool,
@@ -179,7 +159,6 @@ pub struct PermissionResponse {
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct NotificationSettingsResponse {
   pub enabled: bool,
   pub success: bool,
@@ -189,19 +168,16 @@ pub struct NotificationSettingsResponse {
 // Permission-related models
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct TauriPermissionResponse {
   pub post_notification: PermissionState,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct TauriPermissionStringResponse {
   pub post_notification: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct RequestPermission {
   pub post_notification: bool,
 }

@@ -27,9 +27,9 @@ export const TAURI_DESKTOP = TAURI && !TAURI_MOBILE;
 
 // Type definitions for sensor data
 export interface SensorData {
-    magneticHeading: number;  // Compass bearing in degrees from magnetic north (0-360°)
-    trueHeading: number;      // Compass bearing corrected for magnetic declination
-    headingAccuracy: number;
+    magnetic_heading: number;  // Compass bearing in degrees from magnetic north (0-360°)
+    true_heading: number;      // Compass bearing corrected for magnetic declination
+    heading_accuracy: number;
     pitch: number;
     roll: number;
     timestamp: number;

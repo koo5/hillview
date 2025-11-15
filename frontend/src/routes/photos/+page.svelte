@@ -67,7 +67,7 @@
 
 			// Get the current auth state when userId changes
 			const currentAuth = get(auth);
-			user = currentAuth.isAuthenticated ? currentAuth.user : null;
+			user = currentAuth.is_authenticated ? currentAuth.user : null;
 
 			if (currentUserId && user) {
 				// Fetch user photos when authenticated
@@ -373,7 +373,6 @@
 					addLogEntry(message, 'success');
 					showSettings = false;
 				}}
-				onSaveError={(message) => addLogEntry(message, 'error')}
 				onCancel={() => showSettings = false}
 			/>
 		</div>
@@ -437,7 +436,7 @@
 						data-log-type="{entry.type}"
 						data-operation="{entry.metadata?.operation || ''}"
 						data-filename="{entry.metadata?.filename || ''}"
-						data-photo-id="{entry.metadata?.photoId || ''}"
+						data-photo-id="{entry.metadata?.photo_id || ''}"
 						data-outcome="{entry.metadata?.outcome || ''}"
 					>
 						<span class="log-time">{formatLogTime(entry.timestamp)}</span>

@@ -42,7 +42,6 @@ impl DevicePhotoMetadata {
 
 /// Response from Android addPhotoToDatabase command
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct AddPhotoResponse {
     pub success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]

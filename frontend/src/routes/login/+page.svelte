@@ -127,7 +127,7 @@
 
         // Check if user is already logged in (for web)
         auth.subscribe(value => {
-            if (value.isAuthenticated && $page.url.pathname === '/login') {
+            if (value.is_authenticated && $page.url.pathname === '/login') {
                 // Only redirect if we're actually on the login page
                 console.log('🢄🔐 Already authenticated on login page, redirecting');
                 clearOAuthPollingState(); // Clear polling state on successful auth

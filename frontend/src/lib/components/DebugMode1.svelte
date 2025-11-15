@@ -82,7 +82,7 @@
 </script>
 
 <div class="compact-row">
-    <span><strong>Build:</strong> {buildInfo.formattedTime}</span>
+    <span><strong>Build:</strong> {buildInfo.formatted_time}</span>
     <span><strong>Now:</strong> {currentTime}</span>
 </div>
 
@@ -161,11 +161,11 @@
     {/if}
 
     {#if $compassData}
-        <div><strong>Compass Bearing:</strong> {$compassData.magneticHeading?.toFixed(1) || 'N/A'}°
+        <div><strong>Compass Bearing:</strong> {$compassData.magnetic_heading?.toFixed(1) || 'N/A'}°
         </div>
         <div style="font-size: 10px; opacity: 0.8">True
-            bearing: {$compassData.trueHeading?.toFixed(1) || 'N/A'}° | Accuracy:
-            ±{$compassData.headingAccuracy?.toFixed(0) || 'N/A'}°
+            bearing: {$compassData.true_heading?.toFixed(1) || 'N/A'}° | Accuracy:
+            ±{$compassData.heading_accuracy?.toFixed(0) || 'N/A'}°
         </div>
         {#if $deviceOrientation}
             <div style="font-size: 10px; opacity: 0.8">Device tilt -

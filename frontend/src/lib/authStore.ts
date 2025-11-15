@@ -8,18 +8,18 @@ export interface User {
 }
 
 export interface AuthState {
-    isAuthenticated: boolean;
+    is_authenticated: boolean;
     user: User | null;
-    refreshStatus: 'idle' | 'refreshing' | 'retrying' | 'failed';
-    refreshAttempt?: number;
+    refresh_status: 'idle' | 'refreshing' | 'retrying' | 'failed';
+    refresh_attempt?: number;
 }
 
 // Create the auth store
 export const auth = writable<AuthState>({
-    isAuthenticated: false,
+    is_authenticated: false,
     user: null,
-    refreshStatus: 'idle',
-    refreshAttempt: undefined
+    refresh_status: 'idle',
+    refresh_attempt: undefined
 });
 
 // Create a userId store that only changes when the actual user ID changes
@@ -27,7 +27,7 @@ export const userId = writable<string | null>(null);
 
 // Subscribe to auth changes and update userId only when it actually changes
 auth.subscribe((authState) => {
-    const currentUserId = authState.isAuthenticated && authState.user ? authState.user.id : null;
+    const currentUserId = authState.is_authenticated && authState.user ? authState.user.id : null;
     if (get(userId) !== currentUserId) {
         userId.set(currentUserId);
     }

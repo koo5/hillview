@@ -40,7 +40,7 @@
         return photo.source?.id === 'mapillary' ? 'mapillary' : 'hillview';
     }
 
-    $: isAuthenticated = $auth.isAuthenticated;
+    $: is_authenticated = $auth.is_authenticated;
 
     // User helper functions
     function getUserId(photo: PhotoData | null): string | null {
@@ -73,7 +73,7 @@
 
     // Hide photo function
     async function hidePhoto() {
-        if (!photo || !isAuthenticated || isHiding) return;
+        if (!photo || !is_authenticated || isHiding) return;
 
         isHiding = true;
         hideMessage = '';
@@ -111,7 +111,7 @@
 
     // Show user hide dialog
     function showUserHideDialogAction() {
-        if (!photo || !isAuthenticated) return;
+        if (!photo || !is_authenticated) return;
 
         showHideUserDialog = true;
         hideUserReason = '';
@@ -121,7 +121,7 @@
 
     // Rating functionality
     async function handleRatingClick(rating: 'thumbs_up' | 'thumbs_down') {
-        if (!photo || !isAuthenticated || isRating) return;
+        if (!photo || !is_authenticated || isRating) return;
 
         const photoSource = getPhotoSource(photo);
         isRating = true;
@@ -171,7 +171,7 @@
 
     // Load rating data when photo changes
     async function loadPhotoRating() {
-        if (!photo || !isAuthenticated) {
+        if (!photo || !is_authenticated) {
             userRating = null;
             ratingCounts = { thumbs_up: 0, thumbs_down: 0 };
             return;
@@ -252,7 +252,7 @@
 
     // Flag photo function
     async function flagPhoto() {
-        if (!photo || !isAuthenticated || isFlagging) return;
+        if (!photo || !is_authenticated || isFlagging) return;
 
         isFlagging = true;
         flagMessage = '';
@@ -300,7 +300,7 @@
 
     // Unflag photo function
     async function unflagPhoto() {
-        if (!photo || !isAuthenticated || isFlagging) return;
+        if (!photo || !is_authenticated || isFlagging) return;
 
         isFlagging = true;
         flagMessage = '';
@@ -344,7 +344,7 @@
 
     // Check if photo is flagged on component mount
     async function checkFlagStatus() {
-        if (!photo || !isAuthenticated) return;
+        if (!photo || !is_authenticated) return;
 
         try {
             const response = await http.get('/flagged/photos');
@@ -383,7 +383,7 @@
     }
 
     // Load rating and flag status when photo changes
-    $: if (photo && isAuthenticated) {
+    $: if (photo && is_authenticated) {
         loadPhotoRating();
         checkFlagStatus();
     }
@@ -419,8 +419,8 @@
         <button
             class="action-button rating-button {userRating === 'thumbs_up' ? 'active' : ''}"
             on:click={() => handleRatingClick('thumbs_up')}
-            disabled={!isAuthenticated || isRating}
-            title={!isAuthenticated ? "Sign in to rate photos" : "Thumbs up"}
+            disabled={!is_authenticated || isRating}
+            title={!is_authenticated ? "Sign in to rate photos" : "Thumbs up"}
             data-testid="thumbs-up-button"
         >
             <ThumbsUp size={16} />
@@ -430,8 +430,8 @@
         <button
             class="action-button rating-button {userRating === 'thumbs_down' ? 'active' : ''}"
             on:click={() => handleRatingClick('thumbs_down')}
-            disabled={!isAuthenticated || isRating}
-            title={!isAuthenticated ? "Sign in to rate photos" : "Thumbs down"}
+            disabled={!is_authenticated || isRating}
+            title={!is_authenticated ? "Sign in to rate photos" : "Thumbs down"}
             data-testid="thumbs-down-button"
         >
             <ThumbsDown size={16} />
@@ -484,9 +484,9 @@
                     <button
                         class="menu-item flag-item {isFlagged ? 'flagged' : ''}"
                         on:click={() => handleMenuAction(toggleFlag)}
-                        disabled={!isAuthenticated || isFlagging}
+                        disabled={!is_authenticated || isFlagging}
                         data-testid="menu-flag"
-                        title={!isAuthenticated ? "Sign in to flag photos" : (isFlagged ? "Remove flag" : "Flag for review")}
+                        title={!is_authenticated ? "Sign in to flag photos" : (isFlagged ? "Remove flag" : "Flag for review")}
                     >
                         <Flag size={16} />
                         <span>{isFlagged ? 'Remove Flag' : 'Flag for Review'}</span>
@@ -500,9 +500,9 @@
                     <button
                         class="menu-item hide-item"
                         on:click={() => handleMenuAction(hidePhoto)}
-                        disabled={!isAuthenticated || isHiding}
+                        disabled={!is_authenticated || isHiding}
                         data-testid="menu-hide-photo"
-                        title={!isAuthenticated ? "Sign in to hide photos" : "Hide this photo"}
+                        title={!is_authenticated ? "Sign in to hide photos" : "Hide this photo"}
                     >
                         <EyeOff size={16} />
                         <span>Hide Photo</span>
@@ -511,9 +511,9 @@
                     <button
                         class="menu-item hide-item"
                         on:click={() => handleMenuAction(showUserHideDialogAction)}
-                        disabled={!isAuthenticated || isHiding || !getUserId(photo)}
+                        disabled={!is_authenticated || isHiding || !getUserId(photo)}
                         data-testid="menu-hide-user"
-                        title={!isAuthenticated ? "Sign in to hide users" : `Hide all photos by ${getUserName(photo) || 'this user'}`}
+                        title={!is_authenticated ? "Sign in to hide users" : `Hide all photos by ${getUserName(photo) || 'this user'}`}
                     >
                         <UserX size={16} />
                         <span>Hide User</span>

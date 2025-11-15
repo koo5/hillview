@@ -96,11 +96,11 @@ class SimplePhotoWorker {
         switch (message.type) {
             case 'photosUpdate':
 
-                const areaPhotos = message.photosInArea || [];
-                const rangePhotos = message.photosInRange || [];
+                const areaPhotos = message.photos_in_area || [];
+                const rangePhotos = message.photos_in_range || [];
 
                 // Clean up placeholders that match device photos
-                const devicePhotoIds = areaPhotos.filter((p: any) => p.isDevicePhoto).map((p: any) => p.id);
+                const devicePhotoIds = areaPhotos.filter((p: any) => p.is_device_photo).map((p: any) => p.id);
                 if (devicePhotoIds.length > 0) {
                     this.handlePlaceholderCleanup(devicePhotoIds);
                 }
@@ -112,10 +112,10 @@ class SimplePhotoWorker {
 
 				const withPlaceholders = embedPlaceholders(areaPhotos, rangePhotos, filteredPlaceholders);
 
-                const mergedAreaPhotos = withPlaceholders.photosInArea;
-                const mergedRangePhotos = withPlaceholders.photosInRange;
+                const mergedAreaPhotos = withPlaceholders.photos_in_area;
+                const mergedRangePhotos = withPlaceholders.photos_in_range;
 
-                console.log(`🢄SimplePhotoWorker: Updated photos - Area: ${areaPhotos.length} + ${filteredPlaceholders.length}/${currentPlaceholders.length} placeholders (device source ${deviceSourceEnabled ? 'enabled' : 'disabled'}) = ${mergedAreaPhotos.length}, Range: ${message.currentRange}m, rangePhotos.length: ${rangePhotos.length} + ${filteredPlaceholders.length} placeholders = ${mergedRangePhotos.length}`);
+                console.log(`🢄SimplePhotoWorker: Updated photos - Area: ${areaPhotos.length} + ${filteredPlaceholders.length}/${currentPlaceholders.length} placeholders (device source ${deviceSourceEnabled ? 'enabled' : 'disabled'}) = ${mergedAreaPhotos.length}, Range: ${message.current_range}m, rangePhotos.length: ${rangePhotos.length} + ${filteredPlaceholders.length} placeholders = ${mergedRangePhotos.length}`);
 
                 photosInArea.set(mergedAreaPhotos);
                 photosInRange.set(mergedRangePhotos);
@@ -125,7 +125,7 @@ class SimplePhotoWorker {
                 sourceLoadingStatus.update(status => ({
                     ...status,
                     [message.sourceId]: {
-                        isLoading: message.isLoading,
+                        is_loading: message.is_loading,
                         progress: message.progress,
                         error: message.error
                     }
@@ -269,8 +269,8 @@ class SimplePhotoWorker {
                 url: source.url,
                 path: source.path,
                 subtype: source.subtype,
-                clientId: source.clientId,
-                backendUrl: source.backendUrl
+                clientId: source.client_id,
+                backendUrl: source.backend_url
             })));
 
             // Only trigger config update if actual config changed (not loading states)

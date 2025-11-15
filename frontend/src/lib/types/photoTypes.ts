@@ -29,15 +29,11 @@ export interface PhotoData {
     altitude: number;
     source?: Source;
     sizes?: Record<string, PhotoSize>;
-    isUserPhoto?: boolean;
-    isDevicePhoto?: boolean;
-    isPlaceholder?: boolean;
-    isDirectoryPhoto?: boolean;
-
-	// fixme. Probably standardize on snake_case for all ts structures.
-    capturedAt?: number;
+    is_user_photo?: boolean;
+    is_device_photo?: boolean;
+    is_placeholder?: boolean;
+    is_directory_photo?: boolean;
     captured_at?: number;
-
     accuracy?: number;
     // Computed properties (added by processing)
     abs_bearing_diff?: number;
@@ -78,8 +74,8 @@ export interface DevicePhotoMetadata {
  * Placeholder photo for immediate display
  */
 export interface PlaceholderPhoto extends PhotoData {
-    isPlaceholder: true;
-    tempId: string;
+    is_placeholder: true;
+    temp_id: string;
 }
 
 /**
@@ -96,8 +92,8 @@ export interface PhotoMetadata {
     bearing?: number | null;
     timestamp: number;
     accuracy: number;
-    locationSource: 'gps' | 'map';
-    bearingSource: string;
+    location_source: 'gps' | 'map';
+    bearing_source: string;
 }
 
 /**
@@ -113,8 +109,8 @@ export interface CapturedPhotoData {
     };
     bearing?: number | null;
     timestamp: number;
-    locationSource: 'gps' | 'map';
-    bearingSource: string;
+    location_source: 'gps' | 'map';
+    bearing_source: string;
 }
 
 /**

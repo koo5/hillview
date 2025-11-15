@@ -109,7 +109,7 @@ class DevicePhotoLoader(private val context: Context) {
             altitude = photoEntity.altitude,
             source = source.id,
             sizes = sizes,
-            isDevicePhoto = true,
+            is_device_photo = true,
             captured_at = photoEntity.capturedAt,
             created_at = photoEntity.createdAt,
             accuracy = photoEntity.accuracy,

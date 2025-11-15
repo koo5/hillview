@@ -21,15 +21,15 @@ export interface PhotoData {
     altitude: number;
     source?: any;
     sizes?: Record<string, PhotoSize>;
-    isUserPhoto?: boolean;
-    isDevicePhoto?: boolean;
-    capturedAt?: number;
+    is_user_photo?: boolean;
+    is_device_photo?: boolean;
+    captured_at?: number;
     accuracy?: number;
     abs_bearing_diff?: number;
     bearing_color?: string;
     range_distance?: number | null;
     angular_distance_abs?: number;
-    fileHash?: string;
+    file_hash?: string;
 }
 
 export interface PhotoSize {
@@ -99,7 +99,7 @@ export interface WorkerResponse {
         photos?: PhotoData[];
         hillviewCount?: number;
         mapillaryCount?: number;
-        photosInRange?: PhotoData[];
+        photos_in_range?: PhotoData[];
         bearing?: number;
     };
     error?: {
@@ -117,7 +117,7 @@ export interface PhotosUpdateData {
 }
 
 export interface BearingUpdateData {
-    photosInRange: PhotoData[];
+    photos_in_range: PhotoData[];
     bearing: number;
 }
 

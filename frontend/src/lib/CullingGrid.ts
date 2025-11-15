@@ -155,8 +155,8 @@ export class CullingGrid {
                         const index = cellData.photos.length;
                         cellData.photos.push(photo);
 
-                        if (photo.fileHash) {
-                            cellData.hashToIndex.set(photo.fileHash, index);
+                        if (photo.file_hash) {
+                            cellData.hashToIndex.set(photo.file_hash, index);
                         }
                     }
 
@@ -167,8 +167,8 @@ export class CullingGrid {
                     for (const hillviewPhoto of photosInCell) {
                         if (photosNeeded <= 0) break;
 
-                        if (hillviewPhoto.fileHash) {
-                            const matchIndex = cellData.hashToIndex.get(hillviewPhoto.fileHash);
+                        if (hillviewPhoto.file_hash) {
+                            const matchIndex = cellData.hashToIndex.get(hillviewPhoto.file_hash);
                             if (matchIndex !== undefined) {
                                 // Replace device photo with hillview photo (embed device photo)
                                 const devicePhoto = cellData.photos[matchIndex];
@@ -241,7 +241,7 @@ export class CullingGrid {
     getCoverageStats(photosPerSource: Map<SourceId, PhotoData[]>, culledPhotos: PhotoData[]): {
         totalPhotos: number;
         selectedPhotos: number;
-        sourceStats: { sourceId: SourceId; original: number; selected: number; percentage: number }[];
+        sourceStats: { source_id: SourceId; original: number; selected: number; percentage: number }[];
         screenCoverage: { cellKey: CellKey; photoCount: number }[];
         emptyCells: number;
         totalCells: number;
@@ -261,7 +261,7 @@ export class CullingGrid {
         }
 
         const sourceStats = Array.from(photosPerSource.entries()).map(([sourceId, photos]) => ({
-            sourceId,
+            source_id: sourceId,
             original: photos.length,
             selected: selectedPerSource.get(sourceId) || 0,
             percentage: photos.length > 0 ? ((selectedPerSource.get(sourceId) || 0) / photos.length) * 100 : 0

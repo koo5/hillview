@@ -49,16 +49,16 @@ const MockEventSource = vi.fn().mockImplementation((url: string): MockEventSourc
     removeEventListener: vi.fn(),
     dispatchEvent: vi.fn()
   };
-  
+
   mockEventSourceInstances.set(url, instance);
-  
+
   // Use queueMicrotask for test-friendly async handling
   queueMicrotask(() => {
     console.log(`MockEventSource: Opening connection for ${url}`);
     if (instance.onopen) {
       instance.onopen(new Event('open'));
     }
-    
+
     // Send test data based on URL
     let testData: any[] = [];
     if (url.includes('source1')) {
@@ -86,7 +86,7 @@ const MockEventSource = vi.fn().mockImplementation((url: string): MockEventSourc
         createTestPhoto('range2', 50.1, 10.1, 135)
       ];
     }
-    
+
     // Send photos as stream message
     if (testData.length > 0 && instance.onmessage) {
       console.log(`MockEventSource: Sending ${testData.length} photos for ${url}`);
@@ -97,7 +97,7 @@ const MockEventSource = vi.fn().mockImplementation((url: string): MockEventSourc
         })
       }));
     }
-    
+
     // Send completion message
     if (instance.onmessage) {
       console.log(`MockEventSource: Sending completion for ${url}`);
@@ -108,7 +108,7 @@ const MockEventSource = vi.fn().mockImplementation((url: string): MockEventSourc
       }));
     }
   });
-  
+
   return instance;
 });
 
@@ -177,11 +177,11 @@ const testPhotosSource2 = [
 describe('New Worker Integration Tests', () => {
   let messageId = 1;
   let worker: typeof import('./new.worker');
-  
+
   beforeEach(async () => {
     // Reset message ID counter
     messageId = 1;
-    
+
     // No need for fetch mocks since we're using EventSource for streams
 
     // Dynamically import the worker after setting up mocks
@@ -191,7 +191,7 @@ describe('New Worker Integration Tests', () => {
   const sendMessage = async (type: string, data: any): Promise<any> => {
     const id = messageId++;
     console.log(`TEST: Sending message ${type} with id ${id}`);
-    
+
     // Send message to worker
     worker.handleMessage({
       frontendMessageId: `frontend_${id}`,
@@ -207,30 +207,30 @@ describe('New Worker Integration Tests', () => {
     // Return the last postMessage call that contains photosUpdate
     const photosUpdateCalls = mockPostMessage.mock.calls
       .filter(call => call[0]?.type === 'photosUpdate');
-    
+
     if (photosUpdateCalls.length > 0) {
       return photosUpdateCalls[photosUpdateCalls.length - 1][0];
     }
-    
+
     throw new Error('No photosUpdate received');
   };
 
   const waitForPhotosUpdate = async (timeout = 5000): Promise<void> => {
     const startTime = Date.now();
-    
+
     while (Date.now() - startTime < timeout) {
       // Check if we got a photosUpdate message
       const hasPhotosUpdate = mockPostMessage.mock.calls
         .some(call => call[0]?.type === 'photosUpdate');
-      
+
       if (hasPhotosUpdate) {
         return;
       }
-      
+
       // Wait a bit before checking again
       await new Promise(resolve => setTimeout(resolve, 10));
     }
-    
+
     throw new Error('Timeout waiting for photosUpdate');
   };
 
@@ -239,31 +239,31 @@ describe('New Worker Integration Tests', () => {
       createStreamSource('source1'),
       createStreamSource('source2')
     ];
-    
+
     // Send config update with proper version check
     await sendMessage('configUpdated', {
-      config: { 
-        sources, 
+      config: {
+        sources,
         expectedWorkerVersion: (globalThis as any).__WORKER_VERSION__
       }
     });
-    
+
     // Clear previous postMessage calls
     mockPostMessage.mockClear();
-    
+
     // Then send area update to trigger photo filtering and return
     const bounds = createTestBounds(50.4, 49.9, 9.9, 10.4); // Covers all test photos
     const response = await sendMessage('areaUpdated', {
       area: bounds
     });
-    
+
     expect(response.type).toBe('photosUpdate');
-    expect(response.photosInArea).toBeDefined();
-    expect(response.photosInRange).toBeDefined();
-    expect(response.photosInArea.length).toBeGreaterThan(0);
-    
+    expect(response.photos_in_area).toBeDefined();
+    expect(response.photos_in_range).toBeDefined();
+    expect(response.photos_in_area.length).toBeGreaterThan(0);
+
     // Should have photos from both sources
-    const photoIds = response.photosInArea.map((p: PhotoData) => p.id);
+    const photoIds = response.photos_in_area.map((p: PhotoData) => p.id);
     expect(photoIds).toContain('photo1');
     expect(photoIds).toContain('photo4');
   });
@@ -274,23 +274,23 @@ describe('New Worker Integration Tests', () => {
     await sendMessage('configUpdated', {
       config: { sources }
     });
-    
+
     // Clear previous postMessage calls
     mockPostMessage.mockClear();
-    
+
     // Then send area update
     const bounds = createTestBounds(50.4, 49.9, 9.9, 10.4);
     const response = await sendMessage('areaUpdated', {
       area: bounds,
       range: 5000 // 5km range
     });
-    
+
     expect(response.type).toBe('photosUpdate');
-    expect(response.currentRange).toBe(5000);
-    expect(response.photosInArea.length).toBeGreaterThan(0);
-    
+    expect(response.current_range).toBe(5000);
+    expect(response.photos_in_area.length).toBeGreaterThan(0);
+
     // Photos should be within the area bounds
-    response.photosInArea.forEach((photo: PhotoData) => {
+    response.photos_in_area.forEach((photo: PhotoData) => {
       expect(photo.coord.lat).toBeGreaterThanOrEqual(bounds.bottom_right.lat);
       expect(photo.coord.lat).toBeLessThanOrEqual(bounds.top_left.lat);
       expect(photo.coord.lng).toBeGreaterThanOrEqual(bounds.top_left.lng);
@@ -304,11 +304,11 @@ describe('New Worker Integration Tests', () => {
     const response = await sendMessage('configUpdated', {
       config: { sources }
     });
-    
+
     // Should be culled to reasonable limits
-    expect(response.photosInArea.length).toBeLessThanOrEqual(700); // MAX_PHOTOS_IN_AREA
-    expect(response.photosInArea.length).toBeGreaterThan(0);
-    expect(response.photosInRange.length).toBeLessThanOrEqual(200); // MAX_PHOTOS_IN_RANGE
+    expect(response.photos_in_area.length).toBeLessThanOrEqual(700); // MAX_PHOTOS_IN_AREA
+    expect(response.photos_in_area.length).toBeGreaterThan(0);
+    expect(response.photos_in_range.length).toBeLessThanOrEqual(200); // MAX_PHOTOS_IN_RANGE
   });
 
   it('should sort photosInRange by bearing', async () => {
@@ -317,9 +317,9 @@ describe('New Worker Integration Tests', () => {
     const response = await sendMessage('configUpdated', {
       config: { sources }
     });
-    
+
     // photosInRange should be sorted by bearing (0, 90, 180, 270)
-    const bearings = response.photosInRange.map((p: PhotoData) => p.bearing);
+    const bearings = response.photos_in_range.map((p: PhotoData) => p.bearing);
     for (let i = 1; i < bearings.length; i++) {
       expect(bearings[i]).toBeGreaterThanOrEqual(bearings[i-1]);
     }
@@ -330,15 +330,15 @@ describe('New Worker Integration Tests', () => {
       createStreamSource('enabled', true),
       createStreamSource('disabled', false)
     ];
-    
+
     const response = await sendMessage('configUpdated', {
       config: { sources }
     });
-    
+
     expect(response.type).toBe('photosUpdate');
-    
+
     // Should only have photos from enabled source
-    const photoIds = response.photosInArea.map((p: PhotoData) => p.id);
+    const photoIds = response.photos_in_area.map((p: PhotoData) => p.id);
     expect(photoIds).toContain('photo1'); // From enabled source
     expect(MockEventSource).toHaveBeenCalledTimes(1); // Only called for enabled source
   });
@@ -346,36 +346,36 @@ describe('New Worker Integration Tests', () => {
   it('should update range dynamically', async () => {
     const sources = [createStreamSource('range-test')];
     const bounds = createTestBounds(50.2, 50.0, 10.0, 10.2);
-    
+
     // Send config first
     await sendMessage('configUpdated', {
       config: { sources }
     });
-    
+
     // Clear previous calls
     mockPostMessage.mockClear();
-    
+
     // Send area with small range
     const response1 = await sendMessage('areaUpdated', {
       area: bounds,
       range: 50 // Very small range
     });
-    
-    expect(response1.currentRange).toBe(50);
+
+    expect(response1.current_range).toBe(50);
     const smallRangeCount = response1.photosInRange.length;
-    
+
     // Clear previous calls
     mockPostMessage.mockClear();
-    
-    // Send area with larger range  
+
+    // Send area with larger range
     const response2 = await sendMessage('areaUpdated', {
       area: bounds,
       range: 5000 // Much larger range
     });
-    
-    expect(response2.currentRange).toBe(5000);
+
+    expect(response2.current_range).toBe(5000);
     const largeRangeCount = response2.photosInRange.length;
-    
+
     // Larger range should include more or equal photos
     expect(largeRangeCount).toBeGreaterThanOrEqual(smallRangeCount);
   });
@@ -399,7 +399,7 @@ describe('New Worker Integration Tests', () => {
       { bounds: createTestBounds(50.3, 49.9, 9.9, 10.3), name: 'city-center' },
       // Pan north
       { bounds: createTestBounds(50.4, 50.0, 9.9, 10.3), name: 'north-district' },
-      // Pan east (covers bulk photos from mock)  
+      // Pan east (covers bulk photos from mock)
       { bounds: createTestBounds(50.5, 50.1, 10.0, 10.4), name: 'east-district' },
       // Zoom out (larger area covering more photos)
       { bounds: createTestBounds(50.6, 49.8, 9.8, 10.6), name: 'wide-view' },
@@ -408,35 +408,35 @@ describe('New Worker Integration Tests', () => {
     ];
 
     const responses: any[] = [];
-    
+
     for (const area of areas) {
       mockPostMessage.mockClear();
-      
+
       const response = await sendMessage('areaUpdated', {
         area: area.bounds,
         range: 1500 // 1.5km range
       });
-      
+
       responses.push({ ...response, areaName: area.name });
-      
+
       // Verify each response
       expect(response.type).toBe('photosUpdate');
-      expect(response.photosInArea).toBeDefined();
-      expect(response.photosInRange).toBeDefined();
-      expect(response.currentRange).toBe(1500);
-      
+      expect(response.photos_in_area).toBeDefined();
+      expect(response.photos_in_range).toBeDefined();
+      expect(response.current_range).toBe(1500);
+
       // Should have some photos for most areas (depending on mock data)
-      console.log(`${area.name}: ${response.photosInArea.length} in area, ${response.photosInRange.length} in range`);
+      console.log(`${area.name}: ${response.photos_in_area.length} in area, ${response.photos_in_range.length} in range`);
     }
 
     // Verify we got responses for all areas
     expect(responses).toHaveLength(5);
-    
+
     // Verify that different areas might have different photo counts
     // (this tests that culling and filtering is working)
     const photoCounts = responses.map(r => r.photosInArea.length);
     console.log('🢄Photo counts by area:', photoCounts);
-    
+
     // Should handle all requests without errors
     expect(responses.every(r => r.type === 'photosUpdate')).toBe(true);
   });
@@ -456,7 +456,7 @@ describe('New Worker Integration Tests', () => {
     for (let i = 0; i < 5; i++) {
       const offset = i * 0.02; // Small incremental moves
       const bounds = createTestBounds(50.1 + offset, 49.9 + offset, 9.9 + offset, 10.1 + offset);
-      
+
       updatePromises.push(sendMessage('areaUpdated', {
         area: bounds,
         range: 1000
@@ -465,41 +465,41 @@ describe('New Worker Integration Tests', () => {
 
     // Wait for all to complete - this tests that the worker handles overlapping processes
     const responses = await Promise.all(updatePromises);
-    
+
     // All should complete successfully
     responses.forEach((response, i) => {
       expect(response.type).toBe('photosUpdate');
-      expect(response.photosInArea).toBeDefined();
-      expect(response.photosInRange).toBeDefined();
-      expect(response.currentRange).toBe(1000);
-      console.log(`Update ${i}: ${response.photosInArea.length} photos in area`);
+      expect(response.photos_in_area).toBeDefined();
+      expect(response.photos_in_range).toBeDefined();
+      expect(response.current_range).toBe(1000);
+      console.log(`Update ${i}: ${response.photos_in_area.length} photos in area`);
     });
 
     // Should have processed all requests
     expect(responses).toHaveLength(5);
-    
+
     // Test that worker can handle rapid consecutive updates without breaking
     expect(responses.every(r => typeof r.photosInArea.length === 'number')).toBe(true);
   });
 
   it('should handle worker version validation correctly', async () => {
     const sources = [createStreamSource('source1')];
-    
+
     // Test with correct version - should work
     await sendMessage('configUpdated', {
-      config: { 
-        sources, 
+      config: {
+        sources,
         expectedWorkerVersion: (globalThis as any).__WORKER_VERSION__
       }
     });
-    
+
     // Clear messages and test with wrong version - should fail
     mockPostMessage.mockClear();
-    
+
     try {
       await sendMessage('configUpdated', {
-        config: { 
-          sources, 
+        config: {
+          sources,
           expectedWorkerVersion: 'wrong-version-123'
         }
       });
@@ -534,7 +534,7 @@ describe('New Worker Integration Tests', () => {
     // Both should complete successfully
     expect(areaResult.type).toBe('photosUpdate');
     expect(configResult.type).toBe('photosUpdate');
-    
+
     // Config update should have priority and its result should reflect the new source
     console.log('🢄Area result photos:', areaResult.photosInArea.length);
     console.log('🢄Config result photos:', configResult.photosInArea.length);

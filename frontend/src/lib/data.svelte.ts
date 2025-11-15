@@ -83,7 +83,7 @@ export let cameraOverlayOpacity = staggeredLocalStorageSharedStore('cameraOverla
 // Separate persisted app settings from session-specific state
 export let appSettings = staggeredLocalStorageSharedStore('appSettings', {
     debug: 0,
-    displayMode: 'split' as DisplayMode,
+    display_mode: 'split' as DisplayMode,
     activity: 'view' as AppActivity,
 });
 
@@ -91,14 +91,14 @@ export let appSettings = staggeredLocalStorageSharedStore('appSettings', {
 export let app = writable<{
     error: string | null;
     debug: number;
-    displayMode: DisplayMode;
+    display_mode: DisplayMode;
     loading?: boolean;
-    isAuthenticated?: boolean;
+    is_authenticated?: boolean;
     activity: AppActivity;
 }>({
     error: null,
     debug: 0,
-    displayMode: 'split',
+    display_mode: 'split',
     activity: 'view',
 });
 
@@ -107,12 +107,12 @@ appSettings.subscribe(settings => {
     const currentApp = get(app);
     // Only update if values have actually changed
     if (currentApp.debug != settings.debug ||
-        currentApp.displayMode != settings.displayMode ||
+        currentApp.display_mode != settings.display_mode ||
         currentApp.activity != settings.activity) {
         app.update(a => ({
             ...a,
             debug: settings.debug,
-            displayMode: settings.displayMode,
+            display_mode: settings.display_mode,
             activity: !!import.meta.env.VITE_PICS_OFF ? 'view' : settings.activity
         }));
     }
@@ -123,15 +123,15 @@ app.subscribe(appState => {
     const currentSettings = get(appSettings);
     // Only update if values have actually changed
     if (((!isNaN(currentSettings.debug) && !isNaN(appState.debug)) && currentSettings.debug != appState.debug) ||
-        currentSettings.displayMode != appState.displayMode ||
+        currentSettings.display_mode != appState.display_mode ||
         currentSettings.activity != appState.activity) {
-        console.log('🢄currentSettings.debug:', currentSettings.debug, 'appState.debug:', appState.debug, 'currentSettings.displayMode:', currentSettings.displayMode, 'appState.displayMode:', appState.displayMode, 'currentSettings.activity:', currentSettings.activity, 'appState.activity:', appState.activity);
+        console.log('🢄currentSettings.debug:', currentSettings.debug, 'appState.debug:', appState.debug, 'currentSettings.display_mode:', currentSettings.display_mode, 'appState.display_mode:', appState.display_mode, 'currentSettings.activity:', currentSettings.activity, 'appState.activity:', appState.activity);
         setTimeout(() => {
             console.log('🢄Updating appSettings from app state:', JSON.stringify(appState));
             appSettings.update(settings => ({
                 ...settings,
                 debug: appState.debug,
-                displayMode: appState.displayMode,
+                display_mode: appState.display_mode,
                 activity: appState.activity
             }));
         }, 500);
@@ -142,7 +142,7 @@ app.subscribe(appState => {
 auth.subscribe(authState => {
     app.update(a => ({
         ...a,
-        isAuthenticated: authState.isAuthenticated
+        is_authenticated: authState.is_authenticated
     }));
 });
 
@@ -183,7 +183,7 @@ export let mapillary_cache_status = writable<MapillaryDebugStatus>({
 // Generic source loading status for all stream sources
 export interface SourceLoadingStatus {
     [sourceId: string]: {
-        isLoading: boolean;
+        is_loading: boolean;
         progress?: string;
         error?: string;
     };
@@ -197,7 +197,7 @@ export const anySourceLoading = derived(
     ([sources, loadingStatus]) => {
         return sources.some(source => {
             if (!source.enabled) return false;
-            return loadingStatus[source.id]?.isLoading || false;
+            return loadingStatus[source.id]?.is_loading || false;
         });
     }
 );

@@ -95,7 +95,7 @@ export class AndroidTokenManager implements TokenManager {
             // Update auth store - tokens stored means authenticated
             auth.update(state => ({
                 ...state,
-                isAuthenticated: true
+                is_authenticated: true
             }));
             
         } catch (error) {
@@ -115,7 +115,7 @@ export class AndroidTokenManager implements TokenManager {
             // Update auth store - no tokens means not authenticated
             auth.update(state => ({
                 ...state,
-                isAuthenticated: false,
+                is_authenticated: false,
                 user: null
             }));
             

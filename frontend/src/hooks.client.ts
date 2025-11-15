@@ -52,19 +52,22 @@ if (sentryEnabled)
 		],
 	});
 }
-
+*/
 export async function handleError(eee: any): Promise<{ message: string }> {
 	console.error('🢄handleError:', eee.error);
-	if (sentryEnabled) {
+	/*if (sentryEnabled) {
 		return await handleErrorWithSentry(eee);
-	} else return { message: eee.message || 'An error occurred' };
+	} else
+	*/
+	return { message: eee.message || 'An error occurred' };
+
 }
-*/
+
 
 export const init = () => {
 	if (TAURI)
 	{
-		invoke('plugin:hillview|set_upload_config', { config: {serverUrl: backendUrl }});
+		invoke('plugin:hillview|set_upload_config', { config: {server_url: backendUrl }});
 	}
 	console.log('🢄client initialized');
 };

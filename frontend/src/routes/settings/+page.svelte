@@ -49,7 +49,6 @@
 		<div class="section-divider"></div>
 		<UploadSettingsComponent
 			onSaveSuccess={(message) => showAlert(message, 'success')}
-			onSaveError={(message) => showAlert(message, 'error')}
 		/>
 
 		<!-- Advanced Settings -->

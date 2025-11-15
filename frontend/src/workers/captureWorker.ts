@@ -45,7 +45,7 @@ async function processCanvas(item: CaptureQueueItem): Promise<void> {
         log(`TIMING 🕐 WORKER START: ${workerStartTime.toFixed(1)}ms - Processing canvas`, { itemId: item.id });
         log('OffscreenCanvas available:', typeof OffscreenCanvas !== 'undefined');
         log('ImageData size:', JSON.stringify(
-			{ width: item.imageData.width, height: item.imageData.height }));
+			{ width: item.image_data.width, height: item.image_data.height }));
 
         // Create new offscreen canvas in worker
         if (typeof OffscreenCanvas === 'undefined') {
@@ -54,7 +54,7 @@ async function processCanvas(item: CaptureQueueItem): Promise<void> {
 
         const canvasCreateStartTime = performance.now();
         log('Creating OffscreenCanvas...');
-        const canvas = new OffscreenCanvas(item.imageData.width, item.imageData.height);
+        const canvas = new OffscreenCanvas(item.image_data.width, item.image_data.height);
         const canvasCreateEndTime = performance.now();
         log(`TIMING 🖼️ WORKER CANVAS CREATE: ${(canvasCreateEndTime - canvasCreateStartTime).toFixed(1)}ms`);
 
@@ -65,7 +65,7 @@ async function processCanvas(item: CaptureQueueItem): Promise<void> {
 
         // Draw image data to canvas
         const putDataStartTime = performance.now();
-        context.putImageData(item.imageData, 0, 0);
+        context.putImageData(item.image_data, 0, 0);
         const putDataEndTime = performance.now();
         log(`TIMING 📊 WORKER PUT IMAGE DATA: ${(putDataEndTime - putDataStartTime).toFixed(1)}ms`);
 

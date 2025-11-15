@@ -38,12 +38,12 @@ export class PhotoCuller {
         rangeMeters: number,
         maxPhotosInArea: number,
         maxPhotosInRange: number
-    ): { photosInArea: PhotoData[], photosInRange: PhotoData[] } {
+    ): { photos_in_area: PhotoData[], photos_in_range: PhotoData[] } {
 
         // Early return if no data
         if (!areaBounds || photosPerSource.size === 0) {
             console.log(`PhotoCuller: Early return - areaBounds:`, areaBounds, 'sources:', photosPerSource.size);
-            return { photosInArea: [], photosInRange: [] };
+            return { photos_in_area: [], photos_in_range: [] };
         }
 
         console.log(`PhotoCuller: Processing area bounds:`, areaBounds);
@@ -80,8 +80,8 @@ export class PhotoCuller {
         console.log(`PhotoCuller: Merged ${photosPerSource.size} sources → ${photosInArea.length} in area → ${photosInRange.length} in range with angular coverage`);
 
         return {
-            photosInArea,
-            photosInRange
+            photos_in_area: photosInArea,
+            photos_in_range: photosInRange
         };
     }
 

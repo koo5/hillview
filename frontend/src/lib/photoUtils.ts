@@ -5,7 +5,7 @@ import { getDevicePhotoUrl } from '$lib/devicePhotoHelper';
  */
 export function getFullPhotoUrl(photo: any): string {
 	// Case 1: Device photos - use device URL helper
-	if (photo.isDevicePhoto) {
+	if (photo.is_device_photo) {
 		return getDevicePhotoUrl(photo.url);
 	}
 
@@ -22,7 +22,7 @@ export function getFullPhotoUrl(photo: any): string {
  * Get full-size photo info (URL + dimensions) for zoom view
  */
 export function getFullPhotoInfo(photo: any): { url: string; width?: number; height?: number } {
-	if (photo.isDevicePhoto) {
+	if (photo.is_device_photo) {
 		// Device photos have width/height directly (from metadata)
 		return {
 			url: getDevicePhotoUrl(photo.url),

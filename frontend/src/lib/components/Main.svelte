@@ -40,7 +40,33 @@
 	let menuOpen = false;
 	$: showCameraView = $app.activity === 'capture';
 
-	onMount(async () => {
+	onMount(() => {
+		init();
+
+		// Add keyboard event listener for debug toggle
+		window.addEventListener('keydown', handleKeyDown);
+
+		const unsubscribe1 = photoInFront.subscribe(photo => {
+				if (!update_url) return;
+
+				const url = new URL(window.location.href);
+
+				if (photo?.uid) {
+					url.searchParams.set('photo', encodeURIComponent(photo.uid));
+				} else {
+					url.searchParams.delete('photo');
+				}
+
+				replaceState2(url.toString());
+		});
+
+		return () => {
+			unsubscribe1();
+		};
+
+	});
+
+	async function init() {
 		console.log('🢄Page mounted');
 		await tick();
 
@@ -90,22 +116,7 @@
 			update_url = true;
 		}, 100);
 
-		// Add keyboard event listener for debug toggle
-		window.addEventListener('keydown', handleKeyDown);
-
-		return photoInFront.subscribe(photo => {
-				const url = new URL(window.location.href);
-
-				if (photo?.uid) {
-					url.searchParams.set('photo', encodeURIComponent(photo.uid));
-				} else {
-					url.searchParams.delete('photo');
-				}
-
-				replaceState2(url.toString());
-		});
-
-	});
+	}
 
 	onDestroy(() => {
 		console.log('🢄Page destroyed');
@@ -190,7 +201,7 @@
 	const toggleDisplayMode = async () => {
 		app.update(a => {
 			let nextMode: DisplayMode;
-			switch (a.displayMode) {
+			switch (a.display_mode) {
 				case 'split':
 					nextMode = 'max';
 					break;
@@ -203,7 +214,7 @@
 				default:
 					nextMode = 'split';
 			}
-			return { ...a, displayMode: nextMode };
+			return { ...a, display_mode: nextMode };
 		});
 
 		// Wait for DOM to update
@@ -421,11 +432,11 @@
 	on:click={toggleDisplayMode}
 	on:keydown={(e) => e.key === 'Enter' && toggleDisplayMode()}
 	aria-label="Toggle display mode"
-	title={$app.displayMode === 'split' ? 'Maximize view' : $app.displayMode === 'max' ? 'Minimize view' : 'Split view'}
+	title={$app.display_mode === 'split' ? 'Maximize view' : $app.display_mode === 'max' ? 'Minimize view' : 'Split view'}
 >
-	{#if $app.displayMode === 'split'}
+	{#if $app.display_mode === 'split'}
 		<Maximize2 size={24}/>
-	{:else if $app.displayMode === 'max'}
+	{:else if $app.display_mode === 'max'}
 		<Square size={24}/>
 	{:else}
 		<Minimize2 size={24}/>
@@ -464,7 +475,7 @@
 	<AlertArea position="main"/>
 </div>
 
-<div class="container" class:max-mode={$app.displayMode === 'max'} class:min-mode={$app.displayMode === 'min'}>
+<div class="container" class:max-mode={$app.display_mode === 'max'} class:min-mode={$app.display_mode === 'min'}>
 	<div class="panel photo-panel">
 		{#if showCameraView}
 			<CameraCapture

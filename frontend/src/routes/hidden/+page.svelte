@@ -31,7 +31,7 @@
 
     onMount(async () => {
         // Check if user is authenticated
-        if (!$auth.isAuthenticated) {
+        if (!$auth.is_authenticated) {
             myGoto('/login');
             return;
         }

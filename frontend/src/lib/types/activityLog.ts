@@ -5,7 +5,7 @@ export interface ActivityLogEntry {
 	metadata?: {
 		operation?: 'upload' | 'delete' | 'import' | 'rate' | 'batch_complete';
 		filename?: string;
-		photoId?: string;
+		photo_id?: string;
 		outcome?: 'success' | 'failure' | 'complete';
 	};
 }

@@ -507,8 +507,8 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
             // Create photosUpdate message like new.worker.ts sends
             val eventData = app.tauri.plugin.JSObject()
             eventData.put("type", "photosUpdate")
-            eventData.put("photosInArea", serializePhotoDataList(photos))
-            eventData.put("photosInRange", serializePhotoDataList(photosInRange))
+            eventData.put("photos_in_area", serializePhotoDataList(photos))
+            eventData.put("photos_in_range", serializePhotoDataList(photosInRange))
             eventData.put("timestamp", System.currentTimeMillis())
 
             Log.d(TAG, "PhotoWorkerService: Queuing photosUpdate message with ${photos.size} area photos and ${photosInRange.size} range photos")
@@ -549,8 +549,8 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
         try {
             // Create loading status message like StreamSourceLoader sends
             val eventData = app.tauri.plugin.JSObject()
-            eventData.put("sourceId", sourceId)
-            eventData.put("isLoading", isLoading)
+            eventData.put("source_id", sourceId)
+            eventData.put("is_loading", isLoading)
             if (progress != null) {
                 eventData.put("progress", progress)
             }
@@ -629,7 +629,7 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
                 "altitude": ${photo.altitude ?: "null"},
                 "source": "${photo.source}",
                 "sizes": ${if (photo.sizes != null) serializeSizes(photo.sizes!!) else "null"},
-                "isDevicePhoto": ${photo.isDevicePhoto}
+                "is_device_photo": ${photo.is_device_photo}
             }
             """.trimIndent()
         }

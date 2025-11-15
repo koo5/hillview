@@ -61,7 +61,6 @@ impl<R: Runtime> Hillview<R> {
 
   pub fn set_auto_upload_enabled(&self, enabled: bool, prompt_enabled: bool) -> crate::Result<AutoUploadResponse> {
     #[derive(serde::Serialize)]
-    #[serde(rename_all = "camelCase")]
     struct Args {
       enabled: bool,
       prompt_enabled: bool,
@@ -183,13 +182,13 @@ impl<R: Runtime> Hillview<R> {
       "longitude": photo.metadata.longitude,
       "altitude": photo.metadata.altitude,
       "bearing": photo.metadata.bearing,
-      "capturedAt": photo.metadata.captured_at,
+      "captured_at": photo.metadata.captured_at,
       "accuracy": photo.metadata.accuracy,
       "width": photo.width,
       "height": photo.height,
-      "fileSize": photo.file_size,
-      "createdAt": photo.created_at,
-      "fileHash": photo.file_hash
+      "file_size": photo.file_size,
+      "created_at": photo.created_at,
+      "file_hash": photo.file_hash
     });
 
     self
@@ -254,7 +253,6 @@ impl<R: Runtime> Hillview<R> {
 
   pub fn select_push_distributor(&self, package_name: String) -> crate::Result<BasicResponse> {
     #[derive(serde::Serialize)]
-    #[serde(rename_all = "camelCase")]
     struct Args {
       package_name: String,
     }

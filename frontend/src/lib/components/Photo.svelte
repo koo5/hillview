@@ -47,7 +47,7 @@
 	$: console.log('🢄Photo.svelte: photo changed:', JSON.stringify(photo));
 
 	// Get current user authentication state
-	$: isAuthenticated = $auth.isAuthenticated;
+	$: is_authenticated = $auth.is_authenticated;
 
 	// enable for stretched backdrop
 	//$: bg_style_stretched_photo = photo.sizes?.[50] ? `background-image: url(${photo.sizes[50].url});` : ''
@@ -82,7 +82,7 @@
 		}
 
 		// Handle device photos specially
-		if (photo.isDevicePhoto && photo.url) {
+		if (photo.is_device_photo && photo.url) {
 			try {
 				devicePhotoUrl = getDevicePhotoUrl(photo.url);
 				selectedUrl = devicePhotoUrl;
@@ -105,7 +105,7 @@
 			return;
 		}
 
-		console.log('🢄Photo.svelte: Processing sizes for photo:', photo.id, 'isDevice:', photo.isDevicePhoto, 'sizes:', Object.keys(photo.sizes), 'clientWidth:', clientWidth2);
+		console.log('🢄Photo.svelte: Processing sizes for photo:', photo.id, 'is_device_photo:', photo.is_device_photo, 'sizes:', Object.keys(photo.sizes), 'clientWidth:', clientWidth2);
 
 		// Find the best scaled version based on container width. Take the 'full' size if this fails
 		const sizes = Object.keys(photo.sizes).filter(size => size !== 'full').sort((a, b) => Number(a) - Number(b));
@@ -120,7 +120,7 @@
 				height = p.height;
 
 				// Handle device photo URLs
-				if (photo.isDevicePhoto) {
+				if (photo.is_device_photo) {
 					selectedUrl = getDevicePhotoUrl(p.url);
 				} else {
 					selectedUrl = p.url;
@@ -133,7 +133,7 @@
 		height = photo.sizes.full?.height || p?.height || 0;
 
 		// Handle device photo URLs for full size
-		if (photo.isDevicePhoto && photo.sizes.full) {
+		if (photo.is_device_photo && photo.sizes.full) {
 			selectedUrl = getDevicePhotoUrl(photo.sizes.full.url);
 			console.log('🢄Photo.svelte: Using full size for device photo:', photo.id, 'original:', photo.sizes.full.url, 'converted:', selectedUrl);
 		} else {
@@ -146,7 +146,7 @@
 
 		console.log('🢄Photo.svelte: URL flow debug:', JSON.stringify({
 			photoId: photo.id,
-			isDevicePhoto: photo.isDevicePhoto,
+			is_device_photo: photo.is_device_photo,
 			selectedUrl: selectedUrl,
 			currentDisplayedUrl: displayedUrl,
 			willTriggerImageChange: selectedUrl !== displayedUrl
@@ -237,7 +237,7 @@
 	}
 
 	async function confirmHideUser() {
-		if (!photo || !isAuthenticated || isHiding) return;
+		if (!photo || !is_authenticated || isHiding) return;
 
 		const userId = getUserId(photo);
 		if (!userId) {
@@ -319,7 +319,7 @@
 
 <div bind:this={containerElement} class="photo-wrapper">
 
-	{#if photo?.isPlaceholder}
+	{#if photo?.is_placeholder}
 		<div class="placeholder-container" data-testid="placeholder-photo">
 			<div class="placeholder-content">
 				<Spinner />
@@ -328,7 +328,7 @@
 		</div>
 	{/if}
 
-	{#if photo && !photo.isPlaceholder}
+	{#if photo && !photo.is_placeholder}
 		<img
 			src={displayedUrl}
 			alt={photo.file}
@@ -342,7 +342,7 @@
 				console.error('🢄Photo.svelte: Image load error:', JSON.stringify({
 					photoId: photo?.id,
 					displayedUrl: displayedUrl,
-					isDevicePhoto: photo?.isDevicePhoto,
+					is_device_photo: photo?.is_device_photo,
 					originalUrl: photo?.url,
 					errorMessage: e?.toString?.() || 'Unknown error'
 				}));
@@ -351,7 +351,7 @@
 				console.log('🢄Photo.svelte: Image loaded successfully:', JSON.stringify({
 					photoId: photo?.id,
 					displayedUrl: displayedUrl,
-					isDevicePhoto: photo?.isDevicePhoto
+					is_device_photo: photo?.is_device_photo
 				}));
 			}}
 		/>

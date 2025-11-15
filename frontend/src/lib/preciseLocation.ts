@@ -11,7 +11,7 @@ export interface GeolocationPosition {
         longitude: number;
         accuracy: number;
         altitude?: number;
-        altitudeAccuracy?: number;
+        altitude_accuracy?: number;
         heading?: number;
         speed?: number;
     };
@@ -25,14 +25,14 @@ interface PreciseLocationData {
         longitude: number;
         accuracy: number;
         altitude: number | null;
-        altitudeAccuracy: number | null;
+        altitude_accuracy: number | null;
         heading: number | null;
         speed: number | null;
     };
     timestamp: number;
     provider?: string;
-    bearingAccuracy?: number;
-    speedAccuracy?: number;
+    bearing_accuracy?: number;
+    speed_accuracy?: number;
 }
 
 // Persistent listeners - set up once and kept active
@@ -49,7 +49,7 @@ function toGeolocationPosition(data: PreciseLocationData): GeolocationPosition {
             longitude: data.coords.longitude,
             accuracy: data.coords.accuracy,
             altitude: data.coords.altitude ?? undefined,
-            altitudeAccuracy: data.coords.altitudeAccuracy ?? undefined,
+            altitude_accuracy: data.coords.altitude_accuracy ?? undefined,
             heading: data.coords.heading ?? undefined,
             speed: data.coords.speed ?? undefined
         },
@@ -65,7 +65,7 @@ function fromBrowserGeolocation(position: globalThis.GeolocationPosition): Geolo
             longitude: position.coords.longitude,
             accuracy: position.coords.accuracy,
             altitude: position.coords.altitude ?? undefined,
-            altitudeAccuracy: position.coords.altitudeAccuracy ?? undefined,
+            altitude_accuracy: position.coords.altitudeAccuracy ?? undefined,
             heading: position.coords.heading ?? undefined,
             speed: position.coords.speed ?? undefined
         },
@@ -85,7 +85,7 @@ function handleLocationUpdate(position: GeolocationPosition, source: string) {
     if (get(locationTracking)) {
         updateGpsLocation(position);
     } else {
-        console.debug('🢄📍 Ignoring location update - user-level GPS tracking is disabled');
+        //console.debug('🢄📍 Ignoring location update - user-level GPS tracking is disabled');
     }
 }
 
@@ -109,11 +109,11 @@ async function initializeLocationListeners(): Promise<void> {
                     handleLocationUpdate(position, 'Android precise');
 
                     // Log extra precision data
-                    if (data.bearingAccuracy !== undefined) {
-                        //console.debug('🢄📍 Bearing accuracy:', data.bearingAccuracy, '°');
+                    if (data.bearing_accuracy !== undefined) {
+                        //console.debug('🢄📍 Bearing accuracy:', data.bearing_accuracy, '°');
                     }
-                    if (data.speedAccuracy !== undefined) {
-                        //console.debug('🢄📍 Speed accuracy:', data.speedAccuracy, 'm/s');
+                    if (data.speed_accuracy !== undefined) {
+                        //console.debug('🢄📍 Speed accuracy:', data.speed_accuracy, 'm/s');
                     }
                 }
             );

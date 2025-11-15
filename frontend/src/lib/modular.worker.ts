@@ -49,7 +49,7 @@ function sendPhotosUpdate(): void {
     }
 
     // Apply culling to current photos
-    const { photosInArea, photosInRange } = photoCuller.cullPhotos(
+    const { photos_in_area: photosInArea, photos_in_range: photosInRange } = photoCuller.cullPhotos(
         sourcePhotosState.getPhotosBySource(),
         areaData,
         frontendState.getAreaUpdateId(),
@@ -61,9 +61,9 @@ function sendPhotosUpdate(): void {
     // Send to frontend
     postMessage({
         type: 'photosUpdate',
-        photosInArea: [...photosInArea],
-        photosInRange: [...photosInRange],
-        currentRange: frontendState.getCurrentRange(),
+        photos_in_area: [...photosInArea],
+        photos_in_range: [...photosInRange],
+        current_range: frontendState.getCurrentRange(),
         timestamp: Date.now()
     });
 

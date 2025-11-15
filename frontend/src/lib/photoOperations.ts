@@ -200,7 +200,7 @@ export class PhotoOperations {
             onProgress: (loaded, total) => {
                 callbacks.postMessage({
                     type: 'loadProgress',
-                    sourceId: source.id,
+                    source_id: source.id,
                     loaded,
                     total
                 });
@@ -208,7 +208,7 @@ export class PhotoOperations {
             onError: (error) => {
                 callbacks.postMessage({
                     type: 'loadError',
-                    sourceId: source.id,
+                    source_id: source.id,
                     error: error.message
                 });
             },

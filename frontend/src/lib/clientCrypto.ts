@@ -58,15 +58,15 @@
  */
 
 export interface ClientKeyPair {
-    publicKey: CryptoKey;
-    privateKey: CryptoKey;
-    keyId: string;
+    public_key: CryptoKey;
+    private_key: CryptoKey;
+    key_id: string;
 }
 
 export interface ClientKeyInfo {
-    publicKeyPem: string;
-    keyId: string;
-    createdAt: string;
+    public_key_pem: string;
+    key_id: string;
+    created_at: string;
 }
 
 export class ClientCryptoManager {
@@ -138,7 +138,7 @@ export class ClientCryptoManager {
         const keyPair = await this.getOrCreateKeyPair();
 
         // Export public key to PEM format
-        const publicKeyBuffer = await crypto.subtle.exportKey('spki', keyPair.publicKey);
+        const publicKeyBuffer = await crypto.subtle.exportKey('spki', keyPair.public_key);
         const publicKeyPem = this.bufferToPem(publicKeyBuffer, 'PUBLIC KEY');
 
         // Get or generate key ID
@@ -146,9 +146,9 @@ export class ClientCryptoManager {
         const createdAt = localStorage.getItem(this.STORAGE_KEYS.KEY_CREATED) || new Date().toISOString();
 
         return {
-            publicKeyPem,
-            keyId,
-            createdAt
+            public_key_pem: publicKeyPem,
+            key_id: keyId,
+            created_at: createdAt
         };
     }
 
@@ -200,22 +200,22 @@ export class ClientCryptoManager {
                     name: 'ECDSA',
                     hash: 'SHA-256'
                 },
-                keyPair.privateKey,
+                keyPair.private_key,
                 messageBuffer
             );
 
-			console.debug(`keyPair.privateKey: (${JSON.stringify(keyPair.privateKey)}), keyPair.publicKey: (${JSON.stringify(keyPair.publicKey)})`);
+			console.debug(`keyPair.privateKey: (${JSON.stringify(keyPair.private_key)}), keyPair.publicKey: (${JSON.stringify(keyPair.public_key)})`);
 
 
             // Convert to base64 for transmission
             const signatureBase64 = this.bufferToBase64(signatureBuffer);
 
-            console.log(`${this.LOG_PREFIX} Signed upload data for photo ${data.photo_id} with key ${keyPair.keyId}`);
+            console.log(`${this.LOG_PREFIX} Signed upload data for photo ${data.photo_id} with key ${keyPair.key_id}`);
 			console.debug(`${this.LOG_PREFIX} Signature (base64): ${signatureBase64}`);
 
             return {
                 signature: signatureBase64,
-                keyId: keyPair.keyId
+                keyId: keyPair.key_id
             };
 
         } catch (error) {
@@ -253,17 +253,17 @@ export class ClientCryptoManager {
         const keyId = this.generateKeyId();
 
         return {
-            publicKey: keyPair.publicKey,
-            privateKey: keyPair.privateKey,
-            keyId: keyId
+            public_key: keyPair.publicKey,
+            private_key: keyPair.privateKey,
+            key_id: keyId
         };
     }
 
     private async storeKeys(keyPair: ClientKeyPair): Promise<void> {
         try {
             // Export keys to JWK format for storage
-            const privateKeyJwk = await crypto.subtle.exportKey('jwk', keyPair.privateKey);
-            const publicKeyJwk = await crypto.subtle.exportKey('jwk', keyPair.publicKey);
+            const privateKeyJwk = await crypto.subtle.exportKey('jwk', keyPair.private_key);
+            const publicKeyJwk = await crypto.subtle.exportKey('jwk', keyPair.public_key);
 
             // Use the key ID from the keyPair
             const createdAt = new Date().toISOString();
@@ -271,7 +271,7 @@ export class ClientCryptoManager {
             // Store in localStorage
             localStorage.setItem(this.STORAGE_KEYS.PRIVATE_KEY, JSON.stringify(privateKeyJwk));
             localStorage.setItem(this.STORAGE_KEYS.PUBLIC_KEY, JSON.stringify(publicKeyJwk));
-            localStorage.setItem(this.STORAGE_KEYS.KEY_ID, keyPair.keyId);
+            localStorage.setItem(this.STORAGE_KEYS.KEY_ID, keyPair.key_id);
             localStorage.setItem(this.STORAGE_KEYS.KEY_CREATED, createdAt);
 
         } catch (error) {
@@ -310,7 +310,7 @@ export class ClientCryptoManager {
                 ['verify']
             );
 
-            return { publicKey, privateKey, keyId };
+            return { public_key: publicKey, private_key: privateKey, key_id: keyId };
 
         } catch (error) {
             console.error(`${this.LOG_PREFIX} Error loading stored keys:`, error);

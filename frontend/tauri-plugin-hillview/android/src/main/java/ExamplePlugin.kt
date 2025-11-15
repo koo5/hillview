@@ -52,35 +52,34 @@ class SensorModeArgs {
 @InvokeArg
 class AutoUploadArgs {
   var enabled: Boolean? = null
-  var promptEnabled: Boolean? = null
+  var prompt_enabled: Boolean? = null
 }
 
 @InvokeArg
 class UploadConfigArgs {
-  var serverUrl: String? = null
-  // authToken removed - now managed by AuthenticationManager
+  var server_url: String? = null
 }
 
 @InvokeArg
 class PhotoUploadArgs {
-  var photoId: String? = null
+  var photo_id: String? = null
 }
 
 @InvokeArg
 class StoreAuthTokenArgs {
   var token: String? = null
-  var expiresAt: String? = null
-  var refreshToken: String? = null
-  var refreshExpiry: String? = null
+  var expires_at: String? = null
+  var refresh_token: String? = null
+  var refresh_expiry: String? = null
 
   override fun toString(): String {
-    return "StoreAuthTokenArgs(token=${token?.let { "present" } ?: "null"}, expiresAt=$expiresAt, refreshToken=${refreshToken?.let { "present" } ?: "null"}, refreshExpiry=$refreshExpiry)"
+    return "StoreAuthTokenArgs(token=${token?.let { "present" } ?: "null"}, expires_at=$expires_at, refresh_token=${refresh_token?.let { "present" } ?: "null"}, refresh_expiry=$refresh_expiry)"
   }
 }
 
 @InvokeArg
 class TokenExpiryCheckArgs {
-  var bufferMinutes: Int = 2
+  var buffer_minutes: Int = 2
 }
 
 @InvokeArg
@@ -97,12 +96,12 @@ class AddPhotoArgs {
   var longitude: Double = 0.0
   var altitude: Double? = null
   var bearing: Double? = null
-  var capturedAt: Long = 0L
+  var captured_at: Long = 0L
   var accuracy: Double = 0.0
   var width: Int = 0
   var height: Int = 0
-  var fileSize: Long = 0L
-  var fileHash: String? = null
+  var file_size: Long = 0L
+  var file_hash: String? = null
 }
 
 @InvokeArg
@@ -115,21 +114,21 @@ class SharePhotoArgs {
 @InvokeArg
 class GetDevicePhotosArgs {
   var page: Int = 1
-  var pageSize: Int = 50
+  var page_size: Int = 50
+
   // Optional bounding box for spatial filtering
-  var minLat: Double? = null
-  var maxLat: Double? = null
-  var minLng: Double? = null
-  var maxLng: Double? = null
+  var min_lat: Double? = null
+  var max_lat: Double? = null
+  var min_lng: Double? = null
+  var max_lng: Double? = null
 }
 
 @InvokeArg
 class PhotoWorkerProcessArgs {
-  var messageJson: String? = null
-  var message_json: String? = null  // Try snake_case version too
+  var message_json: String? = null
 
   override fun toString(): String {
-    return "PhotoWorkerProcessArgs(messageJson=${messageJson?.let { "present(${it.length} chars)" } ?: "null"}, message_json=${message_json?.let { "present(${it.length} chars)" } ?: "null"})"
+    return "PhotoWorkerProcessArgs(message_json=${message_json?.let { "present(${it.length} chars)" } ?: "null"})"
   }
 }
 
@@ -140,7 +139,7 @@ class GetBearingForTimestampArgs {
 
 @InvokeArg
 class SelectDistributorArgs {
-  var packageName: String? = null
+  var package_name: String? = null
 }
 
 @InvokeArg
@@ -158,7 +157,7 @@ class TestShowNotificationArgs {
     permissions = [
         Permission(
             strings = [Manifest.permission.POST_NOTIFICATIONS],
-            alias = "postNotification"
+            alias = "post_notification"
         )
     ]
 )
@@ -458,9 +457,9 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             sensorService = EnhancedSensorService(activity) { sensorData ->
                 // Emit sensor data event
                 val data = JSObject()
-                data.put("magneticHeading", sensorData.magneticHeading)
-                data.put("trueHeading", sensorData.trueHeading)
-                data.put("headingAccuracy", sensorData.headingAccuracy)
+                data.put("magnetic_heading", sensorData.magneticHeading)
+                data.put("true_heading", sensorData.trueHeading)
+                data.put("heading_accuracy", sensorData.headingAccuracy)
                 data.put("pitch", sensorData.pitch)
                 data.put("roll", sensorData.roll)
                 data.put("timestamp", sensorData.timestamp)
@@ -570,7 +569,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             coords.put("longitude", locationData.longitude)
             coords.put("accuracy", locationData.accuracy)
             coords.put("altitude", locationData.altitude)
-            coords.put("altitudeAccuracy", locationData.altitudeAccuracy)
+            coords.put("altitude_accuracy", locationData.altitudeAccuracy)
             coords.put("heading", locationData.bearing)
             coords.put("speed", locationData.speed)
 
@@ -579,8 +578,8 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
 
             // Add extra precision data
             data.put("provider", locationData.provider)
-            data.put("bearingAccuracy", locationData.bearingAccuracy)
-            data.put("speedAccuracy", locationData.speedAccuracy)
+            data.put("bearing_accuracy", locationData.bearingAccuracy)
+            data.put("speed_accuracy", locationData.speedAccuracy)
 
             Log.v(TAG, "📍 lat=${locationData.latitude}, lng=${locationData.longitude}, accuracy=${locationData.accuracy}m")
 
@@ -609,7 +608,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         try {
             val args = invoke.parseArgs(AutoUploadArgs::class.java)
             val enabled = args.enabled ?: false
-            val promptEnabled = args.promptEnabled ?: true
+            val promptEnabled = args.prompt_enabled ?: true
 
             Log.i(TAG, "📤 [setAutoUploadEnabled] CALLED with enabled: $enabled, promptEnabled: $promptEnabled")
 
@@ -651,7 +650,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             val result = JSObject()
             result.put("success", true)
             result.put("enabled", enabled as Boolean)
-            result.put("promptEnabled", promptEnabled as Boolean)
+            result.put("prompt_enabled", promptEnabled as Boolean)
 
             Log.i(TAG, "📤 [setAutoUploadEnabled] SUCCESS - returning result: enabled=$enabled, promptEnabled=$promptEnabled")
             invoke.resolve(result)
@@ -686,10 +685,10 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                 //Log.i(TAG, "📤 [getUploadStatus] Settings - enabled: $autoUploadEnabled, promptEnabled: $autoUploadPromptEnabled")
 
                 val result = JSObject()
-                result.put("autoUploadEnabled", autoUploadEnabled)
-                result.put("autoUploadPromptEnabled", autoUploadPromptEnabled)
-                result.put("pendingUploads", pendingCount)
-                result.put("failedUploads", failedCount)
+                result.put("auto_upload_enabled", autoUploadEnabled)
+                result.put("auto_upload_prompt_enabled", autoUploadPromptEnabled)
+                result.put("pending_uploads", pendingCount)
+                result.put("failed_uploads", failedCount)
 
                 Log.i(TAG, "📤 [getUploadStatus] enabled=$autoUploadEnabled, promptEnabled=$autoUploadPromptEnabled, pendingUploads=$pendingCount, failedUploads=$failedCount")
 
@@ -713,7 +712,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         try {
             val args = invoke.parseArgs(UploadConfigArgs::class.java)
 
-            args.serverUrl?.let { backendUrl ->
+            args.server_url?.let { backendUrl ->
                 if (backendUrl.isBlank()) {
                     Log.e(TAG, "📤 Backend URL is required")
                     val error = JSObject()
@@ -851,9 +850,9 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             val args = invoke.parseArgs(StoreAuthTokenArgs::class.java)
             Log.d(TAG, "🔐 Parsed args object: $args")
             val token = args.token
-            val expiresAt = args.expiresAt
-            val refreshToken = args.refreshToken
-            val refreshExpiresAt = args.refreshExpiry
+            val expiresAt = args.expires_at
+            val refreshToken = args.refresh_token
+            val refreshExpiresAt = args.refresh_expiry
             Log.d(TAG, "🔐 Individual field values - refreshExpiry field: $refreshExpiresAt")
 
             Log.d(TAG, "🔐 Arguments parsed - token: ${if (token?.isNotEmpty() == true) "present" else "missing"}, expiresAt: $expiresAt")
@@ -948,7 +947,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                         val result = JSObject()
                         result.put("success", true)
                         result.put("token", validToken)
-                        result.put("expiresAt", expiresAt)
+                        result.put("expires_at", expiresAt)
                         invoke.resolve(result)
                     }
                 } catch (e: Exception) {
@@ -1035,7 +1034,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     fun isTokenExpired(invoke: Invoke) {
         try {
             val args = invoke.parseArgs(TokenExpiryCheckArgs::class.java)
-            val bufferMinutes = args.bufferMinutes
+            val bufferMinutes = args.buffer_minutes
 
             Log.d(TAG, "🔐 Checking if token is expired (buffer: $bufferMinutes minutes)")
             val expired = authManager.isTokenExpired(bufferMinutes)
@@ -1281,7 +1280,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
 
             val args = try {
                 val parsedArgs = invoke.parseArgs(GetDevicePhotosArgs::class.java)
-                Log.d(TAG, "📸 Successfully parsed args: page=${parsedArgs?.page}, pageSize=${parsedArgs?.pageSize}, bounds=[${parsedArgs?.minLat},${parsedArgs?.minLng}] to [${parsedArgs?.maxLat},${parsedArgs?.maxLng}]")
+                Log.d(TAG, "📸 Successfully parsed args: page=${parsedArgs?.page}, page_size=${parsedArgs?.page_size}, bounds=[${parsedArgs?.min_lat},${parsedArgs?.min_lng}] to [${parsedArgs?.max_lat},${parsedArgs?.max_lng}]")
                 parsedArgs ?: GetDevicePhotosArgs() // Use defaults if null
             } catch (e: Exception) {
                 Log.d(TAG, "📸 Failed to parse args (${e.message}), using defaults")
@@ -1289,7 +1288,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             }
 
             // Args is never null from parseArgs(), proceed with parsed values
-            Log.d(TAG, "📸 Using parsed args: page=${args.page}, pageSize=${args.pageSize}")
+            Log.d(TAG, "📸 Using parsed args: page=${args.page}, page_size=${args.page_size}")
 
             // Process the request with validated args
             processDevicePhotosRequest(invoke, args)
@@ -1299,12 +1298,12 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             CoroutineScope(Dispatchers.Main).launch {
                 val error = JSObject()
                 error.put("photos", JSONArray())
-                error.put("lastUpdated", 0)
+                error.put("last_updated",0)
                 error.put("page", 1)
-                error.put("pageSize", 50)
-                error.put("totalCount", 0)
-                error.put("totalPages", 0)
-                error.put("hasMore", false)
+                error.put("page_size", 50)
+                error.put("total_count", 0)
+                error.put("total_pages", 0)
+                error.put("has_more", false)
                 error.put("error", e.message ?: "Unknown error")
                 invoke.resolve(error)
             }
@@ -1313,13 +1312,12 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
 
     private fun processDevicePhotosRequest(invoke: Invoke, args: GetDevicePhotosArgs) {
         // Check if spatial filtering is requested
-        val hasBounds = args.minLat != null && args.maxLat != null && args.minLng != null && args.maxLng != null
-        val pageSize = args.pageSize.coerceIn(1, 1000) // Allow larger limits for spatial queries
+        val hasBounds = args.min_lat != null && args.max_lat != null && args.min_lng != null && args.max_lng != null
+        val pageSize = args.page_size.coerceIn(1, 1000) // Allow larger limits for spatial queries
 
             CoroutineScope(Dispatchers.IO).launch {
                 val page = if (hasBounds) 1 else args.page.coerceAtLeast(1)
 
-                try {
                     val photoDao = database.photoDao()
 
                     val photos: List<PhotoEntity>
@@ -1328,10 +1326,10 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                     val hasMore: Boolean
 
                     if (hasBounds) {
-                        Log.d(TAG, "📸 Getting device photos in bounds: [${args.minLat}, ${args.minLng}] to [${args.maxLat}, ${args.maxLng}] limit: $pageSize (bearing order)")
+                        Log.d(TAG, "📸 Getting device photos in bounds: [${args.min_lat}, ${args.min_lng}] to [${args.max_lat}, ${args.max_lng}] limit: $pageSize (bearing order)")
 
                         photos = photoDao.getPhotosInBounds(
-                            args.minLat!!, args.maxLat!!, args.minLng!!, args.maxLng!!, pageSize
+                            args.min_lat!!, args.max_lat!!, args.min_lng!!, args.max_lng!!, pageSize
                         )
 
                         // For spatial queries, return simple response without pagination metadata
@@ -1353,12 +1351,12 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                     for (photo in photos) {
                         val photoJson = JSObject()
                         photoJson.put("id", photo.id)
-                        photoJson.put("filePath", photo.path)
-                        photoJson.put("fileName", photo.filename)
-                        photoJson.put("fileHash", photo.fileHash)
-                        photoJson.put("fileSize", photo.fileSize)
-                        photoJson.put("capturedAt", photo.capturedAt)
-                        photoJson.put("createdAt", photo.createdAt)
+                        photoJson.put("file_path", photo.path)
+                        photoJson.put("file_name", photo.filename)
+                        photoJson.put("file_hash", photo.fileHash)
+                        photoJson.put("file_size", photo.fileSize)
+                        photoJson.put("captured_at", photo.capturedAt)
+                        photoJson.put("created_at", photo.createdAt)
                         photoJson.put("latitude", photo.latitude)
                         photoJson.put("longitude", photo.longitude)
                         photoJson.put("altitude", photo.altitude)
@@ -1366,22 +1364,22 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                         photoJson.put("accuracy", photo.accuracy)
                         photoJson.put("width", photo.width)
                         photoJson.put("height", photo.height)
-                        photoJson.put("uploadStatus", photo.uploadStatus)
-                        photoJson.put("uploadedAt", photo.uploadedAt)
-                        photoJson.put("retryCount", photo.retryCount)
-                        photoJson.put("lastUploadAttempt", photo.lastUploadAttempt)
+                        photoJson.put("upload_status", photo.uploadStatus)
+                        photoJson.put("uploaded_at", photo.uploadedAt)
+                        photoJson.put("retry_count", photo.retryCount)
+                        photoJson.put("last_upload_attempt", photo.lastUploadAttempt)
                         photoList.put(photoJson)
                     }
 
                     val response = JSObject()
                     response.put("photos", photoList)
-                    response.put("lastUpdated", System.currentTimeMillis())
+                    response.put("last_updated",System.currentTimeMillis())
                     // Pagination metadata
                     response.put("page", page)
-                    response.put("pageSize", pageSize)
-                    response.put("totalCount", totalCount)
-                    response.put("totalPages", totalPages)
-                    response.put("hasMore", hasMore)
+                    response.put("page_size", pageSize)
+                    response.put("total_count", totalCount)
+                    response.put("total_pages", totalPages)
+                    response.put("has_more", hasMore)
 
                     Log.d(TAG, "📸 Retrieved ${photos.size} photos (page $page/$totalPages, total: $totalCount)")
 
@@ -1389,21 +1387,6 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                         invoke.resolve(response)
                     }
 
-                } catch (e: Exception) {
-                    Log.e(TAG, "📸 Error getting device photos", e)
-                    CoroutineScope(Dispatchers.Main).launch {
-                        val error = JSObject()
-                        error.put("photos", JSONArray())
-                        error.put("lastUpdated", 0)
-                        error.put("page", page)
-                        error.put("pageSize", pageSize)
-                        error.put("totalCount", 0)
-                        error.put("totalPages", 0)
-                        error.put("hasMore", false)
-                        error.put("error", e.message)
-                        invoke.resolve(error)
-                    }
-                }
             }
     }
 
@@ -1417,8 +1400,8 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                     // This would typically scan the device for new photos
                     // For now, return a simple success response
                     val response = JSObject()
-                    response.put("photosAdded", 0)
-                    response.put("scanErrors", 0)
+                    response.put("photos_added",0)
+                    response.put("scan_errors",0)
                     response.put("success", true)
 
                     Log.d(TAG, "🔄 Photo scan refresh completed")
@@ -1431,8 +1414,8 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                     Log.e(TAG, "🔄 Error during photo scan refresh", e)
                     CoroutineScope(Dispatchers.Main).launch {
                         val error = JSObject()
-                        error.put("photosAdded", 0)
-                        error.put("scanErrors", 1)
+                        error.put("photos_added",0)
+                        error.put("scan_errors",1)
                         error.put("success", false)
                         error.put("error", e.message)
                         invoke.resolve(error)
@@ -1443,8 +1426,8 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         } catch (e: Exception) {
             Log.e(TAG, "🔄 Error starting photo scan refresh", e)
             val error = JSObject()
-            error.put("photosAdded", 0)
-            error.put("scanErrors", 1)
+            error.put("photos_added",0)
+            error.put("scan_errors",1)
             error.put("success", false)
             error.put("error", e.message)
             invoke.resolve(error)
@@ -1497,7 +1480,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             CoroutineScope(Dispatchers.IO).launch {
                 try {
                     // Hash is always provided by Rust (calculated from bytes in memory)
-                    val fileHash = args.fileHash ?: throw Exception("File hash is required")
+                    val fileHash = args.file_hash ?: throw Exception("File hash is required")
 
                     // Generate ID if not provided (using the hash from Rust)
                     val photoId = if (args.id.isNullOrEmpty()) {
@@ -1517,11 +1500,11 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                         longitude = args.longitude,
                         altitude = args.altitude ?: 0.0,
                         bearing = args.bearing ?: 0.0,
-                        capturedAt = args.capturedAt,
+                        capturedAt = args.captured_at,
                         accuracy = args.accuracy,
                         width = args.width,
                         height = args.height,
-                        fileSize = args.fileSize,
+                        fileSize = args.file_size,
                         createdAt = System.currentTimeMillis(),
                         uploadStatus = "pending",
                         fileHash = fileHash  // Always use the calculated/provided hash
@@ -1534,7 +1517,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
 
                     val result = JSObject()
                     result.put("success", true)
-                    result.put("photoId", photoId)
+                    result.put("photo_id", photoId)
                     invoke.resolve(result)
 
                 } catch (e: Exception) {
@@ -1727,11 +1710,11 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                         // Return result matching FileImportResponse structure (camelCase for serde)
                         val response = JSObject()
                         response.put("success", importedFiles.isNotEmpty())
-                        response.put("selectedFiles", JSONArray(selectedUris.map { it.toString() }))
-                        response.put("importedCount", importedFiles.size)
-                        response.put("failedCount", failedFiles.size)
-                        response.put("failedFiles", JSONArray(failedFiles))
-                        response.put("importErrors", JSONArray(errors))
+                        response.put("selected_files",JSONArray(selectedUris.map { it.toString() }))
+                        response.put("imported_count",importedFiles.size)
+                        response.put("failed_count",failedFiles.size)
+                        response.put("failed_files",JSONArray(failedFiles))
+                        response.put("import_errors",JSONArray(errors))
 
                         Log.i(TAG, "📂 Import complete: ${importedFiles.size} successful, ${failedFiles.size} failed")
                         invoke.resolve(response)
@@ -1745,9 +1728,9 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                 Log.w(TAG, "📂 No files selected")
                 val response = JSObject()
                 response.put("success", false)
-                response.put("selectedFiles", JSONArray())
-                response.put("importedCount", 0)
-                response.put("failedCount", 0)
+                response.put("selected_files",JSONArray())
+                response.put("imported_count",0)
+                response.put("failed_count",0)
                 response.put("error", "No files selected")
                 invoke.resolve(response)
             }
@@ -1755,9 +1738,9 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             Log.i(TAG, "📂 File picker cancelled by user")
             val response = JSObject()
             response.put("success", false)
-            response.put("selectedFiles", JSONArray())
-            response.put("importedCount", 0)
-            response.put("failedCount", 0)
+            response.put("selected_files",JSONArray())
+            response.put("imported_count",0)
+            response.put("failed_count",0)
             response.put("error", "File selection cancelled")
             invoke.resolve(response)
         }
@@ -1776,9 +1759,9 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
 
             // Args is never null from parseArgs(), proceed directly
 
-            val messageJson = args.messageJson ?: args.message_json
+            val messageJson = args.message_json ?: args.message_json
             //Log.d(TAG, "🢄📸 messageJson extracted: '${messageJson}' (length: ${messageJson?.length ?: 0})")
-            //Log.d(TAG, "🢄📸 field values - messageJson: ${args.messageJson}, message_json: ${args.message_json}")
+            //Log.d(TAG, "🢄📸 field values - messageJson: ${args.message_json}, message_json: ${args.message_json}")
 
             if (messageJson.isNullOrEmpty()) {
                 Log.e(TAG, "🢄📸 photoWorkerProcess failed: messageJson is required")
@@ -1934,9 +1917,9 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                         if (bearingEntity != null) {
                             result.put("success", true)
                             result.put("found", true)
-                            result.put("magneticHeading", bearingEntity.magneticHeading.toDouble())
-                            result.put("trueHeading", bearingEntity.trueHeading.toDouble())
-                            result.put("headingAccuracy", bearingEntity.headingAccuracy.toDouble())
+                            result.put("magnetic_heading", bearingEntity.magneticHeading.toDouble())
+                            result.put("true_heading", bearingEntity.trueHeading.toDouble())
+                            result.put("heading_accuracy", bearingEntity.headingAccuracy.toDouble())
                             result.put("accuracy", bearingEntity.accuracyLevel)
                             result.put("source", bearingEntity.source)
                             result.put("pitch", bearingEntity.pitch.toDouble())
@@ -2023,9 +2006,9 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
 
             distributors.forEach { distributor ->
                 val distObj = JSObject()
-                distObj.put("packageName", distributor.packageName)
-                distObj.put("displayName", distributor.displayName)
-                distObj.put("isAvailable", distributor.isAvailable)
+                distObj.put("package_name", distributor.packageName)
+                distObj.put("display_name", distributor.displayName)
+                distObj.put("is_available", distributor.isAvailable)
                 // Note: Use getPushRegistrationStatus to get selected distributor
                 distributorsArray.put(distObj)
             }
@@ -2067,11 +2050,11 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
 
             val result = JSObject()
             result.put("status", status.name.lowercase())
-            result.put("statusMessage", statusMessage)
-            result.put("selectedDistributor", selectedDistributor)
-            result.put("pushEndpoint", pushEndpoint)
-            result.put("lastError", lastError)
-            result.put("pushEnabled", pushEnabled)
+            result.put("status_message", statusMessage)
+            result.put("selected_distributor", selectedDistributor)
+            result.put("push_endpoint", pushEndpoint)
+            result.put("last_error", lastError)
+            result.put("push_enabled", pushEnabled)
             result.put("success", true)
 
             Log.d(TAG, "📨 Returning result: $result")
@@ -2091,7 +2074,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val args = invoke.parseArgs(SelectDistributorArgs::class.java)
-                val packageName = args.packageName ?: ""
+                val packageName = args.package_name ?: ""
 
                 val manager = PushDistributorManager(activity)
                 val success = if (packageName.isEmpty()) {

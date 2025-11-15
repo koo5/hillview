@@ -216,8 +216,8 @@ export class KotlinPhotoWorker {
         try {
             // Parse the photos from the payload data
             //console.log('🔥 DEBUG: payload structure:', JSON.stringify(payload, null, 2));
-            const photosInArea = JSON.parse(payload.photosInArea || '[]');
-            const photosInRange = JSON.parse(payload.photosInRange || '[]');
+            const photosInArea = JSON.parse(payload.photos_in_area || '[]');
+            const photosInRange = JSON.parse(payload.photos_in_range || '[]');
             const timestamp = payload.timestamp;
 
             //console.log(`🢄KotlinPhotoWorker: Received async photos update via Tauri event: ${photosInArea.length} in area, ${photosInRange.length} in range`);
@@ -233,8 +233,8 @@ export class KotlinPhotoWorker {
                 this.onMessageCallback({
                     data: {
                         type: 'photosUpdate',
-                        photosInArea: photosInArea,
-                        photosInRange: photosInRange,
+                        photos_in_area: photosInArea,
+                        photos_in_range: photosInRange,
                         timestamp: timestamp
                     }
                 });
@@ -294,15 +294,15 @@ export class KotlinPhotoWorker {
         }
 
         try {
-            const { sourceId, isLoading, progress, error } = payload;
+            const { source_id, is_loading, progress, error } = payload;
 
-            console.log(`🢄KotlinPhotoWorker: Loading status update for ${sourceId}: loading=${isLoading}, progress=${progress}`);
+            console.log(`🢄KotlinPhotoWorker: Loading status update for ${source_id}: loading=${is_loading}, progress=${progress}`);
 
             // Update sourceLoadingStatus store like simplePhotoWorker does
             sourceLoadingStatus.update(status => ({
                 ...status,
-                [sourceId]: {
-                    isLoading,
+                [source_id]: {
+                    is_loading,
                     progress,
                     error
                 }

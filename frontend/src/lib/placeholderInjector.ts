@@ -33,8 +33,8 @@ export class PlaceholderInjector {
         // Also add directly to map photo stores for immediate display
         if (deviceSource.enabled) {
 			const withPlaceholders = embedPlaceholders(get(photosInArea), get(photosInRange), get(placeholderPhotos));
-            photosInArea.set(withPlaceholders.photosInArea);
-            photosInRange.set(withPlaceholders.photosInRange);
+            photosInArea.set(withPlaceholders.photos_in_area);
+            photosInRange.set(withPlaceholders.photos_in_range);
         }
 
         console.log('🢄📍 Injected placeholder:', sharedId, 'at', location);
@@ -42,10 +42,10 @@ export class PlaceholderInjector {
 
     /**
      * Removes a placeholder when the real photo is ready
-     * Uses the photo ID (which is now the same as sharedId/tempId)
+     * Uses the photo ID (which is now the same as sharedId/temp_id)
      */
     static removePlaceholder(photoId: string): void {
-        placeholderPhotos.update(photos => photos.filter(p => p.id !== photoId && p.tempId !== photoId));
+        placeholderPhotos.update(photos => photos.filter(p => p.id !== photoId && p.temp_id !== photoId));
         console.log('🢄📍 Removed placeholder:', photoId);
     }
 
@@ -68,9 +68,9 @@ export function embedPlaceholders(
 	currentPhotosInArea: any[],
 	currentPhotosInRange: any[],
 	currentPlaceholders: PlaceholderPhoto[]
-): { photosInArea: any[]; photosInRange: any[] } {
+): { photos_in_area: any[]; photos_in_range: any[] } {
 	return {
-		photosInArea: [...currentPhotosInArea, ...currentPlaceholders],
-		photosInRange: [...currentPhotosInRange, ...currentPlaceholders]
+		photos_in_area: [...currentPhotosInArea, ...currentPlaceholders],
+		photos_in_range: [...currentPhotosInRange, ...currentPlaceholders]
 	};
 }

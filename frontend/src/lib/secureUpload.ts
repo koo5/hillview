@@ -326,7 +326,7 @@ export async function secureUploadFile(
             file_size: file.size,
             content_type: file.type,
             file_md5: fileMD5,
-            client_key_id: keyInfo.keyId,
+            client_key_id: keyInfo.key_id,
             description,
             is_public: isPublic,
             ...geolocation
