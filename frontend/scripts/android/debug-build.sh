@@ -1,7 +1,8 @@
 #!/usr/bin/env fish
 
-# Build debug APK with dev configuration
-source (dirname (status --current-filename))/../env/android-debug.env
+source (dirname (status --filename))/../env/android-debug.env
+
+cd (dirname (readlink -m (status --current-filename)))/../..
 
 echo "🔨 Building debug APK..."
 echo "📱 VITE_DEV_MODE: $VITE_DEV_MODE"
