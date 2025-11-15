@@ -462,7 +462,7 @@ fn create_exif_segment_structured(metadata: &PhotoMetadata) -> Vec<u8> {
     }
 
     // Add timestamps
-    builder.add_timestamps(metadata.timestamp);
+    builder.add_timestamps(metadata.captured_at);
 
     // Add GPS data
     builder.add_gps_data(metadata.latitude, metadata.longitude, metadata.altitude);
@@ -530,9 +530,8 @@ pub fn validate_photo_metadata(mut metadata: PhotoMetadata) -> PhotoMetadata {
     // Validate timestamp (reasonable range: 1970 to 2100)
     let min_timestamp = 0i64; // 1970-01-01
     let max_timestamp = 4102444800i64; // 2100-01-01
-    if metadata.timestamp < min_timestamp || metadata.timestamp > max_timestamp {
-        warn!("Invalid timestamp: {}, using current time", metadata.timestamp);
-        metadata.timestamp = chrono::Utc::now().timestamp();
+    if metadata.captured_at < min_timestamp || metadata.captured_at > max_timestamp {
+        warn!("Invalid captured_at: {}", metadata.captured_at);
     }
 
     // Validate accuracy (should be positive)
@@ -1252,6 +1251,7 @@ async fn save_photo_from_bytes(
 				height,
 				file_size: file_metadata.len(),
 				file_hash: Some(file_hash.clone()),
+				created_at: None, // Let the plugin set the created_at timestamp
 			};
 
 			let final_photo_id = match app_handle.hillview().add_photo_to_database(plugin_photo.clone()) {
@@ -1359,7 +1359,7 @@ pub async fn read_photo_exif(path: String) -> Result<PhotoMetadata, String> {
 		longitude: 0.0,
 		altitude: None,
 		bearing: None,
-		created_at: 0,
+		captured_at: 0,
 		accuracy: 0.0,
 		location_source: "unknown".to_string(),
 		bearing_source: "unknown".to_string(),

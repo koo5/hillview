@@ -25,6 +25,7 @@ pub struct DevicePhotoMetadata {
     pub file_size: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_at: Option<i64>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file_hash: Option<String>,
 }

@@ -43,11 +43,6 @@ pub fn run() {
             photo_exif::save_photo_from_file,
             photo_exif::read_device_photo,
             photo_exif::read_photo_exif,
-            device_photos::load_device_photos_db,
-            device_photos::save_device_photos_db,
-            device_photos::add_device_photo_to_db,
-            device_photos::refresh_device_photos,
-            device_photos::delete_device_photo
         ])
         .setup(|app| {
             // Tauri log plugin disabled to prevent duplicate console logs

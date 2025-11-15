@@ -228,7 +228,7 @@ class CaptureQueueManager {
 							longitude: item.location.longitude,
 							altitude: item.location.altitude,
 							bearing: item.location.heading,
-							timestamp: item.timestamp,
+							capturedAt: item.timestamp,
 							accuracy: item.location.accuracy,
 							locationSource: item.location.locationSource,
 							bearingSource: item.location.bearingSource,
@@ -274,12 +274,12 @@ class CaptureQueueManager {
 					}
 				} catch (error) {
 					this.totalFailed++;
-					this.log(this.LOG_TAGS.PHOTO_ERROR, 'Failed to process photo chunk', {
+					this.log(this.LOG_TAGS.PHOTO_ERROR, 'Failed to process photo chunk', JSON.stringify({
 						photoId,
 						chunkIndex,
 						error: error instanceof Error ? error.message : String(error),
 						totalFailed: this.totalFailed
-					});
+					}));
 
 					// If this chunk failed and we have the item, clean up
 					if (item) {

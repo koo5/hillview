@@ -33,9 +33,12 @@ export interface PhotoData {
     isDevicePhoto?: boolean;
     isPlaceholder?: boolean;
     isDirectoryPhoto?: boolean;
+
+	// fixme. Probably standardize on snake_case for all ts structures.
     capturedAt?: number;
-    accuracy?: number;
     captured_at?: number;
+
+    accuracy?: number;
     // Computed properties (added by processing)
     abs_bearing_diff?: number;
     bearing_color?: string;

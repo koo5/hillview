@@ -84,13 +84,16 @@ async def get_hillview_images(
 				'captured_at': photo.captured_at.isoformat() if photo.captured_at else '',
 				'is_pano': False,
 				'filename': photo.filename,
-				'sizes': photo.sizes or {},
+				'sizes': {},
 				# Add creator info to match Mapillary format
 				'creator': {
 					'username': username,
 					'id': photo.owner_id
 				}
 			}
+			
+			for k, v in (photo.sizes or {}).items():
+				photo_data['sizes'][k] = {'url': v.get('url'), 'width': v.get('width'), 'height': v.get('height')}
 
 			# Add file hash if available for deduplication
 			if photo.file_md5:
