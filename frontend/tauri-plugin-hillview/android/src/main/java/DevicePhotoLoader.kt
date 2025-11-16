@@ -117,66 +117,6 @@ class DevicePhotoLoader(private val context: Context) {
         )
     }
 
-    /**
-     * Get device photos with pagination (for future use)
-     */
-    suspend fun getDevicePhotosResponse(
-        page: Int = 1,
-        pageSize: Int = 50,
-        bounds: Bounds? = null
-    ): DevicePhotosResponse {
-            val offset = (page - 1) * pageSize
-
-            val photoEntities = if (bounds != null) {
-                photoDao.getPhotosInBounds(
-                    minLat = bounds.bottom_right.lat,
-                    maxLat = bounds.top_left.lat,
-                    minLng = bounds.top_left.lng,
-                    maxLng = bounds.bottom_right.lng,
-                    limit = pageSize + 1 // Get one extra to check if there are more
-                )
-            } else {
-                photoDao.getPhotosPaginated(limit = pageSize + 1, offset = offset)
-            }
-
-            val hasMore = photoEntities.size > pageSize
-            val photosToReturn = if (hasMore) photoEntities.dropLast(1) else photoEntities
-
-            val totalCount = photoDao.getTotalPhotoCount()
-            val totalPages = (totalCount + pageSize - 1) / pageSize
-
-            val devicePhotos = photosToReturn.map { entity ->
-                DevicePhoto(
-                    id = entity.id,
-                    filePath = entity.path,
-                    fileName = entity.filename,
-                    fileHash = entity.fileHash,
-                    fileSize = entity.fileSize,
-                    capturedAt = entity.capturedAt,
-                    createdAt = entity.createdAt,
-                    latitude = entity.latitude,
-                    longitude = entity.longitude,
-                    altitude = entity.altitude,
-                    bearing = entity.bearing,
-                    accuracy = entity.accuracy,
-                    width = entity.width,
-                    height = entity.height,
-                    uploadStatus = entity.uploadStatus,
-                    uploadedAt = entity.uploadedAt
-                )
-            }
-
-            return DevicePhotosResponse(
-                photos = devicePhotos,
-                lastUpdated = System.currentTimeMillis(),
-                page = page,
-                pageSize = pageSize,
-                totalCount = totalCount,
-                totalPages = totalPages,
-                hasMore = hasMore
-            )
-    }
-}
 
 // Device photo format (matching frontend interface)
 data class DevicePhoto(

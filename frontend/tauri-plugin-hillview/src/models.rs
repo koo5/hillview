@@ -70,7 +70,7 @@ pub struct AuthTokenResponse {
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
-pub struct DevicePhotosResponse {
+pub struct DevicePhotosResponse {  // ???
   pub photos: Vec<serde_json::Value>,
   pub last_updated: i64,
 }

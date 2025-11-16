@@ -1275,7 +1275,6 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
 
     @Command
     fun getDevicePhotos(invoke: Invoke) {
-        try {
             Log.d(TAG, "📸 Starting device photos retrieval")
 
             val args = try {
@@ -1292,22 +1291,6 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
 
             // Process the request with validated args
             processDevicePhotosRequest(invoke, args)
-
-        } catch (e: Exception) {
-            Log.e(TAG, "📸 Error starting device photos retrieval", e)
-            CoroutineScope(Dispatchers.Main).launch {
-                val error = JSObject()
-                error.put("photos", JSONArray())
-                error.put("last_updated",0)
-                error.put("page", 1)
-                error.put("page_size", 50)
-                error.put("total_count", 0)
-                error.put("total_pages", 0)
-                error.put("has_more", false)
-                error.put("error", e.message ?: "Unknown error")
-                invoke.resolve(error)
-            }
-        }
     }
 
     private fun processDevicePhotosRequest(invoke: Invoke, args: GetDevicePhotosArgs) {
