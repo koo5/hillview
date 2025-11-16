@@ -117,6 +117,8 @@ class DevicePhotoLoader(private val context: Context) {
         )
     }
 
+}
+
 
 // Device photo format (matching frontend interface)
 data class DevicePhoto(

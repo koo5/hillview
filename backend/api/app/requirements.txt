@@ -1,10 +1,10 @@
 # Core API dependencies
-fastapi==0.110.1
-pydantic==2.6.4
-uvicorn[standard]==0.24.0
-python-multipart==0.0.6
-aiofiles==23.2.1
-python-dotenv==1.0.0
+fastapi
+pydantic
+uvicorn[standard]
+python-multipart
+aiofiles
+python-dotenv
 
 # Database
 sqlalchemy==2.0.23
@@ -13,8 +13,8 @@ geoalchemy2==0.14.2
 shapely==2.0.2
 
 # Authentication
-python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
+python-jose[cryptography]
+passlib[bcrypt]
 bcrypt>=3.2.0,<=4.0.1
 password-strength
 
@@ -22,14 +22,14 @@ password-strength
 exifread
 Pillow==10.1.0
 requests
-httpx[http2]==0.27.0
+httpx[http2]
 
 # NumPy constraint for shapely compatibility
 numpy<2
 
 # Database migrations
-alembic==1.13.1
-psycopg2-binary==2.9.9
+alembic
+psycopg2-binary
 
 
-firebase-admin
+firebase-admin==7.1.0

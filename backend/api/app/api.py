@@ -18,7 +18,7 @@ from common.database import Base, engine, get_db
 from common.config import is_rate_limiting_disabled, rate_limit_config, get_cors_origins
 from debug_utils import debug_only, safe_str_id, clear_system_tables, cleanup_upload_directories
 from user_routes import start_session_cleanup
-
+import fcm_push
 
 
 logging.basicConfig(level=logging.DEBUG)
@@ -39,7 +39,7 @@ async def lifespan(app: FastAPI):
 	log.info(f"Application startup initiated, DEV_MODE: {os.getenv('DEV_MODE', 'false')}")
 	rate_limit_config.log_configuration()
 	await start_session_cleanup()
-	google.init()
+	fcm_push.init()
 	log.info("Application startup completed")
 	yield
 	# Shutdown

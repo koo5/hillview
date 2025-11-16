@@ -1,5 +1,6 @@
 """Google FCM (Firebase Cloud Messaging) integration for Hillview push notifications."""
 
+import asyncio
 import logging
 import os
 from typing import Optional, Dict, Any
@@ -71,9 +72,17 @@ async def send_fcm_push(fcm_token: str, title: str, body: str, data: Optional[Di
         )
 
         logger.info(f"Sending FCM to {token[:20]}...")
-        response = await messaging.send_async(message)
-        logger.info(f"FCM sent successfully: {response}")
-        return True
+
+        # Use send_each_async with a single message list
+        batch_response = await messaging.send_each_async([message])
+
+        if batch_response.success_count > 0:
+            logger.info(f"FCM sent successfully: {batch_response.responses[0].message_id}")
+            return True
+        else:
+            error = batch_response.responses[0].exception
+            logger.error(f"FCM failed: {error}")
+            return False
 
     except Exception as e:
         logger.error(f"FCM error: {e}")

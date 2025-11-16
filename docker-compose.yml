@@ -70,11 +70,13 @@ services:
       #- FIREBASE_CONFIG=${FIREBASE_CONFIG:/run/secrets/firebase_config}
       - GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/firebase_credentials
       - FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID:-}
-
+      - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT:-}
     command: >
       bash -c "cd /app/app && /app/prestart.sh && uvicorn api:app --host 0.0.0.0 --port 8055 $${DEV_MODE:+--reload}"
     secrets:
       - mapillary_token
+#      - firebase_config
+      - firebase_credentials
     depends_on:
       postgres:
         condition: service_healthy

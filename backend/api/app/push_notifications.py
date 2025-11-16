@@ -7,7 +7,7 @@ from common.models import PushRegistration, Notification, User, UserPublicKey
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import func, desc, and_, update, delete
-from google import send_fcm_push, is_fcm_configured
+from fcm_push import send_fcm_push, is_fcm_configured
 
 logger = logging.getLogger(__name__)
 
