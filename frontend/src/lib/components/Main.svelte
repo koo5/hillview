@@ -28,7 +28,8 @@
 	import {auth, logout} from "$lib/auth.svelte.js";
 	import CameraCapture from './CameraCapture.svelte';
 	import DebugOverlay from './DebugOverlay.svelte';
-	import {deviceOrientationExif, getRotationFromOrientation} from "$lib/deviceOrientationExif";
+	import {deviceOrientationExif} from "$lib/deviceOrientationExif";
+	import {getRotationFromOrientation} from "$lib/absoluteOrientation";
 	import AlertArea from './AlertArea.svelte';
 	import NavigationMenu from './NavigationMenu.svelte';
 	import type {DevicePhotoMetadata} from '$lib/types/photoTypes';

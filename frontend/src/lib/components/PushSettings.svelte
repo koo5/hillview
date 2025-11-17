@@ -17,9 +17,9 @@
 	$: console.log('🔄 Reactive update - isLoading:', isLoading, 'distributors.length:', distributors.length);
 
 	interface PushDistributorInfo {
-		packageName: string;
-		displayName: string;
-		isAvailable: boolean;
+		package_name: string;
+		display_name: string;
+		is_available: boolean;
 	}
 
 	interface PushDistributorsResponse {
@@ -30,9 +30,9 @@
 
 	interface PushRegistrationStatusResponse {
 		status: string;
-		statusMessage: string;
-		selectedDistributor?: string;
-		lastError?: string;
+		status_message: string;
+		selected_distributor?: string;
+		last_error?: string;
 		success: boolean;
 		error?: string;
 	}
@@ -64,9 +64,9 @@
 
 		if (statusResult.success) {
 			registrationStatus = statusResult.status;
-			statusMessage = statusResult.statusMessage;
-			selectedDistributor = statusResult.selectedDistributor || '';
-			lastError = statusResult.lastError || null;
+			statusMessage = statusResult.status_message;
+			selectedDistributor = statusResult.selected_distributor || '';
+			lastError = statusResult.last_error || null;
 			console.log('✅ Status loaded:', { registrationStatus, statusMessage, selectedDistributor });
 		} else {
 			console.error('❌ Failed to load status:', statusResult.error);
@@ -98,7 +98,7 @@
 
 			console.log('📡 Calling select_push_distributor...');
 			const result = await invoke('plugin:hillview|select_push_distributor', {
-				request: { packageName }
+				request: { package_name: packageName }
 			}) as { success: boolean; error?: string };
 			console.log('📡 Selection result:', JSON.stringify(result));
 
@@ -185,33 +185,33 @@
 			<div class="distributor-options">
 				<!-- Available distributors -->
 				{#each distributors as distributor}
-					<label class="distributor-option" class:unavailable={!distributor.isAvailable}>
+					<label class="distributor-option" class:unavailable={!distributor.is_available}>
 						<input
 							type="radio"
 							bind:group={selectedDistributor}
-							value={distributor.packageName}
-							on:change={() => selectDistributor(distributor.packageName)}
-							disabled={isLoading || !distributor.isAvailable}
+							value={distributor.package_name}
+							on:change={() => selectDistributor(distributor.package_name)}
+							disabled={isLoading || !distributor.is_available}
 						/>
 						<div class="option-content">
 							<div class="option-header">
 								<span class="option-icon">
-									{#if distributor.isAvailable}
+									{#if distributor.is_available}
 										📱
 									{:else}
 										⚠️
 									{/if}
 								</span>
-								<span class="option-name">{distributor.displayName}</span>
-								{#if !distributor.isAvailable}
+								<span class="option-name">{distributor.display_name}</span>
+								{#if !distributor.is_available}
 									<span class="unavailable-badge">Not Available</span>
 								{/if}
 							</div>
 							<div class="option-description">
-								{#if distributor.isAvailable}
-									Package: {distributor.packageName}
+								{#if distributor.is_available}
+									Package: {distributor.package_name}
 								{:else}
-									App not installed: {distributor.packageName}
+									App not installed: {distributor.package_name}
 								{/if}
 							</div>
 						</div>

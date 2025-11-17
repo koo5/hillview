@@ -80,8 +80,8 @@ export function getRotationFromOrientation(orientationCode: number): number {
 	switch (orientationCode) {
 		case 1: return 0;   // Portrait
 		case 3: return 180; // Upside-down
-		case 6: return 90;  // Right landscape
-		case 8: return -90; // Left landscape
+		case 6: return -90;  // Right landscape
+		case 8: return 90; // Left landscape
 		default: return 0;  // Default to normal
 	}
 }
