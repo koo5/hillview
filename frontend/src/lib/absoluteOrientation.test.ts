@@ -1720,21 +1720,23 @@ function testHybridXAxisApproach(quaternionArray: number[]): number {
 	) * 180 / Math.PI;
 	if (zAngle < 0) zAngle += 360;
 
-	// Use Z-axis for landscapes (excellent results)
-	if (zAngle >= 60 && zAngle < 120) return 8;  // Left landscape
-	if (zAngle >= 240 && zAngle < 300) return 6; // Right landscape
-
-	// For portrait/upside-down, try X-axis rotation
+	// X-axis angle (for portrait/upside-down and overlap zone tiebreaker)
 	let xAngle = Math.atan2(
 		2 * (q_relative.w * q_relative.x + q_relative.y * q_relative.z),
 		1 - 2 * (q_relative.x * q_relative.x + q_relative.z * q_relative.z)
 	) * 180 / Math.PI;
 	if (xAngle < 0) xAngle += 360;
 
-	// Store for debugging
-	(globalThis as any).lastXAngle = xAngle;
+	// Clear landscape zones using Z-axis
+	if (zAngle >= 60 && zAngle < 240) return 8;  // Clear left landscape zone (expanded)
+	if (zAngle >= 280 && zAngle < 300) return 6; // Clear right landscape zone (reduced)
 
-	// Use X-axis to distinguish portrait from upside-down
+	// Overlap zone tiebreaker (240-280°) using X-angle
+	if (zAngle >= 240 && zAngle < 280) {
+		return xAngle < 150 ? 8 : 6; // Left if X < 150°, Right if X >= 150°
+	}
+
+	// For portrait/upside-down, use X-axis
 	if (xAngle >= 315 || xAngle < 45) return 1; // Portrait
 	else if (xAngle >= 135 && xAngle < 225) return 3; // Upside-down
 	else return 1; // Default to portrait for unclear cases
