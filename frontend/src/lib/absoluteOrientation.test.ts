@@ -2140,8 +2140,8 @@ function test() {
 		console.log(`  Angle range: ${minAngle.toFixed(1)}° - ${maxAngle.toFixed(1)}°, avg: ${avgAngle.toFixed(1)}°`);
 
 		// Show first few examples with angles
-		console.log(`  First 55555 samples:`);
-		for (let i = 0; i < Math.min(55555, angleResults.length); i++) {
+		console.log(`  First 5 samples:`);
+		for (let i = 0; i < Math.min(5, angleResults.length); i++) {
 			const r = angleResults[i];
 			const [x, y, z, w] = r.quaternion;
 			console.log(`    [${x.toFixed(3)}, ${y.toFixed(3)}, ${z.toFixed(3)}, ${w.toFixed(3)}] → angle ${r.angle.toFixed(1)}° → EXIF ${r.result} (expected ${expectedExif})`);
@@ -2278,8 +2278,8 @@ function test() {
 		console.log(`  X-angle range: ${minXAngle.toFixed(1)}° - ${maxXAngle.toFixed(1)}°, avg: ${avgXAngle.toFixed(1)}°`);
 
 		// Show first few examples with both angles
-		console.log(`  First 5 samples:`);
-		for (let i = 0; i < Math.min(5, angleResults.length); i++) {
+		console.log(`  First 55555 samples:`);
+		for (let i = 0; i < Math.min(55555, angleResults.length); i++) {
 			const r = angleResults[i];
 			const [x, y, z, w] = r.quaternion;
 			console.log(`    [${x.toFixed(3)}, ${y.toFixed(3)}, ${z.toFixed(3)}, ${w.toFixed(3)}] → Z:${r.zAngle.toFixed(1)}° X:${r.xAngle.toFixed(1)}° → EXIF ${r.result} (expected ${expectedExif})`);
