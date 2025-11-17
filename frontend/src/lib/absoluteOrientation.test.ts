@@ -2278,8 +2278,8 @@ function test() {
 		console.log(`  X-angle range: ${minXAngle.toFixed(1)}° - ${maxXAngle.toFixed(1)}°, avg: ${avgXAngle.toFixed(1)}°`);
 
 		// Show first few examples with both angles
-		console.log(`  First 55555 samples:`);
-		for (let i = 0; i < Math.min(55555, angleResults.length); i++) {
+		console.log(`  First 5 samples:`);
+		for (let i = 0; i < Math.min(5, angleResults.length); i++) {
 			const r = angleResults[i];
 			const [x, y, z, w] = r.quaternion;
 			console.log(`    [${x.toFixed(3)}, ${y.toFixed(3)}, ${z.toFixed(3)}, ${w.toFixed(3)}] → Z:${r.zAngle.toFixed(1)}° X:${r.xAngle.toFixed(1)}° → EXIF ${r.result} (expected ${expectedExif})`);
@@ -2311,6 +2311,102 @@ function test() {
 	} else {
 		console.log(`🎯 X-axis is better for portrait/upside-down! ${(hybridXAverageAccuracy * 100).toFixed(1)}% vs ${(hybridYAverageAccuracy * 100).toFixed(1)}%`);
 	}
+
+	// Analyze the overlap zone where left landscape gets misclassified as right landscape
+	console.log('\n=== Analyzing Z-angle Overlap Zone (240-280°) ===');
+
+	function analyzeOverlapZone() {
+		console.log('Left Landscape samples in overlap zone (240-280°):');
+		const leftOverlapSamples: Array<{zAngle: number, xAngle: number, quaternion: number[], result: number}> = [];
+
+		leftLandscapeQuaternions.forEach(q => {
+			const [x, y, z, w] = q;
+			const q_reference = {w: 0.264, x: 0.294, y: 0.634, z: 0.665};
+			const q_current = {w, x, y, z};
+			const q_ref_inverse = { w: q_reference.w, x: -q_reference.x, y: -q_reference.y, z: -q_reference.z };
+			const q_relative = multiplyQuaternions(q_ref_inverse, q_current);
+
+			let zAngle = Math.atan2(
+				2 * (q_relative.w * q_relative.z + q_relative.x * q_relative.y),
+				1 - 2 * (q_relative.y * q_relative.y + q_relative.z * q_relative.z)
+			) * 180 / Math.PI;
+			if (zAngle < 0) zAngle += 360;
+
+			let xAngle = Math.atan2(
+				2 * (q_relative.w * q_relative.x + q_relative.y * q_relative.z),
+				1 - 2 * (q_relative.x * q_relative.x + q_relative.z * q_relative.z)
+			) * 180 / Math.PI;
+			if (xAngle < 0) xAngle += 360;
+
+			if (zAngle >= 240 && zAngle <= 280) {
+				const result = testHybridXAxisApproach(q);
+				leftOverlapSamples.push({zAngle, xAngle, quaternion: q, result});
+			}
+		});
+
+		console.log(`Found ${leftOverlapSamples.length} left landscape samples in overlap zone:`);
+		leftOverlapSamples.forEach((sample, i) => {
+			const [x, y, z, w] = sample.quaternion;
+			const expectedResult = sample.result === 8 ? '✅' : '❌';
+			console.log(`  ${i+1}. Z:${sample.zAngle.toFixed(1)}° X:${sample.xAngle.toFixed(1)}° → EXIF ${sample.result} ${expectedResult} [${x.toFixed(3)}, ${y.toFixed(3)}, ${z.toFixed(3)}, ${w.toFixed(3)}]`);
+		});
+
+		console.log('\nRight Landscape samples in same zone (240-280°):');
+		const rightOverlapSamples: Array<{zAngle: number, xAngle: number, quaternion: number[], result: number}> = [];
+
+		rightLandscapeQuaternions.forEach(q => {
+			const [x, y, z, w] = q;
+			const q_reference = {w: 0.264, x: 0.294, y: 0.634, z: 0.665};
+			const q_current = {w, x, y, z};
+			const q_ref_inverse = { w: q_reference.w, x: -q_reference.x, y: -q_reference.y, z: -q_reference.z };
+			const q_relative = multiplyQuaternions(q_ref_inverse, q_current);
+
+			let zAngle = Math.atan2(
+				2 * (q_relative.w * q_relative.z + q_relative.x * q_relative.y),
+				1 - 2 * (q_relative.y * q_relative.y + q_relative.z * q_relative.z)
+			) * 180 / Math.PI;
+			if (zAngle < 0) zAngle += 360;
+
+			let xAngle = Math.atan2(
+				2 * (q_relative.w * q_relative.x + q_relative.y * q_relative.z),
+				1 - 2 * (q_relative.x * q_relative.x + q_relative.z * q_relative.z)
+			) * 180 / Math.PI;
+			if (xAngle < 0) xAngle += 360;
+
+			if (zAngle >= 240 && zAngle <= 280) {
+				const result = testHybridXAxisApproach(q);
+				rightOverlapSamples.push({zAngle, xAngle, quaternion: q, result});
+			}
+		});
+
+		console.log(`Found ${rightOverlapSamples.length} right landscape samples in overlap zone:`);
+		rightOverlapSamples.slice(0, 10).forEach((sample, i) => {
+			const [x, y, z, w] = sample.quaternion;
+			const expectedResult = sample.result === 6 ? '✅' : '❌';
+			console.log(`  ${i+1}. Z:${sample.zAngle.toFixed(1)}° X:${sample.xAngle.toFixed(1)}° → EXIF ${sample.result} ${expectedResult} [${x.toFixed(3)}, ${y.toFixed(3)}, ${z.toFixed(3)}, ${w.toFixed(3)}]`);
+		});
+
+		// Check if X-angle can distinguish them in overlap zone
+		if (leftOverlapSamples.length > 0 && rightOverlapSamples.length > 0) {
+			const leftXAngles = leftOverlapSamples.map(s => s.xAngle);
+			const rightXAngles = rightOverlapSamples.map(s => s.xAngle);
+
+			const leftXAvg = leftXAngles.reduce((sum, a) => sum + a, 0) / leftXAngles.length;
+			const rightXAvg = rightXAngles.reduce((sum, a) => sum + a, 0) / rightXAngles.length;
+
+			console.log(`\nX-angle analysis in overlap zone:`);
+			console.log(`Left landscape X-angles: avg ${leftXAvg.toFixed(1)}°, range ${Math.min(...leftXAngles).toFixed(1)}° - ${Math.max(...leftXAngles).toFixed(1)}°`);
+			console.log(`Right landscape X-angles: avg ${rightXAvg.toFixed(1)}°, range ${Math.min(...rightXAngles).toFixed(1)}° - ${Math.max(...rightXAngles).toFixed(1)}°`);
+
+			if (Math.abs(leftXAvg - rightXAvg) > 45) {
+				console.log(`🎯 X-angle can distinguish them in overlap zone! Difference: ${Math.abs(leftXAvg - rightXAvg).toFixed(1)}°`);
+			} else {
+				console.log(`⚠️ X-angle cannot reliably distinguish them in overlap zone. Difference: ${Math.abs(leftXAvg - rightXAvg).toFixed(1)}°`);
+			}
+		}
+	}
+
+	analyzeOverlapZone();
 }
 
 
