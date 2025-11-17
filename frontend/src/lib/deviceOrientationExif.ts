@@ -2,6 +2,7 @@
 
 // device orientation represented as exif Orientation value 1 | 3 | 6 | 8
 import {writable, type Writable} from "svelte/store";
+import Quaternion from "quaternion";
 
 // Valid EXIF orientation values
 export type ExifOrientation = 1 | 3 | 6 | 8;
@@ -85,32 +86,120 @@ export function calculateWebviewRelativeOrientation(alpha: number | null, beta: 
 }
 
 /**
- * Get device orientation in degrees from device motion angles
- * @param alpha Rotation around z-axis (compass direction)
- * @param beta Rotation around x-axis (front-to-back tilt)
- * @param gamma Rotation around y-axis (left-to-right tilt)
+ * Extract device screen orientation from quaternion using rotation matrix
+ * This calculates the rotation in the device's screen plane
+ * @param quaternion Quaternion representing device orientation
+ * @returns Device orientation in degrees (0, 90, 180, 270)
+ */
+function quaternionToDeviceOrientation(quaternion: Quaternion): number {
+	// Convert quaternion to rotation matrix (3x3 flattened to array in row-major order)
+	const matrix = quaternion.toMatrix();
+	// Matrix layout: [r11, r12, r13, r21, r22, r23, r31, r32, r33]
+	//                [ 0,   1,   2,   3,   4,   5,   6,   7,   8 ]
+
+	// Calculate rotation angle in the screen plane (XY plane)
+	// matrix[0] = r11, matrix[3] = r21
+	const rotationAngle = Math.atan2(matrix[3], matrix[0]) * (180 / Math.PI);
+
+	// Normalize to 0-360 range
+	const normalizedAngle = ((rotationAngle % 360) + 360) % 360;
+
+	// Map to discrete device orientations with 45-degree tolerance zones
+	if (normalizedAngle < 45 || normalizedAngle >= 315) {
+		return 0;   // Portrait (0°)
+	} else if (normalizedAngle >= 45 && normalizedAngle < 135) {
+		return 90;  // Landscape right (90°)
+	} else if (normalizedAngle >= 135 && normalizedAngle < 225) {
+		return 180; // Upside-down portrait (180°)
+	} else {
+		return 270; // Landscape left (270°)
+	}
+}
+
+/**
+ * 90° rotation around X axis = correction for upright phone
+ * This accounts for the fact that device coordinates assume the phone is lying flat,
+ * but we hold it upright
+ */
+const uprightCorrection = new Quaternion({
+	w: Math.cos(Math.PI / 4),
+	x: Math.sin(Math.PI / 4),
+	y: 0,
+	z: 0
+});
+
+/**
+ * Rotate gravity vector (0, -1, 0) by quaternion to find orientation
+ * @param q Quaternion representing device orientation
+ * @returns Gravity vector components in device coordinate system
+ */
+function gravityVector(q: Quaternion): { x: number; y: number; z: number } {
+	const g = q.rotateVector([0, -1, 0]);
+	return { x: g[0], y: g[1], z: g[2] };
+}
+
+/**
+ * Map quaternion to EXIF orientation (1,3,6,8) using gravity vector
+ * @param q Quaternion representing device orientation
+ * @returns EXIF orientation code
+ */
+function quaternionToEXIF(q: Quaternion): ExifOrientation {
+	const g = gravityVector(q);
+
+	// Portrait orientations: gravity primarily affects Y-axis
+	if (Math.abs(g.y) > Math.abs(g.x)) {
+		return g.y > 0 ? 1 : 3;   // upright or upside-down
+	}
+
+	// Landscape orientations: gravity primarily affects X-axis
+	return g.x > 0 ? 6 : 8;     // rotate clockwise or counter-clockwise
+}
+
+/**
+ * Get EXIF orientation from AbsoluteOrientationSensor quaternion data
+ * @param quaternionArray Array of 4 numbers [x, y, z, w] from AbsoluteOrientationSensor
+ * @returns EXIF orientation code (1, 3, 6, 8)
+ */
+export function getExifOrientationFromQuaternion(quaternionArray: number[]): ExifOrientation {
+	// AbsoluteOrientationSensor returns [x, y, z, w] format
+	const [x, y, z, w] = quaternionArray;
+
+	// Create quaternion from sensor data
+	const q_device = new Quaternion(w, x, y, z);
+
+	// Apply upright correction (phone held upright vs lying flat)
+	const q = q_device.mul(uprightCorrection);
+
+	// Get EXIF orientation using gravity vector approach
+	return quaternionToEXIF(q);
+}
+
+/**
+ * Get device orientation in degrees from device motion angles using quaternion-based approach
+ * @param alpha Rotation around z-axis (compass direction) in degrees
+ * @param beta Rotation around x-axis (front-to-back tilt) in degrees
+ * @param gamma Rotation around y-axis (left-to-right tilt) in degrees
  * @returns Device orientation in degrees (0, 90, 180, 270)
  */
 function getDeviceOrientationFromAngles(alpha: number | null, beta: number | null, gamma: number | null): number {
-	if (beta === null || gamma === null) {
+	if (alpha === null || beta === null || gamma === null) {
 		return 0; // Default to portrait if we can't determine orientation
 	}
 
-	// Check landscape first - if gamma indicates landscape, stay in landscape
-	// regardless of beta (front-to-back tilt)
-	if (Math.abs(gamma) > 45) {
-		// Landscape orientation
-		if (gamma > 0) {
-			return 270; // Landscape left (device rotated 90° counter-clockwise)
-		} else {
-			return 90;  // Landscape right (device rotated 90° clockwise)
-		}
-	}
+	// Convert DeviceOrientation Euler angles to quaternion (Z-X-Y order)
+	const q_device = Quaternion.fromEuler(
+		alpha * Math.PI / 180,  // Z
+		beta * Math.PI / 180,   // X
+		gamma * Math.PI / 180,  // Y
+		"ZXY"
+	);
 
-	// Only check portrait orientations if we're not in landscape
-	if (Math.abs(beta) > 45 && beta < 0) {
-		return 180; // Upside-down portrait
-	}
+	// Apply upright correction
+	const q = q_device.mul(uprightCorrection);
 
-	return 0; // Normal portrait
+	// Get EXIF orientation using gravity vector approach
+	const exifOrientation = quaternionToEXIF(q);
+
+	// Convert EXIF orientation to degrees
+	return getRotationFromOrientation(exifOrientation);
 }

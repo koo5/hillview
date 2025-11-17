@@ -51,6 +51,7 @@ const CUSTOM_PROVIDERS: Record<string, TileProviderConfig> = {
 // Available tile providers with descriptions
 export const AVAILABLE_PROVIDERS = {
 	'tiles.ueueeu.eu': 'tiles.ueueeu.eu',
+
     // Standard 'leaflet-providers' providers
     'OpenStreetMap.Mapnik': 'OpenStreetMap (Default)',
     'OpenStreetMap.DE': 'OpenStreetMap (German)',

@@ -127,7 +127,7 @@ app.subscribe(appState => {
         currentSettings.activity != appState.activity) {
         console.log('🢄currentSettings.debug:', currentSettings.debug, 'appState.debug:', appState.debug, 'currentSettings.display_mode:', currentSettings.display_mode, 'appState.display_mode:', appState.display_mode, 'currentSettings.activity:', currentSettings.activity, 'appState.activity:', appState.activity);
         setTimeout(() => {
-            console.log('🢄Updating appSettings from app state:', JSON.stringify(appState));
+            //console.log('🢄Updating appSettings from app state:', JSON.stringify(appState));
             appSettings.update(settings => ({
                 ...settings,
                 debug: appState.debug,

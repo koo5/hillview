@@ -204,9 +204,9 @@ class CaptureQueueManager {
 					await new Promise(resolve => {requestAnimationFrame(resolve);});
 
 					await invoke('store_photo_chunk', {
-						photo_id,
+						photo_id: photoId,
 						chunk,
-						is_first_chunk
+						is_first_chunk: isFirstChunk
 					});
 
 					frontendBusy.update(n => n - 1);

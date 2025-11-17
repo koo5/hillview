@@ -27,7 +27,7 @@
 		});
 
 		const unsubscribe2 = autoUploadSettings.subscribe(value => {
-			console.log('Auto-upload settings loaded:', JSON.stringify(value));
+			//console.log('Auto-upload settings loaded:', JSON.stringify(value));
 			autoUploadEnabled = value.value?.auto_upload_enabled || false;
 			autoUploadPromptEnabled = value.value?.auto_upload_prompt_enabled !== false;
 		});

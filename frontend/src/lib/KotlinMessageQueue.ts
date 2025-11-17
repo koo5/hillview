@@ -63,7 +63,7 @@ export class KotlinMessageQueue {
             this.handlers.set(messageType, []);
         }
         this.handlers.get(messageType)!.push(handler);
-        console.log(`🔔 KotlinMessageQueue: Registered handler for ${messageType}`);
+        //console.log(`🔔 KotlinMessageQueue: Registered handler for ${messageType}`);
     }
 
     /**
