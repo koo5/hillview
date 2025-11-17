@@ -1645,6 +1645,31 @@ function testOptimalQuaternionApproach(quaternionArray: number[]): number {
 	return testEulerWithUprightCorrection(quaternionArray);
 }
 
+function testExtendedPortraitApproach(quaternionArray: number[]): number {
+	const [x, y, z, w] = quaternionArray;
+
+	// Use straightUpright reference for all orientations
+	const q_reference = {w: 0.264, x: 0.294, y: 0.634, z: 0.665};
+	const q_current = {w, x, y, z};
+	const q_ref_inverse = { w: q_reference.w, x: -q_reference.x, y: -q_reference.y, z: -q_reference.z };
+	const q_relative = multiplyQuaternions(q_ref_inverse, q_current);
+
+	let angle = Math.atan2(
+		2 * (q_relative.w * q_relative.z + q_relative.x * q_relative.y),
+		1 - 2 * (q_relative.y * q_relative.y + q_relative.z * q_relative.z)
+	) * 180 / Math.PI;
+
+	if (angle < 0) angle += 360;
+
+	// Keep narrow excellent landscape detection (the original narrow ranges that work perfectly)
+	if (angle >= 60 && angle < 120) return 8;  // Left landscape (original narrow range)
+	if (angle >= 240 && angle < 300) return 6; // Right landscape (original narrow range)
+
+	// EXTENDED portrait ranges - take most of the remaining space
+	if (angle >= 300 || angle < 60) return 1; // Portrait (EXTENDED: 300-60° instead of 315-45°)
+	else return 3; // Upside-down (120-240° instead of 135-225°)
+}
+
 function testOptimalHybridApproach(quaternionArray: number[]): number {
 	const [x, y, z, w] = quaternionArray;
 
@@ -1976,39 +2001,54 @@ function test() {
 		console.log(`🎯 PRODUCTION APPROACH WORKS! ${(productionAverageAccuracy * 100).toFixed(1)}% accuracy!`);
 	}
 
-	// Test the actual production function
-	console.log('\n=== Testing Production Function (getExifOrientationFromQuaternion) ===');
+	// Test extended portrait approach with wider ranges
+	console.log('\n=== Testing Extended Portrait Approach ===');
 
-	function testProductionAccuracy(quaternions: number[][], expectedExif: number, orientationName: string): number {
-		let correctCount = 0;
-		for (const quaternion of quaternions) {
-			const result = getExifOrientationFromQuaternion(quaternion);
-			if (result === expectedExif) {
-				correctCount++;
-			}
-		}
+	function testExtendedPortraitAccuracy(quaternions: number[][], expectedExif: number, orientationName: string): number {
+		const results = quaternions.map(q => testExtendedPortraitApproach(q));
+		const correctCount = results.filter(result => result === expectedExif).length;
 		const accuracy = correctCount / quaternions.length;
+
+		// Count misclassifications
+		const misclassifications = {1: 0, 3: 0, 6: 0, 8: 0};
+		results.forEach(result => {
+			if (result !== expectedExif) {
+				misclassifications[result as keyof typeof misclassifications]++;
+			}
+		});
+
+		const exifNames = {1: 'Portrait', 3: 'Upside-down', 6: 'Right-landscape', 8: 'Left-landscape'};
 		console.log(`${orientationName} (EXIF ${expectedExif}): ${correctCount}/${quaternions.length} correct (${(accuracy * 100).toFixed(1)}%)`);
+
+		if (accuracy < 1.0) {
+			const wrongCount = quaternions.length - correctCount;
+			console.log(`  Misclassified ${wrongCount} samples as:`);
+			Object.entries(misclassifications).forEach(([exif, count]) => {
+				if (count > 0) {
+					const percentage = ((count / quaternions.length) * 100).toFixed(1);
+					console.log(`    ${count}x as ${exifNames[exif as keyof typeof exifNames]} (${percentage}%)`);
+				}
+			});
+		}
+
 		return accuracy;
 	}
 
-	const actualPortraitAccuracy = testProductionAccuracy(portraitQuaternions, 1, 'Portrait');
-	const actualLeftLandscapeAccuracy = testProductionAccuracy(leftLandscapeQuaternions, 8, 'Left Landscape');
-	const actualRightLandscapeAccuracy = testProductionAccuracy(rightLandscapeQuaternions, 6, 'Right Landscape');
-	const actualUpsideDownAccuracy = testProductionAccuracy(upsideDownQuaternions, 3, 'Upside Down');
+	const extendedPortraitAccuracy = testExtendedPortraitAccuracy(portraitQuaternions, 1, 'Portrait');
+	const extendedLeftLandscapeAccuracy = testExtendedPortraitAccuracy(leftLandscapeQuaternions, 8, 'Left Landscape');
+	const extendedRightLandscapeAccuracy = testExtendedPortraitAccuracy(rightLandscapeQuaternions, 6, 'Right Landscape');
+	const extendedUpsideDownAccuracy = testExtendedPortraitAccuracy(upsideDownQuaternions, 3, 'Upside Down');
 
-	const actualAverageAccuracy = (actualPortraitAccuracy + actualLeftLandscapeAccuracy + actualRightLandscapeAccuracy + actualUpsideDownAccuracy) / 4;
+	const extendedAverageAccuracy = (extendedPortraitAccuracy + extendedLeftLandscapeAccuracy + extendedRightLandscapeAccuracy + extendedUpsideDownAccuracy) / 4;
 
-	console.log(`\nActual production function average accuracy: ${(actualAverageAccuracy * 100).toFixed(1)}%`);
+	console.log(`Extended portrait average accuracy: ${(extendedAverageAccuracy * 100).toFixed(1)}%`);
 
-	if (actualAverageAccuracy > 0.9) {
-		console.log(`🎯🎯🎯 ACTUAL PRODUCTION IS EXCELLENT! ${(actualAverageAccuracy * 100).toFixed(1)}% accuracy! 🎯🎯🎯`);
-	} else if (actualAverageAccuracy > 0.8) {
-		console.log(`🎯 ACTUAL PRODUCTION WORKS! ${(actualAverageAccuracy * 100).toFixed(1)}% accuracy!`);
-	} else if (actualAverageAccuracy > 0.7) {
-		console.log(`✅ ACTUAL PRODUCTION GOOD: ${(actualAverageAccuracy * 100).toFixed(1)}% accuracy`);
-	} else {
-		console.log(`⚠️ ACTUAL PRODUCTION NEEDS WORK: ${(actualAverageAccuracy * 100).toFixed(1)}% accuracy`);
+	if (extendedAverageAccuracy > 0.9) {
+		console.log(`🎯🎯🎯 EXTENDED PORTRAIT APPROACH IS EXCELLENT! ${(extendedAverageAccuracy * 100).toFixed(1)}% accuracy! 🎯🎯🎯`);
+	} else if (extendedAverageAccuracy > 0.8) {
+		console.log(`🎯 EXTENDED PORTRAIT APPROACH WORKS! ${(extendedAverageAccuracy * 100).toFixed(1)}% accuracy!`);
+	} else if (extendedAverageAccuracy > 0.7) {
+		console.log(`✅ EXTENDED PORTRAIT GOOD: ${(extendedAverageAccuracy * 100).toFixed(1)}% accuracy`);
 	}
 }
 
