@@ -4,12 +4,10 @@ use log::{info, warn};
 use serde::{Deserialize, Serialize};
 use serde_json;
 use std::collections::HashMap;
-use std::io::Cursor;
 use std::sync::Mutex;
 use std::sync::OnceLock;
 use tauri::command;
-#[cfg(target_os = "android")]
-use tauri::Manager;
+use tauri_plugin_hillview::HillviewExt;
 
 // EXIF tag constants for readability
 mod exif_tags {
@@ -875,36 +873,6 @@ fn create_exif_segment_simple(metadata: &PhotoMetadata) -> Vec<u8> {
 	exif_data
 }
 
-#[command(rename_all = "snake_case")]
-pub async fn embed_photo_metadata(
-	image_data: Vec<u8>,
-	metadata: PhotoMetadata,
-) -> Result<ProcessedPhoto, String> {
-	// Parse the JPEG
-	let mut jpeg = Jpeg::from_bytes(image_data.clone().into())
-		.map_err(|e| format!("Failed to parse JPEG: {:?}", e))?;
-
-	// Validate and sanitize metadata
-	let validated_metadata = validate_photo_metadata(metadata.clone());
-
-	// Create EXIF segment - use structured version
-	let exif_segment = create_exif_segment_structured(&validated_metadata);
-
-	// Set the EXIF data
-	jpeg.set_exif(Some(exif_segment.into()));
-
-	// Convert back to bytes
-	let mut output = Vec::new();
-	let mut output_cursor = Cursor::new(&mut output);
-	jpeg.encoder()
-		.write_to(&mut output_cursor)
-		.map_err(|e| format!("Failed to write JPEG: {:?}", e))?;
-
-	Ok(ProcessedPhoto {
-		data: output,
-		metadata,
-	})
-}
 
 #[cfg(target_os = "android")]
 fn save_to_pictures_directory(
@@ -1112,29 +1080,24 @@ pub async fn save_photo_with_metadata(
 	}
 }
 
-#[command(rename_all = "snake_case")]
-pub async fn read_device_photo(path: String) -> Result<Vec<u8>, String> {
-	use std::fs;
-
-	fs::read(&path).map_err(|e| format!("Failed to read photo: {}", e))
-}
-
 #[cfg(target_os = "android")]
 async fn save_photo_from_bytes(
 	app_handle: tauri::AppHandle,
 	photo_id: String,
-	metadata: PhotoMetadata,
+	mut metadata: PhotoMetadata,
 	image_data: Vec<u8>,
 	filename: String,
 	hide_from_gallery: bool,
 ) -> Result<crate::device_photos::DevicePhotoMetadata, String> {
+	// Determine the final bearing before spawning the blocking task
+	metadata.bearing = determine_final_bearing(&app_handle, &metadata).await;
+
 	// Do everything in one background thread
 	tokio::task::spawn_blocking(move || -> Result<crate::device_photos::DevicePhotoMetadata, String> {
 		info!("🢄Processing {} bytes for photo ID: {}", image_data.len(), photo_id);
 
-		// Process EXIF data synchronously and get dimensions (reuse embed_photo_metadata logic)
+		// Process EXIF data synchronously and get dimensions
 		let (processed_data, width, height, validated_metadata) = {
-			// Validate and sanitize metadata first
 			let validated_metadata = validate_photo_metadata(metadata.clone());
 
 			// Parse the JPEG
@@ -1162,7 +1125,7 @@ async fn save_photo_from_bytes(
 			(output, width, height, validated_metadata)
 		};
 
-		// Save the photo file (blocking I/O) - reuse save_photo_with_metadata pattern
+		// Save the photo file (blocking I/O)
 		let file_path = save_to_pictures_directory(&filename, &processed_data, hide_from_gallery)
 			.map_err(|e| format!("Failed to save to Pictures directory: {}", e))?;
 
@@ -1186,50 +1149,9 @@ async fn save_photo_from_bytes(
 		let hash_bytes = md5::compute(&processed_data);
 		let file_hash = format!("{:x}", hash_bytes);
 
-		// Add to database (still in background thread) - reuse save_photo_with_metadata pattern
+		// Add to database (still in background thread)
 		{
 			use tauri_plugin_hillview::HillviewExt;
-
-			// Check if we should use database bearing instead of frontend bearing
-			let final_bearing = if is_sensor_bearing_source(&validated_metadata.bearing_source) {
-				info!("🢄📡 Bearing source '{}' indicates sensor data, looking up database bearing for timestamp {}",
-					validated_metadata.bearing_source, validated_metadata.captured_at);
-
-				match app_handle.hillview().get_bearing_for_timestamp(validated_metadata.captured_at * 1000) { // Convert to milliseconds
-					Ok(response) => {
-						if response.success {
-							if let Some(found) = response.found {
-								if found {
-									if let Some(true_heading) = response.true_heading {
-										info!("🢄📡 Found database bearing: {}° (replacing frontend bearing: {}°)",
-											true_heading, validated_metadata.bearing.unwrap_or(-1.0));
-										Some(true_heading)
-									} else {
-										info!("🢄📡 Database bearing found but no trueHeading, using frontend bearing");
-										validated_metadata.bearing
-									}
-								} else {
-									info!("🢄📡 No database bearing found for timestamp, using frontend bearing");
-									validated_metadata.bearing
-								}
-							} else {
-								info!("🢄📡 Database bearing lookup returned success but no 'found' field, using frontend bearing");
-								validated_metadata.bearing
-							}
-						} else {
-							info!("🢄📡 Database bearing lookup failed, using frontend bearing");
-							validated_metadata.bearing
-						}
-					}
-					Err(e) => {
-						info!("🢄📡 Error looking up database bearing: {}, using frontend bearing", e);
-						validated_metadata.bearing
-					}
-				}
-			} else {
-				info!("🢄📡 Bearing source '{}' indicates manual input, using frontend bearing", validated_metadata.bearing_source);
-				validated_metadata.bearing
-			};
 
 			// Send to Android database - use our photo_id
 			let plugin_photo = tauri_plugin_hillview::shared_types::DevicePhotoMetadata {
@@ -1240,7 +1162,7 @@ async fn save_photo_from_bytes(
 					latitude: validated_metadata.latitude,
 					longitude: validated_metadata.longitude,
 					altitude: validated_metadata.altitude,
-					bearing: final_bearing,
+					bearing: validated_metadata.bearing,
 					captured_at: validated_metadata.captured_at,
 					accuracy: validated_metadata.accuracy,
 					location_source: validated_metadata.location_source.clone(),
@@ -1276,7 +1198,7 @@ async fn save_photo_from_bytes(
 				latitude: validated_metadata.latitude,
 				longitude: validated_metadata.longitude,
 				altitude: validated_metadata.altitude,
-				bearing: final_bearing,
+				bearing: validated_metadata.bearing,
 				captured_at: validated_metadata.captured_at,
 				accuracy: validated_metadata.accuracy,
 				width,
@@ -1310,6 +1232,56 @@ async fn save_photo_from_bytes(
 	.map_err(|e| format!("Background task failed: {}", e))?
 }
 
+
+#[cfg(target_os = "android")]
+async fn determine_final_bearing(
+	app_handle: &tauri::AppHandle,
+	metadata: &PhotoMetadata,
+) -> Option<f64> {
+	// Check if we should use database bearing instead of frontend bearing
+	let final_bearing = if is_sensor_bearing_source(&metadata.bearing_source) {
+		info!("🢄📡 Bearing source '{}' indicates sensor data, looking up database bearing for timestamp {}",
+			metadata.bearing_source, metadata.captured_at);
+
+		match app_handle.hillview().get_bearing_for_timestamp(metadata.captured_at * 1000) { // Convert to milliseconds
+			Ok(response) => {
+				if response.success {
+					if let Some(found) = response.found {
+						if found {
+							if let Some(true_heading) = response.true_heading {
+								info!("🢄📡 Found database bearing: {}° (replacing frontend bearing: {}°)",
+									true_heading, metadata.bearing.unwrap_or(-1.0));
+								Some(true_heading)
+							} else {
+								info!("🢄📡 Database bearing found but no trueHeading, using frontend bearing");
+								metadata.bearing
+							}
+						} else {
+							info!("🢄📡 No database bearing found for timestamp, using frontend bearing");
+							metadata.bearing
+						}
+					} else {
+						info!("🢄📡 Database bearing lookup returned success but no 'found' field, using frontend bearing");
+						metadata.bearing
+					}
+				} else {
+					info!("🢄📡 Database bearing lookup failed, using frontend bearing");
+					metadata.bearing
+				}
+			}
+			Err(e) => {
+				info!("🢄📡 Error looking up database bearing: {}, using frontend bearing", e);
+				metadata.bearing
+			}
+		}
+	} else {
+		info!("🢄📡 Bearing source '{}' indicates manual input, using frontend bearing", metadata.bearing_source);
+		metadata.bearing
+	};
+	final_bearing
+}
+
+
 /// Helper function to determine if a bearing source indicates sensor data
 #[cfg(target_os = "android")]
 fn is_sensor_bearing_source(bearing_source: &str) -> bool {
@@ -1326,7 +1298,7 @@ fn is_sensor_bearing_source(bearing_source: &str) -> bool {
 	source_lower.contains("enhanced")
 }
 
-#[command(rename_all = "snake_case")]
+
 pub async fn read_photo_exif(path: String) -> Result<PhotoMetadata, String> {
 	// First try using img-parts to extract EXIF data
 	let file_data = std::fs::read(&path).map_err(|e| format!("Failed to read file: {}", e))?;
@@ -1512,37 +1484,3 @@ pub async fn read_photo_exif(path: String) -> Result<PhotoMetadata, String> {
 	Ok(metadata)
 }
 
-#[cfg(target_os = "android")]
-#[command(rename_all = "snake_case")]
-pub async fn save_photo_from_file(
-	app_handle: tauri::AppHandle,
-	photo_id: String,
-	metadata: PhotoMetadata,
-	file_path: String,
-	filename: String,
-	hide_from_gallery: bool,
-) -> Result<crate::device_photos::DevicePhotoMetadata, String> {
-	// Read image data from file (temp directory resolution done in blocking task)
-	let app_handle_clone = app_handle.clone();
-	let image_data = tokio::task::spawn_blocking(move || -> Result<Vec<u8>, String> {
-		// Resolve file path (frontend passes relative to temp directory)
-		let resolved_file_path = if file_path.starts_with("temp_") {
-			// Resolve relative to temp directory
-			let temp_dir = app_handle_clone.path().temp_dir()
-				.map_err(|e| format!("Failed to get temp directory: {}", e))?;
-			temp_dir.join(&file_path)
-		} else {
-			// Use absolute path as-is
-			std::path::PathBuf::from(&file_path)
-		};
-
-		// Read image data from file (blocking I/O)
-		std::fs::read(&resolved_file_path)
-			.map_err(|e| format!("Failed to read photo from file: {}", e))
-	})
-	.await
-	.map_err(|e| format!("File read task failed: {}", e))??;
-
-	// Call the internal function with the image data
-	save_photo_from_bytes(app_handle, photo_id, metadata, image_data, filename, hide_from_gallery).await
-}
