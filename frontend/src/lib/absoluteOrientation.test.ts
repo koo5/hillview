@@ -1670,6 +1670,76 @@ function testExtendedPortraitApproach(quaternionArray: number[]): number {
 	else return 3; // Upside-down (120-240° instead of 135-225°)
 }
 
+function testHybridYAxisApproach(quaternionArray: number[]): number {
+	const [x, y, z, w] = quaternionArray;
+
+	const q_reference = {w: 0.264, x: 0.294, y: 0.634, z: 0.665};
+	const q_current = {w, x, y, z};
+	const q_ref_inverse = { w: q_reference.w, x: -q_reference.x, y: -q_reference.y, z: -q_reference.z };
+	const q_relative = multiplyQuaternions(q_ref_inverse, q_current);
+
+	// Z-axis angle (perfect for landscapes)
+	let zAngle = Math.atan2(
+		2 * (q_relative.w * q_relative.z + q_relative.x * q_relative.y),
+		1 - 2 * (q_relative.y * q_relative.y + q_relative.z * q_relative.z)
+	) * 180 / Math.PI;
+	if (zAngle < 0) zAngle += 360;
+
+	// Use Z-axis for landscapes (excellent results)
+	if (zAngle >= 60 && zAngle < 120) return 8;  // Left landscape
+	if (zAngle >= 240 && zAngle < 300) return 6; // Right landscape
+
+	// For portrait/upside-down, try Y-axis rotation instead of Z-axis
+	let yAngle = Math.atan2(
+		2 * (q_relative.w * q_relative.y + q_relative.x * q_relative.z),
+		1 - 2 * (q_relative.x * q_relative.x + q_relative.y * q_relative.y)
+	) * 180 / Math.PI;
+	if (yAngle < 0) yAngle += 360;
+
+	// Store for debugging
+	(globalThis as any).lastYAngle = yAngle;
+
+	// Use Y-axis to distinguish portrait from upside-down
+	if (yAngle >= 315 || yAngle < 45) return 1; // Portrait
+	else if (yAngle >= 135 && yAngle < 225) return 3; // Upside-down
+	else return 1; // Default to portrait for unclear cases
+}
+
+function testHybridXAxisApproach(quaternionArray: number[]): number {
+	const [x, y, z, w] = quaternionArray;
+
+	const q_reference = {w: 0.264, x: 0.294, y: 0.634, z: 0.665};
+	const q_current = {w, x, y, z};
+	const q_ref_inverse = { w: q_reference.w, x: -q_reference.x, y: -q_reference.y, z: -q_reference.z };
+	const q_relative = multiplyQuaternions(q_ref_inverse, q_current);
+
+	// Z-axis angle (perfect for landscapes)
+	let zAngle = Math.atan2(
+		2 * (q_relative.w * q_relative.z + q_relative.x * q_relative.y),
+		1 - 2 * (q_relative.y * q_relative.y + q_relative.z * q_relative.z)
+	) * 180 / Math.PI;
+	if (zAngle < 0) zAngle += 360;
+
+	// Use Z-axis for landscapes (excellent results)
+	if (zAngle >= 60 && zAngle < 120) return 8;  // Left landscape
+	if (zAngle >= 240 && zAngle < 300) return 6; // Right landscape
+
+	// For portrait/upside-down, try X-axis rotation
+	let xAngle = Math.atan2(
+		2 * (q_relative.w * q_relative.x + q_relative.y * q_relative.z),
+		1 - 2 * (q_relative.x * q_relative.x + q_relative.z * q_relative.z)
+	) * 180 / Math.PI;
+	if (xAngle < 0) xAngle += 360;
+
+	// Store for debugging
+	(globalThis as any).lastXAngle = xAngle;
+
+	// Use X-axis to distinguish portrait from upside-down
+	if (xAngle >= 315 || xAngle < 45) return 1; // Portrait
+	else if (xAngle >= 135 && xAngle < 225) return 3; // Upside-down
+	else return 1; // Default to portrait for unclear cases
+}
+
 function testOptimalHybridApproach(quaternionArray: number[]): number {
 	const [x, y, z, w] = quaternionArray;
 
@@ -1982,7 +2052,29 @@ function test() {
 		const results = quaternions.map(q => testOptimalQuaternionApproach(q));
 		const correctCount = results.filter(result => result === expectedExif).length;
 		const accuracy = correctCount / quaternions.length;
+
+		// Count misclassifications
+		const misclassifications = {1: 0, 3: 0, 6: 0, 8: 0};
+		results.forEach(result => {
+			if (result !== expectedExif) {
+				misclassifications[result as keyof typeof misclassifications]++;
+			}
+		});
+
+		const exifNames = {1: 'Portrait', 3: 'Upside-down', 6: 'Right-landscape', 8: 'Left-landscape'};
 		console.log(`${orientationName} (EXIF ${expectedExif}): ${correctCount}/${quaternions.length} correct (${(accuracy * 100).toFixed(1)}%)`);
+
+		if (accuracy < 1.0) {
+			const wrongCount = quaternions.length - correctCount;
+			console.log(`  Misclassified ${wrongCount} samples as:`);
+			Object.entries(misclassifications).forEach(([exif, count]) => {
+				if (count > 0) {
+					const percentage = ((count / quaternions.length) * 100).toFixed(1);
+					console.log(`    ${count}x as ${exifNames[exif as keyof typeof exifNames]} (${percentage}%)`);
+				}
+			});
+		}
+
 		return accuracy;
 	}
 
@@ -2005,20 +2097,55 @@ function test() {
 	console.log('\n=== Testing Extended Portrait Approach ===');
 
 	function testExtendedPortraitAccuracy(quaternions: number[][], expectedExif: number, orientationName: string): number {
-		const results = quaternions.map(q => testExtendedPortraitApproach(q));
-		const correctCount = results.filter(result => result === expectedExif).length;
+		// Calculate angles for all samples first
+		const angleResults: Array<{angle: number, result: number, quaternion: number[]}> = [];
+
+		quaternions.forEach(q => {
+			const [x, y, z, w] = q;
+			const q_reference = {w: 0.264, x: 0.294, y: 0.634, z: 0.665};
+			const q_current = {w, x, y, z};
+			const q_ref_inverse = { w: q_reference.w, x: -q_reference.x, y: -q_reference.y, z: -q_reference.z };
+			const q_relative = multiplyQuaternions(q_ref_inverse, q_current);
+
+			let angle = Math.atan2(
+				2 * (q_relative.w * q_relative.z + q_relative.x * q_relative.y),
+				1 - 2 * (q_relative.y * q_relative.y + q_relative.z * q_relative.z)
+			) * 180 / Math.PI;
+
+			if (angle < 0) angle += 360;
+
+			const result = testExtendedPortraitApproach(q);
+			angleResults.push({angle, result, quaternion: q});
+		});
+
+		const correctCount = angleResults.filter(r => r.result === expectedExif).length;
 		const accuracy = correctCount / quaternions.length;
 
 		// Count misclassifications
 		const misclassifications = {1: 0, 3: 0, 6: 0, 8: 0};
-		results.forEach(result => {
-			if (result !== expectedExif) {
-				misclassifications[result as keyof typeof misclassifications]++;
+		angleResults.forEach(r => {
+			if (r.result !== expectedExif) {
+				misclassifications[r.result as keyof typeof misclassifications]++;
 			}
 		});
 
 		const exifNames = {1: 'Portrait', 3: 'Upside-down', 6: 'Right-landscape', 8: 'Left-landscape'};
 		console.log(`${orientationName} (EXIF ${expectedExif}): ${correctCount}/${quaternions.length} correct (${(accuracy * 100).toFixed(1)}%)`);
+
+		// Show angle distribution
+		const angles = angleResults.map(r => r.angle);
+		const minAngle = Math.min(...angles);
+		const maxAngle = Math.max(...angles);
+		const avgAngle = angles.reduce((sum, a) => sum + a, 0) / angles.length;
+		console.log(`  Angle range: ${minAngle.toFixed(1)}° - ${maxAngle.toFixed(1)}°, avg: ${avgAngle.toFixed(1)}°`);
+
+		// Show first few examples with angles
+		console.log(`  First 55555 samples:`);
+		for (let i = 0; i < Math.min(55555, angleResults.length); i++) {
+			const r = angleResults[i];
+			const [x, y, z, w] = r.quaternion;
+			console.log(`    [${x.toFixed(3)}, ${y.toFixed(3)}, ${z.toFixed(3)}, ${w.toFixed(3)}] → angle ${r.angle.toFixed(1)}° → EXIF ${r.result} (expected ${expectedExif})`);
+		}
 
 		if (accuracy < 1.0) {
 			const wrongCount = quaternions.length - correctCount;
@@ -2049,6 +2176,90 @@ function test() {
 		console.log(`🎯 EXTENDED PORTRAIT APPROACH WORKS! ${(extendedAverageAccuracy * 100).toFixed(1)}% accuracy!`);
 	} else if (extendedAverageAccuracy > 0.7) {
 		console.log(`✅ EXTENDED PORTRAIT GOOD: ${(extendedAverageAccuracy * 100).toFixed(1)}% accuracy`);
+	}
+
+	// Test hybrid Y-axis approach
+	console.log('\n=== Testing Hybrid Y-Axis Approach (Z for landscapes, Y for portrait/upside-down) ===');
+
+	function testHybridYAxisAccuracy(quaternions: number[][], expectedExif: number, orientationName: string): number {
+		const results = quaternions.map(q => testHybridYAxisApproach(q));
+		const correctCount = results.filter(result => result === expectedExif).length;
+		const accuracy = correctCount / quaternions.length;
+
+		const misclassifications = {1: 0, 3: 0, 6: 0, 8: 0};
+		results.forEach(result => {
+			if (result !== expectedExif) {
+				misclassifications[result as keyof typeof misclassifications]++;
+			}
+		});
+
+		const exifNames = {1: 'Portrait', 3: 'Upside-down', 6: 'Right-landscape', 8: 'Left-landscape'};
+		console.log(`${orientationName} (EXIF ${expectedExif}): ${correctCount}/${quaternions.length} correct (${(accuracy * 100).toFixed(1)}%)`);
+
+		if (accuracy < 1.0) {
+			Object.entries(misclassifications).forEach(([exif, count]) => {
+				if (count > 0) {
+					const percentage = ((count / quaternions.length) * 100).toFixed(1);
+					console.log(`    ${count}x as ${exifNames[exif as keyof typeof exifNames]} (${percentage}%)`);
+				}
+			});
+		}
+
+		return accuracy;
+	}
+
+	const hybridYPortraitAccuracy = testHybridYAxisAccuracy(portraitQuaternions, 1, 'Portrait');
+	const hybridYLeftLandscapeAccuracy = testHybridYAxisAccuracy(leftLandscapeQuaternions, 8, 'Left Landscape');
+	const hybridYRightLandscapeAccuracy = testHybridYAxisAccuracy(rightLandscapeQuaternions, 6, 'Right Landscape');
+	const hybridYUpsideDownAccuracy = testHybridYAxisAccuracy(upsideDownQuaternions, 3, 'Upside Down');
+
+	const hybridYAverageAccuracy = (hybridYPortraitAccuracy + hybridYLeftLandscapeAccuracy + hybridYRightLandscapeAccuracy + hybridYUpsideDownAccuracy) / 4;
+
+	console.log(`Hybrid Y-axis average accuracy: ${(hybridYAverageAccuracy * 100).toFixed(1)}%`);
+
+	// Test hybrid X-axis approach
+	console.log('\n=== Testing Hybrid X-Axis Approach (Z for landscapes, X for portrait/upside-down) ===');
+
+	function testHybridXAxisAccuracy(quaternions: number[][], expectedExif: number, orientationName: string): number {
+		const results = quaternions.map(q => testHybridXAxisApproach(q));
+		const correctCount = results.filter(result => result === expectedExif).length;
+		const accuracy = correctCount / quaternions.length;
+
+		const misclassifications = {1: 0, 3: 0, 6: 0, 8: 0};
+		results.forEach(result => {
+			if (result !== expectedExif) {
+				misclassifications[result as keyof typeof misclassifications]++;
+			}
+		});
+
+		const exifNames = {1: 'Portrait', 3: 'Upside-down', 6: 'Right-landscape', 8: 'Left-landscape'};
+		console.log(`${orientationName} (EXIF ${expectedExif}): ${correctCount}/${quaternions.length} correct (${(accuracy * 100).toFixed(1)}%)`);
+
+		if (accuracy < 1.0) {
+			Object.entries(misclassifications).forEach(([exif, count]) => {
+				if (count > 0) {
+					const percentage = ((count / quaternions.length) * 100).toFixed(1);
+					console.log(`    ${count}x as ${exifNames[exif as keyof typeof exifNames]} (${percentage}%)`);
+				}
+			});
+		}
+
+		return accuracy;
+	}
+
+	const hybridXPortraitAccuracy = testHybridXAxisAccuracy(portraitQuaternions, 1, 'Portrait');
+	const hybridXLeftLandscapeAccuracy = testHybridXAxisAccuracy(leftLandscapeQuaternions, 8, 'Left Landscape');
+	const hybridXRightLandscapeAccuracy = testHybridXAxisAccuracy(rightLandscapeQuaternions, 6, 'Right Landscape');
+	const hybridXUpsideDownAccuracy = testHybridXAxisAccuracy(upsideDownQuaternions, 3, 'Upside Down');
+
+	const hybridXAverageAccuracy = (hybridXPortraitAccuracy + hybridXLeftLandscapeAccuracy + hybridXRightLandscapeAccuracy + hybridXUpsideDownAccuracy) / 4;
+
+	console.log(`Hybrid X-axis average accuracy: ${(hybridXAverageAccuracy * 100).toFixed(1)}%`);
+
+	if (hybridYAverageAccuracy > hybridXAverageAccuracy) {
+		console.log(`🎯 Y-axis is better for portrait/upside-down! ${(hybridYAverageAccuracy * 100).toFixed(1)}% vs ${(hybridXAverageAccuracy * 100).toFixed(1)}%`);
+	} else {
+		console.log(`🎯 X-axis is better for portrait/upside-down! ${(hybridXAverageAccuracy * 100).toFixed(1)}% vs ${(hybridYAverageAccuracy * 100).toFixed(1)}%`);
 	}
 }
 
