@@ -167,3 +167,74 @@ async def send_push_to_client(client_key_id: str, db: AsyncSession):
 		except Exception as e:
 			logger.error(f"Error sending push to {client_key_id}: {e}")
 
+
+async def send_broadcast_notification(
+	db: AsyncSession,
+	notification_type: str,
+	title: str,
+	body: str,
+	action_type: Optional[str] = None,
+	action_data: Optional[Dict[str, Any]] = None,
+	expires_at: Optional[datetime] = None
+) -> Dict[str, int]:
+	"""Send a notification to all users and all anonymous clients (not associated with any user).
+
+	Returns dict with counts: {'user_notifications': int, 'client_notifications': int, 'total': int}
+	"""
+	user_count = 0
+	client_count = 0
+
+	# 1. Send to all active users
+	users_query = select(User.id).where(User.is_active == True)
+	users_result = await db.execute(users_query)
+	user_ids = [row[0] for row in users_result.fetchall()]
+
+	for user_id in user_ids:
+		await create_notification_for_user(
+			db=db,
+			user_id=user_id,
+			notification_type=notification_type,
+			title=title,
+			body=body,
+			action_type=action_type,
+			action_data=action_data,
+			expires_at=expires_at
+		)
+		user_count += 1
+
+	# 2. Send to all anonymous clients (push registrations not associated with any user)
+	# Find client_key_ids that exist in push_registrations but not in user_public_keys
+	anonymous_clients_query = select(PushRegistration.client_key_id).where(
+		~PushRegistration.client_key_id.in_(
+			select(UserPublicKey.key_id).where(UserPublicKey.is_active == True)
+		)
+	)
+	anonymous_result = await db.execute(anonymous_clients_query)
+	anonymous_client_ids = [row[0] for row in anonymous_result.fetchall()]
+
+	for client_key_id in anonymous_client_ids:
+		try:
+			await create_notification_for_client(
+				db=db,
+				client_key_id=client_key_id,
+				notification_type=notification_type,
+				title=title,
+				body=body,
+				action_type=action_type,
+				action_data=action_data,
+				expires_at=expires_at
+			)
+			client_count += 1
+		except ValueError as e:
+			# Client might have been unregistered between query and notification creation
+			logger.warning(f"Failed to create notification for anonymous client {client_key_id}: {e}")
+
+	total_count = user_count + client_count
+	logger.info(f"Broadcast notification sent: {user_count} users, {client_count} anonymous clients, {total_count} total")
+
+	return {
+		'user_notifications': user_count,
+		'client_notifications': client_count,
+		'total': total_count
+	}
+

@@ -17,7 +17,7 @@ from common.database import get_db
 from common.models import PushRegistration, Notification, User, UserPublicKey
 from common.security_utils import verify_ecdsa_signature, generate_client_key_id
 from auth import get_current_user, get_current_user_optional
-from push_notifications import create_notification_for_user, create_notification_for_client
+from push_notifications import create_notification_for_user, create_notification_for_client, send_broadcast_notification
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +106,21 @@ class NotificationListResponse(BaseModel):
 
 class UnreadCountResponse(BaseModel):
 	unread_count: int
+
+class BroadcastRequest(BaseModel):
+	type: str = Field(..., max_length=50)
+	title: str
+	body: str
+	action_type: Optional[str] = Field(None, max_length=50)
+	action_data: Optional[Dict[str, Any]] = None
+	expires_at: Optional[datetime] = None
+
+class BroadcastResponse(BaseModel):
+	success: bool
+	message: str
+	user_notifications: int
+	client_notifications: int
+	total: int
 
 
 # API Routes
@@ -420,4 +435,34 @@ async def cleanup_expired_notifications(
 	return PushRegistrationResponse(
 		success=True,
 		message=f"Cleaned up {count} expired notifications"
+	)
+
+
+@router.post("/internal/notifications/broadcast", response_model=BroadcastResponse)
+async def broadcast_notification(
+	request: BroadcastRequest,
+	db: AsyncSession = Depends(get_db)
+):
+	"""Send a broadcast notification to all users and anonymous clients (internal/admin use).
+
+	This will send notifications to:
+	1. All active users (via their registered client keys)
+	2. All anonymous clients (push registrations not associated with any user)
+	"""
+	result = await send_broadcast_notification(
+		db=db,
+		notification_type=request.type,
+		title=request.title,
+		body=request.body,
+		action_type=request.action_type,
+		action_data=request.action_data,
+		expires_at=request.expires_at
+	)
+
+	return BroadcastResponse(
+		success=True,
+		message=f"Broadcast sent to {result['total']} recipients",
+		user_notifications=result['user_notifications'],
+		client_notifications=result['client_notifications'],
+		total=result['total']
 	)
