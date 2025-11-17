@@ -1360,47 +1360,56 @@ function getOrientationFromEuler({ pitch, roll }: { pitch: number, roll: number 
     const r = deg(roll);
     const p = deg(pitch);
 
-    // Based on observed patterns:
-    // Portrait: roll ~100°, pitch ~40°
-    // Left landscape: roll ~-96°, pitch ~37° OR roll ~83°, pitch ~45°
-    // Right landscape: roll ~80°, pitch ~-10°
-    // Upside-down: roll ~50°, pitch ~-70°
+    // Divide roll into 4 quadrants (0°, 90°, 180°, 270°)
+    // Normalize roll to 0-360° range
+    const normalizedRoll = ((r % 360) + 360) % 360;
 
-    // Upside-down has very negative pitch
-    if (p < -45) {
-        return 3; // upside down (EXIF 3)
+    // Quadrant-based classification:
+    if (normalizedRoll >= 315 || normalizedRoll < 45) {
+        // 315° to 45° (around 0°) - need to determine what this represents
+        return 3; // Placeholder - might be upside-down
+    } else if (normalizedRoll >= 45 && normalizedRoll < 135) {
+        // 45° to 135° (around 90°) - this is where we see landscape
+        // Right landscape has pitch >75°, left landscape has variable pitch
+        if (p > 65) {
+            return 6; // Right landscape (high pitch >65°)
+        } else {
+            return 8; // Left landscape (lower pitch ≤65°)
+        }
+    } else if (normalizedRoll >= 135 && normalizedRoll < 225) {
+        // 135° to 225° (around 180°) - this is where we see portrait
+        return 1; // Portrait
+    } else {
+        // 225° to 315° (around 270°) - fourth quadrant
+        return 3; // Upside-down
     }
-
-    // Left landscape: negative roll around -96°
-    if (r < -70 && r > -110) {
-        return 8; // Left landscape: roll ~-96°, pitch ~37°
-    }
-
-    // Left landscape can also appear with positive roll ~83° and high pitch ~45°
-    if (r > 75 && r < 90 && p > 35) {
-        return 8; // Left landscape: roll ~83°, pitch ~45°
-    }
-
-    // Portrait: roll around 100° with medium pitch
-    if (r > 90 && r < 110 && p > 20 && p < 45) {
-        return 1; // Portrait: roll ~100°, pitch ~40°
-    }
-
-    // Right landscape: roll ~80° with negative/low pitch
-    if (r > 75 && r < 90 && p < 20) {
-        return 6; // Right landscape: roll ~80°, pitch ~-10°
-    }
-
-    // Fallback based on broader ranges
-    if (r > 70 && r < 110) {
-        return 1; // Likely portrait
-    }
-
-    return 1; // Default to portrait
 }
 
 function testEulerApproach(quaternionArray: number[]): number {
     const euler = quatToEuler(quaternionArray);
+    return getOrientationFromEuler(euler);
+}
+
+function testEulerWithUprightCorrection(quaternionArray: number[]): number {
+    const [x, y, z, w] = quaternionArray;
+
+    // Create quaternion from sensor data
+    const q_device = new Quaternion(w, x, y, z);
+
+    // Apply upright correction (90° rotation around X axis)
+    const uprightCorrection = new Quaternion({
+        w: Math.cos(Math.PI / 4),
+        x: Math.sin(Math.PI / 4),
+        y: 0,
+        z: 0
+    });
+
+    const q_corrected = q_device.mul(uprightCorrection);
+
+    // Convert corrected quaternion to Euler angles
+    const correctedArray = [q_corrected.x, q_corrected.y, q_corrected.z, q_corrected.w];
+    const euler = quatToEuler(correctedArray);
+
     return getOrientationFromEuler(euler);
 }
 
@@ -1413,58 +1422,103 @@ function test() {
 		[-1, 0, 0],   // -X
 		[1, 0, 0]     // +X
 	];
+	//
+	// gravityVectors.forEach((gravityVector) => {
+	// 	console.log(`\n=== Testing gravity vector [${gravityVector.join(',')}] ===`);
+	//
+	// 	const portraitAccuracy = testOrientationAccuracy(portraitQuaternions, 1, 'Portrait', gravityVector);
+	// 	const leftLandscapeAccuracy = testOrientationAccuracy(leftLandscapeQuaternions, 8, 'Left Landscape', gravityVector);
+	// 	const rightLandscapeAccuracy = testOrientationAccuracy(rightLandscapeQuaternions, 6, 'Right Landscape', gravityVector);
+	// 	const upsideDownAccuracy = testOrientationAccuracy(upsideDownQuaternions, 3, 'Upside Down', gravityVector);
+	//
+	// 	const averageAccuracy = (portraitAccuracy + leftLandscapeAccuracy + rightLandscapeAccuracy + upsideDownAccuracy) / 4;
+	// 	console.log(`Average accuracy: ${(averageAccuracy * 100).toFixed(1)}%`);
+	//
+	// });
+	//
+	// // Test rotation matrix approach
+	// console.log('\n=== Testing rotation matrix approach ===');
+	//
+	// function testMatrixAccuracy(quaternions: number[][], expectedExif: number, orientationName: string): number {
+	// 	const results = quaternions.map(q => testRotationMatrix(q));
+	// 	const correctCount = results.filter(result => result === expectedExif).length;
+	// 	const accuracy = correctCount / quaternions.length;
+	// 	console.log(`${orientationName} (EXIF ${expectedExif}): ${correctCount}/${quaternions.length} correct (${(accuracy * 100).toFixed(1)}%)`);
+	// 	return accuracy;
+	// }
+	//
+	// const portraitAccuracy = testMatrixAccuracy(portraitQuaternions, 1, 'Portrait');
+	// const leftLandscapeAccuracy = testMatrixAccuracy(leftLandscapeQuaternions, 8, 'Left Landscape');
+	// const rightLandscapeAccuracy = testMatrixAccuracy(rightLandscapeQuaternions, 6, 'Right Landscape');
+	// const upsideDownAccuracy = testMatrixAccuracy(upsideDownQuaternions, 3, 'Upside Down');
+	//
+	// const matrixAverageAccuracy = (portraitAccuracy + leftLandscapeAccuracy + rightLandscapeAccuracy + upsideDownAccuracy) / 4;
+	//
+	// console.log(`Average accuracy: ${(matrixAverageAccuracy * 100).toFixed(1)}%`);
+	//
+	// if (matrixAverageAccuracy > 0.8) {
+	// 	console.log(`🎯 GOOD CANDIDATE with ${(matrixAverageAccuracy * 100).toFixed(1)}% accuracy!`);
+	// }
+	//
+	// // Test Euler angle approach
+	// console.log('\n=== Testing Euler angle approach ===');
+	//
+	// function testEulerAccuracy(quaternions: number[][], expectedExif: number, orientationName: string): number {
+	// 	const results = quaternions.map(q => testEulerApproach(q));
+	// 	const correctCount = results.filter(result => result === expectedExif).length;
+	// 	const accuracy = correctCount / quaternions.length;
+	// 	console.log(`${orientationName} (EXIF ${expectedExif}): ${correctCount}/${quaternions.length} correct (${(accuracy * 100).toFixed(1)}%)`);
+	//
+	// 	// Show first few debug results
+	// 	if (accuracy < 0.9) {
+	// 		console.log('  First few results vs expected:');
+	// 		for (let i = 0; i < Math.min(5, quaternions.length); i++) {
+	// 			const euler = quatToEuler(quaternions[i]);
+	// 			const result = results[i];
+	// 			console.log(`    Roll: ${(euler.roll * 180 / Math.PI).toFixed(1)}°, Pitch: ${(euler.pitch * 180 / Math.PI).toFixed(1)}° → EXIF ${result} (expected ${expectedExif})`);
+	// 		}
+	// 	}
+	//
+	// 	return accuracy;
+	// }
+	//
+	// const eulerPortraitAccuracy = testEulerAccuracy(portraitQuaternions, 1, 'Portrait');
+	// const eulerLeftLandscapeAccuracy = testEulerAccuracy(leftLandscapeQuaternions, 8, 'Left Landscape');
+	// const eulerRightLandscapeAccuracy = testEulerAccuracy(rightLandscapeQuaternions, 6, 'Right Landscape');
+	// const eulerUpsideDownAccuracy = testEulerAccuracy(upsideDownQuaternions, 3, 'Upside Down');
+	//
+	// const eulerAverageAccuracy = (eulerPortraitAccuracy + eulerLeftLandscapeAccuracy + eulerRightLandscapeAccuracy + eulerUpsideDownAccuracy) / 4;
+	//
+	// console.log(`Euler average accuracy: ${(eulerAverageAccuracy * 100).toFixed(1)}%`);
+	//
+	// if (eulerAverageAccuracy > 0.8) {
+	// 	console.log(`🎯 EULER ANGLE APPROACH IS GOOD! ${(eulerAverageAccuracy * 100).toFixed(1)}% accuracy!`);
+	// }
 
-	gravityVectors.forEach((gravityVector) => {
-		console.log(`\n=== Testing gravity vector [${gravityVector.join(',')}] ===`);
+	// Test Euler angle approach WITH upright correction
+	console.log('\n=== Testing Euler angle approach WITH upright correction ===');
 
-		const portraitAccuracy = testOrientationAccuracy(portraitQuaternions, 1, 'Portrait', gravityVector);
-		const leftLandscapeAccuracy = testOrientationAccuracy(leftLandscapeQuaternions, 8, 'Left Landscape', gravityVector);
-		const rightLandscapeAccuracy = testOrientationAccuracy(rightLandscapeQuaternions, 6, 'Right Landscape', gravityVector);
-		const upsideDownAccuracy = testOrientationAccuracy(upsideDownQuaternions, 3, 'Upside Down', gravityVector);
-
-		const averageAccuracy = (portraitAccuracy + leftLandscapeAccuracy + rightLandscapeAccuracy + upsideDownAccuracy) / 4;
-		console.log(`Average accuracy: ${(averageAccuracy * 100).toFixed(1)}%`);
-
-	});
-
-	// Test rotation matrix approach
-	console.log('\n=== Testing rotation matrix approach ===');
-
-	function testMatrixAccuracy(quaternions: number[][], expectedExif: number, orientationName: string): number {
-		const results = quaternions.map(q => testRotationMatrix(q));
-		const correctCount = results.filter(result => result === expectedExif).length;
-		const accuracy = correctCount / quaternions.length;
-		console.log(`${orientationName} (EXIF ${expectedExif}): ${correctCount}/${quaternions.length} correct (${(accuracy * 100).toFixed(1)}%)`);
-		return accuracy;
-	}
-
-	const portraitAccuracy = testMatrixAccuracy(portraitQuaternions, 1, 'Portrait');
-	const leftLandscapeAccuracy = testMatrixAccuracy(leftLandscapeQuaternions, 8, 'Left Landscape');
-	const rightLandscapeAccuracy = testMatrixAccuracy(rightLandscapeQuaternions, 6, 'Right Landscape');
-	const upsideDownAccuracy = testMatrixAccuracy(upsideDownQuaternions, 3, 'Upside Down');
-
-	const matrixAverageAccuracy = (portraitAccuracy + leftLandscapeAccuracy + rightLandscapeAccuracy + upsideDownAccuracy) / 4;
-
-	console.log(`Average accuracy: ${(matrixAverageAccuracy * 100).toFixed(1)}%`);
-
-	if (matrixAverageAccuracy > 0.8) {
-		console.log(`🎯 GOOD CANDIDATE with ${(matrixAverageAccuracy * 100).toFixed(1)}% accuracy!`);
-	}
-
-	// Test Euler angle approach
-	console.log('\n=== Testing Euler angle approach ===');
-
-	function testEulerAccuracy(quaternions: number[][], expectedExif: number, orientationName: string): number {
-		const results = quaternions.map(q => testEulerApproach(q));
+	function testEulerUprightAccuracy(quaternions: number[][], expectedExif: number, orientationName: string): number {
+		const results = quaternions.map(q => testEulerWithUprightCorrection(q));
 		const correctCount = results.filter(result => result === expectedExif).length;
 		const accuracy = correctCount / quaternions.length;
 		console.log(`${orientationName} (EXIF ${expectedExif}): ${correctCount}/${quaternions.length} correct (${(accuracy * 100).toFixed(1)}%)`);
 
 		// Show first few debug results
 		if (accuracy < 0.9) {
-			console.log('  First few results vs expected:');
+			console.log('  First few corrected results vs expected:');
 			for (let i = 0; i < Math.min(5, quaternions.length); i++) {
-				const euler = quatToEuler(quaternions[i]);
+				const [x, y, z, w] = quaternions[i];
+				const q_device = new Quaternion(w, x, y, z);
+				const uprightCorrection = new Quaternion({
+					w: Math.cos(Math.PI / 4),
+					x: Math.sin(Math.PI / 4),
+					y: 0,
+					z: 0
+				});
+				const q_corrected = q_device.mul(uprightCorrection);
+				const correctedArray = [q_corrected.x, q_corrected.y, q_corrected.z, q_corrected.w];
+				const euler = quatToEuler(correctedArray);
 				const result = results[i];
 				console.log(`    Roll: ${(euler.roll * 180 / Math.PI).toFixed(1)}°, Pitch: ${(euler.pitch * 180 / Math.PI).toFixed(1)}° → EXIF ${result} (expected ${expectedExif})`);
 			}
@@ -1473,17 +1527,17 @@ function test() {
 		return accuracy;
 	}
 
-	const eulerPortraitAccuracy = testEulerAccuracy(portraitQuaternions, 1, 'Portrait');
-	const eulerLeftLandscapeAccuracy = testEulerAccuracy(leftLandscapeQuaternions, 8, 'Left Landscape');
-	const eulerRightLandscapeAccuracy = testEulerAccuracy(rightLandscapeQuaternions, 6, 'Right Landscape');
-	const eulerUpsideDownAccuracy = testEulerAccuracy(upsideDownQuaternions, 3, 'Upside Down');
+	const eulerUprightPortraitAccuracy = testEulerUprightAccuracy(portraitQuaternions, 1, 'Portrait');
+	const eulerUprightLeftLandscapeAccuracy = testEulerUprightAccuracy(leftLandscapeQuaternions, 8, 'Left Landscape');
+	const eulerUprightRightLandscapeAccuracy = testEulerUprightAccuracy(rightLandscapeQuaternions, 6, 'Right Landscape');
+	const eulerUprightUpsideDownAccuracy = testEulerUprightAccuracy(upsideDownQuaternions, 3, 'Upside Down');
 
-	const eulerAverageAccuracy = (eulerPortraitAccuracy + eulerLeftLandscapeAccuracy + eulerRightLandscapeAccuracy + eulerUpsideDownAccuracy) / 4;
+	const eulerUprightAverageAccuracy = (eulerUprightPortraitAccuracy + eulerUprightLeftLandscapeAccuracy + eulerUprightRightLandscapeAccuracy + eulerUprightUpsideDownAccuracy) / 4;
 
-	console.log(`Euler average accuracy: ${(eulerAverageAccuracy * 100).toFixed(1)}%`);
+	console.log(`Euler WITH upright correction average accuracy: ${(eulerUprightAverageAccuracy * 100).toFixed(1)}%`);
 
-	if (eulerAverageAccuracy > 0.8) {
-		console.log(`🎯 EULER ANGLE APPROACH IS GOOD! ${(eulerAverageAccuracy * 100).toFixed(1)}% accuracy!`);
+	if (eulerUprightAverageAccuracy > 0.8) {
+		console.log(`🎯 EULER WITH UPRIGHT CORRECTION IS GOOD! ${(eulerUprightAverageAccuracy * 100).toFixed(1)}% accuracy!`);
 	}
 }
 
