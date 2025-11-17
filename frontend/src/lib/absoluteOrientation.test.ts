@@ -1,3 +1,5 @@
+import { getExifOrientationFromQuaternion } from './absoluteOrientation.ts';
+
 const straightUpright = [
 	[0.294, 0.634, 0.665, 0.264],
 	[0.309, 0.630, 0.661, 0.267],
@@ -1727,14 +1729,9 @@ function testHybridXAxisApproach(quaternionArray: number[]): number {
 	) * 180 / Math.PI;
 	if (xAngle < 0) xAngle += 360;
 
-	// Clear landscape zones using Z-axis (conservative ranges)
-	if (zAngle >= 60 && zAngle < 120) return 8;  // Clear left landscape zone
-	if (zAngle >= 280 && zAngle < 300) return 6; // Clear right landscape zone
-
-	// Overlap zone tiebreaker (240-280°) using X-angle
-	if (zAngle >= 240 && zAngle < 280) {
-		return xAngle < 200 ? 8 : 6; // Left if X < 200°, Right if X >= 200°
-	}
+	// Use Z-axis for landscapes (excellent results) - ORIGINAL SIMPLE APPROACH
+	if (zAngle >= 60 && zAngle < 120) return 8;  // Left landscape
+	if (zAngle >= 240 && zAngle < 300) return 6; // Right landscape
 
 	// For portrait/upside-down, use X-axis
 	if (xAngle >= 315 || xAngle < 45) return 1; // Portrait
@@ -2409,6 +2406,53 @@ function test() {
 	}
 
 	analyzeOverlapZone();
+
+	// Test the new production absoluteOrientation.ts
+	console.log('\n=== Testing Production absoluteOrientation.ts ===');
+
+	function testProductionAccuracy(quaternions: number[][], expectedExif: number, orientationName: string): number {
+		const results = quaternions.map(q => getExifOrientationFromQuaternion(q));
+		const correctCount = results.filter(result => result === expectedExif).length;
+		const accuracy = correctCount / quaternions.length;
+
+		const misclassifications = {1: 0, 3: 0, 6: 0, 8: 0};
+		results.forEach(result => {
+			if (result !== expectedExif) {
+				misclassifications[result as keyof typeof misclassifications]++;
+			}
+		});
+
+		const exifNames = {1: 'Portrait', 3: 'Upside-down', 6: 'Right-landscape', 8: 'Left-landscape'};
+		console.log(`${orientationName} (EXIF ${expectedExif}): ${correctCount}/${quaternions.length} correct (${(accuracy * 100).toFixed(1)}%)`);
+
+		if (accuracy < 1.0) {
+			Object.entries(misclassifications).forEach(([exif, count]) => {
+				if (count > 0) {
+					const percentage = ((count / quaternions.length) * 100).toFixed(1);
+					console.log(`    ${count}x as ${exifNames[exif as keyof typeof exifNames]} (${percentage}%)`);
+				}
+			});
+		}
+
+		return accuracy;
+	}
+
+	const prodPortraitAccuracy = testProductionAccuracy(portraitQuaternions, 1, 'Portrait');
+	const prodLeftLandscapeAccuracy = testProductionAccuracy(leftLandscapeQuaternions, 8, 'Left Landscape');
+	const prodRightLandscapeAccuracy = testProductionAccuracy(rightLandscapeQuaternions, 6, 'Right Landscape');
+	const prodUpsideDownAccuracy = testProductionAccuracy(upsideDownQuaternions, 3, 'Upside Down');
+
+	const prodAverageAccuracy = (prodPortraitAccuracy + prodLeftLandscapeAccuracy + prodRightLandscapeAccuracy + prodUpsideDownAccuracy) / 4;
+
+	console.log(`\nProduction absoluteOrientation.ts average accuracy: ${(prodAverageAccuracy * 100).toFixed(1)}%`);
+
+	if (prodAverageAccuracy > 0.9) {
+		console.log(`🎯🎯🎯 PRODUCTION MODULE IS EXCELLENT! ${(prodAverageAccuracy * 100).toFixed(1)}% accuracy! 🎯🎯🎯`);
+	} else if (prodAverageAccuracy > 0.8) {
+		console.log(`🎯 PRODUCTION MODULE WORKS! ${(prodAverageAccuracy * 100).toFixed(1)}% accuracy!`);
+	} else {
+		console.log(`⚠️ PRODUCTION MODULE NEEDS WORK: ${(prodAverageAccuracy * 100).toFixed(1)}% accuracy`);
+	}
 }
 
 
