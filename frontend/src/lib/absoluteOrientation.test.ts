@@ -2221,19 +2221,69 @@ function test() {
 	console.log('\n=== Testing Hybrid X-Axis Approach (Z for landscapes, X for portrait/upside-down) ===');
 
 	function testHybridXAxisAccuracy(quaternions: number[][], expectedExif: number, orientationName: string): number {
-		const results = quaternions.map(q => testHybridXAxisApproach(q));
-		const correctCount = results.filter(result => result === expectedExif).length;
+		// Calculate angles for all samples first
+		const angleResults: Array<{zAngle: number, xAngle: number, result: number, quaternion: number[]}> = [];
+
+		quaternions.forEach(q => {
+			const [x, y, z, w] = q;
+			const q_reference = {w: 0.264, x: 0.294, y: 0.634, z: 0.665};
+			const q_current = {w, x, y, z};
+			const q_ref_inverse = { w: q_reference.w, x: -q_reference.x, y: -q_reference.y, z: -q_reference.z };
+			const q_relative = multiplyQuaternions(q_ref_inverse, q_current);
+
+			// Z-axis angle
+			let zAngle = Math.atan2(
+				2 * (q_relative.w * q_relative.z + q_relative.x * q_relative.y),
+				1 - 2 * (q_relative.y * q_relative.y + q_relative.z * q_relative.z)
+			) * 180 / Math.PI;
+			if (zAngle < 0) zAngle += 360;
+
+			// X-axis angle
+			let xAngle = Math.atan2(
+				2 * (q_relative.w * q_relative.x + q_relative.y * q_relative.z),
+				1 - 2 * (q_relative.x * q_relative.x + q_relative.z * q_relative.z)
+			) * 180 / Math.PI;
+			if (xAngle < 0) xAngle += 360;
+
+			const result = testHybridXAxisApproach(q);
+			angleResults.push({zAngle, xAngle, result, quaternion: q});
+		});
+
+		const correctCount = angleResults.filter(r => r.result === expectedExif).length;
 		const accuracy = correctCount / quaternions.length;
 
 		const misclassifications = {1: 0, 3: 0, 6: 0, 8: 0};
-		results.forEach(result => {
-			if (result !== expectedExif) {
-				misclassifications[result as keyof typeof misclassifications]++;
+		angleResults.forEach(r => {
+			if (r.result !== expectedExif) {
+				misclassifications[r.result as keyof typeof misclassifications]++;
 			}
 		});
 
 		const exifNames = {1: 'Portrait', 3: 'Upside-down', 6: 'Right-landscape', 8: 'Left-landscape'};
 		console.log(`${orientationName} (EXIF ${expectedExif}): ${correctCount}/${quaternions.length} correct (${(accuracy * 100).toFixed(1)}%)`);
+
+		// Show angle distributions
+		const zAngles = angleResults.map(r => r.zAngle);
+		const xAngles = angleResults.map(r => r.xAngle);
+
+		const minZAngle = Math.min(...zAngles);
+		const maxZAngle = Math.max(...zAngles);
+		const avgZAngle = zAngles.reduce((sum, a) => sum + a, 0) / zAngles.length;
+
+		const minXAngle = Math.min(...xAngles);
+		const maxXAngle = Math.max(...xAngles);
+		const avgXAngle = xAngles.reduce((sum, a) => sum + a, 0) / xAngles.length;
+
+		console.log(`  Z-angle range: ${minZAngle.toFixed(1)}° - ${maxZAngle.toFixed(1)}°, avg: ${avgZAngle.toFixed(1)}°`);
+		console.log(`  X-angle range: ${minXAngle.toFixed(1)}° - ${maxXAngle.toFixed(1)}°, avg: ${avgXAngle.toFixed(1)}°`);
+
+		// Show first few examples with both angles
+		console.log(`  First 5 samples:`);
+		for (let i = 0; i < Math.min(5, angleResults.length); i++) {
+			const r = angleResults[i];
+			const [x, y, z, w] = r.quaternion;
+			console.log(`    [${x.toFixed(3)}, ${y.toFixed(3)}, ${z.toFixed(3)}, ${w.toFixed(3)}] → Z:${r.zAngle.toFixed(1)}° X:${r.xAngle.toFixed(1)}° → EXIF ${r.result} (expected ${expectedExif})`);
+		}
 
 		if (accuracy < 1.0) {
 			Object.entries(misclassifications).forEach(([exif, count]) => {
