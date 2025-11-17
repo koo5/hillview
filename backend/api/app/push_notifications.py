@@ -205,9 +205,7 @@ async def send_broadcast_notification(
 	# 2. Send to all anonymous clients (push registrations not associated with any user)
 	# Find client_key_ids that exist in push_registrations but not in user_public_keys
 	anonymous_clients_query = select(PushRegistration.client_key_id).where(
-		~PushRegistration.client_key_id.in_(
-			select(UserPublicKey.key_id).where(UserPublicKey.is_active == True)
-		)
+		~PushRegistration.client_key_id.in_(select(UserPublicKey.key_id))
 	)
 	anonymous_result = await db.execute(anonymous_clients_query)
 	anonymous_client_ids = [row[0] for row in anonymous_result.fetchall()]
