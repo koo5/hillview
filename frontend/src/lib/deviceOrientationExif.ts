@@ -223,25 +223,67 @@ function getOrientationFromEuler({ pitch, roll }: { pitch: number, roll: number 
 }
 
 /**
- * Get EXIF orientation from AbsoluteOrientationSensor quaternion data
+ * Multiply two quaternions
+ * @param q1 First quaternion {w, x, y, z}
+ * @param q2 Second quaternion {w, x, y, z}
+ * @returns Product quaternion
+ */
+function multiplyQuaternions(q1: {w: number, x: number, y: number, z: number}, q2: {w: number, x: number, y: number, z: number}) {
+	return {
+		w: q1.w * q2.w - q1.x * q2.x - q1.y * q2.y - q1.z * q2.z,
+		x: q1.w * q2.x + q1.x * q2.w + q1.y * q2.z - q1.z * q2.y,
+		y: q1.w * q2.y - q1.x * q2.z + q1.y * q2.w + q1.z * q2.x,
+		z: q1.w * q2.z + q1.x * q2.y - q1.y * q2.x + q1.z * q2.w
+	};
+}
+
+/**
+ * Reference quaternion from straightUpright position (phone held straight up, rotated along earth-perpendicular axis)
+ * This provides a clean baseline for pure screen rotation detection
+ */
+const REFERENCE_QUATERNION = {w: 0.264, x: 0.294, y: 0.634, z: 0.665};
+
+/**
+ * Get EXIF orientation from AbsoluteOrientationSensor quaternion data using reference quaternion approach
  * @param quaternionArray Array of 4 numbers [x, y, z, w] from AbsoluteOrientationSensor
  * @returns EXIF orientation code (1, 3, 6, 8)
  */
 export function getExifOrientationFromQuaternion(quaternionArray: number[]): ExifOrientation {
 	const [x, y, z, w] = quaternionArray;
 
-	// Create quaternion from sensor data
-	const q_device = new Quaternion(w, x, y, z);
+	// Current quaternion
+	const q_current = {w, x, y, z};
 
-	// Apply upright correction (90° rotation around X axis)
-	const q_corrected = q_device.mul(uprightCorrection);
+	// Calculate inverse of reference quaternion
+	const q_ref_inverse = {
+		w: REFERENCE_QUATERNION.w,
+		x: -REFERENCE_QUATERNION.x,
+		y: -REFERENCE_QUATERNION.y,
+		z: -REFERENCE_QUATERNION.z
+	};
 
-	// Convert corrected quaternion to Euler angles
-	const correctedArray = [q_corrected.x, q_corrected.y, q_corrected.z, q_corrected.w];
-	const euler = quaternionToEuler(correctedArray);
+	// Calculate relative rotation from reference
+	const q_relative = multiplyQuaternions(q_ref_inverse, q_current);
 
-	// Get EXIF orientation from Euler angles
-	return getOrientationFromEuler(euler);
+	// Extract rotation angle around Z-axis (screen rotation)
+	let angle = Math.atan2(
+		2 * (q_relative.w * q_relative.z + q_relative.x * q_relative.y),
+		1 - 2 * (q_relative.y * q_relative.y + q_relative.z * q_relative.z)
+	) * 180 / Math.PI;
+
+	// Normalize to 0-360 range
+	if (angle < 0) angle += 360;
+
+	// Map angles to EXIF orientations with optimized thresholds
+	if (angle >= 315 || angle < 45) {
+		return 1; // Portrait (0°)
+	} else if (angle >= 45 && angle < 135) {
+		return 6; // Right landscape (90°)
+	} else if (angle >= 135 && angle < 225) {
+		return 3; // Upside-down (180°)
+	} else {
+		return 8; // Left landscape (270°)
+	}
 }
 
 /**

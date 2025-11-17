@@ -1,3 +1,107 @@
+const straightUpright = [
+	[0.294, 0.634, 0.665, 0.264],
+	[0.309, 0.630, 0.661, 0.267],
+	[0.301, 0.634, 0.662, 0.263],
+	[0.302, 0.612, 0.685, 0.257],
+	[0.297, 0.639, 0.660, 0.261],
+	[0.313, 0.615, 0.681, 0.244],
+	[0.309, 0.652, 0.650, 0.240],
+	[0.310, 0.628, 0.676, 0.229],
+	[0.290, 0.634, 0.675, 0.241],
+	[0.247, 0.592, 0.730, 0.237],
+	[0.263, 0.626, 0.703, 0.212],
+	[0.274, 0.625, 0.700, 0.210],
+	[0.265, 0.643, 0.695, 0.184],
+	[0.252, 0.664, 0.679, 0.183],
+	[0.194, 0.677, 0.697, 0.137],
+	[0.186, 0.677, 0.704, 0.106],
+	[0.223, 0.625, 0.732, 0.156],
+	[-0.189, 0.638, 0.728, 0.164],
+	[-0.193, 0.659, 0.714, 0.139],
+	[-0.211, 0.651, 0.719, 0.124],
+	[-0.174, 0.643, 0.742, 0.070],
+	[-0.112, 0.739, 0.664, 0.003],
+	[-0.087, 0.692, 0.717, 0.011],
+	[0.085, -0.696, -0.713, 0.006],
+	[0.051, -0.714, -0.696, 0.060],
+	[0.008, -0.720, -0.693, 0.039],
+	[0.020, -0.686, -0.721, 0.098],
+	[0.056, -0.715, -0.690, 0.097],
+	[0.057, -0.739, -0.667, 0.072],
+	[0.154, -0.764, -0.600, 0.182],
+	[0.222, -0.730, -0.594, 0.255],
+	[0.156, -0.681, -0.665, 0.265],
+	[0.211, -0.712, -0.614, 0.269],
+	[0.185, -0.667, -0.671, 0.264],
+	[0.236, -0.661, -0.664, 0.257],
+	[0.251, -0.677, -0.634, 0.276],
+	[0.284, -0.690, -0.611, 0.265],
+	[0.262, -0.666, -0.626, 0.310],
+	[0.295, -0.625, -0.649, 0.318],
+	[0.319, -0.637, -0.615, 0.340],
+	[0.450, -0.578, -0.505, 0.456],
+	[0.449, -0.549, -0.533, 0.461],
+	[0.478, -0.528, -0.533, 0.457],
+	[0.484, -0.521, -0.521, 0.473],
+	[0.502, -0.536, -0.484, 0.476],
+	[0.499, -0.517, -0.490, 0.493],
+	[0.490, -0.505, -0.517, 0.488],
+	[0.522, -0.508, -0.481, 0.488],
+	[0.539, -0.482, -0.471, 0.506],
+	[0.559, -0.477, -0.461, 0.497],
+	[0.569, -0.474, -0.431, 0.515],
+	[0.571, -0.441, -0.425, 0.546],
+	[0.593, -0.420, -0.391, 0.565],
+	[0.599, -0.401, -0.372, 0.585],
+	[0.628, -0.379, -0.337, 0.591],
+	[0.606, -0.354, -0.360, 0.615],
+	[0.635, -0.335, -0.308, 0.625],
+	[0.646, -0.308, -0.304, 0.629],
+	[0.679, -0.276, -0.256, 0.631],
+	[0.691, -0.217, -0.335, 0.603],
+	[0.685, -0.247, -0.291, 0.620],
+	[0.695, -0.241, -0.261, 0.625],
+	[0.709, -0.251, -0.230, 0.617],
+	[0.674, -0.210, -0.236, 0.668],
+	[0.667, -0.198, -0.205, 0.688],
+	[0.684, -0.105, -0.137, 0.708],
+	[0.700, -0.040, -0.065, 0.710],
+	[0.709, -0.012, -0.061, 0.703],
+	[0.710, -0.007, -0.025, 0.703],
+	[0.713, -0.027, -0.027, 0.700],
+	[0.677, 0.053, 0.065, 0.731],
+	[0.670, 0.140, 0.123, 0.718],
+	[0.673, 0.168, 0.184, 0.697],
+	[0.628, 0.237, 0.225, 0.706],
+	[0.653, 0.231, 0.243, 0.679],
+	[0.654, 0.257, 0.239, 0.670],
+	[0.633, 0.281, 0.237, 0.681],
+	[0.645, 0.261, 0.278, 0.662],
+	[0.680, 0.296, 0.225, 0.631],
+	[0.648, 0.298, 0.262, 0.650],
+	[0.621, 0.347, 0.292, 0.639],
+	[0.543, 0.399, 0.400, 0.621],
+	[0.615, 0.369, 0.330, 0.614],
+	[0.533, 0.470, 0.451, 0.541],
+	[0.488, 0.485, 0.485, 0.540],
+	[0.481, 0.490, 0.502, 0.525],
+	[0.457, 0.481, 0.547, 0.511],
+	[0.482, 0.497, 0.539, 0.479],
+	[0.469, 0.486, 0.559, 0.481],
+	[0.374, 0.532, 0.619, 0.442],
+	[0.313, 0.569, 0.667, 0.366],
+	[0.350, 0.575, 0.643, 0.365],
+	[0.310, 0.593, 0.649, 0.362],
+	[0.287, 0.590, 0.677, 0.334],
+	[0.310, 0.608, 0.657, 0.320],
+	[0.322, 0.602, 0.637, 0.358],
+	[0.330, 0.593, 0.646, 0.349],
+	[0.314, 0.604, 0.648, 0.340],
+	[0.378, 0.578, 0.615, 0.381],
+	[0.367, 0.576, 0.619, 0.389],
+
+]
+
 // window.AbsoluteOrientationSensor({frequency: 10, referenceFrame: "device"}); values for different expected exif orientations
 
 // exif orientation code 1
@@ -1330,87 +1434,252 @@ function testOrientationAccuracy(quaternions: number[][], expectedExif: number, 
 }
 
 function quatToEuler(q: number[]) {
-    const [x, y, z, w] = q; // AbsoluteOrientationSensor format: [x, y, z, w]
+	const [x, y, z, w] = q; // AbsoluteOrientationSensor format: [x, y, z, w]
 
-    // yaw (z-axis rotation)
-    const ys = 2 * (w*z + x*y);
-    const yc = 1 - 2 * (y*y + z*z);
-    const yaw = Math.atan2(ys, yc);
+	// yaw (z-axis rotation)
+	const ys = 2 * (w * z + x * y);
+	const yc = 1 - 2 * (y * y + z * z);
+	const yaw = Math.atan2(ys, yc);
 
-    // pitch (x-axis rotation)
-    const ps = 2 * (w*x - y*z);
-    let pitch;
-    if (Math.abs(ps) >= 1) {
-        pitch = Math.sign(ps) * Math.PI / 2;
-    } else {
-        pitch = Math.asin(ps);
-    }
+	// pitch (x-axis rotation)
+	const ps = 2 * (w * x - y * z);
+	let pitch;
+	if (Math.abs(ps) >= 1) {
+		pitch = Math.sign(ps) * Math.PI / 2;
+	} else {
+		pitch = Math.asin(ps);
+	}
 
-    // roll (y-axis rotation)
-    const rs = 2 * (w*y + x*z);
-    const rc = 1 - 2 * (x*x + y*y);
-    const roll = Math.atan2(rs, rc);
+	// roll (y-axis rotation)
+	const rs = 2 * (w * y + x * z);
+	const rc = 1 - 2 * (x * x + y * y);
+	const roll = Math.atan2(rs, rc);
 
-    return { yaw, pitch, roll };
+	return {yaw, pitch, roll};
 }
 
-function getOrientationFromEuler({ pitch, roll }: { pitch: number, roll: number }) {
-    const deg = (r: number) => r * 180 / Math.PI;
+function getOrientationFromEuler({pitch, roll}: { pitch: number, roll: number }) {
+	const deg = (r: number) => r * 180 / Math.PI;
 
-    const r = deg(roll);
-    const p = deg(pitch);
+	const r = deg(roll);
+	const p = deg(pitch);
 
-    // Divide roll into 4 quadrants (0°, 90°, 180°, 270°)
-    // Normalize roll to 0-360° range
-    const normalizedRoll = ((r % 360) + 360) % 360;
+	// Let's try using PITCH as the primary discriminator since both landscapes have roll ~90°
+	// Normalize pitch to 0-360° range
+	const normalizedPitch = ((p % 360) + 360) % 360;
 
-    // Quadrant-based classification:
-    if (normalizedRoll >= 315 || normalizedRoll < 45) {
-        // 315° to 45° (around 0°) - need to determine what this represents
-        return 3; // Placeholder - might be upside-down
-    } else if (normalizedRoll >= 45 && normalizedRoll < 135) {
-        // 45° to 135° (around 90°) - this is where we see landscape
-        // Right landscape has pitch >75°, left landscape has variable pitch
-        if (p > 65) {
-            return 6; // Right landscape (high pitch >65°)
-        } else {
-            return 8; // Left landscape (lower pitch ≤65°)
-        }
-    } else if (normalizedRoll >= 135 && normalizedRoll < 225) {
-        // 135° to 225° (around 180°) - this is where we see portrait
-        return 1; // Portrait
-    } else {
-        // 225° to 315° (around 270°) - fourth quadrant
-        return 3; // Upside-down
-    }
+	// Based on observed patterns with upright correction:
+	// Portrait: roll ~±175°, pitch ~-6° (pitch ~354°)
+	// Left landscape: roll ~90°, pitch ~53° OR pitch ~-45° (pitch ~315°)
+	// Right landscape: roll ~93°, pitch ~79°
+	// Upside down: should be in remaining quadrant
+
+	// Pitch-based quadrant classification:
+	if (normalizedPitch >= 315 || normalizedPitch < 45) {
+		// 315° to 45° (around 0°/360°)
+		// Portrait has pitch ~354° (-6°), Left landscape has pitch ~315° (-45°)
+		if (Math.abs(r) > 150) {
+			return 1; // Portrait: roll ~±175°
+		} else {
+			return 8; // Left landscape: roll ~90°, pitch ~315°
+		}
+	} else if (normalizedPitch >= 45 && normalizedPitch < 135) {
+		// 45° to 135° (around 90°)
+		// Right landscape has pitch ~79°, Left landscape has pitch ~53°
+		if (r > 85 && r < 95) {
+			// Both are in landscape roll range, need to distinguish
+			if (p > 65) {
+				return 6; // Right landscape
+			} else {
+				return 8; // Left landscape
+			}
+		}
+		return 3; // Other cases might be upside-down
+	} else if (normalizedPitch >= 135 && normalizedPitch < 225) {
+		// 135° to 225° (around 180°)
+		return 3; // Likely upside-down
+	} else {
+		// 225° to 315° (around 270°)
+		return 3; // Upside-down fallback
+	}
 }
 
 function testEulerApproach(quaternionArray: number[]): number {
-    const euler = quatToEuler(quaternionArray);
-    return getOrientationFromEuler(euler);
+	const euler = quatToEuler(quaternionArray);
+	return getOrientationFromEuler(euler);
 }
 
 function testEulerWithUprightCorrection(quaternionArray: number[]): number {
-    const [x, y, z, w] = quaternionArray;
+	const [x, y, z, w] = quaternionArray;
 
-    // Create quaternion from sensor data
-    const q_device = new Quaternion(w, x, y, z);
+	// Create quaternion from sensor data
+	const q_device = new Quaternion(w, x, y, z);
 
-    // Apply upright correction (90° rotation around X axis)
-    const uprightCorrection = new Quaternion({
-        w: Math.cos(Math.PI / 4),
-        x: Math.sin(Math.PI / 4),
-        y: 0,
-        z: 0
-    });
+	// Apply upright correction (90° rotation around X axis)
+	const uprightCorrection = new Quaternion({
+		w: Math.cos(Math.PI / 4),
+		x: Math.sin(Math.PI / 4),
+		y: 0,
+		z: 0
+	});
 
-    const q_corrected = q_device.mul(uprightCorrection);
+	const q_corrected = q_device.mul(uprightCorrection);
 
-    // Convert corrected quaternion to Euler angles
-    const correctedArray = [q_corrected.x, q_corrected.y, q_corrected.z, q_corrected.w];
-    const euler = quatToEuler(correctedArray);
+	// Convert corrected quaternion to Euler angles
+	const correctedArray = [q_corrected.x, q_corrected.y, q_corrected.z, q_corrected.w];
+	const euler = quatToEuler(correctedArray);
 
-    return getOrientationFromEuler(euler);
+	return getOrientationFromEuler(euler);
+}
+
+function testHybridApproach(quaternionArray: number[]): number {
+	const [x, y, z, w] = quaternionArray;
+
+	// Balance between landscape detection and portrait/upside-down accuracy
+	if (y < -0.3) {
+		return 8; // Left landscape (balanced threshold)
+	}
+	if (y > 0.4) {
+		return 6; // Right landscape (balanced threshold)
+	}
+
+	// For non-landscape cases, use the upright-corrected Euler approach
+	const q_device = new Quaternion(w, x, y, z);
+	const uprightCorrection = new Quaternion({
+		w: Math.cos(Math.PI / 4),
+		x: Math.sin(Math.PI / 4),
+		y: 0,
+		z: 0
+	});
+	const q_corrected = q_device.mul(uprightCorrection);
+	const correctedArray = [q_corrected.x, q_corrected.y, q_corrected.z, q_corrected.w];
+	const euler = quatToEuler(correctedArray);
+
+	const deg = (r: number) => r * 180 / Math.PI;
+	const r = deg(euler.roll);
+	const normalizedRoll = ((r % 360) + 360) % 360;
+
+	// Use the original quadrant logic that worked well
+	if (normalizedRoll >= 315 || normalizedRoll < 45) {
+		return 3; // Upside-down (around 0°)
+	} else if (normalizedRoll >= 135 && normalizedRoll < 225) {
+		return 1; // Portrait (around 180°)
+	} else {
+		return 3; // Upside-down
+	}
+}
+
+function multiplyQuaternions(q1: { w: number, x: number, y: number, z: number }, q2: {
+	w: number,
+	x: number,
+	y: number,
+	z: number
+}) {
+	return {
+		w: q1.w * q2.w - q1.x * q2.x - q1.y * q2.y - q1.z * q2.z,
+		x: q1.w * q2.x + q1.x * q2.w + q1.y * q2.z - q1.z * q2.y,
+		y: q1.w * q2.y - q1.x * q2.z + q1.y * q2.w + q1.z * q2.x,
+		z: q1.w * q2.z + q1.x * q2.y - q1.y * q2.x + q1.z * q2.w
+	};
+}
+
+function testReferenceQuaternionApproach(quaternionArray: number[]): number {
+	const [x, y, z, w] = quaternionArray;
+
+	// Use first straightUpright quaternion as reference (true baseline orientation)
+	const q_reference = {w: 0.264, x: 0.294, y: 0.634, z: 0.665}; // First straightUpright sample
+
+	// Current quaternion
+	const q_current = {w, x, y, z};
+
+	// Get inverse (conjugate) of reference quaternion
+	const q_ref_inverse = {
+		w: q_reference.w,
+		x: -q_reference.x,
+		y: -q_reference.y,
+		z: -q_reference.z
+	};
+
+	// Calculate relative rotation: q_relative = q_ref_inverse * q_current
+	const q_relative = multiplyQuaternions(q_ref_inverse, q_current);
+
+	// Back to Z-axis rotation angle - try different reference or mapping
+	let angle = Math.atan2(
+		2 * (q_relative.w * q_relative.z + q_relative.x * q_relative.y),
+		1 - 2 * (q_relative.y * q_relative.y + q_relative.z * q_relative.z)
+	) * 180 / Math.PI;
+
+	// Normalize to 0-360
+	if (angle < 0) angle += 360;
+
+	// Adjust angle ranges based on straightUpright reference results
+	// Right landscape is 100%, left landscape is 92.8%, so the ranges work
+	// But portrait and upside-down need better ranges
+	if (angle >= 300 || angle < 60) return 1;      // Portrait (wider range)
+	else if (angle >= 60 && angle < 120) return 8;  // Left landscape
+	else if (angle >= 120 && angle < 240) return 3; // Upside down (wider range)
+	else return 6;                                  // Right landscape
+}
+
+function testOptimalQuaternionApproach(quaternionArray: number[]): number {
+	const [x, y, z, w] = quaternionArray;
+
+	// Use straightUpright reference for landscape (which works excellently)
+	const q_reference = {w: 0.264, x: 0.294, y: 0.634, z: 0.665}; // straightUpright reference
+	const q_current = {w, x, y, z};
+	const q_ref_inverse = { w: q_reference.w, x: -q_reference.x, y: -q_reference.y, z: -q_reference.z };
+	const q_relative = multiplyQuaternions(q_ref_inverse, q_current);
+
+	let angle = Math.atan2(
+		2 * (q_relative.w * q_relative.z + q_relative.x * q_relative.y),
+		1 - 2 * (q_relative.y * q_relative.y + q_relative.z * q_relative.z)
+	) * 180 / Math.PI;
+
+	if (angle < 0) angle += 360;
+
+	// Use reference quaternion for landscapes (excellent results)
+	if (angle >= 60 && angle < 120) return 8;  // Left landscape (92.3%)
+	if (angle >= 240 && angle < 300) return 6; // Right landscape (100%)
+
+	// For portrait/upside-down, fall back to the previous excellent upright Euler method
+	return testEulerWithUprightCorrection(quaternionArray);
+}
+
+function testOptimalHybridApproach(quaternionArray: number[]): number {
+	const [x, y, z, w] = quaternionArray;
+
+	// Only use landscape detection for the most obvious cases
+	if (y < -0.6) {
+		return 8; // Left landscape (very strong signal)
+	}
+	if (y > 0.6) {
+		return 6; // Right landscape (very strong signal)
+	}
+
+	// For everything else, use the original upright Euler approach that got 98.7%/100%
+	return testEulerWithUprightCorrection(quaternionArray);
+}
+
+function testRawQuaternion(quaternionArray: number[]): number {
+	const [x, y, z, w] = quaternionArray;
+
+	// Strong negative y = left landscape
+	if (y < -0.05) {
+		return 8; // Left landscape
+	}
+
+	// Strong positive y = right landscape
+	if (y > 0.15) {
+		return 6; // Right landscape
+	}
+
+	// Upside-down: strong negative x
+	if (x < -0.45) {
+		return 3; // Upside-down
+	}
+
+	// Portrait: everything else
+	return 1; // Portrait
 }
 
 function test() {
@@ -1539,9 +1808,211 @@ function test() {
 	if (eulerUprightAverageAccuracy > 0.8) {
 		console.log(`🎯 EULER WITH UPRIGHT CORRECTION IS GOOD! ${(eulerUprightAverageAccuracy * 100).toFixed(1)}% accuracy!`);
 	}
+
+	// // Test raw quaternion approach to debug coordinate systems
+	// console.log('\n=== RAW QUATERNION ANALYSIS ===');
+	// console.log('Let\'s examine the actual quaternion values to understand patterns:');
+	//
+	// console.log('\nPortrait quaternions (sampled evenly):');
+	// for (let i = 0; i < 5; i++) {
+	// 	const idx = Math.floor((i / 4) * (portraitQuaternions.length - 1));
+	// 	const [x, y, z, w] = portraitQuaternions[idx];
+	// 	console.log(`  [${x.toFixed(3)}, ${y.toFixed(3)}, ${z.toFixed(3)}, ${w.toFixed(3)}] - x:${x.toFixed(2)} y:${y.toFixed(2)} z:${z.toFixed(2)} w:${w.toFixed(2)}`);
+	// }
+	//
+	// console.log('\nLeft landscape quaternions (sampled evenly):');
+	// for (let i = 0; i < 5; i++) {
+	// 	const idx = Math.floor((i / 4) * (leftLandscapeQuaternions.length - 1));
+	// 	const [x, y, z, w] = leftLandscapeQuaternions[idx];
+	// 	console.log(`  [${x.toFixed(3)}, ${y.toFixed(3)}, ${z.toFixed(3)}, ${w.toFixed(3)}] - x:${x.toFixed(2)} y:${y.toFixed(2)} z:${z.toFixed(2)} w:${w.toFixed(2)}`);
+	// }
+	//
+	// console.log('\nRight landscape quaternions (sampled evenly):');
+	// for (let i = 0; i < 5; i++) {
+	// 	const idx = Math.floor((i / 4) * (rightLandscapeQuaternions.length - 1));
+	// 	const [x, y, z, w] = rightLandscapeQuaternions[idx];
+	// 	console.log(`  [${x.toFixed(3)}, ${y.toFixed(3)}, ${z.toFixed(3)}, ${w.toFixed(3)}] - x:${x.toFixed(2)} y:${y.toFixed(2)} z:${z.toFixed(2)} w:${w.toFixed(2)}`);
+	// }
+	//
+	// console.log('\nUpside-down quaternions (sampled evenly):');
+	// for (let i = 0; i < 5; i++) {
+	// 	const idx = Math.floor((i / 4) * (upsideDownQuaternions.length - 1));
+	// 	const [x, y, z, w] = upsideDownQuaternions[idx];
+	// 	console.log(`  [${x.toFixed(3)}, ${y.toFixed(3)}, ${z.toFixed(3)}, ${w.toFixed(3)}] - x:${x.toFixed(2)} y:${y.toFixed(2)} z:${z.toFixed(2)} w:${w.toFixed(2)}`);
+	// }
+	//
+	// Test raw quaternion approach
+	console.log('\n=== Testing raw quaternion approach ===');
+
+	function testRawAccuracy(quaternions: number[][], expectedExif: number, orientationName: string): number {
+		const results = quaternions.map(q => testRawQuaternion(q));
+		const correctCount = results.filter(result => result === expectedExif).length;
+		const accuracy = correctCount / quaternions.length;
+		console.log(`${orientationName} (EXIF ${expectedExif}): ${correctCount}/${quaternions.length} correct (${(accuracy * 100).toFixed(1)}%)`);
+		return accuracy;
+	}
+
+	const rawPortraitAccuracy = testRawAccuracy(portraitQuaternions, 1, 'Portrait');
+	const rawLeftLandscapeAccuracy = testRawAccuracy(leftLandscapeQuaternions, 8, 'Left Landscape');
+	const rawRightLandscapeAccuracy = testRawAccuracy(rightLandscapeQuaternions, 6, 'Right Landscape');
+	const rawUpsideDownAccuracy = testRawAccuracy(upsideDownQuaternions, 3, 'Upside Down');
+
+	const rawAverageAccuracy = (rawPortraitAccuracy + rawLeftLandscapeAccuracy + rawRightLandscapeAccuracy + rawUpsideDownAccuracy) / 4;
+
+	console.log(`Raw quaternion average accuracy: ${(rawAverageAccuracy * 100).toFixed(1)}%`);
+
+	if (rawAverageAccuracy > 0.8) {
+		console.log(`🎯 RAW QUATERNION APPROACH WORKS! ${(rawAverageAccuracy * 100).toFixed(1)}% accuracy!`);
+	}
+
+	// Test hybrid approach combining best of both
+	console.log('\n=== Testing hybrid approach (raw quaternion for landscape, upright Euler for portrait/upside-down) ===');
+
+	function testHybridAccuracy(quaternions: number[][], expectedExif: number, orientationName: string): number {
+		const results = quaternions.map(q => testHybridApproach(q));
+		const correctCount = results.filter(result => result === expectedExif).length;
+		const accuracy = correctCount / quaternions.length;
+		console.log(`${orientationName} (EXIF ${expectedExif}): ${correctCount}/${quaternions.length} correct (${(accuracy * 100).toFixed(1)}%)`);
+		return accuracy;
+	}
+
+	const hybridPortraitAccuracy = testHybridAccuracy(portraitQuaternions, 1, 'Portrait');
+	const hybridLeftLandscapeAccuracy = testHybridAccuracy(leftLandscapeQuaternions, 8, 'Left Landscape');
+	const hybridRightLandscapeAccuracy = testHybridAccuracy(rightLandscapeQuaternions, 6, 'Right Landscape');
+	const hybridUpsideDownAccuracy = testHybridAccuracy(upsideDownQuaternions, 3, 'Upside Down');
+
+	const hybridAverageAccuracy = (hybridPortraitAccuracy + hybridLeftLandscapeAccuracy + hybridRightLandscapeAccuracy + hybridUpsideDownAccuracy) / 4;
+
+	console.log(`Hybrid approach average accuracy: ${(hybridAverageAccuracy * 100).toFixed(1)}%`);
+
+	if (hybridAverageAccuracy > 0.8) {
+		console.log(`🎯 HYBRID APPROACH WORKS! ${(hybridAverageAccuracy * 100).toFixed(1)}% accuracy!`);
+	}
+
+	// Test optimal hybrid approach - very selective landscape + original Euler
+	console.log('\n=== Testing optimal hybrid approach (minimal landscape interference) ===');
+
+	function testOptimalHybridAccuracy(quaternions: number[][], expectedExif: number, orientationName: string): number {
+		const results = quaternions.map(q => testOptimalHybridApproach(q));
+		const correctCount = results.filter(result => result === expectedExif).length;
+		const accuracy = correctCount / quaternions.length;
+		console.log(`${orientationName} (EXIF ${expectedExif}): ${correctCount}/${quaternions.length} correct (${(accuracy * 100).toFixed(1)}%)`);
+		return accuracy;
+	}
+
+	const optimalPortraitAccuracy = testOptimalHybridAccuracy(portraitQuaternions, 1, 'Portrait');
+	const optimalLeftLandscapeAccuracy = testOptimalHybridAccuracy(leftLandscapeQuaternions, 8, 'Left Landscape');
+	const optimalRightLandscapeAccuracy = testOptimalHybridAccuracy(rightLandscapeQuaternions, 6, 'Right Landscape');
+	const optimalUpsideDownAccuracy = testOptimalHybridAccuracy(upsideDownQuaternions, 3, 'Upside Down');
+
+	const optimalAverageAccuracy = (optimalPortraitAccuracy + optimalLeftLandscapeAccuracy + optimalRightLandscapeAccuracy + optimalUpsideDownAccuracy) / 4;
+
+	console.log(`Optimal hybrid average accuracy: ${(optimalAverageAccuracy * 100).toFixed(1)}%`);
+
+	if (optimalAverageAccuracy > 0.8) {
+		console.log(`🎯 OPTIMAL HYBRID WORKS! ${(optimalAverageAccuracy * 100).toFixed(1)}% accuracy!`);
+	}
+
+	// Test reference quaternion approach - the proper way!
+	console.log('\n=== Testing reference quaternion approach (relative rotation) ===');
+
+	function testReferenceAccuracy(quaternions: number[][], expectedExif: number, orientationName: string): number {
+		const results = quaternions.map(q => testReferenceQuaternionApproach(q));
+		const correctCount = results.filter(result => result === expectedExif).length;
+		const accuracy = correctCount / quaternions.length;
+		console.log(`${orientationName} (EXIF ${expectedExif}): ${correctCount}/${quaternions.length} correct (${(accuracy * 100).toFixed(1)}%)`);
+
+		// Show first few debug results
+		if (accuracy < 0.9) {
+			console.log('  First few results vs expected:');
+			for (let i = 0; i < Math.min(5, quaternions.length); i++) {
+				const result = results[i];
+				const [x, y, z, w] = quaternions[i];
+				console.log(`    [${x.toFixed(2)}, ${y.toFixed(2)}, ${z.toFixed(2)}, ${w.toFixed(2)}] → EXIF ${result} (expected ${expectedExif})`);
+			}
+		}
+
+		return accuracy;
+	}
+
+	const refPortraitAccuracy = testReferenceAccuracy(portraitQuaternions, 1, 'Portrait');
+	const refLeftLandscapeAccuracy = testReferenceAccuracy(leftLandscapeQuaternions, 8, 'Left Landscape');
+	const refRightLandscapeAccuracy = testReferenceAccuracy(rightLandscapeQuaternions, 6, 'Right Landscape');
+	const refUpsideDownAccuracy = testReferenceAccuracy(upsideDownQuaternions, 3, 'Upside Down');
+
+	const refAverageAccuracy = (refPortraitAccuracy + refLeftLandscapeAccuracy + refRightLandscapeAccuracy + refUpsideDownAccuracy) / 4;
+
+	console.log(`Reference quaternion average accuracy: ${(refAverageAccuracy * 100).toFixed(1)}%`);
+
+	if (refAverageAccuracy > 0.9) {
+		console.log(`🎯🎯🎯 REFERENCE QUATERNION APPROACH IS EXCELLENT! ${(refAverageAccuracy * 100).toFixed(1)}% accuracy! 🎯🎯🎯`);
+	} else if (refAverageAccuracy > 0.8) {
+		console.log(`🎯 REFERENCE QUATERNION APPROACH WORKS! ${(refAverageAccuracy * 100).toFixed(1)}% accuracy!`);
+	}
+
+	// Test optimal quaternion approach - combining best methods
+	console.log('\n=== Testing optimal quaternion approach (quaternion landscapes + Euler portrait/upside-down) ===');
+
+	function testOptimalQuaternionAccuracy(quaternions: number[][], expectedExif: number, orientationName: string): number {
+		const results = quaternions.map(q => testOptimalQuaternionApproach(q));
+		const correctCount = results.filter(result => result === expectedExif).length;
+		const accuracy = correctCount / quaternions.length;
+		console.log(`${orientationName} (EXIF ${expectedExif}): ${correctCount}/${quaternions.length} correct (${(accuracy * 100).toFixed(1)}%)`);
+		return accuracy;
+	}
+
+	const productionPortraitAccuracy = testOptimalQuaternionAccuracy(portraitQuaternions, 1, 'Portrait');
+	const productionLeftLandscapeAccuracy = testOptimalQuaternionAccuracy(leftLandscapeQuaternions, 8, 'Left Landscape');
+	const productionRightLandscapeAccuracy = testOptimalQuaternionAccuracy(rightLandscapeQuaternions, 6, 'Right Landscape');
+	const productionUpsideDownAccuracy = testOptimalQuaternionAccuracy(upsideDownQuaternions, 3, 'Upside Down');
+
+	const productionAverageAccuracy = (productionPortraitAccuracy + productionLeftLandscapeAccuracy + productionRightLandscapeAccuracy + productionUpsideDownAccuracy) / 4;
+
+	console.log(`Production quaternion average accuracy: ${(productionAverageAccuracy * 100).toFixed(1)}%`);
+
+	if (productionAverageAccuracy > 0.9) {
+		console.log(`🎯🎯🎯 PRODUCTION APPROACH IS EXCELLENT! ${(productionAverageAccuracy * 100).toFixed(1)}% accuracy! 🎯🎯🎯`);
+	} else if (productionAverageAccuracy > 0.8) {
+		console.log(`🎯 PRODUCTION APPROACH WORKS! ${(productionAverageAccuracy * 100).toFixed(1)}% accuracy!`);
+	}
+
+	// Test the actual production function
+	console.log('\n=== Testing Production Function (getExifOrientationFromQuaternion) ===');
+
+	function testProductionAccuracy(quaternions: number[][], expectedExif: number, orientationName: string): number {
+		let correctCount = 0;
+		for (const quaternion of quaternions) {
+			const result = getExifOrientationFromQuaternion(quaternion);
+			if (result === expectedExif) {
+				correctCount++;
+			}
+		}
+		const accuracy = correctCount / quaternions.length;
+		console.log(`${orientationName} (EXIF ${expectedExif}): ${correctCount}/${quaternions.length} correct (${(accuracy * 100).toFixed(1)}%)`);
+		return accuracy;
+	}
+
+	const actualPortraitAccuracy = testProductionAccuracy(portraitQuaternions, 1, 'Portrait');
+	const actualLeftLandscapeAccuracy = testProductionAccuracy(leftLandscapeQuaternions, 8, 'Left Landscape');
+	const actualRightLandscapeAccuracy = testProductionAccuracy(rightLandscapeQuaternions, 6, 'Right Landscape');
+	const actualUpsideDownAccuracy = testProductionAccuracy(upsideDownQuaternions, 3, 'Upside Down');
+
+	const actualAverageAccuracy = (actualPortraitAccuracy + actualLeftLandscapeAccuracy + actualRightLandscapeAccuracy + actualUpsideDownAccuracy) / 4;
+
+	console.log(`\nActual production function average accuracy: ${(actualAverageAccuracy * 100).toFixed(1)}%`);
+
+	if (actualAverageAccuracy > 0.9) {
+		console.log(`🎯🎯🎯 ACTUAL PRODUCTION IS EXCELLENT! ${(actualAverageAccuracy * 100).toFixed(1)}% accuracy! 🎯🎯🎯`);
+	} else if (actualAverageAccuracy > 0.8) {
+		console.log(`🎯 ACTUAL PRODUCTION WORKS! ${(actualAverageAccuracy * 100).toFixed(1)}% accuracy!`);
+	} else if (actualAverageAccuracy > 0.7) {
+		console.log(`✅ ACTUAL PRODUCTION GOOD: ${(actualAverageAccuracy * 100).toFixed(1)}% accuracy`);
+	} else {
+		console.log(`⚠️ ACTUAL PRODUCTION NEEDS WORK: ${(actualAverageAccuracy * 100).toFixed(1)}% accuracy`);
+	}
 }
 
 
 if (require.main === module) {
-  test();
+	test();
 }
