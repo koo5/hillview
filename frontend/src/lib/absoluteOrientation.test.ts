@@ -1727,13 +1727,13 @@ function testHybridXAxisApproach(quaternionArray: number[]): number {
 	) * 180 / Math.PI;
 	if (xAngle < 0) xAngle += 360;
 
-	// Clear landscape zones using Z-axis
-	if (zAngle >= 60 && zAngle < 240) return 8;  // Clear left landscape zone (expanded)
-	if (zAngle >= 280 && zAngle < 300) return 6; // Clear right landscape zone (reduced)
+	// Clear landscape zones using Z-axis (conservative ranges)
+	if (zAngle >= 60 && zAngle < 120) return 8;  // Clear left landscape zone
+	if (zAngle >= 280 && zAngle < 300) return 6; // Clear right landscape zone
 
 	// Overlap zone tiebreaker (240-280°) using X-angle
 	if (zAngle >= 240 && zAngle < 280) {
-		return xAngle < 150 ? 8 : 6; // Left if X < 150°, Right if X >= 150°
+		return xAngle < 200 ? 8 : 6; // Left if X < 200°, Right if X >= 200°
 	}
 
 	// For portrait/upside-down, use X-axis
