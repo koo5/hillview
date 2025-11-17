@@ -90,10 +90,12 @@
 	import {writable} from 'svelte/store';
 	import {
 		deviceOrientationExif,
-		calculateWebviewRelativeOrientation,
+//		calculateWebviewRelativeOrientation
+	} from "$lib/deviceOrientationExif";
+	import {
 		getExifOrientationFromQuaternion,
 		type ExifOrientation
-	} from "$lib/deviceOrientationExif";
+	} from "$lib/absoluteOrientation";
 	import Quaternion from "quaternion";
 
 	const resolutionsLoading = writable<Set<string>>(new Set());
@@ -943,14 +945,14 @@
 	// }
 
 
-	function handleDeviceOrientation(event: DeviceOrientationEvent) {
+	/*function handleDeviceOrientation(event: DeviceOrientationEvent) {
 		const o = calculateWebviewRelativeOrientation(event.alpha, event.beta, event.gamma);
 		console.log(
 			'🢄[CAMERA] Device orientation event:',
 			`alpha: ${event.alpha?.toFixed(0).padStart(4)}, beta: ${event.beta?.toFixed(0).padStart(4)}, gamma: ${event.gamma?.toFixed(0).padStart(4)}, o=${o}`
 		);
 		updateDeviceOrientationExif(o);
-	}
+	}*/
 
 	function updateDeviceOrientationExif(o: ExifOrientation) {
 		if (o !== get(deviceOrientationExif)) {
@@ -960,33 +962,12 @@
 	}
 
 	function absoluteOrientationSensorReadingHandler() {
-
-		//console.log(`🢄[CAMERA]quaternion=[${sensor.quaternion.map(v => v.toFixed(3)).join(', ')}], EXIF orientation=${exifOrientation}`);
-
 		const exifOrientation = getExifOrientationFromQuaternion(sensor.quaternion);
 		updateDeviceOrientationExif(exifOrientation);
-
-		// Debug gravity vector calculation with different axes
-		const [x, y, z, w] = sensor.quaternion;
-		const q_device = new Quaternion(w, x, y, z);
-		const uprightCorrection = new Quaternion({
-			w: Math.cos(Math.PI / 4),
-			x: Math.sin(Math.PI / 4),
-			y: 0,
-			z: 0
-		});
-		const q = q_device.mul(uprightCorrection);
-
-		// Test gravity along each axis
-		const gX = q.rotateVector([1, 0, 0]);  // X-axis
-		const gY = q.rotateVector([0, 1, 0]);  // Y-axis
-		const gZ = q.rotateVector([0, 0, 1]);  // Z-axis
-
-		console.log(`[${sensor.quaternion.map(v => v.toFixed(3)).join(', ')}], //qqq `);
-		//console.log(`🢄[CAMERA]quat=[${sensor.quaternion.map(v => v.toFixed(3)).join(', ')}], EXIF=${exifOrientation}`);
-		//console.log(`🢄[CAMERA]quaternion=[${sensor.quaternion.map(v => v.toFixed(3)).join(', ')}], gravity=[${g.map(v => v.toFixed(3)).join(', ')}], |g.y|=${Math.abs(g[1]).toFixed(3)}, |g.x|=${Math.abs(g[0]).toFixed(3)}, EXIF=${exifOrientation}`);
-		//console.log(`  X-axis=[${gX.map(v => v.toFixed(3)).join(', ')}], Y-axis=[${gY.map(v => v.toFixed(3)).join(', ')}], Z-axis=[${gZ.map(v => v.toFixed(3)).join(', ')}]`);
-
+		console.log(
+			'🢄[CAMERA] AbsoluteOrientationSensor reading:',
+			`quaternion: [${sensor.quaternion.map(v => v.toFixed(3)).join(', ')}], EXIF orientation: ${exifOrientation}`
+		);
 	}
 
 
@@ -1080,7 +1061,7 @@
 		}
 		document.removeEventListener('visibilitychange', handleVisibilityChange);
 		document.removeEventListener('click', handleClickOutside);
-		window.removeEventListener('deviceorientation', handleDeviceOrientation);
+		//window.removeEventListener('deviceorientation', handleDeviceOrientation);
 		updateDeviceOrientationExif(1);
 
 		// Clean up permission manager

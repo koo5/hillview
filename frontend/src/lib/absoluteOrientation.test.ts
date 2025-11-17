@@ -1,4 +1,5 @@
-import { getExifOrientationFromQuaternion } from './absoluteOrientation.ts';
+import Quaternion from "quaternion";
+import { getExifOrientationFromQuaternion } from './absoluteOrientation';
 
 const straightUpright = [
 	[0.294, 0.634, 0.665, 0.264],
@@ -1361,9 +1362,8 @@ const upsideDownQuaternions = [
 	[-0.731, 0.083, -0.026, 0.677],
 ]
 
-// Unit tests for quaternion-based orientation detection
-import {describe, test, expect} from 'vitest';
-import Quaternion from "quaternion";
+
+
 
 const uprightCorrection = new Quaternion({
 	w: Math.cos(Math.PI / 4),

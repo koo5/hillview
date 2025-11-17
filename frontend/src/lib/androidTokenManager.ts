@@ -127,7 +127,7 @@ export class AndroidTokenManager implements TokenManager {
 
     async isTokenExpired(bufferMinutes: number = 2): Promise<boolean> {
         const result = await invoke('plugin:hillview|is_token_expired', {
-            buffer_minutes
+            buffer_minutes: bufferMinutes
         }) as { expired: boolean };
 
         return result.expired;
