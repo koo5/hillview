@@ -40,6 +40,9 @@ export function getExifOrientationFromQuaternion(quaternionArray: number[]): Exi
 	) * 180 / Math.PI;
 	if (xAngle < 0) xAngle += 360;
 
+
+	if (xAngle >= 315 || xAngle < 45) return 1;
+
 	// Use Z-axis for landscapes (slightly more conservative ranges)
 	if (zAngle >= 70 && zAngle < 110) return 8;  // Left landscape (narrower: 70-110° instead of 60-120°)
 	if (zAngle >= 250 && zAngle < 290) return 6; // Right landscape (narrower: 250-290° instead of 240-300°)

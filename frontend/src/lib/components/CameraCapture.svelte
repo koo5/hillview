@@ -962,11 +962,12 @@
 	}
 
 	function absoluteOrientationSensorReadingHandler() {
-		const exifOrientation = getExifOrientationFromQuaternion(sensor.quaternion);
+		const quaternionArray = Array.from(sensor.quaternion);
+		const exifOrientation = getExifOrientationFromQuaternion(quaternionArray);
 		updateDeviceOrientationExif(exifOrientation);
 		console.log(
 			'🢄[CAMERA] AbsoluteOrientationSensor reading:',
-			`quaternion: [${sensor.quaternion.map(v => v.toFixed(3)).join(', ')}], EXIF orientation: ${exifOrientation}`
+			`quaternion: [${quaternionArray.map(v => v.toFixed(3)).join(', ')}], EXIF orientation: ${exifOrientation}`
 		);
 	}
 

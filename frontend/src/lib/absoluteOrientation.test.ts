@@ -1376,7 +1376,10 @@ function testGravityVector(quaternionArray: number[], gravityVector: number[]): 
 	const [x, y, z, w] = quaternionArray;
 	const q_device = new Quaternion(w, x, y, z);
 	// Test without upright correction
-	const g = q_device.rotateVector(gravityVector);
+	const gRaw = q_device.rotateVector([gravityVector[0], gravityVector[1], gravityVector[2]] as [number, number, number]);
+
+	// Convert to array format if it's an object
+	const g = Array.isArray(gRaw) ? gRaw : [gRaw.x, gRaw.y, gRaw.z];
 
 	const absX = Math.abs(g[0]);
 	const absY = Math.abs(g[1]);
@@ -1400,8 +1403,8 @@ function testRotationMatrix(quaternionArray: number[]): number | string {
 	const [x, y, z, w] = quaternionArray;
 	const q = new Quaternion(w, x, y, z);
 
-	// Get rotation matrix
-	const matrix = q.toMatrix();
+	// Get rotation matrix (9 elements in row-major order)
+	const matrix = q.toMatrix(false);
 	// Matrix layout: [r11, r12, r13, r21, r22, r23, r31, r32, r33]
 	//                [ 0,   1,   2,   3,   4,   5,   6,   7,   8 ]
 
@@ -1412,8 +1415,8 @@ function testRotationMatrix(quaternionArray: number[]): number | string {
 	const r21 = matrix[3];
 	const r22 = matrix[4];
 
-	// Screen rotation angle
-	const screenAngle = Math.atan2(r21, r11) * (180 / Math.PI);
+	// Screen rotation angle - add non-null assertions since we know matrix structure
+	const screenAngle = Math.atan2(r21!, r11!) * (180 / Math.PI);
 	const normalizedAngle = ((screenAngle % 360) + 360) % 360;
 
 	if (normalizedAngle < 45 || normalizedAngle >= 315) {
@@ -2069,7 +2072,8 @@ function test() {
 			Object.entries(misclassifications).forEach(([exif, count]) => {
 				if (count > 0) {
 					const percentage = ((count / quaternions.length) * 100).toFixed(1);
-					console.log(`    ${count}x as ${exifNames[exif as keyof typeof exifNames]} (${percentage}%)`);
+					const exifNum = parseInt(exif) as keyof typeof exifNames;
+					console.log(`    ${count}x as ${exifNames[exifNum]} (${percentage}%)`);
 				}
 			});
 		}
@@ -2152,7 +2156,8 @@ function test() {
 			Object.entries(misclassifications).forEach(([exif, count]) => {
 				if (count > 0) {
 					const percentage = ((count / quaternions.length) * 100).toFixed(1);
-					console.log(`    ${count}x as ${exifNames[exif as keyof typeof exifNames]} (${percentage}%)`);
+					const exifNum = parseInt(exif) as keyof typeof exifNames;
+					console.log(`    ${count}x as ${exifNames[exifNum]} (${percentage}%)`);
 				}
 			});
 		}
@@ -2199,7 +2204,8 @@ function test() {
 			Object.entries(misclassifications).forEach(([exif, count]) => {
 				if (count > 0) {
 					const percentage = ((count / quaternions.length) * 100).toFixed(1);
-					console.log(`    ${count}x as ${exifNames[exif as keyof typeof exifNames]} (${percentage}%)`);
+					const exifNum = parseInt(exif) as keyof typeof exifNames;
+					console.log(`    ${count}x as ${exifNames[exifNum]} (${percentage}%)`);
 				}
 			});
 		}
@@ -2288,7 +2294,8 @@ function test() {
 			Object.entries(misclassifications).forEach(([exif, count]) => {
 				if (count > 0) {
 					const percentage = ((count / quaternions.length) * 100).toFixed(1);
-					console.log(`    ${count}x as ${exifNames[exif as keyof typeof exifNames]} (${percentage}%)`);
+					const exifNum = parseInt(exif) as keyof typeof exifNames;
+					console.log(`    ${count}x as ${exifNames[exifNum]} (${percentage}%)`);
 				}
 			});
 		}
@@ -2429,7 +2436,8 @@ function test() {
 			Object.entries(misclassifications).forEach(([exif, count]) => {
 				if (count > 0) {
 					const percentage = ((count / quaternions.length) * 100).toFixed(1);
-					console.log(`    ${count}x as ${exifNames[exif as keyof typeof exifNames]} (${percentage}%)`);
+					const exifNum = parseInt(exif) as keyof typeof exifNames;
+					console.log(`    ${count}x as ${exifNames[exifNum]} (${percentage}%)`);
 				}
 			});
 		}
