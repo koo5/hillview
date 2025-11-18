@@ -4,6 +4,10 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import okhttp3.MediaType.Companion.toMediaType
@@ -12,10 +16,7 @@ import org.json.JSONObject
 import org.unifiedpush.android.connector.UnifiedPush
 
 /**
- * Android Push Notification Distributor Manager
- *
- * Manages UnifiedPush distributor selection and registration, providing smart
- * status detection and error handling similar to DAVx5's implementation.
+ * Android Push Message Distributor Manager
  *
  * ARCHITECTURE:
  * =============
@@ -91,6 +92,42 @@ class PushDistributorManager(private val context: Context) {
         val displayName: String,
         val isAvailable: Boolean
     )
+
+    /**
+     * Debug UnifiedPush registration - provides comprehensive diagnostics
+     */
+    fun debugUnifiedPush(): String {
+        val sb = StringBuilder()
+        sb.appendLine("🔍 UnifiedPush Debug Information:")
+
+        try {
+            val distributors = UnifiedPush.getDistributors(context)
+            sb.appendLine("📨 Available distributors: $distributors (${distributors.size} items)")
+
+            distributors.forEach { packageName ->
+                val isAvailable = isDistributorAvailable(packageName)
+                val displayName = getDistributorDisplayName(packageName)
+                sb.appendLine("   - $displayName ($packageName): available=$isAvailable")
+            }
+
+            val selectedDistributor = getSelectedDistributor()
+            sb.appendLine("📨 Selected distributor: $selectedDistributor")
+
+            val endpoint = getPushEndpoint()
+            sb.appendLine("🔗 Current endpoint: ${endpoint?.take(50) ?: "none"}")
+
+            val status = getRegistrationStatus()
+            sb.appendLine("📊 Registration status: $status")
+
+            val lastError = getLastError()
+            sb.appendLine("❌ Last error: ${lastError ?: "none"}")
+
+        } catch (e: Exception) {
+            sb.appendLine("❌ Exception during debug: ${e.message}")
+        }
+
+        return sb.toString()
+    }
 
     /**
      * Get all available UnifiedPush distributors with status information
@@ -294,10 +331,33 @@ class PushDistributorManager(private val context: Context) {
                     Log.d(TAG, "Direct FCM registration completed with token: ${fcmToken.take(20)}...")
                 } else {
                     // Register with UnifiedPush distributor
-                    UnifiedPush.register(context, packageName, "hillview_notifications")
+                    Log.d(TAG, "🔄 Registering UnifiedPush with distributor: $packageName")
+
+                    try {
+                    	UnifiedPush.tryUseCurrentOrDefaultDistributor(context) { success ->
+
+							if (!success) {
+								Log.w(TAG, "⚠️ Failed to select distributor automatically")
+							}
+
+							UnifiedPush.register(context, packageName, "hillview_notifications")
+							Log.d(TAG, "✅ UnifiedPush registration initiated")
+
+							// Schedule debug check 5 seconds after registration
+							CoroutineScope(Dispatchers.IO).launch {
+								delay(5000)
+								Log.d(TAG, "🕐 Post-registration status:")
+								Log.d(TAG, debugUnifiedPush())
+							}
+
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "❌ UnifiedPush.register() threw exception", e)
+                        throw e
+                    }
 
                     // Note: The actual endpoint will be received via UnifiedPushService.onNewEndpoint
-                    Log.d(TAG, "UnifiedPush registration initiated for $packageName")
+                    Log.d(TAG, "⏳ Waiting for UnifiedPush distributor '$packageName' to call onNewEndpoint...")
                 }
 
                 return@withLock true

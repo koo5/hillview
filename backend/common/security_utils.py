@@ -406,10 +406,11 @@ def verify_ecdsa_signature(signature_base64: str, public_key_pem: str, message_d
 		# Load the client's public key
 		public_key = serialization.load_pem_public_key(public_key_pem.encode())
 
+		logger.debug(f"Verifying signature with public key: {public_key_pem}")
 		# Create canonical JSON message (same format as ClientCryptoManager with sorted keys)
 		message = json.dumps(message_data, separators=(',', ':'), ensure_ascii=False, sort_keys=True)
-		logger.info(f"🔐 Generated message for verification: '{message}'")
-
+		logger.info(f"🔐 string for verification: '{message}'")
+		logger.debug(f"signature_base64: {signature_base64}")
 		# Decode the base64 signature
 		signature_bytes = base64.b64decode(signature_base64)
 
@@ -422,6 +423,8 @@ def verify_ecdsa_signature(signature_base64: str, public_key_pem: str, message_d
 			s = int.from_bytes(signature_bytes[32:], byteorder='big')
 			signature_bytes = encode_dss_signature(r, s)
 
+		logger.debug(f"Verifying signature: {signature_bytes.hex()}")
+
 		# Verify the signature
 		public_key.verify(
 			signature_bytes,
@@ -433,5 +436,8 @@ def verify_ecdsa_signature(signature_base64: str, public_key_pem: str, message_d
 		return True
 
 	except Exception as e:
-		logger.warning(f"Signature verification failed: {str(e)}")
+		logger.warning(f"Signature verification failed: {e.message if hasattr(e, 'message') else str(e)}")
+		logger.warning(type(e))
+		logger.warning('-------')
+
 		return False

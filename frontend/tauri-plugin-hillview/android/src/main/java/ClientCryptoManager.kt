@@ -239,17 +239,19 @@ class ClientCryptoManager(private val context: Context) {
                     return null
                 }
 
-            val message = data.toString() // Compact JSON, no spaces
+            val message = toUnescapedJsonString(data) // Compact JSON without forward slash escaping
             Log.d(TAG, "📝 Signing $logPrefix message: $message")
 
             // Sign the message using ECDSA with SHA-256
             val signature = Signature.getInstance("SHA256withECDSA")
             signature.initSign(privateKeyEntry.privateKey)
+            Log.d(TAG, "pubkey: ${Base64.encodeToString(privateKeyEntry.certificate.publicKey.encoded, Base64.NO_WRAP)}")
             signature.update(message.toByteArray(Charsets.UTF_8))
             val signatureBytes = signature.sign()
 
             // Convert to base64 for transmission
             val signatureBase64 = Base64.encodeToString(signatureBytes, Base64.NO_WRAP)
+            Log.d(TAG, "signatureBase64: $signatureBase64")
 
             // Get the key ID for this signature
             val keyId = getKeyId()
@@ -354,6 +356,15 @@ class ClientCryptoManager(private val context: Context) {
         val base64 = Base64.encodeToString(keyBytes, Base64.NO_WRAP)
         val formatted = base64.chunked(64).joinToString("\n")
         return "-----BEGIN $type-----\n$formatted\n-----END $type-----"
+    }
+
+    /**
+     * Convert JSONObject to string without escaping forward slashes
+     * Android's JSONObject.toString() escapes forward slashes, but the backend expects unescaped JSON
+     */
+    private fun toUnescapedJsonString(jsonObject: JSONObject): String {
+        // Use JSONObject.toString() and then unescape forward slashes
+        return jsonObject.toString().replace("\\/", "/")
     }
 }
 
