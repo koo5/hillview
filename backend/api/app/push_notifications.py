@@ -12,6 +12,44 @@ from fcm_push import send_fcm_push, is_fcm_configured
 logger = logging.getLogger(__name__)
 
 # Core notification functions (for use by other parts of the app)
+
+async def create_notification_for_any(
+	db: AsyncSession,
+	id: dict,
+	notification_type: str,
+	title: str,
+	body: str,
+	action_type: Optional[str] = None,
+	action_data: Optional[Dict[str, Any]] = None,
+	expires_at: Optional[datetime] = None
+) -> int:
+	if id['type'] == 'user':
+		return await create_notification_for_user(
+			db=db,
+			user_id=id['id'],
+			notification_type=notification_type,
+			title=title,
+			body=body,
+			action_type=action_type,
+			action_data=action_data,
+			expires_at=expires_at
+		)
+	elif id['type'] == 'client':
+		return await create_notification_for_client(
+			db=db,
+			client_key_id=id['id'],
+			notification_type=notification_type,
+			title=title,
+			body=body,
+			action_type=action_type,
+			action_data=action_data,
+			expires_at=expires_at
+		)
+	else:
+		raise ValueError(f"Unknown id type: {id['type']}")
+
+
+
 async def create_notification_for_user(
 	db: AsyncSession,
 	user_id: str,
@@ -236,3 +274,76 @@ async def send_broadcast_notification(
 		'total': total_count
 	}
 
+
+
+
+
+async def send_activity_broadcast_notification(
+	db: AsyncSession,
+	activity_originator_user_id: str
+):
+	"""Send an activity broadcast notification to all users and all anonymous clients (not associated with any user).
+	filter out users who got notified in the last 12 hours.
+	"""
+	args = dict(
+		notification_type = 'activity_broadcast',
+		title = 'New photos uploaded',
+		body = 'New photos have been uploaded to Hillview. Check them out!',
+		action_type = 'open_activity',
+		action_data = None,
+		expires_at = None
+	)
+
+	user_count = 0
+	client_count = 0
+
+	# get all active users who have not been notified in the last 12 hours
+	twelve_hours_ago = datetime.utcnow() - timedelta(hours=12)
+	activity_users_query = select(User.id).where(
+		and_(
+			User.is_active == True,
+			~User.id.in_(
+				select(Notification.user_id).where(
+					Notification.type == 'activity_broadcast',
+					Notification.created_at >= twelve_hours_ago
+				)
+			)
+		)
+	)
+	activity_users_result = await db.execute(activity_users_query)
+
+	user_ids = [{'type':'user', 'id': row[0]} for row in activity_users_result.fetchall() if row[0] != activity_originator_user_id]
+	user_count = len(user_ids)
+
+	# 2. Send to all anonymous clients (push registrations not associated with any user)
+	anonymous_clients_query = select(PushRegistration.client_key_id).where(
+		and_(
+			~PushRegistration.client_key_id.in_(select(UserPublicKey.key_id)),
+			~PushRegistration.client_key_id.in_(
+				select(Notification.client_key_id).where(
+					Notification.type == 'activity_broadcast',
+					Notification.created_at >= twelve_hours_ago
+				)
+			)
+		)
+	)
+	anonymous_result = await db.execute(anonymous_clients_query)
+	anonymous_ids = [{'type':'client', 'id': row[0]} for row in anonymous_result.fetchall()]
+	client_count = len(anonymous_ids)
+
+	ids = user_ids + anonymous_ids
+
+	sent_count = 0
+	for aid in ids:
+		try:
+			await create_notification_for_any(
+				db=db,
+				id=aid,
+				**args
+			)
+			sent_count += 1
+		except ValueError as e:
+			# Client might have been unregistered between query and notification creation
+			logger.warning(f"Failed to create notification for {str(aid)}: {e}")
+
+	logger.info(f"Broadcast notification sent: {sent_count}/{len(ids)} total ({user_count} users, {client_count} anonymous clients)")

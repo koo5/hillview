@@ -20,6 +20,9 @@ from geoalchemy2.functions import ST_Point, ST_X, ST_Y
 
 import sys
 import os
+
+from app.push_notifications import send_activity_broadcast_notification
+
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
 from common.models import Photo, User
@@ -178,6 +181,8 @@ async def save_processed_photo(
 	await db.refresh(photo)
 
 	logger.info(f"Photo {photo_id} processing data saved successfully with verified client signature")
+
+	await send_activity_broadcast_notification(db, photo.owner_id)
 
 	return {
 		"message": "Processed photo data saved successfully",

@@ -240,6 +240,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
 
     private var sensorService: EnhancedSensorService? = null
     private var preciseLocationService: PreciseLocationService? = null
+    private var deviceOrientationProvider: DeviceOrientationProvider? = null
     private val secureUploadManager: SecureUploadManager = SecureUploadManager(activity)
     private val database: PhotoDatabase = PhotoDatabase.getDatabase(activity)
     private val authManager: AuthenticationManager = AuthenticationManager(activity)
@@ -490,6 +491,13 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             initializePreciseLocationService()
         }
 
+        // Start Google Play Services device orientation provider
+        if (deviceOrientationProvider == null) {
+            Log.d(TAG, "🔄 Initializing DeviceOrientationProvider alongside sensor")
+            deviceOrientationProvider = DeviceOrientationProvider(activity)
+        }
+        deviceOrientationProvider?.startOrientationProvider()
+
         Log.d(TAG, "🔄 startSensor command completed")
         invoke.resolve()
     }
@@ -502,6 +510,10 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         // Also stop precise location service
         Log.d(TAG, "📍 Stopping precise location service")
         //preciseLocationService?.stopLocationUpdates()
+
+        // Stop device orientation provider
+        Log.d(TAG, "🔄 Stopping device orientation provider")
+        deviceOrientationProvider?.stopOrientationProvider()
 
         invoke.resolve()
     }

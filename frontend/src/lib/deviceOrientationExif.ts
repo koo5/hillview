@@ -1,7 +1,8 @@
  // device orientation represented as exif Orientation value 1 | 3 | 6 | 8
 import {writable, type Writable} from "svelte/store";
 // Valid EXIF orientation values
-export type ExifOrientation = 1 | 3 | 6 | 8;
+// http://sylvana.net/jpegcrop/exif_orientation.html
+ export type ExifOrientation = 1 | 3 | 6 | 8;
 
 export let deviceOrientationExif: Writable<ExifOrientation> = writable(1); // Default to 1 (normal orientation)
 
