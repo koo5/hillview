@@ -47,7 +47,7 @@ class DeviceOrientationProvider(
             fusedOrientationProviderClient = LocationServices.getFusedOrientationProviderClient(context)
 
             // Create orientation request
-            val request = DeviceOrientationRequest.Builder(10000) // 10 second interval
+            val request = DeviceOrientationRequest.Builder(1000000) // fixme: cant seem to throttle it
                 .build()
 
             // Start requesting orientation updates
@@ -99,9 +99,9 @@ class DeviceOrientationProvider(
      */
     private fun logOrientationData(orientation: DeviceOrientation) {
         try {
-            // Log attitude quaternion - using array access since quaternion structure is unknown
+
             val attitude = orientation.attitude
-            Log.v(TAG, "🔍📊 Google Device Orientation Attitude: $attitude")
+            //Log.v(TAG, "🔍📊 Google Device Orientation Attitude: $attitude") // fixme: print elements properly
 
             // Log heading if available
             try {

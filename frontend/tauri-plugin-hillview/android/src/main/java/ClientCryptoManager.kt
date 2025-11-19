@@ -6,11 +6,17 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import android.util.Log
-import org.json.JSONObject
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import java.security.*
 import java.security.spec.ECGenParameterSpec
 import java.security.spec.X509EncodedKeySpec
 import java.util.*
+
+import kotlinx.serialization.encodeToString
+
+// No data classes needed - we'll serialize individual elements then build arrays
 
 /**
  * Android Client-Side Cryptographic Key Management
@@ -169,18 +175,6 @@ class ClientCryptoManager(private val context: Context) {
         }
     }
 
-    /**
-     * Create JSONObject with deterministic field ordering for signature consistency
-     */
-    private fun createOrderedJsonData(vararg pairs: Pair<String, Any?>): JSONObject {
-        // Filter out null values and sort by key name for deterministic ordering
-        val orderedMap = linkedMapOf<String, Any>()
-        pairs.filterNot { it.second == null }
-             .sortedBy { it.first }
-             .forEach { orderedMap[it.first] = it.second!! }
-
-        return JSONObject(orderedMap)
-    }
 
     /**
      * Sign upload data with client private key
@@ -207,30 +201,30 @@ class ClientCryptoManager(private val context: Context) {
      * @return SignatureData containing signature and key ID, or null on error
      */
     fun signUploadData(photoId: String, filename: String, timestamp: Long): SignatureData? {
-        val uploadData = createOrderedJsonData(
-            "photo_id" to photoId,
-            "filename" to filename,
-            "timestamp" to timestamp
+        val uploadData = listOf(
+            json.encodeToString(filename),    // "filename.jpg"
+            json.encodeToString(photoId),     // "photo123"
+            json.encodeToString(timestamp)    // 1234567890
         )
-        return signJsonData(uploadData, "upload")
+        return signData(uploadData, "upload")
     }
 
     /**
      * Sign push registration data with client private key
      */
     fun signPushRegistration(endpoint: String, distributorPackage: String?, timestamp: Long): SignatureData? {
-        val pushData = createOrderedJsonData(
-            "push_endpoint" to endpoint,
-            "distributor_package" to distributorPackage,
-            "timestamp" to timestamp
+        val pushData = listOf(
+            json.encodeToString(distributorPackage), // null or "io.heckel.ntfy"
+            json.encodeToString(endpoint),           // "https://ntfy.sh/endpoint"
+            json.encodeToString(timestamp)           // 1234567890
         )
-        return signJsonData(pushData, "push registration")
+        return signData(pushData, "push registration")
     }
 
     /**
-     * Generic method to sign JSON data with client private key
+     * Generic method to sign data with client private key
      */
-    private fun signJsonData(data: JSONObject, logPrefix: String): SignatureData? {
+    private fun signData(data: List<String>, logPrefix: String): SignatureData? {
         try {
             // Get private key from Android Keystore
             val privateKeyEntry = keyStore.getEntry(KEY_ALIAS, null) as? KeyStore.PrivateKeyEntry
@@ -239,7 +233,8 @@ class ClientCryptoManager(private val context: Context) {
                     return null
                 }
 
-            val message = toUnescapedJsonString(data) // Compact JSON without forward slash escaping
+            // Build JSON array from pre-serialized elements
+            val message = "[${data.joinToString(",")}]"
             Log.d(TAG, "📝 Signing $logPrefix message: $message")
 
             // Sign the message using ECDSA with SHA-256
@@ -359,12 +354,11 @@ class ClientCryptoManager(private val context: Context) {
     }
 
     /**
-     * Convert JSONObject to string without escaping forward slashes
-     * Android's JSONObject.toString() escapes forward slashes, but the backend expects unescaped JSON
+     * JSON serializer instance for individual elements
      */
-    private fun toUnescapedJsonString(jsonObject: JSONObject): String {
-        // Use JSONObject.toString() and then unescape forward slashes
-        return jsonObject.toString().replace("\\/", "/")
+    private val json = kotlinx.serialization.json.Json {
+        prettyPrint = false
+        encodeDefaults = true
     }
 }
 

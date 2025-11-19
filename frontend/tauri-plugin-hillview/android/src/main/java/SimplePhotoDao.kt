@@ -47,7 +47,8 @@ interface SimplePhotoDao {
 
     @Query("""
         SELECT * FROM photos
-        WHERE uploadStatus IN ('pending', 'uploading', 'failed')
+        WHERE (id NOT IN (:seen) AND
+         uploadStatus IN ('pending', 'uploading', 'failed'))
         ORDER BY
             CASE uploadStatus
                 WHEN 'pending' THEN 1
@@ -61,7 +62,7 @@ interface SimplePhotoDao {
             END ASC
         LIMIT 1
     """)
-    fun getNextPhotoForUpload(): PhotoEntity?
+    fun getNextPhotoForUpload(seen: Set<String>): PhotoEntity?
 
     @Query("SELECT COUNT(*) FROM photos WHERE uploadStatus = 'pending'")
     fun getPendingUploadCount(): Int

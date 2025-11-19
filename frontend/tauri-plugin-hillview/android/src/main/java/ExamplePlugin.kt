@@ -485,18 +485,18 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         Log.d(TAG, "🔄 Calling sensorService.startSensor(mode=$mode)")
         sensorService?.startSensor(mode)
 
-        // Also start precise location service for better GPS accuracy
+        // Also start precise location service for better GPS accuracy // magnetic declination // but approximate would probably be enough?
         if (preciseLocationService == null) {
             Log.d(TAG, "📍 Initializing PreciseLocationService alongside sensor")
             initializePreciseLocationService()
         }
 
-        // Start Google Play Services device orientation provider
+        /*// Start Google Play Services device orientation provider // fixme - maybe has more accuracy, but has same gimbal lock problem and also cant seem to throttle it (i guess that wouldnt be a problem)
         if (deviceOrientationProvider == null) {
             Log.d(TAG, "🔄 Initializing DeviceOrientationProvider alongside sensor")
             deviceOrientationProvider = DeviceOrientationProvider(activity)
         }
-        deviceOrientationProvider?.startOrientationProvider()
+        deviceOrientationProvider?.startOrientationProvider()*/
 
         Log.d(TAG, "🔄 startSensor command completed")
         invoke.resolve()

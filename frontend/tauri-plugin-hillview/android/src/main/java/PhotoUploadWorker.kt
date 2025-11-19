@@ -52,6 +52,9 @@ class PhotoUploadWorker(
             }
 
             // Process photos one at a time with validation on each iteration
+
+            val seen = mutableSetOf<String>()
+
             while (true) {
                 // Check auto-upload setting on each iteration
                 val prefs = applicationContext.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
@@ -62,12 +65,17 @@ class PhotoUploadWorker(
                     break
                 }
 
+                // sleep a bit
+                Thread.sleep(500L)
+
                 // Get next photo to upload (pending priority over failed)
-                val photo = photoDao.getNextPhotoForUpload()
+                val photo = photoDao.getNextPhotoForUpload(seen)
                 if (photo == null) {
                     Log.d(TAG, "No more photos to upload")
                     break
                 }
+
+				seen.add(photo.id);
 
                 Log.d(TAG, "Next photo to process: ${photo.filename} (status: ${photo.uploadStatus})")
 

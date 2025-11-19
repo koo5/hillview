@@ -33,7 +33,7 @@
         <!-- Deep link intent filters are added directly to MainActivity by Tauri's deep-link plugin -->
 
 
-		<service android:name="cz.hillview.plugin.PushServiceImpl"
+		<service android:name=".PushServiceImpl"
 			android:exported="false">
 			<intent-filter>
 				<action android:name="org.unifiedpush.android.connector.PUSH_EVENT"/>

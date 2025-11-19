@@ -183,11 +183,11 @@ export class ClientCryptoManager {
             const keyPair = await this.getOrCreateKeyPair();
 
             // Create canonical string representation
-            const message = JSON.stringify({
-                photo_id: data.photo_id,
-                filename: data.filename,
-                timestamp: data.timestamp
-            }, null, 0); // No spaces for consistency
+            const message = JSON.stringify([
+                data.filename,
+                data.photo_id,
+                data.timestamp
+            ], null, 0);
 
             console.log(`${this.LOG_PREFIX} 📝 Signing message: ${message}`);
 

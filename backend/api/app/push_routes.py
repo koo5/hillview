@@ -17,7 +17,7 @@ from common.database import get_db
 from common.models import PushRegistration, Notification, User, UserPublicKey
 from common.security_utils import verify_ecdsa_signature, generate_client_key_id
 from auth import get_current_user, get_current_user_optional
-from push_notifications import create_notification_for_user, create_notification_for_client, send_broadcast_notification
+from push_notifications import create_notification_for_user, create_notification_for_client, send_broadcast_notification, send_activity_broadcast_notification
 
 logger = logging.getLogger(__name__)
 
@@ -154,21 +154,16 @@ async def register_push(
 			detail="Request timestamp too old or too far in future"
 		)
 
-	# Verify client signature
-	message_data = {
-		"push_endpoint": request.push_endpoint,
-		"timestamp": request.timestamp
-	}
-	if request.distributor_package:
-		message_data["distributor_package"] = request.distributor_package
+	# Verify client signature - using plain array format to match new client implementation
+	message_data = [request.distributor_package, request.push_endpoint, request.timestamp]
 
-	logger.info(f"🔐 Verifying client signature:")
-	logger.info(f"  message_data: {message_data}")
-	logger.info(f"  signature (first 50 chars): {request.client_signature[:50]}...")
-	logger.info(f"  public_key_pem (first 100 chars): {request.public_key_pem[:100]}...")
+	#logger.info(f"🔐 Verifying client signature:")
+	#logger.info(f"  message_data: {message_data}")
+	#logger.info(f"  signature (first 50 chars): {request.client_signature[:50]}...")
+	#logger.info(f"  public_key_pem (first 100 chars): {request.public_key_pem[:100]}...")
 
 	signature_valid = verify_ecdsa_signature(request.client_signature, request.public_key_pem, message_data)
-	logger.info(f"🔐 Signature verification result: {signature_valid}")
+	#logger.info(f"🔐 Signature verification result: {signature_valid}")
 
 	if not signature_valid:
 		logger.error(f"❌ Client signature verification failed for client_key_id: {client_key_id}")
@@ -191,7 +186,7 @@ async def register_push(
 	)
 	result = await db.execute(existing_query)
 	existing = result.scalar_one_or_none()
-
+	# fixme this isnt safe
 	if existing:
 		logger.info(f"💾 Found existing registration, updating...")
 		# Update existing registration
@@ -465,4 +460,22 @@ async def broadcast_notification(
 		user_notifications=result['user_notifications'],
 		client_notifications=result['client_notifications'],
 		total=result['total']
+	)
+
+
+@router.post("/internal/notifications/activity-broadcast", response_model=PushRegistrationResponse)
+async def activity_broadcast_notification(
+	db: AsyncSession = Depends(get_db)
+):
+	"""Send an activity broadcast notification to users who haven't been notified in the last 12 hours (internal/admin use).
+
+	This will send notifications to:
+	1. All active users who haven't received an activity broadcast in the last 12 hours
+	2. All anonymous clients who haven't received an activity broadcast in the last 12 hours
+	"""
+	await send_activity_broadcast_notification(db, activity_originator_user_id="")
+
+	return PushRegistrationResponse(
+		success=True,
+		message="Activity broadcast notification sent"
 	)

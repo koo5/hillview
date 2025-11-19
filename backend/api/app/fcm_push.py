@@ -64,9 +64,14 @@ async def send_fcm_push(fcm_token: str, title: str, body: str, data: Optional[Di
             data=data or {},
             android=messaging.AndroidConfig(
                 notification=messaging.AndroidNotification(
-                    channel_id='hillview_notifications'
+                    channel_id='hillview_notifications',
+					color='#8BC3FA',
+					tag=data.get('content', None) if data else None,
+					click_action='view_recent_activity',
+					priority='default',
+					visibility='public',
+					notification_count=7
                 ),
-                priority='high'
             ),
             token=token
         )
