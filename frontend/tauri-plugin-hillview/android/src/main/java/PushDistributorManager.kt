@@ -285,7 +285,7 @@ class PushDistributorManager(private val context: Context) {
     }
 
     /**
-     * Select a UnifiedPush distributor and register with backend
+     * Select a distributor and register with backend
      */
     suspend fun selectDistributor(packageName: String): Boolean {
         return registrationMutex.withLock {

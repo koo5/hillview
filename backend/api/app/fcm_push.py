@@ -62,7 +62,7 @@ async def send_fcm_push(fcm_token: str, title: str, body: str, data: Optional[Di
                 body=body
             ),
 			data={
-				'click_action': 'cz.hillviedev://activity'
+				'click_action': '/activity'
 			},
 		#data=data or {},
             android=messaging.AndroidConfig(

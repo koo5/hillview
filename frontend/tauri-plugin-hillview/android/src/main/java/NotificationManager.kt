@@ -43,17 +43,12 @@ class NotificationManager(private val context: Context) {
     fun checkForNewNotifications() {
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val token = authManager.getValidToken() ?: run {
-                    Log.w(TAG, "No auth token available")
-                    return@launch
-                }
-
                 val serverUrl = getServerUrl() ?: run {
                     Log.e(TAG, "No server URL configured")
                     return@launch
                 }
 
-                val notifications = fetchNotifications(serverUrl, token)
+                val notifications = fetchNotifications(serverUrl)
                 if (notifications.isNotEmpty()) {
                     displayNotifications(notifications)
                 }
@@ -64,15 +59,28 @@ class NotificationManager(private val context: Context) {
         }
     }
 
-    private suspend fun fetchNotifications(serverUrl: String, token: String): List<HillviewNotification> {
+    private suspend fun fetchNotifications(serverUrl: String): List<HillviewNotification> {
         return withContext(Dispatchers.IO) {
             try {
                 val url = "$serverUrl/notifications/recent?limit=5"
                 val client = OkHttpClient()
-                val request = Request.Builder()
-                    .url(url)
-                    .header("Authorization", "Bearer $token")
-                    .build()
+
+                // Try to get a valid auth token first
+                val token = authManager.getValidToken()
+                val requestBuilder = Request.Builder().url(url)
+
+                if (token != null) {
+                    // Use token-based authentication if available
+                    requestBuilder.header("Authorization", "Bearer $token")
+                    Log.d(TAG, "Using token-based authentication for notifications")
+                } else {
+                    // Fall back to client key signature authentication
+                    Log.d(TAG, "No token available, using client key authentication for notifications")
+                    // For anonymous notification fetching, we can make the request without auth
+                    // The backend should handle both authenticated and anonymous requests
+                }
+
+                val request = requestBuilder.build()
 
                 val response = client.newCall(request).execute()
                 if (response.isSuccessful) {

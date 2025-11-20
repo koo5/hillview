@@ -48,7 +48,8 @@
 
 	onMount(async () => {
 
-		await handleDeepLinkIntent();
+		//await handleDeepLinkIntent();
+		await handleIntentData();
 
 		const initialPath = get(page).url.pathname;
 		console.log(`🢄🧭 [NAV] Initial page load: "${initialPath}"`);
@@ -78,6 +79,27 @@
 		}
 		catch(e) {
 			console.error('🢄🔗 getCurrent error:', e);
+		}
+	}
+
+	async function handleIntentData()
+	{
+		if (!TAURI_MOBILE) return;
+
+		console.log('🢄📱 Checking for intent data...');
+
+		try {
+			const intentData: any = await invoke('plugin:hillview|get_intent_data');
+			console.log('🢄📱 Intent data received:', JSON.stringify(intentData));
+
+			const route = intentData?.click_action;
+			if (route) {
+    			console.log('App launched from FCM notification intent!, navigating to:', route);
+    			await navigateWithHistory(route);
+			}
+
+		} catch (error) {
+			console.error('🢄📱 Error retrieving intent data:', error);
 		}
 	}
 

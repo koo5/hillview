@@ -417,3 +417,11 @@ pub(crate) async fn test_show_notification<R: Runtime>(
 ) -> Result<crate::models::BasicResponse> {
     app.hillview().test_show_notification(title, message)
 }
+
+#[cfg(mobile)]
+#[command(rename_all = "snake_case")]
+pub(crate) async fn get_intent_data<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<serde_json::Value> {
+    app.hillview().get_intent_data()
+}

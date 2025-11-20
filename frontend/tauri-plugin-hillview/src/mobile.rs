@@ -312,4 +312,11 @@ impl<R: Runtime> Hillview<R> {
       .run_mobile_plugin("testShowNotification", Args { title, message })
       .map_err(Into::into)
   }
+
+  pub fn get_intent_data(&self) -> crate::Result<serde_json::Value> {
+    self
+      .0
+      .run_mobile_plugin("getIntentData", ())
+      .map_err(Into::into)
+  }
 }

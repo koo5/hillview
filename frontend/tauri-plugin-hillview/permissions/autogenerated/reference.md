@@ -37,6 +37,8 @@ Default permissions for the plugin
 - `allow-get-push-distributors`
 - `allow-get-push-registration-status`
 - `allow-select-push-distributor`
+- `allow-get-intent-data`
+- `allow-poll-messages`
 
 ## Permission Table
 
@@ -173,6 +175,32 @@ Enables the get_device_photos command without any pre-configured scope.
 <td>
 
 Denies the get_device_photos command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:allow-get-intent-data`
+
+</td>
+<td>
+
+Enables the get_intent_data command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:deny-get-intent-data`
+
+</td>
+<td>
+
+Denies the get_intent_data command without any pre-configured scope.
 
 </td>
 </tr>

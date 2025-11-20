@@ -1,29 +1,26 @@
 {
-  "$schema": "../gen/schemas/desktop-schema.json",
-  "identifier": "default",
-  "description": "enables the default permissions",
-  "windows": [
-    "main"
-  ],
-  "permissions": [
-    "core:default",
-    "fs:default",
-    "fs:allow-write-text-file",
-    "fs:allow-read-text-file",
-    "fs:allow-mkdir",
-    "fs:allow-read-dir",
-    "fs:allow-appdata-write-recursive",
-    "fs:allow-appdata-read-recursive",
-    "fs:allow-appcache-write-recursive",
-    "fs:allow-appcache-read-recursive",
-    "os:default",
-    "shell:allow-open",
-    "hillview:default",
-    "hillview:allow-poll-messages",
-    "hillview:allow-check-tauri-permissions",
-    "hillview:allow-request-post-notification-permission",
-    "shell:default",
-    "opener:default",
-	  "deep-link:default"
-  ]
+	"$schema": "../gen/schemas/desktop-schema.json",
+	"identifier": "default",
+	"description": "enables the default permissions",
+	"windows": [
+		"main"
+	],
+	"permissions": [
+		"core:default",
+		"fs:default",
+		"fs:allow-write-text-file",
+		"fs:allow-read-text-file",
+		"fs:allow-mkdir",
+		"fs:allow-read-dir",
+		"fs:allow-appdata-write-recursive",
+		"fs:allow-appdata-read-recursive",
+		"fs:allow-appcache-write-recursive",
+		"fs:allow-appcache-read-recursive",
+		"os:default",
+		"shell:allow-open",
+		"hillview:default",
+		"shell:default",
+		"opener:default",
+		"deep-link:default"
+	]
 }

@@ -279,21 +279,6 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     override fun load(webView: WebView) {
         Log.i(TAG, "🢄🎥 Plugin load() called with WebView: $webView")
         Log.d(TAG, "📲 intent: ${activity.intent}")
-        // read the intent extras and find url to navigate to:
-        activity.intent?.let { intent ->
-			Log.i(TAG, "🢄intent has data: ${intent.data}")
-			Log.i(TAG, "🢄intent has extras: ${intent.extras}")// Bundle[mParcelledData.dataSize=792]
-			Log.i(TAG, "🢄intent extras keys: ${intent.extras?.keySet()}")
-			val urlFromIntent = intent.getStringExtra("click_action")
-			if (urlFromIntent != null) {
-				Log.i(TAG, "🢄🎥 Navigating WebView to URL from intent: $urlFromIntent")
-				activity.runOnUiThread {
-					webView.loadUrl(urlFromIntent)
-				}
-			} else {
-				Log.i(TAG, "🢄🎥 No URL found in intent extras")
-			}
-		}
 
         super.load(webView)
         setupWebViewCameraPermissions(webView)
@@ -2153,4 +2138,40 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
 		Log.d(TAG, "📲 onNewIntent called with intent: $intent")
 	}
 
+	@Command
+	fun getIntentData(invoke: Invoke) {
+		val result = JSObject()
+		try {
+			val intent = activity.intent
+			Log.d(TAG, "📲 getIntentData called, intent: $intent")
+
+			if (intent != null) {
+				result.put("action", intent.action)
+				result.put("dataString", intent.dataString)
+
+				/*fixme result.put("extras", JSObject())
+				intent.extras?.keySet()?.forEach { key ->
+					val value = intent.extras?.get(key)
+					result.getJSObject("extras")?.put(key, value.toString())
+				}*/
+
+				val urlFromIntent = intent.getStringExtra("click_action")
+				if (urlFromIntent != null) {
+					result.put("click_action", urlFromIntent)
+				}
+
+				Log.d(TAG, "📲 Intent data extracted: $result")
+			} else {
+				Log.d(TAG, "📲 No intent available")
+			}
+
+			invoke.resolve(result)
+
+		} catch (e: Exception) {
+			Log.e(TAG, "📲 Error getting intent data", e)
+			val error = JSObject()
+			error.put("error", e.message)
+			invoke.resolve(error)
+		}
+	}
 }
