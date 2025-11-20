@@ -10,7 +10,7 @@ import logging
 from pathlib import Path
 
 # Set up basic logging first
-logging.basicConfig(level=logging.DEBUG)
+#logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 def init_environment():

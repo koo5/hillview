@@ -6,6 +6,8 @@ import {handleErrorWithSentry, replayIntegration} from "@sentry/sveltekit";
 import {invoke} from "@tauri-apps/api/core";
 import {backendUrl} from "$lib/config";
 import {TAURI} from "$lib/tauri";
+import {getCurrent} from "@tauri-apps/plugin-deep-link";
+import {navigateWithHistory} from "$lib/navigation.svelte";
 
 
 

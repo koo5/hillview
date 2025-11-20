@@ -1,4 +1,30 @@
-import logging
+import logging, yaml
+
+# logging.getLogger("uvicorn").handlers.clear()
+log = logging.getLogger(__name__)
+
+# log.warning("STARTING_API_APPLICATION")
+# log.warning("Configuring logging levels for noisy libraries")
+
+for level, loggers in yaml.safe_load("""
+	INFO:
+		- common.security_utils
+		- google.auth._default
+		- firebase_admin
+		- passlib.utils.compat
+	WARNING:
+		- urllib3
+		- hpack
+		- httpcore
+		- httpx
+""".replace("\t", "  ")).items():
+	# log.warning(f"Setting {level} level for loggers: {loggers}, {type(loggers)}")
+	for name in loggers:
+		# log.warning(f" - {name}")
+		logging.getLogger(name).setLevel(getattr(logging, level))
+
+# log.warning("Importing FastAPI and related modules")
+
 import time
 from contextlib import asynccontextmanager
 from typing import Dict, Any
@@ -11,6 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import os
 import sys
+
 # Add common module path for both local development and Docker
 common_path = os.path.join(os.path.dirname(__file__), '..', '..', 'common')
 sys.path.append(common_path)
@@ -20,18 +47,9 @@ from debug_utils import debug_only, safe_str_id, clear_system_tables, cleanup_up
 from user_routes import start_session_cleanup
 import fcm_push
 
-
-logging.basicConfig(level=logging.DEBUG)
-log = logging.getLogger(__name__)
-
-
-# Silence noisy HTTP libraries
-logging.getLogger("hpack").setLevel(logging.WARNING)
-logging.getLogger("httpcore").setLevel(logging.WARNING)
-logging.getLogger("httpx").setLevel(logging.WARNING)
-
 # Configuration
 USER_ACCOUNTS = os.getenv("USER_ACCOUNTS", "false").lower() in ("true", "1", "yes")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -49,7 +67,6 @@ async def lifespan(app: FastAPI):
 	log.info("Application shutdown completed")
 
 
-
 from fastapi import FastAPI
 from fastapi.openapi.docs import (
 	get_redoc_html,
@@ -57,17 +74,17 @@ from fastapi.openapi.docs import (
 	get_swagger_ui_oauth2_redirect_html,
 )
 
-
 # class Settings(BaseSettings):
 # 	openapi_url: str = "/openapi.json"
-#settings = Settings()
+# settings = Settings()
 
 app = FastAPI(
-	#openapi_url=settings.openapi_url,
+	# openapi_url=settings.openapi_url,
 	docs_url=None, redoc_url=None,
 	title="Hillview API", description="API for Hillview application", lifespan=lifespan
 )
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
 
 @app.get("/docs", include_in_schema=False)
 async def custom_swagger_ui_html():
@@ -79,20 +96,10 @@ async def custom_swagger_ui_html():
 		swagger_css_url="static/swagger-ui.css",
 	)
 
+
 @app.get(app.swagger_ui_oauth2_redirect_url, include_in_schema=False)
 async def swagger_ui_redirect():
 	return get_swagger_ui_oauth2_redirect_html()
-
-
-
-
-
-
-
-
-
-
-
 
 
 # Security Headers Middleware
@@ -125,6 +132,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 		return response
 
+
 # Global Rate Limiting Middleware
 class GlobalRateLimitMiddleware(BaseHTTPMiddleware):
 	"""Global rate limiting middleware for basic protection."""
@@ -146,7 +154,7 @@ class GlobalRateLimitMiddleware(BaseHTTPMiddleware):
 	async def dispatch(self, request: Request, call_next):
 		# Check if rate limiting is globally disabled
 		if is_rate_limiting_disabled():
-			#log.debug(f"Rate limiting bypassed globally (NO_LIMITS=true) for {request.url.path}")
+			# log.debug(f"Rate limiting bypassed globally (NO_LIMITS=true) for {request.url.path}")
 			return await call_next(request)
 
 		# Skip rate limiting for certain paths and methods
@@ -169,6 +177,7 @@ class GlobalRateLimitMiddleware(BaseHTTPMiddleware):
 
 		return await call_next(request)
 
+
 # Request logging middleware with real client IP
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
 	async def dispatch(self, request: Request, call_next):
@@ -187,6 +196,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 		log.info(f'{client_ip} - "{request.method} {request.url.path}" {response.status_code} {process_time:.3f}s')
 
 		return response
+
 
 # CORS request logging middleware
 class CORSLoggingMiddleware(BaseHTTPMiddleware):
@@ -223,6 +233,7 @@ class CORSLoggingMiddleware(BaseHTTPMiddleware):
 				log.info(f"  Access-Control-Allow-Credentials: {access_control_allow_credentials}")
 
 		return response
+
 
 # Reverse Proxy Middleware - Handle forwarded headers from Caddy
 class ReverseProxyMiddleware(BaseHTTPMiddleware):
@@ -265,12 +276,14 @@ class ReverseProxyMiddleware(BaseHTTPMiddleware):
 
 		return await call_next(request)
 
+
 # Add middlewares (order matters - later added = executed first)
 app.add_middleware(CORSLoggingMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(GlobalRateLimitMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(ReverseProxyMiddleware)
+
 
 # Add exception handlers
 @app.exception_handler(Exception)
@@ -282,6 +295,7 @@ async def global_exception_handler(request, exc):
 		status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
 		content={"detail": "Internal server error"}
 	)
+
 
 # CORS configuration
 app.add_middleware(
@@ -295,39 +309,50 @@ app.add_middleware(
 # Include user routes if USER_ACCOUNTS is enabled
 if USER_ACCOUNTS:
 	import user_routes
+
 	app.include_router(user_routes.router)
 
 	# Include photo routes (only with user accounts)
 	import photo_routes
+
 	app.include_router(photo_routes.router)
 
 	# Include rating routes (only with user accounts)
 	import rating_routes
+
 	app.include_router(rating_routes.router)
 
 	# Include activity routes (only with user accounts)
 	import activity_routes
+
 	app.include_router(activity_routes.router)
 
 	# Include push notification routes (only with user accounts)
 	import push_routes
+
 	app.include_router(push_routes.router)
 
 # Include core routes
 import mapillary_routes
+
 app.include_router(mapillary_routes.router)
 
 import hillview_routes
+
 app.include_router(hillview_routes.router)
 
 import hidden_content_routes
+
 app.include_router(hidden_content_routes.router)
 
 import flagged_photos_routes
+
 app.include_router(flagged_photos_routes.router)
 
 import contact_routes
+
 app.include_router(contact_routes.router)
+
 
 # Database migration function
 def run_migrations():
@@ -347,6 +372,7 @@ def run_migrations():
 	# Run migrations
 	command.upgrade(alembic_cfg, "head")
 
+
 # Database initialization moved to lifespan handler above
 
 @app.get("/api/debug")
@@ -364,6 +390,7 @@ async def recreate_test_users():
 	import auth
 	result = await auth.recreate_test_users()
 	return {"status": "success", "message": "Test users re-created", "details": result}
+
 
 @app.post("/api/debug/clear-database")
 @debug_only
@@ -434,10 +461,10 @@ async def clear_database():
 		}
 	}
 
+
 @app.post("/api/debug/mock-mapillary")
 @debug_only
 async def set_mock_mapillary_data(mock_data: Dict[str, Any], db: AsyncSession = Depends(get_db)):
-
 	from mock_mapillary import mock_mapillary_service
 	mock_mapillary_service.set_mock_data(mock_data)
 
@@ -468,10 +495,10 @@ async def set_mock_mapillary_data(mock_data: Dict[str, Any], db: AsyncSession = 
 		}
 	}
 
+
 @app.delete("/api/debug/mock-mapillary")
 @debug_only
 async def clear_mock_mapillary_data():
-
 	from mock_mapillary import mock_mapillary_service
 	mock_mapillary_service.clear_mock_data()
 

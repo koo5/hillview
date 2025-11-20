@@ -79,7 +79,7 @@ async def create_notification_for_user(
 	# Send push notification to user's registered devices
 	await send_push_to_user(user_id, db)
 
-	logger.info(f"Created notification for user {user_id}: {title}")
+	#logger.debug(f"Created notification for user {user_id}: {title}")
 	return notification.id
 
 
@@ -122,7 +122,7 @@ async def create_notification_for_client(
 	# Send push notification to this specific client
 	await send_push_to_client(client_key_id, db)
 
-	logger.info(f"Created notification for client {client_key_id}: {title}")
+	#logger.debug(f"Created notification for client {client_key_id}: {title}")
 	return notification.id
 
 
@@ -137,7 +137,7 @@ async def send_push_to_user(user_id: str, db: AsyncSession):
 	client_key_ids = [row[0] for row in user_keys_result.fetchall()]
 
 	if not client_key_ids:
-		logger.info(f"No active client keys found for user {user_id}")
+		#logger.debug(f"No active client keys found for user {user_id}")
 		return
 
 	# Send push to each client_key_id (reuse existing logic)
@@ -155,7 +155,7 @@ async def send_push_to_client(client_key_id: str, db: AsyncSession):
 	registration = result.scalar_one_or_none()
 
 	if not registration:
-		logger.info(f"No push registration found for client {client_key_id}")
+		#logger.info(f"No push registration found for client {client_key_id}")
 		return
 
 	# Send "smart poke" to the registered endpoint
@@ -164,10 +164,10 @@ async def send_push_to_client(client_key_id: str, db: AsyncSession):
 			# Check if this is an FCM token or UnifiedPush URL
 			if registration.push_endpoint.startswith('fcm:'):
 				# FCM token - use Firebase Cloud Messaging
-				logger.info(f"FCM token detected for {client_key_id}: {registration.push_endpoint[:20]}...")
+				#logger.info(f"FCM token detected for {client_key_id}: {registration.push_endpoint[:20]}...")
 
 				if not is_fcm_configured():
-					logger.warning(f"FCM not configured - skipping FCM token {client_key_id}")
+					logger.warning(f"FCM not configured")
 					return
 
 				# Send via FCM
@@ -183,9 +183,11 @@ async def send_push_to_client(client_key_id: str, db: AsyncSession):
 
 				if success:
 					logger.info(f"FCM sent successfully to {client_key_id}")
+					return True
 				else:
 					logger.warning(f"FCM failed for {client_key_id}")
-				return
+					return
+
 
 			# UnifiedPush HTTP endpoint
 			response = await client.post(
@@ -198,9 +200,11 @@ async def send_push_to_client(client_key_id: str, db: AsyncSession):
 			)
 
 			if response.status_code == 200:
-				logger.info(f"Push sent successfully to {client_key_id}")
+				logger.info(f"UnifiedPush sent successfully to {client_key_id}")
+				return True
 			else:
-				logger.warning(f"Push failed for {client_key_id}: {response.status_code}")
+				logger.warning(f"UnifiedPush failed for {client_key_id}: {response.status_code}")
+				return
 
 		except Exception as e:
 			logger.error(f"Error sending push to {client_key_id}: {e}")

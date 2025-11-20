@@ -14,6 +14,8 @@
 	import {clearAlerts} from "$lib/alertSystem.svelte";
 	import {checkAuth} from '$lib/auth.svelte';
 	import {zoomViewData} from '$lib/zoomView.svelte';
+	import {getCurrent} from "@tauri-apps/plugin-deep-link";
+	import {navigateWithHistory} from "$lib/navigation.svelte";
 
 	// Log navigation events
 	beforeNavigate((navigation) => {
@@ -45,7 +47,9 @@
 	}
 
 	onMount(async () => {
-		// Log initial page load
+
+		await handleDeepLinkIntent();
+
 		const initialPath = get(page).url.pathname;
 		console.log(`🢄🧭 [NAV] Initial page load: "${initialPath}"`);
 
@@ -56,6 +60,27 @@
 			await setupDeepLinkListener();
 		}
 	});
+
+
+	async function handleDeepLinkIntent()
+	{
+		console.log('🢄🔗 ...');
+		try {
+			const current_activity = await getCurrent();
+			console.log('🢄🔗 Current deep link activity:', current_activity);
+			if (current_activity)
+			{
+				// navigate based on the deep link
+				const route = '/' + current_activity[0].split('://')[1];
+				console.log('🢄🔗 Navigating to route from deep link:', route);
+				await navigateWithHistory(route);
+			}
+		}
+		catch(e) {
+			console.error('🢄🔗 getCurrent error:', e);
+		}
+	}
+
 </script>
 
 <slot/>

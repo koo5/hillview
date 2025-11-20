@@ -1,8 +1,8 @@
 package cz.hillview.plugin
 
 import android.app.Activity
-import android.content.Context
 import android.content.Intent
+import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -278,6 +278,23 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
 
     override fun load(webView: WebView) {
         Log.i(TAG, "🢄🎥 Plugin load() called with WebView: $webView")
+        Log.d(TAG, "📲 intent: ${activity.intent}")
+        // read the intent extras and find url to navigate to:
+        activity.intent?.let { intent ->
+			Log.i(TAG, "🢄intent has data: ${intent.data}")
+			Log.i(TAG, "🢄intent has extras: ${intent.extras}")// Bundle[mParcelledData.dataSize=792]
+			Log.i(TAG, "🢄intent extras keys: ${intent.extras?.keySet()}")
+			val urlFromIntent = intent.getStringExtra("click_action")
+			if (urlFromIntent != null) {
+				Log.i(TAG, "🢄🎥 Navigating WebView to URL from intent: $urlFromIntent")
+				activity.runOnUiThread {
+					webView.loadUrl(urlFromIntent)
+				}
+			} else {
+				Log.i(TAG, "🢄🎥 No URL found in intent extras")
+			}
+		}
+
         super.load(webView)
         setupWebViewCameraPermissions(webView)
     }
@@ -2105,7 +2122,6 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
 
             Log.d(TAG, "🔔 Showing test notification: $title - $message")
 
-            // Use NotificationHelper to show the notification
             val notificationHelper = NotificationHelper(activity)
 
             // Use a unique notification ID for test notifications
@@ -2132,4 +2148,9 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             invoke.resolve(error)
         }
     }
+
+	override fun onNewIntent(intent: Intent) {
+		Log.d(TAG, "📲 onNewIntent called with intent: $intent")
+	}
+
 }

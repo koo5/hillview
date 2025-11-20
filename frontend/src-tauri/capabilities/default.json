@@ -23,6 +23,7 @@
     "hillview:allow-check-tauri-permissions",
     "hillview:allow-request-post-notification-permission",
     "shell:default",
-    "opener:default"
+    "opener:default",
+	  "deep-link:default"
   ]
 }

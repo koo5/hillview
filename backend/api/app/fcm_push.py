@@ -55,28 +55,33 @@ async def send_fcm_push(fcm_token: str, title: str, body: str, data: Optional[Di
     token = fcm_token.replace('fcm:', '') if fcm_token.startswith('fcm:') else fcm_token
 
     try:
-        # Build FCM message
+        # Build FCM message with proper deep link
         message = messaging.Message(
             notification=messaging.Notification(
                 title=title,
                 body=body
             ),
-            data=data or {},
+			data={
+				'click_action': 'cz.hillviedev://activity'
+			},
+		#data=data or {},
             android=messaging.AndroidConfig(
                 notification=messaging.AndroidNotification(
-                    channel_id='hillview_notifications',
+                    channel_id='hillview_activity_notifications',
 					color='#8BC3FA',
-					tag=data.get('content', None) if data else None,
-					click_action='view_recent_activity',
+					tag='activity',
+					#click_action='act=android.intent.action.VIEW',
+					sound="",
 					priority='default',
 					visibility='public',
 					notification_count=7
                 ),
-            ),
+                # Add deep link data that FCM will use for intent
+			),
             token=token
         )
 
-        logger.info(f"Sending FCM to {token[:20]}...")
+        #logger.info(f"Sending FCM to {token[:20]}...")
 
         # Use send_each_async with a single message list
         batch_response = await messaging.send_each_async([message])

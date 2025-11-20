@@ -31,5 +31,9 @@ numpy<2
 alembic
 psycopg2-binary
 
-
+# push
 firebase-admin==7.1.0
+
+# config
+pyyaml
+

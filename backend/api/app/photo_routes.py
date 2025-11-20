@@ -1,4 +1,41 @@
 """Photo upload and management routes with security."""
+
+"""
+-       SIGNATURE VERIFICATION SCHEME:
+-       =============================
+-
+-       This function is the critical security checkpoint that prevents compromised workers
+-       from impersonating users. Here's how the three-phase upload process works:
+-
+-       Phase 1 - Upload Authorization (Client → API Server):
+-       - Client calls /api/photos/authorize-upload with file metadata
+-       - API server creates pending photo record with status="authorized"
+-       - API server returns upload_jwt signed with API server's private key
+-       - upload_jwt contains: photo_id, user_id, client_public_key_id
+-
+-       Phase 2 - Signed Upload (Client → Worker):
+-       - Client signs upload payload: {photo_id, filename, timestamp} with their ECDSA private key
+-       - Client sends: upload_jwt + file + client_signature to worker
+-       - Worker verifies upload_jwt using API server's public key (validates authorization)
+-       - Worker processes file but does NOT verify client signature (zero-trust worker)
+-       - Worker sends processed results + client_signature back to API server
+-
+-       Phase 3 - Result Storage (Worker → API Server) ← WE ARE HERE
+-       - API server receives processed results + client_signature from worker
+-       - API server loads client's public key from database (client_public_key_id from photo record)
+-       - API server recreates the exact message that client signed: {photo_id, filename, timestamp}
+-       - API server verifies client_signature using client's public key
+-       - Only saves results if signature is valid - this prevents worker impersonation!
+-
+-       WHY THIS WORKS:
+-       ===============
+-       - Worker cannot forge client signatures (doesn't have client's private key)
+-       - Worker cannot modify upload metadata (signature verification would fail)
+-       - Even if worker is completely compromised, it cannot impersonate users
+-       - Provides cryptographic proof that the client authorized this specific upload
+-       - Signature is stored in database for audit trail and non-repudiation
+"""
+
 import os
 import logging
 import base64

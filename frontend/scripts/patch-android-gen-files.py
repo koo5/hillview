@@ -126,7 +126,7 @@ class AndroidConfigurer:
 				"android.permission.WRITE_EXTERNAL_STORAGE",
 				"android.permission.READ_EXTERNAL_STORAGE"
 			]
-			
+
 			for permission in required_permissions:
 				# Check if permission already exists
 				permission_exists = False
@@ -134,19 +134,19 @@ class AndroidConfigurer:
 					if perm_elem.hasAttribute("android:name") and perm_elem.getAttribute("android:name") == permission:
 						permission_exists = True
 						break
-				
+
 				if not permission_exists:
 					# Create new uses-permission element
 					perm_elem = dom.createElement("uses-permission")
 					perm_elem.setAttribute("android:name", permission)
-					
+
 					# Insert before application element if it exists, otherwise at end
 					app_elements = manifest_elem.getElementsByTagName("application")
 					if app_elements:
 						manifest_elem.insertBefore(perm_elem, app_elements[0])
 					else:
 						manifest_elem.appendChild(perm_elem)
-					
+
 					changes_made = True
 					self.log(f"Added permission: {permission}", "SUCCESS")
 				else:
@@ -195,6 +195,7 @@ class AndroidConfigurer:
 				# Write with proper formatting
 				with open(self.manifest_file, 'w', encoding='utf-8') as f:
 					dom.writexml(f, encoding='utf-8', addindent='    ', newl='\n')
+				self.log(f"wrote {self.manifest_file}", "INFO")
 				self.log("AndroidManifest.xml updated successfully", "SUCCESS")
 			else:
 				self.log("AndroidManifest.xml already correctly configured", "SUCCESS")
@@ -217,7 +218,7 @@ class AndroidConfigurer:
 	def _add_deep_link_intent_filters(self, dom, main_activity):
 		"""Add deep-link intent filters to MainActivity if not already present"""
 		changes_made = False
-		
+
 		# Check if deep-link intent filters already exist
 		existing_schemes = set()
 		for intent_filter in main_activity.getElementsByTagName("intent-filter"):
@@ -225,46 +226,46 @@ class AndroidConfigurer:
 				scheme = data_elem.getAttribute("android:scheme")
 				if scheme:
 					existing_schemes.add(scheme)
-		
+
 		# Determine scheme based on DEV_MODE environment variable
 		dev_mode_str = os.environ.get('DEV_MODE', 'false')
 		is_dev_mode = dev_mode_str == 'true'
 		scheme = "cz.hillviedev" if is_dev_mode else "cz.hillview"
 		required_schemes = [scheme]
-		
+
 		self.log(f"DEV_MODE='{dev_mode_str}', using scheme: {scheme}", "INFO")
-		
+
 		for scheme in required_schemes:
 			if scheme not in existing_schemes:
 				# Create new intent-filter for this scheme
 				intent_filter = dom.createElement("intent-filter")
-				
+
 				# Add action
 				action = dom.createElement("action")
 				action.setAttribute("android:name", "android.intent.action.VIEW")
 				intent_filter.appendChild(action)
-				
+
 				# Add categories
 				default_category = dom.createElement("category")
 				default_category.setAttribute("android:name", "android.intent.category.DEFAULT")
 				intent_filter.appendChild(default_category)
-				
+
 				browsable_category = dom.createElement("category")
 				browsable_category.setAttribute("android:name", "android.intent.category.BROWSABLE")
 				intent_filter.appendChild(browsable_category)
-				
+
 				# Add data with scheme
 				data_elem = dom.createElement("data")
 				data_elem.setAttribute("android:scheme", scheme)
 				intent_filter.appendChild(data_elem)
-				
+
 				# Add intent-filter to main activity
 				main_activity.appendChild(intent_filter)
 				changes_made = True
 				self.log(f"Added deep-link intent filter for scheme: {scheme}", "SUCCESS")
 			else:
 				self.log(f"Deep-link intent filter already exists for scheme: {scheme}", "SUCCESS")
-		
+
 		return changes_made
 
 	def _add_push_services(self, dom, app_elem):
@@ -386,7 +387,7 @@ class AndroidConfigurer:
 			val keystoreProperties = Properties()
 			if (keystorePropertiesFile.exists()) {{
 				keystoreProperties.load(FileInputStream(keystorePropertiesFile))
-				
+
 				keyAlias = keystoreProperties["keyAlias"] as String
 				keyPassword = keystoreProperties["password"] as String
 				storeFile = file(keystoreProperties["storeFile"] as String)
@@ -433,25 +434,25 @@ class AndroidConfigurer:
 	def patch_colors_xml(self) -> bool:
 		"""Patch colors.xml with hillview colors using XML parsing"""
 		self.log("Patching colors.xml...")
-		
+
 		if not self.colors_file.exists():
 			self.log(f"colors.xml not found at {self.colors_file}", "WARNING")
 			return True
-		
+
 		try:
 			tree = ET.parse(self.colors_file)
 			root = tree.getroot()
 			changes_made = False
-			
+
 			# Define our hillview color mappings
 			hillview_colors = {
 				'hillview_green': '#8BC34A',
-				'hillview_green_dark': '#689F38', 
+				'hillview_green_dark': '#689F38',
 				'hillview_green_light': '#DCEDC8',
 				'hillview_accent': '#4CAF50',
 				'hillview_accent_dark': '#388E3C'
 			}
-			
+
 			# Update existing color elements or add if missing
 			for color_name, color_value in hillview_colors.items():
 				color_elem = root.find(f".//color[@name='{color_name}']")
@@ -467,15 +468,15 @@ class AndroidConfigurer:
 					new_color.text = color_value
 					changes_made = True
 					self.log(f"Added {color_name}: {color_value}", "SUCCESS")
-			
+
 			if changes_made:
 				tree.write(self.colors_file, encoding='utf-8', xml_declaration=True)
 				self.log("colors.xml updated successfully", "SUCCESS")
 			else:
 				self.log("colors.xml already has correct values", "SUCCESS")
-				
+
 			return True
-			
+
 		except Exception as e:
 			self.log(f"Error patching colors.xml: {e}", "ERROR")
 			return False
