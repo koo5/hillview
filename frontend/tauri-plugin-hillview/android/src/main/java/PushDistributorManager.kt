@@ -72,6 +72,7 @@ class PushDistributorManager(private val context: Context) {
     private val clientCrypto = ClientCryptoManager(context)
     private val authManager = AuthenticationManager(context)
     private val registrationMutex = Mutex()
+    private val registrationMutex2 = Mutex()
 
     /**
      * Registration status enum for UI display
@@ -288,7 +289,10 @@ class PushDistributorManager(private val context: Context) {
      * Select a distributor and register with backend
      */
     suspend fun selectDistributor(packageName: String): Boolean {
-        return registrationMutex.withLock {
+		Log.d(TAG, "registrationMutex2.withLock..");
+		val holder = registrationMutex2
+        return registrationMutex2.withLock {
+			Log.d(TAG, "registrationMutex2.withLock.");
             Log.d(TAG, "Selecting distributor: $packageName")
 
             // Check if this is direct FCM or UnifiedPush distributor
@@ -398,7 +402,7 @@ class PushDistributorManager(private val context: Context) {
             Log.d(TAG, "🎫 Auth token available: ${token != null}")
 
             // Get server URL
-            Log.d(TAG, "🌐 Getting server URL from preferences...")
+            //Log.d(TAG, "🌐 Getting server URL from preferences...")
             val uploadPrefs = context.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
             val serverUrl = uploadPrefs.getString("server_url", null)
             Log.d(TAG, "🌐 Server URL: $serverUrl")
@@ -411,7 +415,7 @@ class PushDistributorManager(private val context: Context) {
             }
 
             // Generate signature for push registration
-            Log.d(TAG, "✍️ Generating signature for push registration...")
+            //Log.d(TAG, "✍️ Generating signature for push registration...")
             val timestamp = System.currentTimeMillis()
             val selectedDistributor = getSelectedDistributor()
             Log.d(TAG, "✍️ Selected distributor: $selectedDistributor")
