@@ -1,15 +1,15 @@
 <script lang="ts">
 	import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';
 	import StandardBody from '$lib/components/StandardBody.svelte';
-	import PushSettings from '$lib/components/PushSettings.svelte';
+	import UploadSettings from '$lib/components/UploadSettings.svelte';
 </script>
 
 <StandardHeaderWithAlert
-	title="Push Messaging"
+	title="Automatic Upload"
 	showMenuButton={true}
 	fallbackHref="/settings"
 />
 
 <StandardBody>
-	<PushSettings />
+	<UploadSettings />
 </StandardBody>

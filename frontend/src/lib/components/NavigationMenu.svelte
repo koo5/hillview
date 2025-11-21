@@ -60,7 +60,7 @@
     <nav class="nav-menu">
 
         <ul class="menu-list" on:click={handleExternalClick} role="presentation">
-            <li><a href="/static" on:click={closeMenu}>
+            <li><a href="/" on:click={closeMenu}>
                 <Map size={18}/>
                 Map
             </a></li>

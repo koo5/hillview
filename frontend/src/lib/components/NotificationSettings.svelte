@@ -196,7 +196,6 @@
 				on:click={toggleNotifications}
 				disabled={isLoading}
 			/>
-			<span class="toggle-slider"></span>
 			<div class="toggle-text">
 				<strong>Enable Notifications</strong>
 				<span class="toggle-description">
@@ -276,46 +275,6 @@
 	.toggle-label:hover {
 		background: #f3f4f6;
 		border-color: #d1d5db;
-	}
-
-	input[type="checkbox"] {
-		display: none;
-	}
-
-	.toggle-slider {
-		position: relative;
-		width: 3rem;
-		height: 1.5rem;
-		background: #d1d5db;
-		border-radius: 1rem;
-		transition: background 0.3s ease;
-		flex-shrink: 0;
-	}
-
-	.toggle-slider::after {
-		content: '';
-		position: absolute;
-		top: 0.125rem;
-		left: 0.125rem;
-		width: 1.25rem;
-		height: 1.25rem;
-		background: white;
-		border-radius: 50%;
-		transition: transform 0.3s ease;
-		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-	}
-
-	input:checked + .toggle-slider {
-		background: #22c55e;
-	}
-
-	input:checked + .toggle-slider::after {
-		transform: translateX(1.5rem);
-	}
-
-	input:disabled + .toggle-slider {
-		opacity: 0.5;
-		cursor: not-allowed;
 	}
 
 	.toggle-text {

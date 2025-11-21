@@ -53,7 +53,7 @@ export const AVAILABLE_PROVIDERS = {
 	'tiles.ueueeu.eu': 'tiles.ueueeu.eu',
 
     // Standard 'leaflet-providers' providers
-    'OpenStreetMap.Mapnik': 'OpenStreetMap (Default)',
+    'OpenStreetMap.Mapnik': 'OpenStreetMap',
     'OpenStreetMap.DE': 'OpenStreetMap (German)',
     'CartoDB.DarkMatter': 'CartoDB Dark',
     'OpenTopoMap': 'OpenTopoMap',
@@ -77,6 +77,7 @@ export const currentTileProvider = writable<ProviderName>(DEFAULT_TILE_PROVIDER)
  * Set the current tile provider
  */
 export function setTileProvider(provider: ProviderName): void {
+	console.log('tileProviders.setTileProvider()', provider);
     if (provider in AVAILABLE_PROVIDERS) {
         currentTileProvider.set(provider);
     } else {
@@ -88,8 +89,10 @@ export function setTileProvider(provider: ProviderName): void {
  * Get provider configuration from custom providers or leaflet-providers
  */
 export function getProviderConfig(providerName: ProviderName): TileProviderConfig {
+	console.log('tileProviders.getProviderConfig()', providerName);
     // Check custom providers first
     if (CUSTOM_PROVIDERS[providerName]) {
+		console.log('tileProviders.getProviderConfig() - using custom provider');
         return { ...CUSTOM_PROVIDERS[providerName] };
     }
 
@@ -97,7 +100,7 @@ export function getProviderConfig(providerName: ProviderName): TileProviderConfi
     const providers = (L.TileLayer as any).Provider?.providers;
 
     if (!providers) {
-        console.warn('leaflet-providers not loaded, using fallback');
+        console.warn('tileProviders: leaflet-providers not loaded, using fallback');
         return getFallbackConfig();
     }
 
@@ -106,7 +109,7 @@ export function getProviderConfig(providerName: ProviderName): TileProviderConfi
     const variant = parts[1];
 
     if (!providers[providerKey]) {
-        console.warn(`Provider ${providerKey} not found, falling back to OpenStreetMap`);
+        console.warn(`tileProviders: Provider ${providerKey} not found, falling back to OpenStreetMap`);
         return getFallbackConfig();
     }
 
@@ -147,7 +150,7 @@ export function getProviderConfig(providerName: ProviderName): TileProviderConfi
  * Get the current provider configuration
  */
 export function getCurrentProviderConfig(): TileProviderConfig {
-    return getProviderConfig(get(currentTileProvider));
+    return getProviderConfig(get(currentTileProvider) || DEFAULT_TILE_PROVIDER);
 }
 
 /**

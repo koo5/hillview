@@ -938,10 +938,6 @@
     $: arrowX = centerX + Math.cos(arrow_radians) * arrowLength;
     $: arrowY = centerY + Math.sin(arrow_radians) * arrowLength;
 
-    // Tile provider configuration
-    // Set initial tile provider (can be changed via setTileProvider() function)
-    setTileProvider('OpenStreetMap.Mapnik');//TracesTrack.Topo');
-
     // Get the current provider configuration reactively
     $: tileConfig = getCurrentProviderConfig();
 

@@ -112,7 +112,7 @@
 				Disabled (Never prompt)
 			</label>
 		</div>
-		{#if !user}
+		{#if !user && autoUploadEnabled}
 			<div class="login-notice {autoUploadEnabled ? 'urgent-login-notice' : ''}">
 				<p>Please
 					<button type="button" class="login-link" on:click={goToLogin}>log in</button>

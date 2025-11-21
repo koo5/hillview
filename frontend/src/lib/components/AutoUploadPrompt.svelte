@@ -58,9 +58,9 @@
 			}
 	}
 
-	function goToSettings() {
+	function goToUploadSettings() {
 		hidePrompt();
-		navigateWithHistory('/settings');
+		navigateWithHistory('/settings/upload');
 	}
 
 	function dismissPrompt() {
@@ -108,7 +108,7 @@
 		<div class="prompt-content">
 			<button
 				class="configure-btn"
-				on:click={goToSettings}
+				on:click={goToUploadSettings}
 				data-testid="configure-auto-upload"
 			>
 				⚙️ Configure auto-upload
