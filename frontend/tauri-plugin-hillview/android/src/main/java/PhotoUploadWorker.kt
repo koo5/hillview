@@ -45,7 +45,7 @@ class PhotoUploadWorker(
             val triggerSource = inputData.getString("trigger_source") ?: "unknown"
             Log.d(TAG, "doWork - starting unified upload processing (triggered by: $triggerSource)")
 
-            // For scheduled runs, scan for new photos first
+            // For scheduled runs, scan for new photos first // we want to avoid this when invoked just to upload currently captured photo
             if (triggerSource == "scheduled") {
                 Log.d(TAG, "Scheduled run detected - scanning for new photos")
                 scanForNewPhotos()
