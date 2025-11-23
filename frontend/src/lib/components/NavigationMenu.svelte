@@ -7,6 +7,7 @@
     import { BUILD_TIME, BUILD_VERSION, formatBuildTime } from '$lib/buildInfo';
     import { TAURI } from '$lib/tauri.js';
     import { openExternalUrl } from '$lib/urlUtils';
+	import {backendUrl} from "$lib/config";
 
     export let isOpen = false;
     export let onClose: () => void = () => {};
@@ -138,6 +139,9 @@
             </div>
             <div class="build-timestamp">
                 {formatUtcDate(new Date(BUILD_TIME))}
+            </div>
+            <div class="build-timestamp">
+                {backendUrl}
             </div>
         </div>
 

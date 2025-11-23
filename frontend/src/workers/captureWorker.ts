@@ -1,5 +1,5 @@
 // Photo capture worker - processes offscreen canvases
-import { invoke } from '@tauri-apps/api/core';
+
 import type { CaptureQueueItem } from '../lib/captureQueue';
 
 const LOG_PREFIX = '🢄[CAPTURE_WORKER]';

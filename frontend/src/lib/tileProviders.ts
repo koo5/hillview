@@ -19,6 +19,7 @@ export interface TileProviderConfig {
     zIndex?: number;
     bounds?: [[number, number], [number, number]];
     className?: string;
+    subdomains?: string;
 }
 
 // API Keys configuration

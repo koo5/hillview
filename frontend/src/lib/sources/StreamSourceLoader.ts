@@ -337,13 +337,26 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
                     console.log(`StreamSourceLoader: Received ${data.photos.length} photos`);
 
                     const convertedPhotos: PhotoData[] = data.photos.map((photo: any) => {
+
+						let bearing = photo.computed_compass_angle
+						if (bearing === undefined || bearing === null) {
+							bearing = photo.compass_angle
+						}
+						if (bearing === undefined || bearing === null) {
+							bearing = photo.bearing
+						}
+						if (bearing === undefined || bearing === null) {
+							console.warn(`StreamSourceLoader: Photo ${photo.id} missing bearing info, defaulting to 0`);
+							bearing = 0
+						}
+
                         const convertedPhoto: any = {
                             id: photo.id,
                             uid: `${this.source.id}-${photo.id}`,
                             coord: photo.geometry ?
                                 { lat: photo.geometry.coordinates[1], lng: photo.geometry.coordinates[0] } :
                                 photo.coord,
-                            bearing: photo.computed_bearing || photo.bearing || 0,
+                            bearing,
                             url: photo.thumb_1024_url || photo.url || '',
                             file: photo.file || `stream_${photo.id}`,
                             source_type: this.source.type,
