@@ -73,6 +73,7 @@
 				autoUploadPromptEnabled = false;
 				break;
 		}
+		saveSettings();
 	}
 
 	function goToLogin() {
@@ -126,9 +127,6 @@
 		{#if onCancel}
 			<button class="secondary-button" on:click={onCancel}>Cancel</button>
 		{/if}
-		<button class="primary-button" on:click={saveSettings} data-testid="save-settings-button"
-				disabled={autoUploadEnabled && !user}>Save Settings
-		</button>
 	</div>
 {:else}
 	<p>Auto-upload settings are only available in the mobile application.</p>

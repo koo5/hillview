@@ -144,6 +144,11 @@ class EnhancedSensorService(
         gyroscopeSensor = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
         magnetometerSensor = sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
 
+		headingSensor = sensorManager.getDefaultSensor(Sensor.TYPE_HEADING)
+		poseSensor = sensorManager.getDefaultSensor(Sensor.TYPE_POSE_6DOF)
+		
+
+
         // Log available sensors
         Log.i(TAG, "🔍 === ENHANCED SENSOR SERVICE INITIALIZED ===")
         Log.i(TAG, "🔍📱 Available sensors:")
@@ -177,6 +182,10 @@ class EnhancedSensorService(
             Log.w(TAG, "🔀 Sensor already running in mode: ${MODE_NAMES[currentMode]}, switching to ${MODE_NAMES[mode]}")
             stopSensor()
         }
+
+        sensorManager.registerListener(this, this.headingSensor, SENSOR_DELAY)
+        sensorManager.registerListener(this, this.poseSensor, SENSOR_DELAY)
+
 
         currentMode = mode
         Log.i(TAG, "🔍🚀 Starting enhanced sensor service")
@@ -339,7 +348,65 @@ class EnhancedSensorService(
         )
     }
 
+
+	fun logEvent(event: SensorEvent) {
+	    Log.d(TAG, "Sensor event received: type=${event.sensor.type}, values=${event.values.joinToString()}")
+
+
+		if (event.sensor.type == Sensor.TYPE_HEADING) {
+			/*
+			Sensor.TYPE_HEADING:
+			A sensor of this type measures the direction in which the device is pointing relative to true north in degrees. The value must be between 0.0 (inclusive) and 360.0 (exclusive), with 0 indicating north, 90 east, 180 south, and 270 west. Accuracy is defined at 68% confidence. In the case where the underlying distribution is assumed Gaussian normal, this would be considered one standard deviation. For example, if heading returns 60 degrees, and accuracy returns 10 degrees, then there is a 68 percent probability of the true heading being between 50 degrees and 70 degrees.
+
+				values[0]: Measured heading in degrees.
+				values[1]: Heading accuracy in degrees.
+			*/
+
+			val heading = event.values[0]
+			val accuracy = event.values[1]
+
+			Log.d(TAG, "🔍🧭 Received TYPE_HEADING data: heading=${heading.format(1)}°, accuracy=±${accuracy.format(1)}°")
+
+		}
+		else if (event.sensor.type == Sensor.TYPE_POSE_6DOF) {
+			/*
+				A TYPE_POSE_6DOF event consists of a rotation expressed as a quaternion and a translation expressed in SI units. The event also contains a delta rotation and translation that show how the device?s pose has changed since the previous sequence numbered pose. The event uses the cannonical Android Sensor axes.
+
+				values[0]: x*sin(θ/2)
+				values[1]: y*sin(θ/2)
+				values[2]: z*sin(θ/2)
+				values[3]: cos(θ/2)
+				values[4]: Translation along x axis from an arbitrary origin.
+				values[5]: Translation along y axis from an arbitrary origin.
+				values[6]: Translation along z axis from an arbitrary origin.
+				values[7]: Delta quaternion rotation x*sin(θ/2)
+				values[8]: Delta quaternion rotation y*sin(θ/2)
+				values[9]: Delta quaternion rotation z*sin(θ/2)
+				values[10]: Delta quaternion rotation cos(θ/2)
+				values[11]: Delta translation along x axis.
+				values[12]: Delta translation along y axis.
+				values[13]: Delta translation along z axis.
+				values[14]: Sequence number
+			*/
+
+			val qx = event.values[0]
+			val qy = event.values[1]
+			val qz = event.values[2]
+			val qw = event.values[3]
+			val tx = event.values[4]
+			val ty = event.values[5]
+			val tz = event.values[6]
+			Log.d(TAG, "🔍🤖 Received TYPE_POSE_6DOF data: quaternion=[$qx, $qy, $qz, $qw], translation=[$tx, $ty, $tz]")
+
+		}
+
+	}
+
     override fun onSensorChanged(event: SensorEvent) {
+
+		logEvent(event)
+
+
         when (event.sensor.type) {
             Sensor.TYPE_ROTATION_VECTOR -> {
                 //Log.v(TAG, "🔍📡 Received TYPE_ROTATION_VECTOR data")
