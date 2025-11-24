@@ -1,11 +1,13 @@
 <script lang="ts">
 	import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';
 	import StandardBody from '$lib/components/StandardBody.svelte';
-	import SettingsComponent from '$lib/components/CameraSettings.svelte';
+	import CameraSettings from '$lib/components/CameraSettings.svelte';
 	import UploadSettingsComponent from '$lib/components/UploadSettings.svelte';
 	import NotificationSettingsComponent from '$lib/components/NotificationSettings.svelte';
+	import DebugSettings from '$lib/components/DebugSettings.svelte';
 	import type { Alert } from '$lib/alertSystem.svelte';
 	import {Database, Wifi, ChevronRight} from "lucide-svelte";
+	import {TAURI} from "$lib/tauri";
 
 	let alertMessage = '';
 	let alertType: Alert['type'] = 'info';
@@ -33,28 +35,33 @@
 	<div class="settings-container">
 
 		<!-- Notification Settings -->
+		{#if TAURI}
 		<div class="section-divider"></div>
 		<NotificationSettingsComponent
 			onSaveSuccess={(message) => showAlert(message, 'success')}
 			onSaveError={(message) => showAlert(message, 'error')}
 		/>
+		{/if}
 
-		<!-- General Settings -->
-		<SettingsComponent
+		{#if TAURI}
+		<CameraSettings
 			onSaveSuccess={(message) => showAlert(message, 'success')}
 			onSaveError={(message) => showAlert(message, 'error')}
 		/>
+		{/if}
 
-		<!-- Upload Settings -->
+		{#if TAURI}
 		<div class="section-divider"></div>
 		<UploadSettingsComponent
 			onSaveSuccess={(message) => showAlert(message, 'success')}
 		/>
+		{/if}
 
 		<!-- Advanced Settings -->
 		<div class="section-divider"></div>
 		<h2>Advanced</h2>
 
+		{#if TAURI}
 		<a href="/settings/push" class="settings-navigation-link" data-testid="push-messaging-link">
 			<Wifi size={18}/>
 			<div class="link-text">
@@ -63,6 +70,7 @@
 			</div>
 			<ChevronRight size={16} />
 		</a>
+		{/if}
 
 		<a href="/settings/sources" class="settings-navigation-link" data-testid="sources-menu-link">
 			<Database size={18}/>
@@ -72,6 +80,10 @@
 			</div>
 			<ChevronRight size={16} />
 		</a>
+
+		<div class="section-divider"></div>
+		<DebugSettings />
+
 
 
 

@@ -3,6 +3,7 @@
 </svelte:head>
 
 <script lang="ts">
+	import {app} from '$lib/data.svelte';
 	import {onMount} from 'svelte';
 	import {get} from 'svelte/store';
 	import {myGoto} from '$lib/navigation.svelte';
@@ -472,10 +473,12 @@
 					<div class="photo-card" data-testid="photo-card" data-photo-id={photo.id}
 						 data-filename={photo.original_filename}>
 
+						{#if $app.debug_enabled}
 							<details>
-								<summary>?</summary>
+								<summary>[debug]</summary>
 								<pre>{JSON.stringify(photo, null, 2)}</pre>
 							</details>
+						{/if}
 
 						<div class="photo-image">
 							<img

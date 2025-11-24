@@ -85,6 +85,8 @@ class EnhancedSensorService(
     private var accelerometerSensor: Sensor? = null
     private var gyroscopeSensor: Sensor? = null
     private var magnetometerSensor: Sensor? = null
+    private var headingSensor: Sensor? = null
+    private var poseSensor: Sensor? = null
 
     // Sensor fusion algorithms
     private val madgwickAHRS = MadgwickAHRS(sampleFreq = 50f, beta = 0.1f)
@@ -144,8 +146,8 @@ class EnhancedSensorService(
         gyroscopeSensor = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
         magnetometerSensor = sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
 
-		headingSensor = sensorManager.getDefaultSensor(Sensor.TYPE_HEADING)
-		poseSensor = sensorManager.getDefaultSensor(Sensor.TYPE_POSE_6DOF)
+        headingSensor = sensorManager.getDefaultSensor(Sensor.TYPE_HEADING)
+        poseSensor = sensorManager.getDefaultSensor(Sensor.TYPE_POSE_6DOF)
 		
 
 
@@ -158,6 +160,8 @@ class EnhancedSensorService(
         Log.i(TAG, "  ✓ TYPE_ACCELEROMETER: ${accelerometerSensor != null}")
         Log.i(TAG, "  ✓ TYPE_GYROSCOPE: ${gyroscopeSensor != null}")
         Log.i(TAG, "  ✓ TYPE_MAGNETIC_FIELD: ${magnetometerSensor != null}")
+        Log.i(TAG, "  ✓ TYPE_HEADING: ${headingSensor != null}")
+        Log.i(TAG, "  ✓ TYPE_POSE_6DOF: ${poseSensor != null}")
 
         // Log sensor details if available
         gameRotationVectorSensor?.let {
@@ -183,8 +187,8 @@ class EnhancedSensorService(
             stopSensor()
         }
 
-        sensorManager.registerListener(this, this.headingSensor, SENSOR_DELAY)
-        sensorManager.registerListener(this, this.poseSensor, SENSOR_DELAY)
+        headingSensor?.let { sensorManager.registerListener(this, it, SENSOR_DELAY) }
+        poseSensor?.let { sensorManager.registerListener(this, it, SENSOR_DELAY) }
 
 
         currentMode = mode

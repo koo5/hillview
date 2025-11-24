@@ -83,6 +83,7 @@ export let cameraOverlayOpacity = staggeredLocalStorageSharedStore('cameraOverla
 // Separate persisted app settings from session-specific state
 export let appSettings = staggeredLocalStorageSharedStore('appSettings', {
     debug: 0,
+	debug_enabled: false,
     display_mode: 'split' as DisplayMode,
     activity: 'view' as AppActivity,
 });
@@ -91,6 +92,7 @@ export let appSettings = staggeredLocalStorageSharedStore('appSettings', {
 export let app = writable<{
     error: string | null;
     debug: number;
+	debug_enabled: boolean;
     display_mode: DisplayMode;
     loading?: boolean;
     is_authenticated?: boolean;
@@ -98,6 +100,7 @@ export let app = writable<{
 }>({
     error: null,
     debug: 0,
+	debug_enabled: false,
     display_mode: 'split',
     activity: 'view',
 });
@@ -107,11 +110,13 @@ appSettings.subscribe(settings => {
     const currentApp = get(app);
     // Only update if values have actually changed
     if (currentApp.debug != settings.debug ||
+		currentApp.debug_enabled != settings.debug_enabled ||
         currentApp.display_mode != settings.display_mode ||
         currentApp.activity != settings.activity) {
         app.update(a => ({
             ...a,
             debug: settings.debug,
+			debug_enabled: settings.debug_enabled,
             display_mode: settings.display_mode,
             activity: !!import.meta.env.VITE_PICS_OFF ? 'view' : settings.activity
         }));
@@ -123,6 +128,7 @@ app.subscribe(appState => {
     const currentSettings = get(appSettings);
     // Only update if values have actually changed
     if (((!isNaN(currentSettings.debug) && !isNaN(appState.debug)) && currentSettings.debug != appState.debug) ||
+		currentSettings.debug_enabled != appState.debug_enabled ||
         currentSettings.display_mode != appState.display_mode ||
         currentSettings.activity != appState.activity) {
         console.log('🢄currentSettings.debug:', currentSettings.debug, 'appState.debug:', appState.debug, 'currentSettings.display_mode:', currentSettings.display_mode, 'appState.display_mode:', appState.display_mode, 'currentSettings.activity:', currentSettings.activity, 'appState.activity:', appState.activity);
@@ -131,6 +137,7 @@ app.subscribe(appState => {
             appSettings.update(settings => ({
                 ...settings,
                 debug: appState.debug,
+				debug_enabled: appState.debug_enabled,
                 display_mode: appState.display_mode,
                 activity: appState.activity
             }));
