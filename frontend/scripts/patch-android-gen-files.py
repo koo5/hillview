@@ -37,6 +37,21 @@ class AndroidConfigurer:
 		# Google Services configuration paths
 		self.google_services_target = self.android_root / "app" / "google-services.json"
 
+	def get_dev_mode_info(self):
+		"""Get development mode information"""
+		dev_mode_str = os.environ.get('DEV_MODE', 'false')
+		is_dev_mode = dev_mode_str == 'true'
+		return dev_mode_str, is_dev_mode
+
+	def get_package_name(self):
+		"""Get package name based on dev mode"""
+		_, is_dev_mode = self.get_dev_mode_info()
+		return "cz.hillviedev" if is_dev_mode else "cz.hillview"
+
+	def get_plugin_package_name(self):
+		"""Get plugin package name based on dev mode"""
+		return f"{self.get_package_name()}.plugin"
+
 	def log(self, message: str, level: str = "INFO"):
 		"""Simple logging with color codes"""
 		colors = {
@@ -228,9 +243,8 @@ class AndroidConfigurer:
 					existing_schemes.add(scheme)
 
 		# Determine scheme based on DEV_MODE environment variable
-		dev_mode_str = os.environ.get('DEV_MODE', 'false')
-		is_dev_mode = dev_mode_str == 'true'
-		scheme = "cz.hillviedev" if is_dev_mode else "cz.hillview"
+		dev_mode_str, _ = self.get_dev_mode_info()
+		scheme = self.get_package_name()
 		required_schemes = [scheme]
 
 		self.log(f"DEV_MODE='{dev_mode_str}', using scheme: {scheme}", "INFO")
@@ -276,10 +290,16 @@ class AndroidConfigurer:
 
 		changes_made = False
 
+		# Determine package based on DEV_MODE environment variable
+		dev_mode_str, _ = self.get_dev_mode_info()
+		package_name = self.get_plugin_package_name()
+
+		self.log(f"DEV_MODE='{dev_mode_str}', using service package: {package_name}", "INFO")
+
 		# Define the services we need
 		services_to_add = [
 			{
-				"name": "cz.hillview.plugin.HillviewUnifiedPushService",
+				"name": f"{package_name}.HillviewUnifiedPushService",
 				"exported": "false",
 				"intent_filters": [
 					{
@@ -293,13 +313,19 @@ class AndroidConfigurer:
 				]
 			},
 			{
-				"name": "cz.hillview.plugin.FcmDirectService",
+				"name": f"{package_name}.FcmDirectService",
 				"exported": "false",
 				"intent_filters": [
 					{
 						"actions": ["com.google.firebase.MESSAGING_EVENT"]
 					}
 				]
+			},
+			{
+				"name": f"{package_name}.SecureUploadService",
+				"exported": "false",
+				"foreground_service_type": "dataSync",
+				"intent_filters": []
 			}
 		]
 
@@ -318,6 +344,10 @@ class AndroidConfigurer:
 				service_elem.setAttribute("android:name", service_name)
 				service_elem.setAttribute("android:exported", service_config["exported"])
 
+				# Add foreground service type if specified
+				if "foreground_service_type" in service_config:
+					service_elem.setAttribute("android:foregroundServiceType", service_config["foreground_service_type"])
+
 				# Add intent filters
 				for intent_filter_config in service_config["intent_filters"]:
 					intent_filter = dom.createElement("intent-filter")
@@ -332,9 +362,9 @@ class AndroidConfigurer:
 				# Add service to application element
 				app_elem.appendChild(service_elem)
 				changes_made = True
-				self.log(f"Added push service: {service_name}", "SUCCESS")
+				self.log(f"Added service: {service_name}", "SUCCESS")
 			else:
-				self.log(f"Push service already exists: {service_name}", "SUCCESS")
+				self.log(f"Service already exists: {service_name}", "SUCCESS")
 
 		return changes_made
 
@@ -838,9 +868,8 @@ if (file("google-services.json").exists()) {
 		self.log("Copying google-services.json...")
 
 		# Determine package based on DEV_MODE environment variable
-		dev_mode_str = os.environ.get('DEV_MODE', 'false')
-		is_dev_mode = dev_mode_str == 'true'
-		package_name = "cz.hillviedev" if is_dev_mode else "cz.hillview"
+		dev_mode_str, _ = self.get_dev_mode_info()
+		package_name = self.get_package_name()
 
 		# Source path: ../../{package_name}/google-services.json
 		source_path = self.project_root / ".." / ".." / package_name / "google-services.json"

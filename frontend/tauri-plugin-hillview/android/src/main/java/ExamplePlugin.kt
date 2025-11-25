@@ -241,7 +241,6 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     private var sensorService: EnhancedSensorService? = null
     private var preciseLocationService: PreciseLocationService? = null
     private var deviceOrientationProvider: DeviceOrientationProvider? = null
-    private val secureUploadManager: SecureUploadManager = SecureUploadManager(activity)
     private val database: PhotoDatabase = PhotoDatabase.getDatabase(activity)
     private val authManager: AuthenticationManager = AuthenticationManager(activity)
     private val photoWorkerService: PhotoWorkerService = PhotoWorkerService(activity, this)
@@ -493,7 +492,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
             initializePreciseLocationService()
         }
 
-        /*// Start Google Play Services device orientation provider // fixme - maybe has more accuracy, but has same gimbal lock problem and also cant seem to throttle it (i guess that wouldnt be a problem)
+        /*// Start Google Play Services device orientation provider // fixme - maybe has more accuracy, but has same gimbal lock problem and also cant seem to throttle it (although i guess that wouldnt be a problem)
         if (deviceOrientationProvider == null) {
             Log.d(TAG, "🔄 Initializing DeviceOrientationProvider alongside sensor")
             deviceOrientationProvider = DeviceOrientationProvider(activity)

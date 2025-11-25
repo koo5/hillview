@@ -137,6 +137,12 @@ class EnhancedSensorService(
     private var lastDatabaseStorageTime = 0L
     private val databaseStorageIntervalMs = 100L // Store at most every 100ms (10 Hz)
 
+    // Lifecycle and power management
+    private var lifecycleObserver: AppLifecycleObserver? = null
+    private var isPausedByLifecycle = false
+    private var wasPausedBefore = false
+    private var requestedMode = MODE_UPRIGHT_ROTATION_VECTOR
+
     init {
         // Initialize sensors
         rotationVectorSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
@@ -179,17 +185,69 @@ class EnhancedSensorService(
         } catch (e: SecurityException) {
             Log.w(TAG, "📍 Location permission not granted")
         }
+
+        // Initialize lifecycle observer
+        initializeLifecycleObserver()
+    }
+
+    /**
+     * Initialize the lifecycle observer for app foreground/background and screen on/off detection
+     */
+    private fun initializeLifecycleObserver() {
+        lifecycleObserver = AppLifecycleObserver(context) { state ->
+            handleAppStateChanged(state)
+        }.also { observer ->
+            observer.start()
+            Log.i(TAG, "🔄 Lifecycle observer initialized and started")
+        }
+    }
+
+    /**
+     * Handle app state changes (foreground/background, screen on/off)
+     */
+    private fun handleAppStateChanged(state: AppLifecycleObserver.AppState) {
+        Log.i(TAG, "🔄 App state changed: $state")
+
+        if (state.shouldPauseSensors && isRunning && !isPausedByLifecycle) {
+            Log.i(TAG, "⏸️ Pausing sensors due to app state")
+            wasPausedBefore = true
+            isPausedByLifecycle = true
+            stopSensorInternal()
+        } else if (!state.shouldPauseSensors && !isRunning && isPausedByLifecycle) {
+            Log.i(TAG, "▶️ Resuming sensors due to app state")
+            isPausedByLifecycle = false
+            startSensorInternal(requestedMode)
+        }
+    }
+
+    /**
+     * Cleanup lifecycle observer
+     */
+    private fun cleanupLifecycleObserver() {
+        lifecycleObserver?.let { observer ->
+            observer.stop()
+            Log.i(TAG, "🛑 Lifecycle observer stopped and cleaned up")
+        }
+        lifecycleObserver = null
     }
 
     fun startSensor(mode: Int = MODE_UPRIGHT_ROTATION_VECTOR) {
+        requestedMode = mode
+        if (!isPausedByLifecycle) {
+            startSensorInternal(mode)
+        } else {
+            Log.i(TAG, "🔄 Sensor start requested but paused by lifecycle, will resume when app becomes active")
+        }
+    }
+
+    private fun startSensorInternal(mode: Int = MODE_UPRIGHT_ROTATION_VECTOR) {
         if (isRunning) {
             Log.w(TAG, "🔀 Sensor already running in mode: ${MODE_NAMES[currentMode]}, switching to ${MODE_NAMES[mode]}")
-            stopSensor()
+            stopSensorInternal()
         }
 
         headingSensor?.let { sensorManager.registerListener(this, it, SENSOR_DELAY) }
         poseSensor?.let { sensorManager.registerListener(this, it, SENSOR_DELAY) }
-
 
         currentMode = mode
         Log.i(TAG, "🔍🚀 Starting enhanced sensor service")
@@ -297,6 +355,10 @@ class EnhancedSensorService(
             Log.i(TAG, "  - Rate limit: ${MODE_RATE_LIMITS[currentMode]}ms (${1000.0/(MODE_RATE_LIMITS[currentMode]?:100)} Hz)")
             Log.i(TAG, "  - Sensor delay: SENSOR_DELAY_GAME")
         }
+    }
+
+    private fun stopSensorInternal() {
+        stopSensor()
     }
 
     fun stopSensor() {

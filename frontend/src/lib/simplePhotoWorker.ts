@@ -115,7 +115,7 @@ class SimplePhotoWorker {
                 const mergedAreaPhotos = withPlaceholders.photos_in_area;
                 const mergedRangePhotos = withPlaceholders.photos_in_range;
 
-                console.log(`🢄SimplePhotoWorker: Updated photos - Area: ${areaPhotos.length} + ${filteredPlaceholders.length}/${currentPlaceholders.length} placeholders (device source ${deviceSourceEnabled ? 'enabled' : 'disabled'}) = ${mergedAreaPhotos.length}, Range: ${message.current_range}m, rangePhotos.length: ${rangePhotos.length} + ${filteredPlaceholders.length} placeholders = ${mergedRangePhotos.length}`);
+                //console.log(`🢄SimplePhotoWorker: Updated photos - Area: ${areaPhotos.length} + ${filteredPlaceholders.length}/${currentPlaceholders.length} placeholders (device source ${deviceSourceEnabled ? 'enabled' : 'disabled'}) = ${mergedAreaPhotos.length}, Range: ${message.current_range}m, rangePhotos.length: ${rangePhotos.length} + ${filteredPlaceholders.length} placeholders = ${mergedRangePhotos.length}`);
 
                 photosInArea.set(mergedAreaPhotos);
                 photosInRange.set(mergedRangePhotos);
@@ -161,7 +161,7 @@ class SimplePhotoWorker {
             // Use the token manager to get a token with optional force refresh
             const tokenManager = createTokenManager();
             const currentToken = await tokenManager.getValidToken(forceRefresh);
-            console.log(`🢄SimplePhotoWorker: Sending auth token to worker: ${currentToken ? 'token available' : 'no token'}${forceRefresh ? ' (refreshed)' : ''}`);
+            //console.log(`🢄SimplePhotoWorker: Sending auth token to worker: ${currentToken ? 'token available' : 'no token'}${forceRefresh ? ' (refreshed)' : ''}`);
 
             this.worker?.postMessage({
                 type: 'authToken',

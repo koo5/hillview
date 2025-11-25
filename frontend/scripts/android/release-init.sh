@@ -1,6 +1,8 @@
 #!/usr/bin/env fish
 
 source (dirname (status --current-filename))/../env/android-release.env
-rm -rf src-tauri/gen tauri-plugin-hillview/android/build/  .svelte-kit/ build
+cd (dirname (readlink -m (status --current-filename)))/../..
+
+./scripts/android/cleanup.sh
 bun run tauri android init
 ./scripts/patch-android-gen-files.py

@@ -2,6 +2,7 @@
 
 # Start Android development mode (Vite server + dev APK with hot reload)
 source (dirname (status --current-filename))/../env/android-debug.env
+cd (dirname (readlink -m (status --current-filename)))/../..
 
 # Set TAURI_DEV_HOST for development
 set -gx TAURI_DEV_HOST (hostname -I | awk '{print $1}')

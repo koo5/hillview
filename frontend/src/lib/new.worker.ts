@@ -110,20 +110,20 @@ function mergeAndCullPhotos(): { photos_in_area: PhotoData[], photos_in_range: P
         return { photos_in_area: [], photos_in_range: [] };
     }
 
-    console.log(`🢄NewWorker: mergeAndCullPhotos - area bounds:`, currentState.area.data);
+    //console.log(`🢄NewWorker: mergeAndCullPhotos - area bounds:`, currentState.area.data);
 	const photosInAreaPerSourceEntriesArray = Array.from(photosInAreaPerSource.entries());
-    console.log(`🢄NewWorker: mergeAndCullPhotos - source photos counts:`, photosInAreaPerSourceEntriesArray.map(([source_id, photos]) => `${source_id}: ${photos.length}`).join(', '));
+    //console.log(`🢄NewWorker: mergeAndCullPhotos - source photos counts:`, photosInAreaPerSourceEntriesArray.map(([source_id, photos]) => `${source_id}: ${photos.length}`).join(', '));
 
     // Create/update culling grid for current area
     if (!cullingGrid || currentState.area.lastUpdateId > (cullingGrid as any).lastUpdateId) {
         cullingGrid = new CullingGrid(currentState.area.data);
         (cullingGrid as any).lastUpdateId = currentState.area.lastUpdateId;
-        console.log(`🢄NewWorker: Created new culling grid for area bounds:`, currentState.area.data);
+        //console.log(`🢄NewWorker: Created new culling grid for area bounds:`, currentState.area.data);
     }
 
     // Apply smart culling for uniform screen coverage
     const photosInArea = cullingGrid.cullPhotos(photosInAreaPerSource, MAX_PHOTOS_IN_AREA);
-    console.log(`🢄NewWorker: After culling - ${photosInArea.length} photos in area (max: ${MAX_PHOTOS_IN_AREA})`);
+    //console.log(`🢄NewWorker: After culling - ${photosInArea.length} photos in area (max: ${MAX_PHOTOS_IN_AREA})`);
 
     // Log a few photo locations for debugging
     /*if (photosInArea.length > 0) {

@@ -57,6 +57,9 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.6.0")
     implementation("com.google.android.material:material:1.7.0")
 
+    // Lifecycle components for ProcessLifecycleOwner
+    implementation("androidx.lifecycle:lifecycle-process:2.6.2")
+
     // Google Play Services for Fused Location Provider
     implementation("com.google.android.gms:play-services-location:21.3.0")
 

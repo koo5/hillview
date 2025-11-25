@@ -3,6 +3,17 @@
 # Build release APK
 source (dirname (status --current-filename))/../env/android-release.env
 
+# Check if gen directory exists, if not, run release-init.sh
+if not test -d src-tauri/gen
+    echo "📁 gen directory not found, running release-init.sh..."
+    ./scripts/android/release-init.sh
+    if test $status -ne 0
+        echo "❌ release-init.sh failed. Exiting."
+        exit 1
+    end
+    echo "✅ release-init.sh completed successfully"
+end
+
 echo "🔨 Building release APK..."
 echo "📱 VITE_DEV_MODE: $VITE_DEV_MODE"
 echo "🌐 VITE_BACKEND_ANDROID: $VITE_BACKEND_ANDROID"

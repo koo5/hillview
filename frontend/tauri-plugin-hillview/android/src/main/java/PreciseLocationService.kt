@@ -41,13 +41,9 @@ class PreciseLocationService(
         private const val TAG = "🢄PreciseLocationService"
 
         // Update intervals in milliseconds
-        private const val UPDATE_INTERVAL = 500L
-        private const val FASTEST_INTERVAL = 250L
-        private const val MAX_WAIT_TIME = 2000L
-
-        // Accuracy thresholds
-        private const val HIGH_ACCURACY_THRESHOLD = 5.0f  // meters
-        private const val MEDIUM_ACCURACY_THRESHOLD = 15.0f // meters
+        private const val UPDATE_INTERVAL = 200L
+        private const val FASTEST_INTERVAL = 200L
+        private const val MAX_WAIT_TIME = 200L
 
         // Permission request code
         private const val LOCATION_PERMISSION_REQUEST_CODE = 1001
@@ -70,32 +66,21 @@ class PreciseLocationService(
         UPDATE_INTERVAL
     ).apply {
         setMinUpdateIntervalMillis(FASTEST_INTERVAL)
-        setMaxUpdateDelayMillis(MAX_WAIT_TIME)
+        //setMaxUpdateDelayMillis(MAX_WAIT_TIME)
+		//setMaxUpdateAgeMillis(1000*60*60
 
         // Request the most accurate location possible
         setWaitForAccurateLocation(true)
 
         // Set the minimum displacement for location updates (0 = no minimum)
-        setMinUpdateDistanceMeters(0f)
+        setMinUpdateDistanceMeters(2f)
     }.build()
 
     init {
-        Log.i(TAG, "📍 === PRECISE LOCATION SERVICE INITIALIZED ===")
-        Log.i(TAG, "📍 Configuration:")
-        Log.i(TAG, "📍  - Update interval: ${UPDATE_INTERVAL}ms")
-        Log.i(TAG, "📍  - Fastest interval: ${FASTEST_INTERVAL}ms")
-        Log.i(TAG, "📍  - Priority: HIGH_ACCURACY (GPS)")
-        Log.i(TAG, "📍  - Wait for accurate location: true")
-        Log.d(TAG, "📍 INIT: Setting up location callback...")
-
         setupLocationCallback()
-        Log.d(TAG, "📍 INIT: Location callback setup complete")
-        Log.d(TAG, "📍 INIT: locationCallback = $locationCallback")
-        Log.d(TAG, "📍 INIT: fusedLocationClient = $fusedLocationClient")
     }
 
     private fun setupLocationCallback() {
-        Log.i(TAG, "📍 SETUP: Setting up location callback...")
         locationCallback = object : LocationCallback() {
             override fun onLocationResult(locationResult: LocationResult) {
                 /*Log.i(TAG, "📍 CALLBACK: *** onLocationResult called! ***")
@@ -321,12 +306,6 @@ class PreciseLocationService(
 
     @SuppressLint("MissingPermission")
     private fun startLocationUpdatesInternal() {
-        Log.i(TAG, "📍 START_INTERNAL: ======= startLocationUpdatesInternal() called =======")
-        Log.i(TAG, "📍 START_INTERNAL: Current thread: ${Thread.currentThread().name}")
-        Log.i(TAG, "📍 START_INTERNAL: Current isRequestingUpdates = $isRequestingUpdates")
-        Log.i(TAG, "📍 START_INTERNAL: fusedLocationClient = $fusedLocationClient")
-        Log.i(TAG, "📍 START_INTERNAL: locationCallback = $locationCallback")
-        Log.i(TAG, "📍 START_INTERNAL: locationRequest = $locationRequest")
 
         if (isRequestingUpdates) {
             Log.w(TAG, "📍 START_INTERNAL: Location updates already active - returning early")
