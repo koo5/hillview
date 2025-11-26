@@ -227,7 +227,17 @@
 							<div class="photo-overlay">
 								<div class="photo-status" style="color: {getStatusColor(photo.upload_status)}">
 									<svelte:component this={getStatusIcon(photo.upload_status)} size={16} />
-									{photo.upload_status}
+									{#if photo.upload_status === 'completed'}
+										Uploaded
+									{:else if photo.upload_status === 'pending'}
+										upload Pending
+									{:else if photo.upload_status === 'uploading'}
+										Uploading
+									{:else if photo.upload_status === 'failed'}
+										upload Failed
+									{:else}
+										{photo.upload_status}
+									{/if}
 								</div>
 							</div>
 						</div>

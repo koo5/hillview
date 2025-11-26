@@ -52,7 +52,7 @@ export const tauriSensor = TAURI ? {
         console.log('🢄🔍📱 Starting Tauri sensor service with mode:', mode, `(${SensorMode[mode]})`);
         try {
             const result = await invoke('plugin:hillview|start_sensor', { mode });
-            console.log('🢄🔍✅ Tauri invoke start_sensor succeeded:', result);
+            //console.log('🢄🔍✅ Tauri invoke start_sensor succeeded:', result);
             return result;
         } catch (error) {
             console.error('🢄🔍❌ Tauri invoke start_sensor failed:', error);

@@ -40,7 +40,7 @@ class EnhancedSensorService(
     companion object {
         private const val TAG = "🢄Sensors"
         private const val UPDATE_RATE_MS = 10 // Higher frequency for better fusion
-        private const val SENSOR_DELAY = SensorManager.SENSOR_DELAY_GAME // Faster updates
+        private const val SENSOR_DELAY = 1000*30//SensorManager.SENSOR_DELAY_GAME // Faster updates
 
         // Smoothing and filtering parameters
         private const val EMA_ALPHA = 1f // EMA smoothing factor (0.1-0.3 range, lower = more smoothing)
@@ -246,13 +246,6 @@ class EnhancedSensorService(
             stopSensorInternal()
         }
 
-        headingSensor?.let { sensorManager.registerListener(this, it, SENSOR_DELAY) }
-        poseSensor?.let { sensorManager.registerListener(this, it, SENSOR_DELAY) }
-
-        currentMode = mode
-        Log.i(TAG, "🔍🚀 Starting enhanced sensor service")
-        Log.i(TAG, "🔍📋 Mode: ${MODE_NAMES[mode]} (code: $mode)")
-
         // Boost thread priority for sensor processing to prevent starvation during photo capture
         try {
             if (originalThreadPriority == null) {
@@ -263,6 +256,16 @@ class EnhancedSensorService(
         } catch (e: Exception) {
             Log.w(TAG, "⚠️ Failed to set sensor thread priority: ${e.message}")
         }
+
+		Log.i(TAG, "🔍📡 Registering TYPE_HEADING and TYPE_POSE_6DOF sensors if available: headingSensor: ${headingSensor != null}, poseSensor: ${poseSensor != null}")
+        headingSensor?.let { sensorManager.registerListener(this, it, SENSOR_DELAY) }
+        poseSensor?.let { sensorManager.registerListener(this, it, SENSOR_DELAY) }
+		//isRunning = true
+
+        currentMode = mode
+        Log.i(TAG, "🔍🚀 Starting enhanced sensor service")
+        Log.i(TAG, "🔍📋 Mode: ${MODE_NAMES[mode]} (code: $mode)")
+
 
         when (mode) {
             MODE_ROTATION_VECTOR -> {
@@ -416,7 +419,7 @@ class EnhancedSensorService(
 
 
 	fun logEvent(event: SensorEvent) {
-	    Log.d(TAG, "type=${event.sensor.type}, values=${event.values.joinToString()}")
+	    //Log.d(TAG, "type=${event.sensor.type}, values=${event.values.joinToString()}")
 
 
 		if (event.sensor.type == Sensor.TYPE_HEADING) {
@@ -476,12 +479,7 @@ class EnhancedSensorService(
         when (event.sensor.type) {
             Sensor.TYPE_ROTATION_VECTOR -> {
                 //Log.v(TAG, "🔍📡 Received TYPE_ROTATION_VECTOR data")
-                val source = if (currentMode == MODE_UPRIGHT_ROTATION_VECTOR) {
-                    "TYPE_ROTATION_VECTOR (UPRIGHT)"
-                } else {
-                    "TYPE_ROTATION_VECTOR"
-                }
-                handleRotationVector(event, source)
+                handleRotationVector(event, "TYPE_ROTATION_VECTOR")
             }
             Sensor.TYPE_GAME_ROTATION_VECTOR -> {
                 Log.v(TAG, "🔍🎮 Received TYPE_GAME_ROTATION_VECTOR data")
