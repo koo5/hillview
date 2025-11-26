@@ -244,6 +244,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     private val database: PhotoDatabase = PhotoDatabase.getDatabase(activity)
     private val authManager: AuthenticationManager = AuthenticationManager(activity)
     private val photoWorkerService: PhotoWorkerService = PhotoWorkerService(activity, this)
+    private val photoUploadManager: PhotoUploadManager = PhotoUploadManager(activity)
 
     // Message queue system for reliable Kotlin-frontend communication
     private val messageQueue = ConcurrentLinkedQueue<QueuedMessage>()
@@ -652,7 +653,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
 
             if (enabled) {
                 Log.i(TAG, "📤 [setAutoUploadEnabled] Scheduling upload worker...")
-                scheduleUploadWorker(workManager, enabled)
+                photoUploadManager.scheduleUploadWorker(workManager, enabled)
                 Log.i(TAG, "📤 [setAutoUploadEnabled] Auto upload worker scheduled successfully")
             } else {
                 Log.i(TAG, "📤 [setAutoUploadEnabled] Cancelling upload worker...")
@@ -774,30 +775,12 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         }
     }
 
+	// startAutomaticUpload
     @Command
     fun tryUploads(invoke: Invoke) {
         try {
 
-            // Trigger the upload worker immediately
-            val workManager = WorkManager.getInstance(activity)
-            val prefs = activity.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
-            val autoUploadEnabled = prefs.getBoolean("auto_upload_enabled", false)
-
-			if (autoUploadEnabled) {
-	            Log.d(TAG, "🢄📤 workManager.enqueue(workRequest)")
-				val workRequest = OneTimeWorkRequestBuilder<PhotoUploadWorker>()
-					.setInputData(
-						Data.Builder()
-							.putString("trigger_source", "manual")
-							.build()
-					)
-					.build()
-				workManager.enqueue(workRequest)
-            }
-            else
-            {
-            	Log.d(TAG, "🢄📤 auto_upload_enabled === false")
-            }
+			photoUploadManager.startAutomaticUpload()
 
             val result = JSObject()
             result.put("success", true)
@@ -812,46 +795,31 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         }
     }
 
-    private fun scheduleUploadWorker(workManager: WorkManager, enabled: Boolean) {
-        Log.i(TAG, "📤 [scheduleUploadWorker] CALLED with enabled: $enabled")
+	@Command
+	fun startManualUpload(invoke: Invoke)
+	{
+		try {
+            /*val args = invoke.parseArgs(StartManualUploadArgs::class.java)
+            Log.d(TAG, "🔐 Parsed args object: $args")
+            val photoId = args.photo_id
 
-        try {
-            Log.d(TAG, "📤 [scheduleUploadWorker] Building work constraints...")
-            val constraints = Constraints.Builder()
-                .setRequiredNetworkType(NetworkType.CONNECTED)
-                .setRequiresBatteryNotLow(true)
-                .build()
+			photoUploadManager.startManualUpload(photoId)
 
-            Log.d(TAG, "📤 [scheduleUploadWorker] Constraints built - NetworkType.CONNECTED, RequiresBatteryNotLow=true")
-
-            Log.d(TAG, "📤 [scheduleUploadWorker] Creating periodic work request...")
-            val uploadWorkRequest = PeriodicWorkRequestBuilder<PhotoUploadWorker>(
-                150, TimeUnit.MINUTES
-            )
-                .setConstraints(constraints)
-                .setInputData(
-                    Data.Builder()
-                        .putBoolean(PhotoUploadWorker.KEY_AUTO_UPLOAD_ENABLED, enabled)
-                        .putString("trigger_source", "scheduled")
-                        .build()
-                )
-                .build()
-
-            Log.d(TAG, "📤 [scheduleUploadWorker] Work request created - interval: 150 minutes, workId: ${uploadWorkRequest.id}")
-
-            Log.i(TAG, "📤 [scheduleUploadWorker] Enqueueing unique periodic work with name: ${PhotoUploadWorker.WORK_NAME}")
-            workManager.enqueueUniquePeriodicWork(
-                PhotoUploadWorker.WORK_NAME,
-                ExistingPeriodicWorkPolicy.UPDATE,
-                uploadWorkRequest
-            )
-
-            Log.i(TAG, "📤 [scheduleUploadWorker] SUCCESS - periodic work enqueued with UPDATE policy")
+             */
+            val result = JSObject()
+            result.put("success", true)
+            invoke.resolve(result)
 
         } catch (e: Exception) {
-            Log.e(TAG, "📤 [scheduleUploadWorker] ERROR occurred while scheduling worker", e)
+            Log.e(TAG, "🢄📤 startManualUpload error", e)
+            val error = JSObject()
+            error.put("success", false)
+            error.put("error", e.message)
+            invoke.resolve(error)
         }
     }
+
+
 
     // Authentication Commands
 

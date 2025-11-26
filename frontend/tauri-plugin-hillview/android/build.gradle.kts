@@ -98,3 +98,9 @@ dependencies {
 
     implementation("org.unifiedpush.android:connector:3.1.2")
 }
+
+kotlin {
+    compilerOptions {
+        freeCompilerArgs.add("-Xcontext-parameters")
+    }
+}

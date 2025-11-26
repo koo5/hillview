@@ -38,7 +38,7 @@ class EnhancedSensorService(
     private val onSensorUpdate: (SensorData) -> Unit
 ) : SensorEventListener {
     companion object {
-        private const val TAG = "🢄EnhancedSensorService"
+        private const val TAG = "🢄Sensors"
         private const val UPDATE_RATE_MS = 10 // Higher frequency for better fusion
         private const val SENSOR_DELAY = SensorManager.SENSOR_DELAY_GAME // Faster updates
 
@@ -154,7 +154,7 @@ class EnhancedSensorService(
 
         headingSensor = sensorManager.getDefaultSensor(Sensor.TYPE_HEADING)
         poseSensor = sensorManager.getDefaultSensor(Sensor.TYPE_POSE_6DOF)
-		
+
 
 
         // Log available sensors
@@ -416,7 +416,7 @@ class EnhancedSensorService(
 
 
 	fun logEvent(event: SensorEvent) {
-	    Log.d(TAG, "Sensor event received: type=${event.sensor.type}, values=${event.values.joinToString()}")
+	    Log.d(TAG, "type=${event.sensor.type}, values=${event.values.joinToString()}")
 
 
 		if (event.sensor.type == Sensor.TYPE_HEADING) {
@@ -431,7 +431,7 @@ class EnhancedSensorService(
 			val heading = event.values[0]
 			val accuracy = event.values[1]
 
-			Log.d(TAG, "🔍🧭 Received TYPE_HEADING data: heading=${heading.format(1)}°, accuracy=±${accuracy.format(1)}°")
+			Log.d(TAG, "🔍🧭TYPE_HEADING data: heading=${heading.format(1)}°, accuracy=±${accuracy.format(1)}°")
 
 		}
 		else if (event.sensor.type == Sensor.TYPE_POSE_6DOF) {
@@ -462,7 +462,7 @@ class EnhancedSensorService(
 			val tx = event.values[4]
 			val ty = event.values[5]
 			val tz = event.values[6]
-			Log.d(TAG, "🔍🤖 Received TYPE_POSE_6DOF data: quaternion=[$qx, $qy, $qz, $qw], translation=[$tx, $ty, $tz]")
+			Log.d(TAG, "🔍🤖TYPE_POSE_6DOF data: quaternion=[$qx, $qy, $qz, $qw], translation=[$tx, $ty, $tz]")
 
 		}
 

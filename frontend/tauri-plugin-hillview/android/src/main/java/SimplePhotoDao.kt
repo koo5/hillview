@@ -42,27 +42,29 @@ interface SimplePhotoDao {
     @Query("SELECT * FROM photos WHERE uploadStatus = 'pending' ORDER BY createdAt ASC")
     fun getPendingUploads(): List<PhotoEntity>
 
-    @Query("SELECT * FROM photos WHERE uploadStatus = 'failed' ORDER BY lastUploadAttempt ASC")
-    fun getFailedUploadsForRetry(): List<PhotoEntity>
+    //@Query("SELECT * FROM photos WHERE uploadStatus = 'failed' ORDER BY lastUploadAttempt ASC")
+    //fun getFailedUploadsForRetry(): List<PhotoEntity>
 
     @Query("""
         SELECT * FROM photos
-        WHERE (id NOT IN (:seen) AND
-         uploadStatus IN ('pending', 'uploading', 'failed'))
+        WHERE (id NOT IN (:seen) AND (
+            uploadStatus IN ('pending', 'failed') OR
+            (uploadStatus = 'uploading' AND lastUploadAttempt < :staleThreshold)
+        ))
         ORDER BY
             CASE uploadStatus
                 WHEN 'pending' THEN 1
-                WHEN 'uploading' THEN 2
-                WHEN 'failed' THEN 3
+                WHEN 'failed' THEN 2
+                WHEN 'uploading' THEN 3
             END,
             CASE uploadStatus
                 WHEN 'pending' THEN createdAt
-                WHEN 'uploading' THEN createdAt
                 WHEN 'failed' THEN lastUploadAttempt
+                WHEN 'uploading' THEN lastUploadAttempt
             END ASC
         LIMIT 1
     """)
-    fun getNextPhotoForUpload(seen: Set<String>): PhotoEntity?
+    fun getNextPhotoForUpload(seen: Set<String>, staleThreshold: Long): PhotoEntity?
 
     @Query("SELECT COUNT(*) FROM photos WHERE uploadStatus = 'pending'")
     fun getPendingUploadCount(): Int
@@ -93,4 +95,7 @@ interface SimplePhotoDao {
 
     @Query("SELECT EXISTS(SELECT 1 FROM photos WHERE path = :path)")
     fun photoExists(path: String): Boolean
+
+    @Query("UPDATE photos SET lastUploadAttempt = :timestamp WHERE id = :photoId")
+    suspend fun updateUploadHeartbeat(photoId: String, timestamp: Long)
 }
