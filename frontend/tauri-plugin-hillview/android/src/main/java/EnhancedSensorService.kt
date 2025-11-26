@@ -257,9 +257,9 @@ class EnhancedSensorService(
             Log.w(TAG, "⚠️ Failed to set sensor thread priority: ${e.message}")
         }
 
-		Log.i(TAG, "🔍📡 Registering TYPE_HEADING and TYPE_POSE_6DOF sensors if available: headingSensor: ${headingSensor != null}, poseSensor: ${poseSensor != null}")
-        headingSensor?.let { sensorManager.registerListener(this, it, SENSOR_DELAY) }
-        poseSensor?.let { sensorManager.registerListener(this, it, SENSOR_DELAY) }
+		Log.i(TAG, "🔍📡 TYPE_HEADING and TYPE_POSE_6DOF sensors if available: headingSensor: ${headingSensor != null}, poseSensor: ${poseSensor != null}")
+        /*headingSensor?.let { sensorManager.registerListener(this, it, SENSOR_DELAY) }
+        poseSensor?.let { sensorManager.registerListener(this, it, SENSOR_DELAY) }*/
 		//isRunning = true
 
         currentMode = mode
@@ -551,7 +551,7 @@ class EnhancedSensorService(
         }
         lastUpdateTime = currentTime
 
-        //Log.v(TAG, "🔍📊 Processing $source data")
+        Log.v(TAG, "🔍📊 Processing $source data")
 
         // Get rotation matrix
         SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
