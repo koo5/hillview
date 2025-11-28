@@ -101,14 +101,14 @@ class DeviceOrientationProvider(
         try {
 
             val attitude = orientation.attitude
-            //Log.v(TAG, "🔍📊 Google Device Orientation Attitude: $attitude") // fixme: print elements properly
+            Log.v(TAG, "🔍📊GDO Attitude: $attitude") // fixme: print elements properly
 
             // Log heading if available
             try {
                 val heading = orientation.headingDegrees
-                Log.v(TAG, "🔍📊 Google Device Orientation Heading: ${String.format("%.1f", heading)}°")
+                Log.v(TAG, "🔍📊GDO Heading: ${String.format("%.1f", heading)}°")
             } catch (e: Exception) {
-                Log.v(TAG, "🔍📊 Google Device Orientation Heading: not available")
+                Log.v(TAG, "🔍📊GDO Heading: not available")
             }
 
         } catch (e: Exception) {
