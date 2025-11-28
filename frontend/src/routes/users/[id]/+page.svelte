@@ -2,8 +2,7 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { http, handleApiError } from '$lib/http';
-	import { myGoto } from '$lib/navigation.svelte';
-	import { constructPhotoMapUrl, constructUserPhotosUrl } from '$lib/urlUtils';
+	import { constructUserPhotosUrl } from '$lib/urlUtils';
 	import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';
 	import StandardBody from '$lib/components/StandardBody.svelte';
 	import Spinner from '$lib/components/Spinner.svelte';
@@ -146,12 +145,7 @@
 		</div>
 	{:else}
 		<div class="photos-section">
-			<div class="photos-header">
-				<h2>{user?.username}'s Photos ({totalCount})</h2>
-				<button class="back-button" on:click={() => myGoto('/users')}>
-					← Back to Users
-				</button>
-			</div>
+			<h2>{user?.username}'s Photos ({totalCount})</h2>
 
 			<div class="photos-grid">
 				{#each photos as photo}
@@ -222,40 +216,11 @@
 		padding: 24px;
 	}
 
-	.photos-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		margin-bottom: 24px;
-		flex-wrap: wrap;
-		gap: 16px;
-	}
-
-	.photos-header h2 {
-		margin: 0;
+	.photos-section h2 {
+		margin: 0 0 24px 0;
 		color: #444;
 		font-size: 1.5rem;
 		font-weight: 600;
-	}
-
-	.back-button {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		padding: 8px 16px;
-		background-color: #f5f5f5;
-		border: 1px solid #ddd;
-		border-radius: 4px;
-		cursor: pointer;
-		font-size: 14px;
-		color: #666;
-		text-decoration: none;
-		transition: background-color 0.2s;
-	}
-
-	.back-button:hover {
-		background-color: #e5e5e5;
-		color: #555;
 	}
 
 	.photos-grid {
@@ -277,12 +242,7 @@
 			padding: 16px;
 		}
 
-		.photos-header {
-			flex-direction: column;
-			align-items: stretch;
-		}
-
-		.photos-header h2 {
+		.photos-section h2 {
 			text-align: center;
 		}
 	}

@@ -57,10 +57,8 @@ test.describe('Users Pages and Navigation', () => {
     const isEmpty = await page.locator('.empty-state').isVisible();
     expect(hasPhotos || isEmpty).toBe(true);
 
-    // Back button should be visible in photos section, but not in empty state
-    if (hasPhotos) {
-      await expect(page.locator('.back-button')).toBeVisible();
-    }
+    // Header back button should be visible for navigation back to users list
+    await expect(page.locator('[data-testid="header-back-button"]')).toBeVisible();
   });
 
   test('should navigate from activity page usernames to user pages', async ({ page }) => {
