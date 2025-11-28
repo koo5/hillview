@@ -1,5 +1,6 @@
 <script lang="ts">
 	import {onDestroy, onMount, tick} from 'svelte';
+	import { addPluginListener, type PluginListener } from '@tauri-apps/api/core';
 	import {page} from '$app/stores';
 	import {browser} from '$app/environment';
 	import {parsePhotoUid} from '$lib/urlUtils';
@@ -34,6 +35,7 @@
 	import NavigationMenu from './NavigationMenu.svelte';
 	import type {DevicePhotoMetadata} from '$lib/types/photoTypes';
 	import {enableCompass, disableCompass} from '$lib/compass.svelte.js';
+	import {TAURI} from "$lib/tauri";
 
 	let map: any = null;
 	let mapComponent: any = null;
@@ -70,6 +72,7 @@
 	async function init() {
 		console.log('🢄Page mounted');
 		await tick();
+
 
 		const urlParams = new URLSearchParams(window.location.search);
 		const lat = urlParams.get('lat');

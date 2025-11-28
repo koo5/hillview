@@ -41,7 +41,6 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
       commands::ping,
       commands::start_sensor,
       commands::stop_sensor,
-      commands::update_sensor_location,
       commands::start_precise_location_listener,
       commands::stop_precise_location_listener,
       commands::set_auto_upload_enabled,
@@ -81,6 +80,8 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
       commands::test_show_notification,
       #[cfg(mobile)]
       commands::get_intent_data,
+      #[cfg(mobile)]
+      commands::cmd,
 
       ])
     .setup(|app, api| {

@@ -70,20 +70,15 @@ export const tauriSensor = TAURI ? {
             throw error;
         }
     },
-    updateSensorLocation: async (latitude: number, longitude: number) => {
-        return invoke('plugin:hillview|update_sensor_location', {
-            location: { latitude, longitude }
-        });
-    },
     onSensorData: async (callback: (data: SensorData) => void) => {
         console.log('🢄🔍👂 Setting up sensor data listener using addPluginListener');
         try {
             // Use addPluginListener as per Tauri mobile plugin documentation
             const unlisten = await addPluginListener('hillview', 'sensor-data', (data: any) => {
-                //console.log('🢄🔍📡 Received sensor event from plugin:', JSON.stringify(data));
+                console.log('🢄🔍📡 Received sensor event from plugin:', JSON.stringify(data));
                 callback(data as SensorData);
             });
-            console.log('🢄🔍✅ Sensor listener setup complete, unlisten function:', typeof unlisten);
+            //console.log('🢄🔍✅ Sensor listener setup complete, unlisten function:', typeof unlisten);
             return unlisten;
         } catch (error) {
             console.error('🢄🔍❌ Failed to setup sensor listener:', error);

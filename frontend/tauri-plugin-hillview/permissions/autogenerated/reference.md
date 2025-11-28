@@ -8,7 +8,6 @@ Default permissions for the plugin
 - `allow-start-sensor`
 - `allow-stop-sensor`
 - `allow-get-sensor-accuracy`
-- `allow-update-sensor-location`
 - `allow-register-listener`
 - `allow-start-precise-location-listener`
 - `allow-stop-precise-location-listener`
@@ -929,32 +928,6 @@ Enables the test_show_notification command without any pre-configured scope.
 <td>
 
 Denies the test_show_notification command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`hillview:allow-update-sensor-location`
-
-</td>
-<td>
-
-Enables the update_sensor_location command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`hillview:deny-update-sensor-location`
-
-</td>
-<td>
-
-Denies the update_sensor_location command without any pre-configured scope.
 
 </td>
 </tr>

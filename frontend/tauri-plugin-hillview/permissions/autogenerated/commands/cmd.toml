@@ -1,0 +1,3 @@
+[allow-cmd]
+description = "Enables the cmd command"
+commands.allow = ["cmd"]
