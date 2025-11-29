@@ -34,6 +34,9 @@
 	import NavigationMenu from './NavigationMenu.svelte';
 	import type {DevicePhotoMetadata} from '$lib/types/photoTypes';
 	import {enableCompass, disableCompass} from '$lib/compass.svelte.js';
+	import {networkWorkerManager} from "$lib/networkWorkerManager";
+
+
 
 	let map: any = null;
 	let mapComponent: any = null;
@@ -42,6 +45,11 @@
 	$: showCameraView = $app.activity === 'capture';
 
 	onMount(() => {
+
+		// fixme: needs deinit? // should we handle this with a separate ssr layout.svelte?
+		networkWorkerManager.init();
+
+
 		init();
 
 		// Add keyboard event listener for debug toggle

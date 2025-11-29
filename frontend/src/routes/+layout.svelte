@@ -16,7 +16,7 @@
 	import {zoomViewData} from '$lib/zoomView.svelte';
 	import {getCurrent} from "@tauri-apps/plugin-deep-link";
 	import {navigateWithHistory} from "$lib/navigation.svelte";
-	import {networkWorkerManager} from "$lib/networkWorkerManager";
+
 
 	// Log navigation events
 	beforeNavigate((navigation) => {
@@ -57,9 +57,6 @@
 
 		// Initialize auth state for all pages
 		checkAuth();
-
-		// Initialize network worker for tile fallback
-		networkWorkerManager.init();
 
 		if (TAURI) {
 			await setupDeepLinkListener();
