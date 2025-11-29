@@ -4,6 +4,7 @@
 	let Main: any;
 	if (browser && typeof window !== 'undefined') {
 		async function loadMain() {
+			console.log('Loading Main component dynamically');
 			const module = await import('$lib/components/Main.svelte');
 			Main = module.default;
 		}
