@@ -1,5 +1,6 @@
 use tauri::{AppHandle, command, Runtime};
 use serde_json::Value;
+use log::info;
 
 use crate::models::*;
 use crate::Result;

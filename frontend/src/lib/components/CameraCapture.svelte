@@ -962,13 +962,20 @@
 
 		if (TAURI)
 		{
-			await invoke('plugin:hillview|cmd', {command: 'start_device_orientation_sensor'});
-			await addPluginListener('hillview', 'device-orientation', (data: any) => {
-				console.log('🢄🔍📡 Received device-orientation event from plugin:', JSON.stringify(data));
-				// not sure if this will have to be adjusted by screen rotation, probably not
-				updateDeviceOrientationExif(data.exif_code);
-			});
-			invoke('plugin:hillview|cmd', {command:'trigger_device_orientation_event'});
+			try
+			{
+				await addPluginListener('hillview', 'device-orientation', (data: any) => {
+					console.log('🢄🔍📡 Received device-orientation event from plugin:', JSON.stringify(data));
+					// not sure if this will have to be adjusted by screen rotation, probably not
+					updateDeviceOrientationExif(data.exif_code);
+				});
+				await invoke('plugin:hillview|cmd', {command: 'start_device_orientation_sensor'});
+				await invoke('plugin:hillview|cmd', {command:'trigger_device_orientation_event'});
+			}
+			catch (error)
+			{
+				console.warn("🢄[CAMERA] device-orientation error:", error);
+			}
 		}
 		else if ('AbsoluteOrientationSensor' in window) {
 			try {

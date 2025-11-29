@@ -154,6 +154,12 @@ class TestShowNotificationArgs {
   var message: String? = null
 }
 
+@InvokeArg
+class CmdArgs {
+  var command: String? = null
+  var params: Any? = null
+}
+
 @TauriPlugin(
     permissions = [
         Permission(
@@ -529,18 +535,8 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         invoke.resolve()
     }
 
-    private fun handleOrientationChanged(exifCode: int) {
-        // Emit device orientation change event
-        val event = JSObject()
-        event.put("orientation", exifCode)
+    private fun handleOrientationChanged(orientation: DeviceOrientation) {
 
-        Log.d(TAG, "📱 Triggering device-orientation event from plugin exifCode: $exifCode")
-
-        try {
-            trigger("device-orientation", event)
-        } catch (e: Exception) {
-            Log.e(TAG, "📱 Error triggering device-orientation event from plugin exifCode: ${e.message}", e)
-        }
     }
 
     @Command
@@ -2156,9 +2152,9 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
 	@Command
 	fun cmd(invoke: Invoke) {
 		try {
-			val data = invoke.getData()
-			val command = data.getString("command")
-			val params = data.optJSObject("params") ?: JSObject()
+			val args = invoke.parseArgs(CmdArgs::class.java)
+			val command = args.command
+			val params = JSObject() // For now, simplified - can be enhanced later if needed
 
 			Log.d(TAG, "🔧cmd called: command=$command, params=$params")
 
@@ -2179,10 +2175,10 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
 					invoke.resolve(error)
 					return
 				}
-				val result = JSObject()
-				result.put("success", true)
-				invoke.resolve(result)
 			}
+			val result = JSObject()
+			result.put("success", true)
+			invoke.resolve(result)
 
 		} catch (e: Exception) {
 			Log.e(TAG, "🔧 Error in generic cmd", e)
@@ -2215,6 +2211,10 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
 		Log.d(TAG, "📱 Device orientation sensor stopped")
 	}
 
+	private fun handleTriggerDeviceOrientationEvent() {
+		Log.d(TAG, "📱 Manual device orientation event trigger requested")
+		triggerOrientationEvent()
+	}
 
 	private fun triggerOrientationEvent() {
 		val event = JSObject()

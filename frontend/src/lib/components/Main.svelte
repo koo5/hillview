@@ -1,7 +1,5 @@
 <script lang="ts">
 	import {onDestroy, onMount, tick} from 'svelte';
-	import { addPluginListener, type PluginListener } from '@tauri-apps/api/core';
-	import {page} from '$app/stores';
 	import {browser} from '$app/environment';
 	import {parsePhotoUid} from '$lib/urlUtils';
 	import PhotoGallery from './Gallery.svelte';
@@ -20,13 +18,11 @@
 		updateSpatialState,
 		updateBearing as mapStateUpdateBearing,
 		updateBearingByDiff,
-		updateBearingWithPhoto,
-		photosInRange, photoInFront
+		photoInFront
 	} from "$lib/mapState";
 	import {LatLng} from 'leaflet';
 	import {replaceState} from "$app/navigation";
 	import {get} from "svelte/store";
-	import {auth, logout} from "$lib/auth.svelte.js";
 	import CameraCapture from './CameraCapture.svelte';
 	import DebugOverlay from './DebugOverlay.svelte';
 	import {deviceOrientationExif} from "$lib/deviceOrientationExif";
@@ -35,14 +31,15 @@
 	import NavigationMenu from './NavigationMenu.svelte';
 	import type {DevicePhotoMetadata} from '$lib/types/photoTypes';
 	import {enableCompass, disableCompass} from '$lib/compass.svelte.js';
-	import {TAURI} from "$lib/tauri";
 	import {networkWorkerManager} from "$lib/networkWorkerManager";
 
 	let map: any = null;
 	let mapComponent: any = null;
 	let update_url = false;
 	let menuOpen = false;
+
 	$: showCameraView = $app.activity === 'capture';
+
 
 	onMount(() => {
 

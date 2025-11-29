@@ -38,6 +38,7 @@ Default permissions for the plugin
 - `allow-select-push-distributor`
 - `allow-get-intent-data`
 - `allow-poll-messages`
+- `allow-cmd`
 
 ## Permission Table
 
@@ -122,6 +123,32 @@ Enables the clear_auth_token command without any pre-configured scope.
 <td>
 
 Denies the clear_auth_token command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:allow-cmd`
+
+</td>
+<td>
+
+Enables the cmd command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:deny-cmd`
+
+</td>
+<td>
+
+Denies the cmd command without any pre-configured scope.
 
 </td>
 </tr>

@@ -31,12 +31,13 @@ enum class DeviceOrientation {
             degrees in 225..314 -> LANDSCAPE_RIGHT // 270°
             else -> PORTRAIT // Fallback
         }
-		/*fun toExifCode(orientation: DeviceOrientation): Int = when (orientation) {
+
+		fun toExifCode(orientation: DeviceOrientation): Int = when (orientation) {
 			PORTRAIT -> 1
 			LANDSCAPE_LEFT -> 6
 			PORTRAIT_INVERTED -> 3
 			LANDSCAPE_RIGHT -> 8
-		}*/
+		}
     }
 }
 
@@ -153,7 +154,7 @@ class EnhancedSensorService(
 
 				val exifCode = DeviceOrientation.toExifCode(newOrientation)
                 Log.d(TAG, "📱event from plugin: $exifCode")
-                onOrientationChanged?.invoke(exifCode)
+                onOrientationChanged?.invoke(newOrientation)
             }
 
         }
