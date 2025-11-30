@@ -7,4 +7,4 @@ pytest-asyncio==0.21.1
 piexif
 
 # For JWT testing and mocking
-cryptography==41.0.7
+cryptography==44.0.1

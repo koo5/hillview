@@ -20,7 +20,7 @@ password-strength
 
 # Basic photo metadata
 exifread
-Pillow==10.1.0
+Pillow==10.3.0
 requests
 httpx[http2]
 
