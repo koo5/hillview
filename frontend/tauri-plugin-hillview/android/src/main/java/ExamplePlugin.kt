@@ -487,7 +487,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
 					try {
 						// Use just the event name (without plugin: prefix) for plugin events
 						trigger("sensor-data", data)
-						Log.v(TAG, "🔍 Emitted sensor data event from plugin: source=${sensorData.source}, magnetic=${sensorData.magneticHeading}")
+						//Log.v(TAG, "🔍 Emitted sensor data event from plugin: source=${sensorData.source}, magnetic=${sensorData.magneticHeading}")
 
 					} catch (e: Exception) {
 						Log.e(TAG, "🔍 Error triggering event from plugin: ${e.message}", e)
@@ -2191,28 +2191,32 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
 	// Command handlers
 
 	private fun handleStartDeviceOrientationSensor() {
+		Log.d(TAG, "📱 device-orientation handleStartDeviceOrientationSensor")
 		if (deviceOrientationListener == null) {
+			Log.d(TAG, "📱 device-orientation initiliazing sensor listener")
 			deviceOrientationListener = object : OrientationEventListener(activity) {
 				override fun onOrientationChanged(orientation: Int) {
+					Log.d(TAG, "📱 device-orientation onOrientationChanged")
 					val newOrientation = DeviceOrientation.fromDegrees(orientation)
 					if (newOrientation != currentDeviceOrientation) {
-						Log.d(TAG, "📱 Device orientation changed: $currentDeviceOrientation → $newOrientation")
+						Log.d(TAG, "📱 device-orientation changed: $currentDeviceOrientation → $newOrientation")
 						currentDeviceOrientation = newOrientation
 						triggerOrientationEvent()
 					}
 				}
 			}
-			Log.d(TAG, "📱 Device orientation sensor initialized")
+			Log.d(TAG, "📱 device-orientation sensor initialized")
 		}
+		deviceOrientationListener?.enable()
 	}
 
 	private fun handleStopDeviceOrientationSensor() {
+		Log.d(TAG, "📱 device-orientation handleStopDeviceOrientationSensor")
 		deviceOrientationListener?.disable()
-		Log.d(TAG, "📱 Device orientation sensor stopped")
 	}
 
 	private fun handleTriggerDeviceOrientationEvent() {
-		Log.d(TAG, "📱 Manual device orientation event trigger requested")
+		Log.d(TAG, "📱 device-orientation handleTriggerDeviceOrientationEvent")
 		triggerOrientationEvent()
 	}
 
@@ -2220,9 +2224,12 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
 		val event = JSObject()
 		event.put("orientation", currentDeviceOrientation.toString())
 		event.put("exif_code", DeviceOrientation.toExifCode(currentDeviceOrientation))
+		Log.d(TAG, "📱 device-orientation event triggered: $event")
 		trigger("device-orientation", event)
 	}
-/*
+
+
+	/*
 	private fun resolveWithError(invoke: Invoke, message: String, exception: Exception? = null) {
 		Log.e(TAG, "📱 $message", exception)
 		val error = JSObject()

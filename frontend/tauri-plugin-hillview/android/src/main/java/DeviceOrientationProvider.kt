@@ -1,3 +1,9 @@
+/**
+ * Device orientation provider using Google Play Services FusedOrientationProviderClient
+ * Provides device attitude/quaternion data for enhanced orientation detection
+ * Designed to work alongside EnhancedSensorService
+ */
+
 package cz.hillview.plugin
 
 import android.content.Context
@@ -9,11 +15,6 @@ import com.google.android.gms.location.DeviceOrientation
 import com.google.android.gms.location.DeviceOrientationListener
 import java.util.concurrent.Executors
 
-/**
- * Device orientation provider using Google Play Services FusedOrientationProviderClient
- * Provides device attitude/quaternion data for enhanced orientation detection
- * Designed to work alongside EnhancedSensorService
- */
 class DeviceOrientationProvider(
     private val context: Context
 ) {

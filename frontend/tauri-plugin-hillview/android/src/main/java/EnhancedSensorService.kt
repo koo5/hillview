@@ -621,7 +621,7 @@ class EnhancedSensorService(
                     SensorManager.AXIS_Z,
                     remappedMatrix
                 )
-				Log.v(TAG, "🔄 Remappingrrrr for PORTRAIT orientation")
+				//Log.v(TAG, "🔄 Remappingrrrr for PORTRAIT orientation")
             }
             DeviceOrientation.LANDSCAPE_RIGHT -> {
                 // Phone rotated 90° counter-clockwise (landscape, home button on right)
@@ -632,7 +632,7 @@ class EnhancedSensorService(
                     SensorManager.AXIS_MINUS_X,
                     remappedMatrix
                 )
-				Log.v(TAG, "🔄 Remappingrrrr for LANDSCAPE_LEFT orientation")
+				//Log.v(TAG, "🔄 Remappingrrrr for LANDSCAPE_LEFT orientation")
             }
             DeviceOrientation.LANDSCAPE_LEFT -> {
                 // Phone rotated 90° clockwise (landscape, home button on left)
@@ -643,7 +643,7 @@ class EnhancedSensorService(
                     SensorManager.AXIS_X,
                     remappedMatrix
                 )
-				Log.v(TAG, "🔄 Remappingrrrr for LANDSCAPE_RIGHT orientation")
+				//Log.v(TAG, "🔄 Remappingrrrr for LANDSCAPE_RIGHT orientation")
             }
             DeviceOrientation.PORTRAIT_INVERTED -> {
                 // Phone upside down (180° rotation)
@@ -654,7 +654,7 @@ class EnhancedSensorService(
                     SensorManager.AXIS_MINUS_Z,
                     remappedMatrix
                 )
-				Log.v(TAG, "🔄 Remappingrrrr for PORTRAIT_INVERTED orientation")
+				//Log.v(TAG, "🔄 Remappingrrrr for PORTRAIT_INVERTED orientation")
             }
 			else -> {
 				Log.w(TAG, "⚠️ Unknown device orientation, no remapping applied")
@@ -684,7 +684,7 @@ class EnhancedSensorService(
         if (currentMode == MODE_UPRIGHT_ROTATION_VECTOR) {
             val remappedMatrix = remapCoordinatesForOrientation(rotationMatrix, deviceOrientation)
             System.arraycopy(remappedMatrix, 0, rotationMatrix, 0, 9)
-            Log.v(TAG, "🔄 Applied coordinate remapping for ${deviceOrientation}")
+            //Log.v(TAG, "🔄 Applied coordinate remapping for ${deviceOrientation}")
         }
 		else
 		{
@@ -705,7 +705,7 @@ class EnhancedSensorService(
 		}
 
 
-		Log.v(TAG, "🔍📊 $source orientation: azimuth=${azimuth.format(1)}°, pitch=${pitch.format(1)}°, roll=${roll.format(1)}°, accuracy=${event.accuracy}, orientation=${deviceOrientation}")
+		//Log.v(TAG, "🔍📊 $source orientation: azimuth=${azimuth.format(1)}°, pitch=${pitch.format(1)}°, roll=${roll.format(1)}°, accuracy=${event.accuracy}, orientation=${deviceOrientation}")
 
 
         // Normalize heading
