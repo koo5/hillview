@@ -5,7 +5,6 @@ permissions = [
 	"allow-start-sensor",
 	"allow-stop-sensor",
 	"allow-get-sensor-accuracy",
-	"allow-update-sensor-location",
 	"allow-register-listener",
 	"allow-start-precise-location-listener",
 	"allow-stop-precise-location-listener",
@@ -36,4 +35,5 @@ permissions = [
 	"allow-select-push-distributor",
 	"allow-get-intent-data",
 	"allow-poll-messages",
+	"allow-cmd",
 ]

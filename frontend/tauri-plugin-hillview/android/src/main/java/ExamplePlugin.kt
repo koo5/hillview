@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.util.Log
+import android.view.OrientationEventListener
 import android.webkit.ConsoleMessage
 import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
@@ -153,6 +154,12 @@ class TestShowNotificationArgs {
   var message: String? = null
 }
 
+@InvokeArg
+class CmdArgs {
+  var command: String? = null
+  var params: Any? = null
+}
+
 @TauriPlugin(
     permissions = [
         Permission(
@@ -245,6 +252,10 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     private val authManager: AuthenticationManager = AuthenticationManager(activity)
     private val photoWorkerService: PhotoWorkerService = PhotoWorkerService(activity, this)
     private val photoUploadManager: PhotoUploadManager = PhotoUploadManager(activity)
+
+    // Device orientation tracking
+    private var deviceOrientationListener: OrientationEventListener? = null
+    private var currentDeviceOrientation: DeviceOrientation = DeviceOrientation.PORTRAIT
 
     // Message queue system for reliable Kotlin-frontend communication
     private val messageQueue = ConcurrentLinkedQueue<QueuedMessage>()
@@ -457,29 +468,33 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
 
         if (sensorService == null) {
             Log.d(TAG, "🔍 Creating new EnhancedSensorService instance")
-            sensorService = EnhancedSensorService(activity) { sensorData ->
-                // Emit sensor data event
-                val data = JSObject()
-                data.put("magnetic_heading", sensorData.magneticHeading)
-                data.put("true_heading", sensorData.trueHeading)
-                data.put("heading_accuracy", sensorData.headingAccuracy)
-                data.put("pitch", sensorData.pitch)
-                data.put("roll", sensorData.roll)
-                data.put("timestamp", sensorData.timestamp)
-                data.put("source", sensorData.source)
+            sensorService = EnhancedSensorService(
+                context = activity,
+                onSensorUpdate = { sensorData ->
+					// Emit sensor data event
+					val data = JSObject()
+					data.put("magnetic_heading", sensorData.magneticHeading)
+					data.put("true_heading", sensorData.trueHeading)
+					data.put("heading_accuracy", sensorData.headingAccuracy)
+					data.put("pitch", sensorData.pitch)
+					data.put("roll", sensorData.roll)
+					data.put("timestamp", sensorData.timestamp)
+					data.put("source", sensorData.source)
 
-                //Log.v(TAG, "🔍 Emitting sensor data event: magnetic=${sensorData.magneticHeading}, source=${sensorData.source}")
+					//Log.v(TAG, "🔍 Emitting sensor data event: magnetic=${sensorData.magneticHeading}, source=${sensorData.source}")
 
-                // Trigger the sensor-data event as per Tauri plugin documentation
-                try {
-                    // Use just the event name (without plugin: prefix) for plugin events
-                    trigger("sensor-data", data)
-                    //Log.v(TAG, "🔍 Emitted sensor data event: source=${sensorData.source}, magnetic=${sensorData.magneticHeading}")
+					// Trigger the sensor-data event as per Tauri plugin documentation
+					try {
+						// Use just the event name (without plugin: prefix) for plugin events
+						trigger("sensor-data", data)
+						//Log.v(TAG, "🔍 Emitted sensor data event from plugin: source=${sensorData.source}, magnetic=${sensorData.magneticHeading}")
 
-                } catch (e: Exception) {
-                    Log.e(TAG, "🔍 Error triggering event: ${e.message}", e)
-                }
-            }
+					} catch (e: Exception) {
+						Log.e(TAG, "🔍 Error triggering event from plugin: ${e.message}", e)
+					}
+                },
+                onOrientationChanged = ::handleOrientationChanged
+            )
         } else {
             Log.d(TAG, "🔍 SensorService already exists")
         }
@@ -520,6 +535,10 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         invoke.resolve()
     }
 
+    private fun handleOrientationChanged(orientation: DeviceOrientation) {
+
+    }
+
     @Command
     fun startPreciseLocationListener(invoke: Invoke) {
         Log.i(TAG, "📍 Starting precise location listener")
@@ -534,18 +553,6 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     fun stopPreciseLocationListener(invoke: Invoke) {
         Log.i(TAG, "📍 Stopping precise location listener")
         preciseLocationService?.stopLocationUpdates()
-        invoke.resolve()
-    }
-
-    @Command
-    fun updateSensorLocation(invoke: Invoke) {
-        // Update sensor service for magnetic declination
-        // If we're not using Fused Location, this might be called from JS geolocation
-
-        val args = invoke.parseArgs(LocationUpdateArgs::class.java)
-        Log.d(TAG, "📍 Updating sensor location: ${args.latitude}, ${args.longitude}")
-
-        sensorService?.updateLocation(args.latitude, args.longitude)
         invoke.resolve()
     }
 
@@ -2141,4 +2148,93 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
 			invoke.resolve(error)
 		}
 	}
+
+	@Command
+	fun cmd(invoke: Invoke) {
+		try {
+			val args = invoke.parseArgs(CmdArgs::class.java)
+			val command = args.command
+			val params = JSObject() // For now, simplified - can be enhanced later if needed
+
+			Log.d(TAG, "🔧cmd called: command=$command, params=$params")
+
+			when (command) {
+				"start_device_orientation_sensor" -> {
+					handleStartDeviceOrientationSensor()
+				}
+				"stop_device_orientation_sensor" -> {
+					handleStopDeviceOrientationSensor()
+				}
+				"trigger_device_orientation_event" -> {
+					handleTriggerDeviceOrientationEvent()
+				}
+				else -> {
+					Log.w(TAG, "🔧 Unknown command: $command")
+					val error = JSObject()
+					error.put("error", "Unknown command: $command")
+					invoke.resolve(error)
+					return
+				}
+			}
+			val result = JSObject()
+			result.put("success", true)
+			invoke.resolve(result)
+
+		} catch (e: Exception) {
+			Log.e(TAG, "🔧 Error in generic cmd", e)
+			val error = JSObject()
+			error.put("error", e.message)
+			invoke.resolve(error)
+		}
+	}
+
+	// Command handlers
+
+	private fun handleStartDeviceOrientationSensor() {
+		Log.d(TAG, "📱 device-orientation handleStartDeviceOrientationSensor")
+		if (deviceOrientationListener == null) {
+			Log.d(TAG, "📱 device-orientation initiliazing sensor listener")
+			deviceOrientationListener = object : OrientationEventListener(activity) {
+				override fun onOrientationChanged(orientation: Int) {
+					Log.d(TAG, "📱 device-orientation onOrientationChanged")
+					val newOrientation = DeviceOrientation.fromDegrees(orientation)
+					if (newOrientation != currentDeviceOrientation) {
+						Log.d(TAG, "📱 device-orientation changed: $currentDeviceOrientation → $newOrientation")
+						currentDeviceOrientation = newOrientation
+						triggerOrientationEvent()
+					}
+				}
+			}
+			Log.d(TAG, "📱 device-orientation sensor initialized")
+		}
+		deviceOrientationListener?.enable()
+	}
+
+	private fun handleStopDeviceOrientationSensor() {
+		Log.d(TAG, "📱 device-orientation handleStopDeviceOrientationSensor")
+		deviceOrientationListener?.disable()
+	}
+
+	private fun handleTriggerDeviceOrientationEvent() {
+		Log.d(TAG, "📱 device-orientation handleTriggerDeviceOrientationEvent")
+		triggerOrientationEvent()
+	}
+
+	private fun triggerOrientationEvent() {
+		val event = JSObject()
+		event.put("orientation", currentDeviceOrientation.toString())
+		event.put("exif_code", DeviceOrientation.toExifCode(currentDeviceOrientation))
+		Log.d(TAG, "📱 device-orientation event triggered: $event")
+		trigger("device-orientation", event)
+	}
+
+
+	/*
+	private fun resolveWithError(invoke: Invoke, message: String, exception: Exception? = null) {
+		Log.e(TAG, "📱 $message", exception)
+		val error = JSObject()
+		error.put("error", exception?.message ?: message)
+		invoke.resolve(error)
+	}
+*/
 }

@@ -1,6 +1,5 @@
 <script lang="ts">
 	import {onDestroy, onMount, tick} from 'svelte';
-	import {page} from '$app/stores';
 	import {browser} from '$app/environment';
 	import {parsePhotoUid} from '$lib/urlUtils';
 	import PhotoGallery from './Gallery.svelte';
@@ -19,13 +18,11 @@
 		updateSpatialState,
 		updateBearing as mapStateUpdateBearing,
 		updateBearingByDiff,
-		updateBearingWithPhoto,
-		photosInRange, photoInFront
+		photoInFront
 	} from "$lib/mapState";
 	import {LatLng} from 'leaflet';
 	import {replaceState} from "$app/navigation";
 	import {get} from "svelte/store";
-	import {auth, logout} from "$lib/auth.svelte.js";
 	import CameraCapture from './CameraCapture.svelte';
 	import DebugOverlay from './DebugOverlay.svelte';
 	import {deviceOrientationExif} from "$lib/deviceOrientationExif";
@@ -36,13 +33,13 @@
 	import {enableCompass, disableCompass} from '$lib/compass.svelte.js';
 	import {networkWorkerManager} from "$lib/networkWorkerManager";
 
-
-
 	let map: any = null;
 	let mapComponent: any = null;
 	let update_url = false;
 	let menuOpen = false;
+
 	$: showCameraView = $app.activity === 'capture';
+
 
 	onMount(() => {
 
@@ -78,6 +75,7 @@
 	async function init() {
 		console.log('🢄Page mounted');
 		await tick();
+
 
 		const urlParams = new URLSearchParams(window.location.search);
 		const lat = urlParams.get('lat');

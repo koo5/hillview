@@ -1,5 +1,7 @@
 <script lang="ts">
 	import {createEventDispatcher, onDestroy, onMount} from 'svelte';
+	import {TAURI} from '$lib/tauri';
+	import {invoke} from '@tauri-apps/api/core';
 	import {get} from 'svelte/store';
 	import {photoCaptureSettings} from '$lib/stores';
 	import {app} from "$lib/data.svelte.js";
@@ -85,15 +87,14 @@
 	let photoCapturedCount = 0; // Track captures for auto-upload prompt
 	let switchingCamera = false; // Flag to prevent automatic startup during manual camera switching
 	let isBlinking = false; // Flag for camera blink effect
+	let absoluteOrientationSensor: AbsoluteOrientationSensor | null = null;
 
 	// Store to track which cameras are loading resolutions
 	import {writable} from 'svelte/store';
 	import {
 		deviceOrientationExif,
-//		calculateWebviewRelativeOrientation
 	} from "$lib/deviceOrientationExif";
 	import {
-		getExifOrientationFromQuaternion,
 		type ExifOrientation
 	} from "$lib/absoluteOrientation";
 	import Quaternion from "quaternion";
@@ -945,15 +946,6 @@
 	// }
 
 
-	/*function handleDeviceOrientation(event: DeviceOrientationEvent) {
-		const o = calculateWebviewRelativeOrientation(event.alpha, event.beta, event.gamma);
-		console.log(
-			'🢄[CAMERA] Device orientation event:',
-			`alpha: ${event.alpha?.toFixed(0).padStart(4)}, beta: ${event.beta?.toFixed(0).padStart(4)}, gamma: ${event.gamma?.toFixed(0).padStart(4)}, o=${o}`
-		);
-		updateDeviceOrientationExif(o);
-	}*/
-
 	function updateDeviceOrientationExif(o: ExifOrientation) {
 		if (o !== get(deviceOrientationExif)) {
 			deviceOrientationExif.set(o);
@@ -961,33 +953,50 @@
 		}
 	}
 
-	function absoluteOrientationSensorReadingHandler() {
-		const quaternionArray = Array.from(sensor.quaternion);
-		const exifOrientation = getExifOrientationFromQuaternion(quaternionArray);
-		updateDeviceOrientationExif(exifOrientation);
-		//console.log('🢄[CAMERA] AbsoluteOrientationSensor reading:',	`quaternion: [${quaternionArray.map(v => v.toFixed(3)).join(', ')}], EXIF orientation: ${exifOrientation}`);
-	}
-
-
-	let sensor: AbsoluteOrientationSensor;
+;
 
 	onMount(async () => {
+
 		document.addEventListener('visibilitychange', handleVisibilityChange);
 		document.addEventListener('click', handleClickOutside);
-		//window.addEventListener('deviceorientation', handleDeviceOrientation);
 
-
-		try {
-			console.log('🢄[CAMERA] Initializing AbsoluteOrientationSensor for device orientation...');
-			sensor = new window.AbsoluteOrientationSensor({frequency: 10, referenceFrame: "screen"});
-			sensor.addEventListener("reading", absoluteOrientationSensorReadingHandler);
-			sensor.addEventListener("error", (error) => {
-				console.log(error);
-			});
-			sensor.start();
-			console.log('🢄[CAMERA] AbsoluteOrientationSensor started successfully');
-		} catch (error) {
-			console.warn("🢄[CAMERA] AbsoluteOrientationSensor not supported:", error);
+		if (TAURI)
+		{
+			try
+			{
+				await addPluginListener('hillview', 'device-orientation', (data: any) => {
+					console.log('🢄🔍📡 Received device-orientation event from plugin:', JSON.stringify(data));
+					// not sure if this will have to be adjusted by screen rotation, probably not
+					updateDeviceOrientationExif(data.exif_code);
+				});
+				await invoke('plugin:hillview|cmd', {command: 'start_device_orientation_sensor'});
+				await invoke('plugin:hillview|cmd', {command:'trigger_device_orientation_event'});
+			}
+			catch (error)
+			{
+				console.warn("🢄[CAMERA] device-orientation error:", error);
+			}
+		}
+		else if ('AbsoluteOrientationSensor' in window) {
+			try {
+				console.log('🢄[CAMERA] Initializing AbsoluteOrientationSensor for device orientation...');
+				absoluteOrientationSensor = new window.AbsoluteOrientationSensor({frequency: 100, referenceFrame: "screen"});
+				absoluteOrientationSensor.addEventListener("reading", (event) => {
+					console.log('🢄[CAMERA] AbsoluteOrientationSensor reading event:', event);
+					//DeviceOrientationEvent.webkitCompassHeading?
+				});
+				absoluteOrientationSensor.addEventListener("error", (error) => {
+					console.log(error);
+				});
+				absoluteOrientationSensor.start();
+				console.log('🢄[CAMERA] AbsoluteOrientationSensor started successfully');
+			} catch (error) {
+				console.warn("🢄[CAMERA]", error);
+			}
+		}
+		else
+		{
+			console.log('🢄[CAMERA] AbsoluteOrientationSensor not available in this browser');
 		}
 
 
@@ -1034,8 +1043,12 @@
 	});
 
 	onDestroy(() => {
-		if (sensor) {
-			sensor.stop();
+		if (TAURI)
+		{
+			invoke('plugin:hillview|cmd', {command:'stop_device_orientation_sensor'});
+		}
+		if (absoluteOrientationSensor) {
+			absoluteOrientationSensor.stop();
 		}
 		if (stream) {
 			stream.getTracks().forEach(track => track.stop());
@@ -1059,7 +1072,6 @@
 		}
 		document.removeEventListener('visibilitychange', handleVisibilityChange);
 		document.removeEventListener('click', handleClickOutside);
-		//window.removeEventListener('deviceorientation', handleDeviceOrientation);
 		updateDeviceOrientationExif(1);
 
 		// Clean up permission manager

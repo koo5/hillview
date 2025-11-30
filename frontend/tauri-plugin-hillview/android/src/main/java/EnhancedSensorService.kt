@@ -31,6 +31,13 @@ enum class DeviceOrientation {
             degrees in 225..314 -> LANDSCAPE_RIGHT // 270°
             else -> PORTRAIT // Fallback
         }
+
+		fun toExifCode(orientation: DeviceOrientation): Int = when (orientation) {
+			PORTRAIT -> 1
+			LANDSCAPE_LEFT -> 6
+			PORTRAIT_INVERTED -> 3
+			LANDSCAPE_RIGHT -> 8
+		}
     }
 }
 
@@ -54,7 +61,8 @@ private fun Float.format(digits: Int) = "%.${digits}f".format(this)
  */
 class EnhancedSensorService(
     private val context: Context,
-    private val onSensorUpdate: (SensorData) -> Unit
+    private val onSensorUpdate: (SensorData) -> Unit,
+    private val onOrientationChanged: ((DeviceOrientation) -> Unit)? = null
 ) : SensorEventListener {
     companion object {
         private const val TAG = "🢄Sensors"
@@ -143,7 +151,12 @@ class EnhancedSensorService(
             if (newOrientation != deviceOrientation) {
                 Log.d(TAG, "📱 Device orientation changed: $deviceOrientation → $newOrientation")
                 deviceOrientation = newOrientation
+
+				val exifCode = DeviceOrientation.toExifCode(newOrientation)
+                Log.d(TAG, "📱event from plugin: $exifCode")
+                onOrientationChanged?.invoke(newOrientation)
             }
+
         }
     }
     private var lastLocation: Location? = null
@@ -608,7 +621,7 @@ class EnhancedSensorService(
                     SensorManager.AXIS_Z,
                     remappedMatrix
                 )
-				Log.v(TAG, "🔄 Remappingrrrr for PORTRAIT orientation")
+				//Log.v(TAG, "🔄 Remappingrrrr for PORTRAIT orientation")
             }
             DeviceOrientation.LANDSCAPE_RIGHT -> {
                 // Phone rotated 90° counter-clockwise (landscape, home button on right)
@@ -619,7 +632,7 @@ class EnhancedSensorService(
                     SensorManager.AXIS_MINUS_X,
                     remappedMatrix
                 )
-				Log.v(TAG, "🔄 Remappingrrrr for LANDSCAPE_LEFT orientation")
+				//Log.v(TAG, "🔄 Remappingrrrr for LANDSCAPE_LEFT orientation")
             }
             DeviceOrientation.LANDSCAPE_LEFT -> {
                 // Phone rotated 90° clockwise (landscape, home button on left)
@@ -630,7 +643,7 @@ class EnhancedSensorService(
                     SensorManager.AXIS_X,
                     remappedMatrix
                 )
-				Log.v(TAG, "🔄 Remappingrrrr for LANDSCAPE_RIGHT orientation")
+				//Log.v(TAG, "🔄 Remappingrrrr for LANDSCAPE_RIGHT orientation")
             }
             DeviceOrientation.PORTRAIT_INVERTED -> {
                 // Phone upside down (180° rotation)
@@ -641,7 +654,7 @@ class EnhancedSensorService(
                     SensorManager.AXIS_MINUS_Z,
                     remappedMatrix
                 )
-				Log.v(TAG, "🔄 Remappingrrrr for PORTRAIT_INVERTED orientation")
+				//Log.v(TAG, "🔄 Remappingrrrr for PORTRAIT_INVERTED orientation")
             }
 			else -> {
 				Log.w(TAG, "⚠️ Unknown device orientation, no remapping applied")
@@ -671,7 +684,7 @@ class EnhancedSensorService(
         if (currentMode == MODE_UPRIGHT_ROTATION_VECTOR) {
             val remappedMatrix = remapCoordinatesForOrientation(rotationMatrix, deviceOrientation)
             System.arraycopy(remappedMatrix, 0, rotationMatrix, 0, 9)
-            Log.v(TAG, "🔄 Applied coordinate remapping for ${deviceOrientation}")
+            //Log.v(TAG, "🔄 Applied coordinate remapping for ${deviceOrientation}")
         }
 		else
 		{
@@ -692,7 +705,7 @@ class EnhancedSensorService(
 		}
 
 
-		Log.v(TAG, "🔍📊 $source orientation: azimuth=${azimuth.format(1)}°, pitch=${pitch.format(1)}°, roll=${roll.format(1)}°, accuracy=${event.accuracy}, orientation=${deviceOrientation}")
+		//Log.v(TAG, "🔍📊 $source orientation: azimuth=${azimuth.format(1)}°, pitch=${pitch.format(1)}°, roll=${roll.format(1)}°, accuracy=${event.accuracy}, orientation=${deviceOrientation}")
 
 
         // Normalize heading

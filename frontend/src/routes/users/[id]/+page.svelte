@@ -119,7 +119,7 @@
 </svelte:head>
 
 <StandardHeaderWithAlert
-	title={user ? `${user.username}'s Photos` : 'User Photos'}
+	title={user ? `${user.username}'s Photos ({totalCount})` : 'User Photos'}
 	showMenuButton={true}
 	fallbackHref="/users"
 />
@@ -146,13 +146,6 @@
 		</div>
 	{:else}
 		<div class="photos-section">
-			<div class="photos-header">
-				<h2>{user?.username}'s Photos ({totalCount})</h2>
-				<button class="back-button" on:click={() => myGoto('/users')}>
-					← Back to Users
-				</button>
-			</div>
-
 			<div class="photos-grid">
 				{#each photos as photo}
 					<PhotoItem
@@ -220,42 +213,6 @@
 		border-radius: 8px;
 		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 		padding: 24px;
-	}
-
-	.photos-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		margin-bottom: 24px;
-		flex-wrap: wrap;
-		gap: 16px;
-	}
-
-	.photos-header h2 {
-		margin: 0;
-		color: #444;
-		font-size: 1.5rem;
-		font-weight: 600;
-	}
-
-	.back-button {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		padding: 8px 16px;
-		background-color: #f5f5f5;
-		border: 1px solid #ddd;
-		border-radius: 4px;
-		cursor: pointer;
-		font-size: 14px;
-		color: #666;
-		text-decoration: none;
-		transition: background-color 0.2s;
-	}
-
-	.back-button:hover {
-		background-color: #e5e5e5;
-		color: #555;
 	}
 
 	.photos-grid {

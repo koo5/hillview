@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-cmd"
+description = "Enables the cmd command without any pre-configured scope."
+commands.allow = ["cmd"]
+
+[[permission]]
+identifier = "deny-cmd"
+description = "Denies the cmd command without any pre-configured scope."
+commands.deny = ["cmd"]

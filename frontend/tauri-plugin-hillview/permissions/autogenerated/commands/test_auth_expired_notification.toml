@@ -8,6 +8,6 @@ description = "Enables the test_auth_expired_notification command without any pr
 commands.allow = ["test_auth_expired_notification"]
 
 [[permission]]
-identifier = "deny-test-auth-expired-notification"  
+identifier = "deny-test-auth-expired-notification"
 description = "Denies the test_auth_expired_notification command without any pre-configured scope."
 commands.deny = ["test_auth_expired_notification"]

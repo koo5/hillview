@@ -52,13 +52,6 @@ impl<R: Runtime> Hillview<R> {
       .map_err(Into::into)
   }
 
-  pub fn update_sensor_location(&self, location: LocationUpdate) -> crate::Result<()> {
-    self
-      .0
-      .run_mobile_plugin("updateSensorLocation", location)
-      .map_err(Into::into)
-  }
-
   pub fn set_auto_upload_enabled(&self, enabled: bool, prompt_enabled: bool) -> crate::Result<AutoUploadResponse> {
     #[derive(serde::Serialize)]
     struct Args {
@@ -317,6 +310,19 @@ impl<R: Runtime> Hillview<R> {
     self
       .0
       .run_mobile_plugin("getIntentData", ())
+      .map_err(Into::into)
+  }
+
+  pub fn cmd(&self, command: String, params: Option<serde_json::Value>) -> crate::Result<serde_json::Value> {
+    #[derive(serde::Serialize)]
+    struct Args {
+      command: String,
+      params: Option<serde_json::Value>,
+    }
+
+    self
+      .0
+      .run_mobile_plugin("cmd", Args { command, params })
       .map_err(Into::into)
   }
 }

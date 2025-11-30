@@ -160,17 +160,12 @@ async function startTauriSensor(mode: SensorMode = SensorMode.UPRIGHT_ROTATION_V
         const sensor = tauriSensor!;
 
         console.log('🢄🔍🔄 Starting Tauri sensor with mode:', SensorMode[mode]);
-        console.log('🢄🔍 About to call sensor.startSensor()...');
         try {
             await sensor.startSensor(mode);
-            console.log('🢄🔍✅ sensor.startSensor() completed successfully with mode:', SensorMode[mode]);
         } catch (startError) {
             console.error('🢄🔍❌ sensor.startSensor() threw error:', startError);
             throw startError;
         }
-
-        // Set up sensor data listener
-        console.log('🢄🔍 About to set up sensor data listener...');
 
 		if (!tauriSensorListener)
 		{

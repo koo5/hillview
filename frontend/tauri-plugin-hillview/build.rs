@@ -1,4 +1,38 @@
-const COMMANDS: &[&str] = &["start_sensor", "stop_sensor", "update_sensor_location", "start_precise_location_listener", "stop_precise_location_listener", "register_listener"];
+const COMMANDS: &[&str] = &[
+    "ping",
+    "start_sensor",
+    "stop_sensor",
+    "set_auto_upload_enabled",
+    "get_upload_status",
+    "set_upload_config",
+    "retry_failed_uploads",
+    "start_precise_location_listener",
+    "stop_precise_location_listener",
+    "store_auth_token",
+    "get_auth_token",
+    "clear_auth_token",
+    "refresh_auth_token",
+    "is_token_expired",
+    "check_camera_permission",
+    "request_camera_permission",
+    "get_notification_settings",
+    "set_notification_settings",
+    "test_auth_expired_notification",
+    "check_tauri_permissions",
+    "request_post_notification_permission",
+    "test_show_notification",
+    "get_device_photos",
+    "refresh_photo_scan",
+    "import_photos",
+    "share_photo",
+    "photo_worker_process",
+    "get_push_distributors",
+    "get_push_registration_status",
+    "select_push_distributor",
+    "get_intent_data",
+    "poll_messages",
+    "cmd"
+];
 fn main() {
   tauri_plugin::Builder::new(COMMANDS)
     .android_path("android")

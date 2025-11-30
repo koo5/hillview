@@ -1,5 +1,6 @@
-use log::info;
 use tauri::{AppHandle, command, Runtime};
+use serde_json::Value;
+use log::info;
 
 use crate::models::*;
 use crate::Result;
@@ -38,19 +39,6 @@ pub(crate) async fn stop_sensor<R: Runtime>(
     #[cfg(mobile)]
     {
         _app.hillview().stop_sensor()?;
-    }
-
-    Ok(())
-}
-
-#[command(rename_all = "snake_case")]
-pub(crate) async fn update_sensor_location<R: Runtime>(
-    _app: AppHandle<R>,
-    _location: LocationUpdate,
-) -> Result<()> {
-    #[cfg(mobile)]
-    {
-        _app.hillview().update_sensor_location(_location)?;
     }
 
     Ok(())
@@ -424,4 +412,14 @@ pub(crate) async fn get_intent_data<R: Runtime>(
     app: AppHandle<R>,
 ) -> Result<serde_json::Value> {
     app.hillview().get_intent_data()
+}
+
+#[cfg(mobile)]
+#[command(rename_all = "snake_case")]
+pub(crate) async fn cmd<R: Runtime>(
+    app: AppHandle<R>,
+    command: String,
+    params: Option<Value>,
+) -> Result<Value> {
+    app.hillview().cmd(command, params)
 }
