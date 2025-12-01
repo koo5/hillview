@@ -10,7 +10,7 @@
 	import {getDevicePhotoUrl} from '$lib/devicePhotoHelper';
 	import {simplePhotoWorker} from '$lib/simplePhotoWorker';
 	import {zoomViewData} from '$lib/zoomView.svelte.js';
-	import {doubleTap} from '$lib/actions/doubleTap';
+	import {singleTap} from '$lib/actions/singleTap';
 	import {getFullPhotoInfo} from '$lib/photoUtils';
 	import type {PhotoData} from '$lib/sources';
 
@@ -329,10 +329,6 @@
 	{/if}
 
 	{#if photo && !photo.is_placeholder}
-		 <button
-			onclick={() => openZoomView(photo)}
-			class="{className} photo" >
-
 		<img
 			src={displayedUrl}
 			alt={photo.file}
@@ -356,8 +352,9 @@
 					is_device_photo: photo?.is_device_photo
 				}));
 			}}
+			class="photo {className}"
+			use:singleTap={() => openZoomView(photo)}
 		/>
-		</button>
 
 		<!-- Loading spinner overlay -->
 		{#if isLoadingNewImage}
@@ -464,14 +461,9 @@
 	}
 
 	.photo {
-		all: unset;
 		object-fit: contain;
 		background-size: cover;
 		-o-background-size: cover;
-		border: none;
-		padding: 0;
-		margin: 0;
-
 	}
 
 	.photo-actions-container {
