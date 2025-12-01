@@ -288,6 +288,7 @@
 		if (!photo) return;
 
 		const fallbackUrl = displayedUrl || selectedUrl || '';
+		console.log('🢄Photo.svelte: Opening zoom view for photo:', JSON.stringify(photo));
 		const fullPhotoInfo = getFullPhotoInfo(photo);
 
 		zoomViewData.set({

@@ -2252,7 +2252,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
 		if (screenOrientationListener == null) {
 			screenOrientationListener = object : OrientationEventListener(activity) {
 				override fun onOrientationChanged(orientation: Int) {
-					Log.d(TAG, "📱 device-orientation Screen orientation changed...")
+					//Log.d(TAG, "📱 device-orientation Screen orientation changed...")
 					val windowManager = activity.getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager
 					val rotation = windowManager.defaultDisplay.rotation
 

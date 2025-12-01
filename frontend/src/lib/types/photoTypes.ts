@@ -1,5 +1,6 @@
 import { LatLng } from 'leaflet';
 import type { Source } from '../data.svelte';
+import type { PhotoItemData } from './photoItemTypes';
 
 /**
  * Unique identifier for photos
@@ -131,3 +132,17 @@ export interface MapillaryPhoto {
         vertices: string;
     };
 }
+
+/**
+ * Full photo information for zoom view and detailed display
+ */
+export interface FullPhotoInfo {
+    url: string;
+    width?: number;
+    height?: number;
+}
+
+/**
+ * Union type for all photo types that can be used with getFullPhotoInfo
+ */
+export type PhotoForInfo = PhotoData | PhotoItemData | DevicePhotoMetadata;
