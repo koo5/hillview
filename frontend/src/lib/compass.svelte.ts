@@ -269,7 +269,7 @@ async function startWebCompass(): Promise<boolean> {
         setTimeout(() => {
             if (!hasResolved) {
                 hasResolved = true;
-                console.warn('🢄⚠️ No DeviceOrientation events received after 3 seconds');
+                console.warn('🢄⚠️ [compass] No DeviceOrientation events received after 3 seconds');
                 resolve(false);
             }
         }, 3000);

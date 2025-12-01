@@ -329,16 +329,18 @@
 	{/if}
 
 	{#if photo && !photo.is_placeholder}
+		 <button
+			onclick={() => openZoomView(photo)}
+			class="{className} photo" >
+
 		<img
 			src={displayedUrl}
 			alt={photo.file}
-			class="{className} photo"
 			style="{bg_style_stretched_photo} {border_style}"
 			fetchpriority={fetchPriority as any}
 			data-testid="main-photo"
 			data-photo={JSON.stringify(photo)}
-			onclick={() => openZoomView(photo)}
-			onerror={(e) => {
+			onError={(e) => {
 				console.error('🢄Photo.svelte: Image load error:', JSON.stringify({
 					photoId: photo?.id,
 					displayedUrl: displayedUrl,
@@ -347,7 +349,7 @@
 					errorMessage: e?.toString?.() || 'Unknown error'
 				}));
 			}}
-			onload={() => {
+			onLoad={() => {
 				console.log('🢄Photo.svelte: Image loaded successfully:', JSON.stringify({
 					photoId: photo?.id,
 					displayedUrl: displayedUrl,
@@ -355,6 +357,7 @@
 				}));
 			}}
 		/>
+		</button>
 
 		<!-- Loading spinner overlay -->
 		{#if isLoadingNewImage}
@@ -461,9 +464,14 @@
 	}
 
 	.photo {
+		all: unset;
 		object-fit: contain;
 		background-size: cover;
 		-o-background-size: cover;
+		border: none;
+		padding: 0;
+		margin: 0;
+
 	}
 
 	.photo-actions-container {

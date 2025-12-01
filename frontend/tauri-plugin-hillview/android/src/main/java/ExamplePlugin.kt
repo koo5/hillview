@@ -253,12 +253,21 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     private val photoWorkerService: PhotoWorkerService = PhotoWorkerService(activity, this)
     private val photoUploadManager: PhotoUploadManager = PhotoUploadManager(activity)
 
-    // Device orientation tracking
-    private var deviceOrientationListener: OrientationEventListener? = null
-    private var currentDeviceOrientation: DeviceOrientation = DeviceOrientation.PORTRAIT
+
+    private val myDeviceOrientationSensor: MyDeviceOrientationSensor = MyDeviceOrientationSensor(activity, ::triggerOrientationEvent)
+
+    // Screen orientation listener for activity orientation changes
+    private var screenOrientationListener: OrientationEventListener? = null
 
     // Message queue system for reliable Kotlin-frontend communication
     private val messageQueue = ConcurrentLinkedQueue<QueuedMessage>()
+
+	private var activityOrientationAngle: Int = 0
+
+    init {
+        // Start screen orientation listener when plugin initializes
+        startScreenOrientationListener()
+    }
 
     data class QueuedMessage(
         val type: String,
@@ -493,7 +502,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
 						Log.e(TAG, "🔍 Error triggering event from plugin: ${e.message}", e)
 					}
                 },
-                onOrientationChanged = ::handleOrientationChanged
+                onOrientationChanged = null
             )
         } else {
             Log.d(TAG, "🔍 SensorService already exists")
@@ -535,9 +544,6 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         invoke.resolve()
     }
 
-    private fun handleOrientationChanged(orientation: DeviceOrientation) {
-
-    }
 
     @Command
     fun startPreciseLocationListener(invoke: Invoke) {
@@ -2160,13 +2166,13 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
 
 			when (command) {
 				"start_device_orientation_sensor" -> {
-					handleStartDeviceOrientationSensor()
+					myDeviceOrientationSensor?.setRunning(true)
 				}
 				"stop_device_orientation_sensor" -> {
-					handleStopDeviceOrientationSensor()
+					myDeviceOrientationSensor?.setRunning(false)
 				}
 				"trigger_device_orientation_event" -> {
-					handleTriggerDeviceOrientationEvent()
+					myDeviceOrientationSensor?.triggerDeviceOrientationEvent()
 				}
 				else -> {
 					Log.w(TAG, "🔧 Unknown command: $command")
@@ -2188,46 +2194,106 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
 		}
 	}
 
-	// Command handlers
-
-	private fun handleStartDeviceOrientationSensor() {
-		Log.d(TAG, "📱 device-orientation handleStartDeviceOrientationSensor")
-		if (deviceOrientationListener == null) {
-			Log.d(TAG, "📱 device-orientation initiliazing sensor listener")
-			deviceOrientationListener = object : OrientationEventListener(activity) {
-				override fun onOrientationChanged(orientation: Int) {
-					Log.d(TAG, "📱 device-orientation onOrientationChanged")
-					val newOrientation = DeviceOrientation.fromDegrees(orientation)
-					if (newOrientation != currentDeviceOrientation) {
-						Log.d(TAG, "📱 device-orientation changed: $currentDeviceOrientation → $newOrientation")
-						currentDeviceOrientation = newOrientation
-						triggerOrientationEvent()
-					}
-				}
-			}
-			Log.d(TAG, "📱 device-orientation sensor initialized")
-		}
-		deviceOrientationListener?.enable()
-	}
-
-	private fun handleStopDeviceOrientationSensor() {
-		Log.d(TAG, "📱 device-orientation handleStopDeviceOrientationSensor")
-		deviceOrientationListener?.disable()
-	}
-
-	private fun handleTriggerDeviceOrientationEvent() {
-		Log.d(TAG, "📱 device-orientation handleTriggerDeviceOrientationEvent")
-		triggerOrientationEvent()
-	}
-
-	private fun triggerOrientationEvent() {
+	private fun triggerOrientationEvent(currentDeviceOrientation: DeviceOrientation) {
 		val event = JSObject()
 		event.put("orientation", currentDeviceOrientation.toString())
 		event.put("exif_code", DeviceOrientation.toExifCode(currentDeviceOrientation))
-		Log.d(TAG, "📱 device-orientation event triggered: $event")
+		Log.d(TAG, "📱 device-orientation event trigger: $event")
 		trigger("device-orientation", event)
 	}
 
+	// Activity lifecycle methods to manage sensor suspension/resumption
+	override fun onPause() {
+		super.onPause()
+		Log.d(TAG, "🔄 Activity onPause - suspending MyDeviceOrientationSensor and stopping screen orientation listener")
+		myDeviceOrientationSensor.setSuspended(true)
+		stopScreenOrientationListener()
+	}
+
+	override fun onResume() {
+		super.onResume()
+		Log.d(TAG, "🔄 Activity onResume - resuming MyDeviceOrientationSensor and starting screen orientation listener")
+		myDeviceOrientationSensor.setSuspended(false)
+		startScreenOrientationListener()
+	}
+
+/*	override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+		super.onConfigurationChanged(newConfig)
+
+		Log.d(TAG, "📱 onConfigurationChanged called")
+
+		// Get the actual rotation from the window manager
+		val windowManager = activity.getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager
+		val rotation = windowManager.defaultDisplay.rotation
+
+		val orientationAngle = when (rotation) {
+			android.view.Surface.ROTATION_0 -> 0      // Portrait
+			android.view.Surface.ROTATION_90 -> 90    // Landscape (rotated left)
+			android.view.Surface.ROTATION_180 -> 180  // Portrait upside down
+			android.view.Surface.ROTATION_270 -> 270  // Landscape (rotated right)
+			else -> 0 // fallback
+		}
+
+		Log.d(TAG, "📱 device-orientation Activity orientation changed - rotation: $rotation, angle: $orientationAngle°")
+
+		// Emit screen-angle event to match Main.svelte listener
+		val event = JSObject()
+		event.put("angle", orientationAngle)
+		event.put("timestamp", System.currentTimeMillis())
+		try {
+			trigger("screen-angle", event)
+			Log.d(TAG, "📱 Emitted device-orientation screen-angle event: angle=$orientationAngle°")
+		} catch (e: Exception) {
+			Log.e(TAG, "📱 Error emitting device-orientation screen-angle event: ${e.message}", e)
+		}
+	}
+*/
+	private fun startScreenOrientationListener() {
+		if (screenOrientationListener == null) {
+			screenOrientationListener = object : OrientationEventListener(activity) {
+				override fun onOrientationChanged(orientation: Int) {
+					Log.d(TAG, "📱 device-orientation Screen orientation changed...")
+					val windowManager = activity.getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager
+					val rotation = windowManager.defaultDisplay.rotation
+
+					val orientationAngle = when (rotation) {
+						android.view.Surface.ROTATION_0 -> 0      // Portrait
+						android.view.Surface.ROTATION_90 -> 90    // Landscape (rotated left)
+						android.view.Surface.ROTATION_180 -> 180  // Portrait upside down
+						android.view.Surface.ROTATION_270 -> 270  // Landscape (rotated right)
+						else -> 0 // fallback
+					}
+
+					if (orientationAngle != activityOrientationAngle) {
+						activityOrientationAngle = orientationAngle
+					} else {
+						// No change in orientation angle
+						return
+					}
+
+					Log.d(TAG, "📱 device-orientation Activity orientation changed - rotation: $rotation, angle: $orientationAngle°")
+
+					// Emit screen-angle event to match Main.svelte listener
+					val event = JSObject()
+					event.put("angle", orientationAngle)
+					event.put("timestamp", System.currentTimeMillis())
+					try {
+						trigger("screen-angle", event)
+						Log.d(TAG, "📱 Emitted device-orientation screen-angle event: angle=$orientationAngle°")
+					} catch (e: Exception) {
+						Log.e(TAG, "📱 Error emitting device-orientation screen-angle event: ${e.message}", e)
+					}
+				}
+			}
+		}
+		screenOrientationListener?.enable()
+		Log.d(TAG, "📱 device-orientation Screen orientation listener enabled")
+	}
+
+	private fun stopScreenOrientationListener() {
+		screenOrientationListener?.disable()
+		Log.d(TAG, "📱 Screen orientation listener disabled")
+	}
 
 	/*
 	private fun resolveWithError(invoke: Invoke, message: String, exception: Exception? = null) {

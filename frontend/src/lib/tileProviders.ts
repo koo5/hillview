@@ -43,7 +43,7 @@ const CUSTOM_PROVIDERS: Record<string, TileProviderConfig> = {
     },
 	'tiles.ueueeu.eu': {
 		url: 'https://tiles.ueueeu.eu/tile/{z}/{x}/{y}.png',
-		attribution: '',
+		attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
 		maxZoom: 23,
 		maxNativeZoom: 20,
 	}

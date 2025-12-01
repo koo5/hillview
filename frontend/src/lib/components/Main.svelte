@@ -1,4 +1,6 @@
 <script lang="ts">
+	import {addPluginListener, type PluginListener} from '@tauri-apps/api/core';
+	import {TAURI} from '$lib/tauri';
 	import {onDestroy, onMount, tick} from 'svelte';
 	import {browser} from '$app/environment';
 	import {parsePhotoUid} from '$lib/urlUtils';
@@ -25,13 +27,17 @@
 	import {get} from "svelte/store";
 	import CameraCapture from './CameraCapture.svelte';
 	import DebugOverlay from './DebugOverlay.svelte';
-	import {deviceOrientationExif} from "$lib/deviceOrientationExif";
-	import {getRotationFromOrientation} from "$lib/absoluteOrientation";
+	import {
+		deviceOrientationExif, getCssRotationFromOrientation,
+		getRotationFromOrientation, getWebviewOrientation, relativeOrientationExif,
+		screenOrientationAngle
+	} from "$lib/deviceOrientationExif";
 	import AlertArea from './AlertArea.svelte';
 	import NavigationMenu from './NavigationMenu.svelte';
 	import type {DevicePhotoMetadata} from '$lib/types/photoTypes';
 	import {enableCompass, disableCompass} from '$lib/compass.svelte.js';
 	import {networkWorkerManager} from "$lib/networkWorkerManager";
+	import type {SensorData} from "$lib/tauri";
 
 	let map: any = null;
 	let mapComponent: any = null;
@@ -51,6 +57,20 @@
 
 		// Add keyboard event listener for debug toggle
 		window.addEventListener('keydown', handleKeyDown);
+
+		screenOrientationAngle.set(getWebviewOrientation());
+		if (TAURI)
+		{
+			addPluginListener('hillview', 'screen-angle', (data: any) => {
+				console.log('🢄device-orientation: Tauri screen angle changed:', data.angle);
+				screenOrientationAngle.set(data.angle);
+			});
+
+		}
+		else
+		{
+			screen.orientation.addEventListener("change", handleOrientationChange);
+		}
 
 		const unsubscribe1 = photoInFront.subscribe(photo => {
 				if (!update_url) return;
@@ -128,7 +148,14 @@
 	onDestroy(() => {
 		console.log('🢄Page destroyed');
 		window.removeEventListener('keydown', handleKeyDown);
+		screen.orientation.removeEventListener("change", handleOrientationChange);
 	});
+
+
+	function handleOrientationChange(e: Event) {
+		console.log('🢄device-orientation: WEB screen orientation changed:', e);
+		screenOrientationAngle.set(e.target.angle);
+	}
 
 
 	let bearingUrlUpdateTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -453,7 +480,7 @@
 <!-- Camera button -->
 <button
 	class="camera-button {showCameraView ? 'active' : ''}"
-	style="transform: rotate({getRotationFromOrientation($deviceOrientationExif)}deg);"
+	style="transform: rotate({getCssRotationFromOrientation($relativeOrientationExif)}deg);"
 	on:click={toggleCamera}
 	on:keydown={(e) => e.key === 'Enter' && toggleCamera()}
 	aria-label="{showCameraView ? 'Close camera' : 'Take photo'}"
@@ -471,7 +498,7 @@
 		aria-label="Toggle debug overlay"
 		title="Toggle debug overlay"
 	>
-		Debug
+		{getCssRotationFromOrientation($relativeOrientationExif)}
 	</button>
 {/if}
 
