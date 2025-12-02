@@ -26,6 +26,8 @@
 	import {invoke} from "@tauri-apps/api/core";
 	import {autoUploadSettings} from "$lib/autoUploadSettings";
 	import LoadMoreButton from "$lib/components/LoadMoreButton.svelte";
+	import LicenseSelector from '$lib/components/LicenseSelector.svelte';
+	import {photoLicense} from '$lib/data.svelte';
 
 	let photos: UserPhoto[] = [];
 	let isLoading = true;
@@ -406,6 +408,11 @@
 			</div>
 		</div>
 
+		<!-- License Selector -->
+		<div class="license-section">
+			<LicenseSelector required={true} />
+		</div>
+
 		<div class="tab-content">
 			{#if activeTab === 'upload'}
 				<PhotoUpload
@@ -413,6 +420,7 @@
 					onLogEntry={addLogEntry}
 					onUploadComplete={handleUploadComplete}
 					{goToLogin}
+					disabled={$photoLicense === null}
 				/>
 			{:else if activeTab === 'import'}
 				<PhotoImport
@@ -420,6 +428,7 @@
 					onLogEntry={addLogEntry}
 					onImportComplete={handleImportComplete}
 					{goToLogin}
+					disabled={$photoLicense === null}
 				/>
 			{/if}
 		</div>
@@ -675,6 +684,10 @@
 		color: #4a90e2;
 		border-bottom-color: #4a90e2;
 		background-color: transparent;
+	}
+
+	.license-section {
+		margin: 20px 0;
 	}
 
 	.tab-content {

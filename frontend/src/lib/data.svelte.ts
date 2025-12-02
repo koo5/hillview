@@ -5,6 +5,9 @@ import {MAX_DEBUG_MODES} from './constants';
 import {auth} from './auth.svelte';
 
 export type DisplayMode = 'split' | 'max' | 'min';
+
+// Draggable split store for gallery/map split percentage (0-100, percentage for photo panel)
+export let splitPercent = staggeredLocalStorageSharedStore('splitPercent', 50);
 export type AppActivity = 'capture' | 'view';
 // Import new mapState for legacy compatibility only
 import {photoToLeft, photoToRight, updateBearingWithPhoto} from './mapState';
@@ -79,6 +82,8 @@ export let client_id = staggeredLocalStorageSharedStore('client_id', Math.random
 
 // Camera overlay opacity store (0 = fully transparent, 5 = most opaque)
 export let cameraOverlayOpacity = staggeredLocalStorageSharedStore('cameraOverlayOpacity', 3);
+
+export let photoLicense = staggeredLocalStorageSharedStore('photoLicense', null);
 
 // Separate persisted app settings from session-specific state
 export let appSettings = staggeredLocalStorageSharedStore('appSettings', {

@@ -237,7 +237,7 @@
 	.fallback-image {
 		width: 100%;
 		height: 100%;
-		object-fit: cover;
+		object-fit: contain;
 		opacity: 0.7;
 		user-select: none;
 	}
@@ -253,10 +253,10 @@
 	.zoom-image {
 		width: 100%;
 		height: 100%;
-		object-fit: cover;
+		object-fit: contain;
 		user-select: none;
 		background: transparent;
-		
+
 	}
 
 	.zoom-image-wrapper:active {

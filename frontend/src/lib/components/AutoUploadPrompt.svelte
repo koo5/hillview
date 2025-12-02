@@ -3,6 +3,7 @@
 	import { TAURI } from '$lib/tauri';
 	import { invoke } from '@tauri-apps/api/core';
 	import { navigateWithHistory } from '$lib/navigation.svelte.js';
+	import { photoLicense } from '$lib/data.svelte';
 
 	// Event from parent when a photo was captured
 	export let photoCaptured = false;

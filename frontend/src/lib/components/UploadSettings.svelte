@@ -5,6 +5,8 @@
 	import type {User} from '$lib/auth.svelte';
 	import {navigateWithHistory} from '$lib/navigation.svelte';
 	import {autoUploadSettings} from "$lib/autoUploadSettings";
+	import LicenseSelector from './LicenseSelector.svelte';
+	import {photoLicense} from '$lib/data.svelte';
 
 	export let onSaveSuccess = (message: string) => {
 	};
@@ -83,16 +85,28 @@
 
 {#if TAURI}
 	<h2>Auto-Upload Settings</h2>
+
+	<!-- License Selector -->
+	<div class="form-group">
+		<LicenseSelector required={true} showDescription={false} />
+		{#if $photoLicense === null}
+			<div class="license-warning">
+				Auto-upload is disabled until you select a license for your photos.
+			</div>
+		{/if}
+	</div>
+
 	<div class="form-group">
 		<p class="help-text">
-			Automatically upload photos taken with the app's camera to your account.
+			Automatically upload photos taken with the app's camera, to be visible in hillview.cz and in the app.
 		</p>
-		<div class="radio-group">
+		<div class="radio-group" class:disabled={$photoLicense === null}>
 			<label>
 				<input type="radio"
 					   name="autoUpload"
 					   checked={radioState === 'enabled'}
 					   on:change={() => handleRadioChange('enabled')}
+					   disabled={$photoLicense === null}
 					   data-testid="auto-upload-enabled"/>
 				Enabled
 			</label>
@@ -101,6 +115,7 @@
 					   name="autoUpload"
 					   checked={radioState === 'disabled'}
 					   on:change={() => handleRadioChange('disabled')}
+					   disabled={$photoLicense === null}
 					   data-testid="auto-upload-disabled"/>
 				Disabled
 			</label>
@@ -109,6 +124,7 @@
 					   name="autoUpload"
 					   checked={radioState === 'disabled_never'}
 					   on:change={() => handleRadioChange('disabled_never')}
+					   disabled={$photoLicense === null}
 					   data-testid="auto-upload-disabled-never"/>
 				Disabled (Never prompt)
 			</label>
