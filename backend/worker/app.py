@@ -254,7 +254,6 @@ async def upload_and_process_photo(
 				)
 
 
-
 				if not processing_result:
 					raise ValueError("Processing returned no result")
 

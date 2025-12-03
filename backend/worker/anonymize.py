@@ -123,7 +123,7 @@ def anonymize_image(source_path):
 
 	# Validate image dimensions to prevent memory exhaustion
 	height, width = image.shape[:2]
-	if width > 8192 or height > 8192 or (width * height) > 67108864:
+	if width > 12192 or height > 12192 or (width * height) > 67108864:
 		raise ValueError(f"Image size too large or invalid ({width}x{height}). Please use a smaller image.")
 
 	boxes = detect_targets(image)
@@ -157,15 +157,25 @@ def anonymize_image(source_path):
 	output_path = source_path + '_anonymized'
 	cv2.imwrite(output_path, masked)
 
-	# Preserve all EXIF data from original image
+	# Preserve EXIF data from original image
 	try:
-		# Copy all EXIF data from source to output using exiftool
+		# Copy EXIF data from source to output using exiftool
 		cmd = ['exiftool', '-overwrite_original', '-TagsFromFile', source_path, '-all:all', output_path]
 		logging.debug(f"Preserving EXIF data from {os.path.basename(source_path)} to anonymized version: {shlex.join(cmd)}")
 
 		result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
 		if result.returncode == 0:
 			logging.info(f"Successfully preserved all EXIF metadata in anonymized image: {os.path.basename(output_path)}")
+
+			# Reset orientation tag to 1 (normal orientation) - this is critical for privacy
+			orientation_cmd = ['exiftool', '-overwrite_original', '-EXIF:Orientation=1', output_path]
+			logging.debug(f"Resetting orientation tag: {shlex.join(orientation_cmd)}")
+
+			orientation_result = subprocess.run(orientation_cmd, capture_output=True, text=True, timeout=30)
+			if orientation_result.returncode != 0:
+				raise RuntimeError(f"Failed to reset orientation tag for {os.path.basename(output_path)}: {orientation_result.stderr}")
+
+			logging.debug(f"Successfully reset orientation tag to 1 for {os.path.basename(output_path)}")
 		else:
 			logging.warning(f"Failed to preserve EXIF metadata in {os.path.basename(output_path)}: {result.stderr}")
 

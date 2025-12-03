@@ -42,17 +42,15 @@
                     <ExternalLink size={14} />
                 </button>
             </div>
-            <p class="description">
-                Allow others to share and adapt your photos with attribution and same license
-            </p>
+			{#if required && !isLicenseSet}
+				<div class="requirement-notice">
+					Upload is disabled until you select a license for your photos.
+				</div>
+			{/if}
+
         </div>
     </label>
 
-    {#if required && !isLicenseSet}
-        <div class="requirement-notice">
-            Upload is disabled until you select a license for your photos.
-        </div>
-    {/if}
 </div>
 
 <style>

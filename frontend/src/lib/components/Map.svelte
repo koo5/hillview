@@ -2,7 +2,7 @@
     import {onMount, onDestroy, tick} from 'svelte';
     import {LeafletMap, TileLayer, Marker, Circle, ScaleControl} from 'svelte-leafletjs';
     import {LatLng} from 'leaflet';
-    import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle, MapPin, Pause, ArrowUp, ArrowDown, Layers, Eye, Compass, Car, PersonStanding, Map as MapIcon} from 'lucide-svelte';
+    import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle, MapPin, Pause, ArrowUp, ArrowDown, Layers, Eye, Compass, Car, PersonStanding, Map as MapIcon, ChevronDown} from 'lucide-svelte';
     import L from 'leaflet';
     import 'leaflet/dist/leaflet.css';
     import { getCurrentProviderConfig, setTileProvider, currentTileProvider } from '$lib/tileProviders';
@@ -39,6 +39,11 @@
     let locationTrackingLoading = false;
     let locationApiEventFlashTimer: any = null;
     let locationApiEventFlash = false;
+
+    // GPS orientation tracking for car mode
+    // When in car mode with compass enabled, we track GPS heading changes
+    // and apply the difference to the map bearing (not absolute positioning)
+    let lastGpsHeading: number | null = null;
     let map: any;
     let elMap: any;
     const fov_circle_radius_px = 70;

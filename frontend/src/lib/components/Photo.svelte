@@ -288,8 +288,10 @@
 		if (!photo) return;
 
 		const fallbackUrl = displayedUrl || selectedUrl || '';
-		console.log('🢄Photo.svelte: Opening zoom view for photo:', JSON.stringify(photo));
+		console.log('🢄Photo.svelte: [zoomview] Opening zoom view for photo:', JSON.stringify(photo));
 		const fullPhotoInfo = getFullPhotoInfo(photo);
+
+		console.log('🢄Photo.svelte: [zoomview] Full photo info:', JSON.stringify(fullPhotoInfo));
 
 		zoomViewData.set({
 			fallback_url: fallbackUrl,
