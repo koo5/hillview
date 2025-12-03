@@ -29,13 +29,37 @@
 	}
 
 	function handleBackdropClick(event: MouseEvent) {
-		console.log('🔍 [ZoomView] Backdrop click:', event.target, 'container:', container);
-		// Check if click is on the backdrop (not on image or close button)
 		const target = event.target as HTMLElement;
-		if (target === container || target.classList.contains('image-container')) {
-			console.log('🔍 [ZoomView] Closing zoom view from backdrop click');
-			closeZoomView();
+		console.log('🔍 [ZoomView] Backdrop click:', {
+			target: target,
+			targetClass: target.className,
+			targetTag: target.tagName,
+			isContainer: target === container,
+			hasImageContainerClass: target.classList.contains('image-container'),
+			container: container
+		});
+
+		// Don't close if clicking on the close button
+		if (target.closest('.close-button')) {
+			console.log('🔍 [ZoomView] Click on close button, ignoring');
+			return;
 		}
+
+		// Don't close if clicking on image or image wrapper elements
+		if (target.closest('.zoom-image-wrapper') || target.closest('.fallback-image-wrapper')) {
+			console.log('🔍 [ZoomView] Click on image, ignoring');
+			return;
+		}
+
+		// Don't close if clicking directly on image elements
+		if (target.tagName === 'IMG' || target.classList.contains('zoom-image') || target.classList.contains('fallback-image')) {
+			console.log('🔍 [ZoomView] Click on image element, ignoring');
+			return;
+		}
+
+		// Close on any other click (backdrop area)
+		console.log('🔍 [ZoomView] Closing zoom view from backdrop click');
+		closeZoomView();
 	}
 
 	// Pan/zoom state handler
@@ -232,14 +256,16 @@
 		top: 0;
 		left: 0;
 		user-select: none;
+		pointer-events: none;
 	}
 
 	.fallback-image {
 		width: 100%;
 		height: 100%;
-		object-fit: cover;
+		object-fit: contain;
 		opacity: 0.7;
 		user-select: none;
+		pointer-events: none;
 	}
 
 	.zoom-image-wrapper {
@@ -248,15 +274,16 @@
 		left: 0;
 		cursor: grab;
 		user-select: none;
+		pointer-events: auto;
 	}
 
 	.zoom-image {
 		width: 100%;
 		height: 100%;
-		object-fit: cover;
+		object-fit: contain;
 		user-select: none;
 		background: transparent;
-		
+		pointer-events: none;
 	}
 
 	.zoom-image-wrapper:active {

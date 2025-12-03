@@ -66,11 +66,16 @@
     // Location tracking re-enable timer
     let locationReEnableTimer: number | null = null;
 
+
     // Flag to track if the current map event was caused by zoom buttons
     let isZoomButtonEvent = false;
-    let zoomButtonEventTimer: number | null = null;
+	let isActivityOrientationChangeEvent = false;
+	let isWindowResizeEvent = false;
 
-    // Compass button state is derived from stores
+    let zoomButtonEventTimer: number | null = null;
+	let activityOrientationChangeTimer: number | null = null;
+	let windowResizeTimer: number | null = null;
+
 
     // Debug bounds rectangle
     let boundsRectangle: any = null;
@@ -247,15 +252,6 @@
         }
 
         await onMapStateChange(true, 'mapStateUserEvent');
-
-        // Prune tiles after significant movement or every 10 move events
-        /*moveEventCount++;
-        const timeSinceLastPrune = Date.now() - lastPruneTime;
-        if (moveEventCount >= 10 || timeSinceLastPrune > 10000) {
-            pruneTiles();
-            moveEventCount = 0;
-            lastPruneTime = Date.now();
-        }*/
     }
 
 
@@ -813,12 +809,6 @@
             }
         });
     });
-
-    export function setView(center: any, zoom: number) {
-        if (map) {
-            map.setView(center, zoom);
-        }
-    }
 
     //import.meta.hot?.dispose(() => (map = null));
 

@@ -92,7 +92,8 @@
 	// Store to track which cameras are loading resolutions
 	import {writable} from 'svelte/store';
 	import {
-		deviceOrientationExif,
+		calculateWebviewRelativeOrientation,
+		deviceOrientationExif, relativeOrientationExif,
 	} from "$lib/deviceOrientationExif";
 	import {
 		type ExifOrientation
@@ -738,7 +739,7 @@
 				captured_at: timestamp,
 				mode,
 				placeholder_id: sharedId, // Use sharedId as placeholder ID too
-				orientation_code: get(deviceOrientationExif) // Current device orientation
+				orientation_code: get(relativeOrientationExif) // Current device orientation
 			});
 
 			// Trigger auto-upload prompt check
@@ -966,7 +967,6 @@
 			{
 				await addPluginListener('hillview', 'device-orientation', (data: any) => {
 					console.log('🢄🔍📡 Received device-orientation event from plugin:', JSON.stringify(data));
-					// not sure if this will have to be adjusted by screen rotation, probably not
 					updateDeviceOrientationExif(data.exif_code);
 				});
 				await invoke('plugin:hillview|cmd', {command: 'start_device_orientation_sensor'});

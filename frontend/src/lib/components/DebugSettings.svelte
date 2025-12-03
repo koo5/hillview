@@ -9,9 +9,6 @@
 	<input
 		type="checkbox"
 		id="debug-mode"
-		bind:checked={app.debug_enabled}
-		on:change={() => {
-						app.update(a => ({ ...a, debug_enabled: !a.debug_enabled }));
-					}}
+		bind:checked={$app.debug_enabled}
 	/>
 </div>

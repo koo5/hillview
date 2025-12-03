@@ -5,10 +5,14 @@ import {MAX_DEBUG_MODES} from './constants';
 import {auth} from './auth.svelte';
 
 export type DisplayMode = 'split' | 'max' | 'min';
+
+// Draggable split store for gallery/map split percentage (0-100, percentage for photo panel)
+export let splitPercent = staggeredLocalStorageSharedStore('splitPercent', 50);
 export type AppActivity = 'capture' | 'view';
 // Import new mapState for legacy compatibility only
 import {photoToLeft, photoToRight, updateBearingWithPhoto} from './mapState';
 import {TAURI} from "$lib/tauri";
+import {autoUploadSettings} from "$lib/autoUploadSettings";
 
 // Device source subtypes
 export type subtype = 'hillview' | 'folder' | 'gallery';
@@ -79,6 +83,26 @@ export let client_id = staggeredLocalStorageSharedStore('client_id', Math.random
 
 // Camera overlay opacity store (0 = fully transparent, 5 = most opaque)
 export let cameraOverlayOpacity = staggeredLocalStorageSharedStore('cameraOverlayOpacity', 3);
+
+export let photoLicense = staggeredLocalStorageSharedStore('photoLicense', null);
+photoLicense.subscribe(async value => {
+	if (value === null && TAURI) {
+		try
+		{
+			await autoUploadSettings.persist(
+			{
+				auto_upload_enabled: false,
+				auto_upload_prompt_enabled: true
+			}
+		);
+		}
+		catch (error)
+		{
+			console.error('🢄Error persisting auto upload settings on photoLicense init:', error);
+		}
+	}
+});
+
 
 // Separate persisted app settings from session-specific state
 export let appSettings = staggeredLocalStorageSharedStore('appSettings', {

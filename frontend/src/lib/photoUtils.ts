@@ -1,49 +1,67 @@
 import { getDevicePhotoUrl } from '$lib/devicePhotoHelper';
+import type { PhotoForInfo, FullPhotoInfo } from '$lib/types/photoTypes';
 
 /**
  * Get the full-size URL for any photo type
  */
-export function getFullPhotoUrl(photo: any): string {
+export function getFullPhotoUrl(photo: PhotoForInfo): string {
 	// Case 1: Device photos - use device URL helper
-	if (photo.is_device_photo) {
-		return getDevicePhotoUrl(photo.url);
+	if (isDevicePhoto(photo)) {
+		const photoUrl = 'url' in photo ? photo.url : '';
+		return getDevicePhotoUrl(photoUrl);
 	}
 
 	// Case 2: Server photos with sizes - use full size
-	if (photo.sizes?.full?.url) {
+	if (hasSizesProperty(photo) && photo.sizes?.full?.url) {
 		return photo.sizes.full.url;
 	}
 
-	// Case 3: Fallback - use photo.url
-	return photo.url || '';
+	// Case 3: Fallback - use photo.url if available
+	if ('url' in photo) {
+		return photo.url || '';
+	}
+
+	return '';
+}
+
+/**
+ * Type guard to check if photo has sizes property (PhotoData or PhotoItemData)
+ */
+function hasSizesProperty(photo: PhotoForInfo): photo is (PhotoForInfo & { sizes?: Record<string, { url: string; width: number; height: number }> }) {
+	return 'sizes' in photo;
+}
+
+/**
+ * Type guard to check if photo is device photo
+ */
+function isDevicePhoto(photo: PhotoForInfo): photo is (PhotoForInfo & { is_device_photo: boolean }) {
+	return 'is_device_photo' in photo && photo.is_device_photo === true;
 }
 
 /**
  * Get full-size photo info (URL + dimensions) for zoom view
  */
-export function getFullPhotoInfo(photo: any): { url: string; width?: number; height?: number } {
-	if (photo.is_device_photo) {
-		// Device photos have width/height directly (from metadata)
-		return {
-			url: getDevicePhotoUrl(photo.url),
-			width: photo.width,
-			height: photo.height
-		};
+export function getFullPhotoInfo(photo: PhotoForInfo): FullPhotoInfo {
+	let url: string;
+	let width: number | undefined;
+	let height: number | undefined;
+
+	// Handle photos with sizes (PhotoData, PhotoItemData)
+	if (hasSizesProperty(photo) && photo.sizes?.full) {
+		url = photo.sizes.full.url;
+		width = photo.sizes.full.width;
+		height = photo.sizes.full.height;
+	} else {
+		// Fallback to direct properties
+		url = 'url' in photo ? photo.url : '';
+		width = 'width' in photo ? photo.width : undefined;
+		height = 'height' in photo ? photo.height : undefined;
 	}
 
-	// Server photos - get from sizes.full
-	if (photo.sizes?.full) {
-		return {
-			url: photo.sizes.full.url,
-			width: photo.sizes.full.width,
-			height: photo.sizes.full.height
-		};
+	// Handle device photos - convert URL
+	if (isDevicePhoto(photo)) {
+		url = getDevicePhotoUrl(url);
 	}
 
-	// Fallback - just URL, no dimensions
-	return {
-		url: photo.url || '',
-		width: photo.width,
-		height: photo.height
-	};
+	return { url, width, height };
 }

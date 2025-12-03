@@ -1,4 +1,6 @@
 <script lang="ts">
+	import {addPluginListener, type PluginListener} from '@tauri-apps/api/core';
+	import {TAURI} from '$lib/tauri';
 	import {onDestroy, onMount, tick} from 'svelte';
 	import {browser} from '$app/environment';
 	import {parsePhotoUid} from '$lib/urlUtils';
@@ -6,12 +8,18 @@
 	import Map from './Map.svelte';
 	import {
 		Camera,
-		Maximize2,
-		Menu,
-		Minimize2,
-		Square
+		Menu
 	} from 'lucide-svelte';
-	import {app, sources, toggleDebug, turn_to_photo_to, enableSourceForPhotoUid, type DisplayMode} from "$lib/data.svelte.js";
+	import {
+		app,
+		sources,
+		toggleDebug,
+		turn_to_photo_to,
+		enableSourceForPhotoUid,
+		type DisplayMode,
+		splitPercent
+	} from "$lib/data.svelte.js";
+	import {resizableSplit} from '$lib/actions/resizableSplit';
 	import {
 		bearingState,
 		spatialState,
@@ -25,13 +33,17 @@
 	import {get} from "svelte/store";
 	import CameraCapture from './CameraCapture.svelte';
 	import DebugOverlay from './DebugOverlay.svelte';
-	import {deviceOrientationExif} from "$lib/deviceOrientationExif";
-	import {getRotationFromOrientation} from "$lib/absoluteOrientation";
+	import {
+		deviceOrientationExif, getCssRotationFromOrientation,
+		getRotationFromOrientation, getWebviewOrientation, relativeOrientationExif,
+		screenOrientationAngle
+	} from "$lib/deviceOrientationExif";
 	import AlertArea from './AlertArea.svelte';
 	import NavigationMenu from './NavigationMenu.svelte';
 	import type {DevicePhotoMetadata} from '$lib/types/photoTypes';
 	import {enableCompass, disableCompass} from '$lib/compass.svelte.js';
 	import {networkWorkerManager} from "$lib/networkWorkerManager";
+	import type {SensorData} from "$lib/tauri";
 
 	let map: any = null;
 	let mapComponent: any = null;
@@ -52,18 +64,34 @@
 		// Add keyboard event listener for debug toggle
 		window.addEventListener('keydown', handleKeyDown);
 
+		// Initialize and track orientation for split direction
+		updateOrientation();
+		window.addEventListener('resize', updateOrientation);
+		window.addEventListener('orientationchange', updateOrientation);
+
+		screenOrientationAngle.set(getWebviewOrientation());
+		if (TAURI) {
+			addPluginListener('hillview', 'screen-angle', (data: any) => {
+				console.log('🢄device-orientation: Tauri screen angle changed:', data.angle);
+				screenOrientationAngle.set(data.angle);
+			});
+
+		} else {
+			screen.orientation.addEventListener("change", handleOrientationChange);
+		}
+
 		const unsubscribe1 = photoInFront.subscribe(photo => {
-				if (!update_url) return;
+			if (!update_url) return;
 
-				const url = new URL(window.location.href);
+			const url = new URL(window.location.href);
 
-				if (photo?.uid) {
-					url.searchParams.set('photo', encodeURIComponent(photo.uid));
-				} else {
-					url.searchParams.delete('photo');
-				}
+			if (photo?.uid) {
+				url.searchParams.set('photo', encodeURIComponent(photo.uid));
+			} else {
+				url.searchParams.delete('photo');
+			}
 
-				replaceState2(url.toString());
+			replaceState2(url.toString());
 		});
 
 		return () => {
@@ -110,7 +138,7 @@
 			console.log('🢄Photo parameter from URL:', photoUid);
 			enableSourceForPhotoUid(photoUid);
 			// Switch to view mode when opening a specific photo
-			app.update(a => ({ ...a, activity: 'view' }));
+			app.update(a => ({...a, activity: 'view'}));
 		}
 
 		if (bearingParam) {
@@ -128,7 +156,16 @@
 	onDestroy(() => {
 		console.log('🢄Page destroyed');
 		window.removeEventListener('keydown', handleKeyDown);
+		window.removeEventListener('resize', updateOrientation);
+		window.removeEventListener('orientationchange', updateOrientation);
+		screen.orientation.removeEventListener("change", handleOrientationChange);
 	});
+
+
+	function handleOrientationChange(e: Event) {
+		console.log('🢄device-orientation: WEB screen orientation changed:', e);
+		screenOrientationAngle.set(e.target.angle);
+	}
 
 
 	let bearingUrlUpdateTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -205,32 +242,55 @@
 		menuOpen = !menuOpen;
 	}
 
-	const toggleDisplayMode = async () => {
-		app.update(a => {
-			let nextMode: DisplayMode;
-			switch (a.display_mode) {
-				case 'split':
-					nextMode = 'max';
-					break;
-				case 'max':
-					nextMode = 'min';
-					break;
-				case 'min':
-					nextMode = 'split';
-					break;
-				default:
-					nextMode = 'split';
-			}
-			return { ...a, display_mode: nextMode };
-		});
-
-		// Wait for DOM to update
-		await tick();
-
+	// Handle split resize
+	const handleSplitResize = (newSplitPercent: number) => {
+		splitPercent.set(newSplitPercent);
 		// Trigger a window resize event to make the map recalculate
 		setTimeout(() => {
 			window.dispatchEvent(new Event('resize'));
-		}, 100);
+		}, 10);
+	}
+
+	// Detect orientation for split direction
+	let isPortrait = false;
+	let splitOptions = {
+		direction: 'vertical' as 'horizontal' | 'vertical',
+		defaultSplit: 50,
+		minSize: 150,
+		onResize: handleSplitResize
+	};
+
+	const updateOrientation = () => {
+		const newIsPortrait = window.innerHeight > window.innerWidth;
+		console.log('🔄SPLIT: updateOrientation called', JSON.stringify({
+			oldIsPortrait: isPortrait,
+			newIsPortrait,
+			windowSize: {width: window.innerWidth, height: window.innerHeight}
+		}));
+		if (newIsPortrait !== isPortrait) {
+			isPortrait = newIsPortrait;
+			console.log('🔄SPLIT: Orientation changed, updating split direction', JSON.stringify({
+				isPortrait,
+				newDirection: isPortrait ? 'horizontal' : 'vertical'
+			}));
+			// Update split options to trigger action update
+			splitOptions = {
+				...splitOptions,
+				direction: isPortrait ? 'horizontal' : 'vertical'
+			};
+		}
+	};
+
+	// Update split options when splitPercent changes
+	$: {
+		splitOptions = {
+			direction: isPortrait ? 'horizontal' : 'vertical',
+			defaultSplit: $splitPercent,
+			minSize: 150,
+			dividerSize: 12,
+			onResize: handleSplitResize
+		};
+		console.log('🔄SPLIT: Reactive splitOptions updated', JSON.stringify(splitOptions));
 	}
 
 	function handleKeyDown(e: KeyboardEvent) {
@@ -433,35 +493,20 @@
 	<Menu size={24}/>
 </button>
 
-<!-- Display mode toggle -->
-<button
-	class="display-mode-toggle"
-	on:click={toggleDisplayMode}
-	on:keydown={(e) => e.key === 'Enter' && toggleDisplayMode()}
-	aria-label="Toggle display mode"
-	title={$app.display_mode === 'split' ? 'Maximize view' : $app.display_mode === 'max' ? 'Minimize view' : 'Split view'}
->
-	{#if $app.display_mode === 'split'}
-		<Maximize2 size={24}/>
-	{:else if $app.display_mode === 'max'}
-		<Square size={24}/>
-	{:else}
-		<Minimize2 size={24}/>
-	{/if}
-</button>
 
-<!-- Camera button -->
-<button
-	class="camera-button {showCameraView ? 'active' : ''}"
-	style="transform: rotate({getRotationFromOrientation($deviceOrientationExif)}deg);"
-	on:click={toggleCamera}
-	on:keydown={(e) => e.key === 'Enter' && toggleCamera()}
-	aria-label="{showCameraView ? 'Close camera' : 'Take photo'}"
-	title="{showCameraView ? 'Close camera' : 'Take photos'}"
-	data-testid="camera-button"
->
-	<Camera size={24}/>
-</button>
+{#if TAURI || $app.debug_enabled}
+	<button
+		class="camera-button {showCameraView ? 'active' : ''}"
+		style="transform: rotate({getCssRotationFromOrientation($relativeOrientationExif)}deg);"
+		on:click={toggleCamera}
+		on:keydown={(e) => e.key === 'Enter' && toggleCamera()}
+		aria-label="{showCameraView ? 'Close camera' : 'Take photo'}"
+		title="{showCameraView ? 'Close camera' : 'Take photos'}"
+		data-testid="camera-button"
+	>
+		<Camera size={24}/>
+	</button>
+{/if}
 
 {#if import.meta.env.VITE_DEV_MODE === 'true'}
 	<button
@@ -471,7 +516,7 @@
 		aria-label="Toggle debug overlay"
 		title="Toggle debug overlay"
 	>
-		Debug
+		{getCssRotationFromOrientation($relativeOrientationExif)}
 	</button>
 {/if}
 
@@ -482,7 +527,15 @@
 	<AlertArea position="main"/>
 </div>
 
-<div class="container" class:max-mode={$app.display_mode === 'max'} class:min-mode={$app.display_mode === 'min'}>
+<div
+	class="container"
+	use:resizableSplit={{
+		direction: isPortrait ? 'horizontal' : 'vertical',
+		defaultSplit: $splitPercent,
+		minSize: 150,
+		onResize: handleSplitResize
+	}}
+>
 	<div class="panel photo-panel">
 		{#if showCameraView}
 			<CameraCapture
@@ -529,69 +582,14 @@
 		box-sizing: border-box;
 	}
 
-	/* Container occupies the full viewport */
+	/* Container with draggable split */
 	.container {
-		display: flex;
 		width: 100vw;
 		height: 100vh;
-		flex-direction: row; /* Default landscape mode */
 	}
 
-	/* Each panel takes up equal space */
 	.panel {
-		flex: 1;
 		overflow: auto;
-	}
-
-	/* Max mode: photo panel takes up 7/8 of the screen */
-	.container.max-mode {
-		flex-direction: row;
-	}
-
-	.container.max-mode .photo-panel {
-		flex: 7;
-	}
-
-	.container.max-mode .map-panel {
-		flex: 1;
-	}
-
-	/* Min mode: map panel takes up 7/8 of the screen */
-	.container.min-mode {
-		flex-direction: row;
-	}
-
-	.container.min-mode .photo-panel {
-		flex: 1;
-	}
-
-	.container.min-mode .map-panel {
-		flex: 7;
-	}
-
-	/* For portrait mode, stack panels vertically */
-	@media (orientation: portrait) {
-		.container {
-			flex-direction: column;
-		}
-
-		/* In portrait max mode, photo panel takes up 3/4 of height */
-		.container.max-mode {
-			flex-direction: column;
-		}
-
-		/* In portrait min mode, map panel takes up 7/8 of height */
-		.container.min-mode {
-			flex-direction: column;
-		}
-
-		.container.min-mode .photo-panel {
-			flex: 1;
-		}
-
-		.container.min-mode .map-panel {
-			flex: 7;
-		}
 	}
 
 	.hamburger {
@@ -612,28 +610,11 @@
 		padding: 0;
 	}
 
-	.display-mode-toggle {
-		position: absolute;
-		top: 10px;
-		left: 60px;
-		z-index: 30001;
-		background: white;
-		border-radius: 50%;
-		width: 40px;
-		height: 40px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
-		cursor: pointer;
-		border: none;
-		padding: 0;
-	}
 
 	.camera-button {
 		position: absolute;
 		top: 10px;
-		left: 110px;
+		left: 60px;
 		z-index: 30001;
 		background: white;
 		border-radius: 50%;
@@ -655,7 +636,7 @@
 	.debug-toggle {
 		position: absolute;
 		top: 10px;
-		left: 160px;
+		left: 110px;
 		z-index: 30001;
 		background: white;
 		border-radius: 50%;
