@@ -10,7 +10,15 @@
 		Camera,
 		Menu
 	} from 'lucide-svelte';
-	import {app, sources, toggleDebug, turn_to_photo_to, enableSourceForPhotoUid, type DisplayMode, splitPercent} from "$lib/data.svelte.js";
+	import {
+		app,
+		sources,
+		toggleDebug,
+		turn_to_photo_to,
+		enableSourceForPhotoUid,
+		type DisplayMode,
+		splitPercent
+	} from "$lib/data.svelte.js";
 	import {resizableSplit} from '$lib/actions/resizableSplit';
 	import {
 		bearingState,
@@ -62,31 +70,28 @@
 		window.addEventListener('orientationchange', updateOrientation);
 
 		screenOrientationAngle.set(getWebviewOrientation());
-		if (TAURI)
-		{
+		if (TAURI) {
 			addPluginListener('hillview', 'screen-angle', (data: any) => {
 				console.log('🢄device-orientation: Tauri screen angle changed:', data.angle);
 				screenOrientationAngle.set(data.angle);
 			});
 
-		}
-		else
-		{
+		} else {
 			screen.orientation.addEventListener("change", handleOrientationChange);
 		}
 
 		const unsubscribe1 = photoInFront.subscribe(photo => {
-				if (!update_url) return;
+			if (!update_url) return;
 
-				const url = new URL(window.location.href);
+			const url = new URL(window.location.href);
 
-				if (photo?.uid) {
-					url.searchParams.set('photo', encodeURIComponent(photo.uid));
-				} else {
-					url.searchParams.delete('photo');
-				}
+			if (photo?.uid) {
+				url.searchParams.set('photo', encodeURIComponent(photo.uid));
+			} else {
+				url.searchParams.delete('photo');
+			}
 
-				replaceState2(url.toString());
+			replaceState2(url.toString());
 		});
 
 		return () => {
@@ -133,7 +138,7 @@
 			console.log('🢄Photo parameter from URL:', photoUid);
 			enableSourceForPhotoUid(photoUid);
 			// Switch to view mode when opening a specific photo
-			app.update(a => ({ ...a, activity: 'view' }));
+			app.update(a => ({...a, activity: 'view'}));
 		}
 
 		if (bearingParam) {
@@ -260,7 +265,7 @@
 		console.log('🔄SPLIT: updateOrientation called', JSON.stringify({
 			oldIsPortrait: isPortrait,
 			newIsPortrait,
-			windowSize: { width: window.innerWidth, height: window.innerHeight }
+			windowSize: {width: window.innerWidth, height: window.innerHeight}
 		}));
 		if (newIsPortrait !== isPortrait) {
 			isPortrait = newIsPortrait;
@@ -489,18 +494,19 @@
 </button>
 
 
-<!-- Camera button -->
-<button
-	class="camera-button {showCameraView ? 'active' : ''}"
-	style="transform: rotate({getCssRotationFromOrientation($relativeOrientationExif)}deg);"
-	on:click={toggleCamera}
-	on:keydown={(e) => e.key === 'Enter' && toggleCamera()}
-	aria-label="{showCameraView ? 'Close camera' : 'Take photo'}"
-	title="{showCameraView ? 'Close camera' : 'Take photos'}"
-	data-testid="camera-button"
->
-	<Camera size={24}/>
-</button>
+{#if TAURI || $app.debug_enabled}
+	<button
+		class="camera-button {showCameraView ? 'active' : ''}"
+		style="transform: rotate({getCssRotationFromOrientation($relativeOrientationExif)}deg);"
+		on:click={toggleCamera}
+		on:keydown={(e) => e.key === 'Enter' && toggleCamera()}
+		aria-label="{showCameraView ? 'Close camera' : 'Take photo'}"
+		title="{showCameraView ? 'Close camera' : 'Take photos'}"
+		data-testid="camera-button"
+	>
+		<Camera size={24}/>
+	</button>
+{/if}
 
 {#if import.meta.env.VITE_DEV_MODE === 'true'}
 	<button
