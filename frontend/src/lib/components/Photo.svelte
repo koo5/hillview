@@ -52,7 +52,7 @@
 	// enable for stretched backdrop
 	//$: bg_style_stretched_photo = photo.sizes?.[50] ? `background-image: url(${photo.sizes[50].url});` : ''
 
-	$: border_style = className === 'front' && photo ? 'border: 4px dotted #4a90e2;' : '';
+	$: border_style = ''//className === 'front' && photo ? 'border: 4px dotted #4a90e2;' : '';
 	//console.log('🢄border_style:', border_style);
 
 	$: if (photo || clientWidth || containerElement) updateSelectedUrl();
@@ -453,18 +453,23 @@
 	.photo-wrapper {
 		display: flex;
 		justify-content: center;
-		/*width: 100%;*/
+		width: 100%;
+		height: 100%;
 		max-width: 100%;
 		max-height: 100%;
 		object-fit: contain;
 		background-repeat: no-repeat;
-
+		overflow: hidden;
 	}
 
 	.photo {
 		object-fit: contain;
 		background-size: cover;
 		-o-background-size: cover;
+		max-width: 100%;
+		max-height: 100%;
+		width: auto;
+		height: auto;
 	}
 
 	.photo-actions-container {

@@ -29,13 +29,25 @@
 	}
 
 	function handleBackdropClick(event: MouseEvent) {
-		console.log('🔍 [ZoomView] Backdrop click:', event.target, 'container:', container);
-		// Check if click is on the backdrop (not on image or close button)
 		const target = event.target as HTMLElement;
-		if (target === container || target.classList.contains('image-container')) {
-			console.log('🔍 [ZoomView] Closing zoom view from backdrop click');
-			closeZoomView();
+		console.log('🔍 [ZoomView] Backdrop click:', {
+			target: target,
+			targetClass: target.className,
+			targetTag: target.tagName,
+			isContainer: target === container,
+			hasImageContainerClass: target.classList.contains('image-container'),
+			container: container
+		});
+
+		// Don't close if clicking on the close button
+		if (target.closest('.close-button')) {
+			console.log('🔍 [ZoomView] Click on close button, ignoring');
+			return;
 		}
+
+		// Close on any click that's not on specific interactive elements
+		console.log('🔍 [ZoomView] Closing zoom view from backdrop click');
+		closeZoomView();
 	}
 
 	// Pan/zoom state handler
@@ -240,6 +252,7 @@
 		object-fit: contain;
 		opacity: 0.7;
 		user-select: none;
+		pointer-events: none;
 	}
 
 	.zoom-image-wrapper {
@@ -256,7 +269,7 @@
 		object-fit: contain;
 		user-select: none;
 		background: transparent;
-
+		pointer-events: none;
 	}
 
 	.zoom-image-wrapper:active {
