@@ -1,6 +1,7 @@
 <script lang="ts">
     import { photoLicense } from '$lib/data.svelte';
     import { CreativeCommons, ExternalLink } from 'lucide-svelte';
+    import { openExternalUrl } from '$lib/urlUtils';
 
     export let disabled = false;
     export let required = false;
@@ -13,10 +14,8 @@
         photoLicense.set(target.checked ? 'CC BY-SA 4.0' : null);
     }
 
-    function openLicenseInfo() {
-        if (typeof window !== 'undefined') {
-            window.open('https://creativecommons.org/licenses/by-sa/4.0/', '_blank', 'noopener,noreferrer');
-        }
+    async function openLicenseInfo() {
+        await openExternalUrl('https://creativecommons.org/licenses/by-sa/4.0/');
     }
 </script>
 
@@ -32,7 +31,7 @@
         <div class="label-content">
             <div class="label-text">
                 <CreativeCommons size={18} />
-                <span>Share as Creative Commons Attribution-ShareAlike 4.0 International</span>
+                <span>Share as  CC BY-SA 4.0</span>
                 <button
                     type="button"
                     class="info-link"
@@ -51,7 +50,7 @@
 
     {#if required && !isLicenseSet}
         <div class="requirement-notice">
-            A license must be selected to enable photo uploads and auto-upload
+            Upload is disabled until you select a license for your photos.
         </div>
     {/if}
 </div>

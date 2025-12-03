@@ -89,11 +89,6 @@
 	<!-- License Selector -->
 	<div class="form-group">
 		<LicenseSelector required={true} showDescription={false} />
-		{#if $photoLicense === null}
-			<div class="license-warning">
-				Auto-upload is disabled until you select a license for your photos.
-			</div>
-		{/if}
 	</div>
 
 	<div class="form-group">

@@ -8,7 +8,7 @@
 	import {get} from 'svelte/store';
 	import {myGoto} from '$lib/navigation.svelte';
 	import {constructPhotoMapUrl} from '$lib/urlUtils';
-	import { Trash2, Map, Settings, ThumbsUp, ThumbsDown, Upload} from 'lucide-svelte';
+	import {Trash2, Map, Settings, ThumbsUp, ThumbsDown, Upload} from 'lucide-svelte';
 	import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';
 	import StandardBody from '$lib/components/StandardBody.svelte';
 	import Spinner from '$lib/components/Spinner.svelte';
@@ -18,7 +18,7 @@
 	import {userId} from '$lib/authStore';
 	import type {UserPhoto} from '$lib/stores';
 	import type {User} from '$lib/auth.svelte';
-	import type { ActivityLogEntry } from '$lib/types/activityLog';
+	import type {ActivityLogEntry} from '$lib/types/activityLog';
 	import {http, handleApiError, TokenExpiredError} from '$lib/http';
 	import {TAURI} from '$lib/tauri';
 	import {navigateWithHistory} from '$lib/navigation.svelte';
@@ -39,7 +39,8 @@
 	let showSettings = false;
 	let user: User | null = null;
 	let activityLog: ActivityLogEntry[] = [];
-	let activeTab: 'upload' | 'import' = TAURI ? 'import' : 'upload';
+	//let activeTab: 'upload' | 'import' = TAURI ? 'import' : 'upload';
+	let activeTab: 'upload' | 'import' = 'upload';
 
 
 	function addLogEntry(
@@ -269,7 +270,7 @@
 		console.log(`🢄Setting ${rating} for photo ${photoId}`);
 
 		try {
-			const response = await http.post(`/ratings/hillview/${photoId}`, { rating });
+			const response = await http.post(`/ratings/hillview/${photoId}`, {rating});
 
 			if (!response.ok) {
 				throw new Error(`Failed to set rating: ${response.status}`);
@@ -360,7 +361,8 @@
 				<Settings size={20}/>
 				Settings
 			</button>
-			<button class="device-photos-button" on:click={() => myGoto('/device-photos')} data-testid="device-photos-button">
+			<button class="device-photos-button" on:click={() => myGoto('/device-photos')}
+					data-testid="device-photos-button">
 				Device Photos
 			</button>
 		</div>
@@ -381,82 +383,87 @@
 		</div>
 	{/if}
 
-	<div class="photo-management-section" data-testid="photo-management-section">
-		<div class="tabs-header">
-			<h2>Photo Management</h2>
-			<div class="tabs">
-								{#if !TAURI}
-
-				<button
-					class="tab-button"
-					class:active={activeTab === 'upload'}
-					on:click={() => activeTab = 'upload'}
-					data-testid="upload-tab"
-				>
-					Upload Photos
-				</button>
-									{:else}
-					<button
-						class="tab-button"
-						class:active={activeTab === 'import'}
-						on:click={() => activeTab = 'import'}
-						data-testid="import-tab"
-					>
-						Import from Directory
-					</button>
-				{/if}
+	{#if !TAURI}
+		<div class="photo-management-section" data-testid="photo-management-section">
+			<div class="tabs-header">
+				<h2>Photo Management</h2>
+				<div class="tabs">
+					{#if !TAURI}
+						<button
+							class="tab-button"
+							class:active={activeTab === 'upload'}
+							on:click={() => activeTab = 'upload'}
+							data-testid="upload-tab"
+						>
+							Upload Photos
+						</button>
+					{:else}
+						{#if app.debug_enabled}
+							<button
+								class="tab-button"
+								class:active={activeTab === 'import'}
+								on:click={() => activeTab = 'import'}
+								data-testid="import-tab"
+							>
+								Import from Directory
+							</button>
+						{/if}
+					{/if}
+				</div>
 			</div>
-		</div>
 
-		<!-- License Selector -->
-		<div class="license-section">
-			<LicenseSelector required={true} />
-		</div>
-
-		<div class="tab-content">
-			{#if activeTab === 'upload'}
-				<PhotoUpload
-					{user}
-					onLogEntry={addLogEntry}
-					onUploadComplete={handleUploadComplete}
-					{goToLogin}
-					disabled={$photoLicense === null}
-				/>
-			{:else if activeTab === 'import'}
-				<PhotoImport
-					{user}
-					onLogEntry={addLogEntry}
-					onImportComplete={handleImportComplete}
-					{goToLogin}
-					disabled={$photoLicense === null}
-				/>
+			{#if !TAURI && activeTab === 'upload'}
+				<div class="tab-content">
+					{#if activeTab === 'upload'}
+						{#if !TAURI}
+							<LicenseSelector required={true}/>
+							<PhotoUpload
+								{user}
+								onLogEntry={addLogEntry}
+								onUploadComplete={handleUploadComplete}
+								{goToLogin}
+								disabled={$photoLicense === null}
+							/>
+						{/if}
+					{:else if activeTab === 'import'}
+						<div class="license-section">
+							<LicenseSelector required={true}/>
+						</div>
+						<PhotoImport
+							{user}
+							onLogEntry={addLogEntry}
+							onImportComplete={handleImportComplete}
+							{goToLogin}
+							disabled={$photoLicense === null}
+						/>
+					{/if}
+				</div>
 			{/if}
 		</div>
-	</div>
 
 
-	{#if activityLog.length > 0}
-		<div class="activity-log" data-testid="activity-log">
-			<h2>Recent Activity</h2>
-			<div class="log-entries" data-testid="log-entries">
-				{#each activityLog as entry (entry.timestamp)}
-					<div
-						class="log-entry log-{entry.type}"
-						data-testid="log-entry"
-						data-log-type="{entry.type}"
-						data-operation="{entry.metadata?.operation || ''}"
-						data-filename="{entry.metadata?.filename || ''}"
-						data-photo-id="{entry.metadata?.photo_id || ''}"
-						data-outcome="{entry.metadata?.outcome || ''}"
-					>
-						<span class="log-time">{formatLogTime(entry.timestamp)}</span>
-						<span class="log-message">{entry.message}</span>
-					</div>
-				{/each}
+		{#if activityLog.length > 0}
+			<div class="activity-log" data-testid="activity-log">
+				<h2>Recent Activity</h2>
+				<div class="log-entries" data-testid="log-entries">
+					{#each activityLog as entry (entry.timestamp)}
+						<div
+							class="log-entry log-{entry.type}"
+							data-testid="log-entry"
+							data-log-type="{entry.type}"
+							data-operation="{entry.metadata?.operation || ''}"
+							data-filename="{entry.metadata?.filename || ''}"
+							data-photo-id="{entry.metadata?.photo_id || ''}"
+							data-outcome="{entry.metadata?.outcome || ''}"
+						>
+							<span class="log-time">{formatLogTime(entry.timestamp)}</span>
+							<span class="log-message">{entry.message}</span>
+						</div>
+					{/each}
+				</div>
 			</div>
-		</div>
+		{/if}
 	{/if}
-
 
 	<div class="photos-grid" data-testid="photos-grid">
 		<h2>My Photos ({totalCount})</h2>
@@ -501,7 +508,8 @@
 							{#if photo.description}
 								<p class="description">{photo.description}</p>
 							{/if}
-							<p class="meta">Uploaded: {photo.uploaded_at ? formatDate(photo.uploaded_at) : 'Unknown'}</p>
+							<p class="meta">
+								Uploaded: {photo.uploaded_at ? formatDate(photo.uploaded_at) : 'Unknown'}</p>
 							{#if photo.captured_at}
 								<p class="meta">Captured: {formatDate(photo.captured_at)}</p>
 							{/if}
@@ -657,7 +665,6 @@
 
 	.tabs {
 		display: flex;
-		gap: 8px;
 		border-bottom: 1px solid #e2e8f0;
 		margin-bottom: 0;
 	}
@@ -687,11 +694,9 @@
 	}
 
 	.license-section {
-		margin: 20px 0;
 	}
 
 	.tab-content {
-		padding-top: 20px;
 	}
 
 
@@ -995,7 +1000,7 @@
 		}
 	}
 
-		.login-link {
+	.login-link {
 		background: none;
 		border: none;
 		color: #1565c0;

@@ -45,7 +45,19 @@
 			return;
 		}
 
-		// Close on any click that's not on specific interactive elements
+		// Don't close if clicking on image or image wrapper elements
+		if (target.closest('.zoom-image-wrapper') || target.closest('.fallback-image-wrapper')) {
+			console.log('🔍 [ZoomView] Click on image, ignoring');
+			return;
+		}
+
+		// Don't close if clicking directly on image elements
+		if (target.tagName === 'IMG' || target.classList.contains('zoom-image') || target.classList.contains('fallback-image')) {
+			console.log('🔍 [ZoomView] Click on image element, ignoring');
+			return;
+		}
+
+		// Close on any other click (backdrop area)
 		console.log('🔍 [ZoomView] Closing zoom view from backdrop click');
 		closeZoomView();
 	}
@@ -244,6 +256,7 @@
 		top: 0;
 		left: 0;
 		user-select: none;
+		pointer-events: none;
 	}
 
 	.fallback-image {
@@ -261,6 +274,7 @@
 		left: 0;
 		cursor: grab;
 		user-select: none;
+		pointer-events: auto;
 	}
 
 	.zoom-image {
