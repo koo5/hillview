@@ -168,7 +168,7 @@ def anonymize_image(source_path):
 			logging.info(f"Successfully preserved all EXIF metadata in anonymized image: {os.path.basename(output_path)}")
 
 			# Reset orientation tag to 1 (normal orientation) - this is critical for privacy
-			orientation_cmd = ['exiftool', '-overwrite_original', '-EXIF:Orientation=1', output_path]
+			orientation_cmd = ['exiftool', '-overwrite_original', '-EXIF:Orientation=', output_path]
 			logging.debug(f"Resetting orientation tag: {shlex.join(orientation_cmd)}")
 
 			orientation_result = subprocess.run(orientation_cmd, capture_output=True, text=True, timeout=30)
