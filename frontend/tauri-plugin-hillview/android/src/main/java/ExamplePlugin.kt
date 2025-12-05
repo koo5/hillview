@@ -271,6 +271,8 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
     private val messageQueue = ConcurrentLinkedQueue<QueuedMessage>()
 
 	private var activityOrientationAngle: Int = 0
+	private var lastNonFlatOrientation: DeviceOrientation = DeviceOrientation.PORTRAIT
+
 
     init {
         // Start screen orientation listener when plugin initializes
@@ -509,8 +511,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
 					} catch (e: Exception) {
 						Log.e(TAG, "🔍 Error triggering event from plugin: ${e.message}", e)
 					}
-                },
-                onOrientationChanged = null
+                }
             )
         } else {
             Log.d(TAG, "🔍 SensorService already exists")

@@ -65,7 +65,6 @@ private fun Float.format(digits: Int) = "%.${digits}f".format(this)
 class EnhancedSensorService(
     private val context: Context,
     private val onSensorUpdate: (SensorData) -> Unit,
-    private val onOrientationChanged: ((DeviceOrientation) -> Unit)? = null
 ) : SensorEventListener {
     companion object {
         private const val TAG = "🢄Sensors"
@@ -147,7 +146,6 @@ class EnhancedSensorService(
 
     // Device orientation tracking
     private var deviceOrientation = DeviceOrientation.PORTRAIT
-	private var lastNonFlatOrientation: DeviceOrientation = DeviceOrientation.PORTRAIT
 
     private val orientationEventListener = object : OrientationEventListener(context) {
         override fun onOrientationChanged(orientation: Int) {
@@ -158,15 +156,7 @@ class EnhancedSensorService(
             if (newOrientation != deviceOrientation) {
                 Log.d(TAG, "📱 Device orientation changed: $deviceOrientation → $newOrientation")
                 deviceOrientation = newOrientation
-
-				if (newOrientation != DeviceOrientation.FLAT_UP && newOrientation != DeviceOrientation.FLAT_DOWN) {
-					lastNonFlatOrientation = newOrientation
-				}
-
-				val exifCode = DeviceOrientation.toExifCode(lastNonFlatOrientation)
-                Log.d(TAG, "📱event from plugin: $exifCode")
-                onOrientationChanged?.invoke(newOrientation)
-            }
+			}
 
         }
     }
