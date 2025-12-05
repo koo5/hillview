@@ -86,7 +86,7 @@ export class KotlinPhotoWorker {
         let messageType: MessageType;
         let workerMessage: WorkerMessage;
 
-        console.log(`🢄KotlinPhotoWorker: postMessage: type: ${message.type}, data:`, JSON.stringify(message.data));
+        //console.log(`🢄KotlinPhotoWorker: postMessage: type: ${message.type}, data:`, JSON.stringify(message.data));
 
         switch (message.type) {
             case 'configUpdated':

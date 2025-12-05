@@ -88,7 +88,7 @@ export class KotlinMessageQueue {
             const response = await invoke<{ messages: any[], count: number }>('plugin:hillview|poll_messages');
 
             if (response.count > 0) {
-                console.log(`🔔 KotlinMessageQueue: Received ${response.count} messages`);
+                //console.log(`🔔 KotlinMessageQueue: Received ${response.count} messages`);
 
                 for (const messageData of response.messages) {
                     const message: QueuedMessage = {

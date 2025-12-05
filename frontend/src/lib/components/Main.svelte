@@ -282,16 +282,16 @@
 	};
 
 	// Update split options when splitPercent changes
-	$: {
-		splitOptions = {
-			direction: isPortrait ? 'horizontal' : 'vertical',
-			defaultSplit: $splitPercent,
-			minSize: 150,
-			dividerSize: 12,
-			onResize: handleSplitResize
-		};
-		console.log('🔄SPLIT: Reactive splitOptions updated', JSON.stringify(splitOptions));
-	}
+	// $: {
+	// 	splitOptions = {
+	// 		direction: isPortrait ? 'horizontal' : 'vertical',
+	// 		defaultSplit: $splitPercent,
+	// 		minSize: 150,
+	// 		dividerSize: 12,
+	// 		onResize: handleSplitResize
+	// 	};
+	// 	console.log('🔄SPLIT: Reactive splitOptions updated', JSON.stringify(splitOptions));
+	// }
 
 	function handleKeyDown(e: KeyboardEvent) {
 		// Only handle debug toggle when no modifier keys are pressed

@@ -85,6 +85,9 @@
 
 {#if TAURI}
 	<h2>Auto-Upload Settings</h2>
+		<p class="help-text">
+			Automatically upload photos taken with the app's camera, to be visible in hillview.cz and in the app.
+		</p>
 
 	<!-- License Selector -->
 	<div class="form-group">
@@ -92,9 +95,6 @@
 	</div>
 
 	<div class="form-group">
-		<p class="help-text">
-			Automatically upload photos taken with the app's camera, to be visible in hillview.cz and in the app.
-		</p>
 		<div class="radio-group" class:disabled={$photoLicense === null}>
 			<label>
 				<input type="radio"

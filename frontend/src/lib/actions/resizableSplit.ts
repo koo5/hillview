@@ -179,8 +179,12 @@ export function resizableSplit(node: HTMLElement, options: SplitOptions = {}) {
 		if (!isResizing) return;
 
 		currentSplit = calculateSplitFromMouse(e.clientX, e.clientY);
-		updateDividerPosition();
-		updatePanelSizes();
+
+		// Update divider position immediately for smoother visual feedback
+		requestAnimationFrame(() => {
+			updateDividerPosition();
+			updatePanelSizes();
+		});
 
 		if (onResize) {
 			onResize(currentSplit);

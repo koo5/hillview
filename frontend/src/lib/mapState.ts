@@ -86,7 +86,7 @@ spatialState.subscribe(spatial => {
 
 	// Sort by bearing for consistent navigation order
 	sortPhotosByBearing(inRange);
-	console.log(`🢄spatialState: photosInRange recalculated to ${inRange.length} photos within range ${spatial.range}m`);
+	//console.log(`🢄spatialState: photosInRange recalculated to ${inRange.length} photos within range ${spatial.range}m`);
 	photosInRange.set(inRange);
 });
 

@@ -1,30 +1,46 @@
 <script lang="ts">
-    import { Compass, Car, PersonStanding, ChevronDown } from 'lucide-svelte';
+    import { Compass, Disc, Car, PersonStanding, ChevronDown } from 'lucide-svelte';
     import { compassState, compassEnabled, compassAvailable, enableCompass, disableCompass, compassError } from '$lib/compass.svelte';
+    import { gpsOrientationInternalState, gpsOrientationEnabled, enableGpsOrientation, disableGpsOrientation, gpsOrientationError } from '$lib/gpsOrientation.svelte';
     import { bearingMode, type BearingMode } from '$lib/mapState';
     import { createEventDispatcher } from 'svelte';
 
     const dispatch = createEventDispatcher<{
-        modeChange: { mode: BearingMode };
-        toggleTracking: { enabled: boolean };
+        showMenu: { buttonRect: DOMRect };
+        hideMenu: {};
     }>();
 
-    // Dropdown state
-    let dropdownOpen = false;
+
+
+    // Menu state
+    let menuOpen = false;
     let longPressTimer: number | null = null;
     let longPressStarted = false;
     let buttonElement: HTMLButtonElement;
+    let pointerHandled = false;
 
     // Long press detection for mobile
     const LONG_PRESS_DURATION = 500; // ms
 
+    function showMenu() {
+        menuOpen = true;
+        const rect = buttonElement.getBoundingClientRect();
+        dispatch('showMenu', { buttonRect: rect });
+    }
+
+    function hideMenu() {
+        menuOpen = false;
+        dispatch('hideMenu');
+    }
+
     function handlePointerDown(event: PointerEvent) {
         event.preventDefault();
         longPressStarted = false;
+        pointerHandled = false;
 
         longPressTimer = window.setTimeout(() => {
             longPressStarted = true;
-            dropdownOpen = true;
+            showMenu();
         }, LONG_PRESS_DURATION);
     }
 
@@ -37,6 +53,11 @@
         if (!longPressStarted) {
             // Short click - toggle tracking
             toggleTracking();
+            pointerHandled = true;
+        } else {
+            // Long press completed - prevent event from bubbling to document
+            event.stopPropagation();
+            pointerHandled = true;
         }
 
         longPressStarted = false;
@@ -52,6 +73,12 @@
 
     // For desktop browsers - show dropdown arrow and handle clicks
     function handleClick(event: MouseEvent) {
+        // Skip click if we already handled it with pointer events
+        if (pointerHandled) {
+            pointerHandled = false;
+            return;
+        }
+
         // On desktop, clicking the dropdown arrow opens the dropdown
         // Clicking the main button toggles tracking
         const target = event.target as HTMLElement;
@@ -59,58 +86,94 @@
 
         if (isDropdownTrigger) {
             event.stopPropagation();
-            dropdownOpen = !dropdownOpen;
-        } else if (!dropdownOpen) {
+            if (menuOpen) {
+                hideMenu();
+            } else {
+                showMenu();
+            }
+        } else if (!menuOpen) {
+            console.log('🔘 click: Calling toggleTracking()');
             toggleTracking();
         }
     }
 
     function toggleTracking() {
-        if ($compassEnabled) {
+        const isAnyTrackingEnabled = $compassEnabled || $gpsOrientationEnabled;
+
+        if (isAnyTrackingEnabled) {
+            console.log('toggleTracking: Disabling orientation tracking');
             disableCompass();
-            dispatch('toggleTracking', { enabled: false });
+            disableGpsOrientation();
         } else {
-            enableCompass();
-            dispatch('toggleTracking', { enabled: true });
+            // Enable the system based on current bearing mode
+            if ($bearingMode === 'walking') {
+                console.log('toggleTracking: Enabling compass (walking mode)');
+                enableCompass();
+            } else {
+                console.log('toggleTracking: Enabling GPS orientation (car mode)');
+                enableGpsOrientation();
+            }
         }
     }
 
-    function selectMode(mode: BearingMode) {
+    export function selectMode(mode: BearingMode) {
+        const wasAnyTrackingEnabled = $compassEnabled || $gpsOrientationEnabled;
+
         bearingMode.set(mode);
-        dropdownOpen = false;
+        hideMenu();
 
-        // If compass is currently off, enable it when selecting a mode
-        if (!$compassEnabled) {
-            enableCompass();
-            dispatch('toggleTracking', { enabled: true });
+        if (wasAnyTrackingEnabled) {
+            // Switch tracking system while maintaining enabled state
+            if (mode === 'walking') {
+                disableGpsOrientation();
+                enableCompass();
+            } else {
+                disableCompass();
+                enableGpsOrientation();
+            }
+        } else {
+            // If tracking was off, enable it for the selected mode
+            if (mode === 'walking') {
+                disableGpsOrientation();
+                enableCompass();
+            } else {
+                disableCompass();
+                enableGpsOrientation();
+            }
         }
-
-        dispatch('modeChange', { mode });
     }
 
-    // Close dropdown when clicking outside
-    function handleDocumentClick(event: MouseEvent) {
-        if (dropdownOpen && buttonElement && !buttonElement.contains(event.target as Node)) {
-            dropdownOpen = false;
-        }
-    }
 
     // Browser detection for showing dropdown indicator
     $: isTouch = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
 
+    // Combined state logic for display
+    // Button state primarily reflects user preference
+    $: userWantsTracking = ($bearingMode === 'walking' && $compassEnabled) ||
+                          ($bearingMode === 'car' && $gpsOrientationEnabled);
+
+    // Technical state for visual feedback
+    $: isTrackingStarting = ($bearingMode === 'walking' && $compassState === 'starting') ||
+                           ($bearingMode === 'car' && $gpsOrientationInternalState === 'starting');
+
+    $: isTrackingError = ($bearingMode === 'walking' && $compassState === 'error') ||
+                        ($bearingMode === 'car' && $gpsOrientationInternalState === 'error');
+
+    $: currentError = $bearingMode === 'walking' ? $compassError : $gpsOrientationError;
+
+    $: isButtonDisabled = $bearingMode === 'walking' && !$compassAvailable;
+
     $: buttonClass = [
         'compass-button',
-        $compassState === 'active' ? 'active' : '',
-        $compassState === 'starting' ? 'loading' : '',
-        $compassState === 'error' ? 'error' : '',
+        userWantsTracking ? 'active' : '',
+        isTrackingStarting ? 'loading' : '',
+        isTrackingError ? 'error' : '',
         $bearingMode === 'car' ? 'car-mode' : 'walking-mode',
-        dropdownOpen ? 'dropdown-open' : ''
+        menuOpen ? 'dropdown-open' : ''
     ].filter(Boolean).join(' ');
 
-    $: tooltipText = `Auto bearing updates (${$bearingMode === 'car' ? 'GPS' : 'compass'} mode)${$compassError ? ' - Error: ' + $compassError : ''}${!isTouch ? ' • Click arrow for mode options' : ' • Long press for mode options'}`;
+    $: tooltipText = `Auto bearing updates (${$bearingMode === 'car' ? 'GPS' : 'compass'} mode)${currentError ? ' - Error: ' + currentError : ''}${!isTouch ? ' • Click arrow for mode options' : ' • Long press for mode options'}`;
 </script>
-
-<svelte:document on:click={handleDocumentClick} />
 
 <div class="compass-button-container" bind:this={buttonElement}>
     <button
@@ -120,54 +183,39 @@
         on:pointerleave={handlePointerLeave}
         on:click={handleClick}
         title={tooltipText}
-        disabled={$bearingMode === 'walking' && !$compassAvailable}
+        disabled={isButtonDisabled}
         data-testid="compass-button"
     >
         <div class="button-content">
             <Compass />
-            <div class="mode-indicator">
-                {#if $bearingMode === 'car'}
-                    <Car size={12} />
+            <div class="mode-section">
+                <div class="mode-indicator">
+                    {#if $bearingMode === 'car'}
+                        <Car size={16} />
+                    {:else}
+                        <PersonStanding size={16} />
+                    {/if}
+                </div>
+                {#if !isTouch}
+                    <div class="dropdown-trigger">
+                        <ChevronDown size={12} />
+                    </div>
                 {:else}
-                    <PersonStanding size={12} />
+                    <div class="long-press-indicator">
+                        <ChevronDown size={12} />
+                    </div>
                 {/if}
             </div>
-            {#if !isTouch}
-                <div class="dropdown-trigger">
-                    <ChevronDown size={14} />
-                </div>
-            {/if}
         </div>
     </button>
 
-    {#if dropdownOpen}
-        <div class="dropdown-menu" data-testid="compass-dropdown">
-            <button
-                class="dropdown-item {$bearingMode === 'walking' ? 'selected' : ''}"
-                on:click={() => selectMode('walking')}
-                data-testid="walking-mode-option"
-            >
-                <PersonStanding size={16} />
-                <span>Walking Mode</span>
-                <small>Compass bearing</small>
-            </button>
-            <button
-                class="dropdown-item {$bearingMode === 'car' ? 'selected' : ''}"
-                on:click={() => selectMode('car')}
-                data-testid="car-mode-option"
-            >
-                <Car size={16} />
-                <span>Car Mode</span>
-                <small>GPS bearing</small>
-            </button>
-        </div>
-    {/if}
 </div>
 
 <style>
     .compass-button-container {
         position: relative;
         display: inline-block;
+        /* Remove z-index to avoid creating stacking context */
     }
 
     .compass-button {
@@ -179,7 +227,7 @@
         box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
         transition: all 0.2s ease;
         position: relative;
-        min-width: 50px;
+        min-width: 60px;
         min-height: 44px;
         display: flex;
         align-items: center;
@@ -204,11 +252,6 @@
         color: white;
     }
 
-    .compass-button.active.car-mode {
-        background-color: #ff5722;
-        border-color: #ff5722;
-    }
-
     .compass-button.loading {
         animation: pulse 1.5s ease-in-out infinite;
     }
@@ -228,83 +271,38 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        gap: 2px;
+        gap: 4px;
         position: relative;
     }
 
-    .mode-indicator {
-        position: absolute;
-        bottom: -2px;
-        right: -2px;
-        background: rgba(255, 255, 255, 0.9);
-        border-radius: 50%;
-        padding: 1px;
-        line-height: 1;
-        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+    .mode-section {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 1px;
     }
 
-    .compass-button.active .mode-indicator {
-        background: rgba(255, 255, 255, 0.9);
-        color: #333;
+    .mode-indicator {
+        display: flex;
+        align-items: center;
+        justify-content: center;
     }
 
     .dropdown-trigger {
-        margin-left: 2px;
         opacity: 0.7;
         display: flex;
         align-items: center;
+        justify-content: center;
     }
 
-    .dropdown-menu {
-        position: absolute;
-        top: 100%;
-        right: 0;
-        background: white;
-        border: 1px solid #ddd;
-        border-radius: 4px;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-        min-width: 160px;
-        z-index: 1000;
-        overflow: hidden;
-        margin-top: 2px;
-    }
-
-    .dropdown-item {
-        width: 100%;
-        padding: 12px;
-        border: none;
-        background: white;
-        cursor: pointer;
-        text-align: left;
+    .long-press-indicator {
+        opacity: 0.6;
         display: flex;
         align-items: center;
-        gap: 8px;
-        transition: background-color 0.2s ease;
-        flex-direction: column;
-        align-items: flex-start;
+        justify-content: center;
+        pointer-events: none;
     }
 
-    .dropdown-item:hover {
-        background-color: #f5f5f5;
-    }
-
-    .dropdown-item.selected {
-        background-color: #e3f2fd;
-    }
-
-    .dropdown-item span {
-        font-weight: 500;
-        color: #333;
-        margin-left: 24px;
-        margin-top: -16px;
-    }
-
-    .dropdown-item small {
-        font-size: 0.8em;
-        color: #666;
-        margin-left: 24px;
-        margin-top: -4px;
-    }
 
     @keyframes pulse {
         0% { opacity: 1; }
@@ -315,13 +313,13 @@
     /* Mobile optimizations */
     @media (max-width: 768px) {
         .compass-button {
-            min-width: 48px;
-            min-height: 48px;
+            /*min-width: 48px;*/
+            /*min-height: 48px;*/
             touch-action: manipulation;
         }
 
-        .dropdown-trigger {
-            display: none;
-        }
+        /*.dropdown-trigger {*/
+        /*    display: none;*/
+        /*}*/
     }
 </style>

@@ -17,6 +17,8 @@ import kotlinx.coroutines.launch
 import kotlin.math.*
 
 enum class DeviceOrientation {
+	FLAT_UP,
+	FLAT_DOWN,
     PORTRAIT,
     LANDSCAPE_LEFT,  // 90° counter-clockwise, home button on right
     LANDSCAPE_RIGHT, // 90° clockwise, home button on left
@@ -24,7 +26,7 @@ enum class DeviceOrientation {
 
     companion object {
         fun fromDegrees(degrees: Int): DeviceOrientation = when {
-            degrees == OrientationEventListener.ORIENTATION_UNKNOWN -> PORTRAIT // Default fallback
+            degrees == OrientationEventListener.ORIENTATION_UNKNOWN -> FLAT_UP
             degrees in 315..359 || degrees in 0..44 -> PORTRAIT // 0°
             degrees in 45..134 -> LANDSCAPE_LEFT // 90°
             degrees in 135..224 -> PORTRAIT_INVERTED // 180°
@@ -37,6 +39,7 @@ enum class DeviceOrientation {
 			LANDSCAPE_LEFT -> 6
 			PORTRAIT_INVERTED -> 3
 			LANDSCAPE_RIGHT -> 8
+			else -> throw IllegalArgumentException("Unsupported orientation for EXIF code: $orientation")
 		}
     }
 }
@@ -144,15 +147,23 @@ class EnhancedSensorService(
 
     // Device orientation tracking
     private var deviceOrientation = DeviceOrientation.PORTRAIT
+	private var lastNonFlatOrientation: DeviceOrientation = DeviceOrientation.PORTRAIT
+
     private val orientationEventListener = object : OrientationEventListener(context) {
         override fun onOrientationChanged(orientation: Int) {
+			//Log.d(TAG, "📱 onOrientationChanged: $orientation")
+
             val newOrientation = DeviceOrientation.fromDegrees(orientation)
 
             if (newOrientation != deviceOrientation) {
                 Log.d(TAG, "📱 Device orientation changed: $deviceOrientation → $newOrientation")
                 deviceOrientation = newOrientation
 
-				val exifCode = DeviceOrientation.toExifCode(newOrientation)
+				if (newOrientation != DeviceOrientation.FLAT_UP && newOrientation != DeviceOrientation.FLAT_DOWN) {
+					lastNonFlatOrientation = newOrientation
+				}
+
+				val exifCode = DeviceOrientation.toExifCode(lastNonFlatOrientation)
                 Log.d(TAG, "📱event from plugin: $exifCode")
                 onOrientationChanged?.invoke(newOrientation)
             }
@@ -385,10 +396,8 @@ class EnhancedSensorService(
                 // Use rotation vector but optimized for upright phone position
                 rotationVectorSensor?.let {
                     Log.d(TAG, "🔄 Registering TYPE_ROTATION_VECTOR sensor for UPRIGHT mode")
-                    Log.d(TAG, "🔄 Will remap coordinates for portrait orientation")
                     sensorManager.registerListener(this, it, SENSOR_DELAY)
                     isRunning = true
-                    Log.i(TAG, "✅ Started UPRIGHT_ROTATION_VECTOR mode successfully")
                 } ?: run {
                     Log.e(TAG, "❌ TYPE_ROTATION_VECTOR not available")
                 }
@@ -599,71 +608,6 @@ class EnhancedSensorService(
         }
     }
 
-    /**
-     * Applies coordinate system remapping based on device orientation for accurate heading calculation.
-     * This function is pure and testable - it takes orientation and rotation matrix as inputs
-     * and returns the remapped matrix without side effects.
-     *
-     * @param rotationMatrix Input rotation matrix from sensor
-     * @param orientation Device orientation enum
-     * @return Remapped rotation matrix appropriate for the given orientation
-     */
-    private fun remapCoordinatesForOrientation(rotationMatrix: FloatArray, orientation: DeviceOrientation): FloatArray {
-        val remappedMatrix = FloatArray(9)
-
-        when (orientation) {
-            DeviceOrientation.PORTRAIT -> {
-                // Default portrait orientation - phone held upright
-                // Remap X axis to Z axis, Y axis stays Y
-                SensorManager.remapCoordinateSystem(
-                    rotationMatrix,
-                    SensorManager.AXIS_X,
-                    SensorManager.AXIS_Z,
-                    remappedMatrix
-                )
-				//Log.v(TAG, "🔄 Remappingrrrr for PORTRAIT orientation")
-            }
-            DeviceOrientation.LANDSCAPE_RIGHT -> {
-                // Phone rotated 90° counter-clockwise (landscape, home button on right)
-                // Remap coordinates: Y→X, -X→Y for proper heading calculation
-                SensorManager.remapCoordinateSystem(
-                    rotationMatrix,
-                    SensorManager.AXIS_Y,
-                    SensorManager.AXIS_MINUS_X,
-                    remappedMatrix
-                )
-				//Log.v(TAG, "🔄 Remappingrrrr for LANDSCAPE_LEFT orientation")
-            }
-            DeviceOrientation.LANDSCAPE_LEFT -> {
-                // Phone rotated 90° clockwise (landscape, home button on left)
-                // Remap coordinates: -Y→X, X→Y for proper heading calculation
-                SensorManager.remapCoordinateSystem(
-                    rotationMatrix,
-                    SensorManager.AXIS_MINUS_Y,
-                    SensorManager.AXIS_X,
-                    remappedMatrix
-                )
-				//Log.v(TAG, "🔄 Remappingrrrr for LANDSCAPE_RIGHT orientation")
-            }
-            DeviceOrientation.PORTRAIT_INVERTED -> {
-                // Phone upside down (180° rotation)
-                // Remap coordinates: -X→Z, -Z→Y for proper heading calculation
-                SensorManager.remapCoordinateSystem(
-                    rotationMatrix,
-                    SensorManager.AXIS_MINUS_X,
-                    SensorManager.AXIS_MINUS_Z,
-                    remappedMatrix
-                )
-				//Log.v(TAG, "🔄 Remappingrrrr for PORTRAIT_INVERTED orientation")
-            }
-			else -> {
-				Log.w(TAG, "⚠️ Unknown device orientation, no remapping applied")
-				System.arraycopy(rotationMatrix, 0, remappedMatrix, 0, 9)
-			}
-        }
-
-        return remappedMatrix
-    }
 
     private fun handleRotationVector(event: SensorEvent, source: String) {
         // Rate limiting based on current mode
@@ -745,6 +689,81 @@ class EnhancedSensorService(
             source = sourceWithMode
         )
     }
+
+
+
+    /**
+     * Applies coordinate system remapping based on device orientation for accurate heading calculation.
+     * This function is pure and testable - it takes orientation and rotation matrix as inputs
+     * and returns the remapped matrix without side effects.
+     *
+     * @param rotationMatrix Input rotation matrix from sensor
+     * @param orientation Device orientation enum
+     * @return Remapped rotation matrix appropriate for the given orientation
+     */
+    private fun remapCoordinatesForOrientation(rotationMatrix: FloatArray, orientation: DeviceOrientation): FloatArray {
+        val remappedMatrix = FloatArray(9)
+
+        when (orientation) {
+			DeviceOrientation.FLAT_UP, DeviceOrientation.FLAT_DOWN -> {
+				// No remapping needed for flat orientations
+				Log.v(TAG, "🔄 No remapping needed for FLAT_UP or FLAT_DOWN orientation")
+				System.arraycopy(rotationMatrix, 0, remappedMatrix, 0, 9)
+			}
+            DeviceOrientation.PORTRAIT -> {
+                // Default portrait orientation - phone held upright
+                // Remap X axis to Z axis, Y axis stays Y
+                SensorManager.remapCoordinateSystem(
+                    rotationMatrix,
+                    SensorManager.AXIS_X,
+                    SensorManager.AXIS_Z,
+                    remappedMatrix
+                )
+				//Log.v(TAG, "🔄 Remappingrrrr for PORTRAIT orientation")
+            }
+            DeviceOrientation.LANDSCAPE_RIGHT -> {
+                // Phone rotated 90° counter-clockwise (landscape, home button on right)
+                // Remap coordinates: Y→X, -X→Y for proper heading calculation
+                SensorManager.remapCoordinateSystem(
+                    rotationMatrix,
+                    SensorManager.AXIS_Y,
+                    SensorManager.AXIS_MINUS_X,
+                    remappedMatrix
+                )
+				//Log.v(TAG, "🔄 Remappingrrrr for LANDSCAPE_LEFT orientation")
+            }
+            DeviceOrientation.LANDSCAPE_LEFT -> {
+                // Phone rotated 90° clockwise (landscape, home button on left)
+                // Remap coordinates: -Y→X, X→Y for proper heading calculation
+                SensorManager.remapCoordinateSystem(
+                    rotationMatrix,
+                    SensorManager.AXIS_MINUS_Y,
+                    SensorManager.AXIS_X,
+                    remappedMatrix
+                )
+				//Log.v(TAG, "🔄 Remappingrrrr for LANDSCAPE_RIGHT orientation")
+            }
+            DeviceOrientation.PORTRAIT_INVERTED -> {
+                // Phone upside down (180° rotation)
+                // Remap coordinates: -X→Z, -Z→Y for proper heading calculation
+                SensorManager.remapCoordinateSystem(
+                    rotationMatrix,
+                    SensorManager.AXIS_MINUS_X,
+                    SensorManager.AXIS_MINUS_Z,
+                    remappedMatrix
+                )
+				//Log.v(TAG, "🔄 Remappingrrrr for PORTRAIT_INVERTED orientation")
+            }
+			else -> {
+				Log.w(TAG, "⚠️ Unknown device orientation, no remapping applied")
+				System.arraycopy(rotationMatrix, 0, remappedMatrix, 0, 9)
+			}
+        }
+
+        return remappedMatrix
+    }
+
+
 
     private fun updateMadgwick() {
         if (!hasAccelerometer || !hasGyroscope || !hasMagnetometer) {

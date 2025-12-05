@@ -190,7 +190,11 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
         private val permissionLock = Any()
 
         fun acquirePermissionLock(requester: String): Boolean {
-            synchronized(permissionLock) {
+            // TEMP: Bypass lock system for testing - always return true
+            Log.i(TAG, "🔒 Permission lock bypassed for: $requester")
+            return true
+
+            /* synchronized(permissionLock) {
                 if (permissionLockHolder == null) {
                     permissionLockHolder = requester
                     Log.i(TAG, "🔒 Permission lock acquired by: $requester")
@@ -215,11 +219,15 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                         return false
                     }
                 }
-            }
+            } */
         }
 
         fun releasePermissionLock(requester: String): Boolean {
-            synchronized(permissionLock) {
+            // TEMP: Bypass lock system for testing - always return true
+            Log.i(TAG, "🔒 Permission lock release bypassed for: $requester")
+            return true
+
+            /* synchronized(permissionLock) {
                 if (permissionLockHolder == requester || permissionLockHolder == null) {
                     permissionLockHolder = null
                     Log.i(TAG, "🔒 Permission lock released by: $requester")
@@ -229,7 +237,7 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
                     Log.w(TAG, "🔒 Permission lock warning: held by $permissionLockHolder, not $requester")
                     return true
                 }
-            }
+            } */
         }
 
         fun getPermissionLockHolder(): String? {
