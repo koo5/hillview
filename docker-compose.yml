@@ -12,6 +12,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-hillview}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hillview}
       POSTGRES_HOST_AUTH_METHOD: trust
+    network_mode: host
     ports:
       - "${POSTGRES_PORT:-5434}:5432"
     volumes:
@@ -31,6 +32,7 @@ services:
       context: backend
       dockerfile: api/app/Dockerfile
     container_name: hillview_api
+    network_mode: host
     ports:
       - "${API_PORT:-8055}:8055"
     volumes:
@@ -38,7 +40,7 @@ services:
       - ./backend/common:/app/common
       - pics:/app/pics
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-hillview}:${POSTGRES_PASSWORD:-hillview}@postgres:5432/${POSTGRES_DB:-hillview}
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-hillview}:${POSTGRES_PASSWORD:-hillview}@localhost:5432/${POSTGRES_DB:-hillview}
       #- REDIS_URL=redis://redis:6379/0
       - MAPILLARY_CLIENT_TOKEN_FILE=/run/secrets/mapillary_token
       - SECRET_KEY=${SECRET_KEY:-your-secret-key-change-in-production}
@@ -89,6 +91,7 @@ services:
       context: backend
       dockerfile: worker/Dockerfile
     container_name: hillview_worker
+    network_mode: host
     ports:
       - "${WORKER_PORT:-8056}:8056"
     volumes:
@@ -102,13 +105,14 @@ services:
       - PICS_URL=${PICS_URL:-}
       - WORKER_PORT=8056
       - WORKER_HOST=0.0.0.0
-      - API_URL=http://api:8055/api
+      - API_URL=http://localhost:8055/api
       - DEV_MODE=${DEV_MODE:-}
       - BUCKET_NAME=${BUCKET_NAME:-}
       - CDN_BASE_URL=${CDN_BASE_URL:-}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
       - AWS_ENDPOINT_URL_S3=${AWS_ENDPOINT_URL_S3:-}
+
 
   frontend:
     init: true
@@ -117,13 +121,14 @@ services:
       context: frontend
       dockerfile: Dockerfile
     container_name: hillview_frontend
+    network_mode: host
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
     environment:
       - NODE_ENV=production
       - HOST=0.0.0.0
       - PORT=3000
-      - VITE_BACKEND=http://api:8055/api
+      - VITE_BACKEND=http://localhost:8055/api
       - VITE_GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
       - VITE_GOOGLE_REDIRECT_URI=${VITE_GOOGLE_REDIRECT_URI:-}
       - VITE_GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-}
