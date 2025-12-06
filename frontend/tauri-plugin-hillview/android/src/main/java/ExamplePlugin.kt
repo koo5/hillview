@@ -502,16 +502,8 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
 
 					//Log.v(TAG, "🔍 Emitting sensor data event: magnetic=${sensorData.magneticHeading}, source=${sensorData.source}")
 
-					// Trigger the sensor-data event as per Tauri plugin documentation
-					try {
-						// Use just the event name (without plugin: prefix) for plugin events
-						trigger("sensor-data", data)
-						//Log.v(TAG, "🔍 Emitted sensor data event from plugin: source=${sensorData.source}, magnetic=${sensorData.magneticHeading}")
-
-					} catch (e: Exception) {
-						Log.e(TAG, "🔍 Error triggering event from plugin: ${e.message}", e)
-					}
-                }
+					trigger("sensor-data", data)
+	            }
             )
         } else {
             Log.d(TAG, "🔍 SensorService already exists")
@@ -593,7 +585,8 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
 
     private fun initializePreciseLocationService() {
         preciseLocationService = PreciseLocationService(activity, { locationData ->
-            // Update sensor service with precise location for magnetic declination
+
+			// Update sensor service with precise location for magnetic declination
             sensorService?.updateLocation(locationData.latitude, locationData.longitude)
 
             // Emit location update event that matches the existing GeolocationPosition interface
@@ -619,12 +612,8 @@ class ExamplePlugin(private val activity: Activity): Plugin(activity) {
 
             Log.v(TAG, "📍 lat=${locationData.latitude}, lng=${locationData.longitude}, accuracy=${locationData.accuracy}m")
 
-            try {
-                // Use the same event name as the geolocation plugin would use
-                trigger("location-update", data)
-            } catch (e: Exception) {
-                Log.e(TAG, "📍 Error triggering location event: ${e.message}", e)
-            }
+            trigger("location-update", data)
+
         }, {
             // Location stopped callback
             try {

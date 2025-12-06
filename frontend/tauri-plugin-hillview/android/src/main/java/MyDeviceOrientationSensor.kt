@@ -53,8 +53,8 @@ class MyDeviceOrientationSensor(
 				override fun onOrientationChanged(orientation: Int) {
 					//Log.d(TAG, "📱 device-orientation onOrientationChanged")
 					val newOrientation = DeviceOrientation.fromDegrees(orientation)
-					if (newOrientation != currentDeviceOrientation) {
-						Log.d(TAG, "📱 device-orientation changed: $currentDeviceOrientation → $newOrientation")
+					if (newOrientation != currentDeviceOrientation && newOrientation != DeviceOrientation.FLAT_UP && newOrientation != DeviceOrientation.FLAT_DOWN) {
+						Log.d(TAG, "📱 device-orientation exif changed: $currentDeviceOrientation → $newOrientation")
 						currentDeviceOrientation = newOrientation
 						triggerDeviceOrientationEvent()
 					}
