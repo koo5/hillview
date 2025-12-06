@@ -256,7 +256,7 @@
 	let splitOptions = {
 		direction: 'vertical' as 'horizontal' | 'vertical',
 		defaultSplit: 50,
-		minSize: 150,
+		minSize: 50,
 		onResize: handleSplitResize
 	};
 
