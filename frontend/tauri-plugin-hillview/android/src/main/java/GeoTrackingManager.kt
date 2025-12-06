@@ -102,4 +102,24 @@ class GeoTrackingManager {
 
 	}
 
+	fun dumpAndClear() {
+		// todo: dump all data and clear all entries older than a certain timestamp
+
+		// Create destination directory
+		val externalStorage = "/storage/emulated/0"
+		val hillviewDir = File(externalStorage, "Pictures/Hillview/GeoTrackingDumps")
+		if (!hillviewDir.exists()) {
+			hillviewDir.mkdirs()
+		}
+
+		CoroutineScope(Dispatchers.IO).launch {
+		try {
+			database.bearingDao().clearAllBearings()
+			Log.i(cz.hillview.plugin.ExamplePlugin.Companion.TAG, "🢄📡 Bearing history table cleared on app startup")
+		} catch (e: Exception) {
+			Log.w(cz.hillview.plugin.ExamplePlugin.Companion.TAG, "🢄📡 Failed to clear bearing history table: ${e.message}")
+		}
+	}
+	}
+
 }

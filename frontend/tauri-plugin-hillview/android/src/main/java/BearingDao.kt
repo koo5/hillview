@@ -22,6 +22,4 @@ interface BearingDao {
     @Query("DELETE FROM bearings")
     fun clearAllBearings()
 
-    @Query("SELECT COUNT(*) FROM bearings")
-    fun getBearingCount(): Int
 }

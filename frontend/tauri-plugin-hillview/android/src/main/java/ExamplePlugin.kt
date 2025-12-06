@@ -292,16 +292,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 
 		// Clean up static state from any previous plugin instance
 		cleanupStaticState()
-
-		// Clear bearing history table on app startup to ensure fresh sensor data
-		CoroutineScope(Dispatchers.IO).launch {
-			try {
-				database.bearingDao().clearAllBearings()
-				Log.i(TAG, "🢄📡 Bearing history table cleared on app startup")
-			} catch (e: Exception) {
-				Log.w(TAG, "🢄📡 Failed to clear bearing history table: ${e.message}")
-			}
-		}
+		geoTrackingManager.dumpAndClear()
 
 		pluginInstance = this
 		Log.i(TAG, "🢄🎥 Plugin init #$initializationCount - Process ID: $processId")
