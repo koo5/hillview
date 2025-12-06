@@ -44,17 +44,6 @@ enum class DeviceOrientation {
     }
 }
 
-data class SensorData(
-    val magneticHeading: Float,  // Compass bearing in degrees from magnetic north (0-360°)
-    val trueHeading: Float,       // Compass bearing corrected for magnetic declination
-    val headingAccuracy: Float,  // Calculated accuracy in degrees (for future use)
-    val accuracyLevel: Int,      // Android sensor accuracy constants: -1=unknown, 0=unreliable, 1=low, 2=medium, 3=high
-    val pitch: Float,
-    val roll: Float,
-    val timestamp: Long,
-    val source: String      // Identifies which sensor provided the data
-)
-
 // Extension function for float formatting
 private fun Float.format(digits: Int) = "%.${digits}f".format(this)
 
@@ -64,7 +53,7 @@ private fun Float.format(digits: Int) = "%.${digits}f".format(this)
  */
 class EnhancedSensorService(
     private val context: Context,
-    private val onSensorUpdate: (SensorData) -> Unit,
+    private val onSensorUpdate: (OrientationSensorData) -> Unit,
 ) : SensorEventListener {
     companion object {
         private const val TAG = "🢄Sensors"
@@ -1064,7 +1053,7 @@ class EnhancedSensorService(
             Log.w(TAG, "  EMA_ALPHA=${EMA_ALPHA}, thresholds: heading=${HEADING_THRESHOLD}°, pitch=${PITCH_THRESHOLD}°, roll=${ROLL_THRESHOLD}°")
         }
 
-        val data = SensorData(
+        val data = OrientationSensorData(
             magneticHeading = finalMagneticHeading,
             trueHeading = finalTrueHeading,
             headingAccuracy = finalAccuracy,
@@ -1081,30 +1070,6 @@ class EnhancedSensorService(
 
         onSensorUpdate(data)
 
-        // Store in database with rate limiting (max 10 Hz)
-        val currentTime = System.currentTimeMillis()
-        if (currentTime - lastDatabaseStorageTime >= databaseStorageIntervalMs) {
-            lastDatabaseStorageTime = currentTime
-
-            // Store asynchronously to avoid blocking sensor updates
-            CoroutineScope(Dispatchers.IO).launch {
-                try {
-                    val bearingEntity = BearingEntity(
-                        timestamp = data.timestamp,
-                        magneticHeading = data.magneticHeading,
-                        trueHeading = data.trueHeading,
-                        headingAccuracy = data.headingAccuracy,
-                        accuracyLevel = data.accuracyLevel,
-                        source = data.source,
-                        pitch = data.pitch,
-                        roll = data.roll
-                    )
-                    database.bearingDao().insertBearing(bearingEntity)
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed to store bearing in database: ${e.message}")
-                }
-            }
-        }
 
         /*val endTime = System.currentTimeMillis()
         Log.v(TAG, "TIMING ✅ sendSensorData COMPLETE: ${endTime} (total: ${endTime - startTime}ms, send: ${endTime - sendTime}ms)")*/

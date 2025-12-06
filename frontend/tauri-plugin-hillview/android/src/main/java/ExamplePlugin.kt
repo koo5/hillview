@@ -260,7 +260,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 	private val authManager: AuthenticationManager = AuthenticationManager(activity)
 	private val photoWorkerService: PhotoWorkerService = PhotoWorkerService(activity, this)
 	private val photoUploadManager: PhotoUploadManager = PhotoUploadManager(activity)
-
+	private val geoTrackingManager: GeoTrackingManager = GeoTrackingManager(activity, database)
 
 	private val myDeviceOrientationSensor: MyDeviceOrientationSensor =
 		MyDeviceOrientationSensor(activity, ::triggerOrientationEvent)
@@ -511,10 +511,10 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 					data.put("roll", sensorData.roll)
 					data.put("timestamp", sensorData.timestamp)
 					data.put("source", sensorData.source)
-
 					//Log.v(TAG, "🔍 Emitting sensor data event: magnetic=${sensorData.magneticHeading}, source=${sensorData.source}")
-
 					trigger("sensor-data", data)
+
+					geoTrackingManager.storeOrientationSensorData(sensorData)
 				}
 			)
 		} else {
@@ -626,6 +626,8 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 				TAG,
 				"📍 lat=${locationData.latitude}, lng=${locationData.longitude}, accuracy=${locationData.accuracy}m"
 			)
+
+			geoTrackingManager.storeLocationPreciseLocationData(locationData)
 
 			trigger("location-update", data)
 
@@ -1892,34 +1894,14 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 		}
 	}
 
-	// Message Queue System for reliable Kotlin-frontend communication
-	// ================================================================
 
-	/**
-	 * Add a message to the queue for frontend polling
-	 */
-	fun queueMessage(type: String, payload: JSObject) {
-		val message = QueuedMessage(type, payload)
-		messageQueue.offer(message)
-		//Log.d(TAG, "🔔 Queued message: $type")
-	}
-
-	/**
-	 * Poll for queued messages (called from frontend every 100ms)
-	 * Drains ALL messages to avoid lag
-	 */
 	@Command
 	fun getBearingForTimestamp(invoke: Invoke) {
 		try {
 			val args = invoke.parseArgs(GetBearingForTimestampArgs::class.java)
 
 			if (args.timestamp == null) {
-				Log.e(TAG, "📡 getBearingForTimestamp: Invalid arguments")
-				val error = JSObject()
-				error.put("success", false)
-				error.put("error", "Invalid timestamp argument")
-				invoke.resolve(error)
-				return
+				throw Exception("Timestamp argument is required")
 			}
 
 			val timestamp = args.timestamp!!
@@ -1934,14 +1916,18 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 						if (bearingEntity != null) {
 							result.put("success", true)
 							result.put("found", true)
-							result.put("magnetic_heading", bearingEntity.magneticHeading.toDouble())
+
+							result.put("source", bearingEntity.source)
+							result.put("timestamp", bearingEntity.timestamp)
 							result.put("true_heading", bearingEntity.trueHeading.toDouble())
+
+							/* todo: these should become nullable */
+							result.put("magnetic_heading", bearingEntity.magneticHeading.toDouble())
 							result.put("heading_accuracy", bearingEntity.headingAccuracy.toDouble())
 							result.put("accuracy", bearingEntity.accuracyLevel)
-							result.put("source", bearingEntity.source)
 							result.put("pitch", bearingEntity.pitch.toDouble())
 							result.put("roll", bearingEntity.roll.toDouble())
-							result.put("timestamp", bearingEntity.timestamp)
+
 							Log.d(
 								TAG,
 								"📡 getBearingForTimestamp: Found bearing ${bearingEntity.trueHeading}° from ${bearingEntity.source} at ${bearingEntity.timestamp}"
@@ -1966,12 +1952,26 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 			}
 
 		} catch (e: Exception) {
-			Log.e(TAG, "📡 getBearingForTimestamp: Error parsing arguments", e)
+			Log.e(TAG, "📡 getBearingForTimestamp: Error", e)
 			val error = JSObject()
 			error.put("success", false)
 			error.put("error", e.message)
 			invoke.resolve(error)
 		}
+	}
+
+
+	// Message Queue System for reliable Kotlin-frontend communication
+	/* todo: replace with tauri events?*/
+	// ================================================================
+
+	/**
+	 * Add a message to the queue for frontend polling
+	 */
+	fun queueMessage(type: String, payload: JSObject) {
+		val message = QueuedMessage(type, payload)
+		messageQueue.offer(message)
+		//Log.d(TAG, "🔔 Queued message: $type")
 	}
 
 	@Command
@@ -2006,6 +2006,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 			invoke.resolve(error)
 		}
 	}
+
 
 	// Push Notification Commands
 
@@ -2222,6 +2223,15 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 				"trigger_device_orientation_event" -> {
 					myDeviceOrientationSensor?.triggerDeviceOrientationEvent()
 				}
+
+				"update_orientation" -> {
+					geoTrackingManager.storeOrientationManual(params)
+				}
+
+				"update_location" -> {
+					geoTrackingManager.storeLocationManual(params)
+				}
+
 
 				else -> {
 					Log.w(TAG, "🔧 Unknown command: $command")
