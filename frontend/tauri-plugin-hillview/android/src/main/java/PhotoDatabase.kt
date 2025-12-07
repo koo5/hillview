@@ -29,6 +29,40 @@ abstract class PhotoDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                // Create initial bearings and locations tables without normalized sources
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS bearings (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        timestamp INTEGER NOT NULL,
+                        trueHeading REAL NOT NULL,
+                        magneticHeading REAL,
+                        headingAccuracy REAL,
+                        accuracyLevel INTEGER,
+                        source TEXT NOT NULL,
+                        pitch REAL,
+                        roll REAL
+                    )
+                """)
+
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS locations (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        timestamp INTEGER NOT NULL,
+                        latitude REAL NOT NULL,
+                        longitude REAL NOT NULL,
+                        source TEXT NOT NULL,
+                        altitude REAL,
+                        accuracy REAL,
+                        verticalAccuracy REAL,
+                        speed REAL,
+                        bearing REAL
+                    )
+                """)
+            }
+        }
+
         private val MIGRATION_8_9 = object : Migration(8, 9) {
             override fun migrate(database: SupportSQLiteDatabase) {
                 // Create sources table
@@ -82,7 +116,7 @@ abstract class PhotoDatabase : RoomDatabase() {
                     PhotoDatabase::class.java,
                     "hillview_photos_database"
                 )
-                    .addMigrations(MIGRATION_6_7, MIGRATION_8_9)
+                    .addMigrations(MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
                     .build()
                 INSTANCE = instance
                 instance
