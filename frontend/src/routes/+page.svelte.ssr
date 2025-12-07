@@ -50,12 +50,15 @@
 			<meta property="place:location:latitude" content={data.photoMeta.latitude.toString()} />
 			<meta property="place:location:longitude" content={data.photoMeta.longitude.toString()} />
 		{/if}
+
+		<meta property="og:logo" content="%sveltekit.assets%/favicon.png" />
 	{:else}
 		<title>Hillview</title>
 		<meta name="description" content="Hillview - Photo mapping application" />
 		<meta property="og:title" content="Hillview" />
 		<meta property="og:description" content="Hillview - Photo mapping application" />
 		<meta property="og:type" content="website" />
+		<meta property="og:logo" content="%sveltekit.assets%/favicon.png" />
 	{/if}
 </svelte:head>
 
