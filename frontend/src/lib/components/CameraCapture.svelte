@@ -92,11 +92,10 @@
 	// Store to track which cameras are loading resolutions
 	import {writable} from 'svelte/store';
 	import {
-		deviceOrientationExif,
-	} from "$lib/deviceOrientationExif";
-	import {
+		calculateWebviewRelativeOrientation,
+		deviceOrientationExif, relativeOrientationExif,
 		type ExifOrientation
-	} from "$lib/absoluteOrientation";
+	} from "$lib/deviceOrientationExif";
 	import Quaternion from "quaternion";
 
 	const resolutionsLoading = writable<Set<string>>(new Set());
@@ -738,7 +737,7 @@
 				captured_at: timestamp,
 				mode,
 				placeholder_id: sharedId, // Use sharedId as placeholder ID too
-				orientation_code: get(deviceOrientationExif) // Current device orientation
+				orientation_code: get(relativeOrientationExif) // Current device orientation
 			});
 
 			// Trigger auto-upload prompt check
@@ -966,7 +965,6 @@
 			{
 				await addPluginListener('hillview', 'device-orientation', (data: any) => {
 					console.log('🢄🔍📡 Received device-orientation event from plugin:', JSON.stringify(data));
-					// not sure if this will have to be adjusted by screen rotation, probably not
 					updateDeviceOrientationExif(data.exif_code);
 				});
 				await invoke('plugin:hillview|cmd', {command: 'start_device_orientation_sensor'});
@@ -981,8 +979,8 @@
 			try {
 				console.log('🢄[CAMERA] Initializing AbsoluteOrientationSensor for device orientation...');
 				absoluteOrientationSensor = new window.AbsoluteOrientationSensor({frequency: 100, referenceFrame: "screen"});
-				absoluteOrientationSensor.addEventListener("reading", (event) => {
-					console.log('🢄[CAMERA] AbsoluteOrientationSensor reading event:', event);
+				absoluteOrientationSensor.addEventListener("reading", () => {
+					console.log('🢄[CAMERA] AbsoluteOrientationSensor reading event');
 					//DeviceOrientationEvent.webkitCompassHeading?
 				});
 				absoluteOrientationSensor.addEventListener("error", (error) => {

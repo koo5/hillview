@@ -82,11 +82,11 @@ function handleLocationUpdate(position: GeolocationPosition, source: string) {
     }));*/
 
     // Only update GPS location if location tracking is enabled
-    if (get(locationTracking)) {
+    //if (get(locationTracking)) {
         updateGpsLocation(position);
-    } else {
+    //} else {
         //console.debug('🢄📍 Ignoring location update - user-level GPS tracking is disabled');
-    }
+    //}
 }
 
 // Initialize persistent listeners (similar to sensor onSensorData)

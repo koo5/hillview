@@ -58,8 +58,8 @@ export interface SourceConfig {
 // Worker message types
 export type WorkerMessageType =
     | 'init'
-    | 'loadFromSources'
-    | 'updateBounds'
+    /*| 'loadFromSources'*/
+    /*| 'updateBounds'*/
     | 'updateSources'
     | 'updateRange'
     | 'getPhotosInRange'

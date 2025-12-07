@@ -10,7 +10,7 @@ uvicorn
 pydantic
 aiofiles
 httpx
-python-jose
+python-jose>=3.4.0
 cryptography
 python-multipart
 

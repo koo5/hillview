@@ -8,6 +8,7 @@
 	export let onImportComplete: (importedCount: number) => void = () => {};
 	export let onLogEntry: (message: string, type: 'success' | 'warning' | 'error' | 'info') => void = () => {};
 	export let goToLogin: () => void = () => {};
+	export let disabled = false;
 
 	let isImporting = false;
 
@@ -22,7 +23,7 @@
 	}
 
 	async function handleImportFromDevice() {
-		if (isImporting || !user) return;
+		if (isImporting || !user || disabled) return;
 
 		try {
 			isImporting = true;
@@ -104,7 +105,7 @@
 
 	<button
 		class="import-button"
-		disabled={isImporting || !user}
+		disabled={isImporting || !user || disabled}
 		on:click={handleImportFromDevice}
 		data-testid="import-from-device-button"
 	>

@@ -229,11 +229,11 @@ export class CullingGrid {
     /**
      * Update bounds for the screen grid (call when viewport changes)
      */
-    updateBounds(newBounds: Bounds): void {
+    /*updateBounds(newBounds: Bounds): void {
         this.bounds = newBounds;
         this.latRange = newBounds.top_left.lat - newBounds.bottom_right.lat;
         this.lngRange = newBounds.bottom_right.lng - newBounds.top_left.lng;
-    }
+    }*/
 
     /**
      * Get statistics about screen coverage

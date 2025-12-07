@@ -73,7 +73,7 @@ class SimplePhotoWorker {
 
         this.kotlinWorker.onmessage = (e: { data: any }) => {
             const message = e.data;
-            console.log('🢄SimplePhotoWorker: Received message from Kotlin worker:', message.type);
+            //console.log('🢄SimplePhotoWorker: Received message from Kotlin worker:', message.type);
             this.handleWorkerUpdate(message);
         };
     }

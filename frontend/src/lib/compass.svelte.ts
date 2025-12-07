@@ -67,11 +67,10 @@ export const currentCompassHeading = derived(
 
 // Compass state machine - single source of truth
 export type CompassState =
-  | 'inactive'        // User hasn't enabled compass
+  | 'inactive'        // User hasn't enabled compass or not on map
   | 'starting'        // User enabled, trying to start (permissions, sensor init)
   | 'active'          // Compass working successfully
-  | 'error'           // Failed to start (permissions denied, no sensor, etc.)
-  | 'paused';         // User enabled but paused due to route (not on map)
+  | 'error';          // Failed to start (permissions denied, no sensor, etc.)
 
 export const compassState = writable<CompassState>('inactive');
 export const compassError = writable<string | null>(null);
@@ -170,7 +169,7 @@ async function startTauriSensor(mode: SensorMode = SensorMode.UPRIGHT_ROTATION_V
 		if (!tauriSensorListener)
 		{
 			tauriSensorListener = await sensor.onSensorData((data: SensorData) => {
-				//console.log('🢄🔍📡 Native sensor data received:', JSON.stringify(data));
+				console.log('🢄🔍📡 Native sensor data received:', JSON.stringify(data));
 
 				// Handle potentially different event formats
 				const sensorData = data;
@@ -269,7 +268,7 @@ async function startWebCompass(): Promise<boolean> {
         setTimeout(() => {
             if (!hasResolved) {
                 hasResolved = true;
-                console.warn('🢄⚠️ No DeviceOrientation events received after 3 seconds');
+                console.warn('🢄⚠️ [compass] No DeviceOrientation events received after 3 seconds');
                 resolve(false);
             }
         }, 3000);
@@ -277,13 +276,19 @@ async function startWebCompass(): Promise<boolean> {
 }
 
 // Simple user-level API functions
+export const compassEnabled = writable(false);
+
 export function enableCompass() {
-    console.log('🢄🧭 User enabled compass');
+	if (!get(compassEnabled)) {
+    	console.log('🢄🧭 User enabled compass');
+	}
     compassEnabled.set(true);
 }
 
 export function disableCompass() {
-    console.log('🢄🛑 User disabled compass');
+	if (get(compassEnabled)) {
+    	console.log('🢄🛑 User disabled compass');
+	}
     compassEnabled.set(false);
 }
 
@@ -392,7 +397,6 @@ export async function requestCompassPermission(): Promise<boolean> {
 }
 
 // User preference stores - UI controls these directly
-export const compassEnabled = writable(false);
 export const compassMode = writable<SensorMode>(SensorMode.UPRIGHT_ROTATION_VECTOR);
 
 // Track if compass is actually running internally (separate from user preference and success state)
@@ -412,10 +416,11 @@ async function updateCompassState() {
 	const currentState = get(compassState);
 	const userMode = get(compassMode);
 
-	console.log('🢄🎛️ Compass state update:', { userEnabled, onMapRoute, currentState });
+	console.log('🢄️ Compass state update:', JSON.stringify(
+		{ userEnabled, onMapRoute, currentState }));
 
-	if (!userEnabled) {
-		// User disabled compass
+	if (!userEnabled || !onMapRoute) {
+		// User disabled or not on map route - set to inactive
 		if (currentState !== 'inactive') {
 			compassState.set('inactive');
 			if (compassInternallyActive) {
@@ -423,18 +428,9 @@ async function updateCompassState() {
 				await stopCompassInternal();
 			}
 		}
-	} else if (!onMapRoute) {
-		// User enabled but not on map route
-		if (currentState !== 'paused') {
-			compassState.set('paused');
-			if (compassInternallyActive) {
-				compassInternallyActive = false;
-				await stopCompassInternal();
-			}
-		}
 	} else {
 		// User enabled and on map route - should be active
-		if (currentState === 'inactive' || currentState === 'paused') {
+		if (currentState === 'inactive') {
 			compassState.set('starting');
 			compassError.set(null);
 

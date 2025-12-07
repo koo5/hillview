@@ -4,7 +4,7 @@ import { configureSources } from './helpers/sourceHelpers';
 // Helper function to set map location
 async function setMapLocation(page: any, lat: number, lng: number, zoom: number = 18, locationName?: string) {
   if (locationName) {
-    console.log(`🗺️ Moving map to ${locationName}...`);
+    //console.log(`🗺️ Moving map to ${locationName}...`);
   }
 
   // Ensure map container is visible
@@ -12,7 +12,7 @@ async function setMapLocation(page: any, lat: number, lng: number, zoom: number 
   await mapContainer.waitFor({ state: 'visible', timeout: 10000 });
 
   const mapFound = await page.evaluate(([lat, lng, zoom, locationName]: [number, number, number, string]) => {
-    console.log(`🢄🗺️ Attempting to set map view to ${locationName || `${lat}, ${lng}`}`);
+    //console.log(`🢄🗺️ Attempting to set map view to ${locationName || `${lat}, ${lng}`}`);
 
     // Try multiple ways to access the Leaflet map
     const maps = [
@@ -21,11 +21,11 @@ async function setMapLocation(page: any, lat: number, lng: number, zoom: number 
       (document.querySelector('.leaflet-container') as any)?._leaflet_map
     ];
 
-    console.log(`🢄🗺️ Found ${maps.filter(m => m).length} potential map objects`);
+    //console.log(`🢄🗺️ Found ${maps.filter(m => m).length} potential map objects`);
 
     for (let i = 0; i < maps.length; i++) {
       const mapComponent = maps[i];
-      console.log(`🢄🗺️ Map ${i}: ${mapComponent ? 'exists' : 'null'}, has setView: ${mapComponent?.setView ? 'yes' : 'no'}`);
+      //console.log(`🢄Map ${i}: ${mapComponent ? 'exists' : 'null'}, has setView: ${mapComponent?.setView ? 'yes' : 'no'}`);
 
       if (mapComponent && mapComponent.setView) {
         console.log(`🢄📍 Setting map view to ${locationName || `${lat}, ${lng}`}`);

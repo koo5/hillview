@@ -12,6 +12,7 @@
 	export let onLogEntry: LogEntryCallback = () => {};
 	export let onUploadComplete: () => void = () => {};
 	export let goToLogin: () => void = () => {};
+	export let disabled = false;
 
 	let uploadFiles: File[] = [];
 	let description = '';
@@ -171,7 +172,7 @@
 				accept="image/*"
 				multiple
 				data-testid="photo-file-input"
-				disabled={!user || isUploading}
+				disabled={!user || isUploading || disabled}
 				on:change={(e) => {
 					console.log('🢄 File input changed');
 					const files = (e.target as HTMLInputElement).files;
@@ -186,7 +187,7 @@
 				type="button"
 				class="file-select-button"
 				data-testid="choose-files-button"
-				disabled={!user || isUploading}
+				disabled={!user || isUploading || disabled}
 				aria-label="Choose photo files to upload"
 				on:click={() => {
 					const fileInput = document.getElementById('photo-file') as HTMLInputElement;
@@ -217,17 +218,17 @@
 				placeholder="Optional description"
 				rows="1"
 				class="auto-resize-textarea"
-				disabled={!user}
+				disabled={!user || disabled}
 				on:input={autoResizeTextarea}
 			></textarea>
 		</div>
 
-		<div class="form-group">
-			<label>
-				<input type="checkbox" bind:checked={isPublic} disabled={!user}>
-				Make these photos public
-			</label>
-		</div>
+<!--		<div class="form-group">-->
+<!--			<label>-->
+<!--				<input type="checkbox" bind:checked={isPublic} disabled={!user}>-->
+<!--				Make these photos public-->
+<!--			</label>-->
+<!--		</div>-->
 
 		{#if uploadFiles.length > 0}
 			<div class="selected-files">
@@ -244,7 +245,7 @@
 			type="submit"
 			class="primary-button"
 			data-testid="upload-submit-button"
-			disabled={!user || !uploadFiles.length || isUploading}
+			disabled={!user || !uploadFiles.length || isUploading || disabled}
 		>
 			<Upload size={20}/>
 			{#if isUploading}
@@ -329,9 +330,6 @@
 		resize: vertical;
 	}
 
-	input[type="checkbox"] {
-		margin-right: 8px;
-	}
 
 	.primary-button {
 		display: flex;

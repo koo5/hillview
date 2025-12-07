@@ -5,11 +5,49 @@
 	import { panZoom } from '$lib/actions/panZoom';
 
 	let container = $state<HTMLDivElement>();
-	let scale = $state(1);
 	let translateX = $state(0);
 	let translateY = $state(0);
 	let imageWidth = $state<number | undefined>($zoomViewData?.width);
 	let imageHeight = $state<number | undefined>($zoomViewData?.height);
+
+	// Get container dimensions from the actual container element
+	let containerWidth = $derived(container ? container.clientWidth : (browser ? window.innerWidth : 600));
+	let containerHeight = $derived(container ? container.clientHeight : (browser ? window.innerHeight : 600));
+
+	// Calculate initial scale to fit image in container
+	let initialScale = $derived.by(() => {
+		console.log('🔍 [ZoomView] Initial scale derivation running:', {
+			imageWidth,
+			imageHeight,
+			containerWidth,
+			containerHeight,
+			hasZoomViewData: !!$zoomViewData
+		});
+
+		if (!imageWidth || !imageHeight)
+		{
+			console.warn('🔍 [ZoomView] Initial scale calculation: missing image dimensions, defaulting to 1');
+			return 1;
+		}
+
+		const scaleX = containerWidth / imageWidth;
+		const scaleY = containerHeight / imageHeight;
+
+		// Use the smaller scale to ensure image fits completely
+		const r = Math.min(scaleX, scaleY);
+		console.log('🔍 [ZoomView] *** Initial scale calculation RESULT ***:', {
+			imageWidth,
+			imageHeight,
+			containerWidth,
+			containerHeight,
+			scaleX,
+			scaleY,
+			initialScale: r
+		});
+		return r;
+	});
+
+	let scale = $state(1);
 
 	// Reset state when zoom view opens
 	$effect(() => {
@@ -18,8 +56,24 @@
 			untrack(() => {
 				imageWidth = $zoomViewData.width;
 				imageHeight = $zoomViewData.height;
+				translateX = 0;
+				translateY = 0;
+			});
+		}
+	});
+
+	// Update scale when image dimensions are available and initialScale changes
+	$effect(() => {
+		if ($zoomViewData && imageWidth && imageHeight) {
+			console.log('🔍 [ZoomView] Setting scale to initial scale:', initialScale);
+			untrack(() => {
 				scale = initialScale;
-				// Don't reset translateX/Y - let panZoom action handle all positioning
+				// Center the image in the viewport
+				const scaledWidth = (imageWidth || 800) * initialScale;
+				const scaledHeight = (imageHeight || 600) * initialScale;
+				translateX = (containerWidth - scaledWidth) / 2;
+				translateY = (containerHeight - scaledHeight) / 2;
+				console.log('🔍 [ZoomView] Centering image:', { translateX, translateY, scaledWidth, scaledHeight, containerWidth, containerHeight });
 			});
 		}
 	});
@@ -29,13 +83,30 @@
 	}
 
 	function handleBackdropClick(event: MouseEvent) {
-		console.log('🔍 [ZoomView] Backdrop click:', event.target, 'container:', container);
-		// Check if click is on the backdrop (not on image or close button)
 		const target = event.target as HTMLElement;
-		if (target === container || target.classList.contains('image-container')) {
-			console.log('🔍 [ZoomView] Closing zoom view from backdrop click');
-			closeZoomView();
+		console.log('🔍 [ZoomView] Backdrop click:', {
+			target: target,
+			targetClass: target.className,
+			targetTag: target.tagName,
+			container: container
+		});
+
+		// Don't close if clicking on the close button
+		if (target.closest('.close-button')) {
+			console.log('🔍 [ZoomView] Click on close button, ignoring');
+			return;
 		}
+
+		// Don't close if clicking on the zoom image wrapper (for pan/zoom interaction)
+		// fallback-image-wrapper has pointer-events: none, so clicks pass through
+		if (target.closest('.zoom-image-wrapper')) {
+			console.log('🔍 [ZoomView] Click on zoom image, ignoring');
+			return;
+		}
+
+		// Close on backdrop clicks
+		console.log('🔍 [ZoomView] Closing zoom view from backdrop click');
+		closeZoomView();
 	}
 
 	// Pan/zoom state handler
@@ -49,38 +120,9 @@
 	}
 
 
-	// Calculate initial scale to fit image in container
-	let initialScale = $derived.by(() => {
-		if (!imageWidth || !imageHeight)
-		{
-			console.warn('🔍 [ZoomView] Initial scale calculation: missing image dimensions, defaulting to 1');
-			return 1;
-		}
-
-		const scaleX = containerWidth / imageWidth;
-		const scaleY = containerHeight / imageHeight;
-
-		// Use the smaller scale to ensure image fits completely
-		const r = Math.min(scaleX, scaleY);
-		console.log('🔍 [ZoomView] Initial scale calculation:', {
-			imageWidth,
-			imageHeight,
-			containerWidth,
-			containerHeight,
-			scaleX,
-			scaleY,
-			initialScale: r
-		});
-		return r;
-	});
-
 	// Calculate scaled image dimensions for direct width/height
 	let scaledImageWidth = $derived((imageWidth || 800) * scale);
 	let scaledImageHeight = $derived((imageHeight || 600) * scale);
-
-	// Get container dimensions safely
-	let containerWidth = $derived(browser ? window.innerWidth : 600);
-	let containerHeight = $derived(browser ? window.innerHeight : 600);
 
 
 
@@ -178,6 +220,8 @@
 
 		<div class="filename-overlay">
 			{$zoomViewData!.filename}
+			<br>
+			<small>Provided: {$zoomViewData!.width}x{$zoomViewData!.height} | Current: {imageWidth}x{imageHeight} | Scale: {scale.toFixed(2)}</small>
 		</div>
 	</div>
 
@@ -232,14 +276,16 @@
 		top: 0;
 		left: 0;
 		user-select: none;
+		pointer-events: none;
 	}
 
 	.fallback-image {
 		width: 100%;
 		height: 100%;
-		object-fit: cover;
+		object-fit: contain;
 		opacity: 0.7;
 		user-select: none;
+		pointer-events: none;
 	}
 
 	.zoom-image-wrapper {
@@ -248,15 +294,16 @@
 		left: 0;
 		cursor: grab;
 		user-select: none;
+		pointer-events: auto;
 	}
 
 	.zoom-image {
 		width: 100%;
 		height: 100%;
-		object-fit: cover;
+		object-fit: contain;
 		user-select: none;
 		background: transparent;
-		
+		pointer-events: none;
 	}
 
 	.zoom-image-wrapper:active {

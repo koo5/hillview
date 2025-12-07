@@ -25,10 +25,10 @@ class DevicePhotoLoader(private val context: Context) {
         shouldAbort: () -> Boolean
     ): List<PhotoData> {
         return try {
-            Log.d(TAG, "DevicePhotoLoader: Loading device photos from database")
-            Log.d(TAG, "DevicePhotoLoader: Source config: ${source.id}")
-            Log.d(TAG, "DevicePhotoLoader: Bounds: $bounds")
-            Log.d(TAG, "DevicePhotoLoader: MaxPhotos: $maxPhotos")
+            Log.d(TAG, " Loading device photos from database")
+            Log.d(TAG, " Source config: ${source.id}")
+            Log.d(TAG, " Bounds: $bounds")
+            Log.d(TAG, " MaxPhotos: $maxPhotos")
 
             /*
             val photoEntities = if (bounds != null) {
@@ -49,24 +49,24 @@ class DevicePhotoLoader(private val context: Context) {
             // TEMPORARY: Load all photos without bounds filtering for debugging
             // First, check database status
             val totalCount = photoDao.getTotalPhotoCount()
-            Log.d(TAG, "DevicePhotoLoader: Database total photo count: $totalCount")
+            Log.d(TAG, " Database total photo count: $totalCount")
 
             // Get all photos to see what's in the database
             val allPhotos = photoDao.getAllPhotos()
-            Log.d(TAG, "DevicePhotoLoader: Found ${allPhotos.size} total photos in database")
+            Log.d(TAG, " Found ${allPhotos.size} total photos in database")
 
             if (allPhotos.isNotEmpty()) {
-                Log.d(TAG, "DevicePhotoLoader: Sample photo details:")
+                Log.d(TAG, " Sample photo details:")
                 allPhotos.take(3).forEach { photo ->
                     Log.d(TAG, "  Photo ID: ${photo.id}, Path: ${photo.path}, Lat: ${photo.latitude}, Lng: ${photo.longitude}, UploadStatus: ${photo.uploadStatus}")
                 }
             }
 
             val photoEntities = photoDao.getPhotosPaginated(limit = maxPhotos, offset = 0)
-            Log.d(TAG, "DevicePhotoLoader: DEBUG - Loading ALL photos (bounds disabled), found ${photoEntities.size} photos")
+            Log.d(TAG, " DEBUG - Loading ALL photos (bounds disabled), found ${photoEntities.size} photos")
 
             if (shouldAbort()) {
-                Log.d(TAG, "DevicePhotoLoader: Aborted during photo loading")
+                Log.d(TAG, " Aborted during photo loading")
                 return emptyList()
             }
 
@@ -75,11 +75,11 @@ class DevicePhotoLoader(private val context: Context) {
                 convertToPhotoData(photoEntity, source)
             }
 
-            Log.d(TAG, "DevicePhotoLoader: Loaded ${photos.size} photos from device source ${source.id}")
+            Log.d(TAG, " Loaded ${photos.size} photos from device source ${source.id}")
             photos
 
         } catch (error: Exception) {
-            Log.e(TAG, "DevicePhotoLoader: Error loading device photos", error)
+            Log.e(TAG, " Error loading device photos", error)
             throw error
         }
     }

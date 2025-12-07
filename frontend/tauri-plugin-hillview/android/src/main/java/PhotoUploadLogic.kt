@@ -124,7 +124,7 @@ class PhotoUploadLogic(private val context: Context) {
 					}
 
 					// sleep a bit
-					Thread.sleep(500L)
+					Thread.sleep(100L)
 
 					// Get next photo to upload (pending priority over failed)
 					val photo: PhotoEntity?

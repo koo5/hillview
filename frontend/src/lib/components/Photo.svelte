@@ -10,7 +10,7 @@
 	import {getDevicePhotoUrl} from '$lib/devicePhotoHelper';
 	import {simplePhotoWorker} from '$lib/simplePhotoWorker';
 	import {zoomViewData} from '$lib/zoomView.svelte.js';
-	import {doubleTap} from '$lib/actions/doubleTap';
+	import {singleTap} from '$lib/actions/singleTap';
 	import {getFullPhotoInfo} from '$lib/photoUtils';
 	import type {PhotoData} from '$lib/sources';
 
@@ -52,7 +52,7 @@
 	// enable for stretched backdrop
 	//$: bg_style_stretched_photo = photo.sizes?.[50] ? `background-image: url(${photo.sizes[50].url});` : ''
 
-	$: border_style = className === 'front' && photo ? 'border: 4px dotted #4a90e2;' : '';
+	$: border_style = ''//className === 'front' && photo ? 'border: 4px dotted #4a90e2;' : '';
 	//console.log('🢄border_style:', border_style);
 
 	$: if (photo || clientWidth || containerElement) updateSelectedUrl();
@@ -288,7 +288,10 @@
 		if (!photo) return;
 
 		const fallbackUrl = displayedUrl || selectedUrl || '';
+		console.log('🢄Photo.svelte: [zoomview] Opening zoom view for photo:', JSON.stringify(photo));
 		const fullPhotoInfo = getFullPhotoInfo(photo);
+
+		console.log('🢄Photo.svelte: [zoomview] Full photo info:', JSON.stringify(fullPhotoInfo));
 
 		zoomViewData.set({
 			fallback_url: fallbackUrl,
@@ -332,12 +335,10 @@
 		<img
 			src={displayedUrl}
 			alt={photo.file}
-			class="{className} photo"
 			style="{bg_style_stretched_photo} {border_style}"
 			fetchpriority={fetchPriority as any}
 			data-testid="main-photo"
 			data-photo={JSON.stringify(photo)}
-			onclick={() => openZoomView(photo)}
 			onerror={(e) => {
 				console.error('🢄Photo.svelte: Image load error:', JSON.stringify({
 					photoId: photo?.id,
@@ -354,6 +355,8 @@
 					is_device_photo: photo?.is_device_photo
 				}));
 			}}
+			class="photo {className}"
+			use:singleTap={() => openZoomView(photo)}
 		/>
 
 		<!-- Loading spinner overlay -->
@@ -452,18 +455,23 @@
 	.photo-wrapper {
 		display: flex;
 		justify-content: center;
-		/*width: 100%;*/
+		width: 100%;
+		height: 100%;
 		max-width: 100%;
 		max-height: 100%;
 		object-fit: contain;
 		background-repeat: no-repeat;
-
+		overflow: hidden;
 	}
 
 	.photo {
 		object-fit: contain;
 		background-size: cover;
 		-o-background-size: cover;
+		max-width: 100%;
+		max-height: 100%;
+		width: auto;
+		height: auto;
 	}
 
 	.photo-actions-container {

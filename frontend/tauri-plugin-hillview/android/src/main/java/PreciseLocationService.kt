@@ -41,9 +41,9 @@ class PreciseLocationService(
         private const val TAG = "🢄PreciseLocationService"
 
         // Update intervals in milliseconds
-        private const val UPDATE_INTERVAL = 200L
-        private const val FASTEST_INTERVAL = 200L
-        private const val MAX_WAIT_TIME = 200L
+        private const val UPDATE_INTERVAL = 1000L
+        private const val FASTEST_INTERVAL = 1000L
+        private const val MAX_WAIT_TIME = 1000L
 
         // Permission request code
         private const val LOCATION_PERMISSION_REQUEST_CODE = 1001
