@@ -340,6 +340,7 @@
 			data-testid="main-photo"
 			data-photo={JSON.stringify(photo)}
 			onerror={(e) => {
+				// onerror is "obsolete attributes" according to MDN, but still works. Eventually, we'll replace this with the service worker.
 				console.error('🢄Photo.svelte: Image load error:', JSON.stringify({
 					photoId: photo?.id,
 					displayedUrl: displayedUrl,
