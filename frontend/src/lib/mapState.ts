@@ -9,6 +9,7 @@ import type {PhotoData} from './types/photoTypes';
 import {AngularRangeCuller, sortPhotosByBearing} from './AngularRangeCuller';
 import {normalizeBearing} from './utils/bearingUtils';
 import {invoke} from "@tauri-apps/api/core";
+import {TAURI} from "$lib/tauri";
 
 const angularRangeCuller = new AngularRangeCuller();
 
@@ -205,7 +206,7 @@ function getBearingColor(absBearingDiff: number): string {
 // Update functions with selective reactivity
 export function updateSpatialState(updates: Partial<SpatialState>, source: 'gps' | 'map' = 'map') {
 	spatialState.update(state => ({...state, ...updates, source}));
-	if (source === 'map')
+	if (source === 'map' && TAURI)
 	{
 		const state = get(spatialState);
 		invoke('plugin:hillview|cmd', {command: 'update_location', params: {
@@ -219,7 +220,7 @@ export function updateSpatialState(updates: Partial<SpatialState>, source: 'gps'
 
 export function updateBearing(bearing: number, source: string = 'map', photoUid?: string, accuracy?: number | null) {
 	bearingState.update(state => ({...state, bearing, source, photoUid, accuracy}));
-	if (!source.startsWith('android')) {
+	if (!source.startsWith('android') && TAURI) {
 		invoke('plugin:hillview|cmd', {command: 'update_orientation', params: {
 			timestamp: Date.now(),
 			trueHeading: bearing,
