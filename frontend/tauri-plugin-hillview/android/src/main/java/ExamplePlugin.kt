@@ -1902,6 +1902,10 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 			CoroutineScope(Dispatchers.IO).launch {
 				try {
 					val bearingEntity = database.bearingDao().getBearingNearTimestamp(timestamp)
+					var sourceName = "unknown"
+					if (bearingEntity != null) {
+						sourceName = database.sourceDao().getSourceNameById(bearingEntity.sourceId) ?: "unknown"
+					}
 
 					CoroutineScope(Dispatchers.Main).launch {
 						val result = JSObject()
@@ -1909,8 +1913,6 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 							result.put("success", true)
 							result.put("found", true)
 
-							// Get source name from sourceId
-							val sourceName = database.sourceDao().getSourceNameById(bearingEntity.sourceId) ?: "unknown"
 							result.put("source", sourceName)
 							result.put("timestamp", bearingEntity.timestamp)
 							result.put("true_heading", bearingEntity.trueHeading.toDouble())

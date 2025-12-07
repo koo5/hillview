@@ -686,7 +686,7 @@ class EnhancedSensorService(
         when (orientation) {
 			DeviceOrientation.FLAT_UP, DeviceOrientation.FLAT_DOWN -> {
 				// No remapping needed for flat orientations
-				Log.v(TAG, "🔄 No remapping needed for FLAT_UP or FLAT_DOWN orientation")
+				//Log.v(TAG, "🔄 No remapping needed for FLAT_UP or FLAT_DOWN orientation")
 				System.arraycopy(rotationMatrix, 0, remappedMatrix, 0, 9)
 			}
             DeviceOrientation.PORTRAIT -> {

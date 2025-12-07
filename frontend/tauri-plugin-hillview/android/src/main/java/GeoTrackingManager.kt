@@ -108,12 +108,12 @@ class GeoTrackingManager(private val context: Context) {
 					BearingEntity(
 						timestamp = timestamp,
 						trueHeading = trueHeading,
-						magneticHeading = params.getDouble("magneticHeading")?.toFloat(),
-						headingAccuracy = params.getDouble("headingAccuracy")?.toFloat(),
-						accuracyLevel = params.getInteger("accuracyLevel"),
+						magneticHeading = if (params.has("magneticHeading")) params.getDouble("magneticHeading").toFloat() else null,
+						headingAccuracy = if (params.has("headingAccuracy")) params.getDouble("headingAccuracy").toFloat() else null,
+						accuracyLevel = if (params.has("accuracyLevel")) params.getInteger("accuracyLevel") else null,
 						sourceId = sourceId,
-						pitch = params.getDouble("pitch")?.toFloat(),
-						roll = params.getDouble("roll")?.toFloat()
+						pitch = if (params.has("pitch")) params.getDouble("pitch").toFloat() else null,
+						roll = if (params.has("roll")) params.getDouble("roll").toFloat() else null
 					)
 				)
 			} catch (e: Exception) {
@@ -192,11 +192,11 @@ class GeoTrackingManager(private val context: Context) {
 						latitude = latitude,
 						longitude = longitude,
 						sourceId = sourceId,
-						altitude = params.getDouble("altitude"),
-						accuracy = params.getDouble("accuracy")?.toFloat(),
-						verticalAccuracy = params.getDouble("verticalAccuracy")?.toFloat(),
-						speed = params.getDouble("speed")?.toFloat(),
-						bearing = params.getDouble("bearing")?.toFloat()
+						altitude = if (params.has("altitude")) params.getDouble("altitude") else null,
+						accuracy = if (params.has("accuracy")) params.getDouble("accuracy").toFloat() else null,
+						verticalAccuracy = if (params.has("verticalAccuracy")) params.getDouble("verticalAccuracy").toFloat() else null,
+						speed = if (params.has("speed")) params.getDouble("speed").toFloat() else null,
+						bearing = if (params.has("bearing")) params.getDouble("bearing").toFloat() else null
 					)
 				)
 			} catch (e: Exception) {
@@ -211,9 +211,9 @@ class GeoTrackingManager(private val context: Context) {
 
 		val now = System.currentTimeMillis()
 
-		// Create destination directory
-		val externalStorage = "/storage/emulated/0"
-		val hillviewDir = File(externalStorage, "Pictures/Hillview/GeoTrackingDumps")
+		// Use app's external files directory (no permissions needed)
+		val externalFilesDir = context.getExternalFilesDir(null)
+		val hillviewDir = File(externalFilesDir, "GeoTrackingDumps")
 		if (!hillviewDir.exists()) {
 			hillviewDir.mkdirs()
 		}

@@ -207,14 +207,25 @@ export function updateSpatialState(updates: Partial<SpatialState>, source: 'gps'
 	spatialState.update(state => ({...state, ...updates, source}));
 	if (source === 'map')
 	{
-		invoke('plugin:hillview|cmd', {command: 'update_location', params: {...get(spatialState)}});
+		const state = get(spatialState);
+		invoke('plugin:hillview|cmd', {command: 'update_location', params: {
+			timestamp: Date.now(),
+			latitude: state.center.lat,
+			longitude: state.center.lng,
+			source: 'map'
+		}});
 	}
 }
 
 export function updateBearing(bearing: number, source: string = 'map', photoUid?: string, accuracy?: number | null) {
 	bearingState.update(state => ({...state, bearing, source, photoUid, accuracy}));
 	if (!source.startsWith('android')) {
-		invoke('plugin:hillview|cmd', {command: 'update_orientation', params: {bearing, source, accuracy}});
+		invoke('plugin:hillview|cmd', {command: 'update_orientation', params: {
+			timestamp: Date.now(),
+			trueHeading: bearing,
+			source: source,
+			headingAccuracy: accuracy
+		}});
 	}
 }
 

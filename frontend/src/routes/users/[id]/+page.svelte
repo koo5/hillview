@@ -234,14 +234,6 @@
 			padding: 16px;
 		}
 
-		.photos-header {
-			flex-direction: column;
-			align-items: stretch;
-		}
-
-		.photos-header h2 {
-			text-align: center;
-		}
 	}
 
 	@media (max-width: 480px) {
