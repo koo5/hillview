@@ -91,6 +91,7 @@ abstract class PhotoDatabase : RoomDatabase() {
                         FOREIGN KEY (sourceId) REFERENCES sources (id)
                     )
                 """)
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_bearings_sourceId ON bearings (sourceId)")
 
                 database.execSQL("""
                     CREATE TABLE locations (
@@ -106,6 +107,7 @@ abstract class PhotoDatabase : RoomDatabase() {
                         FOREIGN KEY (sourceId) REFERENCES sources (id)
                     )
                 """)
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_locations_sourceId ON locations (sourceId)")
             }
         }
 
