@@ -2202,7 +2202,8 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 		try {
 			val args = invoke.parseArgs(CmdArgs::class.java)
 			val command = args.command
-			val params = if (args.params is Map<*, *>) {
+			val params = if (args.params != null) {
+				@Suppress("UNCHECKED_CAST")
 				JSObject.fromJSONObject(JSONObject(args.params as Map<String, Any?>))
 			} else {
 				JSObject()
@@ -2329,8 +2330,13 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 			screenOrientationListener = object : OrientationEventListener(activity) {
 				override fun onOrientationChanged(orientation: Int) {
 					//Log.d(TAG, "📱 device-orientation Screen orientation changed...")
-					val windowManager = activity.getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager
-					val rotation = windowManager.defaultDisplay.rotation
+					val rotation = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+						activity.display?.rotation ?: android.view.Surface.ROTATION_0
+					} else {
+						@Suppress("DEPRECATION")
+						val windowManager = activity.getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager
+						windowManager.defaultDisplay.rotation
+					}
 
 					val orientationAngle = when (rotation) {
 						android.view.Surface.ROTATION_0 -> 0      // Portrait

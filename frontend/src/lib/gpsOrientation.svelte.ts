@@ -92,6 +92,8 @@ isOnMapRoute.subscribe(updateGpsOrientationState);
 gpsLocation.subscribe((position) => {
     const internalState = get(gpsOrientationInternalState);
 
+	console.log('🚗 GPS orientation received location update:', JSON.stringify(position));
+
     // Only process GPS heading if internal tracking is active or starting
     if (internalState !== 'active' && internalState !== 'starting') {
         return;
@@ -100,10 +102,10 @@ gpsLocation.subscribe((position) => {
     if (!position || position.coords.heading === null || position.coords.heading === undefined || isNaN(position.coords.heading)) {
         // No valid GPS heading available
         if (internalState === 'starting' || internalState === 'active') {
-            console.warn('🚗 No GPS heading available');
-            gpsOrientationInternalState.set('error');
+            console.log('🚗 No GPS heading available in this sample');
+            /*gpsOrientationInternalState.set('error');
             gpsOrientationError.set('GPS heading not available');
-            lastGpsHeading = null;
+            lastGpsHeading = null;*/
         }
         return;
     }
