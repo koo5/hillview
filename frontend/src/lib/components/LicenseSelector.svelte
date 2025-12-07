@@ -11,7 +11,7 @@
 
     function handleChange(event: Event) {
         const target = event.target as HTMLInputElement;
-        photoLicense.set(target.checked ? 'CC BY-SA 4.0' : null);
+        photoLicense.set(target.checked ? 'CC BY-SA 4.0' as const : null);
     }
 
     async function openLicenseInfo() {
@@ -118,12 +118,6 @@
         color: #3b82f6;
     }
 
-    .description {
-        margin: 0;
-        color: #6b7280;
-        font-size: 0.875rem;
-        line-height: 1.4;
-    }
 
     .requirement-notice {
         margin-top: 12px;

@@ -16,7 +16,7 @@
     let menuOpen = false;
     let longPressTimer: number | null = null;
     let longPressStarted = false;
-    let buttonElement: HTMLButtonElement;
+    let buttonElement: HTMLDivElement;
     let pointerHandled = false;
 
     // Long press detection for mobile
@@ -30,7 +30,7 @@
 
     function hideMenu() {
         menuOpen = false;
-        dispatch('hideMenu');
+        dispatch('hideMenu', {});
     }
 
     function handlePointerDown(event: PointerEvent) {

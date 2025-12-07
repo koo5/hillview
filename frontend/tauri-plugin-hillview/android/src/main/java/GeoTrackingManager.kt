@@ -7,11 +7,12 @@ package cz.hillview.plugin
 
 import android.content.Context
 import android.util.Log
-import cz.hillview.plugin.database.AppDatabase
-import cz.hillview.plugin.database.entities.BearingEntity
+import app.tauri.plugin.JSObject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 
 private const val TAG = "Geo"
 
@@ -28,9 +29,11 @@ data class OrientationSensorData(
 )
 
 
-class GeoTrackingManager {
-	private val context: Context;
-	private val database: AppDatabase;
+class GeoTrackingManager(private val context: Context) {
+	private val database: PhotoDatabase = PhotoDatabase.getDatabase(context)
+
+	// Cache for source name -> source ID mapping to avoid frequent DB lookups
+	private val sourceIdCache = ConcurrentHashMap<String, Int>()
 
 	private val databaseStorageIntervalMs: Long = 10
 
@@ -51,33 +54,73 @@ class GeoTrackingManager {
 		return ok
 	}
 
+	private suspend fun getOrCreateSourceId(sourceName: String): Int {
+		// Check cache first
+		sourceIdCache[sourceName]?.let { return it }
+
+		// Not in cache, check database
+		val existingId = database.sourceDao().getSourceIdByName(sourceName)
+		if (existingId != null) {
+			sourceIdCache[sourceName] = existingId
+			return existingId
+		}
+
+		// Create new source
+		database.sourceDao().insertSourceByName(sourceName)
+		val newId = database.sourceDao().getSourceIdByName(sourceName)
+			?: throw IllegalStateException("Failed to create source: $sourceName")
+		sourceIdCache[sourceName] = newId
+		return newId
+	}
+
 	fun storeOrientationSensorData(data: OrientationSensorData) {
-		storeBearingEntity(
-			BearingEntity(
-				timestamp = data.timestamp,
-				magneticHeading = data.magneticHeading,
-				trueHeading = data.trueHeading,
-				headingAccuracy = data.headingAccuracy,
-				accuracyLevel = data.accuracyLevel,
-				source = data.source,
-				pitch = data.pitch,
-				roll = data.roll
-			)
-		)
+		CoroutineScope(Dispatchers.IO).launch {
+			try {
+				val sourceId = getOrCreateSourceId(data.source)
+				storeBearingEntity(
+					BearingEntity(
+						timestamp = data.timestamp,
+						trueHeading = data.trueHeading,
+						magneticHeading = data.magneticHeading,
+						headingAccuracy = data.headingAccuracy,
+						accuracyLevel = data.accuracyLevel,
+						sourceId = sourceId,
+						pitch = data.pitch,
+						roll = data.roll
+					)
+				)
+			} catch (e: Exception) {
+				Log.e(TAG, "Failed to store orientation sensor data: ${e.message}", e)
+			}
+		}
 	}
 
 	fun storeOrientationManual(params: JSObject) {
-		val timestamp = params.getLong("timestamp")
-		val trueHeading = params.getDouble("trueHeading").toFloat()
-		val source = params.getString("source")
-		storeBearingEntity(
-			/* todo: make other fields optional */
-			BearingEntity(
-				timestamp = timestamp,
-				trueHeading = trueHeading,
-				source = source
-			)
-		)
+		CoroutineScope(Dispatchers.IO).launch {
+			try {
+				val timestamp = params.getLong("timestamp") ?: System.currentTimeMillis()
+				val trueHeading = params.getDouble("trueHeading")?.toFloat()
+					?: throw IllegalArgumentException("trueHeading is required")
+				val source = params.getString("source") ?: "manual"
+				val sourceId = getOrCreateSourceId(source)
+
+				storeBearingEntity(
+					BearingEntity(
+						timestamp = timestamp,
+						trueHeading = trueHeading,
+						magneticHeading = params.getDouble("magneticHeading")?.toFloat(),
+						headingAccuracy = params.getDouble("headingAccuracy")?.toFloat(),
+						accuracyLevel = params.getInteger("accuracyLevel"),
+						sourceId = sourceId,
+						pitch = params.getDouble("pitch")?.toFloat(),
+						roll = params.getDouble("roll")?.toFloat()
+					)
+				)
+			} catch (e: Exception) {
+				Log.e(TAG, "Failed to store manual orientation: ${e.message}", e)
+				throw e
+			}
+		}
 	}
 
 	private fun storeBearingEntity(entity: BearingEntity) {
@@ -94,16 +137,79 @@ class GeoTrackingManager {
 	}
 
 
-	fun storeLocationPreciseLocationData() {
-
+	private fun storeLocationEntity(entity: LocationEntity) {
+		if (!rateLimitLocationStorage()) {
+			return
+		}
+		CoroutineScope(Dispatchers.IO).launch {
+			try {
+				database.locationDao().insertLocation(entity)
+			} catch (e: Exception) {
+				Log.e(TAG, "Failed to store location in database: ${e.message}", e)
+			}
+		}
 	}
 
-	fun storeLocationManual() {
+	fun storeLocationPreciseLocationData(data: PreciseLocationData) {
+		CoroutineScope(Dispatchers.IO).launch {
+			try {
+				val source = data.provider ?: "precise"
+				val sourceId = getOrCreateSourceId(source)
+				storeLocationEntity(
+					LocationEntity(
+						timestamp = data.timestamp,
+						latitude = data.latitude,
+						longitude = data.longitude,
+						sourceId = sourceId,
+						altitude = data.altitude,
+						accuracy = data.accuracy,
+						verticalAccuracy = data.altitudeAccuracy,
+						speed = data.speed,
+						bearing = data.bearing
+					)
+				)
+			} catch (e: Exception) {
+				Log.e(TAG, "Failed to store location data: ${e.message}", e)
+				throw e
+			}
+		}
+	}
 
+	fun storeLocationManual(params: JSObject) {
+		CoroutineScope(Dispatchers.IO).launch {
+			try {
+				val timestamp = params.getLong("timestamp") ?: System.currentTimeMillis()
+				val latitude = params.getDouble("latitude")
+					?: throw IllegalArgumentException("latitude is required")
+				val longitude = params.getDouble("longitude")
+					?: throw IllegalArgumentException("longitude is required")
+				val source = params.getString("source") ?: "manual"
+				val sourceId = getOrCreateSourceId(source)
+
+				storeLocationEntity(
+					LocationEntity(
+						timestamp = timestamp,
+						latitude = latitude,
+						longitude = longitude,
+						sourceId = sourceId,
+						altitude = params.getDouble("altitude"),
+						accuracy = params.getDouble("accuracy")?.toFloat(),
+						verticalAccuracy = params.getDouble("verticalAccuracy")?.toFloat(),
+						speed = params.getDouble("speed")?.toFloat(),
+						bearing = params.getDouble("bearing")?.toFloat()
+					)
+				)
+			} catch (e: Exception) {
+				Log.e(TAG, "Failed to store manual location: ${e.message}", e)
+				throw e
+			}
+		}
 	}
 
 	fun dumpAndClear() {
 		// todo: dump all data and clear all entries older than a certain timestamp
+
+		val now = System.currentTimeMillis()
 
 		// Create destination directory
 		val externalStorage = "/storage/emulated/0"
@@ -112,14 +218,80 @@ class GeoTrackingManager {
 			hillviewDir.mkdirs()
 		}
 
+		val bearingsFn = File(hillviewDir, "bearings_${now}.csv")
+		val locationsFn = File(hillviewDir, "locations_${now}.csv")
+
 		CoroutineScope(Dispatchers.IO).launch {
-		try {
-			database.bearingDao().clearAllBearings()
-			Log.i(cz.hillview.plugin.ExamplePlugin.Companion.TAG, "🢄📡 Bearing history table cleared on app startup")
-		} catch (e: Exception) {
-			Log.w(cz.hillview.plugin.ExamplePlugin.Companion.TAG, "🢄📡 Failed to clear bearing history table: ${e.message}")
+			try {
+				// Build reverse source cache for export
+				val sourceIdToName = buildSourceIdToNameMap()
+
+				val bearings = database.bearingDao().getAllBearings()
+				val bearingsCsv = bearingsToCsv(bearings, sourceIdToName)
+				bearingsFn.writeText(bearingsCsv)
+				Log.i(TAG, "🢄📡 Dumped ${bearings.size} bearings to ${bearingsFn.absolutePath}")
+
+				val locations = database.locationDao().getAllLocations()
+				val locationsCsv = locationsToCsv(locations, sourceIdToName)
+				locationsFn.writeText(locationsCsv)
+				Log.i(TAG, "🢄📡 Dumped ${locations.size} locations to ${locationsFn.absolutePath}")
+			} catch (e: Exception) {
+				Log.e(TAG, "🢄📡 Failed to dump geo tracking data: ${e.message}", e)
+			}
+
+			val cutoff = now - 5 * 60 * 1000
+
+			try {
+				database.bearingDao().clearBearingsOlderThan(cutoff)
+				database.locationDao().clearLocationsOlderThan(cutoff)
+				Log.i(TAG, "🢄📡 Geo tracking tables cleared")
+			} catch (e: Exception) {
+				Log.e(TAG, "🢄📡 Failed to clear geo tracking tables: ${e.message}", e)
+			}
 		}
 	}
+
+	private suspend fun buildSourceIdToNameMap(): Map<Int, String> {
+		// Start with reverse lookup from existing cache
+		val idToName = mutableMapOf<Int, String>()
+		for ((name, id) in sourceIdCache) {
+			idToName[id] = name
+		}
+
+		// Query all sources to fill gaps
+		val allSources = database.sourceDao().getAllSources()
+		for (source in allSources) {
+			idToName[source.id] = source.name
+		}
+
+		return idToName
+	}
+
+	private fun escapeCsv(value: String?): String {
+		val str = value ?: ""
+		return if (str.contains(",") || str.contains("\"") || str.contains("\n")) {
+			"\"${str.replace("\"", "\"\"")}\""
+		} else {
+			str
+		}
+	}
+
+	private fun bearingsToCsv(bearings: List<BearingEntity>, sourceIdToName: Map<Int, String>): String {
+		val header = "timestamp,trueHeading,magneticHeading,headingAccuracy,accuracyLevel,source,pitch,roll\n"
+		val rows = bearings.joinToString("\n") { bearing ->
+			val sourceName = escapeCsv(sourceIdToName[bearing.sourceId] ?: "unknown")
+			"${bearing.timestamp},${bearing.trueHeading},${bearing.magneticHeading ?: ""},${bearing.headingAccuracy ?: ""},${bearing.accuracyLevel ?: ""},${sourceName},${bearing.pitch ?: ""},${bearing.roll ?: ""}"
+		}
+		return header + rows
+	}
+
+	private fun locationsToCsv(locations: List<LocationEntity>, sourceIdToName: Map<Int, String>): String {
+		val header = "timestamp,latitude,longitude,source,altitude,accuracy,verticalAccuracy,speed,bearing\n"
+		val rows = locations.joinToString("\n") { location ->
+			val sourceName = escapeCsv(sourceIdToName[location.sourceId] ?: "unknown")
+			"${location.timestamp},${location.latitude},${location.longitude},${sourceName},${location.altitude ?: ""},${location.accuracy ?: ""},${location.speed ?: ""},${location.bearing ?: ""}"
+		}
+		return header + rows
 	}
 
 }

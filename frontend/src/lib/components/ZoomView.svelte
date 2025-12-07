@@ -69,8 +69,8 @@
 			untrack(() => {
 				scale = initialScale;
 				// Center the image in the viewport
-				const scaledWidth = imageWidth * initialScale;
-				const scaledHeight = imageHeight * initialScale;
+				const scaledWidth = (imageWidth || 800) * initialScale;
+				const scaledHeight = (imageHeight || 600) * initialScale;
 				translateX = (containerWidth - scaledWidth) / 2;
 				translateY = (containerHeight - scaledHeight) / 2;
 				console.log('🔍 [ZoomView] Centering image:', { translateX, translateY, scaledWidth, scaledHeight, containerWidth, containerHeight });

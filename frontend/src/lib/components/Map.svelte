@@ -537,16 +537,6 @@
         }
     }
 
-    function toggleCompassTracking() {
-        if ($compassEnabled) {
-            console.log('🢄🧭 User disabling compass...');
-            disableCompass();
-        } else {
-            console.log('🢄🧭 User enabling compass...');
-            enableCompass();
-        }
-    }
-
 
     // Start tracking user location
     async function startLocationTracking() {
@@ -1263,7 +1253,7 @@
 
     .control-buttons-container {
         position: absolute;
-        bottom: 0;
+        bottom: 10px;
         right: 0;
         z-index: 30000;
         pointer-events: none; /* This makes the container transparent to mouse events */

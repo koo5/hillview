@@ -330,9 +330,6 @@
 		resize: vertical;
 	}
 
-	input[type="checkbox"] {
-		margin-right: 8px;
-	}
 
 	.primary-button {
 		display: flex;

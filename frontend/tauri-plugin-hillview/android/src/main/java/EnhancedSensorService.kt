@@ -653,8 +653,8 @@ class EnhancedSensorService(
         // Include mode information in source
         val sourceWithMode = when (currentMode) {
             MODE_UPRIGHT_ROTATION_VECTOR -> "$source (UPRIGHT MODE)"
-            MODE_MADGWICK_AHRS -> "MADGWICK_AHRS"
-            MODE_COMPLEMENTARY_FILTER -> "COMPLEMENTARY_FILTER"
+            MODE_MADGWICK_AHRS -> "$source MADGWICK_AHRS"
+            MODE_COMPLEMENTARY_FILTER -> "$source COMPLEMENTARY_FILTER"
             else -> source
         }
 
@@ -1061,7 +1061,7 @@ class EnhancedSensorService(
             pitch = finalPitch,
             roll = finalRoll,
             timestamp = System.currentTimeMillis(),
-            source = "$source (EMA smoothed)"
+            source = "android $source (EMA smoothed)"
         )
 
         /*val sendTime = System.currentTimeMillis()

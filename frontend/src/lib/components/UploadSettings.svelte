@@ -91,7 +91,7 @@
 
 	<!-- License Selector -->
 	<div class="form-group">
-		<LicenseSelector required={true} showDescription={false} />
+		<LicenseSelector required={true} />
 	</div>
 
 	<div class="form-group">

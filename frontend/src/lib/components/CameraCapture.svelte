@@ -94,10 +94,8 @@
 	import {
 		calculateWebviewRelativeOrientation,
 		deviceOrientationExif, relativeOrientationExif,
-	} from "$lib/deviceOrientationExif";
-	import {
 		type ExifOrientation
-	} from "$lib/absoluteOrientation";
+	} from "$lib/deviceOrientationExif";
 	import Quaternion from "quaternion";
 
 	const resolutionsLoading = writable<Set<string>>(new Set());
@@ -981,8 +979,8 @@
 			try {
 				console.log('🢄[CAMERA] Initializing AbsoluteOrientationSensor for device orientation...');
 				absoluteOrientationSensor = new window.AbsoluteOrientationSensor({frequency: 100, referenceFrame: "screen"});
-				absoluteOrientationSensor.addEventListener("reading", (event) => {
-					console.log('🢄[CAMERA] AbsoluteOrientationSensor reading event:', event);
+				absoluteOrientationSensor.addEventListener("reading", () => {
+					console.log('🢄[CAMERA] AbsoluteOrientationSensor reading event');
 					//DeviceOrientationEvent.webkitCompassHeading?
 				});
 				absoluteOrientationSensor.addEventListener("error", (error) => {

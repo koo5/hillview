@@ -41,7 +41,6 @@ export function resizableSplit(node: HTMLElement, options: SplitOptions = {}) {
 		cursor: ${options.direction === 'vertical' ? 'col-resize' : 'row-resize'};
 		user-select: none;
 		z-index: 1000;
-		transition: all 0.2s ease;
 		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 		${options.direction === 'vertical' ? `
 			width: ${dividerSize}px;
@@ -181,10 +180,10 @@ export function resizableSplit(node: HTMLElement, options: SplitOptions = {}) {
 		currentSplit = calculateSplitFromMouse(e.clientX, e.clientY);
 
 		// Update divider position immediately for smoother visual feedback
-		requestAnimationFrame(() => {
+		//requestAnimationFrame(() => {
 			updateDividerPosition();
 			updatePanelSizes();
-		});
+		//});
 
 		if (onResize) {
 			onResize(currentSplit);
@@ -280,7 +279,6 @@ export function resizableSplit(node: HTMLElement, options: SplitOptions = {}) {
 					cursor: col-resize;
 					user-select: none;
 					z-index: 1000;
-					transition: all 0.2s ease;
 					box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 					width: ${options.dividerSize || 12}px;
 					top: 0;
@@ -312,7 +310,6 @@ export function resizableSplit(node: HTMLElement, options: SplitOptions = {}) {
 					cursor: row-resize;
 					user-select: none;
 					z-index: 1000;
-					transition: all 0.2s ease;
 					box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 					height: ${options.dividerSize || 12}px;
 					left: 0;

@@ -53,7 +53,7 @@
 	let totalCount = 0;
 
 	// React to route parameter changes
-	$: userId = $page.params.id;
+	$: userId = $page.params.id!;
 	$: if (userId) {
 		loadUserPhotos(true);
 	}

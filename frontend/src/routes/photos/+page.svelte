@@ -398,7 +398,7 @@
 							Upload Photos
 						</button>
 					{:else}
-						{#if app.debug_enabled}
+						{#if $app.debug_enabled}
 							<button
 								class="tab-button"
 								class:active={activeTab === 'import'}
@@ -693,11 +693,6 @@
 		background-color: transparent;
 	}
 
-	.license-section {
-	}
-
-	.tab-content {
-	}
 
 
 	.secondary-button {

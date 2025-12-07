@@ -6,7 +6,7 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 
 @Entity(
-    tableName = "bearings",
+    tableName = "locations",
     foreignKeys = [
         ForeignKey(
             entity = SourceEntity::class,
@@ -16,14 +16,15 @@ import androidx.room.PrimaryKey
     ],
     indices = [Index(value = ["sourceId"])]
 )
-data class BearingEntity(
+data class LocationEntity(
     @PrimaryKey
     val timestamp: Long,
-    val trueHeading: Float,
-    val magneticHeading: Float? = null,
-    val headingAccuracy: Float? = null, // Calculated accuracy in degrees (for future use)
-    val accuracyLevel: Int? = null, // Android SensorManager constants: -1=unknown, 0=unreliable, 1=low, 2=medium, 3=high
+    val latitude: Double,
+    val longitude: Double,
     val sourceId: Int, // Foreign key to sources table
-    val pitch: Float? = null,
-    val roll: Float? = null
+    val altitude: Double? = null,
+    val accuracy: Float? = null, // Horizontal accuracy in meters
+    val verticalAccuracy: Float? = null, // Vertical accuracy in meters
+    val speed: Float? = null, // Speed in meters/second
+    val bearing: Float? = null // Bearing/heading from GPS in degrees
 )

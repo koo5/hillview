@@ -339,7 +339,7 @@
 			fetchpriority={fetchPriority as any}
 			data-testid="main-photo"
 			data-photo={JSON.stringify(photo)}
-			onError={(e) => {
+			onerror={(e) => {
 				console.error('🢄Photo.svelte: Image load error:', JSON.stringify({
 					photoId: photo?.id,
 					displayedUrl: displayedUrl,
@@ -348,7 +348,7 @@
 					errorMessage: e?.toString?.() || 'Unknown error'
 				}));
 			}}
-			onLoad={() => {
+			onload={() => {
 				console.log('🢄Photo.svelte: Image loaded successfully:', JSON.stringify({
 					photoId: photo?.id,
 					displayedUrl: displayedUrl,

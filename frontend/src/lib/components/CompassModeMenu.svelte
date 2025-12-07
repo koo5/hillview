@@ -19,7 +19,7 @@
 
     function handleDocumentClick(event: MouseEvent) {
         if (visible && menuElement && !menuElement.contains(event.target as Node)) {
-            dispatch('close');
+            dispatch('close', {});
         }
     }
 </script>

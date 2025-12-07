@@ -24,7 +24,7 @@
 		bearingState,
 		spatialState,
 		updateSpatialState,
-		updateBearing as mapStateUpdateBearing,
+		updateBearing,
 		updateBearingByDiff,
 		photoInFront
 	} from "$lib/mapState";
@@ -49,6 +49,7 @@
 	let mapComponent: any = null;
 	let update_url = false;
 	let menuOpen = false;
+	let containerElement: HTMLElement;
 
 	$: showCameraView = $app.activity === 'capture';
 
@@ -68,6 +69,19 @@
 		updateOrientation();
 		window.addEventListener('resize', updateOrientation);
 		window.addEventListener('orientationchange', updateOrientation);
+
+		// Firefox fallback for dvh support
+		if (!CSS.supports('height', '100dvh')) {
+			console.log('🢄Browser lacks dvh support, using innerHeight fallback');
+			const updateContainerHeight = () => {
+				if (containerElement) {
+					containerElement.style.height = `${window.innerHeight}px`;
+				}
+			};
+			updateContainerHeight();
+			window.addEventListener('resize', updateContainerHeight);
+			window.addEventListener('orientationchange', updateContainerHeight);
+		}
 
 		screenOrientationAngle.set(getWebviewOrientation());
 		if (TAURI) {
@@ -144,7 +158,7 @@
 		if (bearingParam) {
 			console.log('🢄Setting bearing to', bearingParam, 'from URL');
 			const bearing = parseFloat(bearingParam);
-			mapStateUpdateBearing(bearing, 'url', photoUid ?? undefined);
+			updateBearing(bearing, 'url', photoUid ?? undefined);
 		}
 
 		setTimeout(() => {
@@ -164,7 +178,8 @@
 
 	function handleOrientationChange(e: Event) {
 		console.log('🢄device-orientation: WEB screen orientation changed:', e);
-		screenOrientationAngle.set(e.target.angle);
+		const target = e.target as any; // Screen orientation API types not fully supported
+		screenOrientationAngle.set(target?.angle || 0);
 	}
 
 
@@ -253,12 +268,6 @@
 
 	// Detect orientation for split direction
 	let isPortrait = false;
-	let splitOptions = {
-		direction: 'vertical' as 'horizontal' | 'vertical',
-		defaultSplit: 50,
-		minSize: 50,
-		onResize: handleSplitResize
-	};
 
 	const updateOrientation = () => {
 		const newIsPortrait = window.innerHeight > window.innerWidth;
@@ -269,29 +278,8 @@
 		}));
 		if (newIsPortrait !== isPortrait) {
 			isPortrait = newIsPortrait;
-			console.log('🔄SPLIT: Orientation changed, updating split direction', JSON.stringify({
-				isPortrait,
-				newDirection: isPortrait ? 'horizontal' : 'vertical'
-			}));
-			// Update split options to trigger action update
-			splitOptions = {
-				...splitOptions,
-				direction: isPortrait ? 'horizontal' : 'vertical'
-			};
 		}
 	};
-
-	// Update split options when splitPercent changes
-	// $: {
-	// 	splitOptions = {
-	// 		direction: isPortrait ? 'horizontal' : 'vertical',
-	// 		defaultSplit: $splitPercent,
-	// 		minSize: 150,
-	// 		dividerSize: 12,
-	// 		onResize: handleSplitResize
-	// 	};
-	// 	console.log('🔄SPLIT: Reactive splitOptions updated', JSON.stringify(splitOptions));
-	// }
 
 	function handleKeyDown(e: KeyboardEvent) {
 		// Only handle debug toggle when no modifier keys are pressed
@@ -529,10 +517,11 @@
 
 <div
 	class="container"
+	bind:this={containerElement}
 	use:resizableSplit={{
 		direction: isPortrait ? 'horizontal' : 'vertical',
 		defaultSplit: $splitPercent,
-		minSize: 150,
+		minSize: 50,
 		onResize: handleSplitResize
 	}}
 >
@@ -586,6 +575,8 @@
 	.container {
 		width: 100vw;
 		height: 100vh;
+		/* Use dynamic viewport height for mobile browsers */
+		height: 100dvh;
 	}
 
 	.panel {

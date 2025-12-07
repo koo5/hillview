@@ -13,6 +13,7 @@ import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import androidx.core.app.ActivityCompat
+import org.json.JSONObject
 import androidx.core.content.ContextCompat
 import androidx.work.*
 import kotlinx.coroutines.CoroutineScope
@@ -260,7 +261,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 	private val authManager: AuthenticationManager = AuthenticationManager(activity)
 	private val photoWorkerService: PhotoWorkerService = PhotoWorkerService(activity, this)
 	private val photoUploadManager: PhotoUploadManager = PhotoUploadManager(activity)
-	private val geoTrackingManager: GeoTrackingManager = GeoTrackingManager(activity, database)
+	private val geoTrackingManager: GeoTrackingManager = GeoTrackingManager(activity)
 
 	private val myDeviceOrientationSensor: MyDeviceOrientationSensor =
 		MyDeviceOrientationSensor(activity, ::triggerOrientationEvent)
@@ -1908,20 +1909,21 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 							result.put("success", true)
 							result.put("found", true)
 
-							result.put("source", bearingEntity.source)
+							// Get source name from sourceId
+							val sourceName = database.sourceDao().getSourceNameById(bearingEntity.sourceId) ?: "unknown"
+							result.put("source", sourceName)
 							result.put("timestamp", bearingEntity.timestamp)
 							result.put("true_heading", bearingEntity.trueHeading.toDouble())
 
-							/* todo: these should become nullable */
-							result.put("magnetic_heading", bearingEntity.magneticHeading.toDouble())
-							result.put("heading_accuracy", bearingEntity.headingAccuracy.toDouble())
-							result.put("accuracy", bearingEntity.accuracyLevel)
-							result.put("pitch", bearingEntity.pitch.toDouble())
-							result.put("roll", bearingEntity.roll.toDouble())
+							bearingEntity.magneticHeading?.let { result.put("magnetic_heading", it.toDouble()) }
+							bearingEntity.headingAccuracy?.let { result.put("heading_accuracy", it.toDouble()) }
+							bearingEntity.accuracyLevel?.let { result.put("accuracy", it) }
+							bearingEntity.pitch?.let { result.put("pitch", it.toDouble()) }
+							bearingEntity.roll?.let { result.put("roll", it.toDouble()) }
 
 							Log.d(
 								TAG,
-								"📡 getBearingForTimestamp: Found bearing ${bearingEntity.trueHeading}° from ${bearingEntity.source} at ${bearingEntity.timestamp}"
+								"📡 getBearingForTimestamp: Found bearing ${bearingEntity.trueHeading}° from ${sourceName} at ${bearingEntity.timestamp}"
 							)
 						} else {
 							result.put("success", true)
@@ -2198,7 +2200,11 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 		try {
 			val args = invoke.parseArgs(CmdArgs::class.java)
 			val command = args.command
-			val params = JSObject() // For now, simplified - can be enhanced later if needed
+			val params = if (args.params is Map<*, *>) {
+				JSObject.fromJSONObject(JSONObject(args.params as Map<String, Any?>))
+			} else {
+				JSObject()
+			}
 
 			Log.d(TAG, "🔧cmd called: command=$command, params=$params")
 
@@ -2216,11 +2222,29 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 				}
 
 				"update_orientation" -> {
-					geoTrackingManager.storeOrientationManual(params)
+					try {
+						geoTrackingManager.storeOrientationManual(params)
+						Log.d(TAG, "🔧 Stored manual orientation data")
+					} catch (e: Exception) {
+						Log.e(TAG, "🔧 Failed to store orientation data: ${e.message}", e)
+						val error = JSObject()
+						error.put("error", "Failed to store orientation: ${e.message}")
+						invoke.resolve(error)
+						return
+					}
 				}
 
 				"update_location" -> {
-					geoTrackingManager.storeLocationManual(params)
+					try {
+						geoTrackingManager.storeLocationManual(params)
+						Log.d(TAG, "🔧 Stored manual location data")
+					} catch (e: Exception) {
+						Log.e(TAG, "🔧 Failed to store location data: ${e.message}", e)
+						val error = JSObject()
+						error.put("error", "Failed to store location: ${e.message}")
+						invoke.resolve(error)
+						return
+					}
 				}
 
 
