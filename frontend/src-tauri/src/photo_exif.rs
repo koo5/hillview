@@ -1245,6 +1245,8 @@ async fn determine_final_bearing(
 
 		match app_handle.hillview().get_bearing_for_timestamp(metadata.captured_at * 1000) { // Convert to milliseconds
 			Ok(response) => {
+				info!("🢄📡 Database bearing lookup response: success={}, found={:?}, true_heading={:?}",
+					response.success, response.found, response.true_heading);
 				if response.success {
 					if let Some(found) = response.found {
 						if found {
