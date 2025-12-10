@@ -1,4 +1,4 @@
-import { getPhotoCaptureSettings } from '../stores/photoCaptureSettings';
+import {photoCaptureSettings} from '$lib/stores';
 
 export function playShutterSound() {
 	if (!$photoCaptureSettings.shutterSoundEnabled) return;
