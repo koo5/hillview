@@ -26,8 +26,6 @@
 
     // Update action when options change
     $: if (photoContainer && (photoContainer as any).__swipe2d_action) {
-		console.log('🢄Gallery: swipe2d action exists:', (photoContainer as any).__swipe2d_action);
-		console.log('🢄Gallery: Updating swipe2d action with new options:', swipeOptions);
         (photoContainer as any).__swipe2d_action.update(swipeOptions);
     }
 
@@ -36,21 +34,21 @@
     }
 
     function handleSwipe(direction: 'left' | 'right' | 'up' | 'down') {
-		console.log(`🢄Gallery: Swipe detected in direction: ${direction}`);
-        turn_to_photo_to(direction);
+		// swiping left should go to photo on the right, etc.
+		const directionMap = {
+			'left': 'right',
+			'right': 'left',
+			'up': 'down',
+			'down': 'up'
+		};
+		const mappedDirection = directionMap[direction];
+        turn_to_photo_to(mappedDirection);
     }
 
     function handlePhotoInteraction() {
         // Reset swipe state when photo interactions (like zoom) occur
-        console.log('🢄Gallery: Photo interaction detected, resetting swipe state');
-        console.log('🢄Gallery: photoContainer:', photoContainer);
-        console.log('🢄Gallery: swipe2d action:', photoContainer && (photoContainer as any).__swipe2d_action);
-
         if (photoContainer && (photoContainer as any).__swipe2d_action) {
-            console.log('🢄Gallery: Calling swipe action reset');
             (photoContainer as any).__swipe2d_action.reset();
-        } else {
-            console.log('🢄Gallery: No swipe action found to reset');
         }
     }
 

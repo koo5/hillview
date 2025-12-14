@@ -213,17 +213,11 @@ export function swipe2d(node: HTMLElement, initialOptions: Swipe2DOptions) {
 			const absY = Math.abs(finalDeltaY);
 			let swipeSuccessful = false;
 
-			console.log('🢄swipe2d: endDrag boundary check:', {
-				canGoLeft, canGoRight, canGoUp, canGoDown,
-				absX, absY, snapThreshold,
-				finalDeltaX, finalDeltaY
-			});
 
 			if (absX > snapThreshold && absX > absY) {
 				// Horizontal swipe - check boundaries
 				const direction = finalDeltaX > 0 ? 'left' : 'right';
 				const canMove = (direction === 'left' && canGoLeft) || (direction === 'right' && canGoRight);
-				console.log('🢄swipe2d: Horizontal swipe attempt:', { direction, canMove, canGoLeft, canGoRight });
 				if (canMove) {
 					// Re-enable transitions for slide animation
 					if (enableVisualFeedback) {
@@ -237,9 +231,7 @@ export function swipe2d(node: HTMLElement, initialOptions: Swipe2DOptions) {
 
 					// Listen for transition end to trigger photo change
 					const handleTransitionEnd = (e: TransitionEvent) => {
-						console.log('🢄swipe2d: Transition end event:', e.target === targetElement, e.propertyName, direction);
 						if (e.target === targetElement && e.propertyName === 'transform') {
-							console.log('🢄swipe2d: Valid transition end, calling onSwipe for direction:', direction);
 							targetElement.removeEventListener('transitionend', handleTransitionEnd);
 							dragState.pendingTransitionListener = undefined;
 							onSwipe(direction);
@@ -253,9 +245,6 @@ export function swipe2d(node: HTMLElement, initialOptions: Swipe2DOptions) {
 						}
 					};
 					dragState.pendingTransitionListener = handleTransitionEnd;
-					console.log('🢄swipe2d: Adding transition listener for direction:', direction);
-					console.log('🢄swipe2d: Current transition style:', targetElement.style.transition);
-					console.log('🢄swipe2d: Computed transition:', window.getComputedStyle(targetElement).transition);
 					targetElement.addEventListener('transitionend', handleTransitionEnd);
 					swipeSuccessful = true;
 				}
@@ -276,9 +265,7 @@ export function swipe2d(node: HTMLElement, initialOptions: Swipe2DOptions) {
 
 					// Listen for transition end to trigger photo change
 					const handleTransitionEnd = (e: TransitionEvent) => {
-						console.log('🢄swipe2d: Transition end event:', e.target === targetElement, e.propertyName, direction);
 						if (e.target === targetElement && e.propertyName === 'transform') {
-							console.log('🢄swipe2d: Valid transition end, calling onSwipe for direction:', direction);
 							targetElement.removeEventListener('transitionend', handleTransitionEnd);
 							dragState.pendingTransitionListener = undefined;
 							onSwipe(direction);
@@ -292,9 +279,6 @@ export function swipe2d(node: HTMLElement, initialOptions: Swipe2DOptions) {
 						}
 					};
 					dragState.pendingTransitionListener = handleTransitionEnd;
-					console.log('🢄swipe2d: Adding transition listener for direction:', direction);
-					console.log('🢄swipe2d: Current transition style:', targetElement.style.transition);
-					console.log('🢄swipe2d: Computed transition:', window.getComputedStyle(targetElement).transition);
 					targetElement.addEventListener('transitionend', handleTransitionEnd);
 					swipeSuccessful = true;
 				}
@@ -422,7 +406,6 @@ export function swipe2d(node: HTMLElement, initialOptions: Swipe2DOptions) {
 		},
 
 		update(newOptions: Swipe2DOptions) {
-			console.log('🢄swipe2d: update called with new options:', newOptions);
 
 			// Clean up any pending transition listener first
 			if (dragState.pendingTransitionListener) {
@@ -460,12 +443,10 @@ export function swipe2d(node: HTMLElement, initialOptions: Swipe2DOptions) {
 				originalTransition = targetElement.style.transition;
 			}
 
-			console.log('🢄swipe2d: Updated boundary options:', { canGoLeft, canGoRight, canGoUp, canGoDown });
 		},
 
 		reset() {
 			// Public method to reset drag state (useful when other interactions interfere)
-			console.log('🢄swipe2d: Reset called, current drag state:', dragState.isDragging);
 			cancelDrag();
 		}
 	};
