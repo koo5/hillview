@@ -69,6 +69,8 @@ export function swipe2d(node: HTMLElement, initialOptions: Swipe2DOptions) {
 		canGoDown
 	} = optionsWithDefaults;
 
+	console.log('🢄swipe2d: Initialized with options:', optionsWithDefaults);
+
 	let dragState: DragState = {
 		isDragging: false,
 		hasMoved: false,
@@ -219,6 +221,9 @@ export function swipe2d(node: HTMLElement, initialOptions: Swipe2DOptions) {
 				const direction = finalDeltaX > 0 ? 'left' : 'right';
 				const canMove = (direction === 'left' && canGoLeft) || (direction === 'right' && canGoRight);
 				if (canMove) {
+					// Call onSwipe immediately for responsive navigation
+					onSwipe(direction);
+
 					// Re-enable transitions for slide animation
 					if (enableVisualFeedback) {
 						targetElement.style.transition = originalTransition || 'transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)';
@@ -229,12 +234,11 @@ export function swipe2d(node: HTMLElement, initialOptions: Swipe2DOptions) {
 					const fullOffsetX = direction === 'left' ? containerWidth : -containerWidth;
 					targetElement.style.transform = `translate3d(${dragState.initialTransformX + fullOffsetX}px, ${dragState.initialTransformY}px, 0)`;
 
-					// Listen for transition end to trigger photo change
+					// Listen for transition end to reset transform
 					const handleTransitionEnd = (e: TransitionEvent) => {
 						if (e.target === targetElement && e.propertyName === 'transform') {
 							targetElement.removeEventListener('transitionend', handleTransitionEnd);
 							dragState.pendingTransitionListener = undefined;
-							onSwipe(direction);
 							// Disable transitions before reset to prevent unwanted animation
 							targetElement.style.transition = 'none';
 							resetTransform();
@@ -253,6 +257,9 @@ export function swipe2d(node: HTMLElement, initialOptions: Swipe2DOptions) {
 				const direction = finalDeltaY > 0 ? 'up' : 'down';
 				const canMove = (direction === 'up' && canGoUp) || (direction === 'down' && canGoDown);
 				if (canMove) {
+					// Call onSwipe immediately for responsive navigation
+					onSwipe(direction);
+
 					// Re-enable transitions for slide animation
 					if (enableVisualFeedback) {
 						targetElement.style.transition = originalTransition || 'transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)';
@@ -263,12 +270,11 @@ export function swipe2d(node: HTMLElement, initialOptions: Swipe2DOptions) {
 					const fullOffsetY = direction === 'up' ? containerHeight : -containerHeight;
 					targetElement.style.transform = `translate3d(${dragState.initialTransformX}px, ${dragState.initialTransformY + fullOffsetY}px, 0)`;
 
-					// Listen for transition end to trigger photo change
+					// Listen for transition end to reset transform
 					const handleTransitionEnd = (e: TransitionEvent) => {
 						if (e.target === targetElement && e.propertyName === 'transform') {
 							targetElement.removeEventListener('transitionend', handleTransitionEnd);
 							dragState.pendingTransitionListener = undefined;
-							onSwipe(direction);
 							// Disable transitions before reset to prevent unwanted animation
 							targetElement.style.transition = 'none';
 							resetTransform();
@@ -406,43 +412,24 @@ export function swipe2d(node: HTMLElement, initialOptions: Swipe2DOptions) {
 		},
 
 		update(newOptions: Swipe2DOptions) {
+			console.log('🢄swipe2d: update called with newOptions:', newOptions);
+			// Only update boundary parameters and transform target
+			if (newOptions.canGoLeft !== undefined) canGoLeft = newOptions.canGoLeft;
+			if (newOptions.canGoRight !== undefined) canGoRight = newOptions.canGoRight;
+			if (newOptions.canGoUp !== undefined) canGoUp = newOptions.canGoUp;
+			if (newOptions.canGoDown !== undefined) canGoDown = newOptions.canGoDown;
 
-			// Clean up any pending transition listener first
-			if (dragState.pendingTransitionListener) {
-				targetElement.removeEventListener('transitionend', dragState.pendingTransitionListener);
-				dragState.pendingTransitionListener = undefined;
+			// Update transform target if provided
+			if (newOptions.transformTarget !== undefined) {
+				const oldTargetElement = targetElement;
+				transformTarget = newOptions.transformTarget;
+				targetElement = transformTarget || node;
+
+				// Only update originalTransition if target element actually changed
+				if (targetElement !== oldTargetElement) {
+					originalTransition = targetElement.style.transition;
+				}
 			}
-
-			// Update the current options
-			currentOptions = { ...currentOptions, ...newOptions };
-
-			// Re-destructure using the same helper
-			optionsWithDefaults = getOptionsWithDefaults(currentOptions);
-			({
-				onSwipe,
-				onDrag,
-				onDragStart,
-				onDragEnd,
-				snapThreshold,
-				dampingFactor,
-				enableVisualFeedback,
-				dragStartThreshold,
-				transformTarget,
-				canGoLeft,
-				canGoRight,
-				canGoUp,
-				canGoDown
-			} = optionsWithDefaults);
-
-			// Update target element if transformTarget changed
-			const oldTargetElement = targetElement;
-			targetElement = transformTarget || node;
-
-			// Only update originalTransition if target element actually changed
-			if (targetElement !== oldTargetElement) {
-				originalTransition = targetElement.style.transition;
-			}
-
 		},
 
 		reset() {

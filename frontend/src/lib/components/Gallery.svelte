@@ -34,6 +34,7 @@
     }
 
     function handleSwipe(direction: 'left' | 'right' | 'up' | 'down') {
+		console.log(`🢄Gallery: Detected swipe ${direction}`);
 		// swiping left should go to photo on the right, etc.
 		const directionMap = {
 			'left': 'right',

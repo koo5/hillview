@@ -161,6 +161,7 @@
 			willReturn: !newUrl || newUrl === displayedUrl
 		}));
 
+		// hmm..
 		if (!newUrl || newUrl === displayedUrl) {
 			return;
 		}
