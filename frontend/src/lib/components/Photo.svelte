@@ -496,23 +496,6 @@
 		z-index: 2;
 	}
 
-	/* Side images - let CSS Grid handle positioning, just add visual effects */
-	.left {
-		opacity: 0.7;
-	}
-
-	.right {
-		opacity: 0.7;
-	}
-
-	.up {
-		opacity: 0.7;
-	}
-
-	.down {
-		opacity: 0.7;
-	}
-
 
 	/* Status message */
 	.hide-message {

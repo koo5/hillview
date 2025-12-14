@@ -1184,7 +1184,6 @@
                 title={slideshowActive && slideshowDirection === 'right' ?
                       "Stop slideshow" :
                       "Rotate to next photo on the right (long press for slideshow)"}
-                disabled={!$photoToRight}
                 class:slideshow-active={slideshowActive && slideshowDirection === 'right'}
         >
             {#if slideshowActive && slideshowDirection === 'right'}

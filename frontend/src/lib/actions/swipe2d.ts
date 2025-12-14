@@ -203,6 +203,9 @@ export function swipe2d(node: HTMLElement, initialOptions: Swipe2DOptions) {
 		dragState.hasMoved = false;
 		dragState.axisLocked = 'none';
 
+		// Flag to prevent click events if we had a successful swipe
+		let preventClick = false;
+
 		// Only process swipe if we actually moved enough to be dragging
 		if (wasDragging) {
 			if (enableVisualFeedback) {
@@ -252,6 +255,7 @@ export function swipe2d(node: HTMLElement, initialOptions: Swipe2DOptions) {
 					dragState.pendingTransitionListener = handleTransitionEnd;
 					targetElement.addEventListener('transitionend', handleTransitionEnd);
 					swipeSuccessful = true;
+					preventClick = true;
 				}
 			} else if (absY > snapThreshold && absY > absX) {
 				// Vertical swipe - check boundaries
@@ -289,6 +293,7 @@ export function swipe2d(node: HTMLElement, initialOptions: Swipe2DOptions) {
 					dragState.pendingTransitionListener = handleTransitionEnd;
 					targetElement.addEventListener('transitionend', handleTransitionEnd);
 					swipeSuccessful = true;
+					preventClick = true;
 				}
 			}
 
@@ -299,6 +304,20 @@ export function swipe2d(node: HTMLElement, initialOptions: Swipe2DOptions) {
 			onDragEnd?.();
 		}
 		// If we weren't dragging, don't interfere - let other handlers work
+
+		// Prevent click events for a short time after a successful swipe
+		if (preventClick) {
+			const preventClickHandler = (e: Event) => {
+				e.preventDefault();
+				e.stopPropagation();
+			};
+
+			// Add click prevention for a brief moment
+			node.addEventListener('click', preventClickHandler, { capture: true });
+			setTimeout(() => {
+				node.removeEventListener('click', preventClickHandler, { capture: true });
+			}, 50); // Brief delay to catch the click event
+		}
 	}
 
 	function cancelDrag() {

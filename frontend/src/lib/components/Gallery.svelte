@@ -43,7 +43,7 @@
 			'down': 'up'
 		};
 		const mappedDirection = directionMap[direction];
-        turn_to_photo_to(mappedDirection);
+        turn_to_photo_to(direction);
     }
 
     function handlePhotoInteraction() {
@@ -97,6 +97,31 @@
     <!--{/if}-->
 
     <div bind:clientWidth bind:this={photoContainer} class="photo-container" use:swipe2d={swipeOptions}>
+        <!-- Navigation buttons on sides -->
+        {#if $photoToLeft}
+            <button class="nav-button nav-left" on:click={() => handleSwipe('left')} title="Previous photo">
+                ←
+            </button>
+        {/if}
+
+        {#if $photoToRight}
+            <button class="nav-button nav-right" on:click={() => handleSwipe('right')} title="Next photo">
+                →
+            </button>
+        {/if}
+
+        {#if $photoUp}
+            <button class="nav-button nav-up" on:click={() => handleSwipe('up')} title="Photo above">
+                ↑
+            </button>
+        {/if}
+
+        {#if $photoDown}
+            <button class="nav-button nav-down" on:click={() => handleSwipe('down')} title="Photo below">
+                ↓
+            </button>
+        {/if}
+
         <div class="photos-grid" bind:this={photosGrid}>
 
 			{#if !$photoInFront}
@@ -268,6 +293,55 @@
         margin: 0;
         font-size: 1rem;
         opacity: 0.8;
+    }
+
+    .nav-button {
+        position: absolute;
+        background: rgba(0, 0, 0, 0.6);
+        border: none;
+        color: white;
+        cursor: pointer;
+        font-size: 1.5rem;
+        font-weight: bold;
+        border-radius: 50%;
+        width: 48px;
+        height: 48px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10;
+        opacity: 0.7;
+        transition: opacity 0.3s ease, background 0.3s ease;
+        user-select: none;
+    }
+
+    .nav-button:hover {
+        opacity: 1;
+        background: rgba(0, 0, 0, 0.8);
+    }
+
+    .nav-left {
+        left: 16px;
+        top: 50%;
+        transform: translateY(-50%);
+    }
+
+    .nav-right {
+        right: 16px;
+        top: 50%;
+        transform: translateY(-50%);
+    }
+
+    .nav-up {
+        top: 16px;
+        left: 50%;
+        transform: translateX(-50%);
+    }
+
+    .nav-down {
+        bottom: 16px;
+        left: 50%;
+        transform: translateX(-50%);
     }
 
 
