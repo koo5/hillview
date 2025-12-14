@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-request-tauri-permission"
+description = "Enables the request_tauri_permission command without any pre-configured scope."
+commands.allow = ["request_tauri_permission"]
+
+[[permission]]
+identifier = "deny-request-tauri-permission"
+description = "Denies the request_tauri_permission command without any pre-configured scope."
+commands.deny = ["request_tauri_permission"]

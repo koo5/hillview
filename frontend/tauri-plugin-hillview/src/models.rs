@@ -170,15 +170,18 @@ pub struct NotificationSettingsResponse {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct TauriPermissionResponse {
   pub post_notification: PermissionState,
+  pub write_external_storage: PermissionState,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct TauriPermissionStringResponse {
   pub post_notification: String,
+  pub write_external_storage: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RequestPermission {
   pub post_notification: bool,
+  pub write_external_storage: bool,
 }
 

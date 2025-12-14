@@ -166,6 +166,10 @@ class CmdArgs {
 		Permission(
 			strings = [Manifest.permission.POST_NOTIFICATIONS],
 			alias = "post_notification"
+		),
+		Permission(
+			strings = [Manifest.permission.WRITE_EXTERNAL_STORAGE],
+			alias = "write_external_storage"
 		)
 	]
 )
@@ -177,6 +181,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 
 		// Permission request codes
 		private const val CAMERA_PERMISSION_REQUEST_CODE = 2001
+		private const val STORAGE_PERMISSION_REQUEST_CODE = 2002
 
 		// Storage for pending WebView permission requests
 		private var pendingWebViewPermissionRequest: PermissionRequest? = null
@@ -1110,6 +1115,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 
 	// Store pending native permission request
 	private var pendingNativePermissionInvoke: Invoke? = null
+	private var pendingStoragePermissionInvoke: Invoke? = null
 
 	@Command
 	fun requestCameraPermission(invoke: Invoke) {

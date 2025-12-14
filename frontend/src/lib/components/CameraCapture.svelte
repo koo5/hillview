@@ -139,6 +139,62 @@
 	}
 
 	let needsPermission = false;
+	let needsStoragePermission = false;
+	let storagePermissionChecked = false;
+
+	async function checkStoragePermission() {
+		if (!TAURI || storagePermissionChecked) return true;
+
+		try {
+			console.log('🢄[STORAGE] Checking storage permission...');
+			const permissionStatus = await invoke('plugin:hillview|check_tauri_permissions');
+			console.log('🢄[STORAGE] Permission status:', JSON.stringify(permissionStatus));
+
+			// Check if we have write_external_storage permission
+			if (permissionStatus && typeof permissionStatus === 'object' && 'write_external_storage' in permissionStatus) {
+				const writePermission = (permissionStatus as any).write_external_storage;
+				const hasPermission = writePermission === 'Granted';
+				needsStoragePermission = !hasPermission;
+				storagePermissionChecked = true;
+				console.log('🢄[STORAGE] Storage permission granted:', hasPermission);
+				return hasPermission;
+			}
+
+			// If permission field not found, assume we need to request it
+			needsStoragePermission = true;
+			storagePermissionChecked = true;
+			return false;
+		} catch (error) {
+			console.warn('🢄[STORAGE] Failed to check storage permission:', error);
+			// On error, assume permission is available (for non-Android or fallback)
+			storagePermissionChecked = true;
+			return true;
+		}
+	}
+
+	async function requestStoragePermission() {
+		if (!TAURI) return;
+
+		try {
+			console.log('🢄[STORAGE] Requesting storage permission...');
+			const result = await invoke('plugin:hillview|request_tauri_permission', {
+				permission: 'write_external_storage'
+			});
+			console.log('🢄[STORAGE] Permission request result:', result);
+
+			// Check if permission was granted
+			const granted = result === 'Granted' || result === 'granted';
+			needsStoragePermission = !granted;
+
+			if (granted) {
+				console.log('🢄[STORAGE] Storage permission granted, checking camera...');
+				// Now that storage permission is granted, proceed to camera check
+				checkAndStartCamera();
+			}
+		} catch (error) {
+			console.error('🢄[STORAGE] Failed to request storage permission:', error);
+		}
+	}
 
 	async function checkAndStartCamera() {
 		console.log('🢄[CAMERA] Checking camera permission before auto-start...');
@@ -816,9 +872,17 @@
 	// Try to auto-start camera with permission lock coordination
 	$: if (show) {
 		if (!stream && !cameraError && !cameraReady && !hasRequestedPermission && !switchingCamera) {
-			console.log('🢄[CAMERA] Modal shown, attempting to start camera with permission coordination');
+			console.log('🢄[CAMERA] Modal shown, checking storage permission first...');
 			retryCount = 0; // Reset retry count when modal opens
-			checkAndStartCamera();
+
+			// Check storage permission first, then camera
+			checkStoragePermission().then(hasStorage => {
+				if (hasStorage) {
+					checkAndStartCamera();
+				} else {
+					console.log('🢄[STORAGE] Storage permission needed, showing storage permission button');
+				}
+			});
 		}
 	} else if (!show && stream) {
 		// Stop camera when modal closes
@@ -1005,11 +1069,18 @@
 
 				<!-- Always render video element so it's available for binding -->
 				<video bind:this={video} class="camera-video" class:blink={isBlinking} playsinline
-					   style:display={cameraError ? 'none' : 'block'}>
+					   style:display={(cameraError || needsStoragePermission) ? 'none' : 'block'}>
 					<track kind="captions"/>
 				</video>
 
-				{#if cameraError}
+				{#if needsStoragePermission && storagePermissionChecked}
+					<div class="camera-error">
+						<p>💾 Storage permission required to save photos</p>
+						<button class="retry-button" on:click={requestStoragePermission}>
+							Grant Storage Permission
+						</button>
+					</div>
+				{:else if cameraError}
 					<div class="camera-error">
 						<p>📷 {cameraError}</p>
 						<button class="retry-button" on:click={async () => {

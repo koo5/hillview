@@ -381,18 +381,18 @@ pub(crate) async fn check_tauri_permissions<R: Runtime>(
     let response = app.hillview().check_tauri_permissions()?;
     Ok(crate::models::TauriPermissionStringResponse {
         post_notification: format!("{:?}", response.post_notification),
+        write_external_storage: format!("{:?}", response.write_external_storage),
     })
 }
 
 #[cfg(mobile)]
 #[command(rename_all = "snake_case")]
-pub(crate) async fn request_post_notification_permission<R: Runtime>(
+pub(crate) async fn request_tauri_permission<R: Runtime>(
     app: AppHandle<R>,
+    permission: String,
 ) -> Result<String> {
-	// logging doesnt seem to work here in plugin?
-	info!("🢄🔔request_post_notification_permission invoking app.hillview().request_post_notification_permission()...");
-	//Err(crate::Error::from("🢄🔔request_post_notification_permission is currently disabled"))
-    let permission_state = app.hillview().request_post_notification_permission()?;
+    info!("🢄🔐request_tauri_permission for permission: {}", permission);
+    let permission_state = app.hillview().request_tauri_permission(permission)?;
     Ok(format!("{:?}", permission_state))
 }
 

@@ -5,9 +5,24 @@ use log::info;
 #[cfg(debug_assertions)]
 use tauri::Manager;
 
+#[cfg(target_os = "android")]
+fn setup_logging() {
+    android_logger::init_once(
+        android_logger::Config::default()
+            .with_max_level(log::LevelFilter::Info)
+            .with_tag("HillviewRust")
+    );
+}
+
+#[cfg(not(target_os = "android"))]
+fn setup_logging() {
+    // For non-Android platforms, you could use env_logger or similar
+    // For now, just do nothing
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    //setup_logging();
+    setup_logging();
     info!("🢄Starting application");
 
     // Print Android-specific info for debugging
