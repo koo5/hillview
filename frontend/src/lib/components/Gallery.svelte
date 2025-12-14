@@ -58,6 +58,27 @@
     $: if ($photosInRange) {
         console.log(`🢄Gallery: Displaying ${$photosInRange.length} photos in range`);
     }*/
+
+	const cls = ['up', 'left', 'front', 'right', 'down'];
+	$: keys = generate_keys([$photoUp, $photoToLeft, $photoInFront, $photoToRight, $photoDown]);
+	function generate_keys(photos: (PhotoData | null)[]) {
+		let keys = photos.map((photo, index) => photo ? photo.id : `empty-${index}`);
+		// deduplicate
+		const seen = new Set();
+		for (let i = 0; i < keys.length; i++) {
+			let key = keys[i];
+			let count = 1;
+			while (seen.has(key)) {
+				key = `${keys[i]}-${count}`;
+				count++;
+			}
+			seen.add(key);
+			keys[i] = key;
+		}
+		console.log('🢄Gallery: Generated keys', keys);
+		return keys;
+	}
+
 </script>
 
 <div class="gallery-wrapper">
@@ -77,51 +98,28 @@
 
     <div bind:clientWidth bind:this={photoContainer} class="photo-container" use:swipe2d={swipeOptions}>
         <div class="photos-grid" bind:this={photosGrid}>
-            <!-- Up photo -->
-            <div class="photo-slot up">
-                {#if $photoUp}
-                    <Photo photo={$photoUp} className="up" {clientWidth} onInteraction={handlePhotoInteraction}/>
-                {/if}
-            </div>
 
-            <!-- Left photo -->
-            <div class="photo-slot left">
-                {#if $photoToLeft}
-                    <Photo photo={$photoToLeft} className="left" {clientWidth} onInteraction={handlePhotoInteraction}/>
-                {/if}
-            </div>
+			{#if !$photoInFront}
+				<div class="no-photo">
+					{#if $anySourceLoading}
+						<div class="loading-container">
+							<Spinner show={true} color="#ffffff" />
+							<p>Loading photos...</p>
+						</div>
+					{:else}
+						<p>No photos in range</p>
+					{/if}
+				</div>
+			{/if}
 
-            <!-- Center (front) photo -->
-            <div class="photo-slot center">
-                {#if $photoInFront}
-                    <Photo photo={$photoInFront} className="front" {clientWidth} onInteraction={handlePhotoInteraction}/>
-                {:else}
-                    <div class="no-photo">
-                        {#if $anySourceLoading}
-                            <div class="loading-container">
-                                <Spinner show={true} color="#ffffff" />
-                                <p>Loading photos...</p>
-                            </div>
-                        {:else}
-                            <p>No photos in range</p>
-                        {/if}
-                    </div>
-                {/if}
-            </div>
+			{#each [$photoUp, $photoToLeft, $photoInFront, $photoToRight, $photoDown] as photo, index (keys[index])}
+				<div class="photo-slot {cls[index]}">
+					{#if photo}
+						<Photo photo={photo} className="{cls[index]}" {clientWidth} onInteraction={handlePhotoInteraction}/>
+					{/if}
+				</div>
+			{/each}
 
-            <!-- Right photo -->
-            <div class="photo-slot right">
-                {#if $photoToRight}
-                    <Photo photo={$photoToRight} className="right" {clientWidth} onInteraction={handlePhotoInteraction}/>
-                {/if}
-            </div>
-
-            <!-- Down photo -->
-            <div class="photo-slot down">
-                {#if $photoDown}
-                    <Photo photo={$photoDown} className="down" {clientWidth} onInteraction={handlePhotoInteraction}/>
-                {/if}
-            </div>
         </div>
     </div>
 
@@ -236,7 +234,7 @@
         grid-row: 2;
     }
 
-    .photo-slot.center {
+    .photo-slot.front {
         grid-column: 2;
         grid-row: 2;
     }

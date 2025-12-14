@@ -222,7 +222,7 @@ export function swipe2d(node: HTMLElement, initialOptions: Swipe2DOptions) {
 				const canMove = (direction === 'left' && canGoLeft) || (direction === 'right' && canGoRight);
 				if (canMove) {
 					// Call onSwipe immediately for responsive navigation
-					onSwipe(direction);
+					//onSwipe(direction);
 
 					// Re-enable transitions for slide animation
 					if (enableVisualFeedback) {
@@ -237,6 +237,7 @@ export function swipe2d(node: HTMLElement, initialOptions: Swipe2DOptions) {
 					// Listen for transition end to reset transform
 					const handleTransitionEnd = (e: TransitionEvent) => {
 						if (e.target === targetElement && e.propertyName === 'transform') {
+							onSwipe(direction);
 							targetElement.removeEventListener('transitionend', handleTransitionEnd);
 							dragState.pendingTransitionListener = undefined;
 							// Disable transitions before reset to prevent unwanted animation
@@ -258,7 +259,7 @@ export function swipe2d(node: HTMLElement, initialOptions: Swipe2DOptions) {
 				const canMove = (direction === 'up' && canGoUp) || (direction === 'down' && canGoDown);
 				if (canMove) {
 					// Call onSwipe immediately for responsive navigation
-					onSwipe(direction);
+					//onSwipe(direction);
 
 					// Re-enable transitions for slide animation
 					if (enableVisualFeedback) {
@@ -273,6 +274,7 @@ export function swipe2d(node: HTMLElement, initialOptions: Swipe2DOptions) {
 					// Listen for transition end to reset transform
 					const handleTransitionEnd = (e: TransitionEvent) => {
 						if (e.target === targetElement && e.propertyName === 'transform') {
+							onSwipe(direction);
 							targetElement.removeEventListener('transitionend', handleTransitionEnd);
 							dragState.pendingTransitionListener = undefined;
 							// Disable transitions before reset to prevent unwanted animation
