@@ -1,14 +1,36 @@
 <script lang="ts">
-    import {photoInFront, photosInRange, updateBearing} from "$lib/mapState";
+    import {photoInFront, photosInRange, photoToLeft, photoToRight, photoUp, photoDown, updateBearing} from "$lib/mapState";
+    import {turn_to_photo_to} from "$lib/data.svelte";
+    import {swipe2d} from "$lib/actions/swipe2d";
     import Photo from "./Photo.svelte";
     import Spinner from "./Spinner.svelte";
     import {anySourceLoading} from "$lib/data.svelte.js";
     import type {PhotoData} from '$lib/sources';
 
     let clientWidth: number;
+    let photoContainer: HTMLElement;
+    let photosGrid: HTMLElement;
 
     function handleThumbnailClick(photo: PhotoData) {
         updateBearing(photo.bearing);
+    }
+
+    function handleSwipe(direction: 'left' | 'right' | 'up' | 'down') {
+        turn_to_photo_to(direction);
+    }
+
+    function handlePhotoInteraction() {
+        // Reset swipe state when photo interactions (like zoom) occur
+        console.log('🢄Gallery: Photo interaction detected, resetting swipe state');
+        console.log('🢄Gallery: photoContainer:', photoContainer);
+        console.log('🢄Gallery: swipe2d action:', photoContainer && (photoContainer as any).__swipe2d_action);
+
+        if (photoContainer && (photoContainer as any).__swipe2d_action) {
+            console.log('🢄Gallery: Calling swipe action reset');
+            (photoContainer as any).__swipe2d_action.reset();
+        } else {
+            console.log('🢄Gallery: No swipe action found to reset');
+        }
     }
 
     // Log photo count changes
@@ -33,27 +55,64 @@
     <!--    </div>-->
     <!--{/if}-->
 
-    <div bind:clientWidth class="photo-container">
-        <!--{#if $photo_to_left}-->
-        <!--    <Photo photo={$photo_to_left} className="left" />-->
-        <!--{/if}-->
-        {#if $photoInFront}
-            <Photo photo={$photoInFront} className="front" {clientWidth}/>
-        {:else}
-            <div class="no-photo">
-                {#if $anySourceLoading}
-                    <div class="loading-container">
-                        <Spinner show={true} color="#ffffff" />
-                        <p>Loading photos...</p>
-                    </div>
-                {:else}
-                    <p>No photos in range</p>
+    <div bind:clientWidth bind:this={photoContainer} class="photo-container" use:swipe2d={{
+        onSwipe: handleSwipe,
+        snapThreshold: 50,
+        enableVisualFeedback: true,
+        transformTarget: photosGrid,
+        dampingFactor: 1.0,
+        canGoLeft: !!$photoToLeft,
+        canGoRight: !!$photoToRight,
+        canGoUp: !!$photoUp,
+        canGoDown: !!$photoDown
+    }}>
+        <div class="photos-grid" bind:this={photosGrid}>
+            <!-- Up photo -->
+            <div class="photo-slot up">
+                {#if $photoUp}
+                    <Photo photo={$photoUp} className="up" {clientWidth} onInteraction={handlePhotoInteraction}/>
                 {/if}
             </div>
-        {/if}
-        <!--{#if $photo_to_right}-->
-        <!--    <Photo photo={$photo_to_right} className="right" />-->
-        <!--{/if}-->
+
+            <!-- Left photo -->
+            <div class="photo-slot left">
+                {#if $photoToLeft}
+                    <Photo photo={$photoToLeft} className="left" {clientWidth} onInteraction={handlePhotoInteraction}/>
+                {/if}
+            </div>
+
+            <!-- Center (front) photo -->
+            <div class="photo-slot center">
+                {#if $photoInFront}
+                    <Photo photo={$photoInFront} className="front" {clientWidth} onInteraction={handlePhotoInteraction}/>
+                {:else}
+                    <div class="no-photo">
+                        {#if $anySourceLoading}
+                            <div class="loading-container">
+                                <Spinner show={true} color="#ffffff" />
+                                <p>Loading photos...</p>
+                            </div>
+                        {:else}
+                            <p>No photos in range</p>
+                        {/if}
+                    </div>
+                {/if}
+            </div>
+
+            <!-- Right photo -->
+            <div class="photo-slot right">
+                {#if $photoToRight}
+                    <Photo photo={$photoToRight} className="right" {clientWidth} onInteraction={handlePhotoInteraction}/>
+                {/if}
+            </div>
+
+            <!-- Down photo -->
+            <div class="photo-slot down">
+                {#if $photoDown}
+                    <Photo photo={$photoDown} className="down" {clientWidth} onInteraction={handlePhotoInteraction}/>
+                {/if}
+            </div>
+        </div>
     </div>
 
     <!--{#if $app.display_mode !== 'max'}-->
@@ -129,10 +188,57 @@
         position: relative;
         flex: 1;
         width: 100%;
+        overflow: hidden;
+    }
+
+    .photos-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        grid-template-rows: 1fr 1fr 1fr;
+        width: 300%;
+        height: 300%;
+        position: relative;
+        left: -100%;
+        top: -100%;
+        transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+        box-sizing: border-box;
+    }
+
+    .photo-slot {
+        position: relative;
+        width: 100%;
+        height: 100%;
         display: flex;
         align-items: center;
         justify-content: center;
         overflow: hidden;
+        max-width: 100%;
+        max-height: 100%;
+    }
+
+    .photo-slot.up {
+        grid-column: 2;
+        grid-row: 1;
+    }
+
+    .photo-slot.left {
+        grid-column: 1;
+        grid-row: 2;
+    }
+
+    .photo-slot.center {
+        grid-column: 2;
+        grid-row: 2;
+    }
+
+    .photo-slot.right {
+        grid-column: 3;
+        grid-row: 2;
+    }
+
+    .photo-slot.down {
+        grid-column: 2;
+        grid-row: 3;
     }
 
     .no-photo {

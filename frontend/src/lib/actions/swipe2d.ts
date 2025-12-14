@@ -1,0 +1,399 @@
+interface Swipe2DOptions {
+	onSwipe: (direction: 'left' | 'right' | 'up' | 'down') => void;
+	onDrag?: (deltaX: number, deltaY: number) => void;
+	onDragStart?: () => void;
+	onDragEnd?: () => void;
+	snapThreshold?: number;
+	dampingFactor?: number;
+	enableVisualFeedback?: boolean;
+	dragStartThreshold?: number; // Minimum movement to start drag (prevents conflict with click)
+	transformTarget?: HTMLElement; // Optional element to apply transforms to (instead of the node itself)
+	// Boundary checking - which directions are allowed
+	canGoLeft?: boolean;
+	canGoRight?: boolean;
+	canGoUp?: boolean;
+	canGoDown?: boolean;
+}
+
+interface DragState {
+	isDragging: boolean;
+	hasMoved: boolean; // Track if we've moved enough to be considered a drag
+	axisLocked: 'none' | 'horizontal' | 'vertical'; // Which axis movement is locked to
+	startX: number;
+	startY: number;
+	currentX: number;
+	currentY: number;
+	initialTransformX: number;
+	initialTransformY: number;
+	pendingTransitionListener?: (e: TransitionEvent) => void; // Track active transition listener
+}
+
+export function swipe2d(node: HTMLElement, options: Swipe2DOptions) {
+	const {
+		onSwipe,
+		onDrag,
+		onDragStart,
+		onDragEnd,
+		snapThreshold = 50,
+		dampingFactor = 0.3,
+		enableVisualFeedback = true,
+		dragStartThreshold = 10, // Require 10px movement to start drag
+		transformTarget,
+		canGoLeft = true,
+		canGoRight = true,
+		canGoUp = true,
+		canGoDown = true
+	} = options;
+
+	let dragState: DragState = {
+		isDragging: false,
+		hasMoved: false,
+		axisLocked: 'none',
+		startX: 0,
+		startY: 0,
+		currentX: 0,
+		currentY: 0,
+		initialTransformX: 0,
+		initialTransformY: 0,
+		pendingTransitionListener: undefined
+	};
+
+	// Use transformTarget if provided, otherwise use the node itself
+	const targetElement = transformTarget || node;
+
+	// Store original transition for restoration
+	const originalTransition = targetElement.style.transition;
+
+	function getTransformValues(): { x: number; y: number } {
+		const transform = window.getComputedStyle(targetElement).transform;
+		if (transform === 'none') return { x: 0, y: 0 };
+
+		const matrix = transform.match(/matrix.*\((.+)\)/)?.[1]?.split(', ');
+		if (matrix && matrix.length >= 6) {
+			return { x: parseFloat(matrix[4]), y: parseFloat(matrix[5]) };
+		}
+		return { x: 0, y: 0 };
+	}
+
+	function updateTransform(deltaX: number, deltaY: number) {
+		if (!enableVisualFeedback) return;
+
+		const x = dragState.initialTransformX + deltaX;
+		const y = dragState.initialTransformY + deltaY;
+		targetElement.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+	}
+
+	function resetTransform() {
+		if (!enableVisualFeedback) return;
+
+		console.log('🢄swipe2d: resetTransform called, resetting to:', dragState.initialTransformX, dragState.initialTransformY);
+		console.log('🢄swipe2d: resetTransform stack trace:', new Error().stack);
+		targetElement.style.transform = `translate3d(${dragState.initialTransformX}px, ${dragState.initialTransformY}px, 0)`;
+		console.log('🢄swipe2d: Transform after reset:', targetElement.style.transform);
+	}
+
+	function startDrag(x: number, y: number) {
+		dragState.startX = x;
+		dragState.startY = y;
+		dragState.currentX = x;
+		dragState.currentY = y;
+		dragState.isDragging = true;
+		dragState.hasMoved = false;
+		dragState.axisLocked = 'none';
+
+		// Get initial transform values
+		const initialTransform = getTransformValues();
+		dragState.initialTransformX = initialTransform.x;
+		dragState.initialTransformY = initialTransform.y;
+
+		// Don't disable transitions yet - wait for movement
+	}
+
+	function updateDrag(x: number, y: number) {
+		if (!dragState.isDragging) return false;
+
+		dragState.currentX = x;
+		dragState.currentY = y;
+
+		const rawDeltaX = dragState.currentX - dragState.startX;
+		const rawDeltaY = dragState.currentY - dragState.startY;
+
+		// Check if we've moved enough to be considered a drag
+		const totalMovement = Math.sqrt(rawDeltaX * rawDeltaX + rawDeltaY * rawDeltaY);
+
+		if (!dragState.hasMoved && totalMovement >= dragStartThreshold) {
+			// First time we've moved enough - determine axis and lock to it
+			dragState.hasMoved = true;
+
+			const absX = Math.abs(rawDeltaX);
+			const absY = Math.abs(rawDeltaY);
+
+			// Lock to the axis with more movement
+			if (absX > absY) {
+				dragState.axisLocked = 'horizontal';
+			} else {
+				dragState.axisLocked = 'vertical';
+			}
+
+			if (enableVisualFeedback) {
+				targetElement.style.transition = 'none';
+			}
+			onDragStart?.();
+		}
+
+		// Only update visuals if we've moved enough
+		if (dragState.hasMoved) {
+			let dampedDeltaX = rawDeltaX * dampingFactor;
+			let dampedDeltaY = rawDeltaY * dampingFactor;
+
+			// Apply axis locking - zero out movement on the non-locked axis
+			if (dragState.axisLocked === 'horizontal') {
+				dampedDeltaY = 0;
+				// Apply boundary checking for horizontal movement
+				if ((dampedDeltaX > 0 && !canGoLeft) || (dampedDeltaX < 0 && !canGoRight)) {
+					dampedDeltaX = 0;
+				}
+			} else if (dragState.axisLocked === 'vertical') {
+				dampedDeltaX = 0;
+				// Apply boundary checking for vertical movement
+				if ((dampedDeltaY > 0 && !canGoUp) || (dampedDeltaY < 0 && !canGoDown)) {
+					dampedDeltaY = 0;
+				}
+			}
+
+			updateTransform(dampedDeltaX, dampedDeltaY);
+			onDrag?.(dampedDeltaX, dampedDeltaY);
+			return true; // Prevent default to stop other events
+		}
+
+		return false; // Don't prevent default - allow other handlers
+	}
+
+	function endDrag(x: number, y: number) {
+		if (!dragState.isDragging) return;
+
+		const finalDeltaX = x - dragState.startX;
+		const finalDeltaY = y - dragState.startY;
+		const wasDragging = dragState.hasMoved;
+
+		dragState.isDragging = false;
+		dragState.hasMoved = false;
+		dragState.axisLocked = 'none';
+
+		// Only process swipe if we actually moved enough to be dragging
+		if (wasDragging) {
+			if (enableVisualFeedback) {
+				// Re-enable transitions for snap animation
+				targetElement.style.transition = originalTransition || 'transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)';
+			}
+
+			// Determine swipe direction with boundary checking
+			const absX = Math.abs(finalDeltaX);
+			const absY = Math.abs(finalDeltaY);
+			let swipeSuccessful = false;
+
+			console.log('🢄swipe2d: endDrag boundary check:', {
+				canGoLeft, canGoRight, canGoUp, canGoDown,
+				absX, absY, snapThreshold,
+				finalDeltaX, finalDeltaY
+			});
+
+			if (absX > snapThreshold && absX > absY) {
+				// Horizontal swipe - check boundaries
+				const direction = finalDeltaX > 0 ? 'left' : 'right';
+				const canMove = (direction === 'left' && canGoLeft) || (direction === 'right' && canGoRight);
+				console.log('🢄swipe2d: Horizontal swipe attempt:', { direction, canMove, canGoLeft, canGoRight });
+				if (canMove) {
+					// Complete the slide animation by moving one grid cell (1/3 of grid width = container width)
+					const containerWidth = targetElement.offsetWidth / 3; // Grid is 300% wide, so 1/3 = container width
+					const fullOffsetX = direction === 'left' ? containerWidth : -containerWidth;
+					targetElement.style.transform = `translate3d(${dragState.initialTransformX + fullOffsetX}px, ${dragState.initialTransformY}px, 0)`;
+
+					// Listen for transition end to trigger photo change
+					const handleTransitionEnd = (e: TransitionEvent) => {
+						if (e.target === targetElement && e.propertyName === 'transform') {
+							targetElement.removeEventListener('transitionend', handleTransitionEnd);
+							dragState.pendingTransitionListener = undefined;
+							onSwipe(direction);
+							// Disable transitions before reset to prevent unwanted animation
+							targetElement.style.transition = 'none';
+							resetTransform();
+							// Re-enable transitions after reset
+							setTimeout(() => {
+								targetElement.style.transition = originalTransition || 'transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)';
+							}, 0);
+						}
+					};
+					dragState.pendingTransitionListener = handleTransitionEnd;
+					targetElement.addEventListener('transitionend', handleTransitionEnd);
+					swipeSuccessful = true;
+				}
+			} else if (absY > snapThreshold && absY > absX) {
+				// Vertical swipe - check boundaries
+				const direction = finalDeltaY > 0 ? 'up' : 'down';
+				const canMove = (direction === 'up' && canGoUp) || (direction === 'down' && canGoDown);
+				if (canMove) {
+					// Complete the slide animation by moving one grid cell (1/3 of grid height = container height)
+					const containerHeight = targetElement.offsetHeight / 3; // Grid is 300% tall, so 1/3 = container height
+					const fullOffsetY = direction === 'up' ? containerHeight : -containerHeight;
+					targetElement.style.transform = `translate3d(${dragState.initialTransformX}px, ${dragState.initialTransformY + fullOffsetY}px, 0)`;
+
+					// Listen for transition end to trigger photo change
+					const handleTransitionEnd = (e: TransitionEvent) => {
+						if (e.target === targetElement && e.propertyName === 'transform') {
+							targetElement.removeEventListener('transitionend', handleTransitionEnd);
+							dragState.pendingTransitionListener = undefined;
+							onSwipe(direction);
+							// Disable transitions before reset to prevent unwanted animation
+							targetElement.style.transition = 'none';
+							resetTransform();
+							// Re-enable transitions after reset
+							setTimeout(() => {
+								targetElement.style.transition = originalTransition || 'transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)';
+							}, 0);
+						}
+					};
+					dragState.pendingTransitionListener = handleTransitionEnd;
+					targetElement.addEventListener('transitionend', handleTransitionEnd);
+					swipeSuccessful = true;
+				}
+			}
+
+			// Only reset transform immediately if swipe was not successful
+			if (!swipeSuccessful) {
+				resetTransform();
+			}
+			onDragEnd?.();
+		}
+		// If we weren't dragging, don't interfere - let other handlers work
+	}
+
+	function cancelDrag() {
+		console.log('🢄swipe2d: cancelDrag called, isDragging:', dragState.isDragging);
+
+		// Clean up any pending transition listener to prevent race conditions
+		if (dragState.pendingTransitionListener) {
+			targetElement.removeEventListener('transitionend', dragState.pendingTransitionListener);
+			dragState.pendingTransitionListener = undefined;
+		}
+
+		if (dragState.isDragging) {
+			dragState.isDragging = false;
+			dragState.hasMoved = false;
+			dragState.axisLocked = 'none';
+			if (enableVisualFeedback) {
+				targetElement.style.transition = originalTransition || 'transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)';
+			}
+			resetTransform();
+			onDragEnd?.();
+		} else {
+			// Even if not dragging, force reset the transform to clean up any stuck state
+			console.log('🢄swipe2d: Force resetting transform even though not dragging');
+			if (enableVisualFeedback) {
+				targetElement.style.transition = originalTransition || 'transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)';
+				resetTransform();
+			}
+		}
+	}
+
+	// Touch event handlers
+	function handleTouchStart(e: TouchEvent) {
+		const touch = e.touches[0];
+		startDrag(touch.clientX, touch.clientY);
+	}
+
+	function handleTouchMove(e: TouchEvent) {
+		const touch = e.touches[0];
+		if (updateDrag(touch.clientX, touch.clientY)) {
+			e.preventDefault();
+		}
+	}
+
+	function handleTouchEnd(e: TouchEvent) {
+		const touch = e.changedTouches[0];
+		endDrag(touch.clientX, touch.clientY);
+	}
+
+	function handleTouchCancel() {
+		cancelDrag();
+	}
+
+	// Mouse event handlers
+	function handleMouseDown(e: MouseEvent) {
+		// Only handle left mouse button
+		if (e.button !== 0) return;
+
+		startDrag(e.clientX, e.clientY);
+		e.preventDefault();
+	}
+
+	function handleMouseMove(e: MouseEvent) {
+		if (updateDrag(e.clientX, e.clientY)) {
+			e.preventDefault();
+		}
+	}
+
+	function handleMouseUp(e: MouseEvent) {
+		if (e.button !== 0) return;
+		endDrag(e.clientX, e.clientY);
+	}
+
+	function handleMouseLeave() {
+		// Cancel drag if mouse leaves the element
+		cancelDrag();
+	}
+
+	// Add event listeners
+	node.addEventListener('touchstart', handleTouchStart, { passive: false });
+	node.addEventListener('touchmove', handleTouchMove, { passive: false });
+	node.addEventListener('touchend', handleTouchEnd);
+	node.addEventListener('touchcancel', handleTouchCancel);
+
+	node.addEventListener('mousedown', handleMouseDown);
+	node.addEventListener('mousemove', handleMouseMove);
+	node.addEventListener('mouseup', handleMouseUp);
+	node.addEventListener('mouseleave', handleMouseLeave);
+
+	// Prevent context menu on right click during drag
+	node.addEventListener('contextmenu', (e) => {
+		if (dragState.isDragging) {
+			e.preventDefault();
+		}
+	});
+
+	const actionInstance = {
+		destroy() {
+			node.removeEventListener('touchstart', handleTouchStart);
+			node.removeEventListener('touchmove', handleTouchMove);
+			node.removeEventListener('touchend', handleTouchEnd);
+			node.removeEventListener('touchcancel', handleTouchCancel);
+
+			node.removeEventListener('mousedown', handleMouseDown);
+			node.removeEventListener('mousemove', handleMouseMove);
+			node.removeEventListener('mouseup', handleMouseUp);
+			node.removeEventListener('mouseleave', handleMouseLeave);
+
+			// Restore original styles
+			targetElement.style.transition = originalTransition;
+
+			// Remove reference from node
+			delete (node as any).__swipe2d_action;
+		},
+
+		update(newOptions: Swipe2DOptions) {
+			// Update options if needed
+			Object.assign(options, newOptions);
+		},
+
+		reset() {
+			// Public method to reset drag state (useful when other interactions interfere)
+			console.log('🢄swipe2d: Reset called, current drag state:', dragState.isDragging);
+			cancelDrag();
+		}
+	};
+
+	// Store action instance on the node for external access
+	(node as any).__swipe2d_action = actionInstance;
+
+	return actionInstance;
+}

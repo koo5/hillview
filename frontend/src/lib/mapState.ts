@@ -62,13 +62,27 @@ export const photosInArea = writable<PhotoData[]>([]);
 // Photos in range for navigation (from worker)
 export const photosInRange = writable<PhotoData[]>([]);
 
-photosInRange.subscribe(photos => {
-	//console.log(`Spatial: photosInRange updated with ${photos.length} photos`);
-});
+// Combined photos for rendering (includes placeholders)
+// Only recalculates when photo list changes, not on bearing changes
+export const visiblePhotos = derived(
+	[photosInArea],
+	([photos]) => {
+		const currentBearing = get(bearingState).bearing;
+		return photos.map(photo => ({
+			...photo,
+			abs_bearing_diff: calculateAbsBearingDiff(photo.bearing, currentBearing),
+			bearing_color: getBearingColor(calculateAbsBearingDiff(photo.bearing, currentBearing))
+		}));
+	}
+);
 
-bearingState.subscribe(v => {
-	//console.log(`bearingState updated to ${JSON.stringify(v)}`);
-});
+// photosInRange.subscribe(photos => {
+// 	//console.log(`Spatial: photosInRange updated with ${photos.length} photos`);
+// });
+//
+// bearingState.subscribe(v => {
+// 	//console.log(`bearingState updated to ${JSON.stringify(v)}`);
+// });
 
 // Recalculate photosInRange when map moves (spatialState changes)
 let oldPhotosInRangeSpatialState: SpatialState | null = null;
@@ -96,9 +110,8 @@ export const photoInFront = writable<PhotoData | null>(null);
 
 // Navigation photos (front, left, right) - derived from bearing-sorted photosInRange (within spatialState.range)
 
-
 /* fixme:
-we have to make photo id a part of bearingState. (First, we have to ensure cross-source unique photo ids.)
+we have to make photo id a part of bearingState. (First, we have to ensure cross-source unique photo ids.) (DONE)
 Then, photosInRange should already be sorted by bearing and id here, and then we can maybe make this work, where bearing takes precedence, but id is a tiebreaker.
 */
 
@@ -178,17 +191,61 @@ export const photoToRight = derived(
 	}
 );
 
-// Combined photos for rendering (includes placeholders)
-// Only recalculates when photo list changes, not on bearing changes
-export const visiblePhotos = derived(
-	[photosInArea],
-	([photos]) => {
-		const currentBearing = get(bearingState).bearing;
-		return photos.map(photo => ({
-			...photo,
-			abs_bearing_diff: calculateAbsBearingDiff(photo.bearing, currentBearing),
-			bearing_color: getBearingColor(calculateAbsBearingDiff(photo.bearing, currentBearing))
-		}));
+// Find photo with bearing within 5 degrees of front bearing but more or less yaw (simulating looking down/up)
+function photoUpDownLogic(direction: 'up' | 'down') {
+	const inRange = get(photosInRange);
+	let winner: PhotoData | null = null;
+	const front = get(photoInFront);
+	if (!front) return null;
+
+	const targetBearing = front.bearing;
+	const bearingThreshold = 5; // degrees
+	for (const photo of inRange) {
+		if (photo.uid === front.uid) continue;
+		const bearingDiff = calculateAbsBearingDiff(photo.bearing, targetBearing);
+		if (bearingDiff <= bearingThreshold) {
+			if (direction === 'up' && photo.pitch > front.pitch) {
+				if (!winner || photo.pitch > winner.pitch) {
+					winner = photo;
+				}
+			} else if (direction === 'down' && photo.pitch < front.pitch) {
+				if (!winner || photo.pitch < winner.pitch) {
+					winner = photo;
+				}
+			}
+		}
+	}
+	if (get(photoToLeft)?.uid === winner?.uid || get(photoToRight)?.uid === winner?.uid) {
+		return null;
+	}
+	return winner;
+}
+
+
+export const photoUp = derived(
+	[photosInRange, photoInFront],
+	([photos, front]) => {
+		if (photos.length === 0) return null;
+		if (!front) return null;
+		if (photos.length === 1) return null;
+		const frontIndex = photos.findIndex(p => p.uid === front.uid);
+		if (frontIndex === -1) return null;
+
+		return photoUpDownLogic('up');
+	}
+);
+
+
+export const photoDown = derived(
+	[photosInRange, photoInFront],
+	([photos, front]) => {
+		if (photos.length === 0) return null;
+		if (!front) return null;
+		if (photos.length === 1) return null;
+		const frontIndex = photos.findIndex(p => p.uid === front.uid);
+		if (frontIndex === -1) return null;
+
+		return photoUpDownLogic('down');
 	}
 );
 

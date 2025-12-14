@@ -17,6 +17,7 @@
 	export let photo: PhotoData | null = null;
 	export let className = '';
 	export let clientWidth: number | undefined = undefined;
+	export let onInteraction: (() => void) | undefined = undefined;
 
 	let clientWidth2: number | undefined;
 
@@ -287,6 +288,11 @@
 	function openZoomView(photo: PhotoData) {
 		if (!photo) return;
 
+		// Notify parent about the interaction to reset swipe state
+		console.log('🢄Photo: Opening zoom view, notifying parent about interaction');
+		console.log('🢄Photo: onInteraction callback:', onInteraction);
+		onInteraction?.();
+
 		const fallbackUrl = displayedUrl || selectedUrl || '';
 		console.log('🢄Photo.svelte: [zoomview] Opening zoom view for photo:', JSON.stringify(photo));
 		const fullPhotoInfo = getFullPhotoInfo(photo);
@@ -489,31 +495,21 @@
 		z-index: 2;
 	}
 
-	/* Side images are absolutely positioned and vertically centered */
+	/* Side images - let CSS Grid handle positioning, just add visual effects */
 	.left {
-		opacity: 0.4;
-		position: absolute;
-		top: 50%;
-		transform: translateY(-80%);
-		z-index: 1;
-		/* Optionally, set a width to control how much of the side image shows */
-		width: 90%;
-		left: 0;
-		mask-image: linear-gradient(to right, white 0%, white 70%, transparent 100%);
-		-webkit-mask-image: linear-gradient(to right, white 0%, white 70%, transparent 100%);
+		opacity: 0.7;
 	}
 
 	.right {
-		opacity: 0.4;
-		position: absolute;
-		top: 50%;
-		transform: translateY(-20%);
-		z-index: 1;
-		/* Optionally, set a width to control how much of the side image shows */
-		width: 90%;
-		right: 0;
-		mask-image: linear-gradient(to left, white 0%, white 70%, transparent 100%);
-		-webkit-mask-image: linear-gradient(to left, white 0%, white 70%, transparent 100%);
+		opacity: 0.7;
+	}
+
+	.up {
+		opacity: 0.7;
+	}
+
+	.down {
+		opacity: 0.7;
 	}
 
 
