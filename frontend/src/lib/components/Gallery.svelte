@@ -11,11 +11,32 @@
     let photoContainer: HTMLElement;
     let photosGrid: HTMLElement;
 
+    // Reactive swipe options
+    $: swipeOptions = {
+        onSwipe: handleSwipe,
+        snapThreshold: 50,
+        enableVisualFeedback: true,
+        transformTarget: photosGrid,
+        dampingFactor: 1.0,
+        canGoLeft: !!$photoToLeft,
+        canGoRight: !!$photoToRight,
+        canGoUp: !!$photoUp,
+        canGoDown: !!$photoDown
+    };
+
+    // Update action when options change
+    $: if (photoContainer && (photoContainer as any).__swipe2d_action) {
+		console.log('🢄Gallery: swipe2d action exists:', (photoContainer as any).__swipe2d_action);
+		console.log('🢄Gallery: Updating swipe2d action with new options:', swipeOptions);
+        (photoContainer as any).__swipe2d_action.update(swipeOptions);
+    }
+
     function handleThumbnailClick(photo: PhotoData) {
         updateBearing(photo.bearing);
     }
 
     function handleSwipe(direction: 'left' | 'right' | 'up' | 'down') {
+		console.log(`🢄Gallery: Swipe detected in direction: ${direction}`);
         turn_to_photo_to(direction);
     }
 
@@ -55,17 +76,7 @@
     <!--    </div>-->
     <!--{/if}-->
 
-    <div bind:clientWidth bind:this={photoContainer} class="photo-container" use:swipe2d={{
-        onSwipe: handleSwipe,
-        snapThreshold: 50,
-        enableVisualFeedback: true,
-        transformTarget: photosGrid,
-        dampingFactor: 1.0,
-        canGoLeft: !!$photoToLeft,
-        canGoRight: !!$photoToRight,
-        canGoUp: !!$photoUp,
-        canGoDown: !!$photoDown
-    }}>
+    <div bind:clientWidth bind:this={photoContainer} class="photo-container" use:swipe2d={swipeOptions}>
         <div class="photos-grid" bind:this={photosGrid}>
             <!-- Up photo -->
             <div class="photo-slot up">
