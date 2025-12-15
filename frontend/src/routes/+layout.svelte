@@ -106,6 +106,11 @@
 
 </script>
 
+
+<svelte:head>
+  <title>{((backendUrl === 'https://api.hillview.app') ? 'Hillview' : 'Hillviedev')}</title>
+</svelte:head>
+
 <slot/>
 <AuthStatusWatcher/>
 {#if $zoomViewData }

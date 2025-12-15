@@ -3,7 +3,7 @@
 	import {TAURI} from '$lib/tauri';
 	import {invoke} from '@tauri-apps/api/core';
 	import {get} from 'svelte/store';
-	import {photoCaptureSettings} from '$lib/stores';
+	import {playShutterSound} from '$lib/utils/shutterSound';
 	import {app} from "$lib/data.svelte.js";
 	import DualCaptureButton from './DualCaptureButton.svelte';
 	import CaptureQueueStatus from './CaptureQueueStatus.svelte';
@@ -92,11 +92,10 @@
 	// Store to track which cameras are loading resolutions
 	import {writable} from 'svelte/store';
 	import {
-		deviceOrientationExif,
-	} from "$lib/deviceOrientationExif";
-	import {
+		calculateWebviewRelativeOrientation,
+		deviceOrientationExif, relativeOrientationExif,
 		type ExifOrientation
-	} from "$lib/absoluteOrientation";
+	} from "$lib/deviceOrientationExif";
 	import Quaternion from "quaternion";
 
 	const resolutionsLoading = writable<Set<string>>(new Set());
@@ -106,87 +105,6 @@
 		setTimeout(() => {
 			isBlinking = false;
 		}, 50); // 50ms blink duration
-	}
-
-	function playShutterSound() {
-		if (!$photoCaptureSettings.shutterSoundEnabled) return;
-
-		try {
-			// Create a realistic camera shutter sound using Web Audio API
-			const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-
-			// Create multiple components for a realistic shutter sound
-			const createShutterClick = (startTime: number, frequency: number, duration: number, volume: number) => {
-				const oscillator = audioContext.createOscillator();
-				const gainNode = audioContext.createGain();
-				const filter = audioContext.createBiquadFilter();
-
-				// Use square wave for sharper, more mechanical sound
-				oscillator.type = 'square';
-				oscillator.frequency.value = frequency;
-
-				// High-pass filter to make it sound more crisp and mechanical
-				filter.type = 'highpass';
-				filter.frequency.value = 200;
-				filter.Q.value = 1;
-
-				oscillator.connect(filter);
-				filter.connect(gainNode);
-				gainNode.connect(audioContext.destination);
-
-				// Sharp attack and quick decay for click sound
-				gainNode.gain.setValueAtTime(0, startTime);
-				gainNode.gain.linearRampToValueAtTime(volume, startTime + 0.002);
-				gainNode.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
-
-				oscillator.start(startTime);
-				oscillator.stop(startTime + duration);
-			};
-
-			const now = audioContext.currentTime;
-
-			// Create the classic "ka-click" shutter sound with two distinct clicks
-			// First click (shutter opening) - higher pitch, shorter
-			createShutterClick(now, 1200, 0.05, 0.4);
-
-			// Second click (shutter closing) - slightly lower pitch, a bit later
-			createShutterClick(now + 0.08, 900, 0.06, 0.35);
-
-			// Add a subtle mechanical noise burst for realism
-			const noiseGain = audioContext.createGain();
-			const filter2 = audioContext.createBiquadFilter();
-
-			// Create white noise for mechanical sound
-			const bufferSize = audioContext.sampleRate * 0.1;
-			const noiseBuffer = audioContext.createBuffer(1, bufferSize, audioContext.sampleRate);
-			const output = noiseBuffer.getChannelData(0);
-			for (let i = 0; i < bufferSize; i++) {
-				output[i] = Math.random() * 2 - 1;
-			}
-
-			const noiseSource = audioContext.createBufferSource();
-			noiseSource.buffer = noiseBuffer;
-
-			// Band-pass filter for the noise to sound more mechanical
-			filter2.type = 'bandpass';
-			filter2.frequency.value = 800;
-			filter2.Q.value = 2;
-
-			noiseSource.connect(filter2);
-			filter2.connect(noiseGain);
-			noiseGain.connect(audioContext.destination);
-
-			// Very quiet noise burst between the clicks
-			noiseGain.gain.setValueAtTime(0, now);
-			noiseGain.gain.linearRampToValueAtTime(0.08, now + 0.04);
-			noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
-
-			noiseSource.start(now + 0.03);
-			noiseSource.stop(now + 0.13);
-
-		} catch (error) {
-			console.warn('Failed to play shutter sound:', error);
-		}
 	}
 
 	async function checkCameraPermission(): Promise<PermissionState | null> {
@@ -221,6 +139,62 @@
 	}
 
 	let needsPermission = false;
+	let needsStoragePermission = false;
+	let storagePermissionChecked = false;
+
+	async function checkStoragePermission() {
+		if (!TAURI || storagePermissionChecked) return true;
+
+		try {
+			console.log('🢄[STORAGE] Checking storage permission...');
+			const permissionStatus = await invoke('plugin:hillview|check_tauri_permissions');
+			console.log('🢄[STORAGE] Permission status:', JSON.stringify(permissionStatus));
+
+			// Check if we have write_external_storage permission
+			if (permissionStatus && typeof permissionStatus === 'object' && 'write_external_storage' in permissionStatus) {
+				const writePermission = (permissionStatus as any).write_external_storage;
+				const hasPermission = writePermission === 'Granted';
+				needsStoragePermission = !hasPermission;
+				storagePermissionChecked = true;
+				console.log('🢄[STORAGE] Storage permission granted:', hasPermission);
+				return hasPermission;
+			}
+
+			// If permission field not found, assume we need to request it
+			needsStoragePermission = true;
+			storagePermissionChecked = true;
+			return false;
+		} catch (error) {
+			console.warn('🢄[STORAGE] Failed to check storage permission:', error);
+			// On error, assume permission is available (for non-Android or fallback)
+			storagePermissionChecked = true;
+			return true;
+		}
+	}
+
+	async function requestStoragePermission() {
+		if (!TAURI) return;
+
+		try {
+			console.log('🢄[STORAGE] Requesting storage permission...');
+			const result = await invoke('plugin:hillview|request_tauri_permission', {
+				permission: 'write_external_storage'
+			});
+			console.log('🢄[STORAGE] Permission request result:', result);
+
+			// Check if permission was granted
+			const granted = result === 'Granted' || result === 'granted';
+			needsStoragePermission = !granted;
+
+			if (granted) {
+				console.log('🢄[STORAGE] Storage permission granted, checking camera...');
+				// Now that storage permission is granted, proceed to camera check
+				checkAndStartCamera();
+			}
+		} catch (error) {
+			console.error('🢄[STORAGE] Failed to request storage permission:', error);
+		}
+	}
 
 	async function checkAndStartCamera() {
 		console.log('🢄[CAMERA] Checking camera permission before auto-start...');
@@ -738,7 +712,7 @@
 				captured_at: timestamp,
 				mode,
 				placeholder_id: sharedId, // Use sharedId as placeholder ID too
-				orientation_code: get(deviceOrientationExif) // Current device orientation
+				orientation_code: get(relativeOrientationExif) // Current device orientation
 			});
 
 			// Trigger auto-upload prompt check
@@ -898,9 +872,17 @@
 	// Try to auto-start camera with permission lock coordination
 	$: if (show) {
 		if (!stream && !cameraError && !cameraReady && !hasRequestedPermission && !switchingCamera) {
-			console.log('🢄[CAMERA] Modal shown, attempting to start camera with permission coordination');
+			console.log('🢄[CAMERA] Modal shown, checking storage permission first...');
 			retryCount = 0; // Reset retry count when modal opens
-			checkAndStartCamera();
+
+			// Check storage permission first, then camera
+			checkStoragePermission().then(hasStorage => {
+				if (hasStorage) {
+					checkAndStartCamera();
+				} else {
+					console.log('🢄[STORAGE] Storage permission needed, showing storage permission button');
+				}
+			});
 		}
 	} else if (!show && stream) {
 		// Stop camera when modal closes
@@ -966,7 +948,6 @@
 			{
 				await addPluginListener('hillview', 'device-orientation', (data: any) => {
 					console.log('🢄🔍📡 Received device-orientation event from plugin:', JSON.stringify(data));
-					// not sure if this will have to be adjusted by screen rotation, probably not
 					updateDeviceOrientationExif(data.exif_code);
 				});
 				await invoke('plugin:hillview|cmd', {command: 'start_device_orientation_sensor'});
@@ -981,8 +962,8 @@
 			try {
 				console.log('🢄[CAMERA] Initializing AbsoluteOrientationSensor for device orientation...');
 				absoluteOrientationSensor = new window.AbsoluteOrientationSensor({frequency: 100, referenceFrame: "screen"});
-				absoluteOrientationSensor.addEventListener("reading", (event) => {
-					console.log('🢄[CAMERA] AbsoluteOrientationSensor reading event:', event);
+				absoluteOrientationSensor.addEventListener("reading", () => {
+					console.log('🢄[CAMERA] AbsoluteOrientationSensor reading event');
 					//DeviceOrientationEvent.webkitCompassHeading?
 				});
 				absoluteOrientationSensor.addEventListener("error", (error) => {
@@ -1088,11 +1069,18 @@
 
 				<!-- Always render video element so it's available for binding -->
 				<video bind:this={video} class="camera-video" class:blink={isBlinking} playsinline
-					   style:display={cameraError ? 'none' : 'block'}>
+					   style:display={(cameraError || needsStoragePermission) ? 'none' : 'block'}>
 					<track kind="captions"/>
 				</video>
 
-				{#if cameraError}
+				{#if needsStoragePermission && storagePermissionChecked}
+					<div class="camera-error">
+						<p>💾 Storage permission required to save photos</p>
+						<button class="retry-button" on:click={requestStoragePermission}>
+							Grant Storage Permission
+						</button>
+					</div>
+				{:else if cameraError}
 					<div class="camera-error">
 						<p>📷 {cameraError}</p>
 						<button class="retry-button" on:click={async () => {

@@ -15,7 +15,7 @@ export const locationError = writable<string | null>(null);
 export function hasPositionChanged(oldPosition: GeolocationPosition | null, newPosition: GeolocationPosition | null): boolean {
     if (!oldPosition && !newPosition) return false;
     if (!oldPosition || !newPosition) return true;
-    
+
     return (
         oldPosition.coords.latitude !== newPosition.coords.latitude ||
         oldPosition.coords.longitude !== newPosition.coords.longitude ||
@@ -27,6 +27,9 @@ export function hasPositionChanged(oldPosition: GeolocationPosition | null, newP
 
 // Helper function to update location
 export function updateGpsLocation(position: GeolocationPosition | null) {
+
+	console.debug('🢄updateGpsLocation: Received update:', JSON.stringify(position));
+
     const old = get(gpsLocation);
     if (!hasPositionChanged(old, position)) {
         // No change in coordinates, do not update
@@ -35,7 +38,7 @@ export function updateGpsLocation(position: GeolocationPosition | null) {
 
     console.debug('🢄Updating GPS location store:', JSON.stringify(position));
     gpsLocation.set(position);
-    
+
     // Capture location updates are now handled by captureLocationManager.ts
     return true;
 }
@@ -43,7 +46,7 @@ export function updateGpsLocation(position: GeolocationPosition | null) {
 // Helper function to update tracking status
 export function setLocationTracking(isTracking: boolean) {
     locationTracking.set(isTracking);
-    
+
     // Note: Compass tracking is now handled separately
 }
 

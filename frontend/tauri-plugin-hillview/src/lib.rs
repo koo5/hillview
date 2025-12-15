@@ -75,7 +75,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
       #[cfg(mobile)]
       commands::check_tauri_permissions,
       #[cfg(mobile)]
-      commands::request_post_notification_permission,
+      commands::request_tauri_permission,
       #[cfg(mobile)]
       commands::test_show_notification,
       #[cfg(mobile)]

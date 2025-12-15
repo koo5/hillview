@@ -43,7 +43,7 @@ class PhotoWorker {
   loadFromSources(sources: SourceConfig[])
   
   // Spatial operations
-  updateBounds(bounds: Bounds)
+  //updateBounds(bounds: Bounds)
   getPhotosInBounds(): PhotoData[]
   
   // Filtering and sorting

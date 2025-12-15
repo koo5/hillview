@@ -28,7 +28,7 @@ export const load: PageServerLoad = async ({ url, fetch }) => {
 		try {
 
 			// Safely construct API URL with proper escaping
-			const apiUrl = new URL(`http://api:8055/api/photos/share/${encodeURIComponent(photoUid)}`);
+			const apiUrl = new URL(`http://localhost:8055/api/photos/share/${encodeURIComponent(photoUid)}`);
 			console.log('Fetching photo metadata for OpenGraph from:', apiUrl.toString());
 			const response = await fetch(apiUrl.toString());
 

@@ -68,7 +68,6 @@ async def get_hillview_images(
 		result = await db.execute(query)
 		photo_records = result.all()
 
-		# Transform photos to match Mapillary-like structure
 		filtered_photos = []
 
 		for photo, username, longitude, latitude in photo_records:
@@ -78,8 +77,6 @@ async def get_hillview_images(
 					'coordinates': [longitude, latitude]
 				},
 				'bearing': photo.compass_angle or 0,
-				'computed_rotation': 0,
-				'computed_bearing': photo.compass_angle or 0,
 				'computed_altitude': photo.altitude or 0,
 				'captured_at': photo.captured_at.isoformat() if photo.captured_at else '',
 				'is_pano': False,

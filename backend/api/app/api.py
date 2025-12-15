@@ -1,6 +1,17 @@
 import logging, yaml
+import logging.config
 
-# logging.getLogger("uvicorn").handlers.clear()
+# Load and apply logging config before uvicorn can override it
+with open('logging.yaml', 'r') as f:
+    config = yaml.safe_load(f)
+    logging.config.dictConfig(config)
+
+root_logger = logging.getLogger()
+root_logger.debug('root DEBUG')
+root_logger.info('root INFO')
+root_logger.warning('root WARNING')
+root_logger.error('root ERROR')
+
 log = logging.getLogger(__name__)
 
 # log.warning("STARTING_API_APPLICATION")

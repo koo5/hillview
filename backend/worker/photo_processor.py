@@ -147,7 +147,7 @@ class PhotoProcessor:
 				return result
 
 			# Use -n flag to get raw numeric values instead of formatted strings
-			cmd = ['exiftool', '-json', '-n', '-GPS*', validated_filepath]
+			cmd = ['exiftool', '-json', '-n', validated_filepath]
 			logger.debug(f"Trying exiftool fallback: {shlex.join(cmd)}")
 
 			proc_result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
@@ -158,6 +158,7 @@ class PhotoProcessor:
 				return result
 
 			data = json.loads(proc_result.stdout)[0]
+			result['data'] = data
 
 			# Check for required GPS data
 			latitude = data.get('GPSLatitude')
@@ -233,7 +234,8 @@ class PhotoProcessor:
 		return all(key in gps for key in ['latitude', 'longitude', 'bearing'])
 
 
-	def get_image_dimensions(self, filepath: str) -> Tuple[int, int]:
+	def get_image_dimensions(self, filepath: str, orientation: int
+							 ) -> Tuple[int, int]:
 		"""Get image dimensions using ImageMagick identify (known-good implementation)."""
 		try:
 			# Validate filepath before passing to external tool
@@ -246,6 +248,8 @@ class PhotoProcessor:
 		try:
 			output = subprocess.check_output(cmd, timeout=30).decode('utf-8')
 			dimensions = [int(x) for x in output.split()]
+			if orientation in [5, 6, 7, 8]:
+				dimensions = [dimensions[1], dimensions[0]]
 			logger.debug(f'Image dimensions: {dimensions}')
 			return dimensions[0], dimensions[1]
 		except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
@@ -253,7 +257,9 @@ class PhotoProcessor:
 			return 0, 0
 
 
-	async def create_optimized_sizes(self, source_path: str, unique_id: str, original_filename: str, width: int, height: int, photo_id: str = None, client_signature: str = None) -> tuple[Dict[str, Dict[str, Any]], Optional[Dict[str, Any]]]:
+	async def create_optimized_sizes(self, source_path: str, unique_id: str, original_filename: str,
+									 orientation: int,
+									 width: int, height: int, photo_id: str = None, client_signature: str = None) -> tuple[Dict[str, Dict[str, Any]], Optional[Dict[str, Any]]]:
 		"""Create optimized versions with anonymization and unique IDs."""
 		sizes_info = {}
 		anonymized_path = None
@@ -314,7 +320,7 @@ class PhotoProcessor:
 					cmd = ['mogrify', '-resize', str(int(size)), output_file_path]
 					logger.debug(f"Resizing image with command: {shlex.join(cmd)}")
 					subprocess.run(cmd, capture_output=True, timeout=30, check=True)
-					new_width, new_height = self.get_image_dimensions(output_file_path)
+					new_width, new_height = self.get_image_dimensions(output_file_path, orientation)
 
 					logger.debug(f"Optimizing JPEG with jpegoptim: {output_file_path}")
 					cmd = ['jpegoptim', '--all-progressive', '--overwrite', output_file_path]
@@ -411,6 +417,7 @@ class PhotoProcessor:
 			tuple: (anonymized_path: Optional[str], detections: dict)
 		"""
 
+		# this takes a while to import, so do it here dynamically
 		from anonymize import anonymize_image
 
 		async with throttle.rate_limit():
@@ -455,6 +462,8 @@ class PhotoProcessor:
 		gps_data = exif_data.get('gps', {})
 		debug_info = exif_data.get('debug', {})
 
+		orientation = exif_data['data'].get('Orientation')
+
 		# Log detailed EXIF extraction results
 		logger.info(f"EXIF extraction for {safe_filename}:")
 		logger.info(f"  - has_exif: {debug_info.get('has_exif', False)}")
@@ -464,6 +473,7 @@ class PhotoProcessor:
 		logger.info(f"  - found_bearing_tags: {debug_info.get('found_bearing_tags', [])}")
 		logger.info(f"  - parsing_errors: {debug_info.get('parsing_errors', [])}")
 		logger.info(f"  - GPS data: {gps_data}")
+		logger.info(f"  - Orientation: {orientation}")
 
 		# Create detailed error messages based on what was found (same logic as service)
 		if not debug_info.get('has_exif', False):
@@ -490,7 +500,7 @@ class PhotoProcessor:
 			raise ValueError(error_msg)
 
 		# Get image dimensions
-		width, height = self.get_image_dimensions(file_path)
+		width, height = self.get_image_dimensions(file_path, orientation)
 
 		# Validate image dimensions to prevent resource exhaustion
 		if not validate_image_dimensions(width, height):
@@ -501,7 +511,7 @@ class PhotoProcessor:
 		# Create sizes information matching the original importer structure
 		sizes_info = {}
 		if width and height:
-			sizes_info, detections = await self.create_optimized_sizes(file_path, unique_id, filename, width, height, photo_id, client_signature)
+			sizes_info, detections = await self.create_optimized_sizes(file_path, unique_id, filename, orientation, width, height, photo_id, client_signature)
 
 		# Return processing results for database creation
 		return {

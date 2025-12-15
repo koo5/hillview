@@ -39,6 +39,7 @@ Default permissions for the plugin
 - `allow-get-intent-data`
 - `allow-poll-messages`
 - `allow-cmd`
+- `allow-request-tauri-permission`
 
 ## Permission Table
 
@@ -617,6 +618,32 @@ Enables the request_post_notification_permission command without any pre-configu
 <td>
 
 Denies the request_post_notification_permission command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:allow-request-tauri-permission`
+
+</td>
+<td>
+
+Enables the request_tauri_permission command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:deny-request-tauri-permission`
+
+</td>
+<td>
+
+Denies the request_tauri_permission command without any pre-configured scope.
 
 </td>
 </tr>

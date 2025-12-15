@@ -1,0 +1,59 @@
+version: 1
+disable_existing_loggers: false
+
+formatters:
+  default:
+    format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+  access:
+    format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+
+handlers:
+  console:
+    class: logging.StreamHandler
+    level: DEBUG
+    formatter: default
+    stream: ext://sys.stdout
+
+  access_console:
+    class: logging.StreamHandler
+    level: INFO
+    formatter: access
+    stream: ext://sys.stdout
+
+root:
+  level: DEBUG
+  handlers: [console]
+
+loggers:
+  # Uvicorn loggers
+  uvicorn:
+    level: INFO
+    handlers: [console]
+    propagate: false
+  uvicorn.error:
+    level: INFO
+    handlers: [console]
+    propagate: false
+  uvicorn.access:
+    level: INFO
+    handlers: [access_console]
+    propagate: false
+
+  # Application loggers
+  api:
+    level: DEBUG
+    handlers: [console]
+    propagate: false
+  auth:
+    level: DEBUG
+    handlers: [console]
+    propagate: false
+  photos:
+    level: DEBUG
+    handlers: [console]
+    propagate: false
+  mapillary_routes:
+    level: DEBUG
+    handlers: [console]
+    propagate: false
+

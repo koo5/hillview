@@ -5,10 +5,14 @@ import {MAX_DEBUG_MODES} from './constants';
 import {auth} from './auth.svelte';
 
 export type DisplayMode = 'split' | 'max' | 'min';
+
+// Draggable split store for gallery/map split percentage (0-100, percentage for photo panel)
+export let splitPercent = staggeredLocalStorageSharedStore('splitPercent', 50);
 export type AppActivity = 'capture' | 'view';
 // Import new mapState for legacy compatibility only
-import {photoToLeft, photoToRight, updateBearingWithPhoto} from './mapState';
+import {photoInFront, photoToLeft, photoToRight, photoUp, photoDown, updateBearingWithPhoto} from './mapState';
 import {TAURI} from "$lib/tauri";
+import {autoUploadSettings} from "$lib/autoUploadSettings";
 
 // Device source subtypes
 export type subtype = 'hillview' | 'folder' | 'gallery';
@@ -79,6 +83,26 @@ export let client_id = staggeredLocalStorageSharedStore('client_id', Math.random
 
 // Camera overlay opacity store (0 = fully transparent, 5 = most opaque)
 export let cameraOverlayOpacity = staggeredLocalStorageSharedStore('cameraOverlayOpacity', 3);
+
+export let photoLicense = localStorageSharedStore<string | null>('photoLicense', null);
+photoLicense.subscribe(async value => {
+	if (value === null && TAURI) {
+		try
+		{
+			await autoUploadSettings.persist(
+			{
+				auto_upload_enabled: false,
+				auto_upload_prompt_enabled: true
+			}
+		);
+		}
+		catch (error)
+		{
+			console.error('🢄Error persisting auto upload settings on photoLicense init:', error);
+		}
+	}
+});
+
 
 // Separate persisted app settings from session-specific state
 export let appSettings = staggeredLocalStorageSharedStore('appSettings', {
@@ -263,10 +287,14 @@ export function enableSourceForPhotoUid(photoUid: string): string | null {
 export async function turn_to_photo_to(dir: string) {
     const currentPhotoToLeft = get(photoToLeft);
     const currentPhotoToRight = get(photoToRight);
+    const currentPhotoUp = get(photoUp);
+    const currentPhotoDown = get(photoDown);
 
     console.log('🢄turn_to_photo_to:', dir, {
         hasPhotoToLeft: !!currentPhotoToLeft,
-        hasPhotoToRight: !!currentPhotoToRight
+        hasPhotoToRight: !!currentPhotoToRight,
+        hasPhotoUp: !!currentPhotoUp,
+        hasPhotoDown: !!currentPhotoDown
     });
 
     if (dir === 'left' && currentPhotoToLeft) {
@@ -275,9 +303,20 @@ export async function turn_to_photo_to(dir: string) {
     } else if (dir === 'right' && currentPhotoToRight) {
         console.log('🢄Turning to right photo:', currentPhotoToRight.uid, 'bearing:', currentPhotoToRight.bearing);
         updateBearingWithPhoto(currentPhotoToRight, 'photo_navigation');
+    } else if (dir === 'up' && currentPhotoUp) {
+        console.log('🢄Turning to up photo:', currentPhotoUp.uid, 'bearing:', currentPhotoUp.bearing, 'pitch:', currentPhotoUp.pitch);
+        updateBearingWithPhoto(currentPhotoUp, 'photo_navigation');
+    } else if (dir === 'down' && currentPhotoDown) {
+        console.log('🢄Turning to down photo:', currentPhotoDown.uid, 'bearing:', currentPhotoDown.bearing, 'pitch:', currentPhotoDown.pitch);
+        updateBearingWithPhoto(currentPhotoDown, 'photo_navigation');
     } else {
-        console.warn(`🢄No photo to ${dir} available`);
-    }
+        console.debug(`🢄No photo to ${dir} available`);
+		const p = get(photoInFront);
+		if (p) {
+			console.debug('🢄Photo in front exists, updating bearing to it');
+			updateBearingWithPhoto(p, 'photo_navigation');
+		}
+	}
 }
 
 // Debug modes constants

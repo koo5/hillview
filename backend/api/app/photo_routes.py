@@ -75,7 +75,14 @@ from jwt_service import validate_token
 from rate_limiter import rate_limit_photo_upload, rate_limit_photo_operations
 from photos import delete_photo_files, determine_storage_type, StorageType
 
+logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
+
+
 logger = logging.getLogger(__name__)
+logger.debug("DEBUG")
+logger.info("INFO")
+logger.warning("WARNING")
 
 router = APIRouter(prefix="/api/photos", tags=["photos"])
 

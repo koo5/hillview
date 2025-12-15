@@ -86,7 +86,7 @@ export class KotlinPhotoWorker {
         let messageType: MessageType;
         let workerMessage: WorkerMessage;
 
-        console.log(`🢄KotlinPhotoWorker: postMessage: type: ${message.type}, data:`, JSON.stringify(message.data));
+        //console.log(`🢄KotlinPhotoWorker: postMessage: type: ${message.type}, data:`, JSON.stringify(message.data));
 
         switch (message.type) {
             case 'configUpdated':
@@ -296,7 +296,7 @@ export class KotlinPhotoWorker {
         try {
             const { source_id, is_loading, progress, error } = payload;
 
-            console.log(`🢄KotlinPhotoWorker: Loading status update for ${source_id}: loading=${is_loading}, progress=${progress}`);
+            //console.log(`🢄KotlinPhotoWorker: Loading status update for ${source_id}: loading=${is_loading}, progress=${progress}`);
 
             // Update sourceLoadingStatus store like simplePhotoWorker does
             sourceLoadingStatus.update(status => ({

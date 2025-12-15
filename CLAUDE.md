@@ -28,10 +28,10 @@ bun run dev
 bun run test:android --spec android-photo-simple.test0.ts
 
 # Start Android development mode
-./scripts/android-dev.sh
+./frontend/scripts/android/dev.sh
 
 # Build Android APK (for actual builds)
-./scripts/build-apk.sh
+./frontend/scripts/android/debug-build.sh
 ```
 
 ### Backend Development (from `/backend/`)
@@ -70,23 +70,24 @@ python -m pytest tests/ -v
 ## Development Workflow
 
 ### Setting Up Development Environment
-1. **Backend First**: Start in `/backend/` directory
+1. **Backend First**: Start in repo root directory
    - Run `docker compose up --build --remove-orphans -d api`
    - Verify at `http://localhost:8055/api/debug`
 
 2. **Frontend Second**: Start in `/frontend/` directory  
    - Run `bun run dev` for web development
-   - Run `./scripts/android-dev.sh` for Android development
+   - Run `./scripts/android/dev.sh` for Android development
 
 3. **Testing**: Both directories have their own test suites
    - Frontend: Android integration tests, Playwright web tests
    - Backend: pytest API tests, authentication tests
 
 ### Working with Android
-- **Package ID**: `io.github.koo5.hillview.dev` (development)
+- **Package ID**: `cz.hillviedev` (development)
+- **Package ID**: `cz.hillview` (production)
 - **Emulator**: Uses `10.0.2.2:8055` to reach localhost backend
 - **Testing**: WebDriverIO + Appium for automated UI testing
-- **Logs**: Use `./scripts/android-logs.sh` for debugging
+- **Logs**: Use `./scripts/android/logs.sh` for debugging
 
 ## Directory-Specific Instructions
 

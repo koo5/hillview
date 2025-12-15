@@ -2,12 +2,14 @@
     import {onMount, onDestroy, tick} from 'svelte';
     import {LeafletMap, TileLayer, Marker, Circle, ScaleControl} from 'svelte-leafletjs';
     import {LatLng} from 'leaflet';
-    import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle, MapPin, Pause, ArrowUp, ArrowDown, Layers, Eye, Compass, Car, PersonStanding, Map as MapIcon} from 'lucide-svelte';
+    import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle, MapPin, Pause, ArrowUp, ArrowDown, Layers, Eye, Map as MapIcon} from 'lucide-svelte';
     import L from 'leaflet';
     import 'leaflet/dist/leaflet.css';
     import { getCurrentProviderConfig, setTileProvider, currentTileProvider } from '$lib/tileProviders';
     import Spinner from './Spinner.svelte';
     import TileProviderSelector from './TileProviderSelector.svelte';
+    import CompassButton from './CompassButton.svelte';
+    import CompassModeMenu from './CompassModeMenu.svelte';
     import { getCurrentPosition, type GeolocationPosition } from '$lib/preciseLocation';
     import { locationManager } from '$lib/locationManager';
 
@@ -18,27 +20,30 @@
         photoToLeft,
         photoToRight,
         updateSpatialState,
-        updateBearing,
         updateBearingByDiff,
+        bearingMode,
         type BearingMode,
-        bearingMode
     } from "$lib/mapState";
     import { sources } from "$lib/data.svelte.js";
     import { simplePhotoWorker } from '$lib/simplePhotoWorker';
-    import { turn_to_photo_to, app, mapillary_cache_status, sourceLoadingStatus } from "$lib/data.svelte.js";
+    import { turn_to_photo_to, app, sourceLoadingStatus } from "$lib/data.svelte.js";
     import { updateGpsLocation, setLocationTracking, setLocationError, gpsLocation, locationTracking } from "$lib/location.svelte.js";
-    import { compassState, compassEnabled, compassAvailable, enableCompass, disableCompass, currentCompassHeading, isOnMapRoute, compassError } from "$lib/compass.svelte.js";
+    import { isOnMapRoute, compassEnabled, disableCompass } from "$lib/compass.svelte.js";
     import { optimizedMarkerSystem } from '$lib/optimizedMarkers';
     import '$lib/styles/optimizedMarkers.css';
 
     import {get} from "svelte/store";
-	import {stringifyCircularJSON} from "$lib/utils/json";
 
     let flying = false;
     let programmaticMove = false; // Flag to prevent position sync conflicts
     let locationTrackingLoading = false;
     let locationApiEventFlashTimer: any = null;
     let locationApiEventFlash = false;
+
+    // GPS orientation tracking for car mode
+    // When in car mode with compass enabled, we track GPS heading changes
+    // and apply the difference to the map bearing (not absolute positioning)
+    let lastGpsHeading: number | null = null;
     let map: any;
     let elMap: any;
     const fov_circle_radius_px = 70;
@@ -66,11 +71,16 @@
     // Location tracking re-enable timer
     let locationReEnableTimer: number | null = null;
 
+
     // Flag to track if the current map event was caused by zoom buttons
     let isZoomButtonEvent = false;
-    let zoomButtonEventTimer: number | null = null;
+	let isActivityOrientationChangeEvent = false;
+	let isWindowResizeEvent = false;
 
-    // Compass button state is derived from stores
+    let zoomButtonEventTimer: number | null = null;
+	let activityOrientationChangeTimer: number | null = null;
+	let windowResizeTimer: number | null = null;
+
 
     // Debug bounds rectangle
     let boundsRectangle: any = null;
@@ -80,12 +90,45 @@
     // Source buttons display mode
     let compactSourceButtons = true;
 
+    // Compass mode menu state
+    let compassMenuVisible = false;
+    let compassMenuPosition = { top: 0, right: 0 };
+
+    function handleCompassShowMenu(event: CustomEvent<{ buttonRect: DOMRect }>) {
+        const rect = event.detail.buttonRect;
+        compassMenuPosition = {
+            top: rect.bottom + 2,
+            right: window.innerWidth - rect.right
+        };
+        compassMenuVisible = true;
+    }
+
+    function handleCompassHideMenu() {
+        compassMenuVisible = false;
+    }
+
+    let compassButtonRef: any;
+
+    function handleCompassSelectMode(event: CustomEvent<{ mode: BearingMode }>) {
+        // Forward the event back to CompassButton to handle the logic
+        compassButtonRef?.selectMode(event.detail.mode);
+        compassMenuVisible = false;
+    }
+
 
     $: map = elMap?.getMap();
 
-    // Expose map to window for testing
+    // Expose map to window for testing and fix initial size
     $: if (map && typeof window !== 'undefined') {
         (window as any).leafletMap = map;
+
+        // Fix initial map size after the map becomes available
+        setTimeout(() => {
+            if (map.invalidateSize) {
+                console.log('🢄Fixing initial map size');
+                map.invalidateSize({ reset: true, animate: false });
+            }
+        }, 200);
     }
 
 
@@ -247,15 +290,6 @@
         }
 
         await onMapStateChange(true, 'mapStateUserEvent');
-
-        // Prune tiles after significant movement or every 10 move events
-        /*moveEventCount++;
-        const timeSinceLastPrune = Date.now() - lastPruneTime;
-        if (moveEventCount >= 10 || timeSinceLastPrune > 10000) {
-            pruneTiles();
-            moveEventCount = 0;
-            lastPruneTime = Date.now();
-        }*/
     }
 
 
@@ -331,7 +365,7 @@
             stopSlideshow();
         }
 
-        // Disable compass tracking when any turn button is clicked
+        // Disable compass tracking when any turn button is clicked (but keep GPS orientation)
         if (action === 'left' || action === 'right' || action === 'rotate-ccw' || action === 'rotate-cw') {
             if ($compassEnabled) {
                 console.log('🢄🧭 Disabling compass tracking due to manual turn');
@@ -353,10 +387,6 @@
             moveBackward();
         } else if (action === 'location') {
             toggleLocationTracking();
-        } else if (action === 'compass') {
-            toggleCompassTracking();
-        } else if (action === 'bearing-mode') {
-            toggleBearingMode();
         }
 
         return false;
@@ -507,22 +537,6 @@
         }
     }
 
-    function toggleCompassTracking() {
-        if ($compassEnabled) {
-            console.log('🢄🧭 User disabling compass...');
-            disableCompass();
-        } else {
-            console.log('🢄🧭 User enabling compass...');
-            enableCompass();
-        }
-    }
-
-    function toggleBearingMode() {
-        const currentMode = $bearingMode;
-        const newMode: BearingMode = currentMode === 'car' ? 'walking' : 'car';
-        console.log(`🚗🚶 Switching bearing mode: ${currentMode} → ${newMode}`);
-        bearingMode.set(newMode);
-    }
 
     // Start tracking user location
     async function startLocationTracking() {
@@ -814,12 +828,6 @@
         });
     });
 
-    export function setView(center: any, zoom: number) {
-        if (map) {
-            map.setView(center, zoom);
-        }
-    }
-
     //import.meta.hot?.dispose(() => (map = null));
 
     onDestroy(async () => {
@@ -948,7 +956,7 @@
 
     // Reactive updates for spatial changes (photos from worker include filtered placeholders)
     $: if ($visiblePhotos && map) {
-        console.log(`🢄🗺️ Map: Reactive update triggered - updating markers with ${$visiblePhotos.length} total photos`);
+        console.log(`🢄Map: Reactive update triggered - updating markers with ${$visiblePhotos.length} total photos`);
         updateOptimizedMarkers($visiblePhotos);
     }
 
@@ -1130,7 +1138,7 @@
                 title={slideshowActive && slideshowDirection === 'left' ?
                       "Stop slideshow" :
                       "Rotate to next photo on the left (long press for slideshow)"}
-                disabled={!$photoToLeft}
+
                 class:slideshow-active={slideshowActive && slideshowDirection === 'left'}
         >
             {#if slideshowActive && slideshowDirection === 'left'}
@@ -1176,7 +1184,6 @@
                 title={slideshowActive && slideshowDirection === 'right' ?
                       "Stop slideshow" :
                       "Rotate to next photo on the right (long press for slideshow)"}
-                disabled={!$photoToRight}
                 class:slideshow-active={slideshowActive && slideshowDirection === 'right'}
         >
             {#if slideshowActive && slideshowDirection === 'right'}
@@ -1201,25 +1208,7 @@
             <Spinner show={true} color="#4285F4"></Spinner>
         {/if}
     </button>
-    <button
-        class="{$compassState === 'active' ? 'active' : ''} {$compassState === 'starting' ? 'loading' : ''} {$compassState === 'error' ? 'error' : ''}"
-        on:click={(e) => handleButtonClick('compass', e)}
-        title="Auto bearing updates ({$bearingMode === 'car' ? 'GPS' : 'compass'} mode){$compassError ? ' - Error: ' + $compassError : ''}"
-        disabled={$bearingMode === 'walking' && !$compassAvailable}
-    >
-        <Compass />
-    </button>
-    <button
-        class="bearing-mode-button { $bearingMode === 'car' ? 'car-mode' : 'walking-mode' }"
-        on:click={(e) => handleButtonClick('bearing-mode', e)}
-        title={$bearingMode === 'car' ? 'Car mode: GPS bearing' : 'Walking mode: Compass bearing'}
-    >
-        {#if $bearingMode === 'car'}
-            <Car />
-        {:else}
-            <PersonStanding />
-        {/if}
-    </button>
+    <CompassButton bind:this={compassButtonRef} on:showMenu={handleCompassShowMenu} on:hideMenu={handleCompassHideMenu} />
 </div>
 
 <div class="source-buttons-container" class:compact={compactSourceButtons}>
@@ -1263,7 +1252,7 @@
 
     .control-buttons-container {
         position: absolute;
-        bottom: 0;
+        bottom: 10px;
         right: 0;
         z-index: 30000;
         pointer-events: none; /* This makes the container transparent to mouse events */
@@ -1487,12 +1476,13 @@
         z-index: 30000;
     }
 
-	.bearing-mode-button.car-mode {
-		background-color: #ff5722;
-	}
-
-	.bearing-mode-button.walking-mode {
-		background-color: #4285F4;
-	}
 
 </style>
+
+<!-- Compass mode menu at top level to escape stacking contexts -->
+<CompassModeMenu
+    visible={compassMenuVisible}
+    position={compassMenuPosition}
+    on:selectMode={handleCompassSelectMode}
+    on:close={handleCompassHideMenu}
+/>

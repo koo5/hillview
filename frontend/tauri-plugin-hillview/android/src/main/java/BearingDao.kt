@@ -19,9 +19,14 @@ interface BearingDao {
     """)
     fun getBearingNearTimestamp(timestamp: Long): BearingEntity?
 
+    @Query("DELETE FROM bearings WHERE timestamp < :timestamp")
+    fun clearBearingsOlderThan(timestamp: Long)
+
     @Query("DELETE FROM bearings")
     fun clearAllBearings()
 
-    @Query("SELECT COUNT(*) FROM bearings")
-    fun getBearingCount(): Int
+    @Query("SELECT * FROM bearings ORDER BY timestamp ASC")
+    fun getAllBearings(): List<BearingEntity>
+
+
 }

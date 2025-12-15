@@ -19,7 +19,7 @@ const COMMANDS: &[&str] = &[
     "set_notification_settings",
     "test_auth_expired_notification",
     "check_tauri_permissions",
-    "request_post_notification_permission",
+    "request_tauri_permission",
     "test_show_notification",
     "get_device_photos",
     "refresh_photo_scan",

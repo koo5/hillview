@@ -1,6 +1,7 @@
 import {writable, get} from 'svelte/store';
 import {removePlaceholder} from './placeholderInjector';
 import type {DevicePhotoMetadata} from './types/photoTypes';
+
 import {invoke} from "@tauri-apps/api/core";
 import {frontendBusy} from "$lib/data.svelte";
 
@@ -280,6 +281,7 @@ class CaptureQueueManager {
 						error: error instanceof Error ? error.message : String(error),
 						totalFailed: this.totalFailed
 					}));
+					window.alert('Error saving photo chunk: ' + (error instanceof Error ? error.message : String(error)));
 
 					// If this chunk failed and we have the item, clean up
 					if (item) {

@@ -283,14 +283,24 @@ impl<R: Runtime> Hillview<R> {
       .map_err(Into::into)
   }
 
-  pub fn request_post_notification_permission(&self) -> crate::Result<tauri::plugin::PermissionState> {
-	  // logging doesnt work
-    info!("🢄🔔request_post_notification_permission invoking requestPermissions...");
-    //Err(crate::Error::from("🢄🔔request_post_notification_permission is currently disabled"))
-    self.0
-      .run_mobile_plugin::<crate::models::TauriPermissionResponse>("requestPermissions", crate::models::RequestPermission { post_notification: true })
-      .map(|r| r.post_notification)
-      .map_err(Into::into)
+  pub fn request_tauri_permission(&self, permission: String) -> crate::Result<tauri::plugin::PermissionState> {
+    info!("🢄🔐request_tauri_permission for permission: {}", permission);
+
+    match permission.as_str() {
+      "post_notification" => {
+        self.0
+          .run_mobile_plugin::<crate::models::TauriPermissionResponse>("requestPermissions", crate::models::RequestPermission { post_notification: true, write_external_storage: false })
+          .map(|r| r.post_notification)
+          .map_err(Into::into)
+      },
+      "write_external_storage" => {
+        self.0
+          .run_mobile_plugin::<crate::models::TauriPermissionResponse>("requestPermissions", crate::models::RequestPermission { post_notification: false, write_external_storage: true })
+          .map(|r| r.write_external_storage)
+          .map_err(Into::into)
+      },
+      _ => Err(crate::Error::from("Unknown permission"))
+    }
   }
 
   pub fn test_show_notification(&self, title: String, message: String) -> crate::Result<BasicResponse> {
