@@ -12,3 +12,4 @@ frontend/src-tauri/gen/
 backend/worker/models/
 backend/worker/Ultralytics/
 backend/uploads/
+.idea/caches/
