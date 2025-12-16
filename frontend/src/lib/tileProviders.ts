@@ -1,6 +1,7 @@
 import L from 'leaflet';
 import 'leaflet-providers';
 import { writable, get } from 'svelte/store';
+import {localStorageSharedStore} from "$lib/svelte-shared-store";
 
 export interface TileProviderConfig {
     url: string;
@@ -69,10 +70,11 @@ export const AVAILABLE_PROVIDERS = {
 export type ProviderName = keyof typeof AVAILABLE_PROVIDERS;
 
 // Default tile provider
-export const DEFAULT_TILE_PROVIDER: ProviderName = 'tiles.ueueeu.eu';//'OpenStreetMap.Mapnik';
+export const DEFAULT_TILE_PROVIDER: ProviderName = //'tiles.ueueeu.eu'
+'OpenStreetMap.Mapnik';
 
 // Current selected provider (can be changed at runtime)
-export const currentTileProvider = writable<ProviderName>(DEFAULT_TILE_PROVIDER);
+export const currentTileProvider = localStorageSharedStore<ProviderName>(DEFAULT_TILE_PROVIDER);
 
 /**
  * Set the current tile provider
