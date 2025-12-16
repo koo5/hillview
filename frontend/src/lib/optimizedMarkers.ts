@@ -85,10 +85,40 @@ export class OptimizedMarkerSystem {
 	 * Create icon with separated arrow and bearing circle
 	 */
 	private createSeparatedIcon(photo: PhotoData): L.DivIcon {
-		const {arrowSize} = this.atlasDimensions;
-		const backgroundPos = arrowAtlas.getBackgroundPosition(photo.bearing);
 		const currentPhotoInFront = get(photoInFront);
-		const isSelected = currentPhotoInFront && photo.id === currentPhotoInFront.id;
+		const isSelected = (currentPhotoInFront && photo.id === currentPhotoInFront.id) || false;
+		const {arrowSize} = this.atlasDimensions;
+		const data = `data-testid="photo-marker-${photo.id}"
+             data-photo-id="${photo.id}"
+             data-source="${photo.source?.id || 'unknown'}"
+             data-is-placeholder="${photo.is_placeholder || false}"`;
+
+		return L.divIcon({
+			className: 'optimized-photo-marker',
+			html: this.markerDivsHtml(
+					photo.bearing,
+					photo.bearing_color,
+					isSelected,
+					photo.source?.color,
+					data,
+					12
+				),
+			iconSize: [arrowSize, arrowSize],
+			iconAnchor: [arrowSize / 2, arrowSize / 2]
+		});
+	}
+
+
+	markerDivsHtml(
+		bearing: number = 0,
+		bearingColor?: string,
+		isSelected: boolean = false,
+		sourceColor?: string,
+		data: string = '',
+		offsetPixels: number = 0
+	): string {
+
+		const {arrowSize} = this.atlasDimensions;
 
 		// Determine sizes based on zoom and selection
 		const circleSize = isSelected ? arrowSize * 1 : arrowSize * 0.6;
@@ -96,53 +126,46 @@ export class OptimizedMarkerSystem {
 		const strokeWidth = isSelected ? 3 : 1;
 
 		// Calculate bearing offset in pixels (forward direction)
-		const offsetPixels = 12; // pixels to offset forward
-		const bearingRad = (photo.bearing * Math.PI) / 180;
+		const bearingRad = (bearing * Math.PI) / 180;
 		const offsetX = offsetPixels * Math.sin(bearingRad);
 		const offsetY = -offsetPixels * Math.cos(bearingRad); // negative because CSS Y increases downward
 
-		let color = photo.bearing_color || '#9E9E9E';
+		let color = bearingColor || '#9E9E9E';
 
-		return L.divIcon({
-			className: 'optimized-photo-marker',
-			html: `
-        <div class="marker-container"
-             data-testid="photo-marker-${photo.id}"
-             data-photo-id="${photo.id}"
-             data-source="${photo.source?.id || 'unknown'}"
-             data-is-placeholder="${photo.is_placeholder || false}"
-             style="
-               width: ${arrowSize}px;
-               height: ${arrowSize}px;
-               transform: translate(${offsetX.toFixed(1)}px, ${offsetY.toFixed(1)}px);
-             ">
-          <!-- Bearing diff circle (background) -->
-          <div class="bearing-circle ${isSelected ? 'selected' : ''}"
-               style="
-                 background-color: ${photo.bearing_color || '#9E9E9E'};
-                 width: ${circleSize}px;
-                 height: ${circleSize}px;
-                 border: ${strokeWidth}px solid ${photo.source?.color || '#666'};
-                 opacity: 0.8;
-               "></div>
+		const backgroundPos = arrowAtlas.getBackgroundPosition(bearing);
 
-          <!-- Direction arrow (foreground) -->
-          <div class="direction-arrow"
-               style="
-                 background-image: url(${this.atlasDataUrl});
-                 background-position: ${backgroundPos};
-                 background-size: ${this.atlasDimensions.width}px ${this.atlasDimensions.height}px;
-                 width: ${arrowSize}px;
-                 height: ${arrowSize}px;
-                 transform: scale(${arrowScale});
-                 opacity: 0.7;
-               "></div>
-        </div>
-      `,
-			iconSize: [arrowSize, arrowSize],
-			iconAnchor: [arrowSize / 2, arrowSize / 2]
-		});
+		return `<div class="marker-container"
+				 ` + data + `
+				 style="
+				   width: ${arrowSize}px;
+				   height: ${arrowSize}px;
+				   transform: translate(${offsetX.toFixed(1)}px, ${offsetY.toFixed(1)}px);
+				 ">
+
+			  <!-- Bearing diff circle (background) -->
+			  <div class="bearing-circle ${isSelected ? 'selected' : ''}"
+				   style="
+					 background-color: ${color};
+					 width: ${circleSize}px;
+					 height: ${circleSize}px;
+					 border: ${strokeWidth}px solid ${sourceColor || '#666'};
+					 opacity: 0.8;
+				   "></div>
+
+			  <!-- Direction arrow (foreground) -->
+			  <div class="direction-arrow"
+				   style="
+					 background-image: url(${this.atlasDataUrl});
+					 background-position: ${backgroundPos};
+					 background-size: ${this.atlasDimensions.width}px ${this.atlasDimensions.height}px;
+					 width: ${arrowSize}px;
+					 height: ${arrowSize}px;
+					 transform: scale(${arrowScale});
+					 opacity: 0.7;
+				   "></div>
+		</div>`;
 	}
+
 
 	/**
 	 * Efficiently update only the colors of existing markers (bearing changes only)

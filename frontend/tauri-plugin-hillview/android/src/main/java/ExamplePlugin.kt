@@ -1,11 +1,14 @@
 package cz.hillview.plugin
 
 import android.app.Activity
+import android.content.ContentValues
 import android.content.Intent
 import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import android.util.Log
 import android.view.OrientationEventListener
 import android.webkit.ConsoleMessage
@@ -159,6 +162,13 @@ class TestShowNotificationArgs {
 class CmdArgs {
 	var command: String? = null
 	var params: Any? = null
+}
+
+@InvokeArg
+class SavePhotoToGalleryArgs {
+	var filename: String? = null
+	var imageData: ByteArray = byteArrayOf()
+	var hideFromGallery: Boolean? = null
 }
 
 @TauriPlugin(
@@ -2274,6 +2284,72 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 			val error = JSObject()
 			error.put("error", e.message)
 			invoke.resolve(error)
+		}
+	}
+
+	@Command
+	fun savePhotoToGallery(invoke: Invoke) {
+		try {
+			val args = invoke.parseArgs(SavePhotoToGalleryArgs::class.java)
+			Log.d(TAG, "📷 savePhotoToGallery called: filename=${args.filename}, dataLength=${args.imageData.size}")
+
+			val contentResolver = activity.contentResolver
+			val folderName = if (args.hideFromGallery == true) ".Hillview" else "Hillview"
+
+			// Prepare ContentValues for MediaStore
+			val contentValues = ContentValues().apply {
+				put(MediaStore.Images.Media.DISPLAY_NAME, args.filename)
+				put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+				put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/$folderName")
+			}
+
+			Log.d(TAG, "📷 Inserting into MediaStore: ${args.filename} in $folderName")
+
+			// Insert into MediaStore and get URI
+			val uri = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+
+			if (uri != null) {
+				// Write image data to the URI
+				contentResolver.openOutputStream(uri)?.use { outputStream ->
+					outputStream.write(args.imageData)
+					outputStream.flush()
+				}
+
+				// Get the actual file path (if possible)
+				val projection = arrayOf(MediaStore.Images.Media.DATA)
+				var filePath: String? = null
+
+				contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+					if (cursor.moveToFirst()) {
+						val columnIndex = cursor.getColumnIndex(MediaStore.Images.Media.DATA)
+						if (columnIndex >= 0) {
+							filePath = cursor.getString(columnIndex)
+						}
+					}
+				}
+
+				val result = JSObject()
+				result.put("success", true)
+				result.put("uri", uri.toString())
+				result.put("path", filePath ?: "MediaStore managed")
+
+				Log.d(TAG, "📷✅ Photo saved to gallery via MediaStore: $filePath")
+				invoke.resolve(result)
+
+			} else {
+				val result = JSObject()
+				result.put("success", false)
+				result.put("error", "Failed to create MediaStore entry")
+				Log.e(TAG, "📷❌ Failed to create MediaStore entry")
+				invoke.resolve(result)
+			}
+
+		} catch (e: Exception) {
+			Log.e(TAG, "📷❌ MediaStore save failed", e)
+			val result = JSObject()
+			result.put("success", false)
+			result.put("error", e.message)
+			invoke.resolve(result)
 		}
 	}
 
