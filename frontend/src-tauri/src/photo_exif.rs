@@ -853,10 +853,12 @@ fn create_exif_segment_simple(metadata: &PhotoMetadata) -> Vec<u8> {
 
 /// Debug function to verify EXIF data can be read back from saved photos
 /// Available in debug builds for troubleshooting EXIF issues
-#[cfg(debug_assertions)]
+
 #[allow(dead_code)]
 pub async fn verify_exif_in_saved_file(file_path: &std::path::Path, expected_metadata: &PhotoMetadata) {
-	// Verify EXIF can be read back
+#[cfg(debug_assertions)]
+{
+
 	// Try reading with img-parts first to verify structure
 	if let Ok(file_data) = std::fs::read(&file_path) {
 		if let Ok(jpeg) = Jpeg::from_bytes(file_data.into()) {
@@ -934,6 +936,7 @@ pub async fn verify_exif_in_saved_file(file_path: &std::path::Path, expected_met
 			warn!("🢄❌ EXIF VERIFICATION FAILED: Could not read EXIF after save: {}", e);
 		}
 	}
+}
 }
 
 
