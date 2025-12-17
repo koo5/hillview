@@ -6,6 +6,7 @@
     import Spinner from "./Spinner.svelte";
     import {anySourceLoading} from "$lib/data.svelte.js";
     import type {PhotoData} from '$lib/sources';
+	import PhotoMarkerIcon from "$lib/components/PhotoMarkerIcon.svelte";
 
     let clientWidth: number;
     let photoContainer: HTMLElement;
@@ -100,13 +101,13 @@
         <!-- Navigation buttons on sides -->
         {#if $photoToLeft}
             <button class="nav-button nav-left" on:click={() => handleSwipe('left')} title="Previous photo">
-                ←
+                <PhotoMarkerIcon bearing={-90} />
             </button>
         {/if}
 
         {#if $photoToRight}
             <button class="nav-button nav-right" on:click={() => handleSwipe('right')} title="Next photo">
-                →
+                <PhotoMarkerIcon bearing={90} />
             </button>
         {/if}
 

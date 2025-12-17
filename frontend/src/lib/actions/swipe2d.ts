@@ -116,6 +116,21 @@ export function swipe2d(node: HTMLElement, initialOptions: Swipe2DOptions) {
 	}
 
 	function startDrag(x: number, y: number) {
+		// If an animation is in progress, complete it immediately
+		if (dragState.pendingTransitionListener) {
+			// Manually trigger the completion logic without waiting for transition
+			const listener = dragState.pendingTransitionListener;
+
+			// Create a proper synthetic event that will pass the target check
+			const syntheticEvent = {
+				target: targetElement,
+				propertyName: 'transform'
+			} as TransitionEvent;
+
+			// Call the handler directly
+			listener(syntheticEvent);
+		}
+
 		dragState.startX = x;
 		dragState.startY = y;
 		dragState.currentX = x;
@@ -124,7 +139,7 @@ export function swipe2d(node: HTMLElement, initialOptions: Swipe2DOptions) {
 		dragState.hasMoved = false;
 		dragState.axisLocked = 'none';
 
-		// Get initial transform values
+		// Get initial transform values (should be 0,0 after reset)
 		const initialTransform = getTransformValues();
 		dragState.initialTransformX = initialTransform.x;
 		dragState.initialTransformY = initialTransform.y;
@@ -329,23 +344,22 @@ export function swipe2d(node: HTMLElement, initialOptions: Swipe2DOptions) {
 			dragState.pendingTransitionListener = undefined;
 		}
 
-		if (dragState.isDragging) {
-			dragState.isDragging = false;
-			dragState.hasMoved = false;
-			dragState.axisLocked = 'none';
-			if (enableVisualFeedback) {
-				targetElement.style.transition = originalTransition || 'transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)';
-			}
+		// Always reset drag state and transform, regardless of current state
+		dragState.isDragging = false;
+		dragState.hasMoved = false;
+		dragState.axisLocked = 'none';
+
+		if (enableVisualFeedback) {
+			// Force immediate reset without transition
+			targetElement.style.transition = 'none';
 			resetTransform();
-			onDragEnd?.();
-		} else {
-			// Even if not dragging, force reset the transform to clean up any stuck state
-			console.log('🢄swipe2d: Force resetting transform even though not dragging');
-			if (enableVisualFeedback) {
+			// Re-enable transitions for future interactions
+			setTimeout(() => {
 				targetElement.style.transition = originalTransition || 'transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)';
-				resetTransform();
-			}
+			}, 0);
 		}
+
+		onDragEnd?.();
 	}
 
 	// Touch event handlers

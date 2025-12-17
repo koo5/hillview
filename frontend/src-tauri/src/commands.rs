@@ -2,9 +2,12 @@ use log::info;
 // Remove unused serde imports since we're using types from plugin
 // Removed unused imports: AppHandle, Runtime
 
+
 const GIT_HASH: &str = env!("GIT_HASH");
 const GIT_BRANCH: &str = env!("GIT_BRANCH");
 const BUILD_TIME: &str = env!("BUILD_TIME");
+
+
 
 #[tauri::command]
 pub fn log(message: String) {
