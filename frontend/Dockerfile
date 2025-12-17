@@ -1,4 +1,4 @@
-FROM oven/bun:1-alpine AS builder
+FROM oven/bun:1-debian AS builder
 
 WORKDIR /app
 
@@ -33,6 +33,6 @@ ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 ENV PORT=3000
 
-RUN cat src/routes/+page.svelte
+#RUN cat src/routes/+page.svelte
 
 CMD ["node", "build/index.js"]
