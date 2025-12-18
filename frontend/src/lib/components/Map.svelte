@@ -12,6 +12,7 @@
     import CompassModeMenu from './CompassModeMenu.svelte';
     import { getCurrentPosition, type GeolocationPosition } from '$lib/preciseLocation';
     import { locationManager } from '$lib/locationManager';
+	import SpatialStateArrow from './SpatialStateArrow.svelte';
 
     import {
         spatialState,
@@ -31,8 +32,10 @@
     import { isOnMapRoute, compassEnabled, disableCompass } from "$lib/compass.svelte.js";
     import { optimizedMarkerSystem } from '$lib/optimizedMarkers';
     import '$lib/styles/optimizedMarkers.css';
+	import PhotoMarkerIcon from './PhotoMarkerIcon.svelte';
 
     import {get} from "svelte/store";
+	import SpatialStateArrowIcon from "$lib/components/SpatialStateArrowIcon.svelte";
 
     let flying = false;
     let programmaticMove = false; // Flag to prevent position sync conflicts
@@ -936,7 +939,7 @@
     $: centerX = width / 2;
     let centerY: number;
     $: centerY = height / 2;
-    let arrowLength = fov_circle_radius_px + 150;
+    let arrowLength = fov_circle_radius_px;
 
     let arrow_radians;
     let arrowX;
@@ -1042,52 +1045,16 @@
         {/if}
 
         <div class="svg-overlay">
-            <svg
-                    height={height}
-                    viewBox={`0 0 ${width} ${height}`}
-                    width={width}
-            >
-                <!--                    <circle-->
-                <!--                            cx={centerX}-->
-                <!--                            cy={centerY}-->
-                <!--                            r={radius}-->
-                <!--                            fill="rgba(74, 144, 226, 0.1)"-->
-                <!--                            stroke="rgb(74, 144, 226)"-->
-                <!--                            strokeWidth="2"-->
-                <!--                    />-->
 
-                <line
-                        marker-end="url(#arrowhead)"
-                        stroke="rgb(74, 144, 226)"
-                        stroke-width="3"
-                        x1={centerX}
-                        x2={arrowX}
-                        y1={centerY}
-                        y2={arrowY}
-                />
-                <defs>
-                    <marker
-                            id="arrowhead"
-                            markerHeight="7"
-                            markerWidth="10"
-                            orient="auto"
-                            refX="9"
-                            refY="3.5"
-                    >
-                        <polygon
-                                fill="rgb(74, 244, 74)"
-                                points="0 0, 10 3.5, 0 7"
-                        />
-                    </marker>
-                </defs>
+ 			<SpatialStateArrow
+				{width}
+				{height}
+				{centerX}
+				{centerY}
+				{arrowX}
+				{arrowY}
+			/>
 
-                <!--                    <circle-->
-                <!--                            cx={centerX}-->
-                <!--                            cy={centerY}-->
-                <!--                            r="3"-->
-                <!--                            fill="rgb(74, 144, 226)"-->
-                <!--                    />-->
-            </svg>
         </div>
 
 
@@ -1144,7 +1111,7 @@
             {#if slideshowActive && slideshowDirection === 'left'}
                 <Pause />
             {:else}
-                <ArrowLeftCircle/>
+                <PhotoMarkerIcon bearing={-90} />
             {/if}
         </button>
 
@@ -1152,28 +1119,32 @@
                 on:click={async (e) => {await handleButtonClick('rotate-ccw', e)}}
                 title="Rotate view 15° counterclockwise"
         >
-            <RotateCcw/>
+            <SpatialStateArrowIcon centerX={8} centerY={8} arrowX={5} arrowY={2} />
         </button>
 
         <button
                 on:click={(e) => handleButtonClick('forward', e)}
                 title="Move forward in viewing direction"
         >
-            <ArrowUp/>
+
+			<SpatialStateArrowIcon centerX={8} centerY={8} arrowX={8} arrowY={0} />
+
         </button>
 
         <button
                 on:click={(e) => handleButtonClick('backward', e)}
                 title="Move backward"
         >
-            <ArrowDown/>
+
+			<SpatialStateArrowIcon centerX={8} centerY={8} arrowX={8} arrowY={16} />
+
         </button>
 
         <button
                 on:click={(e) => handleButtonClick('rotate-cw', e)}
                 title="Rotate view 15° clockwise"
         >
-            <RotateCw/>
+            <SpatialStateArrowIcon centerX={8} centerY={8} arrowX={11} arrowY={2} />
         </button>
 
         <button
@@ -1189,7 +1160,7 @@
             {#if slideshowActive && slideshowDirection === 'right'}
                 <Pause />
             {:else}
-                <ArrowRightCircle/>
+                <PhotoMarkerIcon bearing={90} />
             {/if}
         </button>
     </div>
@@ -1239,8 +1210,6 @@
 
 
 <style>
-
-
 
 
     .map {
@@ -1309,8 +1278,8 @@
 
     .location-button-container {
         position: absolute;
-        top: 0px;
-        right: 10px;
+        top: 6px;
+        right: 5px;
         z-index: 30000;
         display: flex;
         gap: 8px;
@@ -1355,8 +1324,8 @@
 
     .source-buttons-container {
         position: absolute;
-        top: 50px;
-        right: 10px;
+        top: 60px;
+        right: 5px;
         z-index: 30000;
         display: flex;
         flex-direction: column;
@@ -1404,13 +1373,13 @@
         /*background-color: rgba(255, 255, 255, 0.1);*/
     }
 
- .source-buttons-container.compact button {
-    opacity: 0.7;
-}
+	 .source-buttons-container.compact button {
+		opacity: 0.7;
+	}
 
-.source-buttons-container:not(.compact) button {
-    opacity: 1;
-}
+	.source-buttons-container:not(.compact) button {
+		opacity: 1;
+	}
 
     .source-icon {
         width: 1rem;

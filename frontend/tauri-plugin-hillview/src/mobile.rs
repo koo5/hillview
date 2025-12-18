@@ -335,4 +335,5 @@ impl<R: Runtime> Hillview<R> {
       .run_mobile_plugin("cmd", Args { command, params })
       .map_err(Into::into)
   }
+
 }

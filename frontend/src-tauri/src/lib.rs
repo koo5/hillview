@@ -1,6 +1,7 @@
 mod commands;
 mod device_photos;
 mod photo_exif;
+mod types;
 use log::info;
 #[cfg(debug_assertions)]
 use tauri::Manager;
@@ -51,8 +52,8 @@ pub fn run() {
             commands::get_build_commit_hash,
             commands::get_build_branch,
             commands::get_build_ts,
-            photo_exif::store_photo_chunk,
-            photo_exif::save_photo_with_metadata,
+            device_photos::store_photo_chunk,
+            device_photos::save_photo_with_metadata,
         ])
         .setup(|app| {
             // Tauri log plugin disabled to prevent duplicate console logs

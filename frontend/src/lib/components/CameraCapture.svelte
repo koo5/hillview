@@ -140,7 +140,7 @@
 
 	let needsPermission = false;
 	let needsStoragePermission = false;
-	let storagePermissionChecked = false;
+	let storagePermissionChecked = true;
 
 	async function checkStoragePermission() {
 		if (!TAURI || storagePermissionChecked) return true;

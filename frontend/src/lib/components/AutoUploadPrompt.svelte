@@ -3,7 +3,8 @@
 	import { TAURI } from '$lib/tauri';
 	import { invoke } from '@tauri-apps/api/core';
 	import { navigateWithHistory } from '$lib/navigation.svelte.js';
-	import { photoLicense } from '$lib/data.svelte';
+	import {auth} from '$lib/auth.svelte';
+	import {get} from "svelte/store";
 
 	// Event from parent when a photo was captured
 	export let photoCaptured = false;
@@ -21,6 +22,9 @@
 	$: if (photoCaptured && TAURI) {
 		schedulePromptCheck();
 	}
+
+	let authed;
+	$: authed = $auth.is_authenticated &&!!$auth.user;
 
 	function schedulePromptCheck() {
 		// Clear any existing timers
@@ -43,13 +47,12 @@
 				auto_upload_prompt_enabled: boolean;
 			};
 
-			//console.log('autoUpload status:', JSON.stringify(result));
+			console.log('AutoUploadPrompt: autoUpload status:', JSON.stringify(result), ' authed=', authed);
 
 			autoUploadEnabled = result.auto_upload_enabled || false;
 			autoUploadPromptEnabled = result.auto_upload_prompt_enabled || false;
 
-			visible = !autoUploadEnabled && autoUploadPromptEnabled;
-
+			visible = (!authed || !autoUploadEnabled) && autoUploadPromptEnabled;
 
 			// If we should show the prompt, auto-hide it after 10 seconds
 			if (visible) {
@@ -104,7 +107,7 @@
 	}
 </script>
 
-{#if visible && !dismissed && TAURI && autoUploadPromptEnabled && !autoUploadEnabled}
+{#if visible && !dismissed && TAURI && autoUploadPromptEnabled && (!autoUploadEnabled || !authed)}
 	<div class="auto-upload-prompt" data-testid="auto-upload-prompt">
 		<div class="prompt-content">
 			<button
