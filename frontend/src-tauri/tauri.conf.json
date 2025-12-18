@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "hillview",
-  "version": "0.1.0",
+  "productName": "Hillview",
+  "version": "0.3.0",
   "identifier": "cz.hillview",
   "build": {
     "frontendDist": "../build",
@@ -14,7 +14,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "hillview",
+        "title": "Hillview",
         "width": 800,
         "height": 600,
         "resizable": true,
