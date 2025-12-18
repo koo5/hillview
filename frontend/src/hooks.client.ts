@@ -1,7 +1,7 @@
-/*
+
 import * as Sentry from "@sentry/sveltekit";
 import {handleErrorWithSentry, replayIntegration} from "@sentry/sveltekit";
- */
+
 
 import {invoke} from "@tauri-apps/api/core";
 import {backendUrl} from "$lib/config";
@@ -22,7 +22,7 @@ window?.addEventListener('unhandledrejection', handleException);
 window?.addEventListener('error', handleException);
 
 
-/*const sentryEnabled = /^(true|1|yes|on)$/i.test((import.meta.env.VITE_SENTRY_ENABLED || '').trim());
+const sentryEnabled = /^(true|1|yes|on)$/i.test((import.meta.env.VITE_SENTRY_ENABLED || '').trim());
 console.log('🢄Sentry enabled:', sentryEnabled);
 if (sentryEnabled)
 {
@@ -54,13 +54,13 @@ if (sentryEnabled)
 		],
 	});
 }
-*/
+
 export async function handleError(eee: any): Promise<{ message: string }> {
 	console.error('🢄handleError:', eee.error);
-	/*if (sentryEnabled) {
+	if (sentryEnabled) {
 		return await handleErrorWithSentry(eee);
 	} else
-	*/
+
 	return { message: eee.message || 'An error occurred' };
 
 }
