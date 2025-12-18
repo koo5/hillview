@@ -39,3 +39,5 @@ ENV PORT=3000
 #RUN cat src/routes/+page.svelte
 
 CMD ["node", "build/index.js"]
+
+
