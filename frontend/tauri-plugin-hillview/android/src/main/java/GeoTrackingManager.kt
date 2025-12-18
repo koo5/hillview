@@ -277,21 +277,21 @@ class GeoTrackingManager(private val context: Context) {
 	}
 
 	private fun bearingsToCsv(bearings: List<BearingEntity>, sourceIdToName: Map<Int, String>): String {
-		val header = "timestamp,trueHeading,magneticHeading,headingAccuracy,accuracyLevel,source,pitch,roll\n"
+		val header = "#timestamp,trueHeading,magneticHeading,headingAccuracy,accuracyLevel,source,pitch,roll\n"
 		val rows = bearings.joinToString("\n") { bearing ->
 			val sourceName = escapeCsv(sourceIdToName[bearing.sourceId] ?: "unknown")
 			"${bearing.timestamp},${bearing.trueHeading},${bearing.magneticHeading ?: ""},${bearing.headingAccuracy ?: ""},${bearing.accuracyLevel ?: ""},${sourceName},${bearing.pitch ?: ""},${bearing.roll ?: ""}"
 		}
-		return header + rows
+		return header + rows + "\n"
 	}
 
 	private fun locationsToCsv(locations: List<LocationEntity>, sourceIdToName: Map<Int, String>): String {
-		val header = "timestamp,latitude,longitude,source,altitude,accuracy,verticalAccuracy,speed,bearing\n"
+		val header = "#timestamp,latitude,longitude,source,altitude,accuracy,verticalAccuracy,speed,bearing\n"
 		val rows = locations.joinToString("\n") { location ->
 			val sourceName = escapeCsv(sourceIdToName[location.sourceId] ?: "unknown")
 			"${location.timestamp},${location.latitude},${location.longitude},${sourceName},${location.altitude ?: ""},${location.accuracy ?: ""},${location.speed ?: ""},${location.bearing ?: ""}"
 		}
-		return header + rows
+		return header + rows + "\n"
 	}
 
 }

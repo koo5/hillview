@@ -423,3 +423,4 @@ pub(crate) async fn cmd<R: Runtime>(
 ) -> Result<Value> {
     app.hillview().cmd(command, params)
 }
+
