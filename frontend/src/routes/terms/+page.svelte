@@ -24,7 +24,7 @@
 			<div class="document-meta">
 				<div class="meta-item">
 					<Calendar size={16} />
-					<span>Last updated: December 2024</span>
+					<span>Last updated: December 2025</span>
 				</div>
 			</div>
 		</header>
@@ -66,7 +66,6 @@
 			</p>
 			<ul>
 				<li>You may upload photos that you own or have permission to use</li>
-				<li>Photos may be made public or kept private according to your settings</li>
 				<li>We process photos to extract metadata (GPS, orientation, etc.)</li>
 				<li>Our algorithms detect and blur people and vehicles to try to protect privacy</li>
 				<li>You are responsible for ensuring your content doesn't violate any laws or rights</li>
@@ -173,7 +172,7 @@
 			<p>
 				We may terminate or suspend your account and access to the service at any time,
 				without prior notice, for conduct that we believe violates these terms or is
-				harmful to other users or the service.
+				dangerous or harmful to yourself or other users or the service.
 			</p>
 		</section>
 

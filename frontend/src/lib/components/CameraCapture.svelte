@@ -96,7 +96,6 @@
 		deviceOrientationExif, relativeOrientationExif,
 		type ExifOrientation
 	} from "$lib/deviceOrientationExif";
-	import Quaternion from "quaternion";
 
 	const resolutionsLoading = writable<Set<string>>(new Set());
 
