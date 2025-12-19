@@ -204,7 +204,6 @@
         font-weight: 600;
     }
 
-    .steps-container h3,
     .login-instructions h3 {
         font-size: 1.125rem;
         font-weight: 600;
@@ -247,15 +246,6 @@
         gap: 24px;
     }
 
-    .login-steps ol {
-        margin: 0 0 16px 0;
-        padding-left: 20px;
-    }
-
-    .login-steps li {
-        margin-bottom: 8px;
-        color: #4b5563;
-    }
 
     .action-button {
         display: flex;

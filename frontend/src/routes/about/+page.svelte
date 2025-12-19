@@ -78,7 +78,7 @@
         </p>
         <p>
             Whether you're hiking, exploring new cities, or just curious about your surroundings, Hillview helps you
-            understand what you're seeing by showing you photos taken from similar positions pointing in the same direction.
+            understand what you're seeing by showing you photos taken from other positions pointing in the same direction.
         </p>
     </section>
 

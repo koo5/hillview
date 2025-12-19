@@ -2,9 +2,9 @@
 <!-- Created with Inkscape (http://www.inkscape.org/) -->
 
 <svg
-   width="420"
-   height="420"
-   viewBox="0 0 420 420"
+   width="512"
+   height="512"
+   viewBox="0 0 512 512"
    version="1.1"
    id="svg5"
    inkscape:version="1.2.2 (b0a8486541, 2022-12-01)"
@@ -26,12 +26,12 @@
      inkscape:document-units="px"
      showgrid="false"
      inkscape:zoom="1.1563064"
-     inkscape:cx="2.1620568"
-     inkscape:cy="215.34086"
+     inkscape:cx="54.91624"
+     inkscape:cy="180.31553"
      inkscape:window-width="1920"
-     inkscape:window-height="1019"
+     inkscape:window-height="1056"
      inkscape:window-x="0"
-     inkscape:window-y="37"
+     inkscape:window-y="0"
      inkscape:window-maximized="1"
      inkscape:current-layer="layer1" />
   <defs
@@ -66,19 +66,20 @@
        id="linearGradient10799"
        x1="32.513512"
        y1="243.0005"
-       x2="395.06001"
+       x2="395.06"
        y2="243.0005"
-       gradientUnits="userSpaceOnUse" />
+       gradientUnits="userSpaceOnUse"
+       gradientTransform="matrix(1.0691313,0,0,1.0691313,27.433876,-3.7994482)" />
     <radialGradient
        inkscape:collect="always"
        xlink:href="#linearGradient10805"
        id="radialGradient10807"
-       cx="240.6565"
+       cx="240.65649"
        cy="188.97942"
-       fx="240.6565"
+       fx="240.65649"
        fy="188.97942"
        r="109.7932"
-       gradientTransform="matrix(1,0,0,1.6880535,0,-130.02796)"
+       gradientTransform="matrix(1.0691313,0,0,1.8047509,26.054973,-142.73933)"
        gradientUnits="userSpaceOnUse" />
   </defs>
   <g
@@ -86,18 +87,18 @@
      inkscape:groupmode="layer"
      id="layer1">
     <ellipse
-       style="fill:url(#linearGradient10799);stroke:#2b0000;stroke-width:21.1931;stroke-dasharray:none;fill-opacity:1"
+       style="fill:url(#linearGradient10799);fill-opacity:1;stroke:#2b0000;stroke-width:22.6582;stroke-dasharray:none"
        id="path111"
-       cx="213.78676"
-       cy="243.0005"
-       rx="170.6767"
-       ry="162.34702" />
+       cx="256"
+       cy="256"
+       rx="182.4758"
+       ry="173.57028" />
     <path
        id="path269"
-       style="fill:url(#radialGradient10807);fill-opacity:1;stroke:#2b0000;stroke-width:42.1208;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;paint-order:stroke fill markers"
-       inkscape:transform-center-x="-22.89448"
-       inkscape:transform-center-y="-21.51562"
-       d="M 151.92358,353.25651 165.46307,24.697874 329.3904,304.71933 Z"
+       style="fill:url(#radialGradient10807);fill-opacity:1;stroke:#2b0000;stroke-width:45.0327;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;paint-order:stroke fill markers"
+       inkscape:transform-center-x="-24.477212"
+       inkscape:transform-center-y="-23.003025"
+       d="M 188.48124,373.95523 202.95672,22.682912 378.21658,322.06261 Z"
        sodipodi:nodetypes="cccc" />
   </g>
 </svg>
