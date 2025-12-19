@@ -121,6 +121,8 @@ function processAttributionTemplates(attribution: string, providers: any): strin
  * Get provider configuration from custom providers or leaflet-providers
  */
 export function getProviderConfig(providerName: ProviderName): TileProviderConfig {
+	providerName = providerName || DEFAULT_TILE_PROVIDER;
+
 	console.log('tileProviders.getProviderConfig()', providerName);
     // Check custom providers first
     if (CUSTOM_PROVIDERS[providerName]) {
