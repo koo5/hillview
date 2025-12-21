@@ -935,21 +935,6 @@
 		margin-bottom: 20px;
 	}
 
-	.login-notice {
-		background: #fff3cd;
-		color: #856404;
-		padding: 0.75em;
-		border-radius: 6px;
-		margin-top: 0.5em;
-	}
-
-	.urgent-login-notice {
-		background: #f8d7da;
-		color: #721c24;
-		font-weight: bold;
-		border: 2px solid #dc3545;
-		animation: urgentPulse 1s infinite alternate;
-	}
 
 	@keyframes urgentPulse {
 		0% {

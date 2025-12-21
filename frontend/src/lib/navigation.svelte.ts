@@ -78,6 +78,8 @@ export function navigateWithHistory(path: string, options?: { replaceState?: boo
  * Falls back to a default path if no history available
  */
 export function goBack(fallbackPath: string = '/') {
+	console.log(`🢄🧭 [NAV] goBack() called, fallbackPath="${fallbackPath}, browser=${browser}"`);
+
     if (!browser) return myGoto(fallbackPath);
 
     const history = get(navigationHistory);

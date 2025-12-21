@@ -89,11 +89,6 @@
 			Automatically upload photos taken with the app's camera, to be visible in hillview.cz and in the app.
 		</p>
 
-	<!-- License Selector -->
-	<div class="form-group">
-		<LicenseSelector required={true} />
-	</div>
-
 	<div class="form-group">
 		<div class="radio-group" class:disabled={$photoLicense === null}>
 			<label>
@@ -124,8 +119,13 @@
 				Disabled (Never prompt)
 			</label>
 		</div>
+
+		<div class="form-group">
+			<LicenseSelector required={true} />
+		</div>
+
 		{#if !user && autoUploadEnabled}
-			<div class="login-notice {autoUploadEnabled ? 'urgent-login-notice' : ''}">
+			<div class="urgent-login-notice">
 				<p>Please
 					<button type="button" class="login-link" on:click={goToLogin}>log in</button>
 					to upload photos.
@@ -169,10 +169,6 @@
 		cursor: pointer;
 	}
 
-	button {
-		margin-top: 1rem;
-	}
-
 	.alert {
 		margin-top: 1rem;
 		padding: 0.75rem 1rem;
@@ -187,6 +183,22 @@
 	.alert.error {
 		background-color: #f8d7da;
 		color: #721c24;
+	}
+
+	.login-notice {
+		background: #fff3cd;
+		color: #856404;
+		padding: 0.75em;
+		border-radius: 6px;
+		margin-top: 0.5em;
+	}
+
+	.urgent-login-notice {
+		background: #f8d7da;
+		color: #721c24;
+		font-weight: bold;
+		border: 2px solid #dc3545;
+		animation: urgentPulse 1s infinite alternate;
 	}
 
 </style>

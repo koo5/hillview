@@ -2266,6 +2266,26 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 					}
 				}
 
+				"geo_tracking_export" -> {
+					geoTrackingManager.dumpAndClear(forceDump = true)
+					Log.i(TAG, "🔧 Manual geo tracking export triggered")
+				}
+
+				"geo_tracking_set_auto_export" -> {
+					val enabled = params.getBoolean("enabled") ?: false
+					val prefs = activity.getSharedPreferences("hillview_tracking_prefs", Context.MODE_PRIVATE)
+					prefs.edit().putBoolean("auto_export", enabled).apply()
+					Log.i(TAG, "🔧 Set geo tracking auto_export: $enabled")
+				}
+
+				"geo_tracking_get_auto_export" -> {
+					val prefs = activity.getSharedPreferences("hillview_tracking_prefs", Context.MODE_PRIVATE)
+					val enabled = prefs.getBoolean("auto_export", false)
+					val result = JSObject()
+					result.put("enabled", enabled)
+					invoke.resolve(result)
+					return
+				}
 
 				else -> {
 					Log.w(TAG, "🔧 Unknown command: $command")
@@ -2374,6 +2394,12 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 		Log.d(TAG, "🔄 Activity onResume - resuming MyDeviceOrientationSensor and starting screen orientation listener")
 		myDeviceOrientationSensor.setSuspended(false)
 		startScreenOrientationListener()
+	}
+
+	override fun onStop() {
+		super.onStop()
+		Log.d(TAG, "🔄 Activity onStop - exporting geo tracking data if enabled")
+		geoTrackingManager.dumpAndClear()
 	}
 
 	/*	override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {

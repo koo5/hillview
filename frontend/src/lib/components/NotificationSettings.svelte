@@ -179,11 +179,6 @@
 
 <div class="notification-settings">
 	<h2>
-	{#if notificationsEnabled}
-			<Bell size={20} />
-		{:else}
-			<BellOff size={20} />
-		{/if}
 		Notifications
 	</h2>
 
@@ -265,10 +260,8 @@
 		align-items: center;
 		gap: 1rem;
 		cursor: pointer;
-		padding: 0.75rem;
 		border-radius: 0.5rem;
 		border: 1px solid #e5e7eb;
-		background: #f9fafb;
 		transition: all 0.2s ease;
 	}
 
@@ -342,9 +335,6 @@
 	}
 
 	.test-notification-button {
-		background: #e5e7eb;
-		color: #374151;
-		border: 1px solid #d1d5db;
 		padding: 0.5rem 1rem;
 		border-radius: 0.375rem;
 		font-size: 0.75rem;

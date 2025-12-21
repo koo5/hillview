@@ -12,6 +12,7 @@
     export let useSmartBack: boolean = true;
 
     function handleBackClick() {
+		console.log('StandardHeader: Back button clicked, useSmartBack=', useSmartBack);
         if (useSmartBack && canNavigateBack()) {
             goBack(fallbackHref);
         } else {

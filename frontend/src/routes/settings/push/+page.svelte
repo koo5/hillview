@@ -7,7 +7,7 @@
 <StandardHeaderWithAlert
 	title="Push Messaging"
 	showMenuButton={true}
-	fallbackHref="/settings"
+	fallbackHref="/settings/advanced"
 />
 
 <StandardBody>

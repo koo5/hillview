@@ -206,40 +206,51 @@ class GeoTrackingManager(private val context: Context) {
 		}
 	}
 
-	fun dumpAndClear() {
-		// todo: dump all data and clear all entries older than a certain timestamp
-
+	/**
+	 * Clears old geo tracking data and optionally exports to CSV.
+	 * @param forceDump If true, always export to CSV. If false, check auto_export preference.
+	 */
+	fun dumpAndClear(forceDump: Boolean = false) {
 		val now = System.currentTimeMillis()
 
-		// Use app's external files directory (no permissions needed)
-		val externalFilesDir = context.getExternalFilesDir(null)
-		val hillviewDir = File(externalFilesDir, "GeoTrackingDumps")
-		if (!hillviewDir.exists()) {
-			hillviewDir.mkdirs()
-		}
-
-		val bearingsFn = File(hillviewDir, "bearings_${now}.csv")
-		val locationsFn = File(hillviewDir, "locations_${now}.csv")
+		// Check if we should dump based on preference or force flag
+		val prefs = context.getSharedPreferences("hillview_tracking_prefs", Context.MODE_PRIVATE)
+		val autoExportEnabled = prefs.getBoolean("auto_export", false)
+		val shouldDump = forceDump || autoExportEnabled
 
 		CoroutineScope(Dispatchers.IO).launch {
-			try {
-				// Build reverse source cache for export
-				val sourceIdToName = buildSourceIdToNameMap()
+			if (shouldDump) {
+				// Use app's external files directory (no permissions needed)
+				val externalFilesDir = context.getExternalFilesDir(null)
+				val hillviewDir = File(externalFilesDir, "GeoTrackingDumps")
+				if (!hillviewDir.exists()) {
+					hillviewDir.mkdirs()
+				}
 
-				val bearings = database.bearingDao().getAllBearings()
-				val bearingsCsv = bearingsToCsv(bearings, sourceIdToName)
-				bearingsFn.writeText(bearingsCsv)
-				Log.i(TAG, "🢄📡 Dumped ${bearings.size} bearings to ${bearingsFn.absolutePath}")
+				val bearingsFn = File(hillviewDir, "hillview_orientations_${now}.csv")
+				val locationsFn = File(hillviewDir, "hillview_locations_${now}.csv")
 
-				val locations = database.locationDao().getAllLocations()
-				val locationsCsv = locationsToCsv(locations, sourceIdToName)
-				locationsFn.writeText(locationsCsv)
-				Log.i(TAG, "🢄📡 Dumped ${locations.size} locations to ${locationsFn.absolutePath}")
-			} catch (e: Exception) {
-				Log.e(TAG, "🢄📡 Failed to dump geo tracking data: ${e.message}", e)
+				try {
+					val sourceIdToName = buildSourceIdToNameMap()
+
+					val bearings = database.bearingDao().getAllBearings()
+					val bearingsCsv = bearingsToCsv(bearings, sourceIdToName)
+					bearingsFn.writeText(bearingsCsv)
+					Log.i(TAG, "🢄📡 Dumped ${bearings.size} bearings to ${bearingsFn.absolutePath}")
+
+					val locations = database.locationDao().getAllLocations()
+					val locationsCsv = locationsToCsv(locations, sourceIdToName)
+					locationsFn.writeText(locationsCsv)
+					Log.i(TAG, "🢄📡 Dumped ${locations.size} locations to ${locationsFn.absolutePath}")
+				} catch (e: Exception) {
+					Log.e(TAG, "🢄📡 Failed to dump geo tracking data: ${e.message}", e)
+				}
+			} else {
+				Log.d(TAG, "🢄📡 Skipping geo data dump (auto_export disabled)")
 			}
 
-			val cutoff = now - 5 * 60 * 1000
+			// Always clear old data
+			val cutoff = now// - 5 * 60 * 1000
 
 			try {
 				database.bearingDao().clearBearingsOlderThan(cutoff)
