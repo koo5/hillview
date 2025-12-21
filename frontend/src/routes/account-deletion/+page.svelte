@@ -393,14 +393,6 @@
             gap: 8px;
         }
 
-        .step {
-            flex-direction: column;
-            gap: 12px;
-        }
-
-        .step-number {
-            align-self: flex-start;
-        }
 
         .btn-primary,
         .btn-secondary {

@@ -1183,16 +1183,10 @@
 </div>
 
 <div class="source-buttons-container" class:compact={compactSourceButtons}>
-    <button
-        class="toggle-compact {compactSourceButtons ? 'active' : ''}"
-        on:click={() => compactSourceButtons = !compactSourceButtons}
-        title={compactSourceButtons ? "Show labels" : "Hide labels"}
-    >
-        <Layers size={16} />
-    </button>
     {#each $sources as source}
         <button
-                class={source.enabled ? 'active' : ''}
+
+                class=" source-button {source.enabled ? 'active' : ''}"
                 on:click={() => toggleSourceVisibility(source.id)}
                 title={`Toggle ${source.name} photos`}
                 data-testid={`source-toggle-${source.id}`}
@@ -1201,11 +1195,20 @@
                 <Spinner show={source.enabled && ($sourceLoadingStatus[source.id]?.is_loading || false)} color="#fff"></Spinner>
                 <div class="source-icon" style="background-color: {source.color}"></div>
             </div>
-            {#if !compactSourceButtons}
+			{#if !compactSourceButtons}
                 {source.name}
-            {/if}
+				{:else}
+				{source.name.charAt(0)}..
+			{/if}
         </button>
     {/each}
+    <button
+        class="toggle-compact {compactSourceButtons ? 'active' : ''}"
+        on:click={() => compactSourceButtons = !compactSourceButtons}
+        title={compactSourceButtons ? "Show labels" : "Hide labels"}
+    >
+        ...
+    </button>
 </div>
 
 
@@ -1231,7 +1234,7 @@
         display: flex;
         gap: 0.5rem;
         background-color: rgba(255, 255, 255, 0.1);
-        padding: 0.15rem;
+        padding: 0rem;
         border-radius: 0.5rem 0 0 0;
         box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
         pointer-events: auto; /* This makes the buttons clickable */
@@ -1324,7 +1327,7 @@
 
     .source-buttons-container {
         position: absolute;
-        top: 60px;
+        top: 70px;
         right: 5px;
         z-index: 30000;
         display: flex;
@@ -1332,6 +1335,7 @@
         gap: 0.5rem;
         margin: 0;
         padding: 0;
+		text-overflow: ellipsis;
     }
 
     .source-buttons-container button {
@@ -1397,9 +1401,6 @@
 
     /* Compact mode styles */
     .source-buttons-container.compact button {
-        padding: 0.5rem;
-        width: 40px;
-        height: 40px;
         justify-content: center;
     }
 
@@ -1423,8 +1424,8 @@
     }
 
     .toggle-compact.active {
-        background-color: #666 !important;
-        color: white !important;
+        background-color: #ddd !important;
+        color: black !important;
         border-color: #555 !important;
     }
 
@@ -1440,9 +1441,10 @@
 
     .provider-selector-container {
         position: absolute;
-        bottom: 15px;
+        top: 115px;
         left: 10px;
         z-index: 30000;
+		background-color: rgba(255, 255, 255, 0.5);
     }
 
 

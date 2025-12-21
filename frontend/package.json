@@ -47,11 +47,11 @@
     "crypto-js": "^4.2.0",
     "dexie": "^4.0.11",
     "io.appium.settings": "^6.0.4",
+    "svelte-leafletjs": "^2.0.0",
     "leaflet": "^1.9.4",
     "leaflet-providers": "^2.0.0",
     "lucide-svelte": "^0.476.0",
     "quaternion": "^2.2.0",
-    "svelte-leafletjs": "^2.0.0",
     "tauri": "^0.15.0",
     "tauri-plugin-hillview-api": "file:./tauri-plugin-hillview",
     "tsgeo": "^1.2.2"

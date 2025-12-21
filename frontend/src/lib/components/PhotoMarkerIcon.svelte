@@ -1,4 +1,7 @@
 <script>
+
+	/* PhotoMarkerIcon is used by map and gallery to indicate going to next/previous photo either clockwise or counter-clockwise */
+
 	import { optimizedMarkerSystem } from '$lib/optimizedMarkers';
 
 	export let bearing = 0;
@@ -14,7 +17,7 @@
 
 <style>
 	.photo-marker-icon {
-		width: px;
+		width: 24px;
 		height: 32px;
 	}
 </style>
