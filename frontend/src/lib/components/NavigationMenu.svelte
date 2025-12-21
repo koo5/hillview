@@ -122,17 +122,19 @@
 
 			<hr/>
 
-            <li>
-                <a href="http://hillview.cz/download" data-external-link="true" target="_blank" rel="noopener noreferrer">
-                    <Download size={18}/>
-                    Download App
-                </a>
-            </li>
-
             <li><a href="/about" on:click={closeMenu}>
                 <Info size={18}/>
                 About
             </a></li>
+
+			{#if !TAURI}
+				<li>
+					<a href="/download" data-external-link="true" target="_blank" rel="noopener noreferrer">
+						<Download size={18}/>
+						Download App
+					</a>
+				</li>
+			{/if}
 
 
 			<hr/>

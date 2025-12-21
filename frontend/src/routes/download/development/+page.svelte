@@ -22,11 +22,27 @@
         </div>
 
         <div class="download-section">
+            <a href="/downloads/release.html" class="download-button" data-testid="download-apk-button">
+                <Download size={24} />
+                Download Android APK
+            </a>
 
-			<Download size={24} />
-			Download Android APK from Google Play - <b>Coming Soon!</b>
+            <div class="info">
+                <h3>Installation Instructions</h3>
+                <ol>
+                    <li>Download the APK file above</li>
+                    <li>Enable "Install from unknown sources" in your Android settings</li>
+                    <li>Open the downloaded APK file and follow the installation prompts</li>
+                </ol>
+            </div>
 
-
+            <div class="requirements">
+                <h3>System Requirements</h3>
+                <ul>
+                    <li>Android 7.0 (API level 24) or higher</li>
+                    <li>Internet connection</li>
+                </ul>
+            </div>
         </div>
     </div>
 </StandardBody>
