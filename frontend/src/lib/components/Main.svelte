@@ -496,7 +496,8 @@
 	</button>
 {/if}
 
-{#if import.meta.env.VITE_DEV_MODE === 'true'}
+<!--{#if import.meta.env.VITE_DEV_MODE === 'true'}-->
+{#if $app.debug_enabled}
 	<button
 		on:click={toggleDebug}
 		class="debug-toggle"

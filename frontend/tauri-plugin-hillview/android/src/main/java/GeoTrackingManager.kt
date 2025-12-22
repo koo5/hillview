@@ -300,7 +300,7 @@ class GeoTrackingManager(private val context: Context) {
 		val header = "#timestamp,latitude,longitude,source,altitude,accuracy,verticalAccuracy,speed,bearing\n"
 		val rows = locations.joinToString("\n") { location ->
 			val sourceName = escapeCsv(sourceIdToName[location.sourceId] ?: "unknown")
-			"${location.timestamp},${location.latitude},${location.longitude},${sourceName},${location.altitude ?: ""},${location.accuracy ?: ""},${location.speed ?: ""},${location.bearing ?: ""}"
+			"${location.timestamp},${location.latitude},${location.longitude},${sourceName},${location.altitude ?: ""},${location.accuracy ?: ""},${location.verticalAccuracy ?: ""},${location.speed ?: ""},${location.bearing ?: ""}"
 		}
 		return header + rows + "\n"
 	}
