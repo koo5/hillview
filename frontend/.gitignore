@@ -47,3 +47,5 @@ chromedriver*
 debug_*
 window_dump.xml
 .mcp.json
+
+src-tauri/icons/icon.icns
