@@ -1,4 +1,5 @@
 use chrono;
+#[cfg(debug_assertions)]
 use img_parts::{jpeg::Jpeg, ImageEXIF};
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
