@@ -6,7 +6,9 @@ use std::sync::Mutex;
 use std::sync::OnceLock;
 use tauri::command;
 use tauri_plugin_hillview::HillviewExt;
-use crate::photo_exif::{create_exif_segment_structured, validate_photo_metadata, verify_exif_in_saved_file};
+use crate::photo_exif::{create_exif_segment_structured, validate_photo_metadata};
+#[cfg(debug_assertions)]
+use crate::photo_exif::verify_exif_in_saved_file;
 use crate::types::PhotoMetadata;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

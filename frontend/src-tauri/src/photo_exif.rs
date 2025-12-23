@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::types::PhotoMetadata;
 
 // EXIF tag constants for readability
+#[cfg(target_os = "android")]
 mod exif_tags {
     // IFD0 tags
     pub const ORIENTATION: u16 = 0x0112;
@@ -28,6 +29,7 @@ mod exif_tags {
 }
 
 // EXIF data types
+#[cfg(target_os = "android")]
 #[derive(Debug)]
 #[allow(dead_code)]
 enum ExifValue {
@@ -40,6 +42,7 @@ enum ExifValue {
 }
 
 // EXIF entry structure
+#[cfg(target_os = "android")]
 #[derive(Debug)]
 struct ExifEntry {
     tag: u16,
@@ -47,6 +50,7 @@ struct ExifEntry {
 }
 
 // Builder for maintaining EXIF structure
+#[cfg(target_os = "android")]
 struct ExifBuilder {
     ifd0_entries: Vec<ExifEntry>,
     gps_entries: Vec<ExifEntry>,
@@ -60,8 +64,7 @@ struct ProvenanceData {
 	bearing_source: String,
 }
 
-
-
+#[cfg(target_os = "android")]
 impl ExifBuilder {
     fn new() -> Self {
         Self {
@@ -450,6 +453,7 @@ impl ExifBuilder {
     }
 }
 
+#[cfg(target_os = "android")]
 pub fn create_exif_segment_structured(metadata: &PhotoMetadata) -> Vec<u8> {
     info!(
         "Creating structured EXIF for: lat={}, lon={}, alt={:?}, bearing={:?}, orientation={:?}",
@@ -853,11 +857,8 @@ fn create_exif_segment_simple(metadata: &PhotoMetadata) -> Vec<u8> {
 
 /// Debug function to verify EXIF data can be read back from saved photos
 /// Available in debug builds for troubleshooting EXIF issues
-
-#[allow(dead_code)]
-pub async fn verify_exif_in_saved_file(file_path: &std::path::Path, expected_metadata: &PhotoMetadata) {
 #[cfg(debug_assertions)]
-{
+pub async fn verify_exif_in_saved_file(file_path: &std::path::Path, expected_metadata: &PhotoMetadata) {
 
 	// Try reading with img-parts first to verify structure
 	if let Ok(file_data) = std::fs::read(&file_path) {
@@ -937,10 +938,8 @@ pub async fn verify_exif_in_saved_file(file_path: &std::path::Path, expected_met
 		}
 	}
 }
-}
 
-
-
+#[cfg(debug_assertions)]
 pub async fn read_photo_exif(path: String) -> Result<PhotoMetadata, String> {
 	// First try using img-parts to extract EXIF data
 	let file_data = std::fs::read(&path).map_err(|e| format!("Failed to read file: {}", e))?;

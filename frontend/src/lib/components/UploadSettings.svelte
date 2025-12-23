@@ -90,6 +90,11 @@
 		</p>
 
 	<div class="form-group">
+
+		<div class="form-group">
+			<LicenseSelector required={true} />
+		</div>
+
 		<div class="radio-group" class:disabled={$photoLicense === null}>
 			<label>
 				<input type="radio"
@@ -118,10 +123,6 @@
 					   data-testid="auto-upload-disabled-never"/>
 				Disabled (Never prompt)
 			</label>
-		</div>
-
-		<div class="form-group">
-			<LicenseSelector required={true} />
 		</div>
 
 		{#if !user && autoUploadEnabled}

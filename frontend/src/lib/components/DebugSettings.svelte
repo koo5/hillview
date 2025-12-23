@@ -12,3 +12,5 @@
 		bind:checked={$app.debug_enabled}
 	/>
 </div>
+
+<style></style>

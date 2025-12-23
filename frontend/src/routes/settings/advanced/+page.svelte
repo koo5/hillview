@@ -118,7 +118,10 @@
 			<label for="auto-export-checkbox">Automatically export on app start/exit</label>
 		</p>
 
+		<div class="section-divider"></div>
 	{/if}
+	<br/>
+	<br/>
 
 </StandardBody>
 
@@ -126,6 +129,7 @@
 	.section-divider {
 		height: 1px;
 		background-color: #e5e7eb;
+		padding: 1rem 0;
 	}
 
 	.settings-navigation-link {
