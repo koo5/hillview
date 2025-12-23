@@ -59,6 +59,7 @@
 
 		<!-- Advanced Settings -->
 		<div class="section-divider"></div>
+
 		<h2>Advanced</h2>
 		<a href="/settings/advanced" class="settings-navigation-link" data-testid="advanced-menu-link">
 			<Settings size={18} />
@@ -83,7 +84,7 @@
 
 	.section-divider {
 		height: 1px;
-		background-color: #e5e7eb;
+		padding: 0.5rem 0;
 	}
 
 

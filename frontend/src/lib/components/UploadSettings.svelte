@@ -91,9 +91,7 @@
 
 	<div class="form-group">
 
-		<div class="form-group">
-			<LicenseSelector required={true} />
-		</div>
+		<LicenseSelector required={true} />
 
 		<div class="radio-group" class:disabled={$photoLicense === null}>
 			<label>

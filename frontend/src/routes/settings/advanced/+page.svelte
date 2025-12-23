@@ -128,8 +128,7 @@
 <style>
 	.section-divider {
 		height: 1px;
-		background-color: #e5e7eb;
-		padding: 1rem 0;
+		padding: 0.5rem 0;
 	}
 
 	.settings-navigation-link {

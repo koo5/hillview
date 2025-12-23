@@ -19,7 +19,7 @@
     }
 </script>
 
-<div class="license-selector" class:disabled>
+
     <label class="checkbox-label">
         <input
             type="checkbox"
@@ -51,27 +51,13 @@
         </div>
     </label>
 
-</div>
-
 <style>
-    .license-selector {
-        transition: opacity 0.2s ease;
-    }
-
-    .license-selector.disabled {
-        opacity: 0.6;
-        pointer-events: none;
-    }
 
     .checkbox-label {
         display: flex;
         align-items: flex-start;
         gap: 12px;
         cursor: pointer;
-        padding: 16px;
-        border: 1px solid #e5e7eb;
-        border-radius: 8px;
-        background: white;
         transition: all 0.2s ease;
     }
 
@@ -81,7 +67,7 @@
     }
 
     input[type="checkbox"] {
-        margin: 2px 0 0 0;
+        margin: 0 0 0 0;
         width: 18px;
         height: 18px;
         flex-shrink: 0;
