@@ -74,7 +74,7 @@ export const DEFAULT_TILE_PROVIDER: ProviderName = //'tiles.ueueeu.eu'
 'OpenStreetMap.Mapnik';
 
 // Current selected provider (can be changed at runtime)
-export const currentTileProvider = localStorageSharedStore<ProviderName>(DEFAULT_TILE_PROVIDER);
+export const currentTileProvider = localStorageSharedStore<ProviderName>('currentTileProvider', DEFAULT_TILE_PROVIDER);
 
 /**
  * Set the current tile provider

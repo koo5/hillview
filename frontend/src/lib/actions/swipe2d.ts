@@ -125,7 +125,7 @@ export function swipe2d(node: HTMLElement, initialOptions: Swipe2DOptions) {
 			const syntheticEvent = {
 				target: targetElement,
 				propertyName: 'transform'
-			} as TransitionEvent;
+			} as unknown as TransitionEvent;
 
 			// Call the handler directly
 			listener(syntheticEvent);

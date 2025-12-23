@@ -230,13 +230,6 @@
         color: #991b1b;
     }
 
-    .feature-disabled {
-        padding: 12px 24px;
-        color: #9ca3af;
-        font-size: 0.9rem;
-        font-style: italic;
-    }
-
     .build-info {
         padding: 16px 24px;
         background: #f9fafb;

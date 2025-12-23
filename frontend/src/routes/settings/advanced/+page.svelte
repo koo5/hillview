@@ -123,12 +123,6 @@
 </StandardBody>
 
 <style>
-	.settings-container {
-		padding: 20px;
-		max-width: 600px;
-		margin: 0 auto;
-	}
-
 	.section-divider {
 		height: 1px;
 		background-color: #e5e7eb;

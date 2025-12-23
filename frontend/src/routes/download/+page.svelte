@@ -74,53 +74,6 @@
         border: 1px solid rgba(255, 255, 255, 0.2);
     }
 
-    .download-button {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.75rem;
-        background: #4a90e2;
-        color: white;
-        text-decoration: none;
-        padding: 1rem 2rem;
-        border-radius: 8px;
-        font-size: 1.2rem;
-        font-weight: 500;
-        margin-bottom: 2.5rem;
-        transition: all 0.3s ease;
-        box-shadow: 0 4px 12px rgba(74, 144, 226, 0.3);
-    }
-
-    .download-button:hover {
-        background: #357abd;
-        transform: translateY(-2px);
-        box-shadow: 0 6px 20px rgba(74, 144, 226, 0.4);
-    }
-
-    .info, .requirements {
-        text-align: left;
-        margin-bottom: 2rem;
-    }
-
-    .info:last-child, .requirements:last-child {
-        margin-bottom: 0;
-    }
-
-    h3 {
-        font-size: 1.5rem;
-        margin: 0 0 1rem 0;
-        font-weight: 400;
-    }
-
-    ol, ul {
-        padding-left: 1.5rem;
-        line-height: 1.6;
-    }
-
-    li {
-        margin-bottom: 0.5rem;
-        opacity: 0.9;
-    }
-
     @media (max-width: 768px) {
         .content {
             padding: 1rem;
@@ -136,11 +89,6 @@
 
         .download-section {
             padding: 1.5rem;
-        }
-
-        .download-button {
-            padding: 0.875rem 1.5rem;
-            font-size: 1.1rem;
         }
     }
 </style>

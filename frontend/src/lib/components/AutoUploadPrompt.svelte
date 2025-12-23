@@ -23,8 +23,8 @@
 		schedulePromptCheck();
 	}
 
-	let authed;
-	$: authed = $auth.is_authenticated &&!!$auth.user;
+	let authed: boolean;
+	$: authed = $auth.is_authenticated && !!$auth.user;
 
 	function schedulePromptCheck() {
 		// Clear any existing timers

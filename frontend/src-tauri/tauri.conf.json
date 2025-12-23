@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Hillview",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "identifier": "cz.hillview",
   "build": {
     "frontendDist": "../build",
@@ -27,7 +27,7 @@
   "enable": true,
   "scope": [
     "/storage/emulated/0/Pictures/Hillview/**",
-    "/storage/emulated/0/Android/data/cz.hillview.dev/files/Pictures/**"
+    "/storage/emulated/0/Android/data/cz.hillview/files/Pictures/**"
   ]
 }
     }
@@ -44,7 +44,6 @@
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
-      "icons/icon.icns",
       "icons/icon.ico"
     ]
   }

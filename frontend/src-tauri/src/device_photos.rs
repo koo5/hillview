@@ -1,4 +1,4 @@
-use img_parts::{jpeg::Jpeg, ImageEXIF};
+use img_parts::ImageEXIF;
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -45,7 +45,7 @@ fn save_to_pictures_directory(
 ) -> Result<std::path::PathBuf, std::io::Error> {
 	let folder_name = if hide_from_gallery { ".Hillview" } else { "Hillview" };
 	let public_pictures_dir = "/storage/emulated/0/Pictures";
-	let private_pictures_dir = "/storage/emulated/0/Android/data/cz.hillviedev/files/Pictures";
+	let private_pictures_dir = format!("/storage/emulated/0/Android/data/{}/files/Pictures", env!("ANDROID_PACKAGE_NAME"));
 
 	let public_pictures_path = std::path::Path::new(public_pictures_dir).join(folder_name);
 
@@ -59,7 +59,7 @@ fn save_to_pictures_directory(
 			warn!("🢄⚠️  Failed to save to public Pictures ({}), trying private directory...", e);
 
 			// Fall back to private directory
-			let private_pictures_path = std::path::Path::new(private_pictures_dir).join(folder_name);
+			let private_pictures_path = std::path::Path::new(&private_pictures_dir).join(folder_name);
 			let photo_path = save_to_directory(&private_pictures_path, filename, image_data, hide_from_gallery)?;
 
 			info!("🢄✅ Photo saved to private directory: {:?}", photo_path);

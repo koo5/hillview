@@ -27,6 +27,7 @@ export interface PhotoData {
     url: string;
     coord: LatLng;
     bearing: number;
+    pitch?: number;
     altitude: number;
     source?: Source;
     sizes?: Record<string, PhotoSize>;

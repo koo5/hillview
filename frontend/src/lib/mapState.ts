@@ -198,18 +198,22 @@ function photoUpDownLogic(direction: 'up' | 'down') {
 	const front = get(photoInFront);
 	if (!front) return null;
 
+	const frontPitch = front.pitch ?? 0;
 	const targetBearing = front.bearing;
 	const bearingThreshold = 5; // degrees
 	for (const photo of inRange) {
 		if (photo.uid === front.uid) continue;
+		const photoPitch = photo.pitch ?? 0;
 		const bearingDiff = calculateAbsBearingDiff(photo.bearing, targetBearing);
 		if (bearingDiff <= bearingThreshold) {
-			if (direction === 'up' && photo.pitch > front.pitch) {
-				if (!winner || photo.pitch > winner.pitch) {
+			if (direction === 'up' && photoPitch > frontPitch) {
+				const winnerPitch = winner?.pitch ?? 0;
+				if (!winner || photoPitch > winnerPitch) {
 					winner = photo;
 				}
-			} else if (direction === 'down' && photo.pitch < front.pitch) {
-				if (!winner || photo.pitch < winner.pitch) {
+			} else if (direction === 'down' && photoPitch < frontPitch) {
+				const winnerPitch = winner?.pitch ?? 0;
+				if (!winner || photoPitch < winnerPitch) {
 					winner = photo;
 				}
 			}

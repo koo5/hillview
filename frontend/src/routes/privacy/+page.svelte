@@ -304,20 +304,6 @@
 		margin-bottom: 8px;
 	}
 
-	.privacy-features {
-		background: #f0fdf4;
-		border: 2px solid #bbf7d0;
-		border-radius: 8px;
-		margin: 16px 0;
-	}
-
-	.privacy-notice {
-		background: white;
-		padding: 24px;
-		border-radius: 6px;
-		border: 1px solid #d1fae5;
-	}
-
 	.limitation-notice {
 		background: #fef3c7;
 		border: 1px solid #f59e0b;
@@ -406,10 +392,6 @@
 
 		.document-section {
 			padding: 24px;
-		}
-
-		.privacy-notice {
-			padding: 20px;
 		}
 
 		.limitation-notice {

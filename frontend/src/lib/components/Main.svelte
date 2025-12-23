@@ -16,7 +16,6 @@
 		toggleDebug,
 		turn_to_photo_to,
 		enableSourceForPhotoUid,
-		type DisplayMode,
 		splitPercent
 	} from "$lib/data.svelte.js";
 	import {resizableSplit} from '$lib/actions/resizableSplit';
