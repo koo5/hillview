@@ -86,7 +86,7 @@ class DevicePhotoLoader(private val context: Context) {
 
     private fun convertToPhotoData(photoEntity: PhotoEntity, source: SourceConfig): PhotoData {
         // content:// URIs stay as-is, file paths get file:// prefix
-        val fileUrl = if (photoEntity.path.startsWith("content://")) {
+        val fileUrl = if (PhotoUtils.isContentUri(photoEntity.path)) {
             photoEntity.path
         } else {
             "file://${photoEntity.path}"

@@ -485,7 +485,7 @@ class PhotoUploadLogic(private val context: Context) {
 		workerUrl: String,
 		photoId: String
 	): Boolean {
-		val mediaType = getContentType(filename).toMediaType()
+		val mediaType = PhotoUtils.getContentType(filename).toMediaType()
 
 		val requestBody = MultipartBody.Builder()
 			.setType(MultipartBody.FORM)
@@ -878,7 +878,7 @@ class PhotoUploadLogic(private val context: Context) {
 
     private suspend fun validatePhotoForUpload(photo: PhotoEntity): Boolean {
         // Check if file still exists (works for both file paths and content:// URIs)
-        if (!pathExists(photo.path)) {
+        if (!PhotoUtils.pathExists(context, photo.path)) {
             Log.w(TAG, "Photo file no longer exists: ${photo.path}, marking as failed")
             photoDao.updateUploadFailure(
                 photo.id,
