@@ -66,7 +66,9 @@
 			console.log('🔔 Requesting notification permission via Tauri...');
 			console.log('🔔 Current permission state before request:', permissionGranted);
 
-			const result = await invoke<string>('plugin:hillview|request_post_notification_permission');
+			const result = await invoke<string>('plugin:hillview|request_tauri_permission', {
+				permission: 'post_notification'
+			});
 
 			console.log('🔔 Notification permission request result:', JSON.stringify(result));
 
