@@ -23,13 +23,13 @@ set -q FORMAT; or set -gx FORMAT "--apk" # apk or aab
 bun run tauri android build $FORMAT #true
 
 if test $status -eq 0
-	if "$FORMAT" = "aab"
+	if test "$FORMAT" = "aab"
 		echo "✅ Release AAB build successful!"
 		echo "📦 AAB locations:"
 		find src-tauri/gen/android/app/build/outputs/bundle -name "*.aab" -type f | while read aab
 			echo "  📱 "(basename $aab)": "(du -h $aab | cut -f1)
 		end
-	else if "$FORMAT" = "apk"
+	else if test "$FORMAT" = "apk"
 		echo "✅ Release APK build successful!"
 		echo "📦 APK locations:"
 		find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" -type f | while read apk
