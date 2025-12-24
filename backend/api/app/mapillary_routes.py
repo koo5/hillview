@@ -584,13 +584,14 @@ async def stream_mapillary_images(
 			detail=f"Failed to create stream: {str(e)}"
 		)
 
+# DISUSED: This endpoint is no longer actively used by the frontend
 @router.get("/stats")
 async def get_cache_stats(
 	request: Request,
 	db: AsyncSession = Depends(get_db),
 	current_user: Optional[User] = Depends(get_current_user_optional_with_query)
 ):
-	"""Get cache statistics"""
+	"""Get cache statistics. DISUSED - kept for potential debugging purposes."""
 	# Apply rate limiting with optional user context (better limits for authenticated users)
 	await general_rate_limiter.enforce_rate_limit(request, 'public_read', current_user)
 
@@ -603,12 +604,13 @@ async def get_cache_stats(
 		"api": api_stats
 	}
 
+# DISUSED: This endpoint is no longer actively used by the frontend
 @router.get("/api-stats")
 async def get_api_stats(
 	request: Request,
 	current_user: Optional[User] = Depends(get_current_user_optional_with_query)
 ):
-	"""Get Mapillary API usage statistics"""
+	"""Get Mapillary API usage statistics. DISUSED - kept for potential debugging purposes."""
 	# Apply rate limiting with optional user context (better limits for authenticated users)
 	await general_rate_limiter.enforce_rate_limit(request, 'public_read', current_user)
 

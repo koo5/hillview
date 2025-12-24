@@ -8,6 +8,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import okhttp3.MediaType.Companion.toMediaType
@@ -380,7 +381,7 @@ class PushDistributorManager(private val context: Context) {
      * Register push endpoint with backend server
      * Called from UnifiedPushService when endpoint is received
      */
-    suspend fun registerWithBackend(endpoint: String): Boolean {
+    suspend fun registerWithBackend(endpoint: String): Boolean = withContext(Dispatchers.IO) {
         Log.d(TAG, "🔑 Starting backend registration for endpoint: ${endpoint.take(50)}...")
         // Note: Caller should hold registrationMutex to avoid race conditions
         try {
@@ -393,7 +394,7 @@ class PushDistributorManager(private val context: Context) {
                 Log.e(TAG, error)
                 setLastError(error)
                 setRegistrationStatus("failed")
-                return false
+                return@withContext false
             }
 
             // Get auth token if available (but don't require it)
@@ -411,7 +412,7 @@ class PushDistributorManager(private val context: Context) {
                 Log.e(TAG, error)
                 setLastError(error)
                 setRegistrationStatus("failed")
-                return false
+                return@withContext false
             }
 
             // Generate signature for push registration
@@ -426,7 +427,7 @@ class PushDistributorManager(private val context: Context) {
                 Log.e(TAG, error)
                 setLastError(error)
                 setRegistrationStatus("failed")
-                return false
+                return@withContext false
             }
 
             // Prepare registration request
@@ -480,13 +481,13 @@ class PushDistributorManager(private val context: Context) {
                     .apply()
 
                 Log.d(TAG, "Push endpoint registered successfully with backend")
-                return true
+                return@withContext true
             } else {
                 val error = "Backend registration failed: HTTP ${response.code}"
                 Log.e(TAG, error)
                 setLastError(error)
                 setRegistrationStatus("failed")
-                return false
+                return@withContext false
             }
 
         } catch (e: java.net.SocketTimeoutException) {
@@ -494,25 +495,25 @@ class PushDistributorManager(private val context: Context) {
             Log.e(TAG, "⏰ $error", e)
             setLastError(error)
             setRegistrationStatus("failed")
-            return false
+            return@withContext false
         } catch (e: java.net.ConnectException) {
             val error = "Backend registration failed - connection refused"
             Log.e(TAG, "🔌 $error", e)
             setLastError(error)
             setRegistrationStatus("failed")
-            return false
+            return@withContext false
         } catch (e: java.io.IOException) {
             val error = "Backend registration failed - network error: ${e.message}"
             Log.e(TAG, "🌐 $error", e)
             setLastError(error)
             setRegistrationStatus("failed")
-            return false
+            return@withContext false
         } catch (e: Exception) {
             val error = "Exception during backend registration: ${e.javaClass.simpleName}: ${e.message}"
             Log.e(TAG, "❌ $error", e)
             setLastError(error)
             setRegistrationStatus("failed")
-            return false
+            return@withContext false
         }
     }
 

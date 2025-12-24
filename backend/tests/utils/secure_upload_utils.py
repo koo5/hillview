@@ -91,14 +91,10 @@ class SecureUploadClient:
 		from cryptography.hazmat.primitives import hashes
 
 		# Create the exact message format that matches both frontend and API server
-		# Frontend uses: JSON.stringify({...}, null, 0)
-		# Backend API expects: json.dumps({...}, separators=(',', ':'))
-		# Both produce the same compact JSON format
-		message_data = {
-			"photo_id": photo_id,
-			"filename": filename,
-			"timestamp": timestamp
-		}
+		# Frontend uses: JSON.stringify([filename, photo_id, timestamp], null, 0)
+		# Backend API expects: json.dumps([filename, photo_id, timestamp], separators=(',', ':'))
+		# Both produce the same compact JSON array format
+		message_data = [filename, photo_id, timestamp]
 		message = json.dumps(message_data, separators=(',', ':'))  # Compact JSON, no spaces
 
 		# Sign the message using the client's private key
