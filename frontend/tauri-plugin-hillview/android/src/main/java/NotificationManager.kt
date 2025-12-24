@@ -37,67 +37,84 @@ class NotificationManager(private val context: Context) {
     }
 
     /**
-     * Check for new notifications and display them
-     * Handles its own threading - safe to call from any thread
+     * Check for new notifications and display them.
+     * Throws on failure (no server URL, API error, etc.)
      */
-    fun checkForNewNotifications() {
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val serverUrl = getServerUrl() ?: run {
-                    Log.e(TAG, "No server URL configured")
-                    return@launch
-                }
+    suspend fun checkForNewNotifications() {
+        val serverUrl = getServerUrl()
+            ?: throw Exception("No server URL configured")
 
-                val notifications = fetchNotifications(serverUrl)
-                if (notifications.isNotEmpty()) {
-                    displayNotifications(notifications)
-                }
+        Log.d(TAG, "📡 Fetching notifications from: $serverUrl")
+        val notifications = fetchNotifications(serverUrl)
+        Log.d(TAG, "📬 Fetched ${notifications.size} unread notifications")
 
-            } catch (e: Exception) {
-                Log.e(TAG, "Error checking notifications", e)
+        if (notifications.isNotEmpty()) {
+            displayNotifications(notifications)
+        } else {
+            Log.d(TAG, "📭 No unread notifications to display")
+        }
+    }
+
+    /**
+     * Display a single notification with given content (used as fallback)
+     */
+    fun displaySingleNotification(title: String, body: String, route: String?) {
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as AndroidNotificationManager
+
+        val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            if (route != null) {
+                putExtra("click_action", route)
             }
         }
+
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            System.currentTimeMillis().toInt(),
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+        )
+
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+
+        notificationManager.notify(System.currentTimeMillis().toInt(), builder.build())
+        Log.d(TAG, "Displayed fallback notification: $title with route: $route")
     }
 
     private suspend fun fetchNotifications(serverUrl: String): List<HillviewNotification> {
         return withContext(Dispatchers.IO) {
-            try {
-                val url = "$serverUrl/notifications/recent?limit=5"
-                val client = OkHttpClient()
+            val url = "$serverUrl/notifications/recent?limit=5"
+            val client = OkHttpClient()
 
-                // Try to get a valid auth token first
-                val token = authManager.getValidToken()
-                val requestBuilder = Request.Builder().url(url)
+            // Try to get a valid auth token first
+            val token = authManager.getValidToken()
+            val requestBuilder = Request.Builder().url(url)
 
-                if (token != null) {
-                    // Use token-based authentication if available
-                    requestBuilder.header("Authorization", "Bearer $token")
-                    Log.d(TAG, "Using token-based authentication for notifications")
-                } else {
-                    // Fall back to client key signature authentication
-                    Log.d(TAG, "No token available, using client key authentication for notifications")
-                    // For anonymous notification fetching, we can make the request without auth
-                    // The backend should handle both authenticated and anonymous requests
-                }
-
-                val request = requestBuilder.build()
-
-                val response = client.newCall(request).execute()
-                if (response.isSuccessful) {
-                    val body = response.body?.string()
-                    if (body != null) {
-                        parseNotifications(body)
-                    } else {
-                        emptyList()
-                    }
-                } else {
-                    Log.e(TAG, "Failed to fetch notifications: ${response.code}")
-                    emptyList()
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Exception fetching notifications", e)
-                emptyList()
+            if (token != null) {
+                requestBuilder.header("Authorization", "Bearer $token")
+                Log.d(TAG, "Using token-based authentication for notifications")
+            } else {
+                Log.d(TAG, "No token available, skipping notification fetch")
+                throw Exception("No auth token available")
             }
+
+            val request = requestBuilder.build()
+            val response = client.newCall(request).execute()
+
+            if (!response.isSuccessful) {
+                throw Exception("Failed to fetch notifications: ${response.code}")
+            }
+
+            val body = response.body?.string()
+                ?: throw Exception("Empty response body")
+
+            parseNotifications(body)
         }
     }
 
