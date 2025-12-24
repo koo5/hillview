@@ -77,6 +77,41 @@ class PhotoUploadLogic(private val context: Context) {
 	private val clientCrypto by lazy { ClientCryptoManager(context) }
 	private val notificationHelper by lazy { NotificationHelper(context) }
 
+	/**
+	 * Read bytes from a path (either file path or content:// URI)
+	 */
+	private fun readBytesFromPath(path: String): ByteArray? {
+		return try {
+			if (path.startsWith("content://")) {
+				// Read via ContentResolver for content:// URIs
+				val uri = android.net.Uri.parse(path)
+				context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+			} else {
+				// Read directly from file system
+				File(path).readBytes()
+			}
+		} catch (e: Exception) {
+			Log.e(TAG, "Failed to read bytes from path: $path", e)
+			null
+		}
+	}
+
+	/**
+	 * Check if a path exists (either file path or content:// URI)
+	 */
+	private fun pathExists(path: String): Boolean {
+		return try {
+			if (path.startsWith("content://")) {
+				val uri = android.net.Uri.parse(path)
+				context.contentResolver.openInputStream(uri)?.use { true } ?: false
+			} else {
+				File(path).exists()
+			}
+		} catch (e: Exception) {
+			false
+		}
+	}
+
 
 	data class UploadAuthorizationResponse(
 		val upload_jwt: String,
@@ -318,14 +353,14 @@ class PhotoUploadLogic(private val context: Context) {
 		try {
 			Log.d(TAG, "Starting secure upload for photo: ${photo.filename}")
 
-			val file = File(photo.path)
-			if (!file.exists()) {
+			if (!pathExists(photo.path)) {
 				Log.e(TAG, "Photo file does not exist: ${photo.path}")
 				return@withContext false
 			}
 
 			// Step 1: Request upload authorization (includes PhotoEntity geolocation)
-			val authResponse = requestUploadAuthorization(photo, file)
+			// Note: Uses photo.fileSize from database, doesn't need to read file yet
+			val authResponse = requestUploadAuthorization(photo)
 			Log.d(TAG, "Upload authorized, response: $authResponse")
 
 			// Step 2: Generate client signature using authorization timestamp
@@ -339,8 +374,15 @@ class PhotoUploadLogic(private val context: Context) {
 			Log.d(TAG, "Client signature generated for: ${photo.filename} with key ${signatureData.keyId}")
 
 			// Step 3: Upload to worker (using worker_url from auth response)
+			// Read file bytes only now, when we actually need them
+			val fileBytes = readBytesFromPath(photo.path)
+			if (fileBytes == null) {
+				Log.e(TAG, "Failed to read photo file for upload: ${photo.path}")
+				return@withContext false
+			}
+
 			val uploadSuccess = uploadToWorker(
-				file,
+				fileBytes,
 				photo.filename,
 				authResponse.upload_jwt,
 				signatureData.signature,
@@ -375,11 +417,11 @@ class PhotoUploadLogic(private val context: Context) {
 	/**
 	 * Request upload authorization from API server using PhotoEntity data
 	 */
-	private suspend fun requestUploadAuthorization(photo: PhotoEntity, file: File): UploadAuthorizationResponse {
+	private suspend fun requestUploadAuthorization(photo: PhotoEntity): UploadAuthorizationResponse {
 		val serverUrl = getServerUrl() ?: throw Exception("Server URL not configured")
 		val authToken = authManager.getValidToken() ?: throw Exception("No valid auth token")
 
-		val contentType = when (file.extension.lowercase()) {
+		val contentType = when (photo.filename.substringAfterLast('.').lowercase()) {
 			"jpg", "jpeg" -> "image/jpeg"
 			"png" -> "image/png"
 			"webp" -> "image/webp"
@@ -476,14 +518,14 @@ class PhotoUploadLogic(private val context: Context) {
 	 * Upload file to worker with JWT and client signature
 	 */
 	private suspend fun uploadToWorker(
-		file: File,
+		fileBytes: ByteArray,
 		filename: String,
 		uploadJwt: String,
 		signature: String,
 		workerUrl: String,
 		photoId: String
 	): Boolean {
-		val mediaType = when (file.extension.lowercase()) {
+		val mediaType = when (filename.substringAfterLast('.').lowercase()) {
 			"jpg", "jpeg" -> "image/jpeg".toMediaType()
 			"png" -> "image/png".toMediaType()
 			"webp" -> "image/webp".toMediaType()
@@ -494,8 +536,8 @@ class PhotoUploadLogic(private val context: Context) {
 			.setType(MultipartBody.FORM)
 			.addFormDataPart(
 				"file",
-				filename,  // Use original filename from PhotoEntity
-				file.asRequestBody(mediaType)
+				filename,
+				fileBytes.toRequestBody(mediaType)
 			)
 			.addFormDataPart("client_signature", signature)
 			.build()
@@ -880,8 +922,8 @@ class PhotoUploadLogic(private val context: Context) {
     }
 
     private suspend fun validatePhotoForUpload(photo: PhotoEntity): Boolean {
-        // Check if file still exists
-        if (!File(photo.path).exists()) {
+        // Check if file still exists (works for both file paths and content:// URIs)
+        if (!pathExists(photo.path)) {
             Log.w(TAG, "Photo file no longer exists: ${photo.path}, marking as failed")
             photoDao.updateUploadFailure(
                 photo.id,

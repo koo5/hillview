@@ -165,7 +165,7 @@ class CmdArgs {
 }
 
 @InvokeArg
-class SavePhotoToGalleryArgs {
+class SavePhotoToMediaStoreArgs {
 	var filename: String? = null
 	var imageData: ByteArray = byteArrayOf()
 	var hideFromGallery: Boolean? = null
@@ -2300,10 +2300,10 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 	}
 
 	@Command
-	fun savePhotoToGallery(invoke: Invoke) {
+	fun savePhotoToMediaStore(invoke: Invoke) {
 		try {
-			val args = invoke.parseArgs(SavePhotoToGalleryArgs::class.java)
-			Log.d(TAG, "📷 savePhotoToGallery called: filename=${args.filename}, dataLength=${args.imageData.size}")
+			val args = invoke.parseArgs(SavePhotoToMediaStoreArgs::class.java)
+			Log.d(TAG, "📷 savePhotoToMediaStore called: filename=${args.filename}, dataLength=${args.imageData.size}")
 
 			val contentResolver = activity.contentResolver
 			val folderName = if (args.hideFromGallery == true) ".Hillview" else "Hillview"
@@ -2312,7 +2312,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 			val contentValues = ContentValues().apply {
 				put(MediaStore.Images.Media.DISPLAY_NAME, args.filename)
 				put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
-				put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/$folderName")
+				put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_DCIM}/$folderName")
 			}
 
 			Log.d(TAG, "📷 Inserting into MediaStore: ${args.filename} in $folderName")
@@ -2327,25 +2327,11 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 					outputStream.flush()
 				}
 
-				// Get the actual file path (if possible)
-				val projection = arrayOf(MediaStore.Images.Media.DATA)
-				var filePath: String? = null
-
-				contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
-					if (cursor.moveToFirst()) {
-						val columnIndex = cursor.getColumnIndex(MediaStore.Images.Media.DATA)
-						if (columnIndex >= 0) {
-							filePath = cursor.getString(columnIndex)
-						}
-					}
-				}
-
 				val result = JSObject()
 				result.put("success", true)
-				result.put("uri", uri.toString())
-				result.put("path", filePath ?: "MediaStore managed")
+				result.put("path", uri.toString())  // Return content:// URI as path
 
-				Log.d(TAG, "📷✅ Photo saved to gallery via MediaStore: $filePath")
+				Log.d(TAG, "📷✅ Photo saved to MediaStore: ${uri}")
 				invoke.resolve(result)
 
 			} else {

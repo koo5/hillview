@@ -85,7 +85,12 @@ class DevicePhotoLoader(private val context: Context) {
     }
 
     private fun convertToPhotoData(photoEntity: PhotoEntity, source: SourceConfig): PhotoData {
-        val fileUrl = "file://${photoEntity.path}"
+        // content:// URIs stay as-is, file paths get file:// prefix
+        val fileUrl = if (photoEntity.path.startsWith("content://")) {
+            photoEntity.path
+        } else {
+            "file://${photoEntity.path}"
+        }
 
         // Create sizes dict with 'full' size entry for consistency with other photo sources
         val sizes = mapOf(

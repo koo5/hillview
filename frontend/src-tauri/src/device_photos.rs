@@ -39,33 +39,41 @@ pub struct ProcessedPhoto {
 static PHOTO_CHUNKS: OnceLock<Mutex<HashMap<String, Vec<u8>>>> = OnceLock::new();
 
 
+/// Save photo to storage. Tries direct file I/O first, falls back to MediaStore.
+/// Returns the path (file path or content:// URI).
 #[cfg(target_os = "android")]
 fn save_to_pictures_directory(
+	app_handle: &tauri::AppHandle,
 	filename: &str,
 	image_data: &[u8],
 	hide_from_gallery: bool,
-) -> Result<std::path::PathBuf, std::io::Error> {
+) -> Result<String, String> {
 	let folder_name = if hide_from_gallery { ".Hillview" } else { "Hillview" };
-	let public_pictures_dir = "/storage/emulated/0/Pictures";
-	let private_pictures_dir = format!("/storage/emulated/0/Android/data/{}/files/Pictures", env!("ANDROID_PACKAGE_NAME"));
-
+	let public_pictures_dir = "/storage/emulated/0/DCIM";
 	let public_pictures_path = std::path::Path::new(public_pictures_dir).join(folder_name);
 
-	// Try public Pictures directory first
+	// Try direct file I/O first (works on some devices)
 	match save_to_directory(&public_pictures_path, filename, image_data, hide_from_gallery) {
 		Ok(photo_path) => {
-			info!("🢄✅ Photo saved to public Pictures directory: {:?}", photo_path);
-			Ok(photo_path)
+			info!("🢄✅ Photo saved via direct I/O: {:?}", photo_path);
+			Ok(photo_path.to_string_lossy().to_string())
 		}
 		Err(e) => {
-			warn!("🢄⚠️  Failed to save to public Pictures ({}), trying private directory...", e);
+			warn!("🢄⚠️ Direct I/O failed ({}), falling back to MediaStore...", e);
 
-			// Fall back to private directory
-			let private_pictures_path = std::path::Path::new(&private_pictures_dir).join(folder_name);
-			let photo_path = save_to_directory(&private_pictures_path, filename, image_data, hide_from_gallery)?;
+			// Fall back to MediaStore API
+			let response = app_handle
+				.hillview()
+				.save_photo_to_media_store(filename.to_string(), image_data.to_vec(), hide_from_gallery)
+				.map_err(|e| format!("MediaStore plugin error: {}", e))?;
 
-			info!("🢄✅ Photo saved to private directory: {:?}", photo_path);
-			Ok(photo_path)
+			if response.success {
+				let path = response.path.ok_or_else(|| "MediaStore returned success but no path/URI".to_string())?;
+				info!("🢄✅ Photo saved via MediaStore: {}", path);
+				Ok(path)
+			} else {
+				Err(response.error.unwrap_or_else(|| "Unknown MediaStore error".to_string()))
+			}
 		}
 	}
 }
@@ -202,25 +210,24 @@ async fn save_photo_from_bytes(
 			(output, width, height, validated_metadata)
 		};
 
-		// Save the photo file (blocking I/O)
-		let file_path = save_to_pictures_directory(&filename, &processed_data, hide_from_gallery)
-			.map_err(|e| format!("Failed to save to Pictures directory: {}", e))?;
+		// Save the photo file (blocking I/O or MediaStore)
+		let file_path = save_to_pictures_directory(&app_handle, &filename, &processed_data, hide_from_gallery)?;
 
-		// Verify EXIF data in debug builds
+		// Verify EXIF data in debug builds (only for file paths, not content:// URIs)
 		#[cfg(debug_assertions)]
 		{
-			info!("🔍 Verifying EXIF data in saved photo: {:?}", file_path);
-			// Note: We use spawn_blocking to avoid blocking the main thread with async verification
-			let file_path_clone = file_path.clone();
-			let metadata_clone = validated_metadata.clone();
-			tokio::spawn(async move {
-				verify_exif_in_saved_file(&file_path_clone, &metadata_clone).await;
-			});
+			if !file_path.starts_with("content://") {
+				info!("🔍 Verifying EXIF data in saved photo: {}", file_path);
+				let file_path_clone = std::path::PathBuf::from(&file_path);
+				let metadata_clone = validated_metadata.clone();
+				tokio::spawn(async move {
+					verify_exif_in_saved_file(&file_path_clone, &metadata_clone).await;
+				});
+			}
 		}
 
-		// Get file metadata (blocking I/O)
-		let file_metadata = std::fs::metadata(&file_path)
-			.map_err(|e| format!("Failed to get file metadata: {}", e))?;
+		// Get file size - we already know it from processed_data
+		let file_size = processed_data.len() as u64;
 
 		// Calculate hash from processed data (CPU intensive)
 		let hash_bytes = md5::compute(&processed_data);
@@ -234,7 +241,7 @@ async fn save_photo_from_bytes(
 			let plugin_photo = tauri_plugin_hillview::shared_types::DevicePhotoMetadata {
 				id: photo_id.clone(), // Use the photo_id from frontend
 				filename: filename.clone(),
-				path: file_path.to_string_lossy().to_string(),
+				path: file_path.clone(),
 				metadata: tauri_plugin_hillview::shared_types::PhotoMetadata {
 					latitude: validated_metadata.latitude,
 					longitude: validated_metadata.longitude,
@@ -247,7 +254,7 @@ async fn save_photo_from_bytes(
 				},
 				width,
 				height,
-				file_size: file_metadata.len(),
+				file_size,
 				file_hash: Some(file_hash.clone()),
 				created_at: None, // Let the plugin set the created_at timestamp
 			};
@@ -271,7 +278,7 @@ async fn save_photo_from_bytes(
 			let device_photo = crate::device_photos::DevicePhotoMetadata {
 				id: final_photo_id,
 				filename,
-				path: file_path.to_string_lossy().to_string(),
+				path: file_path,
 				latitude: validated_metadata.latitude,
 				longitude: validated_metadata.longitude,
 				altitude: validated_metadata.altitude,
@@ -280,7 +287,7 @@ async fn save_photo_from_bytes(
 				accuracy: validated_metadata.accuracy,
 				width,
 				height,
-				file_size: file_metadata.len(),
+				file_size,
 				created_at: plugin_photo.created_at,
 			};
 

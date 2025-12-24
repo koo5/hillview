@@ -327,4 +327,24 @@ impl<R: Runtime> Hillview<R> {
       .map_err(Into::into)
   }
 
+  pub fn save_photo_to_media_store(
+    &self,
+    filename: String,
+    image_data: Vec<u8>,
+    hide_from_gallery: bool,
+  ) -> crate::Result<crate::models::SavePhotoToMediaStoreResponse> {
+    #[derive(serde::Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Args {
+      filename: String,
+      image_data: Vec<u8>,
+      hide_from_gallery: bool,
+    }
+
+    self
+      .0
+      .run_mobile_plugin("savePhotoToMediaStore", Args { filename, image_data, hide_from_gallery })
+      .map_err(Into::into)
+  }
+
 }

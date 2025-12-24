@@ -188,3 +188,12 @@ pub struct RequestPermission {
   pub permissions: Vec<String>,
 }
 
+// MediaStore photo saving response
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct SavePhotoToMediaStoreResponse {
+  pub success: bool,
+  pub path: Option<String>,  // content:// URI for accessing the photo
+  pub error: Option<String>,
+}
+
