@@ -18,7 +18,9 @@ echo "🔨 Building release APK..."
 echo "📱 VITE_DEV_MODE: $VITE_DEV_MODE"
 echo "🌐 VITE_BACKEND_ANDROID: $VITE_BACKEND_ANDROID"
 
-bun run tauri android build --apk #true
+set -q $FORMAT; or set -gx FORMAT "apk" # apk or aab
+
+bun run tauri android build --'$FORMAT' #true
 
 if test $status -eq 0
     echo ""
