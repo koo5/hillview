@@ -385,14 +385,15 @@ async def stream_mapillary_images(
 					yield f"data: {json.dumps({'type': 'photos', 'photos': []})}\n\n"
 
 				# Calculate uncached regions (or use full area if cache was ignored due to poor distribution)
-				if cache_ignored_due_to_distribution:
-					# Cache was ignored due to poor distribution, fetch entire area
-					log.info("poor cache distribution.")
-					uncached_regions = [(top_left_lat, top_left_lon, bottom_right_lat, bottom_right_lon)]
-				else:
-					uncached_regions = await cache_service.calculate_uncached_regions(
-						top_left_lat, top_left_lon, bottom_right_lat, bottom_right_lon
-					)
+				# if cache_ignored_due_to_distribution:
+				# 	# Cache was ignored due to poor distribution, fetch entire area
+				# 	log.info("poor cache distribution.")
+				# 	uncached_regions = [(top_left_lat, top_left_lon, bottom_right_lat, bottom_right_lon)]
+				# else:
+				# 	uncached_regions = await cache_service.calculate_uncached_regions(
+				# 		top_left_lat, top_left_lon, bottom_right_lat, bottom_right_lon
+				# 	)
+				uncached_regions = [(top_left_lat, top_left_lon, bottom_right_lat, bottom_right_lon)]
 
 				event['inputs'].append({
 					'bbox': [top_left_lat, top_left_lon, bottom_right_lat, bottom_right_lon],

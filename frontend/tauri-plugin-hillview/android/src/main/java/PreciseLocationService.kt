@@ -8,11 +8,9 @@ import android.content.pm.PackageManager
 import android.location.Location
 import android.os.Looper
 import android.util.Log
-import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.*
 import com.google.android.gms.location.Priority
-import android.os.Handler
 
 data class PreciseLocationData(
     val latitude: Double,
@@ -44,21 +42,11 @@ class PreciseLocationService(
         private const val UPDATE_INTERVAL = 1000L
         private const val FASTEST_INTERVAL = 1000L
         private const val MAX_WAIT_TIME = 1000L
-
-        // Permission request code
-        private const val LOCATION_PERMISSION_REQUEST_CODE = 1001
     }
 
     private val fusedLocationClient = LocationServices.getFusedLocationProviderClient(activity)
     private var locationCallback: LocationCallback? = null
     private var isRequestingUpdates = false
-    private val retryHandler = Handler(Looper.getMainLooper())
-    private var permissionRetryRunnable: Runnable? = null
-    private var hasAcquiredLock = false
-    private var permissionRetryCount = 0
-    private val maxPermissionRetries = 5
-    private var permissionTimeoutRunnable: Runnable? = null
-    private val permissionDialogTimeoutMs = 30000L // 30 second timeout
 
     // Create location request with high accuracy settings using the new Builder pattern
     private val locationRequest = LocationRequest.Builder(
@@ -190,113 +178,20 @@ class PreciseLocationService(
         return fineLocationGranted || coarseLocationGranted
     }
 
-    // Request location permissions
-    @Synchronized
-    private fun requestLocationPermissions() {
-        Log.i(TAG, "📍 PERM: Requesting location permissions...")
-
-        // Import the plugin class to access the permission mutex
-        val lockAcquired = cz.hillview.plugin.ExamplePlugin.acquirePermissionLock("location")
-        if (!lockAcquired) {
-            Log.w(TAG, "📍 PERM: Cannot request location permission - another permission dialog is active")
-            Log.w(TAG, "📍 PERM: Currently held by: ${cz.hillview.plugin.ExamplePlugin.getPermissionLockHolder()}")
-
-            // Check retry limit to prevent infinite loops
-            if (permissionRetryCount >= maxPermissionRetries) {
-                Log.e(TAG, "📍 PERM: Max permission retries ($maxPermissionRetries) exceeded - giving up")
-                permissionRetryCount = 0 // Reset for next attempt
-                // Notify frontend that location tracking failed
-                onLocationStopped?.invoke()
-                return
-            }
-
-            // Schedule retry after increasing delay
-            if (permissionRetryRunnable == null) {
-                permissionRetryCount++
-                val delayMs = 1000L * permissionRetryCount // Increasing delay: 1s, 2s, 3s, etc.
-                Log.i(TAG, "📍 PERM: Scheduling retry #$permissionRetryCount in ${delayMs}ms")
-
-                permissionRetryRunnable = Runnable {
-                    Log.i(TAG, "📍 PERM: Retrying location permission request (attempt $permissionRetryCount/$maxPermissionRetries)...")
-                    requestLocationPermissions()
-                }
-                retryHandler.postDelayed(permissionRetryRunnable!!, delayMs)
-            }
-            return
-        }
-
-        // Clear any existing retry since we got the lock
-        permissionRetryRunnable?.let { runnable ->
-            retryHandler.removeCallbacks(runnable)
-            permissionRetryRunnable = null
-        }
-
-        // Reset retry count since we successfully acquired the lock
-        permissionRetryCount = 0
-
-        Log.i(TAG, "📍 PERM: Permission lock acquired, showing location permission dialog")
-
-        // Start timeout timer to auto-release lock if dialog disappears
-        startPermissionTimeout()
-
-        val permissions = arrayOf(
-            Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.ACCESS_COARSE_LOCATION
-        )
-
-        ActivityCompat.requestPermissions(
-            activity,
-            permissions,
-            LOCATION_PERMISSION_REQUEST_CODE
-        )
-    }
-
-    // Handle permission request results
-    fun onRequestPermissionsResult(requestCode: Int, @Suppress("UNUSED_PARAMETER") permissions: Array<String>, grantResults: IntArray) {
-        if (requestCode == LOCATION_PERMISSION_REQUEST_CODE) {
-            Log.i(TAG, "📍 PERM: Permission request result received")
-            Log.i(TAG, "📍 PERM: Granted permissions: ${grantResults.count { it == PackageManager.PERMISSION_GRANTED }}/${grantResults.size}")
-
-            // Cancel timeout since dialog completed normally
-            cancelPermissionTimeout()
-
-            // Release the permission lock now that the dialog is dismissed
-            val lockReleased = cz.hillview.plugin.ExamplePlugin.releasePermissionLock("location")
-            if (lockReleased) {
-                Log.i(TAG, "📍 PERM: Permission lock released by location service")
-            } else {
-                Log.w(TAG, "📍 PERM: Failed to release permission lock - may not have been held by location service")
-            }
-
-            if (grantResults.isNotEmpty() && grantResults.any { it == PackageManager.PERMISSION_GRANTED }) {
-                Log.i(TAG, "📍 PERM: ✅ At least one location permission granted, retrying location updates...")
-                startLocationUpdatesInternal()
-            } else {
-                Log.e(TAG, "📍 PERM: ❌ Location permissions denied! Cannot start location updates.")
-                // Notify frontend that location tracking stopped
-                Log.i(TAG, "📍 PERM: Notifying frontend that location tracking stopped")
-                onLocationStopped?.invoke()
-            }
-        }
-    }
-
-    // Public method to start location updates with permission handling
+    // Public method to start location updates
+    // Note: Frontend should request permissions via Tauri before calling this
     @Synchronized
     fun startLocationUpdates() {
         Log.i(TAG, "📍 START: ======= startLocationUpdates() called =======")
 
-        // Thread-safe check for existing location updates
         if (isRequestingUpdates) {
             Log.i(TAG, "📍 START: ✅ Location updates already active - ignoring duplicate request")
             return
         }
 
-        Log.i(TAG, "📍 START: Checking location permissions...")
-
         if (!hasLocationPermissions()) {
-            Log.w(TAG, "📍 START: ❌ Location permissions not granted!")
-            Log.i(TAG, "📍 START: Requesting location permissions...")
-            requestLocationPermissions()
+            Log.e(TAG, "📍 START: ❌ Location permissions not granted! Frontend should request permissions first.")
+            onLocationStopped?.invoke()
             return
         }
 
@@ -363,14 +258,12 @@ class PreciseLocationService(
             } catch (e: SecurityException) {
                 Log.e(TAG, "📍❌ START_INTERNAL: SECURITY EXCEPTION - Location permission not granted!")
                 Log.e(TAG, "📍❌ START_INTERNAL: SecurityException message: ${e.message}")
-                // Emergency cleanup - permission may have been revoked
-                cleanupPermissionState()
+                onLocationStopped?.invoke()
             } catch (e: Exception) {
                 Log.e(TAG, "📍❌ START_INTERNAL: UNEXPECTED EXCEPTION in startLocationUpdatesInternal!")
                 Log.e(TAG, "📍❌ START_INTERNAL: Exception type: ${e.javaClass.simpleName}")
                 Log.e(TAG, "📍❌ START_INTERNAL: Exception message: ${e.message}")
-                // Emergency cleanup on critical failures
-                cleanupPermissionState()
+                onLocationStopped?.invoke()
             }
         } ?: run {
             Log.e(TAG, "📍❌ START_INTERNAL: CRITICAL ERROR - LocationCallback is null!")
@@ -409,22 +302,6 @@ class PreciseLocationService(
 
         Log.i(TAG, "📍 Stopping location updates")
 
-        // Clean up any pending permission retry
-        permissionRetryRunnable?.let { runnable ->
-            retryHandler.removeCallbacks(runnable)
-            permissionRetryRunnable = null
-            Log.i(TAG, "📍 PERM: Cancelled pending permission retry")
-        }
-
-        // Cancel timeout timer
-        cancelPermissionTimeout()
-
-        // CRITICAL FIX: Release any held permission lock when stopping
-        val lockReleased = cz.hillview.plugin.ExamplePlugin.releasePermissionLock("location")
-        if (lockReleased) {
-            Log.i(TAG, "📍 PERM: Released location permission lock during stop")
-        }
-
         locationCallback?.let { callback ->
             fusedLocationClient.removeLocationUpdates(callback)
             isRequestingUpdates = false
@@ -434,57 +311,4 @@ class PreciseLocationService(
         }
     }
 
-    // Start timeout timer to auto-release permission lock
-    private fun startPermissionTimeout() {
-        // Cancel any existing timeout
-        cancelPermissionTimeout()
-
-        permissionTimeoutRunnable = Runnable {
-            Log.w(TAG, "📍 TIMEOUT: Permission dialog timeout - auto-releasing lock")
-            val lockReleased = cz.hillview.plugin.ExamplePlugin.releasePermissionLock("location")
-            if (lockReleased) {
-                Log.i(TAG, "📍 TIMEOUT: Permission lock released due to timeout")
-            }
-            permissionTimeoutRunnable = null
-        }
-
-        retryHandler.postDelayed(permissionTimeoutRunnable!!, permissionDialogTimeoutMs)
-        Log.i(TAG, "📍 TIMEOUT: Started permission timeout (${permissionDialogTimeoutMs/1000}s)")
-    }
-
-    // Cancel permission timeout
-    private fun cancelPermissionTimeout() {
-        permissionTimeoutRunnable?.let { runnable ->
-            retryHandler.removeCallbacks(runnable)
-            permissionTimeoutRunnable = null
-            Log.d(TAG, "📍 TIMEOUT: Cancelled permission timeout")
-        }
-    }
-
-    // Emergency cleanup method to release permission locks and cancel retries
-    private fun cleanupPermissionState() {
-        Log.w(TAG, "📍 CLEANUP: Emergency permission state cleanup")
-
-        // Cancel any pending retry attempts
-        permissionRetryRunnable?.let { runnable ->
-            retryHandler.removeCallbacks(runnable)
-            permissionRetryRunnable = null
-            Log.i(TAG, "📍 CLEANUP: Cancelled pending permission retry")
-        }
-
-        // Cancel timeout timer
-        cancelPermissionTimeout()
-
-        // Reset retry counter
-        permissionRetryCount = 0
-        Log.i(TAG, "📍 CLEANUP: Reset permission retry count")
-
-        // Attempt to release any held permission lock
-        val lockReleased = cz.hillview.plugin.ExamplePlugin.releasePermissionLock("location")
-        if (lockReleased) {
-            Log.i(TAG, "📍 CLEANUP: Released location permission lock during emergency cleanup")
-        } else {
-            Log.w(TAG, "📍 CLEANUP: No location permission lock to release (or not held by location)")
-        }
-    }
 }

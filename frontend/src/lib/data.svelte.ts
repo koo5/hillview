@@ -1,5 +1,9 @@
 import {get, writable, derived} from "svelte/store";
-import {localStorageSharedStore, staggeredLocalStorageSharedStore} from './svelte-shared-store';
+import {
+	localStorageReadOnceSharedStore,
+	localStorageSharedStore,
+	staggeredLocalStorageSharedStore
+} from './svelte-shared-store';
 import {backendUrl} from './config';
 import {MAX_DEBUG_MODES} from './constants';
 import {auth} from './auth.svelte';
@@ -48,7 +52,7 @@ console.log('🢄📸 Device sources configuration:', {
 });
 
 // Store source enabled states separately for persistence
-const sourceStates = localStorageSharedStore('sourceStates', {} as Record<string, boolean>);
+const sourceStates = localStorageReadOnceSharedStore('sourceStates', {} as Record<string, boolean>);
 
 // Create reactive sources store that combines base config with persisted states
 export const sources = writable<Source[]>([...baseSources, ...deviceSources]);

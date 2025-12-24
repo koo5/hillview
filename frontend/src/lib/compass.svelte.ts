@@ -1,8 +1,6 @@
 import { writable, derived, get } from 'svelte/store';
 import { TAURI, TAURI_MOBILE, tauriSensor, isSensorAvailable, type SensorData, SensorMode } from './tauri';
 import {PluginListener} from "@tauri-apps/api/core";
-import { invoke } from '@tauri-apps/api/core';
-import { locationManager } from './locationManager';
 import {bearingMode, bearingState, updateBearing} from "$lib/mapState";
 import { page } from '$app/stores';
 import { browser } from '$app/environment';
@@ -169,7 +167,7 @@ async function startTauriSensor(mode: SensorMode = SensorMode.UPRIGHT_ROTATION_V
 		if (!tauriSensorListener)
 		{
 			tauriSensorListener = await sensor.onSensorData((data: SensorData) => {
-				console.log('🢄🔍📡 Native sensor data received:', JSON.stringify(data));
+				//console.log('🢄🔍📡 Native sensor data received:', JSON.stringify(data));
 
 				// Handle potentially different event formats
 				const sensorData = data;
@@ -198,7 +196,7 @@ async function startTauriSensor(mode: SensorMode = SensorMode.UPRIGHT_ROTATION_V
 			});
 		}
 
-        console.log('🢄🔍✅ Tauri sensor listener:', JSON.stringify(tauriSensorListener));
+        //console.log('🢄🔍✅ Tauri sensor listener:', JSON.stringify(tauriSensorListener));
 
         return true;
     } catch (error) {
@@ -322,14 +320,6 @@ async function stopCompassInternal() {
 					console.error('🢄🔍 Failed to stop Tauri sensor:', error);
 				});
 			}
-
-			// Release location service for compass
-            try {
-                await locationManager.releaseLocation('compass');
-                console.log('🢄🔍 ✅ Compass released location service');
-            } catch (err) {
-                console.error('🢄🔍 ❌ Compass failed to release location service:', err);
-            }
         }
     // }
 
@@ -477,22 +467,8 @@ async function startCompassInternal(mode?: SensorMode) {
             compassError.set(null);
             currentSensorMode.set(sensorMode);
 
-            // Start accuracy polling for Android
-            //startAccuracyPolling();
-
-            // Start lag monitoring
-            //startLagMonitoring();
-
-            // Request location service for compass (needed for true north calculation)
-            if (TAURI_MOBILE) {
-                try {
-                    await locationManager.requestLocation('compass');
-                    console.log('🢄🔍 ✅ Compass requested location service successfully');
-                } catch (err) {
-                    console.error('🢄🔍 ❌ Compass failed to request location service:', err);
-                    // Don't fail compass startup if location fails - magnetic heading still works
-                }
-            }
+            // Note: Location for magnetic declination comes from frontend's update_location calls to Kotlin
+            // No need to request location separately - sensor service uses whatever location is available
 
             return true;
         }

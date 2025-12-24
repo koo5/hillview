@@ -180,6 +180,14 @@ class SavePhotoToGalleryArgs {
 		Permission(
 			strings = [Manifest.permission.WRITE_EXTERNAL_STORAGE],
 			alias = "write_external_storage"
+		),
+		Permission(
+			strings = [Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION],
+			alias = "location"
+		),
+		Permission(
+			strings = [Manifest.permission.CAMERA],
+			alias = "camera"
 		)
 	]
 )
@@ -532,10 +540,10 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 		sensorService?.startSensor(mode)
 
 		// Also start precise location service for better GPS accuracy // magnetic declination // but approximate would probably be enough?
-		if (preciseLocationService == null) {
+		/*if (preciseLocationService == null) {
 			Log.d(TAG, "📍 Initializing PreciseLocationService alongside sensor")
 			initializePreciseLocationService()
-		}
+		}*/
 
 		// Start Google Play Services device orientation provider // fixme - maybe has more accuracy, but has same gimbal lock problem and also cant seem to throttle it (although i guess that wouldnt be a problem)
 		/*if (deviceOrientationProvider == null) {
@@ -554,7 +562,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 		sensorService?.stopSensor()
 
 		// Also stop precise location service
-		Log.d(TAG, "📍 Stopping precise location service")
+		//Log.d(TAG, "📍 Stopping precise location service")
 		//preciseLocationService?.stopLocationUpdates()
 
 		// Stop device orientation provider
@@ -1629,35 +1637,19 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 		}
 	}
 
-	// Handle permission request results and forward to PreciseLocationService
+	// Handle permission request results (camera only - location now handled via Tauri permission system)
 	fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
-		Log.e(TAG, "🔒🔒🔒 PERMISSION RESULT CALLBACK RECEIVED 🔒🔒🔒")
-		Log.e(TAG, "🔒 requestCode: $requestCode")
-		Log.e(TAG, "🔒 permissions: ${permissions.joinToString(", ")}")
-		Log.e(
-			TAG,
-			"🔒 grantResults: ${grantResults.joinToString(", ") { if (it == PackageManager.PERMISSION_GRANTED) "GRANTED" else "DENIED" }}"
-		)
+		Log.d(TAG, "🔒 Permission result received: requestCode=$requestCode")
 
 		when (requestCode) {
 			CAMERA_PERMISSION_REQUEST_CODE -> {
-				Log.e(TAG, "🔒 Routing to camera permission handler")
+				Log.d(TAG, "🔒 Routing to camera permission handler")
 				handleCameraPermissionResult(requestCode, permissions, grantResults)
 			}
-
-			1001 -> { // LOCATION_PERMISSION_REQUEST_CODE
-				Log.e(TAG, "🔒 Routing to location permission handler")
-				preciseLocationService?.onRequestPermissionsResult(requestCode, permissions, grantResults)
-			}
-
 			else -> {
-				Log.w(TAG, "🔒 Unknown permission request code: $requestCode")
-				// Still try location service as fallback
-				preciseLocationService?.onRequestPermissionsResult(requestCode, permissions, grantResults)
+				Log.d(TAG, "🔒 Unknown permission request code: $requestCode (may be handled by Tauri)")
 			}
 		}
-
-		Log.e(TAG, "🔒 Permission result processing complete")
 	}
 
 

@@ -1135,7 +1135,7 @@
                             retryCount = 0;
                             startCamera();
                         }}>
-							{needsPermission ? 'Enable Camera' : 'Try Again'}
+							{needsPermission ? 'Allow Camera' : 'Try Again'}
 						</button>
 					</div>
 				{/if}

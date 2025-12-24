@@ -1,9 +1,28 @@
 {
-  "identifier": "cz.hillviedev",
-  "productName": "hillview-dev",
-  "plugins": {
-    "deep-link": {
-      "schemes": ["cz.hillviedev"]
-    }
-  }
+	"identifier": "cz.hillviedev",
+	"productName": "Hillviedev",
+	"plugins": {
+		"deep-link": {
+			"schemes": [
+				"cz.hillviedev"
+			]
+		}
+	},
+	"app": {
+		"security": {
+			"assetProtocol": {
+				"scope": [
+					"/storage/emulated/0/Pictures/Hillview/**",
+					"/storage/emulated/0/Android/data/cz.hillviedev/files/Pictures/**"
+				]
+			}
+		}
+	},
+	"plugins": {
+		"deep-link": {
+			"schemes": [
+				"cz.hillviedev"
+			]
+		}
+	}
 }

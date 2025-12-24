@@ -149,8 +149,7 @@ export const newPhotoInFront = derived(
 		}
 
 		const p = photos[closestIndex];
-
-		console.log(`🢄Navigation: photoInFront ${p.uid} selected from ${photos.length} photos in range by bearing proximity`);
+		//console.debug(`🢄Navigation: photoInFront ${p.uid} selected from ${photos.length} photos in range by bearing proximity`);
 		return p;
 	}
 );

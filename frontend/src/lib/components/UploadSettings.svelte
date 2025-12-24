@@ -133,11 +133,7 @@
 		{/if}
 	</div>
 
-	<div class="button-group">
-		{#if onCancel}
-			<button class="secondary-button" on:click={onCancel}>Cancel</button>
-		{/if}
-	</div>
+
 {:else}
 	<p>Auto-upload settings are only available in the mobile application.</p>
 {/if}

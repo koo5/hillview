@@ -283,24 +283,15 @@ impl<R: Runtime> Hillview<R> {
       .map_err(Into::into)
   }
 
-  pub fn request_tauri_permission(&self, permission: String) -> crate::Result<tauri::plugin::PermissionState> {
+  pub fn request_tauri_permission(&self, permission: String) -> crate::Result<crate::models::TauriPermissionResponse> {
     info!("🢄🔐request_tauri_permission for permission: {}", permission);
 
-    match permission.as_str() {
-      "post_notification" => {
-        self.0
-          .run_mobile_plugin::<crate::models::TauriPermissionResponse>("requestPermissions", crate::models::RequestPermission { post_notification: true, write_external_storage: false })
-          .map(|r| r.post_notification)
-          .map_err(Into::into)
-      },
-      "write_external_storage" => {
-        self.0
-          .run_mobile_plugin::<crate::models::TauriPermissionResponse>("requestPermissions", crate::models::RequestPermission { post_notification: false, write_external_storage: true })
-          .map(|r| r.write_external_storage)
-          .map_err(Into::into)
-      },
-      _ => Err(crate::Error::from("Unknown permission"))
-    }
+    self.0
+      .run_mobile_plugin::<crate::models::TauriPermissionResponse>(
+        "requestPermissions",
+        crate::models::RequestPermission { permissions: vec![permission] }
+      )
+      .map_err(Into::into)
   }
 
   pub fn test_show_notification(&self, title: String, message: String) -> crate::Result<BasicResponse> {
