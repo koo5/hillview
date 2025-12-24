@@ -12,8 +12,8 @@ import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from tests.utils.test_utils import clear_test_database, API_URL
-from tests.utils.base_test import BaseUserManagementTest
+from utils.test_utils import clear_test_database, API_URL
+from utils.base_test import BaseUserManagementTest
 
 class TestMapillaryFiltering(BaseUserManagementTest):
 	"""Test Mapillary photo filtering functionality using mock data."""

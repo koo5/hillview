@@ -11,7 +11,7 @@ source "$TEST_VENV/bin/activate"
 pip install -q -r requirements.txt
 pip install -q pytest
 
-export PYTHONPATH="$(pwd):$(pwd)/..:$PYTHONPATH"
+export PYTHONPATH="$(pwd):$(pwd)/.."
 
 if [ $# -eq 0 ]; then
     python -m pytest tests/unit/ -v

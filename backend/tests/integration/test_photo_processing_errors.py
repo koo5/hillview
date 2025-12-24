@@ -12,10 +12,10 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from tests.utils.base_test import BasePhotoTest
-from tests.utils.test_utils import clear_test_database, API_URL, upload_test_image, wait_for_photo_processing, recreate_test_users
-from tests.utils.auth_utils import AuthTestHelper
-from tests.utils.image_utils import (
+from utils.base_test import BasePhotoTest
+from utils.test_utils import clear_test_database, API_URL, upload_test_image, wait_for_photo_processing, recreate_test_users
+from utils.auth_utils import AuthTestHelper
+from utils.image_utils import (
 	create_test_image_no_exif,
 	create_test_image_coords_only,
 	create_test_image_bearing_only,

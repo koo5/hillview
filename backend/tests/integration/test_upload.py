@@ -13,10 +13,10 @@ from pathlib import Path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from tests.utils.base_test import BasePhotoTest
-from tests.utils.secure_upload_utils import SecureUploadClient
-from tests.utils.test_utils import API_URL
-from tests.utils.image_utils import create_test_image_full_gps
+from utils.base_test import BasePhotoTest
+from utils.secure_upload_utils import SecureUploadClient
+from utils.test_utils import API_URL
+from utils.image_utils import create_test_image_full_gps
 
 class TestUpload(BasePhotoTest):
     """Test photo upload functionality using secure upload workflow."""

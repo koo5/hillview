@@ -93,8 +93,8 @@ class NotificationResponse(BaseModel):
 	type: str
 	title: str
 	body: str
-	action_type: Optional[str]
-	action_data: Optional[Dict[str, Any]]
+	action_type: Optional[str]  # deprecated
+	action_data: Optional[str]  # route string, e.g. "/activity"
 	read_at: Optional[datetime]
 	created_at: datetime
 	expires_at: Optional[datetime]
@@ -369,19 +369,19 @@ async def create_notification(
 			detail="Provide either user_id or client_key_id, not both"
 		)
 
+	# Build notification dict
+	notification = {
+		'type': request.type,
+		'title': request.title,
+		'body': request.body,
+		'route': request.action_data,  # action_data now holds the route string
+		'expires_at': request.expires_at,
+	}
+
 	if request.client_key_id:
 		# Create notification for specific client device
 		try:
-			notification_id = await create_notification_for_client(
-				db=db,
-				client_key_id=request.client_key_id,
-				notification_type=request.type,
-				title=request.title,
-				body=request.body,
-				action_type=request.action_type,
-				action_data=request.action_data,
-				expires_at=request.expires_at
-			)
+			notification_id = await create_notification_for_client(db, request.client_key_id, notification)
 		except ValueError as e:
 			raise HTTPException(
 				status_code=status.HTTP_404_NOT_FOUND,
@@ -390,16 +390,7 @@ async def create_notification(
 		message = f"Notification created for client {request.client_key_id}"
 	else:
 		# Create notification for user (all their devices)
-		notification_id = await create_notification_for_user(
-			db=db,
-			user_id=request.user_id,
-			notification_type=request.type,
-			title=request.title,
-			body=request.body,
-			action_type=request.action_type,
-			action_data=request.action_data,
-			expires_at=request.expires_at
-		)
+		notification_id = await create_notification_for_user(db, request.user_id, notification)
 		message = f"Notification created for user {request.user_id}"
 
 	return NotificationCreationResponse(
@@ -444,15 +435,14 @@ async def broadcast_notification(
 	1. All active users (via their registered client keys)
 	2. All anonymous clients (push registrations not associated with any user)
 	"""
-	result = await send_broadcast_notification(
-		db=db,
-		notification_type=request.type,
-		title=request.title,
-		body=request.body,
-		action_type=request.action_type,
-		action_data=request.action_data,
-		expires_at=request.expires_at
-	)
+	notification = {
+		'type': request.type,
+		'title': request.title,
+		'body': request.body,
+		'route': request.action_data,  # action_data now holds the route string
+		'expires_at': request.expires_at,
+	}
+	result = await send_broadcast_notification(db, notification)
 
 	return BroadcastResponse(
 		success=True,
