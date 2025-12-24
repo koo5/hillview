@@ -77,40 +77,6 @@ class PhotoUploadLogic(private val context: Context) {
 	private val clientCrypto by lazy { ClientCryptoManager(context) }
 	private val notificationHelper by lazy { NotificationHelper(context) }
 
-	/**
-	 * Read bytes from a path (either file path or content:// URI)
-	 */
-	private fun readBytesFromPath(path: String): ByteArray? {
-		return try {
-			if (path.startsWith("content://")) {
-				// Read via ContentResolver for content:// URIs
-				val uri = android.net.Uri.parse(path)
-				context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-			} else {
-				// Read directly from file system
-				File(path).readBytes()
-			}
-		} catch (e: Exception) {
-			Log.e(TAG, "Failed to read bytes from path: $path", e)
-			null
-		}
-	}
-
-	/**
-	 * Check if a path exists (either file path or content:// URI)
-	 */
-	private fun pathExists(path: String): Boolean {
-		return try {
-			if (path.startsWith("content://")) {
-				val uri = android.net.Uri.parse(path)
-				context.contentResolver.openInputStream(uri)?.use { true } ?: false
-			} else {
-				File(path).exists()
-			}
-		} catch (e: Exception) {
-			false
-		}
-	}
 
 
 	data class UploadAuthorizationResponse(
@@ -353,7 +319,7 @@ class PhotoUploadLogic(private val context: Context) {
 		try {
 			Log.d(TAG, "Starting secure upload for photo: ${photo.filename}")
 
-			if (!pathExists(photo.path)) {
+			if (!PhotoUtils.pathExists(context, photo.path)) {
 				Log.e(TAG, "Photo file does not exist: ${photo.path}")
 				return@withContext false
 			}
@@ -375,7 +341,7 @@ class PhotoUploadLogic(private val context: Context) {
 
 			// Step 3: Upload to worker (using worker_url from auth response)
 			// Read file bytes only now, when we actually need them
-			val fileBytes = readBytesFromPath(photo.path)
+			val fileBytes = PhotoUtils.readBytesFromPath(context, photo.path)
 			if (fileBytes == null) {
 				Log.e(TAG, "Failed to read photo file for upload: ${photo.path}")
 				return@withContext false
@@ -420,13 +386,7 @@ class PhotoUploadLogic(private val context: Context) {
 	private suspend fun requestUploadAuthorization(photo: PhotoEntity): UploadAuthorizationResponse {
 		val serverUrl = getServerUrl() ?: throw Exception("Server URL not configured")
 		val authToken = authManager.getValidToken() ?: throw Exception("No valid auth token")
-
-		val contentType = when (photo.filename.substringAfterLast('.').lowercase()) {
-			"jpg", "jpeg" -> "image/jpeg"
-			"png" -> "image/png"
-			"webp" -> "image/webp"
-			else -> "image/jpeg"
-		}
+		val contentType = PhotoUtils.getContentType(photo.filename)
 
 		// Convert timestamp to ISO format for captured_at
 		val capturedAt = try {
@@ -525,12 +485,7 @@ class PhotoUploadLogic(private val context: Context) {
 		workerUrl: String,
 		photoId: String
 	): Boolean {
-		val mediaType = when (filename.substringAfterLast('.').lowercase()) {
-			"jpg", "jpeg" -> "image/jpeg".toMediaType()
-			"png" -> "image/png".toMediaType()
-			"webp" -> "image/webp".toMediaType()
-			else -> "image/jpeg".toMediaType()
-		}
+		val mediaType = getContentType(filename).toMediaType()
 
 		val requestBody = MultipartBody.Builder()
 			.setType(MultipartBody.FORM)

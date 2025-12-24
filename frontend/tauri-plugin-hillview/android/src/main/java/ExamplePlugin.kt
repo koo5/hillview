@@ -2166,6 +2166,18 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 
 	override fun onNewIntent(intent: Intent) {
 		Log.d(TAG, "📲 onNewIntent called with intent: $intent")
+
+		// Update activity intent so getIntentData reads the new intent
+		activity.intent = intent
+
+		// Check for notification click action and queue message for frontend
+		val clickAction = intent.getStringExtra("click_action")
+		if (clickAction != null) {
+			Log.d(TAG, "📲 Notification click detected, route: $clickAction")
+			val eventData = JSObject()
+			eventData.put("route", clickAction)
+			queueMessage("notification-click", eventData)
+		}
 	}
 
 	@Command

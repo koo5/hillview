@@ -16,6 +16,7 @@
 	import {zoomViewData} from '$lib/zoomView.svelte';
 	import {getCurrent} from "@tauri-apps/plugin-deep-link";
 	import {navigateWithHistory} from "$lib/navigation.svelte";
+	import {kotlinMessageQueue} from '$lib/KotlinMessageQueue';
 
 
 	// Log navigation events
@@ -60,6 +61,18 @@
 
 		if (TAURI) {
 			await setupDeepLinkListener();
+		}
+
+		if (TAURI_MOBILE) {
+			// Start message queue polling and handle notification clicks
+			kotlinMessageQueue.startPolling();
+			kotlinMessageQueue.on('notification-click', async (message) => {
+				const route = message.payload?.route;
+				if (route) {
+					console.log('🔔 Notification click received, navigating to:', route);
+					await navigateWithHistory(route);
+				}
+			});
 		}
 	});
 

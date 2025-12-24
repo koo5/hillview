@@ -37,7 +37,7 @@ export class KotlinMessageQueue {
 
         this.pollingInterval = setInterval(() => {
             this.pollMessages();
-        }, 450);
+        }, 150);
     }
 
     /**

@@ -14,6 +14,56 @@ object PhotoUtils {
     private const val TAG = "🢄PhotoUtils"
 
     /**
+     * Check if path is a content:// URI
+     */
+    fun isContentUri(path: String) = path.startsWith("content://")
+
+    /**
+     * Get content type from filename extension
+     */
+    fun getContentType(filename: String): String {
+        return when (filename.substringAfterLast('.').lowercase()) {
+            "jpg", "jpeg" -> "image/jpeg"
+            "png" -> "image/png"
+            "webp" -> "image/webp"
+            else -> "image/jpeg"
+        }
+    }
+
+    /**
+     * Read bytes from a path (either file path or content:// URI)
+     */
+    fun readBytesFromPath(context: Context, path: String): ByteArray? {
+        return try {
+            if (isContentUri(path)) {
+                val uri = Uri.parse(path)
+                context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            } else {
+                File(path).readBytes()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to read bytes from path: $path", e)
+            null
+        }
+    }
+
+    /**
+     * Check if a path exists (either file path or content:// URI)
+     */
+    fun pathExists(context: Context, path: String): Boolean {
+        return try {
+            if (isContentUri(path)) {
+                val uri = Uri.parse(path)
+                context.contentResolver.openInputStream(uri)?.use { true } ?: false
+            } else {
+                File(path).exists()
+            }
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
      * Convert timestamp to ISO 8601 format string
      * @param timestamp Unix timestamp in milliseconds
      * @return ISO 8601 formatted string (e.g., "2023-12-01T15:30:45Z") or null if conversion fails
