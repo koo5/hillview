@@ -35,6 +35,7 @@ if test $status -eq 0
 		find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" -type f | while read apk
 			echo "  📱 "(basename $apk)": "(du -h $apk | cut -f1)
 		end
+	end
 else
     echo "❌ Release APK build failed. Check the error messages above."
     exit 1
