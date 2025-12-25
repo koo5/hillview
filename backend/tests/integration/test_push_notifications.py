@@ -17,6 +17,7 @@ import requests
 import os
 import sys
 import time
+import pytest
 
 # Add paths for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -465,6 +466,7 @@ class TestInternalNotificationEndpoints(BaseUserManagementTest):
         super().setup_method(method)
         print("Setting up internal notification endpoint tests...")
 
+    @pytest.mark.skip(reason="Endpoint temporarily removed")
     def test_internal_create_notification(self):
         """Test creating a notification via internal endpoint."""
         print("\n--- Testing Internal Create Notification ---")
@@ -514,6 +516,7 @@ class TestInternalNotificationEndpoints(BaseUserManagementTest):
 
         print("Internal notification creation verified")
 
+    @pytest.mark.skip(reason="Endpoint temporarily removed")
     def test_internal_create_notification_missing_target(self):
         """Test internal create notification without user_id or client_key_id."""
         print("\n--- Testing Internal Create Notification (Missing Target) ---")
@@ -550,6 +553,7 @@ class TestInternalNotificationEndpoints(BaseUserManagementTest):
 
         print("Notification cleanup successful")
 
+    @pytest.mark.skip(reason="Endpoint temporarily removed")
     def test_internal_broadcast_notification(self):
         """Test broadcast notification."""
         print("\n--- Testing Internal Broadcast Notification ---")
