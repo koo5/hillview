@@ -23,19 +23,19 @@ class NotificationDict(TypedDict, total=False):
 
 
 # Core notification functions (for use by other parts of the app)
-
-async def create_notification_for_any(
-	db: AsyncSession,
-	recipient: dict,  # {'type': 'user'|'client', 'id': ...}
-	notification: NotificationDict
-) -> int:
-	"""Create a notification for a user or client device."""
-	if recipient['type'] == 'user':
-		return await create_notification_for_user(db, recipient['id'], notification)
-	elif recipient['type'] == 'client':
-		return await create_notification_for_client(db, recipient['id'], notification)
-	else:
-		raise ValueError(f"Unknown recipient type: {recipient['type']}")
+#
+# async def create_notification_for_any(
+# 	db: AsyncSession,
+# 	recipient: dict,  # {'type': 'user'|'client', 'id': ...}
+# 	notification: NotificationDict
+# ) -> int:
+# 	"""Create a notification for a user or client device."""
+# 	if recipient['type'] == 'user':
+# 		return await create_notification_for_user(db, recipient['id'], notification)
+# 	elif recipient['type'] == 'client':
+# 		return await create_notification_for_client(db, recipient['id'], notification)
+# 	else:
+# 		raise ValueError(f"Unknown recipient type: {recipient['type']}")
 
 
 
@@ -178,49 +178,49 @@ async def send_push_to_client(client_key_id: str, db: AsyncSession, notif: Notif
 			logger.error(f"Error sending push to {client_key_id}: {e}")
 
 
-async def send_broadcast_notification(
-	db: AsyncSession,
-	notification: NotificationDict
-) -> Dict[str, int]:
-	"""Send a notification to all users and all anonymous clients (not associated with any user).
-
-	Returns dict with counts: {'user_notifications': int, 'client_notifications': int, 'total': int}
-	"""
-	user_count = 0
-	client_count = 0
-
-	# 1. Send to all active users
-	users_query = select(User.id).where(User.is_active == True)
-	users_result = await db.execute(users_query)
-	user_ids = [row[0] for row in users_result.fetchall()]
-
-	for user_id in user_ids:
-		await create_notification_for_user(db, user_id, notification)
-		user_count += 1
-
-	# 2. Send to all anonymous clients (push registrations not associated with any user)
-	anonymous_clients_query = select(PushRegistration.client_key_id).where(
-		~PushRegistration.client_key_id.in_(select(UserPublicKey.key_id))
-	)
-	anonymous_result = await db.execute(anonymous_clients_query)
-	anonymous_client_ids = [row[0] for row in anonymous_result.fetchall()]
-
-	for client_key_id in anonymous_client_ids:
-		try:
-			await create_notification_for_client(db, client_key_id, notification)
-			client_count += 1
-		except ValueError as e:
-			logger.warning(f"Failed to create notification for anonymous client {client_key_id}: {e}")
-
-	total_count = user_count + client_count
-	logger.info(f"Broadcast notification sent: {user_count} users, {client_count} anonymous clients, {total_count} total")
-
-	return {
-		'user_notifications': user_count,
-		'client_notifications': client_count,
-		'total': total_count
-	}
-
+# async def send_broadcast_notification(
+# 	db: AsyncSession,
+# 	notification: NotificationDict
+# ) -> Dict[str, int]:
+# 	"""Send a notification to all users and all anonymous clients (not associated with any user).
+#
+# 	Returns dict with counts: {'user_notifications': int, 'client_notifications': int, 'total': int}
+# 	"""
+# 	user_count = 0
+# 	client_count = 0
+#
+# 	# 1. Send to all active users
+# 	users_query = select(User.id).where(User.is_active == True)
+# 	users_result = await db.execute(users_query)
+# 	user_ids = [row[0] for row in users_result.fetchall()]
+#
+# 	for user_id in user_ids:
+# 		await create_notification_for_user(db, user_id, notification)
+# 		user_count += 1
+#
+# 	# 2. Send to all anonymous clients (push registrations not associated with any user)
+# 	anonymous_clients_query = select(PushRegistration.client_key_id).where(
+# 		~PushRegistration.client_key_id.in_(select(UserPublicKey.key_id))
+# 	)
+# 	anonymous_result = await db.execute(anonymous_clients_query)
+# 	anonymous_client_ids = [row[0] for row in anonymous_result.fetchall()]
+#
+# 	for client_key_id in anonymous_client_ids:
+# 		try:
+# 			await create_notification_for_client(db, client_key_id, notification)
+# 			client_count += 1
+# 		except ValueError as e:
+# 			logger.warning(f"Failed to create notification for anonymous client {client_key_id}: {e}")
+#
+# 	total_count = user_count + client_count
+# 	logger.info(f"Broadcast notification sent: {user_count} users, {client_count} anonymous clients, {total_count} total")
+#
+# 	return {
+# 		'user_notifications': user_count,
+# 		'client_notifications': client_count,
+# 		'total': total_count
+# 	}
+#
 
 
 

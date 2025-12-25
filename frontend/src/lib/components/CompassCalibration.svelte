@@ -71,11 +71,12 @@
 
 <div class="calibration-overlay" data-testid="compass-calibration-overlay">
     <div class="calibration-content">
-        <button class="close-button" on:click={handleClose} aria-label="Close calibration" data-testid="calibration-close-btn">
-            &times;
-        </button>
+        <div class="calibration-inner">
+            <button class="close-button" on:click={handleClose} aria-label="Close calibration" data-testid="calibration-close-btn">
+                &times;
+            </button>
 
-        <h2 class="calibration-title">Calibrate Compass</h2>
+            <h4 class="calibration-title">Calibrate Compass</h4>
 
         <!-- Figure-8 Animation -->
         <div class="figure8-container">
@@ -84,10 +85,9 @@
                     <path
                         d="M50 30 C50 10, 80 10, 80 30 C80 50, 50 50, 50 30 C50 10, 20 10, 20 30 C20 50, 50 50, 50 30"
                         fill="none"
-                        stroke="rgba(255,255,255,0.3)"
                         stroke-width="2"
                     />
-                    <circle class="moving-dot" r="4" fill="#4a90e2">
+                    <circle class="moving-dot" r="4">
                         <animateMotion
                             dur="3s"
                             repeatCount="indefinite"
@@ -139,6 +139,7 @@
                 </div>
             </div>
         </div>
+        </div>
     </div>
 </div>
 
@@ -149,25 +150,31 @@
         left: 0;
         right: 0;
         bottom: 0;
-        background: rgba(0, 0, 0, 0.85);
+        z-index: 500;
+        overflow: hidden;
         display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: 10000;
-        backdrop-filter: blur(4px);
+        flex-direction: column;
     }
 
     .calibration-content {
-        position: relative;
-        background: rgba(30, 30, 30, 0.95);
+        flex: 1;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+    }
+
+    .calibration-content > :global(*) {
+        flex-shrink: 0;
+    }
+
+    .calibration-inner {
         border-radius: 16px;
         padding: 24px;
         max-width: 320px;
-        width: 90%;
+        width: 100%;
         text-align: center;
-        color: white;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-        border: 1px solid rgba(255, 255, 255, 0.1);
+        position: relative;
     }
 
     .close-button {
@@ -176,21 +183,20 @@
         right: 12px;
         background: none;
         border: none;
-        color: rgba(255, 255, 255, 0.6);
         font-size: 28px;
         cursor: pointer;
         padding: 4px 8px;
         line-height: 1;
-        transition: color 0.2s;
+        transition: opacity 0.2s;
+        opacity: 0.5;
     }
 
     .close-button:hover {
-        color: white;
+        opacity: 1;
     }
 
     .calibration-title {
-        margin: 0 0 16px 0;
-        font-size: 1.4rem;
+        font-size: 1rem;
         font-weight: 600;
     }
 
@@ -209,23 +215,31 @@
         height: 100%;
     }
 
+    .figure8-svg path {
+        stroke: currentColor;
+        opacity: 0.3;
+    }
+
+    .figure8-svg circle {
+        fill: #4a90e2;
+    }
+
     .calibration-instruction {
         margin: 16px 0;
         font-size: 1rem;
-        color: rgba(255, 255, 255, 0.9);
         line-height: 1.5;
     }
 
     .accuracy-display {
         margin: 20px 0;
         padding: 16px;
-        background: rgba(255, 255, 255, 0.1);
+        background: rgba(0, 0, 0, 0.05);
         border-radius: 12px;
     }
 
     .accuracy-label {
         font-size: 0.85rem;
-        color: rgba(255, 255, 255, 0.7);
+        opacity: 0.7;
         margin-bottom: 8px;
     }
 
@@ -238,28 +252,28 @@
     }
 
     .accuracy-high {
-        background: rgba(76, 175, 80, 0.8);
+        background: #4caf50;
         color: white;
     }
 
     .accuracy-medium {
-        background: rgba(255, 193, 7, 0.8);
+        background: #ffc107;
         color: black;
     }
 
     .accuracy-low {
-        background: rgba(255, 152, 0, 0.8);
+        background: #ff9800;
         color: white;
     }
 
     .accuracy-unreliable {
-        background: rgba(244, 67, 54, 0.8);
+        background: #f44336;
         color: white;
         animation: pulse-warning 1s infinite;
     }
 
     .accuracy-unknown {
-        background: rgba(158, 158, 158, 0.8);
+        background: #9e9e9e;
         color: white;
     }
 
@@ -283,7 +297,7 @@
     .sensor-details {
         margin-top: 8px;
         font-size: 0.8rem;
-        color: rgba(255, 255, 255, 0.6);
+        opacity: 0.6;
     }
 
     .sensor-label {
@@ -299,8 +313,8 @@
     .car-mode-hint {
         margin-top: 24px;
         padding: 16px;
-        background: rgba(74, 144, 226, 0.15);
-        border: 1px solid rgba(74, 144, 226, 0.3);
+        background: rgba(0, 0, 0, 0.03);
+        border: 1px solid rgba(0, 0, 0, 0.1);
         border-radius: 12px;
         text-align: center;
     }
@@ -313,7 +327,7 @@
 
     .hint-text {
         font-size: 0.85rem;
-        color: rgba(255, 255, 255, 0.8);
+        opacity: 0.8;
         margin-bottom: 16px;
     }
 
@@ -325,14 +339,12 @@
     }
 
     .compass-button-preview {
-        background: rgba(255, 255, 255, 0.9);
         border: 2px solid #ddd;
         border-radius: 4px;
         padding: 8px;
         display: flex;
         align-items: center;
         justify-content: center;
-        color: #333;
     }
 
     .compass-button-preview.target {
@@ -352,6 +364,6 @@
     }
 
     .arrow-icon {
-        color: rgba(255, 255, 255, 0.7);
+        opacity: 0.5;
     }
 </style>
