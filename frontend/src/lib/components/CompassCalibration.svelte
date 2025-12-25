@@ -78,8 +78,8 @@
 
             <h4 class="calibration-title">Calibrate Compass</h4>
 
-        <!-- Figure-8 Animation -->
-        <div class="figure8-container">
+        <!-- Figure-8 Animation and instruction on same line -->
+        <div class="instruction-row">
             <div class="figure8-animation">
                 <svg viewBox="0 0 100 60" class="figure8-svg">
                     <path
@@ -96,18 +96,17 @@
                     </circle>
                 </svg>
             </div>
+            <p class="calibration-instruction">
+                Move your phone in a <strong>figure-8 pattern</strong> several times
+            </p>
         </div>
-
-        <p class="calibration-instruction">
-            Move your phone in a <strong>figure-8 pattern</strong> several times
-        </p>
 
         <!-- Real-time Accuracy Display -->
         <div class="accuracy-display">
-            <div class="accuracy-label">Compass Accuracy</div>
-            <div class="accuracy-value accuracy-{getAccuracyClass($bearingState.accuracy)}">
+            <span class="accuracy-label">Compass Accuracy:</span>
+            <span class="accuracy-value accuracy-{getAccuracyClass($bearingState.accuracy)}">
                 {accuracyToString($bearingState.accuracy)}
-            </div>
+            </span>
             {#if !$needsCalibration}
                 <div class="accuracy-good-message">
                     Accuracy is good! Closing soon...
@@ -141,6 +140,7 @@
         </div>
         </div>
     </div>
+
 </div>
 
 <style>
@@ -170,9 +170,10 @@
 
     .calibration-inner {
         border-radius: 16px;
-        width: 100%;
         text-align: center;
         position: relative;
+		max-width: 95%;
+
     }
 
     .close-button {
@@ -198,14 +199,17 @@
         font-weight: 600;
     }
 
-    .figure8-container {
-        margin: 16px 0;
+    .instruction-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin: 12px 0;
     }
 
     .figure8-animation {
         width: 120px;
         height: 80px;
-        margin: 0 auto;
+        flex-shrink: 0;
     }
 
     .figure8-svg {
@@ -223,29 +227,33 @@
     }
 
     .calibration-instruction {
-        margin: 16px 0;
-        font-size: 1rem;
-        line-height: 1.5;
+        margin: 0;
+        font-size: 0.9rem;
+        line-height: 1.4;
+        text-align: left;
     }
 
     .accuracy-display {
-        margin: 20px 0;
-        padding: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin: 12px 0;
+        padding: 8px 12px;
         background: rgba(0, 0, 0, 0.05);
-        border-radius: 12px;
+        border-radius: 8px;
     }
 
     .accuracy-label {
-        font-size: 1rem;
-        opacity: 1;
-        margin-bottom: 8px;
+        font-size: 0.9rem;
     }
 
     .accuracy-value {
-        font-size: 1.5rem;
+        font-size: 0.9rem;
         font-weight: 700;
-        padding: 8px 16px;
-        border-radius: 8px;
+        padding: 4px 10px;
+        border-radius: 6px;
         display: inline-block;
     }
 
@@ -309,7 +317,8 @@
     }
 
     .car-mode-hint {
-        padding: 16px;
+        padding: 8px;
+		margin: 8px 0;
         background: rgba(0, 0, 0, 0.03);
         border: 1px solid rgba(0, 0, 0, 0.1);
         border-radius: 12px;
