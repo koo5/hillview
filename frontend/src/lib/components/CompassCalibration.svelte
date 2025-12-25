@@ -1,9 +1,10 @@
 <script lang="ts">
+
     import { onDestroy } from 'svelte';
     import { bearingState } from '$lib/mapState';
-    import { sensorAccuracy, needsCalibration } from '$lib/compass.svelte.js';
+	import {sensorAccuracy, needsCalibration, compassWalkingActive} from '$lib/compass.svelte.js';
     import { showCalibrationView } from '$lib/data.svelte.js';
-    import { ArrowRight } from 'lucide-svelte';
+    import { Car, ArrowRight } from 'lucide-svelte';
     import CompassButtonInner from './CompassButtonInner.svelte';
 
     // Track how long accuracy has been good for auto-dismiss
@@ -46,7 +47,7 @@
                     if (!$needsCalibration) {
                         showCalibrationView.set(false);
                     }
-                }, AUTO_DISMISS_DELAY);
+                }, $compassWalkingActive ? AUTO_DISMISS_DELAY : 0);
             }
         } else {
             // Still needs calibration, reset timer
@@ -103,28 +104,31 @@
 
         <!-- Real-time Accuracy Display -->
         <div class="accuracy-display">
-            <span class="accuracy-label">Compass Accuracy:</span>
+            <span class="accuracy-label">Compass Accuracy</span>
             <span class="accuracy-value accuracy-{getAccuracyClass($bearingState.accuracy)}">
                 {accuracyToString($bearingState.accuracy)}
             </span>
             {#if !$needsCalibration}
                 <div class="accuracy-good-message">
-                    Accuracy is good! Closing soon...
+					{#if $bearingState.accuracy && $bearingState.accuracy > 1}
+						Accuracy is good!
+					{/if}
+					Closing soon...
                 </div>
             {/if}
         </div>
 
         <!-- Sensor Details (optional, for debugging) -->
-        {#if $sensorAccuracy.magnetometer}
-            <div class="sensor-details">
-                <span class="sensor-label">Magnetometer:</span>
-                <span class="sensor-value accuracy-{$sensorAccuracy.magnetometer?.toLowerCase()}">{$sensorAccuracy.magnetometer}</span>
-            </div>
-        {/if}
+        <!--{#if $sensorAccuracy.magnetometer}-->
+        <!--    <div class="sensor-details">-->
+        <!--        <span class="sensor-label">Magnetometer:</span>-->
+        <!--        <span class="sensor-value accuracy-{$sensorAccuracy.magnetometer?.toLowerCase()}">{$sensorAccuracy.magnetometer}</span>-->
+        <!--    </div>-->
+        <!--{/if}-->
 
         <!-- Car Mode Hint -->
         <div class="car-mode-hint" data-testid="car-mode-hint">
-            <div class="hint-title">In a vehicle?</div>
+            <div class="hint-title"><Car size={16}/> In a vehicle?</div>
             <div class="hint-text">Switch to Car Mode for GPS-based heading:</div>
             <div class="mode-switch-visual">
                 <div class="compass-button-preview">
@@ -326,8 +330,12 @@
     }
 
     .hint-title {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
         font-weight: 600;
-        font-size: 0.95rem;
+        font-size: 1rem;
         margin-bottom: 8px;
     }
 

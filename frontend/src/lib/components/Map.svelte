@@ -1327,7 +1327,7 @@
 
     .source-buttons-container {
         position: absolute;
-        top: 70px;
+        top: 100px;
         right: 5px;
         z-index: 30000;
         display: flex;
