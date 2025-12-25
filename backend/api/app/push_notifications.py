@@ -7,7 +7,7 @@ import httpx, logging
 from common.models import PushRegistration, Notification, User, UserPublicKey
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import func, desc, and_, update, delete
+from sqlalchemy import func, desc, and_, update, delete, text
 from fcm_push import send_fcm_push, send_fcm_batch, is_fcm_configured
 
 logger = logging.getLogger(__name__)
@@ -232,7 +232,25 @@ async def send_activity_broadcast_notification(
 	"""Send an activity broadcast notification to all users and all anonymous clients.
 	Filters out users who got notified in the last 12 hours.
 	Uses batch sending for FCM efficiency.
+
+	Uses advisory lock to prevent duplicate notifications from concurrent calls.
 	"""
+	# Use advisory lock to serialize concurrent broadcast notifications
+	# This prevents race conditions where multiple requests query the same
+	# eligible users before any commits
+	lock_id = 12345  # Arbitrary unique ID for activity broadcast lock
+	await db.execute(text(f"SELECT pg_advisory_lock({lock_id})"))
+	try:
+		await _send_activity_broadcast_notification_impl(db, activity_originator_user_id)
+	finally:
+		await db.execute(text(f"SELECT pg_advisory_unlock({lock_id})"))
+
+
+async def _send_activity_broadcast_notification_impl(
+	db: AsyncSession,
+	activity_originator_user_id: str
+):
+	"""Implementation of activity broadcast notification (called with lock held)."""
 	notification = {
 		'type': 'activity_broadcast',
 		'title': 'New photos uploaded',

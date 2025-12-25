@@ -4,6 +4,7 @@
     import { gpsOrientationInternalState, gpsOrientationEnabled, enableGpsOrientation, disableGpsOrientation, gpsOrientationError } from '$lib/gpsOrientation.svelte';
     import { bearingMode, type BearingMode } from '$lib/mapState';
     import { createEventDispatcher } from 'svelte';
+	import CompassButtonInner from "$lib/components/CompassButtonInner.svelte";
 
     const dispatch = createEventDispatcher<{
         showMenu: { buttonRect: DOMRect };
@@ -186,27 +187,10 @@
         disabled={isButtonDisabled}
         data-testid="compass-button"
     >
-        <div class="button-content">
-            <Compass />
-            <div class="mode-section">
-                <div class="mode-indicator">
-                    {#if $bearingMode === 'car'}
-                        <Car size={16} />
-                    {:else}
-                        <PersonStanding size={16} />
-                    {/if}
-                </div>
-                {#if !isTouch}
-                    <div class="dropdown-trigger">
-                        <ChevronDown size={12} />
-                    </div>
-                {:else}
-                    <div class="long-press-indicator">
-                        <ChevronDown size={12} />
-                    </div>
-                {/if}
-            </div>
-        </div>
+        <CompassButtonInner bearingMode={$bearingMode} />
+
+
+
     </button>
 
 </div>

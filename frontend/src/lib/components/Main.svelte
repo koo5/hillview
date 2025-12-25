@@ -16,7 +16,8 @@
 		toggleDebug,
 		turn_to_photo_to,
 		enableSourceForPhotoUid,
-		splitPercent
+		splitPercent,
+		showCalibrationView
 	} from "$lib/data.svelte.js";
 	import {resizableSplit} from '$lib/actions/resizableSplit';
 	import {
@@ -32,6 +33,7 @@
 	import {get} from "svelte/store";
 	import CameraCapture from './CameraCapture.svelte';
 	import DebugOverlay from './DebugOverlay.svelte';
+	import CompassCalibration from './CompassCalibration.svelte';
 	import {
 		deviceOrientationExif, getCssRotationFromOrientation,
 		getRotationFromOrientation, getWebviewOrientation, relativeOrientationExif,
@@ -526,7 +528,9 @@
 	}}
 >
 	<div class="panel photo-panel">
-		{#if showCameraView}
+		{#if $showCalibrationView}
+			<CompassCalibration />
+		{:else if showCameraView}
 			<CameraCapture
 				show={true}
 				on:close={() => app.update(a => ({...a, activity: 'view'}))}

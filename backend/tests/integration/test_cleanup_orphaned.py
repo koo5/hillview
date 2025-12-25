@@ -39,8 +39,8 @@ class TestCleanupOrphaned(BasePhotoTest):
 		data = response.json()
 
 		assert "message" in data
-		assert "cleaned_count" in data
-		assert data["cleaned_count"] == 0
+		assert "cleaned_up_count" in data
+		assert data["cleaned_up_count"] == 0
 
 	@pytest.mark.asyncio
 	async def test_cleanup_orphaned_authorized_photo(self):
@@ -75,7 +75,7 @@ class TestCleanupOrphaned(BasePhotoTest):
 		data = response.json()
 
 		# The photo was just created, so it shouldn't be cleaned up yet
-		assert data["cleaned_count"] == 0, \
+		assert data["cleaned_up_count"] == 0, \
 			"Newly authorized photos should not be cleaned up immediately"
 
 	@pytest.mark.asyncio
@@ -106,9 +106,9 @@ class TestCleanupOrphaned(BasePhotoTest):
 
 		# Check response structure
 		assert "message" in data
-		assert "cleaned_count" in data
-		assert isinstance(data["cleaned_count"], int)
-		assert data["cleaned_count"] >= 0
+		assert "cleaned_up_count" in data
+		assert isinstance(data["cleaned_up_count"], int)
+		assert data["cleaned_up_count"] >= 0
 
 	@pytest.mark.asyncio
 	async def test_cleanup_invalid_token(self):

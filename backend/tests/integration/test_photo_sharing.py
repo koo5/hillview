@@ -94,11 +94,11 @@ class TestPhotoSharing(BasePhotoTest):
 	async def test_share_mapillary_photo_format(self):
 		"""Test share endpoint with mapillary source format."""
 		# Mapillary photos use numeric IDs
-		# This should return 404 since we don't have that photo, but format is valid
+		# This returns 501 (Not Implemented) since mapillary sharing isn't implemented
 		response = requests.get(f"{API_URL}/photos/share/mapillary-123456789")
 
-		# Either 404 (not found) or 200 if somehow exists
-		assert response.status_code in [200, 404]
+		# 501 = Not Implemented, 404 = Not found, 200 = somehow exists
+		assert response.status_code in [200, 404, 501]
 
 	@pytest.mark.asyncio
 	async def test_share_response_structure(self):

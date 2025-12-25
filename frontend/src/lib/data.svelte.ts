@@ -86,6 +86,9 @@ export let client_id = staggeredLocalStorageSharedStore('client_id', Math.random
 // Camera overlay opacity store (0 = fully transparent, 5 = most opaque)
 export let cameraOverlayOpacity = staggeredLocalStorageSharedStore('cameraOverlayOpacity', 3);
 
+// Compass calibration view state (takes precedence over camera and gallery views)
+export let showCalibrationView = writable(false);
+
 export let photoLicense = localStorageSharedStore<string | null>('photoLicense', null);
 photoLicense.subscribe(async value => {
 	if (value === null && TAURI) {

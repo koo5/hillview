@@ -1,15 +1,10 @@
 <script lang="ts">
-    import { createEventDispatcher, onMount, onDestroy } from 'svelte';
-    import { bearingState, bearingMode } from '$lib/mapState';
-    import { compassState, sensorAccuracy } from '$lib/compass.svelte.js';
-    import { Car } from 'lucide-svelte';
-
-    const dispatch = createEventDispatcher<{
-        close: {};
-        switchToCarMode: {};
-    }>();
-
-    export let visible = false;
+    import { onDestroy } from 'svelte';
+    import { bearingState } from '$lib/mapState';
+    import { sensorAccuracy, needsCalibration } from '$lib/compass.svelte.js';
+    import { showCalibrationView } from '$lib/data.svelte.js';
+    import { ArrowRight } from 'lucide-svelte';
+    import CompassButtonInner from './CompassButtonInner.svelte';
 
     // Track how long accuracy has been good for auto-dismiss
     let goodAccuracyStart: number | null = null;
@@ -28,11 +23,6 @@
         }
     }
 
-    // Check if accuracy is considered "good" (HIGH or MEDIUM)
-    function isAccuracyGood(accuracy: number | null | undefined): boolean {
-        return accuracy !== null && accuracy !== undefined && accuracy >= 2;
-    }
-
     // Get accuracy color class
     function getAccuracyClass(accuracy: number | null | undefined): string {
         if (accuracy === null || accuracy === undefined) return "unknown";
@@ -45,22 +35,21 @@
         }
     }
 
-    // Watch accuracy changes for auto-dismiss
+    // Watch needsCalibration for auto-dismiss
     $: {
-        const currentAccuracy = $bearingState.accuracy;
-        if (visible && isAccuracyGood(currentAccuracy)) {
+        if (!$needsCalibration) {
+            // Calibration no longer needed - schedule auto-dismiss
             if (goodAccuracyStart === null) {
                 goodAccuracyStart = Date.now();
-                // Schedule auto-dismiss
                 if (autoDismissTimeout) clearTimeout(autoDismissTimeout);
                 autoDismissTimeout = setTimeout(() => {
-                    if (visible && isAccuracyGood($bearingState.accuracy)) {
-                        dispatch('close', {});
+                    if (!$needsCalibration) {
+                        showCalibrationView.set(false);
                     }
                 }, AUTO_DISMISS_DELAY);
             }
         } else {
-            // Accuracy went bad, reset timer
+            // Still needs calibration, reset timer
             goodAccuracyStart = null;
             if (autoDismissTimeout) {
                 clearTimeout(autoDismissTimeout);
@@ -69,12 +58,8 @@
         }
     }
 
-    function handleSwitchToCarMode() {
-        dispatch('switchToCarMode', {});
-    }
-
     function handleClose() {
-        dispatch('close', {});
+        showCalibrationView.set(false);
     }
 
     onDestroy(() => {
@@ -84,75 +69,78 @@
     });
 </script>
 
-{#if visible}
-    <div class="calibration-overlay" data-testid="compass-calibration-overlay">
-        <div class="calibration-content">
-            <button class="close-button" on:click={handleClose} aria-label="Close calibration" data-testid="calibration-close-btn">
-                &times;
-            </button>
+<div class="calibration-overlay" data-testid="compass-calibration-overlay">
+    <div class="calibration-content">
+        <button class="close-button" on:click={handleClose} aria-label="Close calibration" data-testid="calibration-close-btn">
+            &times;
+        </button>
 
-            <h2 class="calibration-title">Calibrate Compass</h2>
+        <h2 class="calibration-title">Calibrate Compass</h2>
 
-            <!-- Figure-8 Animation -->
-            <div class="figure8-container">
-                <div class="figure8-animation">
-                    <svg viewBox="0 0 100 60" class="figure8-svg">
-                        <path
-                            d="M50 30 C50 10, 80 10, 80 30 C80 50, 50 50, 50 30 C50 10, 20 10, 20 30 C20 50, 50 50, 50 30"
-                            fill="none"
-                            stroke="rgba(255,255,255,0.3)"
-                            stroke-width="2"
+        <!-- Figure-8 Animation -->
+        <div class="figure8-container">
+            <div class="figure8-animation">
+                <svg viewBox="0 0 100 60" class="figure8-svg">
+                    <path
+                        d="M50 30 C50 10, 80 10, 80 30 C80 50, 50 50, 50 30 C50 10, 20 10, 20 30 C20 50, 50 50, 50 30"
+                        fill="none"
+                        stroke="rgba(255,255,255,0.3)"
+                        stroke-width="2"
+                    />
+                    <circle class="moving-dot" r="4" fill="#4a90e2">
+                        <animateMotion
+                            dur="3s"
+                            repeatCount="indefinite"
+                            path="M50 30 C50 10, 80 10, 80 30 C80 50, 50 50, 50 30 C50 10, 20 10, 20 30 C20 50, 50 50, 50 30"
                         />
-                        <circle class="moving-dot" r="4" fill="#4a90e2">
-                            <animateMotion
-                                dur="3s"
-                                repeatCount="indefinite"
-                                path="M50 30 C50 10, 80 10, 80 30 C80 50, 50 50, 50 30 C50 10, 20 10, 20 30 C20 50, 50 50, 50 30"
-                            />
-                        </circle>
-                    </svg>
-                </div>
+                    </circle>
+                </svg>
             </div>
+        </div>
 
-            <p class="calibration-instruction">
-                Move your phone in a <strong>figure-8 pattern</strong> several times
-            </p>
+        <p class="calibration-instruction">
+            Move your phone in a <strong>figure-8 pattern</strong> several times
+        </p>
 
-            <!-- Real-time Accuracy Display -->
-            <div class="accuracy-display">
-                <div class="accuracy-label">Compass Accuracy</div>
-                <div class="accuracy-value accuracy-{getAccuracyClass($bearingState.accuracy)}">
-                    {accuracyToString($bearingState.accuracy)}
-                </div>
-                {#if isAccuracyGood($bearingState.accuracy)}
-                    <div class="accuracy-good-message">
-                        Accuracy is good! Closing soon...
-                    </div>
-                {/if}
+        <!-- Real-time Accuracy Display -->
+        <div class="accuracy-display">
+            <div class="accuracy-label">Compass Accuracy</div>
+            <div class="accuracy-value accuracy-{getAccuracyClass($bearingState.accuracy)}">
+                {accuracyToString($bearingState.accuracy)}
             </div>
-
-            <!-- Sensor Details (optional, for debugging) -->
-            {#if $sensorAccuracy.magnetometer}
-                <div class="sensor-details">
-                    <span class="sensor-label">Magnetometer:</span>
-                    <span class="sensor-value accuracy-{$sensorAccuracy.magnetometer?.toLowerCase()}">{$sensorAccuracy.magnetometer}</span>
+            {#if !$needsCalibration}
+                <div class="accuracy-good-message">
+                    Accuracy is good! Closing soon...
                 </div>
             {/if}
+        </div>
 
-            <!-- Car Mode Hint -->
-            <div class="car-mode-hint" data-testid="car-mode-hint">
-                <div class="hint-icon"><Car size={20} /></div>
-                <div class="hint-content">
-                    <div class="hint-title">In a vehicle?</div>
-                    <div class="hint-text">Switch to <strong>Car Mode</strong> for GPS-based heading</div>
-                    <button class="car-mode-button" on:click={handleSwitchToCarMode} data-testid="switch-to-car-mode-btn">
-                        Switch to Car Mode
-                    </button>
+        <!-- Sensor Details (optional, for debugging) -->
+        {#if $sensorAccuracy.magnetometer}
+            <div class="sensor-details">
+                <span class="sensor-label">Magnetometer:</span>
+                <span class="sensor-value accuracy-{$sensorAccuracy.magnetometer?.toLowerCase()}">{$sensorAccuracy.magnetometer}</span>
+            </div>
+        {/if}
+
+        <!-- Car Mode Hint -->
+        <div class="car-mode-hint" data-testid="car-mode-hint">
+            <div class="hint-title">In a vehicle?</div>
+            <div class="hint-text">Switch to Car Mode for GPS-based heading:</div>
+            <div class="mode-switch-visual">
+                <div class="compass-button-preview">
+                    <CompassButtonInner bearingMode="walking" />
+                </div>
+                <div class="arrow-icon">
+                    <ArrowRight size={24} />
+                </div>
+                <div class="compass-button-preview target">
+                    <CompassButtonInner bearingMode="car" />
                 </div>
             </div>
         </div>
     </div>
-{/if}
+</div>
 
 <style>
     .calibration-overlay {
@@ -314,52 +302,56 @@
         background: rgba(74, 144, 226, 0.15);
         border: 1px solid rgba(74, 144, 226, 0.3);
         border-radius: 12px;
-        display: flex;
-        align-items: flex-start;
-        gap: 12px;
-        text-align: left;
-    }
-
-    .hint-icon {
-        flex-shrink: 0;
-        color: #4a90e2;
-        margin-top: 2px;
-    }
-
-    .hint-content {
-        flex: 1;
+        text-align: center;
     }
 
     .hint-title {
         font-weight: 600;
         font-size: 0.95rem;
-        margin-bottom: 4px;
+        margin-bottom: 8px;
     }
 
     .hint-text {
         font-size: 0.85rem;
         color: rgba(255, 255, 255, 0.8);
-        margin-bottom: 12px;
+        margin-bottom: 16px;
     }
 
-    .car-mode-button {
-        background: #4a90e2;
+    .mode-switch-visual {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+    }
+
+    .compass-button-preview {
+        background: rgba(255, 255, 255, 0.9);
+        border: 2px solid #ddd;
+        border-radius: 4px;
+        padding: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #333;
+    }
+
+    .compass-button-preview.target {
+        background: #4285F4;
+        border-color: #4285F4;
         color: white;
-        border: none;
-        border-radius: 8px;
-        padding: 10px 16px;
-        font-size: 0.9rem;
-        font-weight: 500;
-        cursor: pointer;
-        transition: background 0.2s;
-        width: 100%;
+        animation: pulse-hint 2s infinite;
     }
 
-    .car-mode-button:hover {
-        background: #3a7bc8;
+    @keyframes pulse-hint {
+        0%, 100% {
+            box-shadow: 0 0 0 0 rgba(66, 133, 244, 0.4);
+        }
+        50% {
+            box-shadow: 0 0 0 8px rgba(66, 133, 244, 0);
+        }
     }
 
-    .car-mode-button:active {
-        background: #2a6bb8;
+    .arrow-icon {
+        color: rgba(255, 255, 255, 0.7);
     }
 </style>

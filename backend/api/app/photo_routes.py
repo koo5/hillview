@@ -228,7 +228,13 @@ async def save_processed_photo(
 
 	logger.info(f"Photo {photo_id} processing data saved successfully with verified client signature")
 
-	await send_activity_broadcast_notification(db, photo.owner_id)
+	# Send activity broadcast notification - wrapped in try/except so notification
+	# errors don't fail the photo upload
+	try:
+		await send_activity_broadcast_notification(db, photo.owner_id)
+	except Exception as e:
+		logger.warning(f"Failed to send activity broadcast notification for photo {photo_id}: {e}")
+		# Don't re-raise - photo upload succeeded, notification is non-critical
 
 	return {
 		"message": "Processed photo data saved successfully",

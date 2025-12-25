@@ -14,6 +14,8 @@
 	import {injectPlaceholder, removePlaceholder} from '$lib/placeholderInjector';
 	import {generatePhotoId, type PlaceholderLocation} from '$lib/utils/placeholderUtils';
 	import {bearingState, spatialState} from '$lib/mapState';
+	import {needsCalibration} from '$lib/compass.svelte.js';
+	import {showCalibrationView} from '$lib/data.svelte.js';
 	import {createPermissionManager} from '$lib/permissionManager';
 	import {
 		availableCameras,
@@ -1153,6 +1155,17 @@
 				<AutoUploadPrompt
 					photoCaptured={photoCapturedCount > 0}
 				/>
+
+				<!-- Calibrate Compass button - shows when compass accuracy is low -->
+				{#if $needsCalibration}
+					<button
+						class="calibrate-compass-button"
+						on:click={() => showCalibrationView.set(true)}
+						data-testid="calibrate-compass-btn"
+					>
+						Calibrate Compass
+					</button>
+				{/if}
 			</div>
 
 			{#if zoomSupported && cameraReady}
@@ -1254,10 +1267,13 @@
 					{/if}
 				</div>
 
-				<DualCaptureButton
-					disabled={!cameraReady || !locationData}
-					on:capture={handleCapture}
-				/>
+
+				{#if !cameraError && !needsPermission}
+					<DualCaptureButton
+						disabled={!cameraReady || !locationData}
+						on:capture={handleCapture}
+					/>
+				{/if}
 			</div>
 
 			{#if $app.debug === 5}
@@ -1340,6 +1356,26 @@
 
 	.retry-button:hover {
 		background: #3a7bc8;
+	}
+
+	.calibrate-compass-button {
+		position: absolute;
+		bottom: 0px;
+		left: 50%;
+		transform: translate(-50%, -50%);
+		padding: 0.75rem 1rem;
+		background: #e24a4a;
+		color: white;
+		border: none;
+		border-radius: 6px;
+		cursor: pointer;
+		font-size: 1rem;
+		transition: background 0.2s;
+		z-index: 100;
+	}
+
+	.calibrate-compass-button:hover {
+		background: #c83a3a;
 	}
 
 	.camera-controls {

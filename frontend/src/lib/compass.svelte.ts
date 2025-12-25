@@ -95,6 +95,20 @@ export const sensorAccuracy = writable<{
 // Store to track compass lag (time since last update)
 export const compassLag = writable<number | null>(null);
 
+// Derived store to indicate if compass calibration is needed
+// True when compass is active in walking mode but accuracy is LOW or UNRELIABLE
+export const needsCalibration = derived(
+    [compassState, bearingMode, bearingState],
+    ([$compassState, $bearingMode, $bearingState]) => {
+        if ($compassState !== 'active') return false;
+        if ($bearingMode !== 'walking') return false;
+		return true;
+		// Accuracy: 0 = UNRELIABLE, 1 = LOW, 2 = MEDIUM, 3 = HIGH
+        const accuracy = $bearingState.accuracy;
+        return accuracy !== null && accuracy !== undefined && accuracy <= 1;
+    }
+);
+
 // Route state - whether we're on map route where compass should work
 export const isOnMapRoute = writable<boolean>(false);
 

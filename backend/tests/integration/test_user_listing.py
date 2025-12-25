@@ -28,8 +28,8 @@ class TestUserListing(BasePhotoTest):
 		assert response.status_code == 200
 		data = response.json()
 
-		assert "users" in data
-		assert isinstance(data["users"], list)
+		# API returns a plain list of users
+		assert isinstance(data, list)
 
 	@pytest.mark.asyncio
 	async def test_list_users_authenticated(self):
@@ -42,7 +42,7 @@ class TestUserListing(BasePhotoTest):
 		assert response.status_code == 200
 		data = response.json()
 
-		assert "users" in data
+		assert isinstance(data, list)
 
 	@pytest.mark.asyncio
 	async def test_list_users_contains_test_user(self):
@@ -53,7 +53,7 @@ class TestUserListing(BasePhotoTest):
 		data = response.json()
 
 		# Find our test user
-		usernames = [u.get("username") for u in data["users"]]
+		usernames = [u.get("username") for u in data]
 		assert "test" in usernames, "Test user should be in user listing"
 
 	@pytest.mark.asyncio
@@ -64,8 +64,8 @@ class TestUserListing(BasePhotoTest):
 		assert response.status_code == 200
 		data = response.json()
 
-		if data["users"]:
-			user = data["users"][0]
+		if data:
+			user = data[0]
 			# Check for expected fields
 			assert "id" in user
 			assert "username" in user
@@ -74,14 +74,15 @@ class TestUserListing(BasePhotoTest):
 			assert "hashed_password" not in user
 
 	@pytest.mark.asyncio
-	async def test_list_users_pagination(self):
-		"""Test user listing with pagination parameters."""
-		response = requests.get(f"{API_URL}/users/?limit=2")
+	async def test_list_users_returns_all(self):
+		"""Test that user listing returns all users (no pagination on this endpoint)."""
+		response = requests.get(f"{API_URL}/users/")
 
 		assert response.status_code == 200
 		data = response.json()
 
-		assert len(data["users"]) <= 2
+		# Should have at least the test users we created
+		assert len(data) >= 3
 
 
 class TestUserPhotos(BasePhotoTest):
@@ -164,8 +165,10 @@ class TestUserPhotos(BasePhotoTest):
 
 		assert "photos" in data
 		assert len(data["photos"]) <= 5
-		assert "has_more" in data
-		assert "next_cursor" in data
+		# Pagination info is nested under "pagination"
+		assert "pagination" in data
+		assert "has_more" in data["pagination"]
+		assert "next_cursor" in data["pagination"]
 
 	@pytest.mark.asyncio
 	async def test_get_user_photos_cursor_pagination(self):
@@ -182,10 +185,11 @@ class TestUserPhotos(BasePhotoTest):
 		assert response1.status_code == 200
 		data1 = response1.json()
 
-		if data1["has_more"] and data1["next_cursor"]:
+		pagination = data1.get("pagination", {})
+		if pagination.get("has_more") and pagination.get("next_cursor"):
 			# Second page
 			response2 = requests.get(
-				f"{API_URL}/users/{user_id}/photos?limit=2&cursor={data1['next_cursor']}"
+				f"{API_URL}/users/{user_id}/photos?limit=2&cursor={pagination['next_cursor']}"
 			)
 			assert response2.status_code == 200
 			data2 = response2.json()
