@@ -170,8 +170,6 @@
 
     .calibration-inner {
         border-radius: 16px;
-        padding: 24px;
-        max-width: 320px;
         width: 100%;
         text-align: center;
         position: relative;
@@ -183,7 +181,7 @@
         right: 12px;
         background: none;
         border: none;
-        font-size: 28px;
+        font-size: 48px;
         cursor: pointer;
         padding: 4px 8px;
         line-height: 1;
@@ -232,14 +230,14 @@
 
     .accuracy-display {
         margin: 20px 0;
-        padding: 16px;
+        padding: 6px;
         background: rgba(0, 0, 0, 0.05);
         border-radius: 12px;
     }
 
     .accuracy-label {
-        font-size: 0.85rem;
-        opacity: 0.7;
+        font-size: 1rem;
+        opacity: 1;
         margin-bottom: 8px;
     }
 
@@ -311,7 +309,6 @@
     }
 
     .car-mode-hint {
-        margin-top: 24px;
         padding: 16px;
         background: rgba(0, 0, 0, 0.03);
         border: 1px solid rgba(0, 0, 0, 0.1);
@@ -351,7 +348,7 @@
         background: #4285F4;
         border-color: #4285F4;
         color: white;
-        animation: pulse-hint 2s infinite;
+        /*animation: pulse-hint 2s infinite;*/
     }
 
     @keyframes pulse-hint {
