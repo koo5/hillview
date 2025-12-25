@@ -290,42 +290,34 @@ class AndroidConfigurer:
 
 		changes_made = False
 
-		# Determine package based on DEV_MODE environment variable
-		dev_mode_str, _ = self.get_dev_mode_info()
-		package_name = self.get_plugin_package_name()
+		# IMPORTANT: Always use cz.hillview.plugin for class names because that's what's
+		# in the Kotlin source files' package declarations. The applicationId (cz.hillview
+		# vs cz.hillviedev) is different from the class package namespace.
+		kotlin_package = "cz.hillview.plugin"
 
-		self.log(f"DEV_MODE='{dev_mode_str}', using service package: {package_name}", "INFO")
+		self.log(f"Using Kotlin package for service classes: {kotlin_package}", "INFO")
 
-		# Define the services we need
+		# Define the services we need (must match actual Kotlin class names)
 		services_to_add = [
 			{
-				"name": f"{package_name}.HillviewUnifiedPushService",
+				"name": f"{kotlin_package}.PushServiceImpl",
 				"exported": "false",
 				"intent_filters": [
 					{
 						"actions": [
-							"org.unifiedpush.android.connector.MESSAGE",
-							"org.unifiedpush.android.connector.UNREGISTERED",
-							"org.unifiedpush.android.connector.NEW_ENDPOINT",
-							"org.unifiedpush.android.connector.REGISTRATION_FAILED"
+							"org.unifiedpush.android.connector.PUSH_EVENT"
 						]
 					}
 				]
 			},
 			{
-				"name": f"{package_name}.FcmDirectService",
+				"name": f"{kotlin_package}.FcmDirectService",
 				"exported": "false",
 				"intent_filters": [
 					{
 						"actions": ["com.google.firebase.MESSAGING_EVENT"]
 					}
 				]
-			},
-			{
-				"name": f"{package_name}.SecureUploadService",
-				"exported": "false",
-				"foreground_service_type": "dataSync",
-				"intent_filters": []
 			}
 		]
 

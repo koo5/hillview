@@ -40,7 +40,7 @@ export function calculateBearingData(photoBearing: number, currentBearing: numbe
 export function normalizeBearing(bearing: number): number {
     bearing = bearing % 360;
     if (bearing < 0) bearing += 360;
-    return bearing;
+    return bearing || 0; // Ensure +0, not -0 (JavaScript quirk: -360 % 360 === -0)
 }
 
 /**

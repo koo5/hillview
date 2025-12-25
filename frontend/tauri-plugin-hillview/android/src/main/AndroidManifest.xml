@@ -47,7 +47,7 @@
 
 		<!-- Notification actions are handled by MainActivity through ExamplePlugin.onNewIntent() -->
 
-		<service android:name=".PushServiceImpl"
+		<service android:name="cz.hillview.plugin.PushServiceImpl"
 			android:exported="false">
 			<intent-filter>
 				<action android:name="org.unifiedpush.android.connector.PUSH_EVENT"/>
