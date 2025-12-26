@@ -1904,7 +1904,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 				throw Exception("Timestamp argument is required")
 			}
 
-			val timestamp = args.timestamp!!
+			val timestamp = args.timestamp!! / 1000  // Convert to milliseconds
 			Log.d(TAG, "📡 getBearingForTimestamp: Looking up bearing for timestamp $timestamp")
 
 			CoroutineScope(Dispatchers.IO).launch {

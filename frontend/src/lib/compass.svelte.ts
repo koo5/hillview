@@ -2,8 +2,6 @@ import { writable, derived, get } from 'svelte/store';
 import { TAURI, TAURI_MOBILE, tauriSensor, isSensorAvailable, type SensorData, SensorMode } from './tauri';
 import {PluginListener} from "@tauri-apps/api/core";
 import {bearingMode, bearingState, updateBearing} from "$lib/mapState";
-import { page } from '$app/stores';
-import { browser } from '$app/environment';
 
 export interface CompassData {
     magnetic_heading: number | null;  // 0-360 degrees from magnetic north
@@ -99,18 +97,6 @@ export const compassWalkingActive = derived(
     [compassState, bearingMode],
     ([$compassState, $bearingMode]) => {
         return $compassState === 'active' && $bearingMode === 'walking';
-    }
-);
-
-// Derived store to indicate if compass calibration is needed
-// True when compass is active in walking mode but accuracy is LOW or UNRELIABLE
-export const needsCalibration = derived(
-    [compassWalkingActive, bearingState],
-    ([$compassWalkingActive, $bearingState]) => {
-        if (!$compassWalkingActive) return false;
-		// Accuracy: 0 = UNRELIABLE, 1 = LOW, 2 = MEDIUM, 3 = HIGH
-        const accuracy = $bearingState.accuracy;
-        return accuracy !== null && accuracy !== undefined && accuracy <= 1;
     }
 );
 

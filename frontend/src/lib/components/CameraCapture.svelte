@@ -1,4 +1,5 @@
 <script lang="ts">
+	import {Car, ArrowRight} from 'lucide-svelte';
 	import {createEventDispatcher, onDestroy, onMount} from 'svelte';
 	import {TAURI} from '$lib/tauri';
 	import {invoke} from '@tauri-apps/api/core';
@@ -13,8 +14,8 @@
 	import {captureQueue} from '$lib/captureQueue';
 	import {injectPlaceholder, removePlaceholder} from '$lib/placeholderInjector';
 	import {generatePhotoId, type PlaceholderLocation} from '$lib/utils/placeholderUtils';
-	import {bearingState, spatialState} from '$lib/mapState';
-	import {needsCalibration} from '$lib/compass.svelte.js';
+	import {bearingMode, bearingState, spatialState} from '$lib/mapState';
+	import {needsCalibration, shouldShowSwitchToCarModeHint} from '$lib/hints.svelte';
 	import {showCalibrationView} from '$lib/data.svelte.js';
 	import {createPermissionManager} from '$lib/permissionManager';
 	import {
@@ -98,6 +99,9 @@
 		deviceOrientationExif, relativeOrientationExif,
 		type ExifOrientation
 	} from "$lib/deviceOrientationExif";
+	import {disableCompass} from "$lib/compass.svelte";
+	import {enableGpsOrientation} from "$lib/gpsOrientation.svelte";
+	import CompassButtonInner from "$lib/components/CompassButtonInner.svelte";
 
 	const resolutionsLoading = writable<Set<string>>(new Set());
 
@@ -651,9 +655,11 @@
 
 		//console.log('🢄Capture event:', JSON.stringify(event.detail));
 
-		const {mode} = event.detail;
-		const timestamp = Date.now();
 		const sharedId = generatePhotoId(); // Generate shared ID for entire pipeline
+		const {mode} = event.detail;
+
+		const timestamp = Date.now();
+		const captureStartTime = performance.now();
 
 		// Inject placeholder for immediate display
 		const validLocation: PlaceholderLocation = {
@@ -676,7 +682,6 @@
 			sharedId // Use sharedId instead of temp_id
 		});
 
-		const captureStartTime = performance.now();
 		console.log(`TIMING 🕐 PHOTO CAPTURE START: ${captureStartTime.toFixed(1)}ms`);
 
 		try {
@@ -695,9 +700,11 @@
 
 			// Draw video frame to canvas
 			const drawStartTime = performance.now();
+			const drawStartTimestamp = Date.now();
 			context.drawImage(video, 0, 0);
 			const drawEndTime = performance.now();
-			console.log(`TIMING 🖼️ CANVAS DRAW: ${(drawEndTime - drawStartTime).toFixed(1)}ms`);
+			const drawEndTimestamp = Date.now();
+			console.log(`🢄handleCapture TIMING: captured_at: ${timestamp}, drawStartTimestamp: ${drawStartTimestamp}, drawEndTimestamp: ${drawEndTimestamp}, drawTime: ${(drawEndTime - drawStartTime).toFixed(1)}ms`);
 
 			// Get ImageData from canvas
 			const getDataStartTime = performance.now();
@@ -936,33 +943,31 @@
 		}
 	}
 
-;
+	;
 
 	onMount(async () => {
 
 		document.addEventListener('visibilitychange', handleVisibilityChange);
 		document.addEventListener('click', handleClickOutside);
 
-		if (TAURI)
-		{
-			try
-			{
+		if (TAURI) {
+			try {
 				await addPluginListener('hillview', 'device-orientation', (data: any) => {
 					console.log('🢄🔍📡 Received device-orientation event from plugin:', JSON.stringify(data));
 					updateDeviceOrientationExif(data.exif_code);
 				});
 				await invoke('plugin:hillview|cmd', {command: 'start_device_orientation_sensor'});
-				await invoke('plugin:hillview|cmd', {command:'trigger_device_orientation_event'});
-			}
-			catch (error)
-			{
+				await invoke('plugin:hillview|cmd', {command: 'trigger_device_orientation_event'});
+			} catch (error) {
 				console.warn("🢄[CAMERA] device-orientation error:", error);
 			}
-		}
-		else if ('AbsoluteOrientationSensor' in window) {
+		} else if ('AbsoluteOrientationSensor' in window) {
 			try {
 				console.log('🢄[CAMERA] Initializing AbsoluteOrientationSensor for device orientation...');
-				absoluteOrientationSensor = new window.AbsoluteOrientationSensor({frequency: 100, referenceFrame: "screen"});
+				absoluteOrientationSensor = new window.AbsoluteOrientationSensor({
+					frequency: 100,
+					referenceFrame: "screen"
+				});
 				absoluteOrientationSensor.addEventListener("reading", () => {
 					console.log('🢄[CAMERA] AbsoluteOrientationSensor reading event');
 					//DeviceOrientationEvent.webkitCompassHeading?
@@ -975,9 +980,7 @@
 			} catch (error) {
 				console.warn("🢄[CAMERA]", error);
 			}
-		}
-		else
-		{
+		} else {
 			console.log('🢄[CAMERA] AbsoluteOrientationSensor not available in this browser');
 		}
 
@@ -1025,9 +1028,8 @@
 	});
 
 	onDestroy(() => {
-		if (TAURI)
-		{
-			invoke('plugin:hillview|cmd', {command:'stop_device_orientation_sensor'});
+		if (TAURI) {
+			invoke('plugin:hillview|cmd', {command: 'stop_device_orientation_sensor'});
 		}
 		if (absoluteOrientationSensor) {
 			absoluteOrientationSensor.stop();
@@ -1164,6 +1166,21 @@
 						data-testid="calibrate-compass-btn"
 					>
 						Calibrate Compass
+					</button>
+				{:else if $shouldShowSwitchToCarModeHint}
+					<button
+						class="switch-to-car-mode-button"
+						on:click={() => {bearingMode.set('car');disableCompass(); enableGpsOrientation();}}
+						data-testid="switch-to-car-mode-btn"
+					>
+						<div class="hint-title">
+							<Car size={16}/>
+							In a vehicle?
+						</div>
+						<div class="compass-button-preview target">
+							<CompassButtonInner bearingMode="car"/>
+						</div>
+
 					</button>
 				{/if}
 			</div>
@@ -1655,4 +1672,21 @@
 		right: 0px;
 		z-index: 1001;
 	}
+
+	.compass-button-preview {
+		border: 2px solid #ddd;
+		border-radius: 4px;
+		padding: 8px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.compass-button-preview.target {
+		background: #4285F4;
+		border-color: #4285F4;
+		color: white;
+		animation: pulse-hint 2s infinite;
+	}
+
 </style>

@@ -246,7 +246,7 @@ class CaptureQueueManager {
 						const seconds = String(date.getSeconds()).padStart(2, '0');
 						const filename = `${year}-${month}-${day}-${hours}-${minutes}-${seconds}_${item.id}.jpg`;
 
-						this.log(this.LOG_TAGS.QUEUE_PROCESS, 'All chunks sent, saving photo with metadata', JSON.stringify({
+						this.log(this.LOG_TAGS.QUEUE_PROCESS, 'All chunks sent, saving photo ', JSON.stringify({
 							photoId: item.id,
 							filename,
 							totalChunks
