@@ -9,10 +9,11 @@ import {compassWalkingActive} from "$lib/compass.svelte";
 export const needsCalibration = derived(
 	[compassWalkingActive, bearingState],
 	([$compassWalkingActive, $bearingState]) => {
+		console.log(`needsCalibration: $compassWalkingActive: ${$compassWalkingActive}, $bearingState: ${JSON.stringify($bearingState)}`);
 		if (!$compassWalkingActive) return false;
 		// Accuracy: 0 = UNRELIABLE, 1 = LOW, 2 = MEDIUM, 3 = HIGH
 		const accuracy = $bearingState.accuracy;
-		return accuracy !== null && accuracy !== undefined && accuracy <= 1;
+		return accuracy !== null && accuracy !== undefined && accuracy != 3;
 	}
 );
 

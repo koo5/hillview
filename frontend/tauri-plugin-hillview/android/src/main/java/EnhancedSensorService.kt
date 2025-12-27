@@ -465,7 +465,7 @@ class EnhancedSensorService(
 
 
 	fun logEvent(event: SensorEvent) {
-	    //Log.d(TAG, "type=${event.sensor.type}, values=${event.values.joinToString()}")
+	    Log.d(TAG, "SensorEvent type=${event.sensor.type}, values=${event.values.joinToString()}")
 
 
 		if (event.sensor.type == Sensor.TYPE_HEADING) {
@@ -628,7 +628,7 @@ class EnhancedSensorService(
 		}
 
 
-		//Log.v(TAG, "🔍📊 $source orientation: azimuth=${azimuth.format(1)}°, pitch=${pitch.format(1)}°, roll=${roll.format(1)}°, accuracy=${event.accuracy}, orientation=${deviceOrientation}")
+		Log.v(TAG, "🔍📊 $source orientation: azimuth=${azimuth.format(1)}°, pitch=${pitch.format(1)}°, roll=${roll.format(1)}°, accuracy=${event.accuracy}, orientation=${deviceOrientation}")
 
 
         // Normalize heading
@@ -645,8 +645,9 @@ class EnhancedSensorService(
         /*if (Math.random() < 0.05) {
             Log.d(TAG, "🔍🧭 $source bearing:")
             Log.d(TAG, "  - Magnetic: ${heading.format(1)}°")
-            Log.d(TAG, "  - True: ${trueHeading.format(1)}°")
+            Log.d(TAG, "  - True: ${trueHeading.format(1)}°")*/
             Log.d(TAG, "  - Accuracy: ±${accuracy.format(1)}°")
+            /*
             Log.d(TAG, "  - Pitch: ${pitch.format(1)}°, Roll: ${roll.format(1)}°")
         }*/
 
