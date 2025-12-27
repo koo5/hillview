@@ -91,6 +91,7 @@
 	let switchingCamera = false; // Flag to prevent automatic startup during manual camera switching
 	let isBlinking = false; // Flag for camera blink effect
 	let absoluteOrientationSensor: AbsoluteOrientationSensor | null = null;
+	let showCalibrationHint;
 
 	// Store to track which cameras are loading resolutions
 	import {writable} from 'svelte/store';
@@ -102,6 +103,7 @@
 	import {disableCompass} from "$lib/compass.svelte";
 	import {enableGpsOrientation} from "$lib/gpsOrientation.svelte";
 	import CompassButtonInner from "$lib/components/CompassButtonInner.svelte";
+	import CalibrationFigure from "$lib/components/CalibrationFigure.svelte";
 
 	const resolutionsLoading = writable<Set<string>>(new Set());
 
@@ -420,6 +422,10 @@
 						}
 					}
 				}
+
+				requestAnimationFrame(() => {
+					doCalibrationHint();
+				});
 			} else {
 				console.error('🢄[CAMERA] Video element not found!');
 				throw new Error('Video element not available');
@@ -458,10 +464,12 @@
 		}
 	}
 
+
 	function handleZoomChange(event: Event) {
 		const target = event.target as HTMLInputElement;
 		setZoom(parseFloat(target.value));
 	}
+
 
 	async function selectCamera(camera: CameraDevice) {
 		console.log('🢄[CAMERA] Selecting camera:', camera.label);
@@ -945,6 +953,15 @@
 
 	;
 
+	function doCalibrationHint()
+	{
+		showCalibrationHint = true;
+		setTimeout(() =>
+		{
+			showCalibrationHint = false;
+		}, 4000);
+	}
+
 	onMount(async () => {
 
 		document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -1180,8 +1197,16 @@
 						<div class="compass-button-preview target">
 							<CompassButtonInner bearingMode="car"/>
 						</div>
-
 					</button>
+				{:else if showCalibrationHint}
+					<div class="instruction-row">
+						<div class="calibration-instruction">
+							Calibrate compass.
+						</div>
+						<div class="figure8-animation">
+							<CalibrationFigure />
+						</div>
+					</div>
 				{/if}
 			</div>
 
@@ -1688,5 +1713,26 @@
 		color: white;
 		animation: pulse-hint 2s infinite;
 	}
+
+	.instruction-row {
+
+		position: absolute;
+		bottom: 5px;
+		right: 5px;
+		background: rgba(255,255,255,0.6);
+		backdrop-filter: blur(3px);
+		border-radius: 8px;
+		align-items: center;
+		text-align: center;
+		padding: 0.5rem;
+
+	}
+
+	.figure8-animation {
+		width: 120px;
+		height: 80px;
+		flex-shrink: 0;
+	}
+
 
 </style>

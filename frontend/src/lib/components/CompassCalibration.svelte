@@ -7,6 +7,7 @@
 	import {showCalibrationView} from '$lib/data.svelte.js';
 	import {Car, ArrowRight} from 'lucide-svelte';
 	import CompassButtonInner from './CompassButtonInner.svelte';
+	import CalibrationFigure from "$lib/components/CalibrationFigure.svelte";
 
 	// Track how long accuracy has been good for auto-dismiss
 	let goodAccuracyStart: number | null = null;
@@ -94,20 +95,7 @@
 			<!-- Figure-8 Animation and instruction on same line -->
 			<div class="instruction-row">
 				<div class="figure8-animation">
-					<svg viewBox="0 0 100 60" class="figure8-svg">
-						<path
-							d="M50 30 C50 10, 80 10, 80 30 C80 50, 50 50, 50 30 C50 10, 20 10, 20 30 C20 50, 50 50, 50 30"
-							fill="none"
-							stroke-width="2"
-						/>
-						<circle class="moving-dot" r="4">
-							<animateMotion
-								dur="3s"
-								repeatCount="indefinite"
-								path="M50 30 C50 10, 80 10, 80 30 C80 50, 50 50, 50 30 C50 10, 20 10, 20 30 C20 50, 50 50, 50 30"
-							/>
-						</circle>
-					</svg>
+					<CalibrationFigure />
 				</div>
 				<p class="calibration-instruction">
 					Move your phone in a <strong>figure-8 pattern</strong> several times
@@ -229,20 +217,6 @@
 		width: 120px;
 		height: 80px;
 		flex-shrink: 0;
-	}
-
-	.figure8-svg {
-		width: 100%;
-		height: 100%;
-	}
-
-	.figure8-svg path {
-		stroke: currentColor;
-		opacity: 0.3;
-	}
-
-	.figure8-svg circle {
-		fill: #4a90e2;
 	}
 
 	.calibration-instruction {

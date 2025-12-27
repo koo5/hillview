@@ -465,7 +465,7 @@ class EnhancedSensorService(
 
 
 	fun logEvent(event: SensorEvent) {
-	    Log.d(TAG, "SensorEvent type=${event.sensor.type}, values=${event.values.joinToString()}")
+	    //Log.d(TAG, "SensorEvent type=${event.sensor.type}, values=${event.values.joinToString()}")
 
 
 		if (event.sensor.type == Sensor.TYPE_HEADING) {
@@ -646,7 +646,7 @@ class EnhancedSensorService(
             Log.d(TAG, "🔍🧭 $source bearing:")
             Log.d(TAG, "  - Magnetic: ${heading.format(1)}°")
             Log.d(TAG, "  - True: ${trueHeading.format(1)}°")*/
-            Log.d(TAG, "  - Accuracy: ±${accuracy.format(1)}°")
+            Log.d(TAG, "  - Accuracy level: ${accuracy}")
             /*
             Log.d(TAG, "  - Pitch: ${pitch.format(1)}°, Roll: ${roll.format(1)}°")
         }*/
