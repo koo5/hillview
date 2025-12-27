@@ -36,6 +36,7 @@
 
     import {get} from "svelte/store";
 	import SpatialStateArrowIcon from "$lib/components/SpatialStateArrowIcon.svelte";
+	import {stringifyCircularJSON} from "$lib/utils/json";
 
     let flying = false;
     let programmaticMove = false; // Flag to prevent position sync conflicts
@@ -252,6 +253,9 @@
     }
 
     spatialState.subscribe((spatial) => {
+
+		console.log(`spatialState: ${stringifyCircularJSON(spatial)}`);
+
         if (!map || programmaticMove) return;
         try {
             // Check if map is fully initialized with container
@@ -275,12 +279,14 @@
 
     async function mapStateUserEvent(event: any) {
 
+		console.log('🢄mapStateUserEvent:', stringifyCircularJSON(event.type));
+
         if (!flying) {
             let _center = map.getCenter();
             let p = get(spatialState);
-            //console.log('🢄mapStateUserEvent:', stringifyCircularJSON(event));
+
             if (p.center.lat != _center.lat || p.center.lng != _center.lng) {
-                console.log('🢄p.center:', p.center, '_center:', _center);
+                console.log('🢄p.center:', JSON.stringify(p.center), '_center:', JSON.stringify(_center));
 
                 // Only disable location tracking if this wasn't caused by zoom buttons
                 if (!isZoomButtonEvent) {
@@ -290,9 +296,8 @@
                     console.log('🢄Zoom button event detected - not disabling location tracking');
                 }
             }
+			await onMapStateChange(true, 'mapStateUserEvent');
         }
-
-        await onMapStateChange(true, 'mapStateUserEvent');
     }
 
 
@@ -978,7 +983,13 @@
 <div bind:clientHeight={height} bind:clientWidth={width} class="map">
     <LeafletMap
             bind:this={elMap}
-            events={{moveend: mapStateUserEvent, zoomend: mapStateUserEvent}}
+            events={
+            	{
+					moveend: mapStateUserEvent, zoomend: mapStateUserEvent,
+	            	dragend: (e) => {console.log('dragend', stringifyCircularJSON(e))},
+    	        	dragstart: (e) => {console.log('dragstart', stringifyCircularJSON(e))}
+            	}
+            	}
             options={{
 				attributionControl: false, // We'll add it manually with correct position
                 center: [$spatialState.center.lat, $spatialState.center.lng],

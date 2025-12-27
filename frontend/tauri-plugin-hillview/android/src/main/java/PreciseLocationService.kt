@@ -58,10 +58,8 @@ class PreciseLocationService(
 		//setMaxUpdateAgeMillis(1000*60*60
 
         // Request the most accurate location possible
-        setWaitForAccurateLocation(true)
+        setWaitForAccurateLocation(false)
 
-        // Set the minimum displacement for location updates (0 = no minimum)
-        setMinUpdateDistanceMeters(2f)
     }.build()
 
     init {

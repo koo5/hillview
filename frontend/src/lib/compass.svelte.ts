@@ -93,13 +93,6 @@ export const sensorAccuracy = writable<{
 // Store to track compass lag (time since last update)
 export const compassLag = writable<number | null>(null);
 
-export const compassWalkingActive = derived(
-    [compassState, bearingMode],
-    ([$compassState, $bearingMode]) => {
-        return $compassState === 'active' && $bearingMode === 'walking';
-    }
-);
-
 // Route state - whether we're on map route where compass should work
 export const isOnMapRoute = writable<boolean>(false);
 
@@ -283,7 +276,7 @@ export const compassEnabled = writable(false);
 
 export function enableCompass() {
 	if (!get(compassEnabled)) {
-    	console.log('🢄🧭 User enabled compass');
+    	console.log('🢄🧭 User enables orientation tracking..');
 	}
     compassEnabled.set(true);
 }
@@ -402,6 +395,8 @@ let revertingUserPreference = false;
 
 // State machine that manages compass based on user preferences + route state
 async function updateCompassState() {
+	console.log('updateCompassState()');
+
 	// Don't process updates if we're reverting user preference to avoid recursion
 	if (revertingUserPreference) {
 		return;
@@ -667,4 +662,12 @@ compassState.subscribe(state => {
         lastBearing = null;
     }
 });
+
+export const compassWalkingActive = derived(
+    [compassEnabled, bearingMode],
+    ([$compassEnabled, $bearingMode]) => {
+		console.log(`compassWalkingActive: $compassEnabled: ${$compassEnabled}, $bearingMode: ${$bearingMode}`);
+        return $compassEnabled && $bearingMode === 'walking';
+    }
+);
 

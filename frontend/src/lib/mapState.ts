@@ -265,6 +265,11 @@ function getBearingColor(absBearingDiff: number): string {
 
 // Update functions with selective reactivity
 export function updateSpatialState(updates: Partial<SpatialState>, source: 'gps' | 'map' = 'map') {
+	let old = get(spatialState);
+	if (JSON.stringify(old) === JSON.stringify({...old, ...updates, source})) {
+		// No changes
+		return;
+	}
 	spatialState.update(state => ({...state, ...updates, source}));
 	if (source === 'map' && TAURI)
 	{

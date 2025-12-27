@@ -20,6 +20,7 @@ export const needsCalibration = derived(
 export const shouldShowSwitchToCarModeHint = derived(
 	[compassWalkingActive, gpsLocation],
 	([$compassWalkingActive, $gpsLocation]) => {
+		console.log(`shouldShowSwitchToCarModeHint: $compassWalkingActive: ${$compassWalkingActive}, $gpsLocation: ${$gpsLocation}`);
 		return $compassWalkingActive && $gpsLocation && ($gpsLocation.coords?.speed || 0) > 5; // m/s
 	}
 );

@@ -1,6 +1,8 @@
 import logging, yaml
 import logging.config
 
+from app.dsl_utils import y
+
 # Load and apply logging config before uvicorn can override it
 with open('logging.yaml', 'r') as f:
     config = yaml.safe_load(f)
@@ -13,11 +15,10 @@ root_logger.warning('root WARNING')
 root_logger.error('root ERROR')
 
 log = logging.getLogger(__name__)
-
-# log.warning("STARTING_API_APPLICATION")
 # log.warning("Configuring logging levels for noisy libraries")
 
-for level, loggers in yaml.safe_load("""
+
+for level, loggers in y("""
 	INFO:
 		- common.security_utils
 		- google.auth._default
@@ -28,11 +29,12 @@ for level, loggers in yaml.safe_load("""
 		- hpack
 		- httpcore
 		- httpx
-""".replace("\t", "  ")).items():
+""").items():
 	# log.warning(f"Setting {level} level for loggers: {loggers}, {type(loggers)}")
+	level = getattr(logging, level)
 	for name in loggers:
-		# log.warning(f" - {name}")
-		logging.getLogger(name).setLevel(getattr(logging, level))
+		logging.getLogger(name).setLevel(level)
+
 
 # log.warning("Importing FastAPI and related modules")
 
