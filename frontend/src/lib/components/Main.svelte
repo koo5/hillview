@@ -48,7 +48,7 @@
 
 	let map: any = null;
 	let mapComponent: any = null;
-	let update_url = false;
+	let update_url: boolean = false;
 	let menuOpen = false;
 	let containerElement: HTMLElement;
 
@@ -116,55 +116,6 @@
 	});
 
 	async function init() {
-		console.log('🢄Page mounted');
-		await tick();
-
-
-		const urlParams = new URLSearchParams(window.location.search);
-		const lat = urlParams.get('lat');
-		const lon = urlParams.get('lon');
-		const zoom = urlParams.get('zoom');
-		const bearingParam = urlParams.get('bearing');
-		const photoParam = urlParams.get('photo');
-
-		let p = get(spatialState);
-		let update = false;
-
-		if (lat && lon) {
-			console.log('🢄Setting position to', lat, lon, 'from URL');
-			p.center = new LatLng(parseFloat(lat), parseFloat(lon));
-			update = true;
-		}
-
-		if (zoom) {
-			console.log('🢄Setting zoom to', zoom, 'from URL');
-			p.zoom = parseFloat(zoom);
-			update = true;
-		}
-
-		if (update) {
-			updateSpatialState({...p});
-			map?.setView(p.center, p.zoom);
-		}
-
-		// Handle photo parameter and enable corresponding source
-		const photoUid = parsePhotoUid(photoParam);
-		if (photoUid) {
-			console.log('🢄Photo parameter from URL:', photoUid);
-			enableSourceForPhotoUid(photoUid);
-			// Switch to view mode when opening a specific photo
-			app.update(a => ({...a, activity: 'view'}));
-		}
-
-		if (bearingParam) {
-			console.log('🢄Setting bearing to', bearingParam, 'from URL');
-			const bearing = parseFloat(bearingParam);
-			updateBearing(bearing, 'url', photoUid ?? undefined);
-		}
-
-		setTimeout(() => {
-			update_url = true;
-		}, 100);
 
 	}
 
@@ -223,6 +174,7 @@
 	let desiredUrl: string | null = null;
 
 	function replaceState2(url: string) {
+		console.log('replaceState2: updating URL to', url);
 		desiredUrl = url;
 		try {
 			replaceState(url, {});
@@ -540,7 +492,7 @@
 		{/if}
 	</div>
 	<div class="panel map-panel">
-		<Map bind:this={mapComponent}/>
+		<Map bind:this={mapComponent} bind:update_url={update_url}/>
 	</div>
 </div>
 

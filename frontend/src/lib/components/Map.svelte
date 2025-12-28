@@ -14,18 +14,18 @@
     import { locationManager } from '$lib/locationManager';
 	import SpatialStateArrow from './SpatialStateArrow.svelte';
 
-    import {
-        spatialState,
-        bearingState,
-        visiblePhotos,
-        photoToLeft,
-        photoToRight,
-        updateSpatialState,
-        updateBearingByDiff,
-        bearingMode,
-        type BearingMode,
-    } from "$lib/mapState";
-    import { sources } from "$lib/data.svelte.js";
+	import {
+		spatialState,
+		bearingState,
+		visiblePhotos,
+		photoToLeft,
+		photoToRight,
+		updateSpatialState,
+		updateBearingByDiff,
+		bearingMode,
+		type BearingMode, updateBearing,
+	} from "$lib/mapState";
+	import {enableSourceForPhotoUid, sources} from "$lib/data.svelte.js";
     import { simplePhotoWorker } from '$lib/simplePhotoWorker';
     import { turn_to_photo_to, app, sourceLoadingStatus } from "$lib/data.svelte.js";
     import { updateGpsLocation, setLocationTracking, setLocationError, gpsLocation, locationTracking } from "$lib/location.svelte.js";
@@ -37,6 +37,10 @@
     import {get} from "svelte/store";
 	import SpatialStateArrowIcon from "$lib/components/SpatialStateArrowIcon.svelte";
 	import {stringifyCircularJSON} from "$lib/utils/json";
+	import {TAURI} from "$lib/tauri";
+	import {parsePhotoUid} from "$lib/urlUtilsServer";
+
+	export let update_url = false;
 
     let flying = false;
     let programmaticMove = false; // Flag to prevent position sync conflicts
@@ -122,6 +126,8 @@
 
     $: map = elMap?.getMap();
 
+
+
     // Expose map to window for testing and fix initial size
     $: if (map && typeof window !== 'undefined') {
         (window as any).leafletMap = map;
@@ -132,9 +138,61 @@
                 console.log('🢄Fixing initial map size');
                 map.invalidateSize({ reset: true, animate: false });
             }
+			afterInit();
         }, 200);
     }
 
+	async function afterInit() {
+		console.log('🢄Page mounted');
+		await tick();
+
+
+		const urlParams = new URLSearchParams(window.location.search);
+		const lat = urlParams.get('lat');
+		const lon = urlParams.get('lon');
+		const zoom = urlParams.get('zoom');
+		const bearingParam = urlParams.get('bearing');
+		const photoParam = urlParams.get('photo');
+
+		let p = get(spatialState);
+		let update = false;
+
+		if (lat && lon) {
+			console.log('🢄Setting position to', lat, lon, 'from URL');
+			p.center = new LatLng(parseFloat(lat), parseFloat(lon));
+			update = true;
+		}
+
+		if (zoom) {
+			console.log('🢄Setting zoom to', zoom, 'from URL');
+			p.zoom = parseFloat(zoom);
+			update = true;
+		}
+
+		if (update) {
+			updateSpatialState({...p});
+			map?.setView(p.center, p.zoom);
+		}
+
+		// Handle photo parameter and enable corresponding source
+		const photoUid = parsePhotoUid(photoParam);
+		if (photoUid) {
+			console.log('🢄Photo parameter from URL:', photoUid);
+			enableSourceForPhotoUid(photoUid);
+			// Switch to view mode when opening a specific photo
+			app.update(a => ({...a, activity: 'view'}));
+		}
+
+		if (bearingParam) {
+			console.log('🢄Setting bearing to', bearingParam, 'from URL');
+			const bearing = parseFloat(bearingParam);
+			updateBearing(bearing, 'url', photoUid ?? undefined);
+		}
+
+		setTimeout(() => {
+			update_url = true;
+		}, 100);
+	}
 
 
     // Export location tracking functions for use by parent
@@ -276,10 +334,25 @@
 
     let moveEventCount = 0;
     let lastPruneTime = Date.now();
+	let seenFirstMoveEnd = false;
 
     async function mapStateUserEvent(event: any) {
 
-		console.log('🢄mapStateUserEvent:', stringifyCircularJSON(event.type));
+		if (event.type == 'moveend')
+		{
+			if (!seenFirstMoveEnd)
+			{
+				seenFirstMoveEnd = true;
+				return;
+			}
+		}
+
+		if (TAURI && event.type == 'moveend')
+		{
+			return // ignore moveend in android, as those fire off even when the map is moved programmatically - there's no way to distinguish user-initiated location changes from programmatic (gps). The tradeoff is that keyboard cant be used. Mouse/touch works by triggering dragend.
+		}
+
+		console.log('🢄🗺mapStateUserEvent:', stringifyCircularJSON(event.type));
 
         if (!flying) {
             let _center = map.getCenter();
@@ -786,7 +859,7 @@
                 console.error('🢄Failed to initialize SimplePhotoWorker:', error);
             }
 
-            await onMapStateChange(true, 'mount');
+            //await onMapStateChange(true, 'mount');
             //console.log('🢄Map component mounted - after onMapStateChange');
 
             // Add zoom control after scale control for proper ordering
@@ -985,9 +1058,11 @@
             bind:this={elMap}
             events={
             	{
-					moveend: mapStateUserEvent, zoomend: mapStateUserEvent,
-	            	dragend: (e) => {console.log('dragend', stringifyCircularJSON(e))},
-    	        	dragstart: (e) => {console.log('dragstart', stringifyCircularJSON(e))}
+					moveend: mapStateUserEvent,
+					zoomend: mapStateUserEvent,
+	            	dragend: mapStateUserEvent,
+    	        	dragstart: (e) => {disableLocationTracking()},
+    	        	//movestart: (e) => {console.log('🗺movestart', stringifyCircularJSON(e))},
             	}
             	}
             options={{
