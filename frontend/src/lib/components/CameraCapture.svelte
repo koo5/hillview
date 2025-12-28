@@ -288,7 +288,8 @@
 			constraints = {
 				video: {
 					facingMode: {ideal: facing},
-					width: {ideal: targetWidth}
+					width: {ideal: targetWidth},
+					frameRate: 10
 				}
 			};
 			console.log('🢄[CAMERA] Probing with resolution width', targetWidth, 'for initial permission:', facing, 'constraints:', JSON.stringify(constraints));
@@ -309,7 +310,9 @@
 
 					// Retry with absolutely minimal constraints
 					const fallbackConstraints = {
-						video: true
+						video: {
+							frameRate: 10
+						}
 					};
 
 					console.log('🢄[CAMERA] Retrying with minimal constraints:', fallbackConstraints);
