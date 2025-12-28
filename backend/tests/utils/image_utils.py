@@ -69,6 +69,10 @@ def create_test_image_bearing_only(width: int = 100, height: int = 100, color: t
 def create_test_image_full_gps(width: int = 2048, height: int = 1536, color: tuple = (255, 255, 0),
                                lat: float = 50.0755, lon: float = 14.4378, bearing: float = 90.0) -> bytes:
     """Create a JPEG image with both GPS coordinates and bearing data."""
+    # Validate bearing range
+    if bearing < 0 or bearing > 360:
+        raise ValueError(f"Invalid bearing value: {bearing}. Must be between 0 and 360 degrees.")
+
     # Create larger image with more complex content
     img = Image.new('RGB', (width, height), color)
     draw = ImageDraw.Draw(img)

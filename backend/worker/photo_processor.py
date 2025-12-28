@@ -206,6 +206,13 @@ class PhotoProcessor:
 			altitude = data.get('GPSAltitude')
 
 
+			# Validate bearing is in valid range [0, 360]
+			if bearing is not None and (bearing < 0 or bearing > 360):
+				error_msg = f"Invalid bearing value: {bearing}. Must be between 0 and 360 degrees."
+				result['debug']['parsing_errors'].append(error_msg)
+				logger.error(error_msg)
+				raise ValueError(error_msg)
+
 			gps_data = {
 				'latitude': latitude,
 				'longitude': longitude,

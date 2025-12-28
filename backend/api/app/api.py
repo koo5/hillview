@@ -1,7 +1,7 @@
 import logging, yaml
 import logging.config
 
-from app.dsl_utils import y
+from dsl_utils import y
 
 # Load and apply logging config before uvicorn can override it
 with open('logging.yaml', 'r') as f:

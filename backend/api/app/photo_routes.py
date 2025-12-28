@@ -198,6 +198,14 @@ async def save_processed_photo(
 			detail="Invalid processing status"
 		)
 
+	# Validate bearing/compass_angle is in valid range [0, 360]
+	if processed_data.compass_angle is not None:
+		if processed_data.compass_angle < 0 or processed_data.compass_angle > 360:
+			raise HTTPException(
+				status_code=status.HTTP_400_BAD_REQUEST,
+				detail=f"Invalid bearing value: {processed_data.compass_angle}. Must be between 0 and 360 degrees."
+			)
+
 	photo.processing_status = processed_data.processing_status
 	photo.width = processed_data.width
 	photo.height = processed_data.height

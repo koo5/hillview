@@ -627,9 +627,7 @@ class EnhancedSensorService(
 			azimuth = (azimuth + 360*2) % 360
 		}
 
-
-		Log.v(TAG, "🔍📊 $source orientation: azimuth=${azimuth.format(1)}°, pitch=${pitch.format(1)}°, roll=${roll.format(1)}°, accuracy=${event.accuracy}, orientation=${deviceOrientation}")
-
+		//Log.v(TAG, "🔍📊 $source orientation: azimuth=${azimuth.format(1)}°, pitch=${pitch.format(1)}°, roll=${roll.format(1)}°, accuracy=${event.accuracy}, orientation=${deviceOrientation}")
 
         // Normalize heading
         val heading = if (azimuth < 0) azimuth + 360 else azimuth
@@ -646,7 +644,7 @@ class EnhancedSensorService(
             Log.d(TAG, "🔍🧭 $source bearing:")
             Log.d(TAG, "  - Magnetic: ${heading.format(1)}°")
             Log.d(TAG, "  - True: ${trueHeading.format(1)}°")*/
-            Log.d(TAG, "  - Accuracy level: ${accuracy}")
+            //Log.d(TAG, "  - Accuracy level: ${accuracy}")
             /*
             Log.d(TAG, "  - Pitch: ${pitch.format(1)}°, Roll: ${roll.format(1)}°")
         }*/

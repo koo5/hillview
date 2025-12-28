@@ -91,7 +91,7 @@
 	let switchingCamera = false; // Flag to prevent automatic startup during manual camera switching
 	let isBlinking = false; // Flag for camera blink effect
 	let absoluteOrientationSensor: AbsoluteOrientationSensor | null = null;
-	let showCalibrationHint;
+	let showCalibrationHint: boolean = false;
 
 	// Store to track which cameras are loading resolutions
 	import {writable} from 'svelte/store';

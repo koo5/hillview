@@ -62,7 +62,7 @@ class TestParallelPhotoUploads(BasePhotoTest):
 				width=2048, height=1536,
 				color=color,
 				lat=lat, lon=lon,
-				bearing=photo_id * 10
+				bearing=(photo_id * 10) % 360
 			)
 
 			upload_start = time.time()

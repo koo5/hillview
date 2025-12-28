@@ -2,7 +2,7 @@
     import {onMount, onDestroy, tick} from 'svelte';
     import {LeafletMap, TileLayer, Marker, Circle, ScaleControl} from 'svelte-leafletjs';
     import {LatLng} from 'leaflet';
-    import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle, MapPin, Pause, ArrowUp, ArrowDown, Layers, Eye, Map as MapIcon} from 'lucide-svelte';
+    import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle, MapPin, Pause, ArrowUp, ArrowDown, Layers, Eye, Map as MapIcon, Info} from 'lucide-svelte';
     import L from 'leaflet';
     import 'leaflet/dist/leaflet.css';
     import { getCurrentProviderConfig, setTileProvider, currentTileProvider } from '$lib/tileProviders';
@@ -39,6 +39,7 @@
 	import {stringifyCircularJSON} from "$lib/utils/json";
 	import {TAURI} from "$lib/tauri";
 	import {parsePhotoUid} from "$lib/urlUtilsServer";
+	import {openExternalUrl} from "$lib/urlUtils";
 
 	export let update_url = false;
 
@@ -97,6 +98,21 @@
 
     // Source buttons display mode
     let compactSourceButtons = true;
+
+    // Attribution popup state (mobile only)
+    let showAttribution = false;
+    let useCompactAttribution = false; // Set on mount based on screen width
+
+    // Handle clicks in attribution popup - open links externally, otherwise close
+    async function handleAttributionClick(event: Event) {
+        const link = (event.target as HTMLElement).closest('a') as HTMLAnchorElement;
+        if (link?.href) {
+            event.preventDefault();
+            await openExternalUrl(link.href);
+        } else {
+            showAttribution = false;
+        }
+    }
 
     // Compass mode menu state
     let compassMenuVisible = false;
@@ -866,9 +882,13 @@
             const zoomControl = new L.Control.Zoom({ position: 'topleft' });
             map.addControl(zoomControl);
 
-            // Add attribution control at bottom-left
-            const attributionControl = new L.Control.Attribution({ position: 'bottomleft' });
-            map.addControl(attributionControl);
+            // Add attribution control at bottom-left (desktop only)
+            // On mobile/narrow screens, use compact (i) button instead
+            useCompactAttribution = window.innerWidth < 768;
+            if (!useCompactAttribution) {
+                const attributionControl = new L.Control.Attribution({ position: 'bottomleft' });
+                map.addControl(attributionControl);
+            }
 
             // Set up zoom control listeners
             setupZoomControlListeners();
@@ -1167,6 +1187,21 @@
     <TileProviderSelector />
 </div>
 
+{#if useCompactAttribution}
+    <button
+        class="attribution-info-button"
+        on:click={() => showAttribution = !showAttribution}
+        title="Map attribution"
+    >
+        <Info size={18} />
+    </button>
+    {#if showAttribution}
+        <div class="attribution-popup" on:click={handleAttributionClick}>
+            {@html tileConfig.attribution || '© OpenStreetMap contributors'}
+        </div>
+    {/if}
+{/if}
+
 </div>
 
 <!-- Debug bounds info -->
@@ -1310,7 +1345,7 @@
 
     .control-buttons-container {
         position: absolute;
-        bottom: 10px;
+        bottom: 0px;
         right: 0;
         z-index: 30000;
         pointer-events: none; /* This makes the container transparent to mouse events */
@@ -1531,6 +1566,52 @@
         left: 10px;
         z-index: 30000;
 		background-color: rgba(255, 255, 255, 0.5);
+    }
+
+    .attribution-info-button {
+        position: absolute;
+        top: 155px;
+        left: 10px;
+        z-index: 30000;
+        width: 32px;
+        height: 32px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        background-color: rgba(255, 255, 255, 0.7);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+    }
+
+    .attribution-info-button:hover {
+        background-color: rgba(255, 255, 255, 0.9);
+    }
+
+    .attribution-popup {
+        position: absolute;
+        top: 190px;
+        left: 10px;
+        z-index: 30001;
+        max-width: 280px;
+        padding: 8px 12px;
+        background-color: rgba(255, 255, 255, 0.95);
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        font-size: 11px;
+        line-height: 1.4;
+        cursor: pointer;
+    }
+
+    .attribution-popup :global(a) {
+        color: #0078a8;
+        text-decoration: none;
+    }
+
+    .attribution-popup :global(a:hover) {
+        text-decoration: underline;
     }
 
 

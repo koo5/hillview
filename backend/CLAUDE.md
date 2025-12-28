@@ -118,14 +118,25 @@ python setup_postgis.py
 ```
 backend/
 ├── api/app/           # Core FastAPI application
-│   ├── api.py         # Main API routes and endpoints
+│   ├── api.py         # Main FastAPI app and route registration
 │   ├── auth.py        # Authentication logic, JWT, OAuth
-│   ├── database.py    # Database configuration and session management
-│   ├── models.py      # SQLAlchemy models (User, Photo)
+│   ├── photo_routes.py # Photo upload/management endpoints
+│   ├── user_routes.py  # User management endpoints
 │   └── requirements.txt
-├── test_api.py        # API test suite
+├── common/            # Shared modules
+│   ├── models.py      # SQLAlchemy models (User, Photo, etc.)
+│   ├── database.py    # Database configuration and session management
+│   └── config.py      # Configuration management
+├── worker/            # Photo processing worker service
+│   ├── photo_processor.py  # EXIF extraction, image processing
+│   └── Dockerfile
+├── tests/             # Test suite
+│   ├── integration/   # Integration tests
+│   └── utils/         # Test utilities and helpers
+├── scripts/           # Utility scripts
+│   └── migrate.sh     # Database migration runner
 ├── docker-compose.yml # Docker configuration
-└── README.md         # Setup and configuration docs
+└── run_tests.sh       # Main test runner script
 ```
 
 ### Key Components
@@ -189,75 +200,9 @@ Optional configuration:
 - Comprehensive logging throughout the application
 - File uploads stored in configurable upload directory with thumbnails
 
-## Android App Development & Testing
-
-### App Package Identifiers
-- **Development**: `cz.hillviedev` (used by `./scripts/android-dev.sh`)
-- **Production**: `cz.hillview` (release builds)
-- **Important**: Always use the correct package ID for development testing
-
-### Android Development Commands
-```bash
-# Start Android development server with proper environment
-./scripts/android-dev.sh
-
-# View Android app logs (essential for debugging)
-./scripts/android-logs.sh
-
-# Android environment variables set by android-dev.sh:
-# VITE_BACKEND_ANDROID=http://10.0.2.2:8055/api (emulator host mapping)
-```
-
-### Android App Architecture
-- **Framework**: Tauri v2 hybrid app (Rust + WebView)
-- **WebView**: Uses Android WebView to render Svelte frontend
-- **Deep Links**: Configured for `cz.hillview://auth` OAuth callbacks
-- **Configuration**: `src-tauri/tauri.conf.json` (prod) and `src-tauri/tauri.android-dev.conf.json` (dev)
-
-### Android App Peculiarities & Debugging
-
-#### Network Configuration
-- **Emulator Host Mapping**: `localhost` becomes `10.0.2.2` in Android emulator
-- **Backend URL**: App uses `VITE_BACKEND_ANDROID` env var for emulator networking
-- **Browser Testing**: Chrome in emulator can reach `http://10.0.2.2:8055/api/debug` to verify backend connectivity
-
-#### Authentication Flow
-- **Browser-Based OAuth**: App redirects to system browser for OAuth (Google/GitHub)
-- **Error States**: "error sending request" typically indicates:
-  - Backend not reachable from emulator
-  - Authentication required (normal state before login)
-  - Network configuration issues
-- **Deep Link Return**: Browser redirects back via `cz.hillview://auth?token=...&expires_at=...`
-
-#### App State Management
-- **WebView Ready**: Look for 2 WebView elements in UI hierarchy
-- **MainActivity**: App runs in `.MainActivity` activity
-- **App States**: 0=not installed, 1=not running, 2=background, 3=background, 4=foreground
-- **Normal Behavior**: App consistently maintains state 4 when working properly
-
-### Android Testing Infrastructure
-
-#### Test Configuration
-```bash
-# Run Android integration tests (from frontend directory)
-cd ../frontend && bun run test:android
-
-# Specific test file (discovered syntax)
-cd ../frontend && bun run test:android --spec android-photo-simple.test0.ts
-
-# Alternative: Use pre-configured command
-cd ../frontend && bun run test:android:test0
-```
-
-#### Key Testing Files
-- `wdio.conf.ts` - Appium/WebdriverIO configuration
-- `test/helpers/app-launcher.ts` - App launching utilities
-- `test/specs/android-*.test.ts` - Android-specific tests
-
-#### Testing Limitations
-- **Deep Links**: Don't work reliably in emulator test environment
-- **OAuth Flow**: Full browser OAuth can't be automated (use simulation)
-- **UI Elements**: May need WebView context switching for HTML elements
+### Import Conventions
+- Modules in `api/app/` use relative imports for sibling modules: `from dsl_utils import y`
+- Shared modules use `common.` prefix: `from common.models import Photo`
 
 ## API Backend Control & Management
 
@@ -276,7 +221,9 @@ curl http://10.0.2.2:8055/api/debug
 ### Authentication System Control
 
 #### Test Users (for development)
-- **Username/Password**: test/test123, admin/admin123
+- **Username**: `test`, **Password**: `StrongTestPassword123!`
+- **Username**: `admin`, **Password**: `StrongAdminPassword123!`
+- **Username**: `testuser`, **Password**: `StrongTestUserPassword123!`
 - **Rate Limiting**: Active protection against brute force attempts
 - **Token Expiration**: 30-minute JWT token validity
 
