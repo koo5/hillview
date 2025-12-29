@@ -389,14 +389,7 @@ class PhotoUploadLogic(private val context: Context) {
 		val contentType = PhotoUtils.getContentType(photo.filename)
 
 		// Convert timestamp to ISO format for captured_at
-		val capturedAt = try {
-			val date = Date(photo.capturedAt)
-			SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
-				timeZone = TimeZone.getTimeZone("UTC")
-			}.format(date)
-		} catch (e: Exception) {
-			null
-		}
+		val capturedAt = PhotoUtils.formatTimestampToIso(photo.capturedAt)
 
 		// Get client key ID for authorization
 		val keyInfo = clientCrypto.getPublicKeyInfo()
@@ -837,7 +830,7 @@ class PhotoUploadLogic(private val context: Context) {
     }
 
     private fun extractTimestamp(exif: ExifInterface, fallbackTime: Long): Long {
-        // Try multiple timestamp formats in order of preference
+        // Try multiple timestamp tags in order of preference
         val timestampTags = listOf(
             ExifInterface.TAG_DATETIME_ORIGINAL,    // Original capture time
             ExifInterface.TAG_DATETIME_DIGITIZED,   // Digitized time
@@ -847,27 +840,13 @@ class PhotoUploadLogic(private val context: Context) {
             "DateTime"
         )
 
-        val dateFormats = listOf(
-            "yyyy:MM:dd HH:mm:ss",      // Standard EXIF format
-            "yyyy-MM-dd HH:mm:ss",      // ISO format
-            "yyyy:MM:dd'T'HH:mm:ss",    // Mixed format
-            "yyyy-MM-dd'T'HH:mm:ss"     // ISO with T separator
-        )
-
         for (tag in timestampTags) {
             val dateTimeStr = exif.getAttribute(tag)
             if (dateTimeStr != null) {
-                for (format in dateFormats) {
-                    try {
-                        val sdf = java.text.SimpleDateFormat(format, java.util.Locale.US)
-                        val date = sdf.parse(dateTimeStr)
-                        if (date != null) {
-                            Log.v(TAG, "Timestamp from $tag: $dateTimeStr -> ${date.time}")
-                            return date.time
-                        }
-                    } catch (e: Exception) {
-                        // Try next format
-                    }
+                val date = PhotoUtils.parseExifDate(dateTimeStr)
+                if (date != null) {
+                    Log.v(TAG, "Timestamp from $tag: $dateTimeStr -> ${date.time}")
+                    return date.time
                 }
             }
         }

@@ -1425,7 +1425,7 @@
 
 	.camera-controls {
 		position: absolute;
-		bottom: 0;
+		bottom: 6px;
 		left: 0;
 		right: 0;
 		display: flex;
@@ -1696,7 +1696,7 @@
 
 	.queue-indicator-overlay {
 		position: absolute;
-		bottom: 0px;
+		bottom: 6px;
 		right: 0px;
 		z-index: 1001;
 	}

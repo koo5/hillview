@@ -482,11 +482,12 @@ class MapillaryCacheService:
 			coords = photo_data['geometry']['coordinates']
 			point = Point(coords[0], coords[1])
 
-			# Parse captured_at date
+			# Parse captured_at date (handle Mapillary sometimes returning "null" string)
 			captured_at = None
-			if photo_data.get('captured_at'):
+			raw_captured_at = photo_data.get('captured_at')
+			if raw_captured_at and raw_captured_at != "null":
 				try:
-					captured_at = datetime.datetime.fromisoformat(photo_data['captured_at'].replace('Z', '+00:00'))
+					captured_at = datetime.datetime.fromisoformat(raw_captured_at.replace('Z', '+00:00'))
 				except:
 					pass
 

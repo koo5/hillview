@@ -233,13 +233,19 @@ async def send_activity_broadcast_notification(
 	Filters out users who got notified in the last 12 hours.
 	Uses batch sending for FCM efficiency.
 
-	Uses advisory lock to prevent duplicate notifications from concurrent calls.
+	Uses non-blocking advisory lock to prevent duplicate notifications from concurrent calls.
+	If lock cannot be acquired, skips notification (another request will handle it).
 	"""
-	# Use advisory lock to serialize concurrent broadcast notifications
-	# This prevents race conditions where multiple requests query the same
-	# eligible users before any commits
+	# Use non-blocking advisory lock to avoid serializing concurrent requests
+	# This prevents timeout issues when multiple uploads complete simultaneously
 	lock_id = 12345  # Arbitrary unique ID for activity broadcast lock
-	await db.execute(text(f"SELECT pg_advisory_lock({lock_id})"))
+	lock_result = await db.execute(text(f"SELECT pg_try_advisory_lock({lock_id})"))
+	acquired = lock_result.scalar()
+
+	if not acquired:
+		logger.debug("Activity broadcast lock not acquired, skipping (another request will handle it)")
+		return
+
 	try:
 		await _send_activity_broadcast_notification_impl(db, activity_originator_user_id)
 	finally:

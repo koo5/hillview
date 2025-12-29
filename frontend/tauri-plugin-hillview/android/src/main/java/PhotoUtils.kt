@@ -13,6 +13,42 @@ import java.util.*
 object PhotoUtils {
     private const val TAG = "🢄PhotoUtils"
 
+    // Thread-local date formatters to avoid creating new instances repeatedly
+    // SimpleDateFormat is not thread-safe, so we use ThreadLocal
+    val isoDateFormat: ThreadLocal<SimpleDateFormat> = ThreadLocal.withInitial {
+        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }
+    }
+
+    // Common EXIF date formats - thread-local for safety
+    val exifDateFormats: ThreadLocal<List<SimpleDateFormat>> = ThreadLocal.withInitial {
+        listOf(
+            SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.US),      // Standard EXIF format
+            SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US),      // ISO format
+            SimpleDateFormat("yyyy:MM:dd'T'HH:mm:ss", Locale.US),    // Mixed format
+            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US),    // ISO with T separator
+            SimpleDateFormat("yyyy/MM/dd HH:mm:ss", Locale.US)
+        )
+    }
+
+    /**
+     * Parse a date string using common EXIF formats
+     * @return parsed Date or null if no format matches
+     */
+    fun parseExifDate(dateString: String): Date? {
+        val formats = exifDateFormats.get() ?: return null
+        for (format in formats) {
+            try {
+                val date = format.parse(dateString)
+                if (date != null) return date
+            } catch (e: Exception) {
+                // Try next format
+            }
+        }
+        return null
+    }
+
     /**
      * Check if path is a content:// URI
      */
@@ -71,9 +107,7 @@ object PhotoUtils {
     fun formatTimestampToIso(timestamp: Long): String? {
         return try {
             val date = Date(timestamp)
-            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
-                timeZone = TimeZone.getTimeZone("UTC")
-            }.format(date)
+            isoDateFormat.get()?.format(date)
         } catch (e: Exception) {
             Log.w(TAG, "Failed to format timestamp $timestamp to ISO format", e)
             null
