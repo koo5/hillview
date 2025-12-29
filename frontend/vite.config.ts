@@ -6,8 +6,8 @@ import { sharedDefines } from './config/shared';
 export default defineConfig({
 	plugins: [sentrySvelteKit({
         sourceMapsUploadOptions: {
-            org: "ook-sy",
-            project: "hillview"
+            org: "sfi-n0",
+            project: "hillview-prod"
         }
     }), sveltekit()],
 	server: {
