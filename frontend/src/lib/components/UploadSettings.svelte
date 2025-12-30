@@ -85,7 +85,7 @@
 </script>
 
 {#if TAURI}
-	<SettingsSectionHeader>Auto-Upload Settings</SettingsSectionHeader>
+	<SettingsSectionHeader>Auto-Upload</SettingsSectionHeader>
 		<p class="help-text">
 			Automatically upload photos taken with the app's camera, to be visible in hillview.cz and in the app.
 		</p>
@@ -95,32 +95,41 @@
 		<LicenseSelector required={true} />
 
 		<div class="radio-group" class:disabled={$photoLicense === null}>
-			<label>
+			<label class="radio-option">
 				<input type="radio"
 					   name="autoUpload"
 					   checked={radioState === 'enabled'}
 					   on:change={() => handleRadioChange('enabled')}
 					   disabled={$photoLicense === null}
 					   data-testid="auto-upload-enabled"/>
-				Enabled
+				<div class="option-content">
+					<span class="option-title">Enabled</span>
+					<span class="option-description">Photos are uploaded automatically after capture</span>
+				</div>
 			</label>
-			<label>
+			<label class="radio-option">
 				<input type="radio"
 					   name="autoUpload"
 					   checked={radioState === 'disabled'}
 					   on:change={() => handleRadioChange('disabled')}
 					   disabled={$photoLicense === null}
 					   data-testid="auto-upload-disabled"/>
-				Disabled
+				<div class="option-content">
+					<span class="option-title">Disabled</span>
+					<span class="option-description">Ask me each time whether to upload</span>
+				</div>
 			</label>
-			<label>
+			<label class="radio-option">
 				<input type="radio"
 					   name="autoUpload"
 					   checked={radioState === 'disabled_never'}
 					   on:change={() => handleRadioChange('disabled_never')}
 					   disabled={$photoLicense === null}
 					   data-testid="auto-upload-disabled-never"/>
-				Disabled (Never prompt)
+				<div class="option-content">
+					<span class="option-title">Disabled (Never prompt)</span>
+					<span class="option-description">Don't upload and don't ask</span>
+				</div>
 			</label>
 		</div>
 
@@ -154,19 +163,53 @@
 		margin-top: 1rem;
 	}
 
-	.radio-group label {
-		display: flex;
-		align-items: center;
-		gap: 12px;
-		cursor: pointer;
+	.radio-group.disabled {
+		opacity: 0.5;
+		pointer-events: none;
 	}
 
-	.radio-group input[type="radio"] {
-		margin: 0;
-		width: 18px;
-		height: 18px;
-		flex-shrink: 0;
+	.radio-option {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.75rem;
+		padding: 0.75rem;
+		border: 1px solid #e5e7eb;
+		border-radius: 0.5rem;
 		cursor: pointer;
+		transition: border-color 0.2s, background-color 0.2s;
+	}
+
+	.radio-option:hover {
+		border-color: #d1d5db;
+		background-color: #f9fafb;
+	}
+
+	.radio-option:has(input:checked) {
+		border-color: #3b82f6;
+		background-color: #eff6ff;
+	}
+
+	.radio-option input {
+		margin-top: 0.125rem;
+		flex-shrink: 0;
+	}
+
+	.option-content {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+
+	.option-title {
+		font-weight: 500;
+		font-size: 0.875rem;
+		color: #1f2937;
+	}
+
+	.option-description {
+		font-size: 0.75rem;
+		color: #6b7280;
+		line-height: 1.4;
 	}
 
 	.alert {

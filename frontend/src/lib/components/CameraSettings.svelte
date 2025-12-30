@@ -27,7 +27,7 @@
 	}
 </script>
 
-<SettingsSectionHeader>Camera Settings</SettingsSectionHeader>
+<SettingsSectionHeader>Camera</SettingsSectionHeader>
 
 
 <div class="form-group">

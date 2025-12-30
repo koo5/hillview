@@ -72,7 +72,7 @@
 			<Wifi size={18}/>
 			<div class="link-text">
 				<span class="link-title">Push Messaging</span>
-				<span class="link-description">Configure background messaging and push notification providers</span>
+				<span class="link-description">Configure push notification providers</span>
 			</div>
 			<ChevronRight size={16} />
 		</a>
@@ -82,7 +82,7 @@
 			<Database size={18}/>
 			<div class="link-text">
 				<span class="link-title">Sources</span>
-				<span class="link-description">Deploy and configure alternative photo API endpoints</span>
+				<span class="link-description">Configure alternative photo API endpoints</span>
 			</div>
 			<ChevronRight size={16} />
 		</a>

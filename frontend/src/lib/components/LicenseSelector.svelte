@@ -56,20 +56,26 @@
     .checkbox-label {
         display: flex;
         align-items: flex-start;
-        gap: 12px;
+        gap: 0.75rem;
+        padding: 0.75rem;
+        border: 1px solid #e5e7eb;
+        border-radius: 0.5rem;
         cursor: pointer;
-        transition: all 0.2s ease;
+        transition: border-color 0.2s, background-color 0.2s;
     }
 
-    .checkbox-label:hover:not(.disabled .checkbox-label) {
+    .checkbox-label:hover {
         border-color: #d1d5db;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        background-color: #f9fafb;
+    }
+
+    .checkbox-label:has(input:checked) {
+        border-color: #3b82f6;
+        background-color: #eff6ff;
     }
 
     input[type="checkbox"] {
-        margin: 0 0 0 0;
-        width: 18px;
-        height: 18px;
+        margin-top: 0.125rem;
         flex-shrink: 0;
         cursor: pointer;
     }
