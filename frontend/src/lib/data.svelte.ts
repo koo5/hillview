@@ -288,12 +288,12 @@ export async function turn_to_photo_to(dir: string) {
     const currentPhotoUp = get(photoUp);
     const currentPhotoDown = get(photoDown);
 
-    console.log('🢄turn_to_photo_to:', dir, {
+    /*console.log('🢄turn_to_photo_to:', dir, {
         hasPhotoToLeft: !!currentPhotoToLeft,
         hasPhotoToRight: !!currentPhotoToRight,
         hasPhotoUp: !!currentPhotoUp,
         hasPhotoDown: !!currentPhotoDown
-    });
+    });*/
 
     if (dir === 'left' && currentPhotoToLeft) {
         console.log('🢄Turning to left photo:', currentPhotoToLeft.uid, 'bearing:', currentPhotoToLeft.bearing);

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import {photoCaptureSettings} from '$lib/stores';
+	import SettingsSectionHeader from "$lib/components/SettingsSectionHeader.svelte";
 
 	export let onSaveSuccess = (message: string) => {};
 	export let onSaveError = (message: string) => {};
@@ -26,7 +27,8 @@
 	}
 </script>
 
-<h2>Camera Settings</h2>
+<SettingsSectionHeader>Camera Settings</SettingsSectionHeader>
+
 
 <div class="form-group">
 	<label class="toggle-label">
@@ -44,11 +46,6 @@
 
 
 <style>
-	h2 {
-		margin-bottom: 1.5rem;
-		color: #1f2937;
-	}
-
 	.form-group {
 		margin-bottom: 1.5rem;
 	}

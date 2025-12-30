@@ -10,6 +10,7 @@
 	import DebugSettings from "$lib/components/DebugSettings.svelte";
 	import StandardHeaderWithAlert from "$lib/components/StandardHeaderWithAlert.svelte";
 	import StandardBody from "$lib/components/StandardBody.svelte";
+	import SettingsSectionHeader from "$lib/components/SettingsSectionHeader.svelte";
 
 	let autoExportEnabled = false;
 
@@ -63,7 +64,7 @@
 <StandardBody>
 
 		<div class="section-divider"></div>
-		<h2>Advanced Settings</h2>
+		<SettingsSectionHeader>Advanced Settings</SettingsSectionHeader>
 
 
 		{#if TAURI}
@@ -91,7 +92,7 @@
 
 	{#if TAURI}
 		<div class="section-divider"></div>
-		<h2>Location/Orientation Data</h2>
+		<SettingsSectionHeader>Location/Orientation Data</SettingsSectionHeader>
 
 		<p>The app stores location and orientation data for the duration of a session, and clears them when the app is closed or restarted. You can export this data for purposes of embedding them into photos created outside of Hillview.</p>
 

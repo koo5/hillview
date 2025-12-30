@@ -1,9 +1,10 @@
 <script lang="ts">
 	import {app} from '$lib/data.svelte';
+	import SettingsSectionHeader from "$lib/components/SettingsSectionHeader.svelte";
 
 </script>
 
-<h2>Debug mode</h2>
+<SettingsSectionHeader>Debug mode</SettingsSectionHeader>
 <div class="setting-item">
 	<label for="debug-mode">Enable Debug Mode</label>
 	<input

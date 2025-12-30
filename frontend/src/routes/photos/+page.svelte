@@ -496,13 +496,13 @@
 							</details>
 						{/if}
 
-						<div class="photo-image">
+						<button class="photo-image" on:click={() => viewOnMap(photo)} type="button">
 							<img
 								src={photo.sizes?.['320']?.url}
 								alt={photo.description || photo.original_filename}
 								data-testid="photo-thumbnail"
 							/>
-						</div>
+						</button>
 						<div class="photo-info">
 							<h3 data-testid="photo-filename">{photo.original_filename}</h3>
 							{#if photo.description}
@@ -514,12 +514,6 @@
 								<p class="meta">Captured: {formatDate(photo.captured_at)}</p>
 							{/if}
 							<div class="photo-actions">
-								{#if photo.latitude && photo.longitude}
-									<button class="action-button" on:click={() => viewOnMap(photo)}>
-										<Map size={16}/>
-										View on Map
-									</button>
-								{/if}
 								<button
 									class="action-button rating {photo.user_rating === 'thumbs_up' ? 'active' : ''}"
 									data-testid="thumbs-up-button"
@@ -542,25 +536,25 @@
 										{photo.rating_counts?.thumbs_down || 0}
 									</span>
 								</button>
-								{#if TAURI && photo.processing_status && photo.processing_status !== 'completed'}
-									{#if $autoUploadSettings.value?.auto_upload_enabled}
-										<button class="action-button upload" data-testid="manual-upload-button"
-												data-photo-id={photo.id} on:click={() => manualUpload(photo.id)}>
-											<Upload size={16}/>
-											Retry Uploads
-										</button>
-									{:else}
-										<span class="help-text">
-											Enable auto-upload in settings to retry failed uploads.
-										</span>
-									{/if}
-								{/if}
 								<button class="action-button delete" data-testid="delete-photo-button"
 										data-photo-id={photo.id} on:click={() => deletePhoto(photo.id)}>
 									<Trash2 size={16}/>
 									Delete
 								</button>
 							</div>
+							{#if TAURI && photo.processing_status && photo.processing_status !== 'completed'}
+								{#if $autoUploadSettings.value?.auto_upload_enabled}
+									<button class="action-button upload" data-testid="manual-upload-button"
+											data-photo-id={photo.id} on:click={() => manualUpload(photo.id)}>
+										<Upload size={16}/>
+										Retry Uploads
+									</button>
+								{:else}
+									<span class="help-text">
+										Enable auto-upload in settings to retry failed uploads.
+									</span>
+								{/if}
+							{/if}
 						</div>
 					</div>
 				{/each}
@@ -820,6 +814,12 @@
 	.photo-image {
 		height: 200px;
 		overflow: hidden;
+		width: 100%;
+		padding: 0;
+		border: none;
+		background: none;
+		cursor: pointer;
+		display: block;
 	}
 
 	.photo-image img {
@@ -862,13 +862,14 @@
 	}
 
 	.photo-actions {
-		display: flex;
+		align-items: center;
+		justify-content: space-between;
 		gap: 8px;
 		margin-top: 12px;
 	}
 
 	.action-button {
-		display: flex;
+
 		align-items: center;
 		gap: 4px;
 		padding: 6px 12px;

@@ -7,6 +7,7 @@
 	import {autoUploadSettings} from "$lib/autoUploadSettings";
 	import LicenseSelector from './LicenseSelector.svelte';
 	import {photoLicense} from '$lib/data.svelte';
+	import SettingsSectionHeader from "$lib/components/SettingsSectionHeader.svelte";
 
 	export let onSaveSuccess = (message: string) => {
 	};
@@ -84,7 +85,7 @@
 </script>
 
 {#if TAURI}
-	<h2>Auto-Upload Settings</h2>
+	<SettingsSectionHeader>Auto-Upload Settings</SettingsSectionHeader>
 		<p class="help-text">
 			Automatically upload photos taken with the app's camera, to be visible in hillview.cz and in the app.
 		</p>

@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { Bell, BellOff, AlertTriangle } from 'lucide-svelte';
 	import { invoke } from '@tauri-apps/api/core';
+	import SettingsSectionHeader from "$lib/components/SettingsSectionHeader.svelte";
 
 	// Type definitions for API responses
 	interface NotificationSettingsResponse {
@@ -180,9 +181,9 @@
 </script>
 
 <div class="notification-settings">
-	<h2>
+	<SettingsSectionHeader>
 		Notifications
-	</h2>
+	</SettingsSectionHeader>
 
 	<!-- Main notification toggle -->
 	<div class="setting-item">

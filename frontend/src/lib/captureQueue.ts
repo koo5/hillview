@@ -4,6 +4,7 @@ import type {DevicePhotoMetadata} from './types/photoTypes';
 
 import {invoke} from "@tauri-apps/api/core";
 import {frontendBusy} from "$lib/data.svelte";
+import {storageSettings} from "$lib/storageSettings";
 
 export interface CaptureLocation {
 	latitude: number;
@@ -257,7 +258,8 @@ class CaptureQueueManager {
 							photo_id: item.id,
 							metadata,
 							filename,
-							hide_from_gallery: false
+							hide_from_gallery: false,
+							preferred_storage: get(storageSettings).preferred_storage
 						}) as { id: string; filename: string; [key: string]: any };
 
 						this.totalProcessed++;

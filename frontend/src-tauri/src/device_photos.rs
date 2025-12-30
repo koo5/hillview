@@ -39,7 +39,7 @@ pub struct ProcessedPhoto {
 static PHOTO_CHUNKS: OnceLock<Mutex<HashMap<String, Vec<u8>>>> = OnceLock::new();
 
 
-/// Save photo to storage. Tries direct file I/O first, falls back to MediaStore.
+/// Save photo to storage. Tries preferred method first, falls back to the other.
 /// Returns the path (file path or content:// URI).
 #[cfg(target_os = "android")]
 fn save_to_pictures_directory(
@@ -47,32 +47,53 @@ fn save_to_pictures_directory(
 	filename: &str,
 	image_data: &[u8],
 	hide_from_gallery: bool,
+	preferred_storage: &str,
 ) -> Result<String, String> {
 	let folder_name = if hide_from_gallery { ".Hillview" } else { "Hillview" };
 	let public_pictures_dir = "/storage/emulated/0/DCIM";
 	let public_pictures_path = std::path::Path::new(public_pictures_dir).join(folder_name);
 
-	// Try direct file I/O first (works on some devices)
-	match save_to_directory(&public_pictures_path, filename, image_data, hide_from_gallery) {
-		Ok(photo_path) => {
-			info!("🢄✅ Photo saved via direct I/O: {:?}", photo_path);
-			Ok(photo_path.to_string_lossy().to_string())
+	let try_private_folder = || -> Result<String, String> {
+		match save_to_directory(&public_pictures_path, filename, image_data, hide_from_gallery) {
+			Ok(photo_path) => {
+				info!("🢄✅ Photo saved via direct I/O: {:?}", photo_path);
+				Ok(photo_path.to_string_lossy().to_string())
+			}
+			Err(e) => Err(format!("Direct I/O failed: {}", e))
 		}
-		Err(e) => {
-			warn!("🢄⚠️ Direct I/O failed ({}), falling back to MediaStore...", e);
+	};
 
-			// Fall back to MediaStore API
-			let response = app_handle
-				.hillview()
-				.save_photo_to_media_store(filename.to_string(), image_data.to_vec(), hide_from_gallery)
-				.map_err(|e| format!("MediaStore plugin error: {}", e))?;
+	let try_mediastore = || -> Result<String, String> {
+		let response = app_handle
+			.hillview()
+			.save_photo_to_media_store(filename.to_string(), image_data.to_vec(), hide_from_gallery)
+			.map_err(|e| format!("MediaStore plugin error: {}", e))?;
 
-			if response.success {
-				let path = response.path.ok_or_else(|| "MediaStore returned success but no path/URI".to_string())?;
-				info!("🢄✅ Photo saved via MediaStore: {}", path);
-				Ok(path)
-			} else {
-				Err(response.error.unwrap_or_else(|| "Unknown MediaStore error".to_string()))
+		if response.success {
+			let path = response.path.ok_or_else(|| "MediaStore returned success but no path/URI".to_string())?;
+			info!("🢄✅ Photo saved via MediaStore: {}", path);
+			Ok(path)
+		} else {
+			Err(response.error.unwrap_or_else(|| "Unknown MediaStore error".to_string()))
+		}
+	};
+
+	if preferred_storage == "mediastore_api" {
+		// Try MediaStore first, fall back to private folder
+		match try_mediastore() {
+			Ok(path) => Ok(path),
+			Err(e) => {
+				warn!("🢄⚠️ MediaStore failed ({}), falling back to private folder...", e);
+				try_private_folder()
+			}
+		}
+	} else {
+		// Try private folder first (default), fall back to MediaStore
+		match try_private_folder() {
+			Ok(path) => Ok(path),
+			Err(e) => {
+				warn!("🢄⚠️ Private folder failed ({}), falling back to MediaStore...", e);
+				try_mediastore()
 			}
 		}
 	}
@@ -143,6 +164,7 @@ pub async fn save_photo_with_metadata(
 	metadata: PhotoMetadata,
 	filename: String,
 	hide_from_gallery: bool,
+	preferred_storage: Option<String>,
 ) -> Result<crate::device_photos::DevicePhotoMetadata, String> {
 	// Step 1: Get stored image data
 	let image_data = {
@@ -156,7 +178,8 @@ pub async fn save_photo_with_metadata(
 	// Call the internal function with the image data
 	#[cfg(target_os = "android")]
 	{
-		save_photo_from_bytes(app_handle, photo_id, metadata, image_data, filename, hide_from_gallery).await
+		let storage = preferred_storage.unwrap_or_else(|| "private_folder".to_string());
+		save_photo_from_bytes(app_handle, photo_id, metadata, image_data, filename, hide_from_gallery, storage).await
 	}
 
 	#[cfg(not(target_os = "android"))]
@@ -173,6 +196,7 @@ async fn save_photo_from_bytes(
 	image_data: Vec<u8>,
 	filename: String,
 	hide_from_gallery: bool,
+	preferred_storage: String,
 ) -> Result<crate::device_photos::DevicePhotoMetadata, String> {
 	// Determine the final bearing before spawning the blocking task
 	metadata.bearing = determine_final_bearing(&app_handle, &metadata).await;
@@ -211,7 +235,7 @@ async fn save_photo_from_bytes(
 		};
 
 		// Save the photo file (blocking I/O or MediaStore)
-		let file_path = save_to_pictures_directory(&app_handle, &filename, &processed_data, hide_from_gallery)?;
+		let file_path = save_to_pictures_directory(&app_handle, &filename, &processed_data, hide_from_gallery, &preferred_storage)?;
 
 		// Verify EXIF data in debug builds (only for file paths, not content:// URIs)
 		#[cfg(debug_assertions)]

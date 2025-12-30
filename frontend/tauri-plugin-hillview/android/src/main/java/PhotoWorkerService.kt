@@ -614,13 +614,18 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
         if (photos.isEmpty()) return "[]"
 
         val jsonArray = photos.joinToString(separator = ",", prefix = "[", postfix = "]") { photo ->
+            val creatorJson = serializeCreator(photo.creator)
+            val sizesJson = if (photo.sizes != null) serializeSizes(photo.sizes!!) else "null"
+            val fileJson = if (photo.file != null) "\"${photo.file}\"" else "null"
+            val urlJson = if (photo.url != null) "\"${photo.url}\"" else "null"
+            val fileHashJson = if (photo.fileHash != null) "\"${photo.fileHash}\"" else "null"
             """
             {
                 "id": "${photo.id}",
                 "uid": "${photo.uid}",
                 "source_type": "${photo.source_type}",
-                "file": ${if (photo.file != null) "\"${photo.file}\"" else "null"},
-                "url": ${if (photo.url != null) "\"${photo.url}\"" else "null"},
+                "file": $fileJson,
+                "url": $urlJson,
                 "coord": {
                     "lat": ${photo.coord.lat},
                     "lng": ${photo.coord.lng}
@@ -628,8 +633,15 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
                 "bearing": ${photo.bearing},
                 "altitude": ${photo.altitude ?: "null"},
                 "source": "${photo.source}",
-                "sizes": ${if (photo.sizes != null) serializeSizes(photo.sizes!!) else "null"},
-                "is_device_photo": ${photo.is_device_photo}
+                "sizes": $sizesJson,
+                "is_device_photo": ${photo.is_device_photo},
+                "captured_at": ${photo.captured_at ?: "null"},
+                "created_at": ${photo.created_at ?: "null"},
+                "accuracy": ${photo.accuracy ?: "null"},
+                "fileHash": $fileHashJson,
+                "range_distance": ${photo.range_distance ?: "null"},
+                "is_pano": ${photo.is_pano ?: "null"},
+                "creator": $creatorJson
             }
             """.trimIndent()
         }
@@ -648,6 +660,14 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
             """.trimIndent()
         }
         return "{ $sizesJson }"
+    }
+
+    private fun serializeCreator(creator: Creator?): String {
+        return if (creator != null) {
+            """{"id": "${creator.id}", "username": "${creator.username}"}"""
+        } else {
+            "null"
+        }
     }
 }
 

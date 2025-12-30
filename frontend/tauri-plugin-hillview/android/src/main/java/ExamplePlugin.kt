@@ -38,6 +38,10 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.ConcurrentLinkedQueue
 
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+
 @InvokeArg
 class PingArgs {
 	var value: String? = null
@@ -328,6 +332,20 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 
 		super.load(webView)
 		setupWebViewCameraPermissions(webView)
+
+
+		// Configure window to handle insets the old way (non-edge-to-edge)
+		WindowCompat.setDecorFitsSystemWindows(activity.window, true)
+		/*// Tell Android we will handle insets ourselves (edge-to-edge).
+		WindowCompat.setDecorFitsSystemWindows(activity.window, false)
+		// Apply system bar insets as padding to the WebView.
+		ViewCompat.setOnApplyWindowInsetsListener(webView) { v, insets ->
+		  val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+		  v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+		  // Return insets as-is (don’t consume), so other views can also react if needed.
+		  insets
+		}*/
+
 	}
 
 	private fun setupWebViewCameraPermissions(webView: WebView) {
@@ -2229,7 +2247,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 				JSObject()
 			}
 
-			Log.d(TAG, "🔧cmd called: command=$command, params=$params")
+			//Log.d(TAG, "🔧cmd called: command=$command, params=$params")
 
 			when (command) {
 				"start_device_orientation_sensor" -> {
@@ -2247,7 +2265,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 				"update_orientation" -> {
 					try {
 						geoTrackingManager.storeOrientationManual(params)
-						Log.d(TAG, "🔧 Stored manual orientation data")
+						//Log.d(TAG, "🔧 Stored manual orientation data")
 					} catch (e: Exception) {
 						Log.e(TAG, "🔧 Failed to store orientation data: ${e.message}", e)
 						val error = JSObject()
@@ -2260,7 +2278,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 				"update_location" -> {
 					try {
 						geoTrackingManager.storeLocationManual(params)
-						Log.d(TAG, "🔧 Stored manual location data")
+						//Log.d(TAG, "🔧 Stored manual location data")
 					} catch (e: Exception) {
 						Log.e(TAG, "🔧 Failed to store location data: ${e.message}", e)
 						val error = JSObject()
@@ -2289,6 +2307,22 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 					result.put("enabled", enabled)
 					invoke.resolve(result)
 					return
+				}
+
+				"get_landscape_compass_armor22_workaround" -> {
+					val prefs = activity.getSharedPreferences("landscape_compass_armor22_workaround", Context.MODE_PRIVATE)
+					val enabled = prefs.getBoolean("enabled", false)
+					val result = JSObject()
+					result.put("enabled", enabled)
+					invoke.resolve(result)
+					return
+				}
+
+				"set_landscape_compass_armor22_workaround" -> {
+					val enabled = params.getBoolean("enabled") ?: false
+					val prefs = activity.getSharedPreferences("landscape_compass_armor22_workaround", Context.MODE_PRIVATE)
+					prefs.edit().putBoolean("enabled", enabled).apply()
+					Log.i(TAG, "🔧 Set landscape compass Armor 22 workaround: $enabled")
 				}
 
 				else -> {

@@ -174,7 +174,7 @@
 	let desiredUrl: string | null = null;
 
 	function replaceState2(url: string) {
-		console.log('replaceState2: updating URL to', url);
+		//console.log('replaceState2: updating URL to', url);
 		desiredUrl = url;
 		try {
 			replaceState(url, {});
@@ -383,7 +383,7 @@
 			sources.update(srcs => {
 				return srcs.map(src => ({
 					...src,
-					enabled: src.id === 'hillview' || src.id === 'device'
+					enabled: src.id === 'hillview'// || src.id === 'device'
 				}));
 			});
 			// Note: Compass stopping is now handled by reactive statement

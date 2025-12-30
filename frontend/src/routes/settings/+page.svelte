@@ -4,10 +4,13 @@
 	import CameraSettings from '$lib/components/CameraSettings.svelte';
 	import UploadSettingsComponent from '$lib/components/UploadSettings.svelte';
 	import NotificationSettingsComponent from '$lib/components/NotificationSettings.svelte';
+	import StorageSettingsComponent from '$lib/components/StorageSettings.svelte';
+	import CompassSettingsComponent from '$lib/components/CompassSettings.svelte';
 	import DebugSettings from '$lib/components/DebugSettings.svelte';
 	import type { Alert } from '$lib/alertSystem.svelte';
 	import {Database, Settings} from "lucide-svelte";
 	import {TAURI} from "$lib/tauri";
+	import SettingsSectionHeader from "$lib/components/SettingsSectionHeader.svelte";
 
 	let alertMessage = '';
 	let alertType: Alert['type'] = 'info';
@@ -44,6 +47,7 @@
 		{/if}
 
 		{#if TAURI}
+		<div class="section-divider"></div>
 		<CameraSettings
 			onSaveSuccess={(message) => showAlert(message, 'success')}
 			onSaveError={(message) => showAlert(message, 'error')}
@@ -57,10 +61,24 @@
 		/>
 		{/if}
 
+		{#if TAURI}
+		<div class="section-divider"></div>
+		<StorageSettingsComponent
+			onSaveSuccess={(message) => showAlert(message, 'success')}
+		/>
+		{/if}
+
+		{#if TAURI}
+		<div class="section-divider"></div>
+		<CompassSettingsComponent
+			onSaveSuccess={(message) => showAlert(message, 'success')}
+		/>
+		{/if}
+
 		<!-- Advanced Settings -->
 		<div class="section-divider"></div>
 
-		<h2>Advanced</h2>
+		<SettingsSectionHeader>Advanced</SettingsSectionHeader>
 		<a href="/settings/advanced" class="settings-navigation-link" data-testid="advanced-menu-link">
 			<Settings size={18} />
 			<div class="link-text">
@@ -83,8 +101,10 @@
 	}
 
 	.section-divider {
-		height: 1px;
-		padding: 0.5rem 0;
+		width: 110%;
+		padding: 0.1rem 0;
+		margin: 1rem;
+		background-color: gray;
 	}
 
 

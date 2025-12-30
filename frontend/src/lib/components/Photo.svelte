@@ -106,7 +106,7 @@
 			return;
 		}
 
-		console.log('🢄Photo.svelte: Processing sizes for photo:', photo.id, 'is_device_photo:', photo.is_device_photo, 'sizes:', Object.keys(photo.sizes), 'clientWidth:', clientWidth2);
+		//console.log('🢄Photo.svelte: Processing sizes for photo:', photo.id, 'is_device_photo:', photo.is_device_photo, 'sizes:', Object.keys(photo.sizes), 'clientWidth:', clientWidth2);
 
 		// Find the best scaled version based on container width. Take the 'full' size if this fails
 		const sizes = Object.keys(photo.sizes).filter(size => size !== 'full').sort((a, b) => Number(a) - Number(b));
@@ -136,30 +136,30 @@
 		// Handle device photo URLs for full size
 		if (photo.is_device_photo && photo.sizes.full) {
 			selectedUrl = getDevicePhotoUrl(photo.sizes.full.url);
-			console.log('🢄Photo.svelte: Using full size for device photo:', photo.id, 'original:', photo.sizes.full.url, 'converted:', selectedUrl);
+			//console.log('🢄Photo.svelte: Using full size for device photo:', photo.id, 'original:', photo.sizes.full.url, 'converted:', selectedUrl);
 		} else {
 			selectedUrl = photo.sizes.full?.url || '';
-			console.log('🢄Photo.svelte: Using full size for regular photo:', {
+			/*console.log('🢄Photo.svelte: Using full size for regular photo:', {
 				photoId: photo.id,
 				selectedUrl: selectedUrl
-			});
+			});*/
 		}
 
-		console.log('🢄Photo.svelte: URL flow debug:', JSON.stringify({
+		/*console.log('🢄Photo.svelte: URL flow debug:', JSON.stringify({
 			photoId: photo.id,
 			is_device_photo: photo.is_device_photo,
 			selectedUrl: selectedUrl,
 			currentDisplayedUrl: displayedUrl,
 			willTriggerImageChange: selectedUrl !== displayedUrl
-		}));
+		}));*/
 	}
 
 	async function handleImageChange(newUrl: string) {
-		console.log('🢄Photo.svelte: handleImageChange called:', JSON.stringify({
+		/*console.log('🢄Photo.svelte: handleImageChange called:', JSON.stringify({
 			newUrl: newUrl,
 			currentDisplayedUrl: displayedUrl,
 			willReturn: !newUrl || newUrl === displayedUrl
-		}));
+		}));*/
 
 		// hmm..
 		if (!newUrl || newUrl === displayedUrl) {

@@ -1196,7 +1196,14 @@
         <Info size={18} />
     </button>
     {#if showAttribution}
-        <div class="attribution-popup" on:click={handleAttributionClick}>
+        <div
+            class="attribution-popup"
+            role="dialog"
+            aria-label="Map attribution"
+            tabindex="-1"
+            on:click={handleAttributionClick}
+            on:keydown={(e) => e.key === 'Escape' && (showAttribution = false)}
+        >
             {@html tileConfig.attribution || '© OpenStreetMap contributors'}
         </div>
     {/if}

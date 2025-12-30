@@ -5,6 +5,7 @@
 	import { Smartphone, Wifi, WifiOff, CheckCircle, AlertCircle, Clock } from 'lucide-svelte';
 	import { addAlert } from '$lib/alertSystem.svelte';
 	import ExternalLink from './ExternalLink.svelte';
+	import SettingsSectionHeader from "$lib/components/SettingsSectionHeader.svelte";
 
 	let distributors: PushDistributorInfo[] = [];
 	let selectedDistributor = '';
@@ -149,7 +150,7 @@
 </script>
 
 <div class="push-settings-container">
-	<h2>Push Notifications</h2>
+	<SettingsSectionHeader>Push Notifications</SettingsSectionHeader>
 
 	{#if !TAURI}
 		<div class="not-available">
@@ -393,17 +394,9 @@
 		margin-bottom: 0;
 	}
 
-	h2, h3 {
+	h3 {
 		color: #1f2937;
 		margin-bottom: 1rem;
-	}
-
-	h2 {
-		font-size: 1.5rem;
-		font-weight: 600;
-	}
-
-	h3 {
 		font-size: 1.125rem;
 		font-weight: 500;
 	}

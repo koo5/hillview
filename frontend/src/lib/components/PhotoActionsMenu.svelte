@@ -58,6 +58,8 @@
     }
 
     function getUserName(photo: PhotoData | null): string | null {
+		console.log("getUserName: ", JSON.stringify(photo));
+
         if (!photo) return null;
 
         // For Mapillary photos, check if creator info exists in the photo data

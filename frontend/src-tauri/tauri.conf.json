@@ -26,6 +26,7 @@
 			"assetProtocol": {
 				"enable": true,
 				"scope": [
+					"/storage/emulated/0/DCIM/Hillview/**",
 					"/storage/emulated/0/Pictures/Hillview/**",
 					"/storage/emulated/0/Android/data/cz.hillview/files/Pictures/**"
 				]

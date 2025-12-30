@@ -172,7 +172,7 @@ export class OptimizedMarkerSystem {
 	 * This is called when bearing changes but photo positions haven't changed
 	 */
 	updateMarkerColors(markers: L.Marker[], currentBearing: number): void {
-		console.log('Updating marker bearing colors for ', currentBearing, 'on', markers.length, 'markers');
+		//console.log('Updating marker bearing colors for ', currentBearing, 'on', markers.length, 'markers');
 		const startTime = performance.now();
 		let updatedCount = 0;
 
