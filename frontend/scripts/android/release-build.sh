@@ -14,6 +14,8 @@ if not test -d src-tauri/gen
     echo "✅ release-init.sh completed successfully"
 end
 
+cp -r src-tauri/icons/android/* src-tauri/gen/android/app/src/main/res/;
+
 echo "🔨 Building release APK..."
 echo "📱 VITE_DEV_MODE: $VITE_DEV_MODE"
 echo "🌐 VITE_BACKEND_ANDROID: $VITE_BACKEND_ANDROID"
