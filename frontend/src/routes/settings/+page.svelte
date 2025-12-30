@@ -11,6 +11,7 @@
 	import {Database, Settings} from "lucide-svelte";
 	import {TAURI} from "$lib/tauri";
 	import SettingsSectionHeader from "$lib/components/SettingsSectionHeader.svelte";
+	import SettingsSectionDivider from "$lib/components/SettingsSectionDivider.svelte";
 
 	let alertMessage = '';
 	let alertType: Alert['type'] = 'info';
@@ -39,7 +40,7 @@
 
 		<!-- Notification Settings -->
 		{#if TAURI}
-		<div class="section-divider"></div>
+		<SettingsSectionDivider />
 		<NotificationSettingsComponent
 			onSaveSuccess={(message) => showAlert(message, 'success')}
 			onSaveError={(message) => showAlert(message, 'error')}
@@ -47,7 +48,7 @@
 		{/if}
 
 		{#if TAURI}
-		<div class="section-divider"></div>
+		<SettingsSectionDivider />
 		<CameraSettings
 			onSaveSuccess={(message) => showAlert(message, 'success')}
 			onSaveError={(message) => showAlert(message, 'error')}
@@ -55,29 +56,27 @@
 		{/if}
 
 		{#if TAURI}
-		<div class="section-divider"></div>
+		<SettingsSectionDivider />
 		<UploadSettingsComponent
 			onSaveSuccess={(message) => showAlert(message, 'success')}
 		/>
 		{/if}
 
 		{#if TAURI}
-		<div class="section-divider"></div>
+		<SettingsSectionDivider />
 		<StorageSettingsComponent
 			onSaveSuccess={(message) => showAlert(message, 'success')}
 		/>
 		{/if}
 
 		{#if TAURI}
-		<div class="section-divider"></div>
+		<SettingsSectionDivider />
 		<CompassSettingsComponent
 			onSaveSuccess={(message) => showAlert(message, 'success')}
 		/>
 		{/if}
 
-		<!-- Advanced Settings -->
-		<div class="section-divider"></div>
-
+		<SettingsSectionDivider />
 		<SettingsSectionHeader>Advanced</SettingsSectionHeader>
 		<a href="/settings/advanced" class="settings-navigation-link" data-testid="advanced-menu-link">
 			<Settings size={18} />
@@ -100,12 +99,6 @@
 		margin: 0 auto;
 	}
 
-	.section-divider {
-		width: 110%;
-		padding: 0.1rem 0;
-		margin: 1rem;
-		background-color: gray;
-	}
 
 
 	.settings-navigation-link {
