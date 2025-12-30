@@ -3,6 +3,7 @@
 	import { Bell, BellOff, AlertTriangle } from 'lucide-svelte';
 	import { invoke } from '@tauri-apps/api/core';
 	import SettingsSectionHeader from "$lib/components/SettingsSectionHeader.svelte";
+	import {app} from "$lib/data.svelte";
 
 	// Type definitions for API responses
 	interface NotificationSettingsResponse {
@@ -226,7 +227,7 @@
 
 
 	<!-- Test Notification -->
-	{#if notificationsEnabled}
+	{#if notificationsEnabled && $app.debug}
 		<div class="test-notification">
 			<button
 				class="test-notification-button"

@@ -84,8 +84,6 @@
         align-items: center;
         gap: 8px;
         margin-bottom: 4px;
-        font-weight: 500;
-        color: #374151;
     }
 
     .info-link {

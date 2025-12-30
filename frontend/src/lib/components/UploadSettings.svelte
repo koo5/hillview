@@ -157,11 +157,15 @@
 	.radio-group label {
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
+		gap: 12px;
 		cursor: pointer;
 	}
 
 	.radio-group input[type="radio"] {
+		margin: 0;
+		width: 18px;
+		height: 18px;
+		flex-shrink: 0;
 		cursor: pointer;
 	}
 
