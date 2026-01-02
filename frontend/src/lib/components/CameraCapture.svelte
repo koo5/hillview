@@ -1201,13 +1201,19 @@
 							<CompassButtonInner bearingMode="car"/>
 						</div>
 					</button>
-				{:else if showCalibrationHint}
+				{:else if true || showCalibrationHint}
 					<div class="instruction-row">
 						<div class="calibration-instruction">
 							Calibrate compass.
 						</div>
 						<div class="figure8-animation">
 							<CalibrationFigure />
+						</div>
+						<div class="calibration-instruction">
+							Verify orientation.
+						</div>
+						<div class="calibration-instruction">
+							Verify location.
 						</div>
 					</div>
 				{/if}
@@ -1346,7 +1352,7 @@
 	}
 
 	.camera-content {
-		background: black;
+		background: linear-gradient(135deg, #000000, #a1a1a1);
 		width: 100%;
 		height: 100%;
 		max-width: 100vw;
@@ -1433,7 +1439,6 @@
 		align-items: center;
 		gap: 2rem;
 		padding: 2rem;
-		background: linear-gradient(to top, rgba(0, 0, 0, 0.8), transparent);
 	}
 
 	.camera-selector-container {
@@ -1719,20 +1724,20 @@
 
 	.instruction-row {
 
+		font-size: 0.75em;
 		position: absolute;
 		bottom: 5px;
 		right: 5px;
-		background: rgba(255,255,255,0.6);
-		backdrop-filter: blur(3px);
-		border-radius: 8px;
-		align-items: center;
-		text-align: center;
-		padding: 0.5rem;
+		max-width: 150px;
+		background: rgba(255,255,255,0.4);
+		backdrop-filter: blur(2px);
+		border-radius: 6px;
+		padding: 0.3rem;
 
 	}
 
 	.figure8-animation {
-		width: 120px;
+		width: 150px;
 		height: 80px;
 		flex-shrink: 0;
 	}

@@ -67,7 +67,7 @@ export class OptimizedMarkerSystem {
 		marker.setIcon(icon);
 
 		const currentPhotoInFront = get(photoInFront);
-		const isSelected = currentPhotoInFront && photo.id === currentPhotoInFront.id;
+		const isSelected = currentPhotoInFront && photo.id === currentPhotoInFront.id && (get(app).activity != 'capture')
 
 		// Apply selection styling and store reference
 		if (isSelected) {
@@ -86,7 +86,7 @@ export class OptimizedMarkerSystem {
 	 */
 	private createSeparatedIcon(photo: PhotoData): L.DivIcon {
 		const currentPhotoInFront = get(photoInFront);
-		const isSelected = (currentPhotoInFront && photo.id === currentPhotoInFront.id) || false;
+		const isSelected = ((currentPhotoInFront && photo.id === currentPhotoInFront.id) || false) && (get(app).activity != 'capture')
 		const {arrowSize} = this.atlasDimensions;
 		const data = `data-testid="photo-marker-${photo.id}"
              data-photo-id="${photo.id}"
@@ -265,6 +265,7 @@ export class OptimizedMarkerSystem {
 			this.currentSelectedMarker = null;
 		}
 
+		if (get(app).activity == 'capture') return;
 		// Find and select new marker
 		if (newPhotoInFront) {
 			for (const marker of this.activeMarkers) {

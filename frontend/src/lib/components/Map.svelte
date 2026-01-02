@@ -1139,13 +1139,14 @@
         {/key}
 
 
-        {#if $spatialState.center}
+        {#if ($app.activity != 'capture') && $spatialState.center}
             <Circle
                     latLng={$spatialState.center}
                     radius={$spatialState.range}
                     color="#4AE092"
-                    fillColor="#4A90E2"
+                    fillColor="#ffffff"
                     weight={1.8}
+					dashArray={[5, 15]}
             />
             <!-- arrow -->
         {/if}

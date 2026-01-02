@@ -25,7 +25,7 @@
 
 	.figure8-svg path {
 		stroke: currentColor;
-		opacity: 0.3;
+		opacity: 0.4;
 	}
 
 	.figure8-svg circle {

@@ -326,13 +326,17 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 		Log.i(TAG, "🢄🎥 Plugin init #$initializationCount - Process ID: $processId")
 	}
 
+	/*override fun onCreate(savedInstanceState: Bundle?) {
+		Log.i(TAG, "🢄🎥 onCreate called")
+		super.onCreate(savedInstanceState)
+		WindowCompat.setDecorFitsSystemWindows(window, true)
+		setContentView(R.layout.activity_main)
+	}*/
+
+
 	override fun load(webView: WebView) {
 		Log.i(TAG, "🢄🎥 Plugin load() called with WebView: $webView")
 		Log.d(TAG, "📲 intent: ${activity.intent}")
-
-		super.load(webView)
-		setupWebViewCameraPermissions(webView)
-
 
 		// Configure window to handle insets the old way (non-edge-to-edge)
 		WindowCompat.setDecorFitsSystemWindows(activity.window, true)
@@ -346,6 +350,8 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 		  insets
 		}*/
 
+		super.load(webView)
+		setupWebViewCameraPermissions(webView)
 	}
 
 	private fun setupWebViewCameraPermissions(webView: WebView) {
@@ -1202,7 +1208,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 	}
 
 
-	// Notification settings management (stored in hillview_upload_prefs)
+	// Notification settings management (fixme: stored in hillview_upload_prefs)
 	@Command
 	fun getNotificationSettings(invoke: Invoke) {
 		try {
@@ -1258,26 +1264,6 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 		}
 	}
 
-	@Command
-	fun testAuthExpiredNotification(invoke: Invoke) {
-		try {
-			Log.d(TAG, "🔔 Testing auth expired notification")
-			val notificationHelper = NotificationHelper(activity)
-			notificationHelper.showAuthExpiredNotification()
-
-			val result = JSObject()
-			result.put("success", true)
-			result.put("message", "Test notification sent")
-			invoke.resolve(result)
-
-		} catch (e: Exception) {
-			Log.e(TAG, "🔔 Error sending test notification", e)
-			val error = JSObject()
-			error.put("success", false)
-			error.put("error", e.message)
-			invoke.resolve(error)
-		}
-	}
 
 	@Command
 	fun registerClientPublicKey(invoke: Invoke) {
@@ -1787,25 +1773,16 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 	fun photoWorkerProcess(invoke: Invoke) {
 		try {
 			//Log.d(TAG, "🢄📸 photoWorkerProcess command called")
-
-			// Add debugging to see raw invoke data
 			//Log.d(TAG, "🢄📸 invoke object: $invoke")
 
 			val args = invoke.parseArgs(PhotoWorkerProcessArgs::class.java)
-			//Log.d(TAG, "🢄📸 args parsed: args = $args")
-
-			// Args is never null from parseArgs(), proceed directly
-
 			val messageJson = args.message_json ?: args.message_json
+
 			//Log.d(TAG, "🢄📸 messageJson extracted: '${messageJson}' (length: ${messageJson?.length ?: 0})")
 			//Log.d(TAG, "🢄📸 field values - messageJson: ${args.message_json}, message_json: ${args.message_json}")
 
 			if (messageJson.isNullOrEmpty()) {
-				Log.e(TAG, "🢄📸 photoWorkerProcess failed: messageJson is required")
-				val error = JSObject()
-				error.put("success", false)
-				error.put("error", "messageJson is required")
-				invoke.resolve(error)
+				resolveWithError(invoke, "🢄📸 photoWorkerProcess failed: messageJson is required")
 				return
 			}
 
@@ -1835,22 +1812,14 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 					}
 
 				} catch (e: Exception) {
-					Log.e(TAG, "🢄📸 Error in photoWorkerProcess coroutine", e)
 					CoroutineScope(Dispatchers.Main).launch {
-						val error = JSObject()
-						error.put("success", false)
-						error.put("error", e.message ?: "Photo processing failed")
-						invoke.resolve(error)
+						resolveWithError(invoke, "🢄📸 Error in photoWorkerProcess coroutine", e)
 					}
 				}
 			}
 
 		} catch (e: Exception) {
-			Log.e(TAG, "🢄📸 Error parsing photoWorkerProcess args", e)
-			val error = JSObject()
-			error.put("success", false)
-			error.put("error", e.message ?: "Failed to parse arguments")
-			invoke.resolve(error)
+			resolveWithError(invoke, "🢄📸 Error parsing photoWorkerProcess args", e)
 		}
 	}
 
@@ -1867,11 +1836,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 			Log.d(TAG, "📤 Share args - title: $title, text: $text, url: $url")
 
 			if (url.isNullOrEmpty()) {
-				Log.e(TAG, "📤 Share failed: URL is required")
-				val error = JSObject()
-				error.put("success", false)
-				error.put("error", "URL is required for sharing")
-				invoke.resolve(error)
+				resolveWithError(invoke, "📤 Share failed: URL is required")
 				return
 			}
 
@@ -1896,19 +1861,11 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 				result.put("message", "Share intent launched successfully")
 				invoke.resolve(result)
 			} else {
-				Log.e(TAG, "📤 No apps available to handle share intent")
-				val error = JSObject()
-				error.put("success", false)
-				error.put("error", "No apps available for sharing")
-				invoke.resolve(error)
+				resolveWithError(invoke, "📤 No apps available to handle share intent")
 			}
 
 		} catch (e: Exception) {
-			Log.e(TAG, "📤 Error sharing photo", e)
-			val error = JSObject()
-			error.put("success", false)
-			error.put("error", e.message)
-			invoke.resolve(error)
+			resolveWithError(invoke, "📤 Error sharing photo", e)
 		}
 	}
 
@@ -1962,28 +1919,18 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 					}
 
 				} catch (e: Exception) {
-					Log.e(TAG, "📡 getBearingForTimestamp: Database error", e)
 					CoroutineScope(Dispatchers.Main).launch {
-						val error = JSObject()
-						error.put("success", false)
-						error.put("error", e.message)
-						invoke.resolve(error)
+						resolveWithError(invoke,"📡 getBearingForTimestamp: Database error", e)
 					}
 				}
 			}
 
 		} catch (e: Exception) {
-			Log.e(TAG, "📡 getBearingForTimestamp: Error", e)
-			val error = JSObject()
-			error.put("success", false)
-			error.put("error", e.message)
-			invoke.resolve(error)
+			resolveWithError(invoke, "📡 getBearingForTimestamp: Error", e)
 		}
 	}
 
-
-	// Message Queue System for reliable Kotlin-frontend communication
-	/* todo: replace with tauri events?*/
+	// Message Queue System for reliable Kotlin-frontend communication. Messages are queued until frontend is loaded.
 	// ================================================================
 
 	/**
@@ -2021,10 +1968,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 			invoke.resolve(result)
 
 		} catch (e: Exception) {
-			Log.e(TAG, "📨 Error polling messages: ${e.message}", e)
-			val error = JSObject()
-			error.put("error", e.message)
-			invoke.resolve(error)
+			resolveWithError(invoke, "📨 Error polling messages: ${e.message}", e)
 		}
 	}
 
@@ -2065,11 +2009,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 			invoke.resolve(result)
 
 		} catch (e: Exception) {
-			Log.e(TAG, "Error getting push distributors", e)
-			val error = JSObject()
-			error.put("success", false)
-			error.put("error", e.message)
-			invoke.resolve(error)
+			resolveWithError(invoke, "Error getting push distributors", e)
 		}
 	}
 
@@ -2106,11 +2046,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 			invoke.resolve(result)
 
 		} catch (e: Exception) {
-			Log.e(TAG, "Error getting push registration status", e)
-			val error = JSObject()
-			error.put("success", false)
-			error.put("error", e.message)
-			invoke.resolve(error)
+			resolveWithError(invoke, "Error getting push registration status", e)
 		}
 	}
 
@@ -2136,11 +2072,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 				invoke.resolve(result)
 
 			} catch (e: Exception) {
-				Log.e(TAG, "Error selecting push distributor", e)
-				val error = JSObject()
-				error.put("success", false)
-				error.put("error", e.message)
-				invoke.resolve(error)
+				resolveWithError(invoke, "Error selecting push distributor", e)
 			}
 		}
 	}
@@ -2174,11 +2106,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 			invoke.resolve(result)
 
 		} catch (e: Exception) {
-			Log.e(TAG, "🔔 Error showing test notification", e)
-			val error = JSObject()
-			error.put("success", false)
-			error.put("error", e.message ?: "Failed to show test notification")
-			invoke.resolve(error)
+			resolveWithError(invoke, "🔔 Error showing test notification", e)
 		}
 	}
 
@@ -2209,12 +2137,6 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 				result.put("action", intent.action)
 				result.put("dataString", intent.dataString)
 
-				/*fixme result.put("extras", JSObject())
-				intent.extras?.keySet()?.forEach { key ->
-					val value = intent.extras?.get(key)
-					result.getJSObject("extras")?.put(key, value.toString())
-				}*/
-
 				val urlFromIntent = intent.getStringExtra("click_action")
 				if (urlFromIntent != null) {
 					result.put("click_action", urlFromIntent)
@@ -2228,10 +2150,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 			invoke.resolve(result)
 
 		} catch (e: Exception) {
-			Log.e(TAG, "📲 Error getting intent data", e)
-			val error = JSObject()
-			error.put("error", e.message)
-			invoke.resolve(error)
+			resolveWithError(invoke, "📲 Error getting intent data", e)
 		}
 	}
 
@@ -2267,10 +2186,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 						geoTrackingManager.storeOrientationManual(params)
 						//Log.d(TAG, "🔧 Stored manual orientation data")
 					} catch (e: Exception) {
-						Log.e(TAG, "🔧 Failed to store orientation data: ${e.message}", e)
-						val error = JSObject()
-						error.put("error", "Failed to store orientation: ${e.message}")
-						invoke.resolve(error)
+						resolveWithError(invoke, "🔧 Failed to store orientation data: ${e.message}", e)
 						return
 					}
 				}
@@ -2280,10 +2196,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 						geoTrackingManager.storeLocationManual(params)
 						//Log.d(TAG, "🔧 Stored manual location data")
 					} catch (e: Exception) {
-						Log.e(TAG, "🔧 Failed to store location data: ${e.message}", e)
-						val error = JSObject()
-						error.put("error", "Failed to store location: ${e.message}")
-						invoke.resolve(error)
+						resolveWithError(invoke, "🔧 Failed to store location data: ${e.message}", e)
 						return
 					}
 				}
@@ -2326,10 +2239,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 				}
 
 				else -> {
-					Log.w(TAG, "🔧 Unknown command: $command")
-					val error = JSObject()
-					error.put("error", "Unknown command: $command")
-					invoke.resolve(error)
+					resolveWithError(invoke, "🔧 Unknown command: $command")
 					return
 				}
 			}
@@ -2338,10 +2248,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 			invoke.resolve(result)
 
 		} catch (e: Exception) {
-			Log.e(TAG, "🔧 Error in generic cmd", e)
-			val error = JSObject()
-			error.put("error", e.message)
-			invoke.resolve(error)
+			resolveWithError(invoke, "🔧 Error in generic cmd", e)
 		}
 	}
 
@@ -2381,21 +2288,22 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 				invoke.resolve(result)
 
 			} else {
-				val result = JSObject()
-				result.put("success", false)
-				result.put("error", "Failed to create MediaStore entry")
-				Log.e(TAG, "📷❌ Failed to create MediaStore entry")
-				invoke.resolve(result)
+				resolveWithError(invoke, "Failed to create MediaStore entry")
 			}
 
 		} catch (e: Exception) {
-			Log.e(TAG, "📷❌ MediaStore save failed", e)
-			val result = JSObject()
-			result.put("success", false)
-			result.put("error", e.message)
-			invoke.resolve(result)
+			resolveWithError(invoke, "📷❌ MediaStore save failed", e)
 		}
 	}
+
+
+	private fun resolveWithError(invoke: Invoke, message: String, exception: Exception? = null) {
+		Log.e(TAG, "📱 $message", exception)
+		val error = JSObject()
+		error.put("error", message + (exception?.message?.let { ": $it" } ?: ""))
+		invoke.resolve(error)
+	}
+
 
 	private fun triggerOrientationEvent(currentDeviceOrientation: DeviceOrientation) {
 		val event = JSObject()
@@ -2426,37 +2334,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 		geoTrackingManager.dumpAndClear()
 	}
 
-	/*	override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
-			super.onConfigurationChanged(newConfig)
 
-			Log.d(TAG, "📱 onConfigurationChanged called")
-
-			// Get the actual rotation from the window manager
-			val windowManager = activity.getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager
-			val rotation = windowManager.defaultDisplay.rotation
-
-			val orientationAngle = when (rotation) {
-				android.view.Surface.ROTATION_0 -> 0      // Portrait
-				android.view.Surface.ROTATION_90 -> 90    // Landscape (rotated left)
-				android.view.Surface.ROTATION_180 -> 180  // Portrait upside down
-				android.view.Surface.ROTATION_270 -> 270  // Landscape (rotated right)
-				else -> 0 // fallback
-			}
-
-			Log.d(TAG, "📱 device-orientation Activity orientation changed - rotation: $rotation, angle: $orientationAngle°")
-
-			// Emit screen-angle event to match Main.svelte listener
-			val event = JSObject()
-			event.put("angle", orientationAngle)
-			event.put("timestamp", System.currentTimeMillis())
-			try {
-				trigger("screen-angle", event)
-				Log.d(TAG, "📱 Emitted device-orientation screen-angle event: angle=$orientationAngle°")
-			} catch (e: Exception) {
-				Log.e(TAG, "📱 Error emitting device-orientation screen-angle event: ${e.message}", e)
-			}
-		}
-	*/
 	private fun startScreenOrientationListener() {
 		if (screenOrientationListener == null) {
 			screenOrientationListener = object : OrientationEventListener(activity) {
@@ -2512,12 +2390,4 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 		Log.d(TAG, "📱 Screen orientation listener disabled")
 	}
 
-	/*
-	private fun resolveWithError(invoke: Invoke, message: String, exception: Exception? = null) {
-		Log.e(TAG, "📱 $message", exception)
-		val error = JSObject()
-		error.put("error", exception?.message ?: message)
-		invoke.resolve(error)
-	}
-*/
 }
