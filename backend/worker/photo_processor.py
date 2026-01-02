@@ -326,12 +326,13 @@ class PhotoProcessor:
 					# Use absolute path and validate inputs
 					cmd = ['mogrify', '-resize', str(int(size)), output_file_path]
 					logger.debug(f"Resizing image with command: {shlex.join(cmd)}")
-					subprocess.run(cmd, capture_output=True, timeout=30, check=True)
+					subprocess.run(cmd, capture_output=True, timeout=130, check=True)
 					new_width, new_height = self.get_image_dimensions(output_file_path, orientation)
 
-					logger.debug(f"Optimizing JPEG with jpegoptim: {output_file_path}")
-					cmd = ['jpegoptim', '--all-progressive', '--overwrite', output_file_path]
-					subprocess.run(cmd, capture_output=True, timeout=130, check=True)
+					if output_file_path.lower().endswith(('.jpg', '.jpeg')):
+						logger.debug(f"Optimizing JPEG with jpegoptim: {output_file_path}")
+						cmd = ['jpegoptim', '--all-progressive', '--overwrite', output_file_path]
+						subprocess.run(cmd, capture_output=True, timeout=130, check=True)
 
 					logger.info(f"Created size {size} for {unique_id}: {new_width}x{new_height} at {output_file_path}");
 
