@@ -516,7 +516,6 @@ class PhotoProcessor:
 			logger.error(f"Image dimensions validation failed for {safe_filename}: {width}x{height}")
 			raise ValueError(error_msg)
 
-		# Create sizes information matching the original importer structure
 		sizes_info = {}
 		if width and height:
 			sizes_info, detections = await self.create_optimized_sizes(file_path, unique_id, filename, orientation, width, height, photo_id, client_signature)
