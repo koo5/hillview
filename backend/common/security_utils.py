@@ -29,8 +29,8 @@ MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
 MAX_FILENAME_LENGTH = 255
 
 # Image processing limits
-MAX_IMAGE_DIMENSIONS = (8192, 8192)  # Max width, height
-MAX_IMAGE_PIXELS = 67108864  # 8192 * 8192 = 64 megapixels
+MAX_IMAGE_DIMENSIONS = (32192, 32192)  # Max width, height
+MAX_IMAGE_PIXELS = 167108864  # 8192 * 8192 = 64 megapixels
 
 # Regex patterns for validation
 SAFE_FILENAME_PATTERN = re.compile(r'^[a-zA-Z0-9_\-\.]+$')
