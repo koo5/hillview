@@ -1202,7 +1202,7 @@
 							<CompassButtonInner bearingMode="car"/>
 						</div>
 					</button>
-				{:else if showCalibrationHint || true}
+				{:else if showCalibrationHint}
 					<div class="instruction-row">
 						<div class="figure8-animation">
 							<CalibrationFigure />
