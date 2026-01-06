@@ -2,10 +2,13 @@
 	import {onMount} from 'svelte';
 	import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';
 	import StandardBody from '$lib/components/StandardBody.svelte';
-	import {TAURI} from '$lib/tauri';
 	import {invoke} from "@tauri-apps/api/core";
-	import { RefreshCw, Download, Upload, Clock, MapPin, Camera, AlertCircle, ChevronLeft, ChevronRight } from 'lucide-svelte';
+	import { RefreshCw, Download, Upload, Clock, MapPin, Camera, AlertCircle, ChevronLeft, ChevronRight, CheckCircle } from 'lucide-svelte';
 	import { getDevicePhotoUrl } from '$lib/devicePhotoHelper';
+	import {app} from "$lib/data.svelte";
+	import RetryUploadsButton from "$lib/components/RetryUploadsButton.svelte";
+	import DevicePhotoStats from "$lib/components/DevicePhotoStats.svelte";
+	import {fetchDevicePhotoStats} from "$lib/devicePhotoStats";
 
 	interface DevicePhoto {
 		id: string;
@@ -91,6 +94,7 @@
 	async function refreshDevicePhotos() {
 		error = null;
 		currentPage = 1;
+		await fetchDevicePhotoStats();
 		await fetchDevicePhotos(1, false);
 	}
 
@@ -100,19 +104,19 @@
 		}
 	}
 
-	async function refreshPhotoScan() {
-		try {
-			isLoading = true;
-			await invoke('plugin:hillview|refresh_photo_scan');
-			// Refresh the photos list after scan
-			await refreshDevicePhotos();
-		} catch (err) {
-			console.error('🢄Error refreshing photo scan:', err);
-			error = `Failed to refresh photo scan: ${err}`;
-		} finally {
-			isLoading = false;
-		}
-	}
+	// async function refreshPhotoScan() {
+	// 	try {
+	// 		isLoading = true;
+	// 		await invoke('plugin:hillview|refresh_photo_scan');
+	// 		// Refresh the photos list after scan
+	// 		await refreshDevicePhotos();
+	// 	} catch (err) {
+	// 		console.error('🢄Error refreshing photo scan:', err);
+	// 		error = `Failed to refresh photo scan: ${err}`;
+	// 	} finally {
+	// 		isLoading = false;
+	// 	}
+	// }
 
 	function formatFileSize(bytes: number): string {
 		if (bytes === 0) return '0 B';
@@ -167,31 +171,31 @@
 
 	<div class="device-photos-section" data-testid="device-photos-section">
 		<div class="section-header">
-			<div class="header-left">
-				<h2>Device Photos</h2>
-				{#if photosData}
-					<div class="photo-stats">
-						<span class="stat">
-							<Camera size={16} />
-							{photosData.total_count} photos
-						</span>
-						<span class="stat">
-							<Download size={16} />
-							Page {photosData.page} of {photosData.total_pages}
-						</span>
-					</div>
-				{/if}
-			</div>
+<!--			<div class="header-left">-->
+<!--				<h2>Device Photos</h2>-->
+<!--				{#if photosData}-->
+<!--					<div class="photo-stats">-->
+<!--						<span class="stat">-->
+<!--							<Camera size={16} />-->
+<!--							{photosData.total_count} photos-->
+<!--						</span>-->
+<!--						<span class="stat">-->
+<!--							<Download size={16} />-->
+<!--							Page {photosData.page} of {photosData.total_pages}-->
+<!--						</span>-->
+<!--					</div>-->
+<!--				{/if}-->
+<!--			</div>-->
 			<div class="header-actions">
-				<button
-					class="action-button secondary"
-					on:click={refreshPhotoScan}
-					disabled={isLoading}
-					data-testid="scan-button"
-				>
-					<RefreshCw size={16} class={isLoading ? 'spinning' : ''} />
-					Scan Device
-				</button>
+<!--				<button-->
+<!--					class="action-button secondary"-->
+<!--					on:click={refreshPhotoScan}-->
+<!--					disabled={isLoading}-->
+<!--					data-testid="scan-button"-->
+<!--				>-->
+<!--					<RefreshCw size={16} class={isLoading ? 'spinning' : ''} />-->
+<!--					Scan Device-->
+<!--				</button>-->
 				<button
 					class="action-button primary"
 					on:click={refreshDevicePhotos}
@@ -208,6 +212,8 @@
 			</div>
 		</div>
 
+		<DevicePhotoStats onRefresh={() => fetchDevicePhotos(1, false)} />
+
 		{#if isLoading && !photosData}
 			<div class="loading-container" data-testid="loading-container">
 				<RefreshCw size={24} class="spinning" />
@@ -217,6 +223,13 @@
 			<div class="photos-grid" data-testid="photos-grid">
 				{#each photosData.photos as photo}
 					<div class="photo-card" data-testid="photo-card">
+						{#if $app.debug_enabled}
+							<details>
+								<summary>[debug]</summary>
+								<pre>{JSON.stringify(photo, null, 2)}</pre>
+							</details>
+						{/if}
+
 						<div class="photo-image">
 							<img
 								src={getDevicePhotoUrl(photo.file_path)}
@@ -290,6 +303,7 @@
 							<span class="path-label">Path:</span>
 							<span class="path-value">{photo.file_path}</span>
 						</div>
+						<RetryUploadsButton {photo} />
 					</div>
 				{/each}
 			</div>
@@ -317,10 +331,10 @@
 				<Camera size={48} />
 				<h3>No Device Photos Found</h3>
 				<p>No photos have been detected on this device yet.</p>
-				<button class="action-button primary" on:click={refreshPhotoScan}>
-					<RefreshCw size={16} />
-					Scan for Photos
-				</button>
+<!--				<button class="action-button primary" on:click={refreshPhotoScan}>-->
+<!--					<RefreshCw size={16} />-->
+<!--					Scan for Photos-->
+<!--				</button>-->
 			</div>
 		{/if}
 	</div>
@@ -340,73 +354,10 @@
 		gap: 16px;
 	}
 
-	.header-left h2 {
-		margin: 0 0 8px 0;
-		color: #1f2937;
-		font-size: 1.5rem;
-		font-weight: 600;
-	}
-
-	.photo-stats {
-		display: flex;
-		gap: 16px;
-		flex-wrap: wrap;
-	}
-
-	.stat {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		color: #6b7280;
-		font-size: 0.875rem;
-	}
-
 	.header-actions {
 		display: flex;
 		gap: 12px;
 		flex-wrap: wrap;
-	}
-
-	.action-button {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		padding: 10px 16px;
-		border: none;
-		border-radius: 8px;
-		font-size: 0.875rem;
-		font-weight: 500;
-		cursor: pointer;
-		transition: all 0.2s ease;
-		min-height: 40px;
-	}
-
-	.action-button.primary {
-		background-color: #3b82f6;
-		color: white;
-	}
-
-	.action-button.primary:hover:not(:disabled) {
-		background-color: #2563eb;
-		transform: translateY(-1px);
-	}
-
-	.action-button.secondary {
-		background-color: #f8fafc;
-		color: #374151;
-		border: 1px solid #e2e8f0;
-	}
-
-	.action-button.secondary:hover:not(:disabled) {
-		background-color: #f1f5f9;
-		border-color: #cbd5e1;
-		transform: translateY(-1px);
-	}
-
-	.action-button:disabled {
-		opacity: 0.6;
-		cursor: not-allowed;
-		transform: none !important;
 	}
 
 	.loading-container {

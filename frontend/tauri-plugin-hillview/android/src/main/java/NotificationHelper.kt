@@ -11,7 +11,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 
 /**
- * Helper class for managing push notifications related to authentication and uploads
+ * Helper class for managing notifications related to authentication and uploads
  */
 class NotificationHelper(private val context: Context) {
 

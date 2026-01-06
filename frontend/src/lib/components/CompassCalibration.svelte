@@ -209,7 +209,7 @@
 	.instruction-row {
 		display: flex;
 		align-items: center;
-		gap: 12px;
+		gap: 8px;
 		margin: 12px 0;
 	}
 

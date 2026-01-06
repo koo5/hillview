@@ -41,7 +41,6 @@ class PhotoUploadManager(private val context: Context) {
         Log.i(TAG, "📤 [scheduleUploadWorker] CALLED with enabled: $enabled")
 
         try {
-            Log.d(TAG, "📤 [scheduleUploadWorker] Building work constraints...")
             val constraints = Constraints.Builder()
                 .setRequiredNetworkType(NetworkType.CONNECTED)
                 .setRequiresBatteryNotLow(true)
@@ -49,7 +48,6 @@ class PhotoUploadManager(private val context: Context) {
 
             Log.d(TAG, "📤 [scheduleUploadWorker] Constraints built - NetworkType.CONNECTED, RequiresBatteryNotLow=true")
 
-            Log.d(TAG, "📤 [scheduleUploadWorker] Creating periodic work request...")
             val uploadWorkRequest = PeriodicWorkRequestBuilder<PhotoUploadWorker>(
                 150, TimeUnit.MINUTES
             )

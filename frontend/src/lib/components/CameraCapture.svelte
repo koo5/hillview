@@ -31,6 +31,7 @@
 	} from '$lib/cameraDevices.svelte.js';
 	import {tauriCamera, isCameraPermissionCheckAvailable} from '$lib/tauri';
 	import {addPluginListener, type PluginListener} from '@tauri-apps/api/core';
+	import MyExternalLink from "$lib/components/MyExternalLink.svelte";
 
 	const dispatch = createEventDispatcher();
 
@@ -1201,19 +1202,20 @@
 							<CompassButtonInner bearingMode="car"/>
 						</div>
 					</button>
-				{:else if true || showCalibrationHint}
+				{:else if showCalibrationHint || true}
 					<div class="instruction-row">
-						<div class="calibration-instruction">
-							Calibrate compass.
-						</div>
 						<div class="figure8-animation">
 							<CalibrationFigure />
+						</div>
+						<div class="calibration-instruction">
+							Calibrate compass.
 						</div>
 						<div class="calibration-instruction">
 							Verify orientation.
 						</div>
 						<div class="calibration-instruction">
 							Verify location.
+<!--							 <MyExternalLink href="https://calibratecompass.com/" >Help</MyExternalLink>-->
 						</div>
 					</div>
 				{/if}
@@ -1723,7 +1725,6 @@
 	}
 
 	.instruction-row {
-
 		font-size: 0.75em;
 		position: absolute;
 		bottom: 5px;

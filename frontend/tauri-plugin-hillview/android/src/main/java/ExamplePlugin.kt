@@ -1425,46 +1425,46 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 
 	@Command
 	fun refreshPhotoScan(invoke: Invoke) {
-		try {
-			Log.d(TAG, "🔄 Starting photo scan refresh")
-
-			CoroutineScope(Dispatchers.IO).launch {
-				try {
-					// This would typically scan the device for new photos
-					// For now, return a simple success response
-					val response = JSObject()
-					response.put("photos_added", 0)
-					response.put("scan_errors", 0)
-					response.put("success", true)
-
-					Log.d(TAG, "🔄 Photo scan refresh completed")
-
-					CoroutineScope(Dispatchers.Main).launch {
-						invoke.resolve(response)
-					}
-
-				} catch (e: Exception) {
-					Log.e(TAG, "🔄 Error during photo scan refresh", e)
-					CoroutineScope(Dispatchers.Main).launch {
-						val error = JSObject()
-						error.put("photos_added", 0)
-						error.put("scan_errors", 1)
-						error.put("success", false)
-						error.put("error", e.message)
-						invoke.resolve(error)
-					}
-				}
-			}
-
-		} catch (e: Exception) {
-			Log.e(TAG, "🔄 Error starting photo scan refresh", e)
-			val error = JSObject()
-			error.put("photos_added", 0)
-			error.put("scan_errors", 1)
-			error.put("success", false)
-			error.put("error", e.message)
-			invoke.resolve(error)
-		}
+//		try {
+//			Log.d(TAG, "🔄 Starting photo scan refresh")
+//
+//			CoroutineScope(Dispatchers.IO).launch {
+//				try {
+//					// This would scan configured directories or mediastore api for new photos
+//					// For now, return a simple success response
+//					val response = JSObject()
+//					response.put("photos_added", 0)
+//					response.put("scan_errors", 0)
+//					response.put("success", true)
+//
+//					Log.d(TAG, "🔄 Photo scan refresh completed")
+//
+//					CoroutineScope(Dispatchers.Main).launch {
+//						invoke.resolve(response)
+//					}
+//
+//				} catch (e: Exception) {
+//					Log.e(TAG, "🔄 Error during photo scan refresh", e)
+//					CoroutineScope(Dispatchers.Main).launch {
+//						val error = JSObject()
+//						error.put("photos_added", 0)
+//						error.put("scan_errors", 1)
+//						error.put("success", false)
+//						error.put("error", e.message)
+//						invoke.resolve(error)
+//					}
+//				}
+//			}
+//
+//		} catch (e: Exception) {
+//			Log.e(TAG, "🔄 Error starting photo scan refresh", e)
+//			val error = JSObject()
+//			error.put("photos_added", 0)
+//			error.put("scan_errors", 1)
+//			error.put("success", false)
+//			error.put("error", e.message)
+//			invoke.resolve(error)
+//		}
 	}
 
 	@Command
@@ -2236,6 +2236,24 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 					val prefs = activity.getSharedPreferences("landscape_compass_armor22_workaround", Context.MODE_PRIVATE)
 					prefs.edit().putBoolean("enabled", enabled).apply()
 					Log.i(TAG, "🔧 Set landscape compass Armor 22 workaround: $enabled")
+				}
+
+				"device_photos_stats" -> {
+					CoroutineScope(Dispatchers.IO).launch {
+						try {
+							val dao = database.photoDao()
+							val result = JSObject()
+							result.put("total", dao.getTotalPhotoCount())
+							result.put("pending", dao.getPendingUploadCount())
+							result.put("uploading", dao.getUploadingCount())
+							result.put("completed", dao.getCompletedUploadCount())
+							result.put("failed", dao.getFailedUploadCount())
+							invoke.resolve(result)
+						} catch (e: Exception) {
+							resolveWithError(invoke, "Failed to get device photo stats: ${e.message}", e)
+						}
+					}
+					return
 				}
 
 				else -> {

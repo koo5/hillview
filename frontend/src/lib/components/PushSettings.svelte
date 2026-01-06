@@ -4,7 +4,7 @@
 	import {invoke} from '@tauri-apps/api/core';
 	import { Smartphone, Wifi, WifiOff, CheckCircle, AlertCircle, Clock } from 'lucide-svelte';
 	import { addAlert } from '$lib/alertSystem.svelte';
-	import ExternalLink from './ExternalLink.svelte';
+	import MyExternalLink from './MyExternalLink.svelte';
 	import SettingsSectionHeader from "$lib/components/SettingsSectionHeader.svelte";
 
 	let distributors: PushDistributorInfo[] = [];
@@ -250,7 +250,7 @@
 			<p>
 				UnifiedPush is an open standard that enables privacy-focused
 				alternatives to Google's Firebase Cloud Messaging (FCM). Instead of relying on Google's servers,
-				you can choose from various distributors, for example <ExternalLink href="https://ntfy.sh/">ntfy.sh</ExternalLink>.
+				you can choose from various distributors, for example <MyExternalLink href="https://ntfy.sh/">ntfy.sh</MyExternalLink>.
 			</p>
 			</details>
 		</div>
