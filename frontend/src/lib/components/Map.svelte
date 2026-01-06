@@ -11,7 +11,14 @@
     import CompassButton from './CompassButton.svelte';
     import CompassModeMenu from './CompassModeMenu.svelte';
     import { getCurrentPosition, type GeolocationPosition } from '$lib/preciseLocation';
-    import { locationManager } from '$lib/locationManager';
+	import {
+		disableLocationTracking,
+		enableLocationTracking,
+		locationManager,
+		locationTrackingLoading,
+		startLocationTracking,
+		stopLocationTracking
+	} from '$lib/locationManager';
 	import SpatialStateArrow from './SpatialStateArrow.svelte';
 
 	import {
@@ -45,7 +52,7 @@
 
     let flying = false;
     let programmaticMove = false; // Flag to prevent position sync conflicts
-    let locationTrackingLoading = false;
+
     let locationApiEventFlashTimer: any = null;
     let locationApiEventFlash = false;
 
@@ -210,21 +217,6 @@
 		}, 100);
 	}
 
-
-    // Export location tracking functions for use by parent
-    export function enableLocationTracking() {
-        if (!get(locationTracking)) {
-            setLocationTracking(true);
-            startLocationTracking();
-        }
-    }
-
-    export function disableLocationTracking() {
-        if (get(locationTracking)) {
-            setLocationTracking(false);
-            stopLocationTracking();
-        }
-    }
 
     export function getLocationData() {
         return userLocation;
@@ -635,62 +627,6 @@
     }
 
 
-    // Start tracking user location
-    async function startLocationTracking() {
-        locationTrackingLoading = true;
-
-        try {
-            console.log("📍 Map.svelte Starting location tracking");
-            await locationManager.requestLocation('user');
-
-            locationTrackingLoading = false;
-            console.log("📍 Location tracking started successfully");
-
-        } catch (error: any) {
-            console.error("📍 Error starting location tracking:", error);
-            setLocationError(error?.message || "Unknown error");
-
-            let errorMessage = "Unable to get your location: ";
-            if (error?.name === 'GeolocationPositionError' || error?.code) {
-                switch(error.code) {
-                    case 1:
-                        errorMessage += "Permission denied. Please allow location access.";
-                        break;
-                    case 2:
-                        errorMessage += "Position unavailable. Please check if location services are enabled.";
-                        break;
-                    case 3:
-                        errorMessage += "Request timed out.";
-                        break;
-                    default:
-                        errorMessage += error?.message || "Unknown error";
-                }
-            } else {
-                errorMessage += error?.message || "Unknown error";
-            }
-
-            alert(errorMessage);
-            setLocationTracking(false);
-            locationTrackingLoading = false;
-        }
-    }
-
-    // Stop tracking user location
-    async function stopLocationTracking() {
-        locationTrackingLoading = false;
-
-        try {
-            console.log("📍 Stopping location tracking");
-            await locationManager.releaseLocation('user');
-        } catch (error) {
-            console.error("📍 Error stopping location tracking:", error);
-        }
-
-        // Clear the location data when stopping
-        updateGpsLocation(null);
-        setLocationError(null);
-    }
-
     // Handle GPS location updates only (position/coordinates)
     async function handleGpsLocationUpdate(position: GeolocationPosition) {
         const { latitude, longitude, accuracy } = position.coords;
@@ -699,7 +635,7 @@
         userLocation = position;
 
         console.log("handleGpsLocationUpdate:", latitude, longitude, accuracy);
-        locationTrackingLoading = false;
+        locationTrackingLoading.set(false);
         locationApiEventFlash = true;
         if (locationApiEventFlashTimer !== null) {
             clearTimeout(locationApiEventFlashTimer);
@@ -1304,7 +1240,7 @@
         class:flash={locationApiEventFlash}
     >
         <MapPin />
-        {#if locationTrackingLoading}
+        {#if $locationTrackingLoading}
             <Spinner show={true} color="#4285F4"></Spinner>
         {/if}
     </button>

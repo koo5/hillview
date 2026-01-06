@@ -17,7 +17,7 @@
 		turn_to_photo_to,
 		enableSourceForPhotoUid,
 		splitPercent,
-		showCalibrationView
+		showCalibrationView, onAppActivityChange
 	} from "$lib/data.svelte.js";
 	import {resizableSplit} from '$lib/actions/resizableSplit';
 	import {
@@ -44,7 +44,7 @@
 	import type {DevicePhotoMetadata} from '$lib/types/photoTypes';
 	import {enableCompass, disableCompass} from '$lib/compass.svelte.js';
 	import {networkWorkerManager} from "$lib/networkWorkerManager";
-	import type {SensorData} from "$lib/tauri";
+	import {enableLocationTracking} from "$lib/locationManager";
 
 	let map: any = null;
 	let mapComponent: any = null;
@@ -365,36 +365,11 @@
 
 	function toggleCamera() {
 		const newActivity = get(app).activity === 'capture' ? 'view' : 'capture';
-
-		if (newActivity === 'capture') {
-
-			// Entering capture mode - disable all photo sources
-			sources.update(srcs => {
-				return srcs.map(src => ({
-					...src,
-					enabled: src.id === 'device' // Only enable device source
-				}));
-			});
-			// Note: Location and compass are now handled by reactive statement
-		} else {
-
-			// Exiting capture mode - re-enable previously enabled sources
-			// For now, we'll re-enable hillview and device sources by default
-			sources.update(srcs => {
-				return srcs.map(src => ({
-					...src,
-					enabled: src.id === 'hillview'// || src.id === 'device'
-				}));
-			});
-			// Note: Compass stopping is now handled by reactive statement
-		}
-
+		onAppActivityChange(newActivity);
 		app.update(a => ({
 			...a,
 			activity: newActivity
 		}));
-
-
 	}
 
 
@@ -403,18 +378,9 @@
 	let appOldActivity = '';
 	$: if (appOldActivity != $app.activity) {
 		if ($app.activity === 'capture') {
-			//console.log('🢄🎥 Capture mode detected, ensuring location and compass are enabled');
-
-			// Enable location tracking when in capture mode
-			if (mapComponent) {
-				mapComponent.enableLocationTracking();
-			}
-
-			// Enable compass/bearing when in capture mode
+			enableLocationTracking();
 			enableCompass();
 		} else if ($app.activity === 'view') {
-			//console.log('🢄👁️ View mode detected, stopping compass');
-			// Stop compass when exiting capture mode (optional - can be removed if you want compass to stay active)
 			disableCompass();
 		}
 		appOldActivity = $app.activity;

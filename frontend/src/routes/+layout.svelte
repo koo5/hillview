@@ -18,6 +18,7 @@
 	import {getCurrent} from "@tauri-apps/plugin-deep-link";
 	import {navigateWithHistory} from "$lib/navigation.svelte";
 	import {kotlinMessageQueue} from '$lib/KotlinMessageQueue';
+	import {app, onAppActivityChange} from "$lib/data.svelte";
 
 
 	// Log navigation events
@@ -75,6 +76,8 @@
 				}
 			});
 		}
+
+		onAppActivityChange($app.activity);
 	});
 
 
