@@ -121,7 +121,7 @@
 		align-items: center;
 		justify-content: center;
 		gap: 12px;
-		padding: 12px 16px;
+		padding: 0px 0px;
 		background: #fef3c7;
 		border: 1px solid #fcd34d;
 		border-radius: 8px;
@@ -129,7 +129,7 @@
 	}
 
 	.status-text {
-		font-size: 0.875rem;
+		font-size: 0.8rem;
 		color: #92400e;
 	}
 
@@ -137,11 +137,11 @@
 		display: flex;
 		flex-wrap: wrap;
 		gap: 12px;
-		padding: 12px 16px;
+		padding: 2px 0px;
 		background: #f8fafc;
-		border: 1px solid #e2e8f0;
+
 		border-radius: 8px;
-		margin: 16px;
+		margin: 0px;
 	}
 
 	.stat-item {
@@ -153,7 +153,7 @@
 	}
 
 	.stat-item.pending {
-		color: #f59e0b;
+		color: #403520;
 	}
 
 	.stat-item.uploading {
