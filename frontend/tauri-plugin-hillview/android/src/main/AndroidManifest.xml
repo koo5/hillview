@@ -11,14 +11,14 @@
     <uses-permission android:name="android.permission.CAMERA" />
 
     <!-- Required for accessing photos -->
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+<!--    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />-->
+<!--    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />-->
 
     <!-- Required for saving photos -->
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+<!--    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />-->
 
     <!-- For Android 13+ (API 33+) - Granular media permissions -->
-    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
+<!--    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />-->
 
     <!-- Required for precise location services -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
@@ -26,7 +26,7 @@
 
     <!-- Required for notifications -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="android.permission.VIBRATE" />
+<!--    <uses-permission android:name="android.permission.VIBRATE" />-->
 
     <!-- Required for foreground service -->
 <!--    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />-->
