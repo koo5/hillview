@@ -1546,7 +1546,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 					// Insert into database (will replace if exists due to OnConflictStrategy.REPLACE)
 					database.photoDao().insertPhoto(photoEntity)
 
-					Log.d(TAG, "📸 Photo added to Android database: ${photoId}")
+					Log.d(TAG, "📸 Photo added to photoDao: ${photoId}")
 
 					val result = JSObject()
 					result.put("success", true)
