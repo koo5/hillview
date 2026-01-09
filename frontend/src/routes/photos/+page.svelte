@@ -116,6 +116,7 @@
 	}
 
 	async function fetchPhotos(reset = false) {
+		isLoading = true;
 		try {
 			if (reset) {
 				photos = [];
@@ -155,6 +156,9 @@
 				// No need to handle manually, http client already logged out
 				return;
 			}
+		}
+		finally {
+			isLoading = false;
 		}
 	}
 

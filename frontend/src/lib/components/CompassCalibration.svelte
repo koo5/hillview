@@ -105,12 +105,12 @@
 			<!-- Real-time Accuracy Display -->
 			<div class="accuracy-display">
 				<span class="accuracy-label">Compass Accuracy</span>
-				<span class="accuracy-value accuracy-{getAccuracyClass($bearingState.accuracy)}">
-                {accuracyToString($bearingState.accuracy)}
+				<span class="accuracy-value accuracy-{getAccuracyClass($bearingState.accuracy_level)}">
+                {accuracyToString($bearingState.accuracy_level)}
             </span>
 				{#if !$needsCalibration}
 					<div class="accuracy-good-message">
-						{#if $bearingState.accuracy && $bearingState.accuracy > 1}
+						{#if $bearingState.accuracy_level && $bearingState.accuracy_level === 3}
 							Accuracy is good!
 						{/if}
 						Closing soon...
@@ -132,7 +132,7 @@
 					<Car size={16}/>
 					In a vehicle?
 				</div>
-				<div class="hint-text">Switch to Car Mode for GPS-based heading:</div>
+				<div class="hint-text">Long-press to switch to Car Mode for GPS-based heading:</div>
 				<div class="mode-switch-visual">
 					<div class="compass-button-preview">
 						<CompassButtonInner bearingMode="walking"/>

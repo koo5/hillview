@@ -6,7 +6,7 @@ import {bearingMode, bearingState, updateBearing} from "$lib/mapState";
 export interface CompassData {
     magnetic_heading: number | null;  // 0-360 degrees from magnetic north
     true_heading: number | null;       // 0-360 degrees from true north
-    heading_accuracy: number | null;   // Accuracy in degrees
+    accuracy_level: number | null;
     timestamp: number;
     source: string;
 }
@@ -22,7 +22,7 @@ export interface DeviceOrientation {
 export const compassData = writable<CompassData>({
     magnetic_heading: null,
     true_heading: null,
-    heading_accuracy: null,
+    accuracy_level: null,
     timestamp: Date.now(),
     source: 'unknown'
 });
@@ -43,20 +43,20 @@ export const currentCompassHeading = derived(
             return {
                 heading: $compassData.true_heading,
                 source: ($compassData.source + '-compass-true') as string,
-                accuracy: $compassData.heading_accuracy
+                accuracy_level: $compassData.accuracy_level
             };
         }
         if ($compassData && $compassData.magnetic_heading !== null) {
             return {
                 heading: $compassData.magnetic_heading,
                 source: ($compassData.source + '-compass-magnetic') as string,
-                accuracy: $compassData.heading_accuracy
+                accuracy_level: $compassData.accuracy_level
             };
         }
         return {
             heading: null,
             source: 'none' as const,
-            accuracy: null
+            accuracy_level: null
         };
     }
 );
@@ -173,24 +173,24 @@ async function startTauriSensor(mode: SensorMode = SensorMode.UPRIGHT_ROTATION_V
 				const compassUpdate = {
 					magnetic_heading: sensorData.magnetic_heading,
 					true_heading: sensorData.true_heading,
-					heading_accuracy: sensorData.heading_accuracy,
+					accuracy_level: sensorData.accuracy_level,
 					timestamp: sensorData.timestamp,
 					source: sensorData.source || 'tauri'
 				};
 
 				scheduleCompassUpdate(compassUpdate);
 
-				if (false) {
+				//if (false) {
 					const modeStr = get(currentSensorMode);
 					console.log(`🔍🧭 Compass update from ${data.source || 'Unknown'} (Mode: ${SensorMode[modeStr]}):`, JSON.stringify({
 						'compass bearing (magnetic)': compassUpdate.magnetic_heading?.toFixed(1) + '°',
 						'compass bearing (true)': compassUpdate.true_heading?.toFixed(1) + '°',
-						accuracy: '±' + compassUpdate.heading_accuracy?.toFixed(1) + '°',
+						accuracy_level: compassUpdate.accuracy_level,
 						pitch: data.pitch?.toFixed(1) + '°',
 						roll: data.roll?.toFixed(1) + '°',
 						timestamp: new Date(data.timestamp).toLocaleTimeString()
 					}));
-				}
+				//}
 			});
 		}
 
@@ -230,7 +230,7 @@ async function startWebCompass(): Promise<boolean> {
             const data = {
                 magnetic_heading: magneticHeading !== null ? normalizeHeading(magneticHeading) : null,
                 true_heading: trueHeading !== null ? normalizeHeading(trueHeading) : null,
-                heading_accuracy: accuracy,
+                accuracy_level: accuracy,
                 timestamp: Date.now(),
                 source: 'web'
             };
@@ -244,7 +244,7 @@ async function startWebCompass(): Promise<boolean> {
                     source: event.source || 'deviceorientation',
                     magneticHeading: data.magnetic_heading?.toFixed(1) + '°',
                     trueHeading: data.true_heading?.toFixed(1) + '°',
-                    accuracy: data.heading_accuracy ? '±' + data.heading_accuracy?.toFixed(1) + '°' : 'unknown',
+                    accuracy_level: data.accuracy_level,
                     alpha: event.alpha?.toFixed(1) + '°',
                     beta: event.beta?.toFixed(1) + '°',
                     gamma: event.gamma?.toFixed(1) + '°',
@@ -334,7 +334,7 @@ async function stopCompassInternal() {
     compassData.set({
         magnetic_heading: null,
         true_heading: null,
-        heading_accuracy: null,
+        accuracy_level: null,
         timestamp: Date.now(),
         source: 'unknown'
     });
@@ -522,93 +522,6 @@ export function isCompassAvailable(): boolean {
 export const compassAvailable = writable(isCompassAvailable());
 
 
-// Function to get current sensor accuracy status
-/*export async function getSensorAccuracy(): Promise<{
-    magnetometer: string;
-    accelerometer: string;
-    gyroscope: string;
-    timestamp: number;
-} | null> {
-    if (!TAURI_MOBILE) {
-        console.log('🢄🔍 Sensor accuracy not available on non-mobile platform');
-        return null;
-    }
-
-    try {
-        //console.log('🢄🔍📊 Getting sensor accuracy from native plugin');
-        const result = await invoke('plugin:hillview|getSensorAccuracy');
-        //console.log('🢄🔍✅ Sensor accuracy retrieved:', result);
-        return result as {
-            magnetometer: string;
-            accelerometer: string;
-            gyroscope: string;
-            timestamp: number;
-        };
-    } catch (error) {
-        console.error('🢄🔍❌ Failed to get sensor accuracy:', error);
-        return null;
-    }
-}*/
-
-// Function to start polling sensor accuracy
-/*function startAccuracyPolling() {
-    if (!TAURI_MOBILE || accuracyPollingInterval !== null) {
-        return;
-    }
-
-    console.log('🢄🔍🕒 Starting sensor accuracy polling');
-
-    // Poll every 2 seconds
-    accuracyPollingInterval = window.setInterval(async () => {
-        try {
-            const accuracy = await getSensorAccuracy();
-            if (accuracy) {
-                sensorAccuracy.set(accuracy);
-            }
-        } catch (error) {
-            console.warn('🢄🔍⚠️ Accuracy polling failed:', error);
-        }
-    }, 2000);
-}*/
-
-// Function to stop polling sensor accuracy
-/*function stopAccuracyPolling() {
-    if (accuracyPollingInterval !== null) {
-        console.log('🢄🔍🛑 Stopping sensor accuracy polling');
-        clearInterval(accuracyPollingInterval);
-        accuracyPollingInterval = null;
-    }
-}*/
-
-// Function to start monitoring compass lag
-// function startLagMonitoring() {
-//     if (lagMonitoringInterval !== null) {
-//         return;
-//     }
-//
-//     console.log('🢄🔍🕒 Starting compass lag monitoring');
-//
-//     // Check lag every 50ms
-//     /*lagMonitoringInterval = window.setInterval(() => {
-//         const currentData = get(compassData);
-//         if (currentData.timestamp > 0) {
-//             const now = Date.now();
-//             const lag = now - currentData.timestamp;
-//             compassLag.set(lag);
-// 			//console.log(`🢄🔍 TIMING: Compass lag: ${lag} ms`);
-//         }
-//     }, 100);*/
-// }
-
-// // Function to stop monitoring compass lag
-// function stopLagMonitoring() {
-//     if (lagMonitoringInterval !== null) {
-//         console.log('🢄🔍🛑 Stopping compass lag monitoring');
-//         clearInterval(lagMonitoringInterval);
-//         lagMonitoringInterval = null;
-//         compassLag.set(null);
-//     }
-// }
 
 let lastBearing: number | null = null;
 /* refactor, smoothing happens in EnhancedSensorService.kt already (and also it only fires on changes), so smoothing on the frontend would only be useful if we need to smoothen web compass api
@@ -652,7 +565,7 @@ currentCompassHeading.subscribe(compass => {
     // Update map bearing
 	const currentBearing = get(bearingState).bearing;
 	if (isNaN(currentBearing) || currentBearing === null || (Math.abs(smoothedBearing - currentBearing) > 1)) {
-		updateBearing(smoothedBearing, compass.source, undefined, compass.accuracy);
+		updateBearing(smoothedBearing, compass.source, undefined, compass.accuracy_level);
 	}
 });
 

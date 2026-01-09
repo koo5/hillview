@@ -12,7 +12,7 @@ export const needsCalibration = derived(
 		console.log(`needsCalibration: $compassWalkingActive: ${$compassWalkingActive}, $bearingState: ${JSON.stringify($bearingState)}`);
 		if (!$compassWalkingActive) return false;
 		// Accuracy: 0 = UNRELIABLE, 1 = LOW, 2 = MEDIUM, 3 = HIGH
-		const accuracy = $bearingState.accuracy;
+		const accuracy = $bearingState.accuracy_level;
 		return accuracy !== null && accuracy !== undefined && accuracy != 3;
 	}
 );

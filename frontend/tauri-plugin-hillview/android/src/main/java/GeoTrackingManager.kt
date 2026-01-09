@@ -20,7 +20,6 @@ private const val TAG = "Geo"
 data class OrientationSensorData(
 	val magneticHeading: Float,  // Compass bearing in degrees from magnetic north (0-360°)
 	val trueHeading: Float,       // Compass bearing corrected for magnetic declination
-	val headingAccuracy: Float,  // Calculated accuracy in degrees (for future use)
 	val accuracyLevel: Int,      // Android sensor accuracy constants: -1=unknown, 0=unreliable, 1=low, 2=medium, 3=high
 	val pitch: Float,
 	val roll: Float,
@@ -82,7 +81,6 @@ class GeoTrackingManager(private val context: Context) {
 						timestamp = data.timestamp,
 						trueHeading = data.trueHeading,
 						magneticHeading = data.magneticHeading,
-						headingAccuracy = data.headingAccuracy,
 						accuracyLevel = data.accuracyLevel,
 						sourceId = sourceId,
 						pitch = data.pitch,
@@ -109,7 +107,6 @@ class GeoTrackingManager(private val context: Context) {
 						timestamp = timestamp,
 						trueHeading = trueHeading,
 						magneticHeading = if (params.has("magneticHeading")) params.getDouble("magneticHeading").toFloat() else null,
-						headingAccuracy = if (params.has("headingAccuracy")) params.getDouble("headingAccuracy").toFloat() else null,
 						accuracyLevel = if (params.has("accuracyLevel")) params.getInteger("accuracyLevel") else null,
 						sourceId = sourceId,
 						pitch = if (params.has("pitch")) params.getDouble("pitch").toFloat() else null,
@@ -288,10 +285,10 @@ class GeoTrackingManager(private val context: Context) {
 	}
 
 	private fun bearingsToCsv(bearings: List<BearingEntity>, sourceIdToName: Map<Int, String>): String {
-		val header = "#timestamp,trueHeading,magneticHeading,headingAccuracy,accuracyLevel,source,pitch,roll\n"
+		val header = "#timestamp,trueHeading,magneticHeading,accuracyLevel,source,pitch,roll\n"
 		val rows = bearings.joinToString("\n") { bearing ->
 			val sourceName = escapeCsv(sourceIdToName[bearing.sourceId] ?: "unknown")
-			"${bearing.timestamp},${bearing.trueHeading},${bearing.magneticHeading ?: ""},${bearing.headingAccuracy ?: ""},${bearing.accuracyLevel ?: ""},${sourceName},${bearing.pitch ?: ""},${bearing.roll ?: ""}"
+			"${bearing.timestamp},${bearing.trueHeading},${bearing.magneticHeading ?: ""},${bearing.accuracyLevel ?: ""},${sourceName},${bearing.pitch ?: ""},${bearing.roll ?: ""}"
 		}
 		return header + rows + "\n"
 	}

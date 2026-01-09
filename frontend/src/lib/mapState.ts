@@ -30,7 +30,7 @@ export interface BearingState {
 	bearing: number;
 	source: string;
 	photoUid?: string;
-	accuracy?: number | null;
+	accuracy_level?: number | null;
 }
 
 // Bearing mode for controlling automatic bearing source
@@ -50,7 +50,7 @@ export const spatialState = localStorageReadOnceSharedStore<SpatialState>('spati
 export const bearingState = staggeredLocalStorageSharedStore<BearingState>('bearingState', {
 	bearing: 230,
 	source: 'map',
-	accuracy: null
+	accuracy_level: null
 }, 500);
 
 // Bearing mode state - controls automatic bearing source (car = GPS, walking = compass)
@@ -283,14 +283,14 @@ export function updateSpatialState(updates: Partial<SpatialState>, source: 'gps'
 	}
 }
 
-export function updateBearing(bearing: number, source: string = 'map', photoUid?: string, accuracy?: number | null) {
-	bearingState.update(state => ({...state, bearing, source, photoUid, accuracy}));
+export function updateBearing(bearing: number, source: string = 'map', photoUid?: string, accuracy_level?: number | null) {
+	bearingState.update(state => ({...state, bearing, source, photoUid, accuracy_level}));
 	if (!source.startsWith('android') && TAURI) {
 		invoke('plugin:hillview|cmd', {command: 'update_orientation', params: {
 			timestamp: Date.now(),
 			trueHeading: bearing,
 			source: source,
-			headingAccuracy: accuracy
+			accuracyLevel: accuracy_level
 		}});
 	}
 }

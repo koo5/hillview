@@ -545,7 +545,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 					val data = JSObject()
 					data.put("magnetic_heading", sensorData.magneticHeading)
 					data.put("true_heading", sensorData.trueHeading)
-					data.put("heading_accuracy", sensorData.headingAccuracy)
+					data.put("accuracy_level", sensorData.accuracyLevel)
 					data.put("pitch", sensorData.pitch)
 					data.put("roll", sensorData.roll)
 					data.put("timestamp", sensorData.timestamp)
@@ -613,7 +613,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 		preciseLocationService?.stopLocationUpdates()
 		invoke.resolve()
 	}
-
+/*
 	@Command
 	fun getSensorAccuracy(invoke: Invoke) {
 		//Log.d(TAG, "🔍 get_sensor_accuracy command called")
@@ -633,7 +633,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 		Log.d(TAG, "🔍 Returning sensor accuracy: $accuracy")
 		invoke.resolve(result)
 	}
-
+*/
 	private fun initializePreciseLocationService() {
 		preciseLocationService = PreciseLocationService(activity, { locationData ->
 
@@ -1901,7 +1901,6 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 							result.put("true_heading", bearingEntity.trueHeading.toDouble())
 
 							bearingEntity.magneticHeading?.let { result.put("magnetic_heading", it.toDouble()) }
-							bearingEntity.headingAccuracy?.let { result.put("heading_accuracy", it.toDouble()) }
 							bearingEntity.accuracyLevel?.let { result.put("accuracy", it) }
 							bearingEntity.pitch?.let { result.put("pitch", it.toDouble()) }
 							bearingEntity.roll?.let { result.put("roll", it.toDouble()) }

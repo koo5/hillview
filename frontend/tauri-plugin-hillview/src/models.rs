@@ -15,7 +15,7 @@ pub struct PingResponse {
 pub struct SensorData {
   pub magnetic_heading: f32,
   pub true_heading: f32,
-  pub heading_accuracy: f32,
+  pub accuracy_level: u16,
   pub pitch: f32,
   pub roll: f32,
   pub timestamp: u64,

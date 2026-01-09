@@ -29,7 +29,7 @@ export const TAURI_DESKTOP = TAURI && !TAURI_MOBILE;
 export interface SensorData {
     magnetic_heading: number;  // Compass bearing in degrees from magnetic north (0-360°)
     true_heading: number;      // Compass bearing corrected for magnetic declination
-    heading_accuracy: number;
+    accuracy_level: number;
     pitch: number;
     roll: number;
     timestamp: number;

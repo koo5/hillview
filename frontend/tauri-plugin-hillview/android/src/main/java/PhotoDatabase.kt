@@ -8,7 +8,7 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 @Database(
     entities = [PhotoEntity::class, BearingEntity::class, LocationEntity::class, SourceEntity::class],
-    version = 9,
+    version = 10,
     exportSchema = false
 )
 abstract class PhotoDatabase : RoomDatabase() {
@@ -111,6 +111,12 @@ abstract class PhotoDatabase : RoomDatabase() {
             }
         }
 
+		private val MIGRATION_9_10 = object : Migration(9, 10) {
+			override fun migrate(database: SupportSQLiteDatabase) {
+				database.execSQL("ALTER TABLE bearings DROP COLUMN headingAccuracy")
+			}
+		}
+
         fun getDatabase(context: Context): PhotoDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -118,7 +124,7 @@ abstract class PhotoDatabase : RoomDatabase() {
                     PhotoDatabase::class.java,
                     "hillview_photos_database"
                 )
-                    .addMigrations(MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
+                    .addMigrations(MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
                     .build()
                 INSTANCE = instance
                 instance
