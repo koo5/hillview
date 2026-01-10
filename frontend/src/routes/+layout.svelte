@@ -14,6 +14,7 @@
 	import ZoomView from '$lib/components/ZoomView.svelte';
 	import {clearAlerts} from "$lib/alertSystem.svelte";
 	import {checkAuth} from '$lib/auth.svelte';
+	import { writable } from 'svelte/store';
 	import {zoomViewData} from '$lib/zoomView.svelte';
 	import {getCurrent} from "@tauri-apps/plugin-deep-link";
 	import {navigateWithHistory} from "$lib/navigation.svelte";
@@ -125,7 +126,8 @@
 
 
 <svelte:head>
-  <title>{((backendUrl === 'https://api.hillview.app') ? 'Hillview' : 'Hillviedev')}</title>
+<!-- not sure this has effect anywhere -->
+  <title>{((backendUrl === 'https://api.hillview.cz/api') ? 'Hillview' : 'Hillviedev')}</title>
 </svelte:head>
 
 <slot/>
