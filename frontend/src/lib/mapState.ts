@@ -1,11 +1,11 @@
 import {writable, derived, get} from 'svelte/store';
-import {LatLng} from 'leaflet';
 import {
 	staggeredLocalStorageSharedStore,
 	localStorageReadOnceSharedStore,
 	localStorageSharedStore
 } from './svelte-shared-store';
 import type {PhotoData} from './types/photoTypes';
+import type {SimpleCoord} from './photoWorkerTypes';
 import {AngularRangeCuller, sortPhotosByBearing} from './AngularRangeCuller';
 import {normalizeBearing} from './utils/bearingUtils';
 import {invoke} from "@tauri-apps/api/core";
@@ -14,12 +14,12 @@ import {TAURI} from "$lib/tauri";
 const angularRangeCuller = new AngularRangeCuller();
 
 export interface Bounds {
-	top_left: LatLng;
-	bottom_right: LatLng;
+	top_left: SimpleCoord;
+	bottom_right: SimpleCoord;
 }
 
 export interface SpatialState {
-	center: LatLng;
+	center: SimpleCoord;
 	zoom: number;
 	bounds: Bounds | null;
 	range: number;
@@ -38,7 +38,7 @@ export type BearingMode = 'car' | 'walking';
 
 // Spatial state - triggers photo filtering in worker
 export const spatialState = localStorageReadOnceSharedStore<SpatialState>('spatialState', {
-	center: new LatLng(50.114429599683604, 14.523528814315798),
+	center: {lat: 50.114429599683604, lng: 14.523528814315798},
 	zoom: 20,
 	bounds: null,
 	range: 1000,
