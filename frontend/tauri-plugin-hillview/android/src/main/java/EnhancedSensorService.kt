@@ -620,14 +620,17 @@ class EnhancedSensorService(
         val roll = Math.toDegrees(orientation[2].toDouble()).toFloat()
 
 
+		if (abs(roll) > 90) {
+			azimuth += 180
+		}
 		val prefs = context.getSharedPreferences("landscape_compass_armor22_workaround", Context.MODE_PRIVATE)
         val workaround1 = prefs.getBoolean("enabled", false)
 		if (workaround1) {
 			if (abs(roll) > 90) {
-				azimuth = 180 - azimuth // magic
-				azimuth = (azimuth + 360*2) % 360
+				azimuth = 0 - azimuth // magic
 			}
 		}
+		azimuth = (azimuth + 360*2) % 360
 
 		//Log.v(TAG, "🔍📊 $source orientation: azimuth=${azimuth.format(1)}°, pitch=${pitch.format(1)}°, roll=${roll.format(1)}°, accuracy=${event.accuracy}, orientation=${deviceOrientation}")
 

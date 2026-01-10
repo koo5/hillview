@@ -1,13 +1,18 @@
-use img_parts::ImageEXIF;
-use log::{info, warn};
+use log::info;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::sync::OnceLock;
 use tauri::command;
+#[cfg(target_os = "android")]
+use img_parts::ImageEXIF;
+#[cfg(target_os = "android")]
+use log::warn;
+#[cfg(target_os = "android")]
 use tauri_plugin_hillview::HillviewExt;
+#[cfg(target_os = "android")]
 use crate::photo_exif::{create_exif_segment_structured, validate_photo_metadata};
-#[cfg(debug_assertions)]
+#[cfg(all(target_os = "android", debug_assertions))]
 use crate::photo_exif::verify_exif_in_saved_file;
 use crate::types::PhotoMetadata;
 
@@ -39,7 +44,7 @@ pub struct ProcessedPhoto {
 static PHOTO_CHUNKS: OnceLock<Mutex<HashMap<String, Vec<u8>>>> = OnceLock::new();
 
 
-/// Save photo to storage. Tries preferred method first, falls back to the other.
+/// Save photo to storage. Tries all methods in order based on preference.
 /// Returns the path (file path or content:// URI).
 #[cfg(target_os = "android")]
 fn save_to_pictures_directory(
@@ -50,20 +55,39 @@ fn save_to_pictures_directory(
 	preferred_storage: &str,
 ) -> Result<String, String> {
 	let folder_name = if hide_from_gallery { ".Hillview" } else { "Hillview" };
+
+	// Public folder: /storage/emulated/0/DCIM/Hillview (visible in gallery, persists after uninstall)
 	let public_pictures_dir = "/storage/emulated/0/DCIM";
 	let public_pictures_path = std::path::Path::new(public_pictures_dir).join(folder_name);
 
-	let try_private_folder = || -> Result<String, String> {
+	// Private folder: /storage/emulated/0/Android/data/{package}/files/Pictures (app-private, deleted on uninstall)
+	let private_pictures_dir = format!("/storage/emulated/0/Android/data/{}/files/Pictures", env!("ANDROID_PACKAGE_NAME"));
+	let private_pictures_path = std::path::Path::new(&private_pictures_dir).join(folder_name);
+
+	let try_public_folder = || -> Result<String, String> {
+		info!("🢄📁 Trying public folder: {:?}", public_pictures_path);
 		match save_to_directory(&public_pictures_path, filename, image_data, hide_from_gallery) {
 			Ok(photo_path) => {
-				info!("🢄✅ Photo saved via direct I/O: {:?}", photo_path);
+				info!("🢄✅ Photo saved to public folder: {:?}", photo_path);
 				Ok(photo_path.to_string_lossy().to_string())
 			}
-			Err(e) => Err(format!("Direct I/O failed: {}", e))
+			Err(e) => Err(format!("Public folder failed: {}", e))
+		}
+	};
+
+	let try_private_folder = || -> Result<String, String> {
+		info!("🢄📁 Trying private folder: {:?}", private_pictures_path);
+		match save_to_directory(&private_pictures_path, filename, image_data, hide_from_gallery) {
+			Ok(photo_path) => {
+				info!("🢄✅ Photo saved to private folder: {:?}", photo_path);
+				Ok(photo_path.to_string_lossy().to_string())
+			}
+			Err(e) => Err(format!("Private folder failed: {}", e))
 		}
 	};
 
 	let try_mediastore = || -> Result<String, String> {
+		info!("🢄📁 Trying MediaStore API");
 		let response = app_handle
 			.hillview()
 			.save_photo_to_media_store(filename.to_string(), image_data.to_vec(), hide_from_gallery)
@@ -78,25 +102,42 @@ fn save_to_pictures_directory(
 		}
 	};
 
-	if preferred_storage == "mediastore_api" {
-		// Try MediaStore first, fall back to private folder
-		match try_mediastore() {
-			Ok(path) => Ok(path),
+	// Define the order of methods to try based on preferred_storage
+	let methods: Vec<(&str, Box<dyn Fn() -> Result<String, String>>)> = match preferred_storage {
+		"public_folder" => vec![
+			("public_folder", Box::new(try_public_folder) as Box<dyn Fn() -> Result<String, String>>),
+			("private_folder", Box::new(try_private_folder)),
+			("mediastore_api", Box::new(try_mediastore)),
+		],
+		"private_folder" => vec![
+			("private_folder", Box::new(try_private_folder) as Box<dyn Fn() -> Result<String, String>>),
+			("public_folder", Box::new(try_public_folder)),
+			("mediastore_api", Box::new(try_mediastore)),
+		],
+		"mediastore_api" => vec![
+			("mediastore_api", Box::new(try_mediastore) as Box<dyn Fn() -> Result<String, String>>),
+			("public_folder", Box::new(try_public_folder)),
+			("private_folder", Box::new(try_private_folder)),
+		],
+		_ => vec![
+			("public_folder", Box::new(try_public_folder) as Box<dyn Fn() -> Result<String, String>>),
+			("private_folder", Box::new(try_private_folder)),
+			("mediastore_api", Box::new(try_mediastore)),
+		],
+	};
+
+	let mut last_error = String::new();
+	for (name, method) in methods {
+		match method() {
+			Ok(path) => return Ok(path),
 			Err(e) => {
-				warn!("🢄⚠️ MediaStore failed ({}), falling back to private folder...", e);
-				try_private_folder()
-			}
-		}
-	} else {
-		// Try private folder first (default), fall back to MediaStore
-		match try_private_folder() {
-			Ok(path) => Ok(path),
-			Err(e) => {
-				warn!("🢄⚠️ Private folder failed ({}), falling back to MediaStore...", e);
-				try_mediastore()
+				warn!("🢄⚠️ {} failed: {}", name, e);
+				last_error = e;
 			}
 		}
 	}
+
+	Err(format!("All storage methods failed. Last error: {}", last_error))
 }
 
 fn save_to_directory(
@@ -131,6 +172,16 @@ fn save_to_directory(
 		perms.set_mode(0o644); // rw-r--r--
 		std::fs::set_permissions(&photo_path, perms)?;
 	}
+
+	// Verify save by reading the file back
+	let verified_size = std::fs::File::open(&photo_path)?.metadata()?.len();
+	if verified_size != image_data.len() as u64 {
+		return Err(std::io::Error::new(
+			std::io::ErrorKind::Other,
+			format!("Verification failed: wrote {} bytes but file has {} bytes", image_data.len(), verified_size)
+		));
+	}
+	info!("🢄✓ Verified save: {} bytes", verified_size);
 
 	Ok(photo_path)
 }
@@ -178,7 +229,7 @@ pub async fn save_photo_with_metadata(
 	// Call the internal function with the image data
 	#[cfg(target_os = "android")]
 	{
-		let storage = preferred_storage.unwrap_or_else(|| "private_folder".to_string());
+		let storage = preferred_storage.unwrap_or_else(|| "public_folder".to_string());
 		save_photo_from_bytes(app_handle, photo_id, metadata, image_data, filename, hide_from_gallery, storage).await
 	}
 
