@@ -1,13 +1,16 @@
 import { writable, type Writable } from 'svelte/store';
+import { browser } from '$app/environment';
 
 export function localStorageSharedStore<T>(name: string, default_: T): Writable<T> {
  function setStorage(value: T): void {
+  if (!browser) return;
   const str = JSON.stringify(value);
   //console.log('🢄SAVE', name, str);
   window.localStorage.setItem(name, str);
  }
 
  function getStorage(): T {
+  if (!browser) return default_;
   const item = window.localStorage.getItem(name);
   let result: T = default_;
   try {
@@ -44,9 +47,11 @@ export function localStorageSharedStore<T>(name: string, default_: T): Writable<
   // Re-read in case localStorage changed between creation and first subscribe
   currentValue = getStorage();
   set(currentValue);
-  window.addEventListener('storage', handleStorageEvent);
-
-  return () => window.removeEventListener('storage', handleStorageEvent);
+  if (browser) {
+   window.addEventListener('storage', handleStorageEvent);
+   return () => window.removeEventListener('storage', handleStorageEvent);
+  }
+  return () => {};
  }
 
  // Initialize writable with the localStorage value (not default)
@@ -74,12 +79,14 @@ export function localStorageSharedStore<T>(name: string, default_: T): Writable<
 
 export function localStorageReadOnceSharedStore<T>(name: string, default_: T): Writable<T> {
  function setStorage(value: T): void {
+  if (!browser) return;
   const str = JSON.stringify(value);
   //console.log('🢄SAVE', name, str);
   window.localStorage.setItem(name, str);
  }
 
  function getStorage(): T {
+  if (!browser) return default_;
   const item = window.localStorage.getItem(name);
   let result: T = default_;
   try {
@@ -132,16 +139,18 @@ export function staggeredLocalStorageSharedStore<T>(
   default_: T,
   debounceMs: number = 500
 ): Writable<T> {
-  let writeTimeout: number | null = null;
+  let writeTimeout: ReturnType<typeof setTimeout> | null = null;
   let lastWrittenValue: T | null = null;
 
   function setStorage(value: T): void {
+    if (!browser) return;
     const str = JSON.stringify(value);
     window.localStorage.setItem(name, str);
     lastWrittenValue = value;
   }
 
   function getStorage(): T {
+    if (!browser) return default_;
     const item = window.localStorage.getItem(name);
     let result: T = default_;
     try {
@@ -164,6 +173,7 @@ export function staggeredLocalStorageSharedStore<T>(
   let modifiedBeforeSubscribe = false;
 
   function debouncedSetStorage(value: T): void {
+    if (!browser) return;
     // Skip write if value hasn't actually changed from what we last wrote
     if (lastWrittenValue !== null && JSON.stringify(lastWrittenValue) === JSON.stringify(value)) {
       return;
@@ -175,7 +185,7 @@ export function staggeredLocalStorageSharedStore<T>(
     }
 
     // Schedule debounced write
-    writeTimeout = window.setTimeout(() => {
+    writeTimeout = setTimeout(() => {
       setStorage(value);
       writeTimeout = null;
     }, debounceMs);
@@ -200,18 +210,20 @@ export function staggeredLocalStorageSharedStore<T>(
       currentValue = getStorage();
     }
     set(currentValue);
-    window.addEventListener('storage', handleStorageEvent);
-
-    return () => {
-      window.removeEventListener('storage', handleStorageEvent);
-      // Flush any pending writes on cleanup
-      if (writeTimeout) {
-        clearTimeout(writeTimeout);
-        if (lastWrittenValue === null || JSON.stringify(lastWrittenValue) !== JSON.stringify(currentValue)) {
-          setStorage(currentValue);
+    if (browser) {
+      window.addEventListener('storage', handleStorageEvent);
+      return () => {
+        window.removeEventListener('storage', handleStorageEvent);
+        // Flush any pending writes on cleanup
+        if (writeTimeout) {
+          clearTimeout(writeTimeout);
+          if (lastWrittenValue === null || JSON.stringify(lastWrittenValue) !== JSON.stringify(currentValue)) {
+            setStorage(currentValue);
+          }
         }
-      }
-    };
+      };
+    }
+    return () => {};
   }
 
   // Initialize writable with the localStorage value (not default)

@@ -14,7 +14,6 @@
 	import ZoomView from '$lib/components/ZoomView.svelte';
 	import {clearAlerts} from "$lib/alertSystem.svelte";
 	import {checkAuth} from '$lib/auth.svelte';
-	import { writable } from 'svelte/store';
 	import {zoomViewData} from '$lib/zoomView.svelte';
 	import {getCurrent} from "@tauri-apps/plugin-deep-link";
 	import {navigateWithHistory} from "$lib/navigation.svelte";
@@ -45,11 +44,11 @@
 	});
 
 	// Handle body scroll prevention for zoom view
-	$: {
+	/*$: {
 		if (browser && document?.body) {
 			document.body.style.overflow = $zoomViewData ? 'hidden' : '';
 		}
-	}
+	}*/
 
 	onMount(async () => {
 

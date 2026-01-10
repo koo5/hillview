@@ -139,5 +139,3 @@ export function canNavigateBack(): boolean {
     return get(navigationHistory).length > 0;
 }
 
-// Export readonly version of history for debugging/inspection
-export const readonlyNavigationHistory = { subscribe: navigationHistory.subscribe };

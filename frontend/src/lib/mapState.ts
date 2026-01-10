@@ -305,6 +305,7 @@ export function updateBearingWithPhoto(photo: PhotoData, source: string = 'photo
 	updateBearing(photo.bearing, source, photo.uid);
 }
 
+/*
 // Calculate range from map center and bounds
 export function calculateRange(center: LatLng, bounds: Bounds): number {
 	if (!bounds) return 1000;
@@ -314,7 +315,7 @@ export function calculateRange(center: LatLng, bounds: Bounds): number {
 	const sideDistance = center.distanceTo(new LatLng(center.lat, bounds.bottom_right.lng));
 
 	return Math.max(cornerDistance, sideDistance);
-}
+}*/
 
 // Update bounds and recalculate range
 /*export function updateBounds(bounds: Bounds) {

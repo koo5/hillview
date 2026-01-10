@@ -7,14 +7,16 @@ import {
 import {backendUrl} from './config';
 import {MAX_DEBUG_MODES} from './constants';
 import {auth} from './auth.svelte';
+import {TAURI} from "$lib/tauri";
+// Import new mapState for legacy compatibility only
+import {photoInFront, photoToLeft, photoToRight, photoUp, photoDown, updateBearingWithPhoto} from './mapState';
+import {autoUploadSettings} from "$lib/autoUploadSettings";
+
 
 // Draggable split store for gallery/map split percentage (0-100, percentage for photo panel)
 export let splitPercent = staggeredLocalStorageSharedStore('splitPercent', 50);
 export type AppActivity = 'capture' | 'view';
-// Import new mapState for legacy compatibility only
-import {photoInFront, photoToLeft, photoToRight, photoUp, photoDown, updateBearingWithPhoto} from './mapState';
-import {TAURI} from "$lib/tauri";
-import {autoUploadSettings} from "$lib/autoUploadSettings";
+
 
 // Device source subtypes
 export type subtype = 'hillview' | 'folder' | 'gallery';
