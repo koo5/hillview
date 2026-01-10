@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import func, desc, and_, update, delete
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 import sys
 import os
@@ -180,34 +181,29 @@ async def register_push(
 	# Apply rate limiting with optional user context (better limits for authenticated users)
 	# TODO: Implement actual rate limiting based on current_user presence
 
-	# Check if registration already exists for this client_key_id
-	logger.info(f"💾 Checking for existing registration for client_key_id: {client_key_id}")
-	existing_query = select(PushRegistration).where(
-		PushRegistration.client_key_id == client_key_id
-	)
-	result = await db.execute(existing_query)
-	existing = result.scalar_one_or_none()
-	# fixme this isnt safe
-	if existing:
-		logger.info(f"💾 Found existing registration, updating...")
-		# Update existing registration
-		existing.push_endpoint = request.push_endpoint
-		existing.distributor_package = request.distributor_package
-		existing.updated_at = datetime.utcnow()
-		message = "Push registration updated"
-	else:
-		logger.info(f"💾 Creating new registration...")
-		# Create new registration
-		registration = PushRegistration(
-			client_key_id=client_key_id,
-			push_endpoint=request.push_endpoint,
-			distributor_package=request.distributor_package
-		)
-		db.add(registration)
-		message = "Push registration created"
+	# Use atomic upsert to handle concurrent registrations safely
+	logger.info(f"💾 Upserting registration for client_key_id: {client_key_id}")
 
-	logger.info(f"💾 Committing to database...")
+	# PostgreSQL INSERT ... ON CONFLICT DO UPDATE (upsert)
+	stmt = pg_insert(PushRegistration).values(
+		client_key_id=client_key_id,
+		push_endpoint=request.push_endpoint,
+		distributor_package=request.distributor_package
+	)
+
+	# On conflict with client_key_id unique constraint, update the existing row
+	stmt = stmt.on_conflict_do_update(
+		index_elements=['client_key_id'],
+		set_={
+			'push_endpoint': stmt.excluded.push_endpoint,
+			'distributor_package': stmt.excluded.distributor_package,
+			'updated_at': datetime.utcnow()
+		}
+	)
+
+	await db.execute(stmt)
 	await db.commit()
+	message = "Push registration saved"
 	user_info = f", user {current_user.id}" if current_user else " (anonymous)"
 	logger.info(f"✅ Push registration for client {client_key_id}{user_info}: {message}")
 	return PushRegistrationResponse(success=True, message=message)

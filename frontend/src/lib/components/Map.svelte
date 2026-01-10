@@ -993,7 +993,7 @@
 
     // Reactive updates for spatial changes (photos from worker include filtered placeholders)
     $: if ($visiblePhotos && map) {
-        console.log(`🢄Map: Reactive update triggered - updating markers with ${$visiblePhotos.length} total photos`);
+        //console.log(`🢄Map: Reactive update triggered - updating markers with ${$visiblePhotos.length} total photos`);
         updateOptimizedMarkers($visiblePhotos);
     }
 

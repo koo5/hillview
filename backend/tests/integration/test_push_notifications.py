@@ -383,7 +383,8 @@ class TestPushRegistration(BaseUserManagementTest):
         assert response2.status_code == 200, f"Expected 200, got {response2.status_code}"
 
         data = response2.json()
-        assert "updated" in data.get("message", "").lower(), f"Expected 'updated' in message, got {data}"
+        # With upsert pattern, both insert and update return "saved" message
+        assert "saved" in data.get("message", "").lower(), f"Expected 'saved' in message, got {data}"
 
         print("Push registration update successful")
 

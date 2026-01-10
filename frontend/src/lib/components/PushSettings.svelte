@@ -234,25 +234,12 @@
 							<span class="option-name">Push notifications disabled</span>
 						</div>
 						<div class="option-description">
-							Turn off all push notifications
+							Turn off push notifications
 						</div>
 					</div>
 				</label>
 
 			</div>
-		</div>
-
-		<!-- Help Section -->
-		<div class="help-section">
-			<details><summary>
-			About UnifiedPush
-			</summary>
-			<p>
-				UnifiedPush is an open standard that enables privacy-focused
-				alternatives to Google's Firebase Cloud Messaging (FCM). Instead of relying on Google's servers,
-				you can choose from various distributors, for example <MyExternalLink href="https://ntfy.sh/">ntfy.sh</MyExternalLink>.
-			</p>
-			</details>
 		</div>
 	{/if}
 </div>

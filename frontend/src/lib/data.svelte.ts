@@ -67,12 +67,12 @@ const deviceSources: Source[] = TAURI ? [
 	}
 ] : [];
 
-console.log('🢄📸 Device sources configuration:', {
+/*console.log('🢄📸 Device sources configuration:', {
 	TAURI,
 	VITE_PICS_OFF: import.meta.env.VITE_PICS_OFF,
 	deviceSourcesCount: deviceSources.length,
 	deviceSourceEnabled: deviceSources.length > 0 ? deviceSources[0].enabled : 'N/A'
-});
+});*/
 
 // Store source enabled states separately for persistence
 const sourceStates = localStorageReadOnceSharedStore('sourceStates', {} as Record<string, boolean>);

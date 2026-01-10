@@ -237,7 +237,7 @@ export class OptimizedMarkerSystem {
 		if (this.pendingBearingUpdateTimeout) {
 			console.log('clearing pendingBearingUpdateTimeout:', this.pendingBearingUpdateTimeout);
 			this.pendingBearingUpdateTimeout = null;
-			console.log('cleared pendingBearingUpdateTimeout');
+			//console.log('cleared pendingBearingUpdateTimeout');
 		}
 		this.pendingBearingUpdate = this.lastVal ?? null;
 		if (this.rafId !== null) return; // Already scheduled

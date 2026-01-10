@@ -251,12 +251,12 @@ export function resizableSplit(node: HTMLElement, options: SplitOptions = {}) {
 
 	// Public API for updating options
 	const update = (newOptions: SplitOptions) => {
-		console.log('🔄SPLIT: resizableSplit.update called', JSON.stringify({
+		/*console.log('🔄SPLIT: resizableSplit.update called', JSON.stringify({
 			oldOptions: options,
 			newOptions,
 			oldDirection: direction,
 			newDirection: newOptions.direction
-		}));
+		}));*/
 
 		const oldDirection = options.direction;
 		Object.assign(options, newOptions);

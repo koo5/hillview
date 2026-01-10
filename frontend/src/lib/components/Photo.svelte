@@ -45,7 +45,7 @@
 	let hideMessage = '';
 
 
-	$: console.log('🢄Photo.svelte: photo changed:', JSON.stringify(photo));
+	//$: console.log('🢄Photo.svelte: photo changed:', JSON.stringify(photo));
 
 	// Get current user authentication state
 	$: is_authenticated = $auth.is_authenticated;
