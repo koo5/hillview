@@ -180,7 +180,7 @@ async function startTauriSensor(mode: SensorMode = SensorMode.UPRIGHT_ROTATION_V
 
 				scheduleCompassUpdate(compassUpdate);
 
-				//if (false) {
+				/*
 					const modeStr = get(currentSensorMode);
 					console.log(`🔍🧭 Compass update from ${data.source || 'Unknown'} (Mode: ${SensorMode[modeStr]}):`, JSON.stringify({
 						'compass bearing (magnetic)': compassUpdate.magnetic_heading?.toFixed(1) + '°',
@@ -190,7 +190,7 @@ async function startTauriSensor(mode: SensorMode = SensorMode.UPRIGHT_ROTATION_V
 						roll: data.roll?.toFixed(1) + '°',
 						timestamp: new Date(data.timestamp).toLocaleTimeString()
 					}));
-				//}
+				*/
 			});
 		}
 

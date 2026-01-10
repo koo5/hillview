@@ -1803,7 +1803,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 					// Process the photos using PhotoWorkerService (fire and forget like web worker)
 					photoWorkerService.processPhotos(messageJson, authTokenProvider)
 
-					Log.d(TAG, "🢄📸 PhotoWorkerService message processed")
+					//Log.d(TAG, "🢄📸 PhotoWorkerService message processed")
 
 					CoroutineScope(Dispatchers.Main).launch {
 						val result = JSObject()

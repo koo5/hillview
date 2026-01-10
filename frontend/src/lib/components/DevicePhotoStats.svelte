@@ -7,7 +7,7 @@
 	import RetryUploadsButton from "$lib/components/RetryUploadsButton.svelte";
 
 	export let addLogEntry: (message: string, type?: 'success' | 'warning' | 'error' | 'info', metadata?: any) => void = () => {};
-	export let onRefresh: (() => void) | null = null;
+	export let onRefresh: (() => void | Promise<void>) | null = null;
 
 	const REFRESH_INTERVAL = 5000; // 5 seconds
 	let refreshTimer: ReturnType<typeof setInterval> | null = null;
@@ -23,14 +23,19 @@
 		return stats.pending > 0 || stats.uploading > 0;
 	}
 
-	function doRefresh() {
+	async function doRefresh() {
 		if (!isAtTop()) return;
 		if (!hasActiveUploads()) {
 			stopTimer();
 			return;
 		}
-		fetchDevicePhotoStats();
-		onRefresh?.();
+		try {
+			await fetchDevicePhotoStats();
+			await onRefresh?.();
+		} catch (err) {
+			// Silently handle errors during auto-refresh to prevent unhandled promise rejections
+			console.error('Error during auto-refresh:', err);
+		}
 	}
 
 	function startTimer() {
@@ -45,8 +50,12 @@
 		}
 	}
 
-	onMount(() => {
-		fetchDevicePhotoStats();
+	onMount(async () => {
+		try {
+			await fetchDevicePhotoStats();
+		} catch (err) {
+			console.error('Error fetching device photo stats:', err);
+		}
 		// Start timer if there are active uploads
 		if (hasActiveUploads()) {
 			startTimer();

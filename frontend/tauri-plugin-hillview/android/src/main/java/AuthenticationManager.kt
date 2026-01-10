@@ -121,7 +121,7 @@ class AuthenticationManager(private val context: Context) {
                 Log.d(TAG, "Token is expired or expiring soon")
                 null
             } else {
-                Log.d(TAG, "Token is valid, expires at: $expiresAt")
+                //Log.d(TAG, "Token is valid, expires at: $expiresAt")
                 token
             }
         } catch (e: Exception) {
@@ -135,11 +135,11 @@ class AuthenticationManager(private val context: Context) {
      * WARNING: Does not attempt token refresh - may return null for expired tokens.
      * Use getValidToken() instead when possible.
      */
-    fun getValidTokenSync(): String? {
+    /*fun getValidTokenSync(): String? {
         val result = getCurrentTokenIfValid()
-        Log.d(TAG, "getValidTokenSync() called - result: ${if (result != null) "token found" else "null"}")
+        //Log.d(TAG, "getValidTokenSync() called - result: ${if (result != null) "token found" else "null"}")
         return result
-    }
+    }*/
 
     fun getTokenInfo(): Pair<String?, String?> {
         val token = prefs.getString(KEY_AUTH_TOKEN, null)
@@ -182,7 +182,7 @@ class AuthenticationManager(private val context: Context) {
             val bufferSeconds = bufferDays * 24 * 60 * 60L // Convert days to seconds
 
             val shouldRenew = now.isAfter(expiry.minusSeconds(bufferSeconds))
-            
+
             if (shouldRenew) {
                 val daysRemaining = (expiry.epochSecond - now.epochSecond) / (24 * 60 * 60)
                 Log.d(TAG, "Refresh token expiring in $daysRemaining days, triggering proactive renewal")
@@ -198,12 +198,12 @@ class AuthenticationManager(private val context: Context) {
     suspend fun refreshTokenIfNeeded(): Boolean {
         val tokenExpired = isTokenExpired()
         val needsRefreshRenewal = shouldRenewRefreshToken()
-        
+
         if (!tokenExpired && !needsRefreshRenewal) {
             Log.d(TAG, "Token not expired and refresh token not expiring soon, no refresh needed")
             return true
         }
-        
+
         if (tokenExpired) {
             Log.d(TAG, "Access token expired, attempting refresh")
         } else {
@@ -302,12 +302,12 @@ class AuthenticationManager(private val context: Context) {
                 val expiry = Instant.from(DateTimeFormatter.ISO_INSTANT.parse(refreshExpiresAt))
                 val now = Instant.now()
                 val bufferSeconds = 1 * 60L // 1 minute buffer
-                
+
                 if (now.isAfter(expiry.minusSeconds(bufferSeconds))) {
                     Log.w(TAG, "Refresh token expired at $refreshExpiresAt, current time: $now")
                     return false
                 }
-                
+
                 val hoursRemaining = (expiry.epochSecond - now.epochSecond) / 3600
                 Log.d(TAG, "Refresh token valid until $refreshExpiresAt ($hoursRemaining hours remaining)")
             } catch (dateError: Exception) {

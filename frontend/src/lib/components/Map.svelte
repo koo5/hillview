@@ -320,7 +320,7 @@
 
     spatialState.subscribe((spatial) => {
 
-		console.log(`spatialState: ${stringifyCircularJSON(spatial)}`);
+		//console.log(`spatialState: ${stringifyCircularJSON(spatial)}`);
 
         if (!map || programmaticMove) return;
         try {
@@ -330,7 +330,7 @@
             const currentCenter = map.getCenter();
             const currentZoom = map.getZoom();
             if (!currentCenter || currentCenter.lat !== spatial.center.lat || currentCenter.lng !== spatial.center.lng || currentZoom !== spatial.zoom) {
-                console.log('🢄setView', spatial.center, spatial.zoom);
+                //console.log('🢄setView', JSON.stringify(spatial.center), spatial.zoom);
                 map.setView(new LatLng(spatial.center.lat, spatial.center.lng), spatial.zoom);
                 onMapStateChange(true, 'spatialState.subscribe');
             }
@@ -391,7 +391,7 @@
         try {
             let _center = map.getCenter();
             let _zoom = map.getZoom();
-            console.log('🢄onMapStateChange: force:', force, 'reason:', reason, 'center:', JSON.stringify(_center), 'zoom:', _zoom);
+            //console.log('🢄onMapStateChange: force:', force, 'reason:', reason, 'center:', JSON.stringify(_center), 'zoom:', _zoom);
 
             const currentSpatial = get(spatialState);
             const bounds = map.getBounds();
@@ -634,7 +634,7 @@
         // Store the location data locally
         userLocation = position;
 
-        console.log("handleGpsLocationUpdate:", latitude, longitude, accuracy);
+        //console.log("handleGpsLocationUpdate:", latitude, longitude, accuracy);
         locationTrackingLoading.set(false);
         locationApiEventFlash = true;
         if (locationApiEventFlashTimer !== null) {

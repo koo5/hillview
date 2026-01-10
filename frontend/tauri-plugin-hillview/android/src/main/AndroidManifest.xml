@@ -10,15 +10,16 @@
     <!-- Required for camera access -->
     <uses-permission android:name="android.permission.CAMERA" />
 
-    <!-- Required for accessing photos -->
-<!--    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />-->
-<!--    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />-->
+	<!-- bad -->
+	<!--    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />-->
 
-    <!-- Required for saving photos -->
-<!--    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />-->
+
+    <!-- Required for accessing photos -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
 
     <!-- For Android 13+ (API 33+) - Granular media permissions -->
-<!--    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />-->
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
 
     <!-- Required for precise location services -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />

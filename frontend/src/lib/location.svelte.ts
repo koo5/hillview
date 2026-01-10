@@ -29,7 +29,7 @@ export function hasPositionChanged(oldPosition: GeolocationPosition | null, newP
 // Helper function to update location
 export function updateGpsLocation(position: GeolocationPosition | null) {
 
-	console.debug('🢄updateGpsLocation: Received update:', JSON.stringify(position));
+	//console.debug('🢄updateGpsLocation: Received update:', JSON.stringify(position));
 
     const old = get(gpsLocation);
     if (!hasPositionChanged(old, position)) {
@@ -37,7 +37,7 @@ export function updateGpsLocation(position: GeolocationPosition | null) {
         return false;
     }
 
-    console.debug('🢄Updating GPS location store:', JSON.stringify(position));
+    //console.debug('🢄Updating GPS location store:', JSON.stringify(position));
     gpsLocation.set(position);
 
     // Capture location updates are now handled by captureLocationManager.ts

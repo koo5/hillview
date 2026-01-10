@@ -247,7 +247,7 @@ class SimplePhotoWorker {
                 return;
             }
 
-            console.log(`🢄SimplePhotoWorker: Sending area update with range ${spatial.range}m...`);
+            //console.log(`🢄SimplePhotoWorker: Sending area update with range ${spatial.range}m...`);
             this.lastBounds = spatial.bounds;
             this.sendMessage('areaUpdated', {
                 area: spatial.bounds,

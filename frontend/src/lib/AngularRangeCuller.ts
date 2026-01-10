@@ -72,7 +72,7 @@ export class AngularRangeCuller {
             }
         }
 
-        console.log(`AngularRangeCuller: Culled ${photosInArea.length} area photos → ${selectedPhotos.length} range photos with angular coverage (${activeBuckets.length}/${this.ANGULAR_BUCKETS} angular sectors covered)`);
+        //console.log(`AngularRangeCuller: Culled ${photosInArea.length} area photos → ${selectedPhotos.length} range photos with angular coverage (${activeBuckets.length}/${this.ANGULAR_BUCKETS} angular sectors covered)`);
 
         return selectedPhotos;
     }

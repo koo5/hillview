@@ -30,7 +30,6 @@ class DevicePhotoLoader(private val context: Context) {
             Log.d(TAG, " Bounds: $bounds")
             Log.d(TAG, " MaxPhotos: $maxPhotos")
 
-            /*
             val photoEntities = if (bounds != null) {
                 // Apply spatial filtering using Room query with bounds
                 photoDao.getPhotosInBounds(
@@ -44,8 +43,8 @@ class DevicePhotoLoader(private val context: Context) {
                 // No bounds specified, get all photos with limit
                 photoDao.getPhotosPaginated(limit = maxPhotos, offset = 0)
             }
-            */
 
+            /*
             // TEMPORARY: Load all photos without bounds filtering for debugging
             // First, check database status
             val totalCount = photoDao.getTotalPhotoCount()
@@ -64,6 +63,7 @@ class DevicePhotoLoader(private val context: Context) {
 
             val photoEntities = photoDao.getPhotosPaginated(limit = maxPhotos, offset = 0)
             Log.d(TAG, " DEBUG - Loading ALL photos (bounds disabled), found ${photoEntities.size} photos")
+            */
 
             if (shouldAbort()) {
                 Log.d(TAG, " Aborted during photo loading")

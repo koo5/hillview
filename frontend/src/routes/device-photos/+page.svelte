@@ -68,7 +68,7 @@
 				page_size: pageSize
 			}) as DevicePhotosResponse;
 
-			console.log('🢄Device photos response:', JSON.stringify(response));
+			//console.log('🢄Device photos response:', JSON.stringify(response));
 
 			if (append && photosData) {
 				// Append new photos to existing data
