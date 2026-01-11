@@ -20,7 +20,7 @@ import httpx
 from throttle import Throttle
 
 
-from common.security_utils import sanitize_filename, validate_file_path, check_file_content, validate_image_dimensions, SecurityValidationError
+from common.security_utils import sanitize_filename, validate_file_path, check_file_content, validate_image_dimensions, SecurityValidationError, validate_user_id
 
 from common.cdn_uploader import cdn_uploader
 
@@ -295,6 +295,13 @@ class PhotoProcessor:
 
 				# Extract user_id and photo_id from unique_id (format: "user_id/photo_id")
 				user_id_part, photo_id_part = unique_id.split('/', 1)
+				try:
+					# Validate user_id component for filesystem and command-line safety
+					user_id_part = validate_user_id(user_id_part)
+				except SecurityValidationError as e:
+					logger.warning(f"Invalid user_id in unique_id '{unique_id}': {e}")
+					# Skip this size variant if user_id is invalid
+					continue
 
 				# Create directory structure: opt/size/user_id/
 				size_dir = os.path.join(output_base, 'opt', str(size), user_id_part)
