@@ -8,11 +8,11 @@
       <jdbc-url>jdbc:postgresql://localhost:6432/hillview</jdbc-url>
       <working-dir>$ProjectFileDir$</working-dir>
     </data-source>
-    <data-source source="LOCAL" name="hillview@5434" uuid="77d875ea-3001-4a5b-9f1d-bd816846818b">
+    <data-source source="LOCAL" name="hillview@5432" uuid="77d875ea-3001-4a5b-9f1d-bd816846818b">
       <driver-ref>postgresql</driver-ref>
       <synchronize>true</synchronize>
       <jdbc-driver>org.postgresql.Driver</jdbc-driver>
-      <jdbc-url>jdbc:postgresql://localhost:5434/hillview</jdbc-url>
+      <jdbc-url>jdbc:postgresql://localhost:5432/hillview</jdbc-url>
       <working-dir>$ProjectFileDir$</working-dir>
     </data-source>
     <data-source source="LOCAL" name="hillview_photos_database" uuid="8e65ae9d-6a21-4199-8371-3f317ca03faa">

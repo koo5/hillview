@@ -1,4 +1,5 @@
 <script lang="ts">
+	import {Car, ArrowRight} from 'lucide-svelte';
 	import {createEventDispatcher, onDestroy, onMount} from 'svelte';
 	import {TAURI} from '$lib/tauri';
 	import {invoke} from '@tauri-apps/api/core';
@@ -13,7 +14,9 @@
 	import {captureQueue} from '$lib/captureQueue';
 	import {injectPlaceholder, removePlaceholder} from '$lib/placeholderInjector';
 	import {generatePhotoId, type PlaceholderLocation} from '$lib/utils/placeholderUtils';
-	import {bearingState, spatialState} from '$lib/mapState';
+	import {bearingMode, bearingState, spatialState} from '$lib/mapState';
+	import {needsCalibration, shouldShowSwitchToCarModeHint} from '$lib/hints.svelte';
+	import {showCalibrationView} from '$lib/data.svelte.js';
 	import {createPermissionManager} from '$lib/permissionManager';
 	import {
 		availableCameras,
@@ -28,6 +31,7 @@
 	} from '$lib/cameraDevices.svelte.js';
 	import {tauriCamera, isCameraPermissionCheckAvailable} from '$lib/tauri';
 	import {addPluginListener, type PluginListener} from '@tauri-apps/api/core';
+	import MyExternalLink from "$lib/components/MyExternalLink.svelte";
 
 	const dispatch = createEventDispatcher();
 
@@ -88,6 +92,7 @@
 	let switchingCamera = false; // Flag to prevent automatic startup during manual camera switching
 	let isBlinking = false; // Flag for camera blink effect
 	let absoluteOrientationSensor: AbsoluteOrientationSensor | null = null;
+	let showCalibrationHint: boolean = false;
 
 	// Store to track which cameras are loading resolutions
 	import {writable} from 'svelte/store';
@@ -96,7 +101,10 @@
 		deviceOrientationExif, relativeOrientationExif,
 		type ExifOrientation
 	} from "$lib/deviceOrientationExif";
-	import Quaternion from "quaternion";
+	import {disableCompass} from "$lib/compass.svelte";
+	import {enableGpsOrientation} from "$lib/gpsOrientation.svelte";
+	import CompassButtonInner from "$lib/components/CompassButtonInner.svelte";
+	import CalibrationFigure from "$lib/components/CalibrationFigure.svelte";
 
 	const resolutionsLoading = writable<Set<string>>(new Set());
 
@@ -140,7 +148,7 @@
 
 	let needsPermission = false;
 	let needsStoragePermission = false;
-	let storagePermissionChecked = false;
+	let storagePermissionChecked = true;
 
 	async function checkStoragePermission() {
 		if (!TAURI || storagePermissionChecked) return true;
@@ -281,7 +289,8 @@
 			constraints = {
 				video: {
 					facingMode: {ideal: facing},
-					width: {ideal: targetWidth}
+					width: {ideal: targetWidth},
+					frameRate: 10
 				}
 			};
 			console.log('🢄[CAMERA] Probing with resolution width', targetWidth, 'for initial permission:', facing, 'constraints:', JSON.stringify(constraints));
@@ -302,7 +311,9 @@
 
 					// Retry with absolutely minimal constraints
 					const fallbackConstraints = {
-						video: true
+						video: {
+							frameRate: 10
+						}
 					};
 
 					console.log('🢄[CAMERA] Retrying with minimal constraints:', fallbackConstraints);
@@ -415,6 +426,10 @@
 						}
 					}
 				}
+
+				requestAnimationFrame(() => {
+					doCalibrationHint();
+				});
 			} else {
 				console.error('🢄[CAMERA] Video element not found!');
 				throw new Error('Video element not available');
@@ -453,10 +468,12 @@
 		}
 	}
 
+
 	function handleZoomChange(event: Event) {
 		const target = event.target as HTMLInputElement;
 		setZoom(parseFloat(target.value));
 	}
+
 
 	async function selectCamera(camera: CameraDevice) {
 		console.log('🢄[CAMERA] Selecting camera:', camera.label);
@@ -650,9 +667,11 @@
 
 		//console.log('🢄Capture event:', JSON.stringify(event.detail));
 
-		const {mode} = event.detail;
-		const timestamp = Date.now();
 		const sharedId = generatePhotoId(); // Generate shared ID for entire pipeline
+		const {mode} = event.detail;
+
+		const timestamp = Date.now();
+		const captureStartTime = performance.now();
 
 		// Inject placeholder for immediate display
 		const validLocation: PlaceholderLocation = {
@@ -675,7 +694,6 @@
 			sharedId // Use sharedId instead of temp_id
 		});
 
-		const captureStartTime = performance.now();
 		console.log(`TIMING 🕐 PHOTO CAPTURE START: ${captureStartTime.toFixed(1)}ms`);
 
 		try {
@@ -694,9 +712,11 @@
 
 			// Draw video frame to canvas
 			const drawStartTime = performance.now();
+			const drawStartTimestamp = Date.now();
 			context.drawImage(video, 0, 0);
 			const drawEndTime = performance.now();
-			console.log(`TIMING 🖼️ CANVAS DRAW: ${(drawEndTime - drawStartTime).toFixed(1)}ms`);
+			const drawEndTimestamp = Date.now();
+			console.log(`🢄handleCapture TIMING: captured_at: ${timestamp}, drawStartTimestamp: ${drawStartTimestamp}, drawEndTimestamp: ${drawEndTimestamp}, drawTime: ${(drawEndTime - drawStartTime).toFixed(1)}ms`);
 
 			// Get ImageData from canvas
 			const getDataStartTime = performance.now();
@@ -935,33 +955,40 @@
 		}
 	}
 
-;
+	;
+
+	function doCalibrationHint()
+	{
+		showCalibrationHint = true;
+		setTimeout(() =>
+		{
+			showCalibrationHint = false;
+		}, 4000);
+	}
 
 	onMount(async () => {
 
 		document.addEventListener('visibilitychange', handleVisibilityChange);
 		document.addEventListener('click', handleClickOutside);
 
-		if (TAURI)
-		{
-			try
-			{
+		if (TAURI) {
+			try {
 				await addPluginListener('hillview', 'device-orientation', (data: any) => {
 					console.log('🢄🔍📡 Received device-orientation event from plugin:', JSON.stringify(data));
 					updateDeviceOrientationExif(data.exif_code);
 				});
 				await invoke('plugin:hillview|cmd', {command: 'start_device_orientation_sensor'});
-				await invoke('plugin:hillview|cmd', {command:'trigger_device_orientation_event'});
-			}
-			catch (error)
-			{
+				await invoke('plugin:hillview|cmd', {command: 'trigger_device_orientation_event'});
+			} catch (error) {
 				console.warn("🢄[CAMERA] device-orientation error:", error);
 			}
-		}
-		else if ('AbsoluteOrientationSensor' in window) {
+		} else if ('AbsoluteOrientationSensor' in window) {
 			try {
 				console.log('🢄[CAMERA] Initializing AbsoluteOrientationSensor for device orientation...');
-				absoluteOrientationSensor = new window.AbsoluteOrientationSensor({frequency: 100, referenceFrame: "screen"});
+				absoluteOrientationSensor = new window.AbsoluteOrientationSensor({
+					frequency: 100,
+					referenceFrame: "screen"
+				});
 				absoluteOrientationSensor.addEventListener("reading", () => {
 					console.log('🢄[CAMERA] AbsoluteOrientationSensor reading event');
 					//DeviceOrientationEvent.webkitCompassHeading?
@@ -974,9 +1001,7 @@
 			} catch (error) {
 				console.warn("🢄[CAMERA]", error);
 			}
-		}
-		else
-		{
+		} else {
 			console.log('🢄[CAMERA] AbsoluteOrientationSensor not available in this browser');
 		}
 
@@ -1024,9 +1049,8 @@
 	});
 
 	onDestroy(() => {
-		if (TAURI)
-		{
-			invoke('plugin:hillview|cmd', {command:'stop_device_orientation_sensor'});
+		if (TAURI) {
+			invoke('plugin:hillview|cmd', {command: 'stop_device_orientation_sensor'});
 		}
 		if (absoluteOrientationSensor) {
 			absoluteOrientationSensor.stop();
@@ -1136,7 +1160,7 @@
                             retryCount = 0;
                             startCamera();
                         }}>
-							{needsPermission ? 'Enable Camera' : 'Try Again'}
+							{needsPermission ? 'Allow Camera' : 'Try Again'}
 						</button>
 					</div>
 				{/if}
@@ -1154,6 +1178,47 @@
 				<AutoUploadPrompt
 					photoCaptured={photoCapturedCount > 0}
 				/>
+
+				<!-- Calibrate Compass button - shows when compass accuracy is low -->
+				{#if $needsCalibration}
+					<button
+						class="calibrate-compass-button"
+						on:click={() => showCalibrationView.set(true)}
+						data-testid="calibrate-compass-btn"
+					>
+						Calibrate Compass
+					</button>
+				{:else if $shouldShowSwitchToCarModeHint}
+					<button
+						class="switch-to-car-mode-button"
+						on:click={() => {bearingMode.set('car');disableCompass(); enableGpsOrientation();}}
+						data-testid="switch-to-car-mode-btn"
+					>
+						<div class="hint-title">
+							<Car size={16}/>
+							In a vehicle?
+						</div>
+						<div class="compass-button-preview target">
+							<CompassButtonInner bearingMode="car"/>
+						</div>
+					</button>
+				{:else if showCalibrationHint}
+					<div class="instruction-row">
+						<div class="figure8-animation">
+							<CalibrationFigure />
+						</div>
+						<div class="calibration-instruction">
+							Calibrate compass.
+						</div>
+						<div class="calibration-instruction">
+							Verify orientation.
+						</div>
+						<div class="calibration-instruction">
+							Verify location.
+<!--							 <MyExternalLink href="https://calibratecompass.com/" >Help</MyExternalLink>-->
+						</div>
+					</div>
+				{/if}
 			</div>
 
 			{#if zoomSupported && cameraReady}
@@ -1255,10 +1320,13 @@
 					{/if}
 				</div>
 
-				<DualCaptureButton
-					disabled={!cameraReady || !locationData}
-					on:capture={handleCapture}
-				/>
+
+				{#if !cameraError && !needsPermission}
+					<DualCaptureButton
+						disabled={!cameraReady || !locationData}
+						on:capture={handleCapture}
+					/>
+				{/if}
 			</div>
 
 			{#if $app.debug === 5}
@@ -1286,7 +1354,7 @@
 	}
 
 	.camera-content {
-		background: black;
+		background: linear-gradient(135deg, #000000, #a1a1a1);
 		width: 100%;
 		height: 100%;
 		max-width: 100vw;
@@ -1343,9 +1411,29 @@
 		background: #3a7bc8;
 	}
 
+	.calibrate-compass-button {
+		position: absolute;
+		bottom: 0px;
+		left: 50%;
+		transform: translate(-50%, -50%);
+		padding: 0.75rem 1rem;
+		background: #e24a4a;
+		color: white;
+		border: none;
+		border-radius: 6px;
+		cursor: pointer;
+		font-size: 1rem;
+		transition: background 0.2s;
+		z-index: 100;
+	}
+
+	.calibrate-compass-button:hover {
+		background: #c83a3a;
+	}
+
 	.camera-controls {
 		position: absolute;
-		bottom: 0;
+		bottom: 6px;
 		left: 0;
 		right: 0;
 		display: flex;
@@ -1353,7 +1441,6 @@
 		align-items: center;
 		gap: 2rem;
 		padding: 2rem;
-		background: linear-gradient(to top, rgba(0, 0, 0, 0.8), transparent);
 	}
 
 	.camera-selector-container {
@@ -1616,8 +1703,45 @@
 
 	.queue-indicator-overlay {
 		position: absolute;
-		bottom: 0px;
+		bottom: 6px;
 		right: 0px;
 		z-index: 1001;
 	}
+
+	.compass-button-preview {
+		border: 2px solid #ddd;
+		border-radius: 4px;
+		padding: 8px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.compass-button-preview.target {
+		background: #4285F4;
+		border-color: #4285F4;
+		color: white;
+		animation: pulse-hint 2s infinite;
+	}
+
+	.instruction-row {
+		font-size: 0.75em;
+		position: absolute;
+		bottom: 5px;
+		right: 5px;
+		max-width: 150px;
+		background: rgba(255,255,255,0.4);
+		backdrop-filter: blur(2px);
+		border-radius: 6px;
+		padding: 0.3rem;
+
+	}
+
+	.figure8-animation {
+		width: 150px;
+		height: 80px;
+		flex-shrink: 0;
+	}
+
+
 </style>

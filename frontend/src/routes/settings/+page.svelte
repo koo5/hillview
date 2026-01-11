@@ -4,10 +4,14 @@
 	import CameraSettings from '$lib/components/CameraSettings.svelte';
 	import UploadSettingsComponent from '$lib/components/UploadSettings.svelte';
 	import NotificationSettingsComponent from '$lib/components/NotificationSettings.svelte';
+	import StorageSettingsComponent from '$lib/components/StorageSettings.svelte';
+	import CompassSettingsComponent from '$lib/components/CompassSettings.svelte';
 	import DebugSettings from '$lib/components/DebugSettings.svelte';
 	import type { Alert } from '$lib/alertSystem.svelte';
-	import {Database, Wifi, ChevronRight} from "lucide-svelte";
+	import {Database, Settings} from "lucide-svelte";
 	import {TAURI} from "$lib/tauri";
+	import SettingsSectionHeader from "$lib/components/SettingsSectionHeader.svelte";
+	import SettingsSectionDivider from "$lib/components/SettingsSectionDivider.svelte";
 
 	let alertMessage = '';
 	let alertType: Alert['type'] = 'info';
@@ -36,7 +40,7 @@
 
 		<!-- Notification Settings -->
 		{#if TAURI}
-		<div class="section-divider"></div>
+		<SettingsSectionDivider />
 		<NotificationSettingsComponent
 			onSaveSuccess={(message) => showAlert(message, 'success')}
 			onSaveError={(message) => showAlert(message, 'error')}
@@ -44,6 +48,7 @@
 		{/if}
 
 		{#if TAURI}
+		<SettingsSectionDivider />
 		<CameraSettings
 			onSaveSuccess={(message) => showAlert(message, 'success')}
 			onSaveError={(message) => showAlert(message, 'error')}
@@ -51,39 +56,35 @@
 		{/if}
 
 		{#if TAURI}
-		<div class="section-divider"></div>
+		<SettingsSectionDivider />
 		<UploadSettingsComponent
 			onSaveSuccess={(message) => showAlert(message, 'success')}
 		/>
 		{/if}
 
-		<!-- Advanced Settings -->
-		<div class="section-divider"></div>
-		<h2>Advanced</h2>
-
 		{#if TAURI}
-		<a href="/settings/push" class="settings-navigation-link" data-testid="push-messaging-link">
-			<Wifi size={18}/>
-			<div class="link-text">
-				<span class="link-title">Push Messaging</span>
-				<span class="link-description">Configure background messaging and push notification providers</span>
-			</div>
-			<ChevronRight size={16} />
-		</a>
+		<SettingsSectionDivider />
+		<StorageSettingsComponent
+			onSaveSuccess={(message) => showAlert(message, 'success')}
+		/>
 		{/if}
 
-		<a href="/settings/sources" class="settings-navigation-link" data-testid="sources-menu-link">
-			<Database size={18}/>
+		{#if TAURI}
+		<SettingsSectionDivider />
+		<CompassSettingsComponent
+			onSaveSuccess={(message) => showAlert(message, 'success')}
+		/>
+		{/if}
+
+		<SettingsSectionDivider />
+		<SettingsSectionHeader>Advanced</SettingsSectionHeader>
+		<a href="/settings/advanced" class="settings-navigation-link" data-testid="advanced-menu-link">
+			<Settings size={18} />
 			<div class="link-text">
-				<span class="link-title">Sources</span>
-				<span class="link-description">Deploy and configure alternative photo API endpoints</span>
+				<span class="link-title">Advanced Settings</span>
+				<span class="link-description">Configure advanced options and developer settings</span>
 			</div>
-			<ChevronRight size={16} />
 		</a>
-
-		<div class="section-divider"></div>
-		<DebugSettings />
-
 
 
 
@@ -93,15 +94,10 @@
 
 <style>
 	.settings-container {
-		padding: 20px;
 		max-width: 600px;
 		margin: 0 auto;
 	}
 
-	.section-divider {
-		height: 1px;
-		background-color: #e5e7eb;
-	}
 
 
 	.settings-navigation-link {

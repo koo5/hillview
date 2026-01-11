@@ -24,9 +24,11 @@
 			const checkResult = await invoke('plugin:hillview|check_tauri_permissions');
 			console.log('🔔 checkTauriPermissions result:', JSON.stringify(checkResult));
 
-			console.log('🔔 Testing Rust wrapper requestPostNotificationPermission...');
-			const requestResult = await invoke('plugin:hillview|request_post_notification_permission');
-			console.log('🔔 requestPostNotificationPermission result:', JSON.stringify(requestResult));
+			console.log('🔔 Testing Rust wrapper request_tauri_permission (post_notification)...');
+			const requestResult = await invoke('plugin:hillview|request_tauri_permission', {
+				permission: 'post_notification'
+			});
+			console.log('🔔 request_tauri_permission result:', JSON.stringify(requestResult));
 
 			onResult(`Check: ${JSON.stringify(checkResult)}, Request: ${JSON.stringify(requestResult)}`);
 		} catch (error) {

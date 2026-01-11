@@ -23,11 +23,19 @@ class StreamPhotoLoader {
         private const val CONNECTION_TIMEOUT_SECONDS = 30L
         private const val READ_TIMEOUT_SECONDS = 60L
 
+        // Thread-local SimpleDateFormat to avoid creating new instances for each photo
+        // SimpleDateFormat is not thread-safe, so we use ThreadLocal for coroutine safety
+        private val isoDateFormat = ThreadLocal.withInitial {
+            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
+        }
+
         /**
          * Sanitize captured_at timestamps to handle common formatting issues
          */
         private fun sanitizeCapturedAt(timestamp: String?): String? {
-            if (timestamp.isNullOrBlank()) {
+            if (timestamp.isNullOrBlank() || timestamp == "null") {
                 //Log.w(TAG, "Skipping empty captured_at timestamp")
                 return null
             }
@@ -433,10 +441,7 @@ class StreamPhotoLoader {
      */
     private fun parseIsoToTimestamp(isoString: String): Long? {
         return try {
-            val format = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
-                timeZone = TimeZone.getTimeZone("UTC")
-            }
-            format.parse(isoString)?.time
+            isoDateFormat.get()?.parse(isoString)?.time
         } catch (e: Exception) {
             Log.w(TAG, "Failed to parse ISO timestamp: $isoString", e)
             null

@@ -40,11 +40,12 @@ class SimplePhotoWorker {
             }
 
             // Initialize worker with config update including version check
-            // this.sendMessage('configUpdated', {
-            //     config: {
-            //         expectedWorkerVersion: __WORKER_VERSION__
-            //     }
-            // });
+            this.sendMessage('configUpdated', {
+                config: {
+                    expectedWorkerVersion: __WORKER_VERSION__,
+					sources: get(sources)
+                }
+            });
             this.isInitialized = true;
 
             // Set up reactive subscriptions
@@ -247,7 +248,7 @@ class SimplePhotoWorker {
                 return;
             }
 
-            console.log(`🢄SimplePhotoWorker: Sending area update with range ${spatial.range}m...`);
+            //console.log(`🢄SimplePhotoWorker: Sending area update with range ${spatial.range}m...`);
             this.lastBounds = spatial.bounds;
             this.sendMessage('areaUpdated', {
                 area: spatial.bounds,

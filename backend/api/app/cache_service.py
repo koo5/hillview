@@ -15,6 +15,7 @@ from geoalchemy2 import functions as geo_func
 from geoalchemy2.shape import from_shape, to_shape
 from shapely.geometry import Point, Polygon
 from shapely.ops import unary_union
+from sqlalchemy import text
 
 import sys
 import os
@@ -252,7 +253,7 @@ class MapillaryCacheService:
 		request_bbox_wkt = f"POLYGON(({top_left_lon} {top_left_lat}, {bottom_right_lon} {top_left_lat}, {bottom_right_lon} {bottom_right_lat}, {top_left_lon} {bottom_right_lat}, {top_left_lon} {top_left_lat}))"
 
 		# Use PostGIS to check if the union of all complete regions covers the entire request bbox
-		from sqlalchemy import text
+
 		coverage_query = text("""
 			WITH complete_regions AS (
 				SELECT bbox FROM cached_regions
@@ -261,17 +262,21 @@ class MapillaryCacheService:
 			regions_union AS (
 				SELECT ST_Union(bbox) as coverage_area FROM complete_regions
 			)
-			SELECT ST_Contains(coverage_area, ST_GeomFromText(:request_bbox, 4326)) as is_fully_covered
+			SELECT ST_Within(coverage_area, ST_GeomFromText(:request_bbox, 4326)) as is_fully_covered
 			FROM regions_union
 		""")
 
 		region_ids = [r.id for r in complete_regions]
+
+		log.debug(f"Completeness check: Checking coverage with region IDs: {region_ids}, request_bbox={request_bbox_wkt}")
+
 		result = await self.db.execute(coverage_query, {
 			'region_ids': region_ids,
 			'request_bbox': request_bbox_wkt
 		})
 
 		coverage_result = result.scalar()
+		log.debug(f"Completeness check SQL result: {coverage_result}, type={type(coverage_result)}")
 		is_fully_covered = coverage_result is True
 
 		log.info(f"Completeness check: Found {len(complete_regions)} complete regions, full coverage: {is_fully_covered}")
@@ -477,11 +482,12 @@ class MapillaryCacheService:
 			coords = photo_data['geometry']['coordinates']
 			point = Point(coords[0], coords[1])
 
-			# Parse captured_at date
+			# Parse captured_at date (handle Mapillary sometimes returning "null" string)
 			captured_at = None
-			if photo_data.get('captured_at'):
+			raw_captured_at = photo_data.get('captured_at')
+			if raw_captured_at and raw_captured_at != "null":
 				try:
-					captured_at = datetime.datetime.fromisoformat(photo_data['captured_at'].replace('Z', '+00:00'))
+					captured_at = datetime.datetime.fromisoformat(raw_captured_at.replace('Z', '+00:00'))
 				except:
 					pass
 

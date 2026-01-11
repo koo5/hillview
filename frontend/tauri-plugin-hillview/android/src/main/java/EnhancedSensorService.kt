@@ -65,7 +65,7 @@ class EnhancedSensorService(
         private const val HEADING_THRESHOLD = 1.0f // Minimum heading change to trigger update (degrees)
         private const val PITCH_THRESHOLD = 1.0f // Minimum pitch change to trigger update (degrees)
         private const val ROLL_THRESHOLD = 1.0f // Minimum roll change to trigger update (degrees)
-        private const val ACCURACY_THRESHOLD = 1.0f // Minimum accuracy change to trigger update (degrees)
+        private const val ACCURACY_THRESHOLD = 1.0
 
         // Sensor fusion modes
         const val MODE_ROTATION_VECTOR = 0
@@ -156,12 +156,11 @@ class EnhancedSensorService(
     private var smoothedTrueHeading: Float? = null
     private var smoothedPitch: Float? = null
     private var smoothedRoll: Float? = null
-    private var smoothedAccuracy: Float? = null
     private var lastSentMagneticHeading: Float? = null
     private var lastSentTrueHeading: Float? = null
     private var lastSentPitch: Float? = null
     private var lastSentRoll: Float? = null
-    private var lastSentAccuracy: Float? = null
+    private var lastSentAccuracy: Int? = null
 
     // Rotation matrices
     private val rotationMatrix = FloatArray(9)
@@ -373,6 +372,11 @@ class EnhancedSensorService(
             }
             MODE_UPRIGHT_ROTATION_VECTOR -> {
                 // Use rotation vector but optimized for upright phone position
+                magnetometerSensor?.let {
+                    sensorManager.registerListener(this, it, SENSOR_DELAY)
+                    Log.d(TAG, "  ✓ Registered MAGNETOMETER")
+                } ?: Log.w(TAG, "  ❌ MAGNETOMETER not available")
+
                 rotationVectorSensor?.let {
                     Log.d(TAG, "🔄 Registering TYPE_ROTATION_VECTOR sensor for UPRIGHT mode")
                     sensorManager.registerListener(this, it, SENSOR_DELAY)
@@ -424,7 +428,6 @@ class EnhancedSensorService(
             smoothedTrueHeading = null
             smoothedPitch = null
             smoothedRoll = null
-            smoothedAccuracy = null
             lastSentMagneticHeading = null
             lastSentTrueHeading = null
             lastSentPitch = null
@@ -455,17 +458,9 @@ class EnhancedSensorService(
         }
     }
 
-    fun getSensorAccuracy(): Map<String, String> {
-        return mapOf(
-            "magnetometer" to accuracyToString(magnetometerCalibrationStatus),
-            "accelerometer" to accuracyToString(accelerometerCalibrationStatus),
-            "gyroscope" to accuracyToString(gyroscopeCalibrationStatus)
-        )
-    }
-
 
 	fun logEvent(event: SensorEvent) {
-	    //Log.d(TAG, "type=${event.sensor.type}, values=${event.values.joinToString()}")
+	    //Log.d(TAG, "SensorEvent type=${event.sensor.type}, values=${event.values.joinToString()}")
 
 
 		if (event.sensor.type == Sensor.TYPE_HEADING) {
@@ -568,6 +563,8 @@ class EnhancedSensorService(
     override fun onAccuracyChanged(sensor: Sensor, accuracy: Int) {
         val accuracyStr = accuracyToString(accuracy)
 
+		Log.i(TAG, "🔍📐 Sensor accuracy changed: ${sensor.name} (type: ${sensor.type}) → $accuracyStr ($accuracy)")
+
         when (sensor.type) {
             Sensor.TYPE_MAGNETIC_FIELD -> {
                 magnetometerCalibrationStatus = accuracy
@@ -622,14 +619,20 @@ class EnhancedSensorService(
         val pitch = Math.toDegrees(orientation[1].toDouble()).toFloat()
         val roll = Math.toDegrees(orientation[2].toDouble()).toFloat()
 
-		if (abs(roll) > 90) {
-			azimuth = 180 - azimuth // magic
-			azimuth = (azimuth + 360*2) % 360
-		}
 
+		if (abs(roll) > 90) {
+			azimuth += 180
+		}
+		val prefs = context.getSharedPreferences("landscape_compass_armor22_workaround", Context.MODE_PRIVATE)
+        val workaround1 = prefs.getBoolean("enabled", false)
+		if (workaround1) {
+			if (abs(roll) > 90) {
+				azimuth = 0 - azimuth // magic
+			}
+		}
+		azimuth = (azimuth + 360*2) % 360
 
 		//Log.v(TAG, "🔍📊 $source orientation: azimuth=${azimuth.format(1)}°, pitch=${pitch.format(1)}°, roll=${roll.format(1)}°, accuracy=${event.accuracy}, orientation=${deviceOrientation}")
-
 
         // Normalize heading
         val heading = if (azimuth < 0) azimuth + 360 else azimuth
@@ -638,15 +641,13 @@ class EnhancedSensorService(
         val declination = getMagneticDeclination()
         val trueHeading = (heading + declination + 360) % 360
 
-        // Use the actual sensor accuracy reported by the system
-        val accuracy = event.accuracy.toFloat()
-
         // Log every 20th update to avoid spam
         /*if (Math.random() < 0.05) {
             Log.d(TAG, "🔍🧭 $source bearing:")
             Log.d(TAG, "  - Magnetic: ${heading.format(1)}°")
-            Log.d(TAG, "  - True: ${trueHeading.format(1)}°")
-            Log.d(TAG, "  - Accuracy: ±${accuracy.format(1)}°")
+            Log.d(TAG, "  - True: ${trueHeading.format(1)}°")*/
+            //Log.d(TAG, "  - Accuracy level: ${event.accuracy}")
+            /*
             Log.d(TAG, "  - Pitch: ${pitch.format(1)}°, Roll: ${roll.format(1)}°")
         }*/
 
@@ -661,8 +662,7 @@ class EnhancedSensorService(
         sendSensorData(
             magneticHeading = heading,
             trueHeading = trueHeading,
-            headingAccuracy = accuracy,
-            accuracyLevel = event.accuracy,
+            accuracyLevel = magnetometerCalibrationStatus,
             pitch = pitch,
             roll = roll,
             source = sourceWithMode
@@ -801,7 +801,6 @@ class EnhancedSensorService(
         sendSensorData(
             magneticHeading = normalizedHeading,
             trueHeading = trueHeading,
-            headingAccuracy = getMadgwickAccuracy(pitchDeg, rollDeg),
             accuracyLevel = magnetometerCalibrationStatus,
             pitch = pitchDeg,
             roll = rollDeg,
@@ -865,7 +864,6 @@ class EnhancedSensorService(
             sendSensorData(
                 magneticHeading = complementaryAngle,
                 trueHeading = trueHeading,
-                headingAccuracy = getComplementaryAccuracy(pitch, roll),
                 accuracyLevel = magnetometerCalibrationStatus,
                 pitch = pitch,
                 roll = roll,
@@ -887,56 +885,6 @@ class EnhancedSensorService(
         return 0f
     }
 
-    // Accuracy estimation methods for different sensor types
-    private fun getStandardAccuracy(pitch: Float, roll: Float): Float {
-        val tilt = abs(pitch) + abs(roll)
-        return when {
-            tilt < 30 -> 3f
-            tilt < 60 -> 5f
-            tilt < 90 -> 10f
-            else -> 15f
-        }
-    }
-
-    private fun getGameRotationAccuracy(pitch: Float, @Suppress("UNUSED_PARAMETER") roll: Float): Float {
-        // Game rotation vector is more accurate when upright
-        val uprightness = 90 - abs(pitch)
-        return when {
-            uprightness > 60 -> 2f  // Very accurate when upright
-            uprightness > 30 -> 4f
-            uprightness > 0 -> 8f
-            else -> 12f
-        }
-    }
-
-    private fun getGeomagneticAccuracy(pitch: Float, roll: Float): Float {
-        // Consider magnetometer calibration status
-        val baseAccuracy = getStandardAccuracy(pitch, roll)
-        return when (magnetometerCalibrationStatus) {
-            SensorManager.SENSOR_STATUS_ACCURACY_HIGH -> baseAccuracy
-            SensorManager.SENSOR_STATUS_ACCURACY_MEDIUM -> baseAccuracy + 2f
-            SensorManager.SENSOR_STATUS_ACCURACY_LOW -> baseAccuracy + 5f
-            else -> baseAccuracy + 10f
-        }
-    }
-
-    private fun getMadgwickAccuracy(pitch: Float, @Suppress("UNUSED_PARAMETER") roll: Float): Float {
-        // Madgwick typically provides very good accuracy
-        return when {
-            abs(pitch) < 80 -> 2f  // Excellent accuracy except when nearly vertical
-            else -> 5f
-        }
-    }
-
-    private fun getComplementaryAccuracy(@Suppress("UNUSED_PARAMETER") pitch: Float, @Suppress("UNUSED_PARAMETER") roll: Float): Float {
-        // Complementary filter accuracy depends on magnetometer calibration
-        val baseAccuracy = 3f
-        return when (magnetometerCalibrationStatus) {
-            SensorManager.SENSOR_STATUS_ACCURACY_HIGH -> baseAccuracy
-            SensorManager.SENSOR_STATUS_ACCURACY_MEDIUM -> baseAccuracy + 2f
-            else -> baseAccuracy + 4f
-        }
-    }
 
     /**
      * Apply EMA smoothing to a value, handling circular angles properly for headings
@@ -980,7 +928,7 @@ class EnhancedSensorService(
      * Check if sensor values have changed significantly enough to warrant an update
      */
     private fun hasSignificantChange(
-        magneticHeading: Float, trueHeading: Float, accuracy: Float,
+        magneticHeading: Float, trueHeading: Float, accuracy: Int,
         pitch: Float, roll: Float
     ): Boolean {
         val headingChanged = lastSentMagneticHeading?.let {
@@ -1009,7 +957,6 @@ class EnhancedSensorService(
     private fun sendSensorData(
         magneticHeading: Float,
         trueHeading: Float,
-        headingAccuracy: Float,
         accuracyLevel: Int,
         pitch: Float,
         roll: Float,
@@ -1022,17 +969,16 @@ class EnhancedSensorService(
         smoothedTrueHeading = applySmoothingEMA(trueHeading, smoothedTrueHeading, isAngle = true)
         smoothedPitch = applySmoothingEMA(pitch, smoothedPitch, isAngle = false)
         smoothedRoll = applySmoothingEMA(roll, smoothedRoll, isAngle = false)
-        smoothedAccuracy = applySmoothingEMA(headingAccuracy, smoothedAccuracy, isAngle = false)
 
         // Use smoothed values
         val finalMagneticHeading = smoothedMagneticHeading!!
         val finalTrueHeading = smoothedTrueHeading!!
         val finalPitch = smoothedPitch!!
         val finalRoll = smoothedRoll!!
-        val finalAccuracy = smoothedAccuracy!!
+		val finalAccuracy = accuracyLevel
 
         // Check if changes are significant enough to warrant an update
-        if (!hasSignificantChange(finalMagneticHeading, finalTrueHeading, finalAccuracy, finalPitch, finalRoll)) {
+        if (!hasSignificantChange(finalMagneticHeading, finalTrueHeading, 0, finalPitch, finalRoll)) {
             //val suppressTime = System.currentTimeMillis()
             //Log.v(TAG, "TIMING 🔇 sendSensorData SUPPRESSED: ${suppressTime} (${suppressTime - startTime}ms) - changes below threshold")
             return
@@ -1056,7 +1002,6 @@ class EnhancedSensorService(
         val data = OrientationSensorData(
             magneticHeading = finalMagneticHeading,
             trueHeading = finalTrueHeading,
-            headingAccuracy = finalAccuracy,
             accuracyLevel = accuracyLevel,
             pitch = finalPitch,
             roll = finalRoll,

@@ -338,7 +338,9 @@ async def upload_and_process_photo(
 				logger.info(f"Successfully notified API server for photo {photo_id}")
 
 		except Exception as e:
-			logger.error(f"Error notifying API for photo {photo_id}: {e}")
+			import traceback
+			logger.error(f"Error notifying API for photo {photo_id}: {type(e).__name__}: {e}")
+			logger.error(f"Traceback: {traceback.format_exc()}")
 			raise HTTPException(status_code=500, detail="Failed to register result with API server")
 
 	finally:

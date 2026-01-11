@@ -1,4 +1,11 @@
-FROM oven/bun:1-alpine AS builder
+FROM oven/bun:1-debian AS builder
+
+USER root
+# Create non-root user
+RUN groupadd -g 1001 nodejs && \
+    useradd svelte -u 1001 -G nodejs
+
+
 
 WORKDIR /app
 
@@ -17,22 +24,20 @@ RUN bun install # --frozen-lockfile
 #COPY src ./src
 #COPY src-tauri/icons ./src-tauri/icons
 
+
 # Build the app with Node adapter
 ENV ADAPTER=node
 RUN bun run build
 
-# Create non-root user
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S svelte -u 1001 -G nodejs
-
-USER svelte
-
 EXPOSE 3000
+USER svelte
 
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 ENV PORT=3000
 
-RUN cat src/routes/+page.svelte
+#RUN cat src/routes/+page.svelte
 
 CMD ["node", "build/index.js"]
+
+

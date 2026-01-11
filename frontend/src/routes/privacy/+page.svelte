@@ -24,7 +24,7 @@
 			<div class="document-meta">
 				<div class="meta-item">
 					<Calendar size={16} />
-					<span>Last updated: December 2024</span>
+					<span>Last updated: December 2025</span>
 				</div>
 			</div>
 		</header>
@@ -34,23 +34,26 @@
 			<p>
 				When you use Hillview, we may collect the following types of information:
 			</p>
+			<h3>Information we collect on our servers</h3>
 			<ul>
 				<li><strong>Account Information:</strong> Username, email address, and authentication data</li>
-				<li><strong>Photo Data:</strong> Images you upload, including embedded GPS coordinates, timestamps, and camera settings</li>
-				<li><strong>Location Data:</strong> GPS coordinates from photos and device location when using the app</li>
+				<li><strong>Photo Data:</strong> Images you upload, including embedded geolocation information, timestamps, and camera settings</li>
+			</ul>
+			<h3>Information we collect through third-party services</h3>
+			<b>For development and troubleshooting, we may also collect:</b>
+			<ul>
 				<li><strong>Device Information:</strong> Device type, operating system, and app version</li>
 				<li><strong>Usage Data:</strong> How you interact with the app and which features you use</li>
 			</ul>
 		</section>
 
-		<section class="document-section privacy-features">
+		<section class="document-section">
 			<h2>
 				<Eye size={24} />
 				2. Automatic Privacy Protection
 			</h2>
-			<div class="privacy-notice">
 				<p>
-					Hillview implements automatic privacy protection measures to safeguard individuals appearing in photos:
+					Hillview implements automatic privacy protection measures to safeguard privacy of individuals appearing in photos:
 				</p>
 				<ul>
 					<li><strong>Face Detection and Blurring:</strong> Human faces are automatically detected and blurred in uploaded photos</li>
@@ -73,7 +76,6 @@
 						</ul>
 					</div>
 				</div>
-			</div>
 		</section>
 
 		<section class="document-section">
@@ -99,7 +101,7 @@
 			</h2>
 			<p>We do not sell your personal information. We may share information in the following circumstances:</p>
 			<ul>
-				<li><strong>Public Photos:</strong> Photos you mark as public will be visible to other users</li>
+				<li><strong>Uploaded Photos:</strong> Photos you upload will be visible to other users</li>
 				<li><strong>Service Providers:</strong> With trusted service providers who help us operate the service</li>
 				<li><strong>Legal Requirements:</strong> When required by law or to protect our rights and users' safety</li>
 				<li><strong>Business Transfers:</strong> In connection with a merger, acquisition, or sale of assets</li>
@@ -108,7 +110,7 @@
 			<div class="sharing-notice">
 				<p><strong>Public Photo Considerations:</strong></p>
 				<p>
-					When you mark photos as public, they become visible to other Hillview users.
+					When you upload photos, they become visible to other Hillview users.
 					Even with automatic privacy protection, consider whether you want to share
 					photos taken near your home, workplace, or other sensitive locations.
 				</p>
@@ -123,10 +125,9 @@
 				These measures include:
 			</p>
 			<ul>
-				<li>Encryption of data in transit and at rest</li>
+				<li>Encryption of data in transit</li>
 				<li>Regular security assessments and updates</li>
 				<li>Access controls and authentication systems</li>
-				<li>Secure photo processing and storage infrastructure</li>
 			</ul>
 		</section>
 
@@ -138,7 +139,7 @@
 				<li><strong>Correction:</strong> Request correction of inaccurate data</li>
 				<li><strong>Deletion:</strong> Request deletion of your account and associated data</li>
 				<li><strong>Data Portability:</strong> Request a copy of your data in a portable format</li>
-				<li><strong>Photo Management:</strong> Control the visibility of your uploaded photos</li>
+				<li><strong>Photo Management:</strong> Manage or delete your uploaded photos</li>
 			</ul>
 		</section>
 
@@ -152,7 +153,6 @@
 				<li>Your account information is permanently deleted</li>
 				<li>Your uploaded photos are removed from public view</li>
 				<li>Some anonymized usage data may be retained for service improvement</li>
-				<li>Legal obligations may require retention of certain data for specified periods</li>
 			</ul>
 		</section>
 
@@ -165,7 +165,6 @@
 			<ul>
 				<li>OAuth providers (Google, GitHub) for account authentication</li>
 				<li>Map tile providers for displaying maps</li>
-				<li>External photo services for importing photos</li>
 			</ul>
 		</section>
 
@@ -305,20 +304,6 @@
 		margin-bottom: 8px;
 	}
 
-	.privacy-features {
-		background: #f0fdf4;
-		border: 2px solid #bbf7d0;
-		border-radius: 8px;
-		margin: 16px 0;
-	}
-
-	.privacy-notice {
-		background: white;
-		padding: 24px;
-		border-radius: 6px;
-		border: 1px solid #d1fae5;
-	}
-
 	.limitation-notice {
 		background: #fef3c7;
 		border: 1px solid #f59e0b;
@@ -407,10 +392,6 @@
 
 		.document-section {
 			padding: 24px;
-		}
-
-		.privacy-notice {
-			padding: 20px;
 		}
 
 		.limitation-notice {

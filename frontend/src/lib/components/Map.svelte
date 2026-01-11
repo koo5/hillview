@@ -2,7 +2,7 @@
     import {onMount, onDestroy, tick} from 'svelte';
     import {LeafletMap, TileLayer, Marker, Circle, ScaleControl} from 'svelte-leafletjs';
     import {LatLng} from 'leaflet';
-    import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle, MapPin, Pause, ArrowUp, ArrowDown, Layers, Eye, Map as MapIcon} from 'lucide-svelte';
+    import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle, MapPin, Pause, ArrowUp, ArrowDown, Layers, Eye, Map as MapIcon, Info} from 'lucide-svelte';
     import L from 'leaflet';
     import 'leaflet/dist/leaflet.css';
     import { getCurrentProviderConfig, setTileProvider, currentTileProvider } from '$lib/tileProviders';
@@ -11,32 +11,48 @@
     import CompassButton from './CompassButton.svelte';
     import CompassModeMenu from './CompassModeMenu.svelte';
     import { getCurrentPosition, type GeolocationPosition } from '$lib/preciseLocation';
-    import { locationManager } from '$lib/locationManager';
+	import {
+		disableLocationTracking,
+		enableLocationTracking,
+		locationManager,
+		locationTrackingLoading,
+		startLocationTracking,
+		stopLocationTracking
+	} from '$lib/locationManager';
+	import SpatialStateArrow from './SpatialStateArrow.svelte';
 
-    import {
-        spatialState,
-        bearingState,
-        visiblePhotos,
-        photoToLeft,
-        photoToRight,
-        updateSpatialState,
-        updateBearingByDiff,
-        bearingMode,
-        type BearingMode,
-    } from "$lib/mapState";
-    import { sources } from "$lib/data.svelte.js";
+	import {
+		spatialState,
+		bearingState,
+		visiblePhotos,
+		photoToLeft,
+		photoToRight,
+		updateSpatialState,
+		updateBearingByDiff,
+		bearingMode,
+		type BearingMode, updateBearing,
+	} from "$lib/mapState";
+	import {enableSourceForPhotoUid, sources} from "$lib/data.svelte.js";
     import { simplePhotoWorker } from '$lib/simplePhotoWorker';
     import { turn_to_photo_to, app, sourceLoadingStatus } from "$lib/data.svelte.js";
     import { updateGpsLocation, setLocationTracking, setLocationError, gpsLocation, locationTracking } from "$lib/location.svelte.js";
     import { isOnMapRoute, compassEnabled, disableCompass } from "$lib/compass.svelte.js";
     import { optimizedMarkerSystem } from '$lib/optimizedMarkers';
     import '$lib/styles/optimizedMarkers.css';
+	import PhotoMarkerIcon from './PhotoMarkerIcon.svelte';
 
     import {get} from "svelte/store";
+	import SpatialStateArrowIcon from "$lib/components/SpatialStateArrowIcon.svelte";
+	import {stringifyCircularJSON} from "$lib/utils/json";
+	import {TAURI} from "$lib/tauri";
+	import {parsePhotoUid} from "$lib/urlUtilsServer";
+	import {openExternalUrl} from "$lib/urlUtils";
+
+	export let update_url = false;
 
     let flying = false;
     let programmaticMove = false; // Flag to prevent position sync conflicts
-    let locationTrackingLoading = false;
+
     let locationApiEventFlashTimer: any = null;
     let locationApiEventFlash = false;
 
@@ -90,6 +106,21 @@
     // Source buttons display mode
     let compactSourceButtons = true;
 
+    // Attribution popup state (mobile only)
+    let showAttribution = false;
+    let useCompactAttribution = false; // Set on mount based on screen width
+
+    // Handle clicks in attribution popup - open links externally, otherwise close
+    async function handleAttributionClick(event: Event) {
+        const link = (event.target as HTMLElement).closest('a') as HTMLAnchorElement;
+        if (link?.href) {
+            event.preventDefault();
+            await openExternalUrl(link.href);
+        } else {
+            showAttribution = false;
+        }
+    }
+
     // Compass mode menu state
     let compassMenuVisible = false;
     let compassMenuPosition = { top: 0, right: 0 };
@@ -118,6 +149,8 @@
 
     $: map = elMap?.getMap();
 
+
+
     // Expose map to window for testing and fix initial size
     $: if (map && typeof window !== 'undefined') {
         (window as any).leafletMap = map;
@@ -128,25 +161,62 @@
                 console.log('🢄Fixing initial map size');
                 map.invalidateSize({ reset: true, animate: false });
             }
+			afterInit();
         }, 200);
     }
 
+	async function afterInit() {
+		console.log('🢄Page mounted');
+		await tick();
 
 
-    // Export location tracking functions for use by parent
-    export function enableLocationTracking() {
-        if (!get(locationTracking)) {
-            setLocationTracking(true);
-            startLocationTracking();
-        }
-    }
+		const urlParams = new URLSearchParams(window.location.search);
+		const lat = urlParams.get('lat');
+		const lon = urlParams.get('lon');
+		const zoom = urlParams.get('zoom');
+		const bearingParam = urlParams.get('bearing');
+		const photoParam = urlParams.get('photo');
 
-    export function disableLocationTracking() {
-        if (get(locationTracking)) {
-            setLocationTracking(false);
-            stopLocationTracking();
-        }
-    }
+		let p = get(spatialState);
+		let update = false;
+
+		if (lat && lon) {
+			console.log('🢄Setting position to', lat, lon, 'from URL');
+			p.center = new LatLng(parseFloat(lat), parseFloat(lon));
+			update = true;
+		}
+
+		if (zoom) {
+			console.log('🢄Setting zoom to', zoom, 'from URL');
+			p.zoom = parseFloat(zoom);
+			update = true;
+		}
+
+		if (update) {
+			updateSpatialState({...p});
+			map?.setView(p.center, p.zoom);
+		}
+
+		// Handle photo parameter and enable corresponding source
+		const photoUid = parsePhotoUid(photoParam);
+		if (photoUid) {
+			console.log('🢄Photo parameter from URL:', photoUid);
+			enableSourceForPhotoUid(photoUid);
+			// Switch to view mode when opening a specific photo
+			app.update(a => ({...a, activity: 'view'}));
+		}
+
+		if (bearingParam) {
+			console.log('🢄Setting bearing to', bearingParam, 'from URL');
+			const bearing = parseFloat(bearingParam);
+			updateBearing(bearing, 'url', photoUid ?? undefined);
+		}
+
+		setTimeout(() => {
+			update_url = true;
+		}, 100);
+	}
+
 
     export function getLocationData() {
         return userLocation;
@@ -249,6 +319,9 @@
     }
 
     spatialState.subscribe((spatial) => {
+
+		//console.log(`spatialState: ${stringifyCircularJSON(spatial)}`);
+
         if (!map || programmaticMove) return;
         try {
             // Check if map is fully initialized with container
@@ -257,7 +330,7 @@
             const currentCenter = map.getCenter();
             const currentZoom = map.getZoom();
             if (!currentCenter || currentCenter.lat !== spatial.center.lat || currentCenter.lng !== spatial.center.lng || currentZoom !== spatial.zoom) {
-                console.log('🢄setView', spatial.center, spatial.zoom);
+                //console.log('🢄setView', JSON.stringify(spatial.center), spatial.zoom);
                 map.setView(new LatLng(spatial.center.lat, spatial.center.lng), spatial.zoom);
                 onMapStateChange(true, 'spatialState.subscribe');
             }
@@ -269,15 +342,32 @@
 
     let moveEventCount = 0;
     let lastPruneTime = Date.now();
+	let seenFirstMoveEnd = false;
 
     async function mapStateUserEvent(event: any) {
+
+		if (event.type == 'moveend')
+		{
+			if (!seenFirstMoveEnd)
+			{
+				seenFirstMoveEnd = true;
+				return;
+			}
+		}
+
+		if (TAURI && event.type == 'moveend')
+		{
+			return // ignore moveend in android, as those fire off even when the map is moved programmatically - there's no way to distinguish user-initiated location changes from programmatic (gps). The tradeoff is that keyboard cant be used. Mouse/touch works by triggering dragend.
+		}
+
+		console.log('🢄🗺mapStateUserEvent:', stringifyCircularJSON(event.type));
 
         if (!flying) {
             let _center = map.getCenter();
             let p = get(spatialState);
-            //console.log('🢄mapStateUserEvent:', stringifyCircularJSON(event));
+
             if (p.center.lat != _center.lat || p.center.lng != _center.lng) {
-                console.log('🢄p.center:', p.center, '_center:', _center);
+                console.log('🢄p.center:', JSON.stringify(p.center), '_center:', JSON.stringify(_center));
 
                 // Only disable location tracking if this wasn't caused by zoom buttons
                 if (!isZoomButtonEvent) {
@@ -287,9 +377,8 @@
                     console.log('🢄Zoom button event detected - not disabling location tracking');
                 }
             }
+			await onMapStateChange(true, 'mapStateUserEvent');
         }
-
-        await onMapStateChange(true, 'mapStateUserEvent');
     }
 
 
@@ -302,7 +391,7 @@
         try {
             let _center = map.getCenter();
             let _zoom = map.getZoom();
-            console.log('🢄onMapStateChange: force:', force, 'reason:', reason, 'center:', JSON.stringify(_center), 'zoom:', _zoom);
+            //console.log('🢄onMapStateChange: force:', force, 'reason:', reason, 'center:', JSON.stringify(_center), 'zoom:', _zoom);
 
             const currentSpatial = get(spatialState);
             const bounds = map.getBounds();
@@ -538,62 +627,6 @@
     }
 
 
-    // Start tracking user location
-    async function startLocationTracking() {
-        locationTrackingLoading = true;
-
-        try {
-            console.log("📍 Map.svelte Starting location tracking");
-            await locationManager.requestLocation('user');
-
-            locationTrackingLoading = false;
-            console.log("📍 Location tracking started successfully");
-
-        } catch (error: any) {
-            console.error("📍 Error starting location tracking:", error);
-            setLocationError(error?.message || "Unknown error");
-
-            let errorMessage = "Unable to get your location: ";
-            if (error?.name === 'GeolocationPositionError' || error?.code) {
-                switch(error.code) {
-                    case 1:
-                        errorMessage += "Permission denied. Please allow location access.";
-                        break;
-                    case 2:
-                        errorMessage += "Position unavailable. Please check if location services are enabled.";
-                        break;
-                    case 3:
-                        errorMessage += "Request timed out.";
-                        break;
-                    default:
-                        errorMessage += error?.message || "Unknown error";
-                }
-            } else {
-                errorMessage += error?.message || "Unknown error";
-            }
-
-            alert(errorMessage);
-            setLocationTracking(false);
-            locationTrackingLoading = false;
-        }
-    }
-
-    // Stop tracking user location
-    async function stopLocationTracking() {
-        locationTrackingLoading = false;
-
-        try {
-            console.log("📍 Stopping location tracking");
-            await locationManager.releaseLocation('user');
-        } catch (error) {
-            console.error("📍 Error stopping location tracking:", error);
-        }
-
-        // Clear the location data when stopping
-        updateGpsLocation(null);
-        setLocationError(null);
-    }
-
     // Handle GPS location updates only (position/coordinates)
     async function handleGpsLocationUpdate(position: GeolocationPosition) {
         const { latitude, longitude, accuracy } = position.coords;
@@ -601,8 +634,8 @@
         // Store the location data locally
         userLocation = position;
 
-        console.log("handleGpsLocationUpdate:", latitude, longitude, accuracy);
-        locationTrackingLoading = false;
+        //console.log("handleGpsLocationUpdate:", latitude, longitude, accuracy);
+        locationTrackingLoading.set(false);
         locationApiEventFlash = true;
         if (locationApiEventFlashTimer !== null) {
             clearTimeout(locationApiEventFlashTimer);
@@ -778,16 +811,20 @@
                 console.error('🢄Failed to initialize SimplePhotoWorker:', error);
             }
 
-            await onMapStateChange(true, 'mount');
+            //await onMapStateChange(true, 'mount');
             //console.log('🢄Map component mounted - after onMapStateChange');
 
             // Add zoom control after scale control for proper ordering
             const zoomControl = new L.Control.Zoom({ position: 'topleft' });
             map.addControl(zoomControl);
 
-            // Add attribution control at bottom-left
-            const attributionControl = new L.Control.Attribution({ position: 'bottomleft' });
-            map.addControl(attributionControl);
+            // Add attribution control at bottom-left (desktop only)
+            // On mobile/narrow screens, use compact (i) button instead
+            useCompactAttribution = window.innerWidth < 768;
+            if (!useCompactAttribution) {
+                const attributionControl = new L.Control.Attribution({ position: 'bottomleft' });
+                map.addControl(attributionControl);
+            }
 
             // Set up zoom control listeners
             setupZoomControlListeners();
@@ -936,7 +973,7 @@
     $: centerX = width / 2;
     let centerY: number;
     $: centerY = height / 2;
-    let arrowLength = fov_circle_radius_px + 150;
+    let arrowLength = fov_circle_radius_px;
 
     let arrow_radians;
     let arrowX;
@@ -956,7 +993,7 @@
 
     // Reactive updates for spatial changes (photos from worker include filtered placeholders)
     $: if ($visiblePhotos && map) {
-        console.log(`🢄Map: Reactive update triggered - updating markers with ${$visiblePhotos.length} total photos`);
+        //console.log(`🢄Map: Reactive update triggered - updating markers with ${$visiblePhotos.length} total photos`);
         updateOptimizedMarkers($visiblePhotos);
     }
 
@@ -975,7 +1012,15 @@
 <div bind:clientHeight={height} bind:clientWidth={width} class="map">
     <LeafletMap
             bind:this={elMap}
-            events={{moveend: mapStateUserEvent, zoomend: mapStateUserEvent}}
+            events={
+            	{
+					moveend: mapStateUserEvent,
+					zoomend: mapStateUserEvent,
+	            	dragend: mapStateUserEvent,
+    	        	dragstart: (e) => {disableLocationTracking()},
+    	        	//movestart: (e) => {console.log('🗺movestart', stringifyCircularJSON(e))},
+            	}
+            	}
             options={{
 				attributionControl: false, // We'll add it manually with correct position
                 center: [$spatialState.center.lat, $spatialState.center.lng],
@@ -1030,64 +1075,29 @@
         {/key}
 
 
-        {#if $spatialState.center}
+        {#if ($app.activity != 'capture') && $spatialState.center}
             <Circle
                     latLng={$spatialState.center}
                     radius={$spatialState.range}
                     color="#4AE092"
-                    fillColor="#4A90E2"
+                    fillColor="#ffffff"
                     weight={1.8}
+					dashArray={[5, 15]}
             />
             <!-- arrow -->
         {/if}
 
         <div class="svg-overlay">
-            <svg
-                    height={height}
-                    viewBox={`0 0 ${width} ${height}`}
-                    width={width}
-            >
-                <!--                    <circle-->
-                <!--                            cx={centerX}-->
-                <!--                            cy={centerY}-->
-                <!--                            r={radius}-->
-                <!--                            fill="rgba(74, 144, 226, 0.1)"-->
-                <!--                            stroke="rgb(74, 144, 226)"-->
-                <!--                            strokeWidth="2"-->
-                <!--                    />-->
 
-                <line
-                        marker-end="url(#arrowhead)"
-                        stroke="rgb(74, 144, 226)"
-                        stroke-width="3"
-                        x1={centerX}
-                        x2={arrowX}
-                        y1={centerY}
-                        y2={arrowY}
-                />
-                <defs>
-                    <marker
-                            id="arrowhead"
-                            markerHeight="7"
-                            markerWidth="10"
-                            orient="auto"
-                            refX="9"
-                            refY="3.5"
-                    >
-                        <polygon
-                                fill="rgb(74, 244, 74)"
-                                points="0 0, 10 3.5, 0 7"
-                        />
-                    </marker>
-                </defs>
+ 			<SpatialStateArrow
+				{width}
+				{height}
+				{centerX}
+				{centerY}
+				{arrowX}
+				{arrowY}
+			/>
 
-                <!--                    <circle-->
-                <!--                            cx={centerX}-->
-                <!--                            cy={centerY}-->
-                <!--                            r="3"-->
-                <!--                            fill="rgb(74, 144, 226)"-->
-                <!--                    />-->
-            </svg>
         </div>
 
 
@@ -1113,6 +1123,28 @@
 <div class="provider-selector-container">
     <TileProviderSelector />
 </div>
+
+{#if useCompactAttribution}
+    <button
+        class="attribution-info-button"
+        on:click={() => showAttribution = !showAttribution}
+        title="Map attribution"
+    >
+        <Info size={18} />
+    </button>
+    {#if showAttribution}
+        <div
+            class="attribution-popup"
+            role="dialog"
+            aria-label="Map attribution"
+            tabindex="-1"
+            on:click={handleAttributionClick}
+            on:keydown={(e) => e.key === 'Escape' && (showAttribution = false)}
+        >
+            {@html tileConfig.attribution || '© OpenStreetMap contributors'}
+        </div>
+    {/if}
+{/if}
 
 </div>
 
@@ -1144,7 +1176,7 @@
             {#if slideshowActive && slideshowDirection === 'left'}
                 <Pause />
             {:else}
-                <ArrowLeftCircle/>
+                <PhotoMarkerIcon bearing={-90} />
             {/if}
         </button>
 
@@ -1152,28 +1184,32 @@
                 on:click={async (e) => {await handleButtonClick('rotate-ccw', e)}}
                 title="Rotate view 15° counterclockwise"
         >
-            <RotateCcw/>
+            <SpatialStateArrowIcon centerX={8} centerY={8} arrowX={5} arrowY={2} />
         </button>
 
         <button
                 on:click={(e) => handleButtonClick('forward', e)}
                 title="Move forward in viewing direction"
         >
-            <ArrowUp/>
+
+			<SpatialStateArrowIcon centerX={8} centerY={8} arrowX={8} arrowY={0} />
+
         </button>
 
         <button
                 on:click={(e) => handleButtonClick('backward', e)}
                 title="Move backward"
         >
-            <ArrowDown/>
+
+			<SpatialStateArrowIcon centerX={8} centerY={8} arrowX={8} arrowY={16} />
+
         </button>
 
         <button
                 on:click={(e) => handleButtonClick('rotate-cw', e)}
                 title="Rotate view 15° clockwise"
         >
-            <RotateCw/>
+            <SpatialStateArrowIcon centerX={8} centerY={8} arrowX={11} arrowY={2} />
         </button>
 
         <button
@@ -1189,7 +1225,7 @@
             {#if slideshowActive && slideshowDirection === 'right'}
                 <Pause />
             {:else}
-                <ArrowRightCircle/>
+                <PhotoMarkerIcon bearing={90} />
             {/if}
         </button>
     </div>
@@ -1204,7 +1240,7 @@
         class:flash={locationApiEventFlash}
     >
         <MapPin />
-        {#if locationTrackingLoading}
+        {#if $locationTrackingLoading}
             <Spinner show={true} color="#4285F4"></Spinner>
         {/if}
     </button>
@@ -1212,16 +1248,10 @@
 </div>
 
 <div class="source-buttons-container" class:compact={compactSourceButtons}>
-    <button
-        class="toggle-compact {compactSourceButtons ? 'active' : ''}"
-        on:click={() => compactSourceButtons = !compactSourceButtons}
-        title={compactSourceButtons ? "Show labels" : "Hide labels"}
-    >
-        <Layers size={16} />
-    </button>
     {#each $sources as source}
         <button
-                class={source.enabled ? 'active' : ''}
+
+                class=" source-button {source.enabled ? 'active' : ''}"
                 on:click={() => toggleSourceVisibility(source.id)}
                 title={`Toggle ${source.name} photos`}
                 data-testid={`source-toggle-${source.id}`}
@@ -1230,17 +1260,24 @@
                 <Spinner show={source.enabled && ($sourceLoadingStatus[source.id]?.is_loading || false)} color="#fff"></Spinner>
                 <div class="source-icon" style="background-color: {source.color}"></div>
             </div>
-            {#if !compactSourceButtons}
+			{#if !compactSourceButtons}
                 {source.name}
-            {/if}
+				{:else}
+				{source.name.charAt(0)}..
+			{/if}
         </button>
     {/each}
+    <button
+        class="toggle-compact {compactSourceButtons ? 'active' : ''}"
+        on:click={() => compactSourceButtons = !compactSourceButtons}
+        title={compactSourceButtons ? "Show labels" : "Hide labels"}
+    >
+        ...
+    </button>
 </div>
 
 
 <style>
-
-
 
 
     .map {
@@ -1252,7 +1289,7 @@
 
     .control-buttons-container {
         position: absolute;
-        bottom: 10px;
+        bottom: 0px;
         right: 0;
         z-index: 30000;
         pointer-events: none; /* This makes the container transparent to mouse events */
@@ -1262,7 +1299,7 @@
         display: flex;
         gap: 0.5rem;
         background-color: rgba(255, 255, 255, 0.1);
-        padding: 0.15rem;
+        padding: 0rem;
         border-radius: 0.5rem 0 0 0;
         box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
         pointer-events: auto; /* This makes the buttons clickable */
@@ -1309,8 +1346,8 @@
 
     .location-button-container {
         position: absolute;
-        top: 0px;
-        right: 10px;
+        top: 6px;
+        right: 5px;
         z-index: 30000;
         display: flex;
         gap: 8px;
@@ -1355,14 +1392,15 @@
 
     .source-buttons-container {
         position: absolute;
-        top: 50px;
-        right: 10px;
+        top: 100px;
+        right: 5px;
         z-index: 30000;
         display: flex;
         flex-direction: column;
         gap: 0.5rem;
         margin: 0;
         padding: 0;
+		text-overflow: ellipsis;
     }
 
     .source-buttons-container button {
@@ -1404,13 +1442,13 @@
         /*background-color: rgba(255, 255, 255, 0.1);*/
     }
 
- .source-buttons-container.compact button {
-    opacity: 0.7;
-}
+	 .source-buttons-container.compact button {
+		opacity: 0.7;
+	}
 
-.source-buttons-container:not(.compact) button {
-    opacity: 1;
-}
+	.source-buttons-container:not(.compact) button {
+		opacity: 1;
+	}
 
     .source-icon {
         width: 1rem;
@@ -1428,9 +1466,6 @@
 
     /* Compact mode styles */
     .source-buttons-container.compact button {
-        padding: 0.5rem;
-        width: 40px;
-        height: 40px;
         justify-content: center;
     }
 
@@ -1454,8 +1489,8 @@
     }
 
     .toggle-compact.active {
-        background-color: #666 !important;
-        color: white !important;
+        background-color: #ddd !important;
+        color: black !important;
         border-color: #555 !important;
     }
 
@@ -1471,9 +1506,56 @@
 
     .provider-selector-container {
         position: absolute;
-        bottom: 15px;
+        top: 115px;
         left: 10px;
         z-index: 30000;
+		background-color: rgba(255, 255, 255, 0.5);
+    }
+
+    .attribution-info-button {
+        position: absolute;
+        top: 155px;
+        left: 10px;
+        z-index: 30000;
+        width: 32px;
+        height: 32px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        background-color: rgba(255, 255, 255, 0.7);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+    }
+
+    .attribution-info-button:hover {
+        background-color: rgba(255, 255, 255, 0.9);
+    }
+
+    .attribution-popup {
+        position: absolute;
+        top: 190px;
+        left: 10px;
+        z-index: 30001;
+        max-width: 280px;
+        padding: 8px 12px;
+        background-color: rgba(255, 255, 255, 0.95);
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        font-size: 11px;
+        line-height: 1.4;
+        cursor: pointer;
+    }
+
+    .attribution-popup :global(a) {
+        color: #0078a8;
+        text-decoration: none;
+    }
+
+    .attribution-popup :global(a:hover) {
+        text-decoration: underline;
     }
 
 

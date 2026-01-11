@@ -20,7 +20,6 @@ private const val TAG = "Geo"
 data class OrientationSensorData(
 	val magneticHeading: Float,  // Compass bearing in degrees from magnetic north (0-360°)
 	val trueHeading: Float,       // Compass bearing corrected for magnetic declination
-	val headingAccuracy: Float,  // Calculated accuracy in degrees (for future use)
 	val accuracyLevel: Int,      // Android sensor accuracy constants: -1=unknown, 0=unreliable, 1=low, 2=medium, 3=high
 	val pitch: Float,
 	val roll: Float,
@@ -82,7 +81,6 @@ class GeoTrackingManager(private val context: Context) {
 						timestamp = data.timestamp,
 						trueHeading = data.trueHeading,
 						magneticHeading = data.magneticHeading,
-						headingAccuracy = data.headingAccuracy,
 						accuracyLevel = data.accuracyLevel,
 						sourceId = sourceId,
 						pitch = data.pitch,
@@ -109,7 +107,6 @@ class GeoTrackingManager(private val context: Context) {
 						timestamp = timestamp,
 						trueHeading = trueHeading,
 						magneticHeading = if (params.has("magneticHeading")) params.getDouble("magneticHeading").toFloat() else null,
-						headingAccuracy = if (params.has("headingAccuracy")) params.getDouble("headingAccuracy").toFloat() else null,
 						accuracyLevel = if (params.has("accuracyLevel")) params.getInteger("accuracyLevel") else null,
 						sourceId = sourceId,
 						pitch = if (params.has("pitch")) params.getDouble("pitch").toFloat() else null,
@@ -206,44 +203,55 @@ class GeoTrackingManager(private val context: Context) {
 		}
 	}
 
-	fun dumpAndClear() {
-		// todo: dump all data and clear all entries older than a certain timestamp
-
+	/**
+	 * Clears old geo tracking data and optionally exports to CSV.
+	 * @param forceDump If true, always export to CSV. If false, check auto_export preference.
+	 */
+	fun dumpAndClear(forceDump: Boolean = false) {
 		val now = System.currentTimeMillis()
 
-		// Use app's external files directory (no permissions needed)
-		val externalFilesDir = context.getExternalFilesDir(null)
-		val hillviewDir = File(externalFilesDir, "GeoTrackingDumps")
-		if (!hillviewDir.exists()) {
-			hillviewDir.mkdirs()
-		}
-
-		val bearingsFn = File(hillviewDir, "bearings_${now}.csv")
-		val locationsFn = File(hillviewDir, "locations_${now}.csv")
+		// Check if we should dump based on preference or force flag
+		val prefs = context.getSharedPreferences("hillview_tracking_prefs", Context.MODE_PRIVATE)
+		val autoExportEnabled = prefs.getBoolean("auto_export", false)
+		val shouldDump = forceDump || autoExportEnabled
 
 		CoroutineScope(Dispatchers.IO).launch {
-			try {
-				// Build reverse source cache for export
-				val sourceIdToName = buildSourceIdToNameMap()
+			if (shouldDump) {
+				// Use app's external files directory (no permissions needed)
+				val externalFilesDir = context.getExternalFilesDir(null)
+				val hillviewDir = File(externalFilesDir, "GeoTrackingDumps")
+				if (!hillviewDir.exists()) {
+					hillviewDir.mkdirs()
+				}
 
-				val bearings = database.bearingDao().getAllBearings()
-				val bearingsCsv = bearingsToCsv(bearings, sourceIdToName)
-				bearingsFn.writeText(bearingsCsv)
-				Log.i(TAG, "🢄📡 Dumped ${bearings.size} bearings to ${bearingsFn.absolutePath}")
+				val bearingsFn = File(hillviewDir, "hillview_orientations_${now}.csv")
+				val locationsFn = File(hillviewDir, "hillview_locations_${now}.csv")
 
-				val locations = database.locationDao().getAllLocations()
-				val locationsCsv = locationsToCsv(locations, sourceIdToName)
-				locationsFn.writeText(locationsCsv)
-				Log.i(TAG, "🢄📡 Dumped ${locations.size} locations to ${locationsFn.absolutePath}")
-			} catch (e: Exception) {
-				Log.e(TAG, "🢄📡 Failed to dump geo tracking data: ${e.message}", e)
+				try {
+					val sourceIdToName = buildSourceIdToNameMap()
+
+					val bearings = database.bearingDao().getAllBearings()
+					val bearingsCsv = bearingsToCsv(bearings, sourceIdToName)
+					bearingsFn.writeText(bearingsCsv)
+					Log.i(TAG, "🢄📡 Dumped ${bearings.size} bearings to ${bearingsFn.absolutePath}")
+
+					val locations = database.locationDao().getAllLocations()
+					val locationsCsv = locationsToCsv(locations, sourceIdToName)
+					locationsFn.writeText(locationsCsv)
+					Log.i(TAG, "🢄📡 Dumped ${locations.size} locations to ${locationsFn.absolutePath}")
+				} catch (e: Exception) {
+					Log.e(TAG, "🢄📡 Failed to dump geo tracking data: ${e.message}", e)
+				}
+			} else {
+				Log.d(TAG, "🢄📡 Skipping geo data dump (auto_export disabled)")
 			}
 
-			val cutoff = now - 5 * 60 * 1000
+			// Always clear old data
+			val cutoff = now// - 5 * 60 * 1000
 
 			try {
-				database.bearingDao().clearBearingsOlderThan(cutoff)
-				database.locationDao().clearLocationsOlderThan(cutoff)
+				//database.bearingDao().clearBearingsOlderThan(cutoff)
+				//database.locationDao().clearLocationsOlderThan(cutoff)
 				Log.i(TAG, "🢄📡 Geo tracking tables cleared")
 			} catch (e: Exception) {
 				Log.e(TAG, "🢄📡 Failed to clear geo tracking tables: ${e.message}", e)
@@ -277,21 +285,21 @@ class GeoTrackingManager(private val context: Context) {
 	}
 
 	private fun bearingsToCsv(bearings: List<BearingEntity>, sourceIdToName: Map<Int, String>): String {
-		val header = "timestamp,trueHeading,magneticHeading,headingAccuracy,accuracyLevel,source,pitch,roll\n"
+		val header = "#timestamp,trueHeading,magneticHeading,accuracyLevel,source,pitch,roll\n"
 		val rows = bearings.joinToString("\n") { bearing ->
 			val sourceName = escapeCsv(sourceIdToName[bearing.sourceId] ?: "unknown")
-			"${bearing.timestamp},${bearing.trueHeading},${bearing.magneticHeading ?: ""},${bearing.headingAccuracy ?: ""},${bearing.accuracyLevel ?: ""},${sourceName},${bearing.pitch ?: ""},${bearing.roll ?: ""}"
+			"${bearing.timestamp},${bearing.trueHeading},${bearing.magneticHeading ?: ""},${bearing.accuracyLevel ?: ""},${sourceName},${bearing.pitch ?: ""},${bearing.roll ?: ""}"
 		}
-		return header + rows
+		return header + rows + "\n"
 	}
 
 	private fun locationsToCsv(locations: List<LocationEntity>, sourceIdToName: Map<Int, String>): String {
-		val header = "timestamp,latitude,longitude,source,altitude,accuracy,verticalAccuracy,speed,bearing\n"
+		val header = "#timestamp,latitude,longitude,source,altitude,accuracy,verticalAccuracy,speed,bearing\n"
 		val rows = locations.joinToString("\n") { location ->
 			val sourceName = escapeCsv(sourceIdToName[location.sourceId] ?: "unknown")
-			"${location.timestamp},${location.latitude},${location.longitude},${sourceName},${location.altitude ?: ""},${location.accuracy ?: ""},${location.speed ?: ""},${location.bearing ?: ""}"
+			"${location.timestamp},${location.latitude},${location.longitude},${sourceName},${location.altitude ?: ""},${location.accuracy ?: ""},${location.verticalAccuracy ?: ""},${location.speed ?: ""},${location.bearing ?: ""}"
 		}
-		return header + rows
+		return header + rows + "\n"
 	}
 
 }

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import '../app.css';
 	import {browser} from '$app/environment';
 	import {page} from '$app/stores';
 	import {get} from 'svelte/store';
@@ -16,6 +17,8 @@
 	import {zoomViewData} from '$lib/zoomView.svelte';
 	import {getCurrent} from "@tauri-apps/plugin-deep-link";
 	import {navigateWithHistory} from "$lib/navigation.svelte";
+	import {kotlinMessageQueue} from '$lib/KotlinMessageQueue';
+	import {app, onAppActivityChange} from "$lib/data.svelte";
 
 
 	// Log navigation events
@@ -41,11 +44,11 @@
 	});
 
 	// Handle body scroll prevention for zoom view
-	$: {
+	/*$: {
 		if (browser && document?.body) {
 			document.body.style.overflow = $zoomViewData ? 'hidden' : '';
 		}
-	}
+	}*/
 
 	onMount(async () => {
 
@@ -61,6 +64,20 @@
 		if (TAURI) {
 			await setupDeepLinkListener();
 		}
+
+		if (TAURI_MOBILE) {
+			// Start message queue polling and handle notification clicks
+			kotlinMessageQueue.startPolling();
+			kotlinMessageQueue.on('notification-click', async (message) => {
+				const route = message.payload?.route;
+				if (route) {
+					console.log('🔔 Notification click received, navigating to:', route);
+					await navigateWithHistory(route);
+				}
+			});
+		}
+
+		onAppActivityChange($app.activity);
 	});
 
 
@@ -108,7 +125,8 @@
 
 
 <svelte:head>
-  <title>{((backendUrl === 'https://api.hillview.app') ? 'Hillview' : 'Hillviedev')}</title>
+<!-- not sure this has effect anywhere -->
+  <title>{((backendUrl === 'https://api.hillview.cz/api') ? 'Hillview' : 'Hillviedev')}</title>
 </svelte:head>
 
 <slot/>

@@ -165,7 +165,7 @@
         </div>
         <div style="font-size: 10px; opacity: 0.8">True
             bearing: {$compassData.true_heading?.toFixed(1) || 'N/A'}° | Accuracy:
-            ±{$compassData.heading_accuracy?.toFixed(0) || 'N/A'}°
+            {$compassData.accuracy_level}
         </div>
         {#if $deviceOrientation}
             <div style="font-size: 10px; opacity: 0.8">Device tilt -
@@ -187,7 +187,7 @@
         <div><strong>🎯 Compass Bearing:</strong></div>
         <div>Heading: <span class="highlight">{$currentCompassHeading.heading?.toFixed(1)}°</span></div>
         <div>Source: {$currentCompassHeading.source}</div>
-        <div>Accuracy: {$currentCompassHeading.accuracy?.toFixed(0) || 'N/A'}°</div>
+        <div>Accuracy: {$currentCompassHeading.accuracy_level}</div>
     </div>
 {/if}
 

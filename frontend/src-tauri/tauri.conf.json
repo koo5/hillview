@@ -1,51 +1,53 @@
 {
-  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "hillview",
-  "version": "0.1.0",
-  "identifier": "cz.hillview",
-  "build": {
-    "frontendDist": "../build",
-    "devUrl": "http://localhost:8218",
-    "beforeDevCommand": "VITE_DEV_PORT=8218 bun run dev",
-    "beforeBuildCommand": "bun ./build.js"
-  },
-  "app": {
-    "withGlobalTauri": true,
-    "windows": [
-      {
-        "label": "main",
-        "title": "hillview",
-        "width": 800,
-        "height": 600,
-        "resizable": true,
-        "fullscreen": false
-      }
-    ],
-    "security": {
-"csp": "default-src * ipc: http://ipc.localhost; img-src * asset: http://asset.localhost data: blob:; script-src * 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'",
-"assetProtocol": {
-  "enable": true,
-  "scope": [
-    "/storage/emulated/0/Pictures/Hillview/**",
-    "/storage/emulated/0/Android/data/cz.hillview.dev/files/Pictures/**"
-  ]
-}
-    }
-  },
-  "plugins": {
-    "deep-link": {
-      "schemes": ["cz.hillview"]
-    }
-  },
-  "bundle": {
-    "active": true,
-    "targets": "all",
-    "icon": [
-      "icons/32x32.png",
-      "icons/128x128.png",
-      "icons/128x128@2x.png",
-      "icons/icon.icns",
-      "icons/icon.ico"
-    ]
-  }
+	"$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+	"productName": "Hillview",
+	"version": "0.3.1",
+	"identifier": "cz.hillview",
+	"build": {
+		"frontendDist": "../build",
+		"devUrl": "http://localhost:8218",
+		"beforeDevCommand": "VITE_DEV_PORT=8218 bun run dev",
+		"beforeBuildCommand": "bun ./build.js"
+	},
+	"app": {
+		"withGlobalTauri": true,
+		"windows": [
+			{
+				"label": "main",
+				"title": "Hillview",
+				"width": 800,
+				"height": 600,
+				"resizable": true,
+				"fullscreen": false
+			}
+		],
+		"security": {
+			"csp": "default-src * ipc: http://ipc.localhost; img-src * asset: http://asset.localhost data: blob:; script-src * 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'",
+			"assetProtocol": {
+				"enable": true,
+				"scope": [
+					"/storage/emulated/0/DCIM/Hillview/**",
+					"/storage/emulated/0/Pictures/Hillview/**",
+					"/storage/emulated/0/Android/data/cz.hillview/files/Pictures/**"
+				]
+			}
+		}
+	},
+	"plugins": {
+		"deep-link": {
+			"schemes": [
+				"cz.hillview"
+			]
+		}
+	},
+	"bundle": {
+		"active": true,
+		"targets": "all",
+		"icon": [
+			"icons/32x32.png",
+			"icons/128x128.png",
+			"icons/128x128@2x.png",
+			"icons/icon.ico"
+		]
+	}
 }

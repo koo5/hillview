@@ -1,6 +1,4 @@
 import { get } from 'svelte/store';
-import { TAURI, TAURI_MOBILE } from './tauri';
-import { invoke } from '@tauri-apps/api/core';
 import { http } from '$lib/http';
 
 import { backendUrl } from './config';

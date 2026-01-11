@@ -3,12 +3,15 @@
 import asyncio
 import logging
 import os
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 import firebase_admin
 from firebase_admin import credentials, messaging
 
 logger = logging.getLogger(__name__)
+
+# FCM batch limit
+FCM_BATCH_SIZE = 500
 
 # Firebase app instance
 firebase_app = None
@@ -45,7 +48,7 @@ def is_fcm_configured() -> bool:
     return firebase_app is not None
 
 
-async def send_fcm_push(fcm_token: str, title: str, body: str, data: Optional[Dict[str, str]] = None) -> bool:
+async def send_fcm_push(fcm_token: str, title: str, body: str, route: Optional[str] = None) -> bool:
     """Send FCM notification to device token."""
     if not is_fcm_configured():
         logger.error("FCM not configured")
@@ -55,29 +58,28 @@ async def send_fcm_push(fcm_token: str, title: str, body: str, data: Optional[Di
     token = fcm_token.replace('fcm:', '') if fcm_token.startswith('fcm:') else fcm_token
 
     try:
-        # Build FCM message with proper deep link
+        # Build data payload with route for click handling
+        data = {}
+        if route:
+            data['click_action'] = route
+
         message = messaging.Message(
             notification=messaging.Notification(
                 title=title,
                 body=body
             ),
-			data={
-				'click_action': '/activity'
-			},
-		#data=data or {},
+            data=data,
             android=messaging.AndroidConfig(
                 notification=messaging.AndroidNotification(
                     channel_id='hillview_activity_notifications',
-					color='#8BC3FA',
-					tag='activity',
-					#click_action='act=android.intent.action.VIEW',
-					sound="",
-					priority='default',
-					visibility='public',
-					notification_count=7
+                    color='#8BC3FA',
+                    tag='activity',
+                    sound="",
+                    priority='default',
+                    visibility='public',
+                    notification_count=7
                 ),
-                # Add deep link data that FCM will use for intent
-			),
+            ),
             token=token
         )
 
@@ -97,4 +99,76 @@ async def send_fcm_push(fcm_token: str, title: str, body: str, data: Optional[Di
     except Exception as e:
         logger.error(f"FCM error: {e}")
         return False
+
+
+async def send_fcm_batch(
+    fcm_tokens: List[str],
+    title: str,
+    body: str,
+    route: Optional[str] = None
+) -> Dict[str, int]:
+    """Send FCM notification to multiple device tokens in batch.
+
+    FCM supports up to 500 messages per batch. This function handles
+    splitting larger lists into multiple batches.
+
+    Returns dict with counts: {'success': int, 'failure': int}
+    """
+    if not is_fcm_configured():
+        logger.error("FCM not configured")
+        return {'success': 0, 'failure': len(fcm_tokens)}
+
+    if not fcm_tokens:
+        return {'success': 0, 'failure': 0}
+
+    # Build data payload
+    data = {}
+    if route:
+        data['click_action'] = route
+
+    # Build messages for all tokens
+    messages = []
+    for fcm_token in fcm_tokens:
+        token = fcm_token.replace('fcm:', '') if fcm_token.startswith('fcm:') else fcm_token
+        messages.append(messaging.Message(
+            notification=messaging.Notification(
+                title=title,
+                body=body
+            ),
+            data=data,
+            android=messaging.AndroidConfig(
+                notification=messaging.AndroidNotification(
+                    channel_id='hillview_activity_notifications',
+                    color='#8BC3FA',
+                    tag='activity',
+                    sound="",
+                    priority='default',
+                    visibility='public',
+                ),
+            ),
+            token=token
+        ))
+
+    total_success = 0
+    total_failure = 0
+
+    # Send in batches of FCM_BATCH_SIZE
+    for i in range(0, len(messages), FCM_BATCH_SIZE):
+        batch = messages[i:i + FCM_BATCH_SIZE]
+        try:
+            batch_response = await messaging.send_each_async(batch)
+            total_success += batch_response.success_count
+            total_failure += batch_response.failure_count
+
+            # Log any failures
+            for idx, response in enumerate(batch_response.responses):
+                if not response.success:
+                    logger.warning(f"FCM batch item {i + idx} failed: {response.exception}")
+
+        except Exception as e:
+            logger.error(f"FCM batch error: {e}")
+            total_failure += len(batch)
+
+    logger.info(f"FCM batch sent: {total_success} success, {total_failure} failure")
+    return {'success': total_success, 'failure': total_failure}
 

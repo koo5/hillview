@@ -58,11 +58,11 @@ from geoalchemy2.functions import ST_Point, ST_X, ST_Y
 import sys
 import os
 
-from app.push_notifications import send_activity_broadcast_notification
+from push_notifications import send_activity_broadcast_notification
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
-from common.models import Photo, User
+from common.models import Photo, User, PhotoRating, PhotoRatingType
 from auth import get_current_active_user
 from common.file_utils import (
 	validate_and_prepare_photo_file,
@@ -89,6 +89,49 @@ router = APIRouter(prefix="/api/photos", tags=["photos"])
 # Upload directory configuration
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "./uploads"))
 UPLOAD_DIR.mkdir(exist_ok=True)
+
+from sqlalchemy import func, and_
+
+async def get_ratings_for_photos(db: AsyncSession, photo_ids: list, user_id: str) -> dict:
+	"""Get ratings data for a list of photo IDs.
+
+	Returns dict mapping photo_id to {user_rating, rating_counts}
+	"""
+	if not photo_ids:
+		return {}
+
+	# Get all ratings for these photos
+	result = await db.execute(
+		select(
+			PhotoRating.photo_id,
+			PhotoRating.rating,
+			PhotoRating.user_id
+		).where(
+			and_(
+				PhotoRating.photo_source == 'hillview',
+				PhotoRating.photo_id.in_([str(pid) for pid in photo_ids])
+			)
+		)
+	)
+
+	# Build rating counts and user ratings
+	ratings_data = {}
+	for photo_id, rating, rating_user_id in result.fetchall():
+		if photo_id not in ratings_data:
+			ratings_data[photo_id] = {
+				'user_rating': None,
+				'rating_counts': {'thumbs_up': 0, 'thumbs_down': 0}
+			}
+
+		# Increment count
+		rating_key = rating.value.lower()
+		ratings_data[photo_id]['rating_counts'][rating_key] += 1
+
+		# Check if this is the current user's rating
+		if str(rating_user_id) == str(user_id):
+			ratings_data[photo_id]['user_rating'] = rating_key
+
+	return ratings_data
 
 # Request models for processed photo data
 class ProcessedPhotoData(BaseModel):
@@ -198,6 +241,14 @@ async def save_processed_photo(
 			detail="Invalid processing status"
 		)
 
+	# Validate bearing/compass_angle is in valid range [0, 360]
+	if processed_data.compass_angle is not None:
+		if processed_data.compass_angle < 0 or processed_data.compass_angle > 360:
+			raise HTTPException(
+				status_code=status.HTTP_400_BAD_REQUEST,
+				detail=f"Invalid bearing value: {processed_data.compass_angle}. Must be between 0 and 360 degrees."
+			)
+
 	photo.processing_status = processed_data.processing_status
 	photo.width = processed_data.width
 	photo.height = processed_data.height
@@ -228,7 +279,13 @@ async def save_processed_photo(
 
 	logger.info(f"Photo {photo_id} processing data saved successfully with verified client signature")
 
-	await send_activity_broadcast_notification(db, photo.owner_id)
+	# Send activity broadcast notification - wrapped in try/except so notification
+	# errors don't fail the photo upload
+	try:
+		await send_activity_broadcast_notification(db, photo.owner_id)
+	except Exception as e:
+		logger.warning(f"Failed to send activity broadcast notification for photo {photo_id}: {e}")
+		# Don't re-raise - photo upload succeeded, notification is non-critical
 
 	return {
 		"message": "Processed photo data saved successfully",
@@ -453,25 +510,37 @@ async def list_photos(
 		if has_more and photo_records:
 			next_cursor = photo_records[-1][0].uploaded_at.isoformat()
 
-		photos_data = [{
-			"id": photo.id,
-			"filename": photo.filename,
-			"original_filename": photo.original_filename,
-			"description": photo.description,
-			"is_public": photo.is_public,
-			"latitude": latitude,
-			"longitude": longitude,
-			"bearing": photo.compass_angle,
-			"width": photo.width,
-			"height": photo.height,
-			"uploaded_at": photo.uploaded_at,
-			"captured_at": photo.captured_at,
-			"processing_status": photo.processing_status,
-			"error": photo.error,
-			"sizes": photo.sizes,
-			"owner_id": photo.owner_id,
-			"owner_username": current_user.username
-		} for photo, longitude, latitude in photo_records]
+		# Fetch ratings for all photos in one query
+		photo_ids = [photo.id for photo, _, _ in photo_records]
+		ratings_data = await get_ratings_for_photos(db, photo_ids, current_user.id)
+
+		photos_data = []
+		for photo, longitude, latitude in photo_records:
+			photo_rating = ratings_data.get(photo.id, {
+				'user_rating': None,
+				'rating_counts': {'thumbs_up': 0, 'thumbs_down': 0}
+			})
+			photos_data.append({
+				"id": photo.id,
+				"filename": photo.filename,
+				"original_filename": photo.original_filename,
+				"description": photo.description,
+				"is_public": photo.is_public,
+				"latitude": latitude,
+				"longitude": longitude,
+				"bearing": photo.compass_angle,
+				"width": photo.width,
+				"height": photo.height,
+				"uploaded_at": photo.uploaded_at,
+				"captured_at": photo.captured_at,
+				"processing_status": photo.processing_status,
+				"error": photo.error,
+				"sizes": photo.sizes,
+				"owner_id": photo.owner_id,
+				"owner_username": current_user.username,
+				"user_rating": photo_rating['user_rating'],
+				"rating_counts": photo_rating['rating_counts']
+			})
 
 		return {
 			"photos": photos_data,
@@ -572,6 +641,13 @@ async def get_photo(
 
 		photo, longitude, latitude = photo_record
 
+		# Get rating data for this photo
+		ratings_data = await get_ratings_for_photos(db, [photo.id], current_user.id)
+		photo_rating = ratings_data.get(photo.id, {
+			'user_rating': None,
+			'rating_counts': {'thumbs_up': 0, 'thumbs_down': 0}
+		})
+
 		return {
 			"id": photo.id,
 			"filename": photo.filename,
@@ -592,7 +668,9 @@ async def get_photo(
 			"detected_objects": photo.detected_objects,
 			"sizes": photo.sizes,
 			"owner_id": photo.owner_id,
-			"owner_username": current_user.username  # Since this is the current user's photo
+			"owner_username": current_user.username,  # Since this is the current user's photo
+			"user_rating": photo_rating['user_rating'],
+			"rating_counts": photo_rating['rating_counts']
 		}
 
 	except HTTPException:

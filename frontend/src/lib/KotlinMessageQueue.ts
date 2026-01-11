@@ -37,7 +37,7 @@ export class KotlinMessageQueue {
 
         this.pollingInterval = setInterval(() => {
             this.pollMessages();
-        }, 450);
+        }, 150);
     }
 
     /**
@@ -112,7 +112,7 @@ export class KotlinMessageQueue {
     private handleMessage(message: QueuedMessage): void {
         const handlers = this.handlers.get(message.type);
         if (handlers && handlers.length > 0) {
-            console.log(`🔔 KotlinMessageQueue: Handling message type: ${message.type}`);
+            //console.log(`🔔 KotlinMessageQueue: Handling message type: ${message.type}`);
 
             for (const handler of handlers) {
                 try {

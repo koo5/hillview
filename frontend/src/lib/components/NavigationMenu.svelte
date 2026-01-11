@@ -81,20 +81,10 @@
                 Users
             </a></li>
 
-
-            <li><a href="/about" on:click={closeMenu}>
-                <Info size={18}/>
-                About
-            </a></li>
-
-            <li>
-                <a href="http://hillview.cz/download" data-external-link="true" target="_blank" rel="noopener noreferrer">
-                    <Download size={18}/>
-                    Download App
-                </a>
-            </li>
-
             {#if FEATURE_USER_ACCOUNTS}
+
+				<hr/>
+
                 <li>
                     <a href="/settings" on:click={closeMenu} data-testid="settings-menu-link">
                         <Settings size={18}/>
@@ -128,24 +118,42 @@
                         </a>
                     </li>
                 {/if}
-            {:else}
-                <li class="feature-disabled">FEATURE_USER_ACCOUNTS off</li>
             {/if}
 
-<li>
-        <div class="build-info">
-            <div class="build-version">
-                Hillview v{BUILD_VERSION}
-            </div>
-            <div class="build-timestamp">
-                {formatUtcDate(new Date(BUILD_TIME))}
-            </div>
-            <div class="build-timestamp">
-                {backendUrl}
-            </div>
-        </div>
+			<hr/>
 
-</li>
+            <li><a href="/about" on:click={closeMenu}>
+                <Info size={18}/>
+                About
+            </a></li>
+
+			{#if !TAURI}
+				<li>
+					<a href="/download" data-external-link="true" target="_blank" rel="noopener noreferrer">
+						<Download size={18}/>
+						Download App
+					</a>
+				</li>
+			{/if}
+
+
+			<hr/>
+			<li>
+					<div class="build-info">
+						<div class="build-version">
+							Hillview v{BUILD_VERSION}
+						</div>
+						<div class="build-timestamp">
+							{formatUtcDate(new Date(BUILD_TIME))}
+						</div>
+						<div class="build-timestamp">
+							{backendUrl}
+						</div>
+					</div>
+
+			</li>
+
+
         </ul>
 
     </nav>
@@ -222,19 +230,11 @@
         color: #991b1b;
     }
 
-    .feature-disabled {
-        padding: 12px 24px;
-        color: #9ca3af;
-        font-size: 0.9rem;
-        font-style: italic;
-    }
-
     .build-info {
         padding: 16px 24px;
-        border-top: 1px solid #e5e7eb;
         background: #f9fafb;
         font-family: monospace;
-        font-size: 0.75rem;
+        font-size: 0.5rem;
         color: #6b7280;
         line-height: 1.4;
     }

@@ -21,7 +21,6 @@ data class BearingEntity(
     val timestamp: Long,
     val trueHeading: Float,
     val magneticHeading: Float? = null,
-    val headingAccuracy: Float? = null, // Calculated accuracy in degrees (for future use)
     val accuracyLevel: Int? = null, // Android SensorManager constants: -1=unknown, 0=unreliable, 1=low, 2=medium, 3=high
     val sourceId: Int, // Foreign key to sources table
     val pitch: Float? = null,

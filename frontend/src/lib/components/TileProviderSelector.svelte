@@ -63,12 +63,11 @@
 
     .provider-button {
 		position: absolute;
-		bottom: 4rem;
+		top: 0rem;
         display: flex;
         align-items: center;
-        gap: 0.25rem;
-        padding: 0.5rem;
-        background-color: white;
+        padding: 0.6rem 0.3rem;
+        background-color: rgba(255, 255, 255, 0.6);
         border: 1px solid #ccc;
         border-radius: 0.25rem;
         cursor: pointer;
@@ -87,9 +86,9 @@
 
     .provider-menu {
         position: absolute;
-        bottom: 4rem;
-        left: 0;
-        margin-bottom: 0.25rem;
+        top: -100px;
+		left: 1rem;
+		margin-bottom: 0.25rem;
         background-color: white;
         border: 1px solid #ccc;
         border-radius: 0.25rem;

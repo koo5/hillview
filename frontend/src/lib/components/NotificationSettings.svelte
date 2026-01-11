@@ -2,6 +2,8 @@
 	import { onMount } from 'svelte';
 	import { Bell, BellOff, AlertTriangle } from 'lucide-svelte';
 	import { invoke } from '@tauri-apps/api/core';
+	import SettingsSectionHeader from "$lib/components/SettingsSectionHeader.svelte";
+	import {app} from "$lib/data.svelte";
 
 	// Type definitions for API responses
 	interface NotificationSettingsResponse {
@@ -66,7 +68,9 @@
 			console.log('🔔 Requesting notification permission via Tauri...');
 			console.log('🔔 Current permission state before request:', permissionGranted);
 
-			const result = await invoke<string>('plugin:hillview|request_post_notification_permission');
+			const result = await invoke<string>('plugin:hillview|request_tauri_permission', {
+				permission: 'post_notification'
+			});
 
 			console.log('🔔 Notification permission request result:', JSON.stringify(result));
 
@@ -178,14 +182,9 @@
 </script>
 
 <div class="notification-settings">
-	<h2>
-	{#if notificationsEnabled}
-			<Bell size={20} />
-		{:else}
-			<BellOff size={20} />
-		{/if}
+	<SettingsSectionHeader>
 		Notifications
-	</h2>
+	</SettingsSectionHeader>
 
 	<!-- Main notification toggle -->
 	<div class="setting-item">
@@ -228,7 +227,7 @@
 
 
 	<!-- Test Notification -->
-	{#if notificationsEnabled}
+	{#if notificationsEnabled && $app.debug}
 		<div class="test-notification">
 			<button
 				class="test-notification-button"
@@ -265,10 +264,8 @@
 		align-items: center;
 		gap: 1rem;
 		cursor: pointer;
-		padding: 0.75rem;
 		border-radius: 0.5rem;
 		border: 1px solid #e5e7eb;
-		background: #f9fafb;
 		transition: all 0.2s ease;
 	}
 
@@ -342,9 +339,6 @@
 	}
 
 	.test-notification-button {
-		background: #e5e7eb;
-		color: #374151;
-		border: 1px solid #d1d5db;
 		padding: 0.5rem 1rem;
 		border-radius: 0.375rem;
 		font-size: 0.75rem;

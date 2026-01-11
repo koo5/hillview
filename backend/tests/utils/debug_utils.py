@@ -178,16 +178,81 @@ def clear_mock_mapillary():
         print(f"❌ Error: {e}")
 
 
+def populate_photos(count: int = 4):
+    """Populate the database with test Hillview photos."""
+    import asyncio
+    from .image_utils import create_test_image_full_gps
+    from .secure_upload_utils import SecureUploadClient
+    from .test_utils import wait_for_photo_processing, API_URL
+
+    async def _populate():
+        print(f"📸 Creating {count} test Hillview photos...")
+
+        # Get auth token for test user
+        token = auth_helper.get_test_user_token("test")
+
+        upload_client = SecureUploadClient(api_url=API_URL)
+
+        # Test photo data: filename, color, lat, lon, bearing
+        photo_configs = [
+            ("prague_castle.jpg", (255, 0, 0), 50.0755, 14.4378, 45.0),      # Red - Prague Castle
+            ("old_town.jpg", (0, 255, 0), 50.0865, 14.4175, 90.0),           # Green - Old Town Square
+            ("wenceslas_sq.jpg", (0, 0, 255), 50.0819, 14.4362, 135.0),      # Blue - Wenceslas Square
+            ("charles_bridge.jpg", (255, 255, 0), 50.0870, 14.4208, 180.0),  # Yellow - Charles Bridge
+            ("vysehrad.jpg", (255, 0, 255), 50.0643, 14.4178, 225.0),        # Magenta - Vysehrad
+            ("petrin.jpg", (0, 255, 255), 50.0833, 14.3950, 270.0),          # Cyan - Petrin Hill
+        ]
+
+        created = 0
+        for i in range(min(count, len(photo_configs))):
+            filename, color, lat, lon, bearing = photo_configs[i]
+
+            print(f"  Uploading {filename}...")
+
+            # Create image with full GPS data
+            image_data = create_test_image_full_gps(400, 300, color, lat, lon, bearing)
+
+            # Secure upload workflow
+            client_keys = upload_client.generate_client_keys()
+            await upload_client.register_client_key(token, client_keys)
+
+            auth_data = await upload_client.authorize_upload_with_params(
+                token, filename, len(image_data), lat, lon,
+                f"Test photo at {filename.replace('.jpg', '').replace('_', ' ')}",
+                is_public=True, file_data=image_data
+            )
+
+            result = await upload_client.upload_to_worker(image_data, auth_data, client_keys, filename)
+            photo_id = result.get('photo_id', auth_data.get('photo_id'))
+
+            # Wait for processing
+            photo_data = wait_for_photo_processing(photo_id, token, timeout=30)
+            if photo_data['processing_status'] == 'completed':
+                created += 1
+                print(f"    ✓ {filename}: lat={photo_data.get('latitude'):.4f}, lon={photo_data.get('longitude'):.4f}, bearing={photo_data.get('bearing')}°")
+            else:
+                print(f"    ✗ {filename} failed: {photo_data.get('error', 'Unknown error')}")
+
+        print(f"\n✅ Created {created}/{count} test photos")
+
+    try:
+        asyncio.run(_populate())
+    except Exception as e:
+        print(f"❌ Error: {e}")
+
+
 def main():
     """Command-line interface."""
     if len(sys.argv) < 2:
         print("Usage:")
-        print("  python debug_utils.py recreate         # Recreate test users")
-        print("  python debug_utils.py photos           # Show user's photos")
-        print("  python debug_utils.py photo <id>       # Show photo details")
-        print("  python debug_utils.py cleanup          # Delete user's photos")
-        print("  python debug_utils.py mock-mapillary   # Set up mock Mapillary data")
-        print("  python debug_utils.py clear-mapillary  # Clear mock Mapillary data")
+        print("  python debug_utils.py recreate           # Recreate test users")
+        print("  python debug_utils.py photos             # Show user's photos")
+        print("  python debug_utils.py photo <id>         # Show photo details")
+        print("  python debug_utils.py cleanup            # Delete user's photos")
+        print("  python debug_utils.py populate-photos    # Create test Hillview photos")
+        print("  python debug_utils.py populate-photos 6  # Create N test photos (max 6)")
+        print("  python debug_utils.py mock-mapillary     # Set up mock Mapillary data")
+        print("  python debug_utils.py clear-mapillary    # Clear mock Mapillary data")
         return
 
     command = sys.argv[1]
@@ -200,6 +265,9 @@ def main():
         debug_photo_details(sys.argv[2])
     elif command == "cleanup":
         cleanup_photos()
+    elif command == "populate-photos":
+        count = int(sys.argv[2]) if len(sys.argv) > 2 else 4
+        populate_photos(count)
     elif command == "mock-mapillary":
         setup_mock_mapillary()
     elif command == "clear-mapillary":

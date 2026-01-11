@@ -24,10 +24,11 @@
 	import {navigateWithHistory} from '$lib/navigation.svelte';
 	import UploadSettingsComponent from '$lib/components/UploadSettings.svelte';
 	import {invoke} from "@tauri-apps/api/core";
-	import {autoUploadSettings} from "$lib/autoUploadSettings";
 	import LoadMoreButton from "$lib/components/LoadMoreButton.svelte";
 	import LicenseSelector from '$lib/components/LicenseSelector.svelte';
 	import {photoLicense} from '$lib/data.svelte';
+	import RetryUploadsButton from "$lib/components/RetryUploadsButton.svelte";
+	import DevicePhotoStats from "$lib/components/DevicePhotoStats.svelte";
 
 	let photos: UserPhoto[] = [];
 	let isLoading = true;
@@ -63,7 +64,6 @@
 
 
 	onMount(() => {
-
 		// Subscribe to userId changes to avoid reactive loops from auth store updates during token refresh
 		const unsubscribe = userId.subscribe(async (currentUserId) => {
 
@@ -116,6 +116,7 @@
 	}
 
 	async function fetchPhotos(reset = false) {
+		isLoading = true;
 		try {
 			if (reset) {
 				photos = [];
@@ -155,6 +156,9 @@
 				// No need to handle manually, http client already logged out
 				return;
 			}
+		}
+		finally {
+			isLoading = false;
 		}
 	}
 
@@ -230,28 +234,6 @@
 	function viewOnMap(photo: UserPhoto) {
 		if (photo.latitude && photo.longitude) {
 			myGoto(constructPhotoMapUrl(photo));
-		}
-	}
-
-	async function manualUpload(photoId: number) {
-		console.log(`🢄Manual upload requested for photo ${photoId}`);
-
-		try {
-			if (TAURI) {
-				const result = await invoke('plugin:hillview|retry_failed_uploads') as { success: boolean };
-				if (result.success) {
-					addLogEntry('Manual upload triggered successfully', 'success');
-					// Refresh photos to update processing status
-					await fetchPhotos(true);
-				} else {
-					addLogEntry('Failed to trigger manual upload', 'error');
-				}
-			} else {
-				addLogEntry('Manual upload is only available on mobile', 'warning');
-			}
-		} catch (error) {
-			console.error('🢄Error triggering manual upload:', error);
-			addLogEntry(`Manual upload failed: ${error}`, 'error');
 		}
 	}
 
@@ -349,19 +331,20 @@
 </script>
 
 <StandardHeaderWithAlert
-	title="My Photos"
+	title={"My Photos" + ' (' + totalCount + ')'}
 	showMenuButton={true}
 	fallbackHref="/"
 />
 
 <StandardBody>
 	{#if TAURI}
+
 		<div class="page-actions">
-			<button class="settings-button" on:click={() => showSettings = !showSettings}>
+			<button class="action-button primary" on:click={() => showSettings = !showSettings}>
 				<Settings size={20}/>
 				Settings
 			</button>
-			<button class="device-photos-button" on:click={() => myGoto('/device-photos')}
+			<button class="action-button primary" on:click={() => myGoto('/device-photos')}
 					data-testid="device-photos-button">
 				Device Photos
 			</button>
@@ -383,10 +366,12 @@
 		</div>
 	{/if}
 
+	<DevicePhotoStats addLogEntry={addLogEntry} onRefresh={() => fetchPhotos(true)} />
+
 	{#if !TAURI}
 		<div class="photo-management-section" data-testid="photo-management-section">
 			<div class="tabs-header">
-				<h2>Photo Management</h2>
+				<h2>Upload Photos</h2>
 				<div class="tabs">
 					{#if !TAURI}
 						<button
@@ -466,7 +451,9 @@
 	{/if}
 
 	<div class="photos-grid" data-testid="photos-grid">
-		<h2>My Photos ({totalCount})</h2>
+		{#if !TAURI}
+			<h2>My Photos ({totalCount})</h2>
+		{/if}
 
 		{#if isLoading}
 			<div class="loading-container" data-testid="loading-container">
@@ -476,7 +463,11 @@
 		{:else if photos.length === 0}
 			<p class="no-photos" data-testid="no-photos-message">
 				{#if user}
-					You haven't uploaded any photos yet.
+					{#if !error}
+						You haven't uploaded any photos yet.
+					{:else}
+						There was an error loading photos.
+					{/if}
 				{:else}
 					Please
 					<button type="button" class="login-link" on:click={goToLogin}>log in</button>
@@ -496,13 +487,13 @@
 							</details>
 						{/if}
 
-						<div class="photo-image">
+						<button class="photo-image" on:click={() => viewOnMap(photo)} type="button">
 							<img
 								src={photo.sizes?.['320']?.url}
 								alt={photo.description || photo.original_filename}
 								data-testid="photo-thumbnail"
 							/>
-						</div>
+						</button>
 						<div class="photo-info">
 							<h3 data-testid="photo-filename">{photo.original_filename}</h3>
 							{#if photo.description}
@@ -514,12 +505,6 @@
 								<p class="meta">Captured: {formatDate(photo.captured_at)}</p>
 							{/if}
 							<div class="photo-actions">
-								{#if photo.latitude && photo.longitude}
-									<button class="action-button" on:click={() => viewOnMap(photo)}>
-										<Map size={16}/>
-										View on Map
-									</button>
-								{/if}
 								<button
 									class="action-button rating {photo.user_rating === 'thumbs_up' ? 'active' : ''}"
 									data-testid="thumbs-up-button"
@@ -542,25 +527,13 @@
 										{photo.rating_counts?.thumbs_down || 0}
 									</span>
 								</button>
-								{#if TAURI && photo.processing_status && photo.processing_status !== 'completed'}
-									{#if $autoUploadSettings.value?.auto_upload_enabled}
-										<button class="action-button upload" data-testid="manual-upload-button"
-												data-photo-id={photo.id} on:click={() => manualUpload(photo.id)}>
-											<Upload size={16}/>
-											Retry Uploads
-										</button>
-									{:else}
-										<span class="help-text">
-											Enable auto-upload in settings to retry failed uploads.
-										</span>
-									{/if}
-								{/if}
 								<button class="action-button delete" data-testid="delete-photo-button"
 										data-photo-id={photo.id} on:click={() => deletePhoto(photo.id)}>
 									<Trash2 size={16}/>
 									Delete
 								</button>
 							</div>
+							<RetryUploadsButton {photo} {addLogEntry} />
 						</div>
 					</div>
 				{/each}
@@ -584,46 +557,15 @@
 
 	.page-actions {
 		display: flex;
-		justify-content: flex-end;
 		gap: 12px;
-		margin-bottom: 16px;
+		margin-bottom: 20px;
+		flex-wrap: wrap;
+		justify-content: center;
 	}
 
 	h2 {
 		margin-top: 0;
 		color: #444;
-	}
-
-	.settings-button {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		padding: 8px 16px;
-		background-color: #f5f5f5;
-		border: 1px solid #ddd;
-		border-radius: 4px;
-		cursor: pointer;
-		transition: background-color 0.3s;
-	}
-
-	.settings-button:hover {
-		background-color: #e5e5e5;
-	}
-
-	.device-photos-button {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		padding: 8px 16px;
-		background-color: #f5f5f5;
-		border: 1px solid #ddd;
-		border-radius: 4px;
-		cursor: pointer;
-		transition: background-color 0.3s;
-	}
-
-	.device-photos-button:hover {
-		background-color: #e5e5e5;
 	}
 
 	.settings-panel {
@@ -820,6 +762,12 @@
 	.photo-image {
 		height: 200px;
 		overflow: hidden;
+		width: 100%;
+		padding: 0;
+		border: none;
+		background: none;
+		cursor: pointer;
+		display: block;
 	}
 
 	.photo-image img {
@@ -863,61 +811,10 @@
 
 	.photo-actions {
 		display: flex;
+		align-items: center;
+		justify-content: space-between;
 		gap: 8px;
 		margin-top: 12px;
-	}
-
-	.action-button {
-		display: flex;
-		align-items: center;
-		gap: 4px;
-		padding: 6px 12px;
-		background-color: #f5f5f5;
-		border: 1px solid #ddd;
-		border-radius: 4px;
-		font-size: 14px;
-		cursor: pointer;
-		transition: background-color 0.3s;
-	}
-
-	.action-button:hover {
-		background-color: #e5e5e5;
-	}
-
-	.action-button.delete {
-		color: #e53935;
-	}
-
-	.action-button.delete:hover {
-		background-color: #ffebee;
-	}
-
-	.action-button.rating {
-		color: #6b7280;
-		position: relative;
-	}
-
-	.action-button.rating:hover {
-		background-color: #f0f9ff;
-		color: #1e40af;
-	}
-
-	.action-button.rating.active {
-		background-color: #dbeafe;
-		color: #1e40af;
-		border-color: #3b82f6;
-	}
-
-	.action-button.rating.active:hover {
-		background-color: #bfdbfe;
-	}
-
-	.action-button.upload {
-		color: #059669;
-	}
-
-	.action-button.upload:hover {
-		background-color: #f0fdf4;
 	}
 
 	.rating-count {
@@ -935,21 +832,6 @@
 		margin-bottom: 20px;
 	}
 
-	.login-notice {
-		background: #fff3cd;
-		color: #856404;
-		padding: 0.75em;
-		border-radius: 6px;
-		margin-top: 0.5em;
-	}
-
-	.urgent-login-notice {
-		background: #f8d7da;
-		color: #721c24;
-		font-weight: bold;
-		border: 2px solid #dc3545;
-		animation: urgentPulse 1s infinite alternate;
-	}
 
 	@keyframes urgentPulse {
 		0% {
@@ -983,15 +865,20 @@
 		.grid {
 			grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
 		}
+
+		.page-actions {
+			justify-content: stretch;
+		}
+
+		.page-actions .action-button {
+			flex: 1;
+			justify-content: center;
+		}
 	}
 
 	@media (max-width: 480px) {
 		.grid {
 			grid-template-columns: 1fr;
-		}
-
-		.photo-actions {
-			flex-direction: column;
 		}
 	}
 
@@ -1010,6 +897,4 @@
 	.login-link:hover {
 		color: #0d47a1;
 	}
-
-
 </style>

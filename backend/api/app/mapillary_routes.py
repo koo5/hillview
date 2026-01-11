@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import httpx
 from asyncio import Lock, Queue
 import time
-
+import math
 import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
@@ -107,11 +107,11 @@ class MapillaryAPIManager:
 				log.error(f"Queue worker error: {e}")
 
 
-	async def make_request(self, params: Dict[str, Any], max_retries: int = 3) -> Dict[str, Any]:
+	async def make_request(self, params: Dict[str, Any], max_retries: int = 10) -> Dict[str, Any]:
 		"""Make a rate-limited request to Mapillary API with retries"""
 		self.stats['total_requests'] += 1
 
-		for attempt in range(max_retries + 1):
+		for attempt in range(1 + max_retries):
 			try:
 				# Wait for rate limit
 				await self.rate_limiter.wait_for_tokens(1)
@@ -143,7 +143,7 @@ class MapillaryAPIManager:
 				log.error(f"Mapillary API request timed out (attempt {attempt + 1}): {e}")
 				if attempt < max_retries:
 					self.stats['retry_attempts'] += 1
-					await asyncio.sleep(min(2 ** attempt, 30))  # Exponential backoff, max 30s
+					await asyncio.sleep(min(2 ** attempt, 15))  # Exponential backoff
 					continue
 
 			except httpx.HTTPStatusError as e:
@@ -151,7 +151,7 @@ class MapillaryAPIManager:
 				if e.response.status_code >= 500 and attempt < max_retries:
 					# Retry on server errors
 					self.stats['retry_attempts'] += 1
-					await asyncio.sleep(min(2 ** attempt, 30))
+					await asyncio.sleep(min(2 ** (attempt+1), 10))
 					continue
 				break  # Don't retry on client errors (4xx)
 
@@ -266,6 +266,12 @@ async def stream_mapillary_images(
 	log.info(f"User authentication status: {current_user.username if current_user else 'Anonymous'} (ID: {current_user.id if current_user else 'None'})")
 	log.info(f"Photo limits: client requested {max_photos}, server limit {MAX_PHOTOS_PER_REQUEST}, effective limit {effective_max_photos}")
 
+	# check bounds sanity
+	if top_left_lon == 180:
+		top_left_lon = -180
+	if bottom_right_lon == 180:
+		bottom_right_lon = -180
+
 	async def generate_stream(db_session: AsyncSession, user: Optional[User] = None):
 		request_id = datetime.datetime.now().strftime("%Y%m%d%H%M%S.%f")
 		log.info(f"Stream generator started for request {request_id} from client {client_id} (cache_enabled={ENABLE_MAPILLARY_CACHE}, live_enabled={ENABLE_MAPILLARY_LIVE})")
@@ -276,6 +282,23 @@ async def stream_mapillary_images(
 			yield f"data: {json.dumps({'type': 'photos', 'photos': []})}\n\n"
 			yield f"data: {json.dumps({'type': 'stream_complete', 'total_live_photos': 0, 'total_cached_photos': 0, 'total_all_photos': 0})}\n\n"
 			return
+
+		if top_left_lat == bottom_right_lat or top_left_lon == bottom_right_lon:
+			yield f"data: {json.dumps({'type': 'photos', 'photos': []})}\n\n"
+			yield f"data: {json.dumps({'type': 'stream_complete', 'total_live_photos': 0, 'total_cached_photos': 0, 'total_all_photos': 0})}\n\n"
+			return
+		for l in [top_left_lat, bottom_right_lat]:
+			if l < -90 or l > 90:
+				raise HTTPException(
+					status_code=status.HTTP_400_BAD_REQUEST,
+					detail="Invalid latitude value"
+				)
+		for l in [top_left_lon, bottom_right_lon]:
+			if l < -180 or l >= 180:
+				raise HTTPException(
+					status_code=status.HTTP_400_BAD_REQUEST,
+					detail="Invalid longitude value"
+				)
 
 		# Track all photos (cached + live) to avoid memory issues
 		total_photo_count = 0
@@ -322,23 +345,24 @@ async def stream_mapillary_images(
 				if cached_photos:
 					log.info(f"Cache hit: Found {len(cached_photos)} cached photos for bbox (complete_coverage={is_complete_coverage})")
 
-					if is_complete_coverage:
-						# Complete coverage - use cache regardless of distribution
-						log.info(f"Using cached photos from COMPLETE region coverage (distribution check skipped)")
-					else:
-						# Incomplete coverage - check distribution
-						min_distribution_threshold = 0.9
-
-						if distribution_score < min_distribution_threshold:
-							log.info(f"Cached photos poorly distributed (score: {distribution_score:.2%} < {min_distribution_threshold:.2%}), ignoring cache and using live API")
-							cache_ignored_due_to_distribution = True
-							cached_photo_count = 0
-							yield f"data: {json.dumps({'type': 'photos', 'photos': [], 'hasNext': True})}\n\n"
-						else:
-							log.info(f"Cached photos well distributed (score: {distribution_score:.2%}), using cache")
+					# if is_complete_coverage:
+					# 	# Complete coverage - use cache regardless of distribution
+					# 	log.info(f"Using cached photos from COMPLETE region coverage (distribution check skipped)")
+					# else:
+					# 	# Incomplete coverage - check distribution
+					# 	min_distribution_threshold = 0.9
+					#
+					# 	if distribution_score < min_distribution_threshold:
+					# 		log.info(f"Cached photos poorly distributed (score: {distribution_score:.2%} < {min_distribution_threshold:.2%}), ignoring cache and using live API")
+					# 		cache_ignored_due_to_distribution = True
+					# 		cached_photo_count = 0
+					# 		yield f"data: {json.dumps({'type': 'photos', 'photos': [], 'hasNext': True})}\n\n"
+					# 	else:
+					# 		log.info(f"Cached photos well distributed (score: {distribution_score:.2%}), using cache")
 
 					# If we're using cache (complete coverage or good distribution), process the photos
 					if not cache_ignored_due_to_distribution:
+
 						sorted_cached = sorted(cached_photos, key=lambda x: x.get('bearing') or 0)
 
 						# Clean up grid info before sending to client
@@ -361,14 +385,15 @@ async def stream_mapillary_images(
 					yield f"data: {json.dumps({'type': 'photos', 'photos': []})}\n\n"
 
 				# Calculate uncached regions (or use full area if cache was ignored due to poor distribution)
-				if cache_ignored_due_to_distribution:
-					# Cache was ignored due to poor distribution, fetch entire area
-					log.info("poor cache distribution.")
-					uncached_regions = [(top_left_lat, top_left_lon, bottom_right_lat, bottom_right_lon)]
-				else:
-					uncached_regions = await cache_service.calculate_uncached_regions(
-						top_left_lat, top_left_lon, bottom_right_lat, bottom_right_lon
-					)
+				# if cache_ignored_due_to_distribution:
+				# 	# Cache was ignored due to poor distribution, fetch entire area
+				# 	log.info("poor cache distribution.")
+				# 	uncached_regions = [(top_left_lat, top_left_lon, bottom_right_lat, bottom_right_lon)]
+				# else:
+				# 	uncached_regions = await cache_service.calculate_uncached_regions(
+				# 		top_left_lat, top_left_lon, bottom_right_lat, bottom_right_lon
+				# 	)
+				uncached_regions = [(top_left_lat, top_left_lon, bottom_right_lat, bottom_right_lon)]
 
 				event['inputs'].append({
 					'bbox': [top_left_lat, top_left_lon, bottom_right_lat, bottom_right_lon],
@@ -397,6 +422,9 @@ async def stream_mapillary_images(
 					# Skip processing if live API is disabled
 					if not ENABLE_MAPILLARY_LIVE:
 						break
+
+					# Ensure region is not too large (larger regions cause internal server errors from Mapillary)
+					region_bbox = shrink_bbox_to_max_area(region_bbox, max_area_sq_deg=0.009)
 
 					log.info(f"Processing uncached region {region_idx + 1}/{len(uncached_regions)}: {region_bbox}")
 					# Check if we've already reached the photo limit (including cached photos)
@@ -492,13 +520,14 @@ async def stream_mapillary_images(
 
 							else:
 								# Check if we got fewer photos than requested - indicates no more data available
-								if len(photos_data) < effective_max_photos:
-									log.info(f"Got partial batch ({len(photos_data)} < {effective_max_photos} requested) - region {region.id} appears complete")
-									region_fully_fetched = True
-									break
-								else:
-									log.info(f"Got full batch ({len(photos_data)} = {effective_max_photos} requested) - region {region.id} may have more data")
-									break  # Don't mark as complete, there might be more
+								break
+								# if len(photos_data) < effective_max_photos:
+								# 	log.info(f"Got partial batch ({len(photos_data)} < {effective_max_photos} requested) - region {region.id} appears complete")
+								# 	region_fully_fetched = True
+								# 	break
+								# else:
+								# 	log.info(f"Got full batch ({len(photos_data)} = {effective_max_photos} requested) - region {region.id} may have more data")
+								# 	break  # Don't mark as complete, there might be more
 
 						# Only mark region as complete if we actually fetched all available data from Mapillary
 						if region_fully_fetched:
@@ -555,13 +584,14 @@ async def stream_mapillary_images(
 			detail=f"Failed to create stream: {str(e)}"
 		)
 
+# DISUSED: This endpoint is no longer actively used by the frontend
 @router.get("/stats")
 async def get_cache_stats(
 	request: Request,
 	db: AsyncSession = Depends(get_db),
 	current_user: Optional[User] = Depends(get_current_user_optional_with_query)
 ):
-	"""Get cache statistics"""
+	"""Get cache statistics. DISUSED - kept for potential debugging purposes."""
 	# Apply rate limiting with optional user context (better limits for authenticated users)
 	await general_rate_limiter.enforce_rate_limit(request, 'public_read', current_user)
 
@@ -574,12 +604,13 @@ async def get_cache_stats(
 		"api": api_stats
 	}
 
+# DISUSED: This endpoint is no longer actively used by the frontend
 @router.get("/api-stats")
 async def get_api_stats(
 	request: Request,
 	current_user: Optional[User] = Depends(get_current_user_optional_with_query)
 ):
-	"""Get Mapillary API usage statistics"""
+	"""Get Mapillary API usage statistics. DISUSED - kept for potential debugging purposes."""
 	# Apply rate limiting with optional user context (better limits for authenticated users)
 	await general_rate_limiter.enforce_rate_limit(request, 'public_read', current_user)
 
@@ -619,3 +650,60 @@ async def clear_mapillary_cache(db: AsyncSession = Depends(get_db)):
 async def cleanup_mapillary_resources():
 	"""Cleanup Mapillary API resources"""
 	await api_manager.close()
+
+
+def shrink_bbox_to_max_area(bbox: tuple, max_area_sq_deg: float) -> tuple:
+	"""Shrink bounding box to fit within max area in square degrees"""
+	top_left_lat, top_left_lon, bottom_right_lat, bottom_right_lon = bbox
+	lat_diff = abs(top_left_lat - bottom_right_lat)
+	lon_diff = get_lon_diff(top_left_lon, bottom_right_lon)
+	area = lat_diff * lon_diff
+	if area <= max_area_sq_deg:
+		return bbox  # No need to shrink
+	log.info(f"Shrinking request bbox to max area...")
+	# return a square bbox with area = max_area_sq_deg, centered on original bbox center.
+	center_lat = (top_left_lat + bottom_right_lat) / 2
+	# take into account lon wrapping
+	center_lon = get_center_lon(top_left_lon, bottom_right_lon)
+	side_length = math.sqrt(max_area_sq_deg)
+	half_side = side_length / 2
+	new_top_left_lat = center_lat + half_side
+	new_bottom_right_lat = center_lat - half_side
+	new_top_left_lon = add_lon_offset(center_lon, -half_side)
+	new_bottom_right_lon = add_lon_offset(center_lon, half_side)
+	return (cull_lat(new_top_left_lat), new_top_left_lon, cull_lat(new_bottom_right_lat), new_bottom_right_lon)
+
+
+def cull_lat(lat):
+	if lat > 90:
+		return 90
+	elif lat < -90:
+		return -90
+	return lat
+
+def get_center_lon(lon1, lon2):
+	# convert degrees to radians
+	lon1 = math.radians(lon1)
+	lon2 = math.radians(lon2)
+
+	x = math.cos(lon1) + math.cos(lon2)
+	y = math.sin(lon1) + math.sin(lon2)
+
+	mean = math.atan2(y, x)
+	return math.degrees(mean)
+
+def get_lon_diff(lon1, lon2):
+	diff = abs(lon1 - lon2)
+	if diff > 180:
+		diff = 360 - diff
+	return diff
+
+def add_lon_offset(lon, offset):
+	new_lon = lon + offset
+	if new_lon > 180:
+		new_lon -= 360
+	elif new_lon < -180:
+		new_lon += 360
+	return new_lon
+
+

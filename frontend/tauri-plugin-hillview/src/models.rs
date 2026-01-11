@@ -15,7 +15,7 @@ pub struct PingResponse {
 pub struct SensorData {
   pub magnetic_heading: f32,
   pub true_heading: f32,
-  pub heading_accuracy: f32,
+  pub accuracy_level: u16,
   pub pitch: f32,
   pub roll: f32,
   pub timestamp: u64,
@@ -171,17 +171,29 @@ pub struct NotificationSettingsResponse {
 pub struct TauriPermissionResponse {
   pub post_notification: PermissionState,
   pub write_external_storage: PermissionState,
+  pub location: PermissionState,
+  pub camera: PermissionState,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct TauriPermissionStringResponse {
   pub post_notification: String,
   pub write_external_storage: String,
+  pub location: String,
+  pub camera: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RequestPermission {
-  pub post_notification: bool,
-  pub write_external_storage: bool,
+  pub permissions: Vec<String>,
+}
+
+// MediaStore photo saving response
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct SavePhotoToMediaStoreResponse {
+  pub success: bool,
+  pub path: Option<String>,  // content:// URI for accessing the photo
+  pub error: Option<String>,
 }
 

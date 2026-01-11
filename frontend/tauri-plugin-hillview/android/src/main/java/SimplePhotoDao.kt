@@ -72,6 +72,12 @@ interface SimplePhotoDao {
     @Query("SELECT COUNT(*) FROM photos WHERE uploadStatus = 'failed'")
     fun getFailedUploadCount(): Int
 
+    @Query("SELECT COUNT(*) FROM photos WHERE uploadStatus = 'completed'")
+    fun getCompletedUploadCount(): Int
+
+    @Query("SELECT COUNT(*) FROM photos WHERE uploadStatus = 'uploading'")
+    fun getUploadingCount(): Int
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun insertPhoto(photo: PhotoEntity)
 

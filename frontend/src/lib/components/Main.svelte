@@ -16,8 +16,8 @@
 		toggleDebug,
 		turn_to_photo_to,
 		enableSourceForPhotoUid,
-		type DisplayMode,
-		splitPercent
+		splitPercent,
+		showCalibrationView, onAppActivityChange
 	} from "$lib/data.svelte.js";
 	import {resizableSplit} from '$lib/actions/resizableSplit';
 	import {
@@ -33,6 +33,7 @@
 	import {get} from "svelte/store";
 	import CameraCapture from './CameraCapture.svelte';
 	import DebugOverlay from './DebugOverlay.svelte';
+	import CompassCalibration from './CompassCalibration.svelte';
 	import {
 		deviceOrientationExif, getCssRotationFromOrientation,
 		getRotationFromOrientation, getWebviewOrientation, relativeOrientationExif,
@@ -43,11 +44,11 @@
 	import type {DevicePhotoMetadata} from '$lib/types/photoTypes';
 	import {enableCompass, disableCompass} from '$lib/compass.svelte.js';
 	import {networkWorkerManager} from "$lib/networkWorkerManager";
-	import type {SensorData} from "$lib/tauri";
+	import {enableLocationTracking} from "$lib/locationManager";
 
 	let map: any = null;
 	let mapComponent: any = null;
-	let update_url = false;
+	let update_url: boolean = false;
 	let menuOpen = false;
 	let containerElement: HTMLElement;
 
@@ -115,55 +116,6 @@
 	});
 
 	async function init() {
-		console.log('🢄Page mounted');
-		await tick();
-
-
-		const urlParams = new URLSearchParams(window.location.search);
-		const lat = urlParams.get('lat');
-		const lon = urlParams.get('lon');
-		const zoom = urlParams.get('zoom');
-		const bearingParam = urlParams.get('bearing');
-		const photoParam = urlParams.get('photo');
-
-		let p = get(spatialState);
-		let update = false;
-
-		if (lat && lon) {
-			console.log('🢄Setting position to', lat, lon, 'from URL');
-			p.center = new LatLng(parseFloat(lat), parseFloat(lon));
-			update = true;
-		}
-
-		if (zoom) {
-			console.log('🢄Setting zoom to', zoom, 'from URL');
-			p.zoom = parseFloat(zoom);
-			update = true;
-		}
-
-		if (update) {
-			updateSpatialState({...p});
-			map?.setView(p.center, p.zoom);
-		}
-
-		// Handle photo parameter and enable corresponding source
-		const photoUid = parsePhotoUid(photoParam);
-		if (photoUid) {
-			console.log('🢄Photo parameter from URL:', photoUid);
-			enableSourceForPhotoUid(photoUid);
-			// Switch to view mode when opening a specific photo
-			app.update(a => ({...a, activity: 'view'}));
-		}
-
-		if (bearingParam) {
-			console.log('🢄Setting bearing to', bearingParam, 'from URL');
-			const bearing = parseFloat(bearingParam);
-			updateBearing(bearing, 'url', photoUid ?? undefined);
-		}
-
-		setTimeout(() => {
-			update_url = true;
-		}, 100);
 
 	}
 
@@ -222,6 +174,7 @@
 	let desiredUrl: string | null = null;
 
 	function replaceState2(url: string) {
+		//console.log('replaceState2: updating URL to', url);
 		desiredUrl = url;
 		try {
 			replaceState(url, {});
@@ -412,36 +365,11 @@
 
 	function toggleCamera() {
 		const newActivity = get(app).activity === 'capture' ? 'view' : 'capture';
-
-		if (newActivity === 'capture') {
-
-			// Entering capture mode - disable all photo sources
-			sources.update(srcs => {
-				return srcs.map(src => ({
-					...src,
-					enabled: src.id === 'device' // Only enable device source
-				}));
-			});
-			// Note: Location and compass are now handled by reactive statement
-		} else {
-
-			// Exiting capture mode - re-enable previously enabled sources
-			// For now, we'll re-enable hillview and device sources by default
-			sources.update(srcs => {
-				return srcs.map(src => ({
-					...src,
-					enabled: src.id === 'hillview' || src.id === 'device'
-				}));
-			});
-			// Note: Compass stopping is now handled by reactive statement
-		}
-
+		onAppActivityChange(newActivity);
 		app.update(a => ({
 			...a,
 			activity: newActivity
 		}));
-
-
 	}
 
 
@@ -450,18 +378,9 @@
 	let appOldActivity = '';
 	$: if (appOldActivity != $app.activity) {
 		if ($app.activity === 'capture') {
-			//console.log('🢄🎥 Capture mode detected, ensuring location and compass are enabled');
-
-			// Enable location tracking when in capture mode
-			if (mapComponent) {
-				mapComponent.enableLocationTracking();
-			}
-
-			// Enable compass/bearing when in capture mode
+			enableLocationTracking();
 			enableCompass();
 		} else if ($app.activity === 'view') {
-			//console.log('🢄👁️ View mode detected, stopping compass');
-			// Stop compass when exiting capture mode (optional - can be removed if you want compass to stay active)
 			disableCompass();
 		}
 		appOldActivity = $app.activity;
@@ -496,7 +415,8 @@
 	</button>
 {/if}
 
-{#if import.meta.env.VITE_DEV_MODE === 'true'}
+<!--{#if import.meta.env.VITE_DEV_MODE === 'true'}-->
+{#if $app.debug_enabled}
 	<button
 		on:click={toggleDebug}
 		class="debug-toggle"
@@ -526,7 +446,9 @@
 	}}
 >
 	<div class="panel photo-panel">
-		{#if showCameraView}
+		{#if $showCalibrationView}
+			<CompassCalibration />
+		{:else if showCameraView}
 			<CameraCapture
 				show={true}
 				on:close={() => app.update(a => ({...a, activity: 'view'}))}
@@ -536,7 +458,7 @@
 		{/if}
 	</div>
 	<div class="panel map-panel">
-		<Map bind:this={mapComponent}/>
+		<Map bind:this={mapComponent} bind:update_url={update_url}/>
 	</div>
 </div>
 

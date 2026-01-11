@@ -50,12 +50,15 @@ class PushServiceImpl : PushService() {
         Log.d(TAG, "📬 onMessage called - smart poke received")
         Log.d(TAG, "📬   Instance: $instance")
 
-        try {
-            val notificationManager = NotificationManager(this@PushServiceImpl)
-            notificationManager.checkForNewNotifications()
-            Log.d(TAG, "✅ Smart poke handled successfully")
-        } catch (e: Exception) {
-            Log.e(TAG, "❌ Failed to handle smart poke", e)
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val notificationManager = NotificationManager(this@PushServiceImpl)
+                notificationManager.checkForNewNotifications()
+                Log.d(TAG, "✅ Smart poke handled successfully")
+            } catch (e: Exception) {
+                // UnifiedPush doesn't include fallback content, just log the error
+                Log.e(TAG, "❌ Failed to handle smart poke: ${e.message}")
+            }
         }
     }
 

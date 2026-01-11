@@ -78,6 +78,7 @@ class PhotoUploadLogic(private val context: Context) {
 	private val notificationHelper by lazy { NotificationHelper(context) }
 
 
+
 	data class UploadAuthorizationResponse(
 		val upload_jwt: String,
 		val photo_id: String,
@@ -318,14 +319,14 @@ class PhotoUploadLogic(private val context: Context) {
 		try {
 			Log.d(TAG, "Starting secure upload for photo: ${photo.filename}")
 
-			val file = File(photo.path)
-			if (!file.exists()) {
+			if (!PhotoUtils.pathExists(context, photo.path)) {
 				Log.e(TAG, "Photo file does not exist: ${photo.path}")
 				return@withContext false
 			}
 
 			// Step 1: Request upload authorization (includes PhotoEntity geolocation)
-			val authResponse = requestUploadAuthorization(photo, file)
+			// Note: Uses photo.fileSize from database, doesn't need to read file yet
+			val authResponse = requestUploadAuthorization(photo)
 			Log.d(TAG, "Upload authorized, response: $authResponse")
 
 			// Step 2: Generate client signature using authorization timestamp
@@ -339,8 +340,15 @@ class PhotoUploadLogic(private val context: Context) {
 			Log.d(TAG, "Client signature generated for: ${photo.filename} with key ${signatureData.keyId}")
 
 			// Step 3: Upload to worker (using worker_url from auth response)
+			// Read file bytes only now, when we actually need them
+			val fileBytes = PhotoUtils.readBytesFromPath(context, photo.path)
+			if (fileBytes == null) {
+				Log.e(TAG, "Failed to read photo file for upload: ${photo.path}")
+				return@withContext false
+			}
+
 			val uploadSuccess = uploadToWorker(
-				file,
+				fileBytes,
 				photo.filename,
 				authResponse.upload_jwt,
 				signatureData.signature,
@@ -375,26 +383,13 @@ class PhotoUploadLogic(private val context: Context) {
 	/**
 	 * Request upload authorization from API server using PhotoEntity data
 	 */
-	private suspend fun requestUploadAuthorization(photo: PhotoEntity, file: File): UploadAuthorizationResponse {
+	private suspend fun requestUploadAuthorization(photo: PhotoEntity): UploadAuthorizationResponse {
 		val serverUrl = getServerUrl() ?: throw Exception("Server URL not configured")
 		val authToken = authManager.getValidToken() ?: throw Exception("No valid auth token")
-
-		val contentType = when (file.extension.lowercase()) {
-			"jpg", "jpeg" -> "image/jpeg"
-			"png" -> "image/png"
-			"webp" -> "image/webp"
-			else -> "image/jpeg"
-		}
+		val contentType = PhotoUtils.getContentType(photo.filename)
 
 		// Convert timestamp to ISO format for captured_at
-		val capturedAt = try {
-			val date = Date(photo.capturedAt)
-			SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
-				timeZone = TimeZone.getTimeZone("UTC")
-			}.format(date)
-		} catch (e: Exception) {
-			null
-		}
+		val capturedAt = PhotoUtils.formatTimestampToIso(photo.capturedAt)
 
 		// Get client key ID for authorization
 		val keyInfo = clientCrypto.getPublicKeyInfo()
@@ -476,26 +471,21 @@ class PhotoUploadLogic(private val context: Context) {
 	 * Upload file to worker with JWT and client signature
 	 */
 	private suspend fun uploadToWorker(
-		file: File,
+		fileBytes: ByteArray,
 		filename: String,
 		uploadJwt: String,
 		signature: String,
 		workerUrl: String,
 		photoId: String
 	): Boolean {
-		val mediaType = when (file.extension.lowercase()) {
-			"jpg", "jpeg" -> "image/jpeg".toMediaType()
-			"png" -> "image/png".toMediaType()
-			"webp" -> "image/webp".toMediaType()
-			else -> "image/jpeg".toMediaType()
-		}
+		val mediaType = PhotoUtils.getContentType(filename).toMediaType()
 
 		val requestBody = MultipartBody.Builder()
 			.setType(MultipartBody.FORM)
 			.addFormDataPart(
 				"file",
-				filename,  // Use original filename from PhotoEntity
-				file.asRequestBody(mediaType)
+				filename,
+				fileBytes.toRequestBody(mediaType)
 			)
 			.addFormDataPart("client_signature", signature)
 			.build()
@@ -840,7 +830,7 @@ class PhotoUploadLogic(private val context: Context) {
     }
 
     private fun extractTimestamp(exif: ExifInterface, fallbackTime: Long): Long {
-        // Try multiple timestamp formats in order of preference
+        // Try multiple timestamp tags in order of preference
         val timestampTags = listOf(
             ExifInterface.TAG_DATETIME_ORIGINAL,    // Original capture time
             ExifInterface.TAG_DATETIME_DIGITIZED,   // Digitized time
@@ -850,27 +840,13 @@ class PhotoUploadLogic(private val context: Context) {
             "DateTime"
         )
 
-        val dateFormats = listOf(
-            "yyyy:MM:dd HH:mm:ss",      // Standard EXIF format
-            "yyyy-MM-dd HH:mm:ss",      // ISO format
-            "yyyy:MM:dd'T'HH:mm:ss",    // Mixed format
-            "yyyy-MM-dd'T'HH:mm:ss"     // ISO with T separator
-        )
-
         for (tag in timestampTags) {
             val dateTimeStr = exif.getAttribute(tag)
             if (dateTimeStr != null) {
-                for (format in dateFormats) {
-                    try {
-                        val sdf = java.text.SimpleDateFormat(format, java.util.Locale.US)
-                        val date = sdf.parse(dateTimeStr)
-                        if (date != null) {
-                            Log.v(TAG, "Timestamp from $tag: $dateTimeStr -> ${date.time}")
-                            return date.time
-                        }
-                    } catch (e: Exception) {
-                        // Try next format
-                    }
+                val date = PhotoUtils.parseExifDate(dateTimeStr)
+                if (date != null) {
+                    Log.v(TAG, "Timestamp from $tag: $dateTimeStr -> ${date.time}")
+                    return date.time
                 }
             }
         }
@@ -880,8 +856,8 @@ class PhotoUploadLogic(private val context: Context) {
     }
 
     private suspend fun validatePhotoForUpload(photo: PhotoEntity): Boolean {
-        // Check if file still exists
-        if (!File(photo.path).exists()) {
+        // Check if file still exists (works for both file paths and content:// URIs)
+        if (!PhotoUtils.pathExists(context, photo.path)) {
             Log.w(TAG, "Photo file no longer exists: ${photo.path}, marking as failed")
             photoDao.updateUploadFailure(
                 photo.id,

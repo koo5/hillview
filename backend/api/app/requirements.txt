@@ -11,30 +11,24 @@ sqlalchemy==2.0.23
 asyncpg==0.28.0
 geoalchemy2==0.14.2
 shapely==2.0.2
+numpy<2
 
 # Authentication
 python-jose[cryptography]>=3.4.0
-
 passlib[bcrypt]
 bcrypt>=3.2.0,<=4.0.1
 password-strength
 
-# Basic photo metadata
-exifread
-Pillow==10.3.0
+# HTTP clients
 requests
 httpx[http2]
-
-# NumPy constraint for shapely compatibility
-numpy<2
 
 # Database migrations
 alembic
 psycopg2-binary
 
-# push
+# Push notifications
 firebase-admin==7.1.0
 
-# config
+# Config
 pyyaml
-

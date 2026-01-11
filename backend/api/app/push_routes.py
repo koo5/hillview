@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import func, desc, and_, update, delete
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 import sys
 import os
@@ -17,7 +18,8 @@ from common.database import get_db
 from common.models import PushRegistration, Notification, User, UserPublicKey
 from common.security_utils import verify_ecdsa_signature, generate_client_key_id
 from auth import get_current_user, get_current_user_optional
-from push_notifications import create_notification_for_user, create_notification_for_client, send_broadcast_notification, send_activity_broadcast_notification
+#from push_notifications import create_notification_for_user, create_notification_for_client, send_broadcast_notification
+from push_notifications import send_activity_broadcast_notification
 
 logger = logging.getLogger(__name__)
 
@@ -93,8 +95,8 @@ class NotificationResponse(BaseModel):
 	type: str
 	title: str
 	body: str
-	action_type: Optional[str]
-	action_data: Optional[Dict[str, Any]]
+	action_type: Optional[str]  # deprecated
+	action_data: Optional[str]  # route string, e.g. "/activity"
 	read_at: Optional[datetime]
 	created_at: datetime
 	expires_at: Optional[datetime]
@@ -179,34 +181,29 @@ async def register_push(
 	# Apply rate limiting with optional user context (better limits for authenticated users)
 	# TODO: Implement actual rate limiting based on current_user presence
 
-	# Check if registration already exists for this client_key_id
-	logger.info(f"💾 Checking for existing registration for client_key_id: {client_key_id}")
-	existing_query = select(PushRegistration).where(
-		PushRegistration.client_key_id == client_key_id
-	)
-	result = await db.execute(existing_query)
-	existing = result.scalar_one_or_none()
-	# fixme this isnt safe
-	if existing:
-		logger.info(f"💾 Found existing registration, updating...")
-		# Update existing registration
-		existing.push_endpoint = request.push_endpoint
-		existing.distributor_package = request.distributor_package
-		existing.updated_at = datetime.utcnow()
-		message = "Push registration updated"
-	else:
-		logger.info(f"💾 Creating new registration...")
-		# Create new registration
-		registration = PushRegistration(
-			client_key_id=client_key_id,
-			push_endpoint=request.push_endpoint,
-			distributor_package=request.distributor_package
-		)
-		db.add(registration)
-		message = "Push registration created"
+	# Use atomic upsert to handle concurrent registrations safely
+	logger.info(f"💾 Upserting registration for client_key_id: {client_key_id}")
 
-	logger.info(f"💾 Committing to database...")
+	# PostgreSQL INSERT ... ON CONFLICT DO UPDATE (upsert)
+	stmt = pg_insert(PushRegistration).values(
+		client_key_id=client_key_id,
+		push_endpoint=request.push_endpoint,
+		distributor_package=request.distributor_package
+	)
+
+	# On conflict with client_key_id unique constraint, update the existing row
+	stmt = stmt.on_conflict_do_update(
+		index_elements=['client_key_id'],
+		set_={
+			'push_endpoint': stmt.excluded.push_endpoint,
+			'distributor_package': stmt.excluded.distributor_package,
+			'updated_at': datetime.utcnow()
+		}
+	)
+
+	await db.execute(stmt)
 	await db.commit()
+	message = "Push registration saved"
 	user_info = f", user {current_user.id}" if current_user else " (anonymous)"
 	logger.info(f"✅ Push registration for client {client_key_id}{user_info}: {message}")
 	return PushRegistrationResponse(success=True, message=message)
@@ -346,67 +343,58 @@ async def mark_notifications_read(
 
 
 # Internal/admin endpoints
-@router.post("/internal/notifications/create", response_model=NotificationCreationResponse)
-async def create_notification(
-	request: NotificationRequest,
-	db: AsyncSession = Depends(get_db)
-):
-	"""Create a notification for a user or client device (internal/admin use).
-
-	Accepts either user_id or client_key_id. If client_key_id is provided,
-	the notification will be sent to that specific device without requiring
-	a user account.
-	"""
-	# Validate that exactly one of user_id or client_key_id is provided
-	if not request.user_id and not request.client_key_id:
-		raise HTTPException(
-			status_code=status.HTTP_400_BAD_REQUEST,
-			detail="Either user_id or client_key_id must be provided"
-		)
-	if request.user_id and request.client_key_id:
-		raise HTTPException(
-			status_code=status.HTTP_400_BAD_REQUEST,
-			detail="Provide either user_id or client_key_id, not both"
-		)
-
-	if request.client_key_id:
-		# Create notification for specific client device
-		try:
-			notification_id = await create_notification_for_client(
-				db=db,
-				client_key_id=request.client_key_id,
-				notification_type=request.type,
-				title=request.title,
-				body=request.body,
-				action_type=request.action_type,
-				action_data=request.action_data,
-				expires_at=request.expires_at
-			)
-		except ValueError as e:
-			raise HTTPException(
-				status_code=status.HTTP_404_NOT_FOUND,
-				detail=str(e)
-			)
-		message = f"Notification created for client {request.client_key_id}"
-	else:
-		# Create notification for user (all their devices)
-		notification_id = await create_notification_for_user(
-			db=db,
-			user_id=request.user_id,
-			notification_type=request.type,
-			title=request.title,
-			body=request.body,
-			action_type=request.action_type,
-			action_data=request.action_data,
-			expires_at=request.expires_at
-		)
-		message = f"Notification created for user {request.user_id}"
-
-	return NotificationCreationResponse(
-		success=True,
-		message=message,
-		id=notification_id
-	)
+# @router.post("/internal/notifications/create", response_model=NotificationCreationResponse)
+# async def create_notification(
+# 	request: NotificationRequest,
+# 	db: AsyncSession = Depends(get_db)
+# ):
+# 	"""Create a notification for a user or client device (internal/admin use).
+#
+# 	Accepts either user_id or client_key_id. If client_key_id is provided,
+# 	the notification will be sent to that specific device without requiring
+# 	a user account.
+# 	"""
+# 	# Validate that exactly one of user_id or client_key_id is provided
+# 	if not request.user_id and not request.client_key_id:
+# 		raise HTTPException(
+# 			status_code=status.HTTP_400_BAD_REQUEST,
+# 			detail="Either user_id or client_key_id must be provided"
+# 		)
+# 	if request.user_id and request.client_key_id:
+# 		raise HTTPException(
+# 			status_code=status.HTTP_400_BAD_REQUEST,
+# 			detail="Provide either user_id or client_key_id, not both"
+# 		)
+#
+# 	# Build notification dict
+# 	notification = {
+# 		'type': request.type,
+# 		'title': request.title,
+# 		'body': request.body,
+# 		'route': request.action_data,  # action_data now holds the route string
+# 		'expires_at': request.expires_at,
+# 	}
+#
+# 	if request.client_key_id:
+# 		# Create notification for specific client device
+# 		try:
+# 			notification_id = await create_notification_for_client(db, request.client_key_id, notification)
+# 		except ValueError as e:
+# 			raise HTTPException(
+# 				status_code=status.HTTP_404_NOT_FOUND,
+# 				detail=str(e)
+# 			)
+# 		message = f"Notification created for client {request.client_key_id}"
+# 	else:
+# 		# Create notification for user (all their devices)
+# 		notification_id = await create_notification_for_user(db, request.user_id, notification)
+# 		message = f"Notification created for user {request.user_id}"
+#
+# 	return NotificationCreationResponse(
+# 		success=True,
+# 		message=message,
+# 		id=notification_id
+# 	)
 
 
 @router.post("/internal/notifications/cleanup", response_model=PushRegistrationResponse)
@@ -433,34 +421,33 @@ async def cleanup_expired_notifications(
 	)
 
 
-@router.post("/internal/notifications/broadcast", response_model=BroadcastResponse)
-async def broadcast_notification(
-	request: BroadcastRequest,
-	db: AsyncSession = Depends(get_db)
-):
-	"""Send a broadcast notification to all users and anonymous clients (internal/admin use).
-
-	This will send notifications to:
-	1. All active users (via their registered client keys)
-	2. All anonymous clients (push registrations not associated with any user)
-	"""
-	result = await send_broadcast_notification(
-		db=db,
-		notification_type=request.type,
-		title=request.title,
-		body=request.body,
-		action_type=request.action_type,
-		action_data=request.action_data,
-		expires_at=request.expires_at
-	)
-
-	return BroadcastResponse(
-		success=True,
-		message=f"Broadcast sent to {result['total']} recipients",
-		user_notifications=result['user_notifications'],
-		client_notifications=result['client_notifications'],
-		total=result['total']
-	)
+# @router.post("/internal/notifications/broadcast", response_model=BroadcastResponse)
+# async def broadcast_notification(
+# 	request: BroadcastRequest,
+# 	db: AsyncSession = Depends(get_db)
+# ):
+# 	"""Send a broadcast notification to all users and anonymous clients (internal/admin use).
+#
+# 	This will send notifications to:
+# 	1. All active users (via their registered client keys)
+# 	2. All anonymous clients (push registrations not associated with any user)
+# 	"""
+# 	notification = {
+# 		'type': request.type,
+# 		'title': request.title,
+# 		'body': request.body,
+# 		'route': request.action_data,  # action_data now holds the route string
+# 		'expires_at': request.expires_at,
+# 	}
+# 	result = await send_broadcast_notification(db, notification)
+#
+# 	return BroadcastResponse(
+# 		success=True,
+# 		message=f"Broadcast sent to {result['total']} recipients",
+# 		user_notifications=result['user_notifications'],
+# 		client_notifications=result['client_notifications'],
+# 		total=result['total']
+# 	)
 
 
 @router.post("/internal/notifications/activity-broadcast", response_model=PushRegistrationResponse)

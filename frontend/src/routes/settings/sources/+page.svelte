@@ -144,7 +144,7 @@
 <StandardHeaderWithAlert
     title="Photo Sources"
     showMenuButton={true}
-    fallbackHref="/settings"
+    fallbackHref="/settings/advanced"
 />
 
 <StandardBody>

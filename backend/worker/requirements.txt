@@ -1,33 +1,25 @@
-# System
-python-dotenv==1.0.0
+# System utilities
+python-dotenv
 fire
 watchdog[watchmedo]
 
-# FastAPI web service dependencies
-requests
+# Web service
 fastapi
 uvicorn
 pydantic
 aiofiles
 httpx
-python-jose>=3.4.0
-cryptography
 python-multipart
 
+# JWT validation
+python-jose[cryptography]>=3.4.0
 
-# Database
-sqlalchemy==2.0.23
-asyncpg==0.28.0
-geoalchemy2==0.14.2
-shapely==2.0.2
-
-# Core photo processing dependencies
+# Photo processing
 exifread
-Pillow==10.3.0
 numpy<2
 opencv-python-headless==4.8.1.78
 
-# CPU-only ML dependencies (install with special index)
+# ML / anonymization (CPU-only)
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch
 torchvision

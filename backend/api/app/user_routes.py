@@ -1175,28 +1175,6 @@ async def delete_user_account(
 		log.error(f"Error deleting user account: {e}")
 		raise HTTPException(status_code=500, detail="Failed to delete account")
 
-class UserSettingsUpdate(BaseModel):
-	auto_upload_enabled: Optional[bool] = None
-	auto_upload_folder: Optional[str] = None
-
-@router.put("/auth/settings", response_model=UserOut)
-async def update_user_settings(
-	request: Request,
-	settings: UserSettingsUpdate,
-	current_user: User = Depends(get_current_active_user),
-	db: AsyncSession = Depends(get_db)
-):
-	# Apply user profile rate limiting
-	await rate_limit_user_profile(request, current_user.id)
-
-	if settings.auto_upload_enabled is not None:
-		current_user.auto_upload_enabled = settings.auto_upload_enabled
-	if settings.auto_upload_folder is not None:
-		current_user.auto_upload_folder = settings.auto_upload_folder
-
-	await db.commit()
-	await db.refresh(current_user)
-	return current_user
 
 # Client public key registration for secure uploads
 class ClientPublicKeyData(BaseModel):

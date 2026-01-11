@@ -78,7 +78,7 @@ async def get_hillview_images(
 				},
 				'bearing': photo.compass_angle or 0,
 				'computed_altitude': photo.altitude or 0,
-				'captured_at': photo.captured_at.isoformat() if photo.captured_at else '',
+				'captured_at': photo.captured_at.isoformat() if photo.captured_at else None,
 				'is_pano': False,
 				'filename': photo.filename,
 				'sizes': {},

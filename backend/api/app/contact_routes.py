@@ -1,7 +1,7 @@
 """Contact form routes for user messages."""
 import logging
 from typing import Optional
-from pydantic import BaseModel, validator
+from pydantic import BaseModel, field_validator
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request
@@ -26,16 +26,18 @@ class ContactMessageRequest(BaseModel):
     contact: str  # Email or other contact method
     message: str
 
-    @validator('contact')
-    def validate_contact(cls, v):
+    @field_validator('contact')
+    @classmethod
+    def validate_contact(cls, v: str) -> str:
         if not v or len(v.strip()) < 3:
             raise ValueError('Contact information must be at least 3 characters long')
         if len(v.strip()) > 500:
             raise ValueError('Contact information must be less than 500 characters')
         return v.strip()
 
-    @validator('message')
-    def validate_message(cls, v):
+    @field_validator('message')
+    @classmethod
+    def validate_message(cls, v: str) -> str:
         if not v or len(v.strip()) < 10:
             raise ValueError('Message must be at least 10 characters long')
         if len(v.strip()) > 5000:

@@ -1,21 +1,5 @@
-# Additional test dependencies not included in api/app/requirements-dev.txt
-python-dotenv
-httpx[http2]==0.27.0
+# Include API app dev dependencies (which includes main requirements.txt)
+-r ../api/app/requirements-dev.txt
 
-# JWT and crypto dependencies (for client key generation)
-python-jose[cryptography]==3.3.0
-
-# For existing tests compatibility
-requests==2.32.4
-python-multipart
-aiofiles
-
-# Password hashing for auth tests
-passlib[bcrypt]
-
-# Database
-sqlalchemy==2.0.23
-asyncpg==0.28.0
-geoalchemy2==0.14.2
-shapely==2.0.2
-numpy<2.0.0
+# Integration test specific dependencies
+# (none currently - all needed packages come from api/app)

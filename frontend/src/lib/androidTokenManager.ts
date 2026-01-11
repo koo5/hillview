@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { TokenManager, TokenData } from './tokenManager';
-import { TokenExpiredError, TokenRefreshError } from './tokenManager';
+import { TokenRefreshError } from './tokenManager';
 import { auth } from './authStore';
 
 /**

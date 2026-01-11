@@ -119,7 +119,7 @@
 </svelte:head>
 
 <StandardHeaderWithAlert
-	title={user ? `${user.username}'s Photos ({totalCount})` : 'User Photos'}
+	title={user ? `${user.username}'s Photos (${totalCount})` : 'User Photos'}
 	showMenuButton={true}
 	fallbackHref="/users"
 />

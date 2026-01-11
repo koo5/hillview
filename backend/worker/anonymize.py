@@ -122,9 +122,9 @@ def anonymize_image(source_path):
 		raise ValueError("Invalid image file content")
 
 	# Validate image dimensions to prevent memory exhaustion
-	height, width = image.shape[:2]
-	if width > 12192 or height > 12192 or (width * height) > 67108864:
-		raise ValueError(f"Image size too large or invalid ({width}x{height}). Please use a smaller image.")
+	# height, width = image.shape[:2]
+	# if width > 12192 or height > 12192 or (width * height) > 167108864:
+	# 	raise ValueError(f"Image size too large or invalid ({width}x{height}). Please use a smaller image.")
 
 	boxes = detect_targets(image)
 

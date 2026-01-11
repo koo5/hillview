@@ -150,7 +150,8 @@ export function constructPhotoMapUrl(photo: any): string {
         lat: coords.lat,
         lon: coords.lon,
         bearing: coords.bearing,
-        photoUid: photoUid
+        photoUid: photoUid,
+		zoom: 22
     });
 }
 

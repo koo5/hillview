@@ -7,6 +7,8 @@
 	import {autoUploadSettings} from "$lib/autoUploadSettings";
 	import LicenseSelector from './LicenseSelector.svelte';
 	import {photoLicense} from '$lib/data.svelte';
+	import SettingsSectionHeader from "$lib/components/SettingsSectionHeader.svelte";
+	import MyExternalLink from "$lib/components/MyExternalLink.svelte";
 
 	export let onSaveSuccess = (message: string) => {
 	};
@@ -84,48 +86,57 @@
 </script>
 
 {#if TAURI}
-	<h2>Auto-Upload Settings</h2>
+	<SettingsSectionHeader>Auto-Upload</SettingsSectionHeader>
 		<p class="help-text">
-			Automatically upload photos taken with the app's camera, to be visible in hillview.cz and in the app.
+			Automatically upload photos taken with the app's camera, to be visible in <MyExternalLink href="https://hillview.cz" >hillview.cz</MyExternalLink>
+                and in the app.
 		</p>
 
-	<!-- License Selector -->
 	<div class="form-group">
-		<LicenseSelector required={true} />
-	</div>
 
-	<div class="form-group">
+		<LicenseSelector required={true} />
+
 		<div class="radio-group" class:disabled={$photoLicense === null}>
-			<label>
+			<label class="radio-option">
 				<input type="radio"
 					   name="autoUpload"
 					   checked={radioState === 'enabled'}
 					   on:change={() => handleRadioChange('enabled')}
 					   disabled={$photoLicense === null}
 					   data-testid="auto-upload-enabled"/>
-				Enabled
+				<div class="option-content">
+					<span class="option-title">Enabled</span>
+					<span class="option-description">Photos are uploaded automatically after capture</span>
+				</div>
 			</label>
-			<label>
+			<label class="radio-option">
 				<input type="radio"
 					   name="autoUpload"
 					   checked={radioState === 'disabled'}
 					   on:change={() => handleRadioChange('disabled')}
 					   disabled={$photoLicense === null}
 					   data-testid="auto-upload-disabled"/>
-				Disabled
+				<div class="option-content">
+					<span class="option-title">Disabled</span>
+					<span class="option-description">Ask me each time whether to upload</span>
+				</div>
 			</label>
-			<label>
+			<label class="radio-option">
 				<input type="radio"
 					   name="autoUpload"
 					   checked={radioState === 'disabled_never'}
 					   on:change={() => handleRadioChange('disabled_never')}
 					   disabled={$photoLicense === null}
 					   data-testid="auto-upload-disabled-never"/>
-				Disabled (Never prompt)
+				<div class="option-content">
+					<span class="option-title">Disabled (Never prompt)</span>
+					<span class="option-description">Don't upload and don't ask</span>
+				</div>
 			</label>
 		</div>
+
 		{#if !user && autoUploadEnabled}
-			<div class="login-notice {autoUploadEnabled ? 'urgent-login-notice' : ''}">
+			<div class="urgent-login-notice">
 				<p>Please
 					<button type="button" class="login-link" on:click={goToLogin}>log in</button>
 					to upload photos.
@@ -134,11 +145,7 @@
 		{/if}
 	</div>
 
-	<div class="button-group">
-		{#if onCancel}
-			<button class="secondary-button" on:click={onCancel}>Cancel</button>
-		{/if}
-	</div>
+
 {:else}
 	<p>Auto-upload settings are only available in the mobile application.</p>
 {/if}
@@ -158,19 +165,53 @@
 		margin-top: 1rem;
 	}
 
-	.radio-group label {
+	.radio-group.disabled {
+		opacity: 0.5;
+		pointer-events: none;
+	}
+
+	.radio-option {
 		display: flex;
-		align-items: center;
-		gap: 0.5rem;
+		align-items: flex-start;
+		gap: 0.75rem;
+		padding: 0.75rem;
+		border: 1px solid #e5e7eb;
+		border-radius: 0.5rem;
 		cursor: pointer;
+		transition: border-color 0.2s, background-color 0.2s;
 	}
 
-	.radio-group input[type="radio"] {
-		cursor: pointer;
+	.radio-option:hover {
+		border-color: #d1d5db;
+		background-color: #f9fafb;
 	}
 
-	button {
-		margin-top: 1rem;
+	.radio-option:has(input:checked) {
+		border-color: #3b82f6;
+		background-color: #eff6ff;
+	}
+
+	.radio-option input {
+		margin-top: 0.125rem;
+		flex-shrink: 0;
+	}
+
+	.option-content {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+
+	.option-title {
+		font-weight: 500;
+		font-size: 0.875rem;
+		color: #1f2937;
+	}
+
+	.option-description {
+		font-size: 0.75rem;
+		color: #6b7280;
+		line-height: 1.4;
 	}
 
 	.alert {
@@ -187,6 +228,22 @@
 	.alert.error {
 		background-color: #f8d7da;
 		color: #721c24;
+	}
+
+	.login-notice {
+		background: #fff3cd;
+		color: #856404;
+		padding: 0.75em;
+		border-radius: 6px;
+		margin-top: 0.5em;
+	}
+
+	.urgent-login-notice {
+		background: #f8d7da;
+		color: #721c24;
+		font-weight: bold;
+		border: 2px solid #dc3545;
+		animation: urgentPulse 1s infinite alternate;
 	}
 
 </style>

@@ -4,6 +4,7 @@ import type {DevicePhotoMetadata} from './types/photoTypes';
 
 import {invoke} from "@tauri-apps/api/core";
 import {frontendBusy} from "$lib/data.svelte";
+import {storageSettings} from "$lib/storageSettings";
 
 export interface CaptureLocation {
 	latitude: number;
@@ -246,7 +247,7 @@ class CaptureQueueManager {
 						const seconds = String(date.getSeconds()).padStart(2, '0');
 						const filename = `${year}-${month}-${day}-${hours}-${minutes}-${seconds}_${item.id}.jpg`;
 
-						this.log(this.LOG_TAGS.QUEUE_PROCESS, 'All chunks sent, saving photo with metadata', JSON.stringify({
+						this.log(this.LOG_TAGS.QUEUE_PROCESS, 'All chunks sent, saving photo ', JSON.stringify({
 							photoId: item.id,
 							filename,
 							totalChunks
@@ -257,7 +258,8 @@ class CaptureQueueManager {
 							photo_id: item.id,
 							metadata,
 							filename,
-							hide_from_gallery: false
+							hide_from_gallery: false,
+							preferred_storage: get(storageSettings).preferred_storage
 						}) as { id: string; filename: string; [key: string]: any };
 
 						this.totalProcessed++;

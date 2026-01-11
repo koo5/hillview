@@ -20,7 +20,7 @@ import httpx
 from throttle import Throttle
 
 
-from common.security_utils import sanitize_filename, validate_file_path, check_file_content, validate_image_dimensions, SecurityValidationError
+from common.security_utils import sanitize_filename, validate_file_path, check_file_content, validate_image_dimensions, SecurityValidationError, validate_user_id
 
 from common.cdn_uploader import cdn_uploader
 
@@ -206,6 +206,13 @@ class PhotoProcessor:
 			altitude = data.get('GPSAltitude')
 
 
+			# Validate bearing is in valid range [0, 360]
+			if bearing is not None and (bearing < 0 or bearing > 360):
+				error_msg = f"Invalid bearing value: {bearing}. Must be between 0 and 360 degrees."
+				result['debug']['parsing_errors'].append(error_msg)
+				logger.error(error_msg)
+				raise ValueError(error_msg)
+
 			gps_data = {
 				'latitude': latitude,
 				'longitude': longitude,
@@ -288,17 +295,26 @@ class PhotoProcessor:
 
 				# Extract user_id and photo_id from unique_id (format: "user_id/photo_id")
 				user_id_part, photo_id_part = unique_id.split('/', 1)
+				try:
+					# Validate user_id component for filesystem and command-line safety
+					user_id_part = validate_user_id(user_id_part)
+				except SecurityValidationError as e:
+					logger.warning(f"Invalid user_id in unique_id '{unique_id}': {e}")
+					# Skip this size variant if user_id is invalid
+					continue
 
 				# Create directory structure: opt/size/user_id/
 				size_dir = os.path.join(output_base, 'opt', str(size), user_id_part)
 				unique_filename = sanitize_filename(f"{photo_id_part}{file_ext}")
+				# Validate the final output path before any filesystem or subprocess operations
 				output_file_path = validate_file_path(os.path.join(size_dir, unique_filename), output_base)
-				relative_path = os.path.relpath(output_file_path, output_base)
+				safe_output_file_path = output_file_path
+				relative_path = os.path.relpath(safe_output_file_path, output_base)
 
-				os.makedirs(pathlib.Path(output_file_path).parent, exist_ok=True)
+				os.makedirs(pathlib.Path(safe_output_file_path).parent, exist_ok=True)
 
 				# Copy and resize the image
-				shutil.copy2(input_file_path, output_file_path)
+				shutil.copy2(input_file_path, safe_output_file_path)
 
 				size_info = {
 					'path': relative_path,
@@ -316,15 +332,16 @@ class PhotoProcessor:
 				else:
 
 					# Resize using ImageMagick mogrify (matching original)
-					# Use absolute path and validate inputs
-					cmd = ['mogrify', '-resize', str(int(size)), output_file_path]
+					# Use absolute path and validated inputs
+					cmd = ['mogrify', '-resize', str(int(size)), safe_output_file_path]
 					logger.debug(f"Resizing image with command: {shlex.join(cmd)}")
-					subprocess.run(cmd, capture_output=True, timeout=30, check=True)
-					new_width, new_height = self.get_image_dimensions(output_file_path, orientation)
-
-					logger.debug(f"Optimizing JPEG with jpegoptim: {output_file_path}")
-					cmd = ['jpegoptim', '--all-progressive', '--overwrite', output_file_path]
 					subprocess.run(cmd, capture_output=True, timeout=130, check=True)
+					new_width, new_height = self.get_image_dimensions(safe_output_file_path, orientation)
+
+					if safe_output_file_path.lower().endswith(('.jpg', '.jpeg')):
+						logger.debug(f"Optimizing JPEG with jpegoptim: {safe_output_file_path}")
+						cmd = ['jpegoptim', '--all-progressive', '--overwrite', safe_output_file_path]
+						subprocess.run(cmd, capture_output=True, timeout=130, check=True)
 
 					logger.info(f"Created size {size} for {unique_id}: {new_width}x{new_height} at {output_file_path}");
 
@@ -508,7 +525,6 @@ class PhotoProcessor:
 			logger.error(f"Image dimensions validation failed for {safe_filename}: {width}x{height}")
 			raise ValueError(error_msg)
 
-		# Create sizes information matching the original importer structure
 		sizes_info = {}
 		if width and height:
 			sizes_info, detections = await self.create_optimized_sizes(file_path, unique_id, filename, orientation, width, height, photo_id, client_signature)
