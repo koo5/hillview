@@ -4,8 +4,9 @@ from datetime import timezone
 import logging
 import sys
 import os
+
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
-from common.utc import utcnow
+
 from typing import List, Optional, Tuple, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -15,11 +16,8 @@ from geoalchemy2 import functions as geo_func
 from geoalchemy2.shape import from_shape, to_shape
 from shapely.geometry import Point, Polygon
 from shapely.ops import unary_union
-from sqlalchemy import text
 
-import sys
-import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
+from common.utc import utcnow
 from common.models import CachedRegion, MapillaryPhotoCache
 from common.database import get_db
 

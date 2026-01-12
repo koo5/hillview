@@ -311,9 +311,7 @@ class GeneralRateLimiter:
 			)
 
 
-# Global rate limiter instances
-mapillary_rate_limiter = AsyncRateLimiter(rate_limit_seconds=rate_limit_config.mapillary_rate_limit_seconds)
-auth_rate_limiter = AuthRateLimiter()
+# GeneralRateLimiter instance (mapillary_rate_limiter and auth_rate_limiter declared above)
 general_rate_limiter = GeneralRateLimiter()
 
 

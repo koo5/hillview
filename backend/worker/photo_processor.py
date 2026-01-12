@@ -343,7 +343,7 @@ class PhotoProcessor:
 						cmd = ['jpegoptim', '--all-progressive', '--overwrite', safe_output_file_path]
 						subprocess.run(cmd, capture_output=True, timeout=130, check=True)
 
-					logger.info(f"Created size {size} for {unique_id}: {new_width}x{new_height} at {output_file_path}");
+					logger.info(f"Created size {size} for {unique_id}: {new_width}x{new_height} at {output_file_path}")
 
 					size_info.update({
 						'width': new_width,
@@ -457,7 +457,7 @@ class PhotoProcessor:
 	) -> Optional[Dict[str, Any]]:
 		"""Process a user-uploaded photo and return processing results."""
 
-		unique_id = str(user_id) + '/' + str(photo_id);
+		unique_id = str(user_id) + '/' + str(photo_id)
 
 		# Initialize variables that might be used in exception handling
 		detections = None
