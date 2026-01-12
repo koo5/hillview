@@ -155,12 +155,17 @@
     // Expose map to window for testing and fix initial size
     $: if (map && typeof window !== 'undefined') {
         (window as any).leafletMap = map;
+        console.log('🢄Map reactive: map available, current center:', JSON.stringify(map.getCenter()));
+        console.log('🢄Map reactive: spatialState center:', JSON.stringify(get(spatialState).center));
+        console.log('🢄Map reactive: spatialState bounds:', JSON.stringify(get(spatialState).bounds));
 
         // Fix initial map size after the map becomes available
         setTimeout(() => {
+            console.log('🢄Map setTimeout: before invalidateSize, map center:', JSON.stringify(map?.getCenter()));
             if (map.invalidateSize) {
                 console.log('🢄Fixing initial map size');
                 map.invalidateSize({ reset: true, animate: false });
+                console.log('🢄Map setTimeout: after invalidateSize, map center:', JSON.stringify(map?.getCenter()));
             }
 			afterInit();
         }, 200);
@@ -168,6 +173,8 @@
 
 	async function afterInit() {
 		console.log('🢄Map afterInit');
+		console.log('🢄Map afterInit: current spatialState center:', JSON.stringify(get(spatialState).center));
+		console.log('🢄Map afterInit: current map center:', JSON.stringify(map?.getCenter()));
 		await tick();
 
 		const urlParams = new URLSearchParams(window.location.search);
@@ -177,25 +184,56 @@
 		const bearingParam = urlParams.get('bearing');
 		const photoParam = urlParams.get('photo');
 
-		let p = get(spatialState);
-		let update = false;
+		// Create a fresh object - don't mutate the store's internal state
+		const oldState = get(spatialState);
+		let p = {
+			center: oldState.center,
+			zoom: oldState.zoom,
+			bounds: oldState.bounds,
+			range: oldState.range,
+			source: oldState.source
+		};
+		let positionChanged = false;
 
 		if (lat && lon) {
 			console.log('🢄Setting position to', lat, lon, 'from URL');
 			p.center = new LatLng(parseFloat(lat), parseFloat(lon));
-			update = true;
+			positionChanged = true;
 		}
 
 		if (zoom) {
 			console.log('🢄Setting zoom to', zoom, 'from URL');
 			p.zoom = parseFloat(zoom);
-			update = true;
+			positionChanged = true;
 		}
 
-		if (update) {
-			updateSpatialState({...p});
-			map?.setView(p.center, p.zoom);
+		// Move the map FIRST if position changed from URL params
+		if (positionChanged && map) {
+			map.setView(p.center, p.zoom, { animate: false });
+			// Wait for the map to settle before getting bounds
+			await new Promise<void>(resolve => {
+				map.once('moveend', () => resolve());
+				// Fallback timeout in case moveend doesn't fire
+				setTimeout(resolve, 100);
+			});
 		}
+
+		// Now get bounds AFTER the map has moved
+		let bounds = map.getBounds();
+		console.log('🢄Leaflet bounds after move:', JSON.stringify(bounds));
+		if (bounds == null || bounds.getNorthWest().lat === bounds.getSouthEast().lat || bounds.getNorthWest().lng === bounds.getSouthEast().lng) {
+			console.log('🢄leaflet bounds are invalid, using fallback')
+			bounds = new L.LatLngBounds(
+				new L.LatLng(p.center.lat - 0.0001, p.center.lng - 0.0001),
+				new L.LatLng(p.center.lat + 0.0001, p.center.lng + 0.0001)
+			);
+		}
+		p.bounds = {
+			top_left: bounds.getNorthWest(),
+			bottom_right: bounds.getSouthEast()
+		};
+
+		await updateSpatialState({...p}, 'map');
 
 		// Handle photo parameter and enable corresponding source
 		const photoUid = parsePhotoUid(photoParam);
@@ -873,7 +911,9 @@
 
     onDestroy(async () => {
         console.log('🢄Map component destroyed');
-
+		// Clear cached photos and reset bounds so we fetch fresh data when map remounts
+		photosInArea.set([]);
+		spatialState.update(s => ({...s, bounds: null}));
         // Signal that we're no longer on map route
         isOnMapRoute.set(false);
         // Clean up location tracking if active
@@ -971,6 +1011,11 @@
 
     let width: number;
     let height: number;
+
+    // Invalidate map size when container dimensions change (e.g., split layout settling)
+    $: if (width && height && map) {
+        map.invalidateSize({ animate: false });
+    }
 
     // For the bearing overlay arrow:
     let centerX: number;

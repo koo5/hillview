@@ -57,17 +57,15 @@
 
 	onMount(() => {
 
+		updateOrientation();
+
 		// fixme: needs deinit? // should we handle this with a separate ssr layout.svelte?
 		networkWorkerManager.init();
-
-
-		init();
 
 		// Add keyboard event listener for debug toggle
 		window.addEventListener('keydown', handleKeyDown);
 
 		// Initialize and track orientation for split direction
-		updateOrientation();
 		window.addEventListener('resize', updateOrientation);
 		window.addEventListener('orientationchange', updateOrientation);
 
@@ -114,10 +112,6 @@
 		};
 
 	});
-
-	async function init() {
-
-	}
 
 	onDestroy(() => {
 		console.log('🢄Page destroyed');
@@ -220,10 +214,11 @@
 	}
 
 	// Detect orientation for split direction
-	let isPortrait = false;
+	const getIsPortrait = () => typeof window !== 'undefined' && window.innerHeight > window.innerWidth;
+	let isPortrait = getIsPortrait();
 
 	const updateOrientation = () => {
-		const newIsPortrait = window.innerHeight > window.innerWidth;
+		const newIsPortrait = getIsPortrait();
 		console.log('🔄SPLIT: updateOrientation called', JSON.stringify({
 			oldIsPortrait: isPortrait,
 			newIsPortrait,
@@ -445,7 +440,12 @@
 		onResize: handleSplitResize
 	}}
 >
-	<div class="panel photo-panel">
+	<div class="panel photo-panel" style="
+		position: absolute;
+		top: 0;
+		left: 0;
+		{isPortrait ? `height: ${$splitPercent}%; width: 100%;` : `width: ${$splitPercent}%; height: 100%;`}
+	">
 		{#if $showCalibrationView}
 			<CompassCalibration />
 		{:else if showCameraView}
@@ -457,7 +457,10 @@
 			<PhotoGallery/>
 		{/if}
 	</div>
-	<div class="panel map-panel">
+	<div class="panel map-panel" style="
+		position: absolute;
+		{isPortrait ? `bottom: 0; left: 0; height: ${100 - $splitPercent}%; width: 100%;` : `right: 0; top: 0; width: ${100 - $splitPercent}%; height: 100%;`}
+	">
 		<Map bind:this={mapComponent} bind:update_url={update_url}/>
 	</div>
 </div>
