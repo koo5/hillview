@@ -27,6 +27,7 @@
 		visiblePhotos,
 		photoToLeft,
 		photoToRight,
+		photosInArea,
 		updateSpatialState,
 		updateBearingByDiff,
 		bearingMode,
@@ -166,9 +167,8 @@
     }
 
 	async function afterInit() {
-		console.log('🢄Page mounted');
+		console.log('🢄Map afterInit');
 		await tick();
-
 
 		const urlParams = new URLSearchParams(window.location.search);
 		const lat = urlParams.get('lat');
@@ -391,11 +391,15 @@
         try {
             let _center = map.getCenter();
             let _zoom = map.getZoom();
-            //console.log('🢄onMapStateChange: force:', force, 'reason:', reason, 'center:', JSON.stringify(_center), 'zoom:', _zoom);
+            console.log('🢄onMapStateChange: force:', force, 'reason:', reason, 'center:', JSON.stringify(_center), 'zoom:', _zoom);
 
             const currentSpatial = get(spatialState);
             const bounds = map.getBounds();
             const range = get_range(_center);
+
+			console.log(`🢄Map: currentSpatial`, JSON.stringify(currentSpatial));
+			console.log(`🢄Map: bounds`, JSON.stringify(bounds));
+			console.log(`🢄Map: range`, range);
 
             // Normalize coordinates to valid lat/lng ranges
             const normalizeLng = (lng: number) => ((lng % 360) + 540) % 360 - 180;
@@ -811,8 +815,8 @@
                 console.error('🢄Failed to initialize SimplePhotoWorker:', error);
             }
 
-            //await onMapStateChange(true, 'mount');
-            //console.log('🢄Map component mounted - after onMapStateChange');
+            /*await onMapStateChange(true, 'mount');
+            console.log('🢄Map component mounted - after onMapStateChange');*/
 
             // Add zoom control after scale control for proper ordering
             const zoomControl = new L.Control.Zoom({ position: 'topleft' });

@@ -264,22 +264,30 @@ function getBearingColor(absBearingDiff: number): string {
 }
 
 // Update functions with selective reactivity
-export function updateSpatialState(updates: Partial<SpatialState>, source: 'gps' | 'map' = 'map') {
+export async function updateSpatialState(updates: Partial<SpatialState>, source: 'gps' | 'map' = 'map') {
+	console.log(`Spatial: updateSpatialState called with updates ${JSON.stringify(updates)} from source ${source}`);
 	let old = get(spatialState);
 	if (JSON.stringify(old) === JSON.stringify({...old, ...updates, source})) {
-		// No changes
+		console.log('Spatial: No changes in spatial state, skipping update');
 		return;
 	}
 	spatialState.update(state => ({...state, ...updates, source}));
-	if (source === 'map' && TAURI)
+	if (source !== 'gps' && TAURI)
 	{
 		const state = get(spatialState);
-		invoke('plugin:hillview|cmd', {command: 'update_location', params: {
-			timestamp: Date.now(),
-			latitude: state.center.lat,
-			longitude: state.center.lng,
-			source: 'map'
-		}});
+		try
+		{
+			await invoke('plugin:hillview|cmd', {command: 'update_location', params: {
+				timestamp: Date.now(),
+				latitude: state.center.lat,
+				longitude: state.center.lng,
+				source: 'map'
+			}});
+		}
+		catch (e)
+		{
+			console.error('Error invoking update_location in Tauri:', e);
+		}
 	}
 }
 
