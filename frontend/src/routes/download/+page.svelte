@@ -40,7 +40,7 @@
 </script>
 
 <StandardHeaderWithAlert
-    title="Download App"
+    title="Download Hillview"
     showMenuButton={true}
     fallbackHref="/"
 />
@@ -52,13 +52,12 @@
             <div class="icon-container">
                 <Smartphone size={64} />
             </div>
-            <h1>Download Hillview</h1>
-            <p class="subtitle">Explore and map your photos on Android</p>
+<!--            <p class="subtitle">Explore and map your photos on Android</p>-->
         </div>
 
         <div class="download-section">
-            <Download size={24} />
-            <p>Download Android APK from Google Play - <b>Coming Soon!</b></p>
+<!--            <Download size={24} />-->
+<!--            <p>Download Android APK from Google Play - <b>Coming Soon!</b></p>-->
 
             <div class="tester-signup">
                 <h2>Join Closed Testing</h2>
@@ -111,16 +110,16 @@
     .content {
         max-width: 800px;
         margin: 0 auto;
-        padding: 2rem;
+        padding: 2.5rem;
         text-align: center;
     }
 
     .hero {
-        margin-bottom: 3rem;
+        margin-bottom: 0rem;
     }
 
     .icon-container {
-        margin-bottom: 1.5rem;
+        margin-bottom: 0.5rem;
         opacity: 0.9;
     }
 
@@ -141,7 +140,6 @@
     .download-section {
         background: rgba(255, 255, 255, 0.1);
         border-radius: 12px;
-        padding: 2.5rem;
         backdrop-filter: blur(10px);
         border: 1px solid rgba(255, 255, 255, 0.2);
     }
