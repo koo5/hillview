@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { get } from 'svelte/store';
+
+// Mock $app/environment before importing stores
+vi.mock('$app/environment', () => ({
+  browser: true
+}));
+
 import {
   localStorageSharedStore,
   localStorageReadOnceSharedStore,

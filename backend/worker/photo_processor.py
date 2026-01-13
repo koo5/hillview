@@ -380,7 +380,7 @@ class PhotoProcessor:
 						'client_signature': client_signature
 					}
 
-					response = await client.post(upload_url, files=files, data=data)
+					response = await client.post(upload_url, files=files, data=data, timeout=60.0)
 					response.raise_for_status()
 
 					result = response.json()
