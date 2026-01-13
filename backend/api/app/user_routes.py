@@ -1,9 +1,13 @@
 import datetime
 import os
+import sys
 import uuid
-from typing import Optional, Dict, Any, Union
 import logging
 import asyncio
+import requests
+from typing import Optional, Dict, Any, Union
+from urllib.parse import urlencode, quote
+
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.responses import RedirectResponse, HTMLResponse
@@ -12,14 +16,9 @@ from sqlalchemy.future import select
 from sqlalchemy import or_, func, desc
 from geoalchemy2.functions import ST_X, ST_Y, ST_Point
 from pydantic import BaseModel
-import requests
-from urllib.parse import urlencode, quote
 
-import sys
-import os
 # Add common module path
-common_path = os.path.join(os.path.dirname(__file__), '..', '..', 'common')
-sys.path.append(common_path)
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
 from common.models import User, UserPublicKey, Photo
 from common.utc import utcnow

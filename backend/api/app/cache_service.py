@@ -220,7 +220,7 @@ class MapillaryCacheService:
 			distribution_score = self.calculate_spatial_distribution(photos) if photos else 0.0
 			coverage_status = "COMPLETE (with sampling)" if is_complete_coverage else "INCOMPLETE"
 			log.info(f"Cache result: {len(photos)} photos from {coverage_status} coverage, distribution={distribution_score:.2%}")
-			# TODO: even with incomplete coverage, we should immediately send tne cached photos (just culling each cell to photos_per_cell)
+			# TODO: even with incomplete coverage, we should immediately send the cached photos (just culling each cell to photos_per_cell)
 			return {
 				'photos': photos,
 				'is_complete_coverage': is_complete_coverage,

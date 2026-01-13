@@ -37,30 +37,28 @@
 """
 
 import os
+import sys
 import logging
 import base64
 import json
 from pathlib import Path
 from typing import Optional, Dict, Any
 from datetime import datetime, timezone
+
 import aiofiles
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives import serialization
 from pydantic import BaseModel
-
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Request
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from geoalchemy2.functions import ST_Point, ST_X, ST_Y
 
-import sys
-import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 
 from push_notifications import send_activity_broadcast_notification
-
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
 from common.models import Photo, User, PhotoRating, PhotoRatingType
 from auth import get_current_active_user

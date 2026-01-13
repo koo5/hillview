@@ -1,14 +1,15 @@
 import json
 import os
-from typing import Optional, Dict, Any
+import sys
 import logging
+from typing import Optional, Dict, Any
+
 from fastapi import APIRouter, Query, HTTPException, status, Depends, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from geoalchemy2.functions import ST_MakeEnvelope, ST_Within, ST_X, ST_Y
-import sys
-import os
+
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
 from common.models import Photo, User
