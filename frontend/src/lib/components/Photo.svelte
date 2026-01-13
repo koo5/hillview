@@ -11,6 +11,7 @@
 	import {simplePhotoWorker} from '$lib/simplePhotoWorker';
 	import {zoomViewData} from '$lib/zoomView.svelte.js';
 	import {singleTap} from '$lib/actions/singleTap';
+	import {portal} from '$lib/actions/portal';
 	import {getFullPhotoInfo} from '$lib/photoUtils';
 	import type {PhotoData} from '$lib/sources';
 
@@ -200,7 +201,9 @@
 
 	// Helper functions to determine photo source and get user info
 	function getPhotoSource(photo: PhotoData): string {
-		if (!photo?.source?.id) throw new Error('Photo source information is missing');
+		if (typeof photo.source === 'string')
+			return photo.source;
+		if (!photo.source?.id) throw new Error('photo?.source?.id is missing:' + JSON.stringify(photo));
 		return photo.source.id;
 	}
 
@@ -398,7 +401,7 @@
 
 <!-- Hide User Confirmation Dialog -->
 {#if showHideUserDialog}
-	<div class="dialog-overlay">
+	<div class="dialog-overlay" use:portal>
 		<div class="dialog">
 			<h3>Hide User</h3>
 			<p>This will hide all photos by
@@ -410,6 +413,7 @@
 				<input
 					id="hide-reason"
 					type="text"
+
 					bind:value={hideUserReason}
 					placeholder="e.g., Inappropriate content, spam, etc."
 					maxlength="100"
@@ -538,7 +542,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		z-index: 1000;
+		z-index: 100000;
 		animation: fadeIn 0.2s ease;
 	}
 
