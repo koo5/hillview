@@ -219,11 +219,11 @@
 
 	const updateOrientation = () => {
 		const newIsPortrait = getIsPortrait();
-		console.log('🔄SPLIT: updateOrientation called', JSON.stringify({
-			oldIsPortrait: isPortrait,
-			newIsPortrait,
-			windowSize: {width: window.innerWidth, height: window.innerHeight}
-		}));
+		// console.log('🔄SPLIT: updateOrientation called', JSON.stringify({
+		// 	oldIsPortrait: isPortrait,
+		// 	newIsPortrait,
+		// 	windowSize: {width: window.innerWidth, height: window.innerHeight}
+		// }));
 		if (newIsPortrait !== isPortrait) {
 			isPortrait = newIsPortrait;
 		}

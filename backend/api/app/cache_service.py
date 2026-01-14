@@ -484,10 +484,14 @@ class MapillaryCacheService:
 			captured_at = None
 			raw_captured_at = photo_data.get('captured_at')
 			if raw_captured_at and raw_captured_at != "null":
-				try:
-					captured_at = datetime.datetime.fromisoformat(raw_captured_at.replace('Z', '+00:00'))
-				except ValueError:
-					log.debug(f"Could not parse captured_at date: {raw_captured_at!r}")
+				if isinstance(raw_captured_at, int):
+					# Handle Unix timestamp
+					captured_at = datetime.datetime.fromtimestamp(raw_captured_at/1000, tz=timezone.utc)
+				else:
+					try:
+						captured_at = datetime.datetime.fromisoformat(raw_captured_at.replace('Z', '+00:00'))
+					except ValueError:
+						log.debug(f"Could not parse captured_at date: {raw_captured_at!r}")
 
 			# Handle computed_rotation - it may be a list/array
 			computed_rotation = photo_data.get('computed_rotation')

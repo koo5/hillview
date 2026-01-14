@@ -125,7 +125,7 @@ class SimplePhotoWorker {
             case 'sourceLoadingStatus':
                 sourceLoadingStatus.update(status => ({
                     ...status,
-                    [message.sourceId]: {
+                    [message.source_id]: {
                         is_loading: message.is_loading,
                         progress: message.progress,
                         error: message.error

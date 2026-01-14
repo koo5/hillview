@@ -155,26 +155,26 @@
     // Expose map to window for testing and fix initial size
     $: if (map && typeof window !== 'undefined') {
         (window as any).leafletMap = map;
-        console.log('🢄Map reactive: map available, current center:', JSON.stringify(map.getCenter()));
-        console.log('🢄Map reactive: spatialState center:', JSON.stringify(get(spatialState).center));
-        console.log('🢄Map reactive: spatialState bounds:', JSON.stringify(get(spatialState).bounds));
+        // console.log('🢄Map reactive: map available, current center:', JSON.stringify(map.getCenter()));
+        // console.log('🢄Map reactive: spatialState center:', JSON.stringify(get(spatialState).center));
+        // console.log('🢄Map reactive: spatialState bounds:', JSON.stringify(get(spatialState).bounds));
 
         // Fix initial map size after the map becomes available
         setTimeout(() => {
-            console.log('🢄Map setTimeout: before invalidateSize, map center:', JSON.stringify(map?.getCenter()));
+            // console.log('🢄Map setTimeout: before invalidateSize, map center:', JSON.stringify(map?.getCenter()));
             if (map.invalidateSize) {
-                console.log('🢄Fixing initial map size');
+                // console.log('🢄Fixing initial map size');
                 map.invalidateSize({ reset: true, animate: false });
-                console.log('🢄Map setTimeout: after invalidateSize, map center:', JSON.stringify(map?.getCenter()));
+                // console.log('🢄Map setTimeout: after invalidateSize, map center:', JSON.stringify(map?.getCenter()));
             }
 			afterInit();
         }, 200);
     }
 
 	async function afterInit() {
-		console.log('🢄Map afterInit');
-		console.log('🢄Map afterInit: current spatialState center:', JSON.stringify(get(spatialState).center));
-		console.log('🢄Map afterInit: current map center:', JSON.stringify(map?.getCenter()));
+		// console.log('🢄Map afterInit');
+		// console.log('🢄Map afterInit: current spatialState center:', JSON.stringify(get(spatialState).center));
+		// console.log('🢄Map afterInit: current map center:', JSON.stringify(map?.getCenter()));
 		await tick();
 
 		const urlParams = new URLSearchParams(window.location.search);
@@ -429,15 +429,15 @@
         try {
             let _center = map.getCenter();
             let _zoom = map.getZoom();
-            console.log('🢄onMapStateChange: force:', force, 'reason:', reason, 'center:', JSON.stringify(_center), 'zoom:', _zoom);
+            // console.log('🢄onMapStateChange: force:', force, 'reason:', reason, 'center:', JSON.stringify(_center), 'zoom:', _zoom);
 
             const currentSpatial = get(spatialState);
             const bounds = map.getBounds();
             const range = get_range(_center);
 
-			console.log(`🢄Map: currentSpatial`, JSON.stringify(currentSpatial));
-			console.log(`🢄Map: bounds`, JSON.stringify(bounds));
-			console.log(`🢄Map: range`, range);
+			// console.log(`🢄Map: currentSpatial`, JSON.stringify(currentSpatial));
+			// console.log(`🢄Map: bounds`, JSON.stringify(bounds));
+			// console.log(`🢄Map: range`, range);
 
             // Normalize coordinates to valid lat/lng ranges
             const normalizeLng = (lng: number) => ((lng % 360) + 540) % 360 - 180;
