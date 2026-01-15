@@ -7,7 +7,7 @@ import {
 import type {PhotoData} from './types/photoTypes';
 import type {SimpleCoord} from './photoWorkerTypes';
 import {AngularRangeCuller, sortPhotosByBearing} from './AngularRangeCuller';
-import {normalizeBearing} from './utils/bearingUtils';
+import {normalizeBearing, getBearingColor} from './utils/bearingUtils';
 import {invoke} from "@tauri-apps/api/core";
 import {TAURI} from "$lib/tauri";
 
@@ -258,10 +258,6 @@ function calculateAbsBearingDiff(bearing1: number, bearing2: number): number {
 	return Math.min(diff, 360 - diff);
 }
 
-function getBearingColor(absBearingDiff: number): string {
-	if (absBearingDiff === null || absBearingDiff === undefined) return '#9E9E9E';
-	return `hsl(${Math.round(100 - absBearingDiff / 2)}, 100%, 70%)`;
-}
 
 // Update functions with selective reactivity
 export async function updateSpatialState(updates: Partial<SpatialState>, source: 'gps' | 'map' = 'map') {

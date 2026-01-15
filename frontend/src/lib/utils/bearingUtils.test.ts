@@ -50,15 +50,14 @@ describe('bearingUtils', () => {
   });
 
   describe('getBearingColor', () => {
-    it('should return correct colors for bearing differences', () => {
-      expect(getBearingColor(0)).toBe('hsl(100, 100%, 70%)');
-      expect(getBearingColor(10)).toBe('hsl(95, 100%, 70%)');
-      expect(getBearingColor(15)).toBe('hsl(93, 100%, 70%)');
-      expect(getBearingColor(20)).toBe('hsl(90, 100%, 70%)');
-      expect(getBearingColor(45)).toBe('hsl(78, 100%, 70%)');
-      expect(getBearingColor(90)).toBe('hsl(55, 100%, 70%)');
-      expect(getBearingColor(135)).toBe('hsl(33, 100%, 70%)');
-      expect(getBearingColor(180)).toBe('hsl(10, 100%, 70%)');
+    it('should return green with varying opacity for bearing differences', () => {
+      // All colors are green (hue 120), opacity decreases as bearing diff increases
+      expect(getBearingColor(0)).toBe('hsla(120, 100%, 70%, 1)');   // step=0, full opacity
+      expect(getBearingColor(20)).toBe('hsla(120, 100%, 70%, 1)');  // step=1, full opacity
+      expect(getBearingColor(45)).toBe('hsla(120, 100%, 70%, 0.5)'); // step=2
+      expect(getBearingColor(90)).toMatch(/^hsla\(120, 100%, 70%, 0\.3+\)$/); // step=3
+      expect(getBearingColor(135)).toBe('hsla(120, 100%, 70%, 0.2)'); // step=5
+      expect(getBearingColor(180)).toMatch(/^hsla\(120, 100%, 70%, 0\.16+\)$/); // step=6
     });
 
     it('should handle null/undefined bearing differences', () => {
@@ -101,7 +100,7 @@ describe('bearingUtils', () => {
       const updated = updatePhotoBearingDiffData(photo, 90);
 
       expect(updated.abs_bearing_diff).toBe(45);
-      expect(updated.bearing_color).toBe('hsl(78, 100%, 70%)'); // Based on the actual implementation
+      expect(updated.bearing_color).toBe('hsla(120, 100%, 70%, 0.5)'); // step=2, opacity=0.5
     });
 
     it('should handle wrapped bearings', () => {
@@ -119,7 +118,7 @@ describe('bearingUtils', () => {
       const updated = updatePhotoBearingDiffData(photo, 10);
 
       expect(updated.abs_bearing_diff).toBe(20);
-      expect(updated.bearing_color).toBe('hsl(90, 100%, 70%)'); // Based on the actual implementation
+      expect(updated.bearing_color).toBe('hsla(120, 100%, 70%, 1)'); // step=1, full opacity
     });
 
     it('should preserve all original photo properties', () => {
@@ -142,7 +141,7 @@ describe('bearingUtils', () => {
       expect(updated.captured_at).toBe(photo.captured_at);
       expect(updated.accuracy).toBe(photo.accuracy);
       expect(updated.abs_bearing_diff).toBe(0);
-      expect(updated.bearing_color).toBe('hsl(100, 100%, 70%)');
+      expect(updated.bearing_color).toBe('hsla(120, 100%, 70%, 1)'); // step=0, full opacity
     });
   });
 });

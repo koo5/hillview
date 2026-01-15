@@ -4,6 +4,7 @@ import type {PhotoData} from './types/photoTypes';
 import {photoInFront} from './mapState';
 import {get, writable} from 'svelte/store';
 import {app} from "$lib/data.svelte";
+import {getBearingColor} from './utils/bearingUtils';
 
 export interface OptimizedMarkerOptions {
 	enablePooling: boolean;
@@ -183,7 +184,7 @@ export class OptimizedMarkerSystem {
 
 			// Recalculate bearing diff color
 			const bearingDiff = this.calculateAbsBearingDiff(photoData.bearing, currentBearing);
-			const bearingColor = this.getBearingColor(bearingDiff);
+			const bearingColor = getBearingColor(bearingDiff);
 
 			// Update only the circle color (no DOM restructure)
 			const element = marker.getElement();
@@ -429,25 +430,6 @@ export class OptimizedMarkerSystem {
 		return Math.min(diff, 360 - diff);
 	}
 
-	/**
-	 * Convert bearing difference to color
-	 */
-
-	/*private getBearingColor(absBearingDiff: number): string {
-		if (absBearingDiff === null || absBearingDiff === undefined) return '#9E9E9E';
-		return `hsl(${Math.round(100 - absBearingDiff / 2)}, 100%, 70%)`;
-	}*/
-	private getBearingColor(absBearingDiff: number): string {
-		if (absBearingDiff === null || absBearingDiff === undefined) return '#9E9E9E';
-		const steps = 8;
-		const stepSize = 100 / (steps - 1);
-		const step = Math.round(absBearingDiff / (200 / (steps - 1)));
-		const hue = (1 / step);
-		const r = `hsla(120, 100%, 70%, ${hue})`;
-		//console.log(`Calculated bearing color for diff ${absBearingDiff}: step ${step}, hue ${hue}, color ${r}`);
-		return r;
-
-	}
 
 	/**
 	 * Cleanup resources

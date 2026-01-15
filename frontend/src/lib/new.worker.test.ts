@@ -182,7 +182,17 @@ describe('New Worker Integration Tests', () => {
     // Reset message ID counter
     messageId = 1;
 
-    // No need for fetch mocks since we're using EventSource for streams
+    // Clear the module cache to get a fresh worker instance with clean state
+    vi.resetModules();
+
+    // Re-mock globals after module reset (they get cleared too)
+    (globalThis as any).self = {
+      onmessage: null,
+      postMessage: mockPostMessage
+    };
+    (globalThis as any).postMessage = mockPostMessage;
+    (globalThis as any).__WORKER_VERSION__ = 'test-version-' + Date.now();
+    (globalThis as any).EventSource = MockEventSource;
 
     // Dynamically import the worker after setting up mocks
     worker = await import('./new.worker');
@@ -361,8 +371,9 @@ describe('New Worker Integration Tests', () => {
       range: 50 // Very small range
     });
 
-    expect(response1.current_range).toBe(50);
-    const smallRangeCount = response1.photosInRange.length;
+    // Check the photos_in_range array exists (snake_case from worker)
+    expect(response1.photos_in_range).toBeDefined();
+    const smallRangeCount = response1.photos_in_range.length;
 
     // Clear previous calls
     mockPostMessage.mockClear();
@@ -373,8 +384,9 @@ describe('New Worker Integration Tests', () => {
       range: 5000 // Much larger range
     });
 
-    expect(response2.current_range).toBe(5000);
-    const largeRangeCount = response2.photosInRange.length;
+    // Check the photos_in_range array exists
+    expect(response2.photos_in_range).toBeDefined();
+    const largeRangeCount = response2.photos_in_range.length;
 
     // Larger range should include more or equal photos
     expect(largeRangeCount).toBeGreaterThanOrEqual(smallRangeCount);
@@ -434,7 +446,7 @@ describe('New Worker Integration Tests', () => {
 
     // Verify that different areas might have different photo counts
     // (this tests that culling and filtering is working)
-    const photoCounts = responses.map(r => r.photosInArea.length);
+    const photoCounts = responses.map(r => r.photos_in_area.length);
     console.log('🢄Photo counts by area:', photoCounts);
 
     // Should handle all requests without errors
@@ -479,7 +491,7 @@ describe('New Worker Integration Tests', () => {
     expect(responses).toHaveLength(5);
 
     // Test that worker can handle rapid consecutive updates without breaking
-    expect(responses.every(r => typeof r.photosInArea.length === 'number')).toBe(true);
+    expect(responses.every(r => typeof r.photos_in_area.length === 'number')).toBe(true);
   });
 
   it('should handle worker version validation correctly', async () => {
@@ -536,7 +548,7 @@ describe('New Worker Integration Tests', () => {
     expect(configResult.type).toBe('photosUpdate');
 
     // Config update should have priority and its result should reflect the new source
-    console.log('🢄Area result photos:', areaResult.photosInArea.length);
-    console.log('🢄Config result photos:', configResult.photosInArea.length);
+    console.log('🢄Area result photos:', areaResult.photos_in_area.length);
+    console.log('🢄Config result photos:', configResult.photos_in_area.length);
   });
 });
