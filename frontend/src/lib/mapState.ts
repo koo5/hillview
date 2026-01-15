@@ -38,7 +38,7 @@ export type BearingMode = 'car' | 'walking';
 
 // Spatial state - triggers photo filtering in worker
 export const spatialState = localStorageReadOnceSharedStore<SpatialState>('spatialState', {
-	center: {lat: 50.114429599683604, lng: 14.523528814315798},
+	center: {lat: 50.11692048550961, lng: 14.488374441862108},
 	zoom: 20,
 	bounds: null,
 	range: 1000,
@@ -48,7 +48,7 @@ export const spatialState = localStorageReadOnceSharedStore<SpatialState>('spati
 
 // Visual state - only affects rendering, optimized with debounced writes
 export const bearingState = staggeredLocalStorageSharedStore<BearingState>('bearingState', {
-	bearing: 230,
+	bearing: 141,
 	source: 'map',
 	accuracy_level: null
 }, 500);
