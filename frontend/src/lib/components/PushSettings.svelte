@@ -364,23 +364,6 @@
 		line-height: 1.4;
 	}
 
-	.help-section {
-		padding: 1rem;
-		background-color: #f0f9ff;
-		border: 1px solid #bae6fd;
-		border-radius: 0.5rem;
-		color: #0c4a6e;
-	}
-
-	.help-section p {
-		margin-bottom: 0.75rem;
-		line-height: 1.5;
-	}
-
-	.help-section p:last-child {
-		margin-bottom: 0;
-	}
-
 	h3 {
 		color: #1f2937;
 		margin-bottom: 1rem;

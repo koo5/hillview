@@ -123,20 +123,6 @@
         opacity: 0.9;
     }
 
-    h1 {
-        font-size: 3rem;
-        margin: 0 0 1rem 0;
-        font-weight: 300;
-        text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-    }
-
-    .subtitle {
-        font-size: 1.3rem;
-        margin: 0;
-        opacity: 0.9;
-        font-weight: 300;
-    }
-
     .download-section {
         background: rgba(255, 255, 255, 0.1);
         border-radius: 12px;
@@ -244,14 +230,6 @@
     @media (max-width: 768px) {
         .content {
             padding: 1rem;
-        }
-
-        h1 {
-            font-size: 2.5rem;
-        }
-
-        .subtitle {
-            font-size: 1.1rem;
         }
 
         .download-section {
