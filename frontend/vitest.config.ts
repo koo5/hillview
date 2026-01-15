@@ -31,5 +31,6 @@ export default defineConfig({
       $app: path.resolve('./.svelte-kit/runtime/app'),
       'tauri-plugin-hillview-api': path.resolve('./src/tests/mocks/tauri-plugin-hillview-api.ts'),
     },
+    conditions: ['browser'],
   },
 });

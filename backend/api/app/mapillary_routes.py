@@ -24,8 +24,36 @@ from auth import get_current_user_optional_with_query
 from hidden_content_filters import filter_mapillary_photos_list
 from mock_mapillary import mock_mapillary_service
 from debug_utils import debug_only, safe_str_id
+from mapillary_url_utils import check_photo_url_expiry
 
 log = logging.getLogger(__name__)
+
+
+def check_photos_for_expired_urls(photos: list, source: str) -> int:
+    """
+    Check a list of photos for expired URLs and log warnings.
+
+    Args:
+        photos: List of photo dicts to check
+        source: Description of the photo source (e.g., "cache", "live")
+
+    Returns:
+        Number of expired photos found
+    """
+    expired_count = 0
+    for photo in photos:
+        expiry_info = check_photo_url_expiry(photo)
+        if expiry_info:
+            expired_count += 1
+            log.warning(
+                f"Expired Mapillary URL detected ({source}): "
+                f"photo_id={expiry_info['photo_id']}, "
+                f"expired_at={expiry_info['expiry']}"
+            )
+    if expired_count > 0:
+        log.warning(f"Found {expired_count} expired photo URLs out of {len(photos)} photos from {source}")
+    return expired_count
+
 
 # Lazy load token to avoid crash on import
 TOKEN = None
@@ -379,6 +407,9 @@ async def stream_mapillary_images(
 						for photo in sorted_cached:
 							streamed_photo_ids.add(photo.get('id'))
 
+						# Check for expired URLs in cached photos
+						check_photos_for_expired_urls(sorted_cached, "cache")
+
 						log.info(f"Streaming {cached_photo_count} cached photos to client {client_id}")
 						yield f"data: {json.dumps({'type': 'photos', 'photos': sorted_cached})}\n\n"
 
@@ -517,6 +548,10 @@ async def stream_mapillary_images(
 
 							# Stream this batch (limited)
 							sorted_batch = sorted(stream_photos, key=lambda x: x.get('bearing') or 0)
+
+							# Check for expired URLs in live photos
+							check_photos_for_expired_urls(sorted_batch, "live")
+
 							# Region has more data if API indicates more pages available (regardless of our limit)
 							yield f"data: {json.dumps({'type': 'photos', 'photos': sorted_batch})}\n\n"
 

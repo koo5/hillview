@@ -167,8 +167,9 @@
 
 	let desiredUrl: string | null = null;
 
-	function replaceState2(url: string) {
+	async function replaceState2(url: string) {
 		//console.log('replaceState2: updating URL to', url);
+		await tick();
 		desiredUrl = url;
 		try {
 			replaceState(url, {});
