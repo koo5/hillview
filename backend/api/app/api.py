@@ -424,7 +424,6 @@ async def clear_database():
 		delete_summary = await auth.delete_users_by_usernames(db, all_usernames)
 
 		# Clear any remaining orphaned photos (photos without owners)
-		from sqlalchemy import select
 		from common.models import Photo
 		from photos import delete_all_user_photo_files
 

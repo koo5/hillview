@@ -17,4 +17,4 @@ copilot*
 /dataSources.xml
 /db-forest-config.xml
 /compiler.xml
-
+/copilot.data.migration.*

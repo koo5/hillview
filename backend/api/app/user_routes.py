@@ -1,9 +1,13 @@
 import datetime
 import os
+import sys
 import uuid
-from typing import Optional, Dict, Any, Union
 import logging
 import asyncio
+import requests
+from typing import Optional, Dict, Any, Union
+from urllib.parse import urlencode, quote
+
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.responses import RedirectResponse, HTMLResponse
@@ -12,16 +16,12 @@ from sqlalchemy.future import select
 from sqlalchemy import or_, func, desc
 from geoalchemy2.functions import ST_X, ST_Y, ST_Point
 from pydantic import BaseModel
-import requests
-from urllib.parse import urlencode, quote
 
-import sys
-import os
 # Add common module path
-common_path = os.path.join(os.path.dirname(__file__), '..', '..', 'common')
-sys.path.append(common_path)
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
 from common.models import User, UserPublicKey, Photo
+from common.utc import utcnow
 from photos import delete_all_user_photo_files
 from jwt_service import create_upload_authorization_token
 from auth import (
@@ -44,7 +44,7 @@ oauth_sessions: Dict[str, Dict[str, Any]] = {}
 
 async def cleanup_expired_sessions():
     """Clean up expired OAuth sessions"""
-    current_time = datetime.datetime.utcnow()
+    current_time = utcnow()
     expired_sessions = [
         session_id for session_id, session in oauth_sessions.items()
         if current_time > session.get('expires_at', current_time)
@@ -94,7 +94,7 @@ async def stop_session_cleanup():
 def store_oauth_session(tokens: Dict[str, Any], user_info: Dict[str, Any]) -> str:
     """Store OAuth tokens and return session ID"""
     session_id = str(uuid.uuid4())
-    expires_at = datetime.datetime.utcnow() + datetime.timedelta(minutes=10)  # 10 minute session
+    expires_at = utcnow() + datetime.timedelta(minutes=10)  # 10 minute session
 
     oauth_sessions[session_id] = {
         'access_token': tokens['access_token'],
@@ -102,7 +102,7 @@ def store_oauth_session(tokens: Dict[str, Any], user_info: Dict[str, Any]) -> st
         'expires_at': expires_at,
         'token_expires_at': tokens['expires_at'],
         'user_info': user_info,
-        'created_at': datetime.datetime.utcnow()
+        'created_at': utcnow()
     }
 
     log.info(f"Stored OAuth session {session_id} for user {user_info.get('username', 'unknown')}")
@@ -345,13 +345,13 @@ async def create_oauth_session(
 
 	# Generate session ID for polling
 	session_id = str(uuid.uuid4())
-	expires_at = datetime.datetime.utcnow() + datetime.timedelta(minutes=10)
+	expires_at = utcnow() + datetime.timedelta(minutes=10)
 
 	# Create pending session (no tokens yet)
 	oauth_sessions[session_id] = {
 		'status': 'pending',
 		'expires_at': expires_at,
-		'created_at': datetime.datetime.utcnow(),
+		'created_at': utcnow(),
 		'client_ip': get_client_ip(request)
 	}
 

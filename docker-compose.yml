@@ -11,7 +11,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-hillview}
       POSTGRES_USER: ${POSTGRES_USER:-hillview}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hillview}
-      POSTGRES_HOST_AUTH_METHOD: trust
+      # Removed POSTGRES_HOST_AUTH_METHOD: trust - use password auth instead
     network_mode: host
     ports:
       - "${POSTGRES_PORT:-5434}:5432"
@@ -128,7 +128,7 @@ services:
       - NODE_ENV=production
       - HOST=0.0.0.0
       - PORT=3000
-      - VITE_BACKEND=http://localhost:8055/api
+      - VITE_BACKEND=${VITE_BACKEND:-http://localhost:8055/api}
       - VITE_GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
       - VITE_GOOGLE_REDIRECT_URI=${VITE_GOOGLE_REDIRECT_URI:-}
       - VITE_GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-}

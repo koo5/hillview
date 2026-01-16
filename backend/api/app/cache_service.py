@@ -4,8 +4,9 @@ from datetime import timezone
 import logging
 import sys
 import os
+
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
-from common.utc import utcnow
+
 from typing import List, Optional, Tuple, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -15,11 +16,8 @@ from geoalchemy2 import functions as geo_func
 from geoalchemy2.shape import from_shape, to_shape
 from shapely.geometry import Point, Polygon
 from shapely.ops import unary_union
-from sqlalchemy import text
 
-import sys
-import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
+from common.utc import utcnow
 from common.models import CachedRegion, MapillaryPhotoCache
 from common.database import get_db
 
@@ -222,7 +220,7 @@ class MapillaryCacheService:
 			distribution_score = self.calculate_spatial_distribution(photos) if photos else 0.0
 			coverage_status = "COMPLETE (with sampling)" if is_complete_coverage else "INCOMPLETE"
 			log.info(f"Cache result: {len(photos)} photos from {coverage_status} coverage, distribution={distribution_score:.2%}")
-			# TODO: even with incomplete coverage, we should immediately send tne cached photos (just culling each cell to photos_per_cell)
+			# TODO: even with incomplete coverage, we should immediately send the cached photos (just culling each cell to photos_per_cell)
 			return {
 				'photos': photos,
 				'is_complete_coverage': is_complete_coverage,
@@ -486,10 +484,14 @@ class MapillaryCacheService:
 			captured_at = None
 			raw_captured_at = photo_data.get('captured_at')
 			if raw_captured_at and raw_captured_at != "null":
-				try:
-					captured_at = datetime.datetime.fromisoformat(raw_captured_at.replace('Z', '+00:00'))
-				except:
-					pass
+				if isinstance(raw_captured_at, int):
+					# Handle Unix timestamp
+					captured_at = datetime.datetime.fromtimestamp(raw_captured_at/1000, tz=timezone.utc)
+				else:
+					try:
+						captured_at = datetime.datetime.fromisoformat(raw_captured_at.replace('Z', '+00:00'))
+					except ValueError:
+						log.debug(f"Could not parse captured_at date: {raw_captured_at!r}")
 
 			# Handle computed_rotation - it may be a list/array
 			computed_rotation = photo_data.get('computed_rotation')

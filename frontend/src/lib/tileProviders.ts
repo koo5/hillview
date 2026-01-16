@@ -25,6 +25,7 @@ export interface TileProviderConfig {
 
 // API Keys configuration
 const API_KEYS = {
+    // Protected by referrer restrictions in console.tracestrack.com
     TRACESTRACK: '262a38b16c187cfca361f1776efb9421'
 } as const;
 

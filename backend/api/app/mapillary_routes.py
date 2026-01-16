@@ -2,17 +2,19 @@ import asyncio
 import datetime
 import json
 import os
-from typing import Optional, Dict, Any
+import sys
+import time
+import math
 import logging
+from typing import Optional, Dict, Any
+from asyncio import Lock, Queue
+
 from fastapi import APIRouter, Query, Depends, HTTPException, status, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text
 import httpx
-from asyncio import Lock, Queue
-import time
-import math
-import sys
-import os
+
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db, SessionLocal
 from common.models import CachedRegion, MapillaryPhotoCache, User
@@ -201,7 +203,8 @@ def get_mapillary_token():
 				detail="MAPILLARY_CLIENT_TOKEN_FILE environment variable not set"
 			)
 		try:
-			TOKEN = open(os.path.expanduser(token_file)).read().strip()
+			with open(os.path.expanduser(token_file)) as f:
+				TOKEN = f.read().strip()
 		except Exception as e:
 			raise HTTPException(
 				status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -463,7 +466,11 @@ async def stream_mapillary_images(
 
 
 							if "error" in mapillary_response:
-								raise Exception(mapillary_response["error"])
+								log.error(f"Mapillary API error: {mapillary_response['error']}")
+								raise HTTPException(
+									status_code=status.HTTP_502_BAD_GATEWAY,
+									detail=f"Upstream API error: {mapillary_response['error']}"
+								)
 
 							photos_data = mapillary_response["data"]
 
@@ -623,8 +630,6 @@ async def clear_mapillary_cache_tables(db: AsyncSession) -> Dict[str, int]:
 	Returns:
 		Dict with deletion counts
 	"""
-	from sqlalchemy import text
-
 	mapillary_cache_result = await db.execute(text("DELETE FROM mapillary_photo_cache"))
 	cached_regions_result = await db.execute(text("DELETE FROM cached_regions"))
 	await db.commit()

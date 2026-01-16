@@ -569,6 +569,12 @@ function handleProcessCompletion(message: any): void {
 		console.log(`NewWorker: Marked ${processType} as processed (id: ${messageId})`);
 	}
 
+	// After config completes, invalidate area to force reload for newly enabled sources
+	if (processType === 'config' && currentState.area.data) {
+		console.log(`NewWorker: Config completed - invalidating area to reload sources`);
+		currentState.area.lastProcessedId = -1;
+	}
+
 	cleanupProcess(processId);
 }
 

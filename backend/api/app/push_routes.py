@@ -17,6 +17,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
 from common.models import PushRegistration, Notification, User, UserPublicKey
 from common.security_utils import verify_ecdsa_signature, generate_client_key_id
+from common.utc import utcnow
 from auth import get_current_user, get_current_user_optional
 #from push_notifications import create_notification_for_user, create_notification_for_client, send_broadcast_notification
 from push_notifications import send_activity_broadcast_notification
@@ -145,7 +146,7 @@ async def register_push(
 	logger.info(f"  current_user: {current_user.id if current_user else 'None'}")
 
 	# Check timestamp for replay protection (allow 5 minute window)
-	current_time = datetime.utcnow().timestamp() * 1000  # Convert to milliseconds
+	current_time = utcnow().timestamp() * 1000  # Convert to milliseconds
 	time_diff = abs(current_time - request.timestamp)
 	logger.info(f"⏰ Timestamp validation: current={current_time}, request={request.timestamp}, diff={time_diff}ms")
 
@@ -197,7 +198,7 @@ async def register_push(
 		set_={
 			'push_endpoint': stmt.excluded.push_endpoint,
 			'distributor_package': stmt.excluded.distributor_package,
-			'updated_at': datetime.utcnow()
+			'updated_at': utcnow()
 		}
 	)
 
@@ -328,7 +329,7 @@ async def mark_notifications_read(
 			Notification.user_id == current_user.id,
 			Notification.read_at.is_(None)  # Only update unread notifications
 		)
-	).values(read_at=datetime.utcnow())
+	).values(read_at=utcnow())
 
 	result = await db.execute(stmt)
 	await db.commit()
@@ -405,7 +406,7 @@ async def cleanup_expired_notifications(
 	stmt = delete(Notification).where(
 		and_(
 			Notification.expires_at.is_not(None),
-			Notification.expires_at < datetime.utcnow()
+			Notification.expires_at < utcnow()
 		)
 	)
 

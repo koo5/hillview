@@ -87,14 +87,14 @@ export const tauriSensor = TAURI ? {
     }
 } : null;
 
-console.log('🢄🔍 environment:', JSON.stringify({
+/*console.log('🢄🔍 environment:', JSON.stringify({
     TAURI,
     hasWindow,
     platformName,
     TAURI_MOBILE,
     TAURI_DESKTOP,
     hasTauriSensor: !!tauriSensor
-}));
+}));*/
 
 // Utility function to check if Tauri APIs are available
 export function isTauriAvailable(): boolean {

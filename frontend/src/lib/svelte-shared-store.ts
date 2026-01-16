@@ -30,6 +30,8 @@ export function localStorageSharedStore<T>(name: string, default_: T): Writable<
 
  // Initialize from localStorage immediately to ensure update() works before subscribe
  let currentValue: T = getStorage();
+ // Track if value has been modified before first subscription
+ let modifiedBeforeSubscribe = false;
 
  function start(): () => void {
   function handleStorageEvent({ key, newValue }: StorageEvent): void {
@@ -44,8 +46,11 @@ export function localStorageSharedStore<T>(name: string, default_: T): Writable<
    set(v);
   }
 
-  // Re-read in case localStorage changed between creation and first subscribe
-  currentValue = getStorage();
+  // Only re-read from localStorage if the value hasn't been modified before subscribe
+  // This ensures set()/update() work correctly even before any subscriptions
+  if (!modifiedBeforeSubscribe && browser) {
+   currentValue = getStorage();
+  }
   set(currentValue);
   if (browser) {
    window.addEventListener('storage', handleStorageEvent);
@@ -60,11 +65,13 @@ export function localStorageSharedStore<T>(name: string, default_: T): Writable<
  let r = {
   subscribe,
   set(value: T): void {
+   modifiedBeforeSubscribe = true;
    currentValue = value;
    setStorage(value);
    set(value);
   },
   update(fn: (value: T) => T): void {
+   modifiedBeforeSubscribe = true;
    const value2 = fn(currentValue);
    currentValue = value2;
    setStorage(value2);
@@ -101,10 +108,15 @@ export function localStorageReadOnceSharedStore<T>(name: string, default_: T): W
 
  // Initialize from localStorage immediately to ensure update() works before subscribe
  let currentValue: T = getStorage();
+ // Track if value has been modified before first subscription
+ let modifiedBeforeSubscribe = false;
 
  function start(): void {
-  // Re-read in case localStorage changed between creation and first subscribe
-  currentValue = getStorage();
+  // Only re-read from localStorage if the value hasn't been modified before subscribe
+  // This ensures set()/update() work correctly even before any subscriptions
+  if (!modifiedBeforeSubscribe && browser) {
+   currentValue = getStorage();
+  }
   set(currentValue);
  }
 
@@ -114,11 +126,13 @@ export function localStorageReadOnceSharedStore<T>(name: string, default_: T): W
  let r = {
   subscribe,
   set(value: T): void {
+   modifiedBeforeSubscribe = true;
    currentValue = value;
    setStorage(value);
    set(value);
   },
   update(fn: (value: T) => T): void {
+   modifiedBeforeSubscribe = true;
    const value2 = fn(currentValue);
    currentValue = value2;
    setStorage(value2);
@@ -206,7 +220,7 @@ export function staggeredLocalStorageSharedStore<T>(
 
     // Only re-read from localStorage if the value hasn't been modified before subscribe
     // This ensures update() works correctly even before any subscriptions
-    if (!modifiedBeforeSubscribe) {
+    if (!modifiedBeforeSubscribe && browser) {
       currentValue = getStorage();
     }
     set(currentValue);
