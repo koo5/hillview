@@ -71,7 +71,10 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 0px 16px;
+		padding-top: calc(0px + var(--safe-area-inset-top, 0px));
+		padding-bottom: 5px;
+		padding-left: calc(0px + var(--safe-area-inset-left, 8px));
+		padding-right: calc(0px + var(--safe-area-inset-right, 8px));
         background: white;
         border-bottom: 1px solid #e5e7eb;
         box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
@@ -141,7 +144,11 @@
     /* Responsive adjustments */
     @media (max-width: 640px) {
         .standard-header {
-            padding: 8px 12px;
+            /*padding: 8px 12px;*/
+			padding-top: calc(8px + var(--safe-area-inset-top, 0px));
+			padding-bottom: 5px;
+			padding-left: calc(12px + var(--safe-area-inset-left, 0px));
+			padding-right: calc(12px + var(--safe-area-inset-right, 0px));
             min-height: 56px;
         }
 

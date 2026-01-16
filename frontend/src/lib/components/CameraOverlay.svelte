@@ -144,7 +144,7 @@
     .location-overlay {
         position: absolute;
         top: 80px;
-		top: calc(60px + var(--safe-area-inset-top));
+		top: calc(60px + var(--safe-area-inset-top, 0px));
         left: 0rem;
         padding: 0rem;
         border-radius: 8px;

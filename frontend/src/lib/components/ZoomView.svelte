@@ -242,8 +242,8 @@
 
 	.close-button {
 		position: absolute;
-		top: calc(20px + var(--safe-area-inset-top));
-		right: calc(20px + var(--safe-area-inset-right));
+		top: calc(20px + var(--safe-area-inset-top, 0px));
+		right: calc(20px + var(--safe-area-inset-right, 0px));
 		background: rgba(255, 255, 255, 0.9);
 		border: none;
 		border-radius: 50%;
@@ -333,8 +333,8 @@
 
 	@media (max-width: 768px) {
 		.close-button {
-			top: calc(10px + var(--safe-area-inset-top));
-			right: calc(20px + var(--safe-area-inset-right));
+			top: calc(10px + var(--safe-area-inset-top, 0px));
+			right: calc(20px + var(--safe-area-inset-right, 0px));
 		}
 
 		.filename-overlay {

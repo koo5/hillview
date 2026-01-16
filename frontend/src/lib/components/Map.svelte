@@ -1339,7 +1339,7 @@
     .control-buttons-container {
         position: absolute;
         bottom: var(--safe-area-inset-bottom, 0px);
-        right: calc(0px + var(--safe-area-inset-right));
+        right: calc(0px + var(--safe-area-inset-right, 0px));
         z-index: 30000;
         pointer-events: none; /* This makes the container transparent to mouse events */
     }
@@ -1395,8 +1395,8 @@
 
     .location-button-container {
         position: absolute;
-        top: calc(6px + var(--safe-area-inset-top));
-        right: calc(6px + var(--safe-area-inset-right));
+        top: calc(6px + var(--safe-area-inset-top, 0px));
+        right: calc(6px + var(--safe-area-inset-right, 0px));
         z-index: 30000;
         display: flex;
         gap: 8px;
@@ -1441,8 +1441,8 @@
 
     .source-buttons-container {
         position: absolute;
-        top: calc(90px + var(--safe-area-inset-top));
-        right: calc(6px + var(--safe-area-inset-right));
+        top: calc(90px + var(--safe-area-inset-top, 0px));
+        right: calc(6px + var(--safe-area-inset-right, 0px));
         z-index: 30000;
         display: flex;
         flex-direction: column;

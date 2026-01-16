@@ -59,10 +59,11 @@
 			console.error('Error disabling Safe area edge-to-edge mode:', e);
 		}*/
 
-		window.document.documentElement.style.setProperty("--safe-area-inset-top", "0px");
+		/*window.document.documentElement.style.setProperty("--safe-area-inset-top", "0px");
 		window.document.documentElement.style.setProperty("--safe-area-inset-bottom", "0px");
 		window.document.documentElement.style.setProperty("--safe-area-inset-left", "0px");
 		window.document.documentElement.style.setProperty("--safe-area-inset-right", "0px");
+		*/
 		window.document.documentElement.style.setProperty("--keyboard-height", "0px");
 		window.document.documentElement.style.setProperty("--keyboard-visible", "0");
 

@@ -1432,8 +1432,8 @@
 
 	.camera-controls {
 		position: absolute;
-		bottom: calc(6px + var(--safe-area-inset-bottom));
-		left: calc(0px + var(--safe-area-inset-left));
+		bottom: calc(6px + var(--safe-area-inset-bottom, 0px));
+		left: calc(0px + var(--safe-area-inset-left, 0px));
 		right: 0;
 		display: flex;
 		justify-content: center;

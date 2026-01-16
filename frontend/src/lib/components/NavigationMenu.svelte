@@ -170,10 +170,10 @@
 
     .nav-menu {
         position: fixed;
-        top: calc(60px + var(--safe-area-inset-top));
-        left: calc(0px + var(--safe-area-inset-left));
+        top: calc(60px + var(--safe-area-inset-top, 0px));
+        left: calc(0px + var(--safe-area-inset-left, 0px));
         width: 280px;
-        height: calc(100vh - (60px + var(--safe-area-inset-top)));
+        height: calc(100vh - (60px + var(--safe-area-inset-top, 0px)));
         background: white;
         z-index: 130100;
         box-shadow: 2px 0 10px rgba(0, 0, 0, 0.2);
