@@ -21,6 +21,8 @@
 		"hillview:default",
 		"shell:default",
 		"opener:default",
-		"deep-link:default"
+		"deep-link:default",
+		"edge-to-edge:allow-get-safe-area-insets",
+		"edge-to-edge:allow-disable"
 	]
 }

@@ -52,6 +52,45 @@
 
 	onMount(async () => {
 
+		/*try{
+			await invoke('plugin:edge-to-edge|disable');
+			console.log('Safe area Edge-to-edge mode disabled.');
+		} catch(e) {
+			console.error('Error disabling Safe area edge-to-edge mode:', e);
+		}*/
+
+		window.document.documentElement.style.setProperty("--safe-area-inset-top", "0px");
+		window.document.documentElement.style.setProperty("--safe-area-inset-bottom", "0px");
+		window.document.documentElement.style.setProperty("--safe-area-inset-left", "0px");
+		window.document.documentElement.style.setProperty("--safe-area-inset-right", "0px");
+		window.document.documentElement.style.setProperty("--keyboard-height", "0px");
+		window.document.documentElement.style.setProperty("--keyboard-visible", "0");
+
+
+		window?.addEventListener('safeAreaChanged', (event) => {
+		  console.log('Safe area changed:', JSON.stringify(event.detail));
+		  window.document.documentElement.style.setProperty("--safe-area-inset-top", event.detail.top + "px");
+		  window.document.documentElement.style.setProperty("--safe-area-inset-bottom", event.detail.bottom + "px");
+		  window.document.documentElement.style.setProperty("--safe-area-inset-left", event.detail.left + "px");
+		  window.document.documentElement.style.setProperty("--safe-area-inset-right", event.detail.right + "px");
+		  window.document.documentElement.style.setProperty("--keyboard-height", event.detail.keyboardHeight + "px");
+		  window.document.documentElement.style.setProperty("--keyboard-visible", event.detail.keyboardVisible ? "1" : "0");
+		});
+
+		if (TAURI)
+		{
+			try {
+				const safeArea = await invoke('plugin:edge-to-edge|get_safe_area_insets');
+				console.log('Initial safe area insets:', JSON.stringify(safeArea));
+				window.document.documentElement.style.setProperty("--safe-area-inset-top", safeArea.top + "px");
+				window.document.documentElement.style.setProperty("--safe-area-inset-bottom", safeArea.bottom + "px");
+				window.document.documentElement.style.setProperty("--safe-area-inset-left", safeArea.left + "px");
+				window.document.documentElement.style.setProperty("--safe-area-inset-right", safeArea.right + "px");
+			} catch(e) {
+				console.error('Error invoking Safe area get_safe_area_insets:', e);
+			}
+		}
+
 		//await handleDeepLinkIntent();
 		await handleIntentData();
 

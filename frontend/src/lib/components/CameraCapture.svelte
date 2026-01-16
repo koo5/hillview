@@ -31,7 +31,6 @@
 	} from '$lib/cameraDevices.svelte.js';
 	import {tauriCamera, isCameraPermissionCheckAvailable} from '$lib/tauri';
 	import {addPluginListener, type PluginListener} from '@tauri-apps/api/core';
-	import MyExternalLink from "$lib/components/MyExternalLink.svelte";
 
 	const dispatch = createEventDispatcher();
 
@@ -1433,8 +1432,8 @@
 
 	.camera-controls {
 		position: absolute;
-		bottom: 6px;
-		left: 0;
+		bottom: calc(6px + var(--safe-area-inset-bottom));
+		left: calc(0px + var(--safe-area-inset-left));
 		right: 0;
 		display: flex;
 		justify-content: center;

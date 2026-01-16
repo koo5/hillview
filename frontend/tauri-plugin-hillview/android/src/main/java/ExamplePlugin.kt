@@ -339,7 +339,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 		Log.d(TAG, "📲 intent: ${activity.intent}")
 
 		// Configure window to handle insets the old way (non-edge-to-edge)
-		WindowCompat.setDecorFitsSystemWindows(activity.window, true)
+		//WindowCompat.setDecorFitsSystemWindows(activity.window, true)
 		/*// Tell Android we will handle insets ourselves (edge-to-edge).
 		WindowCompat.setDecorFitsSystemWindows(activity.window, false)
 		// Apply system bar insets as padding to the WebView.

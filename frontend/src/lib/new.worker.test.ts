@@ -192,7 +192,15 @@ describe('New Worker Integration Tests', () => {
     };
     (globalThis as any).postMessage = mockPostMessage;
     (globalThis as any).__WORKER_VERSION__ = 'test-version-' + Date.now();
+
+    // Set EventSource on both global and globalThis for Node.js compatibility
     (globalThis as any).EventSource = MockEventSource;
+    (global as any).EventSource = MockEventSource;
+
+    // Clear mock state
+    mockPostMessage.mockClear();
+    MockEventSource.mockClear();
+    mockEventSourceInstances.clear();
 
     // Dynamically import the worker after setting up mocks
     worker = await import('./new.worker');
@@ -234,6 +242,8 @@ describe('New Worker Integration Tests', () => {
         .some(call => call[0]?.type === 'photosUpdate');
 
       if (hasPhotosUpdate) {
+        // Give the internal queue time to process completion messages
+        await new Promise(resolve => setTimeout(resolve, 50));
         return;
       }
 
@@ -311,8 +321,19 @@ describe('New Worker Integration Tests', () => {
   it('should apply smart culling for many photos', async () => {
     // The MockEventSource will automatically create 1000 bulk photos for bulk-source URL
     const sources = [createStreamSource('bulk-source')];
-    const response = await sendMessage('configUpdated', {
+
+    // Config sets up sources
+    await sendMessage('configUpdated', {
       config: { sources }
+    });
+
+    // Clear config's photosUpdate
+    mockPostMessage.mockClear();
+
+    // Area update triggers actual photo loading
+    const bounds = createTestBounds(50.4, 49.9, 9.9, 10.4);
+    const response = await sendMessage('areaUpdated', {
+      area: bounds
     });
 
     // Should be culled to reasonable limits
@@ -337,19 +358,29 @@ describe('New Worker Integration Tests', () => {
 
   it('should handle disabled sources', async () => {
     const sources = [
-      createStreamSource('enabled', true),
-      createStreamSource('disabled', false)
+      createStreamSource('source1', true),   // enabled - uses testPhotosSource1
+      createStreamSource('disabled', false)  // disabled
     ];
 
-    const response = await sendMessage('configUpdated', {
+    // Config only sets up sources, doesn't load photos
+    await sendMessage('configUpdated', {
       config: { sources }
+    });
+
+    // Clear config's photosUpdate
+    mockPostMessage.mockClear();
+
+    // Area update triggers actual photo loading
+    const bounds = createTestBounds(50.4, 49.9, 9.9, 10.4);
+    const response = await sendMessage('areaUpdated', {
+      area: bounds
     });
 
     expect(response.type).toBe('photosUpdate');
 
     // Should only have photos from enabled source
     const photoIds = response.photos_in_area.map((p: PhotoData) => p.id);
-    expect(photoIds).toContain('photo1'); // From enabled source
+    expect(photoIds).toContain('photo1'); // From enabled source (source1)
     expect(MockEventSource).toHaveBeenCalledTimes(1); // Only called for enabled source
   });
 

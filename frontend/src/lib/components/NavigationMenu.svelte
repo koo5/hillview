@@ -141,13 +141,10 @@
 			<li>
 					<div class="build-info">
 						<div class="build-version">
-							Hillview v{BUILD_VERSION}
+							Client: {formatUtcDate(new Date(BUILD_TIME))}
 						</div>
 						<div class="build-timestamp">
-							{formatUtcDate(new Date(BUILD_TIME))}
-						</div>
-						<div class="build-timestamp">
-							{backendUrl}
+							Server: {backendUrl}
 						</div>
 					</div>
 
@@ -163,7 +160,7 @@
 
     .menu-backdrop {
         position: fixed;
-        top: 60px; /* Start below header */
+        top: 0px;
         left: 0;
         right: 0;
         bottom: 0;
@@ -173,10 +170,10 @@
 
     .nav-menu {
         position: fixed;
-        top: 60px; /* Align directly below header */
-        left: 0;
+        top: calc(60px + var(--safe-area-inset-top));
+        left: calc(0px + var(--safe-area-inset-left));
         width: 280px;
-        height: calc(100vh - 60px);
+        height: calc(100vh - (60px + var(--safe-area-inset-top)));
         background: white;
         z-index: 130100;
         box-shadow: 2px 0 10px rgba(0, 0, 0, 0.2);

@@ -511,8 +511,8 @@
 
 	.hamburger {
 		position: absolute;
-		top: 10px;
-		left: 10px;
+		top: calc(10px + var(--safe-area-inset-top));
+		left: calc(10px + var(--safe-area-inset-left));
 		z-index: 30001;
 		background: white;
 		border-radius: 50%;
@@ -530,8 +530,8 @@
 
 	.camera-button {
 		position: absolute;
-		top: 10px;
-		left: 60px;
+		top: calc(10px + var(--safe-area-inset-top));
+		left: calc(60px + var(--safe-area-inset-left));
 		z-index: 30001;
 		background: white;
 		border-radius: 50%;
@@ -552,8 +552,8 @@
 
 	.debug-toggle {
 		position: absolute;
-		top: 10px;
-		left: 110px;
+		top: calc(10px + var(--safe-area-inset-top));
+		left: calc(110px + var(--safe-area-inset-left));
 		z-index: 30001;
 		background: white;
 		border-radius: 50%;
