@@ -319,7 +319,7 @@
 <style>
     .debug-overlay {
         position: fixed;
-        top: 100px;
+        top: calc(100px + var(--safe-area-inset-top, 0px));
         right: 10px;
         background: rgba(0, 0, 0, 0.7);
         color: #0f0;
@@ -823,14 +823,14 @@
 
     @media (max-width: 600px) {
         .debug-overlay {
-            top: 50px;
+            top: calc(50px + var(--safe-area-inset-top, 0px));
             right: 5px;
             left: 5px;
             min-width: auto;
         }
 
         .debug-overlay.left-position {
-            top: 50px;
+            top: calc(50px + var(--safe-area-inset-top, 0px));
             left: 5px;
             right: 5px;
         }

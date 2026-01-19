@@ -160,7 +160,7 @@
     .input-group input {
         flex: 1;
         padding: 12px 16px;
-        border: 1px solid rgba(255, 255, 255, 0.3);
+        border: 1px solid rgba(5, 225, 5, 0.3);
         border-radius: 8px;
         font-size: 1rem;
         background: rgba(255, 255, 255, 0.9);
