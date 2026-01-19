@@ -37,6 +37,8 @@ const mockSelf = {
 
 // Mock EventSource for streaming tests
 const mockEventSourceInstances = new Map<string, any>();
+// Track close() calls for cancellation testing
+const mockEventSourceCloseCalls: string[] = [];
 
 interface MockEventSourceInstance {
   url: string;
@@ -51,14 +53,19 @@ interface MockEventSourceInstance {
 }
 
 const MockEventSource = vi.fn().mockImplementation((url: string): MockEventSourceInstance => {
-  process.stderr.write(`MockEventSource: new instance url=${url}\n`);
   const instance: MockEventSourceInstance = {
     url,
     readyState: 1, // OPEN
     onopen: null,
     onmessage: null,
     onerror: null,
-    close: vi.fn(() => console.log(`MockEventSource: Closed ${url}`)),
+    close: vi.fn(() => {
+      // Track which source was closed for cancellation testing
+      const sourceMatch = url.match(/example\.com\/([^?]+)/);
+      if (sourceMatch) {
+        mockEventSourceCloseCalls.push(sourceMatch[1]);
+      }
+    }),
     addEventListener: vi.fn(),
     removeEventListener: vi.fn(),
     dispatchEvent: vi.fn()
@@ -68,7 +75,6 @@ const MockEventSource = vi.fn().mockImplementation((url: string): MockEventSourc
 
   // Use queueMicrotask for test-friendly async handling
   queueMicrotask(() => {
-    process.stderr.write(`MockEventSource: queueMicrotask running for ${url}\n`);
     if (instance.onopen) {
       instance.onopen(new Event('open'));
     }
@@ -88,22 +94,32 @@ const MockEventSource = vi.fn().mockImplementation((url: string): MockEventSourc
         testData.push(createTestPhoto(`${url.includes('city-photos') ? 'city' : 'bulk'}${i}`, lat, lng, i % 360));
       }
     } else if (url.includes('bearing-test')) {
+      // Deliberately UNSORTED bearings to verify sorting actually works
       testData = [
-        createTestPhoto('bearing1', 50.1, 10.1, 0),
-        createTestPhoto('bearing2', 50.1, 10.1, 90),
-        createTestPhoto('bearing3', 50.1, 10.1, 180),
-        createTestPhoto('bearing4', 50.1, 10.1, 270)
+        createTestPhoto('bearing1', 50.1, 10.1, 270),  // out of order
+        createTestPhoto('bearing2', 50.1, 10.1, 45),   // out of order
+        createTestPhoto('bearing3', 50.1, 10.1, 180),  // out of order
+        createTestPhoto('bearing4', 50.1, 10.1, 0),    // out of order
+        createTestPhoto('bearing5', 50.1, 10.1, 90)    // out of order
       ];
     } else if (url.includes('range-test')) {
       testData = [
         createTestPhoto('range1', 50.1, 10.1, 45),
         createTestPhoto('range2', 50.1, 10.1, 135)
       ];
+    } else if (url.includes('distance-test')) {
+      // Photos at specific distances from center (50.1, 10.1)
+      // ~111m per 0.001 degree latitude at this location
+      testData = [
+        createTestPhoto('close1', 50.1005, 10.1005, 0),   // ~70m from center
+        createTestPhoto('close2', 50.1008, 10.1, 90),     // ~90m from center
+        createTestPhoto('far1', 50.12, 10.1, 180),        // ~2.2km from center
+        createTestPhoto('far2', 50.1, 10.15, 270)         // ~3.5km from center
+      ];
     }
 
     // Send photos as stream message (type must be 'photos' to match StreamSourceLoader)
     if (testData.length > 0 && instance.onmessage) {
-      process.stderr.write(`MockEventSource: sending ${testData.length} photos\n`);
       instance.onmessage(new MessageEvent('message', {
         data: JSON.stringify({
           type: 'photos',
@@ -114,7 +130,6 @@ const MockEventSource = vi.fn().mockImplementation((url: string): MockEventSourc
 
     // Send completion message
     if (instance.onmessage) {
-      process.stderr.write(`MockEventSource: sending completion\n`);
       instance.onmessage(new MessageEvent('message', {
         data: JSON.stringify({
           type: 'stream_complete'
@@ -193,14 +208,11 @@ describe('New Worker Integration Tests', () => {
   let worker: typeof import('./new.worker');
 
   beforeEach(async () => {
-    process.stderr.write('beforeEach: starting\n');
-
     // Reset message ID counter
     messageId = 1;
 
     // Clear the module cache to get a fresh worker instance with clean state
     vi.resetModules();
-    process.stderr.write('beforeEach: modules reset\n');
 
     // Re-mock globals after module reset (they get cleared too)
     (globalThis as any).self = {
@@ -218,17 +230,15 @@ describe('New Worker Integration Tests', () => {
     mockPostMessage.mockClear();
     MockEventSource.mockClear();
     mockEventSourceInstances.clear();
+    mockEventSourceCloseCalls.length = 0;  // Clear close() tracking
 
-    process.stderr.write('beforeEach: importing worker\n');
     // Dynamically import the worker after setting up mocks
     worker = await import('./new.worker');
     workerRef = worker;  // Set reference for auth token responses
-    process.stderr.write('beforeEach: worker imported\n');
   });
 
   const sendMessage = async (type: string, data: any): Promise<any> => {
     const id = messageId++;
-    process.stderr.write(`sendMessage: ${type} id=${id}\n`);
 
     // Send message to worker
     worker.handleMessage({
@@ -238,7 +248,6 @@ describe('New Worker Integration Tests', () => {
       id
     });
 
-    console.log(`TEST: Message sent, waiting for response...`);
     // Wait for processing to complete
     await waitForPhotosUpdate();
 
@@ -255,19 +264,11 @@ describe('New Worker Integration Tests', () => {
 
   const waitForPhotosUpdate = async (timeout = 5000): Promise<void> => {
     const startTime = Date.now();
-    let loopCount = 0;
 
     while (Date.now() - startTime < timeout) {
-      loopCount++;
-
       // Check if we got a photosUpdate message
       const hasPhotosUpdate = mockPostMessage.mock.calls
         .some(call => call[0]?.type === 'photosUpdate');
-
-      if (loopCount % 50 === 0) {
-        const types = mockPostMessage.mock.calls.map(c => c[0]?.type).join(',');
-        process.stderr.write(`wait: loop=${loopCount} types=[${types}]\n`);
-      }
 
       if (hasPhotosUpdate) {
         // Give the internal queue time to process completion messages
@@ -279,7 +280,6 @@ describe('New Worker Integration Tests', () => {
       await new Promise(resolve => setTimeout(resolve, 10));
     }
 
-    process.stderr.write(`TIMEOUT: ${loopCount} loops, calls: ${JSON.stringify(mockPostMessage.mock.calls.map(c => c[0]?.type))}\n`);
     throw new Error('Timeout waiting for photosUpdate');
   };
 
@@ -348,41 +348,63 @@ describe('New Worker Integration Tests', () => {
   });
 
   it('should apply smart culling for many photos', async () => {
-    // The MockEventSource will automatically create 1000 bulk photos for bulk-source URL
+    // MockEventSource creates 1000 bulk photos spread across a grid
+    // lat = 50.0 + (i % 20) * 0.01, lng = 10.0 + floor(i/20) * 0.01
     const sources = [createStreamSource('bulk-source')];
 
-    // Config sets up sources
     await sendMessage('configUpdated', {
       config: { sources }
     });
 
-    // Clear config's photosUpdate
     mockPostMessage.mockClear();
 
-    // Area update triggers actual photo loading
+    // Area update triggers photo loading
     const bounds = createTestBounds(50.4, 49.9, 9.9, 10.4);
     const response = await sendMessage('areaUpdated', {
       area: bounds
     });
 
-    // Should be culled to reasonable limits
+    // Verify culling actually reduced the count (1000 sent, fewer returned)
+    expect(response.photos_in_area.length).toBeLessThan(1000);
     expect(response.photos_in_area.length).toBeLessThanOrEqual(700); // MAX_PHOTOS_IN_AREA
     expect(response.photos_in_area.length).toBeGreaterThan(0);
     expect(response.photos_in_range.length).toBeLessThanOrEqual(200); // MAX_PHOTOS_IN_RANGE
+
+    // Verify spatial distribution: culled photos should come from different grid cells
+    // not just the first N photos. Check that we have photos from multiple lat buckets.
+    const latBuckets = new Set(
+      response.photos_in_area.map((p: PhotoData) => Math.floor(p.coord.lat * 100))
+    );
+    // Should have photos from multiple distinct latitude bands (grid-based culling)
+    expect(latBuckets.size).toBeGreaterThan(5);
   });
 
   it('should sort photosInRange by bearing', async () => {
-    // The MockEventSource will automatically create bearing-test photos with bearings 0, 90, 180, 270
+    // MockEventSource sends bearing-test photos with UNSORTED bearings: 270, 45, 180, 0, 90
+    // This verifies the worker actually sorts them, not just returns pre-sorted data
     const sources = [createStreamSource('bearing-test')];
-    const response = await sendMessage('configUpdated', {
+    await sendMessage('configUpdated', {
       config: { sources }
     });
 
-    // photosInRange should be sorted by bearing (0, 90, 180, 270)
+    mockPostMessage.mockClear();
+
+    // Area update triggers photo loading
+    const bounds = createTestBounds(50.2, 50.0, 10.0, 10.2);
+    const response = await sendMessage('areaUpdated', {
+      area: bounds,
+      range: 5000
+    });
+
+    // photosInRange should be sorted by bearing ascending
     const bearings = response.photos_in_range.map((p: PhotoData) => p.bearing);
-    for (let i = 1; i < bearings.length; i++) {
-      expect(bearings[i]).toBeGreaterThanOrEqual(bearings[i-1]);
-    }
+
+    // Verify we got multiple photos with different bearings
+    expect(bearings.length).toBeGreaterThan(1);
+
+    // Verify they are sorted (input was 270, 45, 180, 0, 90 - should become 0, 45, 90, 180, 270)
+    const expectedSorted = [...bearings].sort((a, b) => a - b);
+    expect(bearings).toEqual(expectedSorted);
   });
 
   it('should handle disabled sources', async () => {
@@ -391,27 +413,18 @@ describe('New Worker Integration Tests', () => {
       createStreamSource('disabled', false)  // disabled
     ];
 
-    console.log('TEST: Sending config with sources:', sources.map(s => s.id));
-
     // Config only sets up sources, doesn't load photos
     await sendMessage('configUpdated', {
       config: { sources }
     });
 
-    console.log('TEST: Config sent, MockEventSource calls:', MockEventSource.mock.calls.length);
-
-    // Clear config's photosUpdate
     mockPostMessage.mockClear();
 
     // Area update triggers actual photo loading
     const bounds = createTestBounds(50.4, 49.9, 9.9, 10.4);
-    console.log('TEST: Sending area update with bounds:', bounds);
-
     const response = await sendMessage('areaUpdated', {
       area: bounds
     });
-
-    console.log('TEST: Area response received, MockEventSource calls:', MockEventSource.mock.calls.length);
 
     expect(response.type).toBe('photosUpdate');
 
@@ -421,43 +434,52 @@ describe('New Worker Integration Tests', () => {
     expect(MockEventSource).toHaveBeenCalledTimes(1); // Only called for enabled source
   });
 
-  it('should update range dynamically', async () => {
-    const sources = [createStreamSource('range-test')];
+  it('should filter photos by actual distance from map center', async () => {
+    // distance-test has photos at known distances from center (50.1, 10.1):
+    // - close1: ~70m, close2: ~90m, far1: ~2.2km, far2: ~3.5km
+    const sources = [createStreamSource('distance-test')];
+    // Bounds centered on (50.1, 10.1)
     const bounds = createTestBounds(50.2, 50.0, 10.0, 10.2);
 
-    // Send config first
     await sendMessage('configUpdated', {
       config: { sources }
     });
 
-    // Clear previous calls
     mockPostMessage.mockClear();
 
-    // Send area with small range
+    // Small range (200m) should only include close photos
     const response1 = await sendMessage('areaUpdated', {
       area: bounds,
-      range: 50 // Very small range
+      range: 200
     });
 
-    // Check the photos_in_range array exists (snake_case from worker)
     expect(response1.photos_in_range).toBeDefined();
-    const smallRangeCount = response1.photos_in_range.length;
+    const smallRangeIds = response1.photos_in_range.map((p: PhotoData) => p.id);
+    // Should include close1 (~70m) and close2 (~90m)
+    expect(smallRangeIds).toContain('close1');
+    expect(smallRangeIds).toContain('close2');
+    // Should NOT include far photos
+    expect(smallRangeIds).not.toContain('far1');
+    expect(smallRangeIds).not.toContain('far2');
 
-    // Clear previous calls
     mockPostMessage.mockClear();
 
-    // Send area with larger range
+    // Large range (5000m) should include all photos
     const response2 = await sendMessage('areaUpdated', {
       area: bounds,
-      range: 5000 // Much larger range
+      range: 5000
     });
 
-    // Check the photos_in_range array exists
     expect(response2.photos_in_range).toBeDefined();
-    const largeRangeCount = response2.photos_in_range.length;
+    const largeRangeIds = response2.photos_in_range.map((p: PhotoData) => p.id);
+    // Should include all photos
+    expect(largeRangeIds).toContain('close1');
+    expect(largeRangeIds).toContain('close2');
+    expect(largeRangeIds).toContain('far1');
+    expect(largeRangeIds).toContain('far2');
 
-    // Larger range should include more or equal photos
-    expect(largeRangeCount).toBeGreaterThanOrEqual(smallRangeCount);
+    // Larger range includes more photos
+    expect(largeRangeIds.length).toBeGreaterThan(smallRangeIds.length);
   });
 
   it('should handle rapid area updates like real-world map panning', async () => {
@@ -504,18 +526,10 @@ describe('New Worker Integration Tests', () => {
       expect(response.photos_in_area).toBeDefined();
       expect(response.photos_in_range).toBeDefined();
       expect(response.current_range).toBe(1500);
-
-      // Should have some photos for most areas (depending on mock data)
-      console.log(`${area.name}: ${response.photos_in_area.length} in area, ${response.photos_in_range.length} in range`);
     }
 
     // Verify we got responses for all areas
     expect(responses).toHaveLength(5);
-
-    // Verify that different areas might have different photo counts
-    // (this tests that culling and filtering is working)
-    const photoCounts = responses.map(r => r.photos_in_area.length);
-    console.log('🢄Photo counts by area:', photoCounts);
 
     // Should handle all requests without errors
     expect(responses.every(r => r.type === 'photosUpdate')).toBe(true);
@@ -547,12 +561,11 @@ describe('New Worker Integration Tests', () => {
     const responses = await Promise.all(updatePromises);
 
     // All should complete successfully
-    responses.forEach((response, i) => {
+    responses.forEach((response) => {
       expect(response.type).toBe('photosUpdate');
       expect(response.photos_in_area).toBeDefined();
       expect(response.photos_in_range).toBeDefined();
       expect(response.current_range).toBe(1000);
-      console.log(`Update ${i}: ${response.photos_in_area.length} photos in area`);
     });
 
     // Should have processed all requests
@@ -620,31 +633,45 @@ describe('New Worker Integration Tests', () => {
     }
   });
 
-  it('should prioritize config updates over area updates', async () => {
-    // Start with one source
+  it('should exclude data from removed sources after config change', async () => {
+    // Start with both sources
     await sendMessage('configUpdated', {
-      config: { sources: [createStreamSource('source1')] }
+      config: { sources: [createStreamSource('source1'), createStreamSource('source2')] }
     });
 
-    // Send area update
-    const areaPromise = sendMessage('areaUpdated', {
-      area: createTestBounds(50.2, 50.0, 10.0, 10.2),
+    // Trigger loading from both sources
+    const bounds = createTestBounds(50.4, 49.9, 9.9, 10.4);
+    const response1 = await sendMessage('areaUpdated', {
+      area: bounds,
       range: 1000
     });
 
-    // Immediately send config update (should interrupt area processing)
-    const configPromise = sendMessage('configUpdated', {
+    // Verify we have photos from BOTH sources
+    const photoIds1 = response1.photos_in_area.map((p: PhotoData) => p.id);
+    expect(photoIds1).toContain('photo1'); // From source1
+    expect(photoIds1).toContain('photo4'); // From source2
+
+    mockPostMessage.mockClear();
+
+    // Change config to ONLY source2 (removes source1)
+    await sendMessage('configUpdated', {
       config: { sources: [createStreamSource('source2')] }
     });
 
-    const [areaResult, configResult] = await Promise.all([areaPromise, configPromise]);
+    // Trigger new area update
+    mockPostMessage.mockClear();
+    const response2 = await sendMessage('areaUpdated', {
+      area: bounds,
+      range: 1000
+    });
 
-    // Both should complete successfully
-    expect(areaResult.type).toBe('photosUpdate');
-    expect(configResult.type).toBe('photosUpdate');
-
-    // Config update should have priority and its result should reflect the new source
-    console.log('🢄Area result photos:', areaResult.photos_in_area.length);
-    console.log('🢄Config result photos:', configResult.photos_in_area.length);
+    // Result should ONLY contain photos from source2 (source1 was removed)
+    const photoIds2 = response2.photos_in_area.map((p: PhotoData) => p.id);
+    expect(photoIds2).toContain('photo4'); // From source2
+    expect(photoIds2).toContain('photo5'); // From source2
+    // source1 photos should NOT be in the result - source was removed
+    expect(photoIds2).not.toContain('photo1');
+    expect(photoIds2).not.toContain('photo2');
+    expect(photoIds2).not.toContain('photo3');
   });
 });

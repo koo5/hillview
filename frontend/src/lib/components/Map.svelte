@@ -150,7 +150,7 @@
 
     $: map = elMap?.getMap();
 
-
+	let invalidateSizeTimeout: any = null;
 
     // Expose map to window for testing and fix initial size
     $: if (map && typeof window !== 'undefined') {
@@ -160,21 +160,23 @@
         // console.log('🢄Map reactive: spatialState bounds:', JSON.stringify(get(spatialState).bounds));
 
         // Fix initial map size after the map becomes available
-        setTimeout(() => {
-            // console.log('🢄Map setTimeout: before invalidateSize, map center:', JSON.stringify(map?.getCenter()));
-            // Guard against race conditions where map is destroyed before timeout fires
-            try {
-                if (map && map._loaded && map.getContainer() && map.invalidateSize) {
-                    console.log('🢄Fixing initial map size');
-                    map.invalidateSize({ reset: true, animate: false });
-                    console.log('🢄Map setTimeout: after invalidateSize, map center:', JSON.stringify(map?.getCenter()));
-                }
-            } catch (e) {
-                // Map may have been destroyed or is in an inconsistent state
-                console.debug('🢄Map invalidateSize skipped:', e instanceof Error ? e.message : String(e));
-            }
-			afterInit();
-        }, 200);
+		if (!invalidateSizeTimeout) {
+			invalidateSizeTimeout = setTimeout(() => {
+				// console.log('🢄Map setTimeout: before invalidateSize, map center:', JSON.stringify(map?.getCenter()));
+				// Guard against race conditions where map is destroyed before timeout fires
+				try {
+					if (map && map._loaded && map.getContainer() && map.invalidateSize) {
+						console.log('🢄Fixing initial map size');
+						map.invalidateSize({ reset: true, animate: false });
+						console.log('🢄Map setTimeout: after invalidateSize, map center:', JSON.stringify(map?.getCenter()));
+					}
+				} catch (e) {
+					// Map may have been destroyed or is in an inconsistent state
+					console.debug('🢄Map invalidateSize skipped:', e instanceof Error ? e.message : String(e));
+				}
+				afterInit();
+	        }, 200);
+		}
     }
 
 	async function afterInit() {
@@ -917,6 +919,10 @@
 
     onDestroy(async () => {
         console.log('🢄Map component destroyed');
+		if (invalidateSizeTimeout) {
+			clearTimeout(invalidateSizeTimeout);
+			invalidateSizeTimeout = null;
+		}
 		// Clear cached photos and reset bounds so we fetch fresh data when map remounts
 		photosInArea.set([]);
 		spatialState.update(s => ({...s, bounds: null}));
