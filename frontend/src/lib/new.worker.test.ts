@@ -579,29 +579,45 @@ describe('New Worker Integration Tests', () => {
     // Clear messages and test with wrong version
     mockPostMessage.mockClear();
 
-    // Send message with wrong version - processConfig will throw but the error
-    // happens asynchronously (processConfig is not awaited in the worker).
-    // The worker should fail silently and not send a photosUpdate.
-    worker.handleMessage({
-      frontendMessageId: 'frontend_version_test',
-      type: 'configUpdated',
-      data: {
-        config: {
-          sources,
-          expectedWorkerVersion: 'wrong-version-123'
-        }
-      },
-      id: 999
-    });
+    // Capture the expected version mismatch error
+    let caughtError: Error | null = null;
+    const errorHandler = (error: Error) => {
+      if (error.message.includes('Worker version mismatch')) {
+        caughtError = error;
+      }
+    };
+    process.on('unhandledRejection', errorHandler);
 
-    // Wait a short time for the async error to occur
-    await new Promise(resolve => setTimeout(resolve, 200));
+    try {
+      // Send message with wrong version - processConfig will throw but the error
+      // happens asynchronously (processConfig is not awaited in the worker).
+      worker.handleMessage({
+        frontendMessageId: 'frontend_version_test',
+        type: 'configUpdated',
+        data: {
+          config: {
+            sources,
+            expectedWorkerVersion: 'wrong-version-123'
+          }
+        },
+        id: 999
+      });
 
-    // Verify NO photosUpdate was sent for the invalid version
-    const photosUpdateCalls = mockPostMessage.mock.calls
-      .filter(call => call[0]?.type === 'photosUpdate');
+      // Wait a short time for the async error to occur
+      await new Promise(resolve => setTimeout(resolve, 200));
 
-    expect(photosUpdateCalls.length).toBe(0);
+      // Verify NO photosUpdate was sent for the invalid version
+      const photosUpdateCalls = mockPostMessage.mock.calls
+        .filter(call => call[0]?.type === 'photosUpdate');
+
+      expect(photosUpdateCalls.length).toBe(0);
+
+      // Verify the version mismatch error was thrown
+      expect(caughtError).not.toBeNull();
+      expect(caughtError!.message).toContain('Worker version mismatch');
+    } finally {
+      process.removeListener('unhandledRejection', errorHandler);
+    }
   });
 
   it('should prioritize config updates over area updates', async () => {

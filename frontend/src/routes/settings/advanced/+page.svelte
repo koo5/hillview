@@ -131,6 +131,7 @@
 				on:click={async () => {
 					try {
 						await invoke('plugin:hillview|cmd', { command: 'force_new_key' });
+						alert('A new client key has been generated. Maybe uploads will work now :)');
 					}
 					catch (error) {
 						console.error('Failed to generate new client key:', error);

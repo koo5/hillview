@@ -162,10 +162,16 @@
         // Fix initial map size after the map becomes available
         setTimeout(() => {
             // console.log('🢄Map setTimeout: before invalidateSize, map center:', JSON.stringify(map?.getCenter()));
-            if (map.invalidateSize) {
-                // console.log('🢄Fixing initial map size');
-                map.invalidateSize({ reset: true, animate: false });
-                // console.log('🢄Map setTimeout: after invalidateSize, map center:', JSON.stringify(map?.getCenter()));
+            // Guard against race conditions where map is destroyed before timeout fires
+            try {
+                if (map && map._loaded && map.getContainer() && map.invalidateSize) {
+                    console.log('🢄Fixing initial map size');
+                    map.invalidateSize({ reset: true, animate: false });
+                    console.log('🢄Map setTimeout: after invalidateSize, map center:', JSON.stringify(map?.getCenter()));
+                }
+            } catch (e) {
+                // Map may have been destroyed or is in an inconsistent state
+                console.debug('🢄Map invalidateSize skipped:', e instanceof Error ? e.message : String(e));
             }
 			afterInit();
         }, 200);
