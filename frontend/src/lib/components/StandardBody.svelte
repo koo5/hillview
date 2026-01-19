@@ -14,7 +14,10 @@
 
         /* Common page container styling */
         max-width: 1200px;
-        margin: 0 auto;
+        margin-top: 0px;
+		margin-left: auto;
+		margin-right: auto;
+		margin-bottom: 100px;
         padding-left: 20px;
         padding-right: 20px;
         padding-bottom: 40px; /* More bottom padding for scroll space */

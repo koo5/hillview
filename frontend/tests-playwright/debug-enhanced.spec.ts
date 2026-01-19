@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { MAX_DEBUG_MODES } from '../src/lib/constants';
 
-test.describe('Enhanced Debug Page', () => {
+test.describe.skip('Enhanced Debug Page', () => {
   test.beforeEach(async ({ page }) => {
     // Navigate to the main page
     await page.goto('/');

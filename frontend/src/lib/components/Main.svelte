@@ -431,13 +431,18 @@
 	<AlertArea position="main"/>
 </div>
 
+{#if true}
+
+{@const s = getComputedStyle(document.documentElement)}
+<!--  + Math.max(s.getPropertyValue('--safe-area-inset-top').replace('px','')*1.0, s.getPropertyValue('--safe-area-inset-left').replace('px','')*1.0, 0), -->
+
 <div
 	class="container"
 	bind:this={containerElement}
 	use:resizableSplit={{
 		direction: isPortrait ? 'horizontal' : 'vertical',
 		defaultSplit: $splitPercent,
-		minSize: 50,
+		minSize: 100,
 		onResize: handleSplitResize
 	}}
 >
@@ -465,7 +470,7 @@
 		<Map bind:this={mapComponent} bind:update_url={update_url}/>
 	</div>
 </div>
-
+{/if}
 
 <DebugOverlay/>
 
