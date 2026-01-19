@@ -139,7 +139,10 @@ async def register_push(
 
 	logger.info(f"📨 Push registration request received:")
 	logger.info(f"  calculated_client_key_id: {client_key_id}")
-	logger.info(f"  push_endpoint: {request.push_endpoint[:50]}...")
+	#logger.info(f"  client_key: {request.public_key_pem[:50]}...")
+	logger.info(f"  client_key: {request.public_key_pem}")
+	#logger.info(f"  push_endpoint: {request.push_endpoint[:50]}...")
+	logger.info(f"  push_endpoint: {request.push_endpoint}")
 	logger.info(f"  distributor_package: {request.distributor_package}")
 	logger.info(f"  timestamp: {request.timestamp}")
 	logger.info(f"  key_created_at: {request.key_created_at}")

@@ -426,4 +426,27 @@ class AuthenticationManager(private val context: Context) {
     fun hasStoredAuth(): Boolean {
         return prefs.getString(KEY_AUTH_TOKEN, null) != null
     }
+
+    /**
+     * Force generate a new key pair and re-register with server.
+     * Useful for debugging signature issues or recovering from key mismatch.
+     */
+    suspend fun forceNewKeyPair(): Boolean {
+        Log.d(TAG, "Forcing new key pair generation")
+
+        // Force regenerate the key pair
+        val success = clientCrypto.getOrCreateKeyPair(forceKeyRegeneration = true)
+        if (!success) {
+            Log.e(TAG, "Failed to force generate new key pair")
+            return false
+        }
+
+        // Re-register the new key with the server
+        val token = getCurrentTokenIfValid() ?: run {
+            Log.e(TAG, "No valid token available to register new key")
+            return false
+        }
+
+        return registerClientPublicKey(token)
+    }
 }

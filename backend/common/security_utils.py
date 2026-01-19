@@ -390,14 +390,14 @@ def validate_client_key_id_fingerprint(client_key_id: str, public_key_pem: str) 
 		logger.error(f"Error validating client key ID fingerprint: {e}")
 		return False
 
-def verify_ecdsa_signature(signature_base64: str, public_key_pem: str, message_data: Dict[str, Any]) -> bool:
+def verify_ecdsa_signature(signature_base64: str, public_key_pem: str, message_data: any) -> bool:
 	"""
 	Verify ECDSA P-256 signature using the client's public key.
 
 	Args:
 		signature_base64: Base64-encoded ECDSA signature
 		public_key_pem: PEM-formatted ECDSA P-256 public key
-		message_data: Dictionary containing the signed data
+		message_data: list containing the signed data
 
 	Returns:
 		True if signature is valid, False otherwise

@@ -282,6 +282,7 @@ async def save_processed_photo(
 		await send_activity_broadcast_notification(db, photo.owner_id)
 	except Exception as e:
 		logger.warning(f"Failed to send activity broadcast notification for photo {photo_id}: {e}")
+	logger.warning(f"Failed to send activity broadcast notification for photo {photo_id}.")
 		# Don't re-raise - photo upload succeeded, notification is non-critical
 
 	return {

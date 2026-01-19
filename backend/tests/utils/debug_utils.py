@@ -4,6 +4,7 @@ Debug utilities using the centralized API client.
 """
 
 import sys
+import json
 from .api_client import api_client
 from .auth_utils import auth_helper
 
@@ -178,8 +179,129 @@ def clear_mock_mapillary():
         print(f"❌ Error: {e}")
 
 
+def verify_signature(message_json: str, signature_base64: str, public_key_pem: str):
+    """Verify an ECDSA signature given message JSON, signature, and public key."""
+    try:
+        # Import the verification function from common
+        sys.path.insert(0, '.')
+        from common.security_utils import verify_ecdsa_signature
+
+        # Parse the message JSON
+        message_data = json.loads(message_json)
+
+        print("🔐 Verifying ECDSA signature...")
+        print(f"   Message: {message_json[:100]}{'...' if len(message_json) > 100 else ''}")
+        print(f"   Signature: {signature_base64[:50]}...")
+        print(f"   Public key: {public_key_pem[:50]}...")
+
+        # Verify the signature
+        is_valid = verify_ecdsa_signature(signature_base64, public_key_pem, message_data)
+
+        if is_valid:
+            print("✅ Signature is VALID")
+        else:
+            print("❌ Signature is INVALID")
+
+        return is_valid
+
+    except json.JSONDecodeError as e:
+        print(f"❌ Invalid JSON message: {e}")
+        return False
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        return False
+
+
+def base64_to_pem(base64_key: str):
+    """Convert base64-encoded public key (from Android log) to PEM format and show fingerprint."""
+    try:
+        sys.path.insert(0, '.')
+        from common.security_utils import generate_client_key_id
+
+        # Remove any whitespace/newlines from the base64
+        base64_clean = base64_key.strip().replace('\n', '').replace(' ', '')
+
+        # Chunk into 64-char lines (standard PEM format)
+        lines = [base64_clean[i:i+64] for i in range(0, len(base64_clean), 64)]
+        formatted = '\n'.join(lines)
+
+        # Create PEM
+        pem = f"-----BEGIN PUBLIC KEY-----\n{formatted}\n-----END PUBLIC KEY-----"
+
+        print("📜 PEM format:")
+        print(pem)
+        print()
+
+        # Calculate fingerprint
+        fingerprint = generate_client_key_id(pem)
+        print(f"🔑 Key fingerprint (key_id): {fingerprint}")
+
+        return pem, fingerprint
+
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        return None, None
+
+
+def upload_random_photos(count: int = 10):
+    """Upload photos with randomized locations and bearings."""
+    import asyncio
+    import random
+    from .image_utils import create_test_image_full_gps
+    from .secure_upload_utils import SecureUploadClient
+    from .test_utils import wait_for_photo_processing, API_URL
+
+    async def _upload():
+        print(f"📸 Uploading {count} random photos...")
+
+        token = auth_helper.get_test_user_token("test")
+        upload_client = SecureUploadClient(api_url=API_URL)
+
+        # Center around Prague with some spread
+        center_lat, center_lon = 50.08, 14.42
+
+        created = 0
+        for i in range(count):
+            # Random location within ~5km of center
+            lat = center_lat + random.uniform(-0.05, 0.05)
+            lon = center_lon + random.uniform(-0.05, 0.05)
+            bearing = random.uniform(0, 360)
+            color = (random.randint(50, 255), random.randint(50, 255), random.randint(50, 255))
+            filename = f"random_photo_{i+1:03d}.jpg"
+
+            print(f"  [{i+1}/{count}] Uploading {filename}...")
+
+            image_data = create_test_image_full_gps(400, 300, color, lat, lon, bearing)
+
+            client_keys = upload_client.generate_client_keys()
+            await upload_client.register_client_key(token, client_keys)
+
+            auth_data = await upload_client.authorize_upload_with_params(
+                token, filename, len(image_data), lat, lon,
+                f"Random test photo #{i+1}",
+                is_public=True, file_data=image_data
+            )
+
+            result = await upload_client.upload_to_worker(image_data, auth_data, client_keys, filename)
+            photo_id = result.get('photo_id', auth_data.get('photo_id'))
+
+            photo_data = wait_for_photo_processing(photo_id, token, timeout=30)
+            if photo_data['processing_status'] == 'completed':
+                created += 1
+                print(f"    ✓ lat={lat:.4f}, lon={lon:.4f}, bearing={bearing:.0f}°")
+            else:
+                print(f"    ✗ failed: {photo_data.get('error', 'Unknown error')}")
+
+        print(f"\n✅ Created {created}/{count} random photos")
+
+    try:
+        asyncio.run(_upload())
+    except Exception as e:
+        print(f"❌ Error: {e}")
+
+
 def populate_photos(count: int = 4):
-    """Populate the database with test Hillview photos."""
+    """Populate the database with test Hillview photos at fixed Prague locations."""
     import asyncio
     from .image_utils import create_test_image_full_gps
     from .secure_upload_utils import SecureUploadClient
@@ -245,14 +367,20 @@ def main():
     """Command-line interface."""
     if len(sys.argv) < 2:
         print("Usage:")
-        print("  python debug_utils.py recreate           # Recreate test users")
-        print("  python debug_utils.py photos             # Show user's photos")
-        print("  python debug_utils.py photo <id>         # Show photo details")
-        print("  python debug_utils.py cleanup            # Delete user's photos")
-        print("  python debug_utils.py populate-photos    # Create test Hillview photos")
-        print("  python debug_utils.py populate-photos 6  # Create N test photos (max 6)")
-        print("  python debug_utils.py mock-mapillary     # Set up mock Mapillary data")
-        print("  python debug_utils.py clear-mapillary    # Clear mock Mapillary data")
+        print("  python debug_utils.py recreate              # Recreate test users")
+        print("  python debug_utils.py photos                # Show user's photos")
+        print("  python debug_utils.py photo <id>            # Show photo details")
+        print("  python debug_utils.py cleanup               # Delete user's photos")
+        print("  python debug_utils.py populate-photos       # Create test photos (fixed locations)")
+        print("  python debug_utils.py populate-photos 6     # Create N test photos (max 6)")
+        print("  python debug_utils.py upload-random-photos  # Upload 10 random photos")
+        print("  python debug_utils.py upload-random-photos 20  # Upload N random photos")
+        print("  python debug_utils.py mock-mapillary        # Set up mock Mapillary data")
+        print("  python debug_utils.py clear-mapillary       # Clear mock Mapillary data")
+        print("  python debug_utils.py verify-signature <message_json> <signature_base64> <public_key_pem>")
+        print("                                              # Verify ECDSA signature")
+        print("  python debug_utils.py base64-to-pem <base64_key>")
+        print("                                              # Convert Android pubkey to PEM & show fingerprint")
         return
 
     command = sys.argv[1]
@@ -268,10 +396,28 @@ def main():
     elif command == "populate-photos":
         count = int(sys.argv[2]) if len(sys.argv) > 2 else 4
         populate_photos(count)
+    elif command == "upload-random-photos":
+        count = int(sys.argv[2]) if len(sys.argv) > 2 else 10
+        upload_random_photos(count)
     elif command == "mock-mapillary":
         setup_mock_mapillary()
     elif command == "clear-mapillary":
         clear_mock_mapillary()
+    elif command == "verify-signature":
+        if len(sys.argv) < 5:
+            print("Usage: verify-signature <message_json> <signature_base64> <public_key_pem>")
+            print("  message_json: JSON string of the message data")
+            print("  signature_base64: Base64-encoded ECDSA signature")
+            print("  public_key_pem: PEM-formatted ECDSA P-256 public key")
+            return
+        verify_signature(sys.argv[2], sys.argv[3], sys.argv[4])
+    elif command == "base64-to-pem":
+        if len(sys.argv) < 3:
+            print("Usage: base64-to-pem <base64_key>")
+            print("  base64_key: Base64-encoded public key from Android log")
+            print("              (the value logged by: Base64.encodeToString(publicKey.encoded, NO_WRAP))")
+            return
+        base64_to_pem(sys.argv[2])
     else:
         print(f"Unknown command: {command}")
 

@@ -5,8 +5,22 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { PhotoData, SourceConfig } from './photoWorkerTypes';
 
+// Track worker reference for auth responses
+let workerRef: typeof import('./new.worker') | null = null;
+
 // Mock the worker globals before importing
-const mockPostMessage = vi.fn();
+const mockPostMessage = vi.fn().mockImplementation((message: any) => {
+  // Auto-respond to auth token requests
+  if (message?.type === 'getAuthToken' && workerRef) {
+    // Send auth token response back to worker
+    queueMicrotask(() => {
+      workerRef!.handleMessage({
+        type: 'authToken',
+        token: 'test-auth-token-12345'
+      });
+    });
+  }
+});
 const mockSelf = {
   onmessage: null,
   postMessage: mockPostMessage
@@ -37,7 +51,7 @@ interface MockEventSourceInstance {
 }
 
 const MockEventSource = vi.fn().mockImplementation((url: string): MockEventSourceInstance => {
-  console.log(`MockEventSource: Creating new instance for ${url}`);
+  process.stderr.write(`MockEventSource: new instance url=${url}\n`);
   const instance: MockEventSourceInstance = {
     url,
     readyState: 1, // OPEN
@@ -54,7 +68,7 @@ const MockEventSource = vi.fn().mockImplementation((url: string): MockEventSourc
 
   // Use queueMicrotask for test-friendly async handling
   queueMicrotask(() => {
-    console.log(`MockEventSource: Opening connection for ${url}`);
+    process.stderr.write(`MockEventSource: queueMicrotask running for ${url}\n`);
     if (instance.onopen) {
       instance.onopen(new Event('open'));
     }
@@ -87,12 +101,12 @@ const MockEventSource = vi.fn().mockImplementation((url: string): MockEventSourc
       ];
     }
 
-    // Send photos as stream message
+    // Send photos as stream message (type must be 'photos' to match StreamSourceLoader)
     if (testData.length > 0 && instance.onmessage) {
-      console.log(`MockEventSource: Sending ${testData.length} photos for ${url}`);
+      process.stderr.write(`MockEventSource: sending ${testData.length} photos\n`);
       instance.onmessage(new MessageEvent('message', {
         data: JSON.stringify({
-          type: 'cached_photos',
+          type: 'photos',
           photos: testData
         })
       }));
@@ -100,7 +114,7 @@ const MockEventSource = vi.fn().mockImplementation((url: string): MockEventSourc
 
     // Send completion message
     if (instance.onmessage) {
-      console.log(`MockEventSource: Sending completion for ${url}`);
+      process.stderr.write(`MockEventSource: sending completion\n`);
       instance.onmessage(new MessageEvent('message', {
         data: JSON.stringify({
           type: 'stream_complete'
@@ -179,11 +193,14 @@ describe('New Worker Integration Tests', () => {
   let worker: typeof import('./new.worker');
 
   beforeEach(async () => {
+    process.stderr.write('beforeEach: starting\n');
+
     // Reset message ID counter
     messageId = 1;
 
     // Clear the module cache to get a fresh worker instance with clean state
     vi.resetModules();
+    process.stderr.write('beforeEach: modules reset\n');
 
     // Re-mock globals after module reset (they get cleared too)
     (globalThis as any).self = {
@@ -202,13 +219,16 @@ describe('New Worker Integration Tests', () => {
     MockEventSource.mockClear();
     mockEventSourceInstances.clear();
 
+    process.stderr.write('beforeEach: importing worker\n');
     // Dynamically import the worker after setting up mocks
     worker = await import('./new.worker');
+    workerRef = worker;  // Set reference for auth token responses
+    process.stderr.write('beforeEach: worker imported\n');
   });
 
   const sendMessage = async (type: string, data: any): Promise<any> => {
     const id = messageId++;
-    console.log(`TEST: Sending message ${type} with id ${id}`);
+    process.stderr.write(`sendMessage: ${type} id=${id}\n`);
 
     // Send message to worker
     worker.handleMessage({
@@ -235,11 +255,19 @@ describe('New Worker Integration Tests', () => {
 
   const waitForPhotosUpdate = async (timeout = 5000): Promise<void> => {
     const startTime = Date.now();
+    let loopCount = 0;
 
     while (Date.now() - startTime < timeout) {
+      loopCount++;
+
       // Check if we got a photosUpdate message
       const hasPhotosUpdate = mockPostMessage.mock.calls
         .some(call => call[0]?.type === 'photosUpdate');
+
+      if (loopCount % 50 === 0) {
+        const types = mockPostMessage.mock.calls.map(c => c[0]?.type).join(',');
+        process.stderr.write(`wait: loop=${loopCount} types=[${types}]\n`);
+      }
 
       if (hasPhotosUpdate) {
         // Give the internal queue time to process completion messages
@@ -251,6 +279,7 @@ describe('New Worker Integration Tests', () => {
       await new Promise(resolve => setTimeout(resolve, 10));
     }
 
+    process.stderr.write(`TIMEOUT: ${loopCount} loops, calls: ${JSON.stringify(mockPostMessage.mock.calls.map(c => c[0]?.type))}\n`);
     throw new Error('Timeout waiting for photosUpdate');
   };
 
@@ -362,19 +391,27 @@ describe('New Worker Integration Tests', () => {
       createStreamSource('disabled', false)  // disabled
     ];
 
+    console.log('TEST: Sending config with sources:', sources.map(s => s.id));
+
     // Config only sets up sources, doesn't load photos
     await sendMessage('configUpdated', {
       config: { sources }
     });
+
+    console.log('TEST: Config sent, MockEventSource calls:', MockEventSource.mock.calls.length);
 
     // Clear config's photosUpdate
     mockPostMessage.mockClear();
 
     // Area update triggers actual photo loading
     const bounds = createTestBounds(50.4, 49.9, 9.9, 10.4);
+    console.log('TEST: Sending area update with bounds:', bounds);
+
     const response = await sendMessage('areaUpdated', {
       area: bounds
     });
+
+    console.log('TEST: Area response received, MockEventSource calls:', MockEventSource.mock.calls.length);
 
     expect(response.type).toBe('photosUpdate');
 
@@ -529,30 +566,42 @@ describe('New Worker Integration Tests', () => {
     const sources = [createStreamSource('source1')];
 
     // Test with correct version - should work
-    await sendMessage('configUpdated', {
+    const response = await sendMessage('configUpdated', {
       config: {
         sources,
         expectedWorkerVersion: (globalThis as any).__WORKER_VERSION__
       }
     });
 
-    // Clear messages and test with wrong version - should fail
+    // Verify correct version produces a valid response
+    expect(response.type).toBe('photosUpdate');
+
+    // Clear messages and test with wrong version
     mockPostMessage.mockClear();
 
-    try {
-      await sendMessage('configUpdated', {
+    // Send message with wrong version - processConfig will throw but the error
+    // happens asynchronously (processConfig is not awaited in the worker).
+    // The worker should fail silently and not send a photosUpdate.
+    worker.handleMessage({
+      frontendMessageId: 'frontend_version_test',
+      type: 'configUpdated',
+      data: {
         config: {
           sources,
           expectedWorkerVersion: 'wrong-version-123'
         }
-      });
-      // If we get here, the test should fail
-      expect(true).toBe(false); // Should not reach here
-    } catch (error) {
-      // Should catch version mismatch error somewhere in the process
-      // The exact timing depends on async processing, but error should occur
-      console.log('🢄Expected version mismatch error occurred');
-    }
+      },
+      id: 999
+    });
+
+    // Wait a short time for the async error to occur
+    await new Promise(resolve => setTimeout(resolve, 200));
+
+    // Verify NO photosUpdate was sent for the invalid version
+    const photosUpdateCalls = mockPostMessage.mock.calls
+      .filter(call => call[0]?.type === 'photosUpdate');
+
+    expect(photosUpdateCalls.length).toBe(0);
   });
 
   it('should prioritize config updates over area updates', async () => {

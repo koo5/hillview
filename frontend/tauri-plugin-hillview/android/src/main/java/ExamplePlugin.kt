@@ -2255,6 +2255,20 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 					return
 				}
 
+				"force_new_key" -> {
+					CoroutineScope(Dispatchers.IO).launch {
+						try {
+							authManager.forceNewKeyPair()
+							val result = JSObject()
+							result.put("success", true)
+							invoke.resolve(result)
+						} catch (e: Exception) {
+							resolveWithError(invoke, "Failed to force new key pair: ${e.message}", e)
+						}
+					}
+					return
+				}
+
 				else -> {
 					resolveWithError(invoke, "🔧 Unknown command: $command")
 					return
