@@ -989,6 +989,12 @@
             clearTimeout(bearingUpdateTimeout);
         }
 
+        // Clean up location API event flash timer
+        if (locationApiEventFlashTimer) {
+            clearTimeout(locationApiEventFlashTimer);
+            locationApiEventFlashTimer = null;
+        }
+
         // Clean up optimized marker system
         optimizedMarkerSystem.destroy();
 

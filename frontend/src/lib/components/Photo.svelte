@@ -16,6 +16,25 @@
 	import type {PhotoData} from '$lib/sources';
 
 	export let photo: PhotoData | null = null;
+
+	// Track pending timeouts for cleanup
+	const pendingTimeouts = new Set<ReturnType<typeof setTimeout>>();
+
+	function scheduleTimeout(callback: () => void, delay: number): ReturnType<typeof setTimeout> {
+		const id = setTimeout(() => {
+			pendingTimeouts.delete(id);
+			callback();
+		}, delay);
+		pendingTimeouts.add(id);
+		return id;
+	}
+
+	onDestroy(() => {
+		for (const id of pendingTimeouts) {
+			clearTimeout(id);
+		}
+		pendingTimeouts.clear();
+	});
 	export let className = '';
 	export let clientWidth: number | undefined = undefined;
 	export let onInteraction: (() => void) | undefined = undefined;
@@ -247,7 +266,7 @@
 		const userId = getUserId(photo);
 		if (!userId) {
 			hideMessage = 'Cannot hide user: User information not available';
-			setTimeout(() => hideMessage = '', 5000);
+			scheduleTimeout(() => hideMessage = '', 5000);
 			showHideUserDialog = false;
 			return;
 		}
@@ -278,12 +297,12 @@
 			simplePhotoWorker.removeUserPhotosFromCache?.(userId, photoSource);
 
 			hideMessage = 'User hidden successfully';
-			setTimeout(() => hideMessage = '', 2000);
+			scheduleTimeout(() => hideMessage = '', 2000);
 			showHideUserDialog = false;
 		} catch (error) {
 			console.error('🢄Error hiding user:', error);
 			hideMessage = `Error: ${handleApiError(error)}`;
-			setTimeout(() => hideMessage = '', 5000);
+			scheduleTimeout(() => hideMessage = '', 5000);
 		} finally {
 			isHiding = false;
 		}
