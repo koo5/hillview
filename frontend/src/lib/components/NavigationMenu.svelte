@@ -4,7 +4,7 @@
     } from 'lucide-svelte';
     import { auth, logout } from '$lib/auth.svelte.js';
     import { FEATURE_USER_ACCOUNTS } from '$lib/config';
-    import { BUILD_TIME, BUILD_VERSION, formatBuildTime } from '$lib/buildInfo';
+    import { BUILD_TIME, BUILD_VERSION, BUILD_GIT_COMMIT, formatBuildTime } from '$lib/buildInfo';
     import { TAURI } from '$lib/tauri.js';
     import { openExternalUrl } from '$lib/urlUtils';
 	import {backendUrl} from "$lib/config";
@@ -140,11 +140,14 @@
 			<hr/>
 			<li>
 					<div class="build-info">
+						<div class="build-commit">
+							Client build commit: {BUILD_GIT_COMMIT}
+						</div>
 						<div class="build-version">
-							Client: {formatUtcDate(new Date(BUILD_TIME))}
+							Client build timestamp: {formatUtcDate(new Date(BUILD_TIME))}
 						</div>
 						<div class="build-timestamp">
-							Server: {backendUrl}
+							API server: {backendUrl}
 						</div>
 					</div>
 

@@ -12,6 +12,7 @@ declare global {
 	// Build-time constants injected by Vite
 	const __BUILD_TIME__: string;
 	const __BUILD_VERSION__: string;
+	const __BUILD_GIT_COMMIT__: string;
 	const __DEBUG_MODE__: string;
 	const __WORKER_VERSION__: string;
 
