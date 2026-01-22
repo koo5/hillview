@@ -1,20 +1,20 @@
+#[cfg(all(target_os = "android", debug_assertions))]
+use crate::photo_exif::verify_exif_in_saved_file;
+#[cfg(target_os = "android")]
+use crate::photo_exif::{create_exif_segment_structured, validate_photo_metadata};
+use crate::types::PhotoMetadata;
+#[cfg(target_os = "android")]
+use img_parts::ImageEXIF;
 use log::info;
+#[cfg(target_os = "android")]
+use log::warn;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::sync::OnceLock;
 use tauri::command;
 #[cfg(target_os = "android")]
-use img_parts::ImageEXIF;
-#[cfg(target_os = "android")]
-use log::warn;
-#[cfg(target_os = "android")]
 use tauri_plugin_hillview::HillviewExt;
-#[cfg(target_os = "android")]
-use crate::photo_exif::{create_exif_segment_structured, validate_photo_metadata};
-#[cfg(all(target_os = "android", debug_assertions))]
-use crate::photo_exif::verify_exif_in_saved_file;
-use crate::types::PhotoMetadata;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DevicePhotoMetadata {
@@ -39,10 +39,8 @@ pub struct ProcessedPhoto {
 	pub metadata: PhotoMetadata,
 }
 
-
 // Global storage for photo chunks
 static PHOTO_CHUNKS: OnceLock<Mutex<HashMap<String, Vec<u8>>>> = OnceLock::new();
-
 
 /// Save photo to storage. Tries all methods in order based on preference.
 /// Returns the path (file path or content:// URI).
@@ -54,35 +52,52 @@ fn save_to_pictures_directory(
 	hide_from_gallery: bool,
 	preferred_storage: &str,
 ) -> Result<String, String> {
-	let folder_name = if hide_from_gallery { ".Hillview" } else { "Hillview" };
+	let folder_name = if hide_from_gallery {
+		".Hillview"
+	} else {
+		"Hillview"
+	};
 
 	// Public folder: /storage/emulated/0/DCIM/Hillview (visible in gallery, persists after uninstall)
 	let public_pictures_dir = "/storage/emulated/0/DCIM";
 	let public_pictures_path = std::path::Path::new(public_pictures_dir).join(folder_name);
 
 	// Private folder: /storage/emulated/0/Android/data/{package}/files/Pictures (app-private, deleted on uninstall)
-	let private_pictures_dir = format!("/storage/emulated/0/Android/data/{}/files/Pictures", env!("ANDROID_PACKAGE_NAME"));
+	let private_pictures_dir = format!(
+		"/storage/emulated/0/Android/data/{}/files/Pictures",
+		env!("ANDROID_PACKAGE_NAME")
+	);
 	let private_pictures_path = std::path::Path::new(&private_pictures_dir).join(folder_name);
 
 	let try_public_folder = || -> Result<String, String> {
 		info!("🢄📁 Trying public folder: {:?}", public_pictures_path);
-		match save_to_directory(&public_pictures_path, filename, image_data, hide_from_gallery) {
+		match save_to_directory(
+			&public_pictures_path,
+			filename,
+			image_data,
+			hide_from_gallery,
+		) {
 			Ok(photo_path) => {
 				info!("🢄✅ Photo saved to public folder: {:?}", photo_path);
 				Ok(photo_path.to_string_lossy().to_string())
 			}
-			Err(e) => Err(format!("Public folder failed: {}", e))
+			Err(e) => Err(format!("Public folder failed: {}", e)),
 		}
 	};
 
 	let try_private_folder = || -> Result<String, String> {
 		info!("🢄📁 Trying private folder: {:?}", private_pictures_path);
-		match save_to_directory(&private_pictures_path, filename, image_data, hide_from_gallery) {
+		match save_to_directory(
+			&private_pictures_path,
+			filename,
+			image_data,
+			hide_from_gallery,
+		) {
 			Ok(photo_path) => {
 				info!("🢄✅ Photo saved to private folder: {:?}", photo_path);
 				Ok(photo_path.to_string_lossy().to_string())
 			}
-			Err(e) => Err(format!("Private folder failed: {}", e))
+			Err(e) => Err(format!("Private folder failed: {}", e)),
 		}
 	};
 
@@ -94,33 +109,49 @@ fn save_to_pictures_directory(
 			.map_err(|e| format!("MediaStore plugin error: {}", e))?;
 
 		if response.success {
-			let path = response.path.ok_or_else(|| "MediaStore returned success but no path/URI".to_string())?;
+			let path = response
+				.path
+				.ok_or_else(|| "MediaStore returned success but no path/URI".to_string())?;
 			info!("🢄✅ Photo saved via MediaStore: {}", path);
 			Ok(path)
 		} else {
-			Err(response.error.unwrap_or_else(|| "Unknown MediaStore error".to_string()))
+			Err(response
+				.error
+				.unwrap_or_else(|| "Unknown MediaStore error".to_string()))
 		}
 	};
 
 	// Define the order of methods to try based on preferred_storage
 	let methods: Vec<(&str, Box<dyn Fn() -> Result<String, String>>)> = match preferred_storage {
 		"public_folder" => vec![
-			("public_folder", Box::new(try_public_folder) as Box<dyn Fn() -> Result<String, String>>),
+			(
+				"public_folder",
+				Box::new(try_public_folder) as Box<dyn Fn() -> Result<String, String>>,
+			),
 			("private_folder", Box::new(try_private_folder)),
 			("mediastore_api", Box::new(try_mediastore)),
 		],
 		"private_folder" => vec![
-			("private_folder", Box::new(try_private_folder) as Box<dyn Fn() -> Result<String, String>>),
+			(
+				"private_folder",
+				Box::new(try_private_folder) as Box<dyn Fn() -> Result<String, String>>,
+			),
 			("public_folder", Box::new(try_public_folder)),
 			("mediastore_api", Box::new(try_mediastore)),
 		],
 		"mediastore_api" => vec![
-			("mediastore_api", Box::new(try_mediastore) as Box<dyn Fn() -> Result<String, String>>),
+			(
+				"mediastore_api",
+				Box::new(try_mediastore) as Box<dyn Fn() -> Result<String, String>>,
+			),
 			("public_folder", Box::new(try_public_folder)),
 			("private_folder", Box::new(try_private_folder)),
 		],
 		_ => vec![
-			("public_folder", Box::new(try_public_folder) as Box<dyn Fn() -> Result<String, String>>),
+			(
+				"public_folder",
+				Box::new(try_public_folder) as Box<dyn Fn() -> Result<String, String>>,
+			),
 			("private_folder", Box::new(try_private_folder)),
 			("mediastore_api", Box::new(try_mediastore)),
 		],
@@ -137,7 +168,10 @@ fn save_to_pictures_directory(
 		}
 	}
 
-	Err(format!("All storage methods failed. Last error: {}", last_error))
+	Err(format!(
+		"All storage methods failed. Last error: {}",
+		last_error
+	))
 }
 
 fn save_to_directory(
@@ -163,7 +197,10 @@ fn save_to_directory(
 	info!("🢄Saving photo to: {:?}", photo_path);
 	std::fs::write(&photo_path, image_data)?;
 
-	info!("🢄Saved photo to directory: {:?} (hidden: {})", photo_path, hide_from_gallery);
+	info!(
+		"🢄Saved photo to directory: {:?} (hidden: {})",
+		photo_path, hide_from_gallery
+	);
 
 	// Set readable permissions for other apps on Unix systems
 	#[cfg(unix)]
@@ -178,7 +215,11 @@ fn save_to_directory(
 	if verified_size != image_data.len() as u64 {
 		return Err(std::io::Error::new(
 			std::io::ErrorKind::Other,
-			format!("Verification failed: wrote {} bytes but file has {} bytes", image_data.len(), verified_size)
+			format!(
+				"Verification failed: wrote {} bytes but file has {} bytes",
+				image_data.len(),
+				verified_size
+			),
 		));
 	}
 	info!("🢄✓ Verified save: {} bytes", verified_size);
@@ -186,11 +227,16 @@ fn save_to_directory(
 	Ok(photo_path)
 }
 
-
 #[command(rename_all = "snake_case")]
-pub fn store_photo_chunk(photo_id: String, chunk: Vec<u8>, is_first_chunk: bool) -> Result<(), String> {
+pub fn store_photo_chunk(
+	photo_id: String,
+	chunk: Vec<u8>,
+	is_first_chunk: bool,
+) -> Result<(), String> {
 	let chunks_mutex = PHOTO_CHUNKS.get_or_init(|| Mutex::new(HashMap::new()));
-	let mut chunks = chunks_mutex.lock().map_err(|e| format!("Failed to lock chunks: {}", e))?;
+	let mut chunks = chunks_mutex
+		.lock()
+		.map_err(|e| format!("Failed to lock chunks: {}", e))?;
 
 	if is_first_chunk {
 		// Initialize new photo with first chunk
@@ -220,17 +266,34 @@ pub async fn save_photo_with_metadata(
 	// Step 1: Get stored image data
 	let image_data = {
 		let chunks_mutex = PHOTO_CHUNKS.get_or_init(|| Mutex::new(HashMap::new()));
-		let mut chunks = chunks_mutex.lock().map_err(|e| format!("Failed to lock chunks: {}", e))?;
-		chunks.remove(&photo_id).ok_or_else(|| format!("Photo data not found for ID: {}", photo_id))?
+		let mut chunks = chunks_mutex
+			.lock()
+			.map_err(|e| format!("Failed to lock chunks: {}", e))?;
+		chunks
+			.remove(&photo_id)
+			.ok_or_else(|| format!("Photo data not found for ID: {}", photo_id))?
 	};
 
-	info!("🢄Retrieved {} bytes for photo ID: {}", image_data.len(), photo_id);
+	info!(
+		"🢄Retrieved {} bytes for photo ID: {}",
+		image_data.len(),
+		photo_id
+	);
 
 	// Call the internal function with the image data
 	#[cfg(target_os = "android")]
 	{
 		let storage = preferred_storage.unwrap_or_else(|| "public_folder".to_string());
-		save_photo_from_bytes(app_handle, photo_id, metadata, image_data, filename, hide_from_gallery, storage).await
+		save_photo_from_bytes(
+			app_handle,
+			photo_id,
+			metadata,
+			image_data,
+			filename,
+			hide_from_gallery,
+			storage,
+		)
+		.await
 	}
 
 	#[cfg(not(target_os = "android"))]
@@ -253,144 +316,161 @@ async fn save_photo_from_bytes(
 	metadata.bearing = determine_final_bearing(&app_handle, &metadata).await;
 
 	// Do everything in one background thread
-	tokio::task::spawn_blocking(move || -> Result<crate::device_photos::DevicePhotoMetadata, String> {
-		info!("🢄Processing {} bytes for photo ID: {}", image_data.len(), photo_id);
+	tokio::task::spawn_blocking(
+		move || -> Result<crate::device_photos::DevicePhotoMetadata, String> {
+			info!(
+				"🢄Processing {} bytes for photo ID: {}",
+				image_data.len(),
+				photo_id
+			);
 
-		// Process EXIF data synchronously and get dimensions
-		let (processed_data, width, height, validated_metadata) = {
-			let validated_metadata = validate_photo_metadata(metadata.clone());
+			// Process EXIF data synchronously and get dimensions
+			let (processed_data, width, height, validated_metadata) = {
+				let validated_metadata = validate_photo_metadata(metadata.clone());
 
-			// Parse the JPEG
-			let mut jpeg = img_parts::jpeg::Jpeg::from_bytes(image_data.clone().into())
-				.map_err(|e| format!("Failed to parse JPEG: {:?}", e))?;
+				// Parse the JPEG
+				let mut jpeg = img_parts::jpeg::Jpeg::from_bytes(image_data.clone().into())
+					.map_err(|e| format!("Failed to parse JPEG: {:?}", e))?;
 
-			// Get dimensions from the original image data using image crate
-			let img = image::load_from_memory(&image_data)
-				.map_err(|e| format!("Failed to load image from memory: {}", e))?;
-			let (width, height) = (img.width(), img.height());
+				// Get dimensions from the original image data using image crate
+				let img = image::load_from_memory(&image_data)
+					.map_err(|e| format!("Failed to load image from memory: {}", e))?;
+				let (width, height) = (img.width(), img.height());
 
-			// Create EXIF segment - use structured version
-			let exif_segment = create_exif_segment_structured(&validated_metadata);
+				// Create EXIF segment - use structured version
+				let exif_segment = create_exif_segment_structured(&validated_metadata);
 
-			// Set the EXIF data
-			jpeg.set_exif(Some(exif_segment.into()));
+				// Set the EXIF data
+				jpeg.set_exif(Some(exif_segment.into()));
 
-			// Convert back to bytes
-			let mut output = Vec::new();
-			let mut output_cursor = std::io::Cursor::new(&mut output);
-			jpeg.encoder()
-				.write_to(&mut output_cursor)
-				.map_err(|e| format!("Failed to write JPEG: {:?}", e))?;
+				// Convert back to bytes
+				let mut output = Vec::new();
+				let mut output_cursor = std::io::Cursor::new(&mut output);
+				jpeg.encoder()
+					.write_to(&mut output_cursor)
+					.map_err(|e| format!("Failed to write JPEG: {:?}", e))?;
 
-			(output, width, height, validated_metadata)
-		};
+				(output, width, height, validated_metadata)
+			};
 
-		// Save the photo file (blocking I/O or MediaStore)
-		let file_path = save_to_pictures_directory(&app_handle, &filename, &processed_data, hide_from_gallery, &preferred_storage)?;
+			// Save the photo file (blocking I/O or MediaStore)
+			let file_path = save_to_pictures_directory(
+				&app_handle,
+				&filename,
+				&processed_data,
+				hide_from_gallery,
+				&preferred_storage,
+			)?;
 
-		// Verify EXIF data in debug builds (only for file paths, not content:// URIs)
-		#[cfg(debug_assertions)]
-		{
-			if !file_path.starts_with("content://") {
-				info!("🔍 Verifying EXIF data in saved photo: {}", file_path);
-				let file_path_clone = std::path::PathBuf::from(&file_path);
-				let metadata_clone = validated_metadata.clone();
-				tokio::spawn(async move {
-					verify_exif_in_saved_file(&file_path_clone, &metadata_clone).await;
-				});
+			// Verify EXIF data in debug builds (only for file paths, not content:// URIs)
+			#[cfg(debug_assertions)]
+			{
+				if !file_path.starts_with("content://") {
+					info!("🔍 Verifying EXIF data in saved photo: {}", file_path);
+					let file_path_clone = std::path::PathBuf::from(&file_path);
+					let metadata_clone = validated_metadata.clone();
+					tokio::spawn(async move {
+						verify_exif_in_saved_file(&file_path_clone, &metadata_clone).await;
+					});
+				}
 			}
-		}
 
-		// Get file size - we already know it from processed_data
-		let file_size = processed_data.len() as u64;
+			// Get file size - we already know it from processed_data
+			let file_size = processed_data.len() as u64;
 
-		// Calculate hash from processed data (CPU intensive)
-		let hash_bytes = md5::compute(&processed_data);
-		let file_hash = format!("{:x}", hash_bytes);
+			// Calculate hash from processed data (CPU intensive)
+			let hash_bytes = md5::compute(&processed_data);
+			let file_hash = format!("{:x}", hash_bytes);
 
-		// Add to database (still in background thread)
-		{
-			use tauri_plugin_hillview::HillviewExt;
+			// Add to database (still in background thread)
+			{
+				use tauri_plugin_hillview::HillviewExt;
 
-			// Send to Android database - use our photo_id
-			let plugin_photo = tauri_plugin_hillview::shared_types::DevicePhotoMetadata {
-				id: photo_id.clone(), // Use the photo_id from frontend
-				filename: filename.clone(),
-				path: file_path.clone(),
-				metadata: tauri_plugin_hillview::shared_types::PhotoMetadata {
+				// Send to Android database - use our photo_id
+				let plugin_photo = tauri_plugin_hillview::shared_types::DevicePhotoMetadata {
+					id: photo_id.clone(), // Use the photo_id from frontend
+					filename: filename.clone(),
+					path: file_path.clone(),
+					metadata: tauri_plugin_hillview::shared_types::PhotoMetadata {
+						latitude: validated_metadata.latitude,
+						longitude: validated_metadata.longitude,
+						altitude: validated_metadata.altitude,
+						bearing: validated_metadata.bearing,
+						captured_at: validated_metadata.captured_at,
+						accuracy: validated_metadata.accuracy,
+						location_source: validated_metadata.location_source.clone(),
+						bearing_source: validated_metadata.bearing_source.clone(),
+					},
+					width,
+					height,
+					file_size,
+					file_hash: Some(file_hash.clone()),
+					created_at: None, // Let the plugin set the created_at timestamp
+				};
+
+				let final_photo_id = match app_handle
+					.hillview()
+					.add_photo_to_database(plugin_photo.clone())
+				{
+					Ok(response) => {
+						if response.success {
+							let id = response.photo_id.unwrap_or_else(|| String::from("unknown"));
+							info!("📱 Photo saved to Android database with ID: {}", id);
+							id
+						} else {
+							return Err(format!(
+								"Failed to save photo to Android database: {:?}",
+								response.error
+							));
+						}
+					}
+					Err(e) => {
+						return Err(format!("Error saving photo to Android database: {}", e));
+					}
+				};
+
+				// Create the return value with the ID from Kotlin
+				let device_photo = crate::device_photos::DevicePhotoMetadata {
+					id: final_photo_id,
+					filename,
+					path: file_path,
 					latitude: validated_metadata.latitude,
 					longitude: validated_metadata.longitude,
 					altitude: validated_metadata.altitude,
 					bearing: validated_metadata.bearing,
 					captured_at: validated_metadata.captured_at,
 					accuracy: validated_metadata.accuracy,
-					location_source: validated_metadata.location_source.clone(),
-					bearing_source: validated_metadata.bearing_source.clone(),
-				},
-				width,
-				height,
-				file_size,
-				file_hash: Some(file_hash.clone()),
-				created_at: None, // Let the plugin set the created_at timestamp
-			};
+					width,
+					height,
+					file_size,
+					created_at: plugin_photo.created_at,
+				};
 
-			let final_photo_id = match app_handle.hillview().add_photo_to_database(plugin_photo.clone()) {
-				Ok(response) => {
-					if response.success {
-						let id = response.photo_id.unwrap_or_else(|| String::from("unknown"));
-						info!("📱 Photo saved to Android database with ID: {}", id);
-						id
-					} else {
-						return Err(format!("Failed to save photo to Android database: {:?}", response.error));
+				// Trigger immediate upload worker to process the new photo
+				match app_handle.hillview().retry_failed_uploads() {
+					Ok(_) => {
+						info!(
+							"📤[UPLOAD_TRIGGER] Upload worker triggered for new photo: {}",
+							device_photo.filename
+						);
+					}
+					Err(e) => {
+						info!("📤[UPLOAD_TRIGGER] Failed to trigger upload worker: {}", e);
 					}
 				}
-				Err(e) => {
-					return Err(format!("Error saving photo to Android database: {}", e));
-				}
-			};
 
-			// Create the return value with the ID from Kotlin
-			let device_photo = crate::device_photos::DevicePhotoMetadata {
-				id: final_photo_id,
-				filename,
-				path: file_path,
-				latitude: validated_metadata.latitude,
-				longitude: validated_metadata.longitude,
-				altitude: validated_metadata.altitude,
-				bearing: validated_metadata.bearing,
-				captured_at: validated_metadata.captured_at,
-				accuracy: validated_metadata.accuracy,
-				width,
-				height,
-				file_size,
-				created_at: plugin_photo.created_at,
-			};
-
-			// Trigger immediate upload worker to process the new photo
-			match app_handle.hillview().retry_failed_uploads() {
-				Ok(_) => {
-					info!(
-						"📤[UPLOAD_TRIGGER] Upload worker triggered for new photo: {}",
-						device_photo.filename
-					);
-				}
-				Err(e) => {
-					info!("📤[UPLOAD_TRIGGER] Failed to trigger upload worker: {}", e);
-				}
+				Ok(device_photo)
 			}
 
-			Ok(device_photo)
-		}
-
-		#[cfg(not(target_os = "android"))]
-		{
-			Err("Photo saving not implemented for non-Android platforms".to_string())
-		}
-	})
+			#[cfg(not(target_os = "android"))]
+			{
+				Err("Photo saving not implemented for non-Android platforms".to_string())
+			}
+		},
+	)
 	.await
 	.map_err(|e| format!("Background task failed: {}", e))?
 }
-
 
 #[cfg(target_os = "android")]
 async fn determine_final_bearing(
@@ -402,7 +482,11 @@ async fn determine_final_bearing(
 		info!("🢄📡 Bearing source '{}' indicates sensor data, looking up database bearing for timestamp {}",
 			metadata.bearing_source, metadata.captured_at);
 
-		match app_handle.hillview().get_bearing_for_timestamp(metadata.captured_at * 1000) { // Convert to milliseconds
+		match app_handle
+			.hillview()
+			.get_bearing_for_timestamp(metadata.captured_at * 1000)
+		{
+			// Convert to milliseconds
 			Ok(response) => {
 				info!("🢄📡 Database bearing lookup response: success={}, found={:?}, true_heading={:?}",
 					response.success, response.found, response.true_heading);
@@ -431,17 +515,22 @@ async fn determine_final_bearing(
 				}
 			}
 			Err(e) => {
-				info!("🢄📡 Error looking up database bearing: {}, using frontend bearing", e);
+				info!(
+					"🢄📡 Error looking up database bearing: {}, using frontend bearing",
+					e
+				);
 				metadata.bearing
 			}
 		}
 	} else {
-		info!("🢄📡 Bearing source '{}' indicates manual input, using frontend bearing", metadata.bearing_source);
+		info!(
+			"🢄📡 Bearing source '{}' indicates manual input, using frontend bearing",
+			metadata.bearing_source
+		);
 		metadata.bearing
 	};
 	final_bearing
 }
-
 
 /// Helper function to determine if a bearing source indicates sensor data
 #[cfg(target_os = "android")]
@@ -449,13 +538,12 @@ fn is_sensor_bearing_source(bearing_source: &str) -> bool {
 	let source_lower = bearing_source.to_lowercase();
 
 	// Check for sensor-related keywords
-	source_lower.contains("sensor") ||
-	source_lower.contains("compass") ||
-	source_lower.contains("tauri") ||
-	source_lower.contains("gyro") ||
-	source_lower.contains("magnetometer") ||
-	source_lower.contains("rotation") ||
-	source_lower.contains("magnetic") ||
-	source_lower.contains("enhanced")
+	source_lower.contains("sensor")
+		|| source_lower.contains("compass")
+		|| source_lower.contains("tauri")
+		|| source_lower.contains("gyro")
+		|| source_lower.contains("magnetometer")
+		|| source_lower.contains("rotation")
+		|| source_lower.contains("magnetic")
+		|| source_lower.contains("enhanced")
 }
-

@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { uploadPhoto } from './helpers/photoUpload';
 
 test('Activity log should show upload activities', async ({ page }) => {
   // Clean test users first
@@ -26,22 +27,8 @@ test('Activity log should show upload activities', async ({ page }) => {
   await page.waitForURL('/', { timeout: 15000 });
   await page.waitForLoadState('networkidle');
   
-  // Navigate to photos page
-  await page.goto('/photos');
-  await page.waitForLoadState('networkidle');
-  
-  // Upload a file
-  const fileInput = page.locator('[data-testid="photo-file-input"]');
-  await fileInput.setInputFiles('test-assets/2025-07-10-19-10-37_🔶∏🗿↻🌞🌲.jpg');
-  
-  const uploadButton = page.locator('[data-testid="upload-submit-button"]');
-  await uploadButton.click();
-  
-  // Wait for upload to complete
-  await page.waitForFunction(() => {
-    const input = document.querySelector('[data-testid="photo-file-input"]') as HTMLInputElement;
-    return input && input.value === '';
-  }, { timeout: 10000 });
+  // Upload a photo using the shared helper (handles license checkbox)
+  await uploadPhoto(page, '2025-07-10-19-10-37_🔶∏🗿↻🌞🌲.jpg');
   
   // Check if activity log exists and has entries
   const activityLog = page.locator('.activity-log');

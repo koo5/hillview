@@ -8,8 +8,22 @@
     import StandardBody from '$lib/components/StandardBody.svelte';
     import { getCurrentProviderConfig, getProviderDisplayName, currentTileProvider } from '$lib/tileProviders';
     import { openExternalUrl } from '$lib/urlUtils';
+    import { onMount } from 'svelte';
+    import { TAURI } from '$lib/tauri';
 
-    const appVersion = '0.0.1';
+    let appVersion = __APP_VERSION__;
+
+    onMount(async () => {
+        // In Tauri context, get the version from the native API
+        if (TAURI) {
+            try {
+                const { getVersion } = await import('@tauri-apps/api/app');
+                appVersion = await getVersion();
+            } catch (e) {
+                console.warn('Failed to get Tauri version:', e);
+            }
+        }
+    });
 
     const technologies = [
         { name: 'SvelteKit', url: 'https://kit.svelte.dev' },

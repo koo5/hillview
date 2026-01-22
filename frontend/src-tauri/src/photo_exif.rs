@@ -1,35 +1,35 @@
+use crate::types::PhotoMetadata;
 use chrono;
 #[cfg(debug_assertions)]
 use img_parts::{jpeg::Jpeg, ImageEXIF};
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
-use crate::types::PhotoMetadata;
 
 // EXIF tag constants for readability
 #[cfg(target_os = "android")]
 mod exif_tags {
-    // IFD0 tags (must be in ascending order: 0x0112, 0x0132, 0x8769, 0x8825)
-    pub const ORIENTATION: u16 = 0x0112;
-    pub const DATE_TIME: u16 = 0x0132;
-    pub const EXIF_IFD_POINTER: u16 = 0x8769;
-    pub const GPS_IFD_POINTER: u16 = 0x8825;
+	// IFD0 tags (must be in ascending order: 0x0112, 0x0132, 0x8769, 0x8825)
+	pub const ORIENTATION: u16 = 0x0112;
+	pub const DATE_TIME: u16 = 0x0132;
+	pub const EXIF_IFD_POINTER: u16 = 0x8769;
+	pub const GPS_IFD_POINTER: u16 = 0x8825;
 
-    // EXIF IFD tags (must be in ascending order within EXIF IFD)
-    pub const DATE_TIME_ORIGINAL: u16 = 0x9003;
-    pub const USER_COMMENT: u16 = 0x9286;
+	// EXIF IFD tags (must be in ascending order within EXIF IFD)
+	pub const DATE_TIME_ORIGINAL: u16 = 0x9003;
+	pub const USER_COMMENT: u16 = 0x9286;
 
-    // GPS tags
-    pub const GPS_VERSION_ID: u16 = 0x0000;
-    pub const GPS_LATITUDE_REF: u16 = 0x0001;
-    pub const GPS_LATITUDE: u16 = 0x0002;
-    pub const GPS_LONGITUDE_REF: u16 = 0x0003;
-    pub const GPS_LONGITUDE: u16 = 0x0004;
-    pub const GPS_ALTITUDE_REF: u16 = 0x0005;
-    pub const GPS_ALTITUDE: u16 = 0x0006;
-    pub const GPS_IMG_DIRECTION_REF: u16 = 0x0010;
-    pub const GPS_IMG_DIRECTION: u16 = 0x0011;
-    pub const GPS_DEST_BEARING_REF: u16 = 0x0017;
-    pub const GPS_DEST_BEARING: u16 = 0x0018;
+	// GPS tags
+	pub const GPS_VERSION_ID: u16 = 0x0000;
+	pub const GPS_LATITUDE_REF: u16 = 0x0001;
+	pub const GPS_LATITUDE: u16 = 0x0002;
+	pub const GPS_LONGITUDE_REF: u16 = 0x0003;
+	pub const GPS_LONGITUDE: u16 = 0x0004;
+	pub const GPS_ALTITUDE_REF: u16 = 0x0005;
+	pub const GPS_ALTITUDE: u16 = 0x0006;
+	pub const GPS_IMG_DIRECTION_REF: u16 = 0x0010;
+	pub const GPS_IMG_DIRECTION: u16 = 0x0011;
+	pub const GPS_DEST_BEARING_REF: u16 = 0x0017;
+	pub const GPS_DEST_BEARING: u16 = 0x0018;
 }
 
 // EXIF data types
@@ -37,30 +37,29 @@ mod exif_tags {
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 enum ExifValue {
-    Short(u16),
-    Long(u32),
-    Rational(u32, u32),
-    Ascii(String),
-    Undefined(Vec<u8>),
-    Rationals(Vec<(u32, u32)>),
+	Short(u16),
+	Long(u32),
+	Rational(u32, u32),
+	Ascii(String),
+	Undefined(Vec<u8>),
+	Rationals(Vec<(u32, u32)>),
 }
 
 // EXIF entry structure
 #[cfg(target_os = "android")]
 #[derive(Debug, Clone)]
 struct ExifEntry {
-    tag: u16,
-    value: ExifValue,
+	tag: u16,
+	value: ExifValue,
 }
 
 // Builder for maintaining EXIF structure
 #[cfg(target_os = "android")]
 struct ExifBuilder {
-    ifd0_entries: Vec<ExifEntry>,
-    exif_ifd_entries: Vec<ExifEntry>,
-    gps_entries: Vec<ExifEntry>,
+	ifd0_entries: Vec<ExifEntry>,
+	exif_ifd_entries: Vec<ExifEntry>,
+	gps_entries: Vec<ExifEntry>,
 }
-
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ProvenanceData {
@@ -70,426 +69,447 @@ struct ProvenanceData {
 
 #[cfg(target_os = "android")]
 impl ExifBuilder {
-    fn new() -> Self {
-        Self {
-            ifd0_entries: Vec::new(),
-            exif_ifd_entries: Vec::new(),
-            gps_entries: Vec::new(),
-        }
-    }
+	fn new() -> Self {
+		Self {
+			ifd0_entries: Vec::new(),
+			exif_ifd_entries: Vec::new(),
+			gps_entries: Vec::new(),
+		}
+	}
 
-    fn add_orientation(&mut self, orientation: u16) {
-        self.ifd0_entries.push(ExifEntry {
-            tag: exif_tags::ORIENTATION,
-            value: ExifValue::Short(orientation),
-        });
-    }
+	fn add_orientation(&mut self, orientation: u16) {
+		self.ifd0_entries.push(ExifEntry {
+			tag: exif_tags::ORIENTATION,
+			value: ExifValue::Short(orientation),
+		});
+	}
 
-    fn add_timestamps(&mut self, timestamp: i64) {
-        let datetime = chrono::DateTime::from_timestamp(timestamp, 0)
-            .unwrap_or_else(|| chrono::Utc::now());
-        let datetime_str = datetime.format("%Y:%m:%d %H:%M:%S").to_string();
+	fn add_timestamps(&mut self, timestamp: i64) {
+		let datetime =
+			chrono::DateTime::from_timestamp(timestamp, 0).unwrap_or_else(|| chrono::Utc::now());
+		let datetime_str = datetime.format("%Y:%m:%d %H:%M:%S").to_string();
 
-        // DateTime goes in IFD0
-        self.ifd0_entries.push(ExifEntry {
-            tag: exif_tags::DATE_TIME,
-            value: ExifValue::Ascii(datetime_str.clone()),
-        });
+		// DateTime goes in IFD0
+		self.ifd0_entries.push(ExifEntry {
+			tag: exif_tags::DATE_TIME,
+			value: ExifValue::Ascii(datetime_str.clone()),
+		});
 
-        // DateTimeOriginal goes in EXIF IFD
-        self.exif_ifd_entries.push(ExifEntry {
-            tag: exif_tags::DATE_TIME_ORIGINAL,
-            value: ExifValue::Ascii(datetime_str),
-        });
-    }
+		// DateTimeOriginal goes in EXIF IFD
+		self.exif_ifd_entries.push(ExifEntry {
+			tag: exif_tags::DATE_TIME_ORIGINAL,
+			value: ExifValue::Ascii(datetime_str),
+		});
+	}
 
-    fn add_gps_data(&mut self, lat: f64, lon: f64, alt: Option<f64>) {
-        // GPS Version
-        self.gps_entries.push(ExifEntry {
-            tag: exif_tags::GPS_VERSION_ID,
-            value: ExifValue::Undefined(vec![2, 3, 0, 0]),
-        });
+	fn add_gps_data(&mut self, lat: f64, lon: f64, alt: Option<f64>) {
+		// GPS Version
+		self.gps_entries.push(ExifEntry {
+			tag: exif_tags::GPS_VERSION_ID,
+			value: ExifValue::Undefined(vec![2, 3, 0, 0]),
+		});
 
-        // Latitude
-        let lat_ref = if lat >= 0.0 { "N" } else { "S" };
-        self.gps_entries.push(ExifEntry {
-            tag: exif_tags::GPS_LATITUDE_REF,
-            value: ExifValue::Ascii(lat_ref.to_string()),
-        });
+		// Latitude
+		let lat_ref = if lat >= 0.0 { "N" } else { "S" };
+		self.gps_entries.push(ExifEntry {
+			tag: exif_tags::GPS_LATITUDE_REF,
+			value: ExifValue::Ascii(lat_ref.to_string()),
+		});
 
-        let lat_abs = lat.abs();
-        let lat_deg = lat_abs.floor() as u32;
-        let lat_min = ((lat_abs - lat_deg as f64) * 60.0).floor() as u32;
-        let lat_sec = ((lat_abs - lat_deg as f64 - lat_min as f64 / 60.0) * 3600.0 * 100.0) as u32;
+		let lat_abs = lat.abs();
+		let lat_deg = lat_abs.floor() as u32;
+		let lat_min = ((lat_abs - lat_deg as f64) * 60.0).floor() as u32;
+		let lat_sec = ((lat_abs - lat_deg as f64 - lat_min as f64 / 60.0) * 3600.0 * 100.0) as u32;
 
-        self.gps_entries.push(ExifEntry {
-            tag: exif_tags::GPS_LATITUDE,
-            value: ExifValue::Rationals(vec![(lat_deg, 1), (lat_min, 1), (lat_sec, 100)]),
-        });
+		self.gps_entries.push(ExifEntry {
+			tag: exif_tags::GPS_LATITUDE,
+			value: ExifValue::Rationals(vec![(lat_deg, 1), (lat_min, 1), (lat_sec, 100)]),
+		});
 
-        // Longitude
-        let lon_ref = if lon >= 0.0 { "E" } else { "W" };
-        self.gps_entries.push(ExifEntry {
-            tag: exif_tags::GPS_LONGITUDE_REF,
-            value: ExifValue::Ascii(lon_ref.to_string()),
-        });
+		// Longitude
+		let lon_ref = if lon >= 0.0 { "E" } else { "W" };
+		self.gps_entries.push(ExifEntry {
+			tag: exif_tags::GPS_LONGITUDE_REF,
+			value: ExifValue::Ascii(lon_ref.to_string()),
+		});
 
-        let lon_abs = lon.abs();
-        let lon_deg = lon_abs.floor() as u32;
-        let lon_min = ((lon_abs - lon_deg as f64) * 60.0).floor() as u32;
-        let lon_sec = ((lon_abs - lon_deg as f64 - lon_min as f64 / 60.0) * 3600.0 * 100.0) as u32;
+		let lon_abs = lon.abs();
+		let lon_deg = lon_abs.floor() as u32;
+		let lon_min = ((lon_abs - lon_deg as f64) * 60.0).floor() as u32;
+		let lon_sec = ((lon_abs - lon_deg as f64 - lon_min as f64 / 60.0) * 3600.0 * 100.0) as u32;
 
-        self.gps_entries.push(ExifEntry {
-            tag: exif_tags::GPS_LONGITUDE,
-            value: ExifValue::Rationals(vec![(lon_deg, 1), (lon_min, 1), (lon_sec, 100)]),
-        });
+		self.gps_entries.push(ExifEntry {
+			tag: exif_tags::GPS_LONGITUDE,
+			value: ExifValue::Rationals(vec![(lon_deg, 1), (lon_min, 1), (lon_sec, 100)]),
+		});
 
-        // Altitude (optional)
-        if let Some(altitude) = alt {
-            self.gps_entries.push(ExifEntry {
-                tag: exif_tags::GPS_ALTITUDE_REF,
-                value: ExifValue::Short(0), // 0 = above sea level
-            });
+		// Altitude (optional)
+		if let Some(altitude) = alt {
+			self.gps_entries.push(ExifEntry {
+				tag: exif_tags::GPS_ALTITUDE_REF,
+				value: ExifValue::Short(0), // 0 = above sea level
+			});
 
-            let alt_num = (altitude.abs() * 1000.0) as u32;
-            self.gps_entries.push(ExifEntry {
-                tag: exif_tags::GPS_ALTITUDE,
-                value: ExifValue::Rational(alt_num, 1000),
-            });
-        }
-    }
+			let alt_num = (altitude.abs() * 1000.0) as u32;
+			self.gps_entries.push(ExifEntry {
+				tag: exif_tags::GPS_ALTITUDE,
+				value: ExifValue::Rational(alt_num, 1000),
+			});
+		}
+	}
 
-    fn add_bearing(&mut self, bearing: f64) {
-        let bearing_num = (bearing * 100.0) as u32;
+	fn add_bearing(&mut self, bearing: f64) {
+		let bearing_num = (bearing * 100.0) as u32;
 
-        // GPS Image Direction
-        self.gps_entries.push(ExifEntry {
-            tag: exif_tags::GPS_IMG_DIRECTION_REF,
-            value: ExifValue::Ascii("T".to_string()), // True North
-        });
+		// GPS Image Direction
+		self.gps_entries.push(ExifEntry {
+			tag: exif_tags::GPS_IMG_DIRECTION_REF,
+			value: ExifValue::Ascii("T".to_string()), // True North
+		});
 
-        self.gps_entries.push(ExifEntry {
-            tag: exif_tags::GPS_IMG_DIRECTION,
-            value: ExifValue::Rational(bearing_num, 100),
-        });
+		self.gps_entries.push(ExifEntry {
+			tag: exif_tags::GPS_IMG_DIRECTION,
+			value: ExifValue::Rational(bearing_num, 100),
+		});
 
-        // GPS Destination Bearing (same value)
-        self.gps_entries.push(ExifEntry {
-            tag: exif_tags::GPS_DEST_BEARING_REF,
-            value: ExifValue::Ascii("T".to_string()), // True North
-        });
+		// GPS Destination Bearing (same value)
+		self.gps_entries.push(ExifEntry {
+			tag: exif_tags::GPS_DEST_BEARING_REF,
+			value: ExifValue::Ascii("T".to_string()), // True North
+		});
 
-        self.gps_entries.push(ExifEntry {
-            tag: exif_tags::GPS_DEST_BEARING,
-            value: ExifValue::Rational(bearing_num, 100),
-        });
-    }
+		self.gps_entries.push(ExifEntry {
+			tag: exif_tags::GPS_DEST_BEARING,
+			value: ExifValue::Rational(bearing_num, 100),
+		});
+	}
 
-    fn add_provenance(&mut self, location_source: &str, bearing_source: &str) {
-        let provenance = ProvenanceData {
-            location_source: location_source.to_string(),
-            bearing_source: bearing_source.to_string(),
-        };
+	fn add_provenance(&mut self, location_source: &str, bearing_source: &str) {
+		let provenance = ProvenanceData {
+			location_source: location_source.to_string(),
+			bearing_source: bearing_source.to_string(),
+		};
 
-        if let Ok(provenance_json) = serde_json::to_string(&provenance) {
-            let mut user_comment = b"ASCII\0\0\0".to_vec(); // 8-byte character code header
+		if let Ok(provenance_json) = serde_json::to_string(&provenance) {
+			let mut user_comment = b"ASCII\0\0\0".to_vec(); // 8-byte character code header
 
-            // Limit size to prevent EXIF issues
-            const MAX_COMMENT_SIZE: usize = 1000;
-            let comment_bytes = if provenance_json.len() > MAX_COMMENT_SIZE {
-                info!("Warning: Provenance data too long, truncating");
-                &provenance_json.as_bytes()[..MAX_COMMENT_SIZE]
-            } else {
-                provenance_json.as_bytes()
-            };
+			// Limit size to prevent EXIF issues
+			const MAX_COMMENT_SIZE: usize = 1000;
+			let comment_bytes = if provenance_json.len() > MAX_COMMENT_SIZE {
+				info!("Warning: Provenance data too long, truncating");
+				&provenance_json.as_bytes()[..MAX_COMMENT_SIZE]
+			} else {
+				provenance_json.as_bytes()
+			};
 
-            user_comment.extend_from_slice(comment_bytes);
+			user_comment.extend_from_slice(comment_bytes);
 
-            // UserComment goes in EXIF IFD
-            self.exif_ifd_entries.push(ExifEntry {
-                tag: exif_tags::USER_COMMENT,
-                value: ExifValue::Undefined(user_comment),
-            });
-        }
-    }
+			// UserComment goes in EXIF IFD
+			self.exif_ifd_entries.push(ExifEntry {
+				tag: exif_tags::USER_COMMENT,
+				value: ExifValue::Undefined(user_comment),
+			});
+		}
+	}
 
-    /// Calculate the size of out-of-line data for a list of entries
-    fn calculate_data_size(entries: &[ExifEntry]) -> u32 {
-        let mut size = 0u32;
-        for entry in entries {
-            match &entry.value {
-                ExifValue::Rational(_, _) => size += 8,
-                ExifValue::Rationals(vals) => size += (vals.len() as u32) * 8,
-                ExifValue::Undefined(val) if val.len() > 4 => size += val.len() as u32,
-                ExifValue::Ascii(val) if val.len() + 1 > 4 => size += val.len() as u32 + 1,
-                _ => {} // Data stored inline
-            }
-        }
-        size
-    }
+	/// Calculate the size of out-of-line data for a list of entries
+	fn calculate_data_size(entries: &[ExifEntry]) -> u32 {
+		let mut size = 0u32;
+		for entry in entries {
+			match &entry.value {
+				ExifValue::Rational(_, _) => size += 8,
+				ExifValue::Rationals(vals) => size += (vals.len() as u32) * 8,
+				ExifValue::Undefined(val) if val.len() > 4 => size += val.len() as u32,
+				ExifValue::Ascii(val) if val.len() + 1 > 4 => size += val.len() as u32 + 1,
+				_ => {} // Data stored inline
+			}
+		}
+		size
+	}
 
-    /// Calculate total IFD size (count + entries + next pointer)
-    fn ifd_size(entry_count: u32) -> u32 {
-        2 + (entry_count * 12) + 4
-    }
+	/// Calculate total IFD size (count + entries + next pointer)
+	fn ifd_size(entry_count: u32) -> u32 {
+		2 + (entry_count * 12) + 4
+	}
 
-    fn build(mut self) -> Vec<u8> {
-        // Sort all entry lists by tag for proper EXIF format
-        self.ifd0_entries.sort_by_key(|e| e.tag);
-        self.exif_ifd_entries.sort_by_key(|e| e.tag);
-        self.gps_entries.sort_by_key(|e| e.tag);
+	fn build(mut self) -> Vec<u8> {
+		// Sort all entry lists by tag for proper EXIF format
+		self.ifd0_entries.sort_by_key(|e| e.tag);
+		self.exif_ifd_entries.sort_by_key(|e| e.tag);
+		self.gps_entries.sort_by_key(|e| e.tag);
 
-        let has_exif_ifd = !self.exif_ifd_entries.is_empty();
-        let has_gps = !self.gps_entries.is_empty();
+		let has_exif_ifd = !self.exif_ifd_entries.is_empty();
+		let has_gps = !self.gps_entries.is_empty();
 
-        // Calculate IFD0 entry count (user entries + pointer entries)
-        let ifd0_pointer_count = (has_exif_ifd as u32) + (has_gps as u32);
-        let ifd0_entry_count = self.ifd0_entries.len() as u32 + ifd0_pointer_count;
+		// Calculate IFD0 entry count (user entries + pointer entries)
+		let ifd0_pointer_count = (has_exif_ifd as u32) + (has_gps as u32);
+		let ifd0_entry_count = self.ifd0_entries.len() as u32 + ifd0_pointer_count;
 
-        // Calculate offsets for each section
-        // Layout: TIFF header (8) -> IFD0 -> IFD0 data -> EXIF IFD -> EXIF data -> GPS IFD -> GPS data
-        let ifd0_offset: u32 = 8;
-        let ifd0_data_offset = ifd0_offset + Self::ifd_size(ifd0_entry_count);
-        let ifd0_data_size = Self::calculate_data_size(&self.ifd0_entries);
+		// Calculate offsets for each section
+		// Layout: TIFF header (8) -> IFD0 -> IFD0 data -> EXIF IFD -> EXIF data -> GPS IFD -> GPS data
+		let ifd0_offset: u32 = 8;
+		let ifd0_data_offset = ifd0_offset + Self::ifd_size(ifd0_entry_count);
+		let ifd0_data_size = Self::calculate_data_size(&self.ifd0_entries);
 
-        let exif_ifd_offset = ifd0_data_offset + ifd0_data_size;
-        let exif_ifd_size = if has_exif_ifd { Self::ifd_size(self.exif_ifd_entries.len() as u32) } else { 0 };
-        let exif_data_offset = exif_ifd_offset + exif_ifd_size;
-        let exif_data_size = if has_exif_ifd { Self::calculate_data_size(&self.exif_ifd_entries) } else { 0 };
+		let exif_ifd_offset = ifd0_data_offset + ifd0_data_size;
+		let exif_ifd_size = if has_exif_ifd {
+			Self::ifd_size(self.exif_ifd_entries.len() as u32)
+		} else {
+			0
+		};
+		let exif_data_offset = exif_ifd_offset + exif_ifd_size;
+		let exif_data_size = if has_exif_ifd {
+			Self::calculate_data_size(&self.exif_ifd_entries)
+		} else {
+			0
+		};
 
-        let gps_ifd_offset = exif_data_offset + exif_data_size;
-        let gps_ifd_size = if has_gps { Self::ifd_size(self.gps_entries.len() as u32) } else { 0 };
-        let gps_data_offset = gps_ifd_offset + gps_ifd_size;
+		let gps_ifd_offset = exif_data_offset + exif_data_size;
+		let gps_ifd_size = if has_gps {
+			Self::ifd_size(self.gps_entries.len() as u32)
+		} else {
+			0
+		};
+		let gps_data_offset = gps_ifd_offset + gps_ifd_size;
 
-        let mut exif_data = Vec::new();
+		let mut exif_data = Vec::new();
 
-        // TIFF header (little-endian)
-        exif_data.extend_from_slice(&[0x49, 0x49]); // II (little-endian)
-        exif_data.extend_from_slice(&[0x2A, 0x00]); // 42 (TIFF magic)
-        exif_data.extend_from_slice(&ifd0_offset.to_le_bytes()); // IFD0 offset
+		// TIFF header (little-endian)
+		exif_data.extend_from_slice(&[0x49, 0x49]); // II (little-endian)
+		exif_data.extend_from_slice(&[0x2A, 0x00]); // 42 (TIFF magic)
+		exif_data.extend_from_slice(&ifd0_offset.to_le_bytes()); // IFD0 offset
 
-        // Build sorted list of all IFD0 entries (regular + pointers)
-        #[derive(Clone)]
-        enum Ifd0Entry {
-            Regular(ExifEntry),
-            ExifPointer(u32),
-            GpsPointer(u32),
-        }
+		// Build sorted list of all IFD0 entries (regular + pointers)
+		#[derive(Clone)]
+		enum Ifd0Entry {
+			Regular(ExifEntry),
+			ExifPointer(u32),
+			GpsPointer(u32),
+		}
 
-        let mut sorted_entries: Vec<Ifd0Entry> = Vec::new();
-        for entry in &self.ifd0_entries {
-            sorted_entries.push(Ifd0Entry::Regular(entry.clone()));
-        }
-        if has_exif_ifd {
-            sorted_entries.push(Ifd0Entry::ExifPointer(exif_ifd_offset));
-        }
-        if has_gps {
-            sorted_entries.push(Ifd0Entry::GpsPointer(gps_ifd_offset));
-        }
+		let mut sorted_entries: Vec<Ifd0Entry> = Vec::new();
+		for entry in &self.ifd0_entries {
+			sorted_entries.push(Ifd0Entry::Regular(entry.clone()));
+		}
+		if has_exif_ifd {
+			sorted_entries.push(Ifd0Entry::ExifPointer(exif_ifd_offset));
+		}
+		if has_gps {
+			sorted_entries.push(Ifd0Entry::GpsPointer(gps_ifd_offset));
+		}
 
-        sorted_entries.sort_by_key(|e| match e {
-            Ifd0Entry::Regular(entry) => entry.tag,
-            Ifd0Entry::ExifPointer(_) => exif_tags::EXIF_IFD_POINTER,
-            Ifd0Entry::GpsPointer(_) => exif_tags::GPS_IFD_POINTER,
-        });
+		sorted_entries.sort_by_key(|e| match e {
+			Ifd0Entry::Regular(entry) => entry.tag,
+			Ifd0Entry::ExifPointer(_) => exif_tags::EXIF_IFD_POINTER,
+			Ifd0Entry::GpsPointer(_) => exif_tags::GPS_IFD_POINTER,
+		});
 
-        // Write IFD0 count
-        exif_data.extend_from_slice(&(sorted_entries.len() as u16).to_le_bytes());
+		// Write IFD0 count
+		exif_data.extend_from_slice(&(sorted_entries.len() as u16).to_le_bytes());
 
-        // Write IFD0 entries
-        let mut current_data_offset = ifd0_data_offset;
-        for entry in &sorted_entries {
-            match entry {
-                Ifd0Entry::Regular(e) => {
-                    current_data_offset = Self::write_entry(&mut exif_data, e, current_data_offset);
-                }
-                Ifd0Entry::ExifPointer(offset) => {
-                    exif_data.extend_from_slice(&exif_tags::EXIF_IFD_POINTER.to_le_bytes());
-                    exif_data.extend_from_slice(&[0x04, 0x00]); // Type: LONG
-                    exif_data.extend_from_slice(&[0x01, 0x00, 0x00, 0x00]); // Count: 1
-                    exif_data.extend_from_slice(&offset.to_le_bytes());
-                }
-                Ifd0Entry::GpsPointer(offset) => {
-                    exif_data.extend_from_slice(&exif_tags::GPS_IFD_POINTER.to_le_bytes());
-                    exif_data.extend_from_slice(&[0x04, 0x00]); // Type: LONG
-                    exif_data.extend_from_slice(&[0x01, 0x00, 0x00, 0x00]); // Count: 1
-                    exif_data.extend_from_slice(&offset.to_le_bytes());
-                }
-            }
-        }
+		// Write IFD0 entries
+		let mut current_data_offset = ifd0_data_offset;
+		for entry in &sorted_entries {
+			match entry {
+				Ifd0Entry::Regular(e) => {
+					current_data_offset = Self::write_entry(&mut exif_data, e, current_data_offset);
+				}
+				Ifd0Entry::ExifPointer(offset) => {
+					exif_data.extend_from_slice(&exif_tags::EXIF_IFD_POINTER.to_le_bytes());
+					exif_data.extend_from_slice(&[0x04, 0x00]); // Type: LONG
+					exif_data.extend_from_slice(&[0x01, 0x00, 0x00, 0x00]); // Count: 1
+					exif_data.extend_from_slice(&offset.to_le_bytes());
+				}
+				Ifd0Entry::GpsPointer(offset) => {
+					exif_data.extend_from_slice(&exif_tags::GPS_IFD_POINTER.to_le_bytes());
+					exif_data.extend_from_slice(&[0x04, 0x00]); // Type: LONG
+					exif_data.extend_from_slice(&[0x01, 0x00, 0x00, 0x00]); // Count: 1
+					exif_data.extend_from_slice(&offset.to_le_bytes());
+				}
+			}
+		}
 
-        // Next IFD offset (none)
-        exif_data.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
+		// Next IFD offset (none)
+		exif_data.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
 
-        // Write IFD0 data values
-        Self::write_data_values(&mut exif_data, &self.ifd0_entries);
+		// Write IFD0 data values
+		Self::write_data_values(&mut exif_data, &self.ifd0_entries);
 
-        // === Write EXIF IFD ===
-        if has_exif_ifd {
-            // Pad to EXIF IFD offset if needed
-            while exif_data.len() < exif_ifd_offset as usize {
-                exif_data.push(0x00);
-            }
+		// === Write EXIF IFD ===
+		if has_exif_ifd {
+			// Pad to EXIF IFD offset if needed
+			while exif_data.len() < exif_ifd_offset as usize {
+				exif_data.push(0x00);
+			}
 
-            exif_data.extend_from_slice(&(self.exif_ifd_entries.len() as u16).to_le_bytes());
+			exif_data.extend_from_slice(&(self.exif_ifd_entries.len() as u16).to_le_bytes());
 
-            current_data_offset = exif_data_offset;
-            for entry in &self.exif_ifd_entries {
-                current_data_offset = Self::write_entry(&mut exif_data, entry, current_data_offset);
-            }
+			current_data_offset = exif_data_offset;
+			for entry in &self.exif_ifd_entries {
+				current_data_offset = Self::write_entry(&mut exif_data, entry, current_data_offset);
+			}
 
-            // Next IFD offset (none)
-            exif_data.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
+			// Next IFD offset (none)
+			exif_data.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
 
-            // Write EXIF IFD data values
-            Self::write_data_values(&mut exif_data, &self.exif_ifd_entries);
-        }
+			// Write EXIF IFD data values
+			Self::write_data_values(&mut exif_data, &self.exif_ifd_entries);
+		}
 
-        // === Write GPS IFD ===
-        if has_gps {
-            // Pad to GPS IFD offset if needed
-            while exif_data.len() < gps_ifd_offset as usize {
-                exif_data.push(0x00);
-            }
+		// === Write GPS IFD ===
+		if has_gps {
+			// Pad to GPS IFD offset if needed
+			while exif_data.len() < gps_ifd_offset as usize {
+				exif_data.push(0x00);
+			}
 
-            exif_data.extend_from_slice(&(self.gps_entries.len() as u16).to_le_bytes());
+			exif_data.extend_from_slice(&(self.gps_entries.len() as u16).to_le_bytes());
 
-            current_data_offset = gps_data_offset;
-            for entry in &self.gps_entries {
-                current_data_offset = Self::write_entry(&mut exif_data, entry, current_data_offset);
-            }
+			current_data_offset = gps_data_offset;
+			for entry in &self.gps_entries {
+				current_data_offset = Self::write_entry(&mut exif_data, entry, current_data_offset);
+			}
 
-            // Next IFD offset (none)
-            exif_data.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
+			// Next IFD offset (none)
+			exif_data.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
 
-            // Write GPS IFD data values
-            Self::write_data_values(&mut exif_data, &self.gps_entries);
-        }
+			// Write GPS IFD data values
+			Self::write_data_values(&mut exif_data, &self.gps_entries);
+		}
 
-        info!("Created structured EXIF: {} bytes (IFD0 at {}, EXIF IFD at {}, GPS IFD at {})",
-              exif_data.len(), ifd0_offset, exif_ifd_offset, gps_ifd_offset);
-        exif_data
-    }
+		info!(
+			"Created structured EXIF: {} bytes (IFD0 at {}, EXIF IFD at {}, GPS IFD at {})",
+			exif_data.len(),
+			ifd0_offset,
+			exif_ifd_offset,
+			gps_ifd_offset
+		);
+		exif_data
+	}
 
-    /// Write a single IFD entry, returning the updated data offset
-    fn write_entry(exif_data: &mut Vec<u8>, entry: &ExifEntry, mut data_offset: u32) -> u32 {
-        exif_data.extend_from_slice(&entry.tag.to_le_bytes());
+	/// Write a single IFD entry, returning the updated data offset
+	fn write_entry(exif_data: &mut Vec<u8>, entry: &ExifEntry, mut data_offset: u32) -> u32 {
+		exif_data.extend_from_slice(&entry.tag.to_le_bytes());
 
-        match &entry.value {
-            ExifValue::Short(val) => {
-                exif_data.extend_from_slice(&[0x03, 0x00]); // Type: SHORT
-                exif_data.extend_from_slice(&[0x01, 0x00, 0x00, 0x00]); // Count: 1
-                exif_data.extend_from_slice(&val.to_le_bytes());
-                exif_data.extend_from_slice(&[0x00, 0x00]); // Padding
-            }
-            ExifValue::Long(val) => {
-                exif_data.extend_from_slice(&[0x04, 0x00]); // Type: LONG
-                exif_data.extend_from_slice(&[0x01, 0x00, 0x00, 0x00]); // Count: 1
-                exif_data.extend_from_slice(&val.to_le_bytes());
-            }
-            ExifValue::Ascii(val) => {
-                let bytes = val.as_bytes();
-                let count = bytes.len() + 1; // Include null terminator
-                exif_data.extend_from_slice(&[0x02, 0x00]); // Type: ASCII
-                exif_data.extend_from_slice(&(count as u32).to_le_bytes());
+		match &entry.value {
+			ExifValue::Short(val) => {
+				exif_data.extend_from_slice(&[0x03, 0x00]); // Type: SHORT
+				exif_data.extend_from_slice(&[0x01, 0x00, 0x00, 0x00]); // Count: 1
+				exif_data.extend_from_slice(&val.to_le_bytes());
+				exif_data.extend_from_slice(&[0x00, 0x00]); // Padding
+			}
+			ExifValue::Long(val) => {
+				exif_data.extend_from_slice(&[0x04, 0x00]); // Type: LONG
+				exif_data.extend_from_slice(&[0x01, 0x00, 0x00, 0x00]); // Count: 1
+				exif_data.extend_from_slice(&val.to_le_bytes());
+			}
+			ExifValue::Ascii(val) => {
+				let bytes = val.as_bytes();
+				let count = bytes.len() + 1; // Include null terminator
+				exif_data.extend_from_slice(&[0x02, 0x00]); // Type: ASCII
+				exif_data.extend_from_slice(&(count as u32).to_le_bytes());
 
-                if count <= 4 {
-                    let mut padded = bytes.to_vec();
-                    padded.push(0); // Null terminator
-                    padded.resize(4, 0);
-                    exif_data.extend_from_slice(&padded);
-                } else {
-                    // Store offset to data area
-                    exif_data.extend_from_slice(&data_offset.to_le_bytes());
-                    data_offset += count as u32;
-                }
-            }
-            ExifValue::Undefined(val) => {
-                exif_data.extend_from_slice(&[0x07, 0x00]); // Type: UNDEFINED
-                exif_data.extend_from_slice(&(val.len() as u32).to_le_bytes());
+				if count <= 4 {
+					let mut padded = bytes.to_vec();
+					padded.push(0); // Null terminator
+					padded.resize(4, 0);
+					exif_data.extend_from_slice(&padded);
+				} else {
+					// Store offset to data area
+					exif_data.extend_from_slice(&data_offset.to_le_bytes());
+					data_offset += count as u32;
+				}
+			}
+			ExifValue::Undefined(val) => {
+				exif_data.extend_from_slice(&[0x07, 0x00]); // Type: UNDEFINED
+				exif_data.extend_from_slice(&(val.len() as u32).to_le_bytes());
 
-                if val.len() <= 4 {
-                    let mut padded = val.clone();
-                    padded.resize(4, 0);
-                    exif_data.extend_from_slice(&padded);
-                } else {
-                    exif_data.extend_from_slice(&data_offset.to_le_bytes());
-                    data_offset += val.len() as u32;
-                }
-            }
-            ExifValue::Rational(_, _) => {
-                exif_data.extend_from_slice(&[0x05, 0x00]); // Type: RATIONAL
-                exif_data.extend_from_slice(&[0x01, 0x00, 0x00, 0x00]); // Count: 1
-                exif_data.extend_from_slice(&data_offset.to_le_bytes());
-                data_offset += 8;
-            }
-            ExifValue::Rationals(vals) => {
-                exif_data.extend_from_slice(&[0x05, 0x00]); // Type: RATIONAL
-                exif_data.extend_from_slice(&(vals.len() as u32).to_le_bytes());
-                exif_data.extend_from_slice(&data_offset.to_le_bytes());
-                data_offset += (vals.len() as u32) * 8;
-            }
-        }
+				if val.len() <= 4 {
+					let mut padded = val.clone();
+					padded.resize(4, 0);
+					exif_data.extend_from_slice(&padded);
+				} else {
+					exif_data.extend_from_slice(&data_offset.to_le_bytes());
+					data_offset += val.len() as u32;
+				}
+			}
+			ExifValue::Rational(_, _) => {
+				exif_data.extend_from_slice(&[0x05, 0x00]); // Type: RATIONAL
+				exif_data.extend_from_slice(&[0x01, 0x00, 0x00, 0x00]); // Count: 1
+				exif_data.extend_from_slice(&data_offset.to_le_bytes());
+				data_offset += 8;
+			}
+			ExifValue::Rationals(vals) => {
+				exif_data.extend_from_slice(&[0x05, 0x00]); // Type: RATIONAL
+				exif_data.extend_from_slice(&(vals.len() as u32).to_le_bytes());
+				exif_data.extend_from_slice(&data_offset.to_le_bytes());
+				data_offset += (vals.len() as u32) * 8;
+			}
+		}
 
-        data_offset
-    }
+		data_offset
+	}
 
-    /// Write out-of-line data values for a list of entries
-    fn write_data_values(exif_data: &mut Vec<u8>, entries: &[ExifEntry]) {
-        for entry in entries {
-            match &entry.value {
-                ExifValue::Ascii(val) if val.len() + 1 > 4 => {
-                    exif_data.extend_from_slice(val.as_bytes());
-                    exif_data.push(0); // Null terminator
-                }
-                ExifValue::Undefined(val) if val.len() > 4 => {
-                    exif_data.extend_from_slice(val);
-                }
-                ExifValue::Rational(num, denom) => {
-                    exif_data.extend_from_slice(&num.to_le_bytes());
-                    exif_data.extend_from_slice(&denom.to_le_bytes());
-                }
-                ExifValue::Rationals(vals) => {
-                    for (num, denom) in vals {
-                        exif_data.extend_from_slice(&num.to_le_bytes());
-                        exif_data.extend_from_slice(&denom.to_le_bytes());
-                    }
-                }
-                _ => {} // Data stored inline
-            }
-        }
-    }
+	/// Write out-of-line data values for a list of entries
+	fn write_data_values(exif_data: &mut Vec<u8>, entries: &[ExifEntry]) {
+		for entry in entries {
+			match &entry.value {
+				ExifValue::Ascii(val) if val.len() + 1 > 4 => {
+					exif_data.extend_from_slice(val.as_bytes());
+					exif_data.push(0); // Null terminator
+				}
+				ExifValue::Undefined(val) if val.len() > 4 => {
+					exif_data.extend_from_slice(val);
+				}
+				ExifValue::Rational(num, denom) => {
+					exif_data.extend_from_slice(&num.to_le_bytes());
+					exif_data.extend_from_slice(&denom.to_le_bytes());
+				}
+				ExifValue::Rationals(vals) => {
+					for (num, denom) in vals {
+						exif_data.extend_from_slice(&num.to_le_bytes());
+						exif_data.extend_from_slice(&denom.to_le_bytes());
+					}
+				}
+				_ => {} // Data stored inline
+			}
+		}
+	}
 }
 
 #[cfg(target_os = "android")]
 pub fn create_exif_segment_structured(metadata: &PhotoMetadata) -> Vec<u8> {
-    info!(
-        "Creating structured EXIF for: lat={}, lon={}, alt={:?}, bearing={:?}, orientation={:?}",
-        metadata.latitude, metadata.longitude, metadata.altitude, metadata.bearing, metadata.orientation_code
-    );
+	info!(
+		"Creating structured EXIF for: lat={}, lon={}, alt={:?}, bearing={:?}, orientation={:?}",
+		metadata.latitude,
+		metadata.longitude,
+		metadata.altitude,
+		metadata.bearing,
+		metadata.orientation_code
+	);
 
-    let mut builder = ExifBuilder::new();
+	let mut builder = ExifBuilder::new();
 
-    // Add orientation if provided
-    if let Some(orientation) = metadata.orientation_code {
-        builder.add_orientation(orientation);
-    }
+	// Add orientation if provided
+	if let Some(orientation) = metadata.orientation_code {
+		builder.add_orientation(orientation);
+	}
 
-    // Add timestamps
-    builder.add_timestamps(metadata.captured_at);
+	// Add timestamps
+	builder.add_timestamps(metadata.captured_at);
 
-    // Add GPS data
-    builder.add_gps_data(metadata.latitude, metadata.longitude, metadata.altitude);
+	// Add GPS data
+	builder.add_gps_data(metadata.latitude, metadata.longitude, metadata.altitude);
 
-    // Add bearing if provided
-    if let Some(bearing) = metadata.bearing {
-        builder.add_bearing(bearing);
-    }
+	// Add bearing if provided
+	if let Some(bearing) = metadata.bearing {
+		builder.add_bearing(bearing);
+	}
 
-    // Add provenance data
-    builder.add_provenance(&metadata.location_source, &metadata.bearing_source);
+	// Add provenance data
+	builder.add_provenance(&metadata.location_source, &metadata.bearing_source);
 
-    builder.build()
+	builder.build()
 }
 
 /**
@@ -497,17 +517,20 @@ pub fn create_exif_segment_structured(metadata: &PhotoMetadata) -> Vec<u8> {
  * Ensures only valid EXIF orientation values (1, 3, 6, 8) are used
  */
 pub fn validate_orientation_code(code: Option<u16>) -> u16 {
-    match code {
-        Some(1) | Some(3) | Some(6) | Some(8) => code.unwrap(),
-        Some(invalid) => {
-            warn!("Invalid EXIF orientation code: {}, defaulting to 1 (normal)", invalid);
-            1
-        }
-        None => {
-            info!("No orientation code provided, defaulting to 1 (normal)");
-            1
-        }
-    }
+	match code {
+		Some(1) | Some(3) | Some(6) | Some(8) => code.unwrap(),
+		Some(invalid) => {
+			warn!(
+				"Invalid EXIF orientation code: {}, defaulting to 1 (normal)",
+				invalid
+			);
+			1
+		}
+		None => {
+			info!("No orientation code provided, defaulting to 1 (normal)");
+			1
+		}
+	}
 }
 
 /**
@@ -515,51 +538,60 @@ pub fn validate_orientation_code(code: Option<u16>) -> u16 {
  * Ensures all metadata values are within acceptable ranges
  */
 pub fn validate_photo_metadata(mut metadata: PhotoMetadata) -> PhotoMetadata {
-    // Validate orientation
-    metadata.orientation_code = Some(validate_orientation_code(metadata.orientation_code));
+	// Validate orientation
+	metadata.orientation_code = Some(validate_orientation_code(metadata.orientation_code));
 
-    // Validate latitude/longitude ranges
-    if metadata.latitude < -90.0 || metadata.latitude > 90.0 {
-        warn!("Invalid latitude: {}, clamping to valid range", metadata.latitude);
-        metadata.latitude = metadata.latitude.clamp(-90.0, 90.0);
-    }
+	// Validate latitude/longitude ranges
+	if metadata.latitude < -90.0 || metadata.latitude > 90.0 {
+		warn!(
+			"Invalid latitude: {}, clamping to valid range",
+			metadata.latitude
+		);
+		metadata.latitude = metadata.latitude.clamp(-90.0, 90.0);
+	}
 
-    if metadata.longitude < -180.0 || metadata.longitude > 180.0 {
-        warn!("Invalid longitude: {}, normalizing to valid range", metadata.longitude);
-        // Normalize longitude to -180 to 180 range
-        metadata.longitude = ((metadata.longitude + 180.0) % 360.0) - 180.0;
-    }
+	if metadata.longitude < -180.0 || metadata.longitude > 180.0 {
+		warn!(
+			"Invalid longitude: {}, normalizing to valid range",
+			metadata.longitude
+		);
+		// Normalize longitude to -180 to 180 range
+		metadata.longitude = ((metadata.longitude + 180.0) % 360.0) - 180.0;
+	}
 
-    // Validate bearing range (0-360)
-    if let Some(bearing) = metadata.bearing {
-        if bearing < 0.0 || bearing >= 360.0 {
-            warn!("Invalid bearing: {}, normalizing to 0-360 range", bearing);
-            metadata.bearing = Some(((bearing % 360.0) + 360.0) % 360.0);
-        }
-    }
+	// Validate bearing range (0-360)
+	if let Some(bearing) = metadata.bearing {
+		if bearing < 0.0 || bearing >= 360.0 {
+			warn!("Invalid bearing: {}, normalizing to 0-360 range", bearing);
+			metadata.bearing = Some(((bearing % 360.0) + 360.0) % 360.0);
+		}
+	}
 
-    // Validate timestamp (reasonable range: 1970 to 2100)
-    let min_timestamp = 0i64; // 1970-01-01
-    let max_timestamp = 4102444800000i64; // 2100-01-01 in milliseconds
-    if metadata.captured_at < min_timestamp || metadata.captured_at > max_timestamp {
-        warn!("Invalid captured_at: {}", metadata.captured_at);
-    }
+	// Validate timestamp (reasonable range: 1970 to 2100)
+	let min_timestamp = 0i64; // 1970-01-01
+	let max_timestamp = 4102444800000i64; // 2100-01-01 in milliseconds
+	if metadata.captured_at < min_timestamp || metadata.captured_at > max_timestamp {
+		warn!("Invalid captured_at: {}", metadata.captured_at);
+	}
 
-    // Validate accuracy (should be positive)
-    if metadata.accuracy < 0.0 {
-        warn!("Invalid accuracy: {}, setting to 0", metadata.accuracy);
-        metadata.accuracy = 0.0;
-    }
+	// Validate accuracy (should be positive)
+	if metadata.accuracy < 0.0 {
+		warn!("Invalid accuracy: {}, setting to 0", metadata.accuracy);
+		metadata.accuracy = 0.0;
+	}
 
-    // Validate altitude (reasonable range: -500m to 10000m)
-    if let Some(altitude) = metadata.altitude {
-        if altitude < -500.0 || altitude > 10000.0 {
-            warn!("Suspicious altitude: {} meters, keeping but flagging", altitude);
-            // Keep the value but log it - could be valid in extreme cases
-        }
-    }
+	// Validate altitude (reasonable range: -500m to 10000m)
+	if let Some(altitude) = metadata.altitude {
+		if altitude < -500.0 || altitude > 10000.0 {
+			warn!(
+				"Suspicious altitude: {} meters, keeping but flagging",
+				altitude
+			);
+			// Keep the value but log it - could be valid in extreme cases
+		}
+	}
 
-    metadata
+	metadata
 }
 
 #[allow(dead_code)]
@@ -866,8 +898,10 @@ fn create_exif_segment_simple(metadata: &PhotoMetadata) -> Vec<u8> {
 /// Debug function to verify EXIF data can be read back from saved photos
 /// Available in debug builds for troubleshooting EXIF issues
 #[cfg(debug_assertions)]
-pub async fn verify_exif_in_saved_file(file_path: &std::path::Path, expected_metadata: &PhotoMetadata) {
-
+pub async fn verify_exif_in_saved_file(
+	file_path: &std::path::Path,
+	expected_metadata: &PhotoMetadata,
+) {
 	// Try reading with img-parts first to verify structure
 	if let Ok(file_data) = std::fs::read(&file_path) {
 		if let Ok(jpeg) = Jpeg::from_bytes(file_data.into()) {
@@ -909,40 +943,57 @@ pub async fn verify_exif_in_saved_file(file_path: &std::path::Path, expected_met
 			let lon_diff = (read_metadata.longitude - expected_metadata.longitude).abs();
 
 			if lat_diff > 0.000001 {
-				warn!("❌ EXIF MISMATCH: Latitude expected={}, read={}, diff={}",
-					expected_metadata.latitude, read_metadata.latitude, lat_diff);
+				warn!(
+					"❌ EXIF MISMATCH: Latitude expected={}, read={}, diff={}",
+					expected_metadata.latitude, read_metadata.latitude, lat_diff
+				);
 			}
 
 			if lon_diff > 0.000001 {
-				warn!("❌ EXIF MISMATCH: Longitude expected={}, read={}, diff={}",
-					expected_metadata.longitude, read_metadata.longitude, lon_diff);
+				warn!(
+					"❌ EXIF MISMATCH: Longitude expected={}, read={}, diff={}",
+					expected_metadata.longitude, read_metadata.longitude, lon_diff
+				);
 			}
 
 			if read_metadata.orientation_code != expected_metadata.orientation_code {
-				warn!("❌ EXIF MISMATCH: Orientation expected={:?}, read={:?}",
-					expected_metadata.orientation_code, read_metadata.orientation_code);
+				warn!(
+					"❌ EXIF MISMATCH: Orientation expected={:?}, read={:?}",
+					expected_metadata.orientation_code, read_metadata.orientation_code
+				);
 			}
 
-			if let (Some(expected_bearing), Some(read_bearing)) = (expected_metadata.bearing, read_metadata.bearing) {
+			if let (Some(expected_bearing), Some(read_bearing)) =
+				(expected_metadata.bearing, read_metadata.bearing)
+			{
 				let bearing_diff = (read_bearing - expected_bearing).abs();
 				if bearing_diff > 0.1 {
-					warn!("❌ EXIF MISMATCH: Bearing expected={}, read={}, diff={}",
-						expected_bearing, read_bearing, bearing_diff);
+					warn!(
+						"❌ EXIF MISMATCH: Bearing expected={}, read={}, diff={}",
+						expected_bearing, read_bearing, bearing_diff
+					);
 				}
 			}
 
 			if read_metadata.location_source != expected_metadata.location_source {
-				warn!("❌ EXIF MISMATCH: Location source expected='{}', read='{}'",
-					expected_metadata.location_source, read_metadata.location_source);
+				warn!(
+					"❌ EXIF MISMATCH: Location source expected='{}', read='{}'",
+					expected_metadata.location_source, read_metadata.location_source
+				);
 			}
 
 			if read_metadata.bearing_source != expected_metadata.bearing_source {
-				warn!("❌ EXIF MISMATCH: Bearing source expected='{}', read='{}'",
-					expected_metadata.bearing_source, read_metadata.bearing_source);
+				warn!(
+					"❌ EXIF MISMATCH: Bearing source expected='{}', read='{}'",
+					expected_metadata.bearing_source, read_metadata.bearing_source
+				);
 			}
 		}
 		Err(e) => {
-			warn!("🢄❌ EXIF VERIFICATION FAILED: Could not read EXIF after save: {}", e);
+			warn!(
+				"🢄❌ EXIF VERIFICATION FAILED: Could not read EXIF after save: {}",
+				e
+			);
 		}
 	}
 }
@@ -987,7 +1038,9 @@ pub async fn read_photo_exif(path: String) -> Result<PhotoMetadata, String> {
 	};
 
 	// Read orientation
-	if let Some(orientation_field) = exif_reader.get_field(exif::Tag::Orientation, exif::In::PRIMARY) {
+	if let Some(orientation_field) =
+		exif_reader.get_field(exif::Tag::Orientation, exif::In::PRIMARY)
+	{
 		if let exif::Value::Short(ref orientation_vals) = &orientation_field.value {
 			if !orientation_vals.is_empty() {
 				metadata.orientation_code = Some(orientation_vals[0]);
@@ -1123,7 +1176,10 @@ pub async fn read_photo_exif(path: String) -> Result<PhotoMetadata, String> {
 						info!("🢄Successfully read provenance from UserComment: location_source={}, bearing_source={}",
 							  metadata.location_source, metadata.bearing_source);
 					} else {
-						info!("🢄UserComment found but not valid JSON provenance: {}", comment_str);
+						info!(
+							"🢄UserComment found but not valid JSON provenance: {}",
+							comment_str
+						);
 					}
 				}
 			}
@@ -1132,4 +1188,3 @@ pub async fn read_photo_exif(path: String) -> Result<PhotoMetadata, String> {
 
 	Ok(metadata)
 }
-

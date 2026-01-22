@@ -4,7 +4,7 @@
     } from 'lucide-svelte';
     import { auth, logout } from '$lib/auth.svelte.js';
     import { FEATURE_USER_ACCOUNTS } from '$lib/config';
-    import { BUILD_TIME, BUILD_VERSION, BUILD_GIT_COMMIT, formatBuildTime } from '$lib/buildInfo';
+    import { BUILD_TIME, BUILD_VERSION, BUILD_GIT_COMMIT, APP_VERSION, formatBuildTime } from '$lib/buildInfo';
     import { TAURI } from '$lib/tauri.js';
     import { openExternalUrl } from '$lib/urlUtils';
 	import {backendUrl} from "$lib/config";
@@ -140,11 +140,14 @@
 			<hr/>
 			<li>
 					<div class="build-info">
+						<div class="app-version">
+							Hillview version {APP_VERSION}
+						</div>
 						<div class="build-commit">
-							Client build commit: {BUILD_GIT_COMMIT}
+							{BUILD_GIT_COMMIT}
 						</div>
 						<div class="build-version">
-							Client build timestamp: {formatUtcDate(new Date(BUILD_TIME))}
+							Build timestamp: {formatUtcDate(new Date(BUILD_TIME))}
 						</div>
 						<div class="build-timestamp">
 							API server: {backendUrl}
@@ -237,6 +240,8 @@
         font-size: 0.5rem;
         color: #6b7280;
         line-height: 1.4;
+        user-select: text;
+        -webkit-user-select: text;
     }
 
     .build-timestamp {

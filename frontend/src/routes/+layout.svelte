@@ -20,6 +20,15 @@
 	import {kotlinMessageQueue} from '$lib/KotlinMessageQueue';
 	import {app, onAppActivityChange} from "$lib/data.svelte";
 
+	interface SafeAreaInsets {
+		top: number;
+		bottom: number;
+		left: number;
+		right: number;
+		keyboardHeight?: number;
+		keyboardVisible?: boolean;
+	}
+
 
 	// Log navigation events
 	beforeNavigate((navigation) => {
@@ -69,19 +78,20 @@
 
 
 		window?.addEventListener('safeAreaChanged', (event) => {
-		  console.log('Safe area changed:', JSON.stringify(event.detail));
-		  window.document.documentElement.style.setProperty("--safe-area-inset-top", event.detail.top + "px");
-		  window.document.documentElement.style.setProperty("--safe-area-inset-bottom", event.detail.bottom + "px");
-		  window.document.documentElement.style.setProperty("--safe-area-inset-left", event.detail.left + "px");
-		  window.document.documentElement.style.setProperty("--safe-area-inset-right", event.detail.right + "px");
-		  window.document.documentElement.style.setProperty("--keyboard-height", event.detail.keyboardHeight + "px");
-		  window.document.documentElement.style.setProperty("--keyboard-visible", event.detail.keyboardVisible ? "1" : "0");
+		  const detail = (event as CustomEvent<SafeAreaInsets>).detail;
+		  console.log('Safe area changed:', JSON.stringify(detail));
+		  window.document.documentElement.style.setProperty("--safe-area-inset-top", detail.top + "px");
+		  window.document.documentElement.style.setProperty("--safe-area-inset-bottom", detail.bottom + "px");
+		  window.document.documentElement.style.setProperty("--safe-area-inset-left", detail.left + "px");
+		  window.document.documentElement.style.setProperty("--safe-area-inset-right", detail.right + "px");
+		  window.document.documentElement.style.setProperty("--keyboard-height", (detail.keyboardHeight ?? 0) + "px");
+		  window.document.documentElement.style.setProperty("--keyboard-visible", detail.keyboardVisible ? "1" : "0");
 		});
 
 		if (TAURI)
 		{
 			try {
-				const safeArea = await invoke('plugin:edge-to-edge|get_safe_area_insets');
+				const safeArea = await invoke<SafeAreaInsets>('plugin:edge-to-edge|get_safe_area_insets');
 				console.log('Initial safe area insets:', JSON.stringify(safeArea));
 				window.document.documentElement.style.setProperty("--safe-area-inset-top", safeArea.top + "px");
 				window.document.documentElement.style.setProperty("--safe-area-inset-bottom", safeArea.bottom + "px");
