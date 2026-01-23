@@ -141,9 +141,11 @@ export class OptimizedMarkerSystem {
 
 		// Escape photo ID for use in HTML onclick attribute
 		const escapedPhotoId = photoId ? photoId.replace(/'/g, "\\'") : '';
+		const clickHandler = `event.stopPropagation(); window.__handleMarkerClick('${escapedPhotoId}');`;
 		return `<div class="marker-container"
 				 ` + data + `
-				 onclick="event.stopPropagation(); window.__handleMarkerClick('${escapedPhotoId}');"
+				 onclick="${clickHandler}"
+				 ontouchend="${clickHandler} event.preventDefault();"
 				 style="
 				   width: ${arrowSize}px;
 				   height: ${arrowSize}px;

@@ -48,12 +48,19 @@ const CUSTOM_PROVIDERS: Record<string, TileProviderConfig> = {
 		attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
 		maxZoom: 23,
 		maxNativeZoom: 20,
+	},
+	'tiles4.ueueeu.eu': {
+		url: 'https://tiles4.ueueeu.eu/tile/{z}/{x}/{y}.png',
+		attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+		maxZoom: 23,
+		maxNativeZoom: 20,
 	}
 };
 
 // Available tile providers with descriptions
 export const AVAILABLE_PROVIDERS = {
-	'tiles.ueueeu.eu': 'tiles.ueueeu.eu',
+	'tiles.ueueeu.eu': 'Hillview (CZ)',
+	'tiles4.ueueeu.eu': 'Hillview (world)',
 
     // Standard 'leaflet-providers' providers
     'OpenStreetMap.Mapnik': 'OpenStreetMap',
