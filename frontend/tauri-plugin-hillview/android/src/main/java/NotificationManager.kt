@@ -105,16 +105,16 @@ class NotificationManager(private val context: Context) {
             }
 
             val request = requestBuilder.build()
-            val response = client.newCall(request).execute()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    throw Exception("Failed to fetch notifications: ${response.code}")
+                }
 
-            if (!response.isSuccessful) {
-                throw Exception("Failed to fetch notifications: ${response.code}")
+                val body = response.body?.string()
+                    ?: throw Exception("Empty response body")
+
+                parseNotifications(body)
             }
-
-            val body = response.body?.string()
-                ?: throw Exception("Empty response body")
-
-            parseNotifications(body)
         }
     }
 

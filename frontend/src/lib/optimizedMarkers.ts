@@ -10,6 +10,7 @@ export interface OptimizedMarkerOptions {
 	enablePooling: boolean;
 	maxPoolSize: number;
 	enableSelection: boolean;
+	onMarkerClick?: (photo: PhotoData) => void;
 }
 
 const bearingDiffColorsUpdateIntervalInCaptureMode = 3000; // ms
@@ -37,7 +38,8 @@ export class OptimizedMarkerSystem {
 	constructor(options: OptimizedMarkerOptions = {
 		enablePooling: true,
 		maxPoolSize: 2000,
-		enableSelection: true
+		enableSelection: true,
+		onMarkerClick: undefined
 	}) {
 		this.options = options;
 		this.atlasDataUrl = arrowAtlas.getDataUrl();
@@ -58,7 +60,7 @@ export class OptimizedMarkerSystem {
 	 * Create optimized marker with separated visual elements
 	 */
 	createOptimizedMarker(photo: PhotoData): L.Marker {
-		const marker = this.getPooledMarker() || new L.Marker([0, 0]);
+		const marker = this.getPooledMarker() || new L.Marker([0, 0], { interactive: true });
 
 		// Update marker position (will be adjusted with CSS transform for bearing offset)
 		marker.setLatLng(photo.coord);
@@ -102,7 +104,8 @@ export class OptimizedMarkerSystem {
 					isSelected,
 					photo.source?.color,
 					data,
-					12
+					12,
+					photo.id
 				),
 			iconSize: [arrowSize, arrowSize],
 			iconAnchor: [arrowSize / 2, arrowSize / 2]
@@ -116,7 +119,8 @@ export class OptimizedMarkerSystem {
 		isSelected: boolean = false,
 		sourceColor?: string,
 		data: string = '',
-		offsetPixels: number = 0
+		offsetPixels: number = 0,
+		photoId?: string
 	): string {
 
 		const {arrowSize} = this.atlasDimensions;
@@ -135,8 +139,11 @@ export class OptimizedMarkerSystem {
 
 		const backgroundPos = arrowAtlas.getBackgroundPosition(bearing);
 
+		// Escape photo ID for use in HTML onclick attribute
+		const escapedPhotoId = photoId ? photoId.replace(/'/g, "\\'") : '';
 		return `<div class="marker-container"
 				 ` + data + `
+				 onclick="event.stopPropagation(); window.__handleMarkerClick('${escapedPhotoId}');"
 				 style="
 				   width: ${arrowSize}px;
 				   height: ${arrowSize}px;
@@ -299,21 +306,6 @@ export class OptimizedMarkerSystem {
 			const marker = this.createOptimizedMarker(photo);
 			marker.addTo(map);
 
-			// Debug: Log first few markers and check z-index
-			/*if (index < 5) {
-				console.log(`Created marker ${index} at [${photo.coord.lat}, ${photo.coord.lng}]`, marker);
-
-				// Check the z-index after adding to map
-				setTimeout(() => {
-					const element = marker.getElement();
-					if (element) {
-						const computedStyle = getComputedStyle(element);
-						const zIndex = computedStyle.zIndex;
-						console.log(`🢄Marker ${index} z-index: ${zIndex}, element:`, element);
-					}
-				}, 100);
-			}*/
-
 			return marker;
 		});
 
@@ -352,6 +344,7 @@ export class OptimizedMarkerSystem {
 		// Move active markers back to pool
 		this.activeMarkers.forEach(marker => {
 			if (!marker) return;
+			marker.off('click'); // Remove click handlers
 			marker.remove();
 
 			// Clean up marker state
@@ -372,7 +365,7 @@ export class OptimizedMarkerSystem {
 	 */
 	private prewarmPool(count: number): void {
 		for (let i = 0; i < count; i++) {
-			this.markerPool.push(new L.Marker([0, 0]));
+			this.markerPool.push(new L.Marker([0, 0], { interactive: true }));
 		}
 	}
 
@@ -450,7 +443,31 @@ export class OptimizedMarkerSystem {
 			totalMarkers: this.activeMarkers.length + this.markerPool.length
 		};
 	}
+
+	/**
+	 * Set the marker click callback (useful for setting after construction)
+	 */
+	setOnMarkerClick(callback: ((photo: PhotoData) => void) | undefined) {
+		this.options.onMarkerClick = callback;
+	}
 }
 
 // Global instance for use in Map.svelte
 export const optimizedMarkerSystem = new OptimizedMarkerSystem();
+
+// Expose global click handler for inline onclick in marker HTML
+if (typeof window !== 'undefined') {
+	(window as any).__handleMarkerClick = (photoId: string) => {
+		// Find the photo in active markers and trigger callback
+		for (const marker of optimizedMarkerSystem['activeMarkers']) {
+			const photoData = (marker as any)._photoData as PhotoData;
+			if (photoData && photoData.id === photoId) {
+				const callback = optimizedMarkerSystem['options'].onMarkerClick;
+				if (callback) {
+					callback(photoData);
+				}
+				break;
+			}
+		}
+	};
+}

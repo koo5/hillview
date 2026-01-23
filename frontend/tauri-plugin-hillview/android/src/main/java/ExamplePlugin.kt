@@ -284,7 +284,24 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 	private var sensorService: EnhancedSensorService? = null
 	private var preciseLocationService: PreciseLocationService? = null
 	private var deviceOrientationProvider: DeviceOrientationProvider? = null
-	private val database: PhotoDatabase = PhotoDatabase.getDatabase(activity)
+
+	// Lazy database initialization with error tracking
+	private var _database: PhotoDatabase? = null
+	private var databaseInitError: String? = null
+	private val database: PhotoDatabase?
+		get() {
+			if (_database == null && databaseInitError == null) {
+				_database = try {
+					PhotoDatabase.getDatabase(activity)
+				} catch (e: Exception) {
+					Log.e(TAG, "Database initialization failed", e)
+					databaseInitError = e.message
+					null
+				}
+			}
+			return _database
+		}
+
 	private val authManager: AuthenticationManager = AuthenticationManager(activity)
 	private val photoWorkerService: PhotoWorkerService = PhotoWorkerService(activity, this)
 	private val photoUploadManager: PhotoUploadManager = PhotoUploadManager(activity)
@@ -318,12 +335,95 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 		initializationCount++
 		val processId = android.os.Process.myPid()
 
+		// Clean up previous plugin instance before setting new one
+		cleanupPreviousInstance()
+
 		// Clean up static state from any previous plugin instance
 		cleanupStaticState()
 		geoTrackingManager.dumpAndClear()
 
 		pluginInstance = this
 		Log.i(TAG, "🢄🎥 Plugin init #$initializationCount - Process ID: $processId")
+	}
+
+	/**
+	 * Clean up resources from previous plugin instance to prevent resource leaks
+	 */
+	private fun cleanupPreviousInstance() {
+		pluginInstance?.let { old ->
+			Log.i(TAG, "🢄🧹 Cleaning up previous plugin instance")
+			try {
+				old.sensorService?.stopSensor()
+			} catch (e: Exception) {
+				Log.w(TAG, "🢄🧹 Error stopping sensor service: ${e.message}")
+			}
+			try {
+				old.preciseLocationService?.stopLocationUpdates()
+			} catch (e: Exception) {
+				Log.w(TAG, "🢄🧹 Error stopping location service: ${e.message}")
+			}
+			try {
+				old.deviceOrientationProvider?.stopOrientationProvider()
+			} catch (e: Exception) {
+				Log.w(TAG, "🢄🧹 Error stopping orientation provider: ${e.message}")
+			}
+			try {
+				old.stopScreenOrientationListener()
+			} catch (e: Exception) {
+				Log.w(TAG, "🢄🧹 Error stopping screen orientation listener: ${e.message}")
+			}
+			try {
+				old.myDeviceOrientationSensor.setRunning(false)
+			} catch (e: Exception) {
+				Log.w(TAG, "🢄🧹 Error stopping device orientation sensor: ${e.message}")
+			}
+			Log.i(TAG, "🢄🧹 Previous plugin instance cleanup completed")
+		}
+	}
+
+	/**
+	 * Clean up all resources when plugin is destroyed
+	 */
+	private fun cleanup() {
+		Log.i(TAG, "🢄🧹 Plugin cleanup started")
+		try {
+			sensorService?.stopSensor()
+			sensorService = null
+		} catch (e: Exception) {
+			Log.w(TAG, "🢄🧹 Error in cleanup - sensor: ${e.message}")
+		}
+		try {
+			preciseLocationService?.stopLocationUpdates()
+			preciseLocationService = null
+		} catch (e: Exception) {
+			Log.w(TAG, "🢄🧹 Error in cleanup - location: ${e.message}")
+		}
+		try {
+			deviceOrientationProvider?.stopOrientationProvider()
+			deviceOrientationProvider = null
+		} catch (e: Exception) {
+			Log.w(TAG, "🢄🧹 Error in cleanup - orientation provider: ${e.message}")
+		}
+		try {
+			stopScreenOrientationListener()
+		} catch (e: Exception) {
+			Log.w(TAG, "🢄🧹 Error in cleanup - screen orientation: ${e.message}")
+		}
+		try {
+			myDeviceOrientationSensor.setRunning(false)
+		} catch (e: Exception) {
+			Log.w(TAG, "🢄🧹 Error in cleanup - device orientation sensor: ${e.message}")
+		}
+		Log.i(TAG, "🢄🧹 Plugin cleanup completed")
+	}
+
+	override fun onDestroy() {
+		Log.i(TAG, "🢄🧹 Plugin onDestroy called")
+		cleanup()
+		if (pluginInstance === this) {
+			pluginInstance = null
+		}
+		super.onDestroy()
 	}
 
 	/*override fun onCreate(savedInstanceState: Bundle?) {
@@ -361,7 +461,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 		val existingClient = webView.webChromeClient
 		Log.i(TAG, "🢄🎥 Existing WebChromeClient: ${existingClient?.javaClass?.simpleName}")
 
-		webView.webChromeClient = object : WebChromeClient() {
+		/*webView.webChromeClient = object : WebChromeClient() {
 			// Prevent duplicate console logging by not forwarding to Android logs
 			override fun onConsoleMessage(consoleMessage: ConsoleMessage): Boolean {
 				// Don't forward console messages to prevent duplication
@@ -386,7 +486,81 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 					activity.runOnUiThread { request.grant(request.resources) }
 				}
 			}
-		}
+
+			// Delegate all other WebChromeClient methods to preserve Tauri functionality
+			override fun onProgressChanged(view: WebView?, newProgress: Int) {
+				existingClient?.onProgressChanged(view, newProgress)
+					?: super.onProgressChanged(view, newProgress)
+			}
+
+			override fun onReceivedTitle(view: WebView?, title: String?) {
+				existingClient?.onReceivedTitle(view, title)
+					?: super.onReceivedTitle(view, title)
+			}
+
+			override fun onJsAlert(
+				view: WebView?,
+				url: String?,
+				message: String?,
+				result: android.webkit.JsResult?
+			): Boolean {
+				return existingClient?.onJsAlert(view, url, message, result)
+					?: super.onJsAlert(view, url, message, result)
+			}
+
+			override fun onJsConfirm(
+				view: WebView?,
+				url: String?,
+				message: String?,
+				result: android.webkit.JsResult?
+			): Boolean {
+				return existingClient?.onJsConfirm(view, url, message, result)
+					?: super.onJsConfirm(view, url, message, result)
+			}
+
+			override fun onJsPrompt(
+				view: WebView?,
+				url: String?,
+				message: String?,
+				defaultValue: String?,
+				result: android.webkit.JsPromptResult?
+			): Boolean {
+				return existingClient?.onJsPrompt(view, url, message, defaultValue, result)
+					?: super.onJsPrompt(view, url, message, defaultValue, result)
+			}
+
+			override fun onShowFileChooser(
+				webView: WebView?,
+				filePathCallback: android.webkit.ValueCallback<Array<Uri>>?,
+				fileChooserParams: FileChooserParams?
+			): Boolean {
+				return existingClient?.onShowFileChooser(webView, filePathCallback, fileChooserParams)
+					?: super.onShowFileChooser(webView, filePathCallback, fileChooserParams)
+			}
+
+			override fun onGeolocationPermissionsShowPrompt(
+				origin: String?,
+				callback: android.webkit.GeolocationPermissions.Callback?
+			) {
+				existingClient?.onGeolocationPermissionsShowPrompt(origin, callback)
+					?: super.onGeolocationPermissionsShowPrompt(origin, callback)
+			}
+
+			override fun onCreateWindow(
+				view: WebView?,
+				isDialog: Boolean,
+				isUserGesture: Boolean,
+				resultMsg: android.os.Message?
+			): Boolean {
+				return existingClient?.onCreateWindow(view, isDialog, isUserGesture, resultMsg)
+					?: super.onCreateWindow(view, isDialog, isUserGesture, resultMsg)
+			}
+
+			override fun onCloseWindow(window: WebView?) {
+				existingClient?.onCloseWindow(window)
+					?: super.onCloseWindow(window)
+			}
+		}*/
 	}
 
 	private fun handleCameraPermissionRequest(
@@ -761,7 +935,16 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 		CoroutineScope(Dispatchers.IO).launch {
 			try {
 				//Log.d(TAG, "📤 [getUploadStatus] Getting database counts...")
-				val photoDao = database.photoDao()
+				val db = database
+				if (db == null) {
+					CoroutineScope(Dispatchers.Main).launch {
+						val error = JSObject()
+						error.put("error", "Database unavailable: ${databaseInitError ?: "initialization failed"}")
+						invoke.resolve(error)
+					}
+					return@launch
+				}
+				val photoDao = db.photoDao()
 				val pendingCount = photoDao.getPendingUploadCount()
 				val failedCount = photoDao.getFailedUploadCount()
 
@@ -1346,9 +1529,19 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 		val pageSize = args.page_size.coerceIn(1, 1000) // Allow larger limits for spatial queries
 
 		CoroutineScope(Dispatchers.IO).launch {
+			val db = database
+			if (db == null) {
+				CoroutineScope(Dispatchers.Main).launch {
+					val error = JSObject()
+					error.put("error", "Database unavailable: ${databaseInitError ?: "initialization failed"}")
+					invoke.resolve(error)
+				}
+				return@launch
+			}
+
 			val page = if (hasBounds) 1 else args.page.coerceAtLeast(1)
 
-			val photoDao = database.photoDao()
+			val photoDao = db.photoDao()
 
 			val photos: List<PhotoEntity>
 			val totalCount: Int
@@ -1512,6 +1705,15 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 
 			CoroutineScope(Dispatchers.IO).launch {
 				try {
+					val db = database
+					if (db == null) {
+						val error = JSObject()
+						error.put("success", false)
+						error.put("error", "Database unavailable: ${databaseInitError ?: "initialization failed"}")
+						invoke.resolve(error)
+						return@launch
+					}
+
 					// Hash is always provided by Rust (calculated from bytes in memory)
 					val fileHash = args.file_hash ?: throw Exception("File hash is required")
 
@@ -1544,7 +1746,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 					)
 
 					// Insert into database (will replace if exists due to OnConflictStrategy.REPLACE)
-					database.photoDao().insertPhoto(photoEntity)
+					db.photoDao().insertPhoto(photoEntity)
 
 					Log.d(TAG, "📸 Photo added to photoDao: ${photoId}")
 
@@ -1682,6 +1884,12 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 				// Use coroutine to handle async import - reuse existing photo processing logic
 				CoroutineScope(Dispatchers.IO).launch {
 					try {
+						val db = database
+						if (db == null) {
+							invoke.reject("Database unavailable: ${databaseInitError ?: "initialization failed"}")
+							return@launch
+						}
+
 						val importedFiles = mutableListOf<String>()
 						val failedFiles = mutableListOf<String>()
 						val errors = mutableListOf<String>()
@@ -1694,13 +1902,13 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 									// Calculate hash and check for existing photo
 									val fileHash = PhotoUtils.calculateFileHash(copiedFile)
 									if (fileHash != null) {
-										val existingPhoto = database.photoDao().getPhotoByHash(fileHash)
+										val existingPhoto = db.photoDao().getPhotoByHash(fileHash)
 
 										if (existingPhoto == null) {
 											// Create new PhotoEntity using the permanent file path
 											val photoEntity =
 												PhotoUtils.createPhotoEntityFromFile(copiedFile, fileHash, "imported")
-											database.photoDao().insertPhoto(photoEntity)
+											db.photoDao().insertPhoto(photoEntity)
 											importedFiles.add(copiedFile.path)
 											Log.d(TAG, "📂 Successfully imported: ${copiedFile.name}")
 										} else {
@@ -1884,10 +2092,18 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 
 			CoroutineScope(Dispatchers.IO).launch {
 				try {
-					val bearingEntity = database.bearingDao().getBearingNearTimestamp(timestamp)
+					val db = database
+					if (db == null) {
+						CoroutineScope(Dispatchers.Main).launch {
+							resolveWithError(invoke, "📡 getBearingForTimestamp: Database unavailable: ${databaseInitError ?: "initialization failed"}")
+						}
+						return@launch
+					}
+
+					val bearingEntity = db.bearingDao().getBearingNearTimestamp(timestamp)
 					var sourceName = "unknown"
 					if (bearingEntity != null) {
-						sourceName = database.sourceDao().getSourceNameById(bearingEntity.sourceId) ?: "unknown"
+						sourceName = db.sourceDao().getSourceNameById(bearingEntity.sourceId) ?: "unknown"
 					}
 
 					CoroutineScope(Dispatchers.Main).launch {
@@ -2240,7 +2456,12 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 				"device_photos_stats" -> {
 					CoroutineScope(Dispatchers.IO).launch {
 						try {
-							val dao = database.photoDao()
+							val db = database
+							if (db == null) {
+								resolveWithError(invoke, "Database unavailable: ${databaseInitError ?: "initialization failed"}")
+								return@launch
+							}
+							val dao = db.photoDao()
 							val result = JSObject()
 							result.put("total", dao.getTotalPhotoCount())
 							result.put("pending", dao.getPendingUploadCount())

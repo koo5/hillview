@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::sync::OnceLock;
+use std::time::Instant;
 use tauri::command;
 #[cfg(target_os = "android")]
 use tauri_plugin_hillview::HillviewExt;
@@ -39,8 +40,71 @@ pub struct ProcessedPhoto {
 	pub metadata: PhotoMetadata,
 }
 
-// Global storage for photo chunks
-static PHOTO_CHUNKS: OnceLock<Mutex<HashMap<String, Vec<u8>>>> = OnceLock::new();
+// Memory safety constants
+const MAX_CHUNK_AGE_SECS: u64 = 300; // 5 minute TTL for chunks
+const MAX_SINGLE_PHOTO_SIZE_MB: usize = 100; // 100 MB max per photo
+const MAX_IMAGE_DIMENSION: u32 = 10000; // Max 10000x10000 pixels
+
+/// Photo chunk with creation timestamp for TTL management
+struct ChunkedPhoto {
+	data: Vec<u8>,
+	created_at: Instant,
+}
+
+// Global storage for photo chunks with TTL
+static PHOTO_CHUNKS: OnceLock<Mutex<HashMap<String, ChunkedPhoto>>> = OnceLock::new();
+
+/// Clean up stale chunks that have exceeded the TTL
+fn cleanup_stale_chunks(chunks: &mut HashMap<String, ChunkedPhoto>) {
+	let now = Instant::now();
+	let stale_keys: Vec<String> = chunks
+		.iter()
+		.filter(|(_, chunk)| now.duration_since(chunk.created_at).as_secs() > MAX_CHUNK_AGE_SECS)
+		.map(|(key, _)| key.clone())
+		.collect();
+
+	for key in stale_keys {
+		if let Some(removed) = chunks.remove(&key) {
+			log::warn!(
+				"🢄⚠️ Removed stale photo chunk: {} ({} bytes, age: {}s)",
+				key,
+				removed.data.len(),
+				now.duration_since(removed.created_at).as_secs()
+			);
+		}
+	}
+}
+
+/// Validate image data before processing
+/// Returns (width, height) on success, error message on failure
+fn validate_image_data(data: &[u8]) -> Result<(u32, u32), String> {
+	// Check size limit
+	let size_mb = data.len() / (1024 * 1024);
+	if size_mb > MAX_SINGLE_PHOTO_SIZE_MB {
+		return Err(format!(
+			"Image too large: {} MB (max {} MB)",
+			size_mb, MAX_SINGLE_PHOTO_SIZE_MB
+		));
+	}
+
+	// Use imagesize crate for efficient dimension extraction without loading full image
+	match imagesize::blob_size(data) {
+		Ok(size) => {
+			let width = size.width as u32;
+			let height = size.height as u32;
+
+			if width > MAX_IMAGE_DIMENSION || height > MAX_IMAGE_DIMENSION {
+				return Err(format!(
+					"Image dimensions too large: {}x{} (max {}x{})",
+					width, height, MAX_IMAGE_DIMENSION, MAX_IMAGE_DIMENSION
+				));
+			}
+
+			Ok((width, height))
+		}
+		Err(e) => Err(format!("Failed to determine image dimensions: {:?}", e)),
+	}
+}
 
 /// Save photo to storage. Tries all methods in order based on preference.
 /// Returns the path (file path or content:// URI).
@@ -238,13 +302,32 @@ pub fn store_photo_chunk(
 		.lock()
 		.map_err(|e| format!("Failed to lock chunks: {}", e))?;
 
+	// Clean up stale chunks on each new chunk operation
+	cleanup_stale_chunks(&mut chunks);
+
 	if is_first_chunk {
-		// Initialize new photo with first chunk
-		chunks.insert(photo_id, chunk);
+		// Initialize new photo with first chunk and timestamp
+		chunks.insert(
+			photo_id,
+			ChunkedPhoto {
+				data: chunk,
+				created_at: Instant::now(),
+			},
+		);
 	} else {
 		// Append to existing photo
 		if let Some(existing) = chunks.get_mut(&photo_id) {
-			existing.extend(chunk);
+			// Check if appending would exceed size limit
+			let new_size = existing.data.len() + chunk.len();
+			if new_size > MAX_SINGLE_PHOTO_SIZE_MB * 1024 * 1024 {
+				return Err(format!(
+					"Photo {} would exceed size limit: {} MB (max {} MB)",
+					photo_id,
+					new_size / (1024 * 1024),
+					MAX_SINGLE_PHOTO_SIZE_MB
+				));
+			}
+			existing.data.extend(chunk);
 		} else {
 			return Err(format!("Photo ID {} not found for chunk append", photo_id));
 		}
@@ -269,9 +352,10 @@ pub async fn save_photo_with_metadata(
 		let mut chunks = chunks_mutex
 			.lock()
 			.map_err(|e| format!("Failed to lock chunks: {}", e))?;
-		chunks
+		let chunked_photo = chunks
 			.remove(&photo_id)
-			.ok_or_else(|| format!("Photo data not found for ID: {}", photo_id))?
+			.ok_or_else(|| format!("Photo data not found for ID: {}", photo_id))?;
+		chunked_photo.data
 	};
 
 	info!(
@@ -324,18 +408,16 @@ async fn save_photo_from_bytes(
 				photo_id
 			);
 
+			// Validate image data before processing (efficient - doesn't load full image)
+			let (width, height) = validate_image_data(&image_data)?;
+
 			// Process EXIF data synchronously and get dimensions
-			let (processed_data, width, height, validated_metadata) = {
+			let (processed_data, validated_metadata) = {
 				let validated_metadata = validate_photo_metadata(metadata.clone());
 
 				// Parse the JPEG
 				let mut jpeg = img_parts::jpeg::Jpeg::from_bytes(image_data.clone().into())
 					.map_err(|e| format!("Failed to parse JPEG: {:?}", e))?;
-
-				// Get dimensions from the original image data using image crate
-				let img = image::load_from_memory(&image_data)
-					.map_err(|e| format!("Failed to load image from memory: {}", e))?;
-				let (width, height) = (img.width(), img.height());
 
 				// Create EXIF segment - use structured version
 				let exif_segment = create_exif_segment_structured(&validated_metadata);
@@ -350,7 +432,7 @@ async fn save_photo_from_bytes(
 					.write_to(&mut output_cursor)
 					.map_err(|e| format!("Failed to write JPEG: {:?}", e))?;
 
-				(output, width, height, validated_metadata)
+				(output, validated_metadata)
 			};
 
 			// Save the photo file (blocking I/O or MediaStore)

@@ -184,14 +184,13 @@ class StreamPhotoLoader {
             .header("Cache-Control", "no-cache")
             .build()
 
-        val response = client.newCall(request).execute()
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw Exception("HTTP ${response.code}: ${response.message}")
+            }
 
-        if (!response.isSuccessful) {
-            throw Exception("HTTP ${response.code}: ${response.message}")
-        }
-
-        response.body?.byteStream()?.let { inputStream ->
-            BufferedReader(InputStreamReader(inputStream)).use { reader ->
+            response.body?.byteStream()?.let { inputStream ->
+                BufferedReader(InputStreamReader(inputStream)).use { reader ->
                 val eventData = StringBuilder()
                 var eventType: String? = null
 
@@ -236,6 +235,7 @@ class StreamPhotoLoader {
                     }
                 }
             }
+        }
         }
     }
 

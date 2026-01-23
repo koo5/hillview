@@ -28,8 +28,10 @@
 		photoToLeft,
 		photoToRight,
 		photosInArea,
+		photosInRange,
 		updateSpatialState,
 		updateBearingByDiff,
+		updateBearingWithPhoto,
 		bearingMode,
 		type BearingMode, updateBearing,
 	} from "$lib/mapState";
@@ -40,6 +42,7 @@
     import { isOnMapRoute, compassEnabled, disableCompass } from "$lib/compass.svelte.js";
     import { optimizedMarkerSystem } from '$lib/optimizedMarkers';
     import '$lib/styles/optimizedMarkers.css';
+    import type { PhotoData } from '$lib/types/photoTypes';
 	import PhotoMarkerIcon from './PhotoMarkerIcon.svelte';
 
     import {get} from "svelte/store";
@@ -666,6 +669,49 @@
         move('backward');
     }
 
+    /**
+     * Handle marker click - navigate to clicked photo
+     * If photo is not in range, move the map to the photo's location first
+     */
+    function handleMarkerClick(photo: PhotoData) {
+        console.log('🢄Marker clicked:', photo.uid, 'at', photo.coord);
+
+        // Check if photo is already in photosInRange
+        const inRange = get(photosInRange);
+        const isInRange = inRange.some(p => p.uid === photo.uid);
+
+        if (isInRange) {
+            // Photo is in range, just update bearing to select it
+            console.log('🢄Photo in range, selecting directly');
+            updateBearingWithPhoto(photo, 'marker_click');
+        } else {
+            // Photo is not in range, move map to photo location first
+            console.log('🢄Photo not in range, moving map to photo location');
+
+            // Set flag to prevent position sync conflicts
+            programmaticMove = true;
+
+            // Move map to photo location
+            const newCenter = new LatLng(photo.coord.lat, photo.coord.lng);
+            map.flyTo(newCenter, map.getZoom());
+
+            // Update spatial state
+            updateSpatialState({
+                center: newCenter,
+                zoom: map.getZoom(),
+                bounds: null,
+            });
+
+            // Update bearing to the photo (this stores photoUid so it will be selected once in range)
+            updateBearingWithPhoto(photo, 'marker_click');
+
+            // Reset flag after animation
+            setTimeout(() => {
+                programmaticMove = false;
+            }, 1000);
+        }
+    }
+
     function toggleLocationTracking() {
         if (get(locationTracking)) {
             stopLocationTracking();
@@ -848,6 +894,9 @@
 
     onMount(() => {
         console.log('🢄Map component mounted');
+
+        // Set up marker click handler
+        optimizedMarkerSystem.setOnMarkerClick(handleMarkerClick);
 
         // Signal that we're now on map route
         isOnMapRoute.set(true);
@@ -1498,6 +1547,7 @@
         top: 0;
         left: 0;
         z-index: 750;
+        pointer-events: none;
     }
 
     .source-icon-wrapper {
