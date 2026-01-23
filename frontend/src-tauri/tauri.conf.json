@@ -1,7 +1,7 @@
 {
 	"$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
 	"productName": "Hillview",
-	"version": "0.24",
+	"version": "1.26.0",
 	"identifier": "cz.hillview",
 	"build": {
 		"frontendDist": "../build",
