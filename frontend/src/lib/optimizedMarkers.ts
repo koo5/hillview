@@ -139,13 +139,8 @@ export class OptimizedMarkerSystem {
 
 		const backgroundPos = arrowAtlas.getBackgroundPosition(bearing);
 
-		// Escape photo ID for use in HTML onclick attribute
-		const escapedPhotoId = photoId ? photoId.replace(/'/g, "\\'") : '';
-		const clickHandler = `event.stopPropagation(); window.__handleMarkerClick('${escapedPhotoId}');`;
 		return `<div class="marker-container"
 				 ` + data + `
-				 onclick="${clickHandler}"
-				 ontouchend="${clickHandler} event.preventDefault();"
 				 style="
 				   width: ${arrowSize}px;
 				   height: ${arrowSize}px;
@@ -457,19 +452,49 @@ export class OptimizedMarkerSystem {
 // Global instance for use in Map.svelte
 export const optimizedMarkerSystem = new OptimizedMarkerSystem();
 
-// Expose global click handler for inline onclick in marker HTML
-if (typeof window !== 'undefined') {
-	(window as any).__handleMarkerClick = (photoId: string) => {
-		// Find the photo in active markers and trigger callback
-		for (const marker of optimizedMarkerSystem['activeMarkers']) {
-			const photoData = (marker as any)._photoData as PhotoData;
-			if (photoData && photoData.id === photoId) {
-				const callback = optimizedMarkerSystem['options'].onMarkerClick;
-				if (callback) {
-					callback(photoData);
+/**
+ * Set up event delegation for marker clicks on a map container
+ * This is more robust than inline onclick handlers (works in production builds)
+ */
+export function setupMarkerClickDelegation(mapContainer: HTMLElement) {
+	const handleClick = (e: Event) => {
+		const target = e.target as HTMLElement;
+		console.log('OptimizedMarkers: Click detected on', target.className, target);
+
+		// Find the marker container that was clicked
+		const markerContainer = target.closest('.marker-container[data-photo-id]') as HTMLElement;
+		console.log('OptimizedMarkers: Marker container found:', markerContainer);
+
+		if (markerContainer) {
+			e.stopPropagation();
+			const photoId = markerContainer.getAttribute('data-photo-id');
+			console.log('OptimizedMarkers: Photo ID:', photoId);
+
+			if (photoId) {
+				// Find the photo in active markers and trigger callback
+				for (const marker of optimizedMarkerSystem['activeMarkers']) {
+					const photoData = (marker as any)._photoData as PhotoData;
+					if (photoData && photoData.id === photoId) {
+						const callback = optimizedMarkerSystem['options'].onMarkerClick;
+						console.log('OptimizedMarkers: Found photo, callback:', callback ? 'exists' : 'missing');
+						if (callback) {
+							callback(photoData);
+						}
+						break;
+					}
 				}
-				break;
 			}
 		}
 	};
+
+	console.log('OptimizedMarkers: Setting up event delegation on', mapContainer);
+	mapContainer.addEventListener('click', handleClick, true); // Use capture phase
+	mapContainer.addEventListener('touchend', (e: TouchEvent) => {
+		const target = e.target as HTMLElement;
+		const markerContainer = target.closest('.marker-container[data-photo-id]') as HTMLElement;
+		if (markerContainer) {
+			e.preventDefault();
+			handleClick(e);
+		}
+	}, true); // Use capture phase
 }

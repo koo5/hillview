@@ -40,7 +40,7 @@
     import { turn_to_photo_to, app, sourceLoadingStatus } from "$lib/data.svelte.js";
     import { updateGpsLocation, setLocationTracking, setLocationError, gpsLocation, locationTracking } from "$lib/location.svelte.js";
     import { isOnMapRoute, compassEnabled, disableCompass } from "$lib/compass.svelte.js";
-    import { optimizedMarkerSystem } from '$lib/optimizedMarkers';
+    import { optimizedMarkerSystem, setupMarkerClickDelegation } from '$lib/optimizedMarkers';
     import '$lib/styles/optimizedMarkers.css';
     import type { PhotoData } from '$lib/types/photoTypes';
 	import PhotoMarkerIcon from './PhotoMarkerIcon.svelte';
@@ -155,9 +155,22 @@
 
 	let invalidateSizeTimeout: any = null;
 
+    // Track if marker click delegation has been set up
+    let markerClickDelegationSetup = false;
+
     // Expose map to window for testing and fix initial size
     $: if (map && typeof window !== 'undefined') {
         (window as any).leafletMap = map;
+
+        // Set up marker click event delegation (once)
+        if (!markerClickDelegationSetup) {
+            const container = map.getContainer();
+            if (container) {
+                setupMarkerClickDelegation(container);
+                markerClickDelegationSetup = true;
+                console.log('🢄Map: Marker click delegation set up');
+            }
+        }
         // console.log('🢄Map reactive: map available, current center:', JSON.stringify(map.getCenter()));
         // console.log('🢄Map reactive: spatialState center:', JSON.stringify(get(spatialState).center));
         // console.log('🢄Map reactive: spatialState bounds:', JSON.stringify(get(spatialState).bounds));
