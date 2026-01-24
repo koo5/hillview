@@ -1278,23 +1278,23 @@
 <!-- Rotation / navigation buttons -->
 <div class="control-buttons-container">
     <div class="buttons" role="group">
-        <button
-                on:click={async (e) => {await handleButtonClick('left', e)}}
-                on:mousedown={(e) => handleMouseDown('left', e)}
-                on:mouseup={handleMouseUp}
-                on:mouseleave={handleMouseUp}
-                title={slideshowActive && slideshowDirection === 'left' ?
-                      "Stop slideshow" :
-                      "Rotate to next photo on the left (long press for slideshow)"}
+<!--        <button-->
+<!--                on:click={async (e) => {await handleButtonClick('left', e)}}-->
+<!--                on:mousedown={(e) => handleMouseDown('left', e)}-->
+<!--                on:mouseup={handleMouseUp}-->
+<!--                on:mouseleave={handleMouseUp}-->
+<!--                title={slideshowActive && slideshowDirection === 'left' ?-->
+<!--                      "Stop slideshow" :-->
+<!--                      "Rotate to next photo on the left (long press for slideshow)"}-->
 
-                class:slideshow-active={slideshowActive && slideshowDirection === 'left'}
-        >
-            {#if slideshowActive && slideshowDirection === 'left'}
-                <Pause />
-            {:else}
-                <PhotoMarkerIcon bearing={-90} />
-            {/if}
-        </button>
+<!--                class:slideshow-active={slideshowActive && slideshowDirection === 'left'}-->
+<!--        >-->
+<!--            {#if slideshowActive && slideshowDirection === 'left'}-->
+<!--                <Pause />-->
+<!--            {:else}-->
+<!--                <PhotoMarkerIcon bearing={-90} />-->
+<!--            {/if}-->
+<!--        </button>-->
 
         <button
                 on:click={async (e) => {await handleButtonClick('rotate-ccw', e)}}
@@ -1328,22 +1328,22 @@
             <SpatialStateArrowIcon centerX={8} centerY={8} arrowX={11} arrowY={2} />
         </button>
 
-        <button
-                on:click={(e) => handleButtonClick('right', e)}
-                on:mousedown={(e) => handleMouseDown('right', e)}
-                on:mouseup={handleMouseUp}
-                on:mouseleave={handleMouseUp}
-                title={slideshowActive && slideshowDirection === 'right' ?
-                      "Stop slideshow" :
-                      "Rotate to next photo on the right (long press for slideshow)"}
-                class:slideshow-active={slideshowActive && slideshowDirection === 'right'}
-        >
-            {#if slideshowActive && slideshowDirection === 'right'}
-                <Pause />
-            {:else}
-                <PhotoMarkerIcon bearing={90} />
-            {/if}
-        </button>
+<!--        <button-->
+<!--                on:click={(e) => handleButtonClick('right', e)}-->
+<!--                on:mousedown={(e) => handleMouseDown('right', e)}-->
+<!--                on:mouseup={handleMouseUp}-->
+<!--                on:mouseleave={handleMouseUp}-->
+<!--                title={slideshowActive && slideshowDirection === 'right' ?-->
+<!--                      "Stop slideshow" :-->
+<!--                      "Rotate to next photo on the right (long press for slideshow)"}-->
+<!--                class:slideshow-active={slideshowActive && slideshowDirection === 'right'}-->
+<!--        >-->
+<!--            {#if slideshowActive && slideshowDirection === 'right'}-->
+<!--                <Pause />-->
+<!--            {:else}-->
+<!--                <PhotoMarkerIcon bearing={90} />-->
+<!--            {/if}-->
+<!--        </button>-->
     </div>
 </div>
 
