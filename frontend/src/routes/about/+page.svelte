@@ -96,6 +96,15 @@
         </p>
     </section>
 
+	<section class="about-section">
+		<h2>Known issues</h2>
+		<p>
+			Hillview is an early access project and has some rough edges. There is a list of <a href="https://github.com/koo5/hillview/issues/47" target="_blank" rel="noopener noreferrer" data-external-link="true">
+			known issues</a>.
+			Please check it out and report any bugs or feature requests on our <a href="https://github.com/koo5/hillview/issues" target="_blank" rel="noopener noreferrer" data-external-link="true">GitHub issue tracker</a>.
+		</p>
+	</section>
+
     <section class="attribution-section">
         <h2>Acknowledgments</h2>
         <p>
