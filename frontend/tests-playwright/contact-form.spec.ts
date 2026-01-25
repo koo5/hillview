@@ -143,25 +143,24 @@ test.describe('Contact Form', () => {
     await page.goto('/contact');
     await page.waitForLoadState('networkidle');
 
-    // Try to submit empty form
-    await page.click('button[type="submit"]');
+    const submitButton = page.locator('button[type="submit"]');
 
-    // Should show validation error
-    await expect(page.locator('text=Please fill in all fields')).toBeVisible();
+    // Empty form - button should be disabled
+    await expect(submitButton).toBeDisabled();
 
-    // Fill contact but leave message empty
+    // Fill contact but leave message empty - button should still be disabled
     await page.fill('input[id="contact"]', 'test@example.com');
-    await page.click('button[type="submit"]');
-    await expect(page.locator('text=Please fill in all fields')).toBeVisible();
+    await expect(submitButton).toBeDisabled();
 
-    // Fill message too short
+    // Fill message too short - button is enabled but validation should fail on submit
     await page.fill('textarea[id="message"]', 'short');
-    await page.click('button[type="submit"]');
+    await expect(submitButton).toBeEnabled();
+    await submitButton.click();
     await expect(page.locator('text=Message must be at least 10 characters long')).toBeVisible();
 
     // Fill valid form
     await page.fill('textarea[id="message"]', 'This is a valid message with enough characters.');
-    await page.click('button[type="submit"]');
+    await submitButton.click();
 
     // Should succeed now
     await expect(page.locator('text=Message Sent!')).toBeVisible({ timeout: 10000 });

@@ -12,6 +12,7 @@
 	import {setupDeepLinkListener} from '$lib/authCallback';
 	import AuthStatusWatcher from '$lib/components/AuthStatusWatcher.svelte';
 	import ZoomView from '$lib/components/ZoomView.svelte';
+	import DropdownMenu from '$lib/components/dropdown-menu/DropdownMenu.svelte';
 	import {clearAlerts} from "$lib/alertSystem.svelte";
 	import {checkAuth} from '$lib/auth.svelte';
 	import {zoomViewData} from '$lib/zoomView.svelte';
@@ -181,6 +182,7 @@
 
 <slot/>
 <AuthStatusWatcher/>
+<DropdownMenu/>
 {#if $zoomViewData }
 	<ZoomView/>
 {/if}

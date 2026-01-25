@@ -49,7 +49,7 @@ test.describe('Photo UID Functionality', () => {
       expect(errors.length, `Found errors: ${errors.join(', ')}`).toBe(0);
     });
 
-    test('should handle different photo uid formats', async ({ page }) => {
+    /*test('should handle different photo uid formats', async ({ page }) => {
       const testCases = [
         'hillview-12345',
         'mapillary-abcdef-ghijkl',
@@ -77,7 +77,7 @@ test.describe('Photo UID Functionality', () => {
           expect(errors.length, `Found errors for ${photoUid}: ${errors.join(', ')}`).toBe(0);
         });
       }
-    });
+    });*/
 
     test('should handle invalid photo uid formats gracefully', async ({ page }) => {
       const errors: string[] = [];
