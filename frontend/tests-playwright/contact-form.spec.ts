@@ -3,23 +3,17 @@ import { createTestUsers, loginAsTestUser } from './helpers/testUsers';
 import { callAdminAPI } from './helpers/adminAuth';
 
 test.describe('Contact Form', () => {
-  test.beforeEach(async ({ page }) => {
-    // Clean up test users before each test
-    const response = await fetch('http://localhost:8055/api/debug/recreate-test-users', {
-      method: 'POST'
-    });
-    const result = await response.json();
-    console.log('🢄Test cleanup result:', result);
+  let testPasswords: { test: string; admin: string; testuser: string };
+
+  test.beforeEach(async () => {
+    // Clean up and recreate test users before each test
+    const result = await createTestUsers();
+    testPasswords = result.passwords;
   });
 
   test('should submit contact form as logged-in user and verify via admin endpoint', async ({ page }) => {
-    // Create test users for this test
-    const result = await createTestUsers();
-    const testPassword = result.passwords.test;
-    const adminPassword = result.passwords.admin;
-
     // Login as test user
-    await loginAsTestUser(page, testPassword);
+    await loginAsTestUser(page, testPasswords.test);
 
     // Give auth state time to settle after login
     await page.waitForTimeout(1000);
@@ -57,7 +51,7 @@ test.describe('Contact Form', () => {
     await expect(page.locator('text=Thank you for contacting us')).toBeVisible();
 
     // Now verify the message was stored correctly via admin endpoint
-    const adminResponse = await callAdminAPI('/api/admin/contact/messages', adminPassword);
+    const adminResponse = await callAdminAPI('/api/admin/contact/messages', testPasswords.admin);
     const adminData = await adminResponse.json();
 
     expect(adminResponse.status).toBe(200);
@@ -108,12 +102,8 @@ test.describe('Contact Form', () => {
     await expect(page.locator('text=Message Sent!')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('text=Thank you for contacting us')).toBeVisible();
 
-    // Create test users to get admin access
-    const result = await createTestUsers();
-    const adminPassword = result.passwords.admin;
-
     // Verify message via admin API
-    const adminResponse = await callAdminAPI('/api/admin/contact/messages', adminPassword);
+    const adminResponse = await callAdminAPI('/api/admin/contact/messages', testPasswords.admin);
     const adminData = await adminResponse.json();
 
     expect(adminResponse.status).toBe(200);

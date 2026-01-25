@@ -1484,7 +1484,7 @@ async def cleanup_orphaned_photos(
 
 		await db.commit()
 
-		logger.info(f"Cleaned up {len(orphaned_photos)} orphaned photos for user {current_user.id}")
+		log.info(f"Cleaned up {len(orphaned_photos)} orphaned photos for user {current_user.id}")
 
 		return {
 			"message": f"Cleaned up {len(orphaned_photos)} orphaned photos",
@@ -1493,7 +1493,7 @@ async def cleanup_orphaned_photos(
 
 	except Exception as e:
 		await db.rollback()
-		logger.error(f"Error cleaning up orphaned photos for user {current_user.id}: {e}")
+		log.error(f"Error cleaning up orphaned photos for user {current_user.id}: {e}")
 		raise HTTPException(
 			status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
 			detail="Failed to cleanup orphaned photos"

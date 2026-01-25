@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { configureSources } from './helpers/sourceHelpers';
 import { uploadTestPhotosWithLocation } from './helpers/photoUpload';
+import { createTestUsers, loginAsTestUser } from './helpers/testUsers';
 
 // Helper to filter expected errors (image loading, network errors for mock data)
 function isUnexpectedError(text: string): boolean {
@@ -15,13 +16,12 @@ function isUnexpectedError(text: string): boolean {
 }
 
 test.describe('Photo UID Functionality', () => {
-  test.beforeEach(async ({ page }) => {
-    // Clean up test users before each test
-    const response = await fetch('http://localhost:8055/api/debug/recreate-test-users', {
-      method: 'POST'
-    });
-    const result = await response.json();
-    console.log('🢄Test cleanup result:', result);
+  let testPasswords: { test: string; admin: string; testuser: string };
+
+  test.beforeEach(async () => {
+    // Clean up and recreate test users before each test
+    const result = await createTestUsers();
+    testPasswords = result.passwords;
   });
 
   test.describe('URL Parameter Parsing', () => {
@@ -153,21 +153,7 @@ test.describe('Photo UID Functionality', () => {
   test.describe('Photo UID in Sharing URLs', () => {
     test('should include photo uid in constructed share URLs', async ({ page }) => {
       // Login and upload a test photo
-      const response = await fetch('http://localhost:8055/api/debug/recreate-test-users', {
-        method: 'POST'
-      });
-      const result = await response.json();
-      const testPassword = result.details?.user_passwords?.test;
-      if (!testPassword) {
-        throw new Error(`Test password not found in API response: ${JSON.stringify(result)}`);
-      }
-
-      await page.goto('/login');
-      await page.waitForLoadState('networkidle');
-      await page.fill('input[type="text"]', 'test');
-      await page.fill('input[type="password"]', testPassword);
-      await page.click('button[type="submit"]');
-      await page.waitForURL('/', { timeout: 15000 });
+      await loginAsTestUser(page, testPasswords.test);
 
       // Upload test photos with location
       await uploadTestPhotosWithLocation(page, 1);

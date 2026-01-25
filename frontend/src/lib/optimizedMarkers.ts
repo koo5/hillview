@@ -457,44 +457,66 @@ export const optimizedMarkerSystem = new OptimizedMarkerSystem();
  * This is more robust than inline onclick handlers (works in production builds)
  */
 export function setupMarkerClickDelegation(mapContainer: HTMLElement) {
-	const handleClick = (e: Event) => {
-		const target = e.target as HTMLElement;
-		console.log('OptimizedMarkers: Click detected on', target.className, target);
+	// Track touch start position to distinguish taps from drags
+	let touchStartX = 0;
+	let touchStartY = 0;
+	const TAP_THRESHOLD = 10; // pixels - movement less than this is considered a tap
 
-		// Find the marker container that was clicked
-		const markerContainer = target.closest('.marker-container[data-photo-id]') as HTMLElement;
-		console.log('OptimizedMarkers: Marker container found:', markerContainer);
-
-		if (markerContainer) {
-			e.stopPropagation();
-			const photoId = markerContainer.getAttribute('data-photo-id');
-			console.log('OptimizedMarkers: Photo ID:', photoId);
-
-			if (photoId) {
-				// Find the photo in active markers and trigger callback
-				for (const marker of optimizedMarkerSystem['activeMarkers']) {
-					const photoData = (marker as any)._photoData as PhotoData;
-					if (photoData && photoData.id === photoId) {
-						const callback = optimizedMarkerSystem['options'].onMarkerClick;
-						console.log('OptimizedMarkers: Found photo, callback:', callback ? 'exists' : 'missing');
-						if (callback) {
-							callback(photoData);
-						}
-						break;
-					}
+	const handleMarkerClick = (photoId: string) => {
+		// Find the photo in active markers and trigger callback
+		for (const marker of optimizedMarkerSystem['activeMarkers']) {
+			const photoData = (marker as any)._photoData as PhotoData;
+			if (photoData && photoData.id === photoId) {
+				const callback = optimizedMarkerSystem['options'].onMarkerClick;
+				if (callback) {
+					console.log('OptimizedMarkers: Marker clicked:', photoId);
+					callback(photoData);
 				}
+				break;
 			}
 		}
 	};
 
-	console.log('OptimizedMarkers: Setting up event delegation on', mapContainer);
-	mapContainer.addEventListener('click', handleClick, true); // Use capture phase
+	const handleClick = (e: Event) => {
+		const target = e.target as HTMLElement;
+		const markerContainer = target.closest('.marker-container[data-photo-id]') as HTMLElement;
+
+		if (markerContainer) {
+			e.stopPropagation();
+			const photoId = markerContainer.getAttribute('data-photo-id');
+			if (photoId) {
+				handleMarkerClick(photoId);
+			}
+		}
+	};
+
+	mapContainer.addEventListener('click', handleClick, true);
+
+	mapContainer.addEventListener('touchstart', (e: TouchEvent) => {
+		if (e.touches.length === 1) {
+			touchStartX = e.touches[0].clientX;
+			touchStartY = e.touches[0].clientY;
+		}
+	}, true);
+
 	mapContainer.addEventListener('touchend', (e: TouchEvent) => {
 		const target = e.target as HTMLElement;
 		const markerContainer = target.closest('.marker-container[data-photo-id]') as HTMLElement;
-		if (markerContainer) {
-			e.preventDefault();
-			handleClick(e);
+
+		if (markerContainer && e.changedTouches.length === 1) {
+			const touch = e.changedTouches[0];
+			const deltaX = Math.abs(touch.clientX - touchStartX);
+			const deltaY = Math.abs(touch.clientY - touchStartY);
+
+			// Only trigger if it was a tap (minimal movement)
+			if (deltaX < TAP_THRESHOLD && deltaY < TAP_THRESHOLD) {
+				e.preventDefault();
+				e.stopPropagation();
+				const photoId = markerContainer.getAttribute('data-photo-id');
+				if (photoId) {
+					handleMarkerClick(photoId);
+				}
+			}
 		}
-	}, true); // Use capture phase
+	}, true);
 }

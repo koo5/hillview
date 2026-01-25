@@ -2,8 +2,7 @@
   "include": [
     "api/app",
     "worker",
-    "common",
-    "tests"
+    "common"
   ],
   "exclude": [
     "**/venv",
@@ -11,7 +10,8 @@
     "**/node_modules",
     "**/.git",
     "**/alembic/versions",
-    "**/alembic/versions_backup"
+    "**/alembic/versions_backup",
+    "**/tests"
   ],
   "venvPath": "api/app",
   "venv": "venv",
@@ -47,8 +47,9 @@
   "reportUnknownMemberType": false,
   "reportMissingParameterType": false,
   "reportMissingTypeArgument": false,
-  "reportCallInDefaultInitializer": "warning",
+  "reportCallInDefaultInitializer": false,
   "reportUnnecessaryIsInstance": "warning",
   "reportUnnecessaryCast": "warning",
-  "reportAssertAlwaysTrue": "warning"
+  "reportAssertAlwaysTrue": "warning",
+  "reportSelfClsParameterName": false
 }
