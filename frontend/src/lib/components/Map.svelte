@@ -51,6 +51,7 @@
 	import {TAURI} from "$lib/tauri";
 	import {parsePhotoUid} from "$lib/urlUtilsServer";
 	import {openExternalUrl} from "$lib/urlUtils";
+	import InsetGradients from "$lib/components/InsetGradients.svelte";
 
 	export let update_url = false;
 
@@ -1405,8 +1406,9 @@
     </button>
 </div>
 
-
 <style>
+
+
 
 
     .map {

@@ -1,10 +1,15 @@
 <script lang="ts">
     // StandardBody - provides proper spacing and common page styling
+import InsetGradients from "$lib/components/InsetGradients.svelte";
 </script>
 
 <div class="standard-body page-scrollable">
     <slot />
 </div>
+
+
+<InsetGradients />
+
 
 <style>
     .standard-body {

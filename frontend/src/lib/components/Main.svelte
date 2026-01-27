@@ -45,6 +45,7 @@
 	import {enableCompass, disableCompass} from '$lib/compass.svelte.js';
 	import {networkWorkerManager} from "$lib/networkWorkerManager";
 	import {enableLocationTracking} from "$lib/locationManager";
+	import InsetGradients from "$lib/components/InsetGradients.svelte";
 
 	let map: any = null;
 	let mapComponent: any = null;
@@ -473,6 +474,9 @@
 {/if}
 
 <DebugOverlay/>
+
+<InsetGradients />
+
 
 <style>
 	/* Reset default margin, padding and prevent body scroll for main app */

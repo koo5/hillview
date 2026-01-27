@@ -116,15 +116,16 @@
 	}
 
 	async function fetchPhotos(reset = false) {
-		isLoading = true;
-		try {
-			if (reset) {
-				photos = [];
-				nextCursor = null;
-				hasMore = false;
-				totalCount = 0;
-			}
+		// Only show full loading state on reset/initial load, not during pagination
+		if (reset) {
+			isLoading = true;
+			photos = [];
+			nextCursor = null;
+			hasMore = false;
+			totalCount = 0;
+		}
 
+		try {
 			const url = nextCursor ? `/photos/?cursor=${encodeURIComponent(nextCursor)}` : '/photos/';
 			const response = await http.get(url);
 

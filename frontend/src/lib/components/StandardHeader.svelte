@@ -3,6 +3,7 @@
     import { goBack, canNavigateBack, getPreviousPath } from '$lib/navigation.svelte.js';
     import { goto } from '$app/navigation';
     import AlertArea from './AlertArea.svelte';
+	import InsetGradients from "$lib/components/InsetGradients.svelte";
 
     export let title: string;
     export let showBackButton: boolean = true;
@@ -65,6 +66,7 @@
     </div>
 </header>
 <AlertArea position="header" />
+
 
 <style>
     .standard-header {
