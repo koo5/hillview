@@ -1456,13 +1456,13 @@
         background-color: #e0e0e0;
     }
 
-    .buttons button.slideshow-active {
+/*    .buttons button.slideshow-active {
         background-color: #4285F4;
         color: white;
         border-color: #3367d6;
         animation: pulse 2s infinite;
     }
-
+*/
     @keyframes pulse {
         0% {
             box-shadow: 0 0 0 0 rgba(66, 133, 244, 0.7);
