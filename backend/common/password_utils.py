@@ -1,4 +1,6 @@
-import logging
+import logging, re
+from common.SecurityExceptions import SecurityValidationError
+
 from password_strength import PasswordPolicy
 
 try:

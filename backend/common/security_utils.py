@@ -11,7 +11,7 @@ import logging
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
-
+from common.SecurityExceptions import SecurityValidationError
 
 
 logger = logging.getLogger(__name__)
@@ -33,9 +33,7 @@ SAFE_FILENAME_PATTERN = re.compile(r'^[a-zA-Z0-9_\-\.]+$')
 USERNAME_PATTERN = re.compile(r'^[a-zA-Z0-9_\-]{3,30}$')
 EMAIL_PATTERN = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
 
-class SecurityValidationError(Exception):
-	"""Exception raised when security validation fails."""
-	pass
+
 
 def sanitize_filename(filename: str) -> str:
 	"""Sanitize a filename to prevent path traversal and other attacks."""
