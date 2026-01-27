@@ -285,6 +285,7 @@ def validate_password_basic(password: str) -> str:
 
 		# Test the password
 		issues = policy.test(password)
+		logger.debug(f"""Password "{password}"" validation issues: {issues}""")
 		if issues:
 			# Convert issues to readable error messages
 			error_messages = []
