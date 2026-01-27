@@ -12,11 +12,14 @@ from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
 
+from password_strength import PasswordPolicy
+
 try:
-	from password_strength import PasswordPolicy
 	_PASSWORD_STRENGTH_AVAILABLE = True
 except ImportError:
 	_PASSWORD_STRENGTH_AVAILABLE = False
+
+_PASSWORD_STRENGTH_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -278,6 +281,7 @@ def validate_password_basic(password: str) -> str:
 		raise SecurityValidationError("Password must not exceed 128 characters")
 
 	# Use password-strength library if available, otherwise fallback to basic checks
+	logger.info(f"Validating password strength for: '{password}'")
 	if _PASSWORD_STRENGTH_AVAILABLE:
 		policy = PasswordPolicy.from_names(
 			strength=0.5  # need a password that scores at least 0.5 with its strength
@@ -285,7 +289,7 @@ def validate_password_basic(password: str) -> str:
 
 		# Test the password
 		issues = policy.test(password)
-		logger.debug(f"""Password "{password}"" validation issues: {issues}""")
+		logger.info(f"""Password "{password}"" validation issues: {issues}""")
 		if issues:
 			# Convert issues to readable error messages
 			error_messages = []
