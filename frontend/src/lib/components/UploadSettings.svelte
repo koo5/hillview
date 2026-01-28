@@ -17,6 +17,7 @@
 
 	let autoUploadEnabled = false;
 	let autoUploadPromptEnabled = true;
+	let wifiOnly = true;
 	let user: User | null = null;
 	let alert: { type: string, message: string } | null = null;
 
@@ -34,6 +35,7 @@
 			//console.log('Auto-upload settings loaded:', JSON.stringify(value));
 			autoUploadEnabled = value.value?.auto_upload_enabled || false;
 			autoUploadPromptEnabled = value.value?.auto_upload_prompt_enabled !== false;
+			wifiOnly = value.value?.wifi_only !== false;
 		});
 
 		// Return cleanup function
@@ -47,7 +49,8 @@
 		await autoUploadSettings.persist(
 			{
 				auto_upload_enabled: autoUploadEnabled,
-				auto_upload_prompt_enabled: autoUploadPromptEnabled
+				auto_upload_prompt_enabled: autoUploadPromptEnabled,
+				wifi_only: wifiOnly
 			}
 		);
 
@@ -134,6 +137,19 @@
 				</div>
 			</label>
 		</div>
+
+		{#if autoUploadEnabled}
+			<div class="checkbox-option">
+				<label>
+					<input type="checkbox"
+						   bind:checked={wifiOnly}
+						   on:change={saveSettings}
+						   data-testid="wifi-only-checkbox"/>
+					<span class="checkbox-label">Only upload on Wi-Fi</span>
+				</label>
+				<span class="checkbox-description">Prevent uploads over mobile data to save bandwidth</span>
+			</div>
+		{/if}
 
 		{#if !user && autoUploadEnabled}
 			<div class="urgent-login-notice">
@@ -244,6 +260,37 @@
 		font-weight: bold;
 		border: 2px solid #dc3545;
 		animation: urgentPulse 1s infinite alternate;
+	}
+
+	.checkbox-option {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		margin-top: 1rem;
+		padding: 0.75rem;
+		border: 1px solid #e5e7eb;
+		border-radius: 0.5rem;
+		background-color: #f9fafb;
+	}
+
+	.checkbox-option label {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		cursor: pointer;
+	}
+
+	.checkbox-label {
+		font-weight: 500;
+		font-size: 0.875rem;
+		color: #1f2937;
+	}
+
+	.checkbox-description {
+		font-size: 0.75rem;
+		color: #6b7280;
+		line-height: 1.4;
+		margin-left: 1.5rem;
 	}
 
 </style>

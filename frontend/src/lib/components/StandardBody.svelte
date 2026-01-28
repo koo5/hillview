@@ -8,8 +8,6 @@ import InsetGradients from "$lib/components/InsetGradients.svelte";
 </div>
 
 
-<InsetGradients />
-
 
 <style>
     .standard-body {

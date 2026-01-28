@@ -20,6 +20,7 @@
 	import {navigateWithHistory} from "$lib/navigation.svelte";
 	import {kotlinMessageQueue} from '$lib/KotlinMessageQueue';
 	import {app, onAppActivityChange} from "$lib/data.svelte";
+	import InsetGradients from "$lib/components/InsetGradients.svelte";
 
 	interface SafeAreaInsets {
 		top: number;
@@ -186,3 +187,5 @@
 {#if $zoomViewData }
 	<ZoomView/>
 {/if}
+<InsetGradients />
+

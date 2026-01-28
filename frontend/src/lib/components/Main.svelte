@@ -475,8 +475,6 @@
 
 <DebugOverlay/>
 
-<InsetGradients />
-
 
 <style>
 	/* Reset default margin, padding and prevent body scroll for main app */

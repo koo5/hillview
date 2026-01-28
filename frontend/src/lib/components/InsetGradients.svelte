@@ -9,7 +9,9 @@
 
 	.inset-gradient {
 		pointer-events: none;
-		position: absolute;
+		position: fixed;
+
+
 		z-index: 1000000;
 		background: linear-gradient(to var(--direction),
 		/*#689F38,*/

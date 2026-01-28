@@ -62,6 +62,7 @@ class SensorModeArgs {
 class AutoUploadArgs {
 	var enabled: Boolean? = null
 	var prompt_enabled: Boolean? = null
+	var wifi_only: Boolean? = null
 }
 
 @InvokeArg
@@ -864,24 +865,27 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 			val args = invoke.parseArgs(AutoUploadArgs::class.java)
 			val enabled = args.enabled ?: false
 			val promptEnabled = args.prompt_enabled ?: true
+			val wifiOnly = args.wifi_only ?: true
 
-			Log.i(TAG, "📤 [setAutoUploadEnabled] CALLED with enabled: $enabled, promptEnabled: $promptEnabled")
+			Log.i(TAG, "📤 [setAutoUploadEnabled] CALLED with enabled: $enabled, promptEnabled: $promptEnabled, wifiOnly: $wifiOnly")
 
 			// Update shared preferences
 			val prefs = activity.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
 			val previousEnabled = prefs.getBoolean("auto_upload_enabled", false)
 			val previousPromptEnabled = prefs.getBoolean("auto_upload_prompt_enabled", true)
+			val previousWifiOnly = prefs.getBoolean("wifi_only", true)
 
 			Log.i(
 				TAG,
-				"📤 [setAutoUploadEnabled] Previous values - enabled: $previousEnabled, promptEnabled: $previousPromptEnabled"
+				"📤 [setAutoUploadEnabled] Previous values - enabled: $previousEnabled, promptEnabled: $previousPromptEnabled, wifiOnly: $previousWifiOnly"
 			)
-			Log.i(TAG, "📤 [setAutoUploadEnabled] New values - enabled: $enabled, promptEnabled: $promptEnabled")
+			Log.i(TAG, "📤 [setAutoUploadEnabled] New values - enabled: $enabled, promptEnabled: $promptEnabled, wifiOnly: $wifiOnly")
 
 			// Apply the new settings
 			val editor = prefs.edit()
 			editor.putBoolean("auto_upload_enabled", enabled)
 			editor.putBoolean("auto_upload_prompt_enabled", promptEnabled)
+			editor.putBoolean("wifi_only", wifiOnly)
 			val commitSuccess = editor.commit()
 
 			Log.i(TAG, "📤 [setAutoUploadEnabled] SharedPreferences commit result: $commitSuccess")
@@ -889,9 +893,10 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 			// Verify the settings were persisted correctly
 			val verifyEnabled = prefs.getBoolean("auto_upload_enabled", false)
 			val verifyPromptEnabled = prefs.getBoolean("auto_upload_prompt_enabled", true)
+			val verifyWifiOnly = prefs.getBoolean("wifi_only", true)
 			Log.i(
 				TAG,
-				"📤 [setAutoUploadEnabled] Verification - enabled: $verifyEnabled, promptEnabled: $verifyPromptEnabled"
+				"📤 [setAutoUploadEnabled] Verification - enabled: $verifyEnabled, promptEnabled: $verifyPromptEnabled, wifiOnly: $verifyWifiOnly"
 			)
 
 			// Schedule or cancel the upload worker based on enabled state
@@ -899,8 +904,8 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 			Log.i(TAG, "📤 [setAutoUploadEnabled] WorkManager instance obtained")
 
 			if (enabled) {
-				Log.i(TAG, "📤 [setAutoUploadEnabled] Scheduling upload worker...")
-				photoUploadManager.scheduleUploadWorker(workManager, enabled)
+				Log.i(TAG, "📤 [setAutoUploadEnabled] Scheduling upload worker with wifiOnly=$wifiOnly...")
+				photoUploadManager.scheduleUploadWorker(workManager, enabled, wifiOnly)
 				Log.i(TAG, "📤 [setAutoUploadEnabled] Auto upload worker scheduled successfully")
 			} else {
 				Log.i(TAG, "📤 [setAutoUploadEnabled] Cancelling upload worker...")
@@ -912,10 +917,11 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 			result.put("success", true)
 			result.put("enabled", enabled as Boolean)
 			result.put("prompt_enabled", promptEnabled as Boolean)
+			result.put("wifi_only", wifiOnly as Boolean)
 
 			Log.i(
 				TAG,
-				"📤 [setAutoUploadEnabled] SUCCESS - returning result: enabled=$enabled, promptEnabled=$promptEnabled"
+				"📤 [setAutoUploadEnabled] SUCCESS - returning result: enabled=$enabled, promptEnabled=$promptEnabled, wifiOnly=$wifiOnly"
 			)
 			invoke.resolve(result)
 
@@ -954,18 +960,20 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 				val prefs = activity.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
 				val autoUploadEnabled = prefs.getBoolean("auto_upload_enabled", false)
 				val autoUploadPromptEnabled = prefs.getBoolean("auto_upload_prompt_enabled", true)
+				val wifiOnly = prefs.getBoolean("wifi_only", true)
 
-				//Log.i(TAG, "📤 [getUploadStatus] Settings - enabled: $autoUploadEnabled, promptEnabled: $autoUploadPromptEnabled")
+				//Log.i(TAG, "📤 [getUploadStatus] Settings - enabled: $autoUploadEnabled, promptEnabled: $autoUploadPromptEnabled, wifiOnly: $wifiOnly")
 
 				val result = JSObject()
 				result.put("auto_upload_enabled", autoUploadEnabled)
 				result.put("auto_upload_prompt_enabled", autoUploadPromptEnabled)
+				result.put("wifi_only", wifiOnly)
 				result.put("pending_uploads", pendingCount)
 				result.put("failed_uploads", failedCount)
 
 				Log.i(
 					TAG,
-					"📤 [getUploadStatus] enabled=$autoUploadEnabled, promptEnabled=$autoUploadPromptEnabled, pendingUploads=$pendingCount, failedUploads=$failedCount"
+					"📤 [getUploadStatus] enabled=$autoUploadEnabled, promptEnabled=$autoUploadPromptEnabled, wifiOnly=$wifiOnly, pendingUploads=$pendingCount, failedUploads=$failedCount"
 				)
 
 				CoroutineScope(Dispatchers.Main).launch {
