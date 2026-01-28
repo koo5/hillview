@@ -98,11 +98,13 @@
 
 	<section class="about-section">
 		<h2>Known issues</h2>
+		<div class="attribution-links" on:click={handleAttributionClick} role="presentation">
 		<p>
 			Hillview is an early access project and has some rough edges. There is a list of <a href="https://github.com/koo5/hillview/issues/47" target="_blank" rel="noopener noreferrer" data-external-link="true">
-			known issues</a>.
-			Please check it out and report any bugs or feature requests on our <a href="https://github.com/koo5/hillview/issues" target="_blank" rel="noopener noreferrer" data-external-link="true">GitHub issue tracker</a>.
+			known issues</a>
+			Please check it out and report any bugs or feature requests on our <a href="https://github.com/koo5/hillview/issues" target="_blank" rel="noopener noreferrer" data-external-link="true">GitHub issue tracker</a>
 		</p>
+		</div>
 	</section>
 
     <section class="attribution-section">
@@ -194,7 +196,7 @@
 
 
     <footer class="about-footer">
-        <p>&copy; 2025 Hillview. Made with <Heart size={16} class="heart-icon" /> for photographers and explorers.</p>
+        <p>&copy; 2026 Hillview. Made with <Heart size={16} class="heart-icon" /> for photographers and explorers.</p>
     </footer>
 </StandardBody>
 
@@ -204,6 +206,7 @@
         line-height: 1.6;
         color: #374151;
         text-align: center;
+		padding: 32px 16px;
         margin-bottom: 48px;
         position: relative;
         z-index: 10;
