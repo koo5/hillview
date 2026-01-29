@@ -3,6 +3,7 @@
     import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';
     import StandardBody from '$lib/components/StandardBody.svelte';
     import { http } from '$lib/http';
+	import MyExternalLink from "$lib/components/MyExternalLink.svelte";
 
     let email = '';
     let submitting = false;
@@ -98,7 +99,12 @@
                     </form>
                 {/if}
             </div>
+
         </div>
+
+		<br/><br/><br/><br/><br/><br/>
+			<MyExternalLink href="https://play.google.com/store/apps/details?id=cz.hillview" >Hillview on Google Play Store (Closed testing)</MyExternalLink>
+
     </div>
 </StandardBody>
 
