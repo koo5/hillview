@@ -45,6 +45,7 @@
 	import {enableCompass, disableCompass} from '$lib/compass.svelte.js';
 	import {networkWorkerManager} from "$lib/networkWorkerManager";
 	import {enableLocationTracking} from "$lib/locationManager";
+	import InsetGradients from "$lib/components/InsetGradients.svelte";
 
 	let map: any = null;
 	let mapComponent: any = null;
@@ -57,17 +58,15 @@
 
 	onMount(() => {
 
+		updateOrientation();
+
 		// fixme: needs deinit? // should we handle this with a separate ssr layout.svelte?
 		networkWorkerManager.init();
-
-
-		init();
 
 		// Add keyboard event listener for debug toggle
 		window.addEventListener('keydown', handleKeyDown);
 
 		// Initialize and track orientation for split direction
-		updateOrientation();
 		window.addEventListener('resize', updateOrientation);
 		window.addEventListener('orientationchange', updateOrientation);
 
@@ -114,10 +113,6 @@
 		};
 
 	});
-
-	async function init() {
-
-	}
 
 	onDestroy(() => {
 		console.log('🢄Page destroyed');
@@ -173,8 +168,9 @@
 
 	let desiredUrl: string | null = null;
 
-	function replaceState2(url: string) {
+	async function replaceState2(url: string) {
 		//console.log('replaceState2: updating URL to', url);
+		await tick();
 		desiredUrl = url;
 		try {
 			replaceState(url, {});
@@ -220,15 +216,16 @@
 	}
 
 	// Detect orientation for split direction
-	let isPortrait = false;
+	const getIsPortrait = () => typeof window !== 'undefined' && window.innerHeight > window.innerWidth;
+	let isPortrait = getIsPortrait();
 
 	const updateOrientation = () => {
-		const newIsPortrait = window.innerHeight > window.innerWidth;
-		console.log('🔄SPLIT: updateOrientation called', JSON.stringify({
-			oldIsPortrait: isPortrait,
-			newIsPortrait,
-			windowSize: {width: window.innerWidth, height: window.innerHeight}
-		}));
+		const newIsPortrait = getIsPortrait();
+		// console.log('🔄SPLIT: updateOrientation called', JSON.stringify({
+		// 	oldIsPortrait: isPortrait,
+		// 	newIsPortrait,
+		// 	windowSize: {width: window.innerWidth, height: window.innerHeight}
+		// }));
 		if (newIsPortrait !== isPortrait) {
 			isPortrait = newIsPortrait;
 		}
@@ -435,17 +432,27 @@
 	<AlertArea position="main"/>
 </div>
 
+{#if true}
+
+{@const s = getComputedStyle(document.documentElement)}
+<!--  + Math.max(s.getPropertyValue('--safe-area-inset-top').replace('px','')*1.0, s.getPropertyValue('--safe-area-inset-left').replace('px','')*1.0, 0), -->
+
 <div
 	class="container"
 	bind:this={containerElement}
 	use:resizableSplit={{
 		direction: isPortrait ? 'horizontal' : 'vertical',
 		defaultSplit: $splitPercent,
-		minSize: 50,
+		minSize: 100,
 		onResize: handleSplitResize
 	}}
 >
-	<div class="panel photo-panel">
+	<div class="panel photo-panel" style="
+		position: absolute;
+		top: 0;
+		left: 0;
+		{isPortrait ? `height: ${$splitPercent}%; width: 100%;` : `width: ${$splitPercent}%; height: 100%;`}
+	">
 		{#if $showCalibrationView}
 			<CompassCalibration />
 		{:else if showCameraView}
@@ -457,13 +464,17 @@
 			<PhotoGallery/>
 		{/if}
 	</div>
-	<div class="panel map-panel">
+	<div class="panel map-panel" style="
+		position: absolute;
+		{isPortrait ? `bottom: 0; left: 0; height: ${100 - $splitPercent}%; width: 100%;` : `right: 0; top: 0; width: ${100 - $splitPercent}%; height: 100%;`}
+	">
 		<Map bind:this={mapComponent} bind:update_url={update_url}/>
 	</div>
 </div>
-
+{/if}
 
 <DebugOverlay/>
+
 
 <style>
 	/* Reset default margin, padding and prevent body scroll for main app */
@@ -507,8 +518,8 @@
 
 	.hamburger {
 		position: absolute;
-		top: 10px;
-		left: 10px;
+		top: calc(0px + var(--safe-area-inset-top, 10px));
+		left: calc(0px + var(--safe-area-inset-left, 10px));
 		z-index: 30001;
 		background: white;
 		border-radius: 50%;
@@ -526,8 +537,8 @@
 
 	.camera-button {
 		position: absolute;
-		top: 10px;
-		left: 60px;
+		top: calc(0px + var(--safe-area-inset-top, 10px));
+		left: calc(50px + var(--safe-area-inset-left, 10px));
 		z-index: 30001;
 		background: white;
 		border-radius: 50%;
@@ -548,8 +559,8 @@
 
 	.debug-toggle {
 		position: absolute;
-		top: 10px;
-		left: 110px;
+		top: calc(10px + var(--safe-area-inset-top, 0px));
+		left: calc(110px + var(--safe-area-inset-left, 0px));
 		z-index: 30001;
 		background: white;
 		border-radius: 50%;

@@ -13,6 +13,8 @@ import java.security.*
 import java.security.spec.ECGenParameterSpec
 import java.security.spec.X509EncodedKeySpec
 import java.util.*
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 
 import kotlinx.serialization.encodeToString
 
@@ -77,6 +79,7 @@ class ClientCryptoManager(private val context: Context) {
 
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val keyStore: KeyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+	private val keyGenMutex = ReentrantLock()
 
     /**
      * Get or generate client ECDSA key pair
@@ -93,10 +96,18 @@ class ClientCryptoManager(private val context: Context) {
      * device hardware when available. If keys are lost, a new pair will be
      * generated and the server will need the new public key on next login.
      */
-    fun getOrCreateKeyPair(): Boolean {
+    fun getOrCreateKeyPair(forceKeyRegeneration: Boolean = false
+	): Boolean {
+		return keyGenMutex.withLock {
+			internalGetOrCreateKeyPair(forceKeyRegeneration)
+		}
+	}
+
+	private fun internalGetOrCreateKeyPair(forceKeyRegeneration: Boolean = false
+	): Boolean {
         try {
             // Check if key already exists in Keystore
-            if (keyStore.containsAlias(KEY_ALIAS)) {
+            if (keyStore.containsAlias(KEY_ALIAS) && !forceKeyRegeneration) {
                 Log.d(TAG, "Client key pair already exists in Keystore")
                 return true
             }
@@ -129,6 +140,7 @@ class ClientCryptoManager(private val context: Context) {
             return false
         }
     }
+
 
     /**
      * Get client public key info for registration with server
@@ -283,7 +295,6 @@ class ClientCryptoManager(private val context: Context) {
      * - On security incident/key compromise
      *
      * Note: Clearing keys will require re-registration of public key on next login.
-     * Consider the user experience trade-off between security and convenience.
      */
     fun clearStoredKeys(): Boolean {
         try {

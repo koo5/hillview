@@ -11,6 +11,8 @@ import sys
 import psutil
 import time
 from dotenv import load_dotenv
+import socket
+import hashlib
 
 # Load environment variables from .env file in same directory as script
 load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
@@ -93,10 +95,6 @@ def get_worker_identity() -> str:
 
 	Example: "worker-container-abc123_20241201-143022_x9k2m"
 	"""
-	import socket
-	import hashlib
-	from datetime import datetime
-
 	# Get hostname/container identifier
 	hostname = socket.gethostname()
 

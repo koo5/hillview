@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { onDestroy } from 'svelte';
     import { EyeOff, UserX, ThumbsUp, ThumbsDown, Share, Flag, MoreVertical } from 'lucide-svelte';
     import { http, handleApiError } from '$lib/http';
     import { auth } from '$lib/auth.svelte.js';
@@ -10,6 +11,28 @@
     import type { PhotoData } from '$lib/sources';
 
     export let photo: PhotoData | null = null;
+
+    // Track pending timeouts for cleanup
+    const pendingTimeouts = new Set<ReturnType<typeof setTimeout>>();
+
+    function scheduleTimeout(callback: () => void, delay: number): ReturnType<typeof setTimeout> {
+        const id = setTimeout(() => {
+            pendingTimeouts.delete(id);
+            callback();
+        }, delay);
+        pendingTimeouts.add(id);
+        return id;
+    }
+
+    onDestroy(() => {
+        for (const id of pendingTimeouts) {
+            clearTimeout(id);
+        }
+        pendingTimeouts.clear();
+        if (typeof window !== 'undefined') {
+            window.removeEventListener('click', handleClickOutside);
+        }
+    });
 
     // Expose show/hide dialog state to parent
     export let showHideUserDialog = false;
@@ -96,12 +119,12 @@
             simplePhotoWorker.removePhotoFromCache?.(photo.id, photoSource);
 
             hideMessage = 'Photo hidden successfully';
-            setTimeout(() => hideMessage = '', 2000);
+            scheduleTimeout(() => hideMessage = '', 2000);
         } catch (error) {
             console.error('🢄Error hiding photo:', error);
             hideMessage = `Error: ${handleApiError(error)}`;
             hideError = true;
-            setTimeout(() => {
+            scheduleTimeout(() => {
                 hideMessage = '';
                 hideError = false;
             }, 5000);
@@ -161,7 +184,7 @@
             console.error('🢄Error updating rating:', error);
             hideMessage = `Rating error: ${handleApiError(error)}`;
             hideError = true;
-            setTimeout(() => {
+            scheduleTimeout(() => {
                 hideMessage = '';
                 hideError = false;
             }, 3000);
@@ -227,7 +250,7 @@
                     const fullShareText = `${shareText}\n${shareUrl}`;
                     await navigator.clipboard.writeText(fullShareText);
                     hideMessage = 'Share link copied to clipboard!';
-                    setTimeout(() => hideMessage = '', 4000);
+                    scheduleTimeout(() => hideMessage = '', 4000);
                 } else {
                     // Fallback for older browsers
                     const textarea = document.createElement('textarea');
@@ -237,14 +260,14 @@
                     document.execCommand('copy');
                     document.body.removeChild(textarea);
                     hideMessage = 'Share link copied to clipboard!';
-                    setTimeout(() => hideMessage = '', 2000);
+                    scheduleTimeout(() => hideMessage = '', 2000);
                 }
             }
         } catch (error) {
             console.error('🢄Error sharing photo:', error);
             hideMessage = 'Failed to share photo';
             hideError = true;
-            setTimeout(() => {
+            scheduleTimeout(() => {
                 hideMessage = '';
                 hideError = false;
             }, 3000);
@@ -285,12 +308,12 @@
                 isFlagged = true;
             }
 
-            setTimeout(() => flagMessage = '', 2000);
+            scheduleTimeout(() => flagMessage = '', 2000);
         } catch (error) {
             console.error('🢄Error flagging photo:', error);
             flagMessage = `Error: ${handleApiError(error)}`;
             flagError = true;
-            setTimeout(() => {
+            scheduleTimeout(() => {
                 flagMessage = '';
                 flagError = false;
             }, 5000);
@@ -320,12 +343,12 @@
 
             flagMessage = 'Photo unflagged';
             isFlagged = false;
-            setTimeout(() => flagMessage = '', 2000);
+            scheduleTimeout(() => flagMessage = '', 2000);
         } catch (error) {
             console.error('🢄Error unflagging photo:', error);
             flagMessage = `Error: ${handleApiError(error)}`;
             flagError = true;
-            setTimeout(() => {
+            scheduleTimeout(() => {
                 flagMessage = '';
                 flagError = false;
             }, 5000);
@@ -409,7 +432,7 @@
 
     // Bind click outside handler
     $: if (isMenuOpen && typeof window !== 'undefined') {
-        setTimeout(() => window.addEventListener('click', handleClickOutside), 0);
+        scheduleTimeout(() => window.addEventListener('click', handleClickOutside), 0);
     } else if (typeof window !== 'undefined') {
         window.removeEventListener('click', handleClickOutside);
     }

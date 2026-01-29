@@ -38,6 +38,7 @@ pub struct AutoUploadResponse {
 pub struct UploadStatusResponse {
   pub auto_upload_enabled: bool,
   pub auto_upload_prompt_enabled: bool,
+  pub wifi_only: bool,
   pub pending_uploads: i32,
   pub failed_uploads: i32,
   pub error: Option<String>,

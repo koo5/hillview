@@ -270,20 +270,20 @@ class AuthenticationManager(private val context: Context) {
                 .addHeader("Authorization", "Bearer $token")
                 .build()
 
-            val response = client.newCall(request).execute()
-
-            if (response.isSuccessful) {
-                Log.d(TAG, "Client public key registered successfully")
-                return true
-            } else if (response.code == 409) {
-                // 409 means key already exists - this is actually OK
-                Log.d(TAG, "Client public key already exists on server (409) - treating as success")
-                return true
-            } else {
-                Log.e(TAG, "Client public key registration failed with status: ${response.code}")
-                val responseBody = response.body?.string()
-                Log.e(TAG, "Registration error response: $responseBody")
-                return false
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    Log.d(TAG, "Client public key registered successfully")
+                    return true
+                } else if (response.code == 409) {
+                    // 409 means key already exists - this is actually OK
+                    Log.d(TAG, "Client public key already exists on server (409) - treating as success")
+                    return true
+                } else {
+                    Log.e(TAG, "Client public key registration failed with status: ${response.code}")
+                    val responseBody = response.body?.string()
+                    Log.e(TAG, "Registration error response: $responseBody")
+                    return false
+                }
             }
 
         } catch (e: Exception) {
@@ -342,48 +342,48 @@ class AuthenticationManager(private val context: Context) {
 
 			Log.d(TAG, "Sending token refresh request to $url, body: $json")
 
-            val response = client.newCall(request).execute()
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val responseBody = response.body?.string()
+                    if (responseBody != null) {
+                        // Parse JSON response (simple manual parsing)
+                        val accessTokenMatch = Regex("\"access_token\":\\s*\"([^\"]+)\"").find(responseBody)
+                        val refreshTokenMatch = Regex("\"refresh_token\":\\s*\"([^\"]+)\"").find(responseBody)
+                        val expiresAtMatch = Regex("\"expires_at\":\\s*\"([^\"]+)\"").find(responseBody)
+                        val refreshExpiresAtMatch = Regex("\"refresh_token_expires_at\":\\s*\"([^\"]+)\"").find(responseBody)
 
-            if (response.isSuccessful) {
-                val responseBody = response.body?.string()
-                if (responseBody != null) {
-                    // Parse JSON response (simple manual parsing)
-                    val accessTokenMatch = Regex("\"access_token\":\\s*\"([^\"]+)\"").find(responseBody)
-                    val refreshTokenMatch = Regex("\"refresh_token\":\\s*\"([^\"]+)\"").find(responseBody)
-                    val expiresAtMatch = Regex("\"expires_at\":\\s*\"([^\"]+)\"").find(responseBody)
-                    val refreshExpiresAtMatch = Regex("\"refresh_token_expires_at\":\\s*\"([^\"]+)\"").find(responseBody)
+                        if (accessTokenMatch != null && expiresAtMatch != null) {
+                            val newAccessToken = accessTokenMatch.groupValues[1]
+                            val newRefreshToken = refreshTokenMatch?.groupValues?.get(1)
+                            val newExpiresAt = expiresAtMatch.groupValues[1]
+                            val newRefreshExpiresAt = refreshExpiresAtMatch?.groupValues?.get(1)
 
-                    if (accessTokenMatch != null && expiresAtMatch != null) {
-                        val newAccessToken = accessTokenMatch.groupValues[1]
-                        val newRefreshToken = refreshTokenMatch?.groupValues?.get(1)
-                        val newExpiresAt = expiresAtMatch.groupValues[1]
-                        val newRefreshExpiresAt = refreshExpiresAtMatch?.groupValues?.get(1)
+                            Log.d(TAG, "Parsed refresh response - access expires: $newExpiresAt, refresh expires: $newRefreshExpiresAt")
 
-                        Log.d(TAG, "Parsed refresh response - access expires: $newExpiresAt, refresh expires: $newRefreshExpiresAt")
+                            // Store new tokens
+                            val stored = storeAuthToken(newAccessToken, newExpiresAt, newRefreshToken, newRefreshExpiresAt)
 
-                        // Store new tokens
-                        val stored = storeAuthToken(newAccessToken, newExpiresAt, newRefreshToken, newRefreshExpiresAt)
-
-                        if (stored) {
-                            Log.d(TAG, "Token refresh successful")
-                            return true
+                            if (stored) {
+                                Log.d(TAG, "Token refresh successful")
+                                return true
+                            } else {
+                                Log.e(TAG, "Failed to store refreshed tokens")
+                            }
                         } else {
-                            Log.e(TAG, "Failed to store refreshed tokens")
+                            Log.e(TAG, "Failed to parse refresh response")
                         }
-                    } else {
-                        Log.e(TAG, "Failed to parse refresh response")
                     }
-                }
-            } else {
-                Log.e(TAG, "Token refresh failed with status: ${response.code}")
+                } else {
+                    Log.e(TAG, "Token refresh failed with status: ${response.code}")
 
-                // If refresh token is expired/invalid, clear all auth data
-                if (response.code == 401) {
-                    Log.w(TAG, "Refresh token expired/invalid - clearing all auth data and notifying user")
-                    clearAuthToken()
+                    // If refresh token is expired/invalid, clear all auth data
+                    if (response.code == 401) {
+                        Log.w(TAG, "Refresh token expired/invalid - clearing all auth data and notifying user")
+                        clearAuthToken()
 
-                    // Show push notification to user about auth expiry
-                    notificationHelper.showAuthExpiredNotification()
+                        // Show push notification to user about auth expiry
+                        notificationHelper.showAuthExpiredNotification()
+                    }
                 }
             }
 
@@ -425,5 +425,28 @@ class AuthenticationManager(private val context: Context) {
      */
     fun hasStoredAuth(): Boolean {
         return prefs.getString(KEY_AUTH_TOKEN, null) != null
+    }
+
+    /**
+     * Force generate a new key pair and re-register with server.
+     * Useful for debugging signature issues or recovering from key mismatch.
+     */
+    suspend fun forceNewKeyPair(): Boolean {
+        Log.d(TAG, "Forcing new key pair generation")
+
+        // Force regenerate the key pair
+        val success = clientCrypto.getOrCreateKeyPair(forceKeyRegeneration = true)
+        if (!success) {
+            Log.e(TAG, "Failed to force generate new key pair")
+            return false
+        }
+
+        // Re-register the new key with the server
+        val token = getCurrentTokenIfValid() ?: run {
+            Log.e(TAG, "No valid token available to register new key")
+            return false
+        }
+
+        return registerClientPublicKey(token)
     }
 }

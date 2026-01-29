@@ -50,10 +50,11 @@ pub(crate) async fn set_auto_upload_enabled<R: Runtime>(
     app: AppHandle<R>,
     enabled: bool,
     prompt_enabled: bool,
+    wifi_only: bool,
 ) -> Result<AutoUploadResponse> {
     #[cfg(mobile)]
     {
-        return app.hillview().set_auto_upload_enabled(enabled, prompt_enabled);
+        return app.hillview().set_auto_upload_enabled(enabled, prompt_enabled, wifi_only);
     }
 
     #[cfg(desktop)]

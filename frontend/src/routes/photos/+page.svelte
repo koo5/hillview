@@ -8,7 +8,7 @@
 	import {get} from 'svelte/store';
 	import {myGoto} from '$lib/navigation.svelte';
 	import {constructPhotoMapUrl} from '$lib/urlUtils';
-	import {Trash2, Map, Settings, ThumbsUp, ThumbsDown, Upload} from 'lucide-svelte';
+	import {Trash2, Map, Settings, ThumbsUp, ThumbsDown, Upload, RefreshCw} from 'lucide-svelte';
 	import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';
 	import StandardBody from '$lib/components/StandardBody.svelte';
 	import Spinner from '$lib/components/Spinner.svelte';
@@ -116,15 +116,16 @@
 	}
 
 	async function fetchPhotos(reset = false) {
-		isLoading = true;
-		try {
-			if (reset) {
-				photos = [];
-				nextCursor = null;
-				hasMore = false;
-				totalCount = 0;
-			}
+		// Only show full loading state on reset/initial load, not during pagination
+		if (reset) {
+			isLoading = true;
+			photos = [];
+			nextCursor = null;
+			hasMore = false;
+			totalCount = 0;
+		}
 
+		try {
 			const url = nextCursor ? `/photos/?cursor=${encodeURIComponent(nextCursor)}` : '/photos/';
 			const response = await http.get(url);
 
@@ -366,7 +367,21 @@
 		</div>
 	{/if}
 
-	<DevicePhotoStats addLogEntry={addLogEntry} onRefresh={() => fetchPhotos(true)} />
+	<DevicePhotoStats addLogEntry={addLogEntry} />
+
+	{#if TAURI}
+		<div class="refresh-section">
+			<button
+				class="action-button secondary"
+				on:click={() => fetchPhotos(true)}
+				disabled={isLoading}
+				data-testid="refresh-photos-button"
+			>
+				<RefreshCw size={16} class={isLoading ? 'spinning' : ''} />
+				{isLoading ? 'Loading...' : 'Refresh Photos'}
+			</button>
+		</div>
+	{/if}
 
 	{#if !TAURI}
 		<div class="photo-management-section" data-testid="photo-management-section">
@@ -896,5 +911,20 @@
 
 	.login-link:hover {
 		color: #0d47a1;
+	}
+
+	.refresh-section {
+		display: flex;
+		justify-content: center;
+		margin-bottom: 16px;
+	}
+
+	:global(.spinning) {
+		animation: spin 1s linear infinite;
+	}
+
+	@keyframes spin {
+		from { transform: rotate(0deg); }
+		to { transform: rotate(360deg); }
 	}
 </style>

@@ -1,6 +1,7 @@
 """SQL filtering utilities for hidden content."""
 from sqlalchemy import select, and_
 from sqlalchemy.sql import Select
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
 import sys
@@ -152,9 +153,9 @@ def get_hidden_user_subquery(current_user_id: str, user_source: str):
 
 
 async def filter_mapillary_photos_list(
-	photos: list, 
+	photos: list,
 	current_user_id: Optional[str],
-	db: "AsyncSession"
+	db: AsyncSession
 ) -> list:
 	"""
 	Filter a list of Mapillary photos to remove hidden content.

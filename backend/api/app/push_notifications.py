@@ -5,6 +5,7 @@ import asyncio
 import httpx, logging
 
 from common.models import PushRegistration, Notification, User, UserPublicKey
+from common.utc import utcnow
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import func, desc, and_, update, delete, text
@@ -264,7 +265,7 @@ async def _send_activity_broadcast_notification_impl(
 		'route': '/activity',
 	}
 
-	twelve_hours_ago = datetime.utcnow() - timedelta(hours=12)
+	twelve_hours_ago = utcnow() - timedelta(hours=12)
 
 	# Get eligible users with their push endpoints in one query
 	user_endpoints_query = select(

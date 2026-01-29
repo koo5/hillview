@@ -38,7 +38,7 @@
 		// Wait 500ms after capture before showing prompt (avoid UI confusion)
 		showTimer = setTimeout(() => {
 			checkSettings();
-		}, 500);
+		}, 800);
 	}
 
 	async function checkSettings() {
@@ -58,7 +58,7 @@
 			if (visible) {
 				hideTimer = setTimeout(() => {
 					hidePrompt();
-				}, 10000);
+				}, 12000);
 			}
 	}
 

@@ -52,6 +52,10 @@ export async function configureSources(page: Page, config: { [sourceName: string
     return await test.step(`Configure sources: ${Object.entries(config).map(([name, enabled]) => `${name}=${enabled}`).join(', ')}`, async () => {
         console.log('🗺️ Configuring sources:', config);
 
+        // Wait for the source buttons container to be visible before attempting to configure
+        await page.waitForSelector('.leaflet-container', { timeout: 10000 });
+        await page.waitForSelector('.source-buttons-container', { timeout: 5000 });
+
         let allSucceeded = true;
 
         for (const [sourceName, shouldBeEnabled] of Object.entries(config)) {

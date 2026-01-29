@@ -48,7 +48,9 @@ async def get_recent_activity(
 		if cursor:
 			try:
 				# Cursor is the uploaded_at timestamp of the last photo from previous page
-				cursor_datetime = datetime.fromisoformat(cursor.replace('Z', '+00:00'))
+				# Handle URL decoding: '+' in timezone offset gets decoded as space
+				normalized_cursor = cursor.replace(' ', '+').replace('Z', '+00:00')
+				cursor_datetime = datetime.fromisoformat(normalized_cursor)
 				query = query.filter(Photo.uploaded_at < cursor_datetime)
 			except (ValueError, TypeError) as e:
 				logger.warning(f"Invalid cursor format: {cursor}, error: {e}")

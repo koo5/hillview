@@ -4,7 +4,7 @@
     } from 'lucide-svelte';
     import { auth, logout } from '$lib/auth.svelte.js';
     import { FEATURE_USER_ACCOUNTS } from '$lib/config';
-    import { BUILD_TIME, BUILD_VERSION, formatBuildTime } from '$lib/buildInfo';
+    import { BUILD_TIME, BUILD_VERSION, BUILD_GIT_COMMIT, APP_VERSION, formatBuildTime } from '$lib/buildInfo';
     import { TAURI } from '$lib/tauri.js';
     import { openExternalUrl } from '$lib/urlUtils';
 	import {backendUrl} from "$lib/config";
@@ -140,14 +140,17 @@
 			<hr/>
 			<li>
 					<div class="build-info">
+						<div class="app-version">
+							Hillview version {APP_VERSION}
+						</div>
+						<div class="build-commit">
+							{BUILD_GIT_COMMIT}
+						</div>
 						<div class="build-version">
-							Hillview v{BUILD_VERSION}
+							Build timestamp: {formatUtcDate(new Date(BUILD_TIME))}
 						</div>
 						<div class="build-timestamp">
-							{formatUtcDate(new Date(BUILD_TIME))}
-						</div>
-						<div class="build-timestamp">
-							{backendUrl}
+							API server: {backendUrl}
 						</div>
 					</div>
 
@@ -163,7 +166,7 @@
 
     .menu-backdrop {
         position: fixed;
-        top: 60px; /* Start below header */
+        top: 0px;
         left: 0;
         right: 0;
         bottom: 0;
@@ -173,10 +176,10 @@
 
     .nav-menu {
         position: fixed;
-        top: 60px; /* Align directly below header */
-        left: 0;
+        top: calc(60px + var(--safe-area-inset-top, 0px));
+        left: calc(0px + var(--safe-area-inset-left, 0px));
         width: 280px;
-        height: calc(100vh - 60px);
+        height: calc(100vh - (60px + var(--safe-area-inset-top, 0px)));
         background: white;
         z-index: 130100;
         box-shadow: 2px 0 10px rgba(0, 0, 0, 0.2);
@@ -237,6 +240,8 @@
         font-size: 0.5rem;
         color: #6b7280;
         line-height: 1.4;
+        user-select: text;
+        -webkit-user-select: text;
     }
 
     .build-timestamp {

@@ -7,7 +7,7 @@ import {
 import type {PhotoData} from './types/photoTypes';
 import type {SimpleCoord} from './photoWorkerTypes';
 import {AngularRangeCuller, sortPhotosByBearing} from './AngularRangeCuller';
-import {normalizeBearing} from './utils/bearingUtils';
+import {normalizeBearing, getBearingColor} from './utils/bearingUtils';
 import {invoke} from "@tauri-apps/api/core";
 import {TAURI} from "$lib/tauri";
 
@@ -38,7 +38,7 @@ export type BearingMode = 'car' | 'walking';
 
 // Spatial state - triggers photo filtering in worker
 export const spatialState = localStorageReadOnceSharedStore<SpatialState>('spatialState', {
-	center: {lat: 50.114429599683604, lng: 14.523528814315798},
+	center: {lat: 50.11692048550961, lng: 14.488374441862108},
 	zoom: 20,
 	bounds: null,
 	range: 1000,
@@ -48,7 +48,7 @@ export const spatialState = localStorageReadOnceSharedStore<SpatialState>('spati
 
 // Visual state - only affects rendering, optimized with debounced writes
 export const bearingState = staggeredLocalStorageSharedStore<BearingState>('bearingState', {
-	bearing: 230,
+	bearing: 141,
 	source: 'map',
 	accuracy_level: null
 }, 500);
@@ -258,28 +258,32 @@ function calculateAbsBearingDiff(bearing1: number, bearing2: number): number {
 	return Math.min(diff, 360 - diff);
 }
 
-function getBearingColor(absBearingDiff: number): string {
-	if (absBearingDiff === null || absBearingDiff === undefined) return '#9E9E9E';
-	return `hsl(${Math.round(100 - absBearingDiff / 2)}, 100%, 70%)`;
-}
 
 // Update functions with selective reactivity
-export function updateSpatialState(updates: Partial<SpatialState>, source: 'gps' | 'map' = 'map') {
+export async function updateSpatialState(updates: Partial<SpatialState>, source: 'gps' | 'map' = 'map') {
+	console.log(`Spatial: updateSpatialState called with updates ${JSON.stringify(updates)} from source ${source}`);
 	let old = get(spatialState);
 	if (JSON.stringify(old) === JSON.stringify({...old, ...updates, source})) {
-		// No changes
+		console.log('Spatial: No changes in spatial state, skipping update');
 		return;
 	}
 	spatialState.update(state => ({...state, ...updates, source}));
-	if (source === 'map' && TAURI)
+	if (source !== 'gps' && TAURI)
 	{
 		const state = get(spatialState);
-		invoke('plugin:hillview|cmd', {command: 'update_location', params: {
-			timestamp: Date.now(),
-			latitude: state.center.lat,
-			longitude: state.center.lng,
-			source: 'map'
-		}});
+		try
+		{
+			await invoke('plugin:hillview|cmd', {command: 'update_location', params: {
+				timestamp: Date.now(),
+				latitude: state.center.lat,
+				longitude: state.center.lng,
+				source: 'map'
+			}});
+		}
+		catch (e)
+		{
+			console.error('Error invoking update_location in Tauri:', e);
+		}
 	}
 }
 

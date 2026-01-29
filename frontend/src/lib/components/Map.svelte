@@ -27,8 +27,11 @@
 		visiblePhotos,
 		photoToLeft,
 		photoToRight,
+		photosInArea,
+		photosInRange,
 		updateSpatialState,
 		updateBearingByDiff,
+		updateBearingWithPhoto,
 		bearingMode,
 		type BearingMode, updateBearing,
 	} from "$lib/mapState";
@@ -37,8 +40,9 @@
     import { turn_to_photo_to, app, sourceLoadingStatus } from "$lib/data.svelte.js";
     import { updateGpsLocation, setLocationTracking, setLocationError, gpsLocation, locationTracking } from "$lib/location.svelte.js";
     import { isOnMapRoute, compassEnabled, disableCompass } from "$lib/compass.svelte.js";
-    import { optimizedMarkerSystem } from '$lib/optimizedMarkers';
+    import { optimizedMarkerSystem, setupMarkerClickDelegation } from '$lib/optimizedMarkers';
     import '$lib/styles/optimizedMarkers.css';
+    import type { PhotoData } from '$lib/types/photoTypes';
 	import PhotoMarkerIcon from './PhotoMarkerIcon.svelte';
 
     import {get} from "svelte/store";
@@ -47,6 +51,7 @@
 	import {TAURI} from "$lib/tauri";
 	import {parsePhotoUid} from "$lib/urlUtilsServer";
 	import {openExternalUrl} from "$lib/urlUtils";
+	import InsetGradients from "$lib/components/InsetGradients.svelte";
 
 	export let update_url = false;
 
@@ -149,26 +154,53 @@
 
     $: map = elMap?.getMap();
 
+	let invalidateSizeTimeout: any = null;
 
+    // Track if marker click delegation has been set up
+    let markerClickDelegationSetup = false;
 
     // Expose map to window for testing and fix initial size
     $: if (map && typeof window !== 'undefined') {
         (window as any).leafletMap = map;
 
-        // Fix initial map size after the map becomes available
-        setTimeout(() => {
-            if (map.invalidateSize) {
-                console.log('🢄Fixing initial map size');
-                map.invalidateSize({ reset: true, animate: false });
+        // Set up marker click event delegation (once)
+        if (!markerClickDelegationSetup) {
+            const container = map.getContainer();
+            if (container) {
+                setupMarkerClickDelegation(container);
+                markerClickDelegationSetup = true;
+                console.log('🢄Map: Marker click delegation set up');
             }
-			afterInit();
-        }, 200);
+        }
+        // console.log('🢄Map reactive: map available, current center:', JSON.stringify(map.getCenter()));
+        // console.log('🢄Map reactive: spatialState center:', JSON.stringify(get(spatialState).center));
+        // console.log('🢄Map reactive: spatialState bounds:', JSON.stringify(get(spatialState).bounds));
+
+        // Fix initial map size after the map becomes available
+		if (!invalidateSizeTimeout) {
+			invalidateSizeTimeout = setTimeout(() => {
+				// console.log('🢄Map setTimeout: before invalidateSize, map center:', JSON.stringify(map?.getCenter()));
+				// Guard against race conditions where map is destroyed before timeout fires
+				try {
+					if (map && map._loaded && map.getContainer() && map.invalidateSize) {
+						console.log('🢄Fixing initial map size');
+						map.invalidateSize({ reset: true, animate: false });
+						console.log('🢄Map setTimeout: after invalidateSize, map center:', JSON.stringify(map?.getCenter()));
+					}
+				} catch (e) {
+					// Map may have been destroyed or is in an inconsistent state
+					console.debug('🢄Map invalidateSize skipped:', e instanceof Error ? e.message : String(e));
+				}
+				afterInit();
+	        }, 200);
+		}
     }
 
 	async function afterInit() {
-		console.log('🢄Page mounted');
+		// console.log('🢄Map afterInit');
+		// console.log('🢄Map afterInit: current spatialState center:', JSON.stringify(get(spatialState).center));
+		// console.log('🢄Map afterInit: current map center:', JSON.stringify(map?.getCenter()));
 		await tick();
-
 
 		const urlParams = new URLSearchParams(window.location.search);
 		const lat = urlParams.get('lat');
@@ -177,25 +209,56 @@
 		const bearingParam = urlParams.get('bearing');
 		const photoParam = urlParams.get('photo');
 
-		let p = get(spatialState);
-		let update = false;
+		// Create a fresh object - don't mutate the store's internal state
+		const oldState = get(spatialState);
+		let p = {
+			center: oldState.center,
+			zoom: oldState.zoom,
+			bounds: oldState.bounds,
+			range: oldState.range,
+			source: oldState.source
+		};
+		let positionChanged = false;
 
 		if (lat && lon) {
 			console.log('🢄Setting position to', lat, lon, 'from URL');
 			p.center = new LatLng(parseFloat(lat), parseFloat(lon));
-			update = true;
+			positionChanged = true;
 		}
 
 		if (zoom) {
 			console.log('🢄Setting zoom to', zoom, 'from URL');
 			p.zoom = parseFloat(zoom);
-			update = true;
+			positionChanged = true;
 		}
 
-		if (update) {
-			updateSpatialState({...p});
-			map?.setView(p.center, p.zoom);
+		// Move the map FIRST if position changed from URL params
+		if (positionChanged && map) {
+			map.setView(p.center, p.zoom, { animate: false });
+			// Wait for the map to settle before getting bounds
+			await new Promise<void>(resolve => {
+				map.once('moveend', () => resolve());
+				// Fallback timeout in case moveend doesn't fire
+				setTimeout(resolve, 100);
+			});
 		}
+
+		// Now get bounds AFTER the map has moved
+		let bounds = map.getBounds();
+		console.log('🢄Leaflet bounds after move:', JSON.stringify(bounds));
+		if (bounds == null || bounds.getNorthWest().lat === bounds.getSouthEast().lat || bounds.getNorthWest().lng === bounds.getSouthEast().lng) {
+			console.log('🢄leaflet bounds are invalid, using fallback')
+			bounds = new L.LatLngBounds(
+				new L.LatLng(p.center.lat - 0.0001, p.center.lng - 0.0001),
+				new L.LatLng(p.center.lat + 0.0001, p.center.lng + 0.0001)
+			);
+		}
+		p.bounds = {
+			top_left: bounds.getNorthWest(),
+			bottom_right: bounds.getSouthEast()
+		};
+
+		await updateSpatialState({...p}, 'map');
 
 		// Handle photo parameter and enable corresponding source
 		const photoUid = parsePhotoUid(photoParam);
@@ -391,11 +454,15 @@
         try {
             let _center = map.getCenter();
             let _zoom = map.getZoom();
-            //console.log('🢄onMapStateChange: force:', force, 'reason:', reason, 'center:', JSON.stringify(_center), 'zoom:', _zoom);
+            // console.log('🢄onMapStateChange: force:', force, 'reason:', reason, 'center:', JSON.stringify(_center), 'zoom:', _zoom);
 
             const currentSpatial = get(spatialState);
             const bounds = map.getBounds();
             const range = get_range(_center);
+
+			// console.log(`🢄Map: currentSpatial`, JSON.stringify(currentSpatial));
+			// console.log(`🢄Map: bounds`, JSON.stringify(bounds));
+			// console.log(`🢄Map: range`, range);
 
             // Normalize coordinates to valid lat/lng ranges
             const normalizeLng = (lng: number) => ((lng % 360) + 540) % 360 - 180;
@@ -616,6 +683,49 @@
         move('backward');
     }
 
+    /**
+     * Handle marker click - navigate to clicked photo
+     * If photo is not in range, move the map to the photo's location first
+     */
+    function handleMarkerClick(photo: PhotoData) {
+        console.log('🢄Marker clicked:', photo.uid, 'at', photo.coord);
+
+        // Check if photo is already in photosInRange
+        const inRange = get(photosInRange);
+        const isInRange = inRange.some(p => p.uid === photo.uid);
+
+        if (isInRange) {
+            // Photo is in range, just update bearing to select it
+            console.log('🢄Photo in range, selecting directly');
+            updateBearingWithPhoto(photo, 'marker_click');
+        } else {
+            // Photo is not in range, move map to photo location first
+            console.log('🢄Photo not in range, moving map to photo location');
+
+            // Set flag to prevent position sync conflicts
+            programmaticMove = true;
+
+            // Move map to photo location
+            const newCenter = new LatLng(photo.coord.lat, photo.coord.lng);
+            map.flyTo(newCenter, map.getZoom());
+
+            // Update spatial state
+            updateSpatialState({
+                center: newCenter,
+                zoom: map.getZoom(),
+                bounds: null,
+            });
+
+            // Update bearing to the photo (this stores photoUid so it will be selected once in range)
+            updateBearingWithPhoto(photo, 'marker_click');
+
+            // Reset flag after animation
+            setTimeout(() => {
+                programmaticMove = false;
+            }, 1000);
+        }
+    }
+
     function toggleLocationTracking() {
         if (get(locationTracking)) {
             stopLocationTracking();
@@ -799,6 +909,9 @@
     onMount(() => {
         console.log('🢄Map component mounted');
 
+        // Set up marker click handler
+        optimizedMarkerSystem.setOnMarkerClick(handleMarkerClick);
+
         // Signal that we're now on map route
         isOnMapRoute.set(true);
 
@@ -811,8 +924,8 @@
                 console.error('🢄Failed to initialize SimplePhotoWorker:', error);
             }
 
-            //await onMapStateChange(true, 'mount');
-            //console.log('🢄Map component mounted - after onMapStateChange');
+            /*await onMapStateChange(true, 'mount');
+            console.log('🢄Map component mounted - after onMapStateChange');*/
 
             // Add zoom control after scale control for proper ordering
             const zoomControl = new L.Control.Zoom({ position: 'topleft' });
@@ -869,7 +982,13 @@
 
     onDestroy(async () => {
         console.log('🢄Map component destroyed');
-
+		if (invalidateSizeTimeout) {
+			clearTimeout(invalidateSizeTimeout);
+			invalidateSizeTimeout = null;
+		}
+		// Clear cached photos and reset bounds so we fetch fresh data when map remounts
+		photosInArea.set([]);
+		spatialState.update(s => ({...s, bounds: null}));
         // Signal that we're no longer on map route
         isOnMapRoute.set(false);
         // Clean up location tracking if active
@@ -933,6 +1052,12 @@
             clearTimeout(bearingUpdateTimeout);
         }
 
+        // Clean up location API event flash timer
+        if (locationApiEventFlashTimer) {
+            clearTimeout(locationApiEventFlashTimer);
+            locationApiEventFlashTimer = null;
+        }
+
         // Clean up optimized marker system
         optimizedMarkerSystem.destroy();
 
@@ -967,6 +1092,11 @@
 
     let width: number;
     let height: number;
+
+    // Invalidate map size when container dimensions change (e.g., split layout settling)
+    $: if (width && height && map) {
+        map.invalidateSize({ animate: false });
+    }
 
     // For the bearing overlay arrow:
     let centerX: number;
@@ -1162,23 +1292,23 @@
 <!-- Rotation / navigation buttons -->
 <div class="control-buttons-container">
     <div class="buttons" role="group">
-        <button
-                on:click={async (e) => {await handleButtonClick('left', e)}}
-                on:mousedown={(e) => handleMouseDown('left', e)}
-                on:mouseup={handleMouseUp}
-                on:mouseleave={handleMouseUp}
-                title={slideshowActive && slideshowDirection === 'left' ?
-                      "Stop slideshow" :
-                      "Rotate to next photo on the left (long press for slideshow)"}
+<!--        <button-->
+<!--                on:click={async (e) => {await handleButtonClick('left', e)}}-->
+<!--                on:mousedown={(e) => handleMouseDown('left', e)}-->
+<!--                on:mouseup={handleMouseUp}-->
+<!--                on:mouseleave={handleMouseUp}-->
+<!--                title={slideshowActive && slideshowDirection === 'left' ?-->
+<!--                      "Stop slideshow" :-->
+<!--                      "Rotate to next photo on the left (long press for slideshow)"}-->
 
-                class:slideshow-active={slideshowActive && slideshowDirection === 'left'}
-        >
-            {#if slideshowActive && slideshowDirection === 'left'}
-                <Pause />
-            {:else}
-                <PhotoMarkerIcon bearing={-90} />
-            {/if}
-        </button>
+<!--                class:slideshow-active={slideshowActive && slideshowDirection === 'left'}-->
+<!--        >-->
+<!--            {#if slideshowActive && slideshowDirection === 'left'}-->
+<!--                <Pause />-->
+<!--            {:else}-->
+<!--                <PhotoMarkerIcon bearing={-90} />-->
+<!--            {/if}-->
+<!--        </button>-->
 
         <button
                 on:click={async (e) => {await handleButtonClick('rotate-ccw', e)}}
@@ -1212,22 +1342,22 @@
             <SpatialStateArrowIcon centerX={8} centerY={8} arrowX={11} arrowY={2} />
         </button>
 
-        <button
-                on:click={(e) => handleButtonClick('right', e)}
-                on:mousedown={(e) => handleMouseDown('right', e)}
-                on:mouseup={handleMouseUp}
-                on:mouseleave={handleMouseUp}
-                title={slideshowActive && slideshowDirection === 'right' ?
-                      "Stop slideshow" :
-                      "Rotate to next photo on the right (long press for slideshow)"}
-                class:slideshow-active={slideshowActive && slideshowDirection === 'right'}
-        >
-            {#if slideshowActive && slideshowDirection === 'right'}
-                <Pause />
-            {:else}
-                <PhotoMarkerIcon bearing={90} />
-            {/if}
-        </button>
+<!--        <button-->
+<!--                on:click={(e) => handleButtonClick('right', e)}-->
+<!--                on:mousedown={(e) => handleMouseDown('right', e)}-->
+<!--                on:mouseup={handleMouseUp}-->
+<!--                on:mouseleave={handleMouseUp}-->
+<!--                title={slideshowActive && slideshowDirection === 'right' ?-->
+<!--                      "Stop slideshow" :-->
+<!--                      "Rotate to next photo on the right (long press for slideshow)"}-->
+<!--                class:slideshow-active={slideshowActive && slideshowDirection === 'right'}-->
+<!--        >-->
+<!--            {#if slideshowActive && slideshowDirection === 'right'}-->
+<!--                <Pause />-->
+<!--            {:else}-->
+<!--                <PhotoMarkerIcon bearing={90} />-->
+<!--            {/if}-->
+<!--        </button>-->
     </div>
 </div>
 
@@ -1276,8 +1406,9 @@
     </button>
 </div>
 
-
 <style>
+
+
 
 
     .map {
@@ -1289,8 +1420,8 @@
 
     .control-buttons-container {
         position: absolute;
-        bottom: 0px;
-        right: 0;
+        bottom: var(--safe-area-inset-bottom, 0px);
+        right: calc(0px + var(--safe-area-inset-right, 0px));
         z-index: 30000;
         pointer-events: none; /* This makes the container transparent to mouse events */
     }
@@ -1325,13 +1456,13 @@
         background-color: #e0e0e0;
     }
 
-    .buttons button.slideshow-active {
+/*    .buttons button.slideshow-active {
         background-color: #4285F4;
         color: white;
         border-color: #3367d6;
         animation: pulse 2s infinite;
     }
-
+*/
     @keyframes pulse {
         0% {
             box-shadow: 0 0 0 0 rgba(66, 133, 244, 0.7);
@@ -1346,8 +1477,8 @@
 
     .location-button-container {
         position: absolute;
-        top: 6px;
-        right: 5px;
+        top: calc(6px + var(--safe-area-inset-top, 0px));
+        right: calc(6px + var(--safe-area-inset-right, 0px));
         z-index: 30000;
         display: flex;
         gap: 8px;
@@ -1392,8 +1523,8 @@
 
     .source-buttons-container {
         position: absolute;
-        top: 100px;
-        right: 5px;
+        top: calc(90px + var(--safe-area-inset-top, 0px));
+        right: calc(6px + var(--safe-area-inset-right, 0px));
         z-index: 30000;
         display: flex;
         flex-direction: column;
@@ -1431,6 +1562,7 @@
         top: 0;
         left: 0;
         z-index: 750;
+        pointer-events: none;
     }
 
     .source-icon-wrapper {

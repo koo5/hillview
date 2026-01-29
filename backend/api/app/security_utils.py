@@ -13,7 +13,6 @@ from common.security_utils import (
 	validate_file_upload_basic as _validate_file_upload_basic,
 	validate_username_basic as _validate_username_basic,
 	validate_email_basic as _validate_email_basic,
-	validate_password_basic as _validate_password_basic,
 	validate_oauth_redirect_uri_basic as _validate_oauth_redirect_uri_basic,
 	generate_secure_filename as _generate_secure_filename,
 	check_file_content as _check_file_content,
@@ -23,13 +22,15 @@ from common.security_utils import (
 	MAX_FILENAME_LENGTH
 )
 
+from common.password_utils import validate_password_basic as _validate_password_basic
+
 logger = logging.getLogger(__name__)
 
 # Re-export constants
 __all__ = [
 	'ALLOWED_IMAGE_EXTENSIONS', 'ALLOWED_MIME_TYPES', 'MAX_FILE_SIZE', 'MAX_FILENAME_LENGTH',
 	'sanitize_filename', 'validate_file_path', 'validate_file_upload', 'validate_username',
-	'validate_email', 'validate_password', 'validate_oauth_redirect_uri', 'generate_secure_filename', 
+	'validate_email', 'validate_password', 'validate_oauth_redirect_uri', 'generate_secure_filename',
 	'check_file_content'
 ]
 

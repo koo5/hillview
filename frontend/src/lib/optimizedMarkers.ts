@@ -4,11 +4,13 @@ import type {PhotoData} from './types/photoTypes';
 import {photoInFront} from './mapState';
 import {get, writable} from 'svelte/store';
 import {app} from "$lib/data.svelte";
+import {getBearingColor} from './utils/bearingUtils';
 
 export interface OptimizedMarkerOptions {
 	enablePooling: boolean;
 	maxPoolSize: number;
 	enableSelection: boolean;
+	onMarkerClick?: (photo: PhotoData) => void;
 }
 
 const bearingDiffColorsUpdateIntervalInCaptureMode = 3000; // ms
@@ -36,7 +38,8 @@ export class OptimizedMarkerSystem {
 	constructor(options: OptimizedMarkerOptions = {
 		enablePooling: true,
 		maxPoolSize: 2000,
-		enableSelection: true
+		enableSelection: true,
+		onMarkerClick: undefined
 	}) {
 		this.options = options;
 		this.atlasDataUrl = arrowAtlas.getDataUrl();
@@ -57,7 +60,7 @@ export class OptimizedMarkerSystem {
 	 * Create optimized marker with separated visual elements
 	 */
 	createOptimizedMarker(photo: PhotoData): L.Marker {
-		const marker = this.getPooledMarker() || new L.Marker([0, 0]);
+		const marker = this.getPooledMarker() || new L.Marker([0, 0], { interactive: true });
 
 		// Update marker position (will be adjusted with CSS transform for bearing offset)
 		marker.setLatLng(photo.coord);
@@ -101,7 +104,8 @@ export class OptimizedMarkerSystem {
 					isSelected,
 					photo.source?.color,
 					data,
-					12
+					12,
+					photo.id
 				),
 			iconSize: [arrowSize, arrowSize],
 			iconAnchor: [arrowSize / 2, arrowSize / 2]
@@ -115,7 +119,8 @@ export class OptimizedMarkerSystem {
 		isSelected: boolean = false,
 		sourceColor?: string,
 		data: string = '',
-		offsetPixels: number = 0
+		offsetPixels: number = 0,
+		photoId?: string
 	): string {
 
 		const {arrowSize} = this.atlasDimensions;
@@ -183,7 +188,7 @@ export class OptimizedMarkerSystem {
 
 			// Recalculate bearing diff color
 			const bearingDiff = this.calculateAbsBearingDiff(photoData.bearing, currentBearing);
-			const bearingColor = this.getBearingColor(bearingDiff);
+			const bearingColor = getBearingColor(bearingDiff);
 
 			// Update only the circle color (no DOM restructure)
 			const element = marker.getElement();
@@ -298,21 +303,6 @@ export class OptimizedMarkerSystem {
 			const marker = this.createOptimizedMarker(photo);
 			marker.addTo(map);
 
-			// Debug: Log first few markers and check z-index
-			/*if (index < 5) {
-				console.log(`Created marker ${index} at [${photo.coord.lat}, ${photo.coord.lng}]`, marker);
-
-				// Check the z-index after adding to map
-				setTimeout(() => {
-					const element = marker.getElement();
-					if (element) {
-						const computedStyle = getComputedStyle(element);
-						const zIndex = computedStyle.zIndex;
-						console.log(`🢄Marker ${index} z-index: ${zIndex}, element:`, element);
-					}
-				}, 100);
-			}*/
-
 			return marker;
 		});
 
@@ -351,6 +341,7 @@ export class OptimizedMarkerSystem {
 		// Move active markers back to pool
 		this.activeMarkers.forEach(marker => {
 			if (!marker) return;
+			marker.off('click'); // Remove click handlers
 			marker.remove();
 
 			// Clean up marker state
@@ -371,7 +362,7 @@ export class OptimizedMarkerSystem {
 	 */
 	private prewarmPool(count: number): void {
 		for (let i = 0; i < count; i++) {
-			this.markerPool.push(new L.Marker([0, 0]));
+			this.markerPool.push(new L.Marker([0, 0], { interactive: true }));
 		}
 	}
 
@@ -429,25 +420,6 @@ export class OptimizedMarkerSystem {
 		return Math.min(diff, 360 - diff);
 	}
 
-	/**
-	 * Convert bearing difference to color
-	 */
-
-	/*private getBearingColor(absBearingDiff: number): string {
-		if (absBearingDiff === null || absBearingDiff === undefined) return '#9E9E9E';
-		return `hsl(${Math.round(100 - absBearingDiff / 2)}, 100%, 70%)`;
-	}*/
-	private getBearingColor(absBearingDiff: number): string {
-		if (absBearingDiff === null || absBearingDiff === undefined) return '#9E9E9E';
-		const steps = 8;
-		const stepSize = 100 / (steps - 1);
-		const step = Math.round(absBearingDiff / (200 / (steps - 1)));
-		const hue = (1 / step);
-		const r = `hsla(120, 100%, 70%, ${hue})`;
-		//console.log(`Calculated bearing color for diff ${absBearingDiff}: step ${step}, hue ${hue}, color ${r}`);
-		return r;
-
-	}
 
 	/**
 	 * Cleanup resources
@@ -468,7 +440,116 @@ export class OptimizedMarkerSystem {
 			totalMarkers: this.activeMarkers.length + this.markerPool.length
 		};
 	}
+
+	/**
+	 * Set the marker click callback (useful for setting after construction)
+	 */
+	setOnMarkerClick(callback: ((photo: PhotoData) => void) | undefined) {
+		this.options.onMarkerClick = callback;
+	}
 }
 
 // Global instance for use in Map.svelte
 export const optimizedMarkerSystem = new OptimizedMarkerSystem();
+
+/**
+ * Set up event delegation for marker clicks on a map container
+ * This is more robust than inline onclick handlers (works in production builds)
+ */
+export function setupMarkerClickDelegation(mapContainer: HTMLElement) {
+	// Track start positions to distinguish clicks/taps from drags
+	let mouseStartX = 0;
+	let mouseStartY = 0;
+	let touchStartX = 0;
+	let touchStartY = 0;
+	let isDragging = false;
+	const TAP_THRESHOLD = 10; // pixels - movement less than this is considered a tap/click
+
+	const handleMarkerClick = (photoId: string) => {
+		// Find the photo in active markers and trigger callback
+		for (const marker of optimizedMarkerSystem['activeMarkers']) {
+			const photoData = (marker as any)._photoData as PhotoData;
+			if (photoData && photoData.id === photoId) {
+				const callback = optimizedMarkerSystem['options'].onMarkerClick;
+				if (callback) {
+					console.log('OptimizedMarkers: Marker clicked:', photoId);
+					callback(photoData);
+				}
+				break;
+			}
+		}
+	};
+
+	// Track mouse down position for drag detection
+	mapContainer.addEventListener('mousedown', (e: MouseEvent) => {
+		mouseStartX = e.clientX;
+		mouseStartY = e.clientY;
+		isDragging = false;
+	}, true);
+
+	// Check if mouse moved too much (dragging)
+	mapContainer.addEventListener('mousemove', (e: MouseEvent) => {
+		if (mouseStartX !== 0 || mouseStartY !== 0) {
+			const deltaX = Math.abs(e.clientX - mouseStartX);
+			const deltaY = Math.abs(e.clientY - mouseStartY);
+			if (deltaX > TAP_THRESHOLD || deltaY > TAP_THRESHOLD) {
+				isDragging = true;
+			}
+		}
+	}, true);
+
+	const handleClick = (e: Event) => {
+		// Ignore clicks if we detected dragging
+		if (isDragging) {
+			isDragging = false;
+			mouseStartX = 0;
+			mouseStartY = 0;
+			return;
+		}
+
+		const target = e.target as HTMLElement;
+		const markerContainer = target.closest('.marker-container[data-photo-id]') as HTMLElement;
+
+		if (markerContainer) {
+			e.stopPropagation();
+			const photoId = markerContainer.getAttribute('data-photo-id');
+			if (photoId) {
+				handleMarkerClick(photoId);
+			}
+		}
+
+		// Reset mouse tracking
+		mouseStartX = 0;
+		mouseStartY = 0;
+	};
+
+	mapContainer.addEventListener('click', handleClick, true);
+
+	mapContainer.addEventListener('touchstart', (e: TouchEvent) => {
+		if (e.touches.length === 1) {
+			touchStartX = e.touches[0].clientX;
+			touchStartY = e.touches[0].clientY;
+		}
+	}, true);
+
+	mapContainer.addEventListener('touchend', (e: TouchEvent) => {
+		const target = e.target as HTMLElement;
+		const markerContainer = target.closest('.marker-container[data-photo-id]') as HTMLElement;
+
+		if (markerContainer && e.changedTouches.length === 1) {
+			const touch = e.changedTouches[0];
+			const deltaX = Math.abs(touch.clientX - touchStartX);
+			const deltaY = Math.abs(touch.clientY - touchStartY);
+
+			// Only trigger if it was a tap (minimal movement)
+			if (deltaX < TAP_THRESHOLD && deltaY < TAP_THRESHOLD) {
+				e.preventDefault();
+				e.stopPropagation();
+				const photoId = markerContainer.getAttribute('data-photo-id');
+				if (photoId) {
+					handleMarkerClick(photoId);
+				}
+			}
+		}
+	}, true);
+}

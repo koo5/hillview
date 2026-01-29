@@ -2,6 +2,8 @@ import fire
 import os
 import logging
 
+from anonymize import anonymize_image
+
 def process_directory(input_dir, output_dir, force_copy_all_images=False):
 	os.makedirs(output_dir, exist_ok=True)
 	logging.info("Starting anonymization...")

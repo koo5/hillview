@@ -1,47 +1,23 @@
 import { test, expect } from '@playwright/test';
-import { setupDefaultMockMapillaryData, clearMockMapillaryData } from './helpers/mapillaryMocks';
-import { createTestUsers } from './helpers/testUsers';
+import { setupDefaultMockMapillaryData } from './helpers/mapillaryMocks';
+import { createTestUsers, loginAsTestUser } from './helpers/testUsers';
+import { uploadPhoto, testPhotos } from './helpers/photoUpload';
 
 test.describe('Photo Creator Name Links', () => {
-  test.beforeEach(async ({ page }) => {
-    // Clean up test users before each test
-    const response = await fetch('http://localhost:8055/api/debug/recreate-test-users', {
-      method: 'POST'
-    });
-    const result = await response.json();
-    console.log('🢄Test cleanup result:', result);
+  let testPasswords: { test: string; admin: string; testuser: string };
+
+  test.beforeEach(async () => {
+    // Clean up and recreate test users before each test
+    const result = await createTestUsers();
+    testPasswords = result.passwords;
   });
 
   test('should make Hillview photo creator names clickable', async ({ page }) => {
-    // Get test user credentials and login
-    const response = await fetch('http://localhost:8055/api/debug/recreate-test-users', {
-      method: 'POST'
-    });
-    const result = await response.json();
-    const testPassword = result.details?.user_passwords?.test;
-
-    // Login with test user
-    await page.goto('/login');
-    await page.waitForLoadState('networkidle');
-    await page.fill('input[type="text"]', 'test');
-    await page.fill('input[type="password"]', testPassword);
-    await page.click('button[type="submit"]');
-    await page.waitForURL('/', { timeout: 15000 });
+    // Login as test user
+    await loginAsTestUser(page, testPasswords.test);
 
     // Upload a photo to create Hillview content
-    await page.goto('/photos');
-    await page.waitForLoadState('networkidle');
-
-    const fileInput = page.locator('[data-testid="photo-file-input"]');
-    await fileInput.setInputFiles('test-assets/2025-07-10-19-10-37_🔶∏🗿↻🌞🌲.jpg');
-    const uploadButton = page.locator('[data-testid="upload-submit-button"]');
-    await uploadButton.click();
-
-    // Wait for upload completion
-    await page.waitForFunction(() => {
-      const input = document.querySelector('[data-testid="photo-file-input"]') as HTMLInputElement;
-      return input && input.value === '';
-    }, { timeout: 10000 });
+    await uploadPhoto(page, testPhotos[0]);
 
     // Go to main map view where Photo.svelte is used
     await page.goto('/');

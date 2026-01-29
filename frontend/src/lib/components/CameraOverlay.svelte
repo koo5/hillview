@@ -64,15 +64,13 @@
         </div>
     {:else if locationData}
         <div class="location-row">
+        {#if locationData.heading !== null && locationData.heading !== undefined}
+                <span class="icon">🧭</span>
+                <span>{locationData.heading.toFixed(1)}°</span>
+        {/if}
             <span class="icon">📍</span>
             <span>{locationData.latitude?.toFixed(6)}°, {locationData.longitude?.toFixed(6)}°</span>
         </div>
-        {#if locationData.heading !== null && locationData.heading !== undefined}
-            <div class="location-row">
-                <span class="icon">🧭</span>
-                <span>{locationData.heading.toFixed(1)}°</span>
-            </div>
-        {/if}
         {#if locationData.altitude !== null && locationData.altitude !== undefined}
             <div class="location-row">
                 <span class="icon">⛰️</span>
@@ -146,6 +144,7 @@
     .location-overlay {
         position: absolute;
         top: 80px;
+		top: calc(60px + var(--safe-area-inset-top, 0px));
         left: 0rem;
         padding: 0rem;
         border-radius: 8px;

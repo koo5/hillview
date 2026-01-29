@@ -39,6 +39,7 @@
 </div>
 
 {#if alertMessage}
+	<!-- protrudes into content area -->
 	<div class="alert alert-{alertType}">
 		{alertMessage}
 	</div>

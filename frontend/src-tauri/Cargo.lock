@@ -1605,6 +1605,7 @@ dependencies = [
  "dirs 5.0.1",
  "futures",
  "image",
+ "imagesize",
  "img-parts",
  "kamadak-exif",
  "log",
@@ -1614,6 +1615,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-deep-link",
+ "tauri-plugin-edge-to-edge",
  "tauri-plugin-fs",
  "tauri-plugin-hillview",
  "tauri-plugin-opener",
@@ -1885,6 +1887,12 @@ dependencies = [
  "qoi",
  "tiff",
 ]
+
+[[package]]
+name = "imagesize"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "edcd27d72f2f071c64249075f42e205ff93c9a4c5f6c6da53e79ed9f9832c285"
 
 [[package]]
 name = "img-parts"
@@ -4113,6 +4121,18 @@ dependencies = [
  "url",
  "windows-registry",
  "windows-result 0.3.4",
+]
+
+[[package]]
+name = "tauri-plugin-edge-to-edge"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "80ca12cf0907cf15d9a26aecf8b4f99da21339e3e2e716593f95cd0fb8050a55"
+dependencies = [
+ "serde",
+ "tauri",
+ "tauri-plugin",
+ "thiserror 2.0.17",
 ]
 
 [[package]]

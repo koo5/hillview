@@ -37,32 +37,30 @@
 """
 
 import os
+import sys
 import logging
 import base64
 import json
 from pathlib import Path
 from typing import Optional, Dict, Any
 from datetime import datetime, timezone
+
 import aiofiles
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives import serialization
 from pydantic import BaseModel
-
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Request
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from geoalchemy2.functions import ST_Point, ST_X, ST_Y
 
-import sys
-import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 
 from push_notifications import send_activity_broadcast_notification
-
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
-from common.models import Photo, User, PhotoRating, PhotoRatingType
+from common.models import Photo, User, PhotoRating, PhotoRatingType, UserPublicKey
 from auth import get_current_active_user
 from common.file_utils import (
 	validate_and_prepare_photo_file,
@@ -197,7 +195,6 @@ async def save_processed_photo(
 		)
 
 	# Get client's public key for signature verification
-	from common.models import UserPublicKey
 	key_result = await db.execute(
 		select(UserPublicKey).where(
 			UserPublicKey.user_id == photo.owner_id,
@@ -285,6 +282,7 @@ async def save_processed_photo(
 		await send_activity_broadcast_notification(db, photo.owner_id)
 	except Exception as e:
 		logger.warning(f"Failed to send activity broadcast notification for photo {photo_id}: {e}")
+	logger.warning(f"Failed to send activity broadcast notification for photo {photo_id}.")
 		# Don't re-raise - photo upload succeeded, notification is non-critical
 
 	return {
@@ -337,7 +335,6 @@ async def upload_processed_file(
 			)
 
 		# Get client's public key for signature verification
-		from common.models import UserPublicKey
 		key_result = await db.execute(
 			select(UserPublicKey).where(
 				UserPublicKey.user_id == photo.owner_id,
@@ -458,7 +455,6 @@ async def list_photos(
 			base_query = base_query.where(Photo.processing_status == "completed")
 
 		# Get counts by processing status (separate query for performance)
-		from sqlalchemy import func
 		counts_result = await db.execute(
 			select(Photo.processing_status, func.count(Photo.id))
 			.where(Photo.owner_id == str(current_user.id))
@@ -476,7 +472,6 @@ async def list_photos(
 		query = base_query
 		if cursor:
 			try:
-				from datetime import datetime, timezone
 				# Handle both Z and +00:00 timezone formats, and fix URL decoding issues
 				cursor_fixed = cursor
 				if cursor.endswith('Z'):
@@ -578,7 +573,6 @@ async def get_photo_count(
 
 	try:
 		# Get counts by processing status
-		from sqlalchemy import func
 		counts_result = await db.execute(
 			select(Photo.processing_status, func.count(Photo.id))
 			.where(Photo.owner_id == str(current_user.id))

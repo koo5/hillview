@@ -39,7 +39,8 @@ pub fn run() {
         }
         info!("🢄Current dir: {:?}", std::env::current_dir());
     }
-    tauri::Builder::default()
+    match tauri::Builder::default()
+        .plugin(tauri_plugin_edge_to_edge::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_os::init())
@@ -83,5 +84,11 @@ pub fn run() {
             Ok(())
         })
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+    {
+        Ok(()) => info!("Application exited normally"),
+        Err(e) => {
+            log::error!("Tauri application failed to start: {:?}", e);
+            std::process::exit(1); // Clean exit instead of panic
+        }
+    }
 }

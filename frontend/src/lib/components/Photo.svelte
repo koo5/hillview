@@ -11,10 +11,30 @@
 	import {simplePhotoWorker} from '$lib/simplePhotoWorker';
 	import {zoomViewData} from '$lib/zoomView.svelte.js';
 	import {singleTap} from '$lib/actions/singleTap';
+	import {portal} from '$lib/actions/portal';
 	import {getFullPhotoInfo} from '$lib/photoUtils';
 	import type {PhotoData} from '$lib/sources';
 
 	export let photo: PhotoData | null = null;
+
+	// Track pending timeouts for cleanup
+	const pendingTimeouts = new Set<ReturnType<typeof setTimeout>>();
+
+	function scheduleTimeout(callback: () => void, delay: number): ReturnType<typeof setTimeout> {
+		const id = setTimeout(() => {
+			pendingTimeouts.delete(id);
+			callback();
+		}, delay);
+		pendingTimeouts.add(id);
+		return id;
+	}
+
+	onDestroy(() => {
+		for (const id of pendingTimeouts) {
+			clearTimeout(id);
+		}
+		pendingTimeouts.clear();
+	});
 	export let className = '';
 	export let clientWidth: number | undefined = undefined;
 	export let onInteraction: (() => void) | undefined = undefined;
@@ -200,7 +220,9 @@
 
 	// Helper functions to determine photo source and get user info
 	function getPhotoSource(photo: PhotoData): string {
-		if (!photo?.source?.id) throw new Error('Photo source information is missing');
+		if (typeof photo.source === 'string')
+			return photo.source;
+		if (!photo.source?.id) throw new Error('photo?.source?.id is missing:' + JSON.stringify(photo));
 		return photo.source.id;
 	}
 
@@ -244,7 +266,7 @@
 		const userId = getUserId(photo);
 		if (!userId) {
 			hideMessage = 'Cannot hide user: User information not available';
-			setTimeout(() => hideMessage = '', 5000);
+			scheduleTimeout(() => hideMessage = '', 5000);
 			showHideUserDialog = false;
 			return;
 		}
@@ -275,12 +297,12 @@
 			simplePhotoWorker.removeUserPhotosFromCache?.(userId, photoSource);
 
 			hideMessage = 'User hidden successfully';
-			setTimeout(() => hideMessage = '', 2000);
+			scheduleTimeout(() => hideMessage = '', 2000);
 			showHideUserDialog = false;
 		} catch (error) {
 			console.error('🢄Error hiding user:', error);
 			hideMessage = `Error: ${handleApiError(error)}`;
-			setTimeout(() => hideMessage = '', 5000);
+			scheduleTimeout(() => hideMessage = '', 5000);
 		} finally {
 			isHiding = false;
 		}
@@ -398,7 +420,7 @@
 
 <!-- Hide User Confirmation Dialog -->
 {#if showHideUserDialog}
-	<div class="dialog-overlay">
+	<div class="dialog-overlay" use:portal>
 		<div class="dialog">
 			<h3>Hide User</h3>
 			<p>This will hide all photos by
@@ -410,6 +432,7 @@
 				<input
 					id="hide-reason"
 					type="text"
+
 					bind:value={hideUserReason}
 					placeholder="e.g., Inappropriate content, spam, etc."
 					maxlength="100"
@@ -538,7 +561,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		z-index: 1000;
+		z-index: 100000;
 		animation: fadeIn 0.2s ease;
 	}
 

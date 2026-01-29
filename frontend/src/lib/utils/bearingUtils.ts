@@ -1,13 +1,17 @@
 import Angles from 'angles';
 
 /**
- * Calculate the bearing color based on the absolute bearing difference
+ * Calculate the bearing color based on the absolute bearing difference.
+ * Uses green with varying opacity - more opaque when bearing is closer.
  * @param abs_bearing_diff - Absolute difference in bearing (0-180 degrees)
- * @returns HSL color string
+ * @returns HSLA color string (green with varying opacity)
  */
 export function getBearingColor(abs_bearing_diff: number | null): string {
     if (abs_bearing_diff === null || abs_bearing_diff === undefined) return '#9E9E9E'; // grey
-    return 'hsl(' + Math.round(100 - abs_bearing_diff / 2) + ', 100%, 70%)';
+    const steps = 8;
+    const step = Math.round(abs_bearing_diff / (200 / (steps - 1)));
+    const opacity = step > 0 ? 1 / step : 1;
+    return `hsla(120, 100%, 70%, ${opacity})`;
 }
 
 /**

@@ -8,3 +8,6 @@ piexif
 
 # For JWT testing and mocking
 cryptography==44.0.1
+
+# Type checking
+pyright>=1.1.350

@@ -11,12 +11,8 @@ import logging
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
+from common.SecurityExceptions import SecurityValidationError
 
-try:
-	from password_strength import PasswordPolicy
-	_PASSWORD_STRENGTH_AVAILABLE = True
-except ImportError:
-	_PASSWORD_STRENGTH_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -37,9 +33,7 @@ SAFE_FILENAME_PATTERN = re.compile(r'^[a-zA-Z0-9_\-\.]+$')
 USERNAME_PATTERN = re.compile(r'^[a-zA-Z0-9_\-]{3,30}$')
 EMAIL_PATTERN = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
 
-class SecurityValidationError(Exception):
-	"""Exception raised when security validation fails."""
-	pass
+
 
 def sanitize_filename(filename: str) -> str:
 	"""Sanitize a filename to prevent path traversal and other attacks."""
@@ -265,53 +259,6 @@ def validate_image_dimensions(width: int, height: int) -> bool:
 		logger.error(f"Invalid image dimensions: {e}")
 		return False
 
-def validate_password_basic(password: str) -> str:
-	"""Validate password strength requirements."""
-	if not isinstance(password, str):
-		raise SecurityValidationError("Password must be a string")
-
-	# Check basic length requirements
-	if len(password) < 8:
-		raise SecurityValidationError("Password must be at least 8 characters long")
-
-	if len(password) > 128:
-		raise SecurityValidationError("Password must not exceed 128 characters")
-
-	# Use password-strength library if available, otherwise fallback to basic checks
-	if _PASSWORD_STRENGTH_AVAILABLE:
-		policy = PasswordPolicy.from_names(
-			strength=0.5  # need a password that scores at least 0.5 with its strength
-		)
-
-		# Test the password
-		issues = policy.test(password)
-		if issues:
-			# Convert issues to readable error messages
-			error_messages = []
-			for issue in issues:
-				if hasattr(issue, '__class__'):
-					error_messages.append(str(issue))
-			if error_messages:
-				raise SecurityValidationError(f"Password is too weak: {', '.join(error_messages)}")
-	else:
-		# Fallback to basic validation
-		# Check for at least one lowercase letter
-		if not re.search(r'[a-z]', password):
-			raise SecurityValidationError("Password must contain at least one lowercase letter")
-
-		# Check for at least one uppercase letter or digit
-		if not (re.search(r'[A-Z]', password) or re.search(r'[0-9]', password)):
-			raise SecurityValidationError("Password must contain at least one uppercase letter or digit")
-
-		# Check for common weak passwords
-		weak_passwords = {
-			"password", "password123", "12345678", "qwerty", "abc123", "letmein",
-			"welcome", "monkey", "123456789", "password1", "admin", "administrator"
-		}
-		if password.lower() in weak_passwords:
-			raise SecurityValidationError("Password is too common and easily guessable")
-
-	return password
 
 def validate_filesystem_safe_id(id_string: str, field_name: str = "ID") -> str:
 	"""Validate ID contains only filesystem-safe characters (alphanumerics and dashes)."""
@@ -390,14 +337,14 @@ def validate_client_key_id_fingerprint(client_key_id: str, public_key_pem: str) 
 		logger.error(f"Error validating client key ID fingerprint: {e}")
 		return False
 
-def verify_ecdsa_signature(signature_base64: str, public_key_pem: str, message_data: Dict[str, Any]) -> bool:
+def verify_ecdsa_signature(signature_base64: str, public_key_pem: str, message_data: any) -> bool:
 	"""
 	Verify ECDSA P-256 signature using the client's public key.
 
 	Args:
 		signature_base64: Base64-encoded ECDSA signature
 		public_key_pem: PEM-formatted ECDSA P-256 public key
-		message_data: Dictionary containing the signed data
+		message_data: list containing the signed data
 
 	Returns:
 		True if signature is valid, False otherwise

@@ -1,13 +1,8 @@
-
 import * as Sentry from "@sentry/sveltekit";
 import {handleErrorWithSentry, replayIntegration} from "@sentry/sveltekit";
-
-
 import {invoke} from "@tauri-apps/api/core";
 import {backendUrl} from "$lib/config";
 import {TAURI} from "$lib/tauri";
-import {getCurrent} from "@tauri-apps/plugin-deep-link";
-import {navigateWithHistory} from "$lib/navigation.svelte";
 
 
 
@@ -28,10 +23,8 @@ if (sentryEnabled)
 {
 	console.log('🢄Initializing Sentry');
 	Sentry.init({
-		dsn: import.meta.env.VITE_SENTRY_DSN || 'https://0cd95912362bc25ef123532e78c3d594@o4509657094881280.ingest.de.sentry.io/4509657109692496',
-
+		dsn: import.meta.env.VITE_SENTRY_DSN,
 		_experiments: {enableLogs: true},
-
 		tracesSampleRate: 1.0,
 
 		// This sets the sample rate to be 10%. You may want this to be 100% while

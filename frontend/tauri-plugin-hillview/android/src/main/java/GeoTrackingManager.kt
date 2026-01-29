@@ -247,11 +247,11 @@ class GeoTrackingManager(private val context: Context) {
 			}
 
 			// Always clear old data
-			val cutoff = now// - 5 * 60 * 1000
+			val cutoff = now - 1000 * 60 * 5
 
 			try {
-				//database.bearingDao().clearBearingsOlderThan(cutoff)
-				//database.locationDao().clearLocationsOlderThan(cutoff)
+				database.bearingDao().clearBearingsOlderThan(cutoff)
+				database.locationDao().clearLocationsOlderThan(cutoff)
 				Log.i(TAG, "🢄📡 Geo tracking tables cleared")
 			} catch (e: Exception) {
 				Log.e(TAG, "🢄📡 Failed to clear geo tracking tables: ${e.message}", e)

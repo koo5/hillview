@@ -52,16 +52,17 @@ impl<R: Runtime> Hillview<R> {
       .map_err(Into::into)
   }
 
-  pub fn set_auto_upload_enabled(&self, enabled: bool, prompt_enabled: bool) -> crate::Result<AutoUploadResponse> {
+  pub fn set_auto_upload_enabled(&self, enabled: bool, prompt_enabled: bool, wifi_only: bool) -> crate::Result<AutoUploadResponse> {
     #[derive(serde::Serialize)]
     struct Args {
       enabled: bool,
       prompt_enabled: bool,
+      wifi_only: bool,
     }
 
     self
       .0
-      .run_mobile_plugin("setAutoUploadEnabled", Args { enabled, prompt_enabled })
+      .run_mobile_plugin("setAutoUploadEnabled", Args { enabled, prompt_enabled, wifi_only })
       .map_err(Into::into)
   }
 

@@ -45,154 +45,84 @@ export class CullingGrid {
     }
 
     /**
-     * Apply priority-based culling with hash deduplication and lazy evaluation
+     * Apply priority-based culling with hash deduplication and round-robin selection
+     * Matches Kotlin implementation: true round-robin across all cells until maxPhotos reached
      */
     cullPhotos(photosPerSource: Map<SourceId, PhotoData[]>, maxPhotos: number): PhotoData[] {
         if (photosPerSource.size === 0 || maxPhotos <= 0) {
             return [];
         }
 
-        const totalCells = this.GRID_SIZE * this.GRID_SIZE;
-        const photosPerCell = Math.max(1, Math.floor(maxPhotos / totalCells));
-
         // Create grid to store photos by cell
         const cellGrid = new Map<CellKey, CellPhotos>();
 
-        // Process each grid cell lazily
-		// FIXME: this only allows up to photosPerCell photos per cell, what we want to do is keep filling cells until we reach maxPhotos total
-		/*
+        // Sort sources by priority (device first, mapillary last)
+        const sortedSourceIds = Array.from(photosPerSource.keys()).sort((a, b) => {
+            return this.getSourcePriority(a) - this.getSourcePriority(b);
+        });
 
-		it should work like this with coroutines:
+        // Populate grid cells with photos from each source (by priority order)
+        for (const sourceId of sortedSourceIds) {
+            const photos = photosPerSource.get(sourceId);
+            if (!photos) continue;
 
-		state = {}
-		photos = []
-		while len(photos) < maxPhotos:
+            for (const photo of photos) {
+                const cellKey = this.getScreenGridKey(photo);
 
-			deadCells = []
-			# just an id for each cell, 0 to totalCells-1
-			viableCells = [cellId for cellId in range(totalCells)]
-
-			while viableCells not empty and len(photos) < maxPhotos:
-				for cellId in viableCells:
-					state['cellId'] = cellId
-					yield from nextPhotoInCell(state)
-					if photo:
-						photos.append(photo)
-					else:
-						deadCells.append(cellId)
-				viableCells = viableCells - deadCells
-
-		# somehow the coroutine would keep a stash of photos that it has gone over but not used yet, categorized by cell. Once it'd run over a photo in the currently requested cell, it'd yield that, otherwise it would put it into the appropriate cell of the stash for later.
-
-		// def nextPhotoInCell(state):
-		// 	gridsBySource = {}
-		// 	for source in sourcesByPriority:
-		// 		gridsBySource[source] = {}
-		// 		for photo in photosPerSource[source]:
-		// 			cellKey = getScreenGridKey(photo)
-		//
-		// 			if cellKey == cellId:
-		// 				yield photo
-		// 			else:
-		// 				# store it for later
-		// 				if cellKey not in gridsBySource[source]:
-		// 					gridsBySource[source][cellKey] = []
-		// 				gridsBySource[source][cellKey].append(photo)
-
-		 */
-        for (let row = 0; row < this.GRID_SIZE; row++) {
-            for (let col = 0; col < this.GRID_SIZE; col++) {
-                const cellKey: CellKey = `${row},${col}`;
-                const cellData: CellPhotos = { photos: [], hashToIndex: new Map() };
-
-                this.fillCell(cellKey, cellData, photosPerSource, photosPerCell);
-
-                if (cellData.photos.length > 0) {
+                // Get or create cell
+                let cellData = cellGrid.get(cellKey);
+                if (!cellData) {
+                    cellData = { photos: [], hashToIndex: new Map() };
                     cellGrid.set(cellKey, cellData);
                 }
+
+                // Check for duplicates using file hash
+                if (photo.file_hash && cellData.hashToIndex.has(photo.file_hash)) {
+                    continue; // Skip duplicate photo
+                }
+
+                // Add hash mapping if present
+                if (photo.file_hash) {
+                    cellData.hashToIndex.set(photo.file_hash, cellData.photos.length);
+                }
+
+                cellData.photos.push(photo);
             }
         }
 
-        // Flatten all photos from cells
-        const selectedPhotos: PhotoData[] = [];
-        for (const cellData of cellGrid.values()) {
-            selectedPhotos.push(...cellData.photos);
-        }
+        // Round-robin selection across all cells until maxPhotos reached
+        const result: PhotoData[] = [];
+        const cellIterators = Array.from(cellGrid.values()).map(cell => ({
+            photos: cell.photos,
+            index: 0
+        }));
 
-        // Limit to maxPhotos if we exceeded
-        const finalPhotos = selectedPhotos.slice(0, maxPhotos);
+        let round = 0;
+        while (result.length < maxPhotos && cellIterators.length > 0) {
+            round++;
+            const exhaustedIndices: number[] = [];
 
-        console.log(`CullingGrid: Priority-culled ${photosPerSource.size} sources (${Array.from(photosPerSource.values()).reduce((sum, photos) => sum + photos.length, 0)} total photos) down to ${finalPhotos.length} photos with geographic distribution`);
+            for (let i = cellIterators.length - 1; i >= 0; i--) {
+                if (result.length >= maxPhotos) break;
 
-        return finalPhotos;
-    }
-
-    private fillCell(cellKey: CellKey, cellData: CellPhotos, photosPerSource: Map<SourceId, PhotoData[]>, photosPerCell: number): void {
-        let photosNeeded = photosPerCell;
-
-        // Process sources by priority (1 = highest priority)
-        const priorities = [1, 2, 3, 4] as const;
-
-        for (const priority of priorities) {
-            if (photosNeeded <= 0) break;
-
-            for (const [sourceId, photos] of photosPerSource.entries()) {
-                if (photosNeeded <= 0) break;
-
-                const sourcePriority = this.getSourcePriority(sourceId);
-                if (sourcePriority !== priority) continue;
-
-                const photosInCell = this.getPhotosInCell(photos, cellKey);
-                if (photosInCell.length === 0) continue;
-
-                if (priority === SOURCE_PRIORITY.device) {
-                    // Priority 1: Device photos (take first N, already sorted by created_at DESC)
-                    const toTake = Math.min(photosNeeded, photosInCell.length);
-                    const devicePhotos = photosInCell.slice(0, toTake);
-
-                    // Add to cell and build hash index
-                    for (const photo of devicePhotos) {
-                        const index = cellData.photos.length;
-                        cellData.photos.push(photo);
-
-                        if (photo.file_hash) {
-                            cellData.hashToIndex.set(photo.file_hash, index);
-                        }
-                    }
-
-                    photosNeeded -= devicePhotos.length;
-
-                } else if (priority === SOURCE_PRIORITY.hillview) {
-                    // Priority 2: Hillview photos with hash replacement (already sorted by created_at DESC)
-                    for (const hillviewPhoto of photosInCell) {
-                        if (photosNeeded <= 0) break;
-
-                        if (hillviewPhoto.file_hash) {
-                            const matchIndex = cellData.hashToIndex.get(hillviewPhoto.file_hash);
-                            if (matchIndex !== undefined) {
-                                // Replace device photo with hillview photo (embed device photo)
-                                const devicePhoto = cellData.photos[matchIndex];
-                                cellData.photos[matchIndex] = {
-                                    ...hillviewPhoto,
-                                    device_photo: devicePhoto
-                                } as PhotoData;
-                                continue; // Don't decrement photosNeeded for replacement
-                            }
-                        }
-
-                        // No duplicate found, add new hillview photo
-                        cellData.photos.push(hillviewPhoto);
-                        photosNeeded--;
-                    }
-
+                const iterator = cellIterators[i];
+                if (iterator.index < iterator.photos.length) {
+                    result.push(iterator.photos[iterator.index]);
+                    iterator.index++;
                 } else {
-                    // Priority 3 & 4: Other sources (order doesn't matter, just take first N)
-                    const toTake = Math.min(photosNeeded, photosInCell.length);
-                    cellData.photos.push(...photosInCell.slice(0, toTake));
-                    photosNeeded -= toTake;
+                    exhaustedIndices.push(i);
                 }
             }
+
+            // Remove exhausted iterators
+            for (const index of exhaustedIndices) {
+                cellIterators.splice(index, 1);
+            }
         }
+
+        console.log(`CullingGrid: Round-robin culled ${photosPerSource.size} sources (${Array.from(photosPerSource.values()).reduce((sum, photos) => sum + photos.length, 0)} total photos) down to ${result.length} photos in ${round} rounds across ${cellGrid.size} cells`);
+
+        return result;
     }
 
     private getSourcePriority(sourceId: SourceId): Priority {
@@ -200,18 +130,6 @@ export class CullingGrid {
         if (sourceId === 'hillview') return SOURCE_PRIORITY.hillview;
         if (sourceId === 'mapillary') return SOURCE_PRIORITY.mapillary;
         return SOURCE_PRIORITY.other;
-    }
-
-    private getPhotosInCell(photos: PhotoData[], cellKey: CellKey): PhotoData[] {
-        const photosInCell: PhotoData[] = [];
-
-        for (const photo of photos) {
-            if (this.getScreenGridKey(photo) === cellKey) {
-                photosInCell.push(photo);
-            }
-        }
-
-        return photosInCell;
     }
 
     private getScreenGridKey(photo: PhotoData): CellKey {

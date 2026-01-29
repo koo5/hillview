@@ -12,6 +12,7 @@
 	import StandardBody from "$lib/components/StandardBody.svelte";
 	import SettingsSectionHeader from "$lib/components/SettingsSectionHeader.svelte";
 	import SettingsSectionDivider from "$lib/components/SettingsSectionDivider.svelte";
+	import {app} from "$lib/data.svelte";
 
 	let autoExportEnabled = false;
 
@@ -120,6 +121,30 @@
 		</p>
 
 		<div class="section-divider"></div>
+
+		{#if $app.debug_enabled}
+			<SettingsSectionDivider />
+			<SettingsSectionHeader>Client Key</SettingsSectionHeader>
+			<p>Your client key is used to identify your device to the Hillview server. It is generated when you first run the app.</p>
+			<p>
+			<button
+				on:click={async () => {
+					try {
+						await invoke('plugin:hillview|cmd', { command: 'force_new_key' });
+						alert('A new client key has been generated. Maybe uploads will work now :)');
+					}
+					catch (error) {
+						console.error('Failed to generate new client key:', error);
+						alert('Failed to generate new client key.');
+					}
+				} } >
+				Generate New Client Key
+			</button>
+			</p>
+		{/if}
+
+		<div class="section-divider"></div>
+
 	{/if}
 	<br/>
 	<br/>
