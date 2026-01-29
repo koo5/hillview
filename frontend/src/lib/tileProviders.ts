@@ -78,8 +78,8 @@ export const AVAILABLE_PROVIDERS = {
 export type ProviderName = keyof typeof AVAILABLE_PROVIDERS;
 
 // Default tile provider
-export const DEFAULT_TILE_PROVIDER: ProviderName = //'tiles.ueueeu.eu'
-'OpenStreetMap.Mapnik';
+export const DEFAULT_TILE_PROVIDER: ProviderName = 'tiles4.ueueeu.eu';
+//'OpenStreetMap.Mapnik';
 
 // Current selected provider (can be changed at runtime)
 export const currentTileProvider = localStorageSharedStore<ProviderName>('currentTileProvider', DEFAULT_TILE_PROVIDER);

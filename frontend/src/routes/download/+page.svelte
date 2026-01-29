@@ -104,7 +104,8 @@
 
 		<br/><br/><br/><br/><br/><br/>
 			<MyExternalLink href="https://play.google.com/store/apps/details?id=cz.hillview" >Hillview on Google Play Store (Closed testing)</MyExternalLink>
-
+		<br/>
+			<MyExternalLink href="https://play.google.com/apps/testing/cz.hillview" >Hillview Closed Testing Program Link</MyExternalLink>
     </div>
 </StandardBody>
 
