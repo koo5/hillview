@@ -457,10 +457,13 @@ export const optimizedMarkerSystem = new OptimizedMarkerSystem();
  * This is more robust than inline onclick handlers (works in production builds)
  */
 export function setupMarkerClickDelegation(mapContainer: HTMLElement) {
-	// Track touch start position to distinguish taps from drags
+	// Track start positions to distinguish clicks/taps from drags
+	let mouseStartX = 0;
+	let mouseStartY = 0;
 	let touchStartX = 0;
 	let touchStartY = 0;
-	const TAP_THRESHOLD = 10; // pixels - movement less than this is considered a tap
+	let isDragging = false;
+	const TAP_THRESHOLD = 10; // pixels - movement less than this is considered a tap/click
 
 	const handleMarkerClick = (photoId: string) => {
 		// Find the photo in active markers and trigger callback
@@ -477,7 +480,33 @@ export function setupMarkerClickDelegation(mapContainer: HTMLElement) {
 		}
 	};
 
+	// Track mouse down position for drag detection
+	mapContainer.addEventListener('mousedown', (e: MouseEvent) => {
+		mouseStartX = e.clientX;
+		mouseStartY = e.clientY;
+		isDragging = false;
+	}, true);
+
+	// Check if mouse moved too much (dragging)
+	mapContainer.addEventListener('mousemove', (e: MouseEvent) => {
+		if (mouseStartX !== 0 || mouseStartY !== 0) {
+			const deltaX = Math.abs(e.clientX - mouseStartX);
+			const deltaY = Math.abs(e.clientY - mouseStartY);
+			if (deltaX > TAP_THRESHOLD || deltaY > TAP_THRESHOLD) {
+				isDragging = true;
+			}
+		}
+	}, true);
+
 	const handleClick = (e: Event) => {
+		// Ignore clicks if we detected dragging
+		if (isDragging) {
+			isDragging = false;
+			mouseStartX = 0;
+			mouseStartY = 0;
+			return;
+		}
+
 		const target = e.target as HTMLElement;
 		const markerContainer = target.closest('.marker-container[data-photo-id]') as HTMLElement;
 
@@ -488,6 +517,10 @@ export function setupMarkerClickDelegation(mapContainer: HTMLElement) {
 				handleMarkerClick(photoId);
 			}
 		}
+
+		// Reset mouse tracking
+		mouseStartX = 0;
+		mouseStartY = 0;
 	};
 
 	mapContainer.addEventListener('click', handleClick, true);
