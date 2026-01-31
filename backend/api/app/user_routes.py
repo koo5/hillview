@@ -21,7 +21,7 @@ from pydantic import BaseModel
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
 from common.models import User, UserPublicKey, Photo
-from common.utc import utcnow
+from common.utc import utcnow, format_utc
 from photos import delete_all_user_photo_files
 from jwt_service import create_upload_authorization_token
 from auth import (
@@ -1567,7 +1567,7 @@ async def get_users(
                 "id": user.id,
                 "username": user.username,
                 "photo_count": stats['count'],
-                "latest_photo_at": stats['latest_at'].isoformat() if stats['latest_at'] else None,
+                "latest_photo_at": format_utc(stats['latest_at']),
                 "latest_photo_url": latest_photo_url
             }
             user_list.append(user_data)
@@ -1653,8 +1653,8 @@ async def get_user_photos(
             photo_data = {
                 "id": photo.id,
                 "original_filename": photo.original_filename,
-                "uploaded_at": photo.uploaded_at.isoformat() if photo.uploaded_at else None,
-                "captured_at": photo.captured_at.isoformat() if photo.captured_at else None,
+                "uploaded_at": format_utc(photo.uploaded_at),
+                "captured_at": format_utc(photo.captured_at),
                 "processing_status": photo.processing_status,
                 "latitude": latitude,
                 "longitude": longitude,
@@ -1679,7 +1679,7 @@ async def get_user_photos(
         # Prepare pagination info
         next_cursor = None
         if has_more and photo_results:
-            next_cursor = photo_results[-1][0].uploaded_at.isoformat()
+            next_cursor = format_utc(photo_results[-1][0].uploaded_at)
 
         return {
             "photos": photo_list,

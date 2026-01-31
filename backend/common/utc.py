@@ -82,13 +82,41 @@ def is_expired(expires_at: datetime, now: Optional[datetime] = None) -> bool:
 def ensure_timezone_aware(dt: datetime) -> datetime:
 	"""
 	Ensure datetime is timezone-aware, assuming UTC if naive.
-	
+
 	Args:
 		dt: Datetime that may or may not have timezone info
-		
+
 	Returns:
 		datetime: Timezone-aware datetime
 	"""
 	if dt.tzinfo is None:
 		return dt.replace(tzinfo=timezone.utc)
 	return dt
+
+
+def format_utc(dt: Optional[datetime]) -> Optional[str]:
+	"""
+	Format datetime as ISO 8601 UTC string with 'Z' suffix.
+
+	Handles both timezone-aware and naive datetimes. Naive datetimes
+	are assumed to be UTC. The output format is always:
+	YYYY-MM-DDTHH:MM:SS.ffffffZ
+
+	Args:
+		dt: Datetime to format (may be None, naive, or timezone-aware)
+
+	Returns:
+		str: ISO 8601 string with 'Z' suffix, or None if input is None
+
+	Examples:
+		>>> format_utc(datetime(2024, 1, 15, 10, 30, 45, 123456))
+		'2024-01-15T10:30:45.123456Z'
+	"""
+	if dt is None:
+		return None
+
+	# Convert to UTC if timezone-aware
+	if dt.tzinfo is not None:
+		dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+
+	return dt.isoformat() + 'Z'

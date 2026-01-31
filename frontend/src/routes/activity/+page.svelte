@@ -15,6 +15,7 @@
 		id: string;
 		original_filename: string;
 		uploaded_at: string;
+		captured_at?: string;
 		processing_status: string;
 		latitude?: number;
 		longitude?: number;
@@ -135,7 +136,7 @@
 		} else if (date.toDateString() === yesterday.toDateString()) {
 			return 'Yesterday';
 		} else {
-			return date.toLocaleDateString('en-US', {
+			return date.toLocaleDateString(undefined, {
 				weekday: 'long',
 				year: 'numeric',
 				month: 'long',
@@ -211,7 +212,7 @@
 										<PhotoItem
 											{photo}
 											variant="thumbnail"
-											showDates={false}
+											showDates={true}
 											showTime={true}
 											showDescription={false}
 										/>

@@ -14,7 +14,8 @@ import json
 import base64
 import time
 import os
-from datetime import datetime
+from datetime import timedelta
+from common.utc import utcnow, format_utc
 from typing import Dict, Any, Optional
 import sys
 import pytest
@@ -180,27 +181,16 @@ class SecureUploadClient:
 				raise Exception(f"Upload authorization failed: {response.status_code} - {response.text}")
 
 	async def authorize_upload(self, auth_token: str, filename: str = "secure_test.jpg", **kwargs):
-		"""Test Phase 2: Request upload authorization from API."""
-		# Generate MD5 hash for test data
-		import hashlib
-		file_md5 = hashlib.md5(f"{filename}_5120".encode()).hexdigest()
-
-		upload_request = {
-			"filename": filename,
-			"content_type": "image/jpeg",
-			"file_size": 5120,
-			"file_md5": file_md5,  # Add required MD5 hash
-			"client_key_id": getattr(self, 'key_id', None),  # Add required client key ID
-			"latitude": 50.0755,
-			"longitude": 14.4378,
-			"description": "End-to-end secure upload test",
-			"is_public": True
-		}
-
-		if not upload_request["client_key_id"]:
-			raise Exception("client_key_id is required - make sure to call register_client_key first")
-
-		auth_data = await self._request_upload_authorization(auth_token, upload_request)
+		"""Test Phase 2: Request upload authorization from API with default test values."""
+		auth_data = await self.authorize_upload_with_params(
+			auth_token=auth_token,
+			filename=filename,
+			file_size=5120,
+			latitude=50.0755,
+			longitude=14.4378,
+			description="End-to-end secure upload test",
+			is_public=True
+		)
 		print(f"✅ Phase 2: Upload authorization successful")
 		print(f"   Photo ID: {auth_data['photo_id']}")
 		print(f"   Worker URL: {auth_data['worker_url']}")
@@ -208,26 +198,30 @@ class SecureUploadClient:
 
 	async def authorize_upload_with_params(self, auth_token: str, filename: str, file_size: int,
 										   latitude: float, longitude: float, description: str,
-										   is_public: bool = True, file_data: bytes = None):
+										   is_public: bool = True, file_data: bytes = None,
+										   captured_at: str = None):
 		"""Request upload authorization with custom parameters."""
-		# Calculate MD5 hash for the file data
 		import hashlib
 		if file_data:
 			file_md5 = hashlib.md5(file_data).hexdigest()
 		else:
-			# Generate a fake MD5 for test data if no file_data provided
 			file_md5 = hashlib.md5(f"{filename}_{file_size}".encode()).hexdigest()
+
+		# Default captured_at to 10 minutes before upload (UTC)
+		if captured_at is None:
+			captured_at = format_utc(utcnow() - timedelta(minutes=10))
 
 		upload_request = {
 			"filename": filename,
 			"content_type": "image/jpeg",
 			"file_size": file_size,
-			"file_md5": file_md5,  # Add required MD5 hash
-			"client_key_id": getattr(self, 'key_id', None),  # Add required client key ID
+			"file_md5": file_md5,
+			"client_key_id": getattr(self, 'key_id', None),
 			"latitude": latitude,
 			"longitude": longitude,
 			"description": description,
-			"is_public": is_public
+			"is_public": is_public,
+			"captured_at": captured_at
 		}
 
 		if not upload_request["client_key_id"]:

@@ -17,7 +17,7 @@ from geoalchemy2.shape import from_shape, to_shape
 from shapely.geometry import Point, Polygon
 from shapely.ops import unary_union
 
-from common.utc import utcnow
+from common.utc import utcnow, format_utc
 from common.models import CachedRegion, MapillaryPhotoCache
 from common.database import get_db
 
@@ -183,7 +183,7 @@ class MapillaryCacheService:
 				"computed_bearing": row.computed_compass_angle,
 				"computed_rotation": row.computed_rotation,
 				"computed_altitude": row.computed_altitude,
-				"captured_at": row.captured_at.isoformat() if row.captured_at else None,
+				"captured_at": format_utc(row.captured_at),
 				"is_pano": row.is_pano,
 				"thumb_1024_url": row.thumb_1024_url,
 				"creator": {

@@ -13,6 +13,7 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
 from common.models import Photo, User
+from common.utc import format_utc
 from auth import get_current_user_optional_with_query
 from hidden_content_filters import apply_hidden_content_filters
 from rate_limiter import general_rate_limiter
@@ -84,7 +85,8 @@ async def get_recent_activity(
 			activity_data.append({
 				"id": photo.id,
 				"original_filename": photo.original_filename,
-				"uploaded_at": photo.uploaded_at.isoformat() if photo.uploaded_at else None,
+				"uploaded_at": format_utc(photo.uploaded_at),
+				"captured_at": format_utc(photo.captured_at),
 				"processing_status": photo.processing_status,
 				"latitude": latitude,
 				"longitude": longitude,
@@ -98,7 +100,7 @@ async def get_recent_activity(
 
 			# Set next_cursor to the last photo's uploaded_at timestamp
 			if photo.uploaded_at:
-				next_cursor = photo.uploaded_at.isoformat()
+				next_cursor = format_utc(photo.uploaded_at)
 
 		return {
 			"photos": activity_data,

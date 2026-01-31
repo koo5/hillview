@@ -13,6 +13,7 @@ from geoalchemy2.functions import ST_MakeEnvelope, ST_Within, ST_X, ST_Y
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
 from common.models import Photo, User
+from common.utc import format_utc
 from hidden_content_filters import apply_hidden_content_filters
 from auth import get_current_user_optional_with_query, get_current_user_optional
 from rate_limiter import rate_limit_public_read, general_rate_limiter
@@ -79,7 +80,7 @@ async def get_hillview_images(
 				},
 				'bearing': photo.compass_angle or 0,
 				'computed_altitude': photo.altitude or 0,
-				'captured_at': photo.captured_at.isoformat() if photo.captured_at else None,
+				'captured_at': format_utc(photo.captured_at),
 				'is_pano': False,
 				'filename': photo.filename,
 				'sizes': {},

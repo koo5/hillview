@@ -61,6 +61,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from push_notifications import send_activity_broadcast_notification
 from common.database import get_db
 from common.models import Photo, User, PhotoRating, PhotoRatingType, UserPublicKey
+from common.utc import format_utc
 from auth import get_current_active_user
 from common.file_utils import (
 	validate_and_prepare_photo_file,
@@ -503,7 +504,7 @@ async def list_photos(
 		# Generate next cursor
 		next_cursor = None
 		if has_more and photo_records:
-			next_cursor = photo_records[-1][0].uploaded_at.isoformat()
+			next_cursor = format_utc(photo_records[-1][0].uploaded_at)
 
 		# Fetch ratings for all photos in one query
 		photo_ids = [photo.id for photo, _, _ in photo_records]
@@ -798,7 +799,7 @@ async def get_photo_share_metadata(
 				"thumbnail_url": thumbnail_url,
 				"width": width,
 				"height": height,
-				"captured_at": photo_data.captured_at.isoformat() if hasattr(photo_data, 'captured_at') and photo_data.captured_at else None,
+				"captured_at": format_utc(photo_data.captured_at) if hasattr(photo_data, 'captured_at') else None,
 				"latitude": photo_data.latitude,
 				"longitude": photo_data.longitude
 			}
