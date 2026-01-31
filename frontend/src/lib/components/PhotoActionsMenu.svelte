@@ -442,7 +442,7 @@
     <div class="photo-actions-menu" bind:this={menuElement}>
         <!-- Rating buttons -->
         <button
-            class="action-button rating-button {userRating === 'thumbs_up' ? 'active' : ''}"
+            class="action-button rating-button up {userRating === 'thumbs_up' ? 'active' : ''}"
             on:click={() => handleRatingClick('thumbs_up')}
             disabled={!is_authenticated || isRating}
             title={!is_authenticated ? "Sign in to rate photos" : "Thumbs up"}
@@ -453,7 +453,7 @@
         </button>
 
         <button
-            class="action-button rating-button {userRating === 'thumbs_down' ? 'active' : ''}"
+            class="action-button rating-button down {userRating === 'thumbs_down' ? 'active' : ''}"
             on:click={() => handleRatingClick('thumbs_down')}
             disabled={!is_authenticated || isRating}
             title={!is_authenticated ? "Sign in to rate photos" : "Thumbs down"}
@@ -605,8 +605,19 @@
         color: white;
     }
 
+    .rating-button.active.up {
+        background: rgba(40, 167, 69, 0.8);
+        color: white;
+    }
+
+    .rating-button.active.down {
+        background: rgb(176, 10, 49);
+        color: white;
+    }
+
+
     .rating-button.active:hover:not(:disabled) {
-        background: rgba(40, 167, 69, 1);
+        color: black;
     }
 
     .rating-count {
