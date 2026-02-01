@@ -512,6 +512,9 @@
 									<Trash2 size={16}/>
 									Delete
 								</button>
+<!--								<button class="action-button" disabled>-->
+<!--									More actions-->
+<!--								</button>-->
 							</div>
 							<RetryUploadsButton {photo} {addLogEntry} />
 						</svelte:fragment>
@@ -791,9 +794,7 @@
 
 	.photo-actions {
 		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 8px;
+		gap: 4px;
 		margin-top: 12px;
 	}
 

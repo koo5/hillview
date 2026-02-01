@@ -890,6 +890,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 
 			Log.i(TAG, "📤 [setAutoUploadEnabled] SharedPreferences commit result: $commitSuccess")
 
+			/*
 			// Verify the settings were persisted correctly
 			val verifyEnabled = prefs.getBoolean("auto_upload_enabled", false)
 			val verifyPromptEnabled = prefs.getBoolean("auto_upload_prompt_enabled", true)
@@ -897,7 +898,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 			Log.i(
 				TAG,
 				"📤 [setAutoUploadEnabled] Verification - enabled: $verifyEnabled, promptEnabled: $verifyPromptEnabled, wifiOnly: $verifyWifiOnly"
-			)
+			)*/
 
 			// Schedule or cancel the upload worker based on enabled state
 			val workManager = WorkManager.getInstance(activity)
