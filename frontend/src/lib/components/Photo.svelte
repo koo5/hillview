@@ -30,6 +30,7 @@
 	}
 
 	onDestroy(() => {
+		zoomViewData.set(null);
 		for (const id of pendingTimeouts) {
 			clearTimeout(id);
 		}

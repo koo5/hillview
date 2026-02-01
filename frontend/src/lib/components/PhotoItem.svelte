@@ -8,7 +8,6 @@
 	export let photo: PhotoItemData;
 	export let variant: 'card' | 'thumbnail' = 'card';
 	export let showDates = true;
-	export let showTime = false;
 	export let showDescription = true;
 
 	// State
@@ -94,15 +93,9 @@
 	<div class="photo-info">
 		<h3 class="filename">{photo.original_filename}</h3>
 
-		<!--{#if showTime}-->
-		<!--	<p class="time">{formatTime(photo.uploaded_at)}</p>-->
-		<!--{/if}-->
-
 		{#if showDescription && photo.description}
 			<p class="description">{photo.description}</p>
 		{/if}
-
-		<slot name="actions"></slot>
 
 		{#if hasDetails || (showDates && photo.captured_at)}
 			<div class="captured-row">
@@ -148,6 +141,10 @@
 				{/if}
 			</div>
 		{/if}
+
+		<slot name="actions"></slot>
+
+
 	</div>
 </div>
 

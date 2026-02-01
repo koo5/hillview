@@ -7,7 +7,6 @@
 	import {onMount} from 'svelte';
 	import {get} from 'svelte/store';
 	import {myGoto} from '$lib/navigation.svelte';
-	import {constructPhotoMapUrl} from '$lib/urlUtils';
 	import {Trash2, Map, Settings, ThumbsUp, ThumbsDown, Upload, RefreshCw} from 'lucide-svelte';
 	import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';
 	import StandardBody from '$lib/components/StandardBody.svelte';
@@ -29,6 +28,7 @@
 	import {photoLicense} from '$lib/data.svelte';
 	import RetryUploadsButton from "$lib/components/RetryUploadsButton.svelte";
 	import DevicePhotoStats from "$lib/components/DevicePhotoStats.svelte";
+	import PhotoItem from '$lib/components/PhotoItem.svelte';
 
 	let photos: UserPhoto[] = [];
 	let isLoading = true;
@@ -227,16 +227,6 @@
 	}
 
 
-	function formatDate(dateString: string) {
-		const date = new Date(dateString);
-		return date.toLocaleString();
-	}
-
-	function viewOnMap(photo: UserPhoto) {
-		if (photo.latitude && photo.longitude) {
-			myGoto(constructPhotoMapUrl(photo));
-		}
-	}
 
 	function goToLogin() {
 		navigateWithHistory('/login');
@@ -492,33 +482,8 @@
 		{:else}
 			<div class="grid" data-testid="photos-list">
 				{#each photos as photo (photo.id)}
-					<div class="photo-card" data-testid="photo-card" data-photo-id={photo.id}
-						 data-filename={photo.original_filename}>
-
-						{#if $app.debug_enabled}
-							<details>
-								<summary>[debug]</summary>
-								<pre>{JSON.stringify(photo, null, 2)}</pre>
-							</details>
-						{/if}
-
-						<button class="photo-image" on:click={() => viewOnMap(photo)} type="button">
-							<img
-								src={photo.sizes?.['320']?.url}
-								alt={photo.description || photo.original_filename}
-								data-testid="photo-thumbnail"
-							/>
-						</button>
-						<div class="photo-info">
-							<h3 data-testid="photo-filename">{photo.original_filename}</h3>
-							{#if photo.description}
-								<p class="description">{photo.description}</p>
-							{/if}
-							<p class="meta">
-								Uploaded: {photo.uploaded_at ? formatDate(photo.uploaded_at) : 'Unknown'}</p>
-							{#if photo.captured_at}
-								<p class="meta">Captured: {formatDate(photo.captured_at)}</p>
-							{/if}
+					<PhotoItem {photo} variant="card">
+						<svelte:fragment slot="actions">
 							<div class="photo-actions">
 								<button
 									class="action-button rating {photo.user_rating === 'thumbs_up' ? 'active' : ''}"
@@ -549,8 +514,8 @@
 								</button>
 							</div>
 							<RetryUploadsButton {photo} {addLogEntry} />
-						</div>
-					</div>
+						</svelte:fragment>
+					</PhotoItem>
 				{/each}
 			</div>
 

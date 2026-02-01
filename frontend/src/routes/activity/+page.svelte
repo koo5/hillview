@@ -212,8 +212,6 @@
 										<PhotoItem
 											{photo}
 											variant="thumbnail"
-											showDates={true}
-											showTime={true}
 											showDescription={false}
 										/>
 									{/each}
