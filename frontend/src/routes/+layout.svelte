@@ -120,13 +120,7 @@
 		if (TAURI_MOBILE) {
 			// Start message queue polling and handle notification clicks
 			kotlinMessageQueue.startPolling();
-			kotlinMessageQueue.on('notification-click', async (message) => {
-				const route = message.payload?.route;
-				if (route) {
-					console.log('🔔 Notification click received, navigating to:', route);
-					await navigateWithHistory(route);
-				}
-			});
+			kotlinMessageQueue.on('notification-click', handleNotificationClick);
 		}
 
 		onAppActivityChange($app.activity);
@@ -165,13 +159,33 @@
 			const route = intentData?.click_action;
 			if (route) {
     			console.log('App launched from FCM notification intent!, navigating to:', route);
-    			await navigateWithHistory(route);
+    			await handleNotificationClickRoute(route);
 			}
 
 		} catch (error) {
 			console.error('🢄📱 Error retrieving intent data:', error);
 		}
 	}
+
+	async function handleNotificationClick(message: any)
+	{
+		const route = message.payload?.route;
+		if (route) {
+			console.log('🔔 Notification click received, navigating to:', route);
+			await handleNotificationClickRoute(route);
+		}
+	}
+
+	async function handleNotificationClickRoute(route: string)
+	{
+		app.update(a => ({...a, activity: 'view'}));
+		try {
+			await navigateWithHistory(route);
+		} catch (error) {
+			console.error('Error navigating to route from notification click:', error);
+		}
+	}
+
 
 </script>
 
