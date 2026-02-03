@@ -1,10 +1,10 @@
-import {writable, derived, get} from 'svelte/store';
+import {writable, derived, get, type Writable} from 'svelte/store';
 import {
 	staggeredLocalStorageSharedStore,
 	localStorageReadOnceSharedStore,
 	localStorageSharedStore
 } from './svelte-shared-store';
-import type {PhotoData} from './types/photoTypes';
+import type {PhotoData, PhotoId} from './types/photoTypes';
 import type {SimpleCoord} from './photoWorkerTypes';
 import {AngularRangeCuller, sortPhotosByBearing} from './AngularRangeCuller';
 import {normalizeBearing, getBearingColor} from './utils/bearingUtils';
@@ -55,6 +55,8 @@ export const bearingState = staggeredLocalStorageSharedStore<BearingState>('bear
 
 // Bearing mode state - controls automatic bearing source (car = GPS, walking = compass)
 export const bearingMode = localStorageSharedStore<BearingMode>('bearingMode', 'walking');
+
+export const picks: Writable<Set<PhotoId>> = writable(new Set());
 
 // Photos filtered by spatial criteria (from worker)
 export const photosInArea = writable<PhotoData[]>([]);
@@ -296,6 +298,10 @@ export function updateBearing(bearing: number, source: string = 'map', photoUid?
 			source: source,
 			accuracyLevel: accuracy_level
 		}});
+	}
+	if (photoUid)
+	{
+		picks.set(new Set([photoUid]));
 	}
 }
 

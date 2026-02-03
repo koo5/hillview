@@ -70,14 +70,15 @@ class StreamPhotoLoader {
         bounds: Bounds?,
         maxPhotos: Int,
         authToken: String?,
-        shouldAbort: () -> Boolean
+        shouldAbort: () -> Boolean,
+        picks: Set<String> = emptySet()
     ): List<PhotoData> {
         if (bounds == null) {
             Log.d(TAG, "StreamPhotoLoader: Started ${source.id} without bounds - waiting for area update")
             return emptyList()
         }
 
-        return loadPhotosWithEventSource(source, bounds, maxPhotos, authToken, shouldAbort)
+        return loadPhotosWithEventSource(source, bounds, maxPhotos, authToken, shouldAbort, picks)
     }
 
     private suspend fun loadPhotosWithEventSource(
@@ -85,7 +86,8 @@ class StreamPhotoLoader {
         bounds: Bounds,
         maxPhotos: Int,
         authToken: String?,
-        shouldAbort: () -> Boolean
+        shouldAbort: () -> Boolean,
+        picks: Set<String> = emptySet()
     ): List<PhotoData> {
         val photos = mutableListOf<PhotoData>()
         var retryCount = 0
@@ -93,7 +95,7 @@ class StreamPhotoLoader {
 
         while (retryCount <= maxRetries && !shouldAbort()) {
             try {
-                val url = buildStreamUrl(source, bounds, maxPhotos, authToken)
+                val url = buildStreamUrl(source, bounds, maxPhotos, authToken, picks)
                 Log.d(TAG, "StreamPhotoLoader: Starting stream from $url (attempt ${retryCount + 1}/${maxRetries + 1})")
 
                 var streamCompleted = false
@@ -290,7 +292,7 @@ class StreamPhotoLoader {
         }
     }
 
-    private fun buildStreamUrl(source: SourceConfig, bounds: Bounds, maxPhotos: Int, authToken: String?): String {
+    private fun buildStreamUrl(source: SourceConfig, bounds: Bounds, maxPhotos: Int, authToken: String?, picks: Set<String> = emptySet()): String {
         val baseUrl = source.url ?: throw IllegalArgumentException("Stream source missing URL")
 
         return buildString {
@@ -309,6 +311,12 @@ class StreamPhotoLoader {
 
             // Add max_photos parameter
             append("&max_photos=$maxPhotos")
+
+            // Add picks parameter if there are any selected photos
+            if (picks.isNotEmpty()) {
+                // Convert Set to comma-separated string
+                append("&picks=${picks.joinToString(",")}")
+            }
 
             // Add auth token if available
             authToken?.let {

@@ -24,6 +24,15 @@ interface SimplePhotoDao {
     """)
     fun getPhotosInBounds(minLat: Double, maxLat: Double, minLng: Double, maxLng: Double, limit: Int): List<PhotoEntity>
 
+    @Query("""
+        SELECT * FROM photos
+        WHERE latitude BETWEEN :minLat AND :maxLat
+        AND longitude BETWEEN :minLng AND :maxLng
+        AND id IN (:picks)
+    """)
+    fun getPickedPhotosInBounds(minLat: Double, maxLat: Double, minLng: Double, maxLng: Double, picks: Set<String>): List<PhotoEntity>
+
+
     @Query("SELECT COUNT(*) FROM photos")
     fun getTotalPhotoCount(): Int
 

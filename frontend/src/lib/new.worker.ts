@@ -44,7 +44,7 @@
 
 /// <reference lib="webworker" />
 
-import type { PhotoData, SourceConfig, Bounds } from './photoWorkerTypes';
+import type {PhotoData, SourceConfig, Bounds, PhotoId} from './photoWorkerTypes';
 import { MessageQueue } from './MessageQueue';
 import { PhotoOperations } from './photoOperations';
 import { CullingGrid, type SourceId } from './CullingGrid';
@@ -94,6 +94,7 @@ let lastProcessedSourcesPhotosInAreaVersion = -1;
 
 // Current range and center for range filtering
 let current_range = DEFAULT_RANGE_METERS; // Default range in meters, updated from area updates
+
 
 function calculateCenterFromBounds(bounds: Bounds): { lat: number; lng: number } {
     return {
@@ -439,6 +440,11 @@ async function loop(): Promise<void> {
 
 			// Handle different message types
 			switch (message.type) {
+
+				case 'picksUpdated':
+					photoOperations.setPicks(new Set(message.data.picks));
+					break;
+
 				case 'configUpdated':
 					updateState('config', message);
 					break;

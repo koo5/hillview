@@ -13,6 +13,7 @@ import kotlinx.serialization.Serializable
 enum class MessageType {
     PROCESS_CONFIG,
     PROCESS_AREA,
+    PICKS_UPDATED,
     ABORT_PROCESS,
     CLEANUP
 }
@@ -124,6 +125,11 @@ data class ProcessInfo(
 data class ConfigData(
     val sources: List<SourceConfig>,
     val expectedWorkerVersion: String? = null
+)
+
+@Serializable
+data class PicksData(
+    val picks: List<String> = emptyList()
 )
 
 @Serializable

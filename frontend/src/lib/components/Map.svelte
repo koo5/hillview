@@ -258,8 +258,6 @@
 			bottom_right: bounds.getSouthEast()
 		};
 
-		await updateSpatialState({...p}, 'map');
-
 		// Handle photo parameter and enable corresponding source
 		const photoUid = parsePhotoUid(photoParam);
 		if (photoUid) {
@@ -268,6 +266,8 @@
 			// Switch to view mode when opening a specific photo
 			app.update(a => ({...a, activity: 'view'}));
 		}
+
+		await updateSpatialState({...p}, 'map');
 
 		if (bearingParam) {
 			console.log('🢄Setting bearing to', bearingParam, 'from URL');

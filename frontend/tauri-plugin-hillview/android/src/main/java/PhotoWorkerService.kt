@@ -61,6 +61,7 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
 
     // Persistent state like new.worker.ts currentState.sourcesPhotosInArea.data
     private val sourcesPhotosInArea = ConcurrentHashMap<String, List<PhotoData>>()
+    private var currentPicks = setOf<String>()
 
     // Store current sources, bounds and range state like new.worker.ts
     private var currentSources: List<SourceConfig> = emptyList()
@@ -226,6 +227,12 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
                         processAreaMessage(message, authTokenProvider)
                     }
                 }
+                MessageType.PICKS_UPDATED -> {
+                    // Update picks immediately like new.worker.ts
+                    val picksData = json.decodeFromString<PicksData>(message.data)
+                    currentPicks = picksData.picks.toSet()
+                    Log.d(TAG, "PhotoWorkerService: Updated picks to ${currentPicks.size} items")
+                }
                 MessageType.ABORT_PROCESS -> {
                     abortProcess(message.processId)
                 }
@@ -373,6 +380,9 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
                 // Store current bounds and range for post-config area updates (like new.worker.ts)
                 lastProcessedBounds = areaData.bounds
                 lastProcessedRange = areaData.range
+
+                // Update picks in photoOperations before processing area
+                photoOperations.setPicks(currentPicks)
 
                 // Process area photos with per-source loading status callbacks
                 val sourcesPhotosInArea = photoOperations.processArea(
@@ -679,5 +689,6 @@ private data class AreaData(
     val sources: List<SourceConfig>,
     val bounds: Bounds,
     val maxPhotos: Int,
-    val range: Double
+    val range: Double,
+    val picks: List<String> = emptyList()
 )

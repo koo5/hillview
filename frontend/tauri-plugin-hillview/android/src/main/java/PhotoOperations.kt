@@ -19,6 +19,11 @@ class PhotoOperations(private val context: Context) {
     private val streamLoader = StreamPhotoLoader()
     private val sourceCache = mutableMapOf<String, SourceCache>()
     private var maxPhotosInArea: Int = 200
+    private var picks: Set<String> = emptySet()
+
+    fun setPicks(newPicks: Set<String>) {
+        picks = newPicks
+    }
 
     /**
      * Source cache for each source - matches TypeScript interface
@@ -74,11 +79,11 @@ class PhotoOperations(private val context: Context) {
 
                 val photos = when (source.type) {
                     "device" -> {
-                        deviceLoader.loadPhotos(source, null, maxPhotosInArea, shouldAbort)
+                        deviceLoader.loadPhotos(source, null, maxPhotosInArea, shouldAbort, picks)
                     }
                     "stream" -> {
                         val authToken = authTokenProvider()
-                        streamLoader.loadPhotos(source, null, maxPhotosInArea, authToken, shouldAbort)
+                        streamLoader.loadPhotos(source, null, maxPhotosInArea, authToken, shouldAbort, picks)
                     }
                     else -> {
                         Log.w(TAG, "PhotoOperations: Unknown source type: ${source.type}")
@@ -146,11 +151,11 @@ class PhotoOperations(private val context: Context) {
 
                     when (source.type) {
                         "device" -> {
-                            deviceLoader.loadPhotos(source, bounds, maxPhotosInArea, shouldAbort)
+                            deviceLoader.loadPhotos(source, bounds, maxPhotosInArea, shouldAbort, picks)
                         }
                         "stream" -> {
                             val authToken = authTokenProvider()
-                            streamLoader.loadPhotos(source, bounds, maxPhotosInArea, authToken, shouldAbort)
+                            streamLoader.loadPhotos(source, bounds, maxPhotosInArea, authToken, shouldAbort, picks)
                         }
                         else -> {
                             Log.w(TAG, "PhotoOperations: Unknown source type: ${source.type}")
