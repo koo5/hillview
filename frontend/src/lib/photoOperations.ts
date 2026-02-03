@@ -223,9 +223,18 @@ export class PhotoOperations {
             getValidToken: callbacks.getValidToken
         };
 
+        // Extract picks for this specific source
+        // picks contain UIDs like "hillview-abc123", we need to extract "abc123" for the backend
+        const sourcePrefix = `${source.id}-`;
+        const sourcePickIds = new Set(
+            Array.from(this.picks)
+                .filter(uid => uid.startsWith(sourcePrefix))
+                .map(uid => uid.substring(sourcePrefix.length))
+        );
+
         const options: PhotoSourceOptions = {
             maxPhotos: this.maxPhotosInArea,
-			picks: this.picks
+            picks: sourcePickIds
         };
 
         const loader = PhotoSourceFactory.createLoader(source, sourceCallbacks, options);

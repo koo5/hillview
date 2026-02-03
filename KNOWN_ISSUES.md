@@ -1,5 +1,7 @@
 ## KNOWN ISSUES (as of version 1.27)
 
+### clicking on activity notification should ensure view mode properly
+* leaves capture mode on
 
 ### landscape mode compass is wrong when pointed at horizon, on some devices
 * arrow jumps randomly. Workaround: point slightly above or below horizon
@@ -12,6 +14,7 @@
 * this happens when there are too many photos on the map, when zoomed out, because the total number of photo markers shown at any one time is limited
 - #49
 * workaround: zoom in
+* todo: stable picks
 
 ### battery drain, when app is in foreground
 * should be ok when app is hidden or screen is off
@@ -36,7 +39,7 @@
 * #19
 
 ### need to distinguish permanent and temporary upload failures
-*
+* should only say "retrying" for now
 
 
 ## PLANNED FEATURES
@@ -70,6 +73,12 @@
 * camera flash hack to get sub-second photo timestamps
 * finish GeoTrackingDumps script
 
+
+### multiple photo licensing options (CC, NC, NC+CLA, ...?)
+*
+
+### web based photo capture
+*
 
 
 

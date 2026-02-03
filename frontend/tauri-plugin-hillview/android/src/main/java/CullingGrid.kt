@@ -34,13 +34,38 @@ class CullingGrid(private val bounds: Bounds) {
     /**
      * Apply priority-based culling with hash deduplication and lazy evaluation
      * Direct translation from TypeScript CullingGrid.cullPhotos()
+     *
+     * @param picks - Set of photo IDs that must always be included (e.g., currently selected photo)
      */
-    fun cullPhotos(photosPerSource: Map<SourceId, List<PhotoData>>, maxPhotos: Int): List<PhotoData> {
+    fun cullPhotos(photosPerSource: Map<SourceId, List<PhotoData>>, maxPhotos: Int, picks: Set<String> = emptySet()): List<PhotoData> {
         if (photosPerSource.isEmpty() || maxPhotos <= 0) {
             return emptyList()
         }
 
-        Log.d(TAG, "Starting culling with ${photosPerSource.values.sumOf { it.size }} total photos, maxPhotos: $maxPhotos")
+        Log.d(TAG, "Starting culling with ${photosPerSource.values.sumOf { it.size }} total photos, maxPhotos: $maxPhotos, picks: ${picks.size}")
+
+        // First, extract picked photos - they are always included
+        // picks contains UIDs like "hillview-abc123"
+        val pickedPhotos = mutableListOf<PhotoData>()
+        val pickedUids = mutableSetOf<String>()
+
+        if (picks.isNotEmpty()) {
+            for (photos in photosPerSource.values) {
+                for (photo in photos) {
+                    if (picks.contains(photo.uid) && !pickedUids.contains(photo.uid)) {
+                        pickedPhotos.add(photo)
+                        pickedUids.add(photo.uid)
+                    }
+                }
+            }
+        }
+
+        // Calculate remaining slots after picks
+        val remainingSlots = maxPhotos - pickedPhotos.size
+        if (remainingSlots <= 0) {
+            Log.d(TAG, "${pickedPhotos.size} picked photos fill the limit of $maxPhotos")
+            return pickedPhotos.take(maxPhotos)
+        }
 
         // Create grid cells map
         val gridCells = mutableMapOf<CellKey, CellPhotos>()
@@ -53,10 +78,14 @@ class CullingGrid(private val bounds: Bounds) {
         Log.d(TAG, "Processing sources in priority order: $sortedSources")
 
         // Populate grid cells with photos from each source
+        // Exclude already picked photos
         for (sourceId in sortedSources) {
             val photos = photosPerSource[sourceId] ?: continue
 
             for (photo in photos) {
+                // Skip already picked photos
+                if (pickedUids.contains(photo.uid)) continue
+
                 val cellKey = getCellKey(photo.coord)
 
                 // Get or create cell
@@ -85,20 +114,20 @@ class CullingGrid(private val bounds: Bounds) {
         Log.d(TAG, "Populated ${gridCells.size} grid cells")
 
         // Round-robin selection across all cells
-        val result = mutableListOf<PhotoData>()
+        val regularPhotos = mutableListOf<PhotoData>()
         val cellIterators = gridCells.values.map { it.photos.iterator() }.toMutableList()
         var roundNumber = 0
 
-        while (result.size < maxPhotos && cellIterators.isNotEmpty()) {
+        while (regularPhotos.size < remainingSlots && cellIterators.isNotEmpty()) {
             roundNumber++
             val iteratorsToRemove = mutableListOf<Int>()
 
             for (i in cellIterators.indices.reversed()) {
-                if (result.size >= maxPhotos) break
+                if (regularPhotos.size >= remainingSlots) break
 
                 val iterator = cellIterators[i]
                 if (iterator.hasNext()) {
-                    result.add(iterator.next())
+                    regularPhotos.add(iterator.next())
                 } else {
                     iteratorsToRemove.add(i)
                 }
@@ -110,7 +139,10 @@ class CullingGrid(private val bounds: Bounds) {
             }
         }
 
-        Log.d(TAG, "Culling completed: selected ${result.size} photos from ${gridCells.size} cells in $roundNumber rounds")
+        // Combine picked photos first, then regular photos
+        val result = pickedPhotos + regularPhotos
+
+        Log.d(TAG, "Culling completed: ${pickedPhotos.size} picks + ${regularPhotos.size} culled = ${result.size} photos from ${gridCells.size} cells in $roundNumber rounds")
 
         return result
     }

@@ -95,6 +95,9 @@ let lastProcessedSourcesPhotosInAreaVersion = -1;
 // Current range and center for range filtering
 let current_range = DEFAULT_RANGE_METERS; // Default range in meters, updated from area updates
 
+// Current picks - photos that must always be included in results
+let currentPicks: Set<PhotoId> = new Set();
+
 
 function calculateCenterFromBounds(bounds: Bounds): { lat: number; lng: number } {
     return {
@@ -122,8 +125,8 @@ function mergeAndCullPhotos(): { photos_in_area: PhotoData[], photos_in_range: P
         //console.log(`🢄NewWorker: Created new culling grid for area bounds:`, currentState.area.data);
     }
 
-    // Apply smart culling for uniform screen coverage
-    const photosInArea = cullingGrid.cullPhotos(photosInAreaPerSource, MAX_PHOTOS_IN_AREA);
+    // Apply smart culling for uniform screen coverage (picks are always included)
+    const photosInArea = cullingGrid.cullPhotos(photosInAreaPerSource, MAX_PHOTOS_IN_AREA, currentPicks);
     //console.log(`🢄NewWorker: After culling - ${photosInArea.length} photos in area (max: ${MAX_PHOTOS_IN_AREA})`);
 
     // Log a few photo locations for debugging
@@ -135,12 +138,13 @@ function mergeAndCullPhotos(): { photos_in_area: PhotoData[], photos_in_range: P
     // Calculate center for range filtering // todo: should be already in currentState
     const center = calculateCenterFromBounds(currentState.area.data);
 
-    // Apply angular range culling for uniform angular coverage
+    // Apply angular range culling for uniform angular coverage (picks are always included)
     const photosInRange = angularRangeCuller.cullPhotosInRange(
         photosInArea,
         center,
         current_range,
-        MAX_PHOTOS_IN_RANGE
+        MAX_PHOTOS_IN_RANGE,
+        currentPicks
     );
 
     // sort photos in range by bearing for consistent navigation order
@@ -442,7 +446,8 @@ async function loop(): Promise<void> {
 			switch (message.type) {
 
 				case 'picksUpdated':
-					photoOperations.setPicks(new Set(message.data.picks));
+					currentPicks = new Set(message.data.picks);
+					photoOperations.setPicks(currentPicks);
 					break;
 
 				case 'configUpdated':

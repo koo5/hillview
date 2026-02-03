@@ -400,13 +400,13 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
                     // Update persistent state with new photos from area processing
                     this@PhotoWorkerService.sourcesPhotosInArea.putAll(sourcesPhotosInArea)
 
-                    // Apply culling if photos exceed maxPhotos
+                    // Apply culling if photos exceed maxPhotos (picks are always included)
                     val totalPhotos = this@PhotoWorkerService.sourcesPhotosInArea.values.sumOf { it.size }
                     val finalPhotos = if (totalPhotos > areaData.maxPhotos) {
-                        Log.d(TAG, "PhotoWorkerService: Applying culling - $totalPhotos photos > ${areaData.maxPhotos} limit")
+                        Log.d(TAG, "PhotoWorkerService: Applying culling - $totalPhotos photos > ${areaData.maxPhotos} limit, picks: ${currentPicks.size}")
 
                         val gridCuller = CullingGrid(areaData.bounds)
-                        val culledPhotos = gridCuller.cullPhotos(this@PhotoWorkerService.sourcesPhotosInArea.toMap(), areaData.maxPhotos)
+                        val culledPhotos = gridCuller.cullPhotos(this@PhotoWorkerService.sourcesPhotosInArea.toMap(), areaData.maxPhotos, currentPicks)
 
                         Log.d(TAG, "PhotoWorkerService: Grid culling complete - ${culledPhotos.size} photos selected")
                         culledPhotos
@@ -435,6 +435,7 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
 
     /**
      * Process range culling - for user movement scenarios
+     * Uses currentPicks to ensure picked photos are always included
      */
     suspend fun processRangeCulling(
         photos: List<PhotoData>,
@@ -442,7 +443,7 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
         range: Double,
         maxPhotos: Int
     ): List<PhotoData> {
-        return angularRangeCuller.cullPhotosInRange(photos, center, range, maxPhotos)
+        return angularRangeCuller.cullPhotosInRange(photos, center, range, maxPhotos, currentPicks)
     }
 
     /**
@@ -497,13 +498,13 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
         range: Double? = null
     ) {
         try {
-            // Apply angular range culling if bounds and range are available
+            // Apply angular range culling if bounds and range are available (picks are always included)
             val photosInRange = if (bounds != null && range != null) {
                 val center = LatLng(
                     lat = (bounds.top_left.lat + bounds.bottom_right.lat) / 2,
                     lng = (bounds.top_left.lng + bounds.bottom_right.lng) / 2
                 )
-                val rangePhotos = angularRangeCuller.cullPhotosInRange(photos, center, range, MAX_PHOTOS_IN_RANGE).toMutableList()
+                val rangePhotos = angularRangeCuller.cullPhotosInRange(photos, center, range, MAX_PHOTOS_IN_RANGE, currentPicks).toMutableList()
 
                 // Sort photos in range by bearing for consistent navigation order (like new.worker.ts)
                 sortPhotosByBearing(rangePhotos)

@@ -22,23 +22,53 @@ class AngularRangeCuller {
     /**
      * Cull photos for uniform angular coverage around center point
      * Direct translation from TypeScript implementation
+     *
+     * @param picks - Set of photo IDs that must always be included (e.g., currently selected photo)
      */
     fun cullPhotosInRange(
         photosInArea: List<PhotoData>,
         center: LatLng,
         range: Double,
-        maxPhotos: Int
+        maxPhotos: Int,
+        picks: Set<String> = emptySet()
     ): List<PhotoData> {
         if (photosInArea.isEmpty() || maxPhotos <= 0) {
             return emptyList()
         }
 
-        Log.d(TAG, "Starting angular range culling with ${photosInArea.size} photos, range: ${range}m, maxPhotos: $maxPhotos")
+        Log.d(TAG, "Starting angular range culling with ${photosInArea.size} photos, range: ${range}m, maxPhotos: $maxPhotos, picks: ${picks.size}")
+
+        // First, extract picked photos that are in range - they are always included
+        // picks contains UIDs like "hillview-abc123"
+        val pickedPhotos = mutableListOf<PhotoData>()
+        val pickedUids = mutableSetOf<String>()
+
+        if (picks.isNotEmpty()) {
+            for (photo in photosInArea) {
+                if (picks.contains(photo.uid) && !pickedUids.contains(photo.uid)) {
+                    val distance = calculateDistance(center.lat, center.lng, photo.coord.lat, photo.coord.lng)
+                    if (distance <= range) {
+                        pickedPhotos.add(photo.copy(range_distance = distance))
+                        pickedUids.add(photo.uid)
+                    }
+                }
+            }
+        }
+
+        // Calculate remaining slots after picks
+        val remainingSlots = maxPhotos - pickedPhotos.size
+        if (remainingSlots <= 0) {
+            return pickedPhotos.take(maxPhotos)
+        }
 
         // Create angular buckets and filter photos within range
+        // Exclude already picked photos
         val buckets = Array(ANGULAR_BUCKETS) { mutableListOf<PhotoData>() }
 
         for (photo in photosInArea) {
+            // Skip already picked photos
+            if (pickedUids.contains(photo.uid)) continue
+
             val distance = calculateDistance(center.lat, center.lng, photo.coord.lat, photo.coord.lng)
 
             if (distance <= range) {
@@ -53,21 +83,21 @@ class AngularRangeCuller {
         val activeBuckets = buckets.filter { it.isNotEmpty() }.toMutableList()
 
         if (activeBuckets.isEmpty()) {
-            Log.d(TAG, "No photos within range of ${range}m")
-            return emptyList()
+            Log.d(TAG, "No regular photos within range of ${range}m, returning ${pickedPhotos.size} picks")
+            return pickedPhotos
         }
 
         Log.d(TAG, "Found photos in ${activeBuckets.size} angular buckets out of $ANGULAR_BUCKETS")
 
         // Round-robin: outer loop = rounds, inner loop = buckets (exact match to TypeScript)
-        val selectedPhotos = mutableListOf<PhotoData>()
+        val regularPhotos = mutableListOf<PhotoData>()
 
         for (round in 0 until Int.MAX_VALUE) {
-            if (activeBuckets.isEmpty() || selectedPhotos.size >= maxPhotos) break
+            if (activeBuckets.isEmpty() || regularPhotos.size >= remainingSlots) break
 
             var bucketIndex = 0
 
-            while (bucketIndex < activeBuckets.size && selectedPhotos.size < maxPhotos) {
+            while (bucketIndex < activeBuckets.size && regularPhotos.size < remainingSlots) {
                 // Remove exhausted bucket if no photo at this round
                 if (round >= activeBuckets[bucketIndex].size) {
                     // Swap with last and remove (like TypeScript implementation)
@@ -78,15 +108,18 @@ class AngularRangeCuller {
                     // Don't increment bucketIndex - check the swapped bucket
                 } else {
                     // Take photo and move to next bucket
-                    selectedPhotos.add(activeBuckets[bucketIndex][round])
+                    regularPhotos.add(activeBuckets[bucketIndex][round])
                     bucketIndex++
                 }
             }
         }
 
-        Log.d(TAG, "Angular range culling completed: selected ${selectedPhotos.size} photos from ${activeBuckets.size}/${ANGULAR_BUCKETS} angular sectors")
+        // Combine picked photos first, then regular photos
+        val result = pickedPhotos + regularPhotos
 
-        return selectedPhotos
+        Log.d(TAG, "Angular range culling completed: ${pickedPhotos.size} picks + ${regularPhotos.size} culled = ${result.size} photos")
+
+        return result
     }
 
     /**

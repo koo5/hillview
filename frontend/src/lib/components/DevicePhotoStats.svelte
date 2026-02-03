@@ -111,10 +111,16 @@
 		{/if}
 		{#if $devicePhotoStats.failed > 0}
 			<div class="stat-item failed">
-				<AlertCircle size={14}/>
-				<span>{$devicePhotoStats.failed} failed</span>
+				<Clock size={14}/>
+				<span>{$devicePhotoStats.failed} waiting to retry</span>
 			</div>
 		{/if}
+		<!--{#if $devicePhotoStats.failed > 0}-->
+		<!--	<div class="stat-item failed">-->
+		<!--		<AlertCircle size={14}/>-->
+		<!--		<span>{$devicePhotoStats.failed} failed</span>-->
+		<!--	</div>-->
+		<!--{/if}-->
 	</div>
 {/if}
 

@@ -10,7 +10,7 @@
  * visible areas, giving users a well-distributed overview of the entire viewport.
  */
 
-import type { PhotoData, Bounds } from './photoWorkerTypes';
+import type { PhotoData, Bounds, PhotoId } from './photoWorkerTypes';
 
 // Type aliases for clarity
 export type SourceId = string;
@@ -47,10 +47,36 @@ export class CullingGrid {
     /**
      * Apply priority-based culling with hash deduplication and round-robin selection
      * Matches Kotlin implementation: true round-robin across all cells until maxPhotos reached
+     *
+     * @param picks - Set of photo IDs that must always be included (e.g., currently selected photo)
      */
-    cullPhotos(photosPerSource: Map<SourceId, PhotoData[]>, maxPhotos: number): PhotoData[] {
+    cullPhotos(photosPerSource: Map<SourceId, PhotoData[]>, maxPhotos: number, picks: Set<PhotoId> = new Set()): PhotoData[] {
         if (photosPerSource.size === 0 || maxPhotos <= 0) {
             return [];
+        }
+
+        // First, extract picked photos - they are always included
+        // picks contains UIDs like "hillview-abc123"
+        const pickedPhotos: PhotoData[] = [];
+        const pickedUids = new Set<string>();
+
+        if (picks.size > 0) {
+            for (const photos of photosPerSource.values()) {
+                for (const photo of photos) {
+                    if (picks.has(photo.uid) && !pickedUids.has(photo.uid)) {
+                        pickedPhotos.push(photo);
+                        pickedUids.add(photo.uid);
+                    }
+                }
+            }
+        }
+
+        // Calculate remaining slots after picks
+        const remainingSlots = maxPhotos - pickedPhotos.length;
+        if (remainingSlots <= 0) {
+            // Picks already fill or exceed the limit
+            console.log(`CullingGrid: ${pickedPhotos.length} picked photos fill the limit of ${maxPhotos}`);
+            return pickedPhotos.slice(0, maxPhotos);
         }
 
         // Create grid to store photos by cell
@@ -62,11 +88,15 @@ export class CullingGrid {
         });
 
         // Populate grid cells with photos from each source (by priority order)
+        // Exclude already picked photos
         for (const sourceId of sortedSourceIds) {
             const photos = photosPerSource.get(sourceId);
             if (!photos) continue;
 
             for (const photo of photos) {
+                // Skip already picked photos
+                if (pickedUids.has(photo.uid)) continue;
+
                 const cellKey = this.getScreenGridKey(photo);
 
                 // Get or create cell
@@ -90,24 +120,24 @@ export class CullingGrid {
             }
         }
 
-        // Round-robin selection across all cells until maxPhotos reached
-        const result: PhotoData[] = [];
+        // Round-robin selection across all cells until remainingSlots reached
+        const regularPhotos: PhotoData[] = [];
         const cellIterators = Array.from(cellGrid.values()).map(cell => ({
             photos: cell.photos,
             index: 0
         }));
 
         let round = 0;
-        while (result.length < maxPhotos && cellIterators.length > 0) {
+        while (regularPhotos.length < remainingSlots && cellIterators.length > 0) {
             round++;
             const exhaustedIndices: number[] = [];
 
             for (let i = cellIterators.length - 1; i >= 0; i--) {
-                if (result.length >= maxPhotos) break;
+                if (regularPhotos.length >= remainingSlots) break;
 
                 const iterator = cellIterators[i];
                 if (iterator.index < iterator.photos.length) {
-                    result.push(iterator.photos[iterator.index]);
+                    regularPhotos.push(iterator.photos[iterator.index]);
                     iterator.index++;
                 } else {
                     exhaustedIndices.push(i);
@@ -120,7 +150,10 @@ export class CullingGrid {
             }
         }
 
-        console.log(`CullingGrid: Round-robin culled ${photosPerSource.size} sources (${Array.from(photosPerSource.values()).reduce((sum, photos) => sum + photos.length, 0)} total photos) down to ${result.length} photos in ${round} rounds across ${cellGrid.size} cells`);
+        // Combine picked photos first, then regular photos
+        const result = [...pickedPhotos, ...regularPhotos];
+
+        console.log(`CullingGrid: ${pickedPhotos.length} picks + ${regularPhotos.length} culled (${photosPerSource.size} sources, ${Array.from(photosPerSource.values()).reduce((sum, photos) => sum + photos.length, 0)} total) = ${result.length} photos in ${round} rounds across ${cellGrid.size} cells`);
 
         return result;
     }

@@ -66,6 +66,7 @@
 <div
 	class="photo-item {variant}"
 	data-testid="photo-item"
+	data-filename={photo.original_filename}
 >
 	<a
 		class="photo-image"
@@ -78,6 +79,7 @@
 			src={getPhotoUrl(photo)}
 			alt={photo.original_filename}
 			loading="lazy"
+			data-testid="photo-thumbnail"
 		/>
 		{#if photo.processing_status !== 'completed'}
 			<div class="processing-badge">

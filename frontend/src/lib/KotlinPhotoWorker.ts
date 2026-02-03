@@ -14,7 +14,7 @@ import { kotlinMessageQueue, type QueuedMessage } from './KotlinMessageQueue';
 import { MAX_PHOTOS_IN_AREA, MAX_PHOTOS_IN_RANGE, DEFAULT_RANGE_METERS } from './photoWorkerConstants';
 
 // Kotlin Photo Worker message types
-type MessageType = 'PROCESS_CONFIG' | 'PROCESS_AREA' | 'ABORT_PROCESS' | 'CLEANUP';
+type MessageType = 'PROCESS_CONFIG' | 'PROCESS_AREA' | 'PICKS_UPDATED' | 'ABORT_PROCESS' | 'CLEANUP';
 
 interface WorkerMessage {
     type: MessageType;
@@ -119,6 +119,19 @@ export class KotlinPhotoWorker {
                         bounds: message.data?.area,
                         range: message.data?.range ?? DEFAULT_RANGE_METERS, // Use default if not provided
                         maxPhotos: MAX_PHOTOS_IN_AREA // Use constant from shared config
+                    })
+                };
+                break;
+
+            case 'picksUpdated':
+                messageType = 'PICKS_UPDATED';
+                workerMessage = {
+                    type: messageType,
+                    messageId,
+                    processId,
+                    priority: 1, // High priority - picks should be processed immediately
+                    data: JSON.stringify({
+                        picks: message.data?.picks || []
                     })
                 };
                 break;
@@ -362,7 +375,7 @@ export class KotlinPhotoWorker {
      * Validate WorkerMessage structure before sending to Kotlin
      */
     private validateWorkerMessage(message: WorkerMessage): void {
-        if (!message.type || !['PROCESS_CONFIG', 'PROCESS_AREA', 'ABORT_PROCESS', 'CLEANUP'].includes(message.type)) {
+        if (!message.type || !['PROCESS_CONFIG', 'PROCESS_AREA', 'PICKS_UPDATED', 'ABORT_PROCESS', 'CLEANUP'].includes(message.type)) {
             throw new Error(`Invalid message type: ${message.type}`);
         }
 

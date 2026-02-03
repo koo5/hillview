@@ -8,6 +8,7 @@ fi
 source venv/bin/activate
 pip install -q -r ../api/app/requirements-dev.txt
 pip install -q -r requirements.txt 2>/dev/null || true
+pip install aiohttp
 
 if [ $# -eq 0 ]; then
     python -m pytest integration/ -v

@@ -160,6 +160,12 @@ newPhotoInFront.subscribe(photo => {
 	if (photo != get(photoInFront)) {
 		photoInFront.set(photo);
 	}
+	const photoUid = photo?.uid;
+	if (photoUid)
+	{
+		picks.set(new Set([photoUid]));
+		console.log(`🢄picks: set to photoInFront uid ${photoUid}`);
+	}
 });
 
 export const photoToLeft = derived(
@@ -298,10 +304,6 @@ export function updateBearing(bearing: number, source: string = 'map', photoUid?
 			source: source,
 			accuracyLevel: accuracy_level
 		}});
-	}
-	if (photoUid)
-	{
-		picks.set(new Set([photoUid]));
 	}
 }
 

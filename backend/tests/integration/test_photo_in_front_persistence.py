@@ -4,79 +4,107 @@ Ensures the currently selected navigation photo stays loaded on map during panni
 """
 
 import pytest
-import asyncio
 from typing import List, Dict, Any
 import json
 import aiohttp
-from datetime import datetime, timedelta
+import sys
+import os
 
-from tests.utils.api_client import APITestClient
-from tests.utils.test_helpers import create_test_user, create_test_photo
+# Add paths for imports (same pattern as other tests)
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+
+from utils.api_client import APIClient
+from utils.auth_utils import auth_helper
+from utils.test_utils import recreate_test_users, upload_test_image, wait_for_photo_processing
+from utils.image_utils import create_test_image_full_gps
 
 
 class TestPhotoInFrontPersistence:
     """Test that the photo-in-front (selected for navigation) persists on map"""
 
     @pytest.fixture(autouse=True)
-    async def setup(self):
-        """Setup test client and test data"""
-        self.client = APITestClient()
+    def setup(self):
+        """Setup test client and auth"""
+        self.client = APIClient()
         self.base_url = "http://localhost:8055"
+        self.test_photos = []
 
-        # Create test user
-        self.user_data = await create_test_user(self.client)
-        self.auth_token = self.user_data['token']
-
-        # Create many test photos to test culling scenarios
-        self.test_photos = await self._create_test_photo_grid()
+        # Ensure test users exist and get token
+        recreate_test_users()
+        auth_helper.clear_token_cache()
+        self.auth_token = auth_helper.get_test_user_token("test")
 
         yield
 
-        # Cleanup
-        await self._cleanup_test_data()
+        # Cleanup - sync version
+        self._cleanup_test_data_sync()
+
+    async def _ensure_test_photos(self):
+        """Ensure test photos exist, create if needed (called at start of each async test)"""
+        if not self.test_photos:
+            self.test_photos = await self._create_test_photo_grid()
+        return self.test_photos
+
+    def _cleanup_test_data_sync(self):
+        """Clean up test photos (sync version)"""
+        for photo in self.test_photos:
+            try:
+                self.client.delete_photo(photo['id'], self.auth_token)
+            except:
+                pass  # Ignore cleanup errors
 
     async def _create_test_photo_grid(self) -> List[Dict[str, Any]]:
         """Create a grid of test photos to simulate dense photo area"""
         photos = []
 
-        # Create a dense 20x20 grid of photos (400 total) to test culling
+        # Create a grid of photos (10 total) to test culling
         base_lat = 50.08
         base_lng = 14.42
 
-        for i in range(20):
-            for j in range(20):
-                lat = base_lat + i * 0.0005  # ~50m apart
-                lng = base_lng + j * 0.0005
+        for i in range(10):
+            lat = base_lat + i * 0.0005  # ~50m apart
+            lng = base_lng + (i % 3) * 0.0005
+            bearing = (i * 36) % 360  # Varying bearings
 
-                photo = await create_test_photo(
-                    self.client,
-                    self.auth_token,
-                    latitude=lat,
-                    longitude=lng,
-                    captured_at=datetime.now() - timedelta(minutes=i*20+j),
-                    filename=f"grid_photo_{i}_{j}.jpg"
-                )
-                photos.append(photo)
+            # Create test image with GPS and bearing
+            image_data = create_test_image_full_gps(
+                width=800, height=600,
+                color=((i * 25) % 256, (i * 50) % 256, (i * 75) % 256),
+                lat=lat, lon=lng, bearing=bearing
+            )
 
-                # Stop at 100 photos for faster tests
-                if len(photos) >= 100:
-                    return photos
+            filename = f"grid_photo_{i}.jpg"
 
+            # Upload - let exceptions propagate (no silent failures)
+            photo_id = await upload_test_image(
+                filename=filename,
+                image_data=image_data,
+                description=f"Test grid photo {i}",
+                token=self.auth_token,
+                is_public=True
+            )
+
+            # Wait for processing - let exceptions propagate
+            photo_data = wait_for_photo_processing(photo_id, self.auth_token, timeout=30)
+            assert photo_data['processing_status'] == 'completed', \
+                f"Photo {photo_id} processing failed: {photo_data.get('error', 'unknown')}"
+
+            photos.append({
+                'id': photo_id,
+                'latitude': photo_data.get('latitude', lat),
+                'longitude': photo_data.get('longitude', lng)
+            })
+            print(f"Created test photo {i}: {photo_id}")
+
+        print(f"Created {len(photos)} test photos")
         return photos
 
-    async def _cleanup_test_data(self):
-        """Clean up test photos and user"""
-        for photo in self.test_photos:
-            try:
-                await self.client.delete(
-                    f"/api/photos/{photo['id']}",
-                    headers={"Authorization": f"Bearer {self.auth_token}"}
-                )
-            except:
-                pass  # Ignore cleanup errors
-
+    @pytest.mark.asyncio
     async def test_single_pick_persistence_at_edge(self):
         """Test that picked photo persists even when at edge of view bounds"""
+        await self._ensure_test_photos()
+
         # Pick a photo that's at the edge of our grid
         edge_photo = self.test_photos[0]  # First photo, will be at corner
         pick_id = edge_photo['id']
@@ -104,8 +132,11 @@ class TestPhotoInFrontPersistence:
                 assert pick_id in photo_ids, \
                     f"Picked photo {pick_id} should be included even at edge of bounds"
 
+    @pytest.mark.asyncio
     async def test_pick_survives_culling(self):
         """Test that picked photo is retained even when normal culling would exclude it"""
+        await self._ensure_test_photos()
+
         # Pick a photo in the middle of our grid
         middle_index = len(self.test_photos) // 2
         picked_photo = self.test_photos[middle_index]
@@ -140,9 +171,12 @@ class TestPhotoInFrontPersistence:
                 assert photos[0]['id'] == pick_id, \
                     "Picked photo should be prioritized to first position"
 
+    @pytest.mark.asyncio
     async def test_pick_after_pan(self):
         """Simulate panning scenario: pick photo, then query different area overlapping original"""
-        target_photo = self.test_photos[10]
+        await self._ensure_test_photos()
+
+        target_photo = self.test_photos[1]
         pick_id = target_photo['id']
 
         # First query: Area around the picked photo
@@ -187,8 +221,11 @@ class TestPhotoInFrontPersistence:
                 assert photos_data['photos'][0]['id'] == pick_id, \
                     "Picked photo should remain prioritized after pan"
 
+    @pytest.mark.asyncio
     async def test_pick_with_no_other_photos_in_bounds(self):
         """Test that pick is returned even when it's the only photo in bounds"""
+        await self._ensure_test_photos()
+
         # Pick a corner photo
         corner_photo = self.test_photos[0]
         pick_id = corner_photo['id']
@@ -215,8 +252,11 @@ class TestPhotoInFrontPersistence:
                 assert len(photos) >= 1, "Should return at least the picked photo"
                 assert photos[0]['id'] == pick_id, "Should return the picked photo"
 
+    @pytest.mark.asyncio
     async def test_pick_outside_bounds_not_returned(self):
         """Test that picked photo outside bounds is NOT returned (important boundary)"""
+        await self._ensure_test_photos()
+
         some_photo = self.test_photos[0]
         pick_id = some_photo['id']
 

@@ -132,7 +132,7 @@ class GetDevicePhotosArgs {
 	var min_lng: Double? = null
 	var max_lng: Double? = null
 
-	var picks: String[]? = null
+	var picks: Array<String>? = null
 }
 
 @InvokeArg
@@ -1565,15 +1565,24 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 					"📸 Getting device photos in bounds: [${args.min_lat}, ${args.min_lng}] to [${args.max_lat}, ${args.max_lng}] limit: $pageSize (bearing order)"
 				)
 
-				photos = photoDao.getPhotosInBounds(
+				val regularPhotos = photoDao.getPhotosInBounds(
 					args.min_lat!!, args.max_lat!!, args.min_lng!!, args.max_lng!!, pageSize
 				)
 
-				val pickedPhotos = getPickedPhotosInBounds(
-					args.min_lat!!, args.max_lat!!, args.min_lng!!, args.max_lng!!, args.picks
-				)
+				// Get picked photos if any picks are specified
+				val picksSet = args.picks?.toSet() ?: emptySet()
+				val pickedPhotos = if (picksSet.isNotEmpty()) {
+					photoDao.getPickedPhotosInBounds(
+						args.min_lat!!, args.max_lat!!, args.min_lng!!, args.max_lng!!, picksSet
+					)
+				} else {
+					emptyList()
+				}
 
-				photos.extendedAddAll(pickedPhotos)
+				// Combine picked photos first (prioritized), then regular photos
+				photos = pickedPhotos + regularPhotos.filter { regular ->
+					pickedPhotos.none { picked -> picked.id == regular.id }
+				}
 
 				// For spatial queries, return simple response without pagination metadata
 				totalCount = photos.size
