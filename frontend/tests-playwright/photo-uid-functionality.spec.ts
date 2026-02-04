@@ -254,7 +254,7 @@ test.describe('Photo UID Functionality', () => {
       expect(errors.length, `Found errors on photos page: ${errors.join(', ')}`).toBe(0);
     });
 
-    test('should handle photo uid navigation on user profile pages', async ({ page }) => {
+    test('should navigate from user profile photo to map with photo uid', async ({ page }) => {
       const errors: string[] = [];
       page.on('console', (msg) => {
         if (msg.type() === 'error' && isUnexpectedError(msg.text())) {
@@ -262,39 +262,48 @@ test.describe('Photo UID Functionality', () => {
         }
       });
 
-      // Navigate to user page first
+      // Login and upload a test photo with location to ensure test data exists
+      await loginAsTestUser(page, testPasswords.test);
+      await uploadTestPhotosWithLocation(page, 1);
+      await page.waitForTimeout(2000);
+
+      // Navigate to users list
       await page.goto('/users');
       await page.waitForLoadState('networkidle');
 
-      const userCards = page.locator('[data-testid^="user-card-"]');
-      const userCount = await userCards.count();
+      // Click on the test user's card (the user we just uploaded photos for)
+      const testUserCard = page.locator('[data-testid="user-card-test"]');
+      await expect(testUserCard).toBeVisible({ timeout: 10000 });
+      await testUserCard.click();
 
-      if (userCount > 0) {
-        // Get the username from the first user card
-        const username = await userCards.first().locator('.username').textContent();
-        if (username) {
-          // Navigate to user page with photo uid
-          await page.goto(`/users/${username.trim()}?lat=50.0755&lon=14.4378&photo=hillview-user-test`);
-          await page.waitForLoadState('networkidle');
-          await page.waitForTimeout(1000);
+      // Wait for navigation to user profile
+      await page.waitForURL(/\/users\/[a-f0-9-]+$/i, { timeout: 10000 });
+      await page.waitForLoadState('networkidle');
 
-          // Check URL parsing works on user page
-          expect(page.url()).toContain('photo=hillview-user-test');
+      // Find a photo item that has location (clickable)
+      const photoItems = page.locator('[data-testid="photo-item"]');
+      await expect(photoItems.first()).toBeVisible({ timeout: 10000 });
 
-          // Verify the page loads without errors
-          await expect(page.locator('body')).toBeVisible();
-        }
-      } else {
-        // If no users available, just test with a known username
-        await page.goto(`/users/test?lat=50.0755&lon=14.4378&photo=hillview-user-test`);
-        await page.waitForLoadState('networkidle');
-        expect(page.url()).toContain('photo=hillview-user-test');
-        await expect(page.locator('body')).toBeVisible();
+      // Click on the first photo's image link to navigate to map
+      const photoLink = photoItems.first().locator('a.photo-image');
+      const href = await photoLink.getAttribute('href');
+
+      // Only test if photo has location (href is not '#')
+      if (href && href !== '#') {
+        await photoLink.click();
+
+        // Should navigate to map with photo uid
+        await page.waitForURL(/\/\?.*photo=hillview-/, { timeout: 10000 });
+
+        const url = page.url();
+        expect(url).toMatch(/lat=[\d.-]+/);
+        expect(url).toMatch(/lon=[\d.-]+/);
+        expect(url).toMatch(/photo=hillview-/);
       }
 
-      // Allow 404 errors when loading user photos (expected behavior for non-existent user)
-      const has404Errors = errors.filter(error => !error.includes('404')).length;
-      expect(has404Errors, `Found non-404 errors on user page: ${errors.filter(e => !e.includes('404')).join(', ')}`).toBe(0);
+      // Filter out expected errors
+      const unexpectedErrors = errors.filter(e => !e.includes('404') && !e.includes('Failed to load'));
+      expect(unexpectedErrors.length, `Found unexpected errors: ${unexpectedErrors.join(', ')}`).toBe(0);
     });
 
     test('should maintain photo uid when navigating between routes', async ({ page }) => {

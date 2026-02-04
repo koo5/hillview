@@ -64,7 +64,6 @@ from common.models import Photo, User, PhotoRating, PhotoRatingType, UserPublicK
 from common.utc import format_utc
 from auth import get_current_active_user
 from common.file_utils import (
-	validate_and_prepare_photo_file,
 	verify_saved_file_content,
 	cleanup_file_on_error,
 	get_file_size_from_upload

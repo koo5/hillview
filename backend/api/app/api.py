@@ -366,6 +366,10 @@ import contact_routes
 
 app.include_router(contact_routes.router)
 
+import worker_routes
+
+app.include_router(worker_routes.router)
+
 
 # Database migration function
 def run_migrations():

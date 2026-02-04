@@ -109,7 +109,7 @@ def anonymize_image(source_path):
 	# Validate file size before processing to prevent memory exhaustion
 	try:
 		file_size = os.path.getsize(source_path)
-		if file_size > 50 * 1024 * 1024:  # 50MB limit
+		if file_size > 150 * 1024 * 1024:
 			logging.warning(f"Image file too large for processing: {file_size} bytes")
 			raise ValueError(f"Image file too large for processing: {file_size} bytes")
 	except OSError:

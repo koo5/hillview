@@ -282,7 +282,7 @@ class PhotoProcessor:
 			logger.info(f"Using {'anonymized' if anonymized_path else 'original'} image for resizing: {input_file_path}")
 
 			# Standard sizes from original importer
-			size_variants = ['full', 320, 640, 1024, 2048, 3072]
+			size_variants = ['full', 320, 640, 1024, 2048, 3072, 4096]
 
 			# Get file extension from original filename
 			file_ext = os.path.splitext(original_filename)[1].lower()

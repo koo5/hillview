@@ -5,11 +5,13 @@ This service handles photo processing tasks with JWT authentication.
 It exposes the process_uploaded_photo function as a REST API endpoint.
 """
 import os
-
+import threading
 import logging
 import sys
 import psutil
 import time
+
+import requests
 from dotenv import load_dotenv
 import socket
 import hashlib
@@ -27,7 +29,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from throttle import Throttle
-
 
 throttle = Throttle('app')
 
@@ -64,6 +65,7 @@ app = FastAPI(
 	version="1.0.1"
 )
 
+
 # CORS configuration
 app.add_middleware(
 	CORSMiddleware,
@@ -80,6 +82,8 @@ security = HTTPBearer()
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "/app/uploads/"))
 UPLOAD_DIR.mkdir(exist_ok=True)
 API_URL = os.getenv("API_URL", "http://localhost:8055/api")
+FLY_MACHINE_ID = os.environ.get("FLY_MACHINE_ID", None)
+
 
 def get_worker_identity() -> str:
 	"""
@@ -109,7 +113,47 @@ def get_worker_identity() -> str:
 
 # Generate worker identity once at startup
 WORKER_IDENTITY = get_worker_identity()
-logger.info(f"Worker identity: {WORKER_IDENTITY}, PID: {os.getpid()}, DEV_MODE: {os.getenv('DEV_MODE')}")
+logger.info(f"Worker identity: {WORKER_IDENTITY}, PID: {os.getpid()}, DEV_MODE: {os.getenv('DEV_MODE')}, FLY_MACHINE_ID: {FLY_MACHINE_ID}")
+
+
+@app.on_event("startup")
+async def startup_event():
+	"""Start background task ping loop on app startup."""
+	start_background_loop()
+
+
+pending_background_tasks_mutex = threading.Lock()
+pending_background_tasks = set()
+task_id_counter = 1
+
+
+def background_loop():
+	while True:
+		l = 0
+		with pending_background_tasks_mutex:
+			l = len(pending_background_tasks)
+		if l > 0:
+			logger.info(f"Pending background tasks: {l}")
+			try:
+				requests.post(
+					f"{API_URL}/worker_pending_background_tasks_ping",
+					json={
+						"worker_identity": WORKER_IDENTITY,
+						"fly_machine_id": FLY_MACHINE_ID,
+						"pending_tasks": l
+					},
+					timeout=60
+				)
+			except Exception as e:
+				logger.error(f"Failed to ping API with pending tasks: {e}")
+		time.sleep(30)
+
+
+# Start background loop in a daemon thread
+def start_background_loop():
+	thread = threading.Thread(target=background_loop, daemon=True)
+	thread.start()
+	logger.info("Background task ping loop started")
 
 
 # Request/Response models
@@ -164,6 +208,14 @@ async def root():
 async def health_check():
 	"""Health check endpoint."""
 	return {"status": "healthy", "service": "photo-processor"}
+@app.get("/appcheck")
+async def health_check():
+	"""Health check endpoint."""
+	return {"status": "healthy", "service": "photo-processor"}
+@app.get("/servicecheck")
+async def health_check():
+	"""Health check endpoint."""
+	return {"status": "healthy", "service": "photo-processor"}
 
 
 def validate_upload_parameters(upload_auth: dict, file) -> (str, str):
@@ -198,24 +250,22 @@ async def upload_sync(
 	return await upload(file, client_signature, photo_id, user_id)
 
 
-
 @app.post("/upload_async")
 async def upload_async(
 	file: UploadFile = File(...),
 	client_signature: str = Form(...),
-	upload_auth: dict = Depends(get_upload_authorization)
+	upload_auth: dict = Depends(get_upload_authorization),
+	background_tasks: BackgroundTasks = None
 ):
+	global task_id_counter
 	photo_id, user_id = validate_upload_parameters(upload_auth, file)
-	# todo: pending_background_tasks.push(task_id++)
-	BackgroundTasks.add_task(upload, file, client_signature, photo_id, user_id, task_id)
+	with pending_background_tasks_mutex:
+		task_id = task_id_counter
+		task_id_counter += 1
+		pending_background_tasks.add(task_id)
+	background_tasks.add_task(upload, file, client_signature, photo_id, user_id, task_id)
 
 	return {'success': True}
-
-# todo: periodic timer:
-# if now - process_start_time > 30s:
-#	if len(pending_background_tasks) === 0:
-#		if client_connections_count === 0:
-#			shutdown_container()
 
 
 async def upload(file: UploadFile, client_signature: str, photo_id: str, user_id: str, task_id = None):
@@ -369,8 +419,9 @@ async def upload(file: UploadFile, client_signature: str, photo_id: str, user_id
 	finally:
 		if file_path:
 			cleanup_file_on_error(file_path)
-		if task_id != None:
-			pending_background_tasks.remove(task_id)
+		if task_id is not None:
+			with pending_background_tasks_mutex:
+				pending_background_tasks.discard(task_id)
 
 
 	# Return success response

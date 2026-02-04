@@ -3,6 +3,7 @@
 	import { http, handleApiError } from '$lib/http';
 	import { myGoto } from '$lib/navigation.svelte';
 	import { constructUserProfileUrl } from '$lib/urlUtils';
+	import { app } from '$lib/data.svelte';
 	import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';
 	import StandardBody from '$lib/components/StandardBody.svelte';
 	import Spinner from '$lib/components/Spinner.svelte';
@@ -123,6 +124,12 @@
 							<p class="photo-count">{user.photo_count} photo{user.photo_count !== 1 ? 's' : ''}</p>
 							{#if user.latest_photo_at}
 								<p class="latest-activity">Latest: {formatDate(user.latest_photo_at)}</p>
+							{/if}
+							{#if $app.debug_enabled}
+								<details class="debug-details" on:click|stopPropagation>
+									<summary>[debug]</summary>
+									<pre>{JSON.stringify(user, null, 2)}</pre>
+								</details>
 							{/if}
 						</div>
 					</div>
@@ -252,6 +259,28 @@
 		margin: 0;
 		font-size: 0.8rem;
 		color: #999;
+	}
+
+	.debug-details {
+		margin-top: 8px;
+		font-size: 0.75rem;
+	}
+
+	.debug-details summary {
+		cursor: pointer;
+		color: #888;
+	}
+
+	.debug-details pre {
+		margin: 4px 0 0 0;
+		padding: 8px;
+		background: #f5f5f5;
+		border-radius: 4px;
+		overflow-x: auto;
+		font-size: 0.7rem;
+		max-height: 200px;
+		overflow-y: auto;
+		text-align: left;
 	}
 
 	@media (max-width: 768px) {
