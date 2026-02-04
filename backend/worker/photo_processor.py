@@ -436,13 +436,9 @@ class PhotoProcessor:
 
 		# this takes a while to import, so do it here dynamically
 		from anonymize import anonymize_image
-
-		async with throttle.rate_limit():
-			await throttle.wait_for_free_ram(400)
-
-			#os.makedirs(temp_dir, exist_ok=True)
-			anonymized_path, detections = anonymize_image(source_path)
-			return anonymized_path, detections
+		await throttle.wait_for_free_ram(400)
+		anonymized_path, detections = anonymize_image(source_path)
+		return anonymized_path, detections
 
 
 	async def process_uploaded_photo(

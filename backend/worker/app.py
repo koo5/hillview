@@ -4,6 +4,7 @@ FastAPI Worker Service for Photo Processing
 This service handles photo processing tasks with JWT authentication.
 It exposes the process_uploaded_photo function as a REST API endpoint.
 """
+import asyncio
 import os
 import threading
 import logging
@@ -114,6 +115,30 @@ def get_worker_identity() -> str:
 # Generate worker identity once at startup
 WORKER_IDENTITY = get_worker_identity()
 logger.info(f"Worker identity: {WORKER_IDENTITY}, PID: {os.getpid()}, DEV_MODE: {os.getenv('DEV_MODE')}, FLY_MACHINE_ID: {FLY_MACHINE_ID}")
+
+# Semaphore to limit concurrent photo processing
+MAX_CONCURRENT_PROCESSING = int(os.getenv("MAX_CONCURRENT_PROCESSING", "2"))
+processing_semaphore = asyncio.Semaphore(MAX_CONCURRENT_PROCESSING)
+
+
+def run_photo_processing_sync(file_path: str, filename: str, user_id: UUID, photo_id: str, client_signature: str):
+	"""
+	Sync wrapper to run async photo processing in a dedicated event loop.
+	This runs in a thread pool to avoid blocking the main event loop.
+	"""
+	loop = asyncio.new_event_loop()
+	try:
+		return loop.run_until_complete(
+			photo_processor.process_uploaded_photo(
+				file_path=file_path,
+				filename=filename,
+				user_id=user_id,
+				photo_id=photo_id,
+				client_signature=client_signature
+			)
+		)
+	finally:
+		loop.close()
 
 
 @app.on_event("startup")
@@ -270,98 +295,8 @@ async def upload_async(
 
 async def upload(file: UploadFile, client_signature: str, photo_id: str, user_id: str, task_id = None):
 
-	file_path = None
-	processing_status = "error"
-	error_message = None
-	retry_after_minutes = None
-	processing_result = None
-	secure_filename = None
-
 	try:
-
-		async with throttle.rate_limit():
-
-			# Wait for sufficient free RAM before processing
-			want_mb = 300
-			try:
-				await throttle.wait_for_free_ram(want_mb)
-			except TimeoutError as te:
-				logger.error(f"wait_for_free_ram timeout for photo {photo_id}: {te}")
-				raise
-
-			safe_filename = sanitize_filename(file.filename)
-
-			try:
-
-				# Get file size and validate file
-				file_size = get_file_size_from_upload(file.file)
-				safe_filename, secure_filename, file_path = validate_and_prepare_photo_file(
-					filename=file.filename,
-					file_size=file_size,
-					content_type=file.content_type,
-					user_id=user_id,
-					upload_base_dir=str(UPLOAD_DIR)
-				)
-
-				# Save uploaded file
-				async with aiofiles.open(file_path, 'wb') as f:
-					content = await file.read()
-					await f.write(content)
-
-				# Verify file content
-				if not verify_saved_file_content(str(file_path), "image"):
-					raise ValueError("Invalid image file content")
-
-				logger.info(f"File saved successfully: {file_path}")
-
-				# Process the photo
-				user_uuid = UUID(user_id)
-
-
-				processing_result = await photo_processor.process_uploaded_photo(
-					file_path=str(file_path),
-					filename=safe_filename,
-					user_id=user_uuid,
-					photo_id=photo_id,
-					client_signature=client_signature
-				)
-
-
-				if not processing_result:
-					raise ValueError("Processing returned no result")
-
-				logger.info(f"Photo processing completed for {safe_filename}")
-				processing_status = "completed"
-
-			except TimeoutError as te:
-				logger.error(f"TimeoutError (wait_for_free_ram?) for photo {photo_id}: {te}")
-				processing_status = "error"
-				error_message = f"Insufficient resources to process photo, please retry later"
-				retry_after_minutes = 15
-
-			except ValueError as processing_error:
-				# Processing errors (EXIF missing, corrupted data, etc.) - permanent failures
-				logger.error(f"Photo processing failed for {safe_filename}: {processing_error}")
-				processing_status = "error"
-				error_message = str(processing_error)
-				retry_after_minutes = None  # Permanent failure, no retry
-
-			except (IOError, OSError, PermissionError) as system_error:
-				# System/IO errors (disk full, permissions, etc.) - retriable failures
-				logger.error(f"System error processing photo {safe_filename}: {system_error}")
-				processing_status = "error"
-				error_message = f"System error: {system_error}"
-				retry_after_minutes = 5  # Retry in 5 minutes
-
-			except Exception as unexpected_error:
-				# Unexpected errors - retriable failures with longer delay
-				logger.error(f"Unexpected error processing photo {safe_filename}: {unexpected_error}")
-				# exc_info = (type(exc), exc, exc.__traceback__)
-				# logger.error('Exception occurred', exc_info=exc_info)
-				processing_status = "error"
-				error_message = f"Unexpected error: {unexpected_error}"
-				retry_after_minutes = 10  # Retry in 10 minutes
-
+		file_path, processing_status, error_message, retry_after_minutes, processing_result, secure_filename = await process(file, client_signature, photo_id, user_id)
 
 		# Always notify API server of result
 		try:
@@ -434,3 +369,94 @@ async def upload(file: UploadFile, client_signature: str, photo_id: str, user_id
 	)
 
 
+async def process(file: UploadFile, client_signature: str, photo_id: str, user_id: str):
+
+	file_path = None
+	error_message = None
+	retry_after_minutes = None
+	processing_result = None
+	secure_filename = None
+
+	safe_filename = sanitize_filename(file.filename)
+
+	try:
+
+		# Get file size and validate file
+		file_size = get_file_size_from_upload(file.file)
+		safe_filename, secure_filename, file_path = validate_and_prepare_photo_file(
+			filename=file.filename,
+			file_size=file_size,
+			content_type=file.content_type,
+			user_id=user_id,
+			upload_base_dir=str(UPLOAD_DIR)
+		)
+
+		# Save uploaded file
+		async with aiofiles.open(file_path, 'wb') as f:
+			content = await file.read()
+			await f.write(content)
+
+		# Verify file content
+		if not verify_saved_file_content(str(file_path), "image"):
+			raise ValueError("Invalid image file content")
+
+		logger.info(f"File saved successfully: {file_path}")
+
+		# Process the photo with concurrency limit
+		user_uuid = UUID(user_id)
+
+		async with processing_semaphore:
+			# Wait for sufficient free RAM before processing
+			want_mb = 800
+			try:
+				await throttle.wait_for_free_ram(want_mb)
+			except TimeoutError as te:
+				logger.error(f"wait_for_free_ram timeout for photo {photo_id}: {te}")
+				raise
+
+			# Run processing in thread to avoid blocking the event loop
+			processing_result = await asyncio.to_thread(
+				run_photo_processing_sync,
+				str(file_path),
+				safe_filename,
+				user_uuid,
+				photo_id,
+				client_signature
+			)
+
+		if not processing_result:
+			raise ValueError("Processing returned no result")
+
+		logger.info(f"Photo processing completed for {safe_filename}")
+		processing_status = "completed"
+
+	except TimeoutError as te:
+		logger.error(f"TimeoutError (wait_for_free_ram?) for photo {photo_id}: {te}")
+		processing_status = "error"
+		error_message = f"Insufficient resources to process photo, please retry later"
+		retry_after_minutes = 15
+
+	except ValueError as processing_error:
+		# Processing errors (EXIF missing, corrupted data, etc.) - permanent failures
+		logger.error(f"Photo processing failed for {safe_filename}: {processing_error}")
+		processing_status = "error"
+		error_message = str(processing_error)
+		retry_after_minutes = None  # Permanent failure, no retry
+
+	except (IOError, OSError, PermissionError) as system_error:
+		# System/IO errors (disk full, permissions, etc.) - retriable failures
+		logger.error(f"System error processing photo {safe_filename}: {system_error}")
+		processing_status = "error"
+		error_message = f"System error: {system_error}"
+		retry_after_minutes = 5  # Retry in 5 minutes
+
+	except Exception as unexpected_error:
+		# Unexpected errors - retriable failures with longer delay
+		logger.error(f"Unexpected error processing photo {safe_filename}: {unexpected_error}")
+		# exc_info = (type(exc), exc, exc.__traceback__)
+		# logger.error('Exception occurred', exc_info=exc_info)
+		processing_status = "error"
+		error_message = f"Unexpected error: {unexpected_error}"
+		retry_after_minutes = 10  # Retry in 10 minutes
+
+	return file_path, processing_status, error_message, retry_after_minutes, processing_result, secure_filename

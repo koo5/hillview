@@ -2,6 +2,7 @@
 
 import os
 import logging
+os.environ["OPENCV_IMGCODECS_WEBP_MAX_FILE_SIZE"] = "209715200"  # 200MB
 import cv2
 import torch
 import subprocess
@@ -78,7 +79,6 @@ def detect_targets(image):
 
 def apply_blur(image, detections):
 	"""Apply Gaussian blur to the regions defined by boxes."""
-	import cv2
 
 	#for cls_id, (x1, y1, x2, y2) in boxes:
 
