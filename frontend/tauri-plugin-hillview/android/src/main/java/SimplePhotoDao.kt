@@ -58,7 +58,8 @@ interface SimplePhotoDao {
         SELECT * FROM photos
         WHERE (id NOT IN (:seen) AND (
             uploadStatus IN ('pending', 'failed') OR
-            (uploadStatus = 'uploading' AND lastUploadAttempt < :staleThreshold)
+            (uploadStatus = 'uploading' AND lastUploadAttempt < :staleThreshold) OR
+            (uploadStatus = 'processing' AND lastUploadAttempt < 36000000)
         ))
         ORDER BY
             CASE uploadStatus

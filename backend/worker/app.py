@@ -22,7 +22,7 @@ from typing import Optional
 from uuid import UUID
 from pathlib import Path
 from datetime import datetime
-from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, Request
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
@@ -165,22 +165,15 @@ async def health_check():
 	"""Health check endpoint."""
 	return {"status": "healthy", "service": "photo-processor"}
 
-@app.post("/upload", response_model=ProcessPhotoResponse)
-async def upload_and_process_photo(
-	file: UploadFile = File(...),
-	client_signature: str = Form(...),
-	upload_auth: dict = Depends(get_upload_authorization)
-):
-	"""
-	Upload and immediately process a photo using secure upload authorization.
-	Always notifies API server of result (success or failure).
-	"""
+
+def validate_upload_parameters(upload_auth: dict, file) -> (str, str):
+
 	# Extract upload authorization data
 	raw_photo_id = upload_auth["photo_id"]
 	raw_user_id = upload_auth["user_id"]
 	client_key_id = upload_auth["client_public_key_id"]
 
-	# Sanitize and validate critical parameters for filesystem safety
+	# Sanitize and validate critical parameters for filesystem and logging safety
 	try:
 		photo_id = validate_photo_id(raw_photo_id)
 		user_id = validate_user_id(raw_user_id)
@@ -191,8 +184,41 @@ async def upload_and_process_photo(
 			detail=f"Invalid upload parameters: {str(e)}"
 		)
 
-	# Now safe to use in logging and file paths
 	logger.info(f"/upload photo {photo_id}, user {user_id}, key {client_key_id}: {file.filename}")
+	return photo_id, user_id
+
+
+@app.post("/upload", response_model=ProcessPhotoResponse)
+async def upload_sync(
+	file: UploadFile = File(...),
+	client_signature: str = Form(...),
+	upload_auth: dict = Depends(get_upload_authorization)
+):
+	photo_id, user_id = validate_upload_parameters(upload_auth, file)
+	return await upload(file, client_signature, photo_id, user_id)
+
+
+
+@app.post("/upload_async")
+async def upload_async(
+	file: UploadFile = File(...),
+	client_signature: str = Form(...),
+	upload_auth: dict = Depends(get_upload_authorization)
+):
+	photo_id, user_id = validate_upload_parameters(upload_auth, file)
+	# todo: pending_background_tasks.push(task_id++)
+	BackgroundTasks.add_task(upload, file, client_signature, photo_id, user_id, task_id)
+
+	return {'success': True}
+
+# todo: periodic timer:
+# if now - process_start_time > 30s:
+#	if len(pending_background_tasks) === 0:
+#		if client_connections_count === 0:
+#			shutdown_container()
+
+
+async def upload(file: UploadFile, client_signature: str, photo_id: str, user_id: str, task_id = None):
 
 	file_path = None
 	processing_status = "error"
@@ -200,7 +226,6 @@ async def upload_and_process_photo(
 	retry_after_minutes = None
 	processing_result = None
 	secure_filename = None
-
 
 	try:
 
@@ -262,7 +287,7 @@ async def upload_and_process_photo(
 				logger.error(f"TimeoutError (wait_for_free_ram?) for photo {photo_id}: {te}")
 				processing_status = "error"
 				error_message = f"Insufficient resources to process photo, please retry later"
-				retry_after_minutes = 5
+				retry_after_minutes = 15
 
 			except ValueError as processing_error:
 				# Processing errors (EXIF missing, corrupted data, etc.) - permanent failures
@@ -326,7 +351,7 @@ async def upload_and_process_photo(
 					f"{API_URL}/photos/processed",
 					json=payload,
 					headers={"Content-Type": "application/json"},
-					timeout=30.0
+					timeout=120.0
 				)
 
 				if response.status_code != 200:
@@ -344,6 +369,9 @@ async def upload_and_process_photo(
 	finally:
 		if file_path:
 			cleanup_file_on_error(file_path)
+		if task_id != None:
+			pending_background_tasks.remove(task_id)
+
 
 	# Return success response
 	return ProcessPhotoResponse(

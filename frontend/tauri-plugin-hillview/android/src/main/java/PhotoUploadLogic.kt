@@ -132,7 +132,6 @@ class PhotoUploadLogic(private val context: Context) {
 
 					if (!photoId.isNullOrEmpty())
 					{
-						// avoid completed photos
 						photo = photoDao.getPhotoById(photoId)
 					}
 					else
@@ -198,7 +197,7 @@ class PhotoUploadLogic(private val context: Context) {
 								TAG,
 								"✅ Successfully ${action}ed ${photo.filename}"
 							)
-							photoDao.updateUploadStatus(photo.id, "completed", System.currentTimeMillis())
+							photoDao.updateUploadStatus(photo.id, "processing", System.currentTimeMillis())
 						} else {
 							Log.w(
 								TAG,
@@ -229,6 +228,14 @@ class PhotoUploadLogic(private val context: Context) {
 						)
 					}
 				}
+
+
+				// todo: find all "processing" photos
+
+				// todo: 
+
+
+
 
 				Log.d(TAG, "Photo upload worker completed successfully")
 				return ListenableWorker.Result.success()
@@ -341,7 +348,6 @@ class PhotoUploadLogic(private val context: Context) {
 			Log.d(TAG, "Client signature generated for: ${photo.filename} with key ${signatureData.keyId}")
 
 			// Step 3: Upload to worker (using worker_url from auth response)
-			// Read file bytes only now, when we actually need them
 			val fileBytes = PhotoUtils.readBytesFromPath(context, photo.path)
 			if (fileBytes == null) {
 				Log.e(TAG, "Failed to read photo file for upload: ${photo.path}")
@@ -492,7 +498,7 @@ class PhotoUploadLogic(private val context: Context) {
 			.build()
 
 		val request = Request.Builder()
-			.url("$workerUrl/upload")
+			.url("$workerUrl/upload_async")
 			.addHeader("Authorization", "Bearer $uploadJwt")
 			.post(requestBody)
 			.build()
