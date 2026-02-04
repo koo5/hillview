@@ -528,7 +528,7 @@ async fn save_photo_from_bytes(
 					created_at: plugin_photo.created_at,
 				};
 
-				// Trigger immediate upload worker to process the new photo
+				// Trigger immediate upload worker to process the new photo. The naming is wrong at this point.
 				match app_handle.hillview().retry_failed_uploads() {
 					Ok(_) => {
 						info!(

@@ -16,7 +16,9 @@
 
 		try {
 			if (TAURI) {
-				const result = await invoke('plugin:hillview|retry_failed_uploads') as { success: boolean };
+				const result = await invoke('plugin:hillview|cmd', {
+					command: 'retry_uploads'
+				}) as { success: boolean };
 				if (result.success) {
 					addLogEntry('Manual upload triggered successfully', 'success');
 					setTimeout(() => {

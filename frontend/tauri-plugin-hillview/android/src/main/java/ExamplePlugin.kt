@@ -2516,6 +2516,10 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 					return
 				}
 
+				"retry_uploads" -> {
+					photoUploadManager.startAutomaticUpload("retry_button")
+				}
+
 				else -> {
 					resolveWithError(invoke, "🔧 Unknown command: $command")
 					return

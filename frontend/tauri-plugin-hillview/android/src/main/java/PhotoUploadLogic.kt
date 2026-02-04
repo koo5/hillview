@@ -153,7 +153,8 @@ class PhotoUploadLogic(private val context: Context) {
 					)
 
 					// For failed uploads, check if enough time has elapsed for retry
-					if (photo.uploadStatus == "failed") {
+					// Skip backoff check for manual retry button presses
+					if (photo.uploadStatus == "failed" && triggerSource != "retry_button") {
 						val timeSinceLastAttempt = System.currentTimeMillis() - photo.lastUploadAttempt
 						val requiredWaitTime = calculateBackoffTime(photo.retryCount)
 
