@@ -305,10 +305,12 @@ class PhotoProcessor:
 				new_width = int(width * scale)
 				new_height = int(height * scale)
 
+				logger.info(f"Creating size {size} for {unique_id}: {new_width}x{new_height} at {output_file_path}")
 				new_image = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_AREA)
+				logger.debug(f"Resized image to {new_width}x{new_height} for size {size}")
 				new_image_rgb = cv2.cvtColor(new_image, cv2.COLOR_BGR2RGB)
-				Image.fromarray(new_image_rgb).save(output_file_path, format='WEBP', quality=95, method=6)
-
+				logger.debug(f"Converted image to RGB color space for size {size}")
+				Image.fromarray(new_image_rgb).save(output_file_path, format='WEBP', quality=97, method=6)
 				logger.info(f"Created size {size} for {unique_id}: {new_width}x{new_height} at {output_file_path}")
 
 				size_info.update({
@@ -401,6 +403,7 @@ class PhotoProcessor:
 		"""
 
 		# this takes a while to import, so do it here dynamically
+		logger.info(f"Importing anonymization module for {source_path}")
 		from anonymize import anonymize_image
 		await throttle.wait_for_free_ram(800)
 		anonymized_path, detections = anonymize_image(source_path)

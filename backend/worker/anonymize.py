@@ -114,6 +114,7 @@ def anonymize_image(source_path):
 		logging.warning(f"Could not access image file: {source_path}")
 		raise ValueError("Invalid image file path")
 
+	logging.info(f"Reading image: {source_path}")
 	image = cv2.imread(source_path)
 	if image is None:
 		logging.warning(f"Could not read image: {source_path}")
@@ -124,6 +125,7 @@ def anonymize_image(source_path):
 	if width > 65536 or height > 65536 or (width * height) > 65536*10000:
 		raise ValueError(f"Image size too large or invalid ({width}x{height}). Please use a smaller image.")
 
+	logging.info(f"Detecting target objects in image: {source_path}")
 	boxes = detect_targets(image)
 
 	# Create detections data structure
@@ -149,6 +151,7 @@ def anonymize_image(source_path):
 	if len(boxes) == 0:
 		logging.info(f"{source_path}: No target objects detected.")
 
+	logging.info(f"Applying blur to detected objects in image: {source_path}")
 	apply_blur(image, detections["objects"])
 	return image, detections
 
