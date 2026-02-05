@@ -14,7 +14,9 @@ from pathlib import Path
 from typing import Optional, Dict, Any, List, Tuple
 from uuid import UUID
 from datetime import datetime
-
+os.environ["OPENCV_IMGCODECS_WEBP_MAX_FILE_SIZE"] = "209715200"  # 200MB
+import cv2
+from PIL import Image
 import exifread
 import httpx
 from throttle import Throttle
@@ -277,80 +279,44 @@ class PhotoProcessor:
 		try:
 			logger.info(f"Starting anonymization for {unique_id}")
 
-			anonymized_path, detections = await self._anonymize_image(source_path)
-			input_file_path = anonymized_path if anonymized_path else source_path
-			logger.info(f"Using {'anonymized' if anonymized_path else 'original'} image for resizing: {input_file_path}")
-
-			# Standard sizes from original importer
+			image, detections = await self._anonymize_image(source_path)
 			size_variants = ['full', 320, 640, 1024, 2048, 3072, 4096]
-
-			# Get file extension from original filename
-			file_ext = os.path.splitext(original_filename)[1].lower()
 
 			for size in size_variants:
 
-				# Skip if size is larger than original width
+				# done if size is larger than original width
 				if isinstance(size, int) and size > width:
 					break
 
-				# Extract user_id and photo_id from unique_id (format: "user_id/photo_id")
 				user_id_part, photo_id_part = unique_id.split('/', 1)
-				try:
-					# Validate user_id component for filesystem and command-line safety
-					user_id_part = validate_user_id(user_id_part)
-				except SecurityValidationError as e:
-					logger.warning(f"Invalid user_id in unique_id '{unique_id}': {e}")
-					# Skip this size variant if user_id is invalid
-					continue
-
-				# Create directory structure: opt/size/user_id/
+				user_id_part = validate_user_id(user_id_part)
 				size_dir = os.path.join(output_base, 'opt', str(size), user_id_part)
-				unique_filename = sanitize_filename(f"{photo_id_part}{file_ext}")
-				# Validate the final output path before any filesystem or subprocess operations
+				unique_filename = sanitize_filename(f"{photo_id_part}.webp")
 				output_file_path = validate_file_path(os.path.join(size_dir, unique_filename), output_base)
-				safe_output_file_path = output_file_path
-				relative_path = os.path.relpath(safe_output_file_path, output_base)
+				relative_path = os.path.relpath(output_file_path, output_base)
+				os.makedirs(pathlib.Path(output_file_path).parent, exist_ok=True)
 
-				os.makedirs(pathlib.Path(safe_output_file_path).parent, exist_ok=True)
+				size_info = {'path': relative_path}
 
-				# Copy and resize the image
-				shutil.copy2(input_file_path, safe_output_file_path)
+				scale = 1
+				if size != 'full':
+					scale = size / width
 
-				size_info = {
-					'path': relative_path,
+				new_width = int(width * scale)
+				new_height = int(height * scale)
 
-				}
+				new_image = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_AREA)
+				new_image_rgb = cv2.cvtColor(new_image, cv2.COLOR_BGR2RGB)
+				Image.fromarray(new_image_rgb).save(output_file_path, format='WEBP', quality=95, method=6)
 
-				if size == 'full':
+				logger.info(f"Created size {size} for {unique_id}: {new_width}x{new_height} at {output_file_path}")
 
-					size_info.update({
-						'width': width,
-						'height': height,
-						'url': await self._get_size_url(output_file_path, relative_path, photo_id, client_signature)
-					})
-					sizes_info[size] = size_info
-				else:
-
-					# Resize using ImageMagick mogrify (matching original)
-					# Use absolute path and validated inputs
-					cmd = ['mogrify', '-resize', str(int(size)), safe_output_file_path]
-					logger.debug(f"Resizing image with command: {shlex.join(cmd)}")
-					subprocess.run(cmd, capture_output=True, timeout=130, check=True)
-					new_width, new_height = self.get_image_dimensions(safe_output_file_path, orientation)
-
-					if safe_output_file_path.lower().endswith(('.jpg', '.jpeg')):
-						logger.debug(f"Optimizing JPEG with jpegoptim: {safe_output_file_path}")
-						cmd = ['jpegoptim', '--all-progressive', '--overwrite', safe_output_file_path]
-						subprocess.run(cmd, capture_output=True, timeout=130, check=True)
-
-					logger.info(f"Created size {size} for {unique_id}: {new_width}x{new_height} at {output_file_path}")
-
-					size_info.update({
-						'width': new_width,
-						'height': new_height,
-						'url': await self._get_size_url(output_file_path, relative_path, photo_id, client_signature)
-					})
-					sizes_info[size] = size_info
+				size_info.update({
+					'width': new_width,
+					'height': new_height,
+					'url': await self._get_size_url(output_file_path, relative_path, photo_id, client_signature)
+				})
+				sizes_info[size] = size_info
 
 			logger.info(f"Created {len(sizes_info)} size variants for {unique_id}")
 
@@ -436,7 +402,7 @@ class PhotoProcessor:
 
 		# this takes a while to import, so do it here dynamically
 		from anonymize import anonymize_image
-		await throttle.wait_for_free_ram(400)
+		await throttle.wait_for_free_ram(800)
 		anonymized_path, detections = anonymize_image(source_path)
 		return anonymized_path, detections
 
@@ -453,7 +419,10 @@ class PhotoProcessor:
 	) -> Optional[Dict[str, Any]]:
 		"""Process a user-uploaded photo and return processing results."""
 
+		validate_user_id(str(user_id))
 		unique_id = str(user_id) + '/' + str(photo_id)
+
+
 
 		# Initialize variables that might be used in exception handling
 		detections = None
@@ -521,9 +490,7 @@ class PhotoProcessor:
 			logger.error(f"Image dimensions validation failed for {safe_filename}: {width}x{height}")
 			raise ValueError(error_msg)
 
-		sizes_info = {}
-		if width and height:
-			sizes_info, detections = await self.create_optimized_sizes(file_path, unique_id, filename, orientation, width, height, photo_id, client_signature)
+		sizes_info, detections = await self.create_optimized_sizes(file_path, unique_id, filename, orientation, width, height, photo_id, client_signature)
 
 		# Return processing results for database creation
 		return {
@@ -541,6 +508,28 @@ class PhotoProcessor:
 			'is_public': is_public,
 			'user_id': user_id
 		}
+
+
+def copy_exif_data(source_path, output_path):
+	# Copy EXIF data from source to output using exiftool
+	cmd = ['exiftool', '-overwrite_original', '-TagsFromFile', source_path, '-all:all', output_path]
+	logging.debug(f"Preserving EXIF data from {os.path.basename(source_path)} to anonymized version: {shlex.join(cmd)}")
+
+	result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+	if result.returncode == 0:
+		logging.info(f"Successfully preserved all EXIF metadata in anonymized image: {os.path.basename(output_path)}")
+
+		# Reset orientation tag to 1 (normal orientation) because image has been loaded and saved anew
+		orientation_cmd = ['exiftool', '-overwrite_original', '-EXIF:Orientation=', output_path]
+		logging.debug(f"Resetting orientation tag: {shlex.join(orientation_cmd)}")
+
+		orientation_result = subprocess.run(orientation_cmd, capture_output=True, text=True, timeout=30)
+		if orientation_result.returncode != 0:
+			raise RuntimeError(f"Failed to reset orientation tag for {os.path.basename(output_path)}: {orientation_result.stderr}")
+
+		logging.debug(f"Successfully reset orientation tag to 1 for {os.path.basename(output_path)}")
+	else:
+		logging.warning(f"Failed to preserve EXIF metadata in {os.path.basename(output_path)}: {result.stderr}")
 
 
 # Global instance

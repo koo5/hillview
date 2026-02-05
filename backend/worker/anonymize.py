@@ -2,7 +2,6 @@
 
 import os
 import logging
-os.environ["OPENCV_IMGCODECS_WEBP_MAX_FILE_SIZE"] = "209715200"  # 200MB
 import cv2
 import torch
 import subprocess
@@ -98,7 +97,6 @@ def apply_blur(image, detections):
 			label = TARGET_CLASSES[cls_id]
 			logging.info(f"Blurred {label} at ({x1},{y1})-({x2},{y2})")
 
-	return image
 
 
 def anonymize_image(source_path):
@@ -122,9 +120,9 @@ def anonymize_image(source_path):
 		raise ValueError("Invalid image file content")
 
 	# Validate image dimensions to prevent memory exhaustion
-	# height, width = image.shape[:2]
-	# if width > 12192 or height > 12192 or (width * height) > 167108864:
-	# 	raise ValueError(f"Image size too large or invalid ({width}x{height}). Please use a smaller image.")
+	height, width = image.shape[:2]
+	if width > 65536 or height > 65536 or (width * height) > 65536*10000:
+		raise ValueError(f"Image size too large or invalid ({width}x{height}). Please use a smaller image.")
 
 	boxes = detect_targets(image)
 
@@ -136,7 +134,6 @@ def anonymize_image(source_path):
 
 	for cls_id, (x1, y1, x2, y2) in boxes:
 		label = TARGET_CLASSES[cls_id]
-
 		detections["objects"].append({
 			"class_id": cls_id,
 			"class_name": label,
@@ -150,41 +147,11 @@ def anonymize_image(source_path):
 		})
 
 	if len(boxes) == 0:
-		logging.info(f"{source_path}: No target objects detected. Skipping.")
-		return source_path, detections
-	masked = apply_blur(image.copy(), detections["objects"])
+		logging.info(f"{source_path}: No target objects detected.")
 
-	output_path = source_path + '_anonymized'
-	cv2.imwrite(output_path, masked)
+	apply_blur(image, detections["objects"])
+	return image, detections
 
-	# Preserve EXIF data from original image
-	try:
-		# Copy EXIF data from source to output using exiftool
-		cmd = ['exiftool', '-overwrite_original', '-TagsFromFile', source_path, '-all:all', output_path]
-		logging.debug(f"Preserving EXIF data from {os.path.basename(source_path)} to anonymized version: {shlex.join(cmd)}")
 
-		result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-		if result.returncode == 0:
-			logging.info(f"Successfully preserved all EXIF metadata in anonymized image: {os.path.basename(output_path)}")
-
-			# Reset orientation tag to 1 (normal orientation) - this is critical for privacy
-			orientation_cmd = ['exiftool', '-overwrite_original', '-EXIF:Orientation=', output_path]
-			logging.debug(f"Resetting orientation tag: {shlex.join(orientation_cmd)}")
-
-			orientation_result = subprocess.run(orientation_cmd, capture_output=True, text=True, timeout=30)
-			if orientation_result.returncode != 0:
-				raise RuntimeError(f"Failed to reset orientation tag for {os.path.basename(output_path)}: {orientation_result.stderr}")
-
-			logging.debug(f"Successfully reset orientation tag to 1 for {os.path.basename(output_path)}")
-		else:
-			logging.warning(f"Failed to preserve EXIF metadata in {os.path.basename(output_path)}: {result.stderr}")
-
-	except subprocess.TimeoutExpired:
-		logging.warning(f"Timeout while preserving EXIF data for {os.path.basename(output_path)}")
-	except Exception as e:
-		logging.warning(f"Error preserving EXIF data for {os.path.basename(output_path)}: {e}")
-
-	logging.debug(f"Saved anonymized image with preserved metadata to: {output_path}")
-	return output_path, detections
 
 
