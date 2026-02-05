@@ -29,6 +29,7 @@ from common.cdn_uploader import cdn_uploader
 logger = logging.getLogger(__name__)
 
 PICS_URL = os.environ.get("PICS_URL")
+PARALLEL_PROCESSING_START_DELAY = int(os.environ.get("PARALLEL_PROCESSING_START_DELAY", 5))
 
 throttle = Throttle('photo_processor')
 
@@ -152,7 +153,7 @@ class PhotoProcessor:
 			cmd = ['exiftool', '-json', '-n', validated_filepath]
 			logger.debug(f"Trying exiftool fallback: {shlex.join(cmd)}")
 
-			proc_result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+			proc_result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
 
 			if proc_result.returncode != 0:
 				result['debug']['parsing_errors'].append("exiftool command failed")
@@ -254,16 +255,12 @@ class PhotoProcessor:
 			return 0, 0
 
 		cmd = ['identify', '-format', '%w %h', validated_filepath]
-		try:
-			output = subprocess.check_output(cmd, timeout=30).decode('utf-8')
-			dimensions = [int(x) for x in output.split()]
-			if orientation in [5, 6, 7, 8]:
-				dimensions = [dimensions[1], dimensions[0]]
-			logger.debug(f'Image dimensions: {dimensions}')
-			return dimensions[0], dimensions[1]
-		except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
-			logger.debug(f"Error getting image size for {filepath}: {e}")
-			return 0, 0
+		output = subprocess.check_output(cmd, timeout=300).decode('utf-8')
+		dimensions = [int(x) for x in output.split()]
+		if orientation in [5, 6, 7, 8]:
+			dimensions = [dimensions[1], dimensions[0]]
+		logger.debug(f'Image dimensions: {dimensions}')
+		return dimensions[0], dimensions[1]
 
 
 	async def create_optimized_sizes(self, source_path: str, unique_id: str, original_filename: str,
@@ -271,22 +268,24 @@ class PhotoProcessor:
 									 width: int, height: int, photo_id: str = None, client_signature: str = None) -> tuple[Dict[str, Dict[str, Any]], Optional[Dict[str, Any]]]:
 		"""Create optimized versions with anonymization and unique IDs."""
 		sizes_info = {}
-		anonymized_path = None
-
-		# Create output directory structure
 		output_base = os.environ.get('PICS_DIR', self.upload_dir)
+		logger.info(f"Starting anonymization for {unique_id}")
 
-		try:
-			logger.info(f"Starting anonymization for {unique_id}")
+		# this takes a while to import, so do it here dynamically
+		logger.info(f"Importing anonymization module for {source_path}")
+		from anonymize import anonymize_image as _
+
+		async with throttle.rate_limit(PARALLEL_PROCESSING_START_DELAY):
+			await throttle.wait_for_free_ram(800)
 
 			image, detections = await self._anonymize_image(source_path)
 			size_variants = ['full', 320, 640, 1024, 2048, 3072, 4096]
 
 			for size in size_variants:
 
-				# done if size is larger than original width
+				# skip if size is larger than original width
 				if isinstance(size, int) and size > width:
-					break
+					continue
 
 				user_id_part, photo_id_part = unique_id.split('/', 1)
 				user_id_part = validate_user_id(user_id_part)
@@ -322,13 +321,8 @@ class PhotoProcessor:
 
 			logger.info(f"Created {len(sizes_info)} size variants for {unique_id}")
 
-		finally:
-			# Clean up temporary anonymized file
-			if anonymized_path and os.path.exists(anonymized_path):
-				os.remove(anonymized_path)
-				logger.info(f"Cleaned up temporary anonymization file.")
-
 		return sizes_info, detections
+
 
 
 	async def _upload_file_to_api(self, file_path: str, relative_path: str, photo_id: str, client_signature: str) -> str:
@@ -401,11 +395,7 @@ class PhotoProcessor:
 		Returns:
 			tuple: (anonymized_path: Optional[str], detections: dict)
 		"""
-
-		# this takes a while to import, so do it here dynamically
-		logger.info(f"Importing anonymization module for {source_path}")
 		from anonymize import anonymize_image
-		await throttle.wait_for_free_ram(800)
 		anonymized_path, detections = anonymize_image(source_path)
 		return anonymized_path, detections
 
@@ -424,11 +414,6 @@ class PhotoProcessor:
 
 		validate_user_id(str(user_id))
 		unique_id = str(user_id) + '/' + str(photo_id)
-
-
-
-		# Initialize variables that might be used in exception handling
-		detections = None
 
 		# Sanitize filename
 		try:
@@ -518,7 +503,7 @@ def copy_exif_data(source_path, output_path):
 	cmd = ['exiftool', '-overwrite_original', '-TagsFromFile', source_path, '-all:all', output_path]
 	logging.debug(f"Preserving EXIF data from {os.path.basename(source_path)} to anonymized version: {shlex.join(cmd)}")
 
-	result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+	result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
 	if result.returncode == 0:
 		logging.info(f"Successfully preserved all EXIF metadata in anonymized image: {os.path.basename(output_path)}")
 
@@ -526,7 +511,7 @@ def copy_exif_data(source_path, output_path):
 		orientation_cmd = ['exiftool', '-overwrite_original', '-EXIF:Orientation=', output_path]
 		logging.debug(f"Resetting orientation tag: {shlex.join(orientation_cmd)}")
 
-		orientation_result = subprocess.run(orientation_cmd, capture_output=True, text=True, timeout=30)
+		orientation_result = subprocess.run(orientation_cmd, capture_output=True, text=True, timeout=300)
 		if orientation_result.returncode != 0:
 			raise RuntimeError(f"Failed to reset orientation tag for {os.path.basename(output_path)}: {orientation_result.stderr}")
 

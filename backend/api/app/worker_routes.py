@@ -20,6 +20,7 @@ class WorkerPingRequest(BaseModel):
 	worker_identity: str
 	fly_machine_id: Optional[str] = None
 	pending_tasks: int
+	task0_id: int
 
 
 @router.post("/worker_pending_background_tasks_ping")
@@ -34,9 +35,10 @@ async def worker_pending_background_tasks_ping(request: WorkerPingRequest):
 		# Ping back the worker to keep it alive
 		try:
 			async with httpx.AsyncClient() as client:
-				response = await client.get(
-					f"{WORKER_URL}/health",
+				response = await client.post(
+					f"{WORKER_URL}/await",
 					headers={"fly-force-instance-id": request.fly_machine_id},
+					params={'task_id': request.task0_id},
 					timeout=60.0
 				)
 				log.info(f"Ping back to worker {request.fly_machine_id}: status={response.status_code}")

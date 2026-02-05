@@ -21,6 +21,8 @@ RUN apt-get install -y \
     imagemagick \
     jpegoptim \
     libimage-exiftool-perl \
+    htop \
+    procps \
     && rm -rf /var/lib/apt/lists/*
 
 

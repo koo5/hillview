@@ -4,8 +4,6 @@ import os
 import logging
 import cv2
 import torch
-import subprocess
-import shlex
 from ultralytics import YOLO
 
 

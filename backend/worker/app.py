@@ -117,8 +117,8 @@ WORKER_IDENTITY = get_worker_identity()
 logger.info(f"Worker identity: {WORKER_IDENTITY}, PID: {os.getpid()}, DEV_MODE: {os.getenv('DEV_MODE')}, FLY_MACHINE_ID: {FLY_MACHINE_ID}")
 
 # Semaphore to limit concurrent photo processing
-MAX_CONCURRENT_PROCESSING = int(os.getenv("MAX_CONCURRENT_PROCESSING", "2"))
-processing_semaphore = asyncio.Semaphore(MAX_CONCURRENT_PROCESSING)
+PARALLEL_PROCESSING_CONCURRENCY = int(os.getenv("PARALLEL_PROCESSING_CONCURRENCY", "3"))
+processing_semaphore = asyncio.Semaphore(PARALLEL_PROCESSING_CONCURRENCY)
 
 
 def run_photo_processing_sync(file_path: str, filename: str, user_id: UUID, photo_id: str, client_signature: str):
@@ -154,9 +154,12 @@ task_id_counter = 1
 
 def background_loop():
 	while True:
-		l = 0
+		l = None
+		task0 = None
 		with pending_background_tasks_mutex:
 			l = len(pending_background_tasks)
+			if l > 0:
+				task0 = list(pending_background_tasks)[0]
 		if l > 0:
 			logger.info(f"Pending background tasks: {l}")
 			try:
@@ -165,13 +168,16 @@ def background_loop():
 					json={
 						"worker_identity": WORKER_IDENTITY,
 						"fly_machine_id": FLY_MACHINE_ID,
-						"pending_tasks": l
+						"pending_tasks": l,
+						"task0_id": task0
 					},
-					timeout=60
+					timeout=600
 				)
+				time.sleep(1)
 			except Exception as e:
 				logger.error(f"Failed to ping API with pending tasks: {e}")
-		time.sleep(30)
+		else:
+			time.sleep(10)
 
 
 # Start background loop in a daemon thread
@@ -233,6 +239,16 @@ async def root():
 async def health_check():
 	"""Health check endpoint."""
 	return {"status": "healthy", "service": "photo-processor"}
+
+@app.post("/await")
+async def await_handler(task_id: int):
+	while True:
+		with pending_background_tasks_mutex:
+			if task_id not in pending_background_tasks:
+				return {"status": "completed"}
+		await asyncio.sleep(1)
+
+
 @app.get("/appcheck")
 async def health_check():
 	"""Health check endpoint."""
@@ -406,13 +422,7 @@ async def process(file: UploadFile, client_signature: str, photo_id: str, user_i
 		user_uuid = UUID(user_id)
 
 		async with processing_semaphore:
-			# Wait for sufficient free RAM before processing
-			want_mb = 800
-			try:
-				await throttle.wait_for_free_ram(want_mb)
-			except TimeoutError as te:
-				logger.error(f"wait_for_free_ram timeout for photo {photo_id}: {te}")
-				raise
+			await throttle.wait_for_free_ram(500)
 
 			# Run processing in thread to avoid blocking the event loop
 			processing_result = await asyncio.to_thread(
