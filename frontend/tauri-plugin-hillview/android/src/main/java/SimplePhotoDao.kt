@@ -66,11 +66,13 @@ interface SimplePhotoDao {
                 WHEN 'pending' THEN 1
                 WHEN 'failed' THEN 2
                 WHEN 'uploading' THEN 3
+				WHEN 'processing' THEN 4
             END,
             CASE uploadStatus
                 WHEN 'pending' THEN createdAt
                 WHEN 'failed' THEN lastUploadAttempt
                 WHEN 'uploading' THEN lastUploadAttempt
+				WHEN 'processing' THEN lastUploadAttempt
             END ASC
         LIMIT 1
     """)
@@ -88,6 +90,9 @@ interface SimplePhotoDao {
     @Query("SELECT COUNT(*) FROM photos WHERE uploadStatus = 'uploading'")
     fun getUploadingCount(): Int
 
+    @Query("SELECT COUNT(*) FROM photos WHERE uploadStatus = 'processing'")
+    fun getProcessingCount(): Int
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun insertPhoto(photo: PhotoEntity)
 
@@ -100,8 +105,14 @@ interface SimplePhotoDao {
     @Query("UPDATE photos SET uploadStatus = :status, uploadedAt = :uploadedAt WHERE id = :photoId")
     fun updateUploadStatus(photoId: String, status: String, uploadedAt: Long)
 
+    @Query("UPDATE photos SET uploadStatus = :status, serverPhotoId = :serverPhotoId, lastUploadAttempt = :lastAttempt WHERE id = :photoId")
+    fun updateUploadStatusAndServerId(photoId: String, status: String, serverPhotoId: String, lastAttempt: Long)
+
     @Query("UPDATE photos SET uploadStatus = :status, retryCount = :retryCount, lastUploadAttempt = :lastAttempt, uploadError = :error WHERE id = :photoId")
     fun updateUploadFailure(photoId: String, status: String, retryCount: Int, lastAttempt: Long, error: String)
+
+    @Query("SELECT * FROM photos WHERE uploadStatus = 'processing' AND serverPhotoId IS NOT NULL")
+    fun getProcessingPhotos(): List<PhotoEntity>
 
     @Query("DELETE FROM photos WHERE id = :photoId")
     fun deletePhoto(photoId: String)

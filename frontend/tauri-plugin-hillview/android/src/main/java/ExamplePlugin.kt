@@ -308,6 +308,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 	private val authManager: AuthenticationManager = AuthenticationManager(activity)
 	private val photoWorkerService: PhotoWorkerService = PhotoWorkerService(activity, this)
 	private val photoUploadManager: PhotoUploadManager = PhotoUploadManager(activity)
+	private val photoUploadLogic: PhotoUploadLogic = PhotoUploadLogic(activity)
 	private val geoTrackingManager: GeoTrackingManager = GeoTrackingManager(activity)
 
 	private val myDeviceOrientationSensor: MyDeviceOrientationSensor =
@@ -2492,6 +2493,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 							result.put("total", dao.getTotalPhotoCount())
 							result.put("pending", dao.getPendingUploadCount())
 							result.put("uploading", dao.getUploadingCount())
+							result.put("processing", dao.getProcessingCount())
 							result.put("completed", dao.getCompletedUploadCount())
 							result.put("failed", dao.getFailedUploadCount())
 							invoke.resolve(result)
@@ -2518,6 +2520,16 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 
 				"retry_uploads" -> {
 					photoUploadManager.startAutomaticUpload("retry_button")
+				}
+
+				"update_photo_statuses" -> {
+					photoUploadLogic.handleUpdatePhotoStatuses(invoke, params)
+					return
+				}
+
+				"get_processing_photo_ids" -> {
+					photoUploadLogic.handleGetProcessingPhotoIds(invoke)
+					return
 				}
 
 				else -> {

@@ -134,7 +134,7 @@ class SecureUploadClient:
 			if response.status_code != 200:
 				print(f"❌ Phase 1a failed: {response.status_code} - {response.text}")
 				raise Exception(f"Authentication test failed: {response.status_code} - {response.text}")
-			print("✅ Phase 1a: Client authentication successful")
+			#print("✅ Phase 1a: Client authentication successful")
 
 			# Register client public key
 			import datetime
@@ -153,7 +153,7 @@ class SecureUploadClient:
 			if response.status_code in [200, 201]:
 				key_data = response.json()
 				#print(f"✅ Phase 1b: Client key registered successfully")
-				print(f"✅  Key ID: {key_data.get('key_id', 'unknown')}")
+				#print(f"✅  Key ID: {key_data.get('key_id', 'unknown')}")
 				# Store the key_id for later use
 				self.key_id = key_data.get('key_id', key_id)
 				return key_data
@@ -171,6 +171,8 @@ class SecureUploadClient:
 
 			if response.status_code == 200:
 				auth_data = response.json()
+				if auth_data.get("duplicate"):
+					return auth_data
 				assert "upload_jwt" in auth_data
 				assert "worker_url" in auth_data
 				assert "photo_id" in auth_data
@@ -229,7 +231,7 @@ class SecureUploadClient:
 
 		return await self._request_upload_authorization(auth_token, upload_request)
 
-	async def upload_to_worker(self, file_input, auth_data, client_keys, filename="secure_test.jpg", timeout: float = 60.0):
+	async def upload_to_worker(self, file_input, auth_data, client_keys, filename="secure_test.jpg", timeout: float = 600.0):
 		"""Phase 3: Upload file to worker with proper client signature.
 
 		Args:

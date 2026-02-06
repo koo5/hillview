@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 PICS_URL = os.environ.get("PICS_URL")
 PARALLEL_PROCESSING_START_DELAY = int(os.environ.get("PARALLEL_PROCESSING_START_DELAY", 5))
+logger.info(f"PARALLEL_PROCESSING_START_DELAY={PARALLEL_PROCESSING_START_DELAY} seconds")
 
 throttle = Throttle('photo_processor')
 
@@ -37,16 +38,8 @@ class PhotoProcessor:
 	"""Unified photo processing service for uploads."""
 
 
-	SUPPORTED_EXTENSIONS = ['.jpg', '.jpeg', '.tiff', '.png', '.heic', '.heif']
-
-
 	def __init__(self, upload_dir: str = "/app/uploads"):
 		self.upload_dir = upload_dir
-
-
-	def is_supported_image(self, filename: str) -> bool:
-		"""Check if file is a supported image format."""
-		return any(filename.lower().endswith(ext) for ext in self.SUPPORTED_EXTENSIONS)
 
 
 	def extract_exif_data(self, filepath: str) -> Dict[str, Any]:

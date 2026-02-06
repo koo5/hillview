@@ -74,7 +74,8 @@ async def query_photos_in_bounds(
 	).join(User, Photo.owner_id == User.id).where(
 		Photo.geometry.isnot(None),
 		ST_Within(Photo.geometry, bbox),
-		Photo.is_public == True
+		Photo.is_public == True,
+		Photo.processing_status == 'completed'
 	).order_by(Photo.captured_at.desc())
 
 	# Exclude specific photo IDs if provided

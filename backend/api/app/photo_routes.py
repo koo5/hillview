@@ -603,6 +603,51 @@ async def get_photo_count(
 			detail="Failed to get photo counts"
 		)
 
+class PhotoStatusRequest(BaseModel):
+	"""Request model for batch photo status query."""
+	photo_ids: list[str]
+
+@router.post("/status")
+async def get_photos_status(
+	request: Request,
+	status_request: PhotoStatusRequest,
+	current_user: User = Depends(get_current_active_user),
+	db: AsyncSession = Depends(get_db)
+):
+	"""Get processing status for a list of photo IDs."""
+	await rate_limit_photo_operations(request, current_user.id)
+
+	try:
+		if not status_request.photo_ids:
+			return {"photos": []}
+
+		result = await db.execute(
+			select(Photo.id, Photo.processing_status, Photo.error)
+			.where(
+				Photo.owner_id == str(current_user.id),
+				Photo.id.in_(status_request.photo_ids)
+			)
+		)
+		photos = result.fetchall()
+
+		return {
+			"photos": [
+				{
+					"id": photo.id,
+					"processing_status": photo.processing_status,
+					"error": photo.error
+				}
+				for photo in photos
+			]
+		}
+
+	except Exception as e:
+		logger.error(f"Error getting photo statuses for user {current_user.id}: {e}")
+		raise HTTPException(
+			status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+			detail="Failed to get photo statuses"
+		)
+
 @router.get("/{photo_id}")
 async def get_photo(
 	request: Request,

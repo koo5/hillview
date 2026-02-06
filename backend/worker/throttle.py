@@ -7,6 +7,7 @@ import time, psutil
 import asyncio
 from contextlib import asynccontextmanager
 import threading
+from starlette.concurrency import run_in_threadpool
 
 
 class Throttle:
@@ -26,7 +27,7 @@ class Throttle:
 		- Allows unlimited concurrent operations
 		Thread-safe: works across threads without blocking the event loop.
 		"""
-		await asyncio.to_thread(s._lock.acquire)
+		await run_in_threadpool(s._lock.acquire)
 		try:
 			delay_start = time.time()
 			while True:
@@ -50,7 +51,7 @@ class Throttle:
 		try:
 			yield
 		finally:
-			await asyncio.to_thread(s._lock.acquire)
+			await run_in_threadpool(s._lock.acquire)
 			try:
 				s._running_tasks -= 1
 			finally:

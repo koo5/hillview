@@ -29,6 +29,7 @@ from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, Req
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 from throttle import Throttle
 
 throttle = Throttle('app')
@@ -118,6 +119,7 @@ logger.info(f"Worker identity: {WORKER_IDENTITY}, PID: {os.getpid()}, DEV_MODE: 
 
 # Semaphore to limit concurrent photo processing
 PARALLEL_PROCESSING_CONCURRENCY = int(os.getenv("PARALLEL_PROCESSING_CONCURRENCY", "3"))
+logger.info(f"PARALLEL_PROCESSING_CONCURRENCY: {PARALLEL_PROCESSING_CONCURRENCY}")
 processing_semaphore = asyncio.Semaphore(PARALLEL_PROCESSING_CONCURRENCY)
 
 
@@ -425,7 +427,7 @@ async def process(file: UploadFile, client_signature: str, photo_id: str, user_i
 			await throttle.wait_for_free_ram(500)
 
 			# Run processing in thread to avoid blocking the event loop
-			processing_result = await asyncio.to_thread(
+			processing_result = await run_in_threadpool(
 				run_photo_processing_sync,
 				str(file_path),
 				safe_filename,

@@ -21,6 +21,7 @@
 	import {http, handleApiError, TokenExpiredError} from '$lib/http';
 	import {TAURI} from '$lib/tauri';
 	import {navigateWithHistory} from '$lib/navigation.svelte';
+	import {updateKotlinPhotoStatuses} from '$lib/photoStatusSync';
 	import UploadSettingsComponent from '$lib/components/UploadSettings.svelte';
 	import {invoke} from "@tauri-apps/api/core";
 	import LoadMoreButton from "$lib/components/LoadMoreButton.svelte";
@@ -145,6 +146,18 @@
 			nextCursor = data.pagination?.next_cursor || null;
 			hasMore = data.pagination?.has_more || false;
 			totalCount = data.counts?.total || 0;
+
+			// Update Kotlin local DB with server statuses
+			if (TAURI && newPhotos.length > 0) {
+				const statuses = newPhotos.map((p: UserPhoto) => ({
+					id: p.id,
+					processing_status: p.processing_status,
+					error: p.error || null
+				}));
+				updateKotlinPhotoStatuses(statuses).catch(err =>
+					console.error('Failed to sync photo statuses to Kotlin:', err)
+				);
+			}
 
 		} catch (err) {
 			console.error('🢄Error fetching photos:', err);
@@ -728,68 +741,6 @@
 		grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
 		gap: 24px;
 		margin-top: 16px;
-	}
-
-	.photo-card {
-		border: 1px solid #eee;
-		border-radius: 8px;
-		overflow: hidden;
-		transition: transform 0.3s, box-shadow 0.3s;
-	}
-
-	.photo-card:hover {
-		transform: translateY(-4px);
-		box-shadow: 0 6px 12px rgba(0, 0, 0, 0.1);
-	}
-
-	.photo-image {
-		height: 200px;
-		overflow: hidden;
-		width: 100%;
-		padding: 0;
-		border: none;
-		background: none;
-		cursor: pointer;
-		display: block;
-	}
-
-	.photo-image img {
-		width: 100%;
-		height: 100%;
-		object-fit: cover;
-		transition: transform 0.3s;
-	}
-
-	.photo-card:hover .photo-image img {
-		transform: scale(1.05);
-	}
-
-	.photo-info {
-		padding: 16px;
-	}
-
-	.photo-info h3 {
-		margin: 0 0 8px 0;
-		font-size: 18px;
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-
-	.description {
-		color: #555;
-		margin: 0 0 12px 0;
-		display: -webkit-box;
-		line-clamp: 2;
-		-webkit-line-clamp: 2;
-		-webkit-box-orient: vertical;
-		overflow: hidden;
-	}
-
-	.meta {
-		font-size: 14px;
-		color: #777;
-		margin: 4px 0;
 	}
 
 	.photo-actions {

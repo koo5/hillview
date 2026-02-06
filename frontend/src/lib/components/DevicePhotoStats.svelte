@@ -3,7 +3,7 @@
 	import {browser} from '$app/environment';
 	import {devicePhotoStats, fetchDevicePhotoStats, hasUploadsToRetry} from '$lib/devicePhotoStats';
 	import {app} from "$lib/data.svelte";
-	import {Upload, Clock, AlertCircle, CheckCircle} from 'lucide-svelte';
+	import {Upload, Clock, AlertCircle, CheckCircle, Loader} from 'lucide-svelte';
 	import RetryUploadsButton from "$lib/components/RetryUploadsButton.svelte";
 
 	export let addLogEntry: (message: string, type?: 'success' | 'warning' | 'error' | 'info', metadata?: any) => void = () => {};
@@ -20,7 +20,7 @@
 	function hasActiveUploads(): boolean {
 		const stats = $devicePhotoStats;
 		if (!stats) return false;
-		return stats.pending > 0 || stats.uploading > 0;
+		return stats.pending > 0 || stats.uploading > 0 || stats.processing > 0;
 	}
 
 	async function doRefresh() {
@@ -109,6 +109,12 @@
 				<span>{$devicePhotoStats.uploading} uploading</span>
 			</div>
 		{/if}
+		{#if $devicePhotoStats.processing > 0}
+			<div class="stat-item processing">
+				<Loader size={14}/>
+				<span>{$devicePhotoStats.processing} processing</span>
+			</div>
+		{/if}
 		{#if $devicePhotoStats.failed > 0}
 			<div class="stat-item failed">
 				<Clock size={14}/>
@@ -173,6 +179,10 @@
 
 	.stat-item.uploading {
 		color: #3b82f6;
+	}
+
+	.stat-item.processing {
+		color: #8b5cf6;
 	}
 
 	.stat-item.failed {

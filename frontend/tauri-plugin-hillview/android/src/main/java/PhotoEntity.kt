@@ -32,12 +32,13 @@ data class PhotoEntity(
     val createdAt: Long,
 
     // Upload tracking fields
-    val uploadStatus: String = "pending", // pending, uploading, completed, failed
+    val uploadStatus: String = "pending", // pending, uploading, processing, completed, failed
     val uploadedAt: Long = 0L,
     val retryCount: Int = 0,
     val lastUploadAttempt: Long = 0L,
     val uploadError: String = "",
-    val fileHash: String = ""
+    val fileHash: String = "",
+    val serverPhotoId: String? = null  // Server's photo ID (UUID) for status queries
 )
 
 enum class UploadStatus {
