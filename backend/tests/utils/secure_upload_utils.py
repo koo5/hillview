@@ -231,7 +231,7 @@ class SecureUploadClient:
 
 		return await self._request_upload_authorization(auth_token, upload_request)
 
-	async def upload_to_worker(self, file_input, auth_data, client_keys, filename="secure_test.jpg", timeout: float = 600.0):
+	async def upload_to_worker(self, file_input, auth_data, client_keys, filename="secure_test.jpg", timeout: float = 60000.0):
 		"""Phase 3: Upload file to worker with proper client signature.
 
 		Args:
@@ -260,7 +260,7 @@ class SecureUploadClient:
 				# File path provided, read the file
 				with open(file_input, 'rb') as f:
 					file_data = f.read()
-				files = {'file': (filename, file_data, 'image/jpeg')}
+				files = {'file': (filename, file_data, get_content_type(filename))}
 
 			data = {'client_signature': client_signature}
 			headers = {'Authorization': f'Bearer {upload_jwt}'}
@@ -329,6 +329,28 @@ class SecureUploadClient:
 					print(f"⚠️ Worker server returned {response.status_code}")
 		except httpx.ConnectError:
 			raise Exception("Worker server not available")
+
+
+def get_content_type(filename: str) -> str:
+	"""Get content type based on file extension."""
+	ext = os.path.splitext(filename)[1].lower()
+	if ext in ['.jpg', '.jpeg']:
+		return 'image/jpeg'
+	elif ext == '.png':
+		return 'image/png'
+	elif ext == '.gif':
+		return 'image/gif'
+	elif ext == '.bmp':
+		return 'image/bmp'
+	elif ext == '.webp':
+		return 'image/webp'
+	elif ext == '.tiff':
+		return 'image/tiff'
+	elif ext == '.cr2':
+		return 'image/x-canon-cr2'
+	else:
+		return 'application/octet-stream'
+
 
 if __name__ == "__main__":
 	# Run with: python -m pytest tests/test_secure_upload_workflow.py -v -s

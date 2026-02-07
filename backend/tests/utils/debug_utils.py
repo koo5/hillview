@@ -272,20 +272,25 @@ def base64_to_pem(base64_key: str):
 		return None, None
 
 
-async def _parallel_upload(items, parallel, get_image_data, token, format_success, timeout=60):
+async def _parallel_upload(items, parallel, get_image_data, token_or_manager, format_success, timeout=60):
 	"""Core parallel upload logic.
 
 	Args:
 		items: List of (index, filename, description, extra_data) tuples
 		parallel: Number of concurrent uploads
 		get_image_data: Callable(extra_data) -> (bytes, lat, lon)
-		token: Auth token
+		token_or_manager: Auth token string or TokenManager instance
 		format_success: Callable(index, total, filename, photo_data, extra_data) -> str
 		timeout: Processing timeout per photo
 	"""
 	import asyncio
 	from .secure_upload_utils import SecureUploadClient
 	from .test_utils import wait_for_photo_processing, API_URL
+
+	def get_token():
+		if isinstance(token_or_manager, str):
+			return token_or_manager
+		return token_or_manager.get_token()
 
 	total = len(items)
 	results = {"created": 0, "duplicates": 0, "failed": 0}
@@ -296,6 +301,7 @@ async def _parallel_upload(items, parallel, get_image_data, token, format_succes
 		async with semaphore:
 			try:
 				image_data, lat, lon = get_image_data(extra_data)
+				token = get_token()
 
 				upload_client = SecureUploadClient(api_url=API_URL)
 				client_keys = upload_client.generate_client_keys()
@@ -314,7 +320,7 @@ async def _parallel_upload(items, parallel, get_image_data, token, format_succes
 				result = await upload_client.upload_to_worker(image_data, auth_data, client_keys, filename)
 				photo_id = result.get('photo_id', auth_data.get('photo_id'))
 
-				photo_data = wait_for_photo_processing(photo_id, token, timeout=timeout)
+				photo_data = wait_for_photo_processing(photo_id, get_token(), timeout=timeout)
 				if photo_data['processing_status'] == 'completed':
 					results["created"] += 1
 					print(format_success(i, total, filename, photo_data, extra_data))
@@ -333,7 +339,90 @@ async def _parallel_upload(items, parallel, get_image_data, token, format_succes
 		  f"({results['duplicates']} duplicates, {results['failed']} failed)")
 
 
-def upload_random_photos(count: int = 10, parallel: int = 1):
+class TokenManager:
+	"""Manages auth tokens with automatic refresh."""
+
+	def __init__(self, user: str = None, password: str = None):
+		import requests
+		from .test_utils import API_URL
+		self.api_url = API_URL
+		self.user = user
+		self.password = password
+		self.access_token = None
+		self.refresh_token = None
+		self.expires_at = None
+		self._login()
+
+	def _login(self):
+		import requests
+		from datetime import datetime
+		if self.user and self.password:
+			response = requests.post(
+				f"{self.api_url}/auth/token",
+				data={"username": self.user, "password": self.password},
+				headers={"Content-Type": "application/x-www-form-urlencoded"}
+			)
+			if response.status_code != 200:
+				raise Exception(f"Login failed: {response.status_code} - {response.text}")
+			data = response.json()
+			self.access_token = data["access_token"]
+			self.refresh_token = data.get("refresh_token")
+			expires_str = data.get("expires_at")
+			if expires_str:
+				self.expires_at = datetime.fromisoformat(expires_str.replace("Z", "+00:00"))
+		else:
+			self.access_token = auth_helper.get_test_user_token("test")
+			self.refresh_token = None
+			self.expires_at = None
+
+	def get_token(self) -> str:
+		"""Get current token, refreshing if needed."""
+		from datetime import datetime, timezone
+		# Refresh if expiring in less than 5 minutes
+		if self.expires_at and self.refresh_token:
+			now = datetime.now(timezone.utc)
+			if (self.expires_at - now).total_seconds() < 300:
+				self._refresh()
+		return self.access_token
+
+	def _refresh(self):
+		import requests
+		from datetime import datetime
+		print("🔄 Refreshing auth token...")
+		response = requests.post(
+			f"{self.api_url}/auth/refresh",
+			json={"refresh_token": self.refresh_token}
+		)
+		if response.status_code != 200:
+			print(f"⚠️ Refresh failed, re-logging in...")
+			self._login()
+			return
+		data = response.json()
+		self.access_token = data["access_token"]
+		self.refresh_token = data.get("refresh_token", self.refresh_token)
+		expires_str = data.get("expires_at")
+		if expires_str:
+			self.expires_at = datetime.fromisoformat(expires_str.replace("Z", "+00:00"))
+
+
+def _get_token(user: str = None, password: str = None) -> str:
+	"""Get auth token - either from provided credentials or test user."""
+	if user and password:
+		import requests
+		from .test_utils import API_URL
+		response = requests.post(
+			f"{API_URL}/auth/token",
+			data={"username": user, "password": password},
+			headers={"Content-Type": "application/x-www-form-urlencoded"}
+		)
+		if response.status_code != 200:
+			raise Exception(f"Login failed: {response.status_code} - {response.text}")
+		return response.json()["access_token"]
+	else:
+		return auth_helper.get_test_user_token("test")
+
+
+def upload_random_photos(count: int = 10, parallel: int = 1, user: str = None, password: str = None):
 	"""Upload photos with randomized locations and bearings."""
 	import asyncio
 	import random
@@ -343,7 +432,7 @@ def upload_random_photos(count: int = 10, parallel: int = 1):
 		print(f"📸 Uploading {count} random photos (parallelism: {parallel})...")
 
 		random.seed(42)
-		token = auth_helper.get_test_user_token("test")
+		token_manager = TokenManager(user, password)
 
 		center_lat, center_lon = 50.08, 14.42
 		items = []
@@ -363,7 +452,7 @@ def upload_random_photos(count: int = 10, parallel: int = 1):
 			_, lat, lon, bearing = extra
 			return f"  [{i+1}/{total}] {filename} ✓ lat={lat:.4f}, lon={lon:.4f}, bearing={bearing:.0f}°"
 
-		await _parallel_upload(items, parallel, gen_image, token, format_success, timeout=30)
+		await _parallel_upload(items, parallel, gen_image, token_manager, format_success, timeout=30)
 
 	try:
 		asyncio.run(_upload())
@@ -372,7 +461,7 @@ def upload_random_photos(count: int = 10, parallel: int = 1):
 		traceback.print_exc()
 
 
-def upload_files(files: list, parallel: int = 1):
+def upload_files(files: list, parallel: int = 1, user: str = None, password: str = None):
 	"""Upload files from command line paths."""
 	import asyncio
 	import os
@@ -380,7 +469,7 @@ def upload_files(files: list, parallel: int = 1):
 	async def _upload():
 		print(f"📸 Uploading {len(files)} files (parallelism: {parallel})...")
 
-		token = auth_helper.get_test_user_token("test")
+		token_manager = TokenManager(user, password)
 
 		items = [(i, os.path.basename(f), f"CLI upload: {os.path.basename(f)}", f) for i, f in enumerate(files)]
 
@@ -400,7 +489,7 @@ def upload_files(files: list, parallel: int = 1):
 				loc = ""
 			return f"  [{i+1}/{total}] {filename} ✓{loc}"
 
-		await _parallel_upload(items, parallel, read_file, token, format_success, timeout=60)
+		await _parallel_upload(items, parallel, read_file, token_manager, format_success, timeout=60)
 
 	try:
 		asyncio.run(_upload())
@@ -483,11 +572,8 @@ def main():
 		print("  python debug_utils.py cleanup               # Delete user's photos")
 		print("  python debug_utils.py populate-photos       # Create test photos (fixed locations)")
 		print("  python debug_utils.py populate-photos 6     # Create N test photos (max 6)")
-		print("  python debug_utils.py upload-random-photos  # Upload 10 random photos")
-		print("  python debug_utils.py upload-random-photos 20  # Upload N random photos")
-		print("  python debug_utils.py upload-random-photos 100 4  # Upload N photos with parallelism")
-		print("  python debug_utils.py upload-files file1.jpg file2.jpg  # Upload files")
-		print("  python debug_utils.py upload-files --parallel 4 *.jpg   # Upload files in parallel")
+		print("  python debug_utils.py upload-random-photos [N] [--parallel P] [--user U --pass P]")
+		print("  python debug_utils.py upload-files [--parallel P] [--user U --pass P] file1.jpg ...")
 		print("  python debug_utils.py mock-mapillary        # Set up mock Mapillary data")
 		print("  python debug_utils.py clear-mapillary       # Clear mock Mapillary data")
 		print("  python debug_utils.py verify-signature <message_json> <signature_base64> <public_key_pem>")
@@ -515,19 +601,48 @@ def main():
 		count = int(sys.argv[2]) if len(sys.argv) > 2 else 4
 		populate_photos(count)
 	elif command == "upload-random-photos":
-		count = int(sys.argv[2]) if len(sys.argv) > 2 else 10
-		parallel = int(sys.argv[3]) if len(sys.argv) > 3 else 1
-		upload_random_photos(count, parallel)
+		args = sys.argv[2:]
+		count, parallel, user, password = 10, 1, None, None
+		positional = []
+		i = 0
+		while i < len(args):
+			if args[i] == "--parallel":
+				parallel = int(args[i + 1])
+				i += 2
+			elif args[i] == "--user":
+				user = args[i + 1]
+				i += 2
+			elif args[i] == "--pass":
+				password = args[i + 1]
+				i += 2
+			else:
+				positional.append(args[i])
+				i += 1
+		if positional:
+			count = int(positional[0])
+		upload_random_photos(count, parallel, user, password)
 	elif command == "upload-files":
 		args = sys.argv[2:]
-		parallel = 1
-		if args and args[0] == "--parallel":
-			parallel = int(args[1])
-			args = args[2:]
-		if not args:
-			print("Usage: upload-files [--parallel N] file1.jpg file2.jpg ...")
+		parallel, user, password = 1, None, None
+		files = []
+		i = 0
+		while i < len(args):
+			if args[i] == "--parallel":
+				parallel = int(args[i + 1])
+				i += 2
+			elif args[i] == "--user":
+				user = args[i + 1]
+				i += 2
+			elif args[i] == "--pass":
+				password = args[i + 1]
+				i += 2
+			else:
+				files.append(args[i])
+				i += 1
+		if not files:
+			print("Usage: upload-files [--parallel N] [--user U --pass P] file1.jpg ...")
 		else:
-			upload_files(args, parallel)
+			upload_files(files, parallel, user, password)
 	elif command == "mock-mapillary":
 		setup_mock_mapillary()
 	elif command == "clear-mapillary":

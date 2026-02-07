@@ -33,16 +33,17 @@ async def worker_pending_background_tasks_ping(request: WorkerPingRequest):
 
 	if request.fly_machine_id and request.pending_tasks > 0:
 		# Ping back the worker to keep it alive
+		# fixme: verify worker signature
 		try:
 			async with httpx.AsyncClient() as client:
 				response = await client.post(
 					f"{WORKER_URL}/await",
 					headers={"fly-force-instance-id": request.fly_machine_id},
 					params={'task_id': request.task0_id},
-					timeout=60.0
+					timeout=60000.0
 				)
 				log.info(f"Ping back to worker {request.fly_machine_id}: status={response.status_code}")
 		except Exception as e:
-			log.error(f"Failed to ping back worker {request.fly_machine_id}: {e}")
-
+			err_text = getattr(e, "message", None) or str(e) or repr(e) or e.__class__.__name__
+			log.error(f"Failed to ping back worker {request.fly_machine_id}: {err_text}")
 	return {"status": "ok"}

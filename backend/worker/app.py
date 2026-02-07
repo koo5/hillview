@@ -60,6 +60,10 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Import and setup task context logging
+from logging_context import setup_task_logging, task_context, current_photo_id, current_task_id
+setup_task_logging()
+
 # FastAPI app
 app = FastAPI(
 	title="Hillview Photo Processing Worker",
@@ -123,24 +127,28 @@ logger.info(f"PARALLEL_PROCESSING_CONCURRENCY: {PARALLEL_PROCESSING_CONCURRENCY}
 processing_semaphore = asyncio.Semaphore(PARALLEL_PROCESSING_CONCURRENCY)
 
 
-def run_photo_processing_sync(file_path: str, filename: str, user_id: UUID, photo_id: str, client_signature: str):
+def run_photo_processing_sync(file_path: str, filename: str, user_id: UUID, photo_id: str, client_signature: str, ctx_photo_id: str = None, ctx_task_id: int = None):
 	"""
 	Sync wrapper to run async photo processing in a dedicated event loop.
 	This runs in a thread pool to avoid blocking the main event loop.
+
+	ctx_photo_id and ctx_task_id are used to restore logging context in the new thread.
 	"""
-	loop = asyncio.new_event_loop()
-	try:
-		return loop.run_until_complete(
-			photo_processor.process_uploaded_photo(
-				file_path=file_path,
-				filename=filename,
-				user_id=user_id,
-				photo_id=photo_id,
-				client_signature=client_signature
+	# Restore logging context in this thread
+	with task_context(photo_id=ctx_photo_id, task_id=ctx_task_id):
+		loop = asyncio.new_event_loop()
+		try:
+			return loop.run_until_complete(
+				photo_processor.process_uploaded_photo(
+					file_path=file_path,
+					filename=filename,
+					user_id=user_id,
+					photo_id=photo_id,
+					client_signature=client_signature
+				)
 			)
-		)
-	finally:
-		loop.close()
+		finally:
+			loop.close()
 
 
 @app.on_event("startup")
@@ -313,6 +321,12 @@ async def upload_async(
 
 async def upload(file: UploadFile, client_signature: str, photo_id: str, user_id: str, task_id = None):
 
+	with task_context(photo_id=photo_id, task_id=task_id):
+		return await _upload_inner(file, client_signature, photo_id, user_id, task_id)
+
+
+async def _upload_inner(file: UploadFile, client_signature: str, photo_id: str, user_id: str, task_id = None):
+
 	try:
 		file_path, processing_status, error_message, retry_after_minutes, processing_result, secure_filename = await process(file, client_signature, photo_id, user_id)
 
@@ -427,13 +441,19 @@ async def process(file: UploadFile, client_signature: str, photo_id: str, user_i
 			await throttle.wait_for_free_ram(500)
 
 			# Run processing in thread to avoid blocking the event loop
+			# Capture current context to pass to the thread
+			ctx_photo_id = current_photo_id.get()
+			ctx_task_id = current_task_id.get()
+
 			processing_result = await run_in_threadpool(
 				run_photo_processing_sync,
 				str(file_path),
 				safe_filename,
 				user_uuid,
 				photo_id,
-				client_signature
+				client_signature,
+				ctx_photo_id,
+				ctx_task_id
 			)
 
 		if not processing_result:
