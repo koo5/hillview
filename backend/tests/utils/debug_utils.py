@@ -86,6 +86,34 @@ def recreate_users():
 		print(f"❌ Error: {e}")
 
 
+def set_password(username: str, password: str):
+	"""Set password for a user."""
+	import asyncio
+	from sqlalchemy import select
+	from common.database import SessionLocal
+	from common.models import User
+	from common.auth_utils import get_password_hash
+
+	async def _set_password():
+		async with SessionLocal() as db:
+			result = await db.execute(select(User).where(User.username == username))
+			user = result.scalars().first()
+
+			if not user:
+				print(f"❌ User '{username}' not found")
+				return
+
+			user.hashed_password = get_password_hash(password)
+			await db.commit()
+			print(f"✅ Password set for user '{username}'")
+
+	try:
+		asyncio.run(_set_password())
+	except Exception as e:
+		print(f"❌ Error: {e}")
+		traceback.print_exc()
+
+
 def cleanup_photos():
 	"""Clean up user's photos."""
 	try:
@@ -244,81 +272,135 @@ def base64_to_pem(base64_key: str):
 		return None, None
 
 
+async def _parallel_upload(items, parallel, get_image_data, token, format_success, timeout=60):
+	"""Core parallel upload logic.
+
+	Args:
+		items: List of (index, filename, description, extra_data) tuples
+		parallel: Number of concurrent uploads
+		get_image_data: Callable(extra_data) -> (bytes, lat, lon)
+		token: Auth token
+		format_success: Callable(index, total, filename, photo_data, extra_data) -> str
+		timeout: Processing timeout per photo
+	"""
+	import asyncio
+	from .secure_upload_utils import SecureUploadClient
+	from .test_utils import wait_for_photo_processing, API_URL
+
+	total = len(items)
+	results = {"created": 0, "duplicates": 0, "failed": 0}
+	semaphore = asyncio.Semaphore(parallel)
+
+	async def upload_one(item):
+		i, filename, description, extra_data = item
+		async with semaphore:
+			try:
+				image_data, lat, lon = get_image_data(extra_data)
+
+				upload_client = SecureUploadClient(api_url=API_URL)
+				client_keys = upload_client.generate_client_keys()
+				await upload_client.register_client_key(token, client_keys)
+
+				auth_data = await upload_client.authorize_upload_with_params(
+					token, filename, len(image_data), lat, lon,
+					description, is_public=True, file_data=image_data
+				)
+
+				if auth_data.get("duplicate"):
+					print(f"  [{i+1}/{total}] {filename} ⏭ duplicate")
+					results["duplicates"] += 1
+					return
+
+				result = await upload_client.upload_to_worker(image_data, auth_data, client_keys, filename)
+				photo_id = result.get('photo_id', auth_data.get('photo_id'))
+
+				photo_data = wait_for_photo_processing(photo_id, token, timeout=timeout)
+				if photo_data['processing_status'] == 'completed':
+					results["created"] += 1
+					print(format_success(i, total, filename, photo_data, extra_data))
+				else:
+					results["failed"] += 1
+					print(f"  [{i+1}/{total}] {filename} ✗ {photo_data.get('error', 'Unknown error')}")
+			except Exception as e:
+				results["failed"] += 1
+				err_text = getattr(e, "message", None) or str(e) or repr(e) or e.__class__.__name__
+				print(f"  [{i+1}/{total}] {filename} ✗ {err_text}")
+				traceback.print_exc()
+
+	await asyncio.gather(*[upload_one(item) for item in items])
+
+	print(f"\n✅ Uploaded {results['created']}/{total} "
+		  f"({results['duplicates']} duplicates, {results['failed']} failed)")
+
+
 def upload_random_photos(count: int = 10, parallel: int = 1):
 	"""Upload photos with randomized locations and bearings."""
 	import asyncio
 	import random
 	from .image_utils import create_test_image_full_gps
-	from .secure_upload_utils import SecureUploadClient
-	from .test_utils import wait_for_photo_processing, API_URL
 
 	async def _upload():
 		print(f"📸 Uploading {count} random photos (parallelism: {parallel})...")
 
-		# Deterministic seed for reproducible test runs
 		random.seed(42)
-
 		token = auth_helper.get_test_user_token("test")
 
-		# Center around Prague with some spread
 		center_lat, center_lon = 50.08, 14.42
-
-		# Pre-generate random parameters only (not images)
-		photo_params = []
+		items = []
 		for i in range(count):
 			lat = center_lat + random.uniform(-0.05, 0.05)
 			lon = center_lon + random.uniform(-0.05, 0.05)
 			bearing = random.uniform(0, 360)
 			color = (random.randint(50, 255), random.randint(50, 255), random.randint(50, 255))
 			filename = f"random_photo_{i+1:03d}.jpg"
-			photo_params.append((i, lat, lon, bearing, color, filename))
+			items.append((i, filename, f"Random test photo #{i+1}", (color, lat, lon, bearing)))
 
-		results = {"created": 0, "duplicates": 0, "failed": 0}
-		semaphore = asyncio.Semaphore(parallel)
+		def gen_image(extra):
+			color, lat, lon, bearing = extra
+			return create_test_image_full_gps(400, 300, color, lat, lon, bearing), lat, lon
 
-		async def upload_one(params):
-			i, lat, lon, bearing, color, filename = params
-			async with semaphore:
-				try:
-					# Generate image on-the-fly
-					image_data = create_test_image_full_gps(400, 300, color, lat, lon, bearing)
+		def format_success(i, total, filename, photo_data, extra):
+			_, lat, lon, bearing = extra
+			return f"  [{i+1}/{total}] {filename} ✓ lat={lat:.4f}, lon={lon:.4f}, bearing={bearing:.0f}°"
 
-					upload_client = SecureUploadClient(api_url=API_URL)
-					client_keys = upload_client.generate_client_keys()
-					await upload_client.register_client_key(token, client_keys)
+		await _parallel_upload(items, parallel, gen_image, token, format_success, timeout=30)
 
-					auth_data = await upload_client.authorize_upload_with_params(
-						token, filename, len(image_data), lat, lon,
-						f"Random test photo #{i+1}",
-						is_public=True, file_data=image_data
-					)
+	try:
+		asyncio.run(_upload())
+	except Exception as e:
+		print(f"❌ Error: {e}")
+		traceback.print_exc()
 
-					if auth_data.get("duplicate"):
-						print(f"  [{i+1}/{count}] {filename} ⏭ duplicate")
-						results["duplicates"] += 1
-						return
 
-					result = await upload_client.upload_to_worker(image_data, auth_data, client_keys, filename)
-					photo_id = result.get('photo_id', auth_data.get('photo_id'))
+def upload_files(files: list, parallel: int = 1):
+	"""Upload files from command line paths."""
+	import asyncio
+	import os
 
-					photo_data = wait_for_photo_processing(photo_id, token, timeout=30)
-					if photo_data['processing_status'] == 'completed':
-						results["created"] += 1
-						print(f"  [{i+1}/{count}] {filename} ✓ lat={lat:.4f}, lon={lon:.4f}, bearing={bearing:.0f}°")
-					else:
-						results["failed"] += 1
-						print(f"  [{i+1}/{count}] {filename} ✗ photo failed: {photo_data.get('error', 'Unknown error')}")
-				except Exception as e:
-					results["failed"] += 1
-					err_text = getattr(e, "message", None) or str(e) or repr(e) or e.__class__.__name__
-					print(f"  [{i + 1}/{count}] {filename} ✗ exception: {err_text}")
-					print(f"❌ Error: {e}")
-					traceback.print_exc()
+	async def _upload():
+		print(f"📸 Uploading {len(files)} files (parallelism: {parallel})...")
 
-		await asyncio.gather(*[upload_one(p) for p in photo_params])
+		token = auth_helper.get_test_user_token("test")
 
-		print(f"\n✅ Created {results['created']}/{count} photos "
-			  f"({results['duplicates']} duplicates, {results['failed']} failed)")
+		items = [(i, os.path.basename(f), f"CLI upload: {os.path.basename(f)}", f) for i, f in enumerate(files)]
+
+		def read_file(filepath):
+			with open(filepath, 'rb') as f:
+				return f.read(), 0.0, 0.0
+
+		def format_success(i, total, filename, photo_data, extra):
+			lat = photo_data.get('latitude')
+			lon = photo_data.get('longitude')
+			bearing = photo_data.get('bearing')
+			if lat and lon:
+				loc = f" lat={lat:.4f}, lon={lon:.4f}"
+				if bearing:
+					loc += f", bearing={bearing:.0f}°"
+			else:
+				loc = ""
+			return f"  [{i+1}/{total}] {filename} ✓{loc}"
+
+		await _parallel_upload(items, parallel, read_file, token, format_success, timeout=60)
 
 	try:
 		asyncio.run(_upload())
@@ -395,6 +477,7 @@ def main():
 	if len(sys.argv) < 2:
 		print("Usage:")
 		print("  python debug_utils.py recreate              # Recreate test users")
+		print("  python debug_utils.py set-password <user> <pass>  # Set user password")
 		print("  python debug_utils.py photos                # Show user's photos")
 		print("  python debug_utils.py photo <id>            # Show photo details")
 		print("  python debug_utils.py cleanup               # Delete user's photos")
@@ -403,6 +486,8 @@ def main():
 		print("  python debug_utils.py upload-random-photos  # Upload 10 random photos")
 		print("  python debug_utils.py upload-random-photos 20  # Upload N random photos")
 		print("  python debug_utils.py upload-random-photos 100 4  # Upload N photos with parallelism")
+		print("  python debug_utils.py upload-files file1.jpg file2.jpg  # Upload files")
+		print("  python debug_utils.py upload-files --parallel 4 *.jpg   # Upload files in parallel")
 		print("  python debug_utils.py mock-mapillary        # Set up mock Mapillary data")
 		print("  python debug_utils.py clear-mapillary       # Clear mock Mapillary data")
 		print("  python debug_utils.py verify-signature <message_json> <signature_base64> <public_key_pem>")
@@ -415,6 +500,11 @@ def main():
 
 	if command == "recreate":
 		recreate_users()
+	elif command == "set-password":
+		if len(sys.argv) < 4:
+			print("Usage: set-password <username> <password>")
+		else:
+			set_password(sys.argv[2], sys.argv[3])
 	elif command == "photos":
 		debug_photos()
 	elif command == "photo" and len(sys.argv) > 2:
@@ -428,6 +518,16 @@ def main():
 		count = int(sys.argv[2]) if len(sys.argv) > 2 else 10
 		parallel = int(sys.argv[3]) if len(sys.argv) > 3 else 1
 		upload_random_photos(count, parallel)
+	elif command == "upload-files":
+		args = sys.argv[2:]
+		parallel = 1
+		if args and args[0] == "--parallel":
+			parallel = int(args[1])
+			args = args[2:]
+		if not args:
+			print("Usage: upload-files [--parallel N] file1.jpg file2.jpg ...")
+		else:
+			upload_files(args, parallel)
 	elif command == "mock-mapillary":
 		setup_mock_mapillary()
 	elif command == "clear-mapillary":
