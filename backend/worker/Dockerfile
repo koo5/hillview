@@ -1,4 +1,4 @@
-FROM python:3.9-slim
+FROM python:3.12-slim
 
 # Install system dependencies for image processing and geospatial operations
 RUN apt-get update
@@ -21,8 +21,11 @@ RUN apt-get install -y \
     imagemagick \
     jpegoptim \
     libimage-exiftool-perl \
-    htop \
     procps \
+    htop \
+    mc \
+    iotop \
+    jnettop \
     && rm -rf /var/lib/apt/lists/*
 
 

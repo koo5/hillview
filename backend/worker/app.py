@@ -4,12 +4,11 @@ FastAPI Worker Service for Photo Processing
 This service handles photo processing tasks with JWT authentication.
 It exposes the process_uploaded_photo function as a REST API endpoint.
 """
-import asyncio
 import os
+import asyncio
 import threading
 import logging
 import sys
-import psutil
 import time
 
 import requests
@@ -21,6 +20,7 @@ import hashlib
 load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 import aiofiles
 import httpx
+
 from typing import Optional
 from uuid import UUID
 from pathlib import Path
@@ -38,6 +38,7 @@ throttle = Throttle('app')
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from jwt_service import validate_upload_authorization_token, sign_processing_result
+
 from common.file_utils import (
 	validate_and_prepare_photo_file,
 	verify_saved_file_content,
@@ -51,7 +52,7 @@ from common.security_utils import (
 	sanitize_filename
 )
 from common.config import get_cors_origins
-from photo_processor import photo_processor
+#from photo_processor import photo_processor
 
 # Setup logging
 logging.basicConfig(level=logging.DEBUG)
@@ -138,6 +139,7 @@ def run_photo_processing_sync(file_path: str, filename: str, user_id: UUID, phot
 	with task_context(photo_id=ctx_photo_id, task_id=ctx_task_id):
 		loop = asyncio.new_event_loop()
 		try:
+			from photo_processor import photo_processor
 			return loop.run_until_complete(
 				photo_processor.process_uploaded_photo(
 					file_path=file_path,

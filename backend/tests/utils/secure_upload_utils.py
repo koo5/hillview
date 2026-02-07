@@ -263,7 +263,10 @@ class SecureUploadClient:
 				files = {'file': (filename, file_data, get_content_type(filename))}
 
 			data = {'client_signature': client_signature}
-			headers = {'Authorization': f'Bearer {upload_jwt}'}
+			headers = {
+				'Authorization': f'Bearer {upload_jwt}',
+				'Expect': '100-continue'
+			}
 
 			response = await client.post(
 				f"{worker_url}/upload",
