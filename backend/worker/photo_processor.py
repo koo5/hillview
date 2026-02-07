@@ -268,8 +268,7 @@ class PhotoProcessor:
 		logger.info(f"Importing anonymization module for {source_path}")
 		from anonymize import anonymize_image as _
 
-		async with throttle.rate_limit(PARALLEL_PROCESSING_START_DELAY):
-			await throttle.wait_for_free_ram(800)
+		async with throttle.rate_limit(PARALLEL_PROCESSING_START_DELAY, 1500):
 
 			image, detections = await self._anonymize_image(source_path)
 			size_variants = ['full', 320, 640, 1024, 2048, 3072, 4096]

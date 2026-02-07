@@ -19,7 +19,7 @@ class Throttle:
 		s._running_tasks = 0
 
 	@asynccontextmanager
-	async def rate_limit(s, interval_seconds: float = 5.0):
+	async def rate_limit(s, interval_seconds: float = 10.0, ram_mb: int = None):
 		"""
 		Async context manager to enforce a rate limit between operation starts.
 		- If no task running: starts immediately
@@ -42,6 +42,8 @@ class Throttle:
 					logger.debug(f"[THROTTLE] {s.tag} Rate limit: proceeding after wait of {current_time - delay_start:.2f} seconds")
 					break
 
+			if ram_mb is not None:
+				await s.wait_for_free_ram(ram_mb)
 			logger.debug(f"[THROTTLE] {s.tag} Rate limit: proceeding with request")
 			s._last_request_time = time.time()
 			s._running_tasks += 1
