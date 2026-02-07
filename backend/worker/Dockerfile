@@ -88,6 +88,9 @@ COPY worker/start*.sh /app/worker/
 COPY worker/*py /app/worker/
 COPY worker/.env /app/worker/
 
+# Precompile Python bytecode for faster startup
+RUN python -m compileall -b /app
+
 RUN chown -R worker:worker /app
 
 USER worker

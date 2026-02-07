@@ -6,6 +6,7 @@ watchdog[watchmedo]
 # Web service
 fastapi
 uvicorn
+uvloop
 pydantic
 aiofiles
 httpx

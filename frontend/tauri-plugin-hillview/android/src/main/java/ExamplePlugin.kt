@@ -2496,6 +2496,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 							result.put("processing", dao.getProcessingCount())
 							result.put("completed", dao.getCompletedUploadCount())
 							result.put("failed", dao.getFailedUploadCount())
+							result.put("deleted", dao.getDeletedCount())
 							invoke.resolve(result)
 						} catch (e: Exception) {
 							resolveWithError(invoke, "Failed to get device photo stats: ${e.message}", e)

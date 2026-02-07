@@ -212,7 +212,7 @@
 			</div>
 		</div>
 
-		<DevicePhotoStats onRefresh={() => fetchDevicePhotos(1, false)} />
+		<DevicePhotoStats onRefresh={() => fetchDevicePhotos(1, false)} showDetailedStats={true} />
 
 		{#if isLoading && !photosData}
 			<div class="loading-container" data-testid="loading-container">

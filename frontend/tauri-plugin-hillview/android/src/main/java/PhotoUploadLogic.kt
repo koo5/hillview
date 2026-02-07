@@ -513,6 +513,7 @@ class PhotoUploadLogic(private val context: Context) {
 		val request = Request.Builder()
 			.url("$workerUrl/upload_async")
 			.addHeader("Authorization", "Bearer $uploadJwt")
+			.addHeader("Expect", "100-continue")
 			.post(requestBody)
 			.build()
 
@@ -1000,11 +1001,14 @@ class PhotoUploadLogic(private val context: Context) {
 
     /**
      * Update local photos based on server statuses.
+     * Photos not returned by server are marked as "deleted".
      */
     private fun updatePhotosFromServerStatuses(
         serverStatuses: List<ServerPhotoStatus>,
         photosByServerId: Map<String, PhotoEntity>
     ) {
+        val returnedIds = serverStatuses.map { it.id }.toSet()
+
         for (status in serverStatuses) {
             val localPhoto = photosByServerId[status.id] ?: continue
 
@@ -1026,6 +1030,14 @@ class PhotoUploadLogic(private val context: Context) {
                 "authorized" -> {
                     Log.d(TAG, "⏳ Photo ${localPhoto.filename} still processing")
                 }
+            }
+        }
+
+        // Mark photos not returned by server as deleted
+        for ((serverId, localPhoto) in photosByServerId) {
+            if (serverId !in returnedIds) {
+                Log.i(TAG, "🗑️ Photo ${localPhoto.filename} deleted on server")
+                photoDao.updateUploadStatus(localPhoto.id, "deleted", System.currentTimeMillis())
             }
         }
     }

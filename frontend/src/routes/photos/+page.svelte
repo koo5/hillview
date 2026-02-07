@@ -375,7 +375,7 @@
 	{#if TAURI}
 		<div class="refresh-section">
 			<button
-				class="action-button secondary"
+				class="action-button primary"
 				on:click={() => fetchPhotos(true)}
 				disabled={isLoading}
 				data-testid="refresh-photos-button"
@@ -833,6 +833,7 @@
 	.refresh-section {
 		display: flex;
 		justify-content: center;
+		margin-top: 16px;
 		margin-bottom: 16px;
 	}
 

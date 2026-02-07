@@ -19,6 +19,7 @@ interface SimplePhotoDao {
         SELECT * FROM photos
         WHERE latitude BETWEEN :minLat AND :maxLat
         AND longitude BETWEEN :minLng AND :maxLng
+        AND uploadStatus != 'deleted'
         ORDER BY bearing ASC, createdAt DESC
         LIMIT :limit
     """)
@@ -29,6 +30,7 @@ interface SimplePhotoDao {
         WHERE latitude BETWEEN :minLat AND :maxLat
         AND longitude BETWEEN :minLng AND :maxLng
         AND id IN (:picks)
+        AND uploadStatus != 'deleted'
     """)
     fun getPickedPhotosInBounds(minLat: Double, maxLat: Double, minLng: Double, maxLng: Double, picks: Set<String>): List<PhotoEntity>
 
@@ -59,7 +61,7 @@ interface SimplePhotoDao {
         WHERE (id NOT IN (:seen) AND (
             uploadStatus IN ('pending', 'failed') OR
             (uploadStatus = 'uploading' AND lastUploadAttempt < :staleThreshold) OR
-            (uploadStatus = 'processing' AND lastUploadAttempt < 36000000)
+            (uploadStatus = 'processing' AND lastUploadAttempt < 3600000)
         ))
         ORDER BY
             CASE uploadStatus
@@ -92,6 +94,9 @@ interface SimplePhotoDao {
 
     @Query("SELECT COUNT(*) FROM photos WHERE uploadStatus = 'processing'")
     fun getProcessingCount(): Int
+
+    @Query("SELECT COUNT(*) FROM photos WHERE uploadStatus = 'deleted'")
+    fun getDeletedCount(): Int
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun insertPhoto(photo: PhotoEntity)

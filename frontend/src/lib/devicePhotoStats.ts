@@ -9,6 +9,7 @@ export interface DevicePhotoStats {
 	processing: number;
 	completed: number;
 	failed: number;
+	deleted: number;
 }
 
 export const devicePhotoStats = writable<DevicePhotoStats | null>(null);

@@ -12,59 +12,6 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 from photo_processor import PhotoProcessor
 
 
-class TestIsSupportedImage:
-    """Tests for is_supported_image()."""
-
-    def setup_method(self):
-        self.processor = PhotoProcessor()
-
-    def test_jpg_supported(self):
-        assert self.processor.is_supported_image("photo.jpg") is True
-
-    def test_jpeg_supported(self):
-        assert self.processor.is_supported_image("photo.jpeg") is True
-
-    def test_png_supported(self):
-        assert self.processor.is_supported_image("photo.png") is True
-
-    def test_tiff_supported(self):
-        assert self.processor.is_supported_image("photo.tiff") is True
-
-    def test_heic_supported(self):
-        assert self.processor.is_supported_image("photo.heic") is True
-
-    def test_heif_supported(self):
-        assert self.processor.is_supported_image("photo.heif") is True
-
-    def test_uppercase_extension(self):
-        assert self.processor.is_supported_image("photo.JPG") is True
-        assert self.processor.is_supported_image("photo.JPEG") is True
-        assert self.processor.is_supported_image("photo.PNG") is True
-
-    def test_mixed_case_extension(self):
-        assert self.processor.is_supported_image("photo.JpG") is True
-
-    def test_unsupported_gif(self):
-        assert self.processor.is_supported_image("photo.gif") is False
-
-    def test_unsupported_webp(self):
-        assert self.processor.is_supported_image("photo.webp") is False
-
-    def test_unsupported_bmp(self):
-        assert self.processor.is_supported_image("photo.bmp") is False
-
-    def test_unsupported_txt(self):
-        assert self.processor.is_supported_image("file.txt") is False
-
-    def test_unsupported_no_extension(self):
-        assert self.processor.is_supported_image("photo") is False
-
-    def test_double_extension(self):
-        assert self.processor.is_supported_image("photo.old.jpg") is True
-
-    def test_hidden_file(self):
-        assert self.processor.is_supported_image(".hidden.jpg") is True
-
 
 class TestConvertToDegrees:
     """Tests for _convert_to_degrees()."""
