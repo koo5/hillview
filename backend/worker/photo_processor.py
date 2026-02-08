@@ -13,7 +13,7 @@ import uuid
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Tuple
 from uuid import UUID
-from datetime import datetime
+from datetime import datetime, timezone
 os.environ["OPENCV_IMGCODECS_WEBP_MAX_FILE_SIZE"] = "209715200"  # 200MB
 import cv2
 from PIL import Image
@@ -27,6 +27,66 @@ from common.security_utils import sanitize_filename, validate_file_path, check_f
 from common.cdn_uploader import cdn_uploader
 
 logger = logging.getLogger(__name__)
+
+
+def parse_exif_datetime(value) -> Optional[datetime]:
+	"""Parse EXIF datetime value and fix corrupted timestamps.
+
+	Handles the bug where milliseconds were written as seconds, causing
+	dates like "+58074:03:14 04:05:17". Detects years > 2100 and fixes
+	by dividing the timestamp by 1000.
+
+	Returns UTC datetime (EXIF times are assumed to be UTC for consistency).
+	"""
+	if value is None:
+		return None
+
+	# If it's already a numeric timestamp (exiftool -n can return these)
+	if isinstance(value, (int, float)):
+		ts = float(value)
+		# Check if this looks like milliseconds (year > 2100)
+		if ts > 4102444800:  # 2100-01-01 in seconds
+			ts = ts / 1000
+		return datetime.fromtimestamp(ts, tz=timezone.utc)
+
+	# String format - try to parse
+	value_str = str(value)
+
+	# Handle the corrupted format like "+58074:03:14 04:05:17"
+	# Strip leading + if present
+	if value_str.startswith('+'):
+		value_str = value_str[1:]
+
+	# Common EXIF datetime formats
+	formats = [
+		"%Y:%m:%d %H:%M:%S",      # Standard EXIF: 2024:01:15 10:30:45
+		"%Y-%m-%d %H:%M:%S",      # ISO-ish: 2024-01-15 10:30:45
+		"%Y:%m:%d %H:%M:%S.%f",   # With subseconds
+		"%Y-%m-%dT%H:%M:%S",      # ISO: 2024-01-15T10:30:45
+		"%Y-%m-%dT%H:%M:%S.%f",   # ISO with subseconds
+		"%Y-%m-%dT%H:%M:%SZ",     # ISO UTC
+	]
+
+	for fmt in formats:
+		try:
+			dt = datetime.strptime(value_str, fmt)
+			# Check if year is unreasonably large (corrupted timestamp)
+			if dt.year > 2100:
+				# This was milliseconds interpreted as seconds
+				# Convert back: parse to timestamp, divide by 1000
+				ts = dt.timestamp()
+				corrected_ts = ts / 1000
+				corrected_dt = datetime.fromtimestamp(corrected_ts, tz=timezone.utc)
+				logger.info(f"Fixed corrupted DateTimeOriginal: {value} -> {corrected_dt.isoformat()}")
+				return corrected_dt
+			# Add UTC timezone to the parsed datetime
+			return dt.replace(tzinfo=timezone.utc)
+		except ValueError:
+			continue
+
+	logger.warning(f"Could not parse DateTimeOriginal: {value}")
+	return None
+
 
 PICS_URL = os.environ.get("PICS_URL")
 PARALLEL_PROCESSING_START_DELAY = int(os.environ.get("PARALLEL_PROCESSING_START_DELAY", 5))
@@ -472,6 +532,12 @@ class PhotoProcessor:
 
 		sizes_info, detections = await self.create_optimized_sizes(file_path, unique_id, filename, orientation, width, height, photo_id, client_signature)
 
+		# Extract captured_at from EXIF DateTimeOriginal (with corruption fix)
+		raw_data = exif_data.get('data', {})
+		captured_at_raw = raw_data.get('DateTimeOriginal') or raw_data.get('CreateDate')
+		captured_at_dt = parse_exif_datetime(captured_at_raw)
+		captured_at = captured_at_dt.isoformat() if captured_at_dt else None
+
 		# Return processing results for database creation
 		return {
 			'filename': safe_filename,
@@ -486,7 +552,8 @@ class PhotoProcessor:
 			'detected_objects': detections,
 			'description': description,
 			'is_public': is_public,
-			'user_id': user_id
+			'user_id': user_id,
+			'captured_at': captured_at
 		}
 
 

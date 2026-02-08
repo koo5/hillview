@@ -40,7 +40,7 @@ async def worker_pending_background_tasks_ping(request: WorkerPingRequest):
 					f"{WORKER_URL}/await",
 					headers={"fly-force-instance-id": request.fly_machine_id},
 					params={'task_id': request.task0_id},
-					timeout=60000.0
+					timeout=60000.0# might need to set low timeout and reconnect in a loop, if fly.io keeps killing the connection.
 				)
 				log.info(f"Ping back to worker {request.fly_machine_id}: status={response.status_code}")
 		except Exception as e:

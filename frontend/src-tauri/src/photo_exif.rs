@@ -85,8 +85,10 @@ impl ExifBuilder {
 	}
 
 	fn add_timestamps(&mut self, timestamp: i64) {
+		// timestamp is in milliseconds, convert to seconds for chrono
+		let timestamp_secs = timestamp / 1000;
 		let datetime =
-			chrono::DateTime::from_timestamp(timestamp, 0).unwrap_or_else(|| chrono::Utc::now());
+			chrono::DateTime::from_timestamp(timestamp_secs, 0).unwrap_or_else(|| chrono::Utc::now());
 		let datetime_str = datetime.format("%Y:%m:%d %H:%M:%S").to_string();
 
 		// DateTime goes in IFD0

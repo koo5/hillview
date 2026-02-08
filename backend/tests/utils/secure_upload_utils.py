@@ -27,6 +27,16 @@ sys.path.append(backend_dir)
 from common.jwt_utils import generate_ecdsa_key_pair, serialize_private_key, serialize_public_key
 from .test_utils import recreate_test_users
 
+
+def generate_test_captured_at(minutes_ago: int = 10) -> str:
+	"""Generate a fake captured_at timestamp for test images.
+
+	Use this when uploading generated test images that don't have real EXIF data.
+	Real file uploads should omit captured_at and let the worker extract it from EXIF.
+	"""
+	return format_utc(utcnow() - timedelta(minutes=minutes_ago))
+
+
 class SecureUploadClient:
 	"""
 	Utility class for testing the secure upload workflow.
@@ -202,16 +212,17 @@ class SecureUploadClient:
 										   latitude: float, longitude: float, description: str,
 										   is_public: bool = True, file_data: bytes = None,
 										   captured_at: str = None):
-		"""Request upload authorization with custom parameters."""
+		"""Request upload authorization with custom parameters.
+
+		Args:
+			captured_at: Optional ISO timestamp. If None, the server will extract it from EXIF.
+			             For test images without real EXIF, use generate_test_captured_at().
+		"""
 		import hashlib
 		if file_data:
 			file_md5 = hashlib.md5(file_data).hexdigest()
 		else:
 			file_md5 = hashlib.md5(f"{filename}_{file_size}".encode()).hexdigest()
-
-		# Default captured_at to 10 minutes before upload (UTC)
-		if captured_at is None:
-			captured_at = format_utc(utcnow() - timedelta(minutes=10))
 
 		upload_request = {
 			"filename": filename,
@@ -223,8 +234,11 @@ class SecureUploadClient:
 			"longitude": longitude,
 			"description": description,
 			"is_public": is_public,
-			"captured_at": captured_at
 		}
+
+		# Only include captured_at if explicitly provided
+		if captured_at is not None:
+			upload_request["captured_at"] = captured_at
 
 		if not upload_request["client_key_id"]:
 			raise Exception("client_key_id is required - make sure to call register_client_key first")

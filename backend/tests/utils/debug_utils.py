@@ -272,7 +272,7 @@ def base64_to_pem(base64_key: str):
 		return None, None
 
 
-async def _parallel_upload(items, parallel, get_image_data, token_or_manager, format_success, timeout=60):
+async def _parallel_upload(items, parallel, get_image_data, token_or_manager, format_success, timeout=60, get_captured_at=None):
 	"""Core parallel upload logic.
 
 	Args:
@@ -282,6 +282,9 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 		token_or_manager: Auth token string or TokenManager instance
 		format_success: Callable(index, total, filename, photo_data, extra_data) -> str
 		timeout: Processing timeout per photo
+		get_captured_at: Optional callable() -> str. If None, captured_at is omitted
+		                 and the worker extracts it from EXIF. For test images,
+		                 use generate_test_captured_at from secure_upload_utils.
 	"""
 	import asyncio
 	from .secure_upload_utils import SecureUploadClient
@@ -307,9 +310,14 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 				client_keys = upload_client.generate_client_keys()
 				await upload_client.register_client_key(token, client_keys)
 
+				# For real files, omit captured_at - worker extracts from EXIF
+				# For test images, caller provides get_captured_at callable
+				captured_at = get_captured_at() if get_captured_at else None
+
 				auth_data = await upload_client.authorize_upload_with_params(
 					token, filename, len(image_data), lat, lon,
-					description, is_public=True, file_data=image_data
+					description, is_public=True, file_data=image_data,
+					captured_at=captured_at
 				)
 
 				if auth_data.get("duplicate"):
@@ -427,6 +435,7 @@ def upload_random_photos(count: int = 10, parallel: int = 1, user: str = None, p
 	import asyncio
 	import random
 	from .image_utils import create_test_image_full_gps
+	from .secure_upload_utils import generate_test_captured_at
 
 	async def _upload():
 		print(f"📸 Uploading {count} random photos (parallelism: {parallel})...")
@@ -452,7 +461,9 @@ def upload_random_photos(count: int = 10, parallel: int = 1, user: str = None, p
 			_, lat, lon, bearing = extra
 			return f"  [{i+1}/{total}] {filename} ✓ lat={lat:.4f}, lon={lon:.4f}, bearing={bearing:.0f}°"
 
-		await _parallel_upload(items, parallel, gen_image, token_manager, format_success, timeout=30)
+		# Test images need fake captured_at since they don't have real EXIF
+		await _parallel_upload(items, parallel, gen_image, token_manager, format_success, timeout=30,
+							   get_captured_at=generate_test_captured_at)
 
 	try:
 		asyncio.run(_upload())
@@ -502,7 +513,7 @@ def populate_photos(count: int = 4):
 	"""Populate the database with test Hillview photos at fixed Prague locations."""
 	import asyncio
 	from .image_utils import create_test_image_full_gps
-	from .secure_upload_utils import SecureUploadClient
+	from .secure_upload_utils import SecureUploadClient, generate_test_captured_at
 	from .test_utils import wait_for_photo_processing, API_URL
 
 	async def _populate():
@@ -536,10 +547,12 @@ def populate_photos(count: int = 4):
 			client_keys = upload_client.generate_client_keys()
 			await upload_client.register_client_key(token, client_keys)
 
+			# Test images need fake captured_at since they don't have real EXIF
 			auth_data = await upload_client.authorize_upload_with_params(
 				token, filename, len(image_data), lat, lon,
 				f"Test photo at {filename.replace('.jpg', '').replace('_', ' ')}",
-				is_public=True, file_data=image_data
+				is_public=True, file_data=image_data,
+				captured_at=generate_test_captured_at()
 			)
 
 			result = await upload_client.upload_to_worker(image_data, auth_data, client_keys, filename)

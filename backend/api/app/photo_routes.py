@@ -148,6 +148,7 @@ class ProcessedPhotoData(BaseModel):
 	client_signature: Optional[str] = None  # Base64-encoded ECDSA signature from client
 	processed_by_worker: Optional[str] = None  # Worker identity for audit trail
 	filename: Optional[str] = None  # Secure filename after processing
+	captured_at: Optional[str] = None  # ISO datetime when photo was taken (from EXIF DateTimeOriginal)
 
 class WorkerProcessedPhotoRequest(BaseModel):
 	"""Request model for processed photo data from worker with signature."""
@@ -270,6 +271,14 @@ async def save_processed_photo(
 	photo.client_signature = processed_data.client_signature  # Store signature for audit trail
 	photo.processed_by_worker = processed_data.processed_by_worker  # Track which worker processed this
 	photo.processed_at = datetime.now(timezone.utc)  # When processing was completed
+	# Update captured_at from EXIF if worker extracted it
+	# Store as naive datetime (assumed UTC) since column is TIMESTAMP WITHOUT TIME ZONE
+	if processed_data.captured_at:
+		dt = datetime.fromisoformat(processed_data.captured_at.replace('Z', '+00:00'))
+		# Convert to UTC if it has timezone, then strip timezone for storage
+		if dt.tzinfo is not None:
+			dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+		photo.captured_at = dt
 
 	await db.commit()
 	await db.refresh(photo)

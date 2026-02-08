@@ -26,6 +26,7 @@ from uuid import UUID
 from pathlib import Path
 from datetime import datetime
 from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, Request, BackgroundTasks
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
@@ -183,11 +184,13 @@ def background_loop():
 						"pending_tasks": l,
 						"task0_id": task0
 					},
-					timeout=600
+					timeout=30
 				)
 				time.sleep(1)
+			except requests.Timeout:
+				pass
 			except Exception as e:
-				logger.error(f"Failed to ping API with pending tasks: {e}")
+				logger.warning(f"Failed to ping API with pending tasks: {e}")
 		else:
 			time.sleep(10)
 
@@ -223,6 +226,7 @@ class ProcessedPhotoData(BaseModel):
 	client_signature: Optional[str] = None  # Base64-encoded ECDSA signature from client
 	processed_by_worker: Optional[str] = None  # Worker identity for audit trail
 	filename: Optional[str] = None  # Secure filename after processing
+	captured_at: Optional[str] = None  # ISO datetime when photo was taken (from EXIF DateTimeOriginal)
 
 # Authentication dependency for upload authorization
 async def get_upload_authorization(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
@@ -254,11 +258,20 @@ async def health_check():
 
 @app.post("/await")
 async def await_handler(task_id: int):
-	while True:
-		with pending_background_tasks_mutex:
-			if task_id not in pending_background_tasks:
-				return {"status": "completed"}
-		await asyncio.sleep(1)
+	"""Wait for a background task to complete, sending periodic heartbeats to keep connection alive."""
+
+	async def heartbeat_generator():
+		while True:
+			with pending_background_tasks_mutex:
+				if task_id not in pending_background_tasks:
+					yield b'{"status": "completed"}\n'
+					return
+			yield b'.\n'  # Heartbeat
+			await asyncio.sleep(5)
+
+	return StreamingResponse(heartbeat_generator(), media_type="application/x-ndjson")
+
+
 
 
 @app.get("/appcheck")
@@ -354,6 +367,7 @@ async def _upload_inner(file: UploadFile, client_signature: str, photo_id: str, 
 				processed_data.sizes = processing_result.get("sizes")
 				processed_data.detected_objects = processing_result.get("detected_objects")
 				processed_data.filename = secure_filename
+				processed_data.captured_at = processing_result.get("captured_at")
 
 			# Send to API server
 			worker_signature = sign_processing_result(processed_data.dict())
