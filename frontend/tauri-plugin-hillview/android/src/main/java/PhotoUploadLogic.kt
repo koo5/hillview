@@ -513,7 +513,6 @@ class PhotoUploadLogic(private val context: Context) {
 		val request = Request.Builder()
 			.url("$workerUrl/upload_async")
 			.addHeader("Authorization", "Bearer $uploadJwt")
-			.addHeader("Expect", "100-continue")
 			.post(requestBody)
 			.build()
 
