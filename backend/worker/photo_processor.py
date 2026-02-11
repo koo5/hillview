@@ -89,7 +89,7 @@ def parse_exif_datetime(value) -> Optional[datetime]:
 
 
 PICS_URL = os.environ.get("PICS_URL")
-PARALLEL_PROCESSING_START_DELAY = int(os.environ.get("PARALLEL_PROCESSING_START_DELAY", 5))
+PARALLEL_PROCESSING_START_DELAY = float(os.environ.get("PARALLEL_PROCESSING_START_DELAY", 5))
 logger.info(f"PARALLEL_PROCESSING_START_DELAY={PARALLEL_PROCESSING_START_DELAY} seconds")
 
 throttle = Throttle('photo_processor')

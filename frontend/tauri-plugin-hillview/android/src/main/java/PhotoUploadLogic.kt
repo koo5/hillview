@@ -1027,18 +1027,18 @@ class PhotoUploadLogic(private val context: Context) {
                     )
                 }
                 "authorized" -> {
-                    Log.d(TAG, "⏳ Photo ${localPhoto.filename} still processing")
+                    Log.d(TAG, "⏳ Photo ${localPhoto.filename} still just authorized.")
                 }
             }
         }
 
-        // Mark photos not returned by server as deleted
-        for ((serverId, localPhoto) in photosByServerId) {
+        // Mark photos not returned by server as deleted. We could do this when called from syncProcessingPhotosStatus if syncProcessingPhotosStatus fetched ALL photos, not just processing ones.
+        /*for ((serverId, localPhoto) in photosByServerId) {
             if (serverId !in returnedIds) {
                 Log.i(TAG, "🗑️ Photo ${localPhoto.filename} deleted on server")
                 photoDao.updateUploadStatus(localPhoto.id, "deleted", System.currentTimeMillis())
             }
-        }
+        }*/
     }
 
     /**

@@ -3,17 +3,18 @@
 Geo-tag photos using Hillview's exported location and orientation CSV files.
 
 Usage:
-    python geo_tag_photos.py <csv_dir> <time_offset_seconds> <photo1.jpg> [photo2.jpg ...]
+    python geo_tag_photos.py <csv_dir> <time_correction_seconds> <photo1.jpg> [photo2.jpg ...]
 
 Arguments:
-    csv_dir             Directory containing hillview_locations_*.csv and hillview_orientations_*.csv files
-    time_offset_seconds Offset in seconds to add to photo EXIF timestamps
-                        Positive = photo clock was ahead of real time
-                        Negative = photo clock was behind real time
+    csv_dir                  Directory containing hillview_locations_*.csv and hillview_orientations_*.csv files
+    time_correction_seconds  Seconds to add to photo EXIF timestamps to get real time
+                             Positive = camera was slow (add time)
+                             Negative = camera was fast (subtract time)
 
 Example:
     python geo_tag_photos.py ./GeoTrackingDumps 0 *.JPG
-    python geo_tag_photos.py ./GeoTrackingDumps -2.5 photo1.jpg photo2.jpg
+    python geo_tag_photos.py ./GeoTrackingDumps +5 photo1.jpg   # camera was 5s slow
+    python geo_tag_photos.py ./GeoTrackingDumps -2.5 photo1.jpg # camera was 2.5s fast
 """
 
 import argparse
@@ -192,7 +193,7 @@ def get_existing_user_comment(photo_path: Path) -> Optional[dict]:
 
 
 def process_photo(photo_path: Path, locations: list[LocationRecord],
-                  orientations: list[OrientationRecord], time_offset_ms: int,
+                  orientations: list[OrientationRecord], time_correction_ms: int,
                   dry_run: bool) -> bool:
     print(f"\n{'='*60}")
     print(f"Photo: {photo_path.name}")
@@ -206,10 +207,10 @@ def process_photo(photo_path: Path, locations: list[LocationRecord],
         print(f"  Could not read timestamp from photo")
         return False
 
-    corrected_ts = photo_ts - time_offset_ms
-    print(f"  EXIF creation: {format_ts_utc(photo_ts)}")
-    if time_offset_ms != 0:
-        print(f"  Corrected:     {format_ts_utc(corrected_ts)} (offset: {time_offset_ms/1000:+.1f}s)")
+    corrected_ts = photo_ts + time_correction_ms
+    print(f"  EXIF timestamp: {format_ts_utc(photo_ts)}")
+    if time_correction_ms != 0:
+        print(f"  Corrected:      {format_ts_utc(corrected_ts)} (correction: {time_correction_ms/1000:+.1f}s)")
 
     location = find_most_recent_before(locations, corrected_ts)
     orientation = find_most_recent_before(orientations, corrected_ts)
@@ -291,7 +292,7 @@ def main():
         epilog=__doc__
     )
     parser.add_argument('csv_dir', type=Path, help='Directory containing hillview CSV files')
-    parser.add_argument('time_offset', type=float, help='Time offset in seconds (positive = photo clock was ahead)')
+    parser.add_argument('time_correction', type=float, help='Seconds to add to photo time (positive = camera slow, negative = camera fast)')
     parser.add_argument('photos', type=Path, nargs='+', help='Image files to geo-tag')
     parser.add_argument('--dry-run', '-n', action='store_true', help='Show what would be done without writing')
 
@@ -313,8 +314,8 @@ def main():
         print("Error: No valid CSV files found")
         sys.exit(1)
 
-    time_offset_ms = int(args.time_offset * 1000)
-    print(f"\nTime offset: {args.time_offset:+.3f}s")
+    time_correction_ms = int(args.time_correction * 1000)
+    print(f"\nTime correction: {args.time_correction:+.3f}s")
     if args.dry_run:
         print("DRY RUN - no changes will be made")
 
@@ -323,7 +324,7 @@ def main():
         if not photo_path.exists():
             print(f"\nSkipping {photo_path}: not found")
             continue
-        if process_photo(photo_path, locations, orientations, time_offset_ms, args.dry_run):
+        if process_photo(photo_path, locations, orientations, time_correction_ms, args.dry_run):
             success_count += 1
 
     print(f"\n{'Would process' if args.dry_run else 'Processed'} {success_count}/{len(args.photos)} photos")
