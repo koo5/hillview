@@ -29,6 +29,30 @@ from common.cdn_uploader import cdn_uploader
 logger = logging.getLogger(__name__)
 
 
+def safe_parse_float(value, field_name: str = "value") -> Optional[float]:
+	"""Safely parse a numeric value from exiftool output.
+
+	Exiftool returns 'undef' when tags exist but can't be parsed
+	(e.g., malformed EXIF from format conversions like CR2->TIFF).
+	"""
+	if value is None:
+		return None
+	if isinstance(value, (int, float)):
+		return float(value)
+	if isinstance(value, str):
+		val_lower = value.lower().strip()
+		if val_lower in ('undef', 'undefined', '', 'nan', 'inf', '-inf', 'infinity', '-infinity'):
+			logger.debug(f"Exiftool returned '{value}' for {field_name}, treating as None")
+			return None
+		try:
+			return float(value)
+		except ValueError:
+			logger.warning(f"Could not parse exiftool value '{value}' as float for {field_name}")
+			return None
+	logger.warning(f"Unexpected type {type(value).__name__} for {field_name}: {value}")
+	return None
+
+
 def parse_exif_datetime(value) -> Optional[datetime]:
 	"""Parse EXIF datetime value and fix corrupted timestamps.
 
@@ -216,9 +240,9 @@ class PhotoProcessor:
 			data = json.loads(proc_result.stdout)[0]
 			result['data'] = data
 
-			# Check for required GPS data
-			latitude = data.get('GPSLatitude')
-			longitude = data.get('GPSLongitude')
+			# Check for required GPS data (use safe_parse_float to handle 'undef' etc.)
+			latitude = safe_parse_float(data.get('GPSLatitude'), 'GPSLatitude')
+			longitude = safe_parse_float(data.get('GPSLongitude'), 'GPSLongitude')
 			lat_ref = data.get('GPSLatitudeRef')
 			lon_ref = data.get('GPSLongitudeRef')
 
@@ -244,10 +268,12 @@ class PhotoProcessor:
 			bearing_fields = ['GPSImgDirection', 'GPSTrack', 'GPSDestBearing']
 			bearing = None
 			for field in bearing_fields:
-				if data.get(field) is not None:
-					bearing = data.get(field)
-					result['debug']['found_bearing_tags'].append(field)
-					break
+				raw_bearing = data.get(field)
+				if raw_bearing is not None:
+					bearing = safe_parse_float(raw_bearing, field)
+					if bearing is not None:
+						result['debug']['found_bearing_tags'].append(field)
+						break
 
 			if bearing is None:
 				result['debug']['has_bearing'] = False
@@ -259,7 +285,7 @@ class PhotoProcessor:
 			if result['debug']['found_gps_tags'] or result['debug']['found_bearing_tags']:
 				result['debug']['has_exif'] = True
 
-			altitude = data.get('GPSAltitude')
+			altitude = safe_parse_float(data.get('GPSAltitude'), 'GPSAltitude')
 
 
 			# Validate bearing is in valid range [0, 360]

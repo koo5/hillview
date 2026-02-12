@@ -20,8 +20,11 @@ import hashlib
 load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 import aiofiles
 import httpx
+import math
+import json
+import numpy as np
 
-from typing import Optional
+from typing import Optional, Any
 from uuid import UUID
 from pathlib import Path
 from datetime import datetime
@@ -65,6 +68,42 @@ logger = logging.getLogger(__name__)
 # Import and setup task context logging
 from logging_context import setup_task_logging, task_context, current_photo_id, current_task_id
 setup_task_logging()
+
+
+def validate_json_payload(obj: Any, path: str = "") -> None:
+	"""Validate that an object can be safely serialized to JSON.
+
+	Raises ValueError with detailed path if any problematic values are found:
+	- NaN or infinity floats
+	- numpy types that haven't been converted
+	- Other non-JSON-serializable types
+	"""
+	if obj is None or isinstance(obj, (bool, str)):
+		return
+	if isinstance(obj, int):
+		return
+	if isinstance(obj, float):
+		if math.isnan(obj):
+			raise ValueError(f"NaN float at {path or 'root'}")
+		if math.isinf(obj):
+			raise ValueError(f"Infinity float at {path or 'root'}")
+		return
+	if isinstance(obj, dict):
+		for k, v in obj.items():
+			validate_json_payload(v, f"{path}.{k}" if path else k)
+		return
+	if isinstance(obj, (list, tuple)):
+		for i, item in enumerate(obj):
+			validate_json_payload(item, f"{path}[{i}]")
+		return
+	# Check for numpy types
+	if isinstance(obj, (np.integer, np.floating)):
+		raise ValueError(f"Unconverted numpy type {type(obj).__name__} at {path or 'root'}")
+	if isinstance(obj, np.ndarray):
+		raise ValueError(f"Unconverted numpy array at {path or 'root'}")
+	# Unknown type
+	raise ValueError(f"Non-JSON-serializable type {type(obj).__name__} at {path or 'root'}")
+
 
 # FastAPI app
 app = FastAPI(
@@ -375,6 +414,14 @@ async def _upload_inner(file: UploadFile, client_signature: str, photo_id: str, 
 				"processed_data": processed_data.dict(),
 				"worker_signature": worker_signature
 			}
+
+			# Validate payload before sending - fail fast if there are problematic values
+			try:
+				validate_json_payload(payload)
+			except ValueError as e:
+				logger.error(f"Payload validation failed for photo {photo_id}: {e}")
+				logger.error(f"Problematic payload: {payload}")
+				raise
 
 			logger.info(f"Sending processing result to API server for photo {photo_id}")
 			logger.info(f"Payload: {payload}")

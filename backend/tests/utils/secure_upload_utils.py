@@ -157,7 +157,8 @@ class SecureUploadClient:
 					"key_id": key_id,
 					"created_at": datetime.datetime.now().isoformat()
 				},
-				headers={"Authorization": f"Bearer {auth_token}"}
+				headers={"Authorization": f"Bearer {auth_token}"},
+				timeout=600_00.0
 			)
 
 			if response.status_code in [200, 201]:
@@ -176,7 +177,8 @@ class SecureUploadClient:
 			response = await client.post(
 				f"{self.api_url}/photos/authorize-upload",
 				json=upload_request,
-				headers={"Authorization": f"Bearer {auth_token}"}
+				headers={"Authorization": f"Bearer {auth_token}"},
+				timeout=600_00.0
 			)
 
 			if response.status_code == 200:
@@ -245,7 +247,7 @@ class SecureUploadClient:
 
 		return await self._request_upload_authorization(auth_token, upload_request)
 
-	async def upload_to_worker(self, file_input, auth_data, client_keys, filename="secure_test.jpg", timeout: float = 60000.0):
+	async def upload_to_worker(self, file_input, auth_data, client_keys, filename="secure_test.jpg", timeout: float = 600_00.0):
 		"""Phase 3: Upload file to worker with proper client signature.
 
 		Args:
