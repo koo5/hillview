@@ -362,6 +362,7 @@ class PhotoProcessor:
 				new_image_rgb = cv2.cvtColor(new_image, cv2.COLOR_BGR2RGB)
 				logger.debug(f"Converted image to RGB color space for size {size}")
 				Image.fromarray(new_image_rgb).save(output_file_path, format='WEBP', quality=97, method=6)
+				copy_exif_data(source_path, output_file_path)
 				logger.info(f"Created size {size} for {unique_id}: {new_width}x{new_height} at {output_file_path}")
 
 				size_info.update({
@@ -559,22 +560,13 @@ class PhotoProcessor:
 
 def copy_exif_data(source_path, output_path):
 	# Copy EXIF data from source to output using exiftool
-	cmd = ['exiftool', '-overwrite_original', '-TagsFromFile', source_path, '-all:all', output_path]
+	# Reset orientation tag to 1 (normal orientation) because image has been loaded and saved anew
+	# any other tags we might want to fix up?
+	cmd = ['exiftool', '-overwrite_original', '-TagsFromFile', source_path, '-all:all', '-EXIF:Orientation=', output_path]
 	logging.debug(f"Preserving EXIF data from {os.path.basename(source_path)} to anonymized version: {shlex.join(cmd)}")
-
 	result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
 	if result.returncode == 0:
 		logging.info(f"Successfully preserved all EXIF metadata in anonymized image: {os.path.basename(output_path)}")
-
-		# Reset orientation tag to 1 (normal orientation) because image has been loaded and saved anew
-		orientation_cmd = ['exiftool', '-overwrite_original', '-EXIF:Orientation=', output_path]
-		logging.debug(f"Resetting orientation tag: {shlex.join(orientation_cmd)}")
-
-		orientation_result = subprocess.run(orientation_cmd, capture_output=True, text=True, timeout=300)
-		if orientation_result.returncode != 0:
-			raise RuntimeError(f"Failed to reset orientation tag for {os.path.basename(output_path)}: {orientation_result.stderr}")
-
-		logging.debug(f"Successfully reset orientation tag to 1 for {os.path.basename(output_path)}")
 	else:
 		logging.warning(f"Failed to preserve EXIF metadata in {os.path.basename(output_path)}: {result.stderr}")
 

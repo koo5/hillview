@@ -1,17 +1,13 @@
 #!/bin/bash
-cd "$(dirname "$(readlink -f -- "$0")")"
+cd "$(dirname "$(readlink -f -- "$0")")/.."
 
-if [ ! -d "venv" ]; then
-    python3 -m venv venv
-fi
+uv sync --frozen --package hillview-tests
 
-source venv/bin/activate
-pip install -q -r ../api/app/requirements-dev.txt
-pip install -q -r requirements.txt 2>/dev/null || true
-pip install aiohttp
+cd tests
+export PYTHONPATH="$(pwd)/../api/app:$(pwd)/.."
 
 if [ $# -eq 0 ]; then
-    python -m pytest integration/ -v
+    uv run pytest integration/ -v
 else
-    python -m pytest "$@"
+    uv run pytest "$@"
 fi

@@ -31,3 +31,6 @@ tests/venv/**/*
 # flyctl launch added from worker/venv/.gitignore
 # created by virtualenv automatically
 worker/venv/**/*
+
+# uv virtual environments
+**/.venv

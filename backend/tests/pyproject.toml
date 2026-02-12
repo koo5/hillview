@@ -1,0 +1,26 @@
+[project]
+name = "hillview-tests"
+version = "1.0.0"
+description = "Hillview integration tests"
+requires-python = ">=3.12"
+
+dependencies = [
+    # Shared utilities (JWT, crypto, DB access)
+    "hillview-common[db,auth]",
+
+    # Test framework
+    "pytest==7.4.3",
+    "pytest-asyncio==0.21.1",
+
+    # HTTP clients
+    "httpx",
+    "aiohttp",
+    "requests",
+
+    # Image generation for test photos
+    "pillow",
+    "piexif",
+]
+
+[tool.uv.sources]
+hillview-common = { workspace = true }

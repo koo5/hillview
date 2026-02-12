@@ -299,16 +299,21 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 	results = {"created": 0, "duplicates": 0, "failed": 0}
 	semaphore = asyncio.Semaphore(parallel)
 
+	# Register client keys ONCE before starting parallel uploads
+	# This avoids hammering the API with concurrent key registrations
+	upload_client = SecureUploadClient(api_url=API_URL)
+	client_keys = upload_client.generate_client_keys()
+	token = get_token()
+	print(f"  Registering client key...")
+	await upload_client.register_client_key(token, client_keys)
+	print(f"  Starting {total} uploads with {parallel} parallel workers...")
+
 	async def upload_one(item):
 		i, filename, description, extra_data = item
 		async with semaphore:
 			try:
 				image_data, lat, lon = get_image_data(extra_data)
 				token = get_token()
-
-				upload_client = SecureUploadClient(api_url=API_URL)
-				client_keys = upload_client.generate_client_keys()
-				await upload_client.register_client_key(token, client_keys)
 
 				# For real files, omit captured_at - worker extracts from EXIF
 				# For test images, caller provides get_captured_at callable

@@ -1,20 +1,13 @@
 #!/bin/bash
-cd "$(dirname "$(readlink -f -- "$0")")"
+cd "$(dirname "$(readlink -f -- "$0")")/.."
 
-TEST_VENV="../tests/venv"
+uv sync --frozen --package hillview-worker --all-extras
 
-if [ ! -d "$TEST_VENV" ]; then
-    python3 -m venv "$TEST_VENV"
-fi
-
-source "$TEST_VENV/bin/activate"
-pip install -q -r requirements.txt
-pip install -q pytest
-
+cd worker
 export PYTHONPATH="$(pwd):$(pwd)/.."
 
 if [ $# -eq 0 ]; then
-    python -m pytest tests/unit/ -v
+    uv run pytest tests/unit/ -v
 else
-    python -m pytest "$@"
+    uv run pytest "$@"
 fi

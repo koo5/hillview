@@ -20,8 +20,10 @@ Example:
 import argparse
 import csv
 import json
+import os
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -29,6 +31,14 @@ from typing import Optional
 
 # RAW file extensions - exiftool support varies
 RAW_EXTENSIONS = {'.cr2', '.cr3', '.nef', '.arw', '.orf', '.rw2', '.dng', '.raf', '.pef', '.srw'}
+
+
+@dataclass
+class PhotoResult:
+    photo_path: Path
+    success: bool
+    message: str
+    details: Optional[str] = None
 
 
 @dataclass
@@ -194,23 +204,25 @@ def get_existing_user_comment(photo_path: Path) -> Optional[dict]:
 
 def process_photo(photo_path: Path, locations: list[LocationRecord],
                   orientations: list[OrientationRecord], time_correction_ms: int,
-                  dry_run: bool) -> bool:
-    print(f"\n{'='*60}")
-    print(f"Photo: {photo_path.name}")
+                  dry_run: bool, verbose: bool = True) -> PhotoResult:
+    lines = []
+
+    def log(msg: str):
+        if verbose:
+            lines.append(msg)
 
     # Warn about RAW files
     if photo_path.suffix.lower() in RAW_EXTENSIONS:
-        print(f"  Warning: RAW file - exiftool support varies by format")
+        log(f"  Warning: RAW file - exiftool support varies by format")
 
     photo_ts = get_photo_timestamp(photo_path)
     if photo_ts is None:
-        print(f"  Could not read timestamp from photo")
-        return False
+        return PhotoResult(photo_path, False, "Could not read timestamp from photo")
 
     corrected_ts = photo_ts + time_correction_ms
-    print(f"  EXIF timestamp: {format_ts_utc(photo_ts)}")
+    log(f"  EXIF timestamp: {format_ts_utc(photo_ts)}")
     if time_correction_ms != 0:
-        print(f"  Corrected:      {format_ts_utc(corrected_ts)} (correction: {time_correction_ms/1000:+.1f}s)")
+        log(f"  Corrected:      {format_ts_utc(corrected_ts)} (correction: {time_correction_ms/1000:+.1f}s)")
 
     location = find_most_recent_before(locations, corrected_ts)
     orientation = find_most_recent_before(orientations, corrected_ts)
@@ -220,23 +232,22 @@ def process_photo(photo_path: Path, locations: list[LocationRecord],
         bearing_str = f"{location.bearing:.1f}°" if location.bearing is not None else "n/a"
         alt_str = f"{location.altitude:.1f}m" if location.altitude is not None else "n/a"
         acc_str = f"{location.accuracy:.1f}m" if location.accuracy is not None else "n/a"
-        print(f"  Location:    {location.latitude:.6f}, {location.longitude:.6f} @ {format_ts_utc(location.timestamp)} (age: {age_sec:.1f}s)")
-        print(f"               alt: {alt_str}, bearing: {bearing_str}, accuracy: {acc_str}")
+        log(f"  Location:    {location.latitude:.6f}, {location.longitude:.6f} @ {format_ts_utc(location.timestamp)} (age: {age_sec:.1f}s)")
+        log(f"               alt: {alt_str}, bearing: {bearing_str}, accuracy: {acc_str}")
     else:
-        print(f"  Location:    no data before photo")
+        log(f"  Location:    no data before photo")
 
     if orientation:
         age_sec = (corrected_ts - orientation.timestamp) / 1000
         pitch_str = f"{orientation.pitch:.1f}°" if orientation.pitch is not None else "n/a"
         roll_str = f"{orientation.roll:.1f}°" if orientation.roll is not None else "n/a"
-        print(f"  Orientation: heading={orientation.true_heading:.1f}° @ {format_ts_utc(orientation.timestamp)} (age: {age_sec:.1f}s)")
-        print(f"               pitch: {pitch_str}, roll: {roll_str}")
+        log(f"  Orientation: heading={orientation.true_heading:.1f}° @ {format_ts_utc(orientation.timestamp)} (age: {age_sec:.1f}s)")
+        log(f"               pitch: {pitch_str}, roll: {roll_str}")
     else:
-        print(f"  Orientation: no data before photo")
+        log(f"  Orientation: no data before photo")
 
     if not location and not orientation:
-        print(f"  Skipping - no data")
-        return False
+        return PhotoResult(photo_path, False, "No location/orientation data", '\n'.join(lines) if lines else None)
 
     # Build exiftool command
     args = ['exiftool', '-overwrite_original']
@@ -271,18 +282,90 @@ def process_photo(photo_path: Path, locations: list[LocationRecord],
 
     args.append(str(photo_path))
 
-    print(f"  Command: {' '.join(args)}")
+    log(f"  Command: {' '.join(args)}")
 
     if dry_run:
-        return True
+        loc_str = f"{location.latitude:.6f}, {location.longitude:.6f}" if location else "n/a"
+        heading_str = f"{orientation.true_heading:.1f}°" if orientation else "n/a"
+        return PhotoResult(photo_path, True, f"Would tag: {loc_str}, heading: {heading_str}", '\n'.join(lines) if lines else None)
 
     try:
-        result = subprocess.run(args, capture_output=True, text=True, check=True)
-        print(f"  Done.")
-        return True
+        subprocess.run(args, capture_output=True, text=True, check=True)
+        loc_str = f"{location.latitude:.6f}, {location.longitude:.6f}" if location else "n/a"
+        heading_str = f"{orientation.true_heading:.1f}°" if orientation else "n/a"
+        return PhotoResult(photo_path, True, f"Tagged: {loc_str}, heading: {heading_str}", '\n'.join(lines) if lines else None)
     except subprocess.CalledProcessError as e:
-        print(f"  Error: {e.stderr}")
-        return False
+        return PhotoResult(photo_path, False, f"exiftool error: {e.stderr}", '\n'.join(lines) if lines else None)
+
+
+def print_result(result: PhotoResult, verbose: bool = False):
+    """Print a single photo result."""
+    status = "✓" if result.success else "✗"
+    print(f"{status} {result.photo_path.name}: {result.message}")
+    if verbose and result.details:
+        print(result.details)
+
+
+def process_photos_sequential(photos: list[Path], locations: list[LocationRecord],
+                              orientations: list[OrientationRecord],
+                              time_correction_ms: int, dry_run: bool,
+                              verbose: bool) -> list[PhotoResult]:
+    """Process photos sequentially."""
+    results = []
+    for photo_path in photos:
+        if not photo_path.exists():
+            results.append(PhotoResult(photo_path, False, "File not found"))
+            print_result(results[-1], verbose)
+            continue
+        result = process_photo(photo_path, locations, orientations, time_correction_ms, dry_run, verbose)
+        results.append(result)
+        print_result(result, verbose)
+    return results
+
+
+def process_photos_parallel(photos: list[Path], locations: list[LocationRecord],
+                            orientations: list[OrientationRecord],
+                            time_correction_ms: int, dry_run: bool,
+                            verbose: bool, workers: int) -> list[PhotoResult]:
+    """Process photos in parallel using ThreadPoolExecutor."""
+    results = []
+    valid_photos = []
+
+    # Filter out non-existent files first
+    for photo_path in photos:
+        if not photo_path.exists():
+            result = PhotoResult(photo_path, False, "File not found")
+            results.append(result)
+            print_result(result, verbose)
+        else:
+            valid_photos.append(photo_path)
+
+    if not valid_photos:
+        return results
+
+    print(f"Processing {len(valid_photos)} photos with {workers} workers...")
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        # Submit all tasks
+        future_to_photo = {
+            executor.submit(
+                process_photo, photo_path, locations, orientations,
+                time_correction_ms, dry_run, verbose
+            ): photo_path
+            for photo_path in valid_photos
+        }
+
+        # Collect results as they complete
+        for future in as_completed(future_to_photo):
+            photo_path = future_to_photo[future]
+            try:
+                result = future.result()
+            except Exception as e:
+                result = PhotoResult(photo_path, False, f"Exception: {e}")
+            results.append(result)
+            print_result(result, verbose)
+
+    return results
 
 
 def main():
@@ -295,6 +378,9 @@ def main():
     parser.add_argument('time_correction', type=float, help='Seconds to add to photo time (positive = camera slow, negative = camera fast)')
     parser.add_argument('photos', type=Path, nargs='+', help='Image files to geo-tag')
     parser.add_argument('--dry-run', '-n', action='store_true', help='Show what would be done without writing')
+    parser.add_argument('--parallel', '-p', type=int, nargs='?', const=0, default=None,
+                        metavar='N', help='Process photos in parallel (default: CPU count, or specify N workers)')
+    parser.add_argument('--verbose', '-v', action='store_true', help='Show detailed output for each photo')
 
     args = parser.parse_args()
 
@@ -319,14 +405,21 @@ def main():
     if args.dry_run:
         print("DRY RUN - no changes will be made")
 
-    success_count = 0
-    for photo_path in args.photos:
-        if not photo_path.exists():
-            print(f"\nSkipping {photo_path}: not found")
-            continue
-        if process_photo(photo_path, locations, orientations, time_correction_ms, args.dry_run):
-            success_count += 1
+    # Process photos
+    if args.parallel is not None:
+        workers = args.parallel if args.parallel > 0 else os.cpu_count() or 4
+        results = process_photos_parallel(
+            args.photos, locations, orientations, time_correction_ms,
+            args.dry_run, args.verbose, workers
+        )
+    else:
+        results = process_photos_sequential(
+            args.photos, locations, orientations, time_correction_ms,
+            args.dry_run, args.verbose
+        )
 
+    # Summary
+    success_count = sum(1 for r in results if r.success)
     print(f"\n{'Would process' if args.dry_run else 'Processed'} {success_count}/{len(args.photos)} photos")
 
 

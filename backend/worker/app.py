@@ -388,7 +388,7 @@ async def _upload_inner(file: UploadFile, client_signature: str, photo_id: str, 
 				)
 
 				if response.status_code != 200:
-					logger.error(f"Failed to notify API for photo {photo_id}: {response.status_code}")
+					logger.error(f"Failed to notify API for photo {photo_id}: {response.status_code} - {response.text}")
 					raise HTTPException(status_code=500, detail="Failed to register result with API server")
 
 				logger.info(f"Successfully notified API server for photo {photo_id}")

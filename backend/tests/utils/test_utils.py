@@ -178,18 +178,33 @@ def wait_for_photo_processing(photo_id: str, token: str, timeout: int = 30) -> d
 	raise Exception(f"Timeout waiting for photo {photo_id} processing after {timeout}s")
 
 
-async def upload_test_image(filename: str, image_data: bytes, description: str, token: str, is_public: bool = True, timeout: float = 60.0) -> str:
-	"""Upload a test image using secure upload workflow and return the photo ID."""
+async def upload_test_image(filename: str, image_data: bytes, description: str, token: str, is_public: bool = True, timeout: float = 60.0, upload_client=None, client_keys=None) -> str:
+	"""Upload a test image using secure upload workflow and return the photo ID.
+
+	Args:
+		filename: Name of the file
+		image_data: Image bytes
+		description: Photo description
+		token: Auth token
+		is_public: Whether photo is public
+		timeout: Upload timeout in seconds
+		upload_client: Optional pre-configured SecureUploadClient (for parallel uploads)
+		client_keys: Optional pre-registered client keys (for parallel uploads)
+
+	For parallel uploads, pass upload_client and client_keys to avoid registering
+	a new key for each upload, which overloads the API.
+	"""
 	from .secure_upload_utils import SecureUploadClient, generate_test_captured_at
 
-	upload_client = SecureUploadClient(api_url=API_URL)
+	# Use provided client or create new one
+	if upload_client is None:
+		upload_client = SecureUploadClient(api_url=API_URL)
 
 	try:
-		# Generate client keys
-		client_keys = upload_client.generate_client_keys()
-
-		# Register client key
-		await upload_client.register_client_key(token, client_keys)
+		# Generate and register keys only if not provided
+		if client_keys is None:
+			client_keys = upload_client.generate_client_keys()
+			await upload_client.register_client_key(token, client_keys)
 
 		# Authorize upload with default coordinates
 		# Test images need fake captured_at since they don't have real EXIF
