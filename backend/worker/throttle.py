@@ -59,7 +59,7 @@ class Throttle:
 			finally:
 				s._lock.release()
 
-	async def wait_for_free_ram(s, required_mb: int, check_interval: float = 1.0, timeout: float = 600.0):
+	async def wait_for_free_ram(s, required_mb: int, check_interval: float = 1.0, timeout: float = 600_000_000.0):
 		"""
 		Wait until there is at least `required_bytes` of free RAM available.
 		Checks every `check_interval` seconds, up to `timeout` seconds.
