@@ -4,6 +4,7 @@ import re
 import hashlib
 import mimetypes
 import json
+import time
 import base64
 from pathlib import Path
 from typing import Optional, Set, Tuple, Dict, Any
@@ -156,7 +157,6 @@ def validate_oauth_redirect_uri_basic(uri: str, allowed_domains: Optional[Set[st
 
 def generate_secure_filename(original_filename: str, user_id: str) -> str:
 	"""Generate a secure filename with user ID and timestamp."""
-	import time
 
 	# Sanitize original filename
 	safe_name = sanitize_filename(original_filename)
