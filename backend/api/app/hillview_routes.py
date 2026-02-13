@@ -35,7 +35,7 @@ def convert_photo_to_response(photo, username: str, longitude: float, latitude: 
 		'computed_altitude': photo.altitude or 0,
 		'captured_at': format_utc(photo.captured_at),
 		'is_pano': False,
-		'filename': photo.filename,
+		'filename': photo.original_filename,
 		'sizes': {},
 		'creator': {
 			'username': username,

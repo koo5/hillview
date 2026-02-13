@@ -105,7 +105,7 @@ def anonymize_image(source_path):
 	# Validate file size before processing to prevent memory exhaustion
 	try:
 		file_size = os.path.getsize(source_path)
-		if file_size > 150 * 1024 * 1024:
+		if file_size > 250 * 1024 * 1024:
 			logging.warning(f"Image file too large for processing: {file_size} bytes")
 			raise ValueError(f"Image file too large for processing: {file_size} bytes")
 	except OSError:
@@ -137,7 +137,7 @@ def anonymize_image(source_path):
 		detections["objects"].append({
 			"class_id": cls_id,
 			"class_name": label,
-			'blur': BLUR_SIZES.get(label, 151),
+			'blur': max(abs(x2 - x1), abs(y2 - y1)),
 			"bbox": {
 				"x1": x1,
 				"y1": y1,

@@ -291,6 +291,12 @@ export function panZoom(node: HTMLElement, options: PanZoomOptions) {
 	// Double click to zoom
 	let lastClickTime = 0;
 	function handleClick(event: MouseEvent) {
+		// Ignore clicks on the filename overlay
+		const target = event.target as HTMLElement;
+		if (target.closest('.filename-overlay')) {
+			return;
+		}
+
 		const now = Date.now();
 		if (now - lastClickTime < 300) {
 			// Double click - toggle between initial scale and 2x initial scale

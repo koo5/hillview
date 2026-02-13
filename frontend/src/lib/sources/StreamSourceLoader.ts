@@ -366,7 +366,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
                                 photo.coord,
                             bearing,
                             url: photo.thumb_1024_url || photo.url || '',
-                            file: photo.file || `stream_${photo.id}`,
+                            filename: photo.filename,
                             source_type: this.source.type,
                             source: this.source,
                             altitude: photo.computed_altitude || photo.altitude || 0,

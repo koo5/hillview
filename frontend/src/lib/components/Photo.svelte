@@ -326,7 +326,7 @@
 		zoomViewData.set({
 			fallback_url: fallbackUrl,
 			url: fullPhotoInfo.url,
-			filename: photo.file || 'Photo',
+			filename: photo.filename,
 			width: fullPhotoInfo.width,
 			height: fullPhotoInfo.height
 		});
