@@ -431,6 +431,45 @@ POST /api/worker_pending_background_tasks_ping
 
 **Workaround:** None. A local rescan only discovers new files on the device filesystem - it doesn't fetch state from the server. Full reconciliation would require a new `/api/photos/sync` endpoint that returns all of the user's photos with their states.
 
+### 8. Edit on Server-Uploaded Photo from Different Device
+
+**Cause:** User views "My Photos" on device B, tries to edit a photo uploaded from device A.
+
+**Behavior:** `get_photo_id_by_server_photo_id` returns `success: false` because device B's local DB has no record of that photo.
+
+**Result:** User sees "Photo not found on device - cannot change anonymization". Edit cannot proceed.
+
+**Gap:** No way to edit photos uploaded from other devices. Would require either:
+- Server-side edit queue (server triggers re-processing)
+- Cross-device photo sync (impractical for large files)
+
+### 9. Pending Edit with No Connectivity
+
+**Cause:** User edits photo, then device stays offline.
+
+**Behavior:**
+- Edit stored locally, photo marked `pending`
+- Server retains old version with old settings
+- User viewing on web sees stale data
+
+**Gap:** No indication anywhere that pending edits exist. User may assume changes are live.
+
+**Potential Fix:** UI could show "pending sync" indicator on edited photos.
+
+### 10. Version Collision on Multi-Device Edit
+
+**Cause:** Same photo edited on two devices before either re-uploads.
+
+**Behavior:**
+- Both devices bump to version=2
+- First device uploads successfully
+- Second device gets `duplicate` response (version not greater)
+- Second device's edit is silently lost
+
+**Gap:** No conflict detection or resolution. Last-write-wins only works if versions differ.
+
+**Potential Fix:** Include device ID in version, or use vector clocks for proper conflict detection.
+
 ---
 
 ## Security Considerations
@@ -683,3 +722,6 @@ The final `detected_objects` field stores the result, including a `"manual": tru
 2. **Failed Upload Cleanup**: Notify users of permanently failed uploads
 3. **Upload Resume**: Support resumable uploads for large files on poor connections
 4. **Multi-Device Sync**: Sync photos across devices logged into same account
+6. **Pending Edit Indicator**: Show users when local edits haven't synced to server yet
+7. **Version Conflict Resolution**: Detect and resolve edits made on multiple devices (vector clocks or device-qualified versions)
+8. **Edit Audit Trail**: Store edit history on server, not just final state
