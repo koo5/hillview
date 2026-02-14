@@ -97,6 +97,9 @@ class Photo(Base):
 	# Soft delete
 	deleted: Mapped[bool] = mapped_column(Boolean, default=False)
 
+	# Version for re-upload support (e.g., changing anonymization settings)
+	version: Mapped[int] = mapped_column(Integer, default=1)
+
 	# Relationships
 	owner_id: Mapped[str] = mapped_column(String, ForeignKey("users.id", ondelete="CASCADE"))
 	owner: Mapped["User"] = relationship(back_populates="photos")

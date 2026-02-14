@@ -7,7 +7,7 @@
 	import {onMount} from 'svelte';
 	import {get} from 'svelte/store';
 	import {myGoto} from '$lib/navigation.svelte';
-	import {Trash2, Map, Settings, ThumbsUp, ThumbsDown, Upload, RefreshCw} from 'lucide-svelte';
+	import {Trash2, Map, Settings, ThumbsUp, ThumbsDown, Upload, RefreshCw, MoreVertical} from 'lucide-svelte';
 	import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';
 	import StandardBody from '$lib/components/StandardBody.svelte';
 	import Spinner from '$lib/components/Spinner.svelte';
@@ -30,6 +30,9 @@
 	import RetryUploadsButton from "$lib/components/RetryUploadsButton.svelte";
 	import DevicePhotoStats from "$lib/components/DevicePhotoStats.svelte";
 	import PhotoItem from '$lib/components/PhotoItem.svelte';
+	import { showDropdownMenu, type DropdownMenuItem } from '$lib/components/dropdown-menu/dropdownMenu.svelte';
+	import { getAnonymizationMenuItemsForServerPhoto } from '$lib/photoAnonymizationMenu';
+	import DropdownMenu from '$lib/components/dropdown-menu/DropdownMenu.svelte';
 
 	let photos: UserPhoto[] = [];
 	let isLoading = true;
@@ -332,6 +335,16 @@
 			await setPhotoRating(photoId, rating);
 		}
 	}
+
+	function showPhotoMenu(event: MouseEvent, photo: UserPhoto) {
+		const button = event.currentTarget as HTMLButtonElement;
+		const items: DropdownMenuItem[] = getAnonymizationMenuItemsForServerPhoto(photo.id);
+
+		showDropdownMenu(items, button, {
+			placement: 'above-right',
+			testId: 'my-photo-menu'
+		});
+	}
 </script>
 
 <StandardHeaderWithAlert
@@ -525,9 +538,16 @@
 									<Trash2 size={16}/>
 									Delete
 								</button>
-<!--								<button class="action-button" disabled>-->
-<!--									More actions-->
-<!--								</button>-->
+								{#if TAURI}
+									<button
+										class="action-button menu-button"
+										on:click={(e) => showPhotoMenu(e, photo)}
+										title="Anonymization options"
+										data-testid="photo-menu-button"
+									>
+										<MoreVertical size={16}/>
+									</button>
+								{/if}
 							</div>
 							<RetryUploadsButton {photo} {addLogEntry} />
 						</svelte:fragment>
@@ -543,6 +563,8 @@
 		{/if}
 	</div>
 </StandardBody>
+
+<DropdownMenu />
 
 <style>
 	.photos-container {
@@ -747,6 +769,10 @@
 		display: flex;
 		gap: 4px;
 		margin-top: 12px;
+	}
+
+	.menu-button {
+		margin-left: auto;
 	}
 
 	.rating-count {

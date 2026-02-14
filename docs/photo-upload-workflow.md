@@ -40,6 +40,8 @@ The photo upload system involves three components:
 - `uploadError`: Human-readable error message
 - `fileHash`: MD5 for duplicate detection
 - `deleted`: Soft delete flag synced from server
+- `version`: Re-upload version (bumped when settings change)
+- `anonymizationOverride`: JSON string controlling blur behavior (null=auto, "[]"=skip, "[{...}]"=manual)
 
 ### Server-Side States (Photo.processing_status)
 
@@ -54,6 +56,7 @@ The photo upload system involves three components:
 - `processed_by_worker`: Worker identity for audit trail
 - `client_signature`: ECDSA signature from client
 - `upload_authorized_at`: Unix timestamp for signature verification
+- `version`: Re-upload version (allows same file to be re-uploaded with different settings)
 
 ---
 
@@ -491,6 +494,186 @@ Each processed photo stores:
 
 **Client:**
 - `auto_upload_enabled`: User preference to enable/disable auto-upload
+
+---
+
+## Edit System & Re-uploads
+
+### Overview
+
+The edit system allows users to change photo settings (like anonymization) after initial upload. Edits are stored as commands in a separate table and processed before the upload loop runs.
+
+### Edit Entity
+
+```kotlin
+EditEntity(
+    id: Long,                    // Auto-generated ID
+    photoId: String,             // Reference to PhotoEntity
+    actionJson: String,          // JSON describing the edit action
+    createdAt: Long,             // Timestamp
+    processed: Boolean,          // Whether edit has been applied
+    processedAt: Long            // When it was processed
+)
+```
+
+### Supported Edit Actions
+
+#### `set_anonymization_override`
+
+Controls how a photo should be anonymized:
+
+```json
+// Auto-detect faces/plates and blur them (default behavior)
+{"action": "set_anonymization_override", "value": null}
+
+// Skip anonymization entirely
+{"action": "set_anonymization_override", "value": []}
+
+// Manually specify blur rectangles
+{"action": "set_anonymization_override", "value": [
+    {"x": 100, "y": 200, "width": 50, "height": 50}
+]}
+```
+
+### Edit Processing Flow
+
+```
+┌─────────────┐      ┌─────────────────┐      ┌─────────────────┐
+│ UI creates  │ ──── │ Edit stored in  │ ──── │ Upload loop     │
+│ edit action │      │ edits table     │      │ processes edits │
+└─────────────┘      └─────────────────┘      └─────────────────┘
+                                                      │
+                                                      v
+                                              ┌─────────────────┐
+                                              │ PhotoEntity     │
+                                              │ updated:        │
+                                              │ - version++     │
+                                              │ - override set  │
+                                              │ - status=pending│
+                                              └─────────────────┘
+```
+
+1. **UI creates edit**: User toggles anonymization in the UI
+2. **Edit stored**: `EditEntity` inserted with `actionJson` and `processed=false`
+3. **Upload loop starts**: Calls `processPendingEdits()` before main loop
+4. **Edit applied**: PhotoEntity updated with new settings, version bumped, status reset to `pending`
+5. **Edit marked processed**: `processed=true`, `processedAt` set
+6. **Re-upload proceeds**: Photo picked up by upload loop with new settings
+
+### Version-Based Re-upload
+
+When a photo's settings change (e.g., anonymization override), the client must re-upload:
+
+1. Client bumps `version` field (1 → 2)
+2. Client sets `uploadStatus = 'pending'`
+3. Client calls `/api/photos/authorize-upload` with new version
+4. Server checks: if `version > existing_photo.version`, allows re-upload
+5. Server deletes old photo record, creates new authorization
+6. Upload proceeds as normal
+
+**Authorization Request:**
+```json
+{
+  "filename": "IMG_20240115_123456.jpg",
+  "file_md5": "a1b2c3d4e5f6...",
+  "version": 2,
+  ...
+}
+```
+
+**Server Logic:**
+- If `existing.version < request.version`: Allow re-upload (delete old, create new)
+- If `existing.version >= request.version`: Return duplicate response
+
+### Lookup: Server Photo ID → Device Photo ID
+
+The "My Photos" page shows server-side photos, but edits must target device photos. The client provides a lookup command:
+
+```
+cmd: get_photo_id_by_server_photo_id
+params: { server_photo_id: "550e8400-..." }
+response: { success: true, photo_id: "device_..." }
+```
+
+**Implementation:** Queries `PhotoEntity` by `serverPhotoId` field.
+
+**Limitation:** Only works for photos uploaded from this device. Photos uploaded from other devices or before the app was installed will return `success: false`.
+
+### Version & Deletion Interactions
+
+| Scenario | Behavior |
+|----------|----------|
+| Edit photo, server photo exists | Version bumps, re-upload succeeds, old server record replaced |
+| Edit photo, server photo was deleted | Re-upload creates new server record (no conflict) |
+| Edit photo, never uploaded | Version bumps, uploads as new photo |
+| Edit photo, uploaded from different device | Lookup fails, edit cannot proceed |
+| Server deletes during re-upload | Worker gets 410, client marks deleted |
+| Client deletes locally before re-upload | Upload loop skips (file doesn't exist) |
+
+### State Synchronization Gaps
+
+**What IS synced:**
+- Photos in `processing` state → client polls `/photos/status`
+- Server-side deletions → `deleted` flag propagated to client
+- Processing completion/errors → client updates local status
+
+**What is NOT synced:**
+- Edits don't sync to server until re-upload completes
+- If re-upload fails, server keeps old version indefinitely
+- No way for server to know client has pending edits
+- No way for client to know about photos on other devices
+
+**Edit Consistency Issues:**
+
+```
+Timeline showing potential inconsistency:
+
+T1: User sets "no anonymization" on device A
+T2: Edit stored locally, photo marked pending
+T3: Device loses connectivity for days
+T4: User views photo on web - sees OLD blurred version
+T5: Device reconnects, re-uploads
+T6: Now web shows UN-blurred version
+
+No indication to user that pending changes exist on another device.
+```
+
+**Version Conflict Scenarios:**
+
+```
+Device A: version=1 (completed)
+Device B: version=1 (completed, same photo via sync)
+
+Device A: User edits → version=2, pending
+Device B: User edits → version=2, pending
+
+Device A uploads first → server has version=2
+Device B uploads → server sees version=2 already exists
+                 → returns duplicate (version not greater)
+                 → Device B stuck, edit never applied
+
+No conflict resolution mechanism exists.
+```
+
+### Anonymization Override on Worker
+
+The `anonymization_override` is passed to the worker as a form field:
+
+```
+POST {worker_url}/upload_async
+Content-Type: multipart/form-data
+
+- file: (binary)
+- client_signature: (base64)
+- anonymization_override: "[]"   # or null, or "[{...}]"
+```
+
+**Worker Behavior:**
+- `null` (not present): Auto-detect faces/plates and blur
+- `"[]"` (empty array): Skip anonymization entirely
+- `"[{...}]"` (rectangles): Apply blur to specified areas only
+
+The final `detected_objects` field stores the result, including a `"manual": true` flag when override was used.
 
 ---
 

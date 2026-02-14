@@ -3,12 +3,15 @@
 	import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';
 	import StandardBody from '$lib/components/StandardBody.svelte';
 	import {invoke} from "@tauri-apps/api/core";
-	import { RefreshCw, Download, Upload, Clock, MapPin, Camera, AlertCircle, ChevronLeft, ChevronRight, CheckCircle } from 'lucide-svelte';
+	import { RefreshCw, Download, Upload, Clock, MapPin, Camera, AlertCircle, ChevronLeft, ChevronRight, CheckCircle, MoreVertical } from 'lucide-svelte';
 	import { getDevicePhotoUrl } from '$lib/devicePhotoHelper';
 	import {app} from "$lib/data.svelte";
 	import RetryUploadsButton from "$lib/components/RetryUploadsButton.svelte";
 	import DevicePhotoStats from "$lib/components/DevicePhotoStats.svelte";
 	import {fetchDevicePhotoStats} from "$lib/devicePhotoStats";
+	import { showDropdownMenu, type DropdownMenuItem } from '$lib/components/dropdown-menu/dropdownMenu.svelte';
+	import { getAnonymizationMenuItems } from '$lib/photoAnonymizationMenu';
+	import DropdownMenu from '$lib/components/dropdown-menu/DropdownMenu.svelte';
 
 	interface DevicePhoto {
 		id: string;
@@ -153,6 +156,16 @@
 			default: return Clock;
 		}
 	}
+
+	function showPhotoMenu(event: MouseEvent, photo: DevicePhoto) {
+		const button = event.currentTarget as HTMLButtonElement;
+		const items: DropdownMenuItem[] = getAnonymizationMenuItems(photo.id);
+
+		showDropdownMenu(items, button, {
+			placement: 'above-right',
+			testId: 'device-photo-menu'
+		});
+	}
 </script>
 
 <StandardHeaderWithAlert
@@ -257,6 +270,14 @@
 
 						<div class="photo-header">
 							<div class="photo-name">{photo.file_name}</div>
+							<button
+								class="menu-button"
+								on:click={(e) => showPhotoMenu(e, photo)}
+								title="Photo options"
+								data-testid="photo-menu-button"
+							>
+								<MoreVertical size={18} />
+							</button>
 						</div>
 
 						<div class="photo-details">
@@ -339,6 +360,8 @@
 		{/if}
 	</div>
 </StandardBody>
+
+<DropdownMenu />
 
 <style>
 	.device-photos-section {
@@ -444,6 +467,31 @@
 		font-size: 1rem;
 		word-break: break-word;
 		flex: 1;
+	}
+
+	.menu-button {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 32px;
+		height: 32px;
+		padding: 0;
+		background: transparent;
+		border: none;
+		border-radius: 6px;
+		color: #6b7280;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		flex-shrink: 0;
+	}
+
+	.menu-button:hover {
+		background-color: #f3f4f6;
+		color: #374151;
+	}
+
+	.menu-button:active {
+		background-color: #e5e7eb;
 	}
 
 	.photo-status {

@@ -54,6 +54,7 @@ class DuplicateFileException(message: String) : Exception(message)
 class PhotoUploadLogic(private val context: Context) {
 	private val database: PhotoDatabase = PhotoDatabase.getDatabase(context)
 	private val photoDao = database.photoDao()
+	private val editDao = database.editDao()
 
 	companion object {
 		private const val TAG = "🢄Upload"
@@ -109,6 +110,9 @@ class PhotoUploadLogic(private val context: Context) {
 					)
 					scanForNewPhotos()
 				}
+
+				// Process any pending edits before upload loop
+				processPendingEdits()
 
 				// Process photos one at a time with validation on each iteration
 
@@ -335,6 +339,51 @@ class PhotoUploadLogic(private val context: Context) {
 
 
 	/**
+	 * Process pending edits from the edits table.
+	 * Edits are actions like setting anonymization override that trigger re-uploads.
+	 */
+	private fun processPendingEdits() {
+		val pendingEdits = editDao.getPendingEdits()
+		if (pendingEdits.isEmpty()) {
+			return
+		}
+
+		Log.d(TAG, "Processing ${pendingEdits.size} pending edits")
+
+		for (edit in pendingEdits) {
+			try {
+				val actionJson = JSONObject(edit.actionJson)
+				val action = actionJson.optString("action")
+
+				when (action) {
+					"set_anonymization_override" -> {
+						// value can be: null (auto-detect), [] (skip), [{...}] (manual rectangles)
+						val override: String? = if (actionJson.isNull("value")) {
+							null
+						} else {
+							actionJson.getJSONArray("value").toString()
+						}
+
+						Log.d(TAG, "Processing set_anonymization_override for photo ${edit.photoId}: $override")
+						photoDao.updateAnonymizationOverride(edit.photoId, override)
+					}
+					else -> {
+						Log.w(TAG, "Unknown edit action: $action")
+					}
+				}
+
+				editDao.markProcessed(edit.id, System.currentTimeMillis())
+				Log.d(TAG, "Edit ${edit.id} processed successfully")
+
+			} catch (e: Exception) {
+				Log.e(TAG, "Error processing edit ${edit.id}: ${e.message}", e)
+				// Don't mark as processed - will retry next time
+			}
+		}
+	}
+
+
+	/**
 	 * Upload photo securely.
 	 * @return Server photo ID on success, null on failure
 	 */
@@ -375,7 +424,8 @@ class PhotoUploadLogic(private val context: Context) {
 				authResponse.upload_jwt,
 				signatureData.signature,
 				authResponse.worker_url,
-				photo.id
+				photo.id,
+				photo.anonymizationOverride
 			)
 
 			return@withContext if (uploadSuccess) authResponse.photo_id else null
@@ -426,6 +476,7 @@ class PhotoUploadLogic(private val context: Context) {
 			put("client_key_id", keyInfo.keyId)  // Key ID that will be used for signing
 			put("description", "")  // Could be made configurable
 			put("is_public", true)  // Could be made configurable
+			put("version", photo.version)  // Version for re-upload support
 			// Use PhotoEntity geolocation data
 			put("latitude", photo.latitude)
 			put("longitude", photo.longitude)
@@ -492,6 +543,10 @@ class PhotoUploadLogic(private val context: Context) {
 
 	/**
 	 * Upload file to worker with JWT and client signature
+	 * @param anonymizationOverride JSON string controlling anonymization:
+	 *   - null: auto-detect faces/plates (default)
+	 *   - "[]": skip anonymization
+	 *   - "[{...}]": manual blur rectangles
 	 */
 	private suspend fun uploadToWorker(
 		fileBytes: ByteArray,
@@ -499,11 +554,12 @@ class PhotoUploadLogic(private val context: Context) {
 		uploadJwt: String,
 		signature: String,
 		workerUrl: String,
-		photoId: String
+		photoId: String,
+		anonymizationOverride: String? = null
 	): Boolean {
 		val mediaType = PhotoUtils.getContentType(filename).toMediaType()
 
-		val requestBody = MultipartBody.Builder()
+		val multipartBuilder = MultipartBody.Builder()
 			.setType(MultipartBody.FORM)
 			.addFormDataPart(
 				"file",
@@ -511,7 +567,14 @@ class PhotoUploadLogic(private val context: Context) {
 				fileBytes.toRequestBody(mediaType)
 			)
 			.addFormDataPart("client_signature", signature)
-			.build()
+
+		// Add anonymization override if present
+		if (anonymizationOverride != null) {
+			multipartBuilder.addFormDataPart("anonymization_override", anonymizationOverride)
+			Log.d(TAG, "Including anonymization_override: $anonymizationOverride")
+		}
+
+		val requestBody = multipartBuilder.build()
 
 		val request = Request.Builder()
 			.url("$workerUrl/upload_async")
@@ -1086,6 +1149,111 @@ class PhotoUploadLogic(private val context: Context) {
 
             } catch (e: Exception) {
                 Log.e(TAG, "Error getting processing photo IDs", e)
+                val error = JSObject()
+                error.put("success", false)
+                error.put("error", e.message)
+                invoke.resolve(error)
+            }
+        }
+    }
+
+    /**
+     * Handle create_edit cmd from frontend.
+     * Creates an edit action for a photo (e.g., setting anonymization override).
+     * Params: { photo_id: string, action: string, value: any }
+     */
+    fun handleCreateEdit(invoke: Invoke, params: JSObject) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val photoId = params.getString("photo_id")
+                val action = params.getString("action")
+
+                if (photoId == null || action == null) {
+                    val error = JSObject()
+                    error.put("success", false)
+                    error.put("error", "Missing required params: photo_id, action")
+                    invoke.resolve(error)
+                    return@launch
+                }
+
+                // Build action JSON
+                val actionJson = JSONObject()
+                actionJson.put("action", action)
+
+                // Handle value - can be null, array, or object
+                if (params.has("value")) {
+                    if (params.isNull("value")) {
+                        actionJson.put("value", JSONObject.NULL)
+                    } else {
+                        // Try to get as JSONArray first, then as other types
+                        try {
+                            val valueArray = params.getJSONArray("value")
+                            actionJson.put("value", valueArray)
+                        } catch (e: Exception) {
+                            // Not an array, try other types
+                            actionJson.put("value", params.get("value"))
+                        }
+                    }
+                } else {
+                    actionJson.put("value", JSONObject.NULL)
+                }
+
+                val editEntity = EditEntity(
+                    photoId = photoId,
+                    actionJson = actionJson.toString(),
+                    createdAt = System.currentTimeMillis()
+                )
+
+                val editId = editDao.insertEdit(editEntity)
+                Log.d(TAG, "Created edit $editId for photo $photoId: $actionJson")
+
+                val result = JSObject()
+                result.put("success", true)
+                result.put("edit_id", editId)
+                invoke.resolve(result)
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Error creating edit", e)
+                val error = JSObject()
+                error.put("success", false)
+                error.put("error", e.message)
+                invoke.resolve(error)
+            }
+        }
+    }
+
+    /**
+     * Handle get_photo_id_by_server_photo_id cmd from frontend.
+     * Returns the device photo ID for a given server photo ID.
+     * Params: { server_photo_id: string }
+     */
+    fun handleGetPhotoIdByServerPhotoId(invoke: Invoke, params: JSObject) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val serverPhotoId = params.getString("server_photo_id")
+
+                if (serverPhotoId == null) {
+                    val error = JSObject()
+                    error.put("success", false)
+                    error.put("error", "Missing required param: server_photo_id")
+                    invoke.resolve(error)
+                    return@launch
+                }
+
+                val photo = photoDao.getPhotoByServerPhotoId(serverPhotoId)
+
+                val result = JSObject()
+                if (photo != null) {
+                    result.put("success", true)
+                    result.put("photo_id", photo.id)
+                } else {
+                    result.put("success", false)
+                    result.put("error", "Photo not found for server ID: $serverPhotoId")
+                }
+                invoke.resolve(result)
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Error getting photo ID by server photo ID", e)
                 val error = JSObject()
                 error.put("success", false)
                 error.put("error", e.message)

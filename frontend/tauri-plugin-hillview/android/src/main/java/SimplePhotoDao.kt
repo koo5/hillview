@@ -47,6 +47,9 @@ interface SimplePhotoDao {
     @Query("SELECT * FROM photos WHERE fileHash = :hash")
     fun getPhotoByHash(hash: String): PhotoEntity?
 
+    @Query("SELECT * FROM photos WHERE serverPhotoId = :serverPhotoId")
+    fun getPhotoByServerPhotoId(serverPhotoId: String): PhotoEntity?
+
     @Query("SELECT * FROM photos WHERE uploadStatus = :status AND deleted = 0 ORDER BY createdAt ASC")
     fun getPhotosByUploadStatus(status: String): List<PhotoEntity>
 
@@ -134,4 +137,7 @@ interface SimplePhotoDao {
 
     @Query("UPDATE photos SET lastUploadAttempt = :timestamp WHERE id = :photoId")
     suspend fun updateUploadHeartbeat(photoId: String, timestamp: Long)
+
+    @Query("UPDATE photos SET anonymizationOverride = :override, version = version + 1, uploadStatus = 'pending' WHERE id = :photoId")
+    fun updateAnonymizationOverride(photoId: String, override: String?)
 }

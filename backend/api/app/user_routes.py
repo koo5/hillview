@@ -1251,6 +1251,8 @@ class UploadAuthorizationRequest(BaseModel):
 	altitude: Optional[float] = None
 	compass_angle: Optional[float] = None
 	captured_at: Optional[datetime.datetime] = None
+	# Re-upload support
+	version: int = 1  # Bump to re-upload with different settings
 
 class UploadAuthorizationResponse(BaseModel):
 	upload_jwt: str
@@ -1328,19 +1330,24 @@ async def authorize_upload(
 				await db.delete(existing_photo)
 
 			elif existing_photo.processing_status == 'completed':
+				# Check if this is a re-upload with higher version (e.g., changed anonymization settings)
+				if auth_request.version > existing_photo.version:
+					log.info(f"Re-upload requested for completed photo: MD5={auth_request.file_md5}, old version={existing_photo.version}, new version={auth_request.version}")
+					photo_id = existing_photo.id
+					await db.delete(existing_photo)
+				else:
+					log.info(f"Duplicate file detected for user {current_user.id}: MD5={auth_request.file_md5}, row id={str(existing_photo.id)}, status={existing_photo.processing_status}")
+					return {
+						"duplicate": True,
+						# completed: client just marks its local item as completed
+						# - but it should probably also accept the new photo id
+						"processing_status": existing_photo.processing_status,
 
-				log.info(f"Duplicate file detected for user {current_user.id}: MD5={auth_request.file_md5}, row id={str(existing_photo.id)}, status={existing_photo.processing_status}")
-				return {
-					"duplicate": True,
-					# completed: client just marks its local item as completed
-					# - but it should probably also accept the new photo id
-					"processing_status": existing_photo.processing_status,
-
-					"message": f"File already exists. You previously uploaded this file as '{existing_photo.original_filename}' on {existing_photo.uploaded_at.strftime('%Y-%m-%d %H:%M:%S')}.",
-					"existing_photo_id": existing_photo.id,
-					"existing_filename": existing_photo.original_filename,
-					"existing_upload_date": existing_photo.uploaded_at.isoformat() if existing_photo.uploaded_at else None
-				}
+						"message": f"File already exists. You previously uploaded this file as '{existing_photo.original_filename}' on {existing_photo.uploaded_at.strftime('%Y-%m-%d %H:%M:%S')}.",
+						"existing_photo_id": existing_photo.id,
+						"existing_filename": existing_photo.original_filename,
+						"existing_upload_date": existing_photo.uploaded_at.isoformat() if existing_photo.uploaded_at else None
+					}
 			else:
 				raise HTTPException(
 					status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -1393,7 +1400,8 @@ async def authorize_upload(
 			geometry=geometry,
 			altitude=auth_request.altitude,
 			compass_angle=auth_request.compass_angle,
-			captured_at=captured_at_naive
+			captured_at=captured_at_naive,
+			version=auth_request.version
 		)
 
 		db.add(photo)

@@ -14,6 +14,9 @@ from pathlib import Path
 from typing import Optional, Dict, Any, List, Tuple
 from uuid import UUID
 from datetime import datetime, timezone
+
+from blur import read_image
+
 os.environ["OPENCV_IMGCODECS_WEBP_MAX_FILE_SIZE"] = "209715200"  # 200MB
 import cv2
 from PIL import Image
@@ -22,11 +25,46 @@ import httpx
 from throttle import Throttle
 
 
+from pydantic import BaseModel
+
 from common.security_utils import sanitize_filename, validate_file_path, check_file_content, validate_image_dimensions, SecurityValidationError, validate_user_id
 
 from common.cdn_uploader import cdn_uploader
 
 logger = logging.getLogger(__name__)
+
+
+class AnonymizationOverride(BaseModel):
+	"""Controls anonymization behavior.
+
+	- None (not provided): auto-detect faces/plates and blur them
+	- Empty list []: skip anonymization entirely
+	- List of rectangles: blur specific areas (future feature)
+	"""
+	rectangles: List[Dict[str, int]] = []  # Each dict: {x, y, width, height}
+
+	@classmethod
+	def from_json_string(cls, json_str: Optional[str]) -> Optional["AnonymizationOverride"]:
+		"""Parse from JSON string (as received from form field)."""
+		if json_str is None:
+			return None
+		try:
+			data = json.loads(json_str)
+			if isinstance(data, list):
+				return cls(rectangles=data)
+			elif isinstance(data, dict):
+				return cls(**data)
+			else:
+				logger.warning(f"Invalid anonymization_override type: {type(data)}")
+				return None
+		except json.JSONDecodeError as e:
+			logger.warning(f"Invalid anonymization_override JSON: {e}")
+			return None
+
+	@property
+	def skip_anonymization(self) -> bool:
+		"""Returns True if anonymization should be skipped (empty rectangles list)."""
+		return len(self.rectangles) == 0
 
 
 class PhotoDeletedException(Exception):
@@ -347,21 +385,50 @@ class PhotoProcessor:
 		return dimensions[0], dimensions[1]
 
 
-	async def create_optimized_sizes(self, source_path: str, unique_id: str, original_filename: str,
-									 orientation: int,
-									 width: int, height: int, photo_id: str = None, client_signature: str = None) -> tuple[Dict[str, Dict[str, Any]], Optional[Dict[str, Any]]]:
+	async def create_optimized_sizes(self, source_path: str, unique_id: str, width: int, height: int, photo_id: str = None, client_signature: str = None, anonymization_override: Optional[AnonymizationOverride] = None
+
+
+									 ) -> tuple[Dict[str, Dict[str, Any]], Optional[Dict[str, Any]]]:
 		"""Create optimized versions with anonymization and unique IDs."""
+
 		sizes_info = {}
 		output_base = os.environ.get('PICS_DIR', self.upload_dir)
+
 		logger.info(f"Starting anonymization for {unique_id}")
 
-		# this takes a while to import, so do it here dynamically
-		logger.info(f"Importing anonymization module for {source_path}")
-		from anonymize import anonymize_image as _
+		if not anonymization_override:
+			# this takes a while to import, so do it here dynamically
+			logger.info(f"Importing anonymization module for {source_path}")
+			from anonymize import anonymize_image as _
 
 		async with throttle.rate_limit(PARALLEL_PROCESSING_START_DELAY, 1500):
 
-			image, detections = await self._anonymize_image(source_path)
+			if not anonymization_override:
+				image, detections = await self._anonymize_image(source_path)
+			else:
+				if anonymization_override.skip_anonymization:
+					logger.info(f"Skipping anonymization for {unique_id} due to override")
+					image = read_image(source_path)
+					detections = {"objects": [], "manual": True}
+				else:
+					logger.info(f"Applying manual anonymization for {unique_id} with rectangles: {anonymization_override.rectangles}")
+					image = read_image(source_path)
+					detections = {"objects": [], "manual": True}
+					for rect in anonymization_override.rectangles:
+						x = rect.get('x')
+						y = rect.get('y')
+						w = rect.get('width')
+						h = rect.get('height')
+						if None not in (x, y, w, h):
+							detections['objects'].append({
+								'class_id': None,
+								'bbox': {'x1': x, 'y1': y, 'x2': x+w, 'y2': y+h},
+								'blur': 500
+							})
+					from blur import apply_blur
+					apply_blur(image, detections['objects'])
+
+
 			size_variants = ['full', 320, 640, 1024, 2048, 3072, 4096]
 
 			for size in size_variants:
@@ -507,9 +574,16 @@ class PhotoProcessor:
 		photo_id: Optional[str] = None,
 		description: Optional[str] = None,
 		is_public: bool = True,
-		client_signature: Optional[str] = None
+		client_signature: Optional[str] = None,
+		anonymization_override: Optional[str] = None
 	) -> Optional[Dict[str, Any]]:
-		"""Process a user-uploaded photo and return processing results."""
+		"""Process a user-uploaded photo and return processing results.
+
+		anonymization_override: JSON string controlling anonymization behavior:
+			- None or "null": auto-detect faces/plates and blur them (default)
+			- "[]": skip anonymization entirely
+			- "[{...}]": use specific rectangles (future feature)
+		"""
 
 		validate_user_id(str(user_id))
 		unique_id = str(user_id) + '/' + str(photo_id)
@@ -577,7 +651,9 @@ class PhotoProcessor:
 			logger.error(f"Image dimensions validation failed for {safe_filename}: {width}x{height}")
 			raise ValueError(error_msg)
 
-		sizes_info, detections = await self.create_optimized_sizes(file_path, unique_id, filename, orientation, width, height, photo_id, client_signature)
+		# Parse anonymization override from JSON string to Pydantic model
+		override = AnonymizationOverride.from_json_string(anonymization_override)
+		sizes_info, detections = await self.create_optimized_sizes(file_path, unique_id, width, height, photo_id, client_signature, override)
 
 		# Extract captured_at from EXIF DateTimeOriginal (with corruption fix)
 		raw_data = exif_data.get('data', {})

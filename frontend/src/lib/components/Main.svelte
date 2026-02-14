@@ -363,6 +363,12 @@
 	function toggleCamera() {
 		const newActivity = get(app).activity === 'capture' ? 'view' : 'capture';
 		onAppActivityChange(newActivity);
+		if (get(spatialState).zoom < 17 && newActivity === 'capture') {
+			updateSpatialState({
+				...get(spatialState),
+				zoom: 17
+			});
+		}
 		app.update(a => ({
 			...a,
 			activity: newActivity

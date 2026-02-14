@@ -2533,6 +2533,16 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 					return
 				}
 
+				"create_edit" -> {
+					photoUploadLogic.handleCreateEdit(invoke, params)
+					return
+				}
+
+				"get_photo_id_by_server_photo_id" -> {
+					photoUploadLogic.handleGetPhotoIdByServerPhotoId(invoke, params)
+					return
+				}
+
 				else -> {
 					resolveWithError(invoke, "🔧 Unknown command: $command")
 					return

@@ -169,12 +169,13 @@ logger.info(f"PARALLEL_PROCESSING_CONCURRENCY: {PARALLEL_PROCESSING_CONCURRENCY}
 processing_semaphore = asyncio.Semaphore(PARALLEL_PROCESSING_CONCURRENCY)
 
 
-def run_photo_processing_sync(file_path: str, filename: str, user_id: UUID, photo_id: str, client_signature: str, ctx_photo_id: str = None, ctx_task_id: int = None):
+def run_photo_processing_sync(file_path: str, filename: str, user_id: UUID, photo_id: str, client_signature: str, ctx_photo_id: str = None, ctx_task_id: int = None, anonymization_override: str = None):
 	"""
 	Sync wrapper to run async photo processing in a dedicated event loop.
 	This runs in a thread pool to avoid blocking the main event loop.
 
 	ctx_photo_id and ctx_task_id are used to restore logging context in the new thread.
+	anonymization_override: JSON string - null=auto, "[]"=none, "[{...}]"=specific rectangles
 	"""
 	# Restore logging context in this thread
 	with task_context(photo_id=ctx_photo_id, task_id=ctx_task_id):
@@ -187,7 +188,8 @@ def run_photo_processing_sync(file_path: str, filename: str, user_id: UUID, phot
 					filename=filename,
 					user_id=user_id,
 					photo_id=photo_id,
-					client_signature=client_signature
+					client_signature=client_signature,
+					anonymization_override=anonymization_override
 				)
 			)
 		finally:
@@ -350,16 +352,18 @@ def validate_upload_parameters(upload_auth: dict, file) -> (str, str):
 async def upload_sync(
 	file: UploadFile = File(...),
 	client_signature: str = Form(...),
+	anonymization_override: Optional[str] = Form(None),  # JSON: null=auto, "[]"=none, "[{...}]"=specific
 	upload_auth: dict = Depends(get_upload_authorization)
 ):
 	photo_id, user_id = validate_upload_parameters(upload_auth, file)
-	return await upload(file, client_signature, photo_id, user_id)
+	return await upload(file, client_signature, photo_id, user_id, anonymization_override=anonymization_override)
 
 
 @app.post("/upload_async")
 async def upload_async(
 	file: UploadFile = File(...),
 	client_signature: str = Form(...),
+	anonymization_override: Optional[str] = Form(None),  # JSON: null=auto, "[]"=none, "[{...}]"=specific
 	upload_auth: dict = Depends(get_upload_authorization),
 	background_tasks: BackgroundTasks = None
 ):
@@ -369,21 +373,21 @@ async def upload_async(
 		task_id = task_id_counter
 		task_id_counter += 1
 		pending_background_tasks.add(task_id)
-	background_tasks.add_task(upload, file, client_signature, photo_id, user_id, task_id)
+	background_tasks.add_task(upload, file, client_signature, photo_id, user_id, task_id, anonymization_override)
 
 	return {'success': True}
 
 
-async def upload(file: UploadFile, client_signature: str, photo_id: str, user_id: str, task_id = None):
+async def upload(file: UploadFile, client_signature: str, photo_id: str, user_id: str, task_id = None, anonymization_override: Optional[str] = None):
 
 	with task_context(photo_id=photo_id, task_id=task_id):
-		return await _upload_inner(file, client_signature, photo_id, user_id, task_id)
+		return await _upload_inner(file, client_signature, photo_id, user_id, task_id, anonymization_override)
 
 
-async def _upload_inner(file: UploadFile, client_signature: str, photo_id: str, user_id: str, task_id = None):
+async def _upload_inner(file: UploadFile, client_signature: str, photo_id: str, user_id: str, task_id = None, anonymization_override: Optional[str] = None):
 
 	try:
-		file_path, processing_status, error_message, retry_after_minutes, processing_result, secure_filename = await process(file, client_signature, photo_id, user_id)
+		file_path, processing_status, error_message, retry_after_minutes, processing_result, secure_filename = await process(file, client_signature, photo_id, user_id, anonymization_override)
 
 		# Handle deleted photos early - no need to notify API
 		if processing_status == "deleted":
@@ -483,7 +487,7 @@ async def _upload_inner(file: UploadFile, client_signature: str, photo_id: str, 
 	)
 
 
-async def process(file: UploadFile, client_signature: str, photo_id: str, user_id: str):
+async def process(file: UploadFile, client_signature: str, photo_id: str, user_id: str, anonymization_override: Optional[str] = None):
 
 	file_path = None
 	error_message = None
@@ -535,7 +539,8 @@ async def process(file: UploadFile, client_signature: str, photo_id: str, user_i
 				photo_id,
 				client_signature,
 				ctx_photo_id,
-				ctx_task_id
+				ctx_task_id,
+				anonymization_override
 			)
 
 		if not processing_result:

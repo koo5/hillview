@@ -8,7 +8,7 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 @Database(
     entities = [PhotoEntity::class, BearingEntity::class, LocationEntity::class, SourceEntity::class, EditEntity::class],
-    version = 12,
+    version = 13,
     exportSchema = false
 )
 abstract class PhotoDatabase : RoomDatabase() {
@@ -146,6 +146,15 @@ abstract class PhotoDatabase : RoomDatabase() {
 			}
 		}
 
+		private val MIGRATION_12_13 = object : Migration(12, 13) {
+			override fun migrate(database: SupportSQLiteDatabase) {
+				// Add version column for re-upload support (e.g., changing anonymization settings)
+				database.execSQL("ALTER TABLE photos ADD COLUMN version INTEGER NOT NULL DEFAULT 1")
+				// Add anonymization override column (null = auto-detect, "[]" = skip, "[{...}]" = manual)
+				database.execSQL("ALTER TABLE photos ADD COLUMN anonymizationOverride TEXT")
+			}
+		}
+
         fun getDatabase(context: Context): PhotoDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -153,7 +162,7 @@ abstract class PhotoDatabase : RoomDatabase() {
                     PhotoDatabase::class.java,
                     "hillview_photos_database"
                 )
-                    .addMigrations(MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
+                    .addMigrations(MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
                     .build()
                 INSTANCE = instance
                 instance
