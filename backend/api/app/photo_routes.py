@@ -182,6 +182,12 @@ async def save_processed_photo(
 			detail="Photo not found"
 		)
 
+	if photo.deleted:
+		raise HTTPException(
+			status_code=status.HTTP_410_GONE,
+			detail="Photo was deleted"
+		)
+
 	# Verify that photo is in authorized status (not already processed)
 	if photo.processing_status != "authorized":
 		raise HTTPException(
@@ -330,6 +336,12 @@ async def upload_processed_file(
 				detail="Photo not found"
 			)
 
+		if photo.deleted:
+			raise HTTPException(
+				status_code=status.HTTP_410_GONE,
+				detail="Photo was deleted"
+			)
+
 		# Verify that photo is in authorized status
 		if photo.processing_status != "authorized":
 			raise HTTPException(
@@ -458,7 +470,7 @@ async def list_photos(
 		Photo,
 		ST_X(Photo.geometry).label('longitude'),
 		ST_Y(Photo.geometry).label('latitude')
-	).where(Photo.owner_id == str(current_user.id))
+	).where(Photo.owner_id == str(current_user.id), Photo.deleted == False)
 
 		if only_processed:
 			base_query = base_query.where(Photo.processing_status == "completed")
@@ -466,7 +478,7 @@ async def list_photos(
 		# Get counts by processing status (separate query for performance)
 		counts_result = await db.execute(
 			select(Photo.processing_status, func.count(Photo.id))
-			.where(Photo.owner_id == str(current_user.id))
+			.where(Photo.owner_id == str(current_user.id), Photo.deleted == False)
 			.group_by(Photo.processing_status)
 		)
 		counts_by_status = dict(counts_result.fetchall())
@@ -584,7 +596,7 @@ async def get_photo_count(
 		# Get counts by processing status
 		counts_result = await db.execute(
 			select(Photo.processing_status, func.count(Photo.id))
-			.where(Photo.owner_id == str(current_user.id))
+			.where(Photo.owner_id == str(current_user.id), Photo.deleted == False)
 			.group_by(Photo.processing_status)
 		)
 		counts_by_status = dict(counts_result.fetchall())
@@ -631,7 +643,7 @@ async def get_photos_status(
 			return {"photos": []}
 
 		result = await db.execute(
-			select(Photo.id, Photo.processing_status, Photo.error)
+			select(Photo.id, Photo.processing_status, Photo.error, Photo.deleted)
 			.where(
 				Photo.owner_id == str(current_user.id),
 				Photo.id.in_(status_request.photo_ids)
@@ -644,7 +656,8 @@ async def get_photos_status(
 				{
 					"id": photo.id,
 					"processing_status": photo.processing_status,
-					"error": photo.error
+					"error": photo.error,
+					"deleted": photo.deleted
 				}
 				for photo in photos
 			]
@@ -676,7 +689,8 @@ async def get_photo(
 				ST_Y(Photo.geometry).label('latitude')
 			).where(
 				Photo.id == photo_id,
-				Photo.owner_id == str(current_user.id)
+				Photo.owner_id == str(current_user.id),
+				Photo.deleted == False
 			)
 		)
 		photo_record = result.first()
@@ -738,7 +752,7 @@ async def delete_photo(
 	current_user: User = Depends(get_current_active_user),
 	db: AsyncSession = Depends(get_db)
 ):
-	"""Delete a photo and its files."""
+	"""Delete a photo's files and mark it as deleted."""
 	# Apply photo operations rate limiting
 	await rate_limit_photo_operations(request, current_user.id)
 
@@ -746,7 +760,8 @@ async def delete_photo(
 		result = await db.execute(
 			select(Photo).where(
 				Photo.id == photo_id,
-				Photo.owner_id == str(current_user.id)
+				Photo.owner_id == str(current_user.id),
+				Photo.deleted == False
 			)
 		)
 		photo = result.scalars().first()
@@ -765,8 +780,8 @@ async def delete_photo(
 				detail="Failed to delete photo files"
 			)
 
-		# Delete database record
-		await db.delete(photo)
+		# Soft delete - mark as deleted, keep the row
+		photo.deleted = True
 		await db.commit()
 
 		logger.info(f"Photo {photo_id} deleted by user {current_user.id}")
@@ -812,7 +827,7 @@ async def get_photo_share_metadata(
 					Photo.description,
 					ST_X(Photo.geometry).label('longitude'),
 					ST_Y(Photo.geometry).label('latitude')
-				).where(Photo.id == photo_id)
+				).where(Photo.id == photo_id, Photo.deleted == False)
 			)
 
 			photo_data = result.first()

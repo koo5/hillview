@@ -139,7 +139,10 @@ class PhotoUploadLogic(private val context: Context) {
 					}
 					else
 					{
-						photo = photoDao.getNextPhotoForUpload(seen, System.currentTimeMillis() - 1000 * 60 * 10)
+						val now = System.currentTimeMillis()
+						val uploadingStaleThreshold = now - 1000 * 60 * 10  // 10 minutes
+						val processingStaleThreshold = now - 1000 * 60 * 60 // 1 hour
+						photo = photoDao.getNextPhotoForUpload(seen, uploadingStaleThreshold, processingStaleThreshold)
 					}
 
 					if (photo == null) {
@@ -985,7 +988,8 @@ class PhotoUploadLogic(private val context: Context) {
                     statuses.add(ServerPhotoStatus(
                         id = photoJson.getString("id"),
                         processingStatus = photoJson.optString("processing_status", ""),
-                        error = if (photoJson.isNull("error")) null else photoJson.optString("error")
+                        error = if (photoJson.isNull("error")) null else photoJson.optString("error"),
+                        deleted = photoJson.optBoolean("deleted", false)
                     ))
                 }
 
@@ -1000,16 +1004,20 @@ class PhotoUploadLogic(private val context: Context) {
 
     /**
      * Update local photos based on server statuses.
-     * Photos not returned by server are marked as "deleted".
      */
     private fun updatePhotosFromServerStatuses(
         serverStatuses: List<ServerPhotoStatus>,
         photosByServerId: Map<String, PhotoEntity>
     ) {
-        val returnedIds = serverStatuses.map { it.id }.toSet()
-
         for (status in serverStatuses) {
             val localPhoto = photosByServerId[status.id] ?: continue
+
+            // Check deleted flag first
+            if (status.deleted) {
+                Log.i(TAG, "🗑️ Photo ${localPhoto.filename} deleted on server")
+                photoDao.updateDeleted(localPhoto.id, true)
+                continue
+            }
 
             when (status.processingStatus) {
                 "completed" -> {
@@ -1031,14 +1039,6 @@ class PhotoUploadLogic(private val context: Context) {
                 }
             }
         }
-
-        // Mark photos not returned by server as deleted. We could do this when called from syncProcessingPhotosStatus if syncProcessingPhotosStatus fetched ALL photos, not just processing ones.
-        /*for ((serverId, localPhoto) in photosByServerId) {
-            if (serverId !in returnedIds) {
-                Log.i(TAG, "🗑️ Photo ${localPhoto.filename} deleted on server")
-                photoDao.updateUploadStatus(localPhoto.id, "deleted", System.currentTimeMillis())
-            }
-        }*/
     }
 
     /**
@@ -1065,7 +1065,8 @@ class PhotoUploadLogic(private val context: Context) {
     data class ServerPhotoStatus(
         val id: String,
         val processingStatus: String,
-        val error: String?
+        val error: String?,
+        val deleted: Boolean = false
     )
 
     /**

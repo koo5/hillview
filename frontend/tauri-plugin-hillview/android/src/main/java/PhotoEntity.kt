@@ -38,7 +38,10 @@ data class PhotoEntity(
     val lastUploadAttempt: Long = 0L,
     val uploadError: String = "",
     val fileHash: String = "",
-    val serverPhotoId: String? = null  // Server's photo ID (UUID) for status queries
+    val serverPhotoId: String? = null,  // Server's photo ID (UUID) for status queries
+
+    // Soft delete flag - synced from server
+    val deleted: Boolean = false
 )
 
 enum class UploadStatus {

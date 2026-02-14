@@ -69,10 +69,24 @@ echo "Running alembic migration: $*"
 echo "Backend directory: $BACKEND_DIR"
 echo "Working directory: api/app"
 
-# Run alembic with .env file from repo root
-docker run --rm --network hillview_network \
+# Source env vars to construct DATABASE_URL
+if [ -n "$ENV_FILE" ]; then
+    set -a
+    source "$ENV_FILE"
+    set +a
+fi
+
+# Construct DATABASE_URL using localhost (for host network mode)
+DB_USER="${POSTGRES_USER:-hillview}"
+DB_PASS="${POSTGRES_PASSWORD:-hillview}"
+DB_NAME="${POSTGRES_DB:-hillview}"
+DB_PORT="${POSTGRES_PORT:-5432}"
+DATABASE_URL="postgresql://${DB_USER}:${DB_PASS}@localhost:${DB_PORT}/${DB_NAME}"
+
+# Run alembic with host network
+docker run --rm --network host \
     -v "$BACKEND_DIR:/app" \
     -w "/app/api/app" \
-    --env-file "$ENV_FILE" \
     -e ALEMBIC_SYNC_MODE=1 \
+    -e DATABASE_URL="$DATABASE_URL" \
     hillview-api:latest alembic "$@"

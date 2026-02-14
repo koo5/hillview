@@ -29,6 +29,11 @@ from common.cdn_uploader import cdn_uploader
 logger = logging.getLogger(__name__)
 
 
+class PhotoDeletedException(Exception):
+	"""Raised when a photo was deleted during processing."""
+	pass
+
+
 def safe_parse_float(value, field_name: str = "value") -> Optional[float]:
 	"""Safely parse a numeric value from exiftool output.
 
@@ -405,7 +410,11 @@ class PhotoProcessor:
 
 
 	async def _upload_file_to_api(self, file_path: str, relative_path: str, photo_id: str, client_signature: str) -> str:
-		"""Upload file to API server storage."""
+		"""Upload file to API server storage.
+
+		Returns the URL where the file can be accessed.
+		Raises PhotoDeletedException if photo was deleted during processing.
+		"""
 		api_url = os.getenv("API_URL")
 		if not api_url:
 			raise RuntimeError("API_URL environment variable is required for file uploads")
@@ -422,6 +431,12 @@ class PhotoProcessor:
 					}
 
 					response = await client.post(upload_url, files=files, data=data, timeout=60.0)
+
+					if response.status_code == 410:
+						# Photo was deleted while processing - this is expected
+						logger.info(f"Photo {photo_id} was deleted, aborting file upload for {relative_path}")
+						raise PhotoDeletedException(f"Photo {photo_id} was deleted during processing")
+
 					response.raise_for_status()
 
 					result = response.json()
@@ -433,6 +448,11 @@ class PhotoProcessor:
 					else:
 						raise RuntimeError("PICS_URL not configured for file access")
 
+		except PhotoDeletedException:
+			raise
+		except httpx.HTTPStatusError as e:
+			logger.error(f"Failed to upload {relative_path} to API server: {e}")
+			raise RuntimeError(f"Failed to upload {relative_path} to API server: {e}")
 		except Exception as e:
 			logger.error(f"Failed to upload {relative_path} to API server: {e}")
 			raise RuntimeError(f"Failed to upload {relative_path} to API server: {e}")

@@ -43,7 +43,7 @@ async def get_recent_activity(
 			ST_X(Photo.geometry).label('longitude')
 		).join(
 			User, Photo.owner_id == User.id
-		).order_by(Photo.uploaded_at.desc())
+		).where(Photo.deleted == False).order_by(Photo.uploaded_at.desc())
 
 		# Apply cursor-based pagination if cursor is provided
 		if cursor:

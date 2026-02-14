@@ -75,7 +75,8 @@ async def query_photos_in_bounds(
 		Photo.geometry.isnot(None),
 		ST_Within(Photo.geometry, bbox),
 		Photo.is_public == True,
-		Photo.processing_status == 'completed'
+		Photo.processing_status == 'completed',
+		Photo.deleted == False
 	).order_by(Photo.captured_at.desc())
 
 	# Exclude specific photo IDs if provided
@@ -123,7 +124,8 @@ async def query_picked_photos(
 		Photo.geometry.isnot(None),
 		Photo.id.in_(picked_ids),
 		ST_Within(Photo.geometry, bbox),
-		Photo.is_public == True
+		Photo.is_public == True,
+		Photo.deleted == False
 	)
 
 	# Apply hidden content filtering

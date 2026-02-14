@@ -303,8 +303,10 @@ app.add_middleware(ReverseProxyMiddleware)
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
 	"""Log Pydantic validation errors (422) with full details."""
+	from fastapi.encoders import jsonable_encoder
+	errors = exc.errors()
 	log.error(f"Validation error on {request.method} {request.url.path}")
-	log.error(f"Validation errors: {exc.errors()}")
+	log.error(f"Validation errors: {errors}")
 	# Also log the body if available (for debugging)
 	try:
 		body = await request.body()
@@ -312,10 +314,10 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 			log.error(f"Request body: {body[:2000].decode('utf-8', errors='replace')}")
 	except Exception:
 		pass
-	# Return standard FastAPI validation error response
+	# Return standard FastAPI validation error response (use jsonable_encoder to handle non-serializable types)
 	return JSONResponse(
 		status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-		content={"detail": exc.errors()}
+		content={"detail": jsonable_encoder(errors)}
 	)
 
 

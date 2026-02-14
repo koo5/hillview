@@ -1514,12 +1514,12 @@ async def get_users(
         from hidden_content_filters import apply_hidden_content_filters
 
         # Get users with photo counts and latest photo info
-        # First, get photo counts per user
+        # First, get photo counts per user (excluding deleted photos)
         photo_counts_query = select(
             Photo.owner_id,
             func.count(Photo.id).label('photo_count'),
             func.max(Photo.uploaded_at).label('latest_photo_at')
-        ).group_by(Photo.owner_id)
+        ).where(Photo.deleted == False).group_by(Photo.owner_id)
 
         # Apply hidden content filtering to photo counts
         photo_counts_query = apply_hidden_content_filters(
@@ -1544,10 +1544,11 @@ async def get_users(
 
             latest_photo_url = None
             if stats['latest_at']:
-                # Get the latest photo for this user
+                # Get the latest photo for this user (excluding deleted)
                 latest_photo_query = select(Photo).where(
                     Photo.owner_id == user.id,
-                    Photo.uploaded_at == stats['latest_at']
+                    Photo.uploaded_at == stats['latest_at'],
+                    Photo.deleted == False
                 ).limit(1)
 
                 # Apply hidden content filtering

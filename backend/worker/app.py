@@ -42,6 +42,7 @@ throttle = Throttle('app')
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from jwt_service import validate_upload_authorization_token, sign_processing_result
+from photo_processor import PhotoDeletedException
 
 from common.file_utils import (
 	validate_and_prepare_photo_file,
@@ -384,6 +385,15 @@ async def _upload_inner(file: UploadFile, client_signature: str, photo_id: str, 
 	try:
 		file_path, processing_status, error_message, retry_after_minutes, processing_result, secure_filename = await process(file, client_signature, photo_id, user_id)
 
+		# Handle deleted photos early - no need to notify API
+		if processing_status == "deleted":
+			logger.info(f"Photo {photo_id} was deleted during processing, returning success")
+			return ProcessPhotoResponse(
+				success=True,
+				photo_id=photo_id,
+				message="Photo was deleted during processing"
+			)
+
 		# Always notify API server of result
 		try:
 			processed_data = ProcessedPhotoData(
@@ -433,6 +443,15 @@ async def _upload_inner(file: UploadFile, client_signature: str, photo_id: str, 
 					headers={"Content-Type": "application/json"},
 					timeout=120.0
 				)
+
+				if response.status_code == 410:
+					# Photo was deleted while processing - this is expected, clean up gracefully
+					logger.info(f"Photo {photo_id} was deleted during processing, skipping result submission")
+					return ProcessPhotoResponse(
+						success=True,
+						photo_id=photo_id,
+						message="Photo was deleted during processing"
+					)
 
 				if response.status_code != 200:
 					logger.error(f"Failed to notify API for photo {photo_id}: {response.status_code} - {response.text}")
@@ -537,6 +556,13 @@ async def process(file: UploadFile, client_signature: str, photo_id: str, user_i
 		processing_status = "error"
 		error_message = str(processing_error)
 		retry_after_minutes = None  # Permanent failure, no retry
+
+	except PhotoDeletedException as e:
+		# Photo was deleted during processing - this is expected, not an error
+		logger.info(f"Photo deleted during processing: {e}")
+		processing_status = "deleted"
+		error_message = None
+		retry_after_minutes = None
 
 	except (IOError, OSError, PermissionError) as system_error:
 		# System/IO errors (disk full, permissions, etc.) - retriable failures
