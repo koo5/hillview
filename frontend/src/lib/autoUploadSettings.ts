@@ -2,10 +2,16 @@
 import { createRemoteStore } from './remoteStore';
 import {invoke} from "@tauri-apps/api/core";
 
-interface AutoUploadSettings {
+export interface AutoUploadSettings {
 	auto_upload_enabled: boolean;
 	auto_upload_prompt_enabled: boolean;
 	wifi_only: boolean;
+};
+
+export const autoUploadSettingsDefaults: AutoUploadSettings = {
+	auto_upload_enabled: false,
+	auto_upload_prompt_enabled: true,
+	wifi_only: true
 };
 
 export const autoUploadSettings = createRemoteStore<AutoUploadSettings>({

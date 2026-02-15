@@ -1,10 +1,11 @@
 <script lang="ts">
 	import {onMount} from 'svelte';
-	import {TAURI} from "$lib/tauri.js";
+	import {TAURI, BROWSER} from "$lib/tauri.js";
 	import {auth} from '$lib/auth.svelte';
 	import type {User} from '$lib/auth.svelte';
 	import {navigateWithHistory} from '$lib/navigation.svelte';
 	import {autoUploadSettings} from "$lib/autoUploadSettings";
+	import {browserAutoUploadSettings, getBrowserAutoUploadSettings, setBrowserAutoUploadSettings} from '$lib/browser/autoUploadSettings';
 	import LicenseSelector from './LicenseSelector.svelte';
 	import {photoLicense} from '$lib/data.svelte';
 	import SettingsSectionHeader from "$lib/components/SettingsSectionHeader.svelte";
@@ -31,28 +32,45 @@
 			user = authState.is_authenticated ? authState.user : null;
 		});
 
-		const unsubscribe2 = autoUploadSettings.subscribe(value => {
-			//console.log('Auto-upload settings loaded:', JSON.stringify(value));
-			autoUploadEnabled = value.value?.auto_upload_enabled || false;
-			autoUploadPromptEnabled = value.value?.auto_upload_prompt_enabled !== false;
-			wifiOnly = value.value?.wifi_only !== false;
-		});
+		let unsubscribe2: () => void;
+
+		if (TAURI) {
+			unsubscribe2 = autoUploadSettings.subscribe(value => {
+				//console.log('Auto-upload settings loaded:', JSON.stringify(value));
+				autoUploadEnabled = value.value?.auto_upload_enabled || false;
+				autoUploadPromptEnabled = value.value?.auto_upload_prompt_enabled !== false;
+				wifiOnly = value.value?.wifi_only !== false;
+			});
+		} else if (BROWSER) {
+			unsubscribe2 = browserAutoUploadSettings.subscribe(settings => {
+				//console.log('Browser auto-upload settings loaded:', JSON.stringify(settings));
+				autoUploadEnabled = settings.auto_upload_enabled || false;
+				autoUploadPromptEnabled = settings.auto_upload_prompt_enabled !== false;
+			});
+		}
 
 		// Return cleanup function
 		return () => {
 			unsubscribe1();
-			unsubscribe2();
+			if (unsubscribe2) unsubscribe2();
 		};
 	});
 
 	async function saveSettings() {
-		await autoUploadSettings.persist(
-			{
+		if (TAURI) {
+			await autoUploadSettings.persist(
+				{
+					auto_upload_enabled: autoUploadEnabled,
+					auto_upload_prompt_enabled: autoUploadPromptEnabled,
+					wifi_only: wifiOnly
+				}
+			);
+		} else if (BROWSER) {
+			setBrowserAutoUploadSettings({
 				auto_upload_enabled: autoUploadEnabled,
-				auto_upload_prompt_enabled: autoUploadPromptEnabled,
-				wifi_only: wifiOnly
-			}
-		);
+				auto_upload_prompt_enabled: autoUploadPromptEnabled
+			});
+		}
 
 		const statusText = autoUploadEnabled ? 'enabled' :
 			!autoUploadPromptEnabled ? 'disabled (never prompt)' : 'disabled';
@@ -88,7 +106,7 @@
 	}
 </script>
 
-{#if TAURI}
+{#if TAURI || BROWSER}
 	<SettingsSectionHeader>Auto-Upload</SettingsSectionHeader>
 		<p class="help-text">
 			Automatically upload photos taken with the app's camera, to be visible in <MyExternalLink href="https://hillview.cz" >hillview.cz</MyExternalLink>
@@ -138,7 +156,7 @@
 			</label>
 		</div>
 
-		{#if autoUploadEnabled}
+		{#if autoUploadEnabled && TAURI}
 			<div class="checkbox-option">
 				<label>
 					<input type="checkbox"

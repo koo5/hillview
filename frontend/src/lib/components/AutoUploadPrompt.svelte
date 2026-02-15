@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { createEventDispatcher, onDestroy } from 'svelte';
-	import { TAURI } from '$lib/tauri';
+	import { TAURI, BROWSER } from '$lib/tauri';
 	import { invoke } from '@tauri-apps/api/core';
 	import { navigateWithHistory } from '$lib/navigation.svelte.js';
 	import {auth} from '$lib/auth.svelte';
 	import {get} from "svelte/store";
+	import { browserAutoUploadSettings, getBrowserAutoUploadSettings, setBrowserAutoUploadSettings } from '$lib/browser/autoUploadSettings';
 
 	// Event from parent when a photo was captured
 	export let photoCaptured = false;
@@ -19,7 +20,7 @@
 	let hideTimer: ReturnType<typeof setTimeout> | null = null;
 
 	// When a photo is captured, wait a bit then check if we should show prompt
-	$: if (photoCaptured && TAURI) {
+	$: if (photoCaptured && (TAURI || BROWSER)) {
 		schedulePromptCheck();
 	}
 
@@ -42,6 +43,7 @@
 	}
 
 	async function checkSettings() {
+		if (TAURI) {
 			const result = await invoke('plugin:hillview|get_upload_status') as {
 				auto_upload_enabled: boolean;
 				auto_upload_prompt_enabled: boolean;
@@ -51,15 +53,22 @@
 
 			autoUploadEnabled = result.auto_upload_enabled || false;
 			autoUploadPromptEnabled = result.auto_upload_prompt_enabled || false;
+		} else if (BROWSER) {
+			const settings = getBrowserAutoUploadSettings();
+			console.log('AutoUploadPrompt: browser autoUpload status:', JSON.stringify(settings), ' authed=', authed);
 
-			visible = (!authed || !autoUploadEnabled) && autoUploadPromptEnabled;
+			autoUploadEnabled = settings.auto_upload_enabled || false;
+			autoUploadPromptEnabled = settings.auto_upload_prompt_enabled || false;
+		}
 
-			// If we should show the prompt, auto-hide it after 10 seconds
-			if (visible) {
-				hideTimer = setTimeout(() => {
-					hidePrompt();
-				}, 12000);
-			}
+		visible = (!authed || !autoUploadEnabled) && autoUploadPromptEnabled;
+
+		// If we should show the prompt, auto-hide it after 10 seconds
+		if (visible) {
+			hideTimer = setTimeout(() => {
+				hidePrompt();
+			}, 12000);
+		}
 	}
 
 	function goToUploadSettings() {
@@ -95,10 +104,17 @@
 	async function neverAskAgain() {
 		// Permanently disable prompting
 		try {
-			await invoke('plugin:hillview|set_auto_upload_enabled', {
-				enabled: false,
-				prompt_enabled: false
-			});
+			if (TAURI) {
+				await invoke('plugin:hillview|set_auto_upload_enabled', {
+					enabled: false,
+					prompt_enabled: false
+				});
+			} else if (BROWSER) {
+				setBrowserAutoUploadSettings({
+					auto_upload_enabled: false,
+					auto_upload_prompt_enabled: false
+				});
+			}
 			autoUploadPromptEnabled = false;
 			dispatch('dismiss');
 		} catch (err) {
@@ -107,7 +123,7 @@
 	}
 </script>
 
-{#if visible && !dismissed && TAURI && autoUploadPromptEnabled && (!autoUploadEnabled || !authed)}
+{#if visible && !dismissed && (TAURI || BROWSER) && autoUploadPromptEnabled && (!autoUploadEnabled || !authed)}
 	<div class="auto-upload-prompt" data-testid="auto-upload-prompt">
 		<div class="prompt-content">
 			<button

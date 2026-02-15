@@ -14,7 +14,7 @@ export interface PhotoData {
     id: PhotoId;
 	uid: string;
     source_type: string;
-    file: string;
+    filename: string;
     url: string;
     coord: SimpleCoord;
     bearing: number;
@@ -26,10 +26,12 @@ export interface PhotoData {
     is_device_photo?: boolean;
     captured_at?: number;
     accuracy?: number;
+	// Computed properties (added by processing)
     abs_bearing_diff?: number;
     bearing_color?: string;
     range_distance?: number | null;
     angular_distance_abs?: number;
+
     file_hash?: string;
 }
 

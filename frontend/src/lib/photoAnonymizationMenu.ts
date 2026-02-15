@@ -1,6 +1,7 @@
 import { Glasses, Smile } from 'lucide-svelte';
 import { invoke } from '@tauri-apps/api/core';
 import type { DropdownMenuItem } from '$lib/components/dropdown-menu/dropdownMenu.svelte';
+import type { Component } from 'svelte';
 import { addAlert } from '$lib/alertSystem.svelte';
 
 /**
@@ -82,7 +83,7 @@ export function getAnonymizationMenuItems(photoId: string): DropdownMenuItem[] {
 			id: 'auto-anonymize',
 			label: 'Auto-detect & blur',
 			description: 'Detect faces and plates automatically',
-			icon: Glasses,
+			icon: Glasses as unknown as Component,
 			onclick: () => handleEdit(null, 'Auto-detect & blur'),
 			testId: 'menu-auto-anonymize'
 		},
@@ -90,7 +91,7 @@ export function getAnonymizationMenuItems(photoId: string): DropdownMenuItem[] {
 			id: 'skip-anonymization',
 			label: 'No anonymization',
 			description: 'Upload without blurring',
-			icon: Smile,
+			icon: Smile as unknown as Component,
 			onclick: () => handleEdit([], 'No anonymization'),
 			testId: 'menu-skip-anonymization'
 		}
@@ -134,7 +135,7 @@ export function getAnonymizationMenuItemsForServerPhoto(serverPhotoId: string | 
 			id: 'auto-anonymize',
 			label: 'Auto-detect & blur',
 			description: 'Detect faces and plates automatically',
-			icon: Glasses,
+			icon: Glasses as unknown as Component,
 			onclick: () => handleEdit(null, 'Auto-detect & blur'),
 			testId: 'menu-auto-anonymize'
 		},
@@ -142,7 +143,7 @@ export function getAnonymizationMenuItemsForServerPhoto(serverPhotoId: string | 
 			id: 'skip-anonymization',
 			label: 'No anonymization',
 			description: 'Upload without blurring',
-			icon: Smile,
+			icon: Smile as unknown as Component,
 			onclick: () => handleEdit([], 'No anonymization'),
 			testId: 'menu-skip-anonymization'
 		}

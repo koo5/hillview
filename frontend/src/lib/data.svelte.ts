@@ -7,10 +7,10 @@ import {
 import {backendUrl} from './config';
 import {MAX_DEBUG_MODES} from './constants';
 import {auth} from './auth.svelte';
-import {TAURI} from "$lib/tauri";
+import {TAURI, BROWSER} from "$lib/tauri";
 // Import new mapState for legacy compatibility only
 import {photoInFront, photoToLeft, photoToRight, photoUp, photoDown, updateBearingWithPhoto} from './mapState';
-import {autoUploadSettings} from "$lib/autoUploadSettings";
+import {autoUploadSettings, autoUploadSettingsDefaults} from "$lib/autoUploadSettings";
 
 
 // Draggable split store for gallery/map split percentage (0-100, percentage for photo panel)
@@ -114,16 +114,26 @@ export let showCalibrationView = writable(false);
 
 export let photoLicense = localStorageSharedStore<string | null>('photoLicense', null);
 photoLicense.subscribe(async value => {
-	if (value === null && TAURI) {
-		try {
-			await autoUploadSettings.persist(
-				{
+	if (value === null) {
+		if (TAURI) {
+			try {
+				// Get current settings and update only auto_upload fields
+				const current = get(autoUploadSettings);
+				await autoUploadSettings.persist({
+					...autoUploadSettingsDefaults,
+					...current.value,
 					auto_upload_enabled: false,
 					auto_upload_prompt_enabled: true
-				}
-			);
-		} catch (error) {
-			console.error('🢄Error persisting auto upload settings on photoLicense init:', error);
+				});
+			} catch (error) {
+				console.error('🢄Error persisting auto upload settings on photoLicense init:', error);
+			}
+		} else if (BROWSER) {
+			const { setBrowserAutoUploadSettings } = await import('./browser/autoUploadSettings');
+			setBrowserAutoUploadSettings({
+				auto_upload_enabled: false,
+				auto_upload_prompt_enabled: true
+			});
 		}
 	}
 });

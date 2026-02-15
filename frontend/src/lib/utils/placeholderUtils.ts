@@ -6,7 +6,7 @@ export interface PlaceholderLocation {
     latitude: number;
     longitude: number;
     altitude?: number | null;
-    bearing?: number | null;  // Compass bearing
+    bearing: number;  // Compass bearing - always available from bearingState
     accuracy: number;
     location_source: 'gps' | 'map';
     bearing_source: string;
@@ -42,10 +42,10 @@ export function createPlaceholderPhoto(
         id: sharedId,
         uid: `${source.id}-${sharedId}`,
         source_type: 'device',
-        file: 'placeholder.jpg',
+        filename: 'placeholder.jpg',
         url: 'placeholder://arrow',
         coord: new LatLng(location.latitude, location.longitude),
-        bearing: location.bearing !== undefined && location.bearing !== null ? location.bearing : null,
+        bearing: location.bearing,
         altitude: location.altitude || 0,
         source: source,
         is_device_photo: true,
@@ -71,7 +71,7 @@ export function createPlaceholderMetadata(
         latitude: location.latitude,
         longitude: location.longitude,
         altitude: location.altitude,
-        bearing: location.bearing !== undefined && location.bearing !== null ? location.bearing : null,
+        bearing: location.bearing,
         captured_at: timestamp,
         accuracy: location.accuracy || 1,
         width: 0,

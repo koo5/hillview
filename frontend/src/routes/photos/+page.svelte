@@ -155,7 +155,7 @@
 				const statuses = newPhotos.map((p: UserPhoto) => ({
 					id: p.id,
 					processing_status: p.processing_status,
-					error: p.error || null
+					error: null  // UserPhoto doesn't have error field
 				}));
 				updateKotlinPhotoStatuses(statuses).catch(err =>
 					console.error('Failed to sync photo statuses to Kotlin:', err)

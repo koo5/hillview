@@ -8,6 +8,8 @@ import {storageSettings} from "$lib/storageSettings";
 import { BROWSER } from './tauri';
 import { browserCaptureAdapter } from './browser/captureAdapter';
 import { uploadManager } from './browser/uploadManager';
+import { getBrowserAutoUploadSettings } from './browser/autoUploadSettings';
+import { auth } from './authStore';
 
 export interface CaptureLocation {
 	latitude: number;
@@ -185,10 +187,20 @@ class CaptureQueueManager {
 					// Remove placeholder after successful save
 					removePlaceholder(item.placeholder_id);
 
-					// Trigger upload if online
-					if (navigator.onLine) {
+					// Check if we should auto-upload
+					const settings = getBrowserAutoUploadSettings();
+					const authState = get(auth);
+
+					// Only attempt upload if authenticated and auto-upload is enabled
+					if (navigator.onLine && authState.is_authenticated && settings.auto_upload_enabled) {
 						uploadManager.uploadPending().catch(error => {
 							console.error('Upload error:', error);
+						});
+					} else {
+						console.log('🢄[CaptureQueue] Skipping auto-upload:', {
+							online: navigator.onLine,
+							authenticated: authState.is_authenticated,
+							auto_upload_enabled: settings.auto_upload_enabled
 						});
 					}
 				} catch (error) {

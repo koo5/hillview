@@ -33,8 +33,6 @@ export interface PhotoData {
     sizes?: Record<string, PhotoSize>;
     is_user_photo?: boolean;
     is_device_photo?: boolean;
-    is_placeholder?: boolean;
-    is_directory_photo?: boolean;
     captured_at?: number;
     accuracy?: number;
     // Computed properties (added by processing)
@@ -42,6 +40,8 @@ export interface PhotoData {
     bearing_color?: string;
     range_distance?: number | null;
     angular_distance_abs?: number;
+
+    is_placeholder?: boolean;
 }
 
 /**
