@@ -3,11 +3,12 @@
 	import {browser} from '$app/environment';
 	import {devicePhotoStats, fetchDevicePhotoStats, hasUploadsToRetry} from '$lib/devicePhotoStats';
 	import {app} from "$lib/data.svelte";
-	import {Upload, Clock, AlertCircle, CheckCircle} from 'lucide-svelte';
+	import {Upload, Clock, AlertCircle, CheckCircle, Loader, Trash2} from 'lucide-svelte';
 	import RetryUploadsButton from "$lib/components/RetryUploadsButton.svelte";
 
 	export let addLogEntry: (message: string, type?: 'success' | 'warning' | 'error' | 'info', metadata?: any) => void = () => {};
 	export let onRefresh: (() => void | Promise<void>) | null = null;
+	export let showDetailedStats = false;
 
 	const REFRESH_INTERVAL = 5000; // 5 seconds
 	let refreshTimer: ReturnType<typeof setInterval> | null = null;
@@ -20,7 +21,7 @@
 	function hasActiveUploads(): boolean {
 		const stats = $devicePhotoStats;
 		if (!stats) return false;
-		return stats.pending > 0 || stats.uploading > 0;
+		return stats.pending > 0 || stats.uploading > 0 || stats.processing > 0;
 	}
 
 	async function doRefresh() {
@@ -83,7 +84,7 @@
 		<div class="upload-status-bar">
 			{#if $devicePhotoStats}
 					<span class="status-text">
-						{$devicePhotoStats.pending + $devicePhotoStats.failed} photos waiting to upload
+						{$devicePhotoStats.pending + $devicePhotoStats.failed} pending, {$devicePhotoStats.processing} processing
 					</span>
 			{/if}
 			<RetryUploadsButton global={true} {addLogEntry}/>
@@ -92,30 +93,50 @@
 			</div>
 		</div>
 	{/if}
-	<div class="upload-stats" data-testid="upload-stats">
-		<div class="stat-item">
-			<CheckCircle size={14}/>
-			<span>{$devicePhotoStats.completed} uploaded</span>
+	{#if showDetailedStats}
+		<div class="upload-stats" data-testid="upload-stats">
+			<div class="stat-item">
+				<CheckCircle size={14}/>
+				<span>{$devicePhotoStats.completed} uploaded</span>
+			</div>
+			{#if $devicePhotoStats.pending > 0}
+				<div class="stat-item pending">
+					<Clock size={14}/>
+					<span>{$devicePhotoStats.pending} pending</span>
+				</div>
+			{/if}
+			{#if $devicePhotoStats.uploading > 0}
+				<div class="stat-item uploading">
+					<Upload size={14}/>
+					<span>{$devicePhotoStats.uploading} uploading</span>
+				</div>
+			{/if}
+			{#if $devicePhotoStats.processing > 0}
+				<div class="stat-item processing">
+					<Loader size={14}/>
+					<span>{$devicePhotoStats.processing} processing</span>
+				</div>
+			{/if}
+			{#if $devicePhotoStats.failed > 0}
+				<div class="stat-item failed">
+					<Clock size={14}/>
+					<span>{$devicePhotoStats.failed} waiting to retry</span>
+				</div>
+			{/if}
+			{#if $devicePhotoStats.deleted > 0}
+				<div class="stat-item deleted">
+					<Trash2 size={14}/>
+					<span>{$devicePhotoStats.deleted} deleted</span>
+				</div>
+			{/if}
+			<!--{#if $devicePhotoStats.failed > 0}-->
+			<!--	<div class="stat-item failed">-->
+			<!--		<AlertCircle size={14}/>-->
+			<!--		<span>{$devicePhotoStats.failed} failed</span>-->
+			<!--	</div>-->
+			<!--{/if}-->
 		</div>
-		{#if $devicePhotoStats.pending > 0}
-			<div class="stat-item pending">
-				<Clock size={14}/>
-				<span>{$devicePhotoStats.pending} pending</span>
-			</div>
-		{/if}
-		{#if $devicePhotoStats.uploading > 0}
-			<div class="stat-item uploading">
-				<Upload size={14}/>
-				<span>{$devicePhotoStats.uploading} uploading</span>
-			</div>
-		{/if}
-		{#if $devicePhotoStats.failed > 0}
-			<div class="stat-item failed">
-				<AlertCircle size={14}/>
-				<span>{$devicePhotoStats.failed} failed</span>
-			</div>
-		{/if}
-	</div>
+	{/if}
 {/if}
 
 <style>
@@ -169,7 +190,15 @@
 		color: #3b82f6;
 	}
 
+	.stat-item.processing {
+		color: #8b5cf6;
+	}
+
 	.stat-item.failed {
 		color: #ef4444;
+	}
+
+	.stat-item.deleted {
+		color: #6b7280;
 	}
 </style>

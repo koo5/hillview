@@ -235,9 +235,19 @@ async function uploadToWorker(
 
     // Use configured worker URL or default to backend URL with worker port
     const workerEndpoint = workerUrl || `${backendUrl.replace(':8055', ':8056')}/upload`;
+    const workerBase = workerEndpoint.replace(/\/upload$/, '');
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
         try {
+            // Pre-flight health check - wait for worker to be ready before uploading
+            const healthCheck = await fetch(`${workerBase}/health`, {
+                method: 'GET',
+                signal: AbortSignal.timeout(10000)
+            });
+            if (!healthCheck.ok) {
+                throw new RetryableUploadError(`Worker not ready: ${healthCheck.status}`);
+            }
+
             const formData = new FormData();
             formData.append('file', file);
             formData.append('client_signature', signature);

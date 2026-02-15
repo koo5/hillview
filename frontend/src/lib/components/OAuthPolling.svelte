@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { createEventDispatcher } from 'svelte';
+    import { createEventDispatcher, onDestroy } from 'svelte';
     import { backendUrl } from '$lib/config';
     import { completeAuthentication } from '$lib/auth.svelte.js';
 
@@ -17,6 +17,7 @@
     let progress: number = 0;
     let message: string = 'Complete login in the browser, then return here...';
     let cancelled = false;
+    let pollTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
     async function pollForCompletion() {
         const maxAttempts = 60; // 5 minutes at 5-second intervals
@@ -98,11 +99,19 @@
             }
 
             // Continue polling after delay
-            setTimeout(poll, 5000); // Poll every 5 seconds
+            pollTimeoutId = setTimeout(poll, 5000); // Poll every 5 seconds
         };
 
         poll();
     }
+
+    onDestroy(() => {
+        cancelled = true;
+        if (pollTimeoutId) {
+            clearTimeout(pollTimeoutId);
+            pollTimeoutId = null;
+        }
+    });
 
     function handleCancel() {
         cancelled = true;

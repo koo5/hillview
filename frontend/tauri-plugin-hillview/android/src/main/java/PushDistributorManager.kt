@@ -469,25 +469,26 @@ class PushDistributorManager(private val context: Context) {
             val request = requestBuilder.build()
 
             Log.d(TAG, "📤 Making HTTP POST request...")
-            val response = client.newCall(request).execute()
-            Log.d(TAG, "📥 Received response: HTTP ${response.code}")
+            client.newCall(request).execute().use { response ->
+                Log.d(TAG, "📥 Received response: HTTP ${response.code}")
 
-            if (response.isSuccessful) {
-                // Store endpoint and mark as registered
-                prefs.edit()
-                    .putString(KEY_PUSH_ENDPOINT, endpoint)
-                    .putString(KEY_REGISTRATION_STATUS, "registered")
-                    .remove(KEY_LAST_ERROR)
-                    .apply()
+                if (response.isSuccessful) {
+                    // Store endpoint and mark as registered
+                    prefs.edit()
+                        .putString(KEY_PUSH_ENDPOINT, endpoint)
+                        .putString(KEY_REGISTRATION_STATUS, "registered")
+                        .remove(KEY_LAST_ERROR)
+                        .apply()
 
-                Log.d(TAG, "Push endpoint registered successfully with backend")
-                return@withContext true
-            } else {
-                val error = "Backend registration failed: HTTP ${response.code}"
-                Log.e(TAG, error)
-                setLastError(error)
-                setRegistrationStatus("failed")
-                return@withContext false
+                    Log.d(TAG, "Push endpoint registered successfully with backend")
+                    return@withContext true
+                } else {
+                    val error = "Backend registration failed: HTTP ${response.code}"
+                    Log.e(TAG, error)
+                    setLastError(error)
+                    setRegistrationStatus("failed")
+                    return@withContext false
+                }
             }
 
         } catch (e: java.net.SocketTimeoutException) {
@@ -660,12 +661,12 @@ class PushDistributorManager(private val context: Context) {
                 .addHeader("Authorization", "Bearer $token")
                 .build()
 
-            val response = client.newCall(request).execute()
-
-            if (response.isSuccessful) {
-                Log.d(TAG, "Successfully unregistered from backend")
-            } else {
-                Log.w(TAG, "Backend unregistration failed: HTTP ${response.code}")
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    Log.d(TAG, "Successfully unregistered from backend")
+                } else {
+                    Log.w(TAG, "Backend unregistration failed: HTTP ${response.code}")
+                }
             }
 
         } catch (e: Exception) {

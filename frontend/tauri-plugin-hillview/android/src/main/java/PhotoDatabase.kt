@@ -7,8 +7,8 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 @Database(
-    entities = [PhotoEntity::class, BearingEntity::class, LocationEntity::class, SourceEntity::class],
-    version = 10,
+    entities = [PhotoEntity::class, BearingEntity::class, LocationEntity::class, SourceEntity::class, EditEntity::class],
+    version = 13,
     exportSchema = false
 )
 abstract class PhotoDatabase : RoomDatabase() {
@@ -17,6 +17,7 @@ abstract class PhotoDatabase : RoomDatabase() {
     abstract fun bearingDao(): BearingDao
     abstract fun locationDao(): LocationDao
     abstract fun sourceDao(): SourceDao
+    abstract fun editDao(): EditDao
 
     companion object {
         @Volatile
@@ -117,6 +118,43 @@ abstract class PhotoDatabase : RoomDatabase() {
 			}
 		}
 
+		private val MIGRATION_10_11 = object : Migration(10, 11) {
+			override fun migrate(database: SupportSQLiteDatabase) {
+				database.execSQL("ALTER TABLE photos ADD COLUMN serverPhotoId TEXT")
+			}
+		}
+
+		private val MIGRATION_11_12 = object : Migration(11, 12) {
+			override fun migrate(database: SupportSQLiteDatabase) {
+				// Add deleted column to photos table
+				database.execSQL("ALTER TABLE photos ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0")
+
+				// Create edits table for pending photo edit actions
+				database.execSQL("""
+					CREATE TABLE IF NOT EXISTS edits (
+						id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+						photoId TEXT NOT NULL,
+						actionJson TEXT NOT NULL,
+						createdAt INTEGER NOT NULL,
+						processed INTEGER NOT NULL DEFAULT 0,
+						processedAt INTEGER NOT NULL DEFAULT 0,
+						FOREIGN KEY (photoId) REFERENCES photos (id) ON DELETE CASCADE
+					)
+				""")
+				database.execSQL("CREATE INDEX IF NOT EXISTS idx_edits_photo_id ON edits (photoId)")
+				database.execSQL("CREATE INDEX IF NOT EXISTS idx_edits_created_at ON edits (createdAt)")
+			}
+		}
+
+		private val MIGRATION_12_13 = object : Migration(12, 13) {
+			override fun migrate(database: SupportSQLiteDatabase) {
+				// Add version column for re-upload support (e.g., changing anonymization settings)
+				database.execSQL("ALTER TABLE photos ADD COLUMN version INTEGER NOT NULL DEFAULT 1")
+				// Add anonymization override column (null = auto-detect, "[]" = skip, "[{...}]" = manual)
+				database.execSQL("ALTER TABLE photos ADD COLUMN anonymizationOverride TEXT")
+			}
+		}
+
         fun getDatabase(context: Context): PhotoDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -124,7 +162,7 @@ abstract class PhotoDatabase : RoomDatabase() {
                     PhotoDatabase::class.java,
                     "hillview_photos_database"
                 )
-                    .addMigrations(MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
+                    .addMigrations(MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
                     .build()
                 INSTANCE = instance
                 instance

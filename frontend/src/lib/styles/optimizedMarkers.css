@@ -7,6 +7,9 @@
   /* Enable GPU acceleration */
   transform: translateZ(0);
   will-change: transform;
+  /* Clickable cursor and enable pointer events */
+  cursor: pointer;
+  pointer-events: auto;
 }
 
 .marker-container {
@@ -114,6 +117,15 @@
 .optimized-photo-marker * {
   /* Prevent text selection on markers */
   user-select: none;
-  /* Prevent pointer events on child elements */
+}
+
+/* Enable pointer events on marker container to capture clicks */
+.marker-container {
+  pointer-events: auto;
+}
+
+/* Disable pointer events on decorative children so clicks bubble to container */
+.bearing-circle,
+.direction-arrow {
   pointer-events: none;
 }

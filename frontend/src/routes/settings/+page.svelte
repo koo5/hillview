@@ -86,8 +86,6 @@
 			</div>
 		</a>
 
-
-
 	</div>
 
 </StandardBody>

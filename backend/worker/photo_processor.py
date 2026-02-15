@@ -13,12 +13,19 @@ import uuid
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Tuple
 from uuid import UUID
-from datetime import datetime
+from datetime import datetime, timezone
 
+from blur import read_image
+
+os.environ["OPENCV_IMGCODECS_WEBP_MAX_FILE_SIZE"] = "209715200"  # 200MB
+import cv2
+from PIL import Image
 import exifread
 import httpx
 from throttle import Throttle
 
+
+from pydantic import BaseModel
 
 from common.security_utils import sanitize_filename, validate_file_path, check_file_content, validate_image_dimensions, SecurityValidationError, validate_user_id
 
@@ -26,7 +33,131 @@ from common.cdn_uploader import cdn_uploader
 
 logger = logging.getLogger(__name__)
 
+
+class AnonymizationOverride(BaseModel):
+	"""Controls anonymization behavior.
+
+	- None (not provided): auto-detect faces/plates and blur them
+	- Empty list []: skip anonymization entirely
+	- List of rectangles: blur specific areas (future feature)
+	"""
+	rectangles: List[Dict[str, int]] = []  # Each dict: {x, y, width, height}
+
+	@classmethod
+	def from_json_string(cls, json_str: Optional[str]) -> Optional["AnonymizationOverride"]:
+		"""Parse from JSON string (as received from form field)."""
+		if json_str is None:
+			return None
+		try:
+			data = json.loads(json_str)
+			if isinstance(data, list):
+				return cls(rectangles=data)
+			elif isinstance(data, dict):
+				return cls(**data)
+			else:
+				logger.warning(f"Invalid anonymization_override type: {type(data)}")
+				return None
+		except json.JSONDecodeError as e:
+			logger.warning(f"Invalid anonymization_override JSON: {e}")
+			return None
+
+	@property
+	def skip_anonymization(self) -> bool:
+		"""Returns True if anonymization should be skipped (empty rectangles list)."""
+		return len(self.rectangles) == 0
+
+
+class PhotoDeletedException(Exception):
+	"""Raised when a photo was deleted during processing."""
+	pass
+
+
+def safe_parse_float(value, field_name: str = "value") -> Optional[float]:
+	"""Safely parse a numeric value from exiftool output.
+
+	Exiftool returns 'undef' when tags exist but can't be parsed
+	(e.g., malformed EXIF from format conversions like CR2->TIFF).
+	"""
+	if value is None:
+		return None
+	if isinstance(value, (int, float)):
+		return float(value)
+	if isinstance(value, str):
+		val_lower = value.lower().strip()
+		if val_lower in ('undef', 'undefined', '', 'nan', 'inf', '-inf', 'infinity', '-infinity'):
+			logger.debug(f"Exiftool returned '{value}' for {field_name}, treating as None")
+			return None
+		try:
+			return float(value)
+		except ValueError:
+			logger.warning(f"Could not parse exiftool value '{value}' as float for {field_name}")
+			return None
+	logger.warning(f"Unexpected type {type(value).__name__} for {field_name}: {value}")
+	return None
+
+
+def parse_exif_datetime(value) -> Optional[datetime]:
+	"""Parse EXIF datetime value and fix corrupted timestamps.
+
+	Handles the bug where milliseconds were written as seconds, causing
+	dates like "+58074:03:14 04:05:17". Detects years > 2100 and fixes
+	by dividing the timestamp by 1000.
+
+	Returns UTC datetime (EXIF times are assumed to be UTC for consistency).
+	"""
+	if value is None:
+		return None
+
+	# If it's already a numeric timestamp (exiftool -n can return these)
+	if isinstance(value, (int, float)):
+		ts = float(value)
+		# Check if this looks like milliseconds (year > 2100)
+		if ts > 4102444800:  # 2100-01-01 in seconds
+			ts = ts / 1000
+		return datetime.fromtimestamp(ts, tz=timezone.utc)
+
+	# String format - try to parse
+	value_str = str(value)
+
+	# Handle the corrupted format like "+58074:03:14 04:05:17"
+	# Strip leading + if present
+	if value_str.startswith('+'):
+		value_str = value_str[1:]
+
+	# Common EXIF datetime formats
+	formats = [
+		"%Y:%m:%d %H:%M:%S",      # Standard EXIF: 2024:01:15 10:30:45
+		"%Y-%m-%d %H:%M:%S",      # ISO-ish: 2024-01-15 10:30:45
+		"%Y:%m:%d %H:%M:%S.%f",   # With subseconds
+		"%Y-%m-%dT%H:%M:%S",      # ISO: 2024-01-15T10:30:45
+		"%Y-%m-%dT%H:%M:%S.%f",   # ISO with subseconds
+		"%Y-%m-%dT%H:%M:%SZ",     # ISO UTC
+	]
+
+	for fmt in formats:
+		try:
+			dt = datetime.strptime(value_str, fmt)
+			# Check if year is unreasonably large (corrupted timestamp)
+			if dt.year > 2100:
+				# This was milliseconds interpreted as seconds
+				# Convert back: parse to timestamp, divide by 1000
+				ts = dt.timestamp()
+				corrected_ts = ts / 1000
+				corrected_dt = datetime.fromtimestamp(corrected_ts, tz=timezone.utc)
+				logger.info(f"Fixed corrupted DateTimeOriginal: {value} -> {corrected_dt.isoformat()}")
+				return corrected_dt
+			# Add UTC timezone to the parsed datetime
+			return dt.replace(tzinfo=timezone.utc)
+		except ValueError:
+			continue
+
+	logger.warning(f"Could not parse DateTimeOriginal: {value}")
+	return None
+
+
 PICS_URL = os.environ.get("PICS_URL")
+PARALLEL_PROCESSING_START_DELAY = float(os.environ.get("PARALLEL_PROCESSING_START_DELAY", 5))
+logger.info(f"PARALLEL_PROCESSING_START_DELAY={PARALLEL_PROCESSING_START_DELAY} seconds")
 
 throttle = Throttle('photo_processor')
 
@@ -34,16 +165,8 @@ class PhotoProcessor:
 	"""Unified photo processing service for uploads."""
 
 
-	SUPPORTED_EXTENSIONS = ['.jpg', '.jpeg', '.tiff', '.png', '.heic', '.heif']
-
-
 	def __init__(self, upload_dir: str = "/app/uploads"):
 		self.upload_dir = upload_dir
-
-
-	def is_supported_image(self, filename: str) -> bool:
-		"""Check if file is a supported image format."""
-		return any(filename.lower().endswith(ext) for ext in self.SUPPORTED_EXTENSIONS)
 
 
 	def extract_exif_data(self, filepath: str) -> Dict[str, Any]:
@@ -150,7 +273,7 @@ class PhotoProcessor:
 			cmd = ['exiftool', '-json', '-n', validated_filepath]
 			logger.debug(f"Trying exiftool fallback: {shlex.join(cmd)}")
 
-			proc_result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+			proc_result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
 
 			if proc_result.returncode != 0:
 				result['debug']['parsing_errors'].append("exiftool command failed")
@@ -160,9 +283,9 @@ class PhotoProcessor:
 			data = json.loads(proc_result.stdout)[0]
 			result['data'] = data
 
-			# Check for required GPS data
-			latitude = data.get('GPSLatitude')
-			longitude = data.get('GPSLongitude')
+			# Check for required GPS data (use safe_parse_float to handle 'undef' etc.)
+			latitude = safe_parse_float(data.get('GPSLatitude'), 'GPSLatitude')
+			longitude = safe_parse_float(data.get('GPSLongitude'), 'GPSLongitude')
 			lat_ref = data.get('GPSLatitudeRef')
 			lon_ref = data.get('GPSLongitudeRef')
 
@@ -188,10 +311,12 @@ class PhotoProcessor:
 			bearing_fields = ['GPSImgDirection', 'GPSTrack', 'GPSDestBearing']
 			bearing = None
 			for field in bearing_fields:
-				if data.get(field) is not None:
-					bearing = data.get(field)
-					result['debug']['found_bearing_tags'].append(field)
-					break
+				raw_bearing = data.get(field)
+				if raw_bearing is not None:
+					bearing = safe_parse_float(raw_bearing, field)
+					if bearing is not None:
+						result['debug']['found_bearing_tags'].append(field)
+						break
 
 			if bearing is None:
 				result['debug']['has_bearing'] = False
@@ -203,7 +328,7 @@ class PhotoProcessor:
 			if result['debug']['found_gps_tags'] or result['debug']['found_bearing_tags']:
 				result['debug']['has_exif'] = True
 
-			altitude = data.get('GPSAltitude')
+			altitude = safe_parse_float(data.get('GPSAltitude'), 'GPSAltitude')
 
 
 			# Validate bearing is in valid range [0, 360]
@@ -252,119 +377,111 @@ class PhotoProcessor:
 			return 0, 0
 
 		cmd = ['identify', '-format', '%w %h', validated_filepath]
-		try:
-			output = subprocess.check_output(cmd, timeout=30).decode('utf-8')
-			dimensions = [int(x) for x in output.split()]
-			if orientation in [5, 6, 7, 8]:
-				dimensions = [dimensions[1], dimensions[0]]
-			logger.debug(f'Image dimensions: {dimensions}')
-			return dimensions[0], dimensions[1]
-		except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
-			logger.debug(f"Error getting image size for {filepath}: {e}")
-			return 0, 0
+		output = subprocess.check_output(cmd, timeout=300).decode('utf-8')
+		dimensions = [int(x) for x in output.split()]
+		if orientation in [5, 6, 7, 8]:
+			dimensions = [dimensions[1], dimensions[0]]
+		logger.debug(f'Image dimensions: {dimensions}')
+		return dimensions[0], dimensions[1]
 
 
-	async def create_optimized_sizes(self, source_path: str, unique_id: str, original_filename: str,
-									 orientation: int,
-									 width: int, height: int, photo_id: str = None, client_signature: str = None) -> tuple[Dict[str, Dict[str, Any]], Optional[Dict[str, Any]]]:
+	async def create_optimized_sizes(self, source_path: str, unique_id: str, width: int, height: int, photo_id: str = None, client_signature: str = None, anonymization_override: Optional[AnonymizationOverride] = None
+
+
+									 ) -> tuple[Dict[str, Dict[str, Any]], Optional[Dict[str, Any]]]:
 		"""Create optimized versions with anonymization and unique IDs."""
-		sizes_info = {}
-		anonymized_path = None
 
-		# Create output directory structure
+		sizes_info = {}
 		output_base = os.environ.get('PICS_DIR', self.upload_dir)
 
-		try:
-			logger.info(f"Starting anonymization for {unique_id}")
+		logger.info(f"Starting anonymization for {unique_id}")
 
-			anonymized_path, detections = await self._anonymize_image(source_path)
-			input_file_path = anonymized_path if anonymized_path else source_path
-			logger.info(f"Using {'anonymized' if anonymized_path else 'original'} image for resizing: {input_file_path}")
+		if not anonymization_override:
+			# this takes a while to import, so do it here dynamically
+			logger.info(f"Importing anonymization module for {source_path}")
+			from anonymize import anonymize_image as _
 
-			# Standard sizes from original importer
-			size_variants = ['full', 320, 640, 1024, 2048, 3072]
+		async with throttle.rate_limit(PARALLEL_PROCESSING_START_DELAY, 1500):
 
-			# Get file extension from original filename
-			file_ext = os.path.splitext(original_filename)[1].lower()
+			if not anonymization_override:
+				image, detections = await self._anonymize_image(source_path)
+			else:
+				if anonymization_override.skip_anonymization:
+					logger.info(f"Skipping anonymization for {unique_id} due to override")
+					image = read_image(source_path)
+					detections = {"objects": [], "manual": True}
+				else:
+					logger.info(f"Applying manual anonymization for {unique_id} with rectangles: {anonymization_override.rectangles}")
+					image = read_image(source_path)
+					detections = {"objects": [], "manual": True}
+					for rect in anonymization_override.rectangles:
+						x = rect.get('x')
+						y = rect.get('y')
+						w = rect.get('width')
+						h = rect.get('height')
+						if None not in (x, y, w, h):
+							detections['objects'].append({
+								'class_id': None,
+								'bbox': {'x1': x, 'y1': y, 'x2': x+w, 'y2': y+h},
+								'blur': 500
+							})
+					from blur import apply_blur
+					apply_blur(image, detections['objects'])
+
+
+			size_variants = ['full', 320, 640, 1024, 2048, 3072, 4096]
 
 			for size in size_variants:
 
-				# Skip if size is larger than original width
+				# skip if size is larger than original width
 				if isinstance(size, int) and size > width:
-					break
-
-				# Extract user_id and photo_id from unique_id (format: "user_id/photo_id")
-				user_id_part, photo_id_part = unique_id.split('/', 1)
-				try:
-					# Validate user_id component for filesystem and command-line safety
-					user_id_part = validate_user_id(user_id_part)
-				except SecurityValidationError as e:
-					logger.warning(f"Invalid user_id in unique_id '{unique_id}': {e}")
-					# Skip this size variant if user_id is invalid
 					continue
 
-				# Create directory structure: opt/size/user_id/
+				user_id_part, photo_id_part = unique_id.split('/', 1)
+				user_id_part = validate_user_id(user_id_part)
 				size_dir = os.path.join(output_base, 'opt', str(size), user_id_part)
-				unique_filename = sanitize_filename(f"{photo_id_part}{file_ext}")
-				# Validate the final output path before any filesystem or subprocess operations
+				unique_filename = sanitize_filename(f"{photo_id_part}.webp")
 				output_file_path = validate_file_path(os.path.join(size_dir, unique_filename), output_base)
-				safe_output_file_path = output_file_path
-				relative_path = os.path.relpath(safe_output_file_path, output_base)
+				relative_path = os.path.relpath(output_file_path, output_base)
+				os.makedirs(pathlib.Path(output_file_path).parent, exist_ok=True)
 
-				os.makedirs(pathlib.Path(safe_output_file_path).parent, exist_ok=True)
+				size_info = {'path': relative_path}
 
-				# Copy and resize the image
-				shutil.copy2(input_file_path, safe_output_file_path)
+				scale = 1
+				if size != 'full':
+					scale = size / width
 
-				size_info = {
-					'path': relative_path,
+				new_width = int(width * scale)
+				new_height = int(height * scale)
 
-				}
+				logger.info(f"Creating size {size} for {unique_id}: {new_width}x{new_height} at {output_file_path}")
+				new_image = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_AREA)
+				logger.debug(f"Resized image to {new_width}x{new_height} for size {size}")
+				new_image_rgb = cv2.cvtColor(new_image, cv2.COLOR_BGR2RGB)
+				logger.debug(f"Converted image to RGB color space for size {size}")
+				Image.fromarray(new_image_rgb).save(output_file_path, format='WEBP', quality=97, method=6)
+				copy_exif_data(source_path, output_file_path)
+				logger.info(f"Created size {size} for {unique_id}: {new_width}x{new_height} at {output_file_path}")
 
-				if size == 'full':
-
-					size_info.update({
-						'width': width,
-						'height': height,
-						'url': await self._get_size_url(output_file_path, relative_path, photo_id, client_signature)
-					})
-					sizes_info[size] = size_info
-				else:
-
-					# Resize using ImageMagick mogrify (matching original)
-					# Use absolute path and validated inputs
-					cmd = ['mogrify', '-resize', str(int(size)), safe_output_file_path]
-					logger.debug(f"Resizing image with command: {shlex.join(cmd)}")
-					subprocess.run(cmd, capture_output=True, timeout=130, check=True)
-					new_width, new_height = self.get_image_dimensions(safe_output_file_path, orientation)
-
-					if safe_output_file_path.lower().endswith(('.jpg', '.jpeg')):
-						logger.debug(f"Optimizing JPEG with jpegoptim: {safe_output_file_path}")
-						cmd = ['jpegoptim', '--all-progressive', '--overwrite', safe_output_file_path]
-						subprocess.run(cmd, capture_output=True, timeout=130, check=True)
-
-					logger.info(f"Created size {size} for {unique_id}: {new_width}x{new_height} at {output_file_path}");
-
-					size_info.update({
-						'width': new_width,
-						'height': new_height,
-						'url': await self._get_size_url(output_file_path, relative_path, photo_id, client_signature)
-					})
-					sizes_info[size] = size_info
+				size_info.update({
+					'width': new_width,
+					'height': new_height,
+					'url': await self._get_size_url(output_file_path, relative_path, photo_id, client_signature)
+				})
+				sizes_info[size] = size_info
 
 			logger.info(f"Created {len(sizes_info)} size variants for {unique_id}")
-
-		finally:
-			# Clean up temporary anonymized file
-			if anonymized_path and os.path.exists(anonymized_path):
-				os.remove(anonymized_path)
-				logger.info(f"Cleaned up temporary anonymization file.")
 
 		return sizes_info, detections
 
 
+
 	async def _upload_file_to_api(self, file_path: str, relative_path: str, photo_id: str, client_signature: str) -> str:
-		"""Upload file to API server storage."""
+		"""Upload file to API server storage.
+
+		Returns the URL where the file can be accessed.
+		Raises PhotoDeletedException if photo was deleted during processing.
+		"""
 		api_url = os.getenv("API_URL")
 		if not api_url:
 			raise RuntimeError("API_URL environment variable is required for file uploads")
@@ -380,7 +497,13 @@ class PhotoProcessor:
 						'client_signature': client_signature
 					}
 
-					response = await client.post(upload_url, files=files, data=data)
+					response = await client.post(upload_url, files=files, data=data, timeout=60.0)
+
+					if response.status_code == 410:
+						# Photo was deleted while processing - this is expected
+						logger.info(f"Photo {photo_id} was deleted, aborting file upload for {relative_path}")
+						raise PhotoDeletedException(f"Photo {photo_id} was deleted during processing")
+
 					response.raise_for_status()
 
 					result = response.json()
@@ -392,6 +515,11 @@ class PhotoProcessor:
 					else:
 						raise RuntimeError("PICS_URL not configured for file access")
 
+		except PhotoDeletedException:
+			raise
+		except httpx.HTTPStatusError as e:
+			logger.error(f"Failed to upload {relative_path} to API server: {e}")
+			raise RuntimeError(f"Failed to upload {relative_path} to API server: {e}")
 		except Exception as e:
 			logger.error(f"Failed to upload {relative_path} to API server: {e}")
 			raise RuntimeError(f"Failed to upload {relative_path} to API server: {e}")
@@ -433,16 +561,9 @@ class PhotoProcessor:
 		Returns:
 			tuple: (anonymized_path: Optional[str], detections: dict)
 		"""
-
-		# this takes a while to import, so do it here dynamically
 		from anonymize import anonymize_image
-
-		async with throttle.rate_limit():
-			await throttle.wait_for_free_ram(400)
-
-			#os.makedirs(temp_dir, exist_ok=True)
-			anonymized_path, detections = anonymize_image(source_path)
-			return anonymized_path, detections
+		anonymized_path, detections = anonymize_image(source_path)
+		return anonymized_path, detections
 
 
 	async def process_uploaded_photo(
@@ -453,14 +574,19 @@ class PhotoProcessor:
 		photo_id: Optional[str] = None,
 		description: Optional[str] = None,
 		is_public: bool = True,
-		client_signature: Optional[str] = None
+		client_signature: Optional[str] = None,
+		anonymization_override: Optional[str] = None
 	) -> Optional[Dict[str, Any]]:
-		"""Process a user-uploaded photo and return processing results."""
+		"""Process a user-uploaded photo and return processing results.
 
-		unique_id = str(user_id) + '/' + str(photo_id);
+		anonymization_override: JSON string controlling anonymization behavior:
+			- None or "null": auto-detect faces/plates and blur them (default)
+			- "[]": skip anonymization entirely
+			- "[{...}]": use specific rectangles (future feature)
+		"""
 
-		# Initialize variables that might be used in exception handling
-		detections = None
+		validate_user_id(str(user_id))
+		unique_id = str(user_id) + '/' + str(photo_id)
 
 		# Sanitize filename
 		try:
@@ -525,9 +651,15 @@ class PhotoProcessor:
 			logger.error(f"Image dimensions validation failed for {safe_filename}: {width}x{height}")
 			raise ValueError(error_msg)
 
-		sizes_info = {}
-		if width and height:
-			sizes_info, detections = await self.create_optimized_sizes(file_path, unique_id, filename, orientation, width, height, photo_id, client_signature)
+		# Parse anonymization override from JSON string to Pydantic model
+		override = AnonymizationOverride.from_json_string(anonymization_override)
+		sizes_info, detections = await self.create_optimized_sizes(file_path, unique_id, width, height, photo_id, client_signature, override)
+
+		# Extract captured_at from EXIF DateTimeOriginal (with corruption fix)
+		raw_data = exif_data.get('data', {})
+		captured_at_raw = raw_data.get('DateTimeOriginal') or raw_data.get('CreateDate')
+		captured_at_dt = parse_exif_datetime(captured_at_raw)
+		captured_at = captured_at_dt.isoformat() if captured_at_dt else None
 
 		# Return processing results for database creation
 		return {
@@ -543,8 +675,22 @@ class PhotoProcessor:
 			'detected_objects': detections,
 			'description': description,
 			'is_public': is_public,
-			'user_id': user_id
+			'user_id': user_id,
+			'captured_at': captured_at
 		}
+
+
+def copy_exif_data(source_path, output_path):
+	# Copy EXIF data from source to output using exiftool
+	# Reset orientation tag to 1 (normal orientation) because image has been loaded and saved anew
+	# any other tags we might want to fix up?
+	cmd = ['exiftool', '-overwrite_original', '-TagsFromFile', source_path, '-all:all', '-EXIF:Orientation=', output_path]
+	logging.debug(f"Preserving EXIF data from {os.path.basename(source_path)} to anonymized version: {shlex.join(cmd)}")
+	result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+	if result.returncode == 0:
+		logging.info(f"Successfully preserved all EXIF metadata in anonymized image: {os.path.basename(output_path)}")
+	else:
+		logging.warning(f"Failed to preserve EXIF metadata in {os.path.basename(output_path)}: {result.stderr}")
 
 
 # Global instance

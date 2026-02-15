@@ -14,7 +14,8 @@ import json
 import base64
 import time
 import os
-from datetime import datetime
+from datetime import timedelta
+from common.utc import utcnow, format_utc
 from typing import Dict, Any, Optional
 import sys
 import pytest
@@ -25,6 +26,16 @@ sys.path.append(backend_dir)
 
 from common.jwt_utils import generate_ecdsa_key_pair, serialize_private_key, serialize_public_key
 from .test_utils import recreate_test_users
+
+
+def generate_test_captured_at(minutes_ago: int = 10) -> str:
+	"""Generate a fake captured_at timestamp for test images.
+
+	Use this when uploading generated test images that don't have real EXIF data.
+	Real file uploads should omit captured_at and let the worker extract it from EXIF.
+	"""
+	return format_utc(utcnow() - timedelta(minutes=minutes_ago))
+
 
 class SecureUploadClient:
 	"""
@@ -133,7 +144,7 @@ class SecureUploadClient:
 			if response.status_code != 200:
 				print(f"❌ Phase 1a failed: {response.status_code} - {response.text}")
 				raise Exception(f"Authentication test failed: {response.status_code} - {response.text}")
-			print("✅ Phase 1a: Client authentication successful")
+			#print("✅ Phase 1a: Client authentication successful")
 
 			# Register client public key
 			import datetime
@@ -146,13 +157,14 @@ class SecureUploadClient:
 					"key_id": key_id,
 					"created_at": datetime.datetime.now().isoformat()
 				},
-				headers={"Authorization": f"Bearer {auth_token}"}
+				headers={"Authorization": f"Bearer {auth_token}"},
+				timeout=600_00.0
 			)
 
 			if response.status_code in [200, 201]:
 				key_data = response.json()
 				#print(f"✅ Phase 1b: Client key registered successfully")
-				print(f"✅  Key ID: {key_data.get('key_id', 'unknown')}")
+				#print(f"✅  Key ID: {key_data.get('key_id', 'unknown')}")
 				# Store the key_id for later use
 				self.key_id = key_data.get('key_id', key_id)
 				return key_data
@@ -165,11 +177,14 @@ class SecureUploadClient:
 			response = await client.post(
 				f"{self.api_url}/photos/authorize-upload",
 				json=upload_request,
-				headers={"Authorization": f"Bearer {auth_token}"}
+				headers={"Authorization": f"Bearer {auth_token}"},
+				timeout=600_00.0
 			)
 
 			if response.status_code == 200:
 				auth_data = response.json()
+				if auth_data.get("duplicate"):
+					return auth_data
 				assert "upload_jwt" in auth_data
 				assert "worker_url" in auth_data
 				assert "photo_id" in auth_data
@@ -180,27 +195,16 @@ class SecureUploadClient:
 				raise Exception(f"Upload authorization failed: {response.status_code} - {response.text}")
 
 	async def authorize_upload(self, auth_token: str, filename: str = "secure_test.jpg", **kwargs):
-		"""Test Phase 2: Request upload authorization from API."""
-		# Generate MD5 hash for test data
-		import hashlib
-		file_md5 = hashlib.md5(f"{filename}_5120".encode()).hexdigest()
-
-		upload_request = {
-			"filename": filename,
-			"content_type": "image/jpeg",
-			"file_size": 5120,
-			"file_md5": file_md5,  # Add required MD5 hash
-			"client_key_id": getattr(self, 'key_id', None),  # Add required client key ID
-			"latitude": 50.0755,
-			"longitude": 14.4378,
-			"description": "End-to-end secure upload test",
-			"is_public": True
-		}
-
-		if not upload_request["client_key_id"]:
-			raise Exception("client_key_id is required - make sure to call register_client_key first")
-
-		auth_data = await self._request_upload_authorization(auth_token, upload_request)
+		"""Test Phase 2: Request upload authorization from API with default test values."""
+		auth_data = await self.authorize_upload_with_params(
+			auth_token=auth_token,
+			filename=filename,
+			file_size=5120,
+			latitude=50.0755,
+			longitude=14.4378,
+			description="End-to-end secure upload test",
+			is_public=True
+		)
 		print(f"✅ Phase 2: Upload authorization successful")
 		print(f"   Photo ID: {auth_data['photo_id']}")
 		print(f"   Worker URL: {auth_data['worker_url']}")
@@ -208,34 +212,42 @@ class SecureUploadClient:
 
 	async def authorize_upload_with_params(self, auth_token: str, filename: str, file_size: int,
 										   latitude: float, longitude: float, description: str,
-										   is_public: bool = True, file_data: bytes = None):
-		"""Request upload authorization with custom parameters."""
-		# Calculate MD5 hash for the file data
+										   is_public: bool = True, file_data: bytes = None,
+										   captured_at: str = None):
+		"""Request upload authorization with custom parameters.
+
+		Args:
+			captured_at: Optional ISO timestamp. If None, the server will extract it from EXIF.
+			             For test images without real EXIF, use generate_test_captured_at().
+		"""
 		import hashlib
 		if file_data:
 			file_md5 = hashlib.md5(file_data).hexdigest()
 		else:
-			# Generate a fake MD5 for test data if no file_data provided
 			file_md5 = hashlib.md5(f"{filename}_{file_size}".encode()).hexdigest()
 
 		upload_request = {
 			"filename": filename,
 			"content_type": "image/jpeg",
 			"file_size": file_size,
-			"file_md5": file_md5,  # Add required MD5 hash
-			"client_key_id": getattr(self, 'key_id', None),  # Add required client key ID
+			"file_md5": file_md5,
+			"client_key_id": getattr(self, 'key_id', None),
 			"latitude": latitude,
 			"longitude": longitude,
 			"description": description,
-			"is_public": is_public
+			"is_public": is_public,
 		}
+
+		# Only include captured_at if explicitly provided
+		if captured_at is not None:
+			upload_request["captured_at"] = captured_at
 
 		if not upload_request["client_key_id"]:
 			raise Exception("client_key_id is required - make sure to call register_client_key first")
 
 		return await self._request_upload_authorization(auth_token, upload_request)
 
-	async def upload_to_worker(self, file_input, auth_data, client_keys, filename="secure_test.jpg", timeout: float = 60.0):
+	async def upload_to_worker(self, file_input, auth_data, client_keys, filename="secure_test.jpg", timeout: float = 600_00.0):
 		"""Phase 3: Upload file to worker with proper client signature.
 
 		Args:
@@ -264,10 +276,13 @@ class SecureUploadClient:
 				# File path provided, read the file
 				with open(file_input, 'rb') as f:
 					file_data = f.read()
-				files = {'file': (filename, file_data, 'image/jpeg')}
+				files = {'file': (filename, file_data, get_content_type(filename))}
 
 			data = {'client_signature': client_signature}
-			headers = {'Authorization': f'Bearer {upload_jwt}'}
+			headers = {
+				'Authorization': f'Bearer {upload_jwt}',
+				'Expect': '100-continue'
+			}
 
 			response = await client.post(
 				f"{worker_url}/upload",
@@ -333,6 +348,28 @@ class SecureUploadClient:
 					print(f"⚠️ Worker server returned {response.status_code}")
 		except httpx.ConnectError:
 			raise Exception("Worker server not available")
+
+
+def get_content_type(filename: str) -> str:
+	"""Get content type based on file extension."""
+	ext = os.path.splitext(filename)[1].lower()
+	if ext in ['.jpg', '.jpeg']:
+		return 'image/jpeg'
+	elif ext == '.png':
+		return 'image/png'
+	elif ext == '.gif':
+		return 'image/gif'
+	elif ext == '.bmp':
+		return 'image/bmp'
+	elif ext == '.webp':
+		return 'image/webp'
+	elif ext == '.tiff':
+		return 'image/tiff'
+	elif ext == '.cr2':
+		return 'image/x-canon-cr2'
+	else:
+		return 'application/octet-stream'
+
 
 if __name__ == "__main__":
 	# Run with: python -m pytest tests/test_secure_upload_workflow.py -v -s

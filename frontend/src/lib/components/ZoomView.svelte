@@ -3,6 +3,7 @@
 	import { browser } from '$app/environment';
 	import { zoomViewData, type ZoomViewData } from '$lib/zoomView.svelte';
 	import { panZoom } from '$lib/actions/panZoom';
+	import { app } from '$lib/data.svelte';
 
 	let container = $state<HTMLDivElement>();
 	let translateX = $state(0);
@@ -101,6 +102,12 @@
 		// fallback-image-wrapper has pointer-events: none, so clicks pass through
 		if (target.closest('.zoom-image-wrapper')) {
 			console.log('🔍 [ZoomView] Click on zoom image, ignoring');
+			return;
+		}
+
+		// Don't close if clicking on the filename overlay (bottom info bar)
+		if (target.closest('.filename-overlay')) {
+			console.log('🔍 [ZoomView] Click on filename overlay, ignoring');
 			return;
 		}
 
@@ -218,10 +225,13 @@
 			</div>
 		</div>
 
-		<div class="filename-overlay">
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div class="filename-overlay" onclick={(e) => e.stopPropagation()} ondblclick={(e) => e.stopPropagation()}>
 			{$zoomViewData!.filename}
+			{#if $app.debug}
 			<br>
 			<small>Provided: {$zoomViewData!.width}x{$zoomViewData!.height} | Current: {imageWidth}x{imageHeight} | Scale: {scale.toFixed(2)}</small>
+			{/if}
 		</div>
 	</div>
 
@@ -242,13 +252,13 @@
 
 	.close-button {
 		position: absolute;
-		top: 20px;
-		right: 20px;
+		top: calc(20px + var(--safe-area-inset-top, 0px));
+		right: calc(20px + var(--safe-area-inset-right, 0px));
 		background: rgba(255, 255, 255, 0.9);
 		border: none;
 		border-radius: 50%;
 		width: 44px;
-		height: 44px;
+		height: calc(44px);
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -333,8 +343,8 @@
 
 	@media (max-width: 768px) {
 		.close-button {
-			top: 10px;
-			right: 10px;
+			top: calc(10px + var(--safe-area-inset-top, 0px));
+			right: calc(20px + var(--safe-area-inset-right, 0px));
 		}
 
 		.filename-overlay {

@@ -6,10 +6,10 @@
 <style>
 
 	.section-divider {
-		width: 120%;
-		padding: 0.1rem 0;
-		margin: 1rem;
-		background-color: gray;
+		width: 100%;
+		height: 1px;
+		margin: 1rem 0;
+		background-color: #e5e7eb;
 	}
 
 

@@ -2,7 +2,7 @@
  * Photo Operations - Pure Business Logic
  */
 
-import type { PhotoData, SourceConfig, Bounds } from './photoWorkerTypes';
+import type { PhotoData, SourceConfig, Bounds, PhotoId } from './photoWorkerTypes';
 import { PhotoSourceFactory, type PhotoSourceOptions } from './sources/PhotoSourceFactory';
 import type { PhotoSourceLoader, PhotoSourceCallbacks } from './sources/PhotoSourceLoader';
 import { filterPhotosByArea } from './workerUtils';
@@ -33,11 +33,16 @@ export class PhotoOperations {
     private loadingProcesses = new Map<string, PhotoSourceLoader>();
     private sourceCache = new Map<string, SourceCache>(); // Cache for each source
     private maxPhotosInArea: number = MAX_PHOTOS_IN_AREA;
+	private picks: Set<PhotoId> = new Set();
 
     constructor() {}
 
     setMaxPhotosInArea(maxPhotos: number): void {
         this.maxPhotosInArea = maxPhotos;
+    }
+
+    setPicks(picks: Set<PhotoId>): void {
+        this.picks = picks;
     }
 
     /**
@@ -218,8 +223,18 @@ export class PhotoOperations {
             getValidToken: callbacks.getValidToken
         };
 
+        // Extract picks for this specific source
+        // picks contain UIDs like "hillview-abc123", we need to extract "abc123" for the backend
+        const sourcePrefix = `${source.id}-`;
+        const sourcePickIds = new Set(
+            Array.from(this.picks)
+                .filter(uid => uid.startsWith(sourcePrefix))
+                .map(uid => uid.substring(sourcePrefix.length))
+        );
+
         const options: PhotoSourceOptions = {
-            maxPhotos: this.maxPhotosInArea
+            maxPhotos: this.maxPhotosInArea,
+            picks: sourcePickIds
         };
 
         const loader = PhotoSourceFactory.createLoader(source, sourceCallbacks, options);

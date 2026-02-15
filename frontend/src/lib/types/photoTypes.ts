@@ -23,7 +23,7 @@ export interface PhotoData {
     id: PhotoId;
     uid: string;
     source_type: string;
-    file: string;
+    filename?: string;
     url: string;
     coord: LatLng;
     bearing: number;

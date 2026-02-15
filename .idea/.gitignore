@@ -9,3 +9,5 @@
 /dataSources.xml
 /db-forest-config.xml
 
+/copilot.data.migration.*
+

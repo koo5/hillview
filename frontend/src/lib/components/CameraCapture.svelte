@@ -31,7 +31,6 @@
 	} from '$lib/cameraDevices.svelte.js';
 	import {tauriCamera, isCameraPermissionCheckAvailable} from '$lib/tauri';
 	import {addPluginListener, type PluginListener} from '@tauri-apps/api/core';
-	import MyExternalLink from "$lib/components/MyExternalLink.svelte";
 
 	const dispatch = createEventDispatcher();
 
@@ -93,6 +92,8 @@
 	let isBlinking = false; // Flag for camera blink effect
 	let absoluteOrientationSensor: AbsoluteOrientationSensor | null = null;
 	let showCalibrationHint: boolean = false;
+	let blinkTimeout: ReturnType<typeof setTimeout> | null = null;
+	let calibrationHintTimeout: ReturnType<typeof setTimeout> | null = null;
 
 	// Store to track which cameras are loading resolutions
 	import {writable} from 'svelte/store';
@@ -110,8 +111,12 @@
 
 	function triggerCameraBlink() {
 		isBlinking = true;
-		setTimeout(() => {
+		if (blinkTimeout) {
+			clearTimeout(blinkTimeout);
+		}
+		blinkTimeout = setTimeout(() => {
 			isBlinking = false;
+			blinkTimeout = null;
 		}, 50); // 50ms blink duration
 	}
 
@@ -960,9 +965,13 @@
 	function doCalibrationHint()
 	{
 		showCalibrationHint = true;
-		setTimeout(() =>
+		if (calibrationHintTimeout) {
+			clearTimeout(calibrationHintTimeout);
+		}
+		calibrationHintTimeout = setTimeout(() =>
 		{
 			showCalibrationHint = false;
+			calibrationHintTimeout = null;
 		}, 4000);
 	}
 
@@ -1069,6 +1078,12 @@
 		}
 		if (cameraPermissionPollInterval) {
 			clearInterval(cameraPermissionPollInterval);
+		}
+		if (blinkTimeout) {
+			clearTimeout(blinkTimeout);
+		}
+		if (calibrationHintTimeout) {
+			clearTimeout(calibrationHintTimeout);
 		}
 		if (cameraPermissionUnlisten) {
 			console.log('🢄[CAMERA] Cleaning up camera permission event listener');
@@ -1433,8 +1448,8 @@
 
 	.camera-controls {
 		position: absolute;
-		bottom: 6px;
-		left: 0;
+		bottom: calc(6px + var(--safe-area-inset-bottom, 0px));
+		left: calc(0px + var(--safe-area-inset-left, 0px));
 		right: 0;
 		display: flex;
 		justify-content: center;

@@ -1,9 +1,13 @@
 import datetime
 import os
+import sys
 import uuid
-from typing import Optional, Dict, Any, Union
 import logging
 import asyncio
+import requests
+from typing import Optional, Dict, Any, Union
+from urllib.parse import urlencode, quote
+
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.responses import RedirectResponse, HTMLResponse
@@ -12,16 +16,12 @@ from sqlalchemy.future import select
 from sqlalchemy import or_, func, desc
 from geoalchemy2.functions import ST_X, ST_Y, ST_Point
 from pydantic import BaseModel
-import requests
-from urllib.parse import urlencode, quote
 
-import sys
-import os
 # Add common module path
-common_path = os.path.join(os.path.dirname(__file__), '..', '..', 'common')
-sys.path.append(common_path)
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
 from common.models import User, UserPublicKey, Photo
+from common.utc import utcnow, format_utc
 from photos import delete_all_user_photo_files
 from jwt_service import create_upload_authorization_token
 from auth import (
@@ -32,7 +32,7 @@ from auth import (
 )
 from rate_limiter import auth_rate_limiter, check_auth_rate_limit, rate_limit_user_profile, rate_limit_user_registration, get_client_ip, general_rate_limiter, rate_limit_photo_operations
 from common.config import is_rate_limiting_disabled
-from security_utils import validate_username, validate_email, validate_password, validate_oauth_redirect_uri
+from security_utils import validate_username, validate_email, validate_oauth_redirect_uri, validate_password
 from security_audit import security_audit
 
 log = logging.getLogger(__name__)
@@ -44,7 +44,7 @@ oauth_sessions: Dict[str, Dict[str, Any]] = {}
 
 async def cleanup_expired_sessions():
     """Clean up expired OAuth sessions"""
-    current_time = datetime.datetime.utcnow()
+    current_time = utcnow()
     expired_sessions = [
         session_id for session_id, session in oauth_sessions.items()
         if current_time > session.get('expires_at', current_time)
@@ -94,7 +94,7 @@ async def stop_session_cleanup():
 def store_oauth_session(tokens: Dict[str, Any], user_info: Dict[str, Any]) -> str:
     """Store OAuth tokens and return session ID"""
     session_id = str(uuid.uuid4())
-    expires_at = datetime.datetime.utcnow() + datetime.timedelta(minutes=10)  # 10 minute session
+    expires_at = utcnow() + datetime.timedelta(minutes=10)  # 10 minute session
 
     oauth_sessions[session_id] = {
         'access_token': tokens['access_token'],
@@ -102,7 +102,7 @@ def store_oauth_session(tokens: Dict[str, Any], user_info: Dict[str, Any]) -> st
         'expires_at': expires_at,
         'token_expires_at': tokens['expires_at'],
         'user_info': user_info,
-        'created_at': datetime.datetime.utcnow()
+        'created_at': utcnow()
     }
 
     log.info(f"Stored OAuth session {session_id} for user {user_info.get('username', 'unknown')}")
@@ -345,13 +345,13 @@ async def create_oauth_session(
 
 	# Generate session ID for polling
 	session_id = str(uuid.uuid4())
-	expires_at = datetime.datetime.utcnow() + datetime.timedelta(minutes=10)
+	expires_at = utcnow() + datetime.timedelta(minutes=10)
 
 	# Create pending session (no tokens yet)
 	oauth_sessions[session_id] = {
 		'status': 'pending',
 		'expires_at': expires_at,
-		'created_at': datetime.datetime.utcnow(),
+		'created_at': utcnow(),
 		'client_ip': get_client_ip(request)
 	}
 
@@ -1251,6 +1251,8 @@ class UploadAuthorizationRequest(BaseModel):
 	altitude: Optional[float] = None
 	compass_angle: Optional[float] = None
 	captured_at: Optional[datetime.datetime] = None
+	# Re-upload support
+	version: int = 1  # Bump to re-upload with different settings
 
 class UploadAuthorizationResponse(BaseModel):
 	upload_jwt: str
@@ -1328,19 +1330,24 @@ async def authorize_upload(
 				await db.delete(existing_photo)
 
 			elif existing_photo.processing_status == 'completed':
+				# Check if this is a re-upload with higher version (e.g., changed anonymization settings)
+				if auth_request.version > existing_photo.version:
+					log.info(f"Re-upload requested for completed photo: MD5={auth_request.file_md5}, old version={existing_photo.version}, new version={auth_request.version}")
+					photo_id = existing_photo.id
+					await db.delete(existing_photo)
+				else:
+					log.info(f"Duplicate file detected for user {current_user.id}: MD5={auth_request.file_md5}, row id={str(existing_photo.id)}, status={existing_photo.processing_status}")
+					return {
+						"duplicate": True,
+						# completed: client just marks its local item as completed
+						# - but it should probably also accept the new photo id
+						"processing_status": existing_photo.processing_status,
 
-				log.info(f"Duplicate file detected for user {current_user.id}: MD5={auth_request.file_md5}, row id={str(existing_photo.id)}, status={existing_photo.processing_status}")
-				return {
-					"duplicate": True,
-					# completed: client just marks its local item as completed
-					# - but it should probably also accept the new photo id
-					"processing_status": existing_photo.processing_status,
-
-					"message": f"File already exists. You previously uploaded this file as '{existing_photo.original_filename}' on {existing_photo.uploaded_at.strftime('%Y-%m-%d %H:%M:%S')}.",
-					"existing_photo_id": existing_photo.id,
-					"existing_filename": existing_photo.original_filename,
-					"existing_upload_date": existing_photo.uploaded_at.isoformat() if existing_photo.uploaded_at else None
-				}
+						"message": f"File already exists. You previously uploaded this file as '{existing_photo.original_filename}' on {existing_photo.uploaded_at.strftime('%Y-%m-%d %H:%M:%S')}.",
+						"existing_photo_id": existing_photo.id,
+						"existing_filename": existing_photo.original_filename,
+						"existing_upload_date": existing_photo.uploaded_at.isoformat() if existing_photo.uploaded_at else None
+					}
 			else:
 				raise HTTPException(
 					status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -1393,7 +1400,8 @@ async def authorize_upload(
 			geometry=geometry,
 			altitude=auth_request.altitude,
 			compass_angle=auth_request.compass_angle,
-			captured_at=captured_at_naive
+			captured_at=captured_at_naive,
+			version=auth_request.version
 		)
 
 		db.add(photo)
@@ -1484,7 +1492,7 @@ async def cleanup_orphaned_photos(
 
 		await db.commit()
 
-		logger.info(f"Cleaned up {len(orphaned_photos)} orphaned photos for user {current_user.id}")
+		log.info(f"Cleaned up {len(orphaned_photos)} orphaned photos for user {current_user.id}")
 
 		return {
 			"message": f"Cleaned up {len(orphaned_photos)} orphaned photos",
@@ -1493,7 +1501,7 @@ async def cleanup_orphaned_photos(
 
 	except Exception as e:
 		await db.rollback()
-		logger.error(f"Error cleaning up orphaned photos for user {current_user.id}: {e}")
+		log.error(f"Error cleaning up orphaned photos for user {current_user.id}: {e}")
 		raise HTTPException(
 			status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
 			detail="Failed to cleanup orphaned photos"
@@ -1514,12 +1522,12 @@ async def get_users(
         from hidden_content_filters import apply_hidden_content_filters
 
         # Get users with photo counts and latest photo info
-        # First, get photo counts per user
+        # First, get photo counts per user (excluding deleted photos)
         photo_counts_query = select(
             Photo.owner_id,
             func.count(Photo.id).label('photo_count'),
             func.max(Photo.uploaded_at).label('latest_photo_at')
-        ).group_by(Photo.owner_id)
+        ).where(Photo.deleted == False).group_by(Photo.owner_id)
 
         # Apply hidden content filtering to photo counts
         photo_counts_query = apply_hidden_content_filters(
@@ -1544,10 +1552,11 @@ async def get_users(
 
             latest_photo_url = None
             if stats['latest_at']:
-                # Get the latest photo for this user
+                # Get the latest photo for this user (excluding deleted)
                 latest_photo_query = select(Photo).where(
                     Photo.owner_id == user.id,
-                    Photo.uploaded_at == stats['latest_at']
+                    Photo.uploaded_at == stats['latest_at'],
+                    Photo.deleted == False
                 ).limit(1)
 
                 # Apply hidden content filtering
@@ -1567,7 +1576,7 @@ async def get_users(
                 "id": user.id,
                 "username": user.username,
                 "photo_count": stats['count'],
-                "latest_photo_at": stats['latest_at'].isoformat() if stats['latest_at'] else None,
+                "latest_photo_at": format_utc(stats['latest_at']),
                 "latest_photo_url": latest_photo_url
             }
             user_list.append(user_data)
@@ -1653,8 +1662,8 @@ async def get_user_photos(
             photo_data = {
                 "id": photo.id,
                 "original_filename": photo.original_filename,
-                "uploaded_at": photo.uploaded_at.isoformat() if photo.uploaded_at else None,
-                "captured_at": photo.captured_at.isoformat() if photo.captured_at else None,
+                "uploaded_at": format_utc(photo.uploaded_at),
+                "captured_at": format_utc(photo.captured_at),
                 "processing_status": photo.processing_status,
                 "latitude": latitude,
                 "longitude": longitude,
@@ -1679,7 +1688,7 @@ async def get_user_photos(
         # Prepare pagination info
         next_cursor = None
         if has_more and photo_results:
-            next_cursor = photo_results[-1][0].uploaded_at.isoformat()
+            next_cursor = format_utc(photo_results[-1][0].uploaded_at)
 
         return {
             "photos": photo_list,

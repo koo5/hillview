@@ -16,7 +16,9 @@
 
 		try {
 			if (TAURI) {
-				const result = await invoke('plugin:hillview|retry_failed_uploads') as { success: boolean };
+				const result = await invoke('plugin:hillview|cmd', {
+					command: 'retry_uploads'
+				}) as { success: boolean };
 				if (result.success) {
 					addLogEntry('Manual upload triggered successfully', 'success');
 					setTimeout(() => {
@@ -41,7 +43,7 @@
 		<button class="action-button upload" data-testid="manual-upload-button"
 				data-photo-id={photo.id} on:click={() => manualUpload(photo.id)}>
 			<Upload size={16}/>
-			Retry Uploads
+			Retry/Sync
 		</button>
 	{:else}
 		<span class="help-text">

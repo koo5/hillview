@@ -8,8 +8,22 @@
     import StandardBody from '$lib/components/StandardBody.svelte';
     import { getCurrentProviderConfig, getProviderDisplayName, currentTileProvider } from '$lib/tileProviders';
     import { openExternalUrl } from '$lib/urlUtils';
+    import { onMount } from 'svelte';
+    import { TAURI } from '$lib/tauri';
 
-    const appVersion = '0.0.1';
+    let appVersion = __APP_VERSION__;
+
+    onMount(async () => {
+        // In Tauri context, get the version from the native API
+        if (TAURI) {
+            try {
+                const { getVersion } = await import('@tauri-apps/api/app');
+                appVersion = await getVersion();
+            } catch (e) {
+                console.warn('Failed to get Tauri version:', e);
+            }
+        }
+    });
 
     const technologies = [
         { name: 'SvelteKit', url: 'https://kit.svelte.dev' },
@@ -81,6 +95,17 @@
             understand what you're seeing by showing you photos taken from other positions pointing in the same direction.
         </p>
     </section>
+
+	<section class="about-section">
+		<h2>Known issues</h2>
+		<div class="attribution-links" on:click={handleAttributionClick} role="presentation">
+		<p>
+			Hillview is an early access project and has some rough edges. There is a list of <a href="https://github.com/koo5/hillview/issues/47" target="_blank" rel="noopener noreferrer" data-external-link="true">
+			known issues</a>
+			Please check it out and report any bugs or feature requests on our <a href="https://github.com/koo5/hillview/issues" target="_blank" rel="noopener noreferrer" data-external-link="true">GitHub issue tracker</a>
+		</p>
+		</div>
+	</section>
 
     <section class="attribution-section">
         <h2>Acknowledgments</h2>
@@ -171,7 +196,7 @@
 
 
     <footer class="about-footer">
-        <p>&copy; 2025 Hillview. Made with <Heart size={16} class="heart-icon" /> for photographers and explorers.</p>
+        <p>&copy; 2026 Hillview. Made with <Heart size={16} class="heart-icon" /> for photographers and explorers.</p>
     </footer>
 </StandardBody>
 
@@ -181,6 +206,7 @@
         line-height: 1.6;
         color: #374151;
         text-align: center;
+		padding: 32px 16px;
         margin-bottom: 48px;
         position: relative;
         z-index: 10;

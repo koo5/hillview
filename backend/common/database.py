@@ -39,6 +39,8 @@ Base = declarative_base()
 
 # Dependency to get DB session
 async def get_db():
+	if SessionLocal is None:
+		raise RuntimeError("Database not initialized (ALEMBIC_SYNC_MODE is set)")
 	db = SessionLocal()
 	try:
 		yield db

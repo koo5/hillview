@@ -22,7 +22,8 @@ class DevicePhotoLoader(private val context: Context) {
         source: SourceConfig,
         bounds: Bounds?,
         maxPhotos: Int,
-        shouldAbort: () -> Boolean
+        shouldAbort: () -> Boolean,
+        picks: Set<String> = emptySet()
     ): List<PhotoData> {
         return try {
             Log.d(TAG, " Loading device photos from database")
@@ -31,14 +32,35 @@ class DevicePhotoLoader(private val context: Context) {
             Log.d(TAG, " MaxPhotos: $maxPhotos")
 
             val photoEntities = if (bounds != null) {
-                // Apply spatial filtering using Room query with bounds
-                photoDao.getPhotosInBounds(
-                    minLat = bounds.bottom_right.lat,
-                    maxLat = bounds.top_left.lat,
-                    minLng = bounds.top_left.lng,
-                    maxLng = bounds.bottom_right.lng,
-                    limit = maxPhotos
-                )
+                // First get picked photos that are in bounds (they always stay on map)
+                val pickedPhotos = if (picks.isNotEmpty()) {
+                    photoDao.getPickedPhotosInBounds(
+                        minLat = bounds.bottom_right.lat,
+                        maxLat = bounds.top_left.lat,
+                        minLng = bounds.top_left.lng,
+                        maxLng = bounds.bottom_right.lng,
+                        picks = picks
+                    )
+                } else {
+                    emptyList()
+                }
+
+                // Then get regular photos up to the limit minus picked photos
+                val remainingLimit = maxPhotos - pickedPhotos.size
+                val regularPhotos = if (remainingLimit > 0) {
+                    photoDao.getPhotosInBounds(
+                        minLat = bounds.bottom_right.lat,
+                        maxLat = bounds.top_left.lat,
+                        minLng = bounds.top_left.lng,
+                        maxLng = bounds.bottom_right.lng,
+                        limit = remainingLimit
+                    ).filter { photo -> !picks.contains(photo.id) } // Exclude already picked photos
+                } else {
+                    emptyList()
+                }
+
+                // Combine picked photos first, then regular photos
+                pickedPhotos + regularPhotos
             } else {
                 // No bounds specified, get all photos with limit
                 photoDao.getPhotosPaginated(limit = maxPhotos, offset = 0)

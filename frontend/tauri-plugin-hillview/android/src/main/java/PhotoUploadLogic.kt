@@ -19,6 +19,9 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
+import org.json.JSONArray
+import app.tauri.plugin.JSObject
+import app.tauri.plugin.Invoke
 import java.io.File
 import java.io.IOException
 import java.text.SimpleDateFormat
@@ -51,6 +54,7 @@ class DuplicateFileException(message: String) : Exception(message)
 class PhotoUploadLogic(private val context: Context) {
 	private val database: PhotoDatabase = PhotoDatabase.getDatabase(context)
 	private val photoDao = database.photoDao()
+	private val editDao = database.editDao()
 
 	companion object {
 		private const val TAG = "🢄Upload"
@@ -107,6 +111,9 @@ class PhotoUploadLogic(private val context: Context) {
 					scanForNewPhotos()
 				}
 
+				// Process any pending edits before upload loop
+				processPendingEdits()
+
 				// Process photos one at a time with validation on each iteration
 
 				val seen = mutableSetOf<String>()
@@ -132,12 +139,14 @@ class PhotoUploadLogic(private val context: Context) {
 
 					if (!photoId.isNullOrEmpty())
 					{
-						// avoid completed photos
 						photo = photoDao.getPhotoById(photoId)
 					}
 					else
 					{
-						photo = photoDao.getNextPhotoForUpload(seen, System.currentTimeMillis() - 1000 * 60 * 10)
+						val now = System.currentTimeMillis()
+						val uploadingStaleThreshold = now - 1000 * 60 * 10  // 10 minutes
+						val processingStaleThreshold = now - 1000 * 60 * 60 // 1 hour
+						photo = photoDao.getNextPhotoForUpload(seen, uploadingStaleThreshold, processingStaleThreshold)
 					}
 
 					if (photo == null) {
@@ -152,9 +161,11 @@ class PhotoUploadLogic(private val context: Context) {
 						"Next photo to process: ${photo.filename} (status: ${photo.uploadStatus})"
 					)
 
+					val timeSinceLastAttempt = System.currentTimeMillis() - photo.lastUploadAttempt
+
 					// For failed uploads, check if enough time has elapsed for retry
-					if (photo.uploadStatus == "failed") {
-						val timeSinceLastAttempt = System.currentTimeMillis() - photo.lastUploadAttempt
+					// Skip backoff check for manual retry button presses
+					if (photo.uploadStatus == "failed" && triggerSource != "retry_button") {
 						val requiredWaitTime = calculateBackoffTime(photo.retryCount)
 
 						if (timeSinceLastAttempt < requiredWaitTime) {
@@ -190,14 +201,19 @@ class PhotoUploadLogic(private val context: Context) {
 
 						photoDao.updateUploadStatus(photo.id, "uploading", System.currentTimeMillis())
 
-						val success = secureUploadPhoto(photo)
+						val serverPhotoId = secureUploadPhoto(photo)
 
-						if (success) {
+						if (serverPhotoId != null) {
 							Log.d(
 								TAG,
-								"✅ Successfully ${action}ed ${photo.filename}"
+								"✅ Successfully ${action}ed ${photo.filename}, server ID: $serverPhotoId"
 							)
-							photoDao.updateUploadStatus(photo.id, "completed", System.currentTimeMillis())
+							photoDao.updateUploadStatusAndServerId(
+								photo.id,
+								"processing",
+								serverPhotoId,
+								System.currentTimeMillis()
+							)
 						} else {
 							Log.w(
 								TAG,
@@ -212,11 +228,14 @@ class PhotoUploadLogic(private val context: Context) {
 							)
 						}
 
+					} catch (e: DuplicateFileException) {
+						// Duplicate already handled - database already updated to "completed"
+						Log.i(TAG, "✅ Duplicate file handled for ${photo.filename}")
+						// Continue to next photo
 					} catch (e: Exception) {
-						val action = if (photo.uploadStatus == "failed") "retry" else "upload"
 						Log.e(
 							TAG,
-							"💥 Error during $action for ${photo.filename}",
+							"💥 Error during upload for ${photo.filename}",
 							e
 						)
 						photoDao.updateUploadFailure(
@@ -228,6 +247,10 @@ class PhotoUploadLogic(private val context: Context) {
 						)
 					}
 				}
+
+
+				// Sync status for photos that are in "processing" state
+				syncProcessingPhotosStatus()
 
 				Log.d(TAG, "Photo upload worker completed successfully")
 				return ListenableWorker.Result.success()
@@ -315,13 +338,62 @@ class PhotoUploadLogic(private val context: Context) {
 	}
 
 
-	suspend fun secureUploadPhoto(photo: PhotoEntity): Boolean = withContext(Dispatchers.IO) {
+	/**
+	 * Process pending edits from the edits table.
+	 * Edits are actions like setting anonymization override that trigger re-uploads.
+	 */
+	private fun processPendingEdits() {
+		val pendingEdits = editDao.getPendingEdits()
+		if (pendingEdits.isEmpty()) {
+			return
+		}
+
+		Log.d(TAG, "Processing ${pendingEdits.size} pending edits")
+
+		for (edit in pendingEdits) {
+			try {
+				val actionJson = JSONObject(edit.actionJson)
+				val action = actionJson.optString("action")
+
+				when (action) {
+					"set_anonymization_override" -> {
+						// value can be: null (auto-detect), [] (skip), [{...}] (manual rectangles)
+						val override: String? = if (actionJson.isNull("value")) {
+							null
+						} else {
+							actionJson.getJSONArray("value").toString()
+						}
+
+						Log.d(TAG, "Processing set_anonymization_override for photo ${edit.photoId}: $override")
+						photoDao.updateAnonymizationOverride(edit.photoId, override)
+					}
+					else -> {
+						Log.w(TAG, "Unknown edit action: $action")
+					}
+				}
+
+				editDao.markProcessed(edit.id, System.currentTimeMillis())
+				Log.d(TAG, "Edit ${edit.id} processed successfully")
+
+			} catch (e: Exception) {
+				Log.e(TAG, "Error processing edit ${edit.id}: ${e.message}", e)
+				// Don't mark as processed - will retry next time
+			}
+		}
+	}
+
+
+	/**
+	 * Upload photo securely.
+	 * @return Server photo ID on success, null on failure
+	 */
+	suspend fun secureUploadPhoto(photo: PhotoEntity): String? = withContext(Dispatchers.IO) {
 		try {
 			Log.d(TAG, "Starting secure upload for photo: ${photo.filename}")
 
 			if (!PhotoUtils.pathExists(context, photo.path)) {
 				Log.e(TAG, "Photo file does not exist: ${photo.path}")
-				return@withContext false
+				return@withContext null
 			}
 
 			// Step 1: Request upload authorization (includes PhotoEntity geolocation)
@@ -334,17 +406,16 @@ class PhotoUploadLogic(private val context: Context) {
 				generateClientSignature(authResponse.photo_id, photo.filename, authResponse.upload_authorized_at)
 			if (signatureData == null) {
 				Log.e(TAG, "Failed to generate client signature for: ${photo.filename}")
-				return@withContext false
+				return@withContext null
 			}
 
 			Log.d(TAG, "Client signature generated for: ${photo.filename} with key ${signatureData.keyId}")
 
 			// Step 3: Upload to worker (using worker_url from auth response)
-			// Read file bytes only now, when we actually need them
 			val fileBytes = PhotoUtils.readBytesFromPath(context, photo.path)
 			if (fileBytes == null) {
 				Log.e(TAG, "Failed to read photo file for upload: ${photo.path}")
-				return@withContext false
+				return@withContext null
 			}
 
 			val uploadSuccess = uploadToWorker(
@@ -353,29 +424,31 @@ class PhotoUploadLogic(private val context: Context) {
 				authResponse.upload_jwt,
 				signatureData.signature,
 				authResponse.worker_url,
-				photo.id
+				photo.id,
+				photo.anonymizationOverride
 			)
 
-			return@withContext uploadSuccess
+			return@withContext if (uploadSuccess) authResponse.photo_id else null
 
 		} catch (e: DuplicateFileException) {
-			Log.i(TAG, "✅ Duplicate file handled for ${photo.filename}: ${e.message}")
-			return@withContext true
+			// Let this propagate - it's already handled in requestUploadAuthorization
+			// and the database is already updated to "completed"
+			throw e
 		} catch (e: java.net.ConnectException) {
 			Log.w(TAG, "🌐 Connection failed for ${photo.filename}: Server unreachable (${e.message})")
-			return@withContext false
+			return@withContext null
 		} catch (e: java.net.SocketTimeoutException) {
 			Log.w(TAG, "⏱️ Upload timeout for ${photo.filename}: ${e.message}")
-			return@withContext false
+			return@withContext null
 		} catch (e: java.net.UnknownHostException) {
 			Log.w(TAG, "🔍 DNS lookup failed for ${photo.filename}: ${e.message}")
-			return@withContext false
+			return@withContext null
 		} catch (e: IOException) {
 			Log.w(TAG, "📡 Network I/O error for ${photo.filename}: ${e.message}")
-			return@withContext false
+			return@withContext null
 		} catch (e: Exception) {
 			Log.e(TAG, "💥 Unexpected error in secure upload: ${photo.filename}", e)
-			return@withContext false
+			return@withContext null
 		}
 	}
 
@@ -403,6 +476,7 @@ class PhotoUploadLogic(private val context: Context) {
 			put("client_key_id", keyInfo.keyId)  // Key ID that will be used for signing
 			put("description", "")  // Could be made configurable
 			put("is_public", true)  // Could be made configurable
+			put("version", photo.version)  // Version for re-upload support
 			// Use PhotoEntity geolocation data
 			put("latitude", photo.latitude)
 			put("longitude", photo.longitude)
@@ -469,6 +543,10 @@ class PhotoUploadLogic(private val context: Context) {
 
 	/**
 	 * Upload file to worker with JWT and client signature
+	 * @param anonymizationOverride JSON string controlling anonymization:
+	 *   - null: auto-detect faces/plates (default)
+	 *   - "[]": skip anonymization
+	 *   - "[{...}]": manual blur rectangles
 	 */
 	private suspend fun uploadToWorker(
 		fileBytes: ByteArray,
@@ -476,11 +554,12 @@ class PhotoUploadLogic(private val context: Context) {
 		uploadJwt: String,
 		signature: String,
 		workerUrl: String,
-		photoId: String
+		photoId: String,
+		anonymizationOverride: String? = null
 	): Boolean {
 		val mediaType = PhotoUtils.getContentType(filename).toMediaType()
 
-		val requestBody = MultipartBody.Builder()
+		val multipartBuilder = MultipartBody.Builder()
 			.setType(MultipartBody.FORM)
 			.addFormDataPart(
 				"file",
@@ -488,10 +567,17 @@ class PhotoUploadLogic(private val context: Context) {
 				fileBytes.toRequestBody(mediaType)
 			)
 			.addFormDataPart("client_signature", signature)
-			.build()
+
+		// Add anonymization override if present
+		if (anonymizationOverride != null) {
+			multipartBuilder.addFormDataPart("anonymization_override", anonymizationOverride)
+			Log.d(TAG, "Including anonymization_override: $anonymizationOverride")
+		}
+
+		val requestBody = multipartBuilder.build()
 
 		val request = Request.Builder()
-			.url("$workerUrl/upload")
+			.url("$workerUrl/upload_async")
 			.addHeader("Authorization", "Bearer $uploadJwt")
 			.post(requestBody)
 			.build()
@@ -893,5 +979,323 @@ class PhotoUploadLogic(private val context: Context) {
         return minOf(exponentialDelay, maxDelay)
     }
 
+    /**
+     * Sync processing status for photos in "processing" state.
+     * Sends batch request to POST /api/photos/status and updates local DB.
+     */
+    private suspend fun syncProcessingPhotosStatus() = withContext(Dispatchers.IO) {
+        val processingPhotos = photoDao.getProcessingPhotos()
+
+        if (processingPhotos.isEmpty()) {
+            Log.d(TAG, "No processing photos to sync")
+            return@withContext
+        }
+
+        Log.d(TAG, "Syncing status for ${processingPhotos.size} processing photos")
+
+        // Build map of serverPhotoId -> local photo for quick lookup (filter nulls)
+        val photosByServerId = processingPhotos.filter { it.serverPhotoId != null }.associateBy { it.serverPhotoId!! }
+        val serverPhotoIds = processingPhotos.mapNotNull { it.serverPhotoId }
+
+        // Batch query server for statuses
+        val serverStatuses = queryPhotoStatuses(serverPhotoIds)
+        if (serverStatuses == null) {
+            Log.w(TAG, "Failed to query photo statuses")
+            return@withContext
+        }
+
+        // Update local DB
+        updatePhotosFromServerStatuses(serverStatuses, photosByServerId)
+    }
+
+    /**
+     * Query server for photo statuses in batch.
+     * Handles auth token internally.
+     */
+    private suspend fun queryPhotoStatuses(photoIds: List<String>): List<ServerPhotoStatus>? {
+        val serverUrl = getServerUrl()
+        if (serverUrl == null) {
+            Log.w(TAG, "Server URL not configured")
+            return null
+        }
+
+        val authToken = authManager.getValidToken()
+        if (authToken == null) {
+            Log.w(TAG, "No valid auth token")
+            return null
+        }
+
+        val json = JSONObject().apply {
+            put("photo_ids", org.json.JSONArray(photoIds))
+        }
+
+        val request = Request.Builder()
+            .url("$serverUrl/photos/status")
+            .addHeader("Authorization", "Bearer $authToken")
+            .post(json.toString().toRequestBody("application/json".toMediaType()))
+            .build()
+
+        return try {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.w(TAG, "Photo status query failed: ${response.code}")
+                    return null
+                }
+
+                val responseJson = JSONObject(response.body!!.string())
+                val photosArray = responseJson.getJSONArray("photos")
+                val statuses = mutableListOf<ServerPhotoStatus>()
+
+                for (i in 0 until photosArray.length()) {
+                    val photoJson = photosArray.getJSONObject(i)
+                    statuses.add(ServerPhotoStatus(
+                        id = photoJson.getString("id"),
+                        processingStatus = photoJson.optString("processing_status", ""),
+                        error = if (photoJson.isNull("error")) null else photoJson.optString("error"),
+                        deleted = photoJson.optBoolean("deleted", false)
+                    ))
+                }
+
+                Log.d(TAG, "Got ${statuses.size} photo statuses from server")
+                statuses
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error querying photo statuses: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * Update local photos based on server statuses.
+     */
+    private fun updatePhotosFromServerStatuses(
+        serverStatuses: List<ServerPhotoStatus>,
+        photosByServerId: Map<String, PhotoEntity>
+    ) {
+        for (status in serverStatuses) {
+            val localPhoto = photosByServerId[status.id] ?: continue
+
+            // Check deleted flag first
+            if (status.deleted) {
+                Log.i(TAG, "🗑️ Photo ${localPhoto.filename} deleted on server")
+                photoDao.updateDeleted(localPhoto.id, true)
+                continue
+            }
+
+            when (status.processingStatus) {
+                "completed" -> {
+                    Log.i(TAG, "✅ Photo ${localPhoto.filename} completed on server")
+                    photoDao.updateUploadStatus(localPhoto.id, "completed", System.currentTimeMillis())
+                }
+                "error" -> {
+                    Log.w(TAG, "❌ Photo ${localPhoto.filename} failed on server: ${status.error}")
+                    photoDao.updateUploadFailure(
+                        localPhoto.id,
+                        "failed",
+                        localPhoto.retryCount + 1,
+                        System.currentTimeMillis(),
+                        status.error ?: "Server processing error"
+                    )
+                }
+                "authorized" -> {
+                    Log.d(TAG, "⏳ Photo ${localPhoto.filename} still just authorized.")
+                }
+            }
+        }
+    }
+
+    /**
+     * Update local photo statuses from frontend-provided data.
+     * Called by Tauri command when "my photos" page fetches server data.
+     * @return Number of photos updated
+     */
+    fun updatePhotoStatusesFromFrontend(statuses: List<ServerPhotoStatus>): Int {
+        val processingPhotos = photoDao.getProcessingPhotos()
+        val photosByServerId = processingPhotos.filter { it.serverPhotoId != null }.associateBy { it.serverPhotoId!! }
+
+        var updatedCount = 0
+        for (status in statuses) {
+            if (photosByServerId.containsKey(status.id)) {
+                updatedCount++
+            }
+        }
+
+        updatePhotosFromServerStatuses(statuses, photosByServerId)
+        Log.d(TAG, "Updated $updatedCount photos from frontend")
+        return updatedCount
+    }
+
+    data class ServerPhotoStatus(
+        val id: String,
+        val processingStatus: String,
+        val error: String?,
+        val deleted: Boolean = false
+    )
+
+    /**
+     * Handle get_processing_photo_ids cmd from frontend.
+     * Returns list of serverPhotoIds for photos in "processing" state.
+     */
+    fun handleGetProcessingPhotoIds(invoke: Invoke) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val processingPhotos = photoDao.getProcessingPhotos()
+                val serverPhotoIds = processingPhotos.mapNotNull { it.serverPhotoId }
+
+                val result = JSObject()
+                result.put("success", true)
+                result.put("photo_ids", JSONArray(serverPhotoIds))
+                invoke.resolve(result)
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Error getting processing photo IDs", e)
+                val error = JSObject()
+                error.put("success", false)
+                error.put("error", e.message)
+                invoke.resolve(error)
+            }
+        }
+    }
+
+    /**
+     * Handle create_edit cmd from frontend.
+     * Creates an edit action for a photo (e.g., setting anonymization override).
+     * Params: { photo_id: string, action: string, value: any }
+     */
+    fun handleCreateEdit(invoke: Invoke, params: JSObject) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val photoId = params.getString("photo_id")
+                val action = params.getString("action")
+
+                if (photoId == null || action == null) {
+                    val error = JSObject()
+                    error.put("success", false)
+                    error.put("error", "Missing required params: photo_id, action")
+                    invoke.resolve(error)
+                    return@launch
+                }
+
+                // Build action JSON
+                val actionJson = JSONObject()
+                actionJson.put("action", action)
+
+                // Handle value - can be null, array, or object
+                if (params.has("value")) {
+                    if (params.isNull("value")) {
+                        actionJson.put("value", JSONObject.NULL)
+                    } else {
+                        // Try to get as JSONArray first, then as other types
+                        try {
+                            val valueArray = params.getJSONArray("value")
+                            actionJson.put("value", valueArray)
+                        } catch (e: Exception) {
+                            // Not an array, try other types
+                            actionJson.put("value", params.get("value"))
+                        }
+                    }
+                } else {
+                    actionJson.put("value", JSONObject.NULL)
+                }
+
+                val editEntity = EditEntity(
+                    photoId = photoId,
+                    actionJson = actionJson.toString(),
+                    createdAt = System.currentTimeMillis()
+                )
+
+                val editId = editDao.insertEdit(editEntity)
+                Log.d(TAG, "Created edit $editId for photo $photoId: $actionJson")
+
+                val result = JSObject()
+                result.put("success", true)
+                result.put("edit_id", editId)
+                invoke.resolve(result)
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Error creating edit", e)
+                val error = JSObject()
+                error.put("success", false)
+                error.put("error", e.message)
+                invoke.resolve(error)
+            }
+        }
+    }
+
+    /**
+     * Handle get_photo_id_by_server_photo_id cmd from frontend.
+     * Returns the device photo ID for a given server photo ID.
+     * Params: { server_photo_id: string }
+     */
+    fun handleGetPhotoIdByServerPhotoId(invoke: Invoke, params: JSObject) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val serverPhotoId = params.getString("server_photo_id")
+
+                if (serverPhotoId == null) {
+                    val error = JSObject()
+                    error.put("success", false)
+                    error.put("error", "Missing required param: server_photo_id")
+                    invoke.resolve(error)
+                    return@launch
+                }
+
+                val photo = photoDao.getPhotoByServerPhotoId(serverPhotoId)
+
+                val result = JSObject()
+                if (photo != null) {
+                    result.put("success", true)
+                    result.put("photo_id", photo.id)
+                } else {
+                    result.put("success", false)
+                    result.put("error", "Photo not found for server ID: $serverPhotoId")
+                }
+                invoke.resolve(result)
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Error getting photo ID by server photo ID", e)
+                val error = JSObject()
+                error.put("success", false)
+                error.put("error", e.message)
+                invoke.resolve(error)
+            }
+        }
+    }
+
+    /**
+     * Handle update_photo_statuses cmd from frontend.
+     * Params: { statuses: [{ id, processing_status, error }] }
+     */
+    fun handleUpdatePhotoStatuses(invoke: Invoke, params: JSObject) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val statusesArray = params.getJSONArray("statuses")
+                val statuses = mutableListOf<ServerPhotoStatus>()
+
+                for (i in 0 until statusesArray.length()) {
+                    val obj = statusesArray.getJSONObject(i)
+                    statuses.add(ServerPhotoStatus(
+                        id = obj.getString("id"),
+                        processingStatus = obj.optString("processing_status", ""),
+                        error = if (obj.isNull("error")) null else obj.optString("error")
+                    ))
+                }
+
+                val updatedCount = updatePhotoStatusesFromFrontend(statuses)
+
+                val result = JSObject()
+                result.put("success", true)
+                result.put("updated_count", updatedCount)
+                invoke.resolve(result)
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Error updating photo statuses", e)
+                val error = JSObject()
+                error.put("success", false)
+                error.put("error", e.message)
+                invoke.resolve(error)
+            }
+        }
+    }
 
 }

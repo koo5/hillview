@@ -13,6 +13,7 @@
 	height={height}
 	viewBox={`0 0 ${width} ${height}`}
 	width={width}
+	style="pointer-events: none;"
 >
 	<line
 		marker-end="url(#arrowhead)"

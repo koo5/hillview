@@ -13,3 +13,6 @@ backend/worker/models/
 backend/worker/Ultralytics/
 backend/uploads/
 .idea/caches/
+**/.idea/copilot.data.migration*xml
+**/*.pyc
+

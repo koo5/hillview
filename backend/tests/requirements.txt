@@ -1,5 +1,0 @@
-# Include API app dev dependencies (which includes main requirements.txt)
--r ../api/app/requirements-dev.txt
-
-# Integration test specific dependencies
-# (none currently - all needed packages come from api/app)

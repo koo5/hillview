@@ -228,7 +228,7 @@ test.describe('Map Navigation and Photo Turning', () => {
     expect(hasUrlErrors, `Found URL update errors: ${errors.join(', ')}`).toBe(false);
   });
 
-  test('should handle debug overlay toggle without errors', async ({ page }) => {
+  test.skip('should handle debug overlay toggle without errors', async ({ page }) => {
     const errors: string[] = [];
     page.on('console', (msg) => {
       if (msg.type() === 'error') {

@@ -6,8 +6,10 @@ export interface DevicePhotoStats {
 	total: number;
 	pending: number;
 	uploading: number;
+	processing: number;
 	completed: number;
 	failed: number;
+	deleted: number;
 }
 
 export const devicePhotoStats = writable<DevicePhotoStats | null>(null);
@@ -40,5 +42,5 @@ export async function fetchDevicePhotoStats(): Promise<DevicePhotoStats | null> 
 }
 
 export function hasUploadsToRetry(stats: DevicePhotoStats | null): boolean {
-	return stats !== null && (stats.pending > 0 || stats.failed > 0);
+	return stats !== null && (stats.pending > 0 || stats.failed > 0 || stats.processing > 0);
 }

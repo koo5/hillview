@@ -26,6 +26,7 @@
             checked={isChecked}
             on:change={handleChange}
             {disabled}
+            data-testid="license-checkbox"
         />
 
         <div class="label-content">

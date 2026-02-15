@@ -1,4 +1,4 @@
 #!/bin/bash
 cd "$(dirname "$(readlink -f -- "$0")")"
 
-./api/run_tests.sh && ./worker/run_tests.sh && ./tests/run_tests.sh
+./api/run_unit_tests.sh && ./worker/run_unit_tests.sh && ./tests/run_integration_tests.sh

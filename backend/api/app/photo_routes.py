@@ -37,35 +37,33 @@
 """
 
 import os
+import sys
 import logging
 import base64
 import json
 from pathlib import Path
 from typing import Optional, Dict, Any
 from datetime import datetime, timezone
+
 import aiofiles
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives import serialization
 from pydantic import BaseModel
-
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Request
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from geoalchemy2.functions import ST_Point, ST_X, ST_Y
 
-import sys
-import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 
 from push_notifications import send_activity_broadcast_notification
-
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
-from common.models import Photo, User, PhotoRating, PhotoRatingType
+from common.models import Photo, User, PhotoRating, PhotoRatingType, UserPublicKey
+from common.utc import format_utc
 from auth import get_current_active_user
 from common.file_utils import (
-	validate_and_prepare_photo_file,
 	verify_saved_file_content,
 	cleanup_file_on_error,
 	get_file_size_from_upload
@@ -150,6 +148,7 @@ class ProcessedPhotoData(BaseModel):
 	client_signature: Optional[str] = None  # Base64-encoded ECDSA signature from client
 	processed_by_worker: Optional[str] = None  # Worker identity for audit trail
 	filename: Optional[str] = None  # Secure filename after processing
+	captured_at: Optional[str] = None  # ISO datetime when photo was taken (from EXIF DateTimeOriginal)
 
 class WorkerProcessedPhotoRequest(BaseModel):
 	"""Request model for processed photo data from worker with signature."""
@@ -183,6 +182,12 @@ async def save_processed_photo(
 			detail="Photo not found"
 		)
 
+	if photo.deleted:
+		raise HTTPException(
+			status_code=status.HTTP_410_GONE,
+			detail="Photo was deleted"
+		)
+
 	# Verify that photo is in authorized status (not already processed)
 	if photo.processing_status != "authorized":
 		raise HTTPException(
@@ -197,7 +202,6 @@ async def save_processed_photo(
 		)
 
 	# Get client's public key for signature verification
-	from common.models import UserPublicKey
 	key_result = await db.execute(
 		select(UserPublicKey).where(
 			UserPublicKey.user_id == photo.owner_id,
@@ -273,6 +277,14 @@ async def save_processed_photo(
 	photo.client_signature = processed_data.client_signature  # Store signature for audit trail
 	photo.processed_by_worker = processed_data.processed_by_worker  # Track which worker processed this
 	photo.processed_at = datetime.now(timezone.utc)  # When processing was completed
+	# Update captured_at from EXIF if worker extracted it
+	# Store as naive datetime (assumed UTC) since column is TIMESTAMP WITHOUT TIME ZONE
+	if processed_data.captured_at:
+		dt = datetime.fromisoformat(processed_data.captured_at.replace('Z', '+00:00'))
+		# Convert to UTC if it has timezone, then strip timezone for storage
+		if dt.tzinfo is not None:
+			dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+		photo.captured_at = dt
 
 	await db.commit()
 	await db.refresh(photo)
@@ -285,6 +297,7 @@ async def save_processed_photo(
 		await send_activity_broadcast_notification(db, photo.owner_id)
 	except Exception as e:
 		logger.warning(f"Failed to send activity broadcast notification for photo {photo_id}: {e}")
+	logger.warning(f"Failed to send activity broadcast notification for photo {photo_id}.")
 		# Don't re-raise - photo upload succeeded, notification is non-critical
 
 	return {
@@ -323,6 +336,12 @@ async def upload_processed_file(
 				detail="Photo not found"
 			)
 
+		if photo.deleted:
+			raise HTTPException(
+				status_code=status.HTTP_410_GONE,
+				detail="Photo was deleted"
+			)
+
 		# Verify that photo is in authorized status
 		if photo.processing_status != "authorized":
 			raise HTTPException(
@@ -337,7 +356,6 @@ async def upload_processed_file(
 			)
 
 		# Get client's public key for signature verification
-		from common.models import UserPublicKey
 		key_result = await db.execute(
 			select(UserPublicKey).where(
 				UserPublicKey.user_id == photo.owner_id,
@@ -452,16 +470,15 @@ async def list_photos(
 		Photo,
 		ST_X(Photo.geometry).label('longitude'),
 		ST_Y(Photo.geometry).label('latitude')
-	).where(Photo.owner_id == str(current_user.id))
+	).where(Photo.owner_id == str(current_user.id), Photo.deleted == False)
 
 		if only_processed:
 			base_query = base_query.where(Photo.processing_status == "completed")
 
 		# Get counts by processing status (separate query for performance)
-		from sqlalchemy import func
 		counts_result = await db.execute(
 			select(Photo.processing_status, func.count(Photo.id))
-			.where(Photo.owner_id == str(current_user.id))
+			.where(Photo.owner_id == str(current_user.id), Photo.deleted == False)
 			.group_by(Photo.processing_status)
 		)
 		counts_by_status = dict(counts_result.fetchall())
@@ -476,7 +493,6 @@ async def list_photos(
 		query = base_query
 		if cursor:
 			try:
-				from datetime import datetime, timezone
 				# Handle both Z and +00:00 timezone formats, and fix URL decoding issues
 				cursor_fixed = cursor
 				if cursor.endswith('Z'):
@@ -508,7 +524,7 @@ async def list_photos(
 		# Generate next cursor
 		next_cursor = None
 		if has_more and photo_records:
-			next_cursor = photo_records[-1][0].uploaded_at.isoformat()
+			next_cursor = format_utc(photo_records[-1][0].uploaded_at)
 
 		# Fetch ratings for all photos in one query
 		photo_ids = [photo.id for photo, _, _ in photo_records]
@@ -578,10 +594,9 @@ async def get_photo_count(
 
 	try:
 		# Get counts by processing status
-		from sqlalchemy import func
 		counts_result = await db.execute(
 			select(Photo.processing_status, func.count(Photo.id))
-			.where(Photo.owner_id == str(current_user.id))
+			.where(Photo.owner_id == str(current_user.id), Photo.deleted == False)
 			.group_by(Photo.processing_status)
 		)
 		counts_by_status = dict(counts_result.fetchall())
@@ -609,6 +624,52 @@ async def get_photo_count(
 			detail="Failed to get photo counts"
 		)
 
+class PhotoStatusRequest(BaseModel):
+	"""Request model for batch photo status query."""
+	photo_ids: list[str]
+
+@router.post("/status")
+async def get_photos_status(
+	request: Request,
+	status_request: PhotoStatusRequest,
+	current_user: User = Depends(get_current_active_user),
+	db: AsyncSession = Depends(get_db)
+):
+	"""Get processing status for a list of photo IDs."""
+	await rate_limit_photo_operations(request, current_user.id)
+
+	try:
+		if not status_request.photo_ids:
+			return {"photos": []}
+
+		result = await db.execute(
+			select(Photo.id, Photo.processing_status, Photo.error, Photo.deleted)
+			.where(
+				Photo.owner_id == str(current_user.id),
+				Photo.id.in_(status_request.photo_ids)
+			)
+		)
+		photos = result.fetchall()
+
+		return {
+			"photos": [
+				{
+					"id": photo.id,
+					"processing_status": photo.processing_status,
+					"error": photo.error,
+					"deleted": photo.deleted
+				}
+				for photo in photos
+			]
+		}
+
+	except Exception as e:
+		logger.error(f"Error getting photo statuses for user {current_user.id}: {e}")
+		raise HTTPException(
+			status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+			detail="Failed to get photo statuses"
+		)
+
 @router.get("/{photo_id}")
 async def get_photo(
 	request: Request,
@@ -628,7 +689,8 @@ async def get_photo(
 				ST_Y(Photo.geometry).label('latitude')
 			).where(
 				Photo.id == photo_id,
-				Photo.owner_id == str(current_user.id)
+				Photo.owner_id == str(current_user.id),
+				Photo.deleted == False
 			)
 		)
 		photo_record = result.first()
@@ -690,7 +752,7 @@ async def delete_photo(
 	current_user: User = Depends(get_current_active_user),
 	db: AsyncSession = Depends(get_db)
 ):
-	"""Delete a photo and its files."""
+	"""Delete a photo's files and mark it as deleted."""
 	# Apply photo operations rate limiting
 	await rate_limit_photo_operations(request, current_user.id)
 
@@ -698,7 +760,8 @@ async def delete_photo(
 		result = await db.execute(
 			select(Photo).where(
 				Photo.id == photo_id,
-				Photo.owner_id == str(current_user.id)
+				Photo.owner_id == str(current_user.id),
+				Photo.deleted == False
 			)
 		)
 		photo = result.scalars().first()
@@ -717,8 +780,8 @@ async def delete_photo(
 				detail="Failed to delete photo files"
 			)
 
-		# Delete database record
-		await db.delete(photo)
+		# Soft delete - mark as deleted, keep the row
+		photo.deleted = True
 		await db.commit()
 
 		logger.info(f"Photo {photo_id} deleted by user {current_user.id}")
@@ -764,7 +827,7 @@ async def get_photo_share_metadata(
 					Photo.description,
 					ST_X(Photo.geometry).label('longitude'),
 					ST_Y(Photo.geometry).label('latitude')
-				).where(Photo.id == photo_id)
+				).where(Photo.id == photo_id, Photo.deleted == False)
 			)
 
 			photo_data = result.first()
@@ -804,7 +867,7 @@ async def get_photo_share_metadata(
 				"thumbnail_url": thumbnail_url,
 				"width": width,
 				"height": height,
-				"captured_at": photo_data.captured_at.isoformat() if hasattr(photo_data, 'captured_at') and photo_data.captured_at else None,
+				"captured_at": format_utc(photo_data.captured_at) if hasattr(photo_data, 'captured_at') else None,
 				"latitude": photo_data.latitude,
 				"longitude": photo_data.longitude
 			}

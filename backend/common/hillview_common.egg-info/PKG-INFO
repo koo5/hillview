@@ -1,0 +1,20 @@
+Metadata-Version: 2.4
+Name: hillview-common
+Version: 1.0.0
+Summary: Hillview shared utilities
+Requires-Python: >=3.12
+Requires-Dist: python-dotenv
+Requires-Dist: python-jose[cryptography]>=3.4.0
+Requires-Dist: cryptography
+Provides-Extra: db
+Requires-Dist: sqlalchemy==2.0.23; extra == "db"
+Requires-Dist: asyncpg==0.28.0; extra == "db"
+Requires-Dist: geoalchemy2==0.14.2; extra == "db"
+Requires-Dist: shapely==2.0.2; extra == "db"
+Requires-Dist: numpy<2; extra == "db"
+Provides-Extra: auth
+Requires-Dist: passlib[bcrypt]; extra == "auth"
+Requires-Dist: bcrypt<=4.0.1,>=3.2.0; extra == "auth"
+Requires-Dist: password-strength; extra == "auth"
+Provides-Extra: cdn
+Requires-Dist: boto3; extra == "cdn"

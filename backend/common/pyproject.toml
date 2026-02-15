@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hillview-common"
+version = "1.0.0"
+description = "Hillview shared utilities"
+requires-python = ">=3.12"
+
+# Core dependencies - needed by all consumers
+dependencies = [
+    "python-dotenv",
+    "python-jose[cryptography]>=3.4.0",
+    "cryptography",
+]
+
+[project.optional-dependencies]
+# Database access (models.py, database.py)
+db = [
+    "sqlalchemy==2.0.23",
+    "asyncpg==0.28.0",
+    "geoalchemy2==0.14.2",
+    "shapely==2.0.2",
+    "numpy<2",
+]
+
+# Password hashing (auth_utils.py, password_utils.py)
+auth = [
+    "passlib[bcrypt]",
+    "bcrypt>=3.2.0,<=4.0.1",
+    "password-strength",
+]
+
+# CDN upload (cdn_uploader.py)
+cdn = [
+    "boto3",
+]
+
+[tool.setuptools]
+py-modules = [
+    "auth_utils",
+    "cdn_uploader",
+    "config",
+    "database",
+    "dotenv_loader",
+    "env_init",
+    "file_utils",
+    "jwt_utils",
+    "models",
+    "password_utils",
+    "security_utils",
+    "SecurityExceptions",
+    "utc",
+]

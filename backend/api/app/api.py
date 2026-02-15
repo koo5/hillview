@@ -45,6 +45,7 @@ from fastapi import FastAPI, HTTPException, status, Request, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
 from starlette.middleware.base import BaseHTTPMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -299,6 +300,27 @@ app.add_middleware(ReverseProxyMiddleware)
 
 
 # Add exception handlers
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+	"""Log Pydantic validation errors (422) with full details."""
+	from fastapi.encoders import jsonable_encoder
+	errors = exc.errors()
+	log.error(f"Validation error on {request.method} {request.url.path}")
+	log.error(f"Validation errors: {errors}")
+	# Also log the body if available (for debugging)
+	try:
+		body = await request.body()
+		if body:
+			log.error(f"Request body: {body[:2000].decode('utf-8', errors='replace')}")
+	except Exception:
+		pass
+	# Return standard FastAPI validation error response (use jsonable_encoder to handle non-serializable types)
+	return JSONResponse(
+		status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+		content={"detail": jsonable_encoder(errors)}
+	)
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
 	import traceback
@@ -366,6 +388,10 @@ import contact_routes
 
 app.include_router(contact_routes.router)
 
+import worker_routes
+
+app.include_router(worker_routes.router)
+
 
 # Database migration function
 def run_migrations():
@@ -424,7 +450,6 @@ async def clear_database():
 		delete_summary = await auth.delete_users_by_usernames(db, all_usernames)
 
 		# Clear any remaining orphaned photos (photos without owners)
-		from sqlalchemy import select
 		from common.models import Photo
 		from photos import delete_all_user_photo_files
 

@@ -14,18 +14,27 @@ class PhotoUploadManager(private val context: Context) {
         // in future, use PhotoUploadForeground here
     }
 
-    fun startAutomaticUpload() {
+    fun startAutomaticUpload(triggerSource: String = "automatic") {
         // Trigger the upload worker immediately
         val workManager = WorkManager.getInstance(context)
         val prefs = context.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
         val autoUploadEnabled = prefs.getBoolean("auto_upload_enabled", false)
+        val wifiOnly = prefs.getBoolean("wifi_only", true)
 
         if (autoUploadEnabled) {
-            Log.d(TAG, "🢄📤 workManager.enqueue(workRequest)")
+            // Manual retry button bypasses wifi-only constraint
+            val effectiveWifiOnly = if (triggerSource == "retry_button") false else wifiOnly
+            Log.d(TAG, "🢄📤 workManager.enqueue(workRequest) with wifiOnly=$effectiveWifiOnly, trigger=$triggerSource")
+            val networkType = if (effectiveWifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED
+            val constraints = Constraints.Builder()
+                .setRequiredNetworkType(networkType)
+                .build()
+
             val workRequest = OneTimeWorkRequestBuilder<PhotoUploadWorker>()
+                .setConstraints(constraints)
                 .setInputData(
                     Data.Builder()
-                        .putString("trigger_source", "automatic")
+                        .putString("trigger_source", triggerSource)
                         .build()
                 )
                 .build()
@@ -37,16 +46,17 @@ class PhotoUploadManager(private val context: Context) {
 
 
     // todo: call this on initialization or something?
-    fun scheduleUploadWorker(workManager: WorkManager, enabled: Boolean) {
-        Log.i(TAG, "📤 [scheduleUploadWorker] CALLED with enabled: $enabled")
+    fun scheduleUploadWorker(workManager: WorkManager, enabled: Boolean, wifiOnly: Boolean = true) {
+        Log.i(TAG, "📤 [scheduleUploadWorker] CALLED with enabled: $enabled, wifiOnly: $wifiOnly")
 
         try {
+            val networkType = if (wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED
             val constraints = Constraints.Builder()
-                .setRequiredNetworkType(NetworkType.CONNECTED)
+                .setRequiredNetworkType(networkType)
                 .setRequiresBatteryNotLow(true)
                 .build()
 
-            Log.d(TAG, "📤 [scheduleUploadWorker] Constraints built - NetworkType.CONNECTED, RequiresBatteryNotLow=true")
+            Log.d(TAG, "📤 [scheduleUploadWorker] Constraints built - NetworkType=${if (wifiOnly) "UNMETERED" else "CONNECTED"}, RequiresBatteryNotLow=true")
 
             val uploadWorkRequest = PeriodicWorkRequestBuilder<PhotoUploadWorker>(
                 150, TimeUnit.MINUTES

@@ -1,4 +1,4 @@
-import {photosInArea, photosInRange, spatialState} from './mapState';
+import {photosInArea, photosInRange, spatialState, picks} from './mapState';
 import {sourceLoadingStatus, sources} from './data.svelte';
 import {get} from 'svelte/store';
 import {getCurrentToken} from './auth.svelte';
@@ -125,7 +125,7 @@ class SimplePhotoWorker {
             case 'sourceLoadingStatus':
                 sourceLoadingStatus.update(status => ({
                     ...status,
-                    [message.sourceId]: {
+                    [message.source_id]: {
                         is_loading: message.is_loading,
                         progress: message.progress,
                         error: message.error
@@ -237,9 +237,23 @@ class SimplePhotoWorker {
     }
 
     private setupReactivity(): void {
+		picks.subscribe((picksSet) => {
+			if (!this.isInitialized) return;
+			// Notify worker of pick changes (convert Set to Array for serialization)
+			this.sendMessage('picksUpdated', {
+				picks: Array.from(picksSet)
+			});
+		});
         // React to spatial changes - triggers area updates with hysteresis
         spatialState.subscribe((spatial) => {
-            if (!this.isInitialized || !spatial.bounds) return;
+            if (!this.isInitialized) return;
+
+            // Reset lastBounds when bounds become null (e.g., map unmounted)
+            // so next bounds update is treated as fresh
+            if (!spatial.bounds) {
+                this.lastBounds = null;
+                return;
+            }
 
             // Skip update if bounds haven't changed significantly (hysteresis)
 			// TODO: we could skip area load, but we can't skip range filter

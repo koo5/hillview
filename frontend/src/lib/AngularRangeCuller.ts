@@ -9,6 +9,7 @@
 
 import { calculateDistance } from './workerUtils';
 import { normalizeBearing } from './utils/bearingUtils';
+import type { PhotoId } from './photoWorkerTypes';
 
 
 export class AngularRangeCuller {
@@ -19,21 +20,54 @@ export class AngularRangeCuller {
 
     /**
      * Cull photos for uniform angular coverage around center point
+     *
+     * @param picks - Set of photo IDs that must always be included (e.g., currently selected photo)
      */
     cullPhotosInRange<T extends { bearing: number; coord: { lat: number; lng: number }; id: string; uid: string }>(
         photosInArea: T[],
         center: { lat: number; lng: number },
         range: number,
-        maxPhotos: number
+        maxPhotos: number,
+        picks: Set<PhotoId> = new Set()
     ): T[] {
         if (photosInArea.length === 0 || maxPhotos <= 0) {
             return [];
         }
 
+        // First, extract picked photos that are in range - they are always included
+        // picks contains UIDs like "hillview-abc123"
+        const pickedPhotos: T[] = [];
+        const pickedUids = new Set<string>();
+
+        if (picks.size > 0) {
+            for (const photo of photosInArea) {
+                if (picks.has(photo.uid) && !pickedUids.has(photo.uid)) {
+                    const distance = calculateDistance(center.lat, center.lng, photo.coord.lat, photo.coord.lng);
+                    if (distance <= range) {
+                        pickedPhotos.push({
+                            ...photo,
+                            range_distance: distance
+                        } as T);
+                        pickedUids.add(photo.uid);
+                    }
+                }
+            }
+        }
+
+        // Calculate remaining slots after picks
+        const remainingSlots = maxPhotos - pickedPhotos.length;
+        if (remainingSlots <= 0) {
+            return pickedPhotos.slice(0, maxPhotos);
+        }
+
         // Create angular buckets and filter photos within range
+        // Exclude already picked photos
         const buckets: T[][] = new Array(this.ANGULAR_BUCKETS).fill(null).map(() => []);
 
         for (const photo of photosInArea) {
+            // Skip already picked photos
+            if (pickedUids.has(photo.uid)) continue;
+
             const distance = calculateDistance(center.lat, center.lng, photo.coord.lat, photo.coord.lng);
 
             if (distance <= range) {
@@ -49,16 +83,16 @@ export class AngularRangeCuller {
         let activeBuckets = buckets.filter(bucket => bucket.length > 0);
 
         if (activeBuckets.length === 0) {
-            return [];
+            return pickedPhotos; // Return just picked photos if no others in range
         }
 
         // Round-robin: outer loop = rounds, inner loop = buckets
-        const selectedPhotos: T[] = [];
+        const regularPhotos: T[] = [];
 
-        for (let round = 0; activeBuckets.length && selectedPhotos.length < maxPhotos; round++) {
+        for (let round = 0; activeBuckets.length && regularPhotos.length < remainingSlots; round++) {
             let bucketIndex = 0;
 
-            while (bucketIndex < activeBuckets.length && selectedPhotos.length < maxPhotos) {
+            while (bucketIndex < activeBuckets.length && regularPhotos.length < remainingSlots) {
                 // Remove exhausted bucket if no photo at this round
                 if (!activeBuckets[bucketIndex][round]) {
                     activeBuckets[bucketIndex] = activeBuckets[activeBuckets.length - 1];
@@ -66,15 +100,18 @@ export class AngularRangeCuller {
                     // Don't increment bucketIndex - check the swapped bucket
                 } else {
                     // Take photo and move to next bucket
-                    selectedPhotos.push(activeBuckets[bucketIndex][round]);
+                    regularPhotos.push(activeBuckets[bucketIndex][round]);
                     bucketIndex++;
                 }
             }
         }
 
-        //console.log(`AngularRangeCuller: Culled ${photosInArea.length} area photos → ${selectedPhotos.length} range photos with angular coverage (${activeBuckets.length}/${this.ANGULAR_BUCKETS} angular sectors covered)`);
+        // Combine picked photos first, then regular photos
+        const result = [...pickedPhotos, ...regularPhotos];
 
-        return selectedPhotos;
+        //console.log(`AngularRangeCuller: ${pickedPhotos.length} picks + ${regularPhotos.length} culled = ${result.length} range photos`);
+
+        return result;
     }
 
 

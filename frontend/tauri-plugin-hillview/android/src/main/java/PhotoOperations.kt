@@ -19,6 +19,11 @@ class PhotoOperations(private val context: Context) {
     private val streamLoader = StreamPhotoLoader()
     private val sourceCache = mutableMapOf<String, SourceCache>()
     private var maxPhotosInArea: Int = 200
+    private var picks: Set<String> = emptySet()
+
+    fun setPicks(newPicks: Set<String>) {
+        picks = newPicks
+    }
 
     /**
      * Source cache for each source - matches TypeScript interface
@@ -72,13 +77,21 @@ class PhotoOperations(private val context: Context) {
             try {
                 Log.d(TAG, "PhotoOperations: Processing source ${source.id} of type ${source.type}")
 
+                // Extract picks for this specific source
+                // picks contain UIDs like "hillview-abc123", we need to extract "abc123" for the backend
+                val sourcePrefix = "${source.id}-"
+                val sourcePickIds = picks
+                    .filter { it.startsWith(sourcePrefix) }
+                    .map { it.substring(sourcePrefix.length) }
+                    .toSet()
+
                 val photos = when (source.type) {
                     "device" -> {
-                        deviceLoader.loadPhotos(source, null, maxPhotosInArea, shouldAbort)
+                        deviceLoader.loadPhotos(source, null, maxPhotosInArea, shouldAbort, sourcePickIds)
                     }
                     "stream" -> {
                         val authToken = authTokenProvider()
-                        streamLoader.loadPhotos(source, null, maxPhotosInArea, authToken, shouldAbort)
+                        streamLoader.loadPhotos(source, null, maxPhotosInArea, authToken, shouldAbort, sourcePickIds)
                     }
                     else -> {
                         Log.w(TAG, "PhotoOperations: Unknown source type: ${source.type}")
@@ -138,19 +151,27 @@ class PhotoOperations(private val context: Context) {
                 val canUseCache = cache != null && cache.isComplete &&
                     cache.cachedBounds?.let { isAreaWithinCachedBounds(bounds, it) } == true
 
+                // Extract picks for this specific source
+                // picks contain UIDs like "hillview-abc123", we need to extract "abc123" for the backend
+                val sourcePrefix = "${source.id}-"
+                val sourcePickIds = picks
+                    .filter { it.startsWith(sourcePrefix) }
+                    .map { it.substring(sourcePrefix.length) }
+                    .toSet()
+
                 val photos = if (canUseCache) {
                     Log.d(TAG, "PhotoOperations: Using cached data for ${source.id}")
                     filterPhotosByArea(cache!!.photos, bounds)
                 } else {
-                    Log.d(TAG, "PhotoOperations: No cache for ${source.id}, performing bounded load")
+                    Log.d(TAG, "PhotoOperations: No cache for ${source.id}, performing bounded load (picks: ${sourcePickIds.size})")
 
                     when (source.type) {
                         "device" -> {
-                            deviceLoader.loadPhotos(source, bounds, maxPhotosInArea, shouldAbort)
+                            deviceLoader.loadPhotos(source, bounds, maxPhotosInArea, shouldAbort, sourcePickIds)
                         }
                         "stream" -> {
                             val authToken = authTokenProvider()
-                            streamLoader.loadPhotos(source, bounds, maxPhotosInArea, authToken, shouldAbort)
+                            streamLoader.loadPhotos(source, bounds, maxPhotosInArea, authToken, shouldAbort, sourcePickIds)
                         }
                         else -> {
                             Log.w(TAG, "PhotoOperations: Unknown source type: ${source.type}")

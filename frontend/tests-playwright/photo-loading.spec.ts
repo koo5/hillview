@@ -1,8 +1,32 @@
 import { test, expect } from '@playwright/test';
 import { configureSources } from './helpers/sourceHelpers';
+import { setupDefaultMockMapillaryData, clearMockMapillaryData } from './helpers/mapillaryMocks';
+
+// Helper function to set map location
+async function setMapLocation(page: any, lat: number, lng: number, zoom: number = 18) {
+  await page.evaluate(([lat, lng, zoom]: [number, number, number]) => {
+    const maps = [
+      (window as any).map,
+      (window as any).leafletMap,
+      (document.querySelector('.leaflet-container') as any)?._leaflet_map
+    ];
+
+    for (const mapComponent of maps) {
+      if (mapComponent && mapComponent.setView) {
+        mapComponent.setView([lat, lng], zoom);
+        return;
+      }
+    }
+  }, [lat, lng, zoom]);
+
+  await page.waitForTimeout(1000);
+}
 
 test.describe('Photo Loading and Display', () => {
   test.beforeEach(async ({ page }) => {
+    // Clear any existing mock data first
+    await clearMockMapillaryData(page);
+
     // Navigate to the main page
     await page.goto('/');
 
@@ -18,17 +42,22 @@ test.describe('Photo Loading and Display', () => {
     await page.waitForSelector('.leaflet-container', { timeout: 10000 });
     await page.waitForSelector('.source-buttons-container', { timeout: 5000 });
 
-    // Enable available sources to ensure photos are loaded
+    // Set up mock Mapillary data (default location is Prague: 50.0755, 14.4378)
+    await setupDefaultMockMapillaryData(page);
+
+    // Navigate map to where mock data is located
+    await setMapLocation(page, 50.0755, 14.4378, 16);
+
+    // Enable Mapillary source to load the mock data
     await configureSources(page, {
-      'mapillary': true,
-      'hillview': true
+      'mapillary': true
     });
 
     // Wait for sources to load and photos to appear
     await page.waitForTimeout(5000);
 
-    // Look for Leaflet markers on the map
-    const leafletMarkers = page.locator('.leaflet-marker-pane .leaflet-marker-icon');
+    // Look for photo markers on the map
+    const leafletMarkers = page.locator('.optimized-photo-marker:visible');
 
     // Count the markers
     const markerCount = await leafletMarkers.count();

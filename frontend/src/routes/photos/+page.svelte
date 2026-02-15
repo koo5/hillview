@@ -7,8 +7,7 @@
 	import {onMount} from 'svelte';
 	import {get} from 'svelte/store';
 	import {myGoto} from '$lib/navigation.svelte';
-	import {constructPhotoMapUrl} from '$lib/urlUtils';
-	import {Trash2, Map, Settings, ThumbsUp, ThumbsDown, Upload} from 'lucide-svelte';
+	import {Trash2, Map, Settings, ThumbsUp, ThumbsDown, Upload, RefreshCw, MoreVertical} from 'lucide-svelte';
 	import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';
 	import StandardBody from '$lib/components/StandardBody.svelte';
 	import Spinner from '$lib/components/Spinner.svelte';
@@ -22,6 +21,7 @@
 	import {http, handleApiError, TokenExpiredError} from '$lib/http';
 	import {TAURI} from '$lib/tauri';
 	import {navigateWithHistory} from '$lib/navigation.svelte';
+	import {updateKotlinPhotoStatuses} from '$lib/photoStatusSync';
 	import UploadSettingsComponent from '$lib/components/UploadSettings.svelte';
 	import {invoke} from "@tauri-apps/api/core";
 	import LoadMoreButton from "$lib/components/LoadMoreButton.svelte";
@@ -29,6 +29,10 @@
 	import {photoLicense} from '$lib/data.svelte';
 	import RetryUploadsButton from "$lib/components/RetryUploadsButton.svelte";
 	import DevicePhotoStats from "$lib/components/DevicePhotoStats.svelte";
+	import PhotoItem from '$lib/components/PhotoItem.svelte';
+	import { showDropdownMenu, type DropdownMenuItem } from '$lib/components/dropdown-menu/dropdownMenu.svelte';
+	import { getAnonymizationMenuItemsForServerPhoto } from '$lib/photoAnonymizationMenu';
+	import DropdownMenu from '$lib/components/dropdown-menu/DropdownMenu.svelte';
 
 	let photos: UserPhoto[] = [];
 	let isLoading = true;
@@ -116,15 +120,16 @@
 	}
 
 	async function fetchPhotos(reset = false) {
-		isLoading = true;
-		try {
-			if (reset) {
-				photos = [];
-				nextCursor = null;
-				hasMore = false;
-				totalCount = 0;
-			}
+		// Only show full loading state on reset/initial load, not during pagination
+		if (reset) {
+			isLoading = true;
+			photos = [];
+			nextCursor = null;
+			hasMore = false;
+			totalCount = 0;
+		}
 
+		try {
 			const url = nextCursor ? `/photos/?cursor=${encodeURIComponent(nextCursor)}` : '/photos/';
 			const response = await http.get(url);
 
@@ -144,6 +149,18 @@
 			nextCursor = data.pagination?.next_cursor || null;
 			hasMore = data.pagination?.has_more || false;
 			totalCount = data.counts?.total || 0;
+
+			// Update Kotlin local DB with server statuses
+			if (TAURI && newPhotos.length > 0) {
+				const statuses = newPhotos.map((p: UserPhoto) => ({
+					id: p.id,
+					processing_status: p.processing_status,
+					error: p.error || null
+				}));
+				updateKotlinPhotoStatuses(statuses).catch(err =>
+					console.error('Failed to sync photo statuses to Kotlin:', err)
+				);
+			}
 
 		} catch (err) {
 			console.error('🢄Error fetching photos:', err);
@@ -226,16 +243,6 @@
 	}
 
 
-	function formatDate(dateString: string) {
-		const date = new Date(dateString);
-		return date.toLocaleString();
-	}
-
-	function viewOnMap(photo: UserPhoto) {
-		if (photo.latitude && photo.longitude) {
-			myGoto(constructPhotoMapUrl(photo));
-		}
-	}
 
 	function goToLogin() {
 		navigateWithHistory('/login');
@@ -328,6 +335,16 @@
 			await setPhotoRating(photoId, rating);
 		}
 	}
+
+	function showPhotoMenu(event: MouseEvent, photo: UserPhoto) {
+		const button = event.currentTarget as HTMLButtonElement;
+		const items: DropdownMenuItem[] = getAnonymizationMenuItemsForServerPhoto(photo.id);
+
+		showDropdownMenu(items, button, {
+			placement: 'above-right',
+			testId: 'my-photo-menu'
+		});
+	}
 </script>
 
 <StandardHeaderWithAlert
@@ -366,7 +383,21 @@
 		</div>
 	{/if}
 
-	<DevicePhotoStats addLogEntry={addLogEntry} onRefresh={() => fetchPhotos(true)} />
+	<DevicePhotoStats addLogEntry={addLogEntry} />
+
+	{#if TAURI}
+		<div class="refresh-section">
+			<button
+				class="action-button primary"
+				on:click={() => fetchPhotos(true)}
+				disabled={isLoading}
+				data-testid="refresh-photos-button"
+			>
+				<RefreshCw size={16} class={isLoading ? 'spinning' : ''} />
+				{isLoading ? 'Loading...' : 'Refresh Photos'}
+			</button>
+		</div>
+	{/if}
 
 	{#if !TAURI}
 		<div class="photo-management-section" data-testid="photo-management-section">
@@ -477,33 +508,8 @@
 		{:else}
 			<div class="grid" data-testid="photos-list">
 				{#each photos as photo (photo.id)}
-					<div class="photo-card" data-testid="photo-card" data-photo-id={photo.id}
-						 data-filename={photo.original_filename}>
-
-						{#if $app.debug_enabled}
-							<details>
-								<summary>[debug]</summary>
-								<pre>{JSON.stringify(photo, null, 2)}</pre>
-							</details>
-						{/if}
-
-						<button class="photo-image" on:click={() => viewOnMap(photo)} type="button">
-							<img
-								src={photo.sizes?.['320']?.url}
-								alt={photo.description || photo.original_filename}
-								data-testid="photo-thumbnail"
-							/>
-						</button>
-						<div class="photo-info">
-							<h3 data-testid="photo-filename">{photo.original_filename}</h3>
-							{#if photo.description}
-								<p class="description">{photo.description}</p>
-							{/if}
-							<p class="meta">
-								Uploaded: {photo.uploaded_at ? formatDate(photo.uploaded_at) : 'Unknown'}</p>
-							{#if photo.captured_at}
-								<p class="meta">Captured: {formatDate(photo.captured_at)}</p>
-							{/if}
+					<PhotoItem {photo} variant="card">
+						<svelte:fragment slot="actions">
 							<div class="photo-actions">
 								<button
 									class="action-button rating {photo.user_rating === 'thumbs_up' ? 'active' : ''}"
@@ -532,10 +538,20 @@
 									<Trash2 size={16}/>
 									Delete
 								</button>
+								{#if TAURI}
+									<button
+										class="action-button menu-button"
+										on:click={(e) => showPhotoMenu(e, photo)}
+										title="Anonymization options"
+										data-testid="photo-menu-button"
+									>
+										<MoreVertical size={16}/>
+									</button>
+								{/if}
 							</div>
 							<RetryUploadsButton {photo} {addLogEntry} />
-						</div>
-					</div>
+						</svelte:fragment>
+					</PhotoItem>
 				{/each}
 			</div>
 
@@ -547,6 +563,8 @@
 		{/if}
 	</div>
 </StandardBody>
+
+<DropdownMenu />
 
 <style>
 	.photos-container {
@@ -747,74 +765,14 @@
 		margin-top: 16px;
 	}
 
-	.photo-card {
-		border: 1px solid #eee;
-		border-radius: 8px;
-		overflow: hidden;
-		transition: transform 0.3s, box-shadow 0.3s;
-	}
-
-	.photo-card:hover {
-		transform: translateY(-4px);
-		box-shadow: 0 6px 12px rgba(0, 0, 0, 0.1);
-	}
-
-	.photo-image {
-		height: 200px;
-		overflow: hidden;
-		width: 100%;
-		padding: 0;
-		border: none;
-		background: none;
-		cursor: pointer;
-		display: block;
-	}
-
-	.photo-image img {
-		width: 100%;
-		height: 100%;
-		object-fit: cover;
-		transition: transform 0.3s;
-	}
-
-	.photo-card:hover .photo-image img {
-		transform: scale(1.05);
-	}
-
-	.photo-info {
-		padding: 16px;
-	}
-
-	.photo-info h3 {
-		margin: 0 0 8px 0;
-		font-size: 18px;
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-
-	.description {
-		color: #555;
-		margin: 0 0 12px 0;
-		display: -webkit-box;
-		line-clamp: 2;
-		-webkit-line-clamp: 2;
-		-webkit-box-orient: vertical;
-		overflow: hidden;
-	}
-
-	.meta {
-		font-size: 14px;
-		color: #777;
-		margin: 4px 0;
-	}
-
 	.photo-actions {
 		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 8px;
+		gap: 4px;
 		margin-top: 12px;
+	}
+
+	.menu-button {
+		margin-left: auto;
 	}
 
 	.rating-count {
@@ -896,5 +854,21 @@
 
 	.login-link:hover {
 		color: #0d47a1;
+	}
+
+	.refresh-section {
+		display: flex;
+		justify-content: center;
+		margin-top: 16px;
+		margin-bottom: 16px;
+	}
+
+	:global(.spinning) {
+		animation: spin 1s linear infinite;
+	}
+
+	@keyframes spin {
+		from { transform: rotate(0deg); }
+		to { transform: rotate(360deg); }
 	}
 </style>

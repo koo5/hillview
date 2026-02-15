@@ -90,7 +90,7 @@ def create_test_image(width: int = 100, height: int = 100, color: tuple = (255, 
 
 async def create_test_photos(test_users: list, auth_tokens: dict):
 	"""Create test photos by uploading real images using the secure upload workflow."""
-	from .secure_upload_utils import SecureUploadClient
+	from .secure_upload_utils import SecureUploadClient, generate_test_captured_at
 
 	print("Creating test photos for filtering tests using secure upload workflow...")
 
@@ -125,8 +125,10 @@ async def create_test_photos(test_users: list, auth_tokens: dict):
 		client_keys = upload_client.generate_client_keys()
 		await upload_client.register_client_key(token, client_keys)
 
+		# Test images need fake captured_at since they don't have real EXIF
 		auth_data = await upload_client.authorize_upload_with_params(
-			token, filename, len(image_data), lat, lon, description, is_public, file_data=image_data
+			token, filename, len(image_data), lat, lon, description, is_public, file_data=image_data,
+			captured_at=generate_test_captured_at()
 		)
 
 		result = await upload_client.upload_to_worker(image_data, auth_data, client_keys, filename)
@@ -176,20 +178,36 @@ def wait_for_photo_processing(photo_id: str, token: str, timeout: int = 30) -> d
 	raise Exception(f"Timeout waiting for photo {photo_id} processing after {timeout}s")
 
 
-async def upload_test_image(filename: str, image_data: bytes, description: str, token: str, is_public: bool = True, timeout: float = 60.0) -> str:
-	"""Upload a test image using secure upload workflow and return the photo ID."""
-	from .secure_upload_utils import SecureUploadClient
+async def upload_test_image(filename: str, image_data: bytes, description: str, token: str, is_public: bool = True, timeout: float = 60.0, upload_client=None, client_keys=None) -> str:
+	"""Upload a test image using secure upload workflow and return the photo ID.
 
-	upload_client = SecureUploadClient(api_url=API_URL)
+	Args:
+		filename: Name of the file
+		image_data: Image bytes
+		description: Photo description
+		token: Auth token
+		is_public: Whether photo is public
+		timeout: Upload timeout in seconds
+		upload_client: Optional pre-configured SecureUploadClient (for parallel uploads)
+		client_keys: Optional pre-registered client keys (for parallel uploads)
+
+	For parallel uploads, pass upload_client and client_keys to avoid registering
+	a new key for each upload, which overloads the API.
+	"""
+	from .secure_upload_utils import SecureUploadClient, generate_test_captured_at
+
+	# Use provided client or create new one
+	if upload_client is None:
+		upload_client = SecureUploadClient(api_url=API_URL)
 
 	try:
-		# Generate client keys
-		client_keys = upload_client.generate_client_keys()
-
-		# Register client key
-		await upload_client.register_client_key(token, client_keys)
+		# Generate and register keys only if not provided
+		if client_keys is None:
+			client_keys = upload_client.generate_client_keys()
+			await upload_client.register_client_key(token, client_keys)
 
 		# Authorize upload with default coordinates
+		# Test images need fake captured_at since they don't have real EXIF
 		auth_data = await upload_client.authorize_upload_with_params(
 			token,
 			filename,
@@ -198,7 +216,8 @@ async def upload_test_image(filename: str, image_data: bytes, description: str, 
 			14.4378,  # Default Prague longitude
 			description,
 			is_public,
-			file_data=image_data  # Pass the actual file data for MD5 calculation
+			file_data=image_data,  # Pass the actual file data for MD5 calculation
+			captured_at=generate_test_captured_at()
 		)
 
 		# Upload to worker

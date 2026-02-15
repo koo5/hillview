@@ -151,8 +151,6 @@
 					<PhotoItem
 						{photo}
 						variant="card"
-						showDates={true}
-						showTime={false}
 						showDescription={true}
 					/>
 				{/each}
