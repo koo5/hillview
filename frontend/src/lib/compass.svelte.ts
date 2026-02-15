@@ -101,6 +101,8 @@ let permissionGranted = false;
 
 // Track active listeners
 let orientationHandler: ((event: DeviceOrientationEvent) => void) | null = null;
+let absoluteOrientationListener: ((event: DeviceOrientationEvent) => void) | null = null;
+let regularOrientationListener: ((event: DeviceOrientationEvent) => void) | null = null;
 let tauriSensorListener: PluginListener | null = null;
 
 // Accuracy polling
@@ -131,6 +133,52 @@ function scheduleCompassUpdate(data: CompassData) {
 // Helper to normalize heading to 0-360 range
 function normalizeHeading(heading: number): number {
     return ((heading % 360) + 360) % 360;
+}
+
+/**
+ * Compute a tilt-compensated compass heading from DeviceOrientation Euler angles.
+ *
+ * The raw `alpha` value is only a reliable compass bearing when the device is flat.
+ * This function builds the ZXY rotation matrix from (alpha, beta, gamma), projects
+ * the Earth-frame north vector onto the device screen plane, and returns a heading
+ * in [0, 360) degrees that stays correct regardless of device tilt.
+ *
+ * This is the web equivalent of the Kotlin code that calls
+ * SensorManager.remapCoordinateSystem + SensorManager.getOrientation.
+ */
+function computeTiltCompensatedHeading(alpha: number, beta: number, gamma: number): number {
+    const degToRad = Math.PI / 180;
+    const _x = beta * degToRad;   // beta  -> rotation around X
+    const _y = gamma * degToRad;  // gamma -> rotation around Y
+    const _z = alpha * degToRad;  // alpha -> rotation around Z
+
+    const cX = Math.cos(_x);
+    const cY = Math.cos(_y);
+    const cZ = Math.cos(_z);
+    const sX = Math.sin(_x);
+    const sY = Math.sin(_y);
+    const sZ = Math.sin(_z);
+
+    // Project the north vector onto the device screen plane.
+    // Vx, Vy are components of the Earth-frame north direction expressed
+    // in the device X/Y axes (derived from the ZXY rotation matrix).
+    const Vx = -cZ * sY - sZ * sX * cY;
+    const Vy = -sZ * sY + cZ * sX * cY;
+
+    let compassHeading = Math.atan2(Vx, Vy); // radians, (-PI, PI]
+
+    // Convert to [0, 2*PI)
+    if (compassHeading > 0) {
+        compassHeading = 2 * Math.PI - compassHeading;
+    } else {
+        compassHeading = Math.abs(compassHeading);
+    }
+
+    // Apply screen orientation correction so the heading tracks
+    // the visual "top of screen", not the physical top of device.
+    const screenAngle = window.screen?.orientation?.angle ?? 0;
+
+    return normalizeHeading(compassHeading * (180 / Math.PI) + screenAngle);
 }
 
 // Log compass availability once
@@ -213,52 +261,79 @@ async function startWebCompass(): Promise<boolean> {
     return new Promise((resolve) => {
         let hasResolved = false;
 
+        let usingAbsolute = false;
+
         orientationHandler = (event: DeviceOrientationEvent) => {
+            const isAbsolute = event.absolute === true;
+
+            // Once we receive an absolute event, drop the regular listener
+            // to avoid duplicate updates with different north references
+            // (absolute = true north, regular = magnetic north).
+            if (isAbsolute && !usingAbsolute) {
+                usingAbsolute = true;
+                if (regularOrientationListener) {
+                    console.log('🢄🌐 Got deviceorientationabsolute, dropping deviceorientation listener');
+                    window.removeEventListener('deviceorientation', regularOrientationListener);
+                    regularOrientationListener = null;
+                }
+            }
+
+            // If we already have absolute events, ignore regular ones
+            if (usingAbsolute && !isAbsolute) return;
+
             if (!hasResolved) {
                 hasResolved = true;
-                console.log('🢄✅ DeviceOrientation API is working');
+                console.log('🢄✅ DeviceOrientation API is working (absolute:', isAbsolute, ')');
                 resolve(true);
             }
 
-            // Extract compass data
-            const magneticHeading = event.webkitCompassHeading ?? event.alpha;
+            // Extract compass data with tilt compensation
+            let magneticHeading: number | null = null;
+
+            if (event.webkitCompassHeading != null) {
+                // iOS provides a tilt-compensated compass heading directly
+                magneticHeading = event.webkitCompassHeading;
+            } else if (event.alpha != null && event.beta != null && event.gamma != null) {
+                // Compute tilt-compensated heading from Euler angles (like Kotlin's
+                // remapCoordinateSystem + getOrientation pipeline)
+                magneticHeading = computeTiltCompensatedHeading(event.alpha, event.beta, event.gamma);
+            }
+
             const accuracy = event.webkitCompassAccuracy ?? null;
 
-            // Some browsers provide true heading directly
-            const trueHeading = event.compassHeading ?? null;
+            // deviceorientationabsolute gives true north directly;
+            // regular deviceorientation gives magnetic north.
+            const heading = magneticHeading !== null ? normalizeHeading(magneticHeading) : null;
 
             const data = {
-                magnetic_heading: magneticHeading !== null ? normalizeHeading(magneticHeading) : null,
-                true_heading: trueHeading !== null ? normalizeHeading(trueHeading) : null,
+                magnetic_heading: isAbsolute ? null : heading,
+                true_heading: isAbsolute ? heading : (event.compassHeading != null ? normalizeHeading(event.compassHeading) : null),
                 accuracy_level: accuracy,
                 timestamp: Date.now(),
-                source: 'web'
+                source: isAbsolute ? 'web-absolute' : 'web-magnetic'
             };
 
             scheduleCompassUpdate(data);
             lastSensorUpdate.set(Date.now());
 
-            // Log occasional updates
-            if (false) {
-                console.log('🢄🌐 Web Compass update:', JSON.stringify({
-                    source: event.source || 'deviceorientation',
-                    magneticHeading: data.magnetic_heading?.toFixed(1) + '°',
-                    trueHeading: data.true_heading?.toFixed(1) + '°',
-                    accuracy_level: data.accuracy_level,
-                    alpha: event.alpha?.toFixed(1) + '°',
-                    beta: event.beta?.toFixed(1) + '°',
-                    gamma: event.gamma?.toFixed(1) + '°',
-                    absolute: event.absolute
-                }));
-            }
+            console.log('🢄🌐 Web Compass update:', JSON.stringify({
+                heading: heading?.toFixed(1) + '°',
+                absolute: isAbsolute,
+                accuracy_level: data.accuracy_level,
+                rawAlpha: event.alpha?.toFixed(1) + '°',
+                beta: event.beta?.toFixed(1) + '°',
+                gamma: event.gamma?.toFixed(1) + '°',
+                screenAngle: window.screen?.orientation?.angle ?? 0
+            }));
         };
 
-        // Try absolute orientation first
+        // Register both; once absolute fires, the regular one gets dropped.
         if ('ondeviceorientationabsolute' in window) {
-            window.addEventListener('deviceorientationabsolute', (e) => {orientationHandler?.({...e, source: 'ondeviceorientationabsolute'})});
+            absoluteOrientationListener = (e) => orientationHandler?.(e);
+            window.addEventListener('deviceorientationabsolute', absoluteOrientationListener);
         }
-        // Fall back to regular orientation
-        window.addEventListener('deviceorientation', (e) => {orientationHandler?.({...e, source: 'deviceorientation'})});
+        regularOrientationListener = (e) => orientationHandler?.(e);
+        window.addEventListener('deviceorientation', regularOrientationListener);
 
         // Set a timeout to check if we received any events
         setTimeout(() => {
@@ -322,13 +397,15 @@ async function stopCompassInternal() {
     // }
 
     // Stop DeviceOrientation if active
-    if (orientationHandler) {
-        window.removeEventListener('deviceorientation', orientationHandler);
-        if ('ondeviceorientationabsolute' in window) {
-            window.removeEventListener('deviceorientationabsolute', orientationHandler as any);
-        }
-        orientationHandler = null;
+    if (regularOrientationListener) {
+        window.removeEventListener('deviceorientation', regularOrientationListener);
+        regularOrientationListener = null;
     }
+    if (absoluteOrientationListener) {
+        window.removeEventListener('deviceorientationabsolute', absoluteOrientationListener as any);
+        absoluteOrientationListener = null;
+    }
+    orientationHandler = null;
 
     // Reset stores
     compassData.set({

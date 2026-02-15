@@ -8,10 +8,13 @@
 	import {app} from "$lib/data.svelte";
 	import RetryUploadsButton from "$lib/components/RetryUploadsButton.svelte";
 	import DevicePhotoStats from "$lib/components/DevicePhotoStats.svelte";
-	import {fetchDevicePhotoStats} from "$lib/devicePhotoStats";
+	import {fetchPhotoStats, getPlatformName} from "$lib/photoStatsAdapter";
 	import { showDropdownMenu, type DropdownMenuItem } from '$lib/components/dropdown-menu/dropdownMenu.svelte';
 	import { getAnonymizationMenuItems } from '$lib/photoAnonymizationMenu';
 	import DropdownMenu from '$lib/components/dropdown-menu/DropdownMenu.svelte';
+	import { BROWSER } from '$lib/tauri';
+	import { photoStorage, type BrowserPhoto } from '$lib/browser/photoStorage';
+	import { uploadManager } from '$lib/browser/uploadManager';
 
 	interface DevicePhoto {
 		id: string;
@@ -24,7 +27,7 @@
 		latitude: number;
 		longitude: number;
 		altitude: number;
-		bearing: number;
+		bearing: number | null;  // null when no bearing data available
 		accuracy: number;
 		width: number;
 		height: number;
@@ -32,6 +35,9 @@
 		uploaded_at: number;
 		retry_count: number;
 		last_upload_attempt: number;
+		// Browser-specific fields
+		blob?: Blob;
+		blobUrl?: string;
 	}
 
 	interface DevicePhotosResponse {
@@ -58,6 +64,33 @@
 		}, 10);
 	});
 
+	// Helper to adapt browser photo to device photo interface
+	function adaptBrowserPhoto(bp: BrowserPhoto): DevicePhoto {
+		return {
+			id: bp.id,
+			file_path: '', // Not applicable for browser
+			file_name: `photo_${bp.id.substring(0, 8)}.jpg`,
+			file_hash: '',
+			file_size: bp.blob.size,
+			captured_at: bp.captured_at,
+			created_at: bp.created_at,
+			latitude: bp.location.latitude,
+			longitude: bp.location.longitude,
+			altitude: 0, // Not stored in browser version
+			bearing: bp.location.bearing !== undefined && bp.location.bearing !== null ? bp.location.bearing : null,
+			accuracy: bp.location.accuracy,
+			width: 0, // Could extract if needed
+			height: 0,
+			upload_status: bp.uploaded ? 'completed' : 'pending',
+			uploaded_at: 0,
+			retry_count: bp.upload_attempts,
+			last_upload_attempt: 0,
+			// Store blob and create URL for display
+			blob: bp.blob,
+			blobUrl: URL.createObjectURL(bp.blob)
+		};
+	}
+
 	async function fetchDevicePhotos(page: number = 1, append: boolean = false) {
 		try {
 			if (append) {
@@ -66,10 +99,34 @@
 				isLoading = true;
 			}
 
-			const response = await invoke('plugin:hillview|get_device_photos', {
-				page,
-				page_size: pageSize
-			}) as DevicePhotosResponse;
+			let response: DevicePhotosResponse;
+
+			if (BROWSER) {
+				// Browser: Get from IndexedDB
+				const allPhotos = await photoStorage.getAll();
+				const adaptedPhotos = allPhotos.map(adaptBrowserPhoto);
+
+				// Simple pagination for browser
+				const startIdx = (page - 1) * pageSize;
+				const endIdx = startIdx + pageSize;
+				const pagedPhotos = adaptedPhotos.slice(startIdx, endIdx);
+
+				response = {
+					photos: pagedPhotos,
+					last_updated: Date.now(),
+					page: page,
+					page_size: pageSize,
+					total_count: adaptedPhotos.length,
+					total_pages: Math.ceil(adaptedPhotos.length / pageSize),
+					has_more: endIdx < adaptedPhotos.length
+				};
+			} else {
+				// Tauri: Existing invoke
+				response = await invoke('plugin:hillview|get_device_photos', {
+					page,
+					page_size: pageSize
+				}) as DevicePhotosResponse;
+			}
 
 			//console.log('🢄Device photos response:', JSON.stringify(response));
 
@@ -86,8 +143,8 @@
 			currentPage = response.page;
 			error = response.error || null;
 		} catch (err) {
-			console.error('🢄Error fetching device photos:', err);
-			error = `Failed to fetch device photos: ${err}`;
+			console.error('🢄Error fetching photos:', err);
+			error = `Failed to fetch photos: ${err}`;
 		} finally {
 			isLoading = false;
 			isLoadingMore = false;
@@ -97,7 +154,7 @@
 	async function refreshDevicePhotos() {
 		error = null;
 		currentPage = 1;
-		await fetchDevicePhotoStats();
+		await fetchPhotoStats();
 		await fetchDevicePhotos(1, false);
 	}
 
@@ -137,6 +194,13 @@
 		return new Date(timestamp).toLocaleTimeString();
 	}
 
+	function getPhotoUrl(photo: DevicePhoto): string {
+		if (BROWSER && photo.blobUrl) {
+			return photo.blobUrl;
+		}
+		return getDevicePhotoUrl(photo.file_path);
+	}
+
 	function getStatusColor(status: string): string {
 		switch (status) {
 			case 'completed': return '#10b981'; // green
@@ -169,7 +233,7 @@
 </script>
 
 <StandardHeaderWithAlert
-	title="Device Photos"
+	title="{getPlatformName()} Photos"
 	showMenuButton={true}
 	fallbackHref="/photos"
 />
@@ -245,7 +309,7 @@
 
 						<div class="photo-image">
 							<img
-								src={getDevicePhotoUrl(photo.file_path)}
+								src={getPhotoUrl(photo)}
 								alt={photo.file_name}
 								loading="lazy"
 								data-testid="photo-thumbnail"
@@ -302,7 +366,7 @@
 									</span>
 								</div>
 							{/if}
-							{#if photo.bearing !== 0}
+							{#if photo.bearing !== null}
 								<div class="detail-row">
 									<span class="detail-label">Bearing:</span>
 									<span class="detail-value">{photo.bearing.toFixed(1)}°</span>
@@ -320,10 +384,12 @@
 							{/if}
 						</div>
 
-						<div class="photo-path">
-							<span class="path-label">Path:</span>
-							<span class="path-value">{photo.file_path}</span>
-						</div>
+						{#if !BROWSER && photo.file_path}
+							<div class="photo-path">
+								<span class="path-label">Path:</span>
+								<span class="path-value">{photo.file_path}</span>
+							</div>
+						{/if}
 						<RetryUploadsButton {photo} />
 					</div>
 				{/each}

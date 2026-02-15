@@ -1,0 +1,507 @@
+// Browser-specific photo storage using IndexedDB
+// Provides persistent storage for photos captured in the browser
+// Integrates with existing capture queue and upload system
+
+import { writable, get } from 'svelte/store';
+import type { CaptureLocation } from './captureQueue';
+
+const DB_NAME = 'HillviewPhotoDB';
+const DB_VERSION = 1;
+const PHOTO_STORE = 'photos';
+const UPLOAD_QUEUE_STORE = 'uploadQueue';
+
+export interface StoredPhoto {
+    id: string;
+    blob: Blob;
+    metadata: {
+        location: CaptureLocation;
+        captured_at: number;
+        orientation_code: number; // EXIF orientation (1, 3, 6, 8)
+        mode: 'slow' | 'fast';
+    };
+    status: 'pending' | 'uploading' | 'uploaded' | 'failed';
+    retryCount: number;
+    lastError?: string;
+    uploadedAt?: number;
+    serverPhotoId?: string;
+}
+
+export interface UploadQueueEntry {
+    photoId: string;
+    addedAt: number;
+    priority: number; // Lower number = higher priority
+    retryAfter?: number; // Timestamp after which to retry
+}
+
+// Store for tracking storage usage
+export const browserStorageUsage = writable<{
+    used: number;
+    quota: number;
+    percentage: number;
+    photoCount: number;
+}>({
+    used: 0,
+    quota: 0,
+    percentage: 0,
+    photoCount: 0
+});
+
+// Store for tracking upload queue status
+export const browserUploadQueueStatus = writable<{
+    pending: number;
+    uploading: number;
+    uploaded: number;
+    failed: number;
+}>({
+    pending: 0,
+    uploading: 0,
+    uploaded: 0,
+    failed: 0
+});
+
+class BrowserPhotoStorage {
+    private db: IDBDatabase | null = null;
+    private isInitialized = false;
+    private readonly LOG_PREFIX = '🢄[BrowserPhotoStorage]';
+
+    async init(): Promise<void> {
+        if (this.isInitialized) return;
+
+        try {
+            this.db = await this.openDatabase();
+            this.isInitialized = true;
+            await this.updateStorageStats();
+            await this.updateQueueStatus();
+            console.log(`${this.LOG_PREFIX} Database initialized`);
+
+            // Request persistent storage to prevent browser from deleting our data
+            await this.requestPersistentStorage();
+        } catch (error) {
+            console.error(`${this.LOG_PREFIX} Failed to initialize database:`, error);
+            throw error;
+        }
+    }
+
+    private openDatabase(): Promise<IDBDatabase> {
+        return new Promise((resolve, reject) => {
+            const request = indexedDB.open(DB_NAME, DB_VERSION);
+
+            request.onerror = () => {
+                reject(new Error('Failed to open IndexedDB'));
+            };
+
+            request.onsuccess = () => {
+                resolve(request.result);
+            };
+
+            request.onupgradeneeded = (event) => {
+                const db = (event.target as IDBOpenDBRequest).result;
+
+                // Create photo store if it doesn't exist
+                if (!db.objectStoreNames.contains(PHOTO_STORE)) {
+                    const photoStore = db.createObjectStore(PHOTO_STORE, { keyPath: 'id' });
+                    photoStore.createIndex('status', 'status');
+                    photoStore.createIndex('captured_at', 'metadata.captured_at');
+                }
+
+                // Create upload queue store if it doesn't exist
+                if (!db.objectStoreNames.contains(UPLOAD_QUEUE_STORE)) {
+                    const queueStore = db.createObjectStore(UPLOAD_QUEUE_STORE, { keyPath: 'photoId' });
+                    queueStore.createIndex('priority', 'priority');
+                    queueStore.createIndex('addedAt', 'addedAt');
+                }
+            };
+        });
+    }
+
+    async savePhotoFromImageData(
+        id: string,
+        imageData: ImageData,
+        metadata: {
+            location: CaptureLocation;
+            captured_at: number;
+            orientation_code: number;
+            mode: 'slow' | 'fast';
+        }
+    ): Promise<void> {
+        if (!this.db) await this.init();
+
+        console.log(`${this.LOG_PREFIX} Converting ImageData to Blob for photo ${id}`);
+
+        // Convert ImageData to Blob using OffscreenCanvas (if available) or regular Canvas
+        let blob: Blob;
+
+        if (typeof OffscreenCanvas !== 'undefined') {
+            // Use OffscreenCanvas for better performance
+            const canvas = new OffscreenCanvas(imageData.width, imageData.height);
+            const ctx = canvas.getContext('2d');
+            if (!ctx) throw new Error('Failed to get canvas context');
+
+            ctx.putImageData(imageData, 0, 0);
+            blob = await canvas.convertToBlob({
+                type: 'image/jpeg',
+                quality: 0.95
+            });
+        } else {
+            // Fallback to regular canvas
+            const canvas = document.createElement('canvas');
+            canvas.width = imageData.width;
+            canvas.height = imageData.height;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) throw new Error('Failed to get canvas context');
+
+            ctx.putImageData(imageData, 0, 0);
+
+            blob = await new Promise<Blob>((resolve, reject) => {
+                canvas.toBlob(
+                    (blob) => {
+                        if (blob) resolve(blob);
+                        else reject(new Error('Failed to convert canvas to blob'));
+                    },
+                    'image/jpeg',
+                    0.95
+                );
+            });
+        }
+
+        await this.savePhoto(id, blob, metadata);
+    }
+
+    async savePhoto(
+        id: string,
+        blob: Blob,
+        metadata: {
+            location: CaptureLocation;
+            captured_at: number;
+            orientation_code: number;
+            mode: 'slow' | 'fast';
+        }
+    ): Promise<void> {
+        if (!this.db) await this.init();
+
+        const storedPhoto: StoredPhoto = {
+            id,
+            blob,
+            metadata,
+            status: 'pending',
+            retryCount: 0
+        };
+
+        const queueEntry: UploadQueueEntry = {
+            photoId: id,
+            addedAt: Date.now(),
+            priority: metadata.mode === 'fast' ? 0 : 1
+        };
+
+        const transaction = this.db!.transaction([PHOTO_STORE, UPLOAD_QUEUE_STORE], 'readwrite');
+
+        try {
+            // Store the photo
+            const photoStore = transaction.objectStore(PHOTO_STORE);
+            await this.promisifyRequest(photoStore.put(storedPhoto));
+
+            // Add to upload queue
+            const queueStore = transaction.objectStore(UPLOAD_QUEUE_STORE);
+            await this.promisifyRequest(queueStore.put(queueEntry));
+
+            console.log(`${this.LOG_PREFIX} Photo saved: ${id}, size: ${blob.size} bytes`);
+        } catch (error) {
+            console.error(`${this.LOG_PREFIX} Failed to save photo:`, error);
+            throw error;
+        }
+
+        // Update stats
+        await this.updateStorageStats();
+        await this.updateQueueStatus();
+
+        // Trigger background sync if service worker is available
+        await this.requestBackgroundSync();
+    }
+
+    async getNextPhotoForUpload(): Promise<StoredPhoto | null> {
+        if (!this.db) await this.init();
+
+        const transaction = this.db!.transaction([PHOTO_STORE, UPLOAD_QUEUE_STORE], 'readonly');
+        const queueStore = transaction.objectStore(UPLOAD_QUEUE_STORE);
+        const photoStore = transaction.objectStore(PHOTO_STORE);
+
+        // Get highest priority item from queue
+        const index = queueStore.index('priority');
+        const cursor = await this.promisifyRequest(index.openCursor());
+
+        if (cursor && cursor.value) {
+            const queueEntry: UploadQueueEntry = cursor.value;
+
+            // Check if we should wait before retrying
+            if (queueEntry.retryAfter && queueEntry.retryAfter > Date.now()) {
+                return null;
+            }
+
+            // Get the photo
+            const photo = await this.promisifyRequest(photoStore.get(queueEntry.photoId));
+
+            if (photo && photo.status !== 'uploaded') {
+                return photo as StoredPhoto;
+            }
+        }
+
+        return null;
+    }
+
+    async markPhotoAsUploading(photoId: string): Promise<void> {
+        if (!this.db) await this.init();
+
+        const transaction = this.db!.transaction([PHOTO_STORE], 'readwrite');
+        const store = transaction.objectStore(PHOTO_STORE);
+
+        const photo = await this.promisifyRequest(store.get(photoId));
+        if (photo) {
+            photo.status = 'uploading';
+            await this.promisifyRequest(store.put(photo));
+        }
+
+        await this.updateQueueStatus();
+    }
+
+    async markPhotoAsUploaded(photoId: string, serverPhotoId: string): Promise<void> {
+        if (!this.db) await this.init();
+
+        const transaction = this.db!.transaction([PHOTO_STORE, UPLOAD_QUEUE_STORE], 'readwrite');
+
+        // Update photo status
+        const photoStore = transaction.objectStore(PHOTO_STORE);
+        const photo = await this.promisifyRequest(photoStore.get(photoId));
+        if (photo) {
+            photo.status = 'uploaded';
+            photo.uploadedAt = Date.now();
+            photo.serverPhotoId = serverPhotoId;
+            await this.promisifyRequest(photoStore.put(photo));
+        }
+
+        // Remove from upload queue
+        const queueStore = transaction.objectStore(UPLOAD_QUEUE_STORE);
+        await this.promisifyRequest(queueStore.delete(photoId));
+
+        await this.updateQueueStatus();
+
+        // Delete the blob after successful upload if storage is running low
+        const usage = get(browserStorageUsage);
+        if (usage.percentage > 50) {
+            await this.deletePhotoBlob(photoId);
+        }
+    }
+
+    async markPhotoAsFailed(photoId: string, error: string): Promise<void> {
+        if (!this.db) await this.init();
+
+        const transaction = this.db!.transaction([PHOTO_STORE, UPLOAD_QUEUE_STORE], 'readwrite');
+
+        // Update photo status
+        const photoStore = transaction.objectStore(PHOTO_STORE);
+        const photo = await this.promisifyRequest(photoStore.get(photoId));
+        if (photo) {
+            photo.status = 'failed';
+            photo.lastError = error;
+            photo.retryCount = (photo.retryCount || 0) + 1;
+            await this.promisifyRequest(photoStore.put(photo));
+
+            // Update queue entry with retry delay (exponential backoff)
+            const queueStore = transaction.objectStore(UPLOAD_QUEUE_STORE);
+            const queueEntry = await this.promisifyRequest(queueStore.get(photoId));
+            if (queueEntry) {
+                const retryDelay = Math.min(60000 * Math.pow(2, photo.retryCount - 1), 3600000); // Max 1 hour
+                queueEntry.retryAfter = Date.now() + retryDelay;
+                await this.promisifyRequest(queueStore.put(queueEntry));
+            }
+        }
+
+        await this.updateQueueStatus();
+    }
+
+    async retryFailedUploads(): Promise<void> {
+        if (!this.db) await this.init();
+
+        const transaction = this.db!.transaction([PHOTO_STORE, UPLOAD_QUEUE_STORE], 'readwrite');
+        const photoStore = transaction.objectStore(PHOTO_STORE);
+        const queueStore = transaction.objectStore(UPLOAD_QUEUE_STORE);
+
+        // Get all failed photos
+        const failedPhotos = await this.promisifyRequest(
+            photoStore.index('status').getAll('failed')
+        );
+
+        // Reset their status and re-add to queue
+        for (const photo of failedPhotos) {
+            photo.status = 'pending';
+            await this.promisifyRequest(photoStore.put(photo));
+
+            const queueEntry: UploadQueueEntry = {
+                photoId: photo.id,
+                addedAt: Date.now(),
+                priority: photo.metadata.mode === 'fast' ? 0 : 1
+            };
+            await this.promisifyRequest(queueStore.put(queueEntry));
+        }
+
+        await this.updateQueueStatus();
+        await this.requestBackgroundSync();
+    }
+
+    async deletePhoto(photoId: string): Promise<void> {
+        if (!this.db) await this.init();
+
+        const transaction = this.db!.transaction([PHOTO_STORE, UPLOAD_QUEUE_STORE], 'readwrite');
+
+        const photoStore = transaction.objectStore(PHOTO_STORE);
+        await this.promisifyRequest(photoStore.delete(photoId));
+
+        const queueStore = transaction.objectStore(UPLOAD_QUEUE_STORE);
+        await this.promisifyRequest(queueStore.delete(photoId));
+
+        await this.updateStorageStats();
+        await this.updateQueueStatus();
+    }
+
+    async deletePhotoBlob(photoId: string): Promise<void> {
+        if (!this.db) await this.init();
+
+        const transaction = this.db!.transaction([PHOTO_STORE], 'readwrite');
+        const store = transaction.objectStore(PHOTO_STORE);
+
+        const photo = await this.promisifyRequest(store.get(photoId));
+        if (photo && photo.status === 'uploaded') {
+            // Keep metadata but remove the blob to save space
+            photo.blob = new Blob([], { type: 'image/jpeg' });
+            await this.promisifyRequest(store.put(photo));
+            console.log(`${this.LOG_PREFIX} Deleted blob for uploaded photo ${photoId}`);
+        }
+
+        await this.updateStorageStats();
+    }
+
+    async getAllPhotos(): Promise<StoredPhoto[]> {
+        if (!this.db) await this.init();
+
+        const transaction = this.db!.transaction([PHOTO_STORE], 'readonly');
+        const store = transaction.objectStore(PHOTO_STORE);
+        return await this.promisifyRequest(store.getAll()) as StoredPhoto[];
+    }
+
+    async getPendingPhotos(): Promise<StoredPhoto[]> {
+        if (!this.db) await this.init();
+
+        const transaction = this.db!.transaction([PHOTO_STORE], 'readonly');
+        const store = transaction.objectStore(PHOTO_STORE);
+        const index = store.index('status');
+        return await this.promisifyRequest(index.getAll('pending')) as StoredPhoto[];
+    }
+
+    async getPhotoCount(): Promise<number> {
+        if (!this.db) await this.init();
+
+        const transaction = this.db!.transaction([PHOTO_STORE], 'readonly');
+        const store = transaction.objectStore(PHOTO_STORE);
+        return await this.promisifyRequest(store.count()) as number;
+    }
+
+    private async updateStorageStats(): Promise<void> {
+        if (!navigator.storage || !navigator.storage.estimate) {
+            return;
+        }
+
+        try {
+            const estimate = await navigator.storage.estimate();
+            const photoCount = await this.getPhotoCount();
+
+            browserStorageUsage.set({
+                used: estimate.usage || 0,
+                quota: estimate.quota || 0,
+                percentage: estimate.quota ? ((estimate.usage || 0) / estimate.quota) * 100 : 0,
+                photoCount
+            });
+        } catch (error) {
+            console.error(`${this.LOG_PREFIX} Failed to estimate storage:`, error);
+        }
+    }
+
+    private async updateQueueStatus(): Promise<void> {
+        if (!this.db) return;
+
+        const transaction = this.db.transaction([PHOTO_STORE], 'readonly');
+        const store = transaction.objectStore(PHOTO_STORE);
+        const index = store.index('status');
+
+        const [pending, uploading, uploaded, failed] = await Promise.all([
+            this.promisifyRequest(index.count('pending')),
+            this.promisifyRequest(index.count('uploading')),
+            this.promisifyRequest(index.count('uploaded')),
+            this.promisifyRequest(index.count('failed'))
+        ]);
+
+        browserUploadQueueStatus.set({
+            pending: pending as number,
+            uploading: uploading as number,
+            uploaded: uploaded as number,
+            failed: failed as number
+        });
+    }
+
+    async clearOldUploadedPhotos(daysToKeep: number = 7): Promise<void> {
+        if (!this.db) await this.init();
+
+        const cutoffTime = Date.now() - (daysToKeep * 24 * 60 * 60 * 1000);
+        const transaction = this.db!.transaction([PHOTO_STORE], 'readwrite');
+        const store = transaction.objectStore(PHOTO_STORE);
+
+        const photos = await this.promisifyRequest(store.getAll());
+
+        for (const photo of photos) {
+            if (photo.status === 'uploaded' &&
+                photo.uploadedAt &&
+                photo.uploadedAt < cutoffTime) {
+                await this.promisifyRequest(store.delete(photo.id));
+                console.log(`${this.LOG_PREFIX} Deleted old uploaded photo ${photo.id}`);
+            }
+        }
+
+        await this.updateStorageStats();
+        await this.updateQueueStatus();
+    }
+
+    async requestPersistentStorage(): Promise<boolean> {
+        if (!navigator.storage || !navigator.storage.persist) {
+            return false;
+        }
+
+        try {
+            const isPersisted = await navigator.storage.persist();
+            console.log(`${this.LOG_PREFIX} Persistent storage ${isPersisted ? 'granted' : 'denied'}`);
+            return isPersisted;
+        } catch (error) {
+            console.error(`${this.LOG_PREFIX} Failed to request persistent storage:`, error);
+            return false;
+        }
+    }
+
+    async requestBackgroundSync(): Promise<void> {
+        if ('serviceWorker' in navigator && 'sync' in ServiceWorkerRegistration.prototype) {
+            try {
+                const registration = await navigator.serviceWorker.ready;
+                await (registration as any).sync.register('photo-upload');
+                console.log(`${this.LOG_PREFIX} Background sync requested`);
+            } catch (error) {
+                console.warn(`${this.LOG_PREFIX} Background sync not available:`, error);
+            }
+        }
+    }
+
+    private promisifyRequest<T = any>(request: IDBRequest<T>): Promise<T> {
+        return new Promise((resolve, reject) => {
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+        });
+    }
+}
+
+// Export singleton instance
+export const browserPhotoStorage = new BrowserPhotoStorage();

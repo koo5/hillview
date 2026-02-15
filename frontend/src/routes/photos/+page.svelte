@@ -411,7 +411,7 @@
 							on:click={() => activeTab = 'upload'}
 							data-testid="upload-tab"
 						>
-							Upload Photos
+							Upload Files
 						</button>
 					{:else}
 						{#if $app.debug_enabled}

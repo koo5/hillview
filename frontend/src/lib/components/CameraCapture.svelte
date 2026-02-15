@@ -936,7 +936,7 @@
 			longitude: $spatialState.center.lng,
 			altitude: null,
 			accuracy: undefined,
-			heading: $bearingState.bearing,
+			bearing: $bearingState.bearing,
 			location_source: $spatialState.source || 'unknown',
 			bearing_source: $bearingState.source || 'unknown',
 		};

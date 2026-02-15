@@ -5,13 +5,16 @@ import type {DevicePhotoMetadata} from './types/photoTypes';
 import {invoke} from "@tauri-apps/api/core";
 import {frontendBusy} from "$lib/data.svelte";
 import {storageSettings} from "$lib/storageSettings";
+import { BROWSER } from './tauri';
+import { browserCaptureAdapter } from './browser/captureAdapter';
+import { uploadManager } from './browser/uploadManager';
 
 export interface CaptureLocation {
 	latitude: number;
 	longitude: number;
 	altitude?: number | null;
 	accuracy: number;
-	heading?: number | null;
+	bearing?: number | null;  // Compass bearing from bearingState
 	location_source: 'gps' | 'map';
 	bearing_source: string;
 }
@@ -72,11 +75,15 @@ class CaptureQueueManager {
 	});
 
 	constructor() {
-		// Initialize worker
-		this.initWorker();
+		// Initialize worker only for Tauri mode
+		if (!BROWSER) {
+			this.initWorker();
+		}
 		// Start processing loop
 		this.processLoop();
-		this.log(this.LOG_TAGS.QUEUE_ADD, 'Capture queue manager initialized');
+		this.log(this.LOG_TAGS.QUEUE_ADD, 'Capture queue manager initialized', {
+			mode: BROWSER ? 'browser' : 'tauri'
+		});
 	}
 
 	private log(tag: string, message: string, data?: any): void {
@@ -162,6 +169,45 @@ class CaptureQueueManager {
 		this.updateStats();
 
 		try {
+			// Browser mode: Save directly to IndexedDB
+			if (BROWSER) {
+				this.log(this.LOG_TAGS.QUEUE_PROCESS, 'Processing in browser mode', { itemId: item.id });
+
+				try {
+					await browserCaptureAdapter.processCapture(item);
+
+					this.totalProcessed++;
+					this.log(this.LOG_TAGS.PHOTO_SAVE, 'Photo saved to browser storage', {
+						itemId: item.id,
+						totalProcessed: this.totalProcessed
+					});
+
+					// Remove placeholder after successful save
+					removePlaceholder(item.placeholder_id);
+
+					// Trigger upload if online
+					if (navigator.onLine) {
+						uploadManager.uploadPending().catch(error => {
+							console.error('Upload error:', error);
+						});
+					}
+				} catch (error) {
+					this.totalFailed++;
+					this.log(this.LOG_TAGS.PHOTO_ERROR, 'Failed to save to browser storage', {
+						itemId: item.id,
+						error: error instanceof Error ? error.message : String(error),
+						totalFailed: this.totalFailed
+					});
+					removePlaceholder(item.placeholder_id);
+				}
+
+				// Remove from processing set
+				this.processingSet.delete(item.id);
+				this.updateStats();
+				return;
+			}
+
+			// Tauri mode: Use worker and send to native storage
 			// Check if worker is available
 			if (!this.worker) {
 				throw new Error('Worker not initialized');
@@ -229,7 +275,7 @@ class CaptureQueueManager {
 							latitude: item.location.latitude,
 							longitude: item.location.longitude,
 							altitude: item.location.altitude,
-							bearing: item.location.heading,
+							bearing: item.location.bearing,
 							captured_at: item.captured_at,
 							accuracy: item.location.accuracy,
 							location_source: item.location.location_source,

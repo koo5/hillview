@@ -6,6 +6,7 @@ import { logout } from './auth.svelte';
 import { clientCrypto } from './clientCrypto';
 import { http } from '$lib/http';
 import { parsePythonDateTime } from './dateUtils';
+import { authStorage } from './browser/authStorage';
 
 /**
  * Web Token Manager
@@ -253,6 +254,17 @@ export class WebTokenManager implements TokenManager {
                 localStorage.setItem('refresh_token_expires', tokenData.refresh_token_expires_at);
             }
 
+            // Also save to IndexedDB for service worker access
+            try {
+                const expiresAt = new Date(tokenData.expires_at).getTime();
+                await authStorage.saveToken(tokenData.access_token, expiresAt);
+                await authStorage.saveBackendUrl(backendUrl);
+                console.log(`${this.LOG_PREFIX} Tokens also stored in IndexedDB for service worker.`);
+            } catch (error) {
+                console.warn(`${this.LOG_PREFIX} Failed to store tokens in IndexedDB:`, error);
+                // Don't fail the whole operation if IndexedDB fails
+            }
+
             console.log(`${this.LOG_PREFIX} Tokens stored in localStorage.`);
 
             // Update auth store - tokens stored means authenticated
@@ -298,6 +310,14 @@ export class WebTokenManager implements TokenManager {
             localStorage.removeItem('token_expires');
             localStorage.removeItem('refresh_token');
             localStorage.removeItem('refresh_token_expires');
+
+            // Also clear from IndexedDB
+            try {
+                await authStorage.clearToken();
+                console.log(`${this.LOG_PREFIX} Tokens also cleared from IndexedDB`);
+            } catch (error) {
+                console.warn(`${this.LOG_PREFIX} Failed to clear tokens from IndexedDB:`, error);
+            }
 
             console.log(`${this.LOG_PREFIX} Tokens cleared successfully from localStorage`);
 
