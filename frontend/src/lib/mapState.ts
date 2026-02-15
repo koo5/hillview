@@ -296,6 +296,7 @@ export async function updateSpatialState(updates: Partial<SpatialState>, source:
 }
 
 export function updateBearing(bearing: number, source: string = 'map', photoUid?: string, accuracy_level?: number | null) {
+	console.log('🢄📍 updateBearing called:', bearing, source, accuracy_level);
 	bearingState.update(state => ({...state, bearing, source, photoUid, accuracy_level}));
 	if (!source.startsWith('android') && TAURI) {
 		invoke('plugin:hillview|cmd', {command: 'update_orientation', params: {

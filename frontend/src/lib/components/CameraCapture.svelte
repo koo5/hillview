@@ -50,7 +50,7 @@
 		longitude?: number;
 		altitude?: number | null;
 		accuracy?: number;
-		heading?: number | null;
+		bearing?: number | null;
 		location_source: 'gps' | 'map';
 		bearing_source: string;
 	} | null = null;
@@ -684,7 +684,7 @@
 			longitude: locationData.longitude!,
 			altitude: locationData.altitude,
 			accuracy: locationData.accuracy || 1,
-			heading: locationData.heading,
+			bearing: locationData.bearing,
 			location_source: locationData.location_source,
 			bearing_source: locationData.bearing_source,
 		};

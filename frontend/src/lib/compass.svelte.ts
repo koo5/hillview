@@ -39,6 +39,7 @@ export const deviceOrientation = writable<DeviceOrientation>({
 export const currentCompassHeading = derived(
     [compassData],
     ([$compassData]) => {
+        console.log('🢄🧭 currentCompassHeading derived - compassData:', $compassData);
         if ($compassData && $compassData.true_heading !== null) {
             return {
                 heading: $compassData.true_heading,
@@ -273,13 +274,24 @@ async function startWebCompass(): Promise<boolean> {
                 usingAbsolute = true;
                 if (regularOrientationListener) {
                     console.log('🢄🌐 Got deviceorientationabsolute, dropping deviceorientation listener');
-                    window.removeEventListener('deviceorientation', regularOrientationListener);
-                    regularOrientationListener = null;
+                    //window.removeEventListener('deviceorientation', regularOrientationListener);
+                    //regularOrientationListener = null;
                 }
             }
 
+			console.log('🢄🌐 DeviceOrientation event received (absolute:', isAbsolute, ')', JSON.stringify({
+				alpha: event.alpha?.toFixed(1) + '°',
+				beta: event.beta?.toFixed(1) + '°',
+				gamma: event.gamma?.toFixed(1) + '°',
+				absolute: event.absolute,
+				webkitCompassHeading: event.webkitCompassHeading?.toFixed(1) + '°',
+				webkitCompassAccuracy: event.webkitCompassAccuracy,
+				compassHeading: event.compassHeading?.toFixed(1) + '°'
+			}));
+
             // If we already have absolute events, ignore regular ones
-            if (usingAbsolute && !isAbsolute) return;
+            // DISABLED: Some browsers only fire absolute once, so we need regular as fallback
+            // if (usingAbsolute && !isAbsolute) return;
 
             if (!hasResolved) {
                 hasResolved = true;
@@ -290,13 +302,21 @@ async function startWebCompass(): Promise<boolean> {
             // Extract compass data with tilt compensation
             let magneticHeading: number | null = null;
 
-            if (event.webkitCompassHeading != null) {
-                // iOS provides a tilt-compensated compass heading directly
-                magneticHeading = event.webkitCompassHeading;
-            } else if (event.alpha != null && event.beta != null && event.gamma != null) {
-                // Compute tilt-compensated heading from Euler angles (like Kotlin's
-                // remapCoordinateSystem + getOrientation pipeline)
-                magneticHeading = computeTiltCompensatedHeading(event.alpha, event.beta, event.gamma);
+            try {
+                if (event.webkitCompassHeading != null) {
+                    // iOS provides a tilt-compensated compass heading directly
+                    magneticHeading = event.webkitCompassHeading;
+                    console.log('🢄🧭 Using webkitCompassHeading:', magneticHeading);
+                } else if (event.alpha != null && event.beta != null && event.gamma != null) {
+                    // Compute tilt-compensated heading from Euler angles (like Kotlin's
+                    // remapCoordinateSystem + getOrientation pipeline)
+                    magneticHeading = computeTiltCompensatedHeading(event.alpha, event.beta, event.gamma);
+                    console.log('🢄🧭 Computed tilt-compensated heading:', magneticHeading, 'from alpha:', event.alpha, 'beta:', event.beta, 'gamma:', event.gamma);
+                } else {
+                    console.log('🢄🧭 No valid compass data - alpha:', event.alpha, 'beta:', event.beta, 'gamma:', event.gamma);
+                }
+            } catch (err) {
+                console.error('🢄🧭 Error computing heading:', err);
             }
 
             const accuracy = event.webkitCompassAccuracy ?? null;
@@ -304,6 +324,7 @@ async function startWebCompass(): Promise<boolean> {
             // deviceorientationabsolute gives true north directly;
             // regular deviceorientation gives magnetic north.
             const heading = magneticHeading !== null ? normalizeHeading(magneticHeading) : null;
+            console.log('🢄🧭 Calculated heading:', heading, 'from magneticHeading:', magneticHeading);
 
             const data = {
                 magnetic_heading: isAbsolute ? null : heading,
@@ -313,10 +334,11 @@ async function startWebCompass(): Promise<boolean> {
                 source: isAbsolute ? 'web-absolute' : 'web-magnetic'
             };
 
+            console.log('🢄🧭 Scheduling compass update with data:', data);
             scheduleCompassUpdate(data);
             lastSensorUpdate.set(Date.now());
 
-            console.log('🢄🌐 Web Compass update:', JSON.stringify({
+            console.log('🢄🌐 Web Compass raw event:', JSON.stringify({
                 heading: heading?.toFixed(1) + '°',
                 absolute: isAbsolute,
                 accuracy_level: data.accuracy_level,
@@ -621,6 +643,7 @@ function lerpAngle(current: number, target: number, factor: number): number {
 
 // Subscribe to compass heading changes
 currentCompassHeading.subscribe(compass => {
+	console.log('🢄🧭 Compass subscription fired - mode:', get(bearingMode), 'state:', get(compassState), 'heading:', compass?.heading);
 	if (get(bearingMode) !== 'walking') return;
     if (!compass || compass.heading === null || get(compassState) !== 'active') return;
 	if (isNaN(compass.heading)) return;
@@ -641,6 +664,7 @@ currentCompassHeading.subscribe(compass => {
 
     // Update map bearing
 	const currentBearing = get(bearingState).bearing;
+	console.log('🢄🧭 About to updateBearing? current:', currentBearing, 'smoothed:', smoothedBearing);
 	if (isNaN(currentBearing) || currentBearing === null || (Math.abs(smoothedBearing - currentBearing) > 1)) {
 		updateBearing(smoothedBearing, compass.source, undefined, compass.accuracy_level);
 	}

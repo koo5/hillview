@@ -6,7 +6,7 @@ export interface PlaceholderLocation {
     latitude: number;
     longitude: number;
     altitude?: number | null;
-    heading?: number | null;
+    bearing?: number | null;  // Compass bearing
     accuracy: number;
     location_source: 'gps' | 'map';
     bearing_source: string;
