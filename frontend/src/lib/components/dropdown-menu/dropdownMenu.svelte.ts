@@ -4,11 +4,13 @@ import type { Component, Snippet } from 'svelte';
 /**
  * A regular menu item with label, optional icon, and click handler
  */
+// Using 'any' for icon to accommodate lucide-svelte components
+// which don't perfectly match Svelte's Component type
 export type DropdownMenuItemAction = {
 	type?: 'item';
 	id: string;
 	label: string;
-	icon?: Component;
+	icon?: any;
 	/** Optional description shown below the label */
 	description?: string;
 	/** Whether this item is currently selected/active */

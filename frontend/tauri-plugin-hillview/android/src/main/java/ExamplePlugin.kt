@@ -2543,6 +2543,11 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 					return
 				}
 
+				"check_photo_file_exists" -> {
+					photoUploadLogic.handleCheckPhotoFileExists(invoke, params)
+					return
+				}
+
 				else -> {
 					resolveWithError(invoke, "🔧 Unknown command: $command")
 					return

@@ -1223,6 +1223,48 @@ class PhotoUploadLogic(private val context: Context) {
     }
 
     /**
+     * Handle check_photo_file_exists cmd from frontend.
+     * Checks if the photo file exists on disk.
+     * Params: { photo_id: string }
+     */
+    fun handleCheckPhotoFileExists(invoke: Invoke, params: JSObject) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val photoId = params.getString("photo_id")
+
+                if (photoId == null) {
+                    val error = JSObject()
+                    error.put("success", false)
+                    error.put("error", "Missing required param: photo_id")
+                    invoke.resolve(error)
+                    return@launch
+                }
+
+                val photo = photoDao.getPhotoById(photoId)
+
+                val result = JSObject()
+                if (photo == null) {
+                    result.put("success", false)
+                    result.put("error", "Photo not found in database")
+                } else {
+                    val fileExists = PhotoUtils.pathExists(context, photo.path)
+                    result.put("success", true)
+                    result.put("exists", fileExists)
+                    result.put("path", photo.path)
+                }
+                invoke.resolve(result)
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Error checking photo file exists", e)
+                val error = JSObject()
+                error.put("success", false)
+                error.put("error", e.message)
+                invoke.resolve(error)
+            }
+        }
+    }
+
+    /**
      * Handle get_photo_id_by_server_photo_id cmd from frontend.
      * Returns the device photo ID for a given server photo ID.
      * Params: { server_photo_id: string }

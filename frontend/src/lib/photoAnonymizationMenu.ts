@@ -1,8 +1,9 @@
-import { Glasses, Smile } from 'lucide-svelte';
+import { Glasses } from 'lucide-svelte';
 import { invoke } from '@tauri-apps/api/core';
 import type { DropdownMenuItem } from '$lib/components/dropdown-menu/dropdownMenu.svelte';
 import type { Component } from 'svelte';
 import { addAlert } from '$lib/alertSystem.svelte';
+import { openAnonymizationModal, openAnonymizationModalForServerPhoto } from '$lib/components/anonymization-modal/anonymizationModal.svelte';
 
 /**
  * Look up the device photo ID from a server photo ID.
@@ -27,6 +28,29 @@ export async function getDevicePhotoIdByServerPhotoId(
 	} catch (err) {
 		console.error('Error looking up device photo ID:', err);
 		return null;
+	}
+}
+
+/**
+ * Check if the photo file exists on disk.
+ * @param photoId - The device photo entity ID
+ * @returns Object with exists boolean, or error
+ */
+export async function checkPhotoFileExists(
+	photoId: string
+): Promise<{ success: boolean; exists?: boolean; path?: string; error?: string }> {
+	try {
+		const result = await invoke('plugin:hillview|cmd', {
+			command: 'check_photo_file_exists',
+			params: {
+				photo_id: photoId
+			}
+		}) as { success: boolean; exists?: boolean; path?: string; error?: string };
+
+		return result;
+	} catch (err) {
+		console.error('Error checking photo file exists:', err);
+		return { success: false, error: String(err) };
 	}
 }
 
@@ -58,94 +82,35 @@ export async function createAnonymizationEdit(
 }
 
 /**
- * Get the anonymization menu items for a photo.
- * Shows alerts on success/error using the standard alert system.
+ * Get menu items for a device photo.
  * @param photoId - The device photo entity ID
  */
-export function getAnonymizationMenuItems(photoId: string): DropdownMenuItem[] {
-	const handleEdit = async (value: null | any[], label: string) => {
-		const result = await createAnonymizationEdit(photoId, value);
-		if (result.success && result.edit_id) {
-			addAlert(`${label} - queued for re-upload`, 'success', {
-				duration: 3000,
-				source: 'anonymization-edit'
-			});
-		} else {
-			addAlert(`Failed: ${result.error || 'Unknown error'}`, 'error', {
-				duration: 5000,
-				source: 'anonymization-edit'
-			});
-		}
-	};
-
+export function getPhotoMenuItems(photoId: string): DropdownMenuItem[] {
 	return [
 		{
-			id: 'auto-anonymize',
-			label: 'Auto-detect & blur',
-			description: 'Detect faces and plates automatically',
-			icon: Glasses as unknown as Component,
-			onclick: () => handleEdit(null, 'Auto-detect & blur'),
-			testId: 'menu-auto-anonymize'
-		},
-		{
-			id: 'skip-anonymization',
-			label: 'No anonymization',
-			description: 'Upload without blurring',
-			icon: Smile as unknown as Component,
-			onclick: () => handleEdit([], 'No anonymization'),
-			testId: 'menu-skip-anonymization'
+			id: 'anonymization-options',
+			label: 'Anonymization options',
+			description: 'Change blur settings',
+			icon: Glasses,
+			onclick: () => openAnonymizationModal(photoId),
+			testId: 'menu-anonymization-options'
 		}
 	];
 }
 
 /**
- * Get the anonymization menu items for a server photo.
- * Looks up the device photo ID first, then creates the edit.
- * Shows alerts on success/error using the standard alert system.
+ * Get menu items for a server photo.
  * @param serverPhotoId - The server-assigned photo ID
  */
-export function getAnonymizationMenuItemsForServerPhoto(serverPhotoId: string | number): DropdownMenuItem[] {
-	const handleEdit = async (value: null | any[], label: string) => {
-		// First, look up the device photo ID
-		const devicePhotoId = await getDevicePhotoIdByServerPhotoId(serverPhotoId);
-		if (!devicePhotoId) {
-			addAlert('Photo not found on device - cannot change anonymization', 'error', {
-				duration: 5000,
-				source: 'anonymization-edit'
-			});
-			return;
-		}
-
-		const result = await createAnonymizationEdit(devicePhotoId, value);
-		if (result.success && result.edit_id) {
-			addAlert(`${label} - queued for re-upload`, 'success', {
-				duration: 3000,
-				source: 'anonymization-edit'
-			});
-		} else {
-			addAlert(`Failed: ${result.error || 'Unknown error'}`, 'error', {
-				duration: 5000,
-				source: 'anonymization-edit'
-			});
-		}
-	};
-
+export function getPhotoMenuItemsForServerPhoto(serverPhotoId: string | number): DropdownMenuItem[] {
 	return [
 		{
-			id: 'auto-anonymize',
-			label: 'Auto-detect & blur',
-			description: 'Detect faces and plates automatically',
-			icon: Glasses as unknown as Component,
-			onclick: () => handleEdit(null, 'Auto-detect & blur'),
-			testId: 'menu-auto-anonymize'
-		},
-		{
-			id: 'skip-anonymization',
-			label: 'No anonymization',
-			description: 'Upload without blurring',
-			icon: Smile as unknown as Component,
-			onclick: () => handleEdit([], 'No anonymization'),
-			testId: 'menu-skip-anonymization'
+			id: 'anonymization-options',
+			label: 'Anonymization options',
+			description: 'Change blur settings',
+			icon: Glasses,
+			onclick: () => openAnonymizationModalForServerPhoto(serverPhotoId),
+			testId: 'menu-anonymization-options'
 		}
 	];
 }

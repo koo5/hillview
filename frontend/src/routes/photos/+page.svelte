@@ -31,8 +31,9 @@
 	import DevicePhotoStats from "$lib/components/DevicePhotoStats.svelte";
 	import PhotoItem from '$lib/components/PhotoItem.svelte';
 	import { showDropdownMenu, type DropdownMenuItem } from '$lib/components/dropdown-menu/dropdownMenu.svelte';
-	import { getAnonymizationMenuItemsForServerPhoto } from '$lib/photoAnonymizationMenu';
+	import { getPhotoMenuItemsForServerPhoto } from '$lib/photoAnonymizationMenu';
 	import DropdownMenu from '$lib/components/dropdown-menu/DropdownMenu.svelte';
+	import AnonymizationModal from '$lib/components/anonymization-modal/AnonymizationModal.svelte';
 
 	let photos: UserPhoto[] = [];
 	let isLoading = true;
@@ -338,7 +339,7 @@
 
 	function showPhotoMenu(event: MouseEvent, photo: UserPhoto) {
 		const button = event.currentTarget as HTMLButtonElement;
-		const items: DropdownMenuItem[] = getAnonymizationMenuItemsForServerPhoto(photo.id);
+		const items: DropdownMenuItem[] = getPhotoMenuItemsForServerPhoto(photo.id);
 
 		showDropdownMenu(items, button, {
 			placement: 'above-right',
@@ -566,6 +567,7 @@
 </StandardBody>
 
 <DropdownMenu />
+<AnonymizationModal />
 
 <style>
 	.photos-container {

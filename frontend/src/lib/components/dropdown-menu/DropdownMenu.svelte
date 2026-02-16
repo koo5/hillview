@@ -3,12 +3,104 @@
 	import { portal } from '$lib/actions/portal';
 
 	let menuElement: HTMLElement | undefined = $state();
+	let adjustedPosition: { left?: number; right?: number; top?: number; bottom?: number } | null = $state(null);
 
-	// Compute position styles based on anchor
+	// After menu renders, check if it's off-screen and adjust
+	$effect(() => {
+		if ($dropdownMenuState.visible && menuElement) {
+			// Reset adjustment when menu opens
+			adjustedPosition = null;
+
+			// Use requestAnimationFrame to ensure menu has rendered
+			requestAnimationFrame(() => {
+				if (!menuElement) return;
+
+				const rect = menuElement.getBoundingClientRect();
+				const viewport = {
+					width: window.innerWidth,
+					height: window.innerHeight
+				};
+				const padding = 8; // Minimum distance from viewport edge
+
+				let newPos: typeof adjustedPosition = {};
+				const { position, anchor } = $dropdownMenuState;
+
+				// Calculate where menu currently is
+				let menuLeft = rect.left;
+				let menuRight = rect.right;
+				let menuTop = rect.top;
+				let menuBottom = rect.bottom;
+
+				// Check horizontal overflow
+				if (menuLeft < padding) {
+					// Menu is off left edge - anchor to left instead
+					newPos.left = padding;
+					newPos.right = undefined;
+				} else if (menuRight > viewport.width - padding) {
+					// Menu is off right edge - anchor to right instead
+					newPos.right = padding;
+					newPos.left = undefined;
+				}
+
+				// Check vertical overflow
+				if (menuTop < padding) {
+					// Menu is off top edge - position below instead
+					newPos.top = padding;
+					newPos.bottom = undefined;
+				} else if (menuBottom > viewport.height - padding) {
+					// Menu is off bottom edge - position above instead
+					newPos.bottom = padding;
+					newPos.top = undefined;
+				}
+
+				// Only update if we need adjustment
+				if (Object.keys(newPos).length > 0) {
+					adjustedPosition = newPos;
+				}
+			});
+		}
+	});
+
+	// Compute position styles based on anchor, with adjustment override
 	const positionStyles = $derived.by(() => {
 		const { position, anchor } = $dropdownMenuState;
 		const styles: string[] = [];
 
+		// If we have an adjusted position, use it
+		if (adjustedPosition) {
+			if (adjustedPosition.left !== undefined) {
+				styles.push(`left: ${adjustedPosition.left}px`);
+			}
+			if (adjustedPosition.right !== undefined) {
+				styles.push(`right: ${adjustedPosition.right}px`);
+			}
+			if (adjustedPosition.top !== undefined) {
+				styles.push(`top: ${adjustedPosition.top}px`);
+			}
+			if (adjustedPosition.bottom !== undefined) {
+				styles.push(`bottom: ${adjustedPosition.bottom}px`);
+			}
+
+			// Fill in missing dimensions from original calculation
+			if (adjustedPosition.left === undefined && adjustedPosition.right === undefined) {
+				if (anchor === 'top-left' || anchor === 'bottom-left') {
+					styles.push(`left: ${position.x}px`);
+				} else {
+					styles.push(`right: ${window.innerWidth - position.x}px`);
+				}
+			}
+			if (adjustedPosition.top === undefined && adjustedPosition.bottom === undefined) {
+				if (anchor === 'top-left' || anchor === 'top-right') {
+					styles.push(`top: ${position.y}px`);
+				} else {
+					styles.push(`bottom: ${window.innerHeight - position.y}px`);
+				}
+			}
+
+			return styles.join('; ');
+		}
+
+		// Original positioning logic
 		switch (anchor) {
 			case 'top-left':
 				styles.push(`left: ${position.x}px`);
@@ -47,17 +139,62 @@
 		onclick();
 		closeDropdownMenu();
 	}
+
+	// Stop drag/touch events from propagating to the page underneath
+	function stopEvent(event: Event) {
+		event.stopPropagation();
+		event.preventDefault();
+	}
+
+	// For clicks we only stop propagation, not default (so buttons work)
+	function stopPropagation(event: Event) {
+		event.stopPropagation();
+	}
+
+	// Action to add capture-phase event listeners that intercept before anything else
+	function captureEvents(node: HTMLElement) {
+		const handler = (e: Event) => {
+			e.stopPropagation();
+			e.stopImmediatePropagation();
+		};
+
+		const events = ['touchstart', 'touchmove', 'touchend', 'pointerdown', 'pointermove', 'pointerup'];
+		events.forEach(evt => node.addEventListener(evt, handler, { capture: true, passive: false }));
+
+		return {
+			destroy() {
+				events.forEach(evt => node.removeEventListener(evt, handler, { capture: true }));
+			}
+		};
+	}
 </script>
 
 <svelte:document on:pointerup={handleClickOutside} on:keydown={handleKeydown} />
 
 {#if $dropdownMenuState.visible}
+	<!-- Backdrop to capture stray events -->
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div
+		class="dropdown-backdrop"
+		use:portal
+		use:captureEvents
+		ontouchstart={stopEvent}
+		ontouchmove={stopEvent}
+		onpointerdown={closeDropdownMenu}
+	></div>
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		class="dropdown-menu-portal"
 		style={positionStyles}
 		data-testid={$dropdownMenuState.testId ?? 'dropdown-menu'}
 		bind:this={menuElement}
 		use:portal
+		onpointerdown={stopPropagation}
+		onpointermove={stopEvent}
+		ontouchstart={stopPropagation}
+		ontouchmove={stopEvent}
+		onmousedown={stopPropagation}
+		ondragstart={stopEvent}
 	>
 		<div class="dropdown-menu">
 			{#each $dropdownMenuState.items as item, index}
@@ -94,10 +231,20 @@
 {/if}
 
 <style>
+	.dropdown-backdrop {
+		position: fixed;
+		inset: 0;
+		z-index: 2147483646;
+		background: transparent;
+		/* Prevent browser handling of touch gestures */
+		touch-action: none;
+	}
+
 	.dropdown-menu-portal {
 		position: fixed;
 		z-index: 2147483647;
 		pointer-events: auto;
+		touch-action: none;
 	}
 
 	.dropdown-menu {
