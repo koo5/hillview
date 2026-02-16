@@ -627,7 +627,7 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
         val jsonArray = photos.joinToString(separator = ",", prefix = "[", postfix = "]") { photo ->
             val creatorJson = serializeCreator(photo.creator)
             val sizesJson = if (photo.sizes != null) serializeSizes(photo.sizes!!) else "null"
-            val fileJson = if (photo.file != null) "\"${photo.file}\"" else "null"
+            val fileJson = if (photo.filename != null) "\"${photo.filename}\"" else "null"
             val urlJson = if (photo.url != null) "\"${photo.url}\"" else "null"
             val fileHashJson = if (photo.fileHash != null) "\"${photo.fileHash}\"" else "null"
             """
@@ -635,7 +635,7 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
                 "id": "${photo.id}",
                 "uid": "${photo.uid}",
                 "source_type": "${photo.source_type}",
-                "file": $fileJson,
+                "filename": $fileJson,
                 "url": $urlJson,
                 "coord": {
                     "lat": ${photo.coord.lat},

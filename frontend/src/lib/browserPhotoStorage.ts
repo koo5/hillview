@@ -256,10 +256,25 @@ class BrowserPhotoStorage {
     }
 
     private async iterateCursor(cursor: IDBCursorWithValue, callback: (value: StoredPhoto) => void): Promise<void> {
-        do {
+        return new Promise((resolve, reject) => {
+            const processCursor = (cur: IDBCursorWithValue | null) => {
+                if (!cur) {
+                    resolve();
+                    return;
+                }
+                callback(cur.value);
+                cur.continue();
+            };
+
+            // The cursor's request object fires onsuccess for each iteration
+            const request = cursor.request;
+            request.onsuccess = () => processCursor(request.result as IDBCursorWithValue | null);
+            request.onerror = () => reject(request.error);
+
+            // Process the initial cursor value
             callback(cursor.value);
-            cursor = await this.promisifyRequest(cursor.continue());
-        } while (cursor);
+            cursor.continue();
+        });
     }
 
     async markPhotoAsUploading(photoId: string): Promise<void> {

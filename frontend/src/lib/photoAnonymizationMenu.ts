@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { DropdownMenuItem } from '$lib/components/dropdown-menu/dropdownMenu.svelte';
 import type { Component } from 'svelte';
 import { addAlert } from '$lib/alertSystem.svelte';
-import { openAnonymizationModal, openAnonymizationModalForServerPhoto } from '$lib/components/anonymization-modal/anonymizationModal.svelte';
+import { openAnonymizationModal, openAnonymizationModalForServerPhoto } from '$lib/components/anonymization-modal/anonymizationModal.svelte.js';
 
 /**
  * Look up the device photo ID from a server photo ID.

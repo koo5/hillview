@@ -285,9 +285,10 @@ async function uploadToWorker(
                 };
 
                 // Remove undefined values
-                Object.keys(metadataObj).forEach(key => {
-                    if (metadataObj[key] === undefined || metadataObj[key] === null) {
-                        delete metadataObj[key];
+                const metadataRecord = metadataObj as Record<string, any>;
+                Object.keys(metadataRecord).forEach(key => {
+                    if (metadataRecord[key] === undefined || metadataRecord[key] === null) {
+                        delete metadataRecord[key];
                     }
                 });
 
@@ -428,7 +429,8 @@ export async function secureUploadFiles(
     isPublic: boolean = true,
     workerUrl?: string,
     onProgress?: (completed: number, total: number, currentFile: string) => void,
-    onError?: (file: File, errorMessage: string) => void
+    onError?: (file: File, errorMessage: string) => void,
+    browserMetadata?: any  // Metadata from browser capture that can't be written as EXIF
 ): Promise<{
     results: SecureUploadResult[];
     successCount: number;
@@ -446,7 +448,7 @@ export async function secureUploadFiles(
         // Report progress
         onProgress?.(i, files.length, file.name);
 
-        const result = await secureUploadFile(file, description, isPublic, workerUrl);
+        const result = await secureUploadFile(file, description, isPublic, workerUrl, browserMetadata);
         results.push(result);
 
         if (result.success) {
