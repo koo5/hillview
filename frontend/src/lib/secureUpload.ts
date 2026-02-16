@@ -292,7 +292,7 @@ async function uploadToWorker(
                 });
 
                 // Add as JSON string form field
-                formData.append('browser_metadata', JSON.stringify(metadataObj));
+                formData.append('metadata', JSON.stringify(metadataObj));
             }
 
             const response = await fetch(workerEndpoint, {

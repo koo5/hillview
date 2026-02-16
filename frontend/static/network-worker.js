@@ -3,6 +3,10 @@
 // Import photo upload functionality
 importScripts('/serviceWorkerBundle.js');
 
+// Log versions for debugging
+const SW_VERSION = self.SW_BUNDLE_VERSION || 'unknown';
+console.log(`[NetworkWorker] Using bundle version: ${SW_VERSION}`);
+
 let currentTileProvider = null;
 
 // Listen for messages from the main thread
@@ -217,11 +221,11 @@ async function handlePhotoUploadSync() {
 
 // Service worker lifecycle
 self.addEventListener('install', (event) => {
-    console.log('Network worker: Installing');
+    console.log(`[NetworkWorker] Installing with bundle version: ${SW_VERSION}`);
     self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
-    console.log('Network worker: Activating');
+    console.log(`[NetworkWorker] Activating with bundle version: ${SW_VERSION}`);
     event.waitUntil(self.clients.claim());
 });

@@ -575,7 +575,8 @@ class PhotoProcessor:
 		description: Optional[str] = None,
 		is_public: bool = True,
 		client_signature: Optional[str] = None,
-		anonymization_override: Optional[str] = None
+		anonymization_override: Optional[str] = None,
+		metadata: Optional[Dict[str, Any]] = None
 	) -> Optional[Dict[str, Any]]:
 		"""Process a user-uploaded photo and return processing results.
 
@@ -605,6 +606,28 @@ class PhotoProcessor:
 		gps_data = exif_data.get('gps', {})
 		debug_info = exif_data.get('debug', {})
 
+		# If metadata is provided (e.g., from browser capture), use it to fill missing data
+		if metadata:
+			logger.info(f"Metadata provided, merging with EXIF data")
+
+			# Use metadata to fill any missing GPS data
+			if metadata.get('latitude') is not None:
+				gps_data.setdefault('latitude', metadata['latitude'])
+			if metadata.get('longitude') is not None:
+				gps_data.setdefault('longitude', metadata['longitude'])
+			if metadata.get('altitude') is not None:
+				gps_data.setdefault('altitude', metadata['altitude'])
+			if metadata.get('bearing') is not None:
+				gps_data.setdefault('bearing', metadata['bearing'])
+
+			# Use metadata for orientation if not in EXIF
+			if metadata.get('orientation_code') and not exif_data['data'].get('Orientation'):
+				exif_data['data']['Orientation'] = metadata['orientation_code']
+
+			# Use capture time from metadata if not in EXIF
+			if metadata.get('captured_at') and not exif_data.get('data', {}).get('DateTimeOriginal'):
+				exif_data['data']['DateTimeOriginal'] = metadata['captured_at']
+
 		orientation = exif_data['data'].get('Orientation')
 
 		# Log detailed EXIF extraction results
@@ -618,27 +641,14 @@ class PhotoProcessor:
 		logger.info(f"  - GPS data: {gps_data}")
 		logger.info(f"  - Orientation: {orientation}")
 
-		# Create detailed error messages based on what was found (same logic as service)
-		if not debug_info.get('has_exif', False):
-			error_msg = "No EXIF data found in image file. Photo may be processed/edited or from an app that strips metadata."
-			logger.warning(f"No EXIF data found in {safe_filename}")
-			raise ValueError(error_msg)
-		elif not debug_info.get('has_gps_coords', False) and not debug_info.get('has_bearing', False):
-			found_tags = debug_info.get('found_gps_tags', [])
-			error_msg = f"No GPS data found in photo. Found EXIF tags: {', '.join(found_tags) if found_tags else 'none'}"
-			logger.warning(f"No GPS data found in {safe_filename}")
-			raise ValueError(error_msg)
-		elif not debug_info.get('has_gps_coords', False):
-			found_gps_tags = debug_info.get('found_gps_tags', [])
-			found_bearing_tags = debug_info.get('found_bearing_tags', [])
-			all_found_tags = found_gps_tags + found_bearing_tags
-			error_msg = f"GPS coordinates missing. Found tags: {', '.join(all_found_tags) if all_found_tags else 'none'}, needed: GPSLatitude, GPSLongitude"
+		# Validate required data (from either EXIF or metadata)
+		if not gps_data.get('latitude') or gps_data.get('longitude') is None:
+			error_msg = "GPS coordinates missing from photo"
 			logger.warning(f"No GPS coordinates in {safe_filename}")
 			raise ValueError(error_msg)
-		elif not debug_info.get('has_bearing', False):
-			found_bearing_tags = debug_info.get('found_bearing_tags', [])
-			found_gps_tags = debug_info.get('found_gps_tags', [])
-			error_msg = f"Compass direction missing. Found: {', '.join(found_gps_tags + found_bearing_tags)}, needed: GPSImgDirection, GPSTrack, or GPSDestBearing"
+
+		if gps_data.get('bearing') is None:
+			error_msg = "Compass bearing missing from photo"
 			logger.warning(f"No bearing data in {safe_filename}")
 			raise ValueError(error_msg)
 

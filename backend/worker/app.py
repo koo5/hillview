@@ -8,6 +8,7 @@ import os
 import asyncio
 import threading
 import logging
+import json
 import sys
 import time
 
@@ -33,6 +34,7 @@ from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
+from typing import Optional, Dict, Any, List, Tuple
 from starlette.concurrency import run_in_threadpool
 from throttle import Throttle
 
@@ -169,7 +171,7 @@ logger.info(f"PARALLEL_PROCESSING_CONCURRENCY: {PARALLEL_PROCESSING_CONCURRENCY}
 processing_semaphore = asyncio.Semaphore(PARALLEL_PROCESSING_CONCURRENCY)
 
 
-def run_photo_processing_sync(file_path: str, filename: str, user_id: UUID, photo_id: str, client_signature: str, ctx_photo_id: str = None, ctx_task_id: int = None, anonymization_override: str = None):
+def run_photo_processing_sync(file_path: str, filename: str, user_id: UUID, photo_id: str, client_signature: str, ctx_photo_id: str = None, ctx_task_id: int = None, anonymization_override: str = None, metadata: Dict[str, Any] = None):
 	"""
 	Sync wrapper to run async photo processing in a dedicated event loop.
 	This runs in a thread pool to avoid blocking the main event loop.
@@ -245,6 +247,18 @@ def start_background_loop():
 
 
 # Request/Response models
+class BrowserMetadata(BaseModel):
+	"""Metadata provided when EXIF can't be written (e.g., browser capture)"""
+	latitude: Optional[float] = None
+	longitude: Optional[float] = None
+	altitude: Optional[float] = None
+	bearing: Optional[float] = None
+	captured_at: Optional[str] = None  # ISO datetime
+	orientation_code: Optional[int] = None  # EXIF orientation (1, 3, 6, 8)
+	location_source: Optional[str] = None  # 'gps' or 'map'
+	bearing_source: Optional[str] = None
+	accuracy: Optional[float] = None
+
 class ProcessPhotoResponse(BaseModel):
 	success: bool
 	message: str
@@ -353,10 +367,11 @@ async def upload_sync(
 	file: UploadFile = File(...),
 	client_signature: str = Form(...),
 	anonymization_override: Optional[str] = Form(None),  # JSON: null=auto, "[]"=none, "[{...}]"=specific
+	metadata: Optional[str] = Form(None),  # JSON: metadata when EXIF can't be written (e.g., browser capture)
 	upload_auth: dict = Depends(get_upload_authorization)
 ):
 	photo_id, user_id = validate_upload_parameters(upload_auth, file)
-	return await upload(file, client_signature, photo_id, user_id, anonymization_override=anonymization_override)
+	return await upload(file, client_signature, photo_id, user_id, anonymization_override=anonymization_override, metadata=metadata)
 
 
 @app.post("/upload_async")
@@ -364,6 +379,7 @@ async def upload_async(
 	file: UploadFile = File(...),
 	client_signature: str = Form(...),
 	anonymization_override: Optional[str] = Form(None),  # JSON: null=auto, "[]"=none, "[{...}]"=specific
+	metadata: Optional[str] = Form(None),  # JSON: metadata when EXIF can't be written (e.g., browser capture)
 	upload_auth: dict = Depends(get_upload_authorization),
 	background_tasks: BackgroundTasks = None
 ):
@@ -373,21 +389,21 @@ async def upload_async(
 		task_id = task_id_counter
 		task_id_counter += 1
 		pending_background_tasks.add(task_id)
-	background_tasks.add_task(upload, file, client_signature, photo_id, user_id, task_id, anonymization_override)
+	background_tasks.add_task(upload, file, client_signature, photo_id, user_id, task_id, anonymization_override, metadata)
 
 	return {'success': True}
 
 
-async def upload(file: UploadFile, client_signature: str, photo_id: str, user_id: str, task_id = None, anonymization_override: Optional[str] = None):
+async def upload(file: UploadFile, client_signature: str, photo_id: str, user_id: str, task_id = None, anonymization_override: Optional[str] = None, metadata: Optional[str] = None):
 
 	with task_context(photo_id=photo_id, task_id=task_id):
-		return await _upload_inner(file, client_signature, photo_id, user_id, task_id, anonymization_override)
+		return await _upload_inner(file, client_signature, photo_id, user_id, task_id, anonymization_override, metadata)
 
 
-async def _upload_inner(file: UploadFile, client_signature: str, photo_id: str, user_id: str, task_id = None, anonymization_override: Optional[str] = None):
+async def _upload_inner(file: UploadFile, client_signature: str, photo_id: str, user_id: str, task_id = None, anonymization_override: Optional[str] = None, metadata: Optional[str] = None):
 
 	try:
-		file_path, processing_status, error_message, retry_after_minutes, processing_result, secure_filename = await process(file, client_signature, photo_id, user_id, anonymization_override)
+		file_path, processing_status, error_message, retry_after_minutes, processing_result, secure_filename = await process(file, client_signature, photo_id, user_id, anonymization_override, metadata)
 
 		# Handle deleted photos early - no need to notify API
 		if processing_status == "deleted":
@@ -487,7 +503,7 @@ async def _upload_inner(file: UploadFile, client_signature: str, photo_id: str, 
 	)
 
 
-async def process(file: UploadFile, client_signature: str, photo_id: str, user_id: str, anonymization_override: Optional[str] = None):
+async def process(file: UploadFile, client_signature: str, photo_id: str, user_id: str, anonymization_override: Optional[str] = None, metadata: Optional[str] = None):
 
 	file_path = None
 	error_message = None

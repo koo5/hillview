@@ -6,9 +6,8 @@ import { writable, get } from 'svelte/store';
 import type { CaptureLocation } from './captureQueue';
 
 const DB_NAME = 'HillviewPhotoDB';
-const DB_VERSION = 1;
+const DB_VERSION = 2; // Bump version to trigger migration
 const PHOTO_STORE = 'photos';
-const UPLOAD_QUEUE_STORE = 'uploadQueue';
 
 // Export function to check background sync support
 export function isBackgroundSyncSupported(): boolean {
@@ -29,13 +28,9 @@ export interface StoredPhoto {
     lastError?: string;
     uploadedAt?: number;
     serverPhotoId?: string;
-}
-
-export interface UploadQueueEntry {
-    photoId: string;
-    addedAt: number;
-    priority: number; // Lower number = higher priority
-    retryAfter?: number; // Timestamp after which to retry
+    addedAt: number; // When photo was added to storage
+    priority: number; // Lower number = higher priority (0 for fast mode, 1 for slow)
+    retryAfter?: number; // Timestamp after which to retry (for failed uploads)
 }
 
 // Store for tracking storage usage
@@ -102,18 +97,23 @@ class BrowserPhotoStorage {
             request.onupgradeneeded = (event) => {
                 const db = (event.target as IDBOpenDBRequest).result;
 
-                // Create photo store if it doesn't exist
+                // Migration: Remove old upload queue store if it exists
+                if (db.objectStoreNames.contains('uploadQueue')) {
+                    db.deleteObjectStore('uploadQueue');
+                }
+
+                // Create or upgrade photo store
                 if (!db.objectStoreNames.contains(PHOTO_STORE)) {
                     const photoStore = db.createObjectStore(PHOTO_STORE, { keyPath: 'id' });
                     photoStore.createIndex('status', 'status');
                     photoStore.createIndex('captured_at', 'metadata.captured_at');
-                }
-
-                // Create upload queue store if it doesn't exist
-                if (!db.objectStoreNames.contains(UPLOAD_QUEUE_STORE)) {
-                    const queueStore = db.createObjectStore(UPLOAD_QUEUE_STORE, { keyPath: 'photoId' });
-                    queueStore.createIndex('priority', 'priority');
-                    queueStore.createIndex('addedAt', 'addedAt');
+                    photoStore.createIndex('priority_added', ['priority', 'addedAt']); // Compound index for queue ordering
+                } else if (event.oldVersion < 2) {
+                    // Upgrading from version 1 - add new index
+                    const photoStore = (event.target as IDBOpenDBRequest).transaction!.objectStore(PHOTO_STORE);
+                    if (!photoStore.indexNames.contains('priority_added')) {
+                        photoStore.createIndex('priority_added', ['priority', 'addedAt']);
+                    }
                 }
             };
         });
@@ -189,26 +189,16 @@ class BrowserPhotoStorage {
             blob,
             metadata,
             status: 'pending',
-            retryCount: 0
-        };
-
-        const queueEntry: UploadQueueEntry = {
-            photoId: id,
+            retryCount: 0,
             addedAt: Date.now(),
             priority: metadata.mode === 'fast' ? 0 : 1
         };
 
-        const transaction = this.db!.transaction([PHOTO_STORE, UPLOAD_QUEUE_STORE], 'readwrite');
+        const transaction = this.db!.transaction([PHOTO_STORE], 'readwrite');
 
         try {
-            // Store the photo
             const photoStore = transaction.objectStore(PHOTO_STORE);
             await this.promisifyRequest(photoStore.put(storedPhoto));
-
-            // Add to upload queue
-            const queueStore = transaction.objectStore(UPLOAD_QUEUE_STORE);
-            await this.promisifyRequest(queueStore.put(queueEntry));
-
             console.log(`${this.LOG_PREFIX} Photo saved: ${id}, size: ${blob.size} bytes`);
         } catch (error) {
             console.error(`${this.LOG_PREFIX} Failed to save photo:`, error);
@@ -226,31 +216,50 @@ class BrowserPhotoStorage {
     async getNextPhotoForUpload(): Promise<StoredPhoto | null> {
         if (!this.db) await this.init();
 
-        const transaction = this.db!.transaction([PHOTO_STORE, UPLOAD_QUEUE_STORE], 'readonly');
-        const queueStore = transaction.objectStore(UPLOAD_QUEUE_STORE);
+        const transaction = this.db!.transaction([PHOTO_STORE], 'readonly');
         const photoStore = transaction.objectStore(PHOTO_STORE);
 
-        // Get highest priority item from queue
-        const index = queueStore.index('priority');
-        const cursor = await this.promisifyRequest(index.openCursor());
+        // Get all pending and failed photos
+        const pendingPhotos: StoredPhoto[] = [];
 
-        if (cursor && cursor.value) {
-            const queueEntry: UploadQueueEntry = cursor.value;
-
-            // Check if we should wait before retrying
-            if (queueEntry.retryAfter && queueEntry.retryAfter > Date.now()) {
-                return null;
-            }
-
-            // Get the photo
-            const photo = await this.promisifyRequest(photoStore.get(queueEntry.photoId));
-
-            if (photo && photo.status !== 'uploaded') {
-                return photo as StoredPhoto;
-            }
+        // Get pending photos
+        const pendingCursor = await this.promisifyRequest(
+            photoStore.index('status').openCursor(IDBKeyRange.only('pending'))
+        );
+        if (pendingCursor) {
+            await this.iterateCursor(pendingCursor, (photo) => {
+                pendingPhotos.push(photo);
+            });
         }
 
-        return null;
+        // Get failed photos that are ready to retry
+        const failedCursor = await this.promisifyRequest(
+            photoStore.index('status').openCursor(IDBKeyRange.only('failed'))
+        );
+        if (failedCursor) {
+            await this.iterateCursor(failedCursor, (photo) => {
+                if (!photo.retryAfter || photo.retryAfter <= Date.now()) {
+                    pendingPhotos.push(photo);
+                }
+            });
+        }
+
+        // Sort by priority (lower first) then by addedAt (older first)
+        pendingPhotos.sort((a, b) => {
+            if (a.priority !== b.priority) {
+                return a.priority - b.priority;
+            }
+            return a.addedAt - b.addedAt;
+        });
+
+        return pendingPhotos[0] || null;
+    }
+
+    private async iterateCursor(cursor: IDBCursorWithValue, callback: (value: StoredPhoto) => void): Promise<void> {
+        do {
+            callback(cursor.value);
+            cursor = await this.promisifyRequest(cursor.continue());
+        } while (cursor);
     }
 
     async markPhotoAsUploading(photoId: string): Promise<void> {
@@ -271,10 +280,9 @@ class BrowserPhotoStorage {
     async markPhotoAsUploaded(photoId: string, serverPhotoId: string): Promise<void> {
         if (!this.db) await this.init();
 
-        const transaction = this.db!.transaction([PHOTO_STORE, UPLOAD_QUEUE_STORE], 'readwrite');
-
-        // Update photo status
+        const transaction = this.db!.transaction([PHOTO_STORE], 'readwrite');
         const photoStore = transaction.objectStore(PHOTO_STORE);
+
         const photo = await this.promisifyRequest(photoStore.get(photoId));
         if (photo) {
             photo.status = 'uploaded';
@@ -282,10 +290,6 @@ class BrowserPhotoStorage {
             photo.serverPhotoId = serverPhotoId;
             await this.promisifyRequest(photoStore.put(photo));
         }
-
-        // Remove from upload queue
-        const queueStore = transaction.objectStore(UPLOAD_QUEUE_STORE);
-        await this.promisifyRequest(queueStore.delete(photoId));
 
         await this.updateQueueStatus();
 
@@ -299,25 +303,20 @@ class BrowserPhotoStorage {
     async markPhotoAsFailed(photoId: string, error: string): Promise<void> {
         if (!this.db) await this.init();
 
-        const transaction = this.db!.transaction([PHOTO_STORE, UPLOAD_QUEUE_STORE], 'readwrite');
-
-        // Update photo status
+        const transaction = this.db!.transaction([PHOTO_STORE], 'readwrite');
         const photoStore = transaction.objectStore(PHOTO_STORE);
+
         const photo = await this.promisifyRequest(photoStore.get(photoId));
         if (photo) {
             photo.status = 'failed';
             photo.lastError = error;
             photo.retryCount = (photo.retryCount || 0) + 1;
-            await this.promisifyRequest(photoStore.put(photo));
 
-            // Update queue entry with retry delay (exponential backoff)
-            const queueStore = transaction.objectStore(UPLOAD_QUEUE_STORE);
-            const queueEntry = await this.promisifyRequest(queueStore.get(photoId));
-            if (queueEntry) {
-                const retryDelay = Math.min(60000 * Math.pow(2, photo.retryCount - 1), 3600000); // Max 1 hour
-                queueEntry.retryAfter = Date.now() + retryDelay;
-                await this.promisifyRequest(queueStore.put(queueEntry));
-            }
+            // Set retry delay with exponential backoff
+            const retryDelay = Math.min(60000 * Math.pow(2, photo.retryCount - 1), 3600000); // Max 1 hour
+            photo.retryAfter = Date.now() + retryDelay;
+
+            await this.promisifyRequest(photoStore.put(photo));
         }
 
         await this.updateQueueStatus();
@@ -326,26 +325,19 @@ class BrowserPhotoStorage {
     async retryFailedUploads(): Promise<void> {
         if (!this.db) await this.init();
 
-        const transaction = this.db!.transaction([PHOTO_STORE, UPLOAD_QUEUE_STORE], 'readwrite');
+        const transaction = this.db!.transaction([PHOTO_STORE], 'readwrite');
         const photoStore = transaction.objectStore(PHOTO_STORE);
-        const queueStore = transaction.objectStore(UPLOAD_QUEUE_STORE);
 
         // Get all failed photos
         const failedPhotos = await this.promisifyRequest(
             photoStore.index('status').getAll('failed')
         );
 
-        // Reset their status and re-add to queue
+        // Reset their status to pending and clear retry delay
         for (const photo of failedPhotos) {
             photo.status = 'pending';
+            photo.retryAfter = undefined;
             await this.promisifyRequest(photoStore.put(photo));
-
-            const queueEntry: UploadQueueEntry = {
-                photoId: photo.id,
-                addedAt: Date.now(),
-                priority: photo.metadata.mode === 'fast' ? 0 : 1
-            };
-            await this.promisifyRequest(queueStore.put(queueEntry));
         }
 
         await this.updateQueueStatus();
@@ -355,13 +347,9 @@ class BrowserPhotoStorage {
     async deletePhoto(photoId: string): Promise<void> {
         if (!this.db) await this.init();
 
-        const transaction = this.db!.transaction([PHOTO_STORE, UPLOAD_QUEUE_STORE], 'readwrite');
-
+        const transaction = this.db!.transaction([PHOTO_STORE], 'readwrite');
         const photoStore = transaction.objectStore(PHOTO_STORE);
         await this.promisifyRequest(photoStore.delete(photoId));
-
-        const queueStore = transaction.objectStore(UPLOAD_QUEUE_STORE);
-        await this.promisifyRequest(queueStore.delete(photoId));
 
         await this.updateStorageStats();
         await this.updateQueueStatus();
