@@ -179,8 +179,8 @@
                                         {#if photo.altitude}| ⛰️ {photo.altitude?.toFixed(0)}m{/if}
                                         {#if photo.captured_at}| 📅 {new Date(photo.captured_at).toLocaleDateString()}{/if}
                                     </div>
-                                    {#if photo.file}
-                                        <div class="photo-file">{photo.file}</div>
+                                    {#if photo.filename}
+                                        <div class="photo-file">{photo.filename}</div>
                                     {/if}
                                 </div>
                             {/each}
@@ -202,9 +202,9 @@
                     <b>Debug Information</b><br>
                     <b>Bearing:</b>  {$bearingState.bearing}<br>
                     <b>Pos.center:</b> {$spatialState.center}<br>
-                    <b>Left:</b>  {$photoToLeft?.file}<br>
-                    <b>Front:</b> {$photoInFront?.file}<br>
-                    <b>Right:</b>  {$photoToRight?.file}<br>
+                    <b>Left:</b>  {$photoToLeft?.filename}<br>
+                    <b>Front:</b> {$photoInFront?.filename}<br>
+                    <b>Right:</b>  {$photoToRight?.filename}<br>
                     <b>Photos in range:</b> {$photosInRange.length}<br>
                     <b>Range:</b> {$spatialState.range / 1000} km<br>
                     <b>Photos to left:</b>
@@ -219,7 +219,7 @@
                     <b>Photos to right:</b>
                     <ul>
                         {#each $photoToRight ? [$photoToRight] : [] as photo}
-                            <li>{photo.id},{photo.file}
+                            <li>{photo.id},{photo.filename}
                                 {JSON.stringify(photo.sizes, null, 2)}
                             </li>
                         {/each}

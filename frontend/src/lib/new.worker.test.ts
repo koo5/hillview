@@ -170,7 +170,7 @@ const createTestPhoto = (id: string, lat: number, lng: number, bearing: number =
   id,
   uid: `test-${id}`,
   source_type: 'test',
-  file: `${id}.jpg`,
+  filename: `${id}.jpg`,
   url: `https://example.com/${id}.jpg`,
   coord: { lat, lng },
   bearing,

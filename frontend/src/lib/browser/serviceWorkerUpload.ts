@@ -133,7 +133,9 @@ export class ServiceWorkerUploader {
         const index = store.index('uploaded');
 
         return new Promise((resolve, reject) => {
-            const request = index.getAll(false); // Get all where uploaded = false
+            // Use IDBKeyRange to get all records where uploaded = false
+            const range = IDBKeyRange.only(false);
+            const request = index.getAll(range);
             request.onsuccess = () => resolve(request.result || []);
             request.onerror = () => reject(request.error);
         });

@@ -38,7 +38,7 @@ import InsetGradients from "$lib/components/InsetGradients.svelte";
         .standard-body {
             min-height: calc(100vh - 72px);
 			padding-top: calc(62px + var(--safe-area-inset-top, 0px));
-			padding-left calc(16px + var(--safe-area-inset-left, 0px));
+			padding-left: calc(16px + var(--safe-area-inset-left, 0px));
             /*padding-right: 16px;*/
 			padding-right: calc(16px + var(--safe-area-inset-right, 0px));
             /*padding-bottom: 40px;*/

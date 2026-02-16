@@ -410,7 +410,7 @@ class StreamPhotoLoader {
             id = id,
             uid = "stream-$id", // Will be replaced by convertToPhotoData
             source_type = "stream",
-            file = file,
+            filename = file,
             url = url,
             coord = coord,
             bearing = bearing,

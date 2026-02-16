@@ -684,7 +684,7 @@
 			longitude: locationData.longitude!,
 			altitude: locationData.altitude,
 			accuracy: locationData.accuracy || 1,
-			bearing: locationData.bearing,
+			bearing: locationData.bearing!,  // Assert non-null since bearingState always provides it
 			location_source: locationData.location_source,
 			bearing_source: locationData.bearing_source,
 		};

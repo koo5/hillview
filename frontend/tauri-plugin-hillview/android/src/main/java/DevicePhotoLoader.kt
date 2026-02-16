@@ -127,7 +127,7 @@ class DevicePhotoLoader(private val context: Context) {
             id = photoEntity.id,
             uid = "${source.id}-${photoEntity.id}",
             source_type = source.type,
-            file = photoEntity.filename,
+            filename = photoEntity.filename,
             coord = LatLng(
                 lat = photoEntity.latitude,
                 lng = photoEntity.longitude

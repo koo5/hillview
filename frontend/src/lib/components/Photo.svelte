@@ -364,7 +364,7 @@
 	{#if photo && !photo.is_placeholder}
 		<img
 			src={displayedUrl}
-			alt={photo.file}
+			alt={photo.filename}
 			style="{bg_style_stretched_photo} {border_style}"
 			fetchpriority={fetchPriority as any}
 			data-testid="main-photo"
