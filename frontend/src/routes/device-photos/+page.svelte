@@ -10,8 +10,9 @@
 	import DevicePhotoStats from "$lib/components/DevicePhotoStats.svelte";
 	import {fetchDevicePhotoStats} from "$lib/devicePhotoStats";
 	import { showDropdownMenu, type DropdownMenuItem } from '$lib/components/dropdown-menu/dropdownMenu.svelte';
-	import { getAnonymizationMenuItems } from '$lib/photoAnonymizationMenu';
+	import { getPhotoMenuItems } from '$lib/photoAnonymizationMenu';
 	import DropdownMenu from '$lib/components/dropdown-menu/DropdownMenu.svelte';
+	import AnonymizationModal from '$lib/components/anonymization-modal/AnonymizationModal.svelte';
 
 	interface DevicePhoto {
 		id: string;
@@ -159,7 +160,7 @@
 
 	function showPhotoMenu(event: MouseEvent, photo: DevicePhoto) {
 		const button = event.currentTarget as HTMLButtonElement;
-		const items: DropdownMenuItem[] = getAnonymizationMenuItems(photo.id);
+		const items: DropdownMenuItem[] = getPhotoMenuItems(photo.id);
 
 		showDropdownMenu(items, button, {
 			placement: 'above-right',
@@ -362,6 +363,7 @@
 </StandardBody>
 
 <DropdownMenu />
+<AnonymizationModal />
 
 <style>
 	.device-photos-section {
