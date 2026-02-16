@@ -4,11 +4,13 @@
 	import { createAnonymizationEdit, getDevicePhotoIdByServerPhotoId, checkPhotoFileExists } from '$lib/photoAnonymizationMenu';
 	import { addAlert } from '$lib/alertSystem.svelte';
 	import { anonymizationModalState, closeAnonymizationModal } from './anonymizationModal.svelte.js';
+	import { BROWSER } from '$lib/tauri';
 
 	type ModalState =
 		| { status: 'loading' }
 		| { status: 'not-found-locally' }
 		| { status: 'file-missing'; path: string }
+		| { status: 'browser-not-supported' }
 		| { status: 'ready'; devicePhotoId: string }
 		| { status: 'processing' };
 
@@ -29,6 +31,12 @@
 		if (!photoId) return;
 
 		modalState = { status: 'loading' };
+
+		// In browser mode, we can't access local device photos
+		if (BROWSER) {
+			modalState = { status: 'browser-not-supported' };
+			return;
+		}
 
 		try {
 			let devicePhotoId: string;
@@ -102,6 +110,18 @@
 				<Loader2 size={32} />
 			</div>
 			<p>Checking photo availability...</p>
+		</div>
+
+	{:else if modalState.status === 'browser-not-supported'}
+		<div class="state-message">
+			<div class="state-icon warning">
+				<AlertCircle size={32} />
+			</div>
+			<h4>Not available in browser</h4>
+			<p>
+				Changing anonymization settings is only available in the mobile app.
+				Please use the Hillview app on your device to modify these settings.
+			</p>
 		</div>
 
 	{:else if modalState.status === 'not-found-locally'}

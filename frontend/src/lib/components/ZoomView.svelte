@@ -225,8 +225,7 @@
 			</div>
 		</div>
 
-		<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-		<div class="filename-overlay" onclick={(e) => e.stopPropagation()} ondblclick={(e) => e.stopPropagation()}>
+		<div class="filename-overlay" onclick={(e) => e.stopPropagation()} ondblclick={(e) => e.stopPropagation()} role="presentation">
 			{$zoomViewData!.filename}
 			{#if $app.debug}
 			<br>

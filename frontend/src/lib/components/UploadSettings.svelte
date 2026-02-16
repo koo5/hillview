@@ -78,9 +78,9 @@
 		onSaveSuccess(msg);
 		alert = {type: 'success', message: msg};
 
-		if (onCancel) {
+		/*if (onCancel) {
 			onCancel();
-		}
+		}*/
 	}
 
 	function handleRadioChange(value: string) {

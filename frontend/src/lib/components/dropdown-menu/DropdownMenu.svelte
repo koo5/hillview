@@ -172,15 +172,14 @@
 <svelte:document on:pointerup={handleClickOutside} on:keydown={handleKeydown} />
 
 {#if $dropdownMenuState.visible}
-	<!-- Backdrop to capture stray events -->
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<!-- Backdrop to close menu when clicking outside -->
 	<div
 		class="dropdown-backdrop"
 		use:portal
-		use:captureEvents
-		ontouchstart={stopEvent}
-		ontouchmove={stopEvent}
-		onpointerdown={closeDropdownMenu}
+		onclick={closeDropdownMenu}
+		onkeydown={handleKeydown}
+		role="button"
+		tabindex="-1"
 	></div>
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
@@ -189,12 +188,6 @@
 		data-testid={$dropdownMenuState.testId ?? 'dropdown-menu'}
 		bind:this={menuElement}
 		use:portal
-		onpointerdown={stopPropagation}
-		onpointermove={stopEvent}
-		ontouchstart={stopPropagation}
-		ontouchmove={stopEvent}
-		onmousedown={stopPropagation}
-		ondragstart={stopEvent}
 	>
 		<div class="dropdown-menu">
 			{#each $dropdownMenuState.items as item, index}
@@ -209,7 +202,7 @@
 						class:disabled={item.disabled}
 						disabled={item.disabled}
 						data-testid={item.testId}
-						onclick={() => handleItemClick(item.onclick)}
+						onpointerup={() => handleItemClick(item.onclick)}
 					>
 						{#if item.icon}
 							{@const Icon = item.icon}

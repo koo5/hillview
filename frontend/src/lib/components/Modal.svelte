@@ -13,6 +13,21 @@
 
 	let { open, onclose, title, testId, children, actions }: Props = $props();
 
+	// Ignore backdrop clicks until modal has fully rendered (prevents click-through from triggers)
+	let acceptClicks = $state(false);
+
+	$effect(() => {
+		if (open) {
+			acceptClicks = false;
+			// Wait for next frame to start accepting clicks
+			requestAnimationFrame(() => {
+				requestAnimationFrame(() => {
+					acceptClicks = true;
+				});
+			});
+		}
+	});
+
 	function handleKeydown(event: KeyboardEvent) {
 		if (event.key === 'Escape') {
 			onclose();
@@ -20,6 +35,7 @@
 	}
 
 	function handleBackdropClick(event: MouseEvent) {
+		if (!acceptClicks) return;
 		if (event.target === event.currentTarget) {
 			onclose();
 		}
@@ -29,10 +45,12 @@
 <svelte:document onkeydown={open ? handleKeydown : undefined} />
 
 {#if open}
-	<!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
 	<div
 		class="modal-overlay"
 		onclick={handleBackdropClick}
+		onkeydown={handleKeydown}
+		role="button"
+		tabindex="-1"
 		use:portal
 		data-testid={testId ?? 'modal'}
 	>

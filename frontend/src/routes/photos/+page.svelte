@@ -378,7 +378,7 @@
 			<UploadSettingsComponent
 				onSaveSuccess={(message) => {
 					addLogEntry(message, 'success');
-					showSettings = false;
+//					showSettings = false;
 				}}
 				onCancel={() => showSettings = false}
 			/>
