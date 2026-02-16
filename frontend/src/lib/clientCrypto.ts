@@ -77,6 +77,20 @@ export class ClientCryptoManager {
         KEY_ID: 'hillview_client_key_id',
         KEY_CREATED: 'hillview_client_key_created'
     };
+    private readonly DB_NAME = 'HillviewAuthDB';
+    private readonly DB_VERSION = 1;
+    private readonly KEYS_STORE = 'client_keys';
+    private readonly KEY_ID = 'client_keys'; // Single record ID
+    private db: IDBDatabase | null = null;
+    private useIndexedDB: boolean = false;
+
+    constructor() {
+        // Detect if we're in a service worker context (no localStorage)
+        this.useIndexedDB = typeof localStorage === 'undefined';
+        if (this.useIndexedDB) {
+            console.log(`${this.LOG_PREFIX} Using IndexedDB for storage (service worker context)`);
+        }
+    }
 
     /**
      * Get or generate client ECDSA key pair
@@ -95,7 +109,12 @@ export class ClientCryptoManager {
      */
     async getOrCreateKeyPair(): Promise<ClientKeyPair> {
         try {
-            // Try to load existing keys from localStorage
+            // Sync from localStorage to IndexedDB if needed (one-time migration)
+            if (this.useIndexedDB) {
+                await this.initIndexedDB();
+            }
+
+            // Try to load existing keys
             const existingKeys = await this.loadStoredKeys();
             if (existingKeys) {
                 console.log(`${this.LOG_PREFIX} Loaded existing client keys`);
@@ -106,7 +125,7 @@ export class ClientCryptoManager {
             console.log(`${this.LOG_PREFIX} Generating new client ECDSA key pair`);
             const keyPair = await this.generateKeyPair();
 
-            // Store keys in localStorage
+            // Store keys
             await this.storeKeys(keyPair);
 
             console.log(`${this.LOG_PREFIX} New client key pair generated and stored`);
@@ -141,9 +160,18 @@ export class ClientCryptoManager {
         const publicKeyBuffer = await crypto.subtle.exportKey('spki', keyPair.public_key);
         const publicKeyPem = this.bufferToPem(publicKeyBuffer, 'PUBLIC KEY');
 
-        // Get or generate key ID
-        const keyId = localStorage.getItem(this.STORAGE_KEYS.KEY_ID) || this.generateKeyId();
-        const createdAt = localStorage.getItem(this.STORAGE_KEYS.KEY_CREATED) || new Date().toISOString();
+        // Get stored metadata
+        let keyId: string;
+        let createdAt: string;
+
+        if (this.useIndexedDB) {
+            const storedData = await this.getStoredKeyDataFromIDB();
+            keyId = storedData?.key_id || keyPair.key_id;
+            createdAt = storedData?.created_at || new Date().toISOString();
+        } else {
+            keyId = localStorage.getItem(this.STORAGE_KEYS.KEY_ID) || this.generateKeyId();
+            createdAt = localStorage.getItem(this.STORAGE_KEYS.KEY_CREATED) || new Date().toISOString();
+        }
 
         return {
             public_key_pem: publicKeyPem,
@@ -227,11 +255,23 @@ export class ClientCryptoManager {
     /**
      * Clear stored client keys (e.g., on logout)
      */
-    clearStoredKeys(): void {
+    async clearStoredKeys(): Promise<void> {
         try {
-            Object.values(this.STORAGE_KEYS).forEach(key => {
-                localStorage.removeItem(key);
-            });
+            if (this.useIndexedDB) {
+                await this.initIndexedDB();
+                const transaction = this.db!.transaction([this.KEYS_STORE], 'readwrite');
+                const store = transaction.objectStore(this.KEYS_STORE);
+
+                await new Promise<void>((resolve, reject) => {
+                    const request = store.delete(this.KEY_ID);
+                    request.onsuccess = () => resolve();
+                    request.onerror = () => reject(request.error);
+                });
+            } else {
+                Object.values(this.STORAGE_KEYS).forEach(key => {
+                    localStorage.removeItem(key);
+                });
+            }
             console.log(`${this.LOG_PREFIX} Client keys cleared from storage`);
         } catch (error) {
             console.error(`${this.LOG_PREFIX} Error clearing client keys:`, error);
@@ -259,20 +299,46 @@ export class ClientCryptoManager {
         };
     }
 
-    private async storeKeys(keyPair: ClientKeyPair): Promise<void> {
+    private async storeKeys(keyPair: ClientKeyPair, createdAt?: string): Promise<void> {
         try {
             // Export keys to JWK format for storage
             const privateKeyJwk = await crypto.subtle.exportKey('jwk', keyPair.private_key);
             const publicKeyJwk = await crypto.subtle.exportKey('jwk', keyPair.public_key);
+            const timestamp = createdAt || new Date().toISOString();
 
-            // Use the key ID from the keyPair
-            const createdAt = new Date().toISOString();
+            if (this.useIndexedDB) {
+                await this.initIndexedDB();
+                const transaction = this.db!.transaction([this.KEYS_STORE], 'readwrite');
+                const store = transaction.objectStore(this.KEYS_STORE);
 
-            // Store in localStorage
-            localStorage.setItem(this.STORAGE_KEYS.PRIVATE_KEY, JSON.stringify(privateKeyJwk));
-            localStorage.setItem(this.STORAGE_KEYS.PUBLIC_KEY, JSON.stringify(publicKeyJwk));
-            localStorage.setItem(this.STORAGE_KEYS.KEY_ID, keyPair.key_id);
-            localStorage.setItem(this.STORAGE_KEYS.KEY_CREATED, createdAt);
+                const storedData = {
+                    id: this.KEY_ID,
+                    private_key_jwk: privateKeyJwk,
+                    public_key_jwk: publicKeyJwk,
+                    key_id: keyPair.key_id,
+                    created_at: timestamp
+                };
+
+                await new Promise<void>((resolve, reject) => {
+                    const request = store.put(storedData);
+                    request.onsuccess = () => resolve();
+                    request.onerror = () => reject(request.error);
+                });
+            } else {
+                // Store in localStorage
+                localStorage.setItem(this.STORAGE_KEYS.PRIVATE_KEY, JSON.stringify(privateKeyJwk));
+                localStorage.setItem(this.STORAGE_KEYS.PUBLIC_KEY, JSON.stringify(publicKeyJwk));
+                localStorage.setItem(this.STORAGE_KEYS.KEY_ID, keyPair.key_id);
+                localStorage.setItem(this.STORAGE_KEYS.KEY_CREATED, timestamp);
+
+                // Also store in IndexedDB for service worker access (if in browser context)
+                try {
+                    await this.mirrorToIndexedDB(privateKeyJwk, publicKeyJwk, keyPair.key_id, timestamp);
+                } catch (e) {
+                    // Non-critical - service worker will generate its own keys if needed
+                    console.debug(`${this.LOG_PREFIX} Could not mirror to IndexedDB:`, e);
+                }
+            }
 
         } catch (error) {
             console.error(`${this.LOG_PREFIX} Error storing keys:`, error);
@@ -282,35 +348,39 @@ export class ClientCryptoManager {
 
     private async loadStoredKeys(): Promise<ClientKeyPair | null> {
         try {
-            const privateKeyJwkStr = localStorage.getItem(this.STORAGE_KEYS.PRIVATE_KEY);
-            const publicKeyJwkStr = localStorage.getItem(this.STORAGE_KEYS.PUBLIC_KEY);
-            const keyId = localStorage.getItem(this.STORAGE_KEYS.KEY_ID);
+            if (this.useIndexedDB) {
+                return await this.loadStoredKeysFromIDB();
+            } else {
+                const privateKeyJwkStr = localStorage.getItem(this.STORAGE_KEYS.PRIVATE_KEY);
+                const publicKeyJwkStr = localStorage.getItem(this.STORAGE_KEYS.PUBLIC_KEY);
+                const keyId = localStorage.getItem(this.STORAGE_KEYS.KEY_ID);
 
-            if (!privateKeyJwkStr || !publicKeyJwkStr || !keyId) {
-                return null;
+                if (!privateKeyJwkStr || !publicKeyJwkStr || !keyId) {
+                    return null;
+                }
+
+                const privateKeyJwk = JSON.parse(privateKeyJwkStr);
+                const publicKeyJwk = JSON.parse(publicKeyJwkStr);
+
+                // Import keys from JWK
+                const privateKey = await crypto.subtle.importKey(
+                    'jwk',
+                    privateKeyJwk,
+                    { name: 'ECDSA', namedCurve: 'P-256' },
+                    false,
+                    ['sign']
+                );
+
+                const publicKey = await crypto.subtle.importKey(
+                    'jwk',
+                    publicKeyJwk,
+                    { name: 'ECDSA', namedCurve: 'P-256' },
+                    true,
+                    ['verify']
+                );
+
+                return { public_key: publicKey, private_key: privateKey, key_id: keyId };
             }
-
-            const privateKeyJwk = JSON.parse(privateKeyJwkStr);
-            const publicKeyJwk = JSON.parse(publicKeyJwkStr);
-
-            // Import keys from JWK
-            const privateKey = await crypto.subtle.importKey(
-                'jwk',
-                privateKeyJwk,
-                { name: 'ECDSA', namedCurve: 'P-256' },
-                false,
-                ['sign']
-            );
-
-            const publicKey = await crypto.subtle.importKey(
-                'jwk',
-                publicKeyJwk,
-                { name: 'ECDSA', namedCurve: 'P-256' },
-                true,
-                ['verify']
-            );
-
-            return { public_key: publicKey, private_key: privateKey, key_id: keyId };
 
         } catch (error) {
             console.error(`${this.LOG_PREFIX} Error loading stored keys:`, error);
@@ -339,6 +409,100 @@ export class ClientCryptoManager {
         const base64 = this.bufferToBase64(buffer);
         const formatted = base64.match(/.{1,64}/g)?.join('\n') || base64;
         return `-----BEGIN ${type}-----\n${formatted}\n-----END ${type}-----`;
+    }
+
+    // IndexedDB methods
+    private async initIndexedDB(): Promise<void> {
+        if (this.db) return;
+
+        this.db = await new Promise<IDBDatabase>((resolve, reject) => {
+            const request = indexedDB.open(this.DB_NAME, this.DB_VERSION);
+
+            request.onerror = () => reject(new Error('Failed to open IndexedDB'));
+            request.onsuccess = () => resolve(request.result);
+
+            request.onupgradeneeded = (event) => {
+                const db = (event.target as IDBOpenDBRequest).result;
+                if (!db.objectStoreNames.contains(this.KEYS_STORE)) {
+                    db.createObjectStore(this.KEYS_STORE, { keyPath: 'id' });
+                }
+            };
+        });
+    }
+
+    private async mirrorToIndexedDB(
+        privateKeyJwk: JsonWebKey,
+        publicKeyJwk: JsonWebKey,
+        keyId: string,
+        createdAt: string
+    ): Promise<void> {
+        try {
+            await this.initIndexedDB();
+            const transaction = this.db!.transaction([this.KEYS_STORE], 'readwrite');
+            const store = transaction.objectStore(this.KEYS_STORE);
+
+            const storedData = {
+                id: this.KEY_ID,
+                private_key_jwk: privateKeyJwk,
+                public_key_jwk: publicKeyJwk,
+                key_id: keyId,
+                created_at: createdAt
+            };
+
+            await new Promise<void>((resolve, reject) => {
+                const request = store.put(storedData);
+                request.onsuccess = () => resolve();
+                request.onerror = () => reject(request.error);
+            });
+        } catch (error) {
+            // Non-critical error - service worker will generate its own keys if needed
+            console.debug(`${this.LOG_PREFIX} Could not mirror to IndexedDB:`, error);
+        }
+    }
+
+    private async loadStoredKeysFromIDB(): Promise<ClientKeyPair | null> {
+        await this.initIndexedDB();
+
+        const storedData = await this.getStoredKeyDataFromIDB();
+        if (!storedData) {
+            return null;
+        }
+
+        // Import keys from JWK
+        const privateKey = await crypto.subtle.importKey(
+            'jwk',
+            storedData.private_key_jwk,
+            { name: 'ECDSA', namedCurve: 'P-256' },
+            false,
+            ['sign']
+        );
+
+        const publicKey = await crypto.subtle.importKey(
+            'jwk',
+            storedData.public_key_jwk,
+            { name: 'ECDSA', namedCurve: 'P-256' },
+            true,
+            ['verify']
+        );
+
+        return {
+            public_key: publicKey,
+            private_key: privateKey,
+            key_id: storedData.key_id
+        };
+    }
+
+    private async getStoredKeyDataFromIDB(): Promise<any> {
+        await this.initIndexedDB();
+
+        const transaction = this.db!.transaction([this.KEYS_STORE], 'readonly');
+        const store = transaction.objectStore(this.KEYS_STORE);
+
+        return new Promise((resolve, reject) => {
+            const request = store.get(this.KEY_ID);
+            request.onsuccess = () => resolve(request.result || null);
+            request.onerror = () => reject(request.error);
+        });
     }
 }
 
