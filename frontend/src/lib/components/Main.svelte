@@ -403,20 +403,17 @@
 	<Menu size={24}/>
 </button>
 
-
-{#if TAURI || $app.debug_enabled}
-	<button
-		class="camera-button {showCameraView ? 'active' : ''}"
-		style="transform: rotate({getCssRotationFromOrientation($relativeOrientationExif)}deg);"
-		on:click={toggleCamera}
-		on:keydown={(e) => e.key === 'Enter' && toggleCamera()}
-		aria-label="{showCameraView ? 'Close camera' : 'Take photo'}"
-		title="{showCameraView ? 'Close camera' : 'Take photos'}"
-		data-testid="camera-button"
-	>
-		<Camera size={24}/>
-	</button>
-{/if}
+<button
+	class="camera-button {showCameraView ? 'active' : ''}"
+	style="transform: rotate({getCssRotationFromOrientation($relativeOrientationExif)}deg);"
+	on:click={toggleCamera}
+	on:keydown={(e) => e.key === 'Enter' && toggleCamera()}
+	aria-label="{showCameraView ? 'Close camera' : 'Take photo'}"
+	title="{showCameraView ? 'Close camera' : 'Take photos'}"
+	data-testid="camera-button"
+>
+	<Camera size={24}/>
+</button>
 
 <!--{#if import.meta.env.VITE_DEV_MODE === 'true'}-->
 {#if $app.debug_enabled}

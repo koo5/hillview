@@ -7,6 +7,7 @@ import { clientCrypto } from './clientCrypto';
 import { http } from '$lib/http';
 import { parsePythonDateTime } from './dateUtils';
 import { authStorage } from './browser/authStorage';
+import { SharedTokenRefresh } from './browser/sharedTokenRefresh';
 
 /**
  * Web Token Manager
@@ -17,6 +18,11 @@ import { authStorage } from './browser/authStorage';
 export class WebTokenManager implements TokenManager {
     private readonly LOG_PREFIX = '🔐[WEB_TOKEN_MGR]';
     private refreshPromise: Promise<TokenData> | null = null;
+    private sharedRefresh: SharedTokenRefresh;
+
+    constructor() {
+        this.sharedRefresh = new SharedTokenRefresh('[WEB_TOKEN_MGR]');
+    }
 
     async getValidToken(force: boolean = false): Promise<string | null> {
         try {
@@ -254,12 +260,20 @@ export class WebTokenManager implements TokenManager {
                 localStorage.setItem('refresh_token_expires', tokenData.refresh_token_expires_at);
             }
 
-            // Also save to IndexedDB for service worker access
+            // Save full token data to IndexedDB for service worker access
             try {
-                const expiresAt = new Date(tokenData.expires_at).getTime();
-                await authStorage.saveToken(tokenData.access_token, expiresAt);
-                await authStorage.saveBackendUrl(backendUrl);
-                console.log(`${this.LOG_PREFIX} Tokens also stored in IndexedDB for service worker.`);
+                const fullTokenData = {
+                    access_token: tokenData.access_token,
+                    refresh_token: tokenData.refresh_token || localStorage.getItem('refresh_token') || '',
+                    expires_at: new Date(tokenData.expires_at).getTime(),
+                    refresh_token_expires: tokenData.refresh_token_expires_at
+                        ? new Date(tokenData.refresh_token_expires_at).getTime()
+                        : (localStorage.getItem('refresh_token_expires')
+                            ? new Date(localStorage.getItem('refresh_token_expires')!).getTime()
+                            : undefined)
+                };
+                await authStorage.saveTokenData(fullTokenData);
+                console.log(`${this.LOG_PREFIX} Full token data stored in IndexedDB for service worker.`);
             } catch (error) {
                 console.warn(`${this.LOG_PREFIX} Failed to store tokens in IndexedDB:`, error);
                 // Don't fail the whole operation if IndexedDB fails
@@ -311,7 +325,7 @@ export class WebTokenManager implements TokenManager {
             localStorage.removeItem('refresh_token');
             localStorage.removeItem('refresh_token_expires');
 
-            // Also clear from IndexedDB
+            // Also clear from IndexedDB (including full token data)
             try {
                 await authStorage.clearToken();
                 console.log(`${this.LOG_PREFIX} Tokens also cleared from IndexedDB`);

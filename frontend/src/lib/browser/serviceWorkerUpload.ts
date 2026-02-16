@@ -2,6 +2,8 @@
 // This module handles uploading photos from IndexedDB in the background
 
 import type { BrowserPhoto } from './photoStorage';
+import { SharedTokenRefresh } from './sharedTokenRefresh';
+import { backendUrl } from '$lib/config';
 
 const DB_NAME = 'HillviewPhotoDB';
 const PHOTOS_STORE = 'photos';
@@ -9,6 +11,11 @@ const AUTH_STORE = 'auth'; // Store for auth token
 
 export class ServiceWorkerUploader {
     private readonly LOG_PREFIX = '[SW Upload]';
+    private tokenRefresh: SharedTokenRefresh;
+
+    constructor() {
+        this.tokenRefresh = new SharedTokenRefresh('[SW Upload Token]');
+    }
 
     async uploadPendingPhotos(): Promise<void> {
         console.log(`${this.LOG_PREFIX} Starting background upload`);
@@ -57,11 +64,11 @@ export class ServiceWorkerUploader {
         }
     }
 
-    private async uploadPhoto(photo: BrowserPhoto): Promise<boolean> {
-        console.log(`${this.LOG_PREFIX} Uploading photo ${photo.id}`);
+    private async uploadPhoto(photo: BrowserPhoto, retryCount: number = 0): Promise<boolean> {
+        console.log(`${this.LOG_PREFIX} Uploading photo ${photo.id}${retryCount > 0 ? ` (retry ${retryCount})` : ''}`);
 
         try {
-            const token = await this.getAuthToken();
+            const token = await this.getValidToken(retryCount > 0);
             if (!token) {
                 console.log(`${this.LOG_PREFIX} No auth token available, skipping upload`);
                 return false;
@@ -94,12 +101,7 @@ export class ServiceWorkerUploader {
             formData.append('description', JSON.stringify(metadata));
             formData.append('is_public', 'true');
 
-            // Determine backend URL
-            const backendUrl = self.location.hostname === 'localhost'
-                ? 'http://localhost:8055'
-                : self.location.origin;
-
-            const response = await fetch(`${backendUrl}/api/photos/upload`, {
+            const response = await fetch(`${backendUrl}/photos/upload`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${token}`
@@ -112,8 +114,13 @@ export class ServiceWorkerUploader {
                 console.log(`${this.LOG_PREFIX} Photo ${photo.id} uploaded successfully`);
                 return true;
             } else if (response.status === 401) {
-                console.log(`${this.LOG_PREFIX} Auth token expired, clearing token`);
-                await this.clearAuthToken();
+                // Token might be expired, try refreshing and retry once
+                if (retryCount === 0) {
+                    console.log(`${this.LOG_PREFIX} Got 401, attempting token refresh and retry`);
+                    // Retry upload with force refresh
+                    return this.uploadPhoto(photo, 1);
+                }
+                console.log(`${this.LOG_PREFIX} Auth failed after refresh`);
                 return false;
             } else {
                 console.error(`${this.LOG_PREFIX} Upload failed: ${response.status} ${response.statusText}`);
@@ -183,56 +190,11 @@ export class ServiceWorkerUploader {
         }
     }
 
-    private async getAuthToken(): Promise<string | null> {
-        try {
-            const db = await this.openDB();
-
-            // Check if auth store exists
-            if (!db.objectStoreNames.contains(AUTH_STORE)) {
-                console.log(`${this.LOG_PREFIX} Auth store doesn't exist`);
-                return null;
-            }
-
-            const transaction = db.transaction([AUTH_STORE], 'readonly');
-            const store = transaction.objectStore(AUTH_STORE);
-
-            const token = await new Promise<any>((resolve, reject) => {
-                const request = store.get('token');
-                request.onsuccess = () => resolve(request.result);
-                request.onerror = () => reject(request.error);
-            });
-
-            if (token && token.value && token.expires_at > Date.now()) {
-                return token.value;
-            }
-
-            return null;
-        } catch (error) {
-            console.error(`${this.LOG_PREFIX} Failed to get auth token:`, error);
-            return null;
-        }
+    private async getValidToken(forceRefresh: boolean = false): Promise<string | null> {
+        return this.tokenRefresh.getValidToken(forceRefresh);
     }
 
-    private async clearAuthToken(): Promise<void> {
-        try {
-            const db = await this.openDB();
-
-            if (!db.objectStoreNames.contains(AUTH_STORE)) {
-                return;
-            }
-
-            const transaction = db.transaction([AUTH_STORE], 'readwrite');
-            const store = transaction.objectStore(AUTH_STORE);
-
-            await new Promise((resolve, reject) => {
-                const request = store.delete('token');
-                request.onsuccess = () => resolve(undefined);
-                request.onerror = () => reject(request.error);
-            });
-        } catch (error) {
-            console.error(`${this.LOG_PREFIX} Failed to clear auth token:`, error);
-        }
-    }
+    // clearAuthToken removed - handled by SharedTokenRefresh
 
     private openDB(): Promise<IDBDatabase> {
         return new Promise((resolve, reject) => {

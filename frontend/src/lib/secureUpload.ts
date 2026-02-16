@@ -97,9 +97,9 @@ async function calculateFileMD5(file: File): Promise<string> {
 }
 
 /**
- * Extract geolocation data from photo file EXIF
+ * Extract geolocation data from photo file EXIF or provided metadata
  */
-async function extractGeolocationFromFile(file: File): Promise<{
+async function extractGeolocationFromFile(file: File, providedMetadata?: any): Promise<{
     latitude?: number;
     longitude?: number;
     altitude?: number;
@@ -107,8 +107,22 @@ async function extractGeolocationFromFile(file: File): Promise<{
     captured_at?: string;
 }> {
     try {
-        // Basic EXIF extraction - in a real app you might use a library like exifr
-        // For now, return empty object and let the worker extract EXIF data
+        // If metadata is provided (from browser capture), use it
+        if (providedMetadata) {
+            return {
+                latitude: providedMetadata.latitude,
+                longitude: providedMetadata.longitude,
+                altitude: providedMetadata.altitude,
+                bearing: providedMetadata.bearing,
+                captured_at: providedMetadata.captured_at ?
+                    (typeof providedMetadata.captured_at === 'number' ?
+                        new Date(providedMetadata.captured_at).toISOString() :
+                        providedMetadata.captured_at) :
+                    undefined
+            };
+        }
+
+        // Otherwise, return empty and let the worker extract EXIF data
         return {};
     } catch (error) {
         console.warn('🢄Failed to extract EXIF data:', error);
@@ -228,7 +242,8 @@ async function uploadToWorker(
     file: File,
     uploadJwt: string,
     signature: string,
-    workerUrl?: string
+    workerUrl?: string,
+    browserMetadata?: any  // Additional metadata that can't be in EXIF
 ): Promise<SecureUploadResult> {
     const maxRetries = 3;
     const baseDelay = 2000; // Longer delay for file uploads
@@ -251,6 +266,34 @@ async function uploadToWorker(
             const formData = new FormData();
             formData.append('file', file);
             formData.append('client_signature', signature);
+
+            // If browser metadata is provided, add it as a JSON object
+            // since browser can't write EXIF tags
+            if (browserMetadata) {
+                const metadataObj = {
+                    latitude: browserMetadata.latitude,
+                    longitude: browserMetadata.longitude,
+                    altitude: browserMetadata.altitude,
+                    bearing: browserMetadata.bearing,
+                    captured_at: typeof browserMetadata.captured_at === 'number' ?
+                        new Date(browserMetadata.captured_at).toISOString() :
+                        browserMetadata.captured_at,
+                    orientation_code: browserMetadata.orientation_code,
+                    location_source: browserMetadata.location_source,
+                    bearing_source: browserMetadata.bearing_source,
+                    accuracy: browserMetadata.accuracy
+                };
+
+                // Remove undefined values
+                Object.keys(metadataObj).forEach(key => {
+                    if (metadataObj[key] === undefined || metadataObj[key] === null) {
+                        delete metadataObj[key];
+                    }
+                });
+
+                // Add as JSON string form field
+                formData.append('browser_metadata', JSON.stringify(metadataObj));
+            }
 
             const response = await fetch(workerEndpoint, {
                 method: 'POST',
@@ -307,7 +350,8 @@ export async function secureUploadFile(
     file: File,
     description?: string,
     isPublic: boolean = true,
-    workerUrl?: string
+    workerUrl?: string,
+    browserMetadata?: any  // Metadata from browser capture that can't be written as EXIF
 ): Promise<SecureUploadResult> {
     try {
         console.log(`🢄🔐 Starting secure upload for: ${file.name}`);
@@ -315,7 +359,7 @@ export async function secureUploadFile(
         // Step 1: Calculate file MD5 hash, extract geolocation data, and get client key info
         const [fileMD5, fileGeo, keyInfo/*, deviceGeo*/] = await Promise.all([
             calculateFileMD5(file),
-            extractGeolocationFromFile(file),
+            extractGeolocationFromFile(file, browserMetadata),
             clientCrypto.getPublicKeyInfo()
 			//getCurrentLocation()
         ]);
@@ -358,7 +402,8 @@ export async function secureUploadFile(
             file,
             authResponse.upload_jwt,
             signatureData.signature,
-            authResponse.worker_url + '/upload'
+            authResponse.worker_url + '/upload',
+            browserMetadata  // Pass metadata for form parameters
         );
 
         console.log(`🢄🔐 Secure upload completed: ${file.name}`);

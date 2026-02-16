@@ -88,7 +88,7 @@ export class PhotoUploadManager {
                 { type: 'image/jpeg' }
             );
 
-            // Add EXIF-like metadata as description for now
+            // Prepare metadata that browser can't write as EXIF
             const metadata = {
                 latitude: photo.location.latitude,
                 longitude: photo.location.longitude,
@@ -101,18 +101,17 @@ export class PhotoUploadManager {
                 bearing_source: photo.location.bearing_source
             };
 
-            const description = JSON.stringify(metadata);
-
-            // Use existing secure upload
+            // Use existing secure upload with browser metadata
             const result = await secureUploadFiles(
                 [file],
-                description,
-                true, // isPublic
-                undefined,
-                undefined,
+                undefined,  // description
+                true,       // isPublic
+                undefined,  // workerUrl
+                undefined,  // onProgress
                 (file, error) => {
                     console.error(`${this.LOG_PREFIX} Upload error for ${file.name}:`, error);
-                }
+                },
+                metadata    // browserMetadata
             );
 
             if (result.successCount > 0) {

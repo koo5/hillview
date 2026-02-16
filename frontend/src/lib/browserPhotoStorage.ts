@@ -10,6 +10,11 @@ const DB_VERSION = 1;
 const PHOTO_STORE = 'photos';
 const UPLOAD_QUEUE_STORE = 'uploadQueue';
 
+// Export function to check background sync support
+export function isBackgroundSyncSupported(): boolean {
+    return 'serviceWorker' in navigator && 'sync' in ServiceWorkerRegistration.prototype;
+}
+
 export interface StoredPhoto {
     id: string;
     blob: Blob;
@@ -484,7 +489,7 @@ class BrowserPhotoStorage {
     }
 
     async requestBackgroundSync(): Promise<void> {
-        if ('serviceWorker' in navigator && 'sync' in ServiceWorkerRegistration.prototype) {
+        if (isBackgroundSyncSupported()) {
             try {
                 const registration = await navigator.serviceWorker.ready;
                 await (registration as any).sync.register('photo-upload');

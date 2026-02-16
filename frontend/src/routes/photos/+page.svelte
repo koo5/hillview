@@ -19,7 +19,7 @@
 	import type {User} from '$lib/auth.svelte';
 	import type {ActivityLogEntry} from '$lib/types/activityLog';
 	import {http, handleApiError, TokenExpiredError} from '$lib/http';
-	import {TAURI} from '$lib/tauri';
+	import {TAURI, BROWSER} from '$lib/tauri';
 	import {navigateWithHistory} from '$lib/navigation.svelte';
 	import {updateKotlinPhotoStatuses} from '$lib/photoStatusSync';
 	import UploadSettingsComponent from '$lib/components/UploadSettings.svelte';
@@ -194,7 +194,7 @@
 		await fetchPhotos(true); // Reset and fetch from the beginning
 	}
 
-	async function deletePhoto(photoId: number) {
+	async function deletePhoto(photoId: string) {
 		console.log(`🢄DEBUG: deletePhoto called with photoId: ${photoId}`);
 		if (!confirm('Are you sure you want to delete this photo?')) {
 			console.log('🢄DEBUG: User cancelled delete');
@@ -255,7 +255,7 @@
 		}
 	}
 
-	async function setPhotoRating(photoId: number, rating: 'thumbs_up' | 'thumbs_down') {
+	async function setPhotoRating(photoId: string, rating: 'thumbs_up' | 'thumbs_down') {
 		console.log(`🢄Setting ${rating} for photo ${photoId}`);
 
 		try {
@@ -289,7 +289,7 @@
 		}
 	}
 
-	async function removePhotoRating(photoId: number) {
+	async function removePhotoRating(photoId: string) {
 		console.log(`🢄Removing rating for photo ${photoId}`);
 
 		try {
@@ -323,7 +323,7 @@
 		}
 	}
 
-	async function handleRatingClick(photoId: number, rating: 'thumbs_up' | 'thumbs_down') {
+	async function handleRatingClick(photoId: string, rating: 'thumbs_up' | 'thumbs_down') {
 		const photo = photos.find(p => p.id === photoId);
 		if (!photo) return;
 
@@ -354,10 +354,11 @@
 />
 
 <StandardBody>
-	{#if TAURI}
+	{#if TAURI || BROWSER}
 
 		<div class="page-actions">
-			<button class="action-button primary" on:click={() => showSettings = !showSettings}>
+			<button class="action-button primary" on:click={() => showSettings = !showSettings}
+					data-testid="settings-button">
 				<Settings size={20}/>
 				Settings
 			</button>
@@ -371,7 +372,7 @@
 		<div class="error-message">{error}</div>
 	{/if}
 
-	{#if TAURI && showSettings}
+	{#if (TAURI || BROWSER) && showSettings}
 		<div class="settings-panel">
 			<UploadSettingsComponent
 				onSaveSuccess={(message) => {
@@ -385,7 +386,7 @@
 
 	<DevicePhotoStats addLogEntry={addLogEntry} />
 
-	{#if TAURI}
+	{#if (TAURI || BROWSER) && $auth.is_authenticated}
 		<div class="refresh-section">
 			<button
 				class="action-button primary"

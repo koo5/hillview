@@ -1,6 +1,8 @@
 // Shared auth and config storage for browser
 // Used by both main app and service worker
 
+import type { TokenData } from './sharedTokenRefresh';
+
 const DB_NAME = 'HillviewPhotoDB';
 const DB_VERSION = 2;
 const AUTH_STORE = 'auth';
@@ -105,34 +107,40 @@ export class AuthStorage {
         });
     }
 
-    async saveBackendUrl(url: string): Promise<void> {
+    // New methods for full TokenData support
+    async saveTokenData(tokenData: TokenData): Promise<void> {
         await this.open();
 
-        const transaction = this.db!.transaction([CONFIG_STORE], 'readwrite');
-        const store = transaction.objectStore(CONFIG_STORE);
+        const transaction = this.db!.transaction([AUTH_STORE], 'readwrite');
+        const store = transaction.objectStore(AUTH_STORE);
 
         return new Promise((resolve, reject) => {
-            const request = store.put(url, 'backendUrl');
+            const request = store.put(tokenData, 'token');
             request.onsuccess = () => resolve();
             request.onerror = () => reject(request.error);
         });
     }
 
-    async getBackendUrl(): Promise<string> {
+    async getTokenData(): Promise<TokenData | null> {
         await this.open();
 
-        const transaction = this.db!.transaction([CONFIG_STORE], 'readonly');
-        const store = transaction.objectStore(CONFIG_STORE);
+        const transaction = this.db!.transaction([AUTH_STORE], 'readonly');
+        const store = transaction.objectStore(AUTH_STORE);
 
         return new Promise((resolve, reject) => {
-            const request = store.get('backendUrl');
+            const request = store.get('token');
             request.onsuccess = () => {
-                // Default to localhost if not set
-                resolve(request.result || 'http://localhost:8055/api');
+                const data = request.result;
+                if (data && data.access_token) {
+                    resolve(data as TokenData);
+                } else {
+                    resolve(null);
+                }
             };
             request.onerror = () => reject(request.error);
         });
     }
+
 }
 
 export const authStorage = new AuthStorage();

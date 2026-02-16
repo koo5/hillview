@@ -3,13 +3,16 @@
 	import {browser} from '$app/environment';
 	import {photoStats, fetchPhotoStats, hasUploadsToRetry, formatStorageInfo, getPlatformName} from '$lib/photoStatsAdapter';
 	import {app} from "$lib/data.svelte";
-	import {Upload, Clock, AlertCircle, CheckCircle, Loader, Trash2} from 'lucide-svelte';
+	import {Upload, Clock, AlertCircle, CheckCircle, Loader, Trash2, Info, HelpCircle} from 'lucide-svelte';
 	import RetryUploadsButton from "$lib/components/RetryUploadsButton.svelte";
 	import {BROWSER} from '$lib/tauri';
+	import {isBackgroundSyncSupported} from '$lib/browserPhotoStorage';
 
 	export let addLogEntry: (message: string, type?: 'success' | 'warning' | 'error' | 'info', metadata?: any) => void = () => {};
 	export let onRefresh: (() => void | Promise<void>) | null = null;
 	export let showDetailedStats = false;
+
+	let showSyncInfo = false;
 
 	const REFRESH_INTERVAL = 5000; // 5 seconds
 	let refreshTimer: ReturnType<typeof setInterval> | null = null;
@@ -101,6 +104,45 @@
 		</div>
 	{/if}
 
+	{#if BROWSER && !isBackgroundSyncSupported() && ($photoStats.pending > 0 || $photoStats.failed > 0)}
+		<div class="sync-limitation-info">
+			<Info size={14}/>
+			<span>Photos upload only while app is open (background sync not supported)</span>
+			<button class="info-button" on:click={() => showSyncInfo = !showSyncInfo} title="Learn more">
+				<HelpCircle size={14}/>
+			</button>
+		</div>
+		{#if showSyncInfo}
+			<div class="sync-info-details">
+				<h4>Background Sync Support</h4>
+				<p>Background sync allows photos to upload even when the app is closed or offline.</p>
+
+				<div class="browser-support">
+					<div class="support-section">
+						<strong>✅ Full Support:</strong>
+						<ul>
+							<li>Chrome / Edge (Desktop & Android)</li>
+							<li>Opera</li>
+							<li>Samsung Internet</li>
+						</ul>
+					</div>
+
+					<div class="support-section">
+						<strong>❌ Limited Support:</strong>
+						<ul>
+							<li>Safari (iOS & macOS) - uploads only while app is open</li>
+							<li>Firefox - uploads only while app is open</li>
+						</ul>
+					</div>
+				</div>
+
+				<p class="info-note">
+					For best experience on mobile, use Chrome or Edge browser.
+				</p>
+			</div>
+		{/if}
+	{/if}
+
 	{#if showDetailedStats}
 		<div class="upload-stats" data-testid="upload-stats">
 			<div class="stat-item">
@@ -163,6 +205,95 @@
 		border-radius: 6px;
 		margin-bottom: 12px;
 		color: #0369a1;
+	}
+
+	.sync-limitation-info {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 8px;
+		padding: 8px;
+		font-size: 0.875rem;
+		background: #fff7ed;
+		border: 1px solid #fb923c;
+		border-radius: 6px;
+		margin-bottom: 12px;
+		color: #c2410c;
+		position: relative;
+	}
+
+	.info-button {
+		background: none;
+		border: none;
+		cursor: pointer;
+		padding: 4px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		color: #c2410c;
+		transition: opacity 0.2s;
+	}
+
+	.info-button:hover {
+		opacity: 0.7;
+	}
+
+	.sync-info-details {
+		background: white;
+		border: 1px solid #e5e7eb;
+		border-radius: 8px;
+		padding: 16px;
+		margin-bottom: 16px;
+		font-size: 0.875rem;
+	}
+
+	.sync-info-details h4 {
+		margin: 0 0 12px 0;
+		color: #1f2937;
+		font-size: 1rem;
+	}
+
+	.sync-info-details p {
+		margin: 8px 0;
+		color: #4b5563;
+		line-height: 1.5;
+	}
+
+	.browser-support {
+		margin: 16px 0;
+		display: flex;
+		gap: 24px;
+		flex-wrap: wrap;
+	}
+
+	.support-section {
+		flex: 1;
+		min-width: 200px;
+	}
+
+	.support-section strong {
+		display: block;
+		margin-bottom: 8px;
+		color: #1f2937;
+	}
+
+	.support-section ul {
+		margin: 0;
+		padding-left: 20px;
+		color: #6b7280;
+	}
+
+	.support-section li {
+		margin: 4px 0;
+	}
+
+	.info-note {
+		margin-top: 12px;
+		padding: 8px 12px;
+		background: #f0f9ff;
+		border-left: 3px solid #0284c7;
+		color: #0c4a6e;
+		font-size: 0.825rem;
 	}
 
 	.upload-status-bar {

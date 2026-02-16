@@ -1,4 +1,7 @@
-// Network service worker for handling tile loading failures
+// Network service worker for handling tile loading failures and background photo uploads
+
+// Import photo upload functionality
+importScripts('/serviceWorkerBundle.js');
 
 let currentTileProvider = null;
 
@@ -183,6 +186,34 @@ self.addEventListener('error', (event) => {
 self.addEventListener('unhandledrejection', (event) => {
     reportError(new Error(event.reason), 'Unhandled promise rejection');
 });
+
+// Background sync for photo uploads
+self.addEventListener('sync', async (event) => {
+    console.log('Network worker: Sync event received', event.tag);
+
+    if (event.tag === 'photo-upload' || event.tag === 'photo-upload-retry') {
+        // Use waitUntil to keep the service worker alive during upload
+        event.waitUntil(
+            handlePhotoUploadSync()
+        );
+    }
+});
+
+async function handlePhotoUploadSync() {
+    try {
+        if (typeof swUploader !== 'undefined') {
+            console.log('Network worker: Starting background photo upload');
+            await swUploader.uploadPendingPhotos();
+            console.log('Network worker: Background photo upload complete');
+        } else {
+            console.error('Network worker: swUploader not available');
+        }
+    } catch (error) {
+        console.error('Network worker: Photo upload sync failed', error);
+        // Re-throw to trigger retry
+        throw error;
+    }
+}
 
 // Service worker lifecycle
 self.addEventListener('install', (event) => {

@@ -64,7 +64,7 @@
 		visible = (!authed || !autoUploadEnabled) && autoUploadPromptEnabled;
 
 		// If we should show the prompt, auto-hide it after 10 seconds
-		if (visible) {
+		if (visible && !BROWSER) { // in BROWSER, it's unlikely that people will capture photos for any other reason than to upload, so we can keep the prompt visible until they interact with it
 			hideTimer = setTimeout(() => {
 				hidePrompt();
 			}, 12000);

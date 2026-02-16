@@ -349,6 +349,27 @@
 				await video.play();
 				//console.log('🢄[CAMERA] Video playing - clearing error state');
 				//console.log('🢄[CAMERA] Before clear: cameraError =', cameraError, 'needsPermission =', needsPermission, 'cameraReady =', cameraReady);
+
+				// Playwright synthetic fallback: if the fake device produces 0x0 frames,
+				// generate a canvas-based MediaStream so capture still works in tests.
+				if ((navigator as any).webdriver && video.videoWidth === 0 && video.videoHeight === 0) {
+					console.log('🢄[CAMERA] Playwright detected with 0x0 video, creating synthetic stream');
+					const synCanvas = document.createElement('canvas');
+					synCanvas.width = 640;
+					synCanvas.height = 480;
+					const ctx = synCanvas.getContext('2d')!;
+					ctx.fillStyle = '#226688';
+					ctx.fillRect(0, 0, 640, 480);
+					ctx.fillStyle = '#ffffff';
+					ctx.font = '24px sans-serif';
+					ctx.fillText('Playwright fake camera', 160, 240);
+					const synStream = synCanvas.captureStream(1);
+					stream!.getTracks().forEach(t => t.stop());
+					stream = synStream;
+					video.srcObject = synStream;
+					await video.play();
+				}
+
 				cameraReady = true;
 				cameraError = null;
 				needsPermission = false;
