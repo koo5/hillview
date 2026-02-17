@@ -77,7 +77,7 @@ export class ClientCryptoManager {
         KEY_ID: 'hillview_client_key_id',
         KEY_CREATED: 'hillview_client_key_created'
     };
-    private readonly DB_NAME = 'HillviewAuthDB';
+    private readonly DB_NAME = 'HillviewCryptoDB';
     private readonly DB_VERSION = 1;
     private readonly KEYS_STORE = 'client_keys';
     private readonly KEY_ID = 'client_keys'; // Single record ID

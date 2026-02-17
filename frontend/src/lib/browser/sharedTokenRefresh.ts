@@ -5,16 +5,10 @@
  */
 
 import { backendUrl as configBackendUrl } from '$lib/config';
+import { authStorage, type IndexedDbTokenData } from './authStorage';
 
-const DB_NAME = 'HillviewPhotoDB';
+const DB_NAME = 'HillviewAuthDB';
 const AUTH_STORE = 'auth';
-
-export interface TokenData {
-    access_token: string;
-    refresh_token: string;
-    expires_at: number;
-    refresh_token_expires?: number;
-}
 
 export class SharedTokenRefresh {
     private readonly LOG_PREFIX: string;
@@ -267,65 +261,22 @@ export class SharedTokenRefresh {
         }
     }
 
-    async getStoredTokenData(): Promise<TokenData | null> {
-        try {
-            const db = await this.openDB();
-            if (!db.objectStoreNames.contains(AUTH_STORE)) {
-                return null;
-            }
-
-            const transaction = db.transaction([AUTH_STORE], 'readonly');
-            const store = transaction.objectStore(AUTH_STORE);
-
-            return new Promise((resolve) => {
-                const request = store.get('token');
-                request.onsuccess = () => resolve(request.result);
-                request.onerror = () => resolve(null);
-            });
-        } catch (error) {
-            console.error(`${this.LOG_PREFIX} Failed to get stored token:`, error);
-            return null;
-        }
+    async getStoredTokenData(): Promise<IndexedDbTokenData | null> {
+        return authStorage.getTokenData();
     }
 
-    private async storeTokenData(tokenData: TokenData): Promise<void> {
-        try {
-            const db = await this.openDB();
-            const transaction = db.transaction([AUTH_STORE], 'readwrite');
-            const store = transaction.objectStore(AUTH_STORE);
-
-            await new Promise((resolve, reject) => {
-                const request = store.put(tokenData, 'token');
-                request.onsuccess = () => resolve(undefined);
-                request.onerror = () => reject(request.error);
-            });
-
-            console.log(`${this.LOG_PREFIX} Token data stored`);
-        } catch (error) {
-            console.error(`${this.LOG_PREFIX} Failed to store token data:`, error);
-            throw error;
-        }
+    private async storeTokenData(tokenData: IndexedDbTokenData): Promise<void> {
+        await authStorage.saveTokenData(tokenData);
+        console.log(`${this.LOG_PREFIX} Token data stored`);
     }
 
     private async clearTokenData(): Promise<void> {
-        try {
-            const db = await this.openDB();
-            const transaction = db.transaction([AUTH_STORE], 'readwrite');
-            const store = transaction.objectStore(AUTH_STORE);
-
-            await new Promise((resolve, reject) => {
-                const request = store.delete('token');
-                request.onsuccess = () => resolve(undefined);
-                request.onerror = () => reject(request.error);
-            });
-        } catch (error) {
-            console.error(`${this.LOG_PREFIX} Failed to clear token data:`, error);
-        }
+        await authStorage.clearToken();
     }
 
     private openDB(): Promise<IDBDatabase> {
         return new Promise((resolve, reject) => {
-            const request = indexedDB.open(DB_NAME, 2);
+            const request = indexedDB.open(DB_NAME, 1);
 
             request.onerror = () => reject(request.error);
             request.onsuccess = () => resolve(request.result);

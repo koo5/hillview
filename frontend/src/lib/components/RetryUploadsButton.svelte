@@ -1,6 +1,6 @@
 <script lang="ts">
 
-	import {autoUploadSettings} from "$lib/autoUploadSettings";
+	import {settings} from "$lib/settings";
 	import {TAURI, BROWSER} from '$lib/tauri.js';
 	import {Upload} from 'lucide-svelte';
 	import {invoke} from "@tauri-apps/api/core";
@@ -47,7 +47,7 @@
 
 </script>
 {#if (TAURI || BROWSER) && (global || (photo.processing_status && photo.processing_status !== 'completed') || (photo.upload_status && photo.upload_status !== 'completed'))}
-	{#if $autoUploadSettings.value?.auto_upload_enabled}
+	{#if $settings?.value?.auto_upload_enabled}
 		<button class="action-button upload" data-testid="manual-upload-button"
 				data-photo-id={photo.id} on:click={() => manualUpload(photo.id)}>
 			<Upload size={16}/>

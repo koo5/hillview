@@ -863,82 +863,6 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 	}
 
 	@Command
-	fun setAutoUploadEnabled(invoke: Invoke) {
-		try {
-			val args = invoke.parseArgs(AutoUploadArgs::class.java)
-			val enabled = args.enabled ?: false
-			val promptEnabled = args.prompt_enabled ?: true
-			val wifiOnly = args.wifi_only ?: true
-
-			Log.i(TAG, "📤 [setAutoUploadEnabled] CALLED with enabled: $enabled, promptEnabled: $promptEnabled, wifiOnly: $wifiOnly")
-
-			// Update shared preferences
-			val prefs = activity.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
-			val previousEnabled = prefs.getBoolean("auto_upload_enabled", false)
-			val previousPromptEnabled = prefs.getBoolean("auto_upload_prompt_enabled", true)
-			val previousWifiOnly = prefs.getBoolean("wifi_only", true)
-
-			Log.i(
-				TAG,
-				"📤 [setAutoUploadEnabled] Previous values - enabled: $previousEnabled, promptEnabled: $previousPromptEnabled, wifiOnly: $previousWifiOnly"
-			)
-			Log.i(TAG, "📤 [setAutoUploadEnabled] New values - enabled: $enabled, promptEnabled: $promptEnabled, wifiOnly: $wifiOnly")
-
-			// Apply the new settings
-			val editor = prefs.edit()
-			editor.putBoolean("auto_upload_enabled", enabled)
-			editor.putBoolean("auto_upload_prompt_enabled", promptEnabled)
-			editor.putBoolean("wifi_only", wifiOnly)
-			val commitSuccess = editor.commit()
-
-			Log.i(TAG, "📤 [setAutoUploadEnabled] SharedPreferences commit result: $commitSuccess")
-
-			/*
-			// Verify the settings were persisted correctly
-			val verifyEnabled = prefs.getBoolean("auto_upload_enabled", false)
-			val verifyPromptEnabled = prefs.getBoolean("auto_upload_prompt_enabled", true)
-			val verifyWifiOnly = prefs.getBoolean("wifi_only", true)
-			Log.i(
-				TAG,
-				"📤 [setAutoUploadEnabled] Verification - enabled: $verifyEnabled, promptEnabled: $verifyPromptEnabled, wifiOnly: $verifyWifiOnly"
-			)*/
-
-			// Schedule or cancel the upload worker based on enabled state
-			val workManager = WorkManager.getInstance(activity)
-			Log.i(TAG, "📤 [setAutoUploadEnabled] WorkManager instance obtained")
-
-			if (enabled) {
-				Log.i(TAG, "📤 [setAutoUploadEnabled] Scheduling upload worker with wifiOnly=$wifiOnly...")
-				photoUploadManager.scheduleUploadWorker(workManager, enabled, wifiOnly)
-				Log.i(TAG, "📤 [setAutoUploadEnabled] Auto upload worker scheduled successfully")
-			} else {
-				Log.i(TAG, "📤 [setAutoUploadEnabled] Cancelling upload worker...")
-				workManager.cancelUniqueWork(PhotoUploadWorker.WORK_NAME)
-				Log.i(TAG, "📤 [setAutoUploadEnabled] Auto upload worker cancelled successfully")
-			}
-
-			val result = JSObject()
-			result.put("success", true)
-			result.put("enabled", enabled as Boolean)
-			result.put("prompt_enabled", promptEnabled as Boolean)
-			result.put("wifi_only", wifiOnly as Boolean)
-
-			Log.i(
-				TAG,
-				"📤 [setAutoUploadEnabled] SUCCESS - returning result: enabled=$enabled, promptEnabled=$promptEnabled, wifiOnly=$wifiOnly"
-			)
-			invoke.resolve(result)
-
-		} catch (e: Exception) {
-			Log.e(TAG, "📤 [setAutoUploadEnabled] ERROR occurred", e)
-			val error = JSObject()
-			error.put("success", false)
-			error.put("error", e.message)
-			invoke.resolve(error)
-		}
-	}
-
-	@Command
 	fun getUploadStatus(invoke: Invoke) {
 		//Log.i(TAG, "📤 [getUploadStatus] CALLED - retrieving current auto-upload status")
 
@@ -2464,20 +2388,44 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 					return
 				}
 
-				"get_landscape_compass_armor22_workaround" -> {
-					val prefs = activity.getSharedPreferences("landscape_compass_armor22_workaround", Context.MODE_PRIVATE)
-					val enabled = prefs.getBoolean("enabled", false)
+				"get_settings" -> {
+					val uploadPrefs = activity.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
+					val compassPrefs = activity.getSharedPreferences("hillview_compass_prefs", Context.MODE_PRIVATE)
 					val result = JSObject()
-					result.put("enabled", enabled)
+					result.put("auto_upload_enabled", uploadPrefs.getBoolean("auto_upload_enabled", false))
+					result.put("auto_upload_prompt_enabled", uploadPrefs.getBoolean("auto_upload_prompt_enabled", true))
+					result.put("wifi_only", uploadPrefs.getBoolean("wifi_only", true))
+					result.put("landscape_armor22_workaround", compassPrefs.getBoolean("landscape_armor22_workaround", false))
 					invoke.resolve(result)
 					return
 				}
 
-				"set_landscape_compass_armor22_workaround" -> {
-					val enabled = params.getBoolean("enabled") ?: false
-					val prefs = activity.getSharedPreferences("landscape_compass_armor22_workaround", Context.MODE_PRIVATE)
-					prefs.edit().putBoolean("enabled", enabled).apply()
-					Log.i(TAG, "🔧 Set landscape compass Armor 22 workaround: $enabled")
+				"set_settings" -> {
+					val uploadPrefs = activity.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
+					val compassPrefs = activity.getSharedPreferences("hillview_compass_prefs", Context.MODE_PRIVATE)
+
+					val autoUploadEnabled = params.getBoolean("auto_upload_enabled") ?: false
+					val wifiOnly = params.getBoolean("wifi_only") ?: true
+
+					uploadPrefs.edit()
+						.putBoolean("auto_upload_enabled", autoUploadEnabled)
+						.putBoolean("auto_upload_prompt_enabled", params.getBoolean("auto_upload_prompt_enabled") ?: true)
+						.putBoolean("wifi_only", wifiOnly)
+						.apply()
+
+					compassPrefs.edit()
+						.putBoolean("landscape_armor22_workaround", params.getBoolean("landscape_armor22_workaround") ?: false)
+						.apply()
+
+					// Schedule or cancel the upload worker based on enabled state
+					val workManager = WorkManager.getInstance(activity)
+					if (autoUploadEnabled) {
+						photoUploadManager.scheduleUploadWorker(workManager, autoUploadEnabled, wifiOnly)
+						Log.i(TAG, "🔧 Settings saved, upload worker scheduled")
+					} else {
+						workManager.cancelUniqueWork(PhotoUploadWorker.WORK_NAME)
+						Log.i(TAG, "🔧 Settings saved, upload worker cancelled")
+					}
 				}
 
 				"device_photos_stats" -> {

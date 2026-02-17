@@ -1,11 +1,10 @@
 <script lang="ts">
 	import { createEventDispatcher, onDestroy } from 'svelte';
 	import { TAURI, BROWSER } from '$lib/tauri';
-	import { invoke } from '@tauri-apps/api/core';
 	import { navigateWithHistory } from '$lib/navigation.svelte.js';
 	import {auth} from '$lib/auth.svelte';
 	import {get} from "svelte/store";
-	import { browserAutoUploadSettings, getBrowserAutoUploadSettings, setBrowserAutoUploadSettings } from '$lib/browser/autoUploadSettings';
+	import { settings, updateSettings } from '$lib/settings';
 
 	// Event from parent when a photo was captured
 	export let photoCaptured = false;
@@ -43,26 +42,11 @@
 	}
 
 	async function checkSettings() {
-		if (TAURI) {
-			try {
-				const result = await invoke('plugin:hillview|get_upload_status') as {
-					auto_upload_enabled: boolean;
-					auto_upload_prompt_enabled: boolean;
-				};
-
-				console.log('AutoUploadPrompt: autoUpload status:', JSON.stringify(result), ' authed=', authed);
-
-				autoUploadEnabled = result.auto_upload_enabled || false;
-				autoUploadPromptEnabled = result.auto_upload_prompt_enabled || false;
-			} catch (err) {
-				console.error('AutoUploadPrompt: Failed to get upload status:', err);
-			}
-		} else if (BROWSER) {
-			const settings = getBrowserAutoUploadSettings();
-			console.log('AutoUploadPrompt: browser autoUpload status:', JSON.stringify(settings), ' authed=', authed);
-
-			autoUploadEnabled = settings.auto_upload_enabled || false;
-			autoUploadPromptEnabled = settings.auto_upload_prompt_enabled || false;
+		const currentSettings = get(settings);
+		if (currentSettings?.value) {
+			console.log('AutoUploadPrompt: settings:', JSON.stringify(currentSettings.value), ' authed=', authed);
+			autoUploadEnabled = currentSettings.value.auto_upload_enabled || false;
+			autoUploadPromptEnabled = currentSettings.value.auto_upload_prompt_enabled ?? true;
 		}
 
 		visible = (!authed || !autoUploadEnabled) && autoUploadPromptEnabled;
@@ -108,21 +92,14 @@
 	async function neverAskAgain() {
 		// Permanently disable prompting
 		try {
-			if (TAURI) {
-				await invoke('plugin:hillview|set_auto_upload_enabled', {
-					enabled: false,
-					prompt_enabled: false
-				});
-			} else if (BROWSER) {
-				setBrowserAutoUploadSettings({
-					auto_upload_enabled: false,
-					auto_upload_prompt_enabled: false
-				});
-			}
+			await updateSettings({
+				auto_upload_enabled: false,
+				auto_upload_prompt_enabled: false
+			});
 			autoUploadPromptEnabled = false;
 			dispatch('dismiss');
 		} catch (err) {
-			console.error('🢄Failed to save settings:', err);
+			console.error('Failed to save settings:', err);
 		}
 	}
 </script>

@@ -17,6 +17,8 @@ export function isBackgroundSyncSupported(): boolean {
 export interface StoredPhoto {
     id: string;
     blob: Blob;
+    width: number;
+    height: number;
     metadata: {
         location: CaptureLocation;
         captured_at: number;
@@ -160,12 +162,14 @@ class BrowserPhotoStorage {
             });
         }
 
-        await this.savePhoto(id, blob, metadata);
+        await this.savePhoto(id, blob, imageData.width, imageData.height, metadata);
     }
 
     async savePhoto(
         id: string,
         blob: Blob,
+        width: number,
+        height: number,
         metadata: {
             location: CaptureLocation;
             captured_at: number;
@@ -177,6 +181,8 @@ class BrowserPhotoStorage {
         const storedPhoto: StoredPhoto = {
             id,
             blob,
+            width,
+            height,
             metadata,
             status: 'pending',
             retry_count: 0,
@@ -308,12 +314,12 @@ class BrowserPhotoStorage {
         const photo = await this.promisifyRequest(photoStore.get(photoId));
         if (photo) {
             photo.status = 'failed';
-            photo.lastError = error;
-            photo.retryCount = (photo.retryCount || 0) + 1;
+            photo.last_error = error;
+            photo.retry_count = (photo.retry_count || 0) + 1;
 
             // Set retry delay with exponential backoff
-            const retryDelay = Math.min(60000 * Math.pow(2, photo.retryCount - 1), 3600000); // Max 1 hour
-            photo.retryAfter = Date.now() + retryDelay;
+            const retryDelay = Math.min(60000 * Math.pow(2, photo.retry_count - 1), 3600000); // Max 1 hour
+            photo.retry_after = Date.now() + retryDelay;
 
             await this.promisifyRequest(photoStore.put(photo));
         }
@@ -335,7 +341,7 @@ class BrowserPhotoStorage {
         // Reset their status to pending and clear retry delay
         for (const photo of failedPhotos) {
             photo.status = 'pending';
-            photo.retryAfter = undefined;
+            photo.retry_after = undefined;
             await this.promisifyRequest(photoStore.put(photo));
         }
 
@@ -449,8 +455,8 @@ class BrowserPhotoStorage {
 
         for (const photo of photos) {
             if (photo.status === 'uploaded' &&
-                photo.uploadedAt &&
-                photo.uploadedAt < cutoffTime) {
+                photo.uploaded_at &&
+                photo.uploaded_at < cutoffTime) {
                 await this.promisifyRequest(store.delete(photo.id));
                 console.log(`${this.LOG_PREFIX} Deleted old uploaded photo ${photo.id}`);
             }

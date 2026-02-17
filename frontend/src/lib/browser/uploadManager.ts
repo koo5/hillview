@@ -1,9 +1,9 @@
 // Simple upload manager for browser photos
 // Handles uploading photos from IndexedDB to server
 
-import { photoStorage, type BrowserPhoto } from './photoStorage';
+import { browserPhotoStorage, type StoredPhoto } from './photoStorage';
 import { secureUploadFiles } from '../secureUpload';
-import { writable, get } from 'svelte/store';
+import { writable } from 'svelte/store';
 
 export interface UploadStatus {
     isUploading: boolean;
@@ -35,7 +35,7 @@ export class PhotoUploadManager {
         this.isRunning = true;
 
         try {
-            const pendingPhotos = await photoStorage.getPendingUploads();
+            const pendingPhotos = await browserPhotoStorage.getPendingPhotos();
 
             uploadStatus.update(s => ({
                 ...s,
@@ -65,9 +65,9 @@ export class PhotoUploadManager {
         }
     }
 
-    private async uploadPhoto(photo: BrowserPhoto): Promise<void> {
+    private async uploadPhoto(photo: StoredPhoto): Promise<void> {
         // Skip if already tried too many times
-        if (photo.upload_attempts >= this.maxRetries) {
+        if (photo.retry_count >= this.maxRetries) {
             console.log(`${this.LOG_PREFIX} Skipping ${photo.id} - too many attempts`);
             return;
         }
@@ -81,6 +81,9 @@ export class PhotoUploadManager {
         console.log(`${this.LOG_PREFIX} Uploading photo ${photo.id}`);
 
         try {
+            // Mark as uploading
+            await browserPhotoStorage.markPhotoAsUploading(photo.id);
+
             // Create File object from blob
             const file = new File(
                 [photo.blob],
@@ -90,15 +93,15 @@ export class PhotoUploadManager {
 
             // Prepare metadata that browser can't write as EXIF
             const metadata = {
-                latitude: photo.location.latitude,
-                longitude: photo.location.longitude,
-                altitude: photo.location.altitude,
-                bearing: photo.location.bearing,
-                accuracy: photo.location.accuracy,
-                orientation_code: photo.orientation_code,
-                captured_at: photo.captured_at,
-                location_source: photo.location.location_source,
-                bearing_source: photo.location.bearing_source
+                latitude: photo.metadata.location.latitude,
+                longitude: photo.metadata.location.longitude,
+                altitude: photo.metadata.location.altitude,
+                bearing: photo.metadata.location.bearing,
+                accuracy: photo.metadata.location.accuracy,
+                orientation_code: photo.metadata.orientation_code,
+                captured_at: photo.metadata.captured_at,
+                location_source: photo.metadata.location.location_source,
+                bearing_source: photo.metadata.location.bearing_source
             };
 
             // Use existing secure upload with browser metadata
@@ -115,7 +118,9 @@ export class PhotoUploadManager {
             );
 
             if (result.successCount > 0) {
-                await photoStorage.markUploaded(photo.id);
+                // Get the server photo ID from the result
+                const serverPhotoId = result.results[0]?.photoId || photo.id;
+                await browserPhotoStorage.markPhotoAsUploaded(photo.id, serverPhotoId);
 
                 uploadStatus.update(s => ({
                     ...s,
@@ -124,18 +129,13 @@ export class PhotoUploadManager {
                 }));
 
                 console.log(`${this.LOG_PREFIX} Successfully uploaded ${photo.id}`);
-
-                // Optionally delete from storage to save space
-                if (await this.shouldDeleteAfterUpload()) {
-                    await photoStorage.delete(photo.id);
-                    console.log(`${this.LOG_PREFIX} Deleted ${photo.id} after upload`);
-                }
             } else {
                 throw new Error(result.results[0]?.error || 'Upload failed');
             }
 
         } catch (error) {
-            await photoStorage.incrementUploadAttempts(photo.id);
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            await browserPhotoStorage.markPhotoAsFailed(photo.id, errorMessage);
 
             uploadStatus.update(s => ({
                 ...s,
@@ -146,26 +146,9 @@ export class PhotoUploadManager {
         }
     }
 
-    private async shouldDeleteAfterUpload(): Promise<boolean> {
-        // Check storage usage
-        const estimate = await photoStorage.getStorageEstimate();
-        const usagePercent = (estimate.used / estimate.quota) * 100;
-
-        // Delete if using more than 50% of quota
-        return usagePercent > 50;
-    }
-
     async retryFailed(): Promise<void> {
-        // Reset upload attempts for failed photos
-        const photos = await photoStorage.getPendingUploads();
-
-        for (const photo of photos) {
-            if (photo.upload_attempts > 0) {
-                photo.upload_attempts = 0;
-                await photoStorage.save(photo);
-            }
-        }
-
+        // Reset failed photos to pending
+        await browserPhotoStorage.retryFailedUploads();
         // Try uploading again
         await this.uploadPending();
     }

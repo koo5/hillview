@@ -66,27 +66,26 @@
 	});
 
 	// Helper to adapt browser photo to device photo interface
-	function adaptBrowserPhoto(bp: BrowserPhoto): DevicePhoto {
+	function adaptBrowserPhoto(bp: StoredPhoto): DevicePhoto {
 		return {
 			id: bp.id,
-			file_path: '', // Not applicable for browser
+			file_path: '',
 			file_name: `photo_${bp.id.substring(0, 8)}.jpg`,
 			file_hash: '',
 			file_size: bp.blob.size,
-			captured_at: bp.captured_at,
-			created_at: bp.created_at,
-			latitude: bp.location.latitude,
-			longitude: bp.location.longitude,
-			altitude: 0, // Not stored in browser version
-			bearing: bp.location.bearing !== undefined && bp.location.bearing !== null ? bp.location.bearing : null,
-			accuracy: bp.location.accuracy,
-			width: 0, // Could extract if needed
-			height: 0,
-			upload_status: bp.uploaded ? 'completed' : 'pending',
-			uploaded_at: 0,
-			retry_count: bp.upload_attempts,
-			last_upload_attempt: 0,
-			// Store blob and create URL for display
+			captured_at: bp.metadata.captured_at,
+			created_at: bp.added_at,
+			latitude: bp.metadata.location.latitude,
+			longitude: bp.metadata.location.longitude,
+			altitude: bp.metadata.location.altitude || 0,
+			bearing: bp.metadata.location.bearing ?? null,
+			accuracy: bp.metadata.location.accuracy,
+			width: bp.width,
+			height: bp.height,
+			upload_status: bp.status === 'uploaded' ? 'completed' : bp.status,
+			uploaded_at: bp.uploaded_at || 0,
+			retry_count: bp.retry_count,
+			last_upload_attempt: bp.retry_after || 0,
 			blob: bp.blob,
 			blobUrl: URL.createObjectURL(bp.blob)
 		};
@@ -104,7 +103,7 @@
 
 			if (BROWSER) {
 				// Browser: Get from IndexedDB
-				const allPhotos = await photoStorage.getAll();
+				const allPhotos = await browserPhotoStorage.getAllPhotos();
 				const adaptedPhotos = allPhotos.map(adaptBrowserPhoto);
 
 				// Simple pagination for browser

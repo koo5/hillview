@@ -1,12 +1,18 @@
-// Shared auth and config storage for browser
+// Auth token storage for browser
 // Used by both main app and service worker
 
-import type { TokenData } from './sharedTokenRefresh';
-
-const DB_NAME = 'HillviewPhotoDB';
-const DB_VERSION = 2;
+const DB_NAME = 'HillviewAuthDB';
+const DB_VERSION = 1;
 const AUTH_STORE = 'auth';
-const CONFIG_STORE = 'config';
+
+// IndexedDB storage format for tokens (number timestamps for easy comparison)
+// Different from tokenManager.ts TokenData which uses string dates from API
+export interface IndexedDbTokenData {
+    access_token: string;
+    refresh_token: string;
+    expires_at: number;
+    refresh_token_expires?: number;
+}
 
 export interface StoredToken {
     value: string;
@@ -52,22 +58,8 @@ export class AuthStorage {
                 console.log('[AuthStorage] IndexedDB upgrade needed');
                 const db = (event.target as IDBOpenDBRequest).result;
 
-                // Photos store (existing)
-                if (!db.objectStoreNames.contains('photos')) {
-                    const store = db.createObjectStore('photos', { keyPath: 'id' });
-                    store.createIndex('uploaded', 'uploaded');
-                    store.createIndex('captured_at', 'captured_at');
-                    store.createIndex('created_at', 'created_at');
-                }
-
-                // Auth store
                 if (!db.objectStoreNames.contains(AUTH_STORE)) {
                     db.createObjectStore(AUTH_STORE);
-                }
-
-                // Config store
-                if (!db.objectStoreNames.contains(CONFIG_STORE)) {
-                    db.createObjectStore(CONFIG_STORE);
                 }
             };
         });
@@ -124,8 +116,7 @@ export class AuthStorage {
         });
     }
 
-    // New methods for full TokenData support
-    async saveTokenData(tokenData: TokenData): Promise<void> {
+    async saveTokenData(tokenData: IndexedDbTokenData): Promise<void> {
         console.log('[AuthStorage] saveTokenData called');
         await this.open();
         console.log('[AuthStorage] DB opened, creating transaction');
@@ -156,7 +147,7 @@ export class AuthStorage {
         });
     }
 
-    async getTokenData(): Promise<TokenData | null> {
+    async getTokenData(): Promise<IndexedDbTokenData | null> {
         await this.open();
 
         const transaction = this.db!.transaction([AUTH_STORE], 'readonly');
@@ -167,7 +158,7 @@ export class AuthStorage {
             request.onsuccess = () => {
                 const data = request.result;
                 if (data && data.access_token) {
-                    resolve(data as TokenData);
+                    resolve(data as IndexedDbTokenData);
                 } else {
                     resolve(null);
                 }
