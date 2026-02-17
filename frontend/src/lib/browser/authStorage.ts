@@ -1,9 +1,12 @@
 // Auth token storage for browser
 // Used by both main app and service worker
+// Single source of truth for auth tokens in IndexedDB
+// Cross-tab reactivity via BroadcastChannel
 
 const DB_NAME = 'HillviewAuthDB';
 const DB_VERSION = 1;
 const AUTH_STORE = 'auth';
+const AUTH_CHANNEL = 'hillview-auth';
 
 // IndexedDB storage format for tokens (number timestamps for easy comparison)
 // Different from tokenManager.ts TokenData which uses string dates from API
@@ -14,13 +17,39 @@ export interface IndexedDbTokenData {
     refresh_token_expires?: number;
 }
 
-export interface StoredToken {
-    value: string;
-    expires_at: number;
-}
+// Simple broadcast: "auth state changed, check IndexedDB"
+export type AuthBroadcastMessage = { type: 'auth_changed' };
 
 export class AuthStorage {
     private db: IDBDatabase | null = null;
+    private channel: BroadcastChannel | null = null;
+    private messageHandlers: Set<(msg: AuthBroadcastMessage) => void> = new Set();
+
+    constructor() {
+        // BroadcastChannel is not available in service workers in all browsers
+        // but is available in main thread
+        if (typeof BroadcastChannel !== 'undefined') {
+            this.channel = new BroadcastChannel(AUTH_CHANNEL);
+            this.channel.onmessage = (event) => {
+                const msg = event.data as AuthBroadcastMessage;
+                console.log('[AuthStorage] Received broadcast:', msg.type);
+                this.messageHandlers.forEach(handler => handler(msg));
+            };
+        }
+    }
+
+    // Subscribe to cross-tab auth changes
+    onAuthChange(handler: (msg: AuthBroadcastMessage) => void): () => void {
+        this.messageHandlers.add(handler);
+        return () => this.messageHandlers.delete(handler);
+    }
+
+    private broadcast(message: AuthBroadcastMessage): void {
+        if (this.channel) {
+            console.log('[AuthStorage] Broadcasting:', message.type);
+            this.channel.postMessage(message);
+        }
+    }
 
     async open(): Promise<void> {
         if (this.db) return;
@@ -65,44 +94,6 @@ export class AuthStorage {
         });
     }
 
-    async saveToken(token: string, expiresAt: number): Promise<void> {
-        await this.open();
-
-        const transaction = this.db!.transaction([AUTH_STORE], 'readwrite');
-        const store = transaction.objectStore(AUTH_STORE);
-
-        const tokenData: StoredToken = {
-            value: token,
-            expires_at: expiresAt
-        };
-
-        return new Promise((resolve, reject) => {
-            const request = store.put(tokenData, 'token');
-            request.onsuccess = () => resolve();
-            request.onerror = () => reject(request.error);
-        });
-    }
-
-    async getToken(): Promise<StoredToken | null> {
-        await this.open();
-
-        const transaction = this.db!.transaction([AUTH_STORE], 'readonly');
-        const store = transaction.objectStore(AUTH_STORE);
-
-        return new Promise((resolve, reject) => {
-            const request = store.get('token');
-            request.onsuccess = () => {
-                const token = request.result;
-                if (token && token.expires_at > Date.now()) {
-                    resolve(token);
-                } else {
-                    resolve(null);
-                }
-            };
-            request.onerror = () => reject(request.error);
-        });
-    }
-
     async clearToken(): Promise<void> {
         await this.open();
 
@@ -111,39 +102,27 @@ export class AuthStorage {
 
         return new Promise((resolve, reject) => {
             const request = store.delete('token');
-            request.onsuccess = () => resolve();
+            request.onsuccess = () => {
+                this.broadcast({ type: 'auth_changed' });
+                resolve();
+            };
             request.onerror = () => reject(request.error);
         });
     }
 
     async saveTokenData(tokenData: IndexedDbTokenData): Promise<void> {
-        console.log('[AuthStorage] saveTokenData called');
         await this.open();
-        console.log('[AuthStorage] DB opened, creating transaction');
 
         const transaction = this.db!.transaction([AUTH_STORE], 'readwrite');
         const store = transaction.objectStore(AUTH_STORE);
 
         return new Promise((resolve, reject) => {
-            console.log('[AuthStorage] Putting token data...');
             const request = store.put(tokenData, 'token');
             request.onsuccess = () => {
-                console.log('[AuthStorage] Token data saved successfully');
+                this.broadcast({ type: 'auth_changed' });
                 resolve();
             };
-            request.onerror = () => {
-                console.error('[AuthStorage] Error saving token data:', request.error);
-                reject(request.error);
-            };
-
-            // Also handle transaction errors
-            transaction.onerror = () => {
-                console.error('[AuthStorage] Transaction error:', transaction.error);
-                reject(transaction.error);
-            };
-            transaction.oncomplete = () => {
-                console.log('[AuthStorage] Transaction completed');
-            };
+            request.onerror = () => reject(request.error);
         });
     }
 

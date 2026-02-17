@@ -2,7 +2,6 @@ const COMMANDS: &[&str] = &[
     "ping",
     "start_sensor",
     "stop_sensor",
-    "set_auto_upload_enabled",
     "get_upload_status",
     "set_upload_config",
     "retry_failed_uploads",

@@ -11,7 +11,6 @@ Default permissions for the plugin
 - `allow-register-listener`
 - `allow-start-precise-location-listener`
 - `allow-stop-precise-location-listener`
-- `allow-set-auto-upload-enabled`
 - `allow-get-upload-status`
 - `allow-set-upload-config`
 - `allow-retry-failed-uploads`
@@ -696,32 +695,6 @@ Enables the select_push_distributor command without any pre-configured scope.
 <td>
 
 Denies the select_push_distributor command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`hillview:allow-set-auto-upload-enabled`
-
-</td>
-<td>
-
-Enables the set_auto_upload_enabled command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`hillview:deny-set-auto-upload-enabled`
-
-</td>
-<td>
-
-Denies the set_auto_upload_enabled command without any pre-configured scope.
 
 </td>
 </tr>

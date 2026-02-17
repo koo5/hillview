@@ -28,13 +28,6 @@ pub struct LocationUpdate {
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
-pub struct AutoUploadResponse {
-  pub success: bool,
-  pub enabled: bool,
-  pub error: Option<String>,
-}
-
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct UploadStatusResponse {
   pub auto_upload_enabled: bool,
   pub auto_upload_prompt_enabled: bool,

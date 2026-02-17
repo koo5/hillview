@@ -45,25 +45,6 @@ pub(crate) async fn stop_sensor<R: Runtime>(
 }
 
 #[command(rename_all = "snake_case")]
-#[allow(unused_variables)]
-pub(crate) async fn set_auto_upload_enabled<R: Runtime>(
-    app: AppHandle<R>,
-    enabled: bool,
-    prompt_enabled: bool,
-    wifi_only: bool,
-) -> Result<AutoUploadResponse> {
-    #[cfg(mobile)]
-    {
-        return app.hillview().set_auto_upload_enabled(enabled, prompt_enabled, wifi_only);
-    }
-
-    #[cfg(desktop)]
-    {
-        return Err(crate::Error::from("Auto upload is only available on mobile devices"));
-    }
-}
-
-#[command(rename_all = "snake_case")]
 pub(crate) async fn get_upload_status<R: Runtime>(
     _app: AppHandle<R>,
 ) -> Result<UploadStatusResponse> {

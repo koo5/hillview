@@ -59,13 +59,6 @@ class SensorModeArgs {
 }
 
 @InvokeArg
-class AutoUploadArgs {
-	var enabled: Boolean? = null
-	var prompt_enabled: Boolean? = null
-	var wifi_only: Boolean? = null
-}
-
-@InvokeArg
 class UploadConfigArgs {
 	var server_url: String? = null
 }

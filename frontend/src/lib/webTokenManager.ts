@@ -5,29 +5,58 @@ import { auth } from './authStore';
 import { logout } from './auth.svelte';
 import { clientCrypto } from './clientCrypto';
 import { http } from '$lib/http';
-import { parsePythonDateTime } from './dateUtils';
-import { authStorage } from './browser/authStorage';
-import { SharedTokenRefresh } from './browser/sharedTokenRefresh';
-import { addAlert } from './alertSystem.svelte';
+import { authStorage, type IndexedDbTokenData } from './browser/authStorage';
 
 /**
  * Web Token Manager
  *
- * Handles token management for web-only environments using localStorage.
+ * Handles token management for web-only environments using IndexedDB.
+ * Single source of truth with cross-tab reactivity via BroadcastChannel.
  * Implements race condition protection through promise deduplication.
  */
 export class WebTokenManager implements TokenManager {
     private readonly LOG_PREFIX = '🔐[WEB_TOKEN_MGR]';
     private refreshPromise: Promise<TokenData> | null = null;
-    private sharedRefresh: SharedTokenRefresh;
+
+    // Local cache to avoid async reads on every token access
+    private cachedTokenData: IndexedDbTokenData | null = null;
+    private cacheInitialized = false;
 
     constructor() {
-        this.sharedRefresh = new SharedTokenRefresh('[WEB_TOKEN_MGR]');
+        // Subscribe to cross-tab auth changes
+        authStorage.onAuthChange(async () => {
+            console.log(`${this.LOG_PREFIX} Auth changed in another tab, refreshing cache`);
+            await this.refreshCache();
+
+            // Update auth store based on new token state
+            if (this.cachedTokenData) {
+                auth.update(state => ({ ...state, is_authenticated: true }));
+            } else {
+                auth.update(state => ({ ...state, is_authenticated: false, user: null }));
+            }
+        });
+    }
+
+    // Initialize cache from IndexedDB (call once on app startup)
+    async init(): Promise<void> {
+        if (this.cacheInitialized) return;
+        await this.refreshCache();
+        this.cacheInitialized = true;
+    }
+
+    private async refreshCache(): Promise<void> {
+        this.cachedTokenData = await authStorage.getTokenData();
+    }
+
+    private async ensureCacheInitialized(): Promise<void> {
+        if (!this.cacheInitialized) {
+            await this.init();
+        }
     }
 
     async getValidToken(force: boolean = false): Promise<string | null> {
         try {
-            //console.log(`${this.LOG_PREFIX} getValidToken...`);
+            await this.ensureCacheInitialized();
 
             // If refresh is already in progress, wait for it
             if (this.refreshPromise) {
@@ -41,9 +70,8 @@ export class WebTokenManager implements TokenManager {
                 }
             }
 
-            const token = localStorage.getItem('token');
-            if (!token) {
-                console.log(`${this.LOG_PREFIX} No token to use.`);
+            if (!this.cachedTokenData) {
+                console.log(`${this.LOG_PREFIX} No token available`);
                 return null;
             }
 
@@ -53,14 +81,13 @@ export class WebTokenManager implements TokenManager {
 
             if (force || tokenExpired || needsRefreshRenewal) {
                 if (force) {
-                    console.log(`${this.LOG_PREFIX} Force refresh requested (e.g., after 401), attempting refresh`);
+                    console.log(`${this.LOG_PREFIX} Force refresh requested (e.g., after 401)`);
                 } else if (tokenExpired) {
-                    console.log(`${this.LOG_PREFIX} attempting refresh`);
+                    console.log(`${this.LOG_PREFIX} Token expired, attempting refresh`);
                 } else {
-                    console.log(`${this.LOG_PREFIX} Refresh token expiring soon, performing proactive renewal`);
+                    console.log(`${this.LOG_PREFIX} Refresh token expiring soon, proactive renewal`);
                 }
 
-                // Start refresh process
                 this.refreshPromise = this.performRefresh();
 
                 try {
@@ -70,14 +97,12 @@ export class WebTokenManager implements TokenManager {
                 } catch (error) {
                     this.refreshPromise = null;
                     console.error(`${this.LOG_PREFIX} Refresh failed:`, error);
-                    // Refresh failed means authentication is lost - trigger proper logout
                     logout('Token refresh failed');
                     throw new TokenExpiredError('Token expired and refresh failed');
                 }
             }
 
-            //console.log(`${this.LOG_PREFIX} Returning token valid until ${localStorage.getItem('token_expires')}`);
-            return token;
+            return this.cachedTokenData.access_token;
 
         } catch (error) {
             if (error instanceof TokenExpiredError) {
@@ -112,36 +137,33 @@ export class WebTokenManager implements TokenManager {
     }
 
     private async performRefresh(attempt: number = 1, maxAttempts: number = 3): Promise<TokenData> {
-        const refreshToken = localStorage.getItem('refresh_token');
-        if (!refreshToken) {
+        await this.ensureCacheInitialized();
+
+        if (!this.cachedTokenData?.refresh_token) {
             throw new TokenRefreshError('No refresh token available');
         }
 
-        // Check if refresh token is expired
-        const refreshExpires = localStorage.getItem('refresh_token_expires');
+        const refreshToken = this.cachedTokenData.refresh_token;
+        const refreshExpires = this.cachedTokenData.refresh_token_expires;
+
         if (!refreshExpires) {
-            throw new TokenRefreshError('No refresh token expiry stored - invalid token state');
+            throw new TokenRefreshError('No refresh token expiry stored');
         }
 
-        try {
-            const expiryTime = new Date(refreshExpires);
-            const now = new Date();
-            const bufferTime = 1 * 60 * 1000; // 1 minute buffer
+        // Check if refresh token is expired
+        const now = Date.now();
+        const bufferTime = 1 * 60 * 1000; // 1 minute buffer
 
-            if (now.getTime() + bufferTime >= expiryTime.getTime()) {
-                console.warn(`${this.LOG_PREFIX} Refresh token expired at ${refreshExpires}, current time: ${now.toISOString()}`);
-                throw new TokenRefreshError('Refresh token expired');
-            }
-
-            console.log(`${this.LOG_PREFIX} Refresh token valid until ${refreshExpires} (${Math.round((expiryTime.getTime() - now.getTime()) / (1000 * 60 * 60))} hours remaining)`);
-        } catch (dateError) {
-            console.error(`${this.LOG_PREFIX} Could not parse refresh token expiry date: ${refreshExpires}`, dateError);
-            throw new TokenRefreshError('Invalid refresh token expiry format');
+        if (now + bufferTime >= refreshExpires) {
+            console.warn(`${this.LOG_PREFIX} Refresh token expired`);
+            throw new TokenRefreshError('Refresh token expired');
         }
+
+        const hoursRemaining = Math.round((refreshExpires - now) / (1000 * 60 * 60));
+        console.log(`${this.LOG_PREFIX} Refresh token valid (${hoursRemaining} hours remaining)`);
 
         const refreshStartTime = Date.now();
-        console.log(`${this.LOG_PREFIX} Performing auth token renewal (attempt ${attempt}/${maxAttempts})... (started at ${new Date().toISOString()})`);
-        console.debug(`${this.LOG_PREFIX} Refresh token: ${refreshToken.substring(0, 20)}...`);
+        console.log(`${this.LOG_PREFIX} Performing token renewal (attempt ${attempt}/${maxAttempts})`);
 
         // Update auth store with refresh status
         auth.update(state => ({
@@ -151,24 +173,19 @@ export class WebTokenManager implements TokenManager {
         }));
 
         try {
-            // Create timeout controller for the fetch request
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+            const timeoutId = setTimeout(() => controller.abort(), 15000);
 
             const response = await fetch(`${backendUrl}/auth/refresh`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    refresh_token: refreshToken
-                }),
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ refresh_token: refreshToken }),
                 signal: controller.signal
             });
 
-            clearTimeout(timeoutId); // Clear timeout on successful response
+            clearTimeout(timeoutId);
             const refreshDuration = Date.now() - refreshStartTime;
-            console.log(`${this.LOG_PREFIX} Refresh request completed in ${refreshDuration}ms, status: ${response.status}`);
+            console.log(`${this.LOG_PREFIX} Refresh completed in ${refreshDuration}ms, status: ${response.status}`);
 
             if (!response.ok) {
                 const errorText = await response.text();
@@ -179,26 +196,19 @@ export class WebTokenManager implements TokenManager {
                 } catch {
                     errorDetail = errorText;
                 }
-                console.error(`${this.LOG_PREFIX} Refresh failed - Status: ${response.status}, Error: ${errorDetail}`);
+                console.error(`${this.LOG_PREFIX} Refresh failed: ${response.status} ${errorDetail}`);
 
-                // For 401/403 errors, don't retry - token is invalid
                 if (response.status === 401 || response.status === 403) {
                     throw new TokenRefreshError(`Refresh failed: ${errorDetail}`);
                 }
-
-                // For other errors, retry with exponential backoff
                 throw new Error(`HTTP ${response.status}: ${errorDetail}`);
             }
 
             const tokenData = await response.json() as TokenData;
-            console.debug(`${this.LOG_PREFIX} New tokens received, access_token: ${tokenData.access_token.substring(0, 20)}..., expires_at: ${tokenData.expires_at}`);
-
-            // Store new tokens
             await this.storeTokens(tokenData);
 
-            console.log(`${this.LOG_PREFIX} Token refresh successful (total time: ${Date.now() - refreshStartTime}ms)`);
+            console.log(`${this.LOG_PREFIX} Token refresh successful`);
 
-            // Reset auth store refresh status on success
             auth.update(state => ({
                 ...state,
                 refresh_status: 'idle',
@@ -211,32 +221,26 @@ export class WebTokenManager implements TokenManager {
             const refreshDuration = Date.now() - refreshStartTime;
 
             if (error instanceof TokenRefreshError) {
-                // Don't retry TokenRefreshError (invalid tokens)
-                console.error(`${this.LOG_PREFIX} Token refresh failed permanently after ${refreshDuration}ms:`, error);
+                console.error(`${this.LOG_PREFIX} Token refresh failed permanently after ${refreshDuration}ms`);
                 throw error;
             }
 
-            // Handle network/timeout errors with retry
             const isTimeout = error instanceof Error && error.name === 'AbortError';
             const isNetworkError = error instanceof TypeError && error.message.includes('fetch');
             const errorMessage = error instanceof Error ? error.message : String(error);
 
-            console.warn(`${this.LOG_PREFIX} Refresh attempt ${attempt} failed after ${refreshDuration}ms:`,
-                isTimeout ? 'Request timeout' : isNetworkError ? 'Network error' : errorMessage);
+            console.warn(`${this.LOG_PREFIX} Refresh attempt ${attempt} failed:`,
+                isTimeout ? 'timeout' : isNetworkError ? 'network error' : errorMessage);
 
             if (attempt < maxAttempts && (isTimeout || isNetworkError || errorMessage.includes('HTTP 5'))) {
-                // Exponential backoff: 1s, 2s, 4s
                 const delayMs = Math.pow(2, attempt - 1) * 1000;
-                console.log(`${this.LOG_PREFIX} Retrying refresh in ${delayMs}ms...`);
-
+                console.log(`${this.LOG_PREFIX} Retrying in ${delayMs}ms...`);
                 await new Promise(resolve => setTimeout(resolve, delayMs));
                 return this.performRefresh(attempt + 1, maxAttempts);
             }
 
-            // Max attempts reached or non-retryable error
-            console.error(`${this.LOG_PREFIX} Token refresh failed permanently after ${attempt} attempts:`, error);
+            console.error(`${this.LOG_PREFIX} Token refresh failed after ${attempt} attempts`);
 
-            // Update auth store with failed status
             auth.update(state => ({
                 ...state,
                 refresh_status: 'failed',
@@ -248,165 +252,85 @@ export class WebTokenManager implements TokenManager {
     }
 
     async storeTokens(tokenData: TokenData): Promise<void> {
-            //console.log(`${this.LOG_PREFIX} Storing tokens in localStorage`);
+        if (tokenData.refresh_token && !tokenData.refresh_token_expires_at) {
+            throw new Error('Refresh token provided without expiry date');
+        }
 
-            localStorage.setItem('token', tokenData.access_token);
-            localStorage.setItem('token_expires', tokenData.expires_at);
+        // Convert API format (string dates) to IndexedDB format (number timestamps)
+        const indexedDbData: IndexedDbTokenData = {
+            access_token: tokenData.access_token,
+            refresh_token: tokenData.refresh_token || this.cachedTokenData?.refresh_token || '',
+            expires_at: new Date(tokenData.expires_at).getTime(),
+            refresh_token_expires: tokenData.refresh_token_expires_at
+                ? new Date(tokenData.refresh_token_expires_at).getTime()
+                : this.cachedTokenData?.refresh_token_expires
+        };
 
-            if (tokenData.refresh_token) {
-                if (!tokenData.refresh_token_expires_at) {
-                    throw new Error('Refresh token provided without expiry date');
-                }
-                localStorage.setItem('refresh_token', tokenData.refresh_token);
-                localStorage.setItem('refresh_token_expires', tokenData.refresh_token_expires_at);
-            }
+        await authStorage.saveTokenData(indexedDbData);
 
-            // Save full token data to IndexedDB for service worker access (fire-and-forget)
-            // Don't await - localStorage is primary storage, IndexedDB is secondary
-            const fullTokenData = {
-                access_token: tokenData.access_token,
-                refresh_token: tokenData.refresh_token || localStorage.getItem('refresh_token') || '',
-                expires_at: new Date(tokenData.expires_at).getTime(),
-                refresh_token_expires: tokenData.refresh_token_expires_at
-                    ? new Date(tokenData.refresh_token_expires_at).getTime()
-                    : (localStorage.getItem('refresh_token_expires')
-                        ? new Date(localStorage.getItem('refresh_token_expires')!).getTime()
-                        : undefined)
-            };
-            authStorage.saveTokenData(fullTokenData)
-                .then(() => console.log(`${this.LOG_PREFIX} Full token data stored in IndexedDB for service worker.`))
-                .catch(error => {
-                    console.warn(`${this.LOG_PREFIX} Failed to store tokens in IndexedDB:`, error);
-                    addAlert(
-                        'Background sync unavailable. Close other tabs and refresh for full functionality.',
-                        'warning',
-                        { duration: 1000000, source: 'indexeddb-blocked' }
-                    );
-                });
+        // Update local cache
+        this.cachedTokenData = indexedDbData;
 
-            console.log(`${this.LOG_PREFIX} Tokens stored in localStorage.`);
+        console.log(`${this.LOG_PREFIX} Tokens stored in IndexedDB`);
 
-            // Update auth store - tokens stored means authenticated
-            auth.update(state => ({
-                ...state,
-                is_authenticated: true
-            }));
+        auth.update(state => ({ ...state, is_authenticated: true }));
     }
 
     async registerClientPublicKey(): Promise<void> {
-        try {
-            console.log(`${this.LOG_PREFIX} Registering client public key with server`);
+        console.log(`${this.LOG_PREFIX} Registering client public key`);
 
-            // Get client public key info
-            const keyInfo = await clientCrypto.getPublicKeyInfo();
+        const keyInfo = await clientCrypto.getPublicKeyInfo();
 
-            // Use the HttpClient for authenticated requests
+        const response = await http.post('/auth/register-client-key', {
+            public_key_pem: keyInfo.public_key_pem,
+            key_id: keyInfo.key_id,
+            created_at: keyInfo.created_at
+        });
 
-            const response = await http.post('/auth/register-client-key', {
-                public_key_pem: keyInfo.public_key_pem,
-                key_id: keyInfo.key_id,
-                created_at: keyInfo.created_at
-            });
-
-            if (!response.ok) {
-                const error = await response.json();
-                throw new Error(`Registration failed: ${error.detail || response.statusText}`);
-            }
-
-            console.log(`${this.LOG_PREFIX} Client public key registered successfully`);
-
-        } catch (error) {
-            console.error(`${this.LOG_PREFIX} Error registering client public key:`, error);
-            throw error;
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(`Registration failed: ${error.detail || response.statusText}`);
         }
+
+        console.log(`${this.LOG_PREFIX} Client public key registered`);
     }
 
     async clearTokens(): Promise<void> {
-        try {
-            console.log(`${this.LOG_PREFIX} Clearing tokens from localStorage`);
+        console.log(`${this.LOG_PREFIX} Clearing tokens`);
 
-            localStorage.removeItem('token');
-            localStorage.removeItem('token_expires');
-            localStorage.removeItem('refresh_token');
-            localStorage.removeItem('refresh_token_expires');
+        await authStorage.clearToken();
+        this.cachedTokenData = null;
 
-            // Also clear from IndexedDB (fire-and-forget, localStorage is primary)
-            authStorage.clearToken()
-                .then(() => console.log(`${this.LOG_PREFIX} Tokens also cleared from IndexedDB`))
-                .catch(error => console.warn(`${this.LOG_PREFIX} Failed to clear tokens from IndexedDB:`, error));
+        console.log(`${this.LOG_PREFIX} Tokens cleared from IndexedDB`);
 
-            console.log(`${this.LOG_PREFIX} Tokens cleared successfully from localStorage`);
-
-            // Update auth store - no tokens means not authenticated
-            auth.update(state => ({
-                ...state,
-                is_authenticated: false,
-                user: null
-            }));
-
-        } catch (error) {
-            console.error(`${this.LOG_PREFIX} Error clearing tokens from localStorage:`, error);
-            throw error;
-        }
+        auth.update(state => ({
+            ...state,
+            is_authenticated: false,
+            user: null
+        }));
     }
 
     async isTokenExpired(bufferMinutes: number = 2): Promise<boolean> {
-        try {
-            const expiresAtStr = localStorage.getItem('token_expires');
-            if (!expiresAtStr) {
-                return true; // No expiry time means expired
-            }
+        await this.ensureCacheInitialized();
 
-            const expiresAt = parsePythonDateTime(expiresAtStr);
-            if (!expiresAt) {
-                console.error(`${this.LOG_PREFIX} Failed to parse token expiry: ${expiresAtStr}`);
-                return true; // If we can't parse, assume expired for safety
-            }
-
-            const now = new Date();
-            const bufferMs = bufferMinutes * 60 * 1000;
-            const isExpired = (expiresAt.getTime() - bufferMs) <= now.getTime();
-
-            console.log(`${this.LOG_PREFIX} Token expires ${expiresAt.toISOString()}, now ${now.toISOString()}, expired: ${isExpired}`);
-
-            if (isExpired) {
-                console.log(`${this.LOG_PREFIX} Token expired or expiring soon`);
-            }
-
-            return isExpired;
-
-        } catch (error) {
-            console.error(`${this.LOG_PREFIX} Error checking token expiry:`, error);
-            return true; // If we can't check, assume expired for safety
+        if (!this.cachedTokenData?.expires_at) {
+            return true;
         }
+
+        const now = Date.now();
+        const bufferMs = bufferMinutes * 60 * 1000;
+        return (this.cachedTokenData.expires_at - bufferMs) <= now;
     }
 
-    /**
-     * Check if refresh token is expiring soon and needs proactive renewal
-     * @param bufferDays Days before expiry to trigger renewal (default: 3)
-     */
     private async shouldRenewRefreshToken(bufferDays: number = 3): Promise<boolean> {
-        const refreshExpiresStr = localStorage.getItem('refresh_token_expires');
-        if (!refreshExpiresStr) {
-            throw new Error('No refresh token expiry stored - invalid token state');
+        await this.ensureCacheInitialized();
+
+        if (!this.cachedTokenData?.refresh_token_expires) {
+            return false; // No refresh token expiry, can't determine
         }
 
-        const expiresAt = parsePythonDateTime(refreshExpiresStr);
-        if (!expiresAt) {
-            console.error(`${this.LOG_PREFIX} Failed to parse refresh token expiry: ${refreshExpiresStr}`);
-            throw new Error('Invalid refresh token expiry format');
-        }
-
-        const now = new Date();
-        const bufferMs = bufferDays * 24 * 60 * 60 * 1000; // Convert days to ms
-
-        const shouldRenew = now.getTime() + bufferMs >= expiresAt.getTime();
-
-        if (shouldRenew) {
-            const daysRemaining = Math.floor((expiresAt.getTime() - now.getTime()) / (24 * 60 * 60 * 1000));
-            console.log(`${this.LOG_PREFIX} Refresh token expiring in ${daysRemaining} days, triggering proactive renewal`);
-        }
-
-        return shouldRenew;
+        const now = Date.now();
+        const bufferMs = bufferDays * 24 * 60 * 60 * 1000;
+        return now + bufferMs >= this.cachedTokenData.refresh_token_expires;
     }
 }
