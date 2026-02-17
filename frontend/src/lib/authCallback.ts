@@ -102,11 +102,16 @@ export async function getStoredToken(): Promise<string | null> {
     if (!TAURI) {
         return null;
     }
-    const result = await invoke('plugin:hillview|get_auth_token') as AuthTokenResponse;
+    try {
+        const result = await invoke('plugin:hillview|get_auth_token') as AuthTokenResponse;
         if (result.success && result.token) {
             return result.token;
         }
         return null;
+    } catch (err) {
+        console.error('🢄🔐 Failed to get stored token:', err);
+        return null;
+    }
 }
 
 /**
@@ -116,8 +121,13 @@ export async function clearStoredToken(): Promise<boolean> {
     if (!TAURI) {
         return false;
     }
-    const result = await invoke('plugin:hillview|clear_auth_token') as BasicResponse;
-    return result.success;
+    try {
+        const result = await invoke('plugin:hillview|clear_auth_token') as BasicResponse;
+        return result.success;
+    } catch (err) {
+        console.error('🢄🔐 Failed to clear stored token:', err);
+        return false;
+    }
 }
 
 /**
@@ -127,7 +137,8 @@ export async function hasValidAuth(): Promise<boolean> {
     if (!TAURI) {
         return false;
     }
-    const result = await invoke('get_auth_token') as AuthTokenResponse;
+    try {
+        const result = await invoke('plugin:hillview|get_auth_token') as AuthTokenResponse;
         if (!result.success || !result.token) {
             return false;
         }
@@ -150,6 +161,10 @@ export async function hasValidAuth(): Promise<boolean> {
         }
 
         return true;
+    } catch (err) {
+        console.error('🢄🔐 Failed to check auth validity:', err);
+        return false;
+    }
 }
 
 /**

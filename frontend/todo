@@ -20,3 +20,4 @@ async function share_state() {
     });
 };
 
+unify BROWSER and TAURI autoUploadSettings stores - wrap localStoreage logic in RemoteStorage?

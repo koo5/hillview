@@ -1080,7 +1080,8 @@
 
 	onDestroy(() => {
 		if (TAURI) {
-			invoke('plugin:hillview|cmd', {command: 'stop_device_orientation_sensor'});
+			invoke('plugin:hillview|cmd', {command: 'stop_device_orientation_sensor'})
+				.catch(err => console.warn('🢄[CAMERA] Failed to stop device orientation sensor:', err));
 		}
 		if (absoluteOrientationSensor) {
 			absoluteOrientationSensor.stop();

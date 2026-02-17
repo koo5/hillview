@@ -8,6 +8,7 @@ import { http } from '$lib/http';
 import { parsePythonDateTime } from './dateUtils';
 import { authStorage } from './browser/authStorage';
 import { SharedTokenRefresh } from './browser/sharedTokenRefresh';
+import { addAlert } from './alertSystem.svelte';
 
 /**
  * Web Token Manager
@@ -260,24 +261,28 @@ export class WebTokenManager implements TokenManager {
                 localStorage.setItem('refresh_token_expires', tokenData.refresh_token_expires_at);
             }
 
-            // Save full token data to IndexedDB for service worker access
-            try {
-                const fullTokenData = {
-                    access_token: tokenData.access_token,
-                    refresh_token: tokenData.refresh_token || localStorage.getItem('refresh_token') || '',
-                    expires_at: new Date(tokenData.expires_at).getTime(),
-                    refresh_token_expires: tokenData.refresh_token_expires_at
-                        ? new Date(tokenData.refresh_token_expires_at).getTime()
-                        : (localStorage.getItem('refresh_token_expires')
-                            ? new Date(localStorage.getItem('refresh_token_expires')!).getTime()
-                            : undefined)
-                };
-                await authStorage.saveTokenData(fullTokenData);
-                console.log(`${this.LOG_PREFIX} Full token data stored in IndexedDB for service worker.`);
-            } catch (error) {
-                console.warn(`${this.LOG_PREFIX} Failed to store tokens in IndexedDB:`, error);
-                // Don't fail the whole operation if IndexedDB fails
-            }
+            // Save full token data to IndexedDB for service worker access (fire-and-forget)
+            // Don't await - localStorage is primary storage, IndexedDB is secondary
+            const fullTokenData = {
+                access_token: tokenData.access_token,
+                refresh_token: tokenData.refresh_token || localStorage.getItem('refresh_token') || '',
+                expires_at: new Date(tokenData.expires_at).getTime(),
+                refresh_token_expires: tokenData.refresh_token_expires_at
+                    ? new Date(tokenData.refresh_token_expires_at).getTime()
+                    : (localStorage.getItem('refresh_token_expires')
+                        ? new Date(localStorage.getItem('refresh_token_expires')!).getTime()
+                        : undefined)
+            };
+            authStorage.saveTokenData(fullTokenData)
+                .then(() => console.log(`${this.LOG_PREFIX} Full token data stored in IndexedDB for service worker.`))
+                .catch(error => {
+                    console.warn(`${this.LOG_PREFIX} Failed to store tokens in IndexedDB:`, error);
+                    addAlert(
+                        'Background sync unavailable. Close other tabs and refresh for full functionality.',
+                        'warning',
+                        { duration: 1000000, source: 'indexeddb-blocked' }
+                    );
+                });
 
             console.log(`${this.LOG_PREFIX} Tokens stored in localStorage.`);
 
@@ -325,13 +330,10 @@ export class WebTokenManager implements TokenManager {
             localStorage.removeItem('refresh_token');
             localStorage.removeItem('refresh_token_expires');
 
-            // Also clear from IndexedDB (including full token data)
-            try {
-                await authStorage.clearToken();
-                console.log(`${this.LOG_PREFIX} Tokens also cleared from IndexedDB`);
-            } catch (error) {
-                console.warn(`${this.LOG_PREFIX} Failed to clear tokens from IndexedDB:`, error);
-            }
+            // Also clear from IndexedDB (fire-and-forget, localStorage is primary)
+            authStorage.clearToken()
+                .then(() => console.log(`${this.LOG_PREFIX} Tokens also cleared from IndexedDB`))
+                .catch(error => console.warn(`${this.LOG_PREFIX} Failed to clear tokens from IndexedDB:`, error));
 
             console.log(`${this.LOG_PREFIX} Tokens cleared successfully from localStorage`);
 

@@ -304,7 +304,7 @@ export function updateBearing(bearing: number, source: string = 'map', photoUid?
 			trueHeading: bearing,
 			source: source,
 			accuracyLevel: accuracy_level
-		}});
+		}}).catch(err => console.error('🢄📍 Failed to update orientation:', err));
 	}
 }
 

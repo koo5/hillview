@@ -25,9 +25,13 @@ export const compassSettings = createRemoteStore<CompassSettings>({
 		}
 	},
 	save: async (val) => {
-		await invoke('plugin:hillview|cmd', {
-			command: 'set_landscape_compass_armor22_workaround',
-			params: { enabled: val.landscape_armor22_workaround }
-		});
+		try {
+			await invoke('plugin:hillview|cmd', {
+				command: 'set_landscape_compass_armor22_workaround',
+				params: { enabled: val.landscape_armor22_workaround }
+			});
+		} catch (e) {
+			console.error('Failed to save compass settings:', e);
+		}
 	}
 });

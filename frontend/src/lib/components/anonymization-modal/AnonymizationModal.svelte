@@ -130,7 +130,7 @@
 			<div class="state-icon warning">
 				<AlertCircle size={32} />
 			</div>
-			<h4>Not available in browser</h4>
+			<h4>Not available in browser yet</h4>
 			<p>
 				Changing anonymization settings is only available in the mobile app.
 				Please use the Hillview app on your device to modify these settings.

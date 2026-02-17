@@ -44,15 +44,19 @@
 
 	async function checkSettings() {
 		if (TAURI) {
-			const result = await invoke('plugin:hillview|get_upload_status') as {
-				auto_upload_enabled: boolean;
-				auto_upload_prompt_enabled: boolean;
-			};
+			try {
+				const result = await invoke('plugin:hillview|get_upload_status') as {
+					auto_upload_enabled: boolean;
+					auto_upload_prompt_enabled: boolean;
+				};
 
-			console.log('AutoUploadPrompt: autoUpload status:', JSON.stringify(result), ' authed=', authed);
+				console.log('AutoUploadPrompt: autoUpload status:', JSON.stringify(result), ' authed=', authed);
 
-			autoUploadEnabled = result.auto_upload_enabled || false;
-			autoUploadPromptEnabled = result.auto_upload_prompt_enabled || false;
+				autoUploadEnabled = result.auto_upload_enabled || false;
+				autoUploadPromptEnabled = result.auto_upload_prompt_enabled || false;
+			} catch (err) {
+				console.error('AutoUploadPrompt: Failed to get upload status:', err);
+			}
 		} else if (BROWSER) {
 			const settings = getBrowserAutoUploadSettings();
 			console.log('AutoUploadPrompt: browser autoUpload status:', JSON.stringify(settings), ' authed=', authed);
