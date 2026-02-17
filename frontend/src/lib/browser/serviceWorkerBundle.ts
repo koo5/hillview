@@ -2,7 +2,7 @@
 // This exports everything the service worker needs in a format it can use
 
 import { swSecureUploader } from './serviceWorkerSecureUpload';
-import { browserPhotoStorage } from '../browserPhotoStorage';
+import { browserPhotoStorage } from './photoStorage';
 
 // Version will be injected at build time
 declare const __SW_VERSION__: string;

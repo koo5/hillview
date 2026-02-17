@@ -4,8 +4,7 @@
 import { writable, derived, get } from 'svelte/store';
 import { invoke } from '@tauri-apps/api/core';
 import { TAURI, BROWSER } from './tauri';
-import { photoStorage } from './browser/photoStorage';
-import { browserUploadQueueStatus, browserStorageUsage } from './browser/photoStorage';
+import { browserPhotoStorage, browserUploadQueueStatus, browserStorageUsage } from './browser/photoStorage';
 
 export interface PhotoStats {
     total: number;
@@ -34,7 +33,7 @@ export async function fetchPhotoStats(): Promise<PhotoStats | null> {
     try {
         if (BROWSER) {
             // Browser: Calculate stats from IndexedDB
-            const photos = await photoStorage.getAll();
+            const photos = await browserPhotoStorage.getAllPhotos();
             const storageInfo = get(browserStorageUsage);
             const uploadStatus = get(browserUploadQueueStatus);
 

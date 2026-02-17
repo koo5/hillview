@@ -1,7 +1,7 @@
 // Service worker secure upload module that uses the async upload flow with client signatures
 // This module is used by service workers to upload photos with proper authentication
 
-import type { StoredPhoto } from '../browserPhotoStorage';
+import type { StoredPhoto } from './photoStorage';
 import { clientCrypto } from '../clientCrypto';
 import { backendUrl } from '$lib/config';
 import { SharedTokenRefresh } from './sharedTokenRefresh';

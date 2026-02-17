@@ -6,7 +6,7 @@
 	import {Upload, Clock, AlertCircle, CheckCircle, Loader, Trash2, Info, HelpCircle} from 'lucide-svelte';
 	import RetryUploadsButton from "$lib/components/RetryUploadsButton.svelte";
 	import {BROWSER} from '$lib/tauri';
-	import {isBackgroundSyncSupported} from '$lib/browserPhotoStorage';
+	import {isBackgroundSyncSupported} from '$lib/browser/photoStorage';
 
 	export let addLogEntry: (message: string, type?: 'success' | 'warning' | 'error' | 'info', metadata?: any) => void = () => {};
 	export let onRefresh: (() => void | Promise<void>) | null = null;

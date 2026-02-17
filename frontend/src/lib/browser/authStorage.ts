@@ -13,10 +13,6 @@ export interface StoredToken {
     expires_at: number;
 }
 
-export interface StoredConfig {
-    backendUrl: string;
-}
-
 export class AuthStorage {
     private db: IDBDatabase | null = null;
 

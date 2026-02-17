@@ -13,7 +13,7 @@
 	import { getPhotoMenuItems } from '$lib/photoAnonymizationMenu';
 	import DropdownMenu from '$lib/components/dropdown-menu/DropdownMenu.svelte';
 	import { BROWSER } from '$lib/tauri';
-	import { photoStorage, type BrowserPhoto } from '$lib/browser/photoStorage';
+	import { browserPhotoStorage, type StoredPhoto } from '$lib/browser/photoStorage';
 	import { uploadManager } from '$lib/browser/uploadManager';
 	import AnonymizationModal from '$lib/components/anonymization-modal/AnonymizationModal.svelte';
 
