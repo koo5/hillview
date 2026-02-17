@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Modal from '../Modal.svelte';
-	import { Glasses, Smile, AlertCircle, Loader2 } from 'lucide-svelte';
-	import { createAnonymizationEdit, getDevicePhotoIdByServerPhotoId, checkPhotoFileExists } from '$lib/photoAnonymizationMenu';
+	import { Glasses, Smile, AlertCircle, Loader2, Check } from 'lucide-svelte';
+	import { createAnonymizationEdit, getDevicePhotoIdByServerPhotoId, checkPhotoFileExists, getPhotoAnonymizationState, triggerUploadLoop, type AnonymizationState } from '$lib/photoAnonymizationMenu';
 	import { addAlert } from '$lib/alertSystem.svelte';
 	import { anonymizationModalState, closeAnonymizationModal } from './anonymizationModal.svelte.js';
 	import { BROWSER } from '$lib/tauri';
@@ -11,8 +11,8 @@
 		| { status: 'not-found-locally' }
 		| { status: 'file-missing'; path: string }
 		| { status: 'browser-not-supported' }
-		| { status: 'ready'; devicePhotoId: string }
-		| { status: 'processing' };
+		| { status: 'ready'; devicePhotoId: string; currentState: AnonymizationState }
+		| { status: 'processing'; currentState: AnonymizationState };
 
 	let modalState: ModalState = $state({ status: 'loading' });
 
@@ -64,8 +64,12 @@
 				return;
 			}
 
+			// Step 3: Get current anonymization state
+			const stateResult = await getPhotoAnonymizationState(devicePhotoId);
+			const currentState: AnonymizationState = stateResult.success && stateResult.state ? stateResult.state : 'auto';
+
 			// All good - show options
-			modalState = { status: 'ready', devicePhotoId };
+			modalState = { status: 'ready', devicePhotoId, currentState };
 
 		} catch (err) {
 			console.error('Error checking photo availability:', err);
@@ -73,11 +77,18 @@
 		}
 	}
 
-	async function handleOption(value: null | any[], label: string) {
+	async function handleOption(value: null | any[], label: string, newState: AnonymizationState) {
 		if (modalState.status !== 'ready') return;
 
-		const { devicePhotoId } = modalState;
-		modalState = { status: 'processing' };
+		const { devicePhotoId, currentState } = modalState;
+
+		// Don't do anything if selecting the same option
+		if (newState === currentState) {
+			closeAnonymizationModal();
+			return;
+		}
+
+		modalState = { status: 'processing', currentState };
 
 		try {
 			const result = await createAnonymizationEdit(devicePhotoId, value);
@@ -86,6 +97,8 @@
 					duration: 3000,
 					source: 'anonymization-edit'
 				});
+				// Trigger upload loop to process the edit
+				triggerUploadLoop();
 			} else {
 				addAlert(`Failed: ${result.error || 'Unknown error'}`, 'error', {
 					duration: 5000,
@@ -152,13 +165,20 @@
 		</div>
 
 	{:else if modalState.status === 'ready' || modalState.status === 'processing'}
+		{@const currentState = modalState.currentState}
 		<div class="options-list">
 			<button
 				class="option-button"
-				onclick={() => handleOption(null, 'Auto-detect & blur')}
+				class:selected={currentState === 'auto'}
+				onclick={() => handleOption(null, 'Auto-detect & blur', 'auto')}
 				disabled={modalState.status === 'processing'}
 				data-testid="option-auto-anonymize"
 			>
+				<span class="radio-indicator" class:checked={currentState === 'auto'}>
+					{#if currentState === 'auto'}
+						<Check size={14} />
+					{/if}
+				</span>
 				<span class="option-icon">
 					<Glasses size={24} />
 				</span>
@@ -170,10 +190,16 @@
 
 			<button
 				class="option-button"
-				onclick={() => handleOption([], 'No anonymization')}
+				class:selected={currentState === 'none'}
+				onclick={() => handleOption([], 'No anonymization', 'none')}
 				disabled={modalState.status === 'processing'}
 				data-testid="option-skip-anonymization"
 			>
+				<span class="radio-indicator" class:checked={currentState === 'none'}>
+					{#if currentState === 'none'}
+						<Check size={14} />
+					{/if}
+				</span>
 				<span class="option-icon">
 					<Smile size={24} />
 				</span>
@@ -185,7 +211,13 @@
 		</div>
 
 		<p class="help-text">
-			Changing this setting will queue the photo for re-upload with the new anonymization setting.
+			{#if currentState === 'auto'}
+				Currently set to auto-detect. Select a different option to change.
+			{:else if currentState === 'none'}
+				Currently set to no anonymization. Select a different option to change.
+			{:else}
+				Currently using custom blur regions.
+			{/if}
 		</p>
 	{/if}
 </Modal>
@@ -253,10 +285,10 @@
 	.option-button {
 		display: flex;
 		align-items: flex-start;
-		gap: 14px;
+		gap: 12px;
 		width: 100%;
 		padding: 14px;
-		border: 1px solid #e5e7eb;
+		border: 2px solid #e5e7eb;
 		border-radius: 10px;
 		background: white;
 		cursor: pointer;
@@ -269,9 +301,34 @@
 		background: #f8fafc;
 	}
 
+	.option-button.selected {
+		border-color: #3b82f6;
+		background: #eff6ff;
+	}
+
 	.option-button:disabled {
 		opacity: 0.6;
 		cursor: not-allowed;
+	}
+
+	.radio-indicator {
+		flex-shrink: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 22px;
+		height: 22px;
+		border-radius: 50%;
+		border: 2px solid #d1d5db;
+		background: white;
+		margin-top: 2px;
+		transition: all 0.15s ease;
+	}
+
+	.radio-indicator.checked {
+		border-color: #3b82f6;
+		background: #3b82f6;
+		color: white;
 	}
 
 	.option-icon {

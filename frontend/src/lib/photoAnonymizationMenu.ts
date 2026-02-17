@@ -55,6 +55,42 @@ export async function checkPhotoFileExists(
 }
 
 /**
+ * Anonymization state types
+ */
+export type AnonymizationState = 'auto' | 'none' | 'custom';
+
+export interface AnonymizationStateResult {
+	success: boolean;
+	state?: AnonymizationState;
+	value?: null | string;
+	error?: string;
+}
+
+/**
+ * Get the current effective anonymization state for a photo.
+ * This includes any pending edits that haven't been processed yet.
+ * @param photoId - The device photo entity ID
+ * @returns The current state: 'auto' (null), 'none' ([]), or 'custom' (manual rectangles)
+ */
+export async function getPhotoAnonymizationState(
+	photoId: string
+): Promise<AnonymizationStateResult> {
+	try {
+		const result = await invoke('plugin:hillview|cmd', {
+			command: 'get_photo_anonymization_state',
+			params: {
+				photo_id: photoId
+			}
+		}) as AnonymizationStateResult;
+
+		return result;
+	} catch (err) {
+		console.error('Error getting photo anonymization state:', err);
+		return { success: false, error: String(err) };
+	}
+}
+
+/**
  * Create an anonymization edit for a photo.
  * @param photoId - The device photo entity ID
  * @param value - null for auto-detect, [] for skip anonymization, or array of rectangles
@@ -78,6 +114,20 @@ export async function createAnonymizationEdit(
 	} catch (err) {
 		console.error('Error creating anonymization edit:', err);
 		return { success: false, error: String(err) };
+	}
+}
+
+/**
+ * Trigger the upload loop to process pending edits and uploads.
+ */
+export async function triggerUploadLoop(): Promise<void> {
+	try {
+		await invoke('plugin:hillview|cmd', {
+			command: 'retry_uploads',
+			params: {}
+		});
+	} catch (err) {
+		console.error('Error triggering upload loop:', err);
 	}
 }
 

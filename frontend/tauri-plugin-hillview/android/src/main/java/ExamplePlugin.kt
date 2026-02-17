@@ -2548,6 +2548,11 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 					return
 				}
 
+				"get_photo_anonymization_state" -> {
+					photoUploadLogic.handleGetPhotoAnonymizationState(invoke, params)
+					return
+				}
+
 				else -> {
 					resolveWithError(invoke, "🔧 Unknown command: $command")
 					return
