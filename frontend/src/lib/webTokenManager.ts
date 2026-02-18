@@ -2,7 +2,7 @@ import type { TokenManager, TokenData } from './tokenManager';
 import { TokenExpiredError, TokenRefreshError } from './tokenManager';
 import { backendUrl } from './config';
 import { auth } from './authStore';
-import { logout } from './auth.svelte';
+import { logout, fetchUserData } from './auth.svelte';
 import { clientCrypto } from './clientCrypto';
 import { http } from '$lib/http';
 import { authStorage, type IndexedDbTokenData } from './browser/authStorage';
@@ -26,11 +26,16 @@ export class WebTokenManager implements TokenManager {
         // Subscribe to cross-tab auth changes
         authStorage.onAuthChange(async () => {
             console.log(`${this.LOG_PREFIX} Auth changed in another tab, refreshing cache`);
+            const hadTokens = !!this.cachedTokenData;
             await this.refreshCache();
 
             // Update auth store based on new token state
             if (this.cachedTokenData) {
                 auth.update(state => ({ ...state, is_authenticated: true }));
+                // If we just gained tokens (login in another tab), fetch user data
+                if (!hadTokens) {
+                    fetchUserData();
+                }
             } else {
                 auth.update(state => ({ ...state, is_authenticated: false, user: null }));
             }
@@ -312,7 +317,7 @@ export class WebTokenManager implements TokenManager {
     async clearTokens(): Promise<void> {
         console.log(`${this.LOG_PREFIX} Clearing tokens`);
 
-        await authStorage.clearToken();
+        await authStorage.clearTokens();
         this.cachedTokenData = null;
 
         console.log(`${this.LOG_PREFIX} Tokens cleared from IndexedDB`);

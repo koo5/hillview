@@ -1,7 +1,7 @@
 const COMMANDS: &[&str] = &[
     "start_sensor",
     "stop_sensor",
-    "set_upload_config",
+    "register_listener",
     "retry_failed_uploads",
     "start_precise_location_listener",
     "stop_precise_location_listener",
@@ -14,7 +14,6 @@ const COMMANDS: &[&str] = &[
     "request_camera_permission",
     "get_notification_settings",
     "set_notification_settings",
-    "test_auth_expired_notification",
     "check_tauri_permissions",
     "request_tauri_permission",
     "test_show_notification",

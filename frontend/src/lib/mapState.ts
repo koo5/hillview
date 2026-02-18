@@ -269,10 +269,10 @@ function calculateAbsBearingDiff(bearing1: number, bearing2: number): number {
 
 // Update functions with selective reactivity
 export async function updateSpatialState(updates: Partial<SpatialState>, source: 'gps' | 'map' = 'map') {
-	console.log(`Spatial: updateSpatialState called with updates ${JSON.stringify(updates)} from source ${source}`);
+	//console.log(`Spatial: updateSpatialState called with updates ${JSON.stringify(updates)} from source ${source}`);
 	let old = get(spatialState);
 	if (JSON.stringify(old) === JSON.stringify({...old, ...updates, source})) {
-		console.log('Spatial: No changes in spatial state, skipping update');
+		//console.log('Spatial: No changes in spatial state, skipping update');
 		return;
 	}
 	spatialState.update(state => ({...state, ...updates, source}));

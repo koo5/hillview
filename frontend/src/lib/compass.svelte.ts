@@ -494,7 +494,7 @@ let revertingUserPreference = false;
 
 // State machine that manages compass based on user preferences + route state
 async function updateCompassState() {
-	console.log('updateCompassState()');
+	//console.log('updateCompassState()');
 
 	// Don't process updates if we're reverting user preference to avoid recursion
 	if (revertingUserPreference) {
@@ -505,8 +505,9 @@ async function updateCompassState() {
 	const currentState = get(compassState);
 	const userMode = get(compassMode);
 
-	console.log('🢄️ Compass state update:', JSON.stringify(
-		{ userEnabled, onMapRoute, currentState }));
+	/*console.log('🢄️ Compass state update:', JSON.stringify(
+		{ userEnabled, onMapRoute, currentState })
+	);*/
 
 	if (!userEnabled || !onMapRoute) {
 		// User disabled or not on map route - set to inactive
@@ -680,7 +681,7 @@ compassState.subscribe(state => {
 export const compassWalkingActive = derived(
     [compassEnabled, bearingMode],
     ([$compassEnabled, $bearingMode]) => {
-		console.log(`compassWalkingActive: $compassEnabled: ${$compassEnabled}, $bearingMode: ${$bearingMode}`);
+		//console.log(`compassWalkingActive: $compassEnabled: ${$compassEnabled}, $bearingMode: ${$bearingMode}`);
         return $compassEnabled && $bearingMode === 'walking';
     }
 );

@@ -169,7 +169,7 @@
             if (container) {
                 setupMarkerClickDelegation(container);
                 markerClickDelegationSetup = true;
-                console.log('🢄Map: Marker click delegation set up');
+                //console.log('🢄Map: Marker click delegation set up');
             }
         }
         // console.log('🢄Map reactive: map available, current center:', JSON.stringify(map.getCenter()));
@@ -183,9 +183,9 @@
 				// Guard against race conditions where map is destroyed before timeout fires
 				try {
 					if (map && map._loaded && map.getContainer() && map.invalidateSize) {
-						console.log('🢄Fixing initial map size');
+						//console.log('🢄Fixing initial map size');
 						map.invalidateSize({ reset: true, animate: false });
-						console.log('🢄Map setTimeout: after invalidateSize, map center:', JSON.stringify(map?.getCenter()));
+						//console.log('🢄Map setTimeout: after invalidateSize, map center:', JSON.stringify(map?.getCenter()));
 					}
 				} catch (e) {
 					// Map may have been destroyed or is in an inconsistent state
@@ -221,13 +221,13 @@
 		let positionChanged = false;
 
 		if (lat && lon) {
-			console.log('🢄Setting position to', lat, lon, 'from URL');
+			//console.log('🢄Setting position to', lat, lon, 'from URL');
 			p.center = new LatLng(parseFloat(lat), parseFloat(lon));
 			positionChanged = true;
 		}
 
 		if (zoom) {
-			console.log('🢄Setting zoom to', zoom, 'from URL');
+			//console.log('🢄Setting zoom to', zoom, 'from URL');
 			p.zoom = parseFloat(zoom);
 			positionChanged = true;
 		}
@@ -245,7 +245,7 @@
 
 		// Now get bounds AFTER the map has moved
 		let bounds = map.getBounds();
-		console.log('🢄Leaflet bounds after move:', JSON.stringify(bounds));
+		//console.log('🢄Leaflet bounds after move:', JSON.stringify(bounds));
 		if (bounds == null || bounds.getNorthWest().lat === bounds.getSouthEast().lat || bounds.getNorthWest().lng === bounds.getSouthEast().lng) {
 			console.log('🢄leaflet bounds are invalid, using fallback')
 			bounds = new L.LatLngBounds(
@@ -261,7 +261,7 @@
 		// Handle photo parameter and enable corresponding source
 		const photoUid = parsePhotoUid(photoParam);
 		if (photoUid) {
-			console.log('🢄Photo parameter from URL:', photoUid);
+			//console.log('🢄Photo parameter from URL:', photoUid);
 			enableSourceForPhotoUid(photoUid);
 			// Switch to view mode when opening a specific photo
 			app.update(a => ({...a, activity: 'view'}));
@@ -270,7 +270,7 @@
 		await updateSpatialState({...p}, 'map');
 
 		if (bearingParam) {
-			console.log('🢄Setting bearing to', bearingParam, 'from URL');
+			//console.log('🢄Setting bearing to', bearingParam, 'from URL');
 			const bearing = parseFloat(bearingParam);
 			updateBearing(bearing, 'url', photoUid ?? undefined);
 		}
@@ -350,13 +350,13 @@
         const updateId = Date.now();
         lastPhotosUpdate = updateId;
 
-        console.log(`🢄Map: updateOptimizedMarkers called with ${photos.length} photos, updateId: ${updateId}`);
+        //console.log(`🢄Map: updateOptimizedMarkers called with ${photos.length} photos, updateId: ${updateId}`);
 
         // Use the optimized marker system
         const updatedMarkers = optimizedMarkerSystem.updateMarkers(map, photos);
         if (updatedMarkers) {
             currentMarkers = updatedMarkers;
-            console.log(`🢄Map: Updated ${currentMarkers.length} optimized markers`);
+            //console.log(`🢄Map: Updated ${currentMarkers.length} optimized markers`);
         } else {
             console.warn('🢄Map: optimizedMarkerSystem.updateMarkers returned undefined');
         }
@@ -423,21 +423,21 @@
 			return // ignore moveend in android, as those fire off even when the map is moved programmatically - there's no way to distinguish user-initiated location changes from programmatic (gps). The tradeoff is that keyboard cant be used. Mouse/touch works by triggering dragend.
 		}
 
-		console.log('🢄🗺mapStateUserEvent:', stringifyCircularJSON(event.type));
+		//console.log('🢄🗺mapStateUserEvent:', stringifyCircularJSON(event.type));
 
         if (!flying) {
             let _center = map.getCenter();
             let p = get(spatialState);
 
             if (p.center.lat != _center.lat || p.center.lng != _center.lng) {
-                console.log('🢄p.center:', JSON.stringify(p.center), '_center:', JSON.stringify(_center));
+                //console.log('🢄p.center:', JSON.stringify(p.center), '_center:', JSON.stringify(_center));
 
                 // Only disable location tracking if this wasn't caused by zoom buttons
                 if (!isZoomButtonEvent) {
-                    console.log('🢄disableLocationTracking');
+                    //console.log('🢄disableLocationTracking');
                     disableLocationTracking();
                 } else {
-                    console.log('🢄Zoom button event detected - not disabling location tracking');
+                    //console.log('🢄Zoom button event detected - not disabling location tracking');
                 }
             }
 			await onMapStateChange(true, 'mapStateUserEvent');
@@ -946,7 +946,7 @@
             if (navigator.userAgent.toLowerCase().includes('firefox')) {
                 setTimeout(() => {
                     if (map && map.invalidateSize) {
-                        console.log('🢄Firefox detected - forcing map resize');
+                        //console.log('🢄Firefox detected - forcing map resize');
                         map.invalidateSize({ reset: true, animate: false });
                     }
                 }, 100);

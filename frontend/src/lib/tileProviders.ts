@@ -131,10 +131,10 @@ function processAttributionTemplates(attribution: string, providers: any): strin
 export function getProviderConfig(providerName: ProviderName): TileProviderConfig {
 	providerName = providerName || DEFAULT_TILE_PROVIDER;
 
-	console.log('tileProviders.getProviderConfig()', providerName);
+	//console.log('tileProviders.getProviderConfig()', providerName);
     // Check custom providers first
     if (CUSTOM_PROVIDERS[providerName]) {
-		console.log('tileProviders.getProviderConfig() - using custom provider');
+		//console.log('tileProviders.getProviderConfig() - using custom provider');
         return { ...CUSTOM_PROVIDERS[providerName] };
     }
 

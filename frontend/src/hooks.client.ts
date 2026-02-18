@@ -62,7 +62,7 @@ export async function handleError(eee: any): Promise<{ message: string }> {
 export const init = () => {
 	if (TAURI)
 	{
-		invoke('plugin:hillview|set_upload_config', { config: {server_url: backendUrl }});
+		invoke('plugin:hillview|cmd', { command: 'set_backend_url', params: { url: backendUrl }});
 	}
 	console.log('🢄client initialized');
 };

@@ -17,11 +17,6 @@ pub struct LocationUpdate {
   pub longitude: f64,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-pub struct UploadConfig {
-  pub server_url: Option<String>,
-}
-
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct BasicResponse {
   pub success: bool,

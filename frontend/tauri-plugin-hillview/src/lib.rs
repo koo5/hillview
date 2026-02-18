@@ -42,18 +42,15 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
       commands::stop_sensor,
       commands::start_precise_location_listener,
       commands::stop_precise_location_listener,
-      commands::set_upload_config,
       commands::retry_failed_uploads,
       // Authentication commands
       commands::store_auth_token,
       commands::get_auth_token,
       commands::clear_auth_token,
-      commands::register_client_public_key,
       // Photo database bridge commands
       commands::get_device_photos,
       commands::refresh_photo_scan,
       commands::import_photos,
-      commands::add_photo_to_database,
       #[cfg(mobile)]
       commands::share_photo,
       #[cfg(mobile)]

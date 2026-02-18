@@ -59,11 +59,6 @@ class SensorModeArgs {
 }
 
 @InvokeArg
-class UploadConfigArgs {
-	var server_url: String? = null
-}
-
-@InvokeArg
 class PhotoUploadArgs {
 	var photo_id: String? = null
 }
@@ -853,60 +848,6 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 
 		// Start location updates automatically
 		preciseLocationService?.startLocationUpdates()
-	}
-
-	@Command
-	fun setUploadConfig(invoke: Invoke) {
-		try {
-			val args = invoke.parseArgs(UploadConfigArgs::class.java)
-
-			args.server_url?.let { backendUrl ->
-				if (backendUrl.isBlank()) {
-					Log.e(TAG, "📤 Backend URL is required")
-					val error = JSObject()
-					error.put("success", false)
-					error.put("error", "Backend URL is required")
-					invoke.resolve(error)
-					return
-				}
-
-				Log.d(TAG, "📤 Setting backend URL: $backendUrl")
-
-				// Store in upload preferences for all managers to use
-				val uploadPrefs = activity.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
-				val previousUrl = uploadPrefs.getString("server_url", null)
-
-				uploadPrefs.edit()
-					.putString("server_url", backendUrl)
-					.apply()
-
-				Log.d(TAG, "📤 Backend URL stored in preferences")
-
-				// Trigger push registration (enhanced autoRegisterIfNeeded will handle retries)
-				CoroutineScope(Dispatchers.IO).launch {
-					try {
-						val pushManager = PushDistributorManager(activity)
-						pushManager.autoRegisterIfNeeded()
-						Log.d(TAG, "📤 Push registration check completed")
-					} catch (e: Exception) {
-						Log.e(TAG, "📤 Error during push registration", e)
-					}
-				}
-			}
-
-			Log.d(TAG, "📤 Upload config updated")
-
-			val result = JSObject()
-			result.put("success", true)
-			invoke.resolve(result)
-
-		} catch (e: Exception) {
-			Log.e(TAG, "📤 Error setting upload config", e)
-			val error = JSObject()
-			error.put("success", false)
-			error.put("error", e.message)
-			invoke.resolve(error)
-		}
 	}
 
 	// startAutomaticUpload
@@ -2434,6 +2375,30 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 
 				"get_photo_anonymization_state" -> {
 					photoUploadLogic.handleGetPhotoAnonymizationState(invoke, params)
+					return
+				}
+
+				"set_backend_url" -> {
+					val url = params?.getString("url")
+					if (url.isNullOrBlank()) {
+						resolveWithError(invoke, "Backend URL is required")
+						return
+					}
+					Log.d(TAG, "📤 Setting backend URL: $url")
+					val uploadPrefs = activity.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
+					uploadPrefs.edit().putString("server_url", url).apply()
+					// Trigger push registration
+					CoroutineScope(Dispatchers.IO).launch {
+						try {
+							val pushManager = PushDistributorManager(activity)
+							pushManager.autoRegisterIfNeeded()
+						} catch (e: Exception) {
+							Log.e(TAG, "📤 Error during push registration", e)
+						}
+					}
+					val result = JSObject()
+					result.put("success", true)
+					invoke.resolve(result)
 					return
 				}
 

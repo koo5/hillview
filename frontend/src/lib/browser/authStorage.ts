@@ -96,7 +96,7 @@ export class AuthStorage {
         });
     }
 
-    async clearToken(): Promise<void> {
+    async clearTokens(): Promise<void> {
         await this.open();
 
         const transaction = this.db!.transaction([AUTH_STORE], 'readwrite');
@@ -203,7 +203,7 @@ export class AuthStorage {
                         console.log('[AuthStorage] Token was refreshed by another context');
                         return true;
                     }
-                    await this.clearToken();
+                    await this.clearTokens();
                 }
                 return false;
             }

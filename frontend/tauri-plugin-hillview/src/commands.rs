@@ -2,7 +2,7 @@ use tauri::{AppHandle, command, Runtime};
 use serde_json::Value;
 use log::info;
 
-use crate::models::{BasicResponse, UploadConfig, AuthTokenResponse};
+use crate::models::{BasicResponse, AuthTokenResponse};
 use crate::Result;
 use crate::HillviewExt;
 
@@ -35,24 +35,6 @@ pub(crate) async fn stop_sensor<R: Runtime>(
 
     Ok(())
 }
-
-#[command(rename_all = "snake_case")]
-#[allow(unused_variables)]
-pub(crate) async fn set_upload_config<R: Runtime>(
-    app: AppHandle<R>,
-    config: UploadConfig,
-) -> Result<BasicResponse> {
-    #[cfg(mobile)]
-    {
-        return app.hillview().set_upload_config(config);
-    }
-
-    #[cfg(desktop)]
-    {
-        return Err(crate::Error::from("Upload config is only available on mobile devices"));
-    }
-}
-
 
 #[command(rename_all = "snake_case")]
 pub(crate) async fn retry_failed_uploads<R: Runtime>(
@@ -210,41 +192,6 @@ pub(crate) async fn import_photos<R: Runtime>(
     #[cfg(desktop)]
     {
         return Err(crate::Error::from("Photo import is only available on mobile devices"));
-    }
-}
-
-#[command(rename_all = "snake_case")]
-pub(crate) async fn register_client_public_key<R: Runtime>(
-    #[allow(unused_variables)] app: AppHandle<R>,
-) -> Result<BasicResponse> {
-    #[cfg(mobile)]
-    {
-        return app.hillview().register_client_public_key();
-    }
-
-    #[cfg(desktop)]
-    {
-        return Ok(BasicResponse {
-            success: true,
-            error: None,
-        });
-    }
-}
-
-#[command(rename_all = "snake_case")]
-pub(crate) async fn add_photo_to_database<R: Runtime>(
-    #[allow(unused_variables)] app: AppHandle<R>,
-    #[allow(unused_variables)] photo: crate::shared_types::DevicePhotoMetadata,
-) -> Result<crate::shared_types::AddPhotoResponse> {
-    #[cfg(mobile)]
-    {
-        return app.hillview().add_photo_to_database(photo);
-    }
-
-    #[cfg(desktop)]
-    {
-        // Desktop doesn't have Android database - return error
-        return Err(crate::Error::from("Photo database sync is only available on Android"));
     }
 }
 

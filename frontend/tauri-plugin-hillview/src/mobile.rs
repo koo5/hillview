@@ -45,16 +45,6 @@ impl<R: Runtime> Hillview<R> {
       .map_err(Into::into)
   }
 
-// todo delete me
-  pub fn set_upload_config(&self, config: UploadConfig) -> crate::Result<BasicResponse> {
-    self
-      .0
-      .run_mobile_plugin("setUploadConfig", config)
-      .map_err(Into::into)
-  }
-
-
-// todo rename to try_uploads
   pub fn retry_failed_uploads(&self) -> crate::Result<BasicResponse> {
     self
       .0
@@ -125,13 +115,6 @@ impl<R: Runtime> Hillview<R> {
     self
       .0
       .run_mobile_plugin("importPhotos", ())
-      .map_err(Into::into)
-  }
-
-  pub fn register_client_public_key(&self) -> crate::Result<BasicResponse> {
-    self
-      .0
-      .run_mobile_plugin("registerClientPublicKey", ())
       .map_err(Into::into)
   }
 
