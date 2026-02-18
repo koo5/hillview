@@ -1,14 +1,12 @@
 [default]
 description = "Default permissions for the plugin"
 permissions = [
-	"allow-ping",
 	"allow-start-sensor",
 	"allow-stop-sensor",
 	"allow-get-sensor-accuracy",
 	"allow-register-listener",
 	"allow-start-precise-location-listener",
 	"allow-stop-precise-location-listener",
-	"allow-get-upload-status",
 	"allow-set-upload-config",
 	"allow-retry-failed-uploads",
 	"allow-store-auth-token",

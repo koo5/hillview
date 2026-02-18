@@ -3,6 +3,8 @@
 // Single source of truth for auth tokens in IndexedDB
 // Cross-tab reactivity via BroadcastChannel
 
+import { backendUrl } from '$lib/config';
+
 const DB_NAME = 'HillviewAuthDB';
 const DB_VERSION = 1;
 const AUTH_STORE = 'auth';
@@ -144,6 +146,86 @@ export class AuthStorage {
             };
             request.onerror = () => reject(request.error);
         });
+    }
+
+    /**
+     * Get a valid access token, refreshing if expired.
+     * Used by service worker and can be used by main thread.
+     * @param bufferMs - Consider token expired this many ms before actual expiry (default: 2 min)
+     */
+    async getValidToken(bufferMs: number = 2 * 60 * 1000): Promise<string | null> {
+        const tokenData = await this.getTokenData();
+        if (!tokenData) {
+            return null;
+        }
+
+        const now = Date.now();
+        const isExpired = tokenData.expires_at - bufferMs <= now;
+
+        if (!isExpired) {
+            return tokenData.access_token;
+        }
+
+        // Token expired, try to refresh
+        const refreshed = await this.refreshToken(tokenData.refresh_token);
+        if (refreshed) {
+            const newData = await this.getTokenData();
+            return newData?.access_token || null;
+        }
+
+        return null;
+    }
+
+    /**
+     * Refresh the access token using the refresh token.
+     * Uses optimistic approach - if refresh fails with 401/403, checks if another context refreshed.
+     */
+    async refreshToken(refreshToken: string): Promise<boolean> {
+        if (!refreshToken) {
+            console.log('[AuthStorage] No refresh token available');
+            return false;
+        }
+
+        try {
+            const response = await fetch(`${backendUrl}/auth/refresh`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ refresh_token: refreshToken })
+            });
+
+            if (!response.ok) {
+                console.error(`[AuthStorage] Refresh failed: ${response.status}`);
+
+                if (response.status === 401 || response.status === 403) {
+                    // Before clearing, check if another context refreshed
+                    const currentData = await this.getTokenData();
+                    if (currentData && currentData.expires_at > Date.now()) {
+                        console.log('[AuthStorage] Token was refreshed by another context');
+                        return true;
+                    }
+                    await this.clearToken();
+                }
+                return false;
+            }
+
+            const data = await response.json();
+            console.log('[AuthStorage] Token refresh successful');
+
+            await this.saveTokenData({
+                access_token: data.access_token,
+                refresh_token: data.refresh_token,
+                expires_at: new Date(data.expires_at).getTime(),
+                refresh_token_expires: data.refresh_token_expires_at
+                    ? new Date(data.refresh_token_expires_at).getTime()
+                    : undefined
+            });
+
+            return true;
+
+        } catch (error) {
+            console.error('[AuthStorage] Refresh error:', error);
+            return false;
+        }
     }
 
 }

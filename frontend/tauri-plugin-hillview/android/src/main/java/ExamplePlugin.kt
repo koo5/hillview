@@ -856,63 +856,6 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 	}
 
 	@Command
-	fun getUploadStatus(invoke: Invoke) {
-		//Log.i(TAG, "📤 [getUploadStatus] CALLED - retrieving current auto-upload status")
-
-		CoroutineScope(Dispatchers.IO).launch {
-			try {
-				//Log.d(TAG, "📤 [getUploadStatus] Getting database counts...")
-				val db = database
-				if (db == null) {
-					CoroutineScope(Dispatchers.Main).launch {
-						val error = JSObject()
-						error.put("error", "Database unavailable: ${databaseInitError ?: "initialization failed"}")
-						invoke.resolve(error)
-					}
-					return@launch
-				}
-				val photoDao = db.photoDao()
-				val pendingCount = photoDao.getPendingUploadCount()
-				val failedCount = photoDao.getFailedUploadCount()
-
-				//Log.d(TAG, "📤 [getUploadStatus] Database counts - pending: $pendingCount, failed: $failedCount")
-
-				//Log.d(TAG, "📤 [getUploadStatus] Reading SharedPreferences...")
-				val prefs = activity.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
-				val autoUploadEnabled = prefs.getBoolean("auto_upload_enabled", false)
-				val autoUploadPromptEnabled = prefs.getBoolean("auto_upload_prompt_enabled", true)
-				val wifiOnly = prefs.getBoolean("wifi_only", true)
-
-				//Log.i(TAG, "📤 [getUploadStatus] Settings - enabled: $autoUploadEnabled, promptEnabled: $autoUploadPromptEnabled, wifiOnly: $wifiOnly")
-
-				val result = JSObject()
-				result.put("auto_upload_enabled", autoUploadEnabled)
-				result.put("auto_upload_prompt_enabled", autoUploadPromptEnabled)
-				result.put("wifi_only", wifiOnly)
-				result.put("pending_uploads", pendingCount)
-				result.put("failed_uploads", failedCount)
-
-				Log.i(
-					TAG,
-					"📤 [getUploadStatus] enabled=$autoUploadEnabled, promptEnabled=$autoUploadPromptEnabled, wifiOnly=$wifiOnly, pendingUploads=$pendingCount, failedUploads=$failedCount"
-				)
-
-				CoroutineScope(Dispatchers.Main).launch {
-					invoke.resolve(result)
-				}
-
-			} catch (e: Exception) {
-				Log.e(TAG, "📤 [getUploadStatus] ERROR occurred", e)
-				CoroutineScope(Dispatchers.Main).launch {
-					val error = JSObject()
-					error.put("error", e.message)
-					invoke.resolve(error)
-				}
-			}
-		}
-	}
-
-	@Command
 	fun setUploadConfig(invoke: Invoke) {
 		try {
 			val args = invoke.parseArgs(UploadConfigArgs::class.java)

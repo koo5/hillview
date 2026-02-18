@@ -4,7 +4,7 @@
 import type { StoredPhoto } from './photoStorage';
 import { clientCrypto } from '../clientCrypto';
 import { backendUrl } from '$lib/config';
-import { SharedTokenRefresh } from './sharedTokenRefresh';
+import { authStorage } from './authStorage';
 
 const LOG_PREFIX = '🢄[SW SecureUpload]';
 
@@ -17,18 +17,12 @@ interface AuthorizeResponse {
 }
 
 export class ServiceWorkerSecureUploader {
-    private tokenRefresh: SharedTokenRefresh;
-
-    constructor() {
-        this.tokenRefresh = new SharedTokenRefresh('[SW SecureUpload Token]');
-    }
-
     async uploadPhoto(photo: StoredPhoto): Promise<{ success: boolean; photoId?: string; error?: string }> {
         console.log(`${LOG_PREFIX} Starting secure upload for photo ${photo.id}`);
 
         try {
-            // Step 1: Get valid auth token
-            const authToken = await this.tokenRefresh.getValidToken();
+            // Step 1: Get valid auth token (refreshes if needed)
+            const authToken = await authStorage.getValidToken();
             if (!authToken) {
                 return { success: false, error: 'No auth token available' };
             }

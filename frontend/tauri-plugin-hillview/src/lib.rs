@@ -38,12 +38,10 @@ impl<R: Runtime, T: Manager<R>> crate::HillviewExt<R> for T {
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
   Builder::new("hillview")
     .invoke_handler(tauri::generate_handler![
-      commands::ping,
       commands::start_sensor,
       commands::stop_sensor,
       commands::start_precise_location_listener,
       commands::stop_precise_location_listener,
-      commands::get_upload_status,
       commands::set_upload_config,
       commands::retry_failed_uploads,
       // Authentication commands

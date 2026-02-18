@@ -2,17 +2,9 @@ use tauri::{AppHandle, command, Runtime};
 use serde_json::Value;
 use log::info;
 
-use crate::models::*;
+use crate::models::{BasicResponse, UploadConfig, AuthTokenResponse};
 use crate::Result;
 use crate::HillviewExt;
-
-#[command(rename_all = "snake_case")]
-pub(crate) async fn ping<R: Runtime>(
-    app: AppHandle<R>,
-    payload: PingRequest,
-) -> Result<PingResponse> {
-    app.hillview().ping(payload)
-}
 
 #[command(rename_all = "snake_case")]
 #[allow(unused_variables)]
@@ -42,21 +34,6 @@ pub(crate) async fn stop_sensor<R: Runtime>(
     }
 
     Ok(())
-}
-
-#[command(rename_all = "snake_case")]
-pub(crate) async fn get_upload_status<R: Runtime>(
-    _app: AppHandle<R>,
-) -> Result<UploadStatusResponse> {
-    #[cfg(mobile)]
-    {
-        return _app.hillview().get_upload_status();
-    }
-
-    #[cfg(desktop)]
-    {
-        return Err(crate::Error::from("Upload status is only available on mobile devices"));
-    }
 }
 
 #[command(rename_all = "snake_case")]

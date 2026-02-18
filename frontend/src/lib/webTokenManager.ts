@@ -199,6 +199,20 @@ export class WebTokenManager implements TokenManager {
                 console.error(`${this.LOG_PREFIX} Refresh failed: ${response.status} ${errorDetail}`);
 
                 if (response.status === 401 || response.status === 403) {
+                    // Optimistic recovery: check if another context refreshed
+                    await this.refreshCache();
+                    if (this.cachedTokenData && this.cachedTokenData.expires_at > Date.now()) {
+                        console.log(`${this.LOG_PREFIX} Token was refreshed by another context`);
+                        return {
+                            access_token: this.cachedTokenData.access_token,
+                            token_type: 'bearer',
+                            expires_at: new Date(this.cachedTokenData.expires_at).toISOString(),
+                            refresh_token: this.cachedTokenData.refresh_token,
+                            refresh_token_expires_at: this.cachedTokenData.refresh_token_expires
+                                ? new Date(this.cachedTokenData.refresh_token_expires).toISOString()
+                                : undefined
+                        } as TokenData;
+                    }
                     throw new TokenRefreshError(`Refresh failed: ${errorDetail}`);
                 }
                 throw new Error(`HTTP ${response.status}: ${errorDetail}`);

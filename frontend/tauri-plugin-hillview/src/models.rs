@@ -1,16 +1,6 @@
 use serde::{Deserialize, Serialize};
 use tauri::plugin::PermissionState;
 
-#[derive(Debug, Deserialize, Serialize)]
-pub struct PingRequest {
-  pub value: Option<String>,
-}
-
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
-pub struct PingResponse {
-  pub value: Option<String>,
-}
-
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SensorData {
   pub magnetic_heading: f32,
@@ -25,16 +15,6 @@ pub struct SensorData {
 pub struct LocationUpdate {
   pub latitude: f64,
   pub longitude: f64,
-}
-
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
-pub struct UploadStatusResponse {
-  pub auto_upload_enabled: bool,
-  pub auto_upload_prompt_enabled: bool,
-  pub wifi_only: bool,
-  pub pending_uploads: i32,
-  pub failed_uploads: i32,
-  pub error: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

@@ -26,13 +26,6 @@ pub fn init<R: Runtime, C: DeserializeOwned>(
 pub struct Hillview<R: Runtime>(PluginHandle<R>);
 
 impl<R: Runtime> Hillview<R> {
-  pub fn ping(&self, payload: PingRequest) -> crate::Result<PingResponse> {
-    self
-      .0
-      .run_mobile_plugin("ping", payload)
-      .map_err(Into::into)
-  }
-
   pub fn start_sensor(&self, mode: Option<i32>) -> crate::Result<()> {
     #[derive(serde::Serialize)]
     struct Args {
@@ -49,13 +42,6 @@ impl<R: Runtime> Hillview<R> {
     self
       .0
       .run_mobile_plugin("stopSensor", ())
-      .map_err(Into::into)
-  }
-
-  pub fn get_upload_status(&self) -> crate::Result<UploadStatusResponse> {
-    self
-      .0
-      .run_mobile_plugin("getUploadStatus", ())
       .map_err(Into::into)
   }
 
