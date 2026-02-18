@@ -43,6 +43,10 @@ def apply_blur(image, detections):
 
 		x1, y1 = max(0, x1), max(0, y1)
 		x2, y2 = min(x2, image.shape[1]), min(y2, image.shape[0])
+		if x2 - x1 % 2 == 0:
+			x2 -= 1
+		if y2 - y1 % 2 == 0:
+			y2 -= 1
 		roi = image[y1:y2, x1:x2]
 		if roi.size > 0:
 			image[y1:y2, x1:x2] = cv2.GaussianBlur(roi, (blur, blur), 0)
