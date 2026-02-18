@@ -1,5 +1,8 @@
 FROM python:3.12-slim
 
+RUN mkdir -p /tmp
+RUN chmod 1777 /tmp
+
 # Install system dependencies for image processing and geospatial operations
 RUN apt-get update && apt-get install -y \
     gcc \
@@ -76,7 +79,19 @@ RUN python -m compileall -b /app
 
 RUN chown -R worker:worker /app
 
+
+RUN    sed -i 's/<policy domain="resource" name="memory" value="[^"]*"/<policy domain="resource" name="memory" value="2GiB"/' /etc/ImageMagick-7/policy.xml \
+    && sed -i 's/<policy domain="resource" name="map" value="[^"]*"/<policy domain="resource" name="map" value="4GiB"/' /etc/ImageMagick-7/policy.xml \
+    && sed -i 's/<policy domain="resource" name="disk" value="[^"]*"/<policy domain="resource" name="disk" value="8GiB"/' /etc/ImageMagick-7/policy.xml \
+    && sed -i 's/<policy domain="resource" name="width" value="[^"]*"/<policy domain="resource" name="width" value="65536"/' /etc/ImageMagick-7/policy.xml \
+    && sed -i 's/<policy domain="resource" name="height" value="[^"]*"/<policy domain="resource" name="height" value="65536"/' /etc/ImageMagick-7/policy.xml \
+    && sed -i 's/<policy domain="resource" name="area" value="[^"]*"/<policy domain="resource" name="area" value="1GP"/' /etc/ImageMagick-7/policy.xml
+
+
+
 USER worker
 RUN chmod +x /app/worker/start*.sh
 
 CMD ["/app/worker/start.sh"]
+
+#CMD ["/usr/bin/bash"]

@@ -7,7 +7,7 @@ def read_image(source_path):
 	# Validate file size before processing to prevent memory exhaustion
 	try:
 		file_size = os.path.getsize(source_path)
-		if file_size > 250 * 1024 * 1024:
+		if file_size > 300 * 1024 * 1024:
 			logging.warning(f"Image file too large for processing: {file_size} bytes")
 			raise ValueError(f"Image file too large for processing: {file_size} bytes")
 	except OSError:
@@ -43,10 +43,13 @@ def apply_blur(image, detections):
 
 		x1, y1 = max(0, x1), max(0, y1)
 		x2, y2 = min(x2, image.shape[1]), min(y2, image.shape[0])
-		if x2 - x1 % 2 == 0:
-			x2 -= 1
-		if y2 - y1 % 2 == 0:
-			y2 -= 1
+		# if x2 - x1 % 2 == 0:
+		# 	x2 -= 1
+		# if y2 - y1 % 2 == 0:
+		# 	y2 -= 1
+		if blur % 2 == 0:
+			blur += 1
+			logging.debug(f"Adjusted blur kernel size to {blur} for object at ({x1},{y1})-({x2},{y2})")
 		roi = image[y1:y2, x1:x2]
 		if roi.size > 0:
 			image[y1:y2, x1:x2] = cv2.GaussianBlur(roi, (blur, blur), 0)

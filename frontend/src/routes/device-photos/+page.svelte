@@ -67,27 +67,30 @@
 
 	// Helper to adapt browser photo to device photo interface
 	function adaptBrowserPhoto(bp: StoredPhoto): DevicePhoto {
+		const metadata = bp.metadata;
+		const location = metadata?.location;
+
 		return {
 			id: bp.id,
 			file_path: '',
 			file_name: `photo_${bp.id.substring(0, 8)}.jpg`,
 			file_hash: '',
-			file_size: bp.blob.size,
-			captured_at: bp.metadata.captured_at,
+			file_size: bp.blob?.size,
+			captured_at: metadata?.captured_at,
 			created_at: bp.added_at,
-			latitude: bp.metadata.location.latitude,
-			longitude: bp.metadata.location.longitude,
-			altitude: bp.metadata.location.altitude || 0,
-			bearing: bp.metadata.location.bearing ?? null,
-			accuracy: bp.metadata.location.accuracy,
+			latitude: location?.latitude,
+			longitude: location?.longitude,
+			altitude: location?.altitude,
+			bearing: location?.bearing ?? null,
+			accuracy: location?.accuracy,
 			width: bp.width,
 			height: bp.height,
 			upload_status: bp.status === 'uploaded' ? 'completed' : bp.status,
-			uploaded_at: bp.uploaded_at || 0,
+			uploaded_at: bp.uploaded_at,
 			retry_count: bp.retry_count,
-			last_upload_attempt: bp.retry_after || 0,
+			last_upload_attempt: bp.retry_after,
 			blob: bp.blob,
-			blobUrl: URL.createObjectURL(bp.blob)
+			blobUrl: bp.blob ? URL.createObjectURL(bp.blob) : undefined
 		};
 	}
 
