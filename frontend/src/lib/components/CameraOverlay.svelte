@@ -9,7 +9,7 @@
         longitude?: number;
         altitude?: number | null;
         accuracy?: number;
-        heading?: number | null;
+        bearing?: number | null;
     } | null = null;
 
     export let locationError: string | null = null;
@@ -64,9 +64,9 @@
         </div>
     {:else if locationData}
         <div class="location-row">
-        {#if locationData.heading !== null && locationData.heading !== undefined}
+        {#if locationData.bearing !== null && locationData.bearing !== undefined}
                 <span class="icon">🧭</span>
-                <span>{locationData.heading.toFixed(1)}°</span>
+                <span>{locationData.bearing.toFixed(1)}°</span>
         {/if}
             <span class="icon">📍</span>
             <span>{locationData.latitude?.toFixed(6)}°, {locationData.longitude?.toFixed(6)}°</span>

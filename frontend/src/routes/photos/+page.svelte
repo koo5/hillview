@@ -349,7 +349,7 @@
 </script>
 
 <StandardHeaderWithAlert
-	title={"My Photos" + ' (' + totalCount + ')'}
+	title={"My Photos" + ($auth.is_authenticated ? ' (' + totalCount + ')' : '')}
 	showMenuButton={true}
 	fallbackHref="/"
 />
@@ -385,7 +385,9 @@
 		</div>
 	{/if}
 
-	<DevicePhotoStats addLogEntry={addLogEntry} />
+	{#if $auth.is_authenticated}
+		<DevicePhotoStats addLogEntry={addLogEntry} />
+	{/if}
 
 	{#if (TAURI || BROWSER) && $auth.is_authenticated}
 		<div class="refresh-section">

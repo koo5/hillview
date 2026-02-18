@@ -6,11 +6,9 @@ Default permissions for the plugin
 
 - `allow-start-sensor`
 - `allow-stop-sensor`
-- `allow-get-sensor-accuracy`
 - `allow-register-listener`
 - `allow-start-precise-location-listener`
 - `allow-stop-precise-location-listener`
-- `allow-set-upload-config`
 - `allow-retry-failed-uploads`
 - `allow-store-auth-token`
 - `allow-get-auth-token`
@@ -21,9 +19,8 @@ Default permissions for the plugin
 - `allow-request-camera-permission`
 - `allow-get-notification-settings`
 - `allow-set-notification-settings`
-- `allow-test-auth-expired-notification`
 - `allow-check-tauri-permissions`
-- `allow-request-post-notification-permission`
+- `allow-request-tauri-permission`
 - `allow-test-show-notification`
 - `allow-get-device-photos`
 - `allow-refresh-photo-scan`
@@ -36,7 +33,6 @@ Default permissions for the plugin
 - `allow-get-intent-data`
 - `allow-poll-messages`
 - `allow-cmd`
-- `allow-request-tauri-permission`
 
 ## Permission Table
 
