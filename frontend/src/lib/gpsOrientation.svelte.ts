@@ -99,7 +99,8 @@ gpsLocation.subscribe((position) => {
         return;
     }
 
-    if (!position || position.coords.heading === null || position.coords.heading === undefined || isNaN(position.coords.heading)) {
+    if (!position || position.coords.heading === null || position.coords.heading === undefined || isNaN(position.coords.heading)
+	|| position.coords.speed === null || position.coords.speed === undefined || isNaN(position.coords.speed) || position.coords.speed < 2) {
         // No valid GPS heading available
         if (internalState === 'starting' || internalState === 'active') {
             console.log('🚗 No GPS heading available in this sample');

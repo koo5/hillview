@@ -21,7 +21,7 @@
 	let photoCapturedOld = 0;
 
 	// When a photo is captured, wait a bit then check if we should show prompt
-	$: if ((photoCaptured != photoCapturedOld) && (TAURI || BROWSER)) {
+	$: if ((photoCaptured != photoCapturedOld)) {
 		photoCapturedOld = photoCaptured;
 		schedulePromptCheck();
 	}

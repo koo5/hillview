@@ -7,6 +7,7 @@ import { TAURI, BROWSER } from './tauri';
 import { browserPhotoStorage, browserUploadQueueStatus, browserStorageUsage } from './browser/photoStorage';
 
 export interface PhotoStats {
+	ts: number; // Timestamp of when stats were fetched
     total: number;
     pending: number;
     uploading: number;
@@ -38,6 +39,7 @@ export async function fetchPhotoStats(): Promise<PhotoStats | null> {
             const uploadStatus = get(browserUploadQueueStatus);
 
             const stats: PhotoStats = {
+				ts: Date.now(),
                 total: photos.length,
                 pending: uploadStatus.pending,
                 uploading: uploadStatus.uploading,
@@ -54,23 +56,19 @@ export async function fetchPhotoStats(): Promise<PhotoStats | null> {
             photoStats.set(stats);
             return stats;
 
-        } else if (TAURI) {
+        } else {
             // Tauri: Get from native plugin
             const result = await invoke('plugin:hillview|cmd', {
                 command: 'device_photos_stats',
                 params: null
             }) as PhotoStats;
+			result.ts = Date.now();
 
             // Could also add device storage info here if available
             photoStats.set(result);
             return result;
 
-        } else {
-            // Neither platform detected
-            photoStatsError.set('Platform not supported');
-            return null;
         }
-
     } catch (err) {
         console.error('Failed to fetch photo stats:', err);
         photoStatsError.set(`${err}`);

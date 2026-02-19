@@ -1361,7 +1361,7 @@
     </div>
 </div>
 
-<!-- Location tracking buttons -->
+<!-- Location/bearing tracking buttons -->
 <div class="location-button-container">
     <button
         class={$locationTracking ? 'active' : ''}
@@ -1477,12 +1477,18 @@
 
     .location-button-container {
         position: absolute;
-        top: calc(6px + var(--safe-area-inset-top, 0px));
+		top: 6px;
         right: calc(6px + var(--safe-area-inset-right, 0px));
         z-index: 30000;
         display: flex;
         gap: 8px;
     }
+
+	@media (orientation: landscape) {
+		.location-button-container {
+			top: calc(6px + var(--safe-area-inset-top, 0px));
+		}
+	}
 
     .location-button-container button {
         cursor: pointer;

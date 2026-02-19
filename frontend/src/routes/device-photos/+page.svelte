@@ -321,7 +321,7 @@
 								<div class="photo-status" style="color: {getStatusColor(photo.upload_status)}">
 									<svelte:component this={getStatusIcon(photo.upload_status)} size={16} />
 									{#if photo.upload_status === 'completed'}
-										Uploaded
+										Completed
 									{:else if photo.upload_status === 'pending'}
 										upload Pending
 									{:else if photo.upload_status === 'uploading'}

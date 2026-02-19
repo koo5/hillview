@@ -103,8 +103,7 @@
 		deviceOrientationExif, relativeOrientationExif,
 		type ExifOrientation
 	} from "$lib/deviceOrientationExif";
-	import {disableCompass} from "$lib/compass.svelte";
-	import {enableGpsOrientation} from "$lib/gpsOrientation.svelte";
+	import {enableBearingTracking, disableBearingTracking} from "$lib/bearingTracking";
 	import CompassButtonInner from "$lib/components/CompassButtonInner.svelte";
 	import CalibrationFigure from "$lib/components/CalibrationFigure.svelte";
 
@@ -1229,7 +1228,7 @@
 				{:else if $shouldShowSwitchToCarModeHint}
 					<button
 						class="switch-to-car-mode-button"
-						on:click={() => {bearingMode.set('car');disableCompass(); enableGpsOrientation();}}
+						on:click={() => {bearingMode.set('car'); disableBearingTracking(); enableBearingTracking();}}
 						data-testid="switch-to-car-mode-btn"
 					>
 						<div class="hint-title">
@@ -1540,7 +1539,7 @@
 
 	.camera-controls {
 		position: absolute;
-		bottom: calc(6px + var(--safe-area-inset-bottom, 0px));
+		bottom: calc(6px);
 		left: calc(0px + var(--safe-area-inset-left, 0px));
 		right: 0;
 		display: flex;
@@ -1548,6 +1547,12 @@
 		align-items: center;
 		gap: 2rem;
 		padding: 2rem;
+	}
+
+	@media (orientation: landscape) {
+		.camera-controls {
+			bottom: calc(6px + var(--safe-area-inset-bottom, 0px));
+		}
 	}
 
 	.camera-selector-container {
