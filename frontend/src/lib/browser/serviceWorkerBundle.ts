@@ -1,16 +1,9 @@
-// Bundle entry point for service worker
-// This exports everything the service worker needs in a format it can use
+// Service worker upload handler
+// Used by src/service-worker.ts for Background Sync
 
 import { swSecureUploader } from './serviceWorkerSecureUpload';
 import { browserPhotoStorage } from './photoStorage';
 
-// Version will be injected at build time
-declare const __SW_VERSION__: string;
-
-// Make the version available globally
-(self as any).SW_BUNDLE_VERSION = typeof __SW_VERSION__ !== 'undefined' ? __SW_VERSION__ : 'dev';
-
-// Service worker upload handler
 class ServiceWorkerUploadHandler {
     async uploadPendingPhotos(): Promise<void> {
         console.log('[SW Upload] Starting background upload with secure flow');
@@ -56,12 +49,4 @@ class ServiceWorkerUploadHandler {
     }
 }
 
-// Make the uploader available globally in the service worker context
-const swUploader = new ServiceWorkerUploadHandler();
-(self as any).swUploader = swUploader;
-
-// Log version on load
-console.log(`[ServiceWorkerBundle] Version: ${(self as any).SW_BUNDLE_VERSION}`);
-
-// Export for module systems if needed
-export { swUploader };
+export const swUploader = new ServiceWorkerUploadHandler();

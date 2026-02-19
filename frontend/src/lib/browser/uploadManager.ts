@@ -2,7 +2,7 @@
 // Handles uploading photos from IndexedDB to server
 
 import { browserPhotoStorage, type StoredPhoto } from './photoStorage';
-import { secureUploadFiles } from '../secureUpload';
+import { secureUploadFile } from '../secureUpload';
 import { writable } from 'svelte/store';
 
 export interface UploadStatus {
@@ -105,22 +105,15 @@ export class PhotoUploadManager {
             };
 
             // Use existing secure upload with browser metadata
-            const result = await secureUploadFiles(
-                [file],
+            const result = await secureUploadFile(
+                file,
                 undefined,  // description
                 true,       // isPublic
-                undefined,  // workerUrl
-                undefined,  // onProgress
-                (file, error) => {
-                    console.error(`${this.LOG_PREFIX} Upload error for ${file.name}:`, error);
-                },
                 metadata    // browserMetadata
             );
 
-            if (result.successCount > 0) {
-                // Get the server photo ID from the result
-                const serverPhotoId = result.results[0]?.photoId || photo.id;
-                await browserPhotoStorage.markPhotoAsUploaded(photo.id, serverPhotoId);
+            if (result.success && result.photo_id) {
+                await browserPhotoStorage.markPhotoAsUploaded(photo.id, result.photo_id);
 
                 uploadStatus.update(s => ({
                     ...s,
@@ -130,7 +123,7 @@ export class PhotoUploadManager {
 
                 console.log(`${this.LOG_PREFIX} Successfully uploaded ${photo.id}`);
             } else {
-                throw new Error(result.results[0]?.error || 'Upload failed');
+                throw new Error(result.error || 'Upload failed');
             }
 
         } catch (error) {

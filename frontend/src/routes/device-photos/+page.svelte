@@ -27,15 +27,15 @@
 		created_at: number;
 		latitude: number;
 		longitude: number;
-		altitude: number;
-		bearing: number | null;  // null when no bearing data available
+		altitude: number | null;  // null when no altitude data available
+		bearing: number | null;   // null when no bearing data available
 		accuracy: number;
 		width: number;
 		height: number;
 		upload_status: string;
-		uploaded_at: number;
+		uploaded_at: number | null;        // null if not yet uploaded
 		retry_count: number;
-		last_upload_attempt: number;
+		last_upload_attempt: number | null; // null if no retry attempted
 		// Browser-specific fields
 		blob?: Blob;
 		blobUrl?: string;
@@ -67,30 +67,30 @@
 
 	// Helper to adapt browser photo to device photo interface
 	function adaptBrowserPhoto(bp: StoredPhoto): DevicePhoto {
-		const metadata = bp.metadata;
-		const location = metadata?.location;
+		const { metadata } = bp;
+		const { location } = metadata;
 
 		return {
 			id: bp.id,
 			file_path: '',
 			file_name: `photo_${bp.id.substring(0, 8)}.jpg`,
 			file_hash: '',
-			file_size: bp.blob?.size,
-			captured_at: metadata?.captured_at,
+			file_size: bp.blob.size,
+			captured_at: metadata.captured_at,
 			created_at: bp.added_at,
-			latitude: location?.latitude,
-			longitude: location?.longitude,
-			altitude: location?.altitude,
-			bearing: location?.bearing ?? null,
-			accuracy: location?.accuracy,
+			latitude: location.latitude,
+			longitude: location.longitude,
+			altitude: location.altitude ?? null,
+			bearing: location.bearing ?? null,
+			accuracy: location.accuracy,
 			width: bp.width,
 			height: bp.height,
 			upload_status: bp.status === 'uploaded' ? 'completed' : bp.status,
-			uploaded_at: bp.uploaded_at,
+			uploaded_at: bp.uploaded_at ?? null,
 			retry_count: bp.retry_count,
-			last_upload_attempt: bp.retry_after,
+			last_upload_attempt: bp.retry_after ?? null,
 			blob: bp.blob,
-			blobUrl: bp.blob ? URL.createObjectURL(bp.blob) : undefined
+			blobUrl: URL.createObjectURL(bp.blob)
 		};
 	}
 

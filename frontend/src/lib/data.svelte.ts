@@ -117,8 +117,7 @@ photoLicense.subscribe(async value => {
 	if (value === null) {
 		try {
 			await updateSettings({
-				auto_upload_enabled: false,
-				auto_upload_prompt_enabled: true
+				auto_upload_enabled: false
 			});
 		} catch (error) {
 			console.error('Error persisting auto upload settings on photoLicense init:', error);

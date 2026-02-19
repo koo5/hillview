@@ -351,7 +351,6 @@ export async function secureUploadFile(
     file: File,
     description?: string,
     isPublic: boolean = true,
-    workerUrl?: string,
     browserMetadata?: any  // Metadata from browser capture that can't be written as EXIF
 ): Promise<SecureUploadResult> {
     try {
@@ -427,7 +426,6 @@ export async function secureUploadFiles(
     files: File[],
     description?: string,
     isPublic: boolean = true,
-    workerUrl?: string,
     onProgress?: (completed: number, total: number, currentFile: string) => void,
     onError?: (file: File, errorMessage: string) => void,
     browserMetadata?: any  // Metadata from browser capture that can't be written as EXIF
@@ -448,7 +446,7 @@ export async function secureUploadFiles(
         // Report progress
         onProgress?.(i, files.length, file.name);
 
-        const result = await secureUploadFile(file, description, isPublic, workerUrl, browserMetadata);
+        const result = await secureUploadFile(file, description, isPublic, browserMetadata);
         results.push(result);
 
         if (result.success) {

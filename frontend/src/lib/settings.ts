@@ -41,14 +41,19 @@ const tauriSettingsStore = createRemoteStore<Settings>({
 	}
 });
 
-const browserSettingsStore = localStorageSharedStore('settings', {initialized: true, value: settingsDefaults});
+const browserSettingsStore = localStorageSharedStore('settings', {
+	initialized: true,
+	value: settingsDefaults,
+	loading: false,
+	error: null as unknown
+});
 
 
 export async function updateSettings(newSettings: Partial<Settings>): Promise<void> {
 	if (BROWSER) {
 		const current = get(browserSettingsStore);
 		const updated = {...current.value, ...newSettings};
-		browserSettingsStore.set({initialized: true, value: updated});
+		browserSettingsStore.set({...current, value: updated});
 		// Fire-and-forget for service worker
 		writeSettings(updated);
 	} else if (TAURI) {

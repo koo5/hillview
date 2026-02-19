@@ -10,10 +10,7 @@
 	import SettingsSectionHeader from "$lib/components/SettingsSectionHeader.svelte";
 	import MyExternalLink from "$lib/components/MyExternalLink.svelte";
 
-	export let onSaveSuccess = (message: string) => {
-	};
-
-	export let onCancel: (() => void) | null = null;
+	export let onSaveSuccess = (_message: string) => {};
 
 	let autoUploadEnabled = false;
 	let autoUploadPromptEnabled = true;
@@ -93,7 +90,7 @@
 
 	<div class="form-group">
 
-		<LicenseSelector required={true} />
+		<LicenseSelector />
 
 		<div class="radio-group" class:disabled={$photoLicense === null}>
 			<label class="radio-option">
@@ -113,7 +110,6 @@
 					   name="autoUpload"
 					   checked={radioState === 'disabled'}
 					   on:change={() => handleRadioChange('disabled')}
-					   disabled={$photoLicense === null}
 					   data-testid="auto-upload-disabled"/>
 				<div class="option-content">
 					<span class="option-title">Disabled</span>
@@ -125,7 +121,6 @@
 					   name="autoUpload"
 					   checked={radioState === 'disabled_never'}
 					   on:change={() => handleRadioChange('disabled_never')}
-					   disabled={$photoLicense === null}
 					   data-testid="auto-upload-disabled-never"/>
 				<div class="option-content">
 					<span class="option-title">Disabled (Never prompt)</span>

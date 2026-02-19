@@ -4,6 +4,11 @@
     import {app, mapillary_cache_status, sources, sourceLoadingStatus, toggleDebug, closeDebug} from '$lib/data.svelte.js';
     import {MAX_DEBUG_MODES} from '$lib/config';
     import {captureQueue, type QueueStats} from '$lib/captureQueue';
+	import {
+		deviceOrientationExif, getCssRotationFromOrientation,
+		getRotationFromOrientation, getWebviewOrientation, relativeOrientationExif,
+		screenOrientationAngle
+	} from "$lib/deviceOrientationExif";
 
     // Access the stats store properly
     $: queueStats = captureQueue.stats;
@@ -199,7 +204,8 @@
             {#if $app.debug === 3}
 
                 <div class="debug">
-                    <b>Debug Information</b><br>
+					<b>EfixOrientation:</b> {$relativeOrientationExif}<br>
+					<b>CssRotation:</b>{getCssRotationFromOrientation($relativeOrientationExif)}<br>
                     <b>Bearing:</b>  {$bearingState.bearing}<br>
                     <b>Pos.center:</b> {$spatialState.center}<br>
                     <b>Left:</b>  {$photoToLeft?.filename}<br>

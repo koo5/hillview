@@ -257,15 +257,16 @@ class CaptureQueueManager {
 			const { type } = event.data;
 
 			if (type === 'photoChunk') {
-				const { photoId, chunk, chunkIndex, totalChunks, isFirstChunk, isLastChunk, item } = event.data;
+				const { photoId, chunkBase64, chunkIndex, totalChunks, isFirstChunk, isLastChunk, item } = event.data;
 
 				try {
 					frontendBusy.update(n => n + 1);
 					await new Promise(resolve => {requestAnimationFrame(resolve);});
 
+					// Base64 encoded chunk from worker (Android doesn't support raw binary IPC)
 					await invoke('store_photo_chunk', {
 						photo_id: photoId,
-						chunk,
+						chunk_base64: chunkBase64,
 						is_first_chunk: isFirstChunk
 					});
 

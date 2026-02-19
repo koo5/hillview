@@ -378,9 +378,7 @@
 			<UploadSettingsComponent
 				onSaveSuccess={(message) => {
 					addLogEntry(message, 'success');
-//					showSettings = false;
 				}}
-				onCancel={() => showSettings = false}
 			/>
 		</div>
 	{/if}
@@ -436,7 +434,7 @@
 				<div class="tab-content">
 					{#if activeTab === 'upload'}
 						{#if !TAURI}
-							<LicenseSelector required={true}/>
+							<LicenseSelector />
 							<PhotoUpload
 								{user}
 								onLogEntry={addLogEntry}
@@ -447,7 +445,7 @@
 						{/if}
 					{:else if activeTab === 'import'}
 						<div class="license-section">
-							<LicenseSelector required={true}/>
+							<LicenseSelector />
 						</div>
 						<PhotoImport
 							{user}

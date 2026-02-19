@@ -1,5 +1,5 @@
 <script lang="ts">
-	import {Car, ArrowRight} from 'lucide-svelte';
+	import {Car, ArrowRight, Compass, MapPin} from 'lucide-svelte';
 	import {createEventDispatcher, onDestroy, onMount} from 'svelte';
 	import {TAURI} from '$lib/tauri';
 	import {invoke} from '@tauri-apps/api/core';
@@ -15,7 +15,7 @@
 	import {injectPlaceholder, removePlaceholder} from '$lib/placeholderInjector';
 	import {generatePhotoId, type PlaceholderLocation} from '$lib/utils/placeholderUtils';
 	import {bearingMode, bearingState, spatialState} from '$lib/mapState';
-	import {needsCalibration, shouldShowSwitchToCarModeHint} from '$lib/hints.svelte';
+	import {needsCalibration, shouldShowSwitchToCarModeHint, shouldShowBearingTrackingHint, shouldShowLocationTrackingHint, hideBearingTrackingHint, hideLocationTrackingHint} from '$lib/hints.svelte';
 	import {showCalibrationView} from '$lib/data.svelte.js';
 	import {createPermissionManager} from '$lib/permissionManager';
 	import {
@@ -92,6 +92,7 @@
 	let isBlinking = false; // Flag for camera blink effect
 	let absoluteOrientationSensor: AbsoluteOrientationSensor | null = null;
 	let showCalibrationHint: boolean = false;
+
 	let blinkTimeout: ReturnType<typeof setTimeout> | null = null;
 	let calibrationHintTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -1213,7 +1214,7 @@
 
 				<!-- Auto-upload prompt (shows after photo capture) -->
 				<AutoUploadPrompt
-					photoCaptured={photoCapturedCount > 0}
+					photoCaptured={photoCapturedCount}
 				/>
 
 				<!-- Calibrate Compass button - shows when compass accuracy is low -->
@@ -1232,14 +1233,14 @@
 						data-testid="switch-to-car-mode-btn"
 					>
 						<div class="hint-title">
-							<Car size={16}/>
-							In a vehicle?
+<!--							<Car size={16}/>-->
+							In a car?
 						</div>
 						<div class="compass-button-preview target">
 							<CompassButtonInner bearingMode="car"/>
 						</div>
 					</button>
-				{:else if showCalibrationHint}
+				{:else if showCalibrationHint && !$shouldShowBearingTrackingHint && !$shouldShowLocationTrackingHint}
 					<div class="instruction-row">
 						<div class="figure8-animation">
 							<CalibrationFigure />
@@ -1254,6 +1255,44 @@
 							Verify location.
 <!--							 <MyExternalLink href="https://calibratecompass.com/" >Help</MyExternalLink>-->
 						</div>
+					</div>
+				{/if}
+
+				<!-- Bearing tracking hint -->
+				{#if $shouldShowBearingTrackingHint}
+					<div class="tracking-hint" data-testid="bearing-tracking-hint">
+						<div class="hint-message">
+							<span>Turn on bearing tracking?</span>
+						</div>
+						<div class="compass-button-preview target">
+							<CompassButtonInner bearingMode={$bearingMode}/>
+						</div>
+						<button
+							class="dismiss-hint-btn"
+							on:click={() => hideBearingTrackingHint.set(true)}
+							data-testid="dismiss-bearing-hint"
+						>
+							Do not show again
+						</button>
+					</div>
+				{/if}
+
+				<!-- Location tracking hint -->
+				{#if $shouldShowLocationTrackingHint}
+					<div class="tracking-hint" data-testid="location-tracking-hint">
+						<div class="hint-message">
+							<span>Turn on location tracking?</span>
+						</div>
+						<div class="location-button-preview target">
+							<MapPin size={24}/>
+						</div>
+						<button
+							class="dismiss-hint-btn"
+							on:click={() => hideLocationTrackingHint.set(true)}
+							data-testid="dismiss-location-hint"
+						>
+							Do not show again
+						</button>
 					</div>
 				{/if}
 			</div>
@@ -1466,6 +1505,37 @@
 
 	.calibrate-compass-button:hover {
 		background: #c83a3a;
+	}
+
+	.switch-to-car-mode-button {
+		position: absolute;
+		bottom: 150px;
+		right: 0px;
+		padding: 0.175rem 0.1rem;
+		background: rgba(180, 0, 0, 0.5);
+		backdrop-filter: blur(10px);
+		color: white;
+		border: 1px solid rgba(255, 255, 255, 0.2);
+		border-radius: 8px;
+		cursor: pointer;
+		font-size: 0.9rem;
+		transition: background 0.2s;
+		z-index: 100;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.switch-to-car-mode-button:hover {
+		background: rgba(0, 0, 0, 0.9);
+		border-color: rgba(255, 255, 255, 0.4);
+	}
+
+	.switch-to-car-mode-button .hint-title {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
 	}
 
 	.camera-controls {
@@ -1761,6 +1831,22 @@
 		animation: pulse-hint 2s infinite;
 	}
 
+	.location-button-preview {
+		border: 2px solid #ddd;
+		border-radius: 4px;
+		padding: 8px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.location-button-preview.target {
+		background: #4285F4;
+		border-color: #4285F4;
+		color: white;
+		animation: pulse-hint 2s infinite;
+	}
+
 	.instruction-row {
 		font-size: 0.75em;
 		position: absolute;
@@ -1778,6 +1864,49 @@
 		width: 150px;
 		height: 80px;
 		flex-shrink: 0;
+	}
+
+	.tracking-hint {
+		position: absolute;
+		bottom: 60px;
+		left: 50%;
+		transform: translateX(-50%);
+		background: rgba(255, 255, 255, 0.95);
+		backdrop-filter: blur(10px);
+		border-radius: 8px;
+		padding: 0.75rem 1rem;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.5rem;
+		z-index: 100;
+		border: 1px solid rgba(0, 0, 0, 0.1);
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+	}
+
+	.tracking-hint .hint-message {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		color: #333;
+		font-size: 0.9rem;
+	}
+
+	.tracking-hint .dismiss-hint-btn {
+		background: transparent;
+		border: 1px solid rgba(0, 0, 0, 0.2);
+		color: rgba(0, 0, 0, 0.6);
+		padding: 0.3rem 0.6rem;
+		border-radius: 4px;
+		font-size: 0.75rem;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.tracking-hint .dismiss-hint-btn:hover {
+		background: rgba(0, 0, 0, 0.05);
+		color: #333;
+		border-color: rgba(0, 0, 0, 0.3);
 	}
 
 

@@ -8,7 +8,8 @@
 	import Map from './Map.svelte';
 	import {
 		Camera,
-		Menu
+		Menu,
+		Bug
 	} from 'lucide-svelte';
 	import {
 		app,
@@ -42,7 +43,7 @@
 	import AlertArea from './AlertArea.svelte';
 	import NavigationMenu from './NavigationMenu.svelte';
 	import type {DevicePhotoMetadata} from '$lib/types/photoTypes';
-	import {enableCompass, disableCompass} from '$lib/compass.svelte.js';
+	import {enableBearingTracking, disableBearingTracking} from '$lib/bearingTracking';
 	import {networkWorkerManager} from "$lib/networkWorkerManager";
 	import {enableLocationTracking} from "$lib/locationManager";
 	import InsetGradients from "$lib/components/InsetGradients.svelte";
@@ -382,9 +383,9 @@
 	$: if (appOldActivity != $app.activity) {
 		if ($app.activity === 'capture') {
 			enableLocationTracking();
-			enableCompass();
+			enableBearingTracking();
 		} else if ($app.activity === 'view') {
-			disableCompass();
+			disableBearingTracking();
 		}
 		appOldActivity = $app.activity;
 	}
@@ -424,7 +425,7 @@
 		aria-label="Toggle debug overlay"
 		title="Toggle debug overlay"
 	>
-		{getCssRotationFromOrientation($relativeOrientationExif)}
+		<Bug size={24}/>
 	</button>
 {/if}
 

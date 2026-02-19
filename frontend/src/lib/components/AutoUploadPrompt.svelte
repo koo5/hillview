@@ -7,7 +7,7 @@
 	import { settings, updateSettings } from '$lib/settings';
 
 	// Event from parent when a photo was captured
-	export let photoCaptured = false;
+	export let photoCaptured = 0;
 
 	const dispatch = createEventDispatcher();
 
@@ -18,8 +18,11 @@
 	let showTimer: ReturnType<typeof setTimeout> | null = null;
 	let hideTimer: ReturnType<typeof setTimeout> | null = null;
 
+	let photoCapturedOld = 0;
+
 	// When a photo is captured, wait a bit then check if we should show prompt
-	$: if (photoCaptured && (TAURI || BROWSER)) {
+	$: if ((photoCaptured != photoCapturedOld) && (TAURI || BROWSER)) {
+		photoCapturedOld = photoCaptured;
 		schedulePromptCheck();
 	}
 
@@ -35,7 +38,7 @@
 			clearTimeout(hideTimer);
 		}
 
-		// Wait 500ms after capture before showing prompt (avoid UI confusion)
+		// Wait after capture before showing prompt (avoid UI confusion)
 		showTimer = setTimeout(() => {
 			checkSettings();
 		}, 800);
