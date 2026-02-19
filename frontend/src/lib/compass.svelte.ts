@@ -39,7 +39,7 @@ export const deviceOrientation = writable<DeviceOrientation>({
 export const currentCompassHeading = derived(
     [compassData],
     ([$compassData]) => {
-        console.log('🢄🧭 currentCompassHeading derived - compassData:', $compassData);
+        //console.log('🢄🧭 currentCompassHeading derived - compassData:', $compassData);
         if ($compassData && $compassData.true_heading !== null) {
             return {
                 heading: $compassData.true_heading,
@@ -644,7 +644,7 @@ function lerpAngle(current: number, target: number, factor: number): number {
 
 // Subscribe to compass heading changes
 currentCompassHeading.subscribe(compass => {
-	console.log('🢄🧭 Compass subscription fired - mode:', get(bearingMode), 'state:', get(compassState), 'heading:', compass?.heading);
+	//console.log('🢄🧭 Compass subscription fired - mode:', get(bearingMode), 'state:', get(compassState), 'heading:', compass?.heading);
 	if (get(bearingMode) !== 'walking') return;
     if (!compass || compass.heading === null || get(compassState) !== 'active') return;
 	if (isNaN(compass.heading)) return;
@@ -665,7 +665,7 @@ currentCompassHeading.subscribe(compass => {
 
     // Update map bearing
 	const currentBearing = get(bearingState).bearing;
-	console.log('🢄🧭 About to updateBearing? current:', currentBearing, 'smoothed:', smoothedBearing);
+	//console.log('🢄🧭 About to updateBearing? current:', currentBearing, 'smoothed:', smoothedBearing);
 	if (isNaN(currentBearing) || currentBearing === null || (Math.abs(smoothedBearing - currentBearing) > 1)) {
 		updateBearing(smoothedBearing, compass.source, undefined, compass.accuracy_level);
 	}

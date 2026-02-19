@@ -40,6 +40,7 @@ import cz.hillview.plugin.ProcessId
 class PhotoWorkerService(private val context: Context, private val plugin: ExamplePlugin? = null) {
     companion object {
         private const val TAG = "PhotoWorkerService"
+       	private const val doLog = false
         private const val MAX_CONCURRENT_PROCESSES = 5
 
         // Photo processing constants - should match photoWorkerConstants.ts
@@ -212,7 +213,7 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
     ) {
         try {
             val message = parseWorkerMessage(messageJson)
-            Log.d(TAG, "PhotoWorkerService: Processing message type ${message.type} (${message.processId})")
+            if (doLog) Log.d(TAG, "PProcessing message type ${message.type} (${message.processId})")
 
             when (message.type) {
                 MessageType.PROCESS_CONFIG -> {
@@ -231,7 +232,7 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
                     // Update picks immediately like new.worker.ts
                     val picksData = json.decodeFromString<PicksData>(message.data)
                     currentPicks = picksData.picks.toSet()
-                    Log.d(TAG, "PhotoWorkerService: Updated picks to ${currentPicks.size} items")
+                    if (doLog) Log.d(TAG, "PhotoWorkerService: Updated picks to ${currentPicks.size} items")
                 }
                 MessageType.ABORT_PROCESS -> {
                     abortProcess(message.processId)
@@ -282,7 +283,7 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
                 // Remove photos from disabled sources (like new.worker.ts lines 253-258)
                 val sourcesToRemove = this@PhotoWorkerService.sourcesPhotosInArea.keys.filter { !enabledSourceIds.contains(it) }
                 sourcesToRemove.forEach { sourceId ->
-                    Log.d(TAG, "PhotoWorkerService: Clearing photos from disabled source: $sourceId")
+                    if (doLog) Log.d(TAG, "PhotoWorkerService: Clearing photos from disabled source: $sourceId")
                     this@PhotoWorkerService.sourcesPhotosInArea.remove(sourceId)
                 }
 
@@ -290,12 +291,12 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
                 val allPhotos = this@PhotoWorkerService.sourcesPhotosInArea.values.flatten()
                 sendPhotosUpdate(allPhotos, this@PhotoWorkerService.sourcesPhotosInArea.toMap())
 
-            Log.d(TAG, "PhotoWorkerService: Config processing complete - kept ${allPhotos.size} photos from enabled sources")
+            if (doLog) Log.d(TAG, "PhotoWorkerService: Config processing complete - kept ${allPhotos.size} photos from enabled sources")
 
             // Trigger area update after config to ensure streaming sources load with current bounds
             // This matches the behavior of simplePhotoWorker.ts lines 263-271
             if (lastProcessedBounds != null) {
-                Log.d(TAG, "PhotoWorkerService: Queuing area update after config to load streaming sources...")
+                if (doLog) Log.d(TAG, "PhotoWorkerService: Queuing area update after config to load streaming sources...")
 
                 // Create area message like web worker does (goes through message queue and priority system)
                 // Build JSON manually to match existing pattern (parseAreaData expects this format)
@@ -403,12 +404,12 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
                     // Apply culling if photos exceed maxPhotos (picks are always included)
                     val totalPhotos = this@PhotoWorkerService.sourcesPhotosInArea.values.sumOf { it.size }
                     val finalPhotos = if (totalPhotos > areaData.maxPhotos) {
-                        Log.d(TAG, "PhotoWorkerService: Applying culling - $totalPhotos photos > ${areaData.maxPhotos} limit, picks: ${currentPicks.size}")
+                        if (doLog) Log.d(TAG, "PhotoWorkerService: Applying culling - $totalPhotos photos > ${areaData.maxPhotos} limit, picks: ${currentPicks.size}")
 
                         val gridCuller = CullingGrid(areaData.bounds)
                         val culledPhotos = gridCuller.cullPhotos(this@PhotoWorkerService.sourcesPhotosInArea.toMap(), areaData.maxPhotos, currentPicks)
 
-                        Log.d(TAG, "PhotoWorkerService: Grid culling complete - ${culledPhotos.size} photos selected")
+                        if (doLog) Log.d(TAG, "PhotoWorkerService: Grid culling complete - ${culledPhotos.size} photos selected")
                         culledPhotos
                     } else {
                         this@PhotoWorkerService.sourcesPhotosInArea.values.flatten()
@@ -450,7 +451,7 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
      * Abort a specific process with proper coroutine cancellation
      */
     private fun abortProcess(processId: ProcessId) {
-        Log.d(TAG, "PhotoWorkerService: Aborting process $processId")
+        if (doLog) Log.d(TAG, "PhotoWorkerService: Aborting process $processId")
 
         val processInfo = processTable[processId]
         if (processInfo != null) {
@@ -460,7 +461,7 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
             // Cancel the process's coroutine scope properly
             try {
                 processInfo.cancellationScope.cancel("Process $processId aborted by higher priority operation")
-                Log.d(TAG, "PhotoWorkerService: Cancelled coroutine scope for process $processId")
+                if (doLog) Log.d(TAG, "PhotoWorkerService: Cancelled coroutine scope for process $processId")
             } catch (e: Exception) {
                 Log.w(TAG, "PhotoWorkerService: Error cancelling scope for process $processId: ${e.message}")
             }
@@ -473,7 +474,7 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
         activeProcesses.remove(processId)
         processTable.remove(processId)
 
-        Log.d(TAG, "PhotoWorkerService: Process $processId cleanup complete")
+        if (doLog) Log.d(TAG, "PhotoWorkerService: Process $processId cleanup complete")
     }
 
     /**
@@ -483,7 +484,7 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
         val processesToAbort = processTable.values.filter { it.priority > newPriority }
 
         for (process in processesToAbort) {
-            Log.d(TAG, "PhotoWorkerService: Aborting lower priority process ${process.processId} (priority ${process.priority} < $newPriority)")
+            if (doLog) Log.d(TAG, "PhotoWorkerService: Aborting lower priority process ${process.processId} (priority ${process.priority} < $newPriority)")
             abortProcess(process.processId)
         }
     }
@@ -522,7 +523,7 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
             eventData.put("photos_in_range", serializePhotoDataList(photosInRange))
             eventData.put("timestamp", System.currentTimeMillis())
 
-            Log.d(TAG, "PhotoWorkerService: Queuing photosUpdate message with ${photos.size} area photos and ${photosInRange.size} range photos")
+            if (doLog) Log.d(TAG, "PhotoWorkerService: Queuing photosUpdate message with ${photos.size} area photos and ${photosInRange.size} range photos")
 
             // Use message queue instead of direct event triggering
             plugin?.queueMessage("photo-worker-update", eventData)
@@ -543,7 +544,7 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
             eventData.put("error", errorMessage)
             eventData.put("timestamp", System.currentTimeMillis())
 
-            Log.d(TAG, "PhotoWorkerService: Queuing error message: $errorMessage")
+            if (doLog) Log.d(TAG, "PhotoWorkerService: Queuing error message: $errorMessage")
 
             // Use message queue instead of direct event triggering
             plugin?.queueMessage("photo-worker-error", eventData)
@@ -569,7 +570,7 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
                 eventData.put("error", error)
             }
 
-            Log.d(TAG, "PhotoWorkerService: Queuing loading status for $sourceId: loading=$isLoading, progress=$progress")
+            if (doLog) Log.d(TAG, "PhotoWorkerService: Queuing loading status for $sourceId: loading=$isLoading, progress=$progress")
 
             // Use message queue instead of direct event triggering
             plugin?.queueMessage("photo-worker-loading-status", eventData)
@@ -597,7 +598,7 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
      * Clean up all resources
      */
     fun cleanup() {
-        Log.d(TAG, "PhotoWorkerService: Cleaning up all resources")
+        if (doLog) Log.d(TAG, "PhotoWorkerService: Cleaning up all resources")
 
         // Abort all active processes
         processTable.keys.forEach { processId ->
