@@ -157,7 +157,10 @@ export const newPhotoInFront = derived(
 );
 
 newPhotoInFront.subscribe(photo => {
-	if (photo != get(photoInFront)) {
+	/*console.log(`picks: newPhotoInFront...`)
+	console.log(`picks: photo: ${JSON.stringify(photo)}`);
+	console.log(`picks: photoInFront: ${JSON.stringify(get(photoInFront))}`);*/
+	if (photo?.uid != get(photoInFront)?.uid) {
 		photoInFront.set(photo);
 		const photoUid = photo?.uid;
 		if (photoUid)

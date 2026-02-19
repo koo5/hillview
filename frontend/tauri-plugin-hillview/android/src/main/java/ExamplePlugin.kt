@@ -2005,7 +2005,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 			result.put("count", messages.size)
 
 			if (messages.isNotEmpty()) {
-				Log.d(TAG, "📨 Polled ${messages.size} messages")
+				//Log.d(TAG, "📨 Polled ${messages.size} messages")
 			}
 
 			invoke.resolve(result)

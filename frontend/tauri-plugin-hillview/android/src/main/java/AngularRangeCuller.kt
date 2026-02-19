@@ -15,6 +15,7 @@ import kotlin.math.*
 class AngularRangeCuller {
     companion object {
         private const val TAG = "AngularRangeCuller"
+        private const val doLog = false
         private const val ANGULAR_BUCKETS = 36 // 10 degrees each
         private const val DEGREES_PER_BUCKET = 360.0 / ANGULAR_BUCKETS
     }
@@ -36,7 +37,7 @@ class AngularRangeCuller {
             return emptyList()
         }
 
-        Log.d(TAG, "Starting angular range culling with ${photosInArea.size} photos, range: ${range}m, maxPhotos: $maxPhotos, picks: ${picks.size}")
+        if (doLog) Log.d(TAG, "Starting angular range culling with ${photosInArea.size} photos, range: ${range}m, maxPhotos: $maxPhotos, picks: ${picks.size}")
 
         // First, extract picked photos that are in range - they are always included
         // picks contains UIDs like "hillview-abc123"
@@ -83,11 +84,11 @@ class AngularRangeCuller {
         val activeBuckets = buckets.filter { it.isNotEmpty() }.toMutableList()
 
         if (activeBuckets.isEmpty()) {
-            Log.d(TAG, "No regular photos within range of ${range}m, returning ${pickedPhotos.size} picks")
+            if (doLog) Log.d(TAG, "No regular photos within range of ${range}m, returning ${pickedPhotos.size} picks")
             return pickedPhotos
         }
 
-        Log.d(TAG, "Found photos in ${activeBuckets.size} angular buckets out of $ANGULAR_BUCKETS")
+        if (doLog) Log.d(TAG, "Found photos in ${activeBuckets.size} angular buckets out of $ANGULAR_BUCKETS")
 
         // Round-robin: outer loop = rounds, inner loop = buckets (exact match to TypeScript)
         val regularPhotos = mutableListOf<PhotoData>()
@@ -117,7 +118,7 @@ class AngularRangeCuller {
         // Combine picked photos first, then regular photos
         val result = pickedPhotos + regularPhotos
 
-        Log.d(TAG, "Angular range culling completed: ${pickedPhotos.size} picks + ${regularPhotos.size} culled = ${result.size} photos")
+        if (doLog) Log.d(TAG, "Angular range culling completed: ${pickedPhotos.size} picks + ${regularPhotos.size} culled = ${result.size} photos")
 
         return result
     }
