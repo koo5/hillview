@@ -57,7 +57,7 @@
 	let isLoadingMore = false;
 	let error: string | null = null;
 	let currentPage = 1;
-	let pageSize = 20;
+	let pageSize;
 
 	onMount(() => {
 		setTimeout(() => {
@@ -125,13 +125,13 @@
 				};
 			} else {
 				// Tauri: Existing invoke
-				response = await invoke('plugin:hillview|get_device_photos', {
-					page,
-					page_size: pageSize
+				response = await invoke('plugin:hillview|cmd', {
+					command: 'get_device_photos',
+					params: { page, page_size: pageSize }
 				}) as DevicePhotosResponse;
 			}
 
-			//console.log('🢄Device photos response:', JSON.stringify(response));
+			console.log('🢄Device photos response:', JSON.stringify({has_more: response.has_more, page: response.page, page_size: response.page_size, total_count: response.total_count}));
 
 			if (append && photosData) {
 				// Append new photos to existing data
@@ -151,6 +151,12 @@
 		} finally {
 			isLoading = false;
 			isLoadingMore = false;
+			console.log('🢄Device photos loaded. ' + JSON.stringify({
+				page: currentPage,
+				page_size: pageSize,
+				total_photos: photosData?.total_count,
+				has_more: photosData?.has_more
+			}));
 		}
 	}
 
@@ -301,11 +307,11 @@
 			</div>
 		{:else if photosData && photosData.photos.length > 0}
 			<div class="photos-grid" data-testid="photos-grid">
-				{#each photosData.photos as photo}
+				{#each photosData.photos as photo, i}
 					<div class="photo-card" data-testid="photo-card">
 						{#if $app.debug_enabled}
 							<details>
-								<summary>[debug]</summary>
+								<summary>[#{i}]</summary>
 								<pre>{JSON.stringify(photo, null, 2)}</pre>
 							</details>
 						{/if}

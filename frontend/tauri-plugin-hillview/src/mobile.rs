@@ -97,13 +97,6 @@ impl<R: Runtime> Hillview<R> {
       .map_err(Into::into)
   }
 
-  pub fn get_device_photos(&self) -> crate::Result<crate::models::DevicePhotosResponse> {
-    self
-      .0
-      .run_mobile_plugin("getDevicePhotos", ())
-      .map_err(Into::into)
-  }
-
   pub fn refresh_photo_scan(&self) -> crate::Result<crate::models::PhotoScanResponse> {
     self
       .0

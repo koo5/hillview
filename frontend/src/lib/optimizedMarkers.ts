@@ -5,6 +5,7 @@ import {photoInFront} from './mapState';
 import {get, writable} from 'svelte/store';
 import {app} from "$lib/data.svelte";
 import {getBearingColor} from './utils/bearingUtils';
+import {getPhotoSourceId, getPhotoSourceColor} from './photoUtils';
 
 export interface OptimizedMarkerOptions {
 	enablePooling: boolean;
@@ -93,7 +94,7 @@ export class OptimizedMarkerSystem {
 		const {arrowSize} = this.atlasDimensions;
 		const data = `data-testid="photo-marker-${photo.id}"
              data-photo-id="${photo.id}"
-             data-source="${photo.source?.id || 'unknown'}"
+             data-source="${getPhotoSourceId(photo) || 'unknown'}"
              data-is-placeholder="${photo.is_placeholder || false}"`;
 
 		return L.divIcon({
@@ -102,7 +103,7 @@ export class OptimizedMarkerSystem {
 					photo.bearing,
 					photo.bearing_color,
 					isSelected,
-					photo.source?.color,
+					getPhotoSourceColor(photo),
 					data,
 					12,
 					photo.id

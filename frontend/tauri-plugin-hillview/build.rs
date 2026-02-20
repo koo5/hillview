@@ -17,7 +17,6 @@ const COMMANDS: &[&str] = &[
     "check_tauri_permissions",
     "request_tauri_permission",
     "test_show_notification",
-    "get_device_photos",
     "refresh_photo_scan",
     "import_photos",
     "share_photo",

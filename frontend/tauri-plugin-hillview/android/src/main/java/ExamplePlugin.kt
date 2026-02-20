@@ -2402,6 +2402,23 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 					return
 				}
 
+				"get_device_photos" -> {
+					val args = GetDevicePhotosArgs().apply {
+						params.getInteger("page")?.let { page = it }
+						params.getInteger("page_size")?.let { page_size = it }
+						if (params.has("min_lat")) min_lat = params.getDouble("min_lat")
+						if (params.has("max_lat")) max_lat = params.getDouble("max_lat")
+						if (params.has("min_lng")) min_lng = params.getDouble("min_lng")
+						if (params.has("max_lng")) max_lng = params.getDouble("max_lng")
+						if (params.has("picks")) {
+							val arr = params.getJSONArray("picks")
+							picks = (0 until arr.length()).map { arr.getString(it) }.toTypedArray()
+						}
+					}
+					processDevicePhotosRequest(invoke, args)
+					return
+				}
+
 				else -> {
 					resolveWithError(invoke, "🔧 Unknown command: $command")
 					return

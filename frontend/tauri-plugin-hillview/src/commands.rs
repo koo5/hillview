@@ -151,21 +151,6 @@ pub(crate) async fn clear_auth_token<R: Runtime>(
 }
 
 #[command(rename_all = "snake_case")]
-pub(crate) async fn get_device_photos<R: Runtime>(
-    #[allow(unused_variables)] app: AppHandle<R>,
-) -> Result<crate::models::DevicePhotosResponse> {
-    #[cfg(mobile)]
-    {
-        return app.hillview().get_device_photos();
-    }
-
-    #[cfg(desktop)]
-    {
-        return Err(crate::Error::from("Device photos are only available on mobile devices"));
-    }
-}
-
-#[command(rename_all = "snake_case")]
 pub(crate) async fn refresh_photo_scan<R: Runtime>(
     #[allow(unused_variables)] app: AppHandle<R>,
 ) -> Result<crate::models::PhotoScanResponse> {

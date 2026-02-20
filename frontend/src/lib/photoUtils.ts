@@ -1,5 +1,7 @@
 import { getDevicePhotoUrl } from '$lib/devicePhotoHelper';
 import type {PhotoForInfo, FullPhotoInfo, PhotoData} from '$lib/types/photoTypes';
+import { get } from 'svelte/store';
+import { sources, type Source } from '$lib/data.svelte';
 
 /**
  * Get the full-size URL for any photo type
@@ -66,6 +68,18 @@ export function getFullPhotoInfo(photo: PhotoForInfo): FullPhotoInfo {
 	return { url, width, height };
 }
 
+/**
+ * Resolve photo.source (string ID or Source object) to a full Source object
+ * by looking up string IDs in the sources store
+ */
+export function resolvePhotoSource(photoSource: string | Source | undefined): Source | undefined {
+	if (!photoSource) return undefined;
+	if (typeof photoSource === 'object') return photoSource;
+	// It's a string ID - look up in sources store
+	const allSources = get(sources);
+	return allSources.find(s => s.id === photoSource);
+}
+
 // Helper functions to determine photo source and get user info
 export function getPhotoSource(photo: PhotoData | null): string | null {
 	if (!photo) return null;
@@ -73,5 +87,32 @@ export function getPhotoSource(photo: PhotoData | null): string | null {
 		return photo.source;
 	if (!photo.source?.id) throw new Error('photo?.source?.id is missing:' + JSON.stringify(photo));
 	return photo.source.id;
+}
+
+/**
+ * Get the source color for a photo, looking up in sources store if needed
+ */
+export function getPhotoSourceColor(photo: PhotoData | null): string | undefined {
+	if (!photo) return undefined;
+	const source = resolvePhotoSource(photo.source);
+	return source?.color;
+}
+
+/**
+ * Get the source name for a photo, looking up in sources store if needed
+ */
+export function getPhotoSourceName(photo: PhotoData | null): string | undefined {
+	if (!photo) return undefined;
+	const source = resolvePhotoSource(photo.source);
+	return source?.name;
+}
+
+/**
+ * Get the source ID for a photo (handles both string and Source object)
+ */
+export function getPhotoSourceId(photo: PhotoData | null): string | undefined {
+	if (!photo) return undefined;
+	if (typeof photo.source === 'string') return photo.source;
+	return photo.source?.id;
 }
 

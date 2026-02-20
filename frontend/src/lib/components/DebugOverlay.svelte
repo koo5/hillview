@@ -9,6 +9,7 @@
 		getRotationFromOrientation, getWebviewOrientation, relativeOrientationExif,
 		screenOrientationAngle
 	} from "$lib/deviceOrientationExif";
+    import {getPhotoSourceColor, getPhotoSourceName} from '$lib/photoUtils';
 
     // Access the stats store properly
     $: queueStats = captureQueue.stats;
@@ -174,7 +175,7 @@
                                     <div class="photo-header">
                                         <span class="photo-index">#{index + 1}</span>
                                         <span class="photo-id">{photo.id}</span>
-                                        <span class="photo-source" style="color: {photo.source?.color || '#888'}">{photo.source?.name || 'Unknown'}</span>
+                                        <span class="photo-source" style="color: {getPhotoSourceColor(photo) || '#888'}">{getPhotoSourceName(photo) || 'Unknown'}</span>
                                     </div>
                                     <div class="photo-location">
                                         📍 {photo.coord.lat?.toFixed(6)}, {photo.coord.lng?.toFixed(6)}

@@ -119,7 +119,9 @@
             }
 
             // Call webworker to remove from cache
-            simplePhotoWorker.removePhotoFromCache?.(photo.id, photoSource);
+            if (photoSource) {
+                simplePhotoWorker.removePhotoFromCache?.(photo.id, photoSource);
+            }
 
             hideMessage = 'Photo hidden successfully';
             scheduleTimeout(() => hideMessage = '', 2000);

@@ -287,7 +287,9 @@
 			}
 
 			// Call webworker to remove all photos by this user from cache
-			simplePhotoWorker.removeUserPhotosFromCache?.(userId, photoSource);
+			if (photoSource) {
+				simplePhotoWorker.removeUserPhotosFromCache?.(userId, photoSource);
+			}
 
 			hideMessage = 'User hidden successfully';
 			scheduleTimeout(() => hideMessage = '', 2000);

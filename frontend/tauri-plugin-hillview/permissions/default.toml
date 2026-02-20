@@ -19,7 +19,6 @@ permissions = [
 	"allow-check-tauri-permissions",
 	"allow-request-tauri-permission",
 	"allow-test-show-notification",
-	"allow-get-device-photos",
 	"allow-refresh-photo-scan",
 	"allow-import-photos",
 	"allow-share-photo",

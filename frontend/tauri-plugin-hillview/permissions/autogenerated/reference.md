@@ -22,7 +22,6 @@ Default permissions for the plugin
 - `allow-check-tauri-permissions`
 - `allow-request-tauri-permission`
 - `allow-test-show-notification`
-- `allow-get-device-photos`
 - `allow-refresh-photo-scan`
 - `allow-import-photos`
 - `allow-share-photo`
@@ -169,32 +168,6 @@ Enables the get_auth_token command without any pre-configured scope.
 <td>
 
 Denies the get_auth_token command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`hillview:allow-get-device-photos`
-
-</td>
-<td>
-
-Enables the get_device_photos command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`hillview:deny-get-device-photos`
-
-</td>
-<td>
-
-Denies the get_device_photos command without any pre-configured scope.
 
 </td>
 </tr>
