@@ -242,6 +242,7 @@ async def send_activity_broadcast_notification(
 	lock_id = 12345  # Arbitrary unique ID for activity broadcast lock
 	lock_result = await db.execute(text(f"SELECT pg_try_advisory_lock({lock_id})"))
 	acquired = lock_result.scalar()
+	logger.debug(f"Activity broadcast lock_result: {lock_result}, acquired: {acquired}")
 
 	if not acquired:
 		logger.debug("Activity broadcast lock not acquired, skipping (another request will handle it)")

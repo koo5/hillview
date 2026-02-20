@@ -10,6 +10,7 @@ import {AngularRangeCuller, sortPhotosByBearing} from './AngularRangeCuller';
 import {normalizeBearing, getBearingColor} from './utils/bearingUtils';
 import {invoke} from "@tauri-apps/api/core";
 import {TAURI} from "$lib/tauri";
+import {disableBearingTracking} from "$lib/bearingTracking";
 
 const angularRangeCuller = new AngularRangeCuller();
 
@@ -318,6 +319,7 @@ export function updateBearingByDiff(diff: number) {
 }
 
 export function updateBearingWithPhoto(photo: PhotoData, source: string = 'photo_navigation') {
+	disableBearingTracking();
 	updateBearing(photo.bearing, source, photo.uid);
 }
 
