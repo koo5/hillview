@@ -12,7 +12,7 @@
 	import {zoomViewData} from '$lib/zoomView.svelte.js';
 	import {singleTap} from '$lib/actions/singleTap';
 	import {portal} from '$lib/actions/portal';
-	import {getFullPhotoInfo} from '$lib/photoUtils';
+	import {getFullPhotoInfo, getPhotoSource} from '$lib/photoUtils';
 	import type {PhotoData} from '$lib/sources';
 
 	export let photo: PhotoData | null = null;
@@ -217,14 +217,6 @@
 			console.error('🢄Error preloading image:', error);
 			isLoadingNewImage = false;
 		}
-	}
-
-	// Helper functions to determine photo source and get user info
-	function getPhotoSource(photo: PhotoData): string {
-		if (typeof photo.source === 'string')
-			return photo.source;
-		if (!photo.source?.id) throw new Error('photo?.source?.id is missing:' + JSON.stringify(photo));
-		return photo.source.id;
 	}
 
 	function getUserId(photo: PhotoData): string | null {

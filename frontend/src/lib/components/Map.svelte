@@ -31,10 +31,11 @@
 		photosInRange,
 		updateSpatialState,
 		updateBearingByDiff,
-		updateBearingWithPhoto,
+
 		bearingMode,
 		type BearingMode, updateBearing,
 	} from "$lib/mapState";
+	import {updateBearingWithPhoto} from "$lib/bearingTracking";
 	import {enableSourceForPhotoUid, sources} from "$lib/data.svelte.js";
     import { simplePhotoWorker } from '$lib/simplePhotoWorker';
     import { turn_to_photo_to, app, sourceLoadingStatus } from "$lib/data.svelte.js";

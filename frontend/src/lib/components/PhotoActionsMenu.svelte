@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onDestroy } from 'svelte';
-    import { EyeOff, UserX, ThumbsUp, ThumbsDown, Share, Flag, MoreVertical } from 'lucide-svelte';
+    import { EyeOff, UserX, ThumbsUp, ThumbsDown, Share, Flag, MoreVertical, Clock } from 'lucide-svelte';
     import { http, handleApiError } from '$lib/http';
     import { auth } from '$lib/auth.svelte.js';
     import { simplePhotoWorker } from '$lib/simplePhotoWorker';
@@ -9,6 +9,7 @@
     import { TAURI } from '$lib/tauri.js';
     import { invoke } from '@tauri-apps/api/core';
     import type { PhotoData } from '$lib/sources';
+	import {getPhotoSource} from "$lib/photoUtils";
 
     export let photo: PhotoData | null = null;
 
@@ -57,12 +58,6 @@
     let ratingCounts = { thumbs_up: 0, thumbs_down: 0 };
     let isRating = false;
 
-    // Helper function to get photo source
-    function getPhotoSource(photo: PhotoData | null): string {
-        if (!photo) return '';
-        return photo.source?.id === 'mapillary' ? 'mapillary' : 'hillview';
-    }
-
     $: is_authenticated = $auth.is_authenticated;
 
     // User helper functions
@@ -81,8 +76,6 @@
     }
 
     function getUserName(photo: PhotoData | null): string | null {
-		console.log("getUserName: ", JSON.stringify(photo));
-
         if (!photo) return null;
 
         // For Mapillary photos, check if creator info exists in the photo data
@@ -94,6 +87,16 @@
             return (photo as any).owner_username;
         }
         return null;
+    }
+
+    function formatCapturedAt(photo: PhotoData | null): string | null {
+        if (!photo?.captured_at) return null;
+        try {
+            const date = new Date(photo.captured_at);
+            return date.toLocaleString();
+        } catch {
+            return String(photo.captured_at);
+        }
     }
 
     // Hide photo function
@@ -494,6 +497,16 @@
                     <div class="menu-divider"></div>
                 {/if}
 
+                {#if formatCapturedAt(photo)}
+                    <div class="menu-section photo-meta">
+                        <div class="meta-item">
+                            <Clock  size={16} />
+                            <span class="meta-value">{formatCapturedAt(photo)}</span>
+                        </div>
+                    </div>
+                    <div class="menu-divider"></div>
+                {/if}
+
                 <!-- Actions section -->
                 <div class="menu-section">
                     <button
@@ -660,7 +673,7 @@
     }
 
     .menu-section {
-        padding: 0 8px;
+        padding: 0 0px;
     }
 
 
@@ -782,6 +795,21 @@
 
     .user-item:hover .user-source {
         color: #4b5563;
+    }
+
+    .photo-meta {
+        padding: 0px 12px;
+    }
+
+    .meta-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+
+    .meta-value {
+		font-size: 10px;
     }
 
     /* Mobile responsive */

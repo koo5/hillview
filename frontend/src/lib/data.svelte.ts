@@ -9,7 +9,8 @@ import {MAX_DEBUG_MODES} from './constants';
 import {auth} from './auth.svelte';
 import {TAURI, BROWSER} from "$lib/tauri";
 // Import new mapState for legacy compatibility only
-import {photoInFront, photoToLeft, photoToRight, photoUp, photoDown, updateBearingWithPhoto} from './mapState';
+import {photoInFront, photoToLeft, photoToRight, photoUp, photoDown} from './mapState';
+import {updateBearingWithPhoto} from './bearingTracking';
 import {updateSettings} from "$lib/settings";
 
 

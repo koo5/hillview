@@ -11,7 +11,7 @@ export type { PhotoId, PhotoSize, SimpleCoord };
  */
 export interface PhotoData extends BasePhotoData {
     coord: LatLng;  // Override with LatLng for main app
-    source?: Source;  // Proper Source type for main app
+    source?: Source | string;
 }
 
 /**

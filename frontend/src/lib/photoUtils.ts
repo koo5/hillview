@@ -1,5 +1,5 @@
 import { getDevicePhotoUrl } from '$lib/devicePhotoHelper';
-import type { PhotoForInfo, FullPhotoInfo } from '$lib/types/photoTypes';
+import type {PhotoForInfo, FullPhotoInfo, PhotoData} from '$lib/types/photoTypes';
 
 /**
  * Get the full-size URL for any photo type
@@ -65,3 +65,13 @@ export function getFullPhotoInfo(photo: PhotoForInfo): FullPhotoInfo {
 
 	return { url, width, height };
 }
+
+// Helper functions to determine photo source and get user info
+export function getPhotoSource(photo: PhotoData | null): string | null {
+	if (!photo) return null;
+	if (typeof photo.source === 'string')
+		return photo.source;
+	if (!photo.source?.id) throw new Error('photo?.source?.id is missing:' + JSON.stringify(photo));
+	return photo.source.id;
+}
+
