@@ -57,7 +57,7 @@
 	let isLoadingMore = false;
 	let error: string | null = null;
 	let currentPage = 1;
-	let pageSize;
+	let pageSize = 50;
 
 	onMount(() => {
 		setTimeout(() => {
@@ -107,7 +107,9 @@
 			if (BROWSER) {
 				// Browser: Get from IndexedDB
 				const allPhotos = await browserPhotoStorage.getAllPhotos();
-				const adaptedPhotos = allPhotos.map(adaptBrowserPhoto);
+				const adaptedPhotos = allPhotos
+					.map(adaptBrowserPhoto)
+					.sort((a, b) => b.captured_at - a.captured_at);
 
 				// Simple pagination for browser
 				const startIdx = (page - 1) * pageSize;

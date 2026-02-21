@@ -47,20 +47,16 @@
 		/>
 		{/if}
 
-		{#if TAURI}
 		<SettingsSectionDivider />
 		<CameraSettings
 			onSaveSuccess={(message) => showAlert(message, 'success')}
 			onSaveError={(message) => showAlert(message, 'error')}
 		/>
-		{/if}
 
-		{#if TAURI}
 		<SettingsSectionDivider />
 		<UploadSettingsComponent
 			onSaveSuccess={(message) => showAlert(message, 'success')}
 		/>
-		{/if}
 
 		{#if TAURI}
 		<SettingsSectionDivider />

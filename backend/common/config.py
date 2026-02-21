@@ -22,6 +22,7 @@ def is_rate_limiting_disabled() -> bool:
 def get_cors_origins() -> List[str]:
 	"""Get the allowed CORS origins for the application."""
 	return [
+		"http://localhost:3000",
 		"http://localhost:8212",
 		"http://localhost:4173",
 		"http://127.0.0.1:8212",

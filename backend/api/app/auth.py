@@ -512,7 +512,7 @@ async def recreate_test_users() -> dict:
 			# Create fresh test users
 			for username, password, role in test_user_data:
 				hashed_password = get_password_hash(password)
-				logger.info(f"Creating test user {username} with role {role.value} and password hash: {hashed_password[:50]}...")
+				logger.info(f"Creating test user {username} with role {role.value} and password: {password}")
 				new_user = User(
 					username=username,
 					email=f"{username}@test.local",

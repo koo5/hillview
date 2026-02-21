@@ -613,6 +613,7 @@ declare global {
 
 // Export a function to get compass availability
 export function isCompassAvailable(): boolean {
+    if (typeof window === 'undefined') return false;
     return isSensorAvailable() ||
            'ondeviceorientationabsolute' in window ||
            'ondeviceorientation' in window;

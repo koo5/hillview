@@ -191,7 +191,8 @@ def run_photo_processing_sync(file_path: str, filename: str, user_id: UUID, phot
 					user_id=user_id,
 					photo_id=photo_id,
 					client_signature=client_signature,
-					anonymization_override=anonymization_override
+					anonymization_override=anonymization_override,
+					metadata=metadata
 				)
 			)
 		finally:
@@ -547,6 +548,11 @@ async def process(file: UploadFile, client_signature: str, photo_id: str, user_i
 			ctx_photo_id = current_photo_id.get()
 			ctx_task_id = current_task_id.get()
 
+			# Parse metadata JSON string if provided (e.g., from browser capture)
+			parsed_metadata = None
+			if metadata:
+				parsed_metadata = BrowserMetadata.model_validate_json(metadata).model_dump(exclude_none=True)
+
 			processing_result = await run_in_threadpool(
 				run_photo_processing_sync,
 				str(file_path),
@@ -556,7 +562,8 @@ async def process(file: UploadFile, client_signature: str, photo_id: str, user_i
 				client_signature,
 				ctx_photo_id,
 				ctx_task_id,
-				anonymization_override
+				anonymization_override,
+				parsed_metadata
 			)
 
 		if not processing_result:

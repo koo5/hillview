@@ -608,17 +608,21 @@ class PhotoProcessor:
 
 		# If metadata is provided (e.g., from browser capture), use it to fill missing data
 		if metadata:
-			logger.info(f"Metadata provided, merging with EXIF data")
+			logger.info(f"Metadata provided: {metadata}")
+			logger.info(f"GPS data before merge: {gps_data}")
 
-			# Use metadata to fill any missing GPS data
-			if metadata.get('latitude') is not None:
-				gps_data.setdefault('latitude', metadata['latitude'])
-			if metadata.get('longitude') is not None:
-				gps_data.setdefault('longitude', metadata['longitude'])
-			if metadata.get('altitude') is not None:
-				gps_data.setdefault('altitude', metadata['altitude'])
-			if metadata.get('bearing') is not None:
-				gps_data.setdefault('bearing', metadata['bearing'])
+			# Use metadata to fill missing GPS data (use conditional assignment,
+			# not setdefault, because EXIF extraction may set keys to None)
+			if metadata.get('latitude') is not None and gps_data.get('latitude') is None:
+				gps_data['latitude'] = metadata['latitude']
+			if metadata.get('longitude') is not None and gps_data.get('longitude') is None:
+				gps_data['longitude'] = metadata['longitude']
+			if metadata.get('altitude') is not None and gps_data.get('altitude') is None:
+				gps_data['altitude'] = metadata['altitude']
+			if metadata.get('bearing') is not None and gps_data.get('bearing') is None:
+				gps_data['bearing'] = metadata['bearing']
+
+			logger.info(f"GPS data after merge: {gps_data}")
 
 			# Use metadata for orientation if not in EXIF
 			if metadata.get('orientation_code') and not exif_data['data'].get('Orientation'):

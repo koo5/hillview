@@ -6,7 +6,7 @@ import { writable, get } from 'svelte/store';
 import type { CaptureLocation } from '../captureQueue';
 
 const DB_NAME = 'HillviewPhotoDB';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 const PHOTO_STORE = 'photos';
 
 // Export function to check background sync support
@@ -103,12 +103,16 @@ class BrowserPhotoStorage {
                 }
 
                 // Create or upgrade photo store
+                let photoStore: IDBObjectStore;
                 if (!db.objectStoreNames.contains(PHOTO_STORE)) {
-                    const photoStore = db.createObjectStore(PHOTO_STORE, { keyPath: 'id' });
-                    photoStore.createIndex('status', 'status');
-                    photoStore.createIndex('captured_at', 'metadata.captured_at');
-                    photoStore.createIndex('added_at', 'added_at');
+                    photoStore = db.createObjectStore(PHOTO_STORE, { keyPath: 'id' });
+                } else {
+                    photoStore = (event.target as IDBOpenDBRequest).transaction!.objectStore(PHOTO_STORE);
                 }
+                // Ensure all indexes exist
+                if (!photoStore.indexNames.contains('status')) photoStore.createIndex('status', 'status');
+                if (!photoStore.indexNames.contains('captured_at')) photoStore.createIndex('captured_at', 'metadata.captured_at');
+                if (!photoStore.indexNames.contains('added_at')) photoStore.createIndex('added_at', 'added_at');
             };
         });
     }
