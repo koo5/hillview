@@ -109,7 +109,7 @@ import { photoStats, fetchPhotoStats } from '$lib/photoStatsAdapter';
 />
 
 <!-- File path only for Tauri -->
-{#if !BROWSER && photo.file_path}
+{#if TAURI && photo.file_path}
     <div class="photo-path">
         <span class="path-label">Path:</span>
         <span class="path-value">{photo.file_path}</span>

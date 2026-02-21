@@ -9,6 +9,23 @@ export interface CompassData {
     accuracy_level: number | null;
     timestamp: number;
     source: string;
+    debug?: {
+        // Raw event inputs
+        alpha: number | null;
+        beta: number | null;
+        gamma: number | null;
+        absolute: boolean;
+        screenAngle: number;
+        // Browser-specific inputs
+        webkitCompassHeading: number | null;
+        webkitCompassAccuracy: number | null;
+        compassHeading: number | null;
+        // Which code path ran
+        headingMethod: 'webkitCompassHeading' | 'tiltCompensated' | 'none';
+        // Intermediate values
+        rawHeading: number | null;        // before normalizeHeading
+        normalizedHeading: number | null; // after normalizeHeading
+    };
 }
 
 export interface DeviceOrientation {
@@ -166,19 +183,13 @@ function computeTiltCompensatedHeading(alpha: number, beta: number, gamma: numbe
     const Vx = -cZ * sY - sZ * sX * cY;
     const Vy = -sZ * sY + cZ * sX * cY;
 
-    let compassHeading = Math.atan2(Vx, Vy); // radians, (-PI, PI]
-
-    // Convert to [0, 2*PI)
-    if (compassHeading > 0) {
-        compassHeading = 2 * Math.PI - compassHeading;
-    } else {
-        compassHeading = Math.abs(compassHeading);
-    }
+    const compassHeading = Math.atan2(Vx, Vy); // radians, (-PI, PI]
 
     // Apply screen orientation correction so the heading tracks
     // the visual "top of screen", not the physical top of device.
     const screenAngle = window.screen?.orientation?.angle ?? 0;
 
+    // normalizeHeading handles the (-180,180] → [0,360) mapping
     return normalizeHeading(compassHeading * (180 / Math.PI) + screenAngle);
 }
 
@@ -257,11 +268,66 @@ async function startTauriSensor(mode: SensorMode = SensorMode.UPRIGHT_ROTATION_V
     }
 }
 
+/**
+ * Extract heading data from a DeviceOrientationEvent, choosing between
+ * webkitCompassHeading (iOS) and tilt-compensated computation (Android/desktop),
+ * and populating a debug trace of all inputs and intermediate values.
+ */
+function extractHeadingFromEvent(event: DeviceOrientationEvent): {
+    magnetic_heading: number | null;
+    true_heading: number | null;
+    accuracy_level: number | null;
+    source: string;
+    debug: CompassData['debug'];
+} {
+    const isAbsolute = event.absolute === true;
+    const screenAngle = window.screen?.orientation?.angle;
+
+    const debug: CompassData['debug'] = {
+        alpha: event.alpha ?? null,
+        beta: event.beta ?? null,
+        gamma: event.gamma ?? null,
+        absolute: isAbsolute,
+        screenAngle,
+        webkitCompassHeading: event.webkitCompassHeading ?? null,
+        webkitCompassAccuracy: event.webkitCompassAccuracy ?? null,
+        compassHeading: event.compassHeading ?? null,
+        headingMethod: 'none',
+        rawHeading: null,
+        normalizedHeading: null,
+    };
+
+    let rawHeading: number | null = null;
+
+    if (event.webkitCompassHeading != null) {
+        debug.headingMethod = 'webkitCompassHeading';
+        rawHeading = event.webkitCompassHeading;
+    } else if (event.alpha != null && event.beta != null && event.gamma != null) {
+        debug.headingMethod = 'tiltCompensated';
+        rawHeading = computeTiltCompensatedHeading(event.alpha, event.beta, event.gamma);
+    }
+
+    debug.rawHeading = rawHeading;
+    const normalizedHeading = rawHeading !== null ? normalizeHeading(rawHeading) : null;
+    debug.normalizedHeading = normalizedHeading;
+
+    const accuracy = event.webkitCompassAccuracy ?? null;
+
+    return {
+        magnetic_heading: isAbsolute ? null : normalizedHeading,
+        true_heading: isAbsolute
+            ? normalizedHeading
+            : (event.compassHeading != null ? normalizeHeading(event.compassHeading) : null),
+        accuracy_level: accuracy,
+        source: isAbsolute ? 'web-absolute' : 'web-magnetic',
+        debug,
+    };
+}
+
 // Web DeviceOrientation implementation
 async function startWebCompass(): Promise<boolean> {
     return new Promise((resolve) => {
         let hasResolved = false;
-
         let usingAbsolute = false;
 
         orientationHandler = (event: DeviceOrientationEvent) => {
@@ -279,16 +345,6 @@ async function startWebCompass(): Promise<boolean> {
                 }
             }
 
-			console.log('🢄🌐 DeviceOrientation event received (absolute:', isAbsolute, ')', JSON.stringify({
-				alpha: event.alpha?.toFixed(1) + '°',
-				beta: event.beta?.toFixed(1) + '°',
-				gamma: event.gamma?.toFixed(1) + '°',
-				absolute: event.absolute,
-				webkitCompassHeading: event.webkitCompassHeading?.toFixed(1) + '°',
-				webkitCompassAccuracy: event.webkitCompassAccuracy,
-				compassHeading: event.compassHeading?.toFixed(1) + '°'
-			}));
-
             // If we already have absolute events, ignore regular ones
             // DISABLED: Some browsers only fire absolute once, so we need regular as fallback
             // if (usingAbsolute && !isAbsolute) return;
@@ -299,54 +355,15 @@ async function startWebCompass(): Promise<boolean> {
                 resolve(true);
             }
 
-            // Extract compass data with tilt compensation
-            let magneticHeading: number | null = null;
+            const extracted = extractHeadingFromEvent(event);
 
-            try {
-                if (event.webkitCompassHeading != null) {
-                    // iOS provides a tilt-compensated compass heading directly
-                    magneticHeading = event.webkitCompassHeading;
-                    console.log('🢄🧭 Using webkitCompassHeading:', magneticHeading);
-                } else if (event.alpha != null && event.beta != null && event.gamma != null) {
-                    // Compute tilt-compensated heading from Euler angles (like Kotlin's
-                    // remapCoordinateSystem + getOrientation pipeline)
-                    magneticHeading = computeTiltCompensatedHeading(event.alpha, event.beta, event.gamma);
-                    console.log('🢄🧭 Computed tilt-compensated heading:', magneticHeading, 'from alpha:', event.alpha, 'beta:', event.beta, 'gamma:', event.gamma);
-                } else {
-                    console.log('🢄🧭 No valid compass data - alpha:', event.alpha, 'beta:', event.beta, 'gamma:', event.gamma);
-                }
-            } catch (err) {
-                console.error('🢄🧭 Error computing heading:', err);
-            }
-
-            const accuracy = event.webkitCompassAccuracy ?? null;
-
-            // deviceorientationabsolute gives true north directly;
-            // regular deviceorientation gives magnetic north.
-            const heading = magneticHeading !== null ? normalizeHeading(magneticHeading) : null;
-            console.log('🢄🧭 Calculated heading:', heading, 'from magneticHeading:', magneticHeading);
-
-            const data = {
-                magnetic_heading: isAbsolute ? null : heading,
-                true_heading: isAbsolute ? heading : (event.compassHeading != null ? normalizeHeading(event.compassHeading) : null),
-                accuracy_level: accuracy,
+            const data: CompassData = {
+                ...extracted,
                 timestamp: Date.now(),
-                source: isAbsolute ? 'web-absolute' : 'web-magnetic'
             };
 
-            console.log('🢄🧭 Scheduling compass update with data:', data);
             scheduleCompassUpdate(data);
             lastSensorUpdate.set(Date.now());
-
-            console.log('🢄🌐 Web Compass raw event:', JSON.stringify({
-                heading: heading?.toFixed(1) + '°',
-                absolute: isAbsolute,
-                accuracy_level: data.accuracy_level,
-                rawAlpha: event.alpha?.toFixed(1) + '°',
-                beta: event.beta?.toFixed(1) + '°',
-                gamma: event.gamma?.toFixed(1) + '°',
-                screenAngle: window.screen?.orientation?.angle ?? 0
-            }));
         };
 
         // Register both; once absolute fires, the regular one gets dropped.

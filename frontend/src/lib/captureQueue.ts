@@ -5,7 +5,7 @@ import type {DevicePhotoMetadata} from './types/photoTypes';
 import {invoke} from "@tauri-apps/api/core";
 import {frontendBusy} from "$lib/data.svelte";
 import {storageSettings} from "$lib/storageSettings";
-import { BROWSER } from './tauri';
+import { TAURI, BROWSER } from './tauri';
 import { browserCaptureAdapter } from './browser/captureAdapter';
 import { uploadManager } from './browser/uploadManager';
 import { settings } from './settings';
@@ -78,13 +78,13 @@ class CaptureQueueManager {
 
 	constructor() {
 		// Initialize worker only for Tauri mode
-		if (!BROWSER) {
+		if (TAURI) {
 			this.initWorker();
 		}
 		// Start processing loop
 		this.processLoop();
 		this.log(this.LOG_TAGS.QUEUE_ADD, 'Capture queue manager initialized', {
-			mode: BROWSER ? 'browser' : 'tauri'
+			mode: BROWSER ? 'browser' : (TAURI ? 'tauri' : 'unknown')
 		});
 	}
 
