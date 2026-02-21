@@ -2,6 +2,7 @@ import { writable, derived, get } from 'svelte/store';
 import { TAURI, TAURI_MOBILE, tauriSensor, isSensorAvailable, type SensorData, SensorMode } from './tauri';
 import {PluginListener} from "@tauri-apps/api/core";
 import {bearingMode, bearingState, updateBearing} from "$lib/mapState";
+import {settings, settingsDefaults} from "$lib/settings";
 
 export interface CompassData {
     magnetic_heading: number | null;  // 0-360 degrees from magnetic north
@@ -25,6 +26,10 @@ export interface CompassData {
         // Intermediate values
         rawHeading: number | null;        // before normalizeHeading
         normalizedHeading: number | null; // after normalizeHeading
+        screenOrientation: number | null; // window.screen.orientation.angle
+        // Face-down workaround (like EnhancedSensorService.kt)
+        faceDown: boolean;                    // abs(beta) > 90
+        landscapeWorkaroundApplied: boolean;  // negation applied
     };
 }
 
@@ -129,6 +134,7 @@ let accuracyPollingInterval: number | null = null;
 // Lag monitoring
 let lagMonitoringInterval: number | null = null;
 
+let absoluteReadingsCount = 0; // Count of absolute events received to determine if we should drop regular listener
 // Throttling for compass updates using requestAnimationFrame
 let pendingCompassUpdate: CompassData | null = null;
 let compassUpdateScheduled = false;
@@ -164,7 +170,12 @@ function normalizeHeading(heading: number): number {
  * This is the web equivalent of the Kotlin code that calls
  * SensorManager.remapCoordinateSystem + SensorManager.getOrientation.
  */
-function computeTiltCompensatedHeading(alpha: number, beta: number, gamma: number): number {
+function computeTiltCompensatedHeading(
+    alpha: number,
+    beta: number,
+    gamma: number,
+    landscapeWorkaround: boolean
+): { heading: number; faceDown: boolean; landscapeWorkaroundApplied: boolean } {
     const degToRad = Math.PI / 180;
     const _x = beta * degToRad;   // beta  -> rotation around X
     const _y = gamma * degToRad;  // gamma -> rotation around Y
@@ -183,14 +194,26 @@ function computeTiltCompensatedHeading(alpha: number, beta: number, gamma: numbe
     const Vx = -cZ * sY - sZ * sX * cY;
     const Vy = -sZ * sY + cZ * sX * cY;
 
-    const compassHeading = Math.atan2(Vx, Vy); // radians, (-PI, PI]
+    let compassHeading = Math.atan2(Vx, Vy) * (180 / Math.PI); // degrees, (-180, 180]
 
-    // Apply screen orientation correction so the heading tracks
-    // the visual "top of screen", not the physical top of device.
-    const screenAngle = window.screen?.orientation?.angle ?? 0;
+    // Match EnhancedSensorService.kt: detect face-down orientation
+    // In web API, beta (pitch) > 90 means device screen faces away from user
+    const faceDown = Math.abs(beta) > 90;
+    let landscapeWorkaroundApplied = false;
+	const screenAngle = window.screen?.orientation?.angle ?? 0;
+
+    // Apply landscape_armor22_workaround: negate heading when face-down
+    if (landscapeWorkaround && faceDown && (screenAngle === 90 || screenAngle === 270)) {
+        compassHeading = 0 - compassHeading;
+        landscapeWorkaroundApplied = true;
+    }
 
     // normalizeHeading handles the (-180,180] → [0,360) mapping
-    return normalizeHeading(compassHeading * (180 / Math.PI) + screenAngle);
+    return {
+        heading: normalizeHeading(compassHeading),
+        faceDown,
+        landscapeWorkaroundApplied
+    };
 }
 
 // Log compass availability once
@@ -295,6 +318,9 @@ function extractHeadingFromEvent(event: DeviceOrientationEvent): {
         headingMethod: 'none',
         rawHeading: null,
         normalizedHeading: null,
+        screenOrientation: window.screen?.orientation?.angle,
+        faceDown: false,
+        landscapeWorkaroundApplied: false
     };
 
     let rawHeading: number | null = null;
@@ -304,7 +330,12 @@ function extractHeadingFromEvent(event: DeviceOrientationEvent): {
         rawHeading = event.webkitCompassHeading;
     } else if (event.alpha != null && event.beta != null && event.gamma != null) {
         debug.headingMethod = 'tiltCompensated';
-        rawHeading = computeTiltCompensatedHeading(event.alpha, event.beta, event.gamma);
+        const currentSettings = get(settings);
+        const landscapeWorkaround = currentSettings?.value?.landscape_armor22_workaround ?? settingsDefaults.landscape_armor22_workaround;
+        const result = computeTiltCompensatedHeading(event.alpha, event.beta, event.gamma, landscapeWorkaround);
+        rawHeading = result.heading;
+        debug.faceDown = result.faceDown;
+        debug.landscapeWorkaroundApplied = result.landscapeWorkaroundApplied;
     }
 
     debug.rawHeading = rawHeading;
@@ -336,12 +367,16 @@ async function startWebCompass(): Promise<boolean> {
             // Once we receive an absolute event, drop the regular listener
             // to avoid duplicate updates with different north references
             // (absolute = true north, regular = magnetic north).
-            if (isAbsolute && !usingAbsolute) {
+			if (isAbsolute)
+			{
+				absoluteReadingsCount++;
+			}
+            if ((absoluteReadingsCount > 3) && !usingAbsolute) {
                 usingAbsolute = true;
                 if (regularOrientationListener) {
                     console.log('🢄🌐 Got deviceorientationabsolute, dropping deviceorientation listener');
-                    //window.removeEventListener('deviceorientation', regularOrientationListener);
-                    //regularOrientationListener = null;
+                    window.removeEventListener('deviceorientation', regularOrientationListener);
+                    regularOrientationListener = null;
                 }
             }
 

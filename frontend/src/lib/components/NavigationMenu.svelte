@@ -8,8 +8,20 @@
     import { TAURI } from '$lib/tauri.js';
     import { openExternalUrl } from '$lib/urlUtils';
 	import {backendUrl} from "$lib/config";
+    import { Bug } from 'lucide-svelte';
+    import * as Sentry from '@sentry/sveltekit';
 
     export let isOpen = false;
+
+    async function handleFeedbackClick() {
+        closeMenu();
+        const feedback = Sentry.getFeedback();
+        if (feedback) {
+            const form = await feedback.createForm();
+            form.appendToDom();
+            form.open();
+        }
+    }
     export let onClose: () => void = () => {};
 
     // Subscribe to auth store
@@ -126,6 +138,13 @@
                 <Info size={18}/>
                 About
             </a></li>
+
+            <li>
+                <button class="menu-button" on:click={handleFeedbackClick}>
+                    <Bug size={18}/>
+                    Report Bug
+                </button>
+            </li>
 
 			{#if !TAURI}
 				<li>

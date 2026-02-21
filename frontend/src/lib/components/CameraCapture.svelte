@@ -1549,12 +1549,6 @@
 		padding: 2rem;
 	}
 
-	@media (orientation: landscape) {
-		.camera-controls {
-			bottom: calc(6px + var(--safe-area-inset-bottom, 0px));
-		}
-	}
-
 	.camera-selector-container {
 		position: absolute;
 		z-index: 100000;
@@ -1730,61 +1724,72 @@
 	.zoom-control {
 		position: absolute;
 		left: 0px;
-		bottom: 0px;
-		transform: translateY(-50%);
+		bottom: 67px;
+		height: 150px;
+		width: 40px;
 		display: flex;
 		flex-direction: column;
 		align-items: center;
+		justify-content: flex-start;
 		background: rgba(0, 0, 0, 0.6);
+		/*background: rgba(0, 0, 200, 0.6);*/
 		border-radius: 8px;
 		backdrop-filter: blur(10px);
+		padding: 8px 0;
+		z-index: 1002;
 	}
 
 	.zoom-label {
 		color: white;
-		font-size: 0.9rem;
+		font-size: 0.85rem;
 		font-weight: 500;
 		min-width: 3em;
 		text-align: center;
+		margin-bottom: 4px;
+		flex-shrink: 0;
 	}
 
 	.zoom-slider {
-		width: 150px;
+		width: 120px;
+		height: 50px;
 		transform: rotate(-90deg);
 		transform-origin: center;
-		margin: 60px 0;
+		margin: 40px 0;
 		cursor: pointer;
+		touch-action: none;
 	}
 
 	.zoom-slider::-webkit-slider-track {
 		background: rgba(255, 255, 255, 0.3);
-		height: 4px;
-		border-radius: 2px;
+		height: 6px;
+		border-radius: 3px;
 	}
 
 	.zoom-slider::-webkit-slider-thumb {
 		-webkit-appearance: none;
 		appearance: none;
-		width: 16px;
-		height: 16px;
+		width: 28px;
+		height: 28px;
 		background: white;
 		border-radius: 50%;
 		cursor: pointer;
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
 	}
 
 	.zoom-slider::-moz-range-track {
 		background: rgba(255, 255, 255, 0.3);
-		height: 4px;
-		border-radius: 2px;
+		height: 6px;
+		border-radius: 3px;
 	}
 
 	.zoom-slider::-moz-range-thumb {
-		width: 16px;
-		height: 16px;
+		width: 50px;
+		height: 50px;
 		background: white;
 		border-radius: 50%;
 		border: none;
 		cursor: pointer;
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
 	}
 
 
@@ -1796,13 +1801,16 @@
 		}
 
 		.zoom-control {
-			right: 0.5rem;
-			padding: 0.5rem;
+			/*background: rgba(200, 0, 0, 1);*/
+			height: 160px;
+			width: 40px;
+			padding: 6px 0;
 		}
 
 		.zoom-slider {
-			width: 100px;
-			margin: 40px 0;
+			width: 120px;
+			height: 50px;
+			margin: 35px 0;
 		}
 	}
 

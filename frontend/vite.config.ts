@@ -11,6 +11,7 @@ export default defineConfig({
         }
     }), sveltekit()],
 	server: {
+		allowedHosts: ["dev.hillview.cz"],
 		host: true,
 		port: parseInt(process.env.VITE_DEV_PORT || '8212'),
 		hmr: {

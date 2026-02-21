@@ -326,8 +326,9 @@
 <style>
     .debug-overlay {
         position: fixed;
-        top: calc(100px + var(--safe-area-inset-top, 0px));
+        top: calc(50px + var(--safe-area-inset-top, 0px));
         right: 10px;
+        bottom: calc(10px + var(--safe-area-inset-bottom, 0px));
         background: rgba(0, 0, 0, 0.7);
         color: #0f0;
         font-family: monospace;
@@ -337,24 +338,23 @@
         z-index: 999999;
         min-width: 280px;
         max-width: 350px;
-        max-height: calc(100vh - 120px);
         box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
         display: flex;
         flex-direction: column;
+		border: 1px solid rgba(0, 255, 255, 0.3);
     }
 
     .debug-overlay.left-position {
-        top: 100px;
-        left: 10px;
+        left: 5px;
         right: auto;
-        max-height: calc(100vh - 120px);
+        bottom: calc(10px + var(--safe-area-inset-bottom, 0px));
     }
 
     .debug-header {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        padding: 4px 8px;
+        padding: 0px 0px;
         background: rgba(0, 255, 0, 0.1);
         border-bottom: 1px solid #0f0;
         font-size: 10px;
@@ -830,16 +830,20 @@
 
     @media (max-width: 600px) {
         .debug-overlay {
+			border: 1px solid rgba(255, 2, 2, 0.3);
             top: calc(50px + var(--safe-area-inset-top, 0px));
             right: 5px;
             left: 5px;
+            bottom: calc(10px + var(--safe-area-inset-bottom, 0px));
             min-width: auto;
+            max-width: none;
         }
 
         .debug-overlay.left-position {
             top: calc(50px + var(--safe-area-inset-top, 0px));
             left: 5px;
             right: 5px;
+            bottom: calc(10px + var(--safe-area-inset-bottom, 0px));
         }
     }
 </style>

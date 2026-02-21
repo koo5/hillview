@@ -65,12 +65,10 @@
 		/>
 		{/if}
 
-		{#if TAURI}
 		<SettingsSectionDivider />
 		<CompassSettingsComponent
 			onSaveSuccess={(message) => showAlert(message, 'success')}
 		/>
-		{/if}
 
 		<SettingsSectionDivider />
 		<SettingsSectionHeader>Advanced</SettingsSectionHeader>

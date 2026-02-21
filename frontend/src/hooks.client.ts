@@ -40,9 +40,9 @@ if (sentryEnabled)
 			replayIntegration(),
 			Sentry.consoleLoggingIntegration({}),
 			Sentry.feedbackIntegration({
-				// Additional SDK configuration goes in here, for example:
 				colorScheme: "system",
 				triggerLabel: "Bug",
+				autoInject: false,
 			}),
 		],
 	});

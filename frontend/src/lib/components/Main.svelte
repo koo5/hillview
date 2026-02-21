@@ -9,7 +9,9 @@
 	import {
 		Camera,
 		Menu,
-		Bug
+		Bug,
+		Maximize2,
+		Minimize2
 	} from 'lucide-svelte';
 	import {
 		app,
@@ -53,6 +55,28 @@
 	let update_url: boolean = false;
 	let menuOpen = false;
 	let containerElement: HTMLElement;
+	let isFullscreen = false;
+
+	function toggleFullscreen() {
+		if (!document.fullscreenElement) {
+			document.documentElement.requestFullscreen().then(() => {
+				isFullscreen = true;
+			}).catch(err => {
+				console.warn('Fullscreen request failed:', err);
+			});
+		} else {
+			document.exitFullscreen().then(() => {
+				isFullscreen = false;
+			});
+		}
+	}
+
+	// Listen for fullscreen changes (e.g., user presses Escape)
+	if (browser) {
+		document.addEventListener('fullscreenchange', () => {
+			isFullscreen = !!document.fullscreenElement;
+		});
+	}
 
 	$: showCameraView = $app.activity === 'capture';
 
@@ -416,6 +440,20 @@
 	<Camera size={24}/>
 </button>
 
+<button
+	on:click={toggleFullscreen}
+	class="fullscreen-toggle"
+	on:keydown={(e) => e.key === 'Enter' && toggleFullscreen()}
+	aria-label="{isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}"
+	title="{isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}"
+>
+	{#if isFullscreen}
+		<Minimize2 size={24}/>
+	{:else}
+		<Maximize2 size={24}/>
+	{/if}
+</button>
+
 <!--{#if import.meta.env.VITE_DEV_MODE === 'true'}-->
 {#if $app.debug_enabled}
 	<button
@@ -561,10 +599,29 @@
 		transition: all 0.2s ease, transform 0.3s ease;
 	}
 
-	.debug-toggle {
+	.fullscreen-toggle {
 		position: absolute;
 		top: calc(10px + var(--safe-area-inset-top, 0px));
 		left: calc(110px + var(--safe-area-inset-left, 0px));
+		z-index: 30001;
+		background: white;
+		border-radius: 50%;
+		width: 40px;
+		height: 40px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+		cursor: pointer;
+		border: none;
+		padding: 0;
+		transition: all 0.2s ease;
+	}
+
+	.debug-toggle {
+		position: absolute;
+		top: calc(10px + var(--safe-area-inset-top, 0px));
+		left: calc(160px + var(--safe-area-inset-left, 0px));
 		z-index: 30001;
 		background: white;
 		border-radius: 50%;

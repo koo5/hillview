@@ -33,7 +33,7 @@
 			<span class="option-title">Landscape mode workaround</span>
 			<span class="option-description">
 				Fix compass readings when device is held in landscape orientation.
-				Enable this if compass direction is wrong when holding the phone sideways.
+				Enable this if compass direction is inverted when holding the phone sideways and facing slightly up.
 			</span>
 		</div>
 		<input
