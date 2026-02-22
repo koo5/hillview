@@ -37,8 +37,9 @@
 
 	const permissionManager = createPermissionManager('camera');
 
-	// Store unlisten function for cleanup
+	// Store unlisten functions for cleanup
 	let cameraPermissionUnlisten: PluginListener | null = null;
+	let deviceOrientationUnlisten: PluginListener | null = null;
 
 	// show or hide the whole capture UI, parent component controls this
 	export let show = false;
@@ -1003,7 +1004,7 @@
 
 		if (TAURI) {
 			try {
-				await addPluginListener('hillview', 'device-orientation', (data: any) => {
+				deviceOrientationUnlisten = await addPluginListener('hillview', 'device-orientation', (data: any) => {
 					console.log('🢄🔍📡 Received device-orientation event from plugin:', JSON.stringify(data));
 					updateDeviceOrientationExif(data.exif_code);
 				});
@@ -1088,6 +1089,10 @@
 		}
 		if (stream) {
 			stream.getTracks().forEach(track => track.stop());
+			stream = null;
+		}
+		if (videoTrack) {
+			videoTrack = null;
 		}
 		if (permissionCheckInterval) {
 			clearInterval(permissionCheckInterval);
@@ -1107,9 +1112,15 @@
 		if (calibrationHintTimeout) {
 			clearTimeout(calibrationHintTimeout);
 		}
+		// Properly unregister plugin listeners
+		if (deviceOrientationUnlisten) {
+			console.log('🢄[CAMERA] Cleaning up device orientation event listener');
+			deviceOrientationUnlisten.unregister();
+			deviceOrientationUnlisten = null;
+		}
 		if (cameraPermissionUnlisten) {
 			console.log('🢄[CAMERA] Cleaning up camera permission event listener');
-			// Note: PluginListener cleanup is handled automatically by Tauri
+			cameraPermissionUnlisten.unregister();
 			cameraPermissionUnlisten = null;
 		}
 		document.removeEventListener('visibilitychange', handleVisibilityChange);
@@ -1921,6 +1932,5 @@
 		color: #333;
 		border-color: rgba(0, 0, 0, 0.3);
 	}
-
 
 </style>
