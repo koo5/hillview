@@ -647,13 +647,24 @@ class PhotoProcessor:
 
 		# Validate required data (from either EXIF or metadata)
 		if not gps_data.get('latitude') or gps_data.get('longitude') is None:
-			error_msg = "GPS coordinates missing from photo"
-			logger.warning(f"No GPS coordinates in {safe_filename}")
+			if not debug_info.get('has_exif'):
+				error_msg = "No EXIF data found in image file"
+			else:
+				found_tags = debug_info.get('found_bearing_tags', [])
+				if found_tags:
+					error_msg = f"GPS coordinates missing (found bearing tags: {', '.join(found_tags)}; need GPSLatitude, GPSLongitude)"
+				else:
+					error_msg = "GPS coordinates missing from photo (no GPS tags found in EXIF)"
+			logger.warning(f"No GPS coordinates in {safe_filename}: {error_msg}")
 			raise ValueError(error_msg)
 
 		if gps_data.get('bearing') is None:
-			error_msg = "Compass bearing missing from photo"
-			logger.warning(f"No bearing data in {safe_filename}")
+			found_tags = debug_info.get('found_gps_tags', [])
+			if found_tags:
+				error_msg = f"Compass direction missing (found GPS tags: {', '.join(found_tags)}; need GPSImgDirection, GPSTrack, or GPSDestBearing)"
+			else:
+				error_msg = "Compass bearing missing from photo"
+			logger.warning(f"No bearing data in {safe_filename}: {error_msg}")
 			raise ValueError(error_msg)
 
 		# Get image dimensions

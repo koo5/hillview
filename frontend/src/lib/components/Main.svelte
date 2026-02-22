@@ -1,6 +1,6 @@
 <script lang="ts">
 	import {addPluginListener, type PluginListener} from '@tauri-apps/api/core';
-	import {TAURI} from '$lib/tauri';
+	import {BROWSER, TAURI} from '$lib/tauri';
 	import {onDestroy, onMount, tick} from 'svelte';
 	import {browser} from '$app/environment';
 	import {parsePhotoUid} from '$lib/urlUtils';
@@ -440,19 +440,21 @@
 	<Camera size={24}/>
 </button>
 
-<button
-	on:click={toggleFullscreen}
-	class="fullscreen-toggle"
-	on:keydown={(e) => e.key === 'Enter' && toggleFullscreen()}
-	aria-label="{isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}"
-	title="{isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}"
->
-	{#if isFullscreen}
-		<Minimize2 size={24}/>
-	{:else}
-		<Maximize2 size={24}/>
-	{/if}
-</button>
+{#if BROWSER}
+	<button
+		on:click={toggleFullscreen}
+		class="fullscreen-toggle"
+		on:keydown={(e) => e.key === 'Enter' && toggleFullscreen()}
+		aria-label="{isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}"
+		title="{isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}"
+	>
+		{#if isFullscreen}
+			<Minimize2 size={24}/>
+		{:else}
+			<Maximize2 size={24}/>
+		{/if}
+	</button>
+{/if}
 
 <!--{#if import.meta.env.VITE_DEV_MODE === 'true'}-->
 {#if $app.debug_enabled}
@@ -601,8 +603,8 @@
 
 	.fullscreen-toggle {
 		position: absolute;
-		top: calc(10px + var(--safe-area-inset-top, 0px));
-		left: calc(110px + var(--safe-area-inset-left, 0px));
+		top: calc(0px + var(--safe-area-inset-top, 0px));
+		left: calc(100px + var(--safe-area-inset-left, 0px));
 		z-index: 30001;
 		background: white;
 		border-radius: 50%;
@@ -620,8 +622,8 @@
 
 	.debug-toggle {
 		position: absolute;
-		top: calc(10px + var(--safe-area-inset-top, 0px));
-		left: calc(160px + var(--safe-area-inset-left, 0px));
+		top: calc(0px + var(--safe-area-inset-top, 0px));
+		right: calc(0px + var(--safe-area-inset-right, 0px));
 		z-index: 30001;
 		background: white;
 		border-radius: 50%;

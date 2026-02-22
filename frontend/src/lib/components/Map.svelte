@@ -1379,6 +1379,13 @@
 </div>
 
 <div class="source-buttons-container" class:compact={compactSourceButtons}>
+    <button
+        class="toggle-compact {compactSourceButtons ? 'active' : ''}"
+        on:click={() => compactSourceButtons = !compactSourceButtons}
+        title={compactSourceButtons ? "Show labels" : "Hide labels"}
+    >
+        ?
+    </button>
     {#each $sources as source}
         <button
 
@@ -1398,13 +1405,6 @@
 			{/if}
         </button>
     {/each}
-    <button
-        class="toggle-compact {compactSourceButtons ? 'active' : ''}"
-        on:click={() => compactSourceButtons = !compactSourceButtons}
-        title={compactSourceButtons ? "Show labels" : "Hide labels"}
-    >
-        ...
-    </button>
 </div>
 
 <style>
@@ -1530,7 +1530,7 @@
 
     .source-buttons-container {
         position: absolute;
-        top: calc(90px + var(--safe-area-inset-top, 0px));
+        top: calc(60px + var(--safe-area-inset-top, 0px));
         right: calc(6px + var(--safe-area-inset-right, 0px));
         z-index: 30000;
         display: flex;
@@ -1653,7 +1653,7 @@
 
     .attribution-info-button {
         position: absolute;
-        top: 155px;
+        top: 163px;
         left: 10px;
         z-index: 30000;
         width: 32px;

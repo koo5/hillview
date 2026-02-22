@@ -92,7 +92,7 @@ export class AndroidTokenManager implements TokenManager {
             if (!result.success) {
                 const errorMsg = result.error || 'Unknown error storing tokens';
                 console.error(`${this.LOG_PREFIX} Plugin returned error: ${errorMsg}`);
-                throw new Error(`Failed to store tokens in Android: ${errorMsg}`);
+                throw new Error(`${errorMsg}`);
             }
 
             // console.log(`${this.LOG_PREFIX} Tokens stored successfully in Android`);
