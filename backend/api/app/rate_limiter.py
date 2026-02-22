@@ -9,7 +9,7 @@ common_path = os.path.join(os.path.dirname(__file__), '..', '..', 'common')
 sys.path.append(common_path)
 from common.utc import utcnow
 from collections import defaultdict
-from typing import Dict, Optional, Callable, Union
+from typing import Dict, Optional, Union
 from fastapi import HTTPException, Request, status
 import logging
 from common.config import rate_limit_config, is_rate_limiting_disabled

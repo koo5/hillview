@@ -3,18 +3,14 @@ Common file handling utilities for photo processing.
 Non-database file operations shared between API and worker services.
 """
 
-import os
 import logging
 from pathlib import Path
 from typing import Tuple
 
 from .security_utils import (
 	validate_file_upload_basic,
-	sanitize_filename,
 	generate_secure_filename,
-	validate_file_path,
-	check_file_content,
-	SecurityValidationError
+	check_file_content
 )
 
 logger = logging.getLogger(__name__)

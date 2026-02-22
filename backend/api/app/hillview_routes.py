@@ -15,8 +15,8 @@ from common.database import get_db
 from common.models import Photo, User
 from common.utc import format_utc
 from hidden_content_filters import apply_hidden_content_filters
-from auth import get_current_user_optional_with_query, get_current_user_optional
-from rate_limiter import rate_limit_public_read, general_rate_limiter
+from auth import get_current_user_optional_with_query
+from rate_limiter import general_rate_limiter
 
 log = logging.getLogger(__name__)
 log.setLevel(logging.DEBUG)

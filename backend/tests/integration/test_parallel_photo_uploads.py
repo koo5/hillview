@@ -11,21 +11,18 @@ Tests uploading multiple photos concurrently to verify:
 
 import asyncio
 import pytest
-import requests
 import os
 import sys
 import time
 import random
-from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List, Dict, Tuple
+from typing import Dict
 
 # Add paths for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from utils.base_test import BasePhotoTest
-from utils.test_utils import API_URL, upload_test_image, wait_for_photo_processing
+from utils.test_utils import upload_test_image, wait_for_photo_processing
 from utils.image_utils import create_test_image_full_gps
 
 
@@ -148,7 +145,7 @@ class TestParallelPhotoUploads(BasePhotoTest):
 			else:
 				failed_uploads.append(result)
 
-		print(f"\n=== Results Summary ===")
+		print("\n=== Results Summary ===")
 		print(f"Total uploads: {num_photos}")
 		print(f"Successful: {len(successful_uploads)}")
 		print(f"Failed: {len(failed_uploads)}")
@@ -161,7 +158,7 @@ class TestParallelPhotoUploads(BasePhotoTest):
 			print(f"Average verification time: {avg_verification_time:.2f}s")
 
 		if failed_uploads:
-			print(f"\n=== Failed Uploads ===")
+			print("\n=== Failed Uploads ===")
 			for i, failure in enumerate(failed_uploads):
 				if isinstance(failure, dict):
 					print(f"{i+1}. Photo {failure['photo_id']}: {failure['error']}")
@@ -216,7 +213,7 @@ class TestParallelPhotoUploads(BasePhotoTest):
 			else:
 				failed_uploads.append(result)
 
-		print(f"\n=== Results Summary ===")
+		print("\n=== Results Summary ===")
 		print(f"Total uploads: {num_photos}")
 		print(f"Successful: {len(successful_uploads)}")
 		print(f"Rate limited: {len(rate_limited)}")
@@ -267,7 +264,7 @@ class TestParallelPhotoUploads(BasePhotoTest):
 			upload_times = [(r['photo_id'], r['upload_time']) for r in successful_results]
 			upload_times.sort(key=lambda x: x[1])  # Sort by upload time
 
-			print(f"\n=== Upload Timing Analysis ===")
+			print("\n=== Upload Timing Analysis ===")
 			for photo_id, upload_time in upload_times:
 				print(f"Photo {photo_id}: {upload_time:.2f}s")
 
@@ -334,7 +331,7 @@ class TestParallelPhotoUploads(BasePhotoTest):
 			else:
 				exceptions.append(f"Photo {i}: Unexpected result type: {type(result)}")
 
-		print(f"\n=== Large Batch Results Summary ===")
+		print("\n=== Large Batch Results Summary ===")
 		print(f"Total uploads: {num_photos}")
 		print(f"Successful: {len(successful_uploads)}")
 		print(f"Failed: {len(failed_uploads)}")
@@ -347,7 +344,7 @@ class TestParallelPhotoUploads(BasePhotoTest):
 			upload_times = [r['upload_time'] for r in successful_uploads]
 			verification_times = [r['verification_time'] for r in successful_uploads]
 
-			print(f"\n=== Timing Analysis ===")
+			print("\n=== Timing Analysis ===")
 			print(f"Upload times - avg: {sum(upload_times)/len(upload_times):.2f}s, "
 				  f"min: {min(upload_times):.2f}s, max: {max(upload_times):.2f}s")
 			print(f"Verification times - avg: {sum(verification_times)/len(verification_times):.2f}s, "
@@ -358,7 +355,7 @@ class TestParallelPhotoUploads(BasePhotoTest):
 			print(f"Successful upload throughput: {throughput:.2f} uploads/second")
 
 		if failed_uploads:
-			print(f"\n=== Failed Uploads Analysis ===")
+			print("\n=== Failed Uploads Analysis ===")
 			error_types = {}
 			for failure in failed_uploads:
 				error = str(failure.get('error', 'Unknown'))
@@ -369,7 +366,7 @@ class TestParallelPhotoUploads(BasePhotoTest):
 				print(f"  {error_type}: {count} failures")
 
 		if exceptions:
-			print(f"\n=== Exception Analysis ===")
+			print("\n=== Exception Analysis ===")
 			exc_types = {}
 			for exc in exceptions:
 				exc_type = exc.split(':')[1] if ':' in exc else exc[:50]

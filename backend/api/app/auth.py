@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 import sys
 import os
 import secrets
@@ -6,11 +6,9 @@ import logging
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 
-from typing import Optional, Dict, Any
+from typing import Optional
 from fastapi import Depends, HTTPException, status, Request
-from fastapi.security import OAuth2PasswordBearer, OAuth2AuthorizationCodeBearer
-from jose import JWTError, jwt
-from passlib.context import CryptContext
+from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from pydantic import BaseModel
@@ -18,7 +16,7 @@ from pydantic import BaseModel
 from common.utc import utcnow, utc_plus_timedelta
 from common.database import get_db
 from common.models import User, TokenBlacklist
-from jwt_service import validate_token, create_access_token, create_refresh_token
+from jwt_service import validate_token, create_access_token, create_refresh_token  # noqa: F401 - re-exported
 
 logger = logging.getLogger(__name__)
 

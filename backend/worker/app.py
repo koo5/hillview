@@ -8,7 +8,6 @@ import os
 import asyncio
 import threading
 import logging
-import json
 import sys
 import time
 
@@ -22,19 +21,18 @@ load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 import aiofiles
 import httpx
 import math
-import json
 import numpy as np
 
 from typing import Optional, Any
 from uuid import UUID
 from pathlib import Path
 from datetime import datetime
-from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, Request, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
-from typing import Optional, Dict, Any, List, Tuple
+from typing import Dict
 from starlette.concurrency import run_in_threadpool
 from throttle import Throttle
 
@@ -575,7 +573,7 @@ async def process(file: UploadFile, client_signature: str, photo_id: str, user_i
 	except TimeoutError as te:
 		logger.error(f"TimeoutError (wait_for_free_ram?) for photo {photo_id}: {te}")
 		processing_status = "error"
-		error_message = f"Insufficient resources to process photo, please retry later"
+		error_message = "Insufficient resources to process photo, please retry later"
 		retry_after_minutes = 15
 
 	except ValueError as processing_error:

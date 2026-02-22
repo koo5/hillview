@@ -4,8 +4,8 @@ No specific business logic - just reusable JWT operations.
 """
 
 import os
-from datetime import datetime, timezone, timedelta
-from .utc import utcnow, utc_plus_timedelta
+from datetime import datetime, timedelta
+from .utc import utc_plus_timedelta
 from typing import Optional, Dict, Any, Tuple
 from jose import JWTError, jwt
 from cryptography.hazmat.primitives import serialization

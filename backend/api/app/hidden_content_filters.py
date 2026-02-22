@@ -7,7 +7,7 @@ from typing import Optional
 import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
-from common.models import Photo, User, HiddenPhoto, HiddenUser
+from common.models import Photo, HiddenPhoto, HiddenUser
 
 
 def apply_hidden_content_filters(

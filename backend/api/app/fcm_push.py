@@ -1,12 +1,11 @@
 """Google FCM (Firebase Cloud Messaging) integration for Hillview push notifications."""
 
-import asyncio
 import logging
 import os
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, List
 
 import firebase_admin
-from firebase_admin import credentials, messaging
+from firebase_admin import messaging
 
 logger = logging.getLogger(__name__)
 

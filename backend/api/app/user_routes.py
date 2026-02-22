@@ -6,7 +6,7 @@ import logging
 import asyncio
 import requests
 from typing import Optional, Dict, Any, Union
-from urllib.parse import urlencode, quote
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
 from fastapi.security import OAuth2PasswordRequestForm
@@ -26,11 +26,11 @@ from photos import delete_all_user_photo_files
 from jwt_service import create_upload_authorization_token
 from auth import (
 	authenticate_user, create_access_token, create_refresh_token, get_current_active_user,
-	get_password_hash, Token, UserCreate, UserLogin, UserOut, UserOAuth, RefreshTokenRequest,
+	get_password_hash, Token, UserCreate, UserOut, UserOAuth, RefreshTokenRequest,
 	OAUTH_PROVIDERS, ACCESS_TOKEN_EXPIRE_MINUTES,
 	blacklist_token, get_current_user, get_current_user_optional_with_query
 )
-from rate_limiter import auth_rate_limiter, check_auth_rate_limit, rate_limit_user_profile, rate_limit_user_registration, get_client_ip, general_rate_limiter, rate_limit_photo_operations
+from rate_limiter import auth_rate_limiter, check_auth_rate_limit, rate_limit_user_profile, rate_limit_user_registration, get_client_ip, general_rate_limiter
 from common.config import is_rate_limiting_disabled
 from security_utils import validate_username, validate_email, validate_oauth_redirect_uri, validate_password
 from security_audit import security_audit
@@ -58,8 +58,6 @@ async def cleanup_expired_sessions():
         log.info(f"Active OAuth sessions: {len(oauth_sessions)}")
 
 # Background cleanup task
-import asyncio
-from contextlib import asynccontextmanager
 
 _cleanup_task = None
 

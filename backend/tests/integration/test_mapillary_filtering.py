@@ -12,7 +12,7 @@ import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from utils.test_utils import clear_test_database, API_URL
+from utils.test_utils import API_URL
 from utils.base_test import BaseUserManagementTest
 
 class TestMapillaryFiltering(BaseUserManagementTest):

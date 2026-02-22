@@ -3,9 +3,7 @@
 Test suite for username/password authentication with test users.
 Tests the complete login flow including token validation and user roles.
 """
-import pytest
 import requests
-import json
 import sys
 import os
 import time

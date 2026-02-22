@@ -1,4 +1,5 @@
-import logging, re
+import logging
+import re
 from common.SecurityExceptions import SecurityValidationError
 
 from password_strength import PasswordPolicy

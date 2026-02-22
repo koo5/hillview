@@ -5,12 +5,8 @@ import os
 import pathlib
 import json
 import logging
-import shutil
 import subprocess
 import shlex
-import tempfile
-import uuid
-from pathlib import Path
 from typing import Optional, Dict, Any, List, Tuple
 from uuid import UUID
 from datetime import datetime, timezone
@@ -20,7 +16,6 @@ from blur import read_image
 os.environ["OPENCV_IMGCODECS_WEBP_MAX_FILE_SIZE"] = "209715200"  # 200MB
 import cv2
 from PIL import Image
-import exifread
 import httpx
 from throttle import Throttle
 
@@ -297,7 +292,7 @@ class PhotoProcessor:
 
 			if latitude is None or longitude is None:
 				result['debug']['has_gps_coords'] = False
-				logger.debug(f"No GPS coordinates found via exiftool.")
+				logger.debug("No GPS coordinates found via exiftool.")
 			else:
 				result['debug']['has_gps_coords'] = True
 
@@ -320,7 +315,7 @@ class PhotoProcessor:
 
 			if bearing is None:
 				result['debug']['has_bearing'] = False
-				logger.debug(f"No bearing data found via exiftool")
+				logger.debug("No bearing data found via exiftool")
 			else:
 				result['debug']['has_bearing'] = True
 
@@ -399,7 +394,7 @@ class PhotoProcessor:
 		if not anonymization_override:
 			# this takes a while to import, so do it here dynamically
 			logger.info(f"Importing anonymization module for {source_path}")
-			from anonymize import anonymize_image as _
+			from anonymize import anonymize_image as _  # noqa: F401
 
 		async with throttle.rate_limit(PARALLEL_PROCESSING_START_DELAY, 1500):
 

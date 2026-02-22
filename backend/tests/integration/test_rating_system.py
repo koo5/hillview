@@ -5,7 +5,6 @@ Tests the complete rating system with proper test infrastructure.
 """
 import requests
 import json
-import pytest
 import sys
 import os
 
@@ -14,8 +13,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from utils.base_test import BaseAuthTest
-from utils.test_utils import API_URL, recreate_test_users
-from utils.auth_utils import AuthTestHelper
+from utils.test_utils import recreate_test_users
 
 
 class TestPhotoRatingSystem(BaseAuthTest):

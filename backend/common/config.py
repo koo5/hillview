@@ -6,7 +6,7 @@ typed configuration objects for different parts of the application.
 """
 
 # Import environment initialization first
-from . import env_init
+from . import env_init  # noqa: F401 - side effect import
 
 import os
 import logging

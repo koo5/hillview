@@ -2,7 +2,6 @@
 
 import os
 import logging
-import cv2
 import torch
 from ultralytics import YOLO
 from detections import TARGET_CLASSES
@@ -28,9 +27,9 @@ def detect_targets(image):
 	global model
 
 	if model is None:
-		# Secure model loading with path validation
-		from common.security_utils import verify_model_file
 
+		# Secure model loading with path validation
+		#from common.security_utils import verify_model_file
 		# Verify model file exists and is valid before loading
 		#if not verify_model_file(model_path):
 		#	raise Exception("No valid YOLO model found")

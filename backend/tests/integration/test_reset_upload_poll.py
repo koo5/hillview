@@ -3,13 +3,11 @@
 Test that resets test users, logs in as test user, uploads a photo,
 and repeatedly polls the hillview endpoint until the photo shows up.
 """
-import pytest
 import asyncio
 import requests
 import time
 import sys
 import os
-import json
 from PIL import Image
 import io
 import tempfile
@@ -42,7 +40,6 @@ class TestResetUploadPoll:
 
     def create_test_image_with_gps(self, location_data: dict, color: str = 'red') -> bytes:
         """Create a minimal test JPEG image with GPS EXIF data using exiftool"""
-        from PIL import Image
 
         # Create a simple 100x100 image with specified color
         img = Image.new('RGB', (100, 100), color=color)
@@ -86,7 +83,6 @@ class TestResetUploadPoll:
 
     def create_simple_test_image(self) -> bytes:
         """Create a simple test image without GPS data as fallback"""
-        from PIL import Image
 
         # Create a simple 100x100 red image
         img = Image.new('RGB', (100, 100), color='red')
@@ -242,7 +238,7 @@ class TestResetUploadPoll:
                         altitude_match = abs(actual_altitude - expected_location['altitude']) < 1 if actual_altitude else False
 
                         if lat_match and lon_match and bearing_match and altitude_match:
-                            print(f"   ✅ All GPS data matches expected values!")
+                            print("   ✅ All GPS data matches expected values!")
                         else:
                             print(f"   ⚠️  GPS data mismatch: lat={lat_match}, lon={lon_match}, bearing={bearing_match}, alt={altitude_match}")
 

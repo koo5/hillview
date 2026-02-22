@@ -1,4 +1,5 @@
-import logging, os
+import logging
+import os
 import cv2
 from detections import TARGET_CLASSES
 

@@ -1,4 +1,3 @@
-import asyncio
 import datetime
 from datetime import timezone
 import logging
@@ -10,7 +9,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from typing import List, Optional, Tuple, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import and_, func, text
+from sqlalchemy import func, text
 from sqlalchemy.dialects.postgresql import insert
 from geoalchemy2 import functions as geo_func
 from geoalchemy2.shape import from_shape, to_shape
@@ -19,7 +18,6 @@ from shapely.ops import unary_union
 
 from common.utc import utcnow, format_utc
 from common.models import CachedRegion, MapillaryPhotoCache
-from common.database import get_db
 
 log = logging.getLogger(__name__)
 
@@ -244,7 +242,7 @@ class MapillaryCacheService:
 		complete_regions = [r for r in cached_regions if r.is_complete]
 
 		if not complete_regions:
-			log.info(f"Completeness check: No complete cached regions found")
+			log.info("Completeness check: No complete cached regions found")
 			return False
 
 		# Create the requested bbox as WKT polygon

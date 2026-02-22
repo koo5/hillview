@@ -7,7 +7,6 @@ import pytest
 import requests
 import os
 import sys
-from pathlib import Path
 
 # Add paths for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))

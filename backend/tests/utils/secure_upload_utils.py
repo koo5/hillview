@@ -12,11 +12,9 @@ Use these utilities instead of calling the old /upload endpoint directly.
 import httpx
 import json
 import base64
-import time
 import os
 from datetime import timedelta
 from common.utc import utcnow, format_utc
-from typing import Dict, Any, Optional
 import sys
 import pytest
 
@@ -205,7 +203,7 @@ class SecureUploadClient:
 			description="End-to-end secure upload test",
 			is_public=True
 		)
-		print(f"✅ Phase 2: Upload authorization successful")
+		print("✅ Phase 2: Upload authorization successful")
 		print(f"   Photo ID: {auth_data['photo_id']}")
 		print(f"   Worker URL: {auth_data['worker_url']}")
 		return auth_data

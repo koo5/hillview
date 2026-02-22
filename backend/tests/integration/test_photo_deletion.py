@@ -10,13 +10,8 @@ Tests the DELETE /api/photos/{photo_id} endpoint functionality including:
 """
 
 import requests
-import json
 import unittest
 import pytest
-import asyncio
-from pathlib import Path
-import tempfile
-import time
 
 # Import test utilities
 import sys

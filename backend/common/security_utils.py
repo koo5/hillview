@@ -7,7 +7,7 @@ import json
 import time
 import base64
 from pathlib import Path
-from typing import Optional, Set, Tuple, Dict, Any
+from typing import Optional, Set, Tuple
 import logging
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.asymmetric import ec
