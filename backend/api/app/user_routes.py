@@ -99,6 +99,7 @@ def store_oauth_session(tokens: Dict[str, Any], user_info: Dict[str, Any]) -> st
         'refresh_token': tokens.get('refresh_token'),
         'expires_at': expires_at,
         'token_expires_at': tokens['expires_at'],
+        'refresh_token_expires_at': tokens.get('refresh_token_expires_at'),
         'user_info': user_info,
         'created_at': utcnow()
     }

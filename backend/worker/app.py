@@ -153,9 +153,9 @@ def get_worker_identity() -> str:
 	# Get process start time (approximation)
 	start_time = datetime.now().strftime("%Y%m%d-%H%M%S")
 
-	# Create a short hash for uniqueness
+	# Create a short hash for uniqueness (not used for security, just identifier generation)
 	unique_string = f"{hostname}-{start_time}-{os.getpid()}"
-	hash_suffix = hashlib.md5(unique_string.encode()).hexdigest()[:5]
+	hash_suffix = hashlib.md5(unique_string.encode(), usedforsecurity=False).hexdigest()[:5]
 
 	return f"{hostname}_{start_time}_{hash_suffix}"
 
