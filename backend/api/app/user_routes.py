@@ -984,7 +984,7 @@ async def oauth_login_internal(
 
 	log.info(f"Request headers: {headers}")
 
-	token_response = requests.post(provider_config["token_url"], data=token_data, headers=headers)
+	token_response = requests.post(provider_config["token_url"], data=token_data, headers=headers, timeout=30)
 	log.info(f"Token exchange response: Status {token_response.status_code}, Headers: {dict(token_response.headers)}")
 
 	if token_response.status_code != 200:
@@ -1006,13 +1006,13 @@ async def oauth_login_internal(
 	if provider == "github":
 		headers["Accept"] = "application/json"
 
-	userinfo_response = requests.get(provider_config["userinfo_url"], headers=headers)
+	userinfo_response = requests.get(provider_config["userinfo_url"], headers=headers, timeout=30)
 
 	# For GitHub, we need to make an additional request to get the email if it's not public
 	if provider == "github" and userinfo_response.status_code == 200:
 		email = userinfo_response.json().get("email")
 		if not email:
-			email_response = requests.get("https://api.github.com/user/emails", headers=headers)
+			email_response = requests.get("https://api.github.com/user/emails", headers=headers, timeout=30)
 			if email_response.status_code == 200:
 				emails = email_response.json()
 				primary_email = next((e for e in emails if e.get("primary")), None)

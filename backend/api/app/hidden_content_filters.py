@@ -93,18 +93,19 @@ def apply_mapillary_hidden_content_filters(
 		return ""
 	
 	# Generate SQL fragments for hidden photo and user filtering
-	hidden_photo_filter = f"""
+	# Uses parameterized :current_user_id placeholder - caller must include current_user_id in query params
+	hidden_photo_filter = """
 		AND p.mapillary_id NOT IN (
-			SELECT photo_id FROM hidden_photos 
-			WHERE user_id = '{current_user_id}' 
+			SELECT photo_id FROM hidden_photos
+			WHERE user_id = :current_user_id
 			AND photo_source = 'mapillary'
 		)
 	"""
-	
-	hidden_user_filter = f"""
+
+	hidden_user_filter = """
 		AND (p.creator_id IS NULL OR p.creator_id NOT IN (
-			SELECT target_user_id FROM hidden_users 
-			WHERE hiding_user_id = '{current_user_id}' 
+			SELECT target_user_id FROM hidden_users
+			WHERE hiding_user_id = :current_user_id
 			AND target_user_source = 'mapillary'
 		))
 	"""

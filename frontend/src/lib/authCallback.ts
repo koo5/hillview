@@ -60,9 +60,8 @@ export async function handleAuthCallback(url?: string): Promise<boolean> {
 
             // Compare timestamps directly to handle timezone correctly
             if (expiryDate.getTime() <= now.getTime()) {
-                console.warn('🢄🔐 Token appears expired, but continuing anyway for testing');
-                // Temporarily commenting out the return to test the rest of the flow
-                // return false;
+                console.warn('🢄🔐 Token is expired, rejecting authentication');
+                return false;
             }
 
             console.log('🢄🔐 Auth callback received, completing authentication');
