@@ -7,7 +7,7 @@ const hasWindow = typeof window !== 'undefined';
 
 // Core constants for platform detection
 export const TAURI = hasWindow && Object.prototype.hasOwnProperty.call(window, '__TAURI_INTERNALS__');
-export const BROWSER = !TAURI;
+export const BROWSER = hasWindow && !TAURI;
 
 // Platform detection
 let platformName = 'browser';
