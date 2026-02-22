@@ -58,6 +58,7 @@ export function resizableSplit(node: HTMLElement, options: SplitOptions = {}) {
 	`;
 
 	// Add grip dots for visual feedback
+	// SECURITY: innerHTML is safe here - uses hardcoded template literals, no user input
 	divider.innerHTML = `
 		<div style="
 			position: absolute;

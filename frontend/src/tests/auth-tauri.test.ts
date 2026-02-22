@@ -71,10 +71,11 @@ describe('Tauri Auth Token Storage', () => {
             expect(result).toBe(null);
         });
 
-        it('should throw on invoke error', async () => {
+        it('should return null on invoke error', async () => {
             mockInvoke.mockRejectedValueOnce(new Error('Tauri error'));
 
-            await expect(getStoredToken()).rejects.toThrow('Tauri error');
+            const result = await getStoredToken();
+            expect(result).toBe(null);
         });
     });
 

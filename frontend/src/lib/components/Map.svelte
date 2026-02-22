@@ -1272,6 +1272,7 @@
             on:click={handleAttributionClick}
             on:keydown={(e) => e.key === 'Escape' && (showAttribution = false)}
         >
+            <!-- SECURITY: @html is safe here - attribution comes from hardcoded strings in tileProviders.ts, not user input -->
             {@html tileConfig.attribution || '© OpenStreetMap contributors'}
         </div>
     {/if}

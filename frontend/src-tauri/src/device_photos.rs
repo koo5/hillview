@@ -543,10 +543,6 @@ async fn save_photo_from_bytes(
 				// Trigger immediate upload worker to process the new photo. The naming is wrong at this point.
 				match app_handle.hillview().retry_failed_uploads() {
 					Ok(_) => {
-						info!(
-							"📤[UPLOAD_TRIGGER] Upload worker triggered for new photo: {}",
-							device_photo.filename
-						);
 					}
 					Err(e) => {
 						info!("📤[UPLOAD_TRIGGER] Failed to trigger upload worker: {}", e);

@@ -1,11 +1,15 @@
 // Network service worker for handling tile loading failures and background photo uploads
 
-// Import photo upload functionality
-importScripts('/serviceWorkerBundle.js');
+// Import photo upload functionality (only needed for background sync)
+let bundleLoaded = false;
+if (typeof SyncManager !== 'undefined') {
+    importScripts('/serviceWorkerBundle.js');
+    bundleLoaded = true;
+}
 
 // Log versions for debugging
 const SW_VERSION = self.SW_BUNDLE_VERSION || 'unknown';
-console.log(`[NetworkWorker] Using bundle version: ${SW_VERSION}`);
+console.log(`[NetworkWorker] Using bundle version: ${SW_VERSION}, bundle loaded: ${bundleLoaded}`);
 
 let currentTileProvider = null;
 
