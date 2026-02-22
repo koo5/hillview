@@ -67,7 +67,7 @@ class TestSecureUploadWorkflow:
 			assert "worker_url" in auth_data
 			assert "photo_id" in auth_data
 
-			print(f"✅ Phase 2: Upload authorization successful")
+			print("✅ Phase 2: Upload authorization successful")
 			print(f"   Photo ID: {auth_data['photo_id']}")
 			print(f"   Worker URL: {auth_data['worker_url']}")
 			return auth_data
@@ -85,7 +85,7 @@ class TestSecureUploadWorkflow:
 
 		# Use utility method to upload to worker
 		result = await upload_client.upload_to_worker(test_image, auth_data, client_keys, "secure_test.jpg")
-		print(f"✅ Phase 3: Worker processed upload successfully")
+		print("✅ Phase 3: Worker processed upload successfully")
 		print(f"   Photo ID: {result.get('photo_id', 'unknown')}")
 		return result
 
@@ -112,7 +112,7 @@ class TestSecureUploadWorkflow:
 	async def test_complete_secure_upload_workflow(self, test_image, upload_client):
 		"""Test the complete end-to-end secure upload workflow with a bad photo."""
 		print(f"\n{'='*60}")
-		print(f"TESTING COMPLETE SECURE UPLOAD WORKFLOW")
+		print("TESTING COMPLETE SECURE UPLOAD WORKFLOW")
 		print(f"{'='*60}")
 
 		# Test constants
@@ -127,7 +127,7 @@ class TestSecureUploadWorkflow:
 		auth_token = await upload_client.test_user_auth(setup_result)
 
 		# Phase 1: Client Authentication & Key Registration
-		print(f"\n--- Phase 1: Client Authentication & Key Registration ---")
+		print("\n--- Phase 1: Client Authentication & Key Registration ---")
 
 
 		# Generate client key pair for this workflow test
@@ -150,17 +150,17 @@ class TestSecureUploadWorkflow:
 
 
 		# Phase 2: Upload Authorization
-		print(f"\n--- Phase 2: Upload Authorization ---")
+		print("\n--- Phase 2: Upload Authorization ---")
 		auth_data = await upload_client.authorize_upload(auth_token, TEST_FILENAME)
 		if not auth_data:
 			raise Exception("Phase 2 (upload authorization) failed: No authorization data returned")
 
 		# Phase 3: Worker Processing
-		print(f"\n--- Phase 3: Worker Processing ---")
+		print("\n--- Phase 3: Worker Processing ---")
 		await upload_client.upload_to_worker(test_image, auth_data, client_keys, TEST_FILENAME)
 
 		# Phase 4: Final Verification - Client checks photo was processed
-		print(f"\n--- Phase 4: Final Verification ---")
+		print("\n--- Phase 4: Final Verification ---")
 
 		photo_id = auth_data["photo_id"]
 		async with httpx.AsyncClient() as client:

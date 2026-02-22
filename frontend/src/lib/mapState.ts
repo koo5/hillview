@@ -10,6 +10,7 @@ import {AngularRangeCuller, sortPhotosByBearing} from './AngularRangeCuller';
 import {normalizeBearing, getBearingColor} from './utils/bearingUtils';
 import {invoke} from "@tauri-apps/api/core";
 import {TAURI} from "$lib/tauri";
+;
 
 const angularRangeCuller = new AngularRangeCuller();
 
@@ -157,14 +158,17 @@ export const newPhotoInFront = derived(
 );
 
 newPhotoInFront.subscribe(photo => {
-	if (photo != get(photoInFront)) {
+	/*console.log(`picks: newPhotoInFront...`)
+	console.log(`picks: photo: ${JSON.stringify(photo)}`);
+	console.log(`picks: photoInFront: ${JSON.stringify(get(photoInFront))}`);*/
+	if (photo?.uid != get(photoInFront)?.uid) {
 		photoInFront.set(photo);
-	}
-	const photoUid = photo?.uid;
-	if (photoUid)
-	{
-		picks.set(new Set([photoUid]));
-		console.log(`🢄picks: set to photoInFront uid ${photoUid}`);
+		const photoUid = photo?.uid;
+		if (photoUid)
+		{
+			picks.set(new Set([photoUid]));
+			//console.log(`🢄picks: set to photoInFront uid ${photoUid}`);
+		}
 	}
 });
 
@@ -269,10 +273,10 @@ function calculateAbsBearingDiff(bearing1: number, bearing2: number): number {
 
 // Update functions with selective reactivity
 export async function updateSpatialState(updates: Partial<SpatialState>, source: 'gps' | 'map' = 'map') {
-	console.log(`Spatial: updateSpatialState called with updates ${JSON.stringify(updates)} from source ${source}`);
+	//console.log(`Spatial: updateSpatialState called with updates ${JSON.stringify(updates)} from source ${source}`);
 	let old = get(spatialState);
 	if (JSON.stringify(old) === JSON.stringify({...old, ...updates, source})) {
-		console.log('Spatial: No changes in spatial state, skipping update');
+		//console.log('Spatial: No changes in spatial state, skipping update');
 		return;
 	}
 	spatialState.update(state => ({...state, ...updates, source}));
@@ -296,6 +300,7 @@ export async function updateSpatialState(updates: Partial<SpatialState>, source:
 }
 
 export function updateBearing(bearing: number, source: string = 'map', photoUid?: string, accuracy_level?: number | null) {
+	//console.log('🢄📍 updateBearing called:', bearing, source, accuracy_level);
 	bearingState.update(state => ({...state, bearing, source, photoUid, accuracy_level}));
 	if (!source.startsWith('android') && TAURI) {
 		invoke('plugin:hillview|cmd', {command: 'update_orientation', params: {
@@ -303,7 +308,7 @@ export function updateBearing(bearing: number, source: string = 'map', photoUid?
 			trueHeading: bearing,
 			source: source,
 			accuracyLevel: accuracy_level
-		}});
+		}}).catch(err => console.error('🢄📍 Failed to update orientation:', err));
 	}
 }
 
@@ -313,9 +318,6 @@ export function updateBearingByDiff(diff: number) {
 	updateBearing(newBearing);
 }
 
-export function updateBearingWithPhoto(photo: PhotoData, source: string = 'photo_navigation') {
-	updateBearing(photo.bearing, source, photo.uid);
-}
 
 /*
 // Calculate range from map center and bounds

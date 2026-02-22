@@ -8,14 +8,14 @@ import {
 import type { Bounds } from './photoWorkerTypes';
 import { CullingGrid } from './CullingGrid';
 import { AngularRangeCuller } from './AngularRangeCuller';
-import type { PhotoData, PhotoId } from './types/photoTypes';
+import type { PhotoData, PhotoId } from './photoWorkerTypes';
 
 describe('photoProcessingUtils', () => {
   const createTestPhoto = (id: PhotoId, lat: number, lng: number, bearing: number = 0): PhotoData => ({
     id,
     uid: `test-${id}`,
     source_type: 'test',
-    file: `photo_${id}.jpg`,
+    filename: `photo_${id}.jpg`,
     url: `https://example.com/photo_${id}.jpg`,
     coord: new LatLng(lat, lng),
     bearing,

@@ -7,7 +7,7 @@ const hasWindow = typeof window !== 'undefined';
 
 // Core constants for platform detection
 export const TAURI = hasWindow && Object.prototype.hasOwnProperty.call(window, '__TAURI_INTERNALS__');
-export const BROWSER = !TAURI;
+export const BROWSER = hasWindow && !TAURI;
 
 // Platform detection
 let platformName = 'browser';
@@ -111,13 +111,23 @@ export function isSensorAvailable(): boolean {
 // Camera permission checking
 export const tauriCamera = TAURI ? {
     checkCameraPermission: async (): Promise<boolean> => {
-        const result = await invoke('plugin:hillview|check_camera_permission');
-        return (result as { granted: boolean }).granted;
+        try {
+            const result = await invoke('plugin:hillview|check_camera_permission');
+            return (result as { granted: boolean }).granted;
+        } catch (err) {
+            console.error('🢄📷 Failed to check camera permission:', err);
+            return false;
+        }
     },
 
     requestCameraPermission: async (): Promise<{ granted: boolean; error?: string }> => {
-        const result = await invoke('plugin:hillview|request_camera_permission');
-        return result as { granted: boolean; error?: string };
+        try {
+            const result = await invoke('plugin:hillview|request_camera_permission');
+            return result as { granted: boolean; error?: string };
+        } catch (err) {
+            console.error('🢄📷 Failed to request camera permission:', err);
+            return { granted: false, error: String(err) };
+        }
     }
 } : null;
 

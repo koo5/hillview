@@ -54,7 +54,6 @@
 				uploadFiles,
 				description,
 				isPublic,
-				undefined, // Use default worker URL
 				(completed, total, currentFile) => {
 					uploadProgress = Math.round((completed / total) * 100);
 					if (currentFile) {

@@ -15,8 +15,8 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives import hashes
 
 # Re-export from common for convenience
-from common.jwt_utils import generate_ecdsa_key_pair, serialize_private_key, serialize_public_key
-from common.security_utils import generate_client_key_id
+from common.jwt_utils import generate_ecdsa_key_pair, serialize_private_key, serialize_public_key  # noqa: F401
+from common.security_utils import generate_client_key_id  # noqa: F401
 
 
 def generate_push_signature(private_key, distributor_package: str, push_endpoint: str, timestamp: int) -> str:

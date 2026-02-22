@@ -3,7 +3,6 @@ import logging
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 from datetime import datetime
-import httpx
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -137,7 +136,7 @@ async def register_push(
 	# Calculate client_key_id from public key (prevents impersonation)
 	client_key_id = generate_client_key_id(request.public_key_pem)
 
-	logger.info(f"📨 Push registration request received:")
+	logger.info("📨 Push registration request received:")
 	logger.info(f"  calculated_client_key_id: {client_key_id}")
 	#logger.info(f"  client_key: {request.public_key_pem[:50]}...")
 	logger.info(f"  client_key: {request.public_key_pem}")

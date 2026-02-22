@@ -5,6 +5,18 @@
 
 import { test, expect } from '@playwright/test';
 
+// Declare debug properties on window for TypeScript
+declare global {
+  interface Window {
+    __DEBUG__?: {
+      picks?: string[];
+      photoInFront?: { id: string };
+      [key: string]: any;
+    };
+    __WORKER_MESSAGES__?: any[];
+  }
+}
+
 test.describe('Photo Navigation Persistence', () => {
   test.beforeEach(async ({ page }) => {
     // Navigate to the app
@@ -159,11 +171,11 @@ test.describe('Picks Worker Integration', () => {
       if (window.Worker) {
         const OriginalWorker = window.Worker;
         window.Worker = class extends OriginalWorker {
-          constructor(...args) {
+          constructor(...args: ConstructorParameters<typeof Worker>) {
             super(...args);
             const originalPostMessage = this.postMessage.bind(this);
-            this.postMessage = (message) => {
-              window.__WORKER_MESSAGES__.push(message);
+            this.postMessage = (message: any) => {
+              window.__WORKER_MESSAGES__!.push(message);
               return originalPostMessage(message);
             };
           }
@@ -183,9 +195,9 @@ test.describe('Picks Worker Integration', () => {
     await page.waitForTimeout(500);
 
     // Check that picksUpdated message was sent to worker
-    const workerMessages = await page.evaluate(() => window.__WORKER_MESSAGES__);
+    const workerMessages = await page.evaluate(() => window.__WORKER_MESSAGES__ || []);
 
-    const picksMessage = workerMessages.find(msg => msg.type === 'picksUpdated');
+    const picksMessage = workerMessages.find((msg: any) => msg.type === 'picksUpdated');
     expect(picksMessage).toBeDefined();
     expect(picksMessage.data.picks).toBeInstanceOf(Array);
   });

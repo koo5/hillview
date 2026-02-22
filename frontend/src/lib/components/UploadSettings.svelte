@@ -1,19 +1,16 @@
 <script lang="ts">
 	import {onMount} from 'svelte';
-	import {TAURI} from "$lib/tauri.js";
+	import {TAURI, BROWSER} from "$lib/tauri.js";
 	import {auth} from '$lib/auth.svelte';
 	import type {User} from '$lib/auth.svelte';
 	import {navigateWithHistory} from '$lib/navigation.svelte';
-	import {autoUploadSettings} from "$lib/autoUploadSettings";
+	import {settings, updateSettings} from '$lib/settings';
 	import LicenseSelector from './LicenseSelector.svelte';
 	import {photoLicense} from '$lib/data.svelte';
 	import SettingsSectionHeader from "$lib/components/SettingsSectionHeader.svelte";
 	import MyExternalLink from "$lib/components/MyExternalLink.svelte";
 
-	export let onSaveSuccess = (message: string) => {
-	};
-
-	export let onCancel: (() => void) | null = null;
+	export let onSaveSuccess = (_message: string) => {};
 
 	let autoUploadEnabled = false;
 	let autoUploadPromptEnabled = true;
@@ -31,11 +28,13 @@
 			user = authState.is_authenticated ? authState.user : null;
 		});
 
-		const unsubscribe2 = autoUploadSettings.subscribe(value => {
-			//console.log('Auto-upload settings loaded:', JSON.stringify(value));
-			autoUploadEnabled = value.value?.auto_upload_enabled || false;
-			autoUploadPromptEnabled = value.value?.auto_upload_prompt_enabled !== false;
-			wifiOnly = value.value?.wifi_only !== false;
+		const unsubscribe2 = settings.subscribe(state => {
+			const value = state?.value;
+			if (value) {
+				autoUploadEnabled = value.auto_upload_enabled || false;
+				autoUploadPromptEnabled = value.auto_upload_prompt_enabled !== false;
+				wifiOnly = value.wifi_only !== false;
+			}
 		});
 
 		// Return cleanup function
@@ -46,23 +45,17 @@
 	});
 
 	async function saveSettings() {
-		await autoUploadSettings.persist(
-			{
-				auto_upload_enabled: autoUploadEnabled,
-				auto_upload_prompt_enabled: autoUploadPromptEnabled,
-				wifi_only: wifiOnly
-			}
-		);
+		await updateSettings({
+			auto_upload_enabled: autoUploadEnabled,
+			auto_upload_prompt_enabled: autoUploadPromptEnabled,
+			wifi_only: wifiOnly
+		});
 
 		const statusText = autoUploadEnabled ? 'enabled' :
 			!autoUploadPromptEnabled ? 'disabled (never prompt)' : 'disabled';
 		const msg = `Auto-upload ${statusText}`;
 		onSaveSuccess(msg);
 		alert = {type: 'success', message: msg};
-
-		if (onCancel) {
-			onCancel();
-		}
 	}
 
 	function handleRadioChange(value: string) {
@@ -88,7 +81,7 @@
 	}
 </script>
 
-{#if TAURI}
+{#if TAURI || BROWSER}
 	<SettingsSectionHeader>Auto-Upload</SettingsSectionHeader>
 		<p class="help-text">
 			Automatically upload photos taken with the app's camera, to be visible in <MyExternalLink href="https://hillview.cz" >hillview.cz</MyExternalLink>
@@ -97,7 +90,7 @@
 
 	<div class="form-group">
 
-		<LicenseSelector required={true} />
+		<LicenseSelector />
 
 		<div class="radio-group" class:disabled={$photoLicense === null}>
 			<label class="radio-option">
@@ -117,7 +110,6 @@
 					   name="autoUpload"
 					   checked={radioState === 'disabled'}
 					   on:change={() => handleRadioChange('disabled')}
-					   disabled={$photoLicense === null}
 					   data-testid="auto-upload-disabled"/>
 				<div class="option-content">
 					<span class="option-title">Disabled</span>
@@ -129,7 +121,6 @@
 					   name="autoUpload"
 					   checked={radioState === 'disabled_never'}
 					   on:change={() => handleRadioChange('disabled_never')}
-					   disabled={$photoLicense === null}
 					   data-testid="auto-upload-disabled-never"/>
 				<div class="option-content">
 					<span class="option-title">Disabled (Never prompt)</span>
@@ -138,7 +129,7 @@
 			</label>
 		</div>
 
-		{#if autoUploadEnabled}
+		{#if autoUploadEnabled && TAURI}
 			<div class="checkbox-option">
 				<label>
 					<input type="checkbox"

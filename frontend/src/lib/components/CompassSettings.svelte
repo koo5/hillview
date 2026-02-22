@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { compassSettings } from '$lib/compassSettings';
+	import { settings, updateSettings } from '$lib/settings';
 	import SettingsSectionHeader from "$lib/components/SettingsSectionHeader.svelte";
 
 	export let onSaveSuccess: (message: string) => void = () => {};
@@ -9,8 +9,8 @@
 	let loading = true;
 
 	onMount(() => {
-		const unsubscribe = compassSettings.subscribe(value => {
-			if (value.value) {
+		const unsubscribe = settings.subscribe(value => {
+			if (value?.value) {
 				landscapeWorkaround = value.value.landscape_armor22_workaround;
 				loading = false;
 			}
@@ -20,9 +20,7 @@
 
 	async function handleToggle() {
 		landscapeWorkaround = !landscapeWorkaround;
-		await compassSettings.persist({
-			landscape_armor22_workaround: landscapeWorkaround
-		});
+		await updateSettings({landscape_armor22_workaround: landscapeWorkaround});
 		onSaveSuccess(`Landscape compass workaround ${landscapeWorkaround ? 'enabled' : 'disabled'}`);
 	}
 </script>
@@ -35,7 +33,7 @@
 			<span class="option-title">Landscape mode workaround</span>
 			<span class="option-description">
 				Fix compass readings when device is held in landscape orientation.
-				Enable this if compass direction is wrong when holding the phone sideways.
+				Enable this if compass direction is inverted when holding the phone sideways and facing slightly up.
 			</span>
 		</div>
 		<input

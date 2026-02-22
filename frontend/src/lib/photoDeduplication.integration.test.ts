@@ -20,7 +20,7 @@ describe('Photo Deduplication - Core Functionality', () => {
         id,
         uid: `${sourceId}-${id}`,
         source_type: 'stream',
-        file: `${id}.jpg`,
+        filename: `${id}.jpg`,
         url: `http://example.com/${id}.jpg`,
         coord,
         bearing: 45,

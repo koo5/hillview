@@ -5,14 +5,12 @@ import requests
 import time
 import os
 import sys
-import pytest
 
 # Add the backend directory to the path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from utils.base_test import BaseAuthTest
-from utils.auth_utils import auth_helper, TEST_CREDENTIALS
 
 API_URL = os.getenv("API_URL", "http://localhost:8055/api")
 

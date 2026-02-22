@@ -1,6 +1,6 @@
 <script lang="ts">
-	import {addPluginListener, type PluginListener} from '@tauri-apps/api/core';
-	import {TAURI} from '$lib/tauri';
+	import {addPluginListener, invoke, type PluginListener} from '@tauri-apps/api/core';
+	import {BROWSER, TAURI} from '$lib/tauri';
 	import {onDestroy, onMount, tick} from 'svelte';
 	import {browser} from '$app/environment';
 	import {parsePhotoUid} from '$lib/urlUtils';
@@ -8,7 +8,10 @@
 	import Map from './Map.svelte';
 	import {
 		Camera,
-		Menu
+		Menu,
+		Bug,
+		Maximize2,
+		Minimize2
 	} from 'lucide-svelte';
 	import {
 		app,
@@ -42,7 +45,7 @@
 	import AlertArea from './AlertArea.svelte';
 	import NavigationMenu from './NavigationMenu.svelte';
 	import type {DevicePhotoMetadata} from '$lib/types/photoTypes';
-	import {enableCompass, disableCompass} from '$lib/compass.svelte.js';
+	import {enableBearingTracking, disableBearingTracking} from '$lib/bearingTracking';
 	import {networkWorkerManager} from "$lib/networkWorkerManager";
 	import {enableLocationTracking} from "$lib/locationManager";
 	import InsetGradients from "$lib/components/InsetGradients.svelte";
@@ -52,6 +55,44 @@
 	let update_url: boolean = false;
 	let menuOpen = false;
 	let containerElement: HTMLElement;
+	let isFullscreen = false;
+	let screenAngleUnlisten: PluginListener | null = null;
+
+	function toggleFullscreen() {
+		if (!document.fullscreenElement) {
+			document.documentElement.requestFullscreen().then(() => {
+				isFullscreen = true;
+			}).catch(err => {
+				console.warn('Fullscreen request failed:', err);
+			});
+		} else {
+			document.exitFullscreen().then(() => {
+				isFullscreen = false;
+			});
+		}
+	}
+
+	async function handleNativeCapture() {
+		console.log('🢄[NATIVE CAMERA] Starting native camera capture');
+		try {
+			const result: any = await invoke('take_native_photo');
+			console.log('🢄[NATIVE CAMERA] Result:', JSON.stringify(result));
+			if (result.success) {
+				console.log('🢄[NATIVE CAMERA] Photo captured with id:', result.photo_id);
+			} else {
+				console.error('🢄[NATIVE CAMERA] Error:', result.error);
+			}
+		} catch (error) {
+			console.error('🢄[NATIVE CAMERA] Invoke error:', error);
+		}
+	}
+
+	// Listen for fullscreen changes (e.g., user presses Escape)
+	if (browser) {
+		document.addEventListener('fullscreenchange', () => {
+			isFullscreen = !!document.fullscreenElement;
+		});
+	}
 
 	$: showCameraView = $app.activity === 'capture';
 
@@ -88,6 +129,8 @@
 			addPluginListener('hillview', 'screen-angle', (data: any) => {
 				console.log('🢄device-orientation: Tauri screen angle changed:', data.angle);
 				screenOrientationAngle.set(data.angle);
+			}).then(listener => {
+				screenAngleUnlisten = listener;
 			});
 
 		} else {
@@ -120,6 +163,10 @@
 		window.removeEventListener('resize', updateOrientation);
 		window.removeEventListener('orientationchange', updateOrientation);
 		screen.orientation.removeEventListener("change", handleOrientationChange);
+		if (screenAngleUnlisten) {
+			screenAngleUnlisten.unregister();
+			screenAngleUnlisten = null;
+		}
 	});
 
 
@@ -382,9 +429,9 @@
 	$: if (appOldActivity != $app.activity) {
 		if ($app.activity === 'capture') {
 			enableLocationTracking();
-			enableCompass();
+			enableBearingTracking();
 		} else if ($app.activity === 'view') {
-			disableCompass();
+			disableBearingTracking();
 		}
 		appOldActivity = $app.activity;
 	}
@@ -403,31 +450,31 @@
 	<Menu size={24}/>
 </button>
 
+<button
+	class="camera-button {showCameraView ? 'active' : ''}"
+	style="transform: rotate({getCssRotationFromOrientation($relativeOrientationExif)}deg);"
+	on:click={toggleCamera}
+	on:keydown={(e) => e.key === 'Enter' && toggleCamera()}
+	aria-label="{showCameraView ? 'Close camera' : 'Take photo'}"
+	title="{showCameraView ? 'Close camera' : 'Take photos'}"
+	data-testid="camera-button"
+>
+	<Camera size={24}/>
+</button>
 
-{#if TAURI || $app.debug_enabled}
+{#if BROWSER}
 	<button
-		class="camera-button {showCameraView ? 'active' : ''}"
-		style="transform: rotate({getCssRotationFromOrientation($relativeOrientationExif)}deg);"
-		on:click={toggleCamera}
-		on:keydown={(e) => e.key === 'Enter' && toggleCamera()}
-		aria-label="{showCameraView ? 'Close camera' : 'Take photo'}"
-		title="{showCameraView ? 'Close camera' : 'Take photos'}"
-		data-testid="camera-button"
+		on:click={toggleFullscreen}
+		class="fullscreen-toggle"
+		on:keydown={(e) => e.key === 'Enter' && toggleFullscreen()}
+		aria-label="{isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}"
+		title="{isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}"
 	>
-		<Camera size={24}/>
-	</button>
-{/if}
-
-<!--{#if import.meta.env.VITE_DEV_MODE === 'true'}-->
-{#if $app.debug_enabled}
-	<button
-		on:click={toggleDebug}
-		class="debug-toggle"
-		on:keydown={(e) => e.key === 'Enter' && toggleDebug()}
-		aria-label="Toggle debug overlay"
-		title="Toggle debug overlay"
-	>
-		{getCssRotationFromOrientation($relativeOrientationExif)}
+		{#if isFullscreen}
+			<Minimize2 size={24}/>
+		{:else}
+			<Maximize2 size={24}/>
+		{/if}
 	</button>
 {/if}
 
@@ -459,6 +506,31 @@
 		left: 0;
 		{isPortrait ? `height: ${$splitPercent}%; width: 100%;` : `width: ${$splitPercent}%; height: 100%;`}
 	">
+
+		{#if $app.debug_enabled}
+			<button
+				on:click={toggleDebug}
+				class="debug-toggle"
+				on:keydown={(e) => e.key === 'Enter' && toggleDebug()}
+				aria-label="Toggle debug overlay"
+				title="Toggle debug overlay"
+			>
+				<Bug size={24}/>
+			</button>
+		{/if}
+
+		{#if TAURI && $app.debug}
+			<button
+				on:click={handleNativeCapture}
+				class="native-camera-toggle"
+				aria-label="Native camera capture"
+				title="Native camera capture (tauri-plugin-camera)"
+				data-testid="native-camera-btn"
+			>
+				📸
+			</button>
+		{/if}
+
 		{#if $showCalibrationView}
 			<CompassCalibration />
 		{:else if showCameraView}
@@ -563,10 +635,10 @@
 		transition: all 0.2s ease, transform 0.3s ease;
 	}
 
-	.debug-toggle {
+	.fullscreen-toggle {
 		position: absolute;
-		top: calc(10px + var(--safe-area-inset-top, 0px));
-		left: calc(110px + var(--safe-area-inset-left, 0px));
+		top: calc(0px + var(--safe-area-inset-top, 10px));
+		left: calc(100px + var(--safe-area-inset-left, 10px));
 		z-index: 30001;
 		background: white;
 		border-radius: 50%;
@@ -580,6 +652,50 @@
 		border: none;
 		padding: 0;
 		transition: all 0.2s ease;
+	}
+
+	.debug-toggle {
+		position: absolute;
+		top: calc(0px + var(--safe-area-inset-top, 10px));
+		right: calc(0px + var(--safe-area-inset-right, 15px));
+		z-index: 30001;
+		background: white;
+		border-radius: 50%;
+		width: 40px;
+		height: 40px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+		cursor: pointer;
+		border: none;
+		padding: 0;
+		transition: all 0.2s ease;
+	}
+
+	.native-camera-toggle {
+		position: absolute;
+		top: calc(0px + var(--safe-area-inset-top, 0px));
+		right: calc(50px + var(--safe-area-inset-right, 0px));
+		z-index: 30001;
+		background: orange;
+		border-radius: 50%;
+		width: 40px;
+		height: 40px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+		cursor: pointer;
+		border: none;
+		padding: 0;
+		font-size: 20px;
+		transition: all 0.2s ease;
+	}
+
+	.native-camera-toggle:active {
+		transform: scale(0.95);
+		background: darkorange;
 	}
 
 	.camera-button.active {

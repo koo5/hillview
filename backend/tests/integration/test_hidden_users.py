@@ -12,11 +12,8 @@ Covers:
 """
 
 import requests
-import json
-import time
 import os
 import sys
-from datetime import datetime
 
 # Add paths for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))

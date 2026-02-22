@@ -12,7 +12,7 @@ describe('AngularRangeCuller', () => {
         id: 'photo1',
         uid: 'test-photo1',
         source_type: 'device',
-        file: 'test.jpg',
+        filename: 'test.jpg',
         url: 'file://test.jpg',
         coord: { lat: 50.05, lng: 14.35 },
         bearing: 0,

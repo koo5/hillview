@@ -7,15 +7,13 @@ import requests
 import json
 import sys
 import os
-import pytest
 
 # Add paths for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from utils.base_test import BaseAuthTest
-from utils.test_utils import API_URL, recreate_test_users
-from utils.auth_utils import AuthTestHelper
+from utils.test_utils import API_URL
 
 class TestPhotoRatingIntegration(BaseAuthTest):
     """Integration tests for photo rating functionality using proper test base class"""
@@ -36,7 +34,7 @@ class TestPhotoRatingIntegration(BaseAuthTest):
 
     def test_set_thumbs_up_rating(self):
         """Test setting a thumbs up rating"""
-        print(f"\n=== Testing Set Thumbs Up Rating ===")
+        print("\n=== Testing Set Thumbs Up Rating ===")
         
         rating_data = {"rating": "thumbs_up"}
         response = requests.post(
@@ -62,7 +60,7 @@ class TestPhotoRatingIntegration(BaseAuthTest):
 
     def test_get_photo_rating(self):
         """Test getting photo rating information"""
-        print(f"\n=== Testing Get Photo Rating ===")
+        print("\n=== Testing Get Photo Rating ===")
         
         response = requests.get(
             f"{API_URL}/ratings/{self.test_source}/{self.test_photo_id}",
@@ -82,7 +80,7 @@ class TestPhotoRatingIntegration(BaseAuthTest):
 
     def test_change_to_thumbs_down(self):
         """Test changing rating from thumbs up to thumbs down"""
-        print(f"\n=== Testing Change to Thumbs Down ===")
+        print("\n=== Testing Change to Thumbs Down ===")
         
         rating_data = {"rating": "thumbs_down"}
         response = requests.post(
@@ -103,7 +101,7 @@ class TestPhotoRatingIntegration(BaseAuthTest):
 
     def test_delete_rating(self):
         """Test deleting a photo rating"""
-        print(f"\n=== Testing Delete Rating ===")
+        print("\n=== Testing Delete Rating ===")
         
         response = requests.delete(
             f"{API_URL}/ratings/{self.test_source}/{self.test_photo_id}",
@@ -123,7 +121,7 @@ class TestPhotoRatingIntegration(BaseAuthTest):
 
     def test_get_rating_after_delete(self):
         """Test getting rating after deletion"""
-        print(f"\n=== Testing Get Rating After Delete ===")
+        print("\n=== Testing Get Rating After Delete ===")
         
         response = requests.get(
             f"{API_URL}/ratings/{self.test_source}/{self.test_photo_id}",
@@ -141,7 +139,7 @@ class TestPhotoRatingIntegration(BaseAuthTest):
 
     def test_invalid_photo_source(self):
         """Test rating with invalid photo source"""
-        print(f"\n=== Testing Invalid Photo Source ===")
+        print("\n=== Testing Invalid Photo Source ===")
         
         rating_data = {"rating": "thumbs_up"}
         response = requests.post(
@@ -162,7 +160,7 @@ class TestPhotoRatingIntegration(BaseAuthTest):
 
     def test_invalid_rating_type(self):
         """Test setting invalid rating type"""
-        print(f"\n=== Testing Invalid Rating Type ===")
+        print("\n=== Testing Invalid Rating Type ===")
         
         rating_data = {"rating": "invalid_rating"}
         response = requests.post(
@@ -183,7 +181,7 @@ class TestPhotoRatingIntegration(BaseAuthTest):
 
     def test_unauthorized_access(self):
         """Test rating endpoints without authentication"""
-        print(f"\n=== Testing Unauthorized Access ===")
+        print("\n=== Testing Unauthorized Access ===")
         
         # Test without auth header
         rating_data = {"rating": "thumbs_up"}
@@ -209,7 +207,7 @@ class TestPhotoRatingIntegration(BaseAuthTest):
 
     def test_mapillary_photo_rating(self):
         """Test rating a mapillary photo"""
-        print(f"\n=== Testing Mapillary Photo Rating ===")
+        print("\n=== Testing Mapillary Photo Rating ===")
         
         mapillary_photo_id = "mapillary_test_photo_123"
         rating_data = {"rating": "thumbs_up"}

@@ -3,9 +3,6 @@
     import { CreativeCommons, ExternalLink } from 'lucide-svelte';
     import { openExternalUrl } from '$lib/urlUtils';
 
-    export let disabled = false;
-    export let required = false;
-
     $: isChecked = $photoLicense === 'CC BY-SA 4.0';
     $: isLicenseSet = $photoLicense !== null;
 
@@ -19,13 +16,12 @@
     }
 </script>
 
-
+<div class={isLicenseSet ? '' : 'requirement-notice'}>
     <label class="checkbox-label">
         <input
             type="checkbox"
             checked={isChecked}
             on:change={handleChange}
-            {disabled}
             data-testid="license-checkbox"
         />
 
@@ -38,20 +34,19 @@
                     class="info-link"
                     on:click={openLicenseInfo}
                     title="Learn more about this license"
-                    tabindex={disabled ? -1 : 0}
+                    tabindex={0}
                 >
                     <ExternalLink size={14} />
                 </button>
             </div>
-			{#if required && !isLicenseSet}
-				<div class="requirement-notice">
-					Upload is disabled until you select a license for your photos.
-				</div>
+			{#if !isLicenseSet}
+					Select a license to enable uploads.
+
 			{/if}
 
         </div>
     </label>
-
+</div>
 <style>
 
     .checkbox-label {

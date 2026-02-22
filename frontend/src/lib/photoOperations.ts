@@ -29,6 +29,8 @@ interface SourceCache {
     cachedBounds?: Bounds; // The geographic bounds that were completely cached
 }
 
+const doLog = false;
+
 export class PhotoOperations {
     private loadingProcesses = new Map<string, PhotoSourceLoader>();
     private sourceCache = new Map<string, SourceCache>(); // Cache for each source
@@ -52,7 +54,7 @@ export class PhotoOperations {
         console.log('🢄PhotoOperations: Cleaning up all resources');
         // Cancel all active loading processes
         for (const [sourceId, process] of this.loadingProcesses.entries()) {
-            console.log(`🢄PhotoOperations: Cancelling loader for ${sourceId}`);
+            if (doLog) console.log(`🢄PhotoOperations: Cancelling loader for ${sourceId}`);
             process.cancel();
         }
         this.loadingProcesses.clear();
@@ -75,10 +77,10 @@ export class PhotoOperations {
         config: { sources: SourceConfig[]; expectedWorkerVersion?: string; [key: string]: any },
         callbacks: OperationCallbacks
     ): Promise<void> {
-        console.log(`🢄PhotoOperations: Processing config update (${processId})`);
+        if (doLog) console.log(`🢄PhotoOperations: Processing config update (${processId})`);
 
         if (callbacks.shouldAbort(processId)) {
-            console.log(`🢄PhotoOperations: PROCESSCONFIG: Config process ${processId} aborted before completion`);
+            if (doLog) console.log(`🢄PhotoOperations: PROCESSCONFIG: Config process ${processId} aborted before completion`);
             return;
         }
 
@@ -92,16 +94,16 @@ export class PhotoOperations {
         const sources = config.sources;
         let allLoadedPhotos: PhotoData[] = [];
         const enabledSourceIds = new Set(sources.filter(s => s.enabled).map(s => s.id));
-        console.log(`🢄PhotoOperations: PROCESSCONFIG: enabledSourceIds: ${Array.from(enabledSourceIds).join(', ')}, loadingProcesses: ${Array.from(this.loadingProcesses.keys()).join(', ')}`);
+        if (doLog) console.log(`🢄PhotoOperations: PROCESSCONFIG: enabledSourceIds: ${Array.from(enabledSourceIds).join(', ')}, loadingProcesses: ${Array.from(this.loadingProcesses.keys()).join(', ')}`);
 
         for (const [sourceId, process] of this.loadingProcesses.entries()) {
             if (!enabledSourceIds.has(sourceId)) {
-                console.log(`🢄PhotoOperations: PROCESSCONFIG: Cancelling loading process for disabled source ${sourceId}`);
+                if (doLog) console.log(`🢄PhotoOperations: PROCESSCONFIG: Cancelling loading process for disabled source ${sourceId}`);
                 process.cancel();
                 this.loadingProcesses.delete(sourceId);
                 // Also clear the cache for disabled sources to free memory
                 //this.sourceCache.delete(sourceId);
-                //console.log(`🢄PhotoOperations: PROCESSCONFIG: Cleared cache for disabled source ${sourceId}`);
+                //if (doLog) console.log(`🢄PhotoOperations: PROCESSCONFIG: Cleared cache for disabled source ${sourceId}`);
             }
         }
 
@@ -110,7 +112,7 @@ export class PhotoOperations {
         callbacks.updatePhotosInArea(allLoadedPhotos);
         callbacks.sendPhotosInAreaUpdate();
 
-        console.log(`🢄PhotoOperations: PROCESSCONFIG: Config processing complete (${processId}) - loaded ${allLoadedPhotos.length} photos`);
+        if (doLog) console.log(`🢄PhotoOperations: PROCESSCONFIG: Config processing complete (${processId}) - loaded ${allLoadedPhotos.length} photos`);
         callbacks.postMessage({
             type: 'processComplete',
             processId,
@@ -126,12 +128,12 @@ export class PhotoOperations {
         sources: SourceConfig[],
         callbacks: OperationCallbacks
     ): Promise<void> {
-        console.log(`🢄PhotoOperations: Processing area update (${processId}) with ${sources.length} sources`);
+        if (doLog) console.log(`🢄PhotoOperations: Processing area update (${processId}) with ${sources.length} sources`);
 
         if (callbacks.shouldAbort(processId)) return;
 
         if (!area) {
-            console.log(`🢄PhotoOperations: No area bounds provided (${processId})`);
+            if (doLog) console.log(`🢄PhotoOperations: No area bounds provided (${processId})`);
             callbacks.postMessage({
                 type: 'processComplete',
                 processId,
@@ -153,20 +155,20 @@ export class PhotoOperations {
 
                 if (cache && cache.isComplete && cache.cachedBounds && this.isAreaWithinCachedBounds(area, cache.cachedBounds)) {
                     // Cache is complete AND current area is within cached bounds - use cache
-                    console.log(`🢄PhotoOperations: Current area is within cached bounds for ${source.id}, filtering cached photos`);
+                    if (doLog) console.log(`🢄PhotoOperations: Current area is within cached bounds for ${source.id}, filtering cached photos`);
                     const filteredPhotos = filterPhotosByArea(cache.photos, area);
-                    console.log(`🢄PhotoOperations: Filtered ${filteredPhotos.length} photos from ${cache.photos.length} cached for ${source.id}`);
+                    if (doLog) console.log(`🢄PhotoOperations: Filtered ${filteredPhotos.length} photos from ${cache.photos.length} cached for ${source.id}`);
 
                     if (filteredPhotos.length > 0) {
                         newPhotosInArea.push(...filteredPhotos);
                     }
                 } else if (cache && !cache.isComplete) {
                     // Cache is partial - need to perform bounded load
-                    console.log(`🢄PhotoOperations: Cache for ${source.id} is partial, performing bounded load`);
+                    if (doLog) console.log(`🢄PhotoOperations: Cache for ${source.id} is partial, performing bounded load`);
                     await this.loadSource(source, processId, callbacks, area);
                 } else {
                     // No cache - perform bounded load
-                    console.log(`🢄PhotoOperations: No cache for ${source.id}, performing bounded load`);
+                    if (doLog) console.log(`🢄PhotoOperations: No cache for ${source.id}, performing bounded load`);
                     await this.loadSource(source, processId, callbacks, area);
                 }
             }
@@ -177,7 +179,7 @@ export class PhotoOperations {
         callbacks.updatePhotosInArea(newPhotosInArea);
         callbacks.sendPhotosInAreaUpdate();
 
-        console.log(`🢄PhotoOperations: Area processing complete (${processId}) - ${newPhotosInArea.length} photos in area`);
+        if (doLog) console.log(`🢄PhotoOperations: Area processing complete (${processId}) - ${newPhotosInArea.length} photos in area`);
         callbacks.postMessage({
             type: 'processComplete',
             processId,
@@ -196,7 +198,7 @@ export class PhotoOperations {
         // Cancel existing loader for this source if any
         const existingProcess = this.loadingProcesses.get(source.id);
         if (existingProcess) {
-            console.log(`🢄PhotoOperations: Cancelling existing loader for source ${source.id} (process: ${processId})`);
+            if (doLog) console.log(`🢄PhotoOperations: Cancelling existing loader for source ${source.id} (process: ${processId})`);
             existingProcess.cancel();
         }
 
@@ -261,10 +263,10 @@ export class PhotoOperations {
         sources: SourceConfig[],
         callbacks: OperationCallbacks
     ): Promise<void> {
-        console.log(`🢄PhotoOperations: Processing combinePhotos (${processId})`);
+        if (doLog) console.log(`🢄PhotoOperations: Processing combinePhotos (${processId})`);
 
         if (callbacks.shouldAbort(processId)) {
-            console.log(`🢄PhotoOperations: CombinePhotos process ${processId} aborted before processing`);
+            if (doLog) console.log(`🢄PhotoOperations: CombinePhotos process ${processId} aborted before processing`);
             return;
         }
 
@@ -276,7 +278,7 @@ export class PhotoOperations {
         callbacks.sendPhotosInAreaUpdate();
         callbacks.sendPhotosInRangeUpdate();
 
-        console.log(`🢄PhotoOperations: CombinePhotos processing complete (${processId}) - triggered photo updates`);
+        if (doLog) console.log(`🢄PhotoOperations: CombinePhotos processing complete (${processId}) - triggered photo updates`);
         callbacks.postMessage({
             type: 'processComplete',
             processId,

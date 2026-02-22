@@ -7,10 +7,11 @@ import {
 import {backendUrl} from './config';
 import {MAX_DEBUG_MODES} from './constants';
 import {auth} from './auth.svelte';
-import {TAURI} from "$lib/tauri";
+import {TAURI, BROWSER} from "$lib/tauri";
 // Import new mapState for legacy compatibility only
-import {photoInFront, photoToLeft, photoToRight, photoUp, photoDown, updateBearingWithPhoto} from './mapState';
-import {autoUploadSettings} from "$lib/autoUploadSettings";
+import {photoInFront, photoToLeft, photoToRight, photoUp, photoDown} from './mapState';
+import {updateBearingWithPhoto} from './bearingTracking';
+import {updateSettings} from "$lib/settings";
 
 
 // Draggable split store for gallery/map split percentage (0-100, percentage for photo panel)
@@ -62,7 +63,7 @@ const deviceSources: Source[] = TAURI ? [
 		name: 'Device',
 		type: 'device',
 		enabled: !import.meta.env.VITE_PICS_OFF,
-		color: '#4a90e2',
+		color: '#4ae24d',
 		subtype: 'hillview'
 	}
 ] : [];
@@ -114,16 +115,13 @@ export let showCalibrationView = writable(false);
 
 export let photoLicense = localStorageSharedStore<string | null>('photoLicense', null);
 photoLicense.subscribe(async value => {
-	if (value === null && TAURI) {
+	if (value === null) {
 		try {
-			await autoUploadSettings.persist(
-				{
-					auto_upload_enabled: false,
-					auto_upload_prompt_enabled: true
-				}
-			);
+			await updateSettings({
+				auto_upload_enabled: false
+			});
 		} catch (error) {
-			console.error('🢄Error persisting auto upload settings on photoLicense init:', error);
+			console.error('Error persisting auto upload settings on photoLicense init:', error);
 		}
 	}
 });

@@ -8,10 +8,14 @@
 	import {app} from "$lib/data.svelte";
 	import RetryUploadsButton from "$lib/components/RetryUploadsButton.svelte";
 	import DevicePhotoStats from "$lib/components/DevicePhotoStats.svelte";
-	import {fetchDevicePhotoStats} from "$lib/devicePhotoStats";
+	import {fetchPhotoStats, getPlatformName} from "$lib/photoStatsAdapter";
 	import { showDropdownMenu, type DropdownMenuItem } from '$lib/components/dropdown-menu/dropdownMenu.svelte';
-	import { getAnonymizationMenuItems } from '$lib/photoAnonymizationMenu';
+	import { getPhotoMenuItems } from '$lib/photoAnonymizationMenu';
 	import DropdownMenu from '$lib/components/dropdown-menu/DropdownMenu.svelte';
+	import { BROWSER, TAURI } from '$lib/tauri';
+	import { browserPhotoStorage, type StoredPhoto } from '$lib/browser/photoStorage';
+	import { uploadManager } from '$lib/browser/uploadManager';
+	import AnonymizationModal from '$lib/components/anonymization-modal/AnonymizationModal.svelte';
 
 	interface DevicePhoto {
 		id: string;
@@ -23,15 +27,18 @@
 		created_at: number;
 		latitude: number;
 		longitude: number;
-		altitude: number;
-		bearing: number;
+		altitude: number | null;  // null when no altitude data available
+		bearing: number | null;   // null when no bearing data available
 		accuracy: number;
 		width: number;
 		height: number;
 		upload_status: string;
-		uploaded_at: number;
+		uploaded_at: number | null;        // null if not yet uploaded
 		retry_count: number;
-		last_upload_attempt: number;
+		last_upload_attempt: number | null; // null if no retry attempted
+		// Browser-specific fields
+		blob?: Blob;
+		blobUrl?: string;
 	}
 
 	interface DevicePhotosResponse {
@@ -50,13 +57,42 @@
 	let isLoadingMore = false;
 	let error: string | null = null;
 	let currentPage = 1;
-	let pageSize = 20;
+	let pageSize = 50;
 
 	onMount(() => {
 		setTimeout(() => {
 			fetchDevicePhotos();
 		}, 10);
 	});
+
+	// Helper to adapt browser photo to device photo interface
+	function adaptBrowserPhoto(bp: StoredPhoto): DevicePhoto {
+		const { metadata } = bp;
+		const { location } = metadata;
+
+		return {
+			id: bp.id,
+			file_path: '',
+			file_name: `photo_${bp.id.substring(0, 8)}.jpg`,
+			file_hash: '',
+			file_size: bp.blob.size,
+			captured_at: metadata.captured_at,
+			created_at: bp.added_at,
+			latitude: location.latitude,
+			longitude: location.longitude,
+			altitude: location.altitude ?? null,
+			bearing: location.bearing ?? null,
+			accuracy: location.accuracy,
+			width: bp.width,
+			height: bp.height,
+			upload_status: bp.status === 'uploaded' ? 'completed' : bp.status,
+			uploaded_at: bp.uploaded_at ?? null,
+			retry_count: bp.retry_count,
+			last_upload_attempt: bp.retry_after ?? null,
+			blob: bp.blob,
+			blobUrl: URL.createObjectURL(bp.blob)
+		};
+	}
 
 	async function fetchDevicePhotos(page: number = 1, append: boolean = false) {
 		try {
@@ -66,12 +102,38 @@
 				isLoading = true;
 			}
 
-			const response = await invoke('plugin:hillview|get_device_photos', {
-				page,
-				page_size: pageSize
-			}) as DevicePhotosResponse;
+			let response: DevicePhotosResponse;
 
-			//console.log('🢄Device photos response:', JSON.stringify(response));
+			if (BROWSER) {
+				// Browser: Get from IndexedDB
+				const allPhotos = await browserPhotoStorage.getAllPhotos();
+				const adaptedPhotos = allPhotos
+					.map(adaptBrowserPhoto)
+					.sort((a, b) => b.captured_at - a.captured_at);
+
+				// Simple pagination for browser
+				const startIdx = (page - 1) * pageSize;
+				const endIdx = startIdx + pageSize;
+				const pagedPhotos = adaptedPhotos.slice(startIdx, endIdx);
+
+				response = {
+					photos: pagedPhotos,
+					last_updated: Date.now(),
+					page: page,
+					page_size: pageSize,
+					total_count: adaptedPhotos.length,
+					total_pages: Math.ceil(adaptedPhotos.length / pageSize),
+					has_more: endIdx < adaptedPhotos.length
+				};
+			} else {
+				// Tauri: Existing invoke
+				response = await invoke('plugin:hillview|cmd', {
+					command: 'get_device_photos',
+					params: { page, page_size: pageSize }
+				}) as DevicePhotosResponse;
+			}
+
+			console.log('🢄Device photos response:', JSON.stringify({has_more: response.has_more, page: response.page, page_size: response.page_size, total_count: response.total_count}));
 
 			if (append && photosData) {
 				// Append new photos to existing data
@@ -86,18 +148,24 @@
 			currentPage = response.page;
 			error = response.error || null;
 		} catch (err) {
-			console.error('🢄Error fetching device photos:', err);
-			error = `Failed to fetch device photos: ${err}`;
+			console.error('🢄Error fetching photos:', err);
+			error = `Failed to fetch photos: ${err}`;
 		} finally {
 			isLoading = false;
 			isLoadingMore = false;
+			console.log('🢄Device photos loaded. ' + JSON.stringify({
+				page: currentPage,
+				page_size: pageSize,
+				total_photos: photosData?.total_count,
+				has_more: photosData?.has_more
+			}));
 		}
 	}
 
 	async function refreshDevicePhotos() {
 		error = null;
 		currentPage = 1;
-		await fetchDevicePhotoStats();
+		await fetchPhotoStats();
 		await fetchDevicePhotos(1, false);
 	}
 
@@ -137,6 +205,13 @@
 		return new Date(timestamp).toLocaleTimeString();
 	}
 
+	function getPhotoUrl(photo: DevicePhoto): string {
+		if (BROWSER && photo.blobUrl) {
+			return photo.blobUrl;
+		}
+		return getDevicePhotoUrl(photo.file_path);
+	}
+
 	function getStatusColor(status: string): string {
 		switch (status) {
 			case 'completed': return '#10b981'; // green
@@ -159,7 +234,7 @@
 
 	function showPhotoMenu(event: MouseEvent, photo: DevicePhoto) {
 		const button = event.currentTarget as HTMLButtonElement;
-		const items: DropdownMenuItem[] = getAnonymizationMenuItems(photo.id);
+		const items: DropdownMenuItem[] = getPhotoMenuItems(photo.id);
 
 		showDropdownMenu(items, button, {
 			placement: 'above-right',
@@ -169,7 +244,7 @@
 </script>
 
 <StandardHeaderWithAlert
-	title="Device Photos"
+	title="{getPlatformName()} Photos"
 	showMenuButton={true}
 	fallbackHref="/photos"
 />
@@ -234,18 +309,18 @@
 			</div>
 		{:else if photosData && photosData.photos.length > 0}
 			<div class="photos-grid" data-testid="photos-grid">
-				{#each photosData.photos as photo}
+				{#each photosData.photos as photo, i}
 					<div class="photo-card" data-testid="photo-card">
 						{#if $app.debug_enabled}
 							<details>
-								<summary>[debug]</summary>
+								<summary>[#{i}]</summary>
 								<pre>{JSON.stringify(photo, null, 2)}</pre>
 							</details>
 						{/if}
 
 						<div class="photo-image">
 							<img
-								src={getDevicePhotoUrl(photo.file_path)}
+								src={getPhotoUrl(photo)}
 								alt={photo.file_name}
 								loading="lazy"
 								data-testid="photo-thumbnail"
@@ -254,7 +329,7 @@
 								<div class="photo-status" style="color: {getStatusColor(photo.upload_status)}">
 									<svelte:component this={getStatusIcon(photo.upload_status)} size={16} />
 									{#if photo.upload_status === 'completed'}
-										Uploaded
+										Completed
 									{:else if photo.upload_status === 'pending'}
 										upload Pending
 									{:else if photo.upload_status === 'uploading'}
@@ -302,7 +377,7 @@
 									</span>
 								</div>
 							{/if}
-							{#if photo.bearing !== 0}
+							{#if photo.bearing !== null}
 								<div class="detail-row">
 									<span class="detail-label">Bearing:</span>
 									<span class="detail-value">{photo.bearing.toFixed(1)}°</span>
@@ -320,10 +395,12 @@
 							{/if}
 						</div>
 
-						<div class="photo-path">
-							<span class="path-label">Path:</span>
-							<span class="path-value">{photo.file_path}</span>
-						</div>
+						{#if TAURI && photo.file_path}
+							<div class="photo-path">
+								<span class="path-label">Path:</span>
+								<span class="path-value">{photo.file_path}</span>
+							</div>
+						{/if}
 						<RetryUploadsButton {photo} />
 					</div>
 				{/each}
@@ -362,6 +439,7 @@
 </StandardBody>
 
 <DropdownMenu />
+<AnonymizationModal />
 
 <style>
 	.device-photos-section {

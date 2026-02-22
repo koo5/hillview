@@ -47,20 +47,16 @@
 		/>
 		{/if}
 
-		{#if TAURI}
 		<SettingsSectionDivider />
 		<CameraSettings
 			onSaveSuccess={(message) => showAlert(message, 'success')}
 			onSaveError={(message) => showAlert(message, 'error')}
 		/>
-		{/if}
 
-		{#if TAURI}
 		<SettingsSectionDivider />
 		<UploadSettingsComponent
 			onSaveSuccess={(message) => showAlert(message, 'success')}
 		/>
-		{/if}
 
 		{#if TAURI}
 		<SettingsSectionDivider />
@@ -69,12 +65,10 @@
 		/>
 		{/if}
 
-		{#if TAURI}
 		<SettingsSectionDivider />
 		<CompassSettingsComponent
 			onSaveSuccess={(message) => showAlert(message, 'success')}
 		/>
-		{/if}
 
 		<SettingsSectionDivider />
 		<SettingsSectionHeader>Advanced</SettingsSectionHeader>

@@ -2,7 +2,6 @@
 """Unit tests for mapillary geo utility functions."""
 
 import pytest
-import math
 import os
 import sys
 

@@ -87,21 +87,20 @@ async function processCanvas(item: CaptureQueueItem): Promise<void> {
             blobSize: blob.size
         }));
 
-        // Convert blob to array buffer for Rust
+        // Convert blob to array buffer for Rust - keep as Uint8Array (no Array.from!)
         const arrayBufferStartTime = performance.now();
         const arrayBuffer = await blob.arrayBuffer();
-        const uint8Array = new Uint8Array(arrayBuffer);
-        const imageData = Array.from(uint8Array);
+        const imageBytes = new Uint8Array(arrayBuffer);
         const arrayBufferEndTime = performance.now();
-        log(`TIMING 🔄 WORKER ARRAY BUFFER CONVERSION: ${(arrayBufferEndTime - arrayBufferStartTime).toFixed(1)}ms, size: ${imageData.length} bytes`);
+        log(`TIMING 🔄 WORKER ARRAY BUFFER: ${(arrayBufferEndTime - arrayBufferStartTime).toFixed(1)}ms, size: ${imageBytes.length} bytes`);
 
         // Send image data in chunks to keep UI responsive
         const CHUNK_SIZE = 1024*1024;
-        const totalChunks = Math.ceil(imageData.length / CHUNK_SIZE);
+        const totalChunks = Math.ceil(imageBytes.length / CHUNK_SIZE);
 
         log('Sending image data in chunks', {
             itemId: item.id,
-            totalBytes: imageData.length,
+            totalBytes: imageBytes.length,
             totalChunks,
             chunkSize: CHUNK_SIZE
         });
@@ -113,35 +112,40 @@ async function processCanvas(item: CaptureQueueItem): Promise<void> {
         for (let i = 0; i < totalChunks; i++) {
             const chunkStartTime = performance.now();
             const start = i * CHUNK_SIZE;
-            const end = Math.min(start + CHUNK_SIZE, imageData.length);
-            const chunk = imageData.slice(start, end);
+            const end = Math.min(start + CHUNK_SIZE, imageBytes.length);
 
-            // Convert to transferable Uint8Array for zero-copy transfer
-            const chunkBuffer = new Uint8Array(chunk);
+            // Create chunk and encode to base64 in worker (keeps main thread free)
+            const chunkBuffer = imageBytes.slice(start, end);
+
+            // Convert to base64 string (Android doesn't support raw binary IPC)
+            let binary = '';
+            for (let j = 0; j < chunkBuffer.length; j++) {
+                binary += String.fromCharCode(chunkBuffer[j]);
+            }
+            const chunkBase64 = btoa(binary);
 
             postMessage({
                 type: 'photoChunk',
                 photoId: item.id,
-                chunk: chunkBuffer,
+                chunkBase64,  // Base64 encoded string
                 chunkIndex: i,
                 totalChunks,
                 isFirstChunk: i === 0,
                 isLastChunk: i === totalChunks - 1,
                 item: i === totalChunks - 1 ? item : undefined // Only send item with last chunk
-            }, [chunkBuffer.buffer]); // Transfer the ArrayBuffer
+            });
 
 			await new Promise(resolve => setTimeout(resolve, 30));
 
 			/*
             const chunkEndTime = performance.now();
 
-            // Small delay between chunks to keep UI responsive - reduced from 150ms to 25ms
+            // Small delay between chunks to keep UI responsive
             if (i < totalChunks - 1) {
                 const delayStartTime = performance.now();
-                //await new Promise(resolve => setTimeout(resolve, 15));
                 const delayEndTime = performance.now();
                 totalDelayTime += (delayEndTime - delayStartTime);
-                log(`TIMING ⏱️ WORKER CHUNK ${i+1}/${totalChunks}: ${(chunkEndTime - chunkStartTime).toFixed(1)}ms + 25ms delay`);
+                log(`TIMING ⏱️ WORKER CHUNK ${i+1}/${totalChunks}: ${(chunkEndTime - chunkStartTime).toFixed(1)}ms + delay`);
             } else {
                 log(`TIMING 📦 WORKER FINAL CHUNK ${i+1}/${totalChunks}: ${(chunkEndTime - chunkStartTime).toFixed(1)}ms`);
             }*/

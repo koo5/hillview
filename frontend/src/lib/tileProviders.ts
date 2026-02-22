@@ -24,8 +24,14 @@ export interface TileProviderConfig {
 }
 
 // API Keys configuration
+// SECURITY: Frontend API keys for map tiles are industry standard practice (Google Maps, Mapbox, etc.)
+// These keys are protected by:
+// 1. Referrer/domain restrictions configured in the provider's console
+// 2. Read-only access (tile fetching only, no write operations)
+// 3. Provider-side rate limiting
+// Proxying tiles through backend would add latency and server load with no security benefit.
 const API_KEYS = {
-    // Protected by referrer restrictions in console.tracestrack.com
+    // Configured with referrer restrictions at console.tracestrack.com
     TRACESTRACK: '262a38b16c187cfca361f1776efb9421'
 } as const;
 
@@ -131,10 +137,10 @@ function processAttributionTemplates(attribution: string, providers: any): strin
 export function getProviderConfig(providerName: ProviderName): TileProviderConfig {
 	providerName = providerName || DEFAULT_TILE_PROVIDER;
 
-	console.log('tileProviders.getProviderConfig()', providerName);
+	//console.log('tileProviders.getProviderConfig()', providerName);
     // Check custom providers first
     if (CUSTOM_PROVIDERS[providerName]) {
-		console.log('tileProviders.getProviderConfig() - using custom provider');
+		//console.log('tileProviders.getProviderConfig() - using custom provider');
         return { ...CUSTOM_PROVIDERS[providerName] };
     }
 

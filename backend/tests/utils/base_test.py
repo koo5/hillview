@@ -3,9 +3,8 @@
 Base test classes providing common functionality for integration tests.
 Reduces duplication and provides consistent test setup/teardown.
 """
-import unittest
 import asyncio
-from typing import Dict, List, Optional
+from typing import Dict, List
 from .test_utils import recreate_test_users, API_URL
 from .auth_utils import AuthTestHelper, TEST_CREDENTIALS
 

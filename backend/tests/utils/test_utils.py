@@ -245,7 +245,7 @@ async def upload_test_image(filename: str, image_data: bytes, description: str, 
 		elif isinstance(e, httpx.ConnectError):
 			error_msg = "HTTP connection error - worker not reachable"
 		elif isinstance(e, httpx.HTTPError) and not error_msg:
-			error_msg = f"HTTP client error"
+			error_msg = "HTTP client error"
 
 		raise Exception(f"[test_utils] Upload failed: {error_type}: {error_msg}")
 

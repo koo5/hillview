@@ -5,7 +5,6 @@ This module loads environment variables once at startup before any other
 module tries to access them. Import this at the top of your main modules.
 """
 
-import os
 import logging
 from pathlib import Path
 

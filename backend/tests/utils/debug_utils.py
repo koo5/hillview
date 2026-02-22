@@ -21,7 +21,7 @@ def debug_photos():
 		photos = photos_data.get('photos', [])
 		counts = photos_data.get('counts', {})
 
-		print(f"📸 Photo Summary:")
+		print("📸 Photo Summary:")
 		print(f"   Total: {counts.get('total', len(photos))}")
 		print(f"   Completed: {counts.get('completed', 0)}")
 		print(f"   Failed: {counts.get('failed', 0)}")
@@ -38,7 +38,7 @@ def debug_photos():
 
 		# Show recent photos
 		if photos:
-			print(f"\n📋 Recent photos:")
+			print("\n📋 Recent photos:")
 			for photo in photos[:5]:
 				status = photo.get('processing_status', 'unknown')
 				filename = photo.get('original_filename', 'unknown')
@@ -304,7 +304,7 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 	upload_client = SecureUploadClient(api_url=API_URL)
 	client_keys = upload_client.generate_client_keys()
 	token = get_token()
-	print(f"  Registering client key...")
+	print("  Registering client key...")
 	await upload_client.register_client_key(token, client_keys)
 	print(f"  Starting {total} uploads with {parallel} parallel workers...")
 
@@ -356,7 +356,6 @@ class TokenManager:
 	"""Manages auth tokens with automatic refresh."""
 
 	def __init__(self, user: str = None, password: str = None):
-		import requests
 		from .test_utils import API_URL
 		self.api_url = API_URL
 		self.user = user
@@ -407,7 +406,7 @@ class TokenManager:
 			json={"refresh_token": self.refresh_token}
 		)
 		if response.status_code != 200:
-			print(f"⚠️ Refresh failed, re-logging in...")
+			print("⚠️ Refresh failed, re-logging in...")
 			self._login()
 			return
 		data = response.json()

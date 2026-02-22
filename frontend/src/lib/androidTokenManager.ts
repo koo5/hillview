@@ -15,26 +15,31 @@ export class AndroidTokenManager implements TokenManager {
     async getValidToken(force: boolean = false): Promise<string | null> {
         // console.log(`${this.LOG_PREFIX} Getting valid token from Android (force: ${force})`);
 
-        // Android plugin handles token validation and refresh internally
-        const result = await invoke('plugin:hillview|get_auth_token', { force }) as {
-            token: string | null;
-            expires_at: string | null;
-            success: boolean;
-            error?: string;
-        };
+        try {
+            // Android plugin handles token validation and refresh internally
+            const result = await invoke('plugin:hillview|get_auth_token', { force }) as {
+                token: string | null;
+                expires_at: string | null;
+                success: boolean;
+                error?: string;
+            };
 
-        if (!result.success) {
-            console.log(`${this.LOG_PREFIX} Android reports no valid token: ${result.error}`);
+            if (!result.success) {
+                console.log(`${this.LOG_PREFIX} Android reports no valid token: ${result.error}`);
+                return null;
+            }
+
+            if (result.token) {
+                // console.log(`${this.LOG_PREFIX} Valid token received from Android`);
+                return result.token;
+            }
+
+            console.log(`${this.LOG_PREFIX} No token available`);
+            return null;
+        } catch (err) {
+            console.error(`${this.LOG_PREFIX} Failed to get valid token:`, err);
             return null;
         }
-
-        if (result.token) {
-            // console.log(`${this.LOG_PREFIX} Valid token received from Android`);
-            return result.token;
-        }
-
-        console.log(`${this.LOG_PREFIX} No token available`);
-        return null;
     }
 
     async refreshToken(): Promise<boolean> {
@@ -87,7 +92,7 @@ export class AndroidTokenManager implements TokenManager {
             if (!result.success) {
                 const errorMsg = result.error || 'Unknown error storing tokens';
                 console.error(`${this.LOG_PREFIX} Plugin returned error: ${errorMsg}`);
-                throw new Error(`Failed to store tokens in Android: ${errorMsg}`);
+                throw new Error(`${errorMsg}`);
             }
 
             // console.log(`${this.LOG_PREFIX} Tokens stored successfully in Android`);
@@ -126,11 +131,16 @@ export class AndroidTokenManager implements TokenManager {
     }
 
     async isTokenExpired(bufferMinutes: number = 2): Promise<boolean> {
-        const result = await invoke('plugin:hillview|is_token_expired', {
-            buffer_minutes: bufferMinutes
-        }) as { expired: boolean };
+        try {
+            const result = await invoke('plugin:hillview|is_token_expired', {
+                buffer_minutes: bufferMinutes
+            }) as { expired: boolean };
 
-        return result.expired;
+            return result.expired;
+        } catch (err) {
+            console.error(`${this.LOG_PREFIX} Failed to check token expiry:`, err);
+            return true; // Assume expired on error for safety
+        }
     }
 
     async registerClientPublicKey(): Promise<void> {

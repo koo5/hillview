@@ -1,6 +1,5 @@
 """Tests for mapillary_url_utils module."""
 
-import pytest
 from datetime import datetime, timezone, timedelta
 import sys
 import os

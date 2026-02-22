@@ -2,6 +2,7 @@ import { writable, derived, get } from 'svelte/store';
 import { TAURI, TAURI_MOBILE, tauriSensor, isSensorAvailable, type SensorData, SensorMode } from './tauri';
 import {PluginListener} from "@tauri-apps/api/core";
 import {bearingMode, bearingState, updateBearing} from "$lib/mapState";
+import {getSettings, settings, settingsDefaults} from "$lib/settings";
 
 export interface CompassData {
     magnetic_heading: number | null;  // 0-360 degrees from magnetic north
@@ -9,6 +10,27 @@ export interface CompassData {
     accuracy_level: number | null;
     timestamp: number;
     source: string;
+    debug?: {
+        // Raw event inputs
+        alpha: number | null;
+        beta: number | null;
+        gamma: number | null;
+        absolute: boolean;
+        screenAngle: number;
+        // Browser-specific inputs
+        webkitCompassHeading: number | null;
+        webkitCompassAccuracy: number | null;
+        compassHeading: number | null;
+        // Which code path ran
+        headingMethod: 'webkitCompassHeading' | 'tiltCompensated' | 'none';
+        // Intermediate values
+        rawHeading: number | null;        // before normalizeHeading
+        normalizedHeading: number | null; // after normalizeHeading
+        screenOrientation: number | null; // window.screen.orientation.angle
+        // Face-down workaround (like EnhancedSensorService.kt)
+        faceDown: boolean;                    // abs(beta) > 90
+        landscapeWorkaroundApplied: boolean;  // negation applied
+    };
 }
 
 export interface DeviceOrientation {
@@ -39,6 +61,7 @@ export const deviceOrientation = writable<DeviceOrientation>({
 export const currentCompassHeading = derived(
     [compassData],
     ([$compassData]) => {
+        //console.log('🢄🧭 currentCompassHeading derived - compassData:', $compassData);
         if ($compassData && $compassData.true_heading !== null) {
             return {
                 heading: $compassData.true_heading,
@@ -101,6 +124,8 @@ let permissionGranted = false;
 
 // Track active listeners
 let orientationHandler: ((event: DeviceOrientationEvent) => void) | null = null;
+let absoluteOrientationListener: ((event: DeviceOrientationEvent) => void) | null = null;
+let regularOrientationListener: ((event: DeviceOrientationEvent) => void) | null = null;
 let tauriSensorListener: PluginListener | null = null;
 
 // Accuracy polling
@@ -109,6 +134,7 @@ let accuracyPollingInterval: number | null = null;
 // Lag monitoring
 let lagMonitoringInterval: number | null = null;
 
+let absoluteReadingsCount = 0; // Count of absolute events received to determine if we should drop regular listener
 // Throttling for compass updates using requestAnimationFrame
 let pendingCompassUpdate: CompassData | null = null;
 let compassUpdateScheduled = false;
@@ -131,6 +157,63 @@ function scheduleCompassUpdate(data: CompassData) {
 // Helper to normalize heading to 0-360 range
 function normalizeHeading(heading: number): number {
     return ((heading % 360) + 360) % 360;
+}
+
+/**
+ * Compute a tilt-compensated compass heading from DeviceOrientation Euler angles.
+ *
+ * The raw `alpha` value is only a reliable compass bearing when the device is flat.
+ * This function builds the ZXY rotation matrix from (alpha, beta, gamma), projects
+ * the Earth-frame north vector onto the device screen plane, and returns a heading
+ * in [0, 360) degrees that stays correct regardless of device tilt.
+ *
+ * This is the web equivalent of the Kotlin code that calls
+ * SensorManager.remapCoordinateSystem + SensorManager.getOrientation.
+ */
+function computeTiltCompensatedHeading(
+    alpha: number,
+    beta: number,
+    gamma: number,
+    landscapeWorkaround: boolean
+): { heading: number; faceDown: boolean; landscapeWorkaroundApplied: boolean } {
+    const degToRad = Math.PI / 180;
+    const _x = beta * degToRad;   // beta  -> rotation around X
+    const _y = gamma * degToRad;  // gamma -> rotation around Y
+    const _z = alpha * degToRad;  // alpha -> rotation around Z
+
+    const cX = Math.cos(_x);
+    const cY = Math.cos(_y);
+    const cZ = Math.cos(_z);
+    const sX = Math.sin(_x);
+    const sY = Math.sin(_y);
+    const sZ = Math.sin(_z);
+
+    // Project the north vector onto the device screen plane.
+    // Vx, Vy are components of the Earth-frame north direction expressed
+    // in the device X/Y axes (derived from the ZXY rotation matrix).
+    const Vx = -cZ * sY - sZ * sX * cY;
+    const Vy = -sZ * sY + cZ * sX * cY;
+
+    let compassHeading = Math.atan2(Vx, Vy) * (180 / Math.PI); // degrees, (-180, 180]
+
+    // Match EnhancedSensorService.kt: detect face-down orientation
+    // In web API, beta (pitch) > 90 means device screen faces away from user
+    const faceDown = Math.abs(beta) > 90;
+    let landscapeWorkaroundApplied = false;
+	const screenAngle = window.screen?.orientation?.angle ?? 0;
+
+    // Apply landscape_armor22_workaround: negate heading when face-down
+    if (landscapeWorkaround && faceDown && (screenAngle === 90 || screenAngle === 270)) {
+        compassHeading = 0 - compassHeading;
+        landscapeWorkaroundApplied = true;
+    }
+
+    // normalizeHeading handles the (-180,180] → [0,360) mapping
+    return {
+        heading: normalizeHeading(compassHeading),
+        faceDown,
+        landscapeWorkaroundApplied
+    };
 }
 
 // Log compass availability once
@@ -208,57 +291,123 @@ async function startTauriSensor(mode: SensorMode = SensorMode.UPRIGHT_ROTATION_V
     }
 }
 
+/**
+ * Extract heading data from a DeviceOrientationEvent, choosing between
+ * webkitCompassHeading (iOS) and tilt-compensated computation (Android/desktop),
+ * and populating a debug trace of all inputs and intermediate values.
+ */
+async function extractHeadingFromEvent(event: DeviceOrientationEvent): Promise<{
+    magnetic_heading: number | null;
+    true_heading: number | null;
+    accuracy_level: number | null;
+    source: string;
+    debug: CompassData['debug'];
+}> {
+    const isAbsolute = event.absolute;
+    const screenAngle = window.screen?.orientation?.angle;
+
+    const debug: CompassData['debug'] = {
+        alpha: event.alpha ?? null,
+        beta: event.beta ?? null,
+        gamma: event.gamma ?? null,
+        absolute: isAbsolute,
+        screenAngle,
+        webkitCompassHeading: event.webkitCompassHeading ?? null,
+        webkitCompassAccuracy: event.webkitCompassAccuracy ?? null,
+        compassHeading: event.compassHeading ?? null,
+        headingMethod: 'none',
+        rawHeading: null,
+        normalizedHeading: null,
+        screenOrientation: window.screen?.orientation?.angle,
+        faceDown: false,
+        landscapeWorkaroundApplied: false
+    };
+
+    let rawHeading: number | null = null;
+
+    if (event.webkitCompassHeading != null) {
+        debug.headingMethod = 'webkitCompassHeading';
+        rawHeading = event.webkitCompassHeading;
+    } else if (event.alpha != null && event.beta != null && event.gamma != null) {
+        debug.headingMethod = 'tiltCompensated';
+        const currentSettings = await getSettings();
+        const landscapeWorkaround = currentSettings?.landscape_armor22_workaround ?? settingsDefaults.landscape_armor22_workaround;
+        const result = computeTiltCompensatedHeading(event.alpha, event.beta, event.gamma, landscapeWorkaround);
+        rawHeading = result.heading;
+        debug.faceDown = result.faceDown;
+        debug.landscapeWorkaroundApplied = result.landscapeWorkaroundApplied;
+    }
+
+    debug.rawHeading = rawHeading;
+    const normalizedHeading = rawHeading !== null ? normalizeHeading(rawHeading) : null;
+    debug.normalizedHeading = normalizedHeading;
+
+    const accuracy = event.webkitCompassAccuracy ?? null;
+
+    return {
+        magnetic_heading: isAbsolute ? null : normalizedHeading,
+        true_heading: isAbsolute
+            ? normalizedHeading
+            : (event.compassHeading != null ? normalizeHeading(event.compassHeading) : null),
+        accuracy_level: accuracy,
+        source: isAbsolute ? 'web-absolute' : 'web-magnetic',
+        debug,
+    };
+}
+
 // Web DeviceOrientation implementation
 async function startWebCompass(): Promise<boolean> {
     return new Promise((resolve) => {
         let hasResolved = false;
+        let usingAbsolute = false;
 
-        orientationHandler = (event: DeviceOrientationEvent) => {
+        orientationHandler = async (event: DeviceOrientationEvent) => {
+            const isAbsolute = event.absolute;
+
+            // Once we receive an absolute event, drop the regular listener
+            // to avoid duplicate updates with different north references
+            // (absolute = true north, regular = magnetic north).
+			if (isAbsolute)
+			{
+				absoluteReadingsCount++;
+			}
+            if ((absoluteReadingsCount > 3) && !usingAbsolute) {
+                usingAbsolute = true;
+                if (regularOrientationListener) {
+                    console.log('🢄🌐 Got deviceorientationabsolute, dropping deviceorientation listener');
+                    window.removeEventListener('deviceorientation', regularOrientationListener);
+                    regularOrientationListener = null;
+                }
+            }
+
+            // If we already have absolute events, ignore regular ones
+            // DISABLED: Some browsers only fire absolute once, so we need regular as fallback
+            // if (usingAbsolute && !isAbsolute) return;
+
             if (!hasResolved) {
                 hasResolved = true;
-                console.log('🢄✅ DeviceOrientation API is working');
+                console.log('🢄✅ DeviceOrientation API is working (absolute:', isAbsolute, ')');
                 resolve(true);
             }
 
-            // Extract compass data
-            const magneticHeading = event.webkitCompassHeading ?? event.alpha;
-            const accuracy = event.webkitCompassAccuracy ?? null;
+            const extracted = await extractHeadingFromEvent(event);
 
-            // Some browsers provide true heading directly
-            const trueHeading = event.compassHeading ?? null;
-
-            const data = {
-                magnetic_heading: magneticHeading !== null ? normalizeHeading(magneticHeading) : null,
-                true_heading: trueHeading !== null ? normalizeHeading(trueHeading) : null,
-                accuracy_level: accuracy,
+            const data: CompassData = {
+                ...extracted,
                 timestamp: Date.now(),
-                source: 'web'
             };
 
             scheduleCompassUpdate(data);
             lastSensorUpdate.set(Date.now());
-
-            // Log occasional updates
-            if (false) {
-                console.log('🢄🌐 Web Compass update:', JSON.stringify({
-                    source: event.source || 'deviceorientation',
-                    magneticHeading: data.magnetic_heading?.toFixed(1) + '°',
-                    trueHeading: data.true_heading?.toFixed(1) + '°',
-                    accuracy_level: data.accuracy_level,
-                    alpha: event.alpha?.toFixed(1) + '°',
-                    beta: event.beta?.toFixed(1) + '°',
-                    gamma: event.gamma?.toFixed(1) + '°',
-                    absolute: event.absolute
-                }));
-            }
         };
 
-        // Try absolute orientation first
+        // Register both; once absolute fires, the regular one gets dropped.
         if ('ondeviceorientationabsolute' in window) {
-            window.addEventListener('deviceorientationabsolute', (e) => {orientationHandler?.({...e, source: 'ondeviceorientationabsolute'})});
+            absoluteOrientationListener = (e) => orientationHandler?.(e);
+            window.addEventListener('deviceorientationabsolute', absoluteOrientationListener);
         }
-        // Fall back to regular orientation
-        window.addEventListener('deviceorientation', (e) => {orientationHandler?.({...e, source: 'deviceorientation'})});
+        regularOrientationListener = (e) => orientationHandler?.(e);
+        window.addEventListener('deviceorientation', regularOrientationListener);
 
         // Set a timeout to check if we received any events
         setTimeout(() => {
@@ -322,13 +471,15 @@ async function stopCompassInternal() {
     // }
 
     // Stop DeviceOrientation if active
-    if (orientationHandler) {
-        window.removeEventListener('deviceorientation', orientationHandler);
-        if ('ondeviceorientationabsolute' in window) {
-            window.removeEventListener('deviceorientationabsolute', orientationHandler as any);
-        }
-        orientationHandler = null;
+    if (regularOrientationListener) {
+        window.removeEventListener('deviceorientation', regularOrientationListener);
+        regularOrientationListener = null;
     }
+    if (absoluteOrientationListener) {
+        window.removeEventListener('deviceorientationabsolute', absoluteOrientationListener as any);
+        absoluteOrientationListener = null;
+    }
+    orientationHandler = null;
 
     // Reset stores
     compassData.set({
@@ -395,7 +546,7 @@ let revertingUserPreference = false;
 
 // State machine that manages compass based on user preferences + route state
 async function updateCompassState() {
-	console.log('updateCompassState()');
+	//console.log('updateCompassState()');
 
 	// Don't process updates if we're reverting user preference to avoid recursion
 	if (revertingUserPreference) {
@@ -406,8 +557,9 @@ async function updateCompassState() {
 	const currentState = get(compassState);
 	const userMode = get(compassMode);
 
-	console.log('🢄️ Compass state update:', JSON.stringify(
-		{ userEnabled, onMapRoute, currentState }));
+	/*console.log('🢄️ Compass state update:', JSON.stringify(
+		{ userEnabled, onMapRoute, currentState })
+	);*/
 
 	if (!userEnabled || !onMapRoute) {
 		// User disabled or not on map route - set to inactive
@@ -513,6 +665,7 @@ declare global {
 
 // Export a function to get compass availability
 export function isCompassAvailable(): boolean {
+    if (typeof window === 'undefined') return false;
     return isSensorAvailable() ||
            'ondeviceorientationabsolute' in window ||
            'ondeviceorientation' in window;
@@ -544,6 +697,7 @@ function lerpAngle(current: number, target: number, factor: number): number {
 
 // Subscribe to compass heading changes
 currentCompassHeading.subscribe(compass => {
+	//console.log('🢄🧭 Compass subscription fired - mode:', get(bearingMode), 'state:', get(compassState), 'heading:', compass?.heading);
 	if (get(bearingMode) !== 'walking') return;
     if (!compass || compass.heading === null || get(compassState) !== 'active') return;
 	if (isNaN(compass.heading)) return;
@@ -564,6 +718,7 @@ currentCompassHeading.subscribe(compass => {
 
     // Update map bearing
 	const currentBearing = get(bearingState).bearing;
+	//console.log('🢄🧭 About to updateBearing? current:', currentBearing, 'smoothed:', smoothedBearing);
 	if (isNaN(currentBearing) || currentBearing === null || (Math.abs(smoothedBearing - currentBearing) > 1)) {
 		updateBearing(smoothedBearing, compass.source, undefined, compass.accuracy_level);
 	}
@@ -579,7 +734,7 @@ compassState.subscribe(state => {
 export const compassWalkingActive = derived(
     [compassEnabled, bearingMode],
     ([$compassEnabled, $bearingMode]) => {
-		console.log(`compassWalkingActive: $compassEnabled: ${$compassEnabled}, $bearingMode: ${$bearingMode}`);
+		//console.log(`compassWalkingActive: $compassEnabled: ${$compassEnabled}, $bearingMode: ${$bearingMode}`);
         return $compassEnabled && $bearingMode === 'walking';
     }
 );

@@ -2,7 +2,6 @@
 
 import os
 import logging
-import cv2
 import torch
 from ultralytics import YOLO
 from detections import TARGET_CLASSES
@@ -28,9 +27,9 @@ def detect_targets(image):
 	global model
 
 	if model is None:
-		# Secure model loading with path validation
-		from common.security_utils import verify_model_file
 
+		# Secure model loading with path validation
+		#from common.security_utils import verify_model_file
 		# Verify model file exists and is valid before loading
 		#if not verify_model_file(model_path):
 		#	raise Exception("No valid YOLO model found")
@@ -64,11 +63,10 @@ def anonymize_image(source_path):
 
 	image = read_image(source_path)
 
-	logging.info(f"Detecting target objects in image: {source_path}")
+	logging.info(f"Image read, detecting target objects in image: {source_path}")
 	boxes = detect_targets(image)
 
-	if len(boxes) == 0:
-		logging.info(f"{source_path}: No target objects detected.")
+	logging.info(f"{source_path}: {len(boxes)} target objects detected.")
 
 	# Create detections data structure
 	detections = {
@@ -91,7 +89,7 @@ def anonymize_image(source_path):
 		})
 
 	logging.info(f"Applying blur to detected objects in image: {source_path}")
-	apply_blur(image, detections["objects"])
+	apply_blur(source_path, image, detections["objects"])
 	return image, detections
 
 

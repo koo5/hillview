@@ -11,6 +11,20 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 
+/**
+ * Generic result class for operations that can fail with an error message.
+ * Use for any operation where you need to return both success status and potential error details.
+ */
+data class Result(
+    val success: Boolean,
+    val error: String? = null
+) {
+    companion object {
+        fun success() = Result(success = true)
+        fun failure(error: String) = Result(success = false, error = error)
+    }
+}
+
 class AuthenticationManager(private val context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val notificationHelper = NotificationHelper(context)
@@ -26,7 +40,7 @@ class AuthenticationManager(private val context: Context) {
         private const val KEY_REFRESH_EXPIRES_AT = "refresh_expires_at"
     }
 
-    suspend fun storeAuthToken(token: String, expiresAt: String, refreshToken: String? = null, refreshExpiresAt: String? = null): Boolean {
+    suspend fun storeAuthToken(token: String, expiresAt: String, refreshToken: String? = null, refreshExpiresAt: String? = null): Result {
         Log.d(TAG, "Storing auth token, expires at: $expiresAt, has refresh token: ${refreshToken != null}, refresh expires at: $refreshExpiresAt")
         return try {
             val editor = prefs.edit()
@@ -50,21 +64,21 @@ class AuthenticationManager(private val context: Context) {
             // Register client public key after storing tokens (synchronous - must complete before uploads can start)
             try {
                 Log.d(TAG, "Registering client public key after token storage")
-                val keyRegistered = registerClientPublicKey(token)
-                if (!keyRegistered) {
-                    Log.e(TAG, "Client public key registration failed - this will prevent photo uploads")
-                    return false // Fail token storage if key registration fails
+                val keyResult = registerClientPublicKey(token)
+                if (!keyResult.success) {
+                    Log.e(TAG, "Client public key registration failed - this will prevent photo uploads: ${keyResult.error}")
+                    return keyResult // Pass through the actual error
                 }
                 Log.d(TAG, "Client public key registered successfully during token storage")
             } catch (e: Exception) {
                 Log.e(TAG, "Error registering client public key during token storage", e)
-                return false // Fail token storage if key registration fails
+                return Result.failure("Key registration exception: ${e.message}")
             }
 
-            true
+            Result.success()
         } catch (e: Exception) {
             Log.e(TAG, "Error storing auth token: ${e.message}")
-            false
+            Result.failure("Error storing auth token: ${e.message}")
         }
     }
 
@@ -225,21 +239,21 @@ class AuthenticationManager(private val context: Context) {
         return performTokenRefresh(refreshToken)
     }
 
-    suspend fun registerClientPublicKey(token: String): Boolean {
+    suspend fun registerClientPublicKey(token: String): Result {
         Log.d(TAG, "Registering client public key with server")
 
         try {
             // Get client public key info
             val keyInfo = clientCrypto.getPublicKeyInfo() ?: run {
                 Log.e(TAG, "Failed to get client public key info")
-                return false
+                return Result.failure("Failed to get client public key info")
             }
 
             // Get server URL from shared preferences
             val uploadPrefs = context.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
             val serverUrl = uploadPrefs.getString("server_url", null) ?: run {
-                Log.e(TAG, "Server URL not configured - user needs to login first")
-                return false
+                Log.e(TAG, "Server URL not configured")
+                return Result.failure("Server URL not configured")
             }
 
             val url = "$serverUrl/auth/register-client-key"
@@ -273,22 +287,30 @@ class AuthenticationManager(private val context: Context) {
             client.newCall(request).execute().use { response ->
                 if (response.isSuccessful) {
                     Log.d(TAG, "Client public key registered successfully")
-                    return true
+                    return Result.success()
                 } else if (response.code == 409) {
                     // 409 means key already exists - this is actually OK
                     Log.d(TAG, "Client public key already exists on server (409) - treating as success")
-                    return true
+                    return Result.success()
                 } else {
                     Log.e(TAG, "Client public key registration failed with status: ${response.code}")
                     val responseBody = response.body?.string()
                     Log.e(TAG, "Registration error response: $responseBody")
-                    return false
+
+                    // Try to extract detail from JSON response
+                    val errorMessage = try {
+                        val errorJson = JSONObject(responseBody ?: "{}")
+                        errorJson.optString("detail", "Key registration failed (${response.code})")
+                    } catch (e: Exception) {
+                        "Key registration failed (${response.code}): ${responseBody ?: "no response"}"
+                    }
+                    return Result.failure(errorMessage)
                 }
             }
 
         } catch (e: Exception) {
             Log.e(TAG, "Exception during client public key registration: ${e.message}", e)
-            return false
+            return Result.failure("Key registration exception: ${e.message}")
         }
     }
 
@@ -361,13 +383,13 @@ class AuthenticationManager(private val context: Context) {
                             Log.d(TAG, "Parsed refresh response - access expires: $newExpiresAt, refresh expires: $newRefreshExpiresAt")
 
                             // Store new tokens
-                            val stored = storeAuthToken(newAccessToken, newExpiresAt, newRefreshToken, newRefreshExpiresAt)
+                            val storeResult = storeAuthToken(newAccessToken, newExpiresAt, newRefreshToken, newRefreshExpiresAt)
 
-                            if (stored) {
+                            if (storeResult.success) {
                                 Log.d(TAG, "Token refresh successful")
                                 return true
                             } else {
-                                Log.e(TAG, "Failed to store refreshed tokens")
+                                Log.e(TAG, "Failed to store refreshed tokens: ${storeResult.error}")
                             }
                         } else {
                             Log.e(TAG, "Failed to parse refresh response")
@@ -431,20 +453,20 @@ class AuthenticationManager(private val context: Context) {
      * Force generate a new key pair and re-register with server.
      * Useful for debugging signature issues or recovering from key mismatch.
      */
-    suspend fun forceNewKeyPair(): Boolean {
+    suspend fun forceNewKeyPair(): Result {
         Log.d(TAG, "Forcing new key pair generation")
 
         // Force regenerate the key pair
         val success = clientCrypto.getOrCreateKeyPair(forceKeyRegeneration = true)
         if (!success) {
             Log.e(TAG, "Failed to force generate new key pair")
-            return false
+            return Result.failure("Failed to generate new key pair")
         }
 
         // Re-register the new key with the server
         val token = getCurrentTokenIfValid() ?: run {
             Log.e(TAG, "No valid token available to register new key")
-            return false
+            return Result.failure("No valid token available to register new key")
         }
 
         return registerClientPublicKey(token)

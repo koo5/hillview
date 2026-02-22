@@ -229,6 +229,8 @@
             console.log('🢄 Web OAuth redirect');
             const authUrl = buildOAuthUrl(provider, TAURI);
             console.log('🢄🔐 Redirecting to:', authUrl);
+            // SECURITY: Not an open redirect - provider is validated against oauthProviders whitelist (line 185),
+            // and backend validates redirect_uri against allowed domains in validate_oauth_redirect_uri()
             window.location.href = authUrl;
         }
     }

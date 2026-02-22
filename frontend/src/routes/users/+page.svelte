@@ -126,10 +126,13 @@
 								<p class="latest-activity">Latest: {formatDate(user.latest_photo_at)}</p>
 							{/if}
 							{#if $app.debug_enabled}
-								<details class="debug-details" on:click|stopPropagation>
-									<summary>[debug]</summary>
-									<pre>{JSON.stringify(user, null, 2)}</pre>
-								</details>
+								<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+								<div on:click|stopPropagation>
+									<details class="debug-details">
+										<summary>[debug]</summary>
+										<pre>{JSON.stringify(user, null, 2)}</pre>
+									</details>
+								</div>
 							{/if}
 						</div>
 					</div>

@@ -39,19 +39,13 @@
 import os
 import sys
 import logging
-import base64
-import json
 from pathlib import Path
 from typing import Optional, Dict, Any
 from datetime import datetime, timezone
 
 import aiofiles
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.hazmat.primitives import serialization
 from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Request
-from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from geoalchemy2.functions import ST_Point, ST_X, ST_Y
@@ -60,18 +54,15 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 
 from push_notifications import send_activity_broadcast_notification
 from common.database import get_db
-from common.models import Photo, User, PhotoRating, PhotoRatingType, UserPublicKey
+from common.models import Photo, User, PhotoRating, UserPublicKey
 from common.utc import format_utc
 from auth import get_current_active_user
 from common.file_utils import (
-	verify_saved_file_content,
-	cleanup_file_on_error,
 	get_file_size_from_upload
 )
 from common.security_utils import verify_ecdsa_signature
-from jwt_service import validate_token
-from rate_limiter import rate_limit_photo_upload, rate_limit_photo_operations
-from photos import delete_photo_files, determine_storage_type, StorageType
+from rate_limiter import rate_limit_photo_operations
+from photos import delete_photo_files
 
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
@@ -547,8 +538,8 @@ async def list_photos(
 				"bearing": photo.compass_angle,
 				"width": photo.width,
 				"height": photo.height,
-				"uploaded_at": photo.uploaded_at,
-				"captured_at": photo.captured_at,
+				"uploaded_at": format_utc(photo.uploaded_at),
+				"captured_at": format_utc(photo.captured_at),
 				"processing_status": photo.processing_status,
 				"error": photo.error,
 				"sizes": photo.sizes,
@@ -722,8 +713,8 @@ async def get_photo(
 			"altitude": photo.altitude,
 			"width": photo.width,
 			"height": photo.height,
-			"captured_at": photo.captured_at,
-			"uploaded_at": photo.uploaded_at,
+			"captured_at": format_utc(photo.captured_at),
+			"uploaded_at": format_utc(photo.uploaded_at),
 			"processing_status": photo.processing_status,
 			"error": photo.error,
 			"exif_data": photo.exif_data,

@@ -6,7 +6,7 @@ import logging
 import asyncio
 import requests
 from typing import Optional, Dict, Any, Union
-from urllib.parse import urlencode, quote
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
 from fastapi.security import OAuth2PasswordRequestForm
@@ -26,11 +26,11 @@ from photos import delete_all_user_photo_files
 from jwt_service import create_upload_authorization_token
 from auth import (
 	authenticate_user, create_access_token, create_refresh_token, get_current_active_user,
-	get_password_hash, Token, UserCreate, UserLogin, UserOut, UserOAuth, RefreshTokenRequest,
+	get_password_hash, Token, UserCreate, UserOut, UserOAuth, RefreshTokenRequest,
 	OAUTH_PROVIDERS, ACCESS_TOKEN_EXPIRE_MINUTES,
 	blacklist_token, get_current_user, get_current_user_optional_with_query
 )
-from rate_limiter import auth_rate_limiter, check_auth_rate_limit, rate_limit_user_profile, rate_limit_user_registration, get_client_ip, general_rate_limiter, rate_limit_photo_operations
+from rate_limiter import auth_rate_limiter, check_auth_rate_limit, rate_limit_user_profile, rate_limit_user_registration, get_client_ip, general_rate_limiter
 from common.config import is_rate_limiting_disabled
 from security_utils import validate_username, validate_email, validate_oauth_redirect_uri, validate_password
 from security_audit import security_audit
@@ -58,8 +58,6 @@ async def cleanup_expired_sessions():
         log.info(f"Active OAuth sessions: {len(oauth_sessions)}")
 
 # Background cleanup task
-import asyncio
-from contextlib import asynccontextmanager
 
 _cleanup_task = None
 
@@ -101,6 +99,7 @@ def store_oauth_session(tokens: Dict[str, Any], user_info: Dict[str, Any]) -> st
         'refresh_token': tokens.get('refresh_token'),
         'expires_at': expires_at,
         'token_expires_at': tokens['expires_at'],
+        'refresh_token_expires_at': tokens.get('refresh_token_expires_at'),
         'user_info': user_info,
         'created_at': utcnow()
     }
@@ -984,7 +983,7 @@ async def oauth_login_internal(
 
 	log.info(f"Request headers: {headers}")
 
-	token_response = requests.post(provider_config["token_url"], data=token_data, headers=headers)
+	token_response = requests.post(provider_config["token_url"], data=token_data, headers=headers, timeout=30)
 	log.info(f"Token exchange response: Status {token_response.status_code}, Headers: {dict(token_response.headers)}")
 
 	if token_response.status_code != 200:
@@ -1006,13 +1005,13 @@ async def oauth_login_internal(
 	if provider == "github":
 		headers["Accept"] = "application/json"
 
-	userinfo_response = requests.get(provider_config["userinfo_url"], headers=headers)
+	userinfo_response = requests.get(provider_config["userinfo_url"], headers=headers, timeout=30)
 
 	# For GitHub, we need to make an additional request to get the email if it's not public
 	if provider == "github" and userinfo_response.status_code == 200:
 		email = userinfo_response.json().get("email")
 		if not email:
-			email_response = requests.get("https://api.github.com/user/emails", headers=headers)
+			email_response = requests.get("https://api.github.com/user/emails", headers=headers, timeout=30)
 			if email_response.status_code == 200:
 				emails = email_response.json()
 				primary_email = next((e for e in emails if e.get("primary")), None)
@@ -1625,7 +1624,7 @@ async def get_user_photos(
             Photo,
             ST_Y(Photo.geometry).label('latitude'),
             ST_X(Photo.geometry).label('longitude')
-        ).where(Photo.owner_id == user_id)
+        ).where(Photo.owner_id == user_id, Photo.deleted == False)
 
         # Apply hidden content filtering
         query = apply_hidden_content_filters(

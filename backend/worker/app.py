@@ -21,18 +21,18 @@ load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 import aiofiles
 import httpx
 import math
-import json
 import numpy as np
 
 from typing import Optional, Any
 from uuid import UUID
 from pathlib import Path
 from datetime import datetime
-from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, Request, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
+from typing import Dict
 from starlette.concurrency import run_in_threadpool
 from throttle import Throttle
 
@@ -153,9 +153,9 @@ def get_worker_identity() -> str:
 	# Get process start time (approximation)
 	start_time = datetime.now().strftime("%Y%m%d-%H%M%S")
 
-	# Create a short hash for uniqueness
+	# Create a short hash for uniqueness (not used for security, just identifier generation)
 	unique_string = f"{hostname}-{start_time}-{os.getpid()}"
-	hash_suffix = hashlib.md5(unique_string.encode()).hexdigest()[:5]
+	hash_suffix = hashlib.md5(unique_string.encode(), usedforsecurity=False).hexdigest()[:5]
 
 	return f"{hostname}_{start_time}_{hash_suffix}"
 
@@ -169,7 +169,7 @@ logger.info(f"PARALLEL_PROCESSING_CONCURRENCY: {PARALLEL_PROCESSING_CONCURRENCY}
 processing_semaphore = asyncio.Semaphore(PARALLEL_PROCESSING_CONCURRENCY)
 
 
-def run_photo_processing_sync(file_path: str, filename: str, user_id: UUID, photo_id: str, client_signature: str, ctx_photo_id: str = None, ctx_task_id: int = None, anonymization_override: str = None):
+def run_photo_processing_sync(file_path: str, filename: str, user_id: UUID, photo_id: str, client_signature: str, ctx_photo_id: str = None, ctx_task_id: int = None, anonymization_override: str = None, metadata: Dict[str, Any] = None):
 	"""
 	Sync wrapper to run async photo processing in a dedicated event loop.
 	This runs in a thread pool to avoid blocking the main event loop.
@@ -189,7 +189,8 @@ def run_photo_processing_sync(file_path: str, filename: str, user_id: UUID, phot
 					user_id=user_id,
 					photo_id=photo_id,
 					client_signature=client_signature,
-					anonymization_override=anonymization_override
+					anonymization_override=anonymization_override,
+					metadata=metadata
 				)
 			)
 		finally:
@@ -245,6 +246,18 @@ def start_background_loop():
 
 
 # Request/Response models
+class BrowserMetadata(BaseModel):
+	"""Metadata provided when EXIF can't be written (e.g., browser capture)"""
+	latitude: Optional[float] = None
+	longitude: Optional[float] = None
+	altitude: Optional[float] = None
+	bearing: Optional[float] = None
+	captured_at: Optional[str] = None  # ISO datetime
+	orientation_code: Optional[int] = None  # EXIF orientation (1, 3, 6, 8)
+	location_source: Optional[str] = None  # 'gps' or 'map'
+	bearing_source: Optional[str] = None
+	accuracy: Optional[float] = None
+
 class ProcessPhotoResponse(BaseModel):
 	success: bool
 	message: str
@@ -317,11 +330,11 @@ async def await_handler(task_id: int):
 
 
 @app.get("/appcheck")
-async def health_check():
+async def appcheck():
 	"""Health check endpoint."""
 	return {"status": "healthy", "service": "photo-processor"}
 @app.get("/servicecheck")
-async def health_check():
+async def servicecheck():
 	"""Health check endpoint."""
 	return {"status": "healthy", "service": "photo-processor"}
 
@@ -353,10 +366,11 @@ async def upload_sync(
 	file: UploadFile = File(...),
 	client_signature: str = Form(...),
 	anonymization_override: Optional[str] = Form(None),  # JSON: null=auto, "[]"=none, "[{...}]"=specific
+	metadata: Optional[str] = Form(None),  # JSON: metadata when EXIF can't be written (e.g., browser capture)
 	upload_auth: dict = Depends(get_upload_authorization)
 ):
 	photo_id, user_id = validate_upload_parameters(upload_auth, file)
-	return await upload(file, client_signature, photo_id, user_id, anonymization_override=anonymization_override)
+	return await upload(file, client_signature, photo_id, user_id, anonymization_override=anonymization_override, metadata=metadata)
 
 
 @app.post("/upload_async")
@@ -364,6 +378,7 @@ async def upload_async(
 	file: UploadFile = File(...),
 	client_signature: str = Form(...),
 	anonymization_override: Optional[str] = Form(None),  # JSON: null=auto, "[]"=none, "[{...}]"=specific
+	metadata: Optional[str] = Form(None),  # JSON: metadata when EXIF can't be written (e.g., browser capture)
 	upload_auth: dict = Depends(get_upload_authorization),
 	background_tasks: BackgroundTasks = None
 ):
@@ -373,21 +388,21 @@ async def upload_async(
 		task_id = task_id_counter
 		task_id_counter += 1
 		pending_background_tasks.add(task_id)
-	background_tasks.add_task(upload, file, client_signature, photo_id, user_id, task_id, anonymization_override)
+	background_tasks.add_task(upload, file, client_signature, photo_id, user_id, task_id, anonymization_override, metadata)
 
 	return {'success': True}
 
 
-async def upload(file: UploadFile, client_signature: str, photo_id: str, user_id: str, task_id = None, anonymization_override: Optional[str] = None):
+async def upload(file: UploadFile, client_signature: str, photo_id: str, user_id: str, task_id = None, anonymization_override: Optional[str] = None, metadata: Optional[str] = None):
 
 	with task_context(photo_id=photo_id, task_id=task_id):
-		return await _upload_inner(file, client_signature, photo_id, user_id, task_id, anonymization_override)
+		return await _upload_inner(file, client_signature, photo_id, user_id, task_id, anonymization_override, metadata)
 
 
-async def _upload_inner(file: UploadFile, client_signature: str, photo_id: str, user_id: str, task_id = None, anonymization_override: Optional[str] = None):
+async def _upload_inner(file: UploadFile, client_signature: str, photo_id: str, user_id: str, task_id = None, anonymization_override: Optional[str] = None, metadata: Optional[str] = None):
 
 	try:
-		file_path, processing_status, error_message, retry_after_minutes, processing_result, secure_filename = await process(file, client_signature, photo_id, user_id, anonymization_override)
+		file_path, processing_status, error_message, retry_after_minutes, processing_result, secure_filename = await process(file, client_signature, photo_id, user_id, anonymization_override, metadata)
 
 		# Handle deleted photos early - no need to notify API
 		if processing_status == "deleted":
@@ -487,7 +502,7 @@ async def _upload_inner(file: UploadFile, client_signature: str, photo_id: str, 
 	)
 
 
-async def process(file: UploadFile, client_signature: str, photo_id: str, user_id: str, anonymization_override: Optional[str] = None):
+async def process(file: UploadFile, client_signature: str, photo_id: str, user_id: str, anonymization_override: Optional[str] = None, metadata: Optional[str] = None):
 
 	file_path = None
 	error_message = None
@@ -531,6 +546,11 @@ async def process(file: UploadFile, client_signature: str, photo_id: str, user_i
 			ctx_photo_id = current_photo_id.get()
 			ctx_task_id = current_task_id.get()
 
+			# Parse metadata JSON string if provided (e.g., from browser capture)
+			parsed_metadata = None
+			if metadata:
+				parsed_metadata = BrowserMetadata.model_validate_json(metadata).model_dump(exclude_none=True)
+
 			processing_result = await run_in_threadpool(
 				run_photo_processing_sync,
 				str(file_path),
@@ -540,7 +560,8 @@ async def process(file: UploadFile, client_signature: str, photo_id: str, user_i
 				client_signature,
 				ctx_photo_id,
 				ctx_task_id,
-				anonymization_override
+				anonymization_override,
+				parsed_metadata
 			)
 
 		if not processing_result:
@@ -552,7 +573,7 @@ async def process(file: UploadFile, client_signature: str, photo_id: str, user_i
 	except TimeoutError as te:
 		logger.error(f"TimeoutError (wait_for_free_ram?) for photo {photo_id}: {te}")
 		processing_status = "error"
-		error_message = f"Insufficient resources to process photo, please retry later"
+		error_message = "Insufficient resources to process photo, please retry later"
 		retry_after_minutes = 15
 
 	except ValueError as processing_error:

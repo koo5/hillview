@@ -5,7 +5,6 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import and_
-from sqlalchemy.orm import selectinload
 from pydantic import BaseModel
 
 import sys

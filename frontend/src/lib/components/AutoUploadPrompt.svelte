@@ -1,13 +1,13 @@
 <script lang="ts">
 	import { createEventDispatcher, onDestroy } from 'svelte';
-	import { TAURI } from '$lib/tauri';
-	import { invoke } from '@tauri-apps/api/core';
+	import { TAURI, BROWSER } from '$lib/tauri';
 	import { navigateWithHistory } from '$lib/navigation.svelte.js';
 	import {auth} from '$lib/auth.svelte';
 	import {get} from "svelte/store";
+	import {getSettings, settings, updateSettings} from '$lib/settings';
 
 	// Event from parent when a photo was captured
-	export let photoCaptured = false;
+	export let photoCaptured = 0;
 
 	const dispatch = createEventDispatcher();
 
@@ -18,8 +18,11 @@
 	let showTimer: ReturnType<typeof setTimeout> | null = null;
 	let hideTimer: ReturnType<typeof setTimeout> | null = null;
 
+	let photoCapturedOld = 0;
+
 	// When a photo is captured, wait a bit then check if we should show prompt
-	$: if (photoCaptured && TAURI) {
+	$: if ((photoCaptured != photoCapturedOld)) {
+		photoCapturedOld = photoCaptured;
 		schedulePromptCheck();
 	}
 
@@ -35,31 +38,28 @@
 			clearTimeout(hideTimer);
 		}
 
-		// Wait 500ms after capture before showing prompt (avoid UI confusion)
+		// Wait after capture before showing prompt (avoid UI confusion)
 		showTimer = setTimeout(() => {
 			checkSettings();
 		}, 800);
 	}
 
 	async function checkSettings() {
-			const result = await invoke('plugin:hillview|get_upload_status') as {
-				auto_upload_enabled: boolean;
-				auto_upload_prompt_enabled: boolean;
-			};
+		const currentSettings = await getSettings();
+		console.log('AutoUploadPrompt: settings:', JSON.stringify(currentSettings), ' authed=', authed);
+		if (currentSettings) {
+			autoUploadEnabled = currentSettings.auto_upload_enabled || false;
+			autoUploadPromptEnabled = currentSettings.auto_upload_prompt_enabled ?? true;
+		}
 
-			console.log('AutoUploadPrompt: autoUpload status:', JSON.stringify(result), ' authed=', authed);
+		visible = (!authed || !autoUploadEnabled) && autoUploadPromptEnabled;
 
-			autoUploadEnabled = result.auto_upload_enabled || false;
-			autoUploadPromptEnabled = result.auto_upload_prompt_enabled || false;
-
-			visible = (!authed || !autoUploadEnabled) && autoUploadPromptEnabled;
-
-			// If we should show the prompt, auto-hide it after 10 seconds
-			if (visible) {
-				hideTimer = setTimeout(() => {
-					hidePrompt();
-				}, 12000);
-			}
+		// If we should show the prompt, auto-hide it after 10 seconds
+		if (visible && TAURI) { // in BROWSER, it's unlikely that people will capture photos for any other reason than to upload, so we can keep the prompt visible until they interact with it
+			hideTimer = setTimeout(() => {
+				hidePrompt();
+			}, 12000);
+		}
 	}
 
 	function goToUploadSettings() {
@@ -95,19 +95,19 @@
 	async function neverAskAgain() {
 		// Permanently disable prompting
 		try {
-			await invoke('plugin:hillview|set_auto_upload_enabled', {
-				enabled: false,
-				prompt_enabled: false
+			await updateSettings({
+				auto_upload_enabled: false,
+				auto_upload_prompt_enabled: false
 			});
 			autoUploadPromptEnabled = false;
 			dispatch('dismiss');
 		} catch (err) {
-			console.error('🢄Failed to save settings:', err);
+			console.error('Failed to save settings:', err);
 		}
 	}
 </script>
 
-{#if visible && !dismissed && TAURI && autoUploadPromptEnabled && (!autoUploadEnabled || !authed)}
+{#if visible && !dismissed && (TAURI || BROWSER) && autoUploadPromptEnabled && (!autoUploadEnabled || !authed)}
 	<div class="auto-upload-prompt" data-testid="auto-upload-prompt">
 		<div class="prompt-content">
 			<button

@@ -6,7 +6,7 @@ typed configuration objects for different parts of the application.
 """
 
 # Import environment initialization first
-from . import env_init
+from . import env_init  # noqa: F401 - side effect import
 
 import os
 import logging
@@ -22,6 +22,7 @@ def is_rate_limiting_disabled() -> bool:
 def get_cors_origins() -> List[str]:
 	"""Get the allowed CORS origins for the application."""
 	return [
+		"http://localhost:3000",
 		"http://localhost:8212",
 		"http://localhost:4173",
 		"http://127.0.0.1:8212",

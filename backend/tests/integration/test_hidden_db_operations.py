@@ -14,11 +14,8 @@ Tests direct database operations for hidden content:
 import asyncio
 import pytest
 import os
-import pytest
 import sys
-import pytest
 from datetime import datetime, timezone
-from typing import List
 
 # Add the backend paths to sys.path for imports
 backend_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -26,11 +23,10 @@ sys.path.insert(0, backend_path)
 sys.path.insert(0, os.path.join(backend_path, 'api', 'app'))
 sys.path.insert(0, os.path.join(backend_path, 'common'))
 
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import and_, func
 
-from common.database import SessionLocal, Base, engine
+from common.database import SessionLocal
 from common.models import User, HiddenPhoto, HiddenUser
 from common.auth_utils import get_password_hash
 
@@ -301,7 +297,7 @@ class TestHiddenDatabaseOperations:
                 self.test_hidden_photos.append(hidden_photo2)
                 print("ℹ Duplicate hidden photo was allowed (no unique constraint)")
                 return True
-            except Exception as e:
+            except Exception:
                 # Duplicate was prevented by database constraint
                 await db.rollback()
                 print("✓ Duplicate hidden photo prevented by database constraint")

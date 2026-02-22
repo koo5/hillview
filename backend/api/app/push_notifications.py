@@ -1,14 +1,14 @@
-from typing import List, Optional, Dict, Any, TypedDict
-from pydantic import BaseModel, Field
+from typing import List, Optional, Dict, TypedDict
 from datetime import datetime, timedelta
 import asyncio
-import httpx, logging
+import httpx
+import logging
 
 from common.models import PushRegistration, Notification, User, UserPublicKey
 from common.utc import utcnow
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import func, desc, and_, update, delete, text
+from sqlalchemy import and_, text
 from fcm_push import send_fcm_push, send_fcm_batch, is_fcm_configured
 
 logger = logging.getLogger(__name__)
@@ -140,7 +140,7 @@ async def send_push_to_client(client_key_id: str, db: AsyncSession, notif: Notif
 			# Check if this is an FCM token or UnifiedPush URL
 			if registration.push_endpoint.startswith('fcm:'):
 				if not is_fcm_configured():
-					logger.warning(f"FCM not configured")
+					logger.warning("FCM not configured")
 					return
 
 				# Send via FCM with notification content and route
@@ -242,6 +242,7 @@ async def send_activity_broadcast_notification(
 	lock_id = 12345  # Arbitrary unique ID for activity broadcast lock
 	lock_result = await db.execute(text(f"SELECT pg_try_advisory_lock({lock_id})"))
 	acquired = lock_result.scalar()
+	logger.debug(f"Activity broadcast lock_result: {lock_result}, acquired: {acquired}")
 
 	if not acquired:
 		logger.debug("Activity broadcast lock not acquired, skipping (another request will handle it)")

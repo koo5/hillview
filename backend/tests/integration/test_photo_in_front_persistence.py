@@ -165,7 +165,7 @@ class TestPhotoInFrontPersistence:
 
                 photo_ids = [p['id'] for p in photos]
                 assert pick_id in photo_ids, \
-                    f"Picked photo should be included even with tight limit"
+                    "Picked photo should be included even with tight limit"
 
                 # Picked photo should be first
                 assert photos[0]['id'] == pick_id, \

@@ -72,7 +72,7 @@ data class PhotoData(
     val id: String,
     val uid: String,
     val source_type: String,
-    val file: String? = null,
+    val filename: String? = null,
     val url: String? = null,
     val coord: LatLng,
     val bearing: Double,

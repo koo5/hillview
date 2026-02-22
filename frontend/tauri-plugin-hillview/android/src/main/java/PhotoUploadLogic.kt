@@ -1223,6 +1223,48 @@ class PhotoUploadLogic(private val context: Context) {
     }
 
     /**
+     * Handle check_photo_file_exists cmd from frontend.
+     * Checks if the photo file exists on disk.
+     * Params: { photo_id: string }
+     */
+    fun handleCheckPhotoFileExists(invoke: Invoke, params: JSObject) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val photoId = params.getString("photo_id")
+
+                if (photoId == null) {
+                    val error = JSObject()
+                    error.put("success", false)
+                    error.put("error", "Missing required param: photo_id")
+                    invoke.resolve(error)
+                    return@launch
+                }
+
+                val photo = photoDao.getPhotoById(photoId)
+
+                val result = JSObject()
+                if (photo == null) {
+                    result.put("success", false)
+                    result.put("error", "Photo not found in database")
+                } else {
+                    val fileExists = PhotoUtils.pathExists(context, photo.path)
+                    result.put("success", true)
+                    result.put("exists", fileExists)
+                    result.put("path", photo.path)
+                }
+                invoke.resolve(result)
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Error checking photo file exists", e)
+                val error = JSObject()
+                error.put("success", false)
+                error.put("error", e.message)
+                invoke.resolve(error)
+            }
+        }
+    }
+
+    /**
      * Handle get_photo_id_by_server_photo_id cmd from frontend.
      * Returns the device photo ID for a given server photo ID.
      * Params: { server_photo_id: string }
@@ -1254,6 +1296,83 @@ class PhotoUploadLogic(private val context: Context) {
 
             } catch (e: Exception) {
                 Log.e(TAG, "Error getting photo ID by server photo ID", e)
+                val error = JSObject()
+                error.put("success", false)
+                error.put("error", e.message)
+                invoke.resolve(error)
+            }
+        }
+    }
+
+    /**
+     * Handle get_photo_anonymization_state cmd from frontend.
+     * Returns the effective anonymization state after applying pending edits.
+     * Params: { photo_id: string }
+     * Returns: { success: true, state: "auto" | "none" | "custom", value: null | "[]" | "[{...}]" }
+     */
+    fun handleGetPhotoAnonymizationState(invoke: Invoke, params: JSObject) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val photoId = params.getString("photo_id")
+
+                if (photoId == null) {
+                    val error = JSObject()
+                    error.put("success", false)
+                    error.put("error", "Missing required param: photo_id")
+                    invoke.resolve(error)
+                    return@launch
+                }
+
+                val photo = photoDao.getPhotoById(photoId)
+
+                if (photo == null) {
+                    val error = JSObject()
+                    error.put("success", false)
+                    error.put("error", "Photo not found in database")
+                    invoke.resolve(error)
+                    return@launch
+                }
+
+                // Start with the current stored value
+                var currentOverride: String? = photo.anonymizationOverride
+
+                // Apply any pending edits to compute effective state
+                val pendingEdits = editDao.getPendingEditsForPhoto(photoId)
+                for (edit in pendingEdits) {
+                    try {
+                        val actionJson = org.json.JSONObject(edit.actionJson)
+                        val action = actionJson.optString("action")
+                        if (action == "set_anonymization_override") {
+                            currentOverride = if (actionJson.isNull("value")) {
+                                null
+                            } else {
+                                actionJson.getJSONArray("value").toString()
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Error parsing edit action for state computation: ${e.message}")
+                    }
+                }
+
+                // Determine state type
+                val state = when {
+                    currentOverride == null -> "auto"
+                    currentOverride == "[]" -> "none"
+                    else -> "custom"
+                }
+
+                val result = JSObject()
+                result.put("success", true)
+                result.put("state", state)
+                if (currentOverride != null) {
+                    result.put("value", currentOverride)
+                } else {
+                    result.put("value", JSONObject.NULL)
+                }
+                invoke.resolve(result)
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Error getting photo anonymization state", e)
                 val error = JSObject()
                 error.put("success", false)
                 error.put("error", e.message)

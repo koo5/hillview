@@ -355,18 +355,6 @@
           "markdownDescription": "Denies the get_auth_token command without any pre-configured scope."
         },
         {
-          "description": "Enables the get_device_photos command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-get-device-photos",
-          "markdownDescription": "Enables the get_device_photos command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the get_device_photos command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-get-device-photos",
-          "markdownDescription": "Denies the get_device_photos command without any pre-configured scope."
-        },
-        {
           "description": "Enables the get_intent_data command without any pre-configured scope.",
           "type": "string",
           "const": "allow-get-intent-data",
@@ -427,18 +415,6 @@
           "markdownDescription": "Denies the getSensorAccuracy command without any pre-configured scope."
         },
         {
-          "description": "Enables the get_upload_status command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-get-upload-status",
-          "markdownDescription": "Enables the get_upload_status command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the get_upload_status command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-get-upload-status",
-          "markdownDescription": "Denies the get_upload_status command without any pre-configured scope."
-        },
-        {
           "description": "Enables the import_photos command without any pre-configured scope.",
           "type": "string",
           "const": "allow-import-photos",
@@ -473,18 +449,6 @@
           "type": "string",
           "const": "deny-photo-worker-process",
           "markdownDescription": "Denies the photo_worker_process command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the ping command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-ping",
-          "markdownDescription": "Enables the ping command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the ping command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-ping",
-          "markdownDescription": "Denies the ping command without any pre-configured scope."
         },
         {
           "description": "Enables the poll_messages command without any pre-configured scope.",
@@ -593,18 +557,6 @@
           "type": "string",
           "const": "deny-select-push-distributor",
           "markdownDescription": "Denies the select_push_distributor command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the set_auto_upload_enabled command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-set-auto-upload-enabled",
-          "markdownDescription": "Enables the set_auto_upload_enabled command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the set_auto_upload_enabled command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-set-auto-upload-enabled",
-          "markdownDescription": "Denies the set_auto_upload_enabled command without any pre-configured scope."
         },
         {
           "description": "Enables the set_notification_settings command without any pre-configured scope.",
@@ -727,10 +679,10 @@
           "markdownDescription": "Denies the test_show_notification command without any pre-configured scope."
         },
         {
-          "description": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-ping`\n- `allow-start-sensor`\n- `allow-stop-sensor`\n- `allow-get-sensor-accuracy`\n- `allow-register-listener`\n- `allow-start-precise-location-listener`\n- `allow-stop-precise-location-listener`\n- `allow-set-auto-upload-enabled`\n- `allow-get-upload-status`\n- `allow-set-upload-config`\n- `allow-retry-failed-uploads`\n- `allow-store-auth-token`\n- `allow-get-auth-token`\n- `allow-clear-auth-token`\n- `allow-refresh-auth-token`\n- `allow-is-token-expired`\n- `allow-check-camera-permission`\n- `allow-request-camera-permission`\n- `allow-get-notification-settings`\n- `allow-set-notification-settings`\n- `allow-test-auth-expired-notification`\n- `allow-check-tauri-permissions`\n- `allow-request-post-notification-permission`\n- `allow-test-show-notification`\n- `allow-get-device-photos`\n- `allow-refresh-photo-scan`\n- `allow-import-photos`\n- `allow-share-photo`\n- `allow-photo-worker-process`\n- `allow-get-push-distributors`\n- `allow-get-push-registration-status`\n- `allow-select-push-distributor`\n- `allow-get-intent-data`\n- `allow-poll-messages`\n- `allow-cmd`\n- `allow-request-tauri-permission`",
+          "description": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-start-sensor`\n- `allow-stop-sensor`\n- `allow-register-listener`\n- `allow-start-precise-location-listener`\n- `allow-stop-precise-location-listener`\n- `allow-retry-failed-uploads`\n- `allow-store-auth-token`\n- `allow-get-auth-token`\n- `allow-clear-auth-token`\n- `allow-refresh-auth-token`\n- `allow-is-token-expired`\n- `allow-check-camera-permission`\n- `allow-request-camera-permission`\n- `allow-get-notification-settings`\n- `allow-set-notification-settings`\n- `allow-check-tauri-permissions`\n- `allow-request-tauri-permission`\n- `allow-test-show-notification`\n- `allow-refresh-photo-scan`\n- `allow-import-photos`\n- `allow-share-photo`\n- `allow-photo-worker-process`\n- `allow-get-push-distributors`\n- `allow-get-push-registration-status`\n- `allow-select-push-distributor`\n- `allow-get-intent-data`\n- `allow-poll-messages`\n- `allow-cmd`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-ping`\n- `allow-start-sensor`\n- `allow-stop-sensor`\n- `allow-get-sensor-accuracy`\n- `allow-register-listener`\n- `allow-start-precise-location-listener`\n- `allow-stop-precise-location-listener`\n- `allow-set-auto-upload-enabled`\n- `allow-get-upload-status`\n- `allow-set-upload-config`\n- `allow-retry-failed-uploads`\n- `allow-store-auth-token`\n- `allow-get-auth-token`\n- `allow-clear-auth-token`\n- `allow-refresh-auth-token`\n- `allow-is-token-expired`\n- `allow-check-camera-permission`\n- `allow-request-camera-permission`\n- `allow-get-notification-settings`\n- `allow-set-notification-settings`\n- `allow-test-auth-expired-notification`\n- `allow-check-tauri-permissions`\n- `allow-request-post-notification-permission`\n- `allow-test-show-notification`\n- `allow-get-device-photos`\n- `allow-refresh-photo-scan`\n- `allow-import-photos`\n- `allow-share-photo`\n- `allow-photo-worker-process`\n- `allow-get-push-distributors`\n- `allow-get-push-registration-status`\n- `allow-select-push-distributor`\n- `allow-get-intent-data`\n- `allow-poll-messages`\n- `allow-cmd`\n- `allow-request-tauri-permission`"
+          "markdownDescription": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-start-sensor`\n- `allow-stop-sensor`\n- `allow-register-listener`\n- `allow-start-precise-location-listener`\n- `allow-stop-precise-location-listener`\n- `allow-retry-failed-uploads`\n- `allow-store-auth-token`\n- `allow-get-auth-token`\n- `allow-clear-auth-token`\n- `allow-refresh-auth-token`\n- `allow-is-token-expired`\n- `allow-check-camera-permission`\n- `allow-request-camera-permission`\n- `allow-get-notification-settings`\n- `allow-set-notification-settings`\n- `allow-check-tauri-permissions`\n- `allow-request-tauri-permission`\n- `allow-test-show-notification`\n- `allow-refresh-photo-scan`\n- `allow-import-photos`\n- `allow-share-photo`\n- `allow-photo-worker-process`\n- `allow-get-push-distributors`\n- `allow-get-push-registration-status`\n- `allow-select-push-distributor`\n- `allow-get-intent-data`\n- `allow-poll-messages`\n- `allow-cmd`"
         }
       ]
     }

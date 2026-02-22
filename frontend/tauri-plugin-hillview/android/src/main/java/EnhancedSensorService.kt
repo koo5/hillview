@@ -623,8 +623,8 @@ class EnhancedSensorService(
 		if (abs(roll) > 90) {
 			azimuth += 180
 		}
-		val prefs = context.getSharedPreferences("landscape_compass_armor22_workaround", Context.MODE_PRIVATE)
-        val workaround1 = prefs.getBoolean("enabled", false)
+		val prefs = context.getSharedPreferences("hillview_compass_prefs", Context.MODE_PRIVATE)
+        val workaround1 = prefs.getBoolean("landscape_armor22_workaround", false)
 		if (workaround1) {
 			if (abs(roll) > 90) {
 				azimuth = 0 - azimuth // magic

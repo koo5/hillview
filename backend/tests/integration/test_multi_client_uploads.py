@@ -227,14 +227,14 @@ class TestMultiClientUploads(BasePhotoTest):
 		total_successful = sum(s.successful for s in client_stats.values())
 		total_failed = sum(s.failed for s in client_stats.values())
 
-		print(f"\n  === Summary ===")
+		print("\n  === Summary ===")
 		print(f"  Total: {total_photos}, Successful: {total_successful}, Failed: {total_failed}")
 		print(f"  Success rate: {total_successful/total_photos*100:.1f}%")
 		print(f"  Total time: {overall_time:.2f}s")
 		if total_successful > 0:
 			print(f"  Throughput: {total_successful/overall_time:.2f} photos/sec")
 
-		print(f"\n  Per-client stats:")
+		print("\n  Per-client stats:")
 		for cid, stats in client_stats.items():
 			print(f"    Client {cid}: {stats.successful}/{stats.total_photos} "
 				  f"in {stats.total_time:.1f}s")

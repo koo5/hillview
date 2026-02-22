@@ -1,42 +1,12 @@
-import type {PhotoId} from './types/photoTypes';
+import type {PhotoId, SimpleCoord, PhotoSize, BasePhotoData} from './types/photoCommon';
 
-// Re-export PhotoId for use in other worker files
-export type {PhotoId};
+// Re-export common types for use in other worker files
+export type {PhotoId, SimpleCoord, PhotoSize};
 
-// Simple coordinate interface for worker compatibility (can't import leaflet in workers)
-export interface SimpleCoord {
-    lat: number;
-    lng: number;
-}
-
-// Photo data types
-export interface PhotoData {
-    id: PhotoId;
-	uid: string;
-    source_type: string;
-    file: string;
-    url: string;
-    coord: SimpleCoord;
-    bearing: number;
-    pitch?: number;
-    altitude: number;
-    source?: any;
-    sizes?: Record<string, PhotoSize>;
-    is_user_photo?: boolean;
-    is_device_photo?: boolean;
-    captured_at?: number;
-    accuracy?: number;
-    abs_bearing_diff?: number;
-    bearing_color?: string;
-    range_distance?: number | null;
-    angular_distance_abs?: number;
-    file_hash?: string;
-}
-
-export interface PhotoSize {
-    url: string;
-    width: number;
-    height: number;
+// Worker-specific photo data (extends base with SimpleCoord)
+export interface PhotoData extends BasePhotoData {
+    coord: SimpleCoord;  // Override with SimpleCoord for workers
+    source?: any;  // Worker version uses any instead of Source type
 }
 
 export interface Bounds {

@@ -26,6 +26,11 @@ class StreamPhotoLoader {
         // Thread-local SimpleDateFormat to avoid creating new instances for each photo
         // SimpleDateFormat is not thread-safe, so we use ThreadLocal for coroutine safety
         private val isoDateFormat = ThreadLocal.withInitial {
+            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
+        }
+        private val isoDateFormatNoMillis = ThreadLocal.withInitial {
             SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
                 timeZone = TimeZone.getTimeZone("UTC")
             }
@@ -36,18 +41,28 @@ class StreamPhotoLoader {
          */
         private fun sanitizeCapturedAt(timestamp: String?): String? {
             if (timestamp.isNullOrBlank() || timestamp == "null") {
-                //Log.w(TAG, "Skipping empty captured_at timestamp")
                 return null
             }
 
             return try {
+                var result = timestamp
+
                 // Handle ISO timestamps without timezone by adding 'Z'
-                if (timestamp.matches(Regex("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}$"))) {
-                    //Log.d(TAG, "Adding timezone to ISO timestamp: $timestamp")
-                    "${timestamp}Z"
-                } else {
-                    timestamp
+                if (result.matches(Regex("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}$"))) {
+                    result = "${result}Z"
                 }
+
+                // Normalize fractional seconds to exactly 3 digits (milliseconds)
+                // Handles .064000Z -> .064Z, .1Z -> .100Z, etc.
+                val fracMatch = Regex("(\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2})\\.(\\d+)Z").find(result)
+                if (fracMatch != null) {
+                    val base = fracMatch.groupValues[1]
+                    val frac = fracMatch.groupValues[2]
+                    val normalizedFrac = frac.padEnd(3, '0').substring(0, 3)
+                    result = "$base.${normalizedFrac}Z"
+                }
+
+                result
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to sanitize timestamp '$timestamp': ${e.message}")
                 null
@@ -410,7 +425,7 @@ class StreamPhotoLoader {
             id = id,
             uid = "stream-$id", // Will be replaced by convertToPhotoData
             source_type = "stream",
-            file = file,
+            filename = file,
             url = url,
             coord = coord,
             bearing = bearing,
@@ -443,16 +458,29 @@ class StreamPhotoLoader {
     }
 
     /**
-     * Parse ISO 8601 timestamp string to Unix timestamp in milliseconds
-     * @param isoString ISO 8601 formatted string (e.g., "2023-12-01T15:30:45Z")
+     * Parse timestamp string to Unix timestamp in milliseconds
+     * Handles both ISO 8601 format and raw Unix timestamps
+     * @param timestampString ISO 8601 formatted string or Unix timestamp in millis
      * @return Unix timestamp in milliseconds, or null if parsing fails
      */
-    private fun parseIsoToTimestamp(isoString: String): Long? {
+    private fun parseIsoToTimestamp(timestampString: String): Long? {
+        // Check if it's already a numeric Unix timestamp
+        val numericValue = timestampString.toLongOrNull()
+        if (numericValue != null) {
+            return numericValue
+        }
+
         return try {
-            isoDateFormat.get()?.parse(isoString)?.time
+            // Try ISO format with milliseconds first
+            isoDateFormat.get()?.parse(timestampString)?.time
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to parse ISO timestamp: $isoString", e)
-            null
+            try {
+                // Fall back to format without milliseconds
+                isoDateFormatNoMillis.get()?.parse(timestampString)?.time
+            } catch (e2: Exception) {
+                Log.w(TAG, "Failed to parse timestamp: $timestampString", e2)
+                null
+            }
         }
     }
 }

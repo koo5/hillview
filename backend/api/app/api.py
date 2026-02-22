@@ -1,4 +1,5 @@
-import logging, yaml
+import logging
+import yaml
 import logging.config
 
 from dsl_utils import y
@@ -55,9 +56,9 @@ import sys
 # Add common module path for both local development and Docker
 common_path = os.path.join(os.path.dirname(__file__), '..', '..', 'common')
 sys.path.append(common_path)
-from common.database import Base, engine, get_db
+from common.database import get_db
 from common.config import is_rate_limiting_disabled, rate_limit_config, get_cors_origins
-from debug_utils import debug_only, safe_str_id, clear_system_tables, cleanup_upload_directories
+from debug_utils import debug_only, clear_system_tables, cleanup_upload_directories
 from user_routes import start_session_cleanup
 import fcm_push
 
@@ -83,7 +84,6 @@ async def lifespan(app: FastAPI):
 
 from fastapi import FastAPI
 from fastapi.openapi.docs import (
-	get_redoc_html,
 	get_swagger_ui_html,
 	get_swagger_ui_oauth2_redirect_html,
 )
@@ -316,7 +316,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 		pass
 	# Return standard FastAPI validation error response (use jsonable_encoder to handle non-serializable types)
 	return JSONResponse(
-		status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+		status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
 		content={"detail": jsonable_encoder(errors)}
 	)
 
@@ -437,7 +437,7 @@ async def clear_database():
 	from sqlalchemy import select, text
 	import auth
 	from common.database import get_db
-	from common.models import User, CachedRegion, MapillaryPhotoCache
+	from common.models import User
 
 	# Get database session
 	async for db in get_db():
@@ -484,7 +484,7 @@ async def clear_database():
 		await db.commit()
 		break
 
-	log.info(f"Database cleared completely")
+	log.info("Database cleared completely")
 	return {
 		"status": "success",
 		"message": "Database cleared successfully",

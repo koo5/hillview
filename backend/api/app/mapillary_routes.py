@@ -16,14 +16,14 @@ from sqlalchemy import text
 import httpx
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
-from common.database import get_db, SessionLocal
-from common.models import CachedRegion, MapillaryPhotoCache, User
+from common.database import get_db
+from common.models import User
 from cache_service import MapillaryCacheService
-from rate_limiter import rate_limit_public_read, general_rate_limiter
+from rate_limiter import general_rate_limiter
 from auth import get_current_user_optional_with_query
 from hidden_content_filters import filter_mapillary_photos_list
 from mock_mapillary import mock_mapillary_service
-from debug_utils import debug_only, safe_str_id
+from debug_utils import debug_only
 from mapillary_url_utils import check_photo_url_expiry
 
 log = logging.getLogger(__name__)
@@ -309,7 +309,7 @@ async def stream_mapillary_images(
 
 		# Check if any Mapillary functionality is enabled
 		if not ENABLE_MAPILLARY_CACHE and not ENABLE_MAPILLARY_LIVE:
-			log.info(f"Mapillary functionality disabled - both cache and live API are disabled")
+			log.info("Mapillary functionality disabled - both cache and live API are disabled")
 			yield f"data: {json.dumps({'type': 'photos', 'photos': []})}\n\n"
 			yield f"data: {json.dumps({'type': 'stream_complete', 'total_live_photos': 0, 'total_cached_photos': 0, 'total_all_photos': 0})}\n\n"
 			return
@@ -415,7 +415,7 @@ async def stream_mapillary_images(
 
 				else:
 					cached_photo_count = 0
-					log.info(f"Cache miss: No cached photos found for bbox")
+					log.info("Cache miss: No cached photos found for bbox")
 					yield f"data: {json.dumps({'type': 'photos', 'photos': []})}\n\n"
 
 				# Calculate uncached regions (or use full area if cache was ignored due to poor distribution)
@@ -700,7 +700,7 @@ def shrink_bbox_to_max_area(bbox: tuple, max_area_sq_deg: float) -> tuple:
 	area = lat_diff * lon_diff
 	if area <= max_area_sq_deg:
 		return bbox  # No need to shrink
-	log.info(f"Shrinking request bbox to max area...")
+	log.info("Shrinking request bbox to max area...")
 	# return a square bbox with area = max_area_sq_deg, centered on original bbox center.
 	center_lat = (top_left_lat + bottom_right_lat) / 2
 	# take into account lon wrapping

@@ -2,17 +2,9 @@ use tauri::{AppHandle, command, Runtime};
 use serde_json::Value;
 use log::info;
 
-use crate::models::*;
+use crate::models::{BasicResponse, AuthTokenResponse};
 use crate::Result;
 use crate::HillviewExt;
-
-#[command(rename_all = "snake_case")]
-pub(crate) async fn ping<R: Runtime>(
-    app: AppHandle<R>,
-    payload: PingRequest,
-) -> Result<PingResponse> {
-    app.hillview().ping(payload)
-}
 
 #[command(rename_all = "snake_case")]
 #[allow(unused_variables)]
@@ -43,58 +35,6 @@ pub(crate) async fn stop_sensor<R: Runtime>(
 
     Ok(())
 }
-
-#[command(rename_all = "snake_case")]
-#[allow(unused_variables)]
-pub(crate) async fn set_auto_upload_enabled<R: Runtime>(
-    app: AppHandle<R>,
-    enabled: bool,
-    prompt_enabled: bool,
-    wifi_only: bool,
-) -> Result<AutoUploadResponse> {
-    #[cfg(mobile)]
-    {
-        return app.hillview().set_auto_upload_enabled(enabled, prompt_enabled, wifi_only);
-    }
-
-    #[cfg(desktop)]
-    {
-        return Err(crate::Error::from("Auto upload is only available on mobile devices"));
-    }
-}
-
-#[command(rename_all = "snake_case")]
-pub(crate) async fn get_upload_status<R: Runtime>(
-    _app: AppHandle<R>,
-) -> Result<UploadStatusResponse> {
-    #[cfg(mobile)]
-    {
-        return _app.hillview().get_upload_status();
-    }
-
-    #[cfg(desktop)]
-    {
-        return Err(crate::Error::from("Upload status is only available on mobile devices"));
-    }
-}
-
-#[command(rename_all = "snake_case")]
-#[allow(unused_variables)]
-pub(crate) async fn set_upload_config<R: Runtime>(
-    app: AppHandle<R>,
-    config: UploadConfig,
-) -> Result<BasicResponse> {
-    #[cfg(mobile)]
-    {
-        return app.hillview().set_upload_config(config);
-    }
-
-    #[cfg(desktop)]
-    {
-        return Err(crate::Error::from("Upload config is only available on mobile devices"));
-    }
-}
-
 
 #[command(rename_all = "snake_case")]
 pub(crate) async fn retry_failed_uploads<R: Runtime>(
@@ -211,21 +151,6 @@ pub(crate) async fn clear_auth_token<R: Runtime>(
 }
 
 #[command(rename_all = "snake_case")]
-pub(crate) async fn get_device_photos<R: Runtime>(
-    #[allow(unused_variables)] app: AppHandle<R>,
-) -> Result<crate::models::DevicePhotosResponse> {
-    #[cfg(mobile)]
-    {
-        return app.hillview().get_device_photos();
-    }
-
-    #[cfg(desktop)]
-    {
-        return Err(crate::Error::from("Device photos are only available on mobile devices"));
-    }
-}
-
-#[command(rename_all = "snake_case")]
 pub(crate) async fn refresh_photo_scan<R: Runtime>(
     #[allow(unused_variables)] app: AppHandle<R>,
 ) -> Result<crate::models::PhotoScanResponse> {
@@ -252,41 +177,6 @@ pub(crate) async fn import_photos<R: Runtime>(
     #[cfg(desktop)]
     {
         return Err(crate::Error::from("Photo import is only available on mobile devices"));
-    }
-}
-
-#[command(rename_all = "snake_case")]
-pub(crate) async fn register_client_public_key<R: Runtime>(
-    #[allow(unused_variables)] app: AppHandle<R>,
-) -> Result<BasicResponse> {
-    #[cfg(mobile)]
-    {
-        return app.hillview().register_client_public_key();
-    }
-
-    #[cfg(desktop)]
-    {
-        return Ok(BasicResponse {
-            success: true,
-            error: None,
-        });
-    }
-}
-
-#[command(rename_all = "snake_case")]
-pub(crate) async fn add_photo_to_database<R: Runtime>(
-    #[allow(unused_variables)] app: AppHandle<R>,
-    #[allow(unused_variables)] photo: crate::shared_types::DevicePhotoMetadata,
-) -> Result<crate::shared_types::AddPhotoResponse> {
-    #[cfg(mobile)]
-    {
-        return app.hillview().add_photo_to_database(photo);
-    }
-
-    #[cfg(desktop)]
-    {
-        // Desktop doesn't have Android database - return error
-        return Err(crate::Error::from("Photo database sync is only available on Android"));
     }
 }
 

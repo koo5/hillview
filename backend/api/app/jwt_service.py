@@ -7,11 +7,10 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 
 # Initialize environment first
-from common import env_init
+from common import env_init  # noqa: F401 - side effect import
 
 import logging
-from datetime import datetime, timezone, timedelta
-from common.utc import utcnow, utc_plus_timedelta
+from datetime import datetime
 from typing import Optional, Dict, Any, Tuple
 
 # Load common modules

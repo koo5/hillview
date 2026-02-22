@@ -4,7 +4,6 @@ import requests
 import pytest
 import sys
 import os
-from typing import Dict, Any
 
 # Add the backend paths for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))

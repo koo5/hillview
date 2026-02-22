@@ -29,7 +29,6 @@ from utils.crypto_utils import (
     generate_ecdsa_key_pair,
     serialize_private_key,
     serialize_public_key,
-    generate_client_key_id,
     generate_push_signature,
 )
 
@@ -639,7 +638,7 @@ class TestNotificationWorkflow(BaseUserManagementTest):
         )
         assert workflow_notification is not None, "Notification not found in recent list"
         assert workflow_notification["read_at"] is None, "New notification should be unread"
-        print(f"Step 3: Found notification in recent list (unread)")
+        print("Step 3: Found notification in recent list (unread)")
 
         # Step 4: Mark as read
         response = requests.put(
@@ -648,7 +647,7 @@ class TestNotificationWorkflow(BaseUserManagementTest):
             headers=self.test_headers
         )
         assert response.status_code == 200
-        print(f"Step 4: Marked notification as read")
+        print("Step 4: Marked notification as read")
 
         # Step 5: Verify unread count decreased
         response = requests.get(
@@ -674,7 +673,7 @@ class TestNotificationWorkflow(BaseUserManagementTest):
         )
         assert workflow_notification is not None
         assert workflow_notification["read_at"] is not None, "Notification should be marked as read"
-        print(f"Step 6: Verified notification is now marked as read")
+        print("Step 6: Verified notification is now marked as read")
 
         print("Full notification workflow completed successfully!")
 

@@ -291,12 +291,24 @@ fn save_to_directory(
 	Ok(photo_path)
 }
 
+/// Store photo chunk using base64 encoding (Android doesn't support raw binary IPC)
 #[command(rename_all = "snake_case")]
 pub fn store_photo_chunk(
 	photo_id: String,
-	chunk: Vec<u8>,
+	chunk_base64: String,
 	is_first_chunk: bool,
 ) -> Result<(), String> {
+	use base64::{Engine as _, engine::general_purpose::STANDARD};
+
+	// Decode base64 to bytes
+	let chunk = STANDARD.decode(&chunk_base64)
+		.map_err(|e| format!("Failed to decode base64: {}", e))?;
+
+	info!(
+		"🢄📦 store_photo_chunk: photo_id={}, is_first={}, chunk_size={}",
+		photo_id, is_first_chunk, chunk.len()
+	);
+
 	let chunks_mutex = PHOTO_CHUNKS.get_or_init(|| Mutex::new(HashMap::new()));
 	let mut chunks = chunks_mutex
 		.lock()
@@ -531,10 +543,6 @@ async fn save_photo_from_bytes(
 				// Trigger immediate upload worker to process the new photo. The naming is wrong at this point.
 				match app_handle.hillview().retry_failed_uploads() {
 					Ok(_) => {
-						info!(
-							"📤[UPLOAD_TRIGGER] Upload worker triggered for new photo: {}",
-							device_photo.filename
-						);
 					}
 					Err(e) => {
 						info!("📤[UPLOAD_TRIGGER] Failed to trigger upload worker: {}", e);

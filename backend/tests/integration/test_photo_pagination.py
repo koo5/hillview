@@ -9,7 +9,6 @@ import requests
 import asyncio
 import os
 import sys
-from typing import List, Dict, Any
 
 # Add paths for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))

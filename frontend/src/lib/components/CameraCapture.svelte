@@ -1,5 +1,5 @@
 <script lang="ts">
-	import {Car, ArrowRight} from 'lucide-svelte';
+	import {Car, ArrowRight, Compass, MapPin} from 'lucide-svelte';
 	import {createEventDispatcher, onDestroy, onMount} from 'svelte';
 	import {TAURI} from '$lib/tauri';
 	import {invoke} from '@tauri-apps/api/core';
@@ -15,7 +15,7 @@
 	import {injectPlaceholder, removePlaceholder} from '$lib/placeholderInjector';
 	import {generatePhotoId, type PlaceholderLocation} from '$lib/utils/placeholderUtils';
 	import {bearingMode, bearingState, spatialState} from '$lib/mapState';
-	import {needsCalibration, shouldShowSwitchToCarModeHint} from '$lib/hints.svelte';
+	import {needsCalibration, shouldShowSwitchToCarModeHint, shouldShowBearingTrackingHint, shouldShowLocationTrackingHint, hideBearingTrackingHint, hideLocationTrackingHint} from '$lib/hints.svelte';
 	import {showCalibrationView} from '$lib/data.svelte.js';
 	import {createPermissionManager} from '$lib/permissionManager';
 	import {
@@ -37,8 +37,9 @@
 
 	const permissionManager = createPermissionManager('camera');
 
-	// Store unlisten function for cleanup
+	// Store unlisten functions for cleanup
 	let cameraPermissionUnlisten: PluginListener | null = null;
+	let deviceOrientationUnlisten: PluginListener | null = null;
 
 	// show or hide the whole capture UI, parent component controls this
 	export let show = false;
@@ -50,7 +51,7 @@
 		longitude?: number;
 		altitude?: number | null;
 		accuracy?: number;
-		heading?: number | null;
+		bearing?: number | null;
 		location_source: 'gps' | 'map';
 		bearing_source: string;
 	} | null = null;
@@ -77,6 +78,17 @@
 	let minZoom = 1;
 	let maxZoom = 1;
 	let videoTrack: MediaStreamTrack | null = null;
+
+	// Focus distance state
+	let focusDistanceSupported = false;
+	let focusDistance = 1;
+	let minFocusDistance = 0;
+	let maxFocusDistance = 1;
+
+	// Tap-to-focus state (actually tap-to-meter for exposure)
+	let focusSupported = false;
+	let focusIndicator: { x: number; y: number; visible: boolean } = { x: 0, y: 0, visible: false };
+	let focusTimeout: ReturnType<typeof setTimeout> | null = null;
 	let wasShowingBeforeHidden = false;
 	let permissionCheckInterval: number | null = null;
 	let cameraPermissionPollInterval: ReturnType<typeof setInterval> | null = null;
@@ -92,6 +104,7 @@
 	let isBlinking = false; // Flag for camera blink effect
 	let absoluteOrientationSensor: AbsoluteOrientationSensor | null = null;
 	let showCalibrationHint: boolean = false;
+
 	let blinkTimeout: ReturnType<typeof setTimeout> | null = null;
 	let calibrationHintTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -102,8 +115,7 @@
 		deviceOrientationExif, relativeOrientationExif,
 		type ExifOrientation
 	} from "$lib/deviceOrientationExif";
-	import {disableCompass} from "$lib/compass.svelte";
-	import {enableGpsOrientation} from "$lib/gpsOrientation.svelte";
+	import {enableBearingTracking, disableBearingTracking} from "$lib/bearingTracking";
 	import CompassButtonInner from "$lib/components/CompassButtonInner.svelte";
 	import CalibrationFigure from "$lib/components/CalibrationFigure.svelte";
 
@@ -349,6 +361,27 @@
 				await video.play();
 				//console.log('🢄[CAMERA] Video playing - clearing error state');
 				//console.log('🢄[CAMERA] Before clear: cameraError =', cameraError, 'needsPermission =', needsPermission, 'cameraReady =', cameraReady);
+
+				// Playwright synthetic fallback: if the fake device produces 0x0 frames,
+				// generate a canvas-based MediaStream so capture still works in tests.
+				if ((navigator as any).webdriver && video.videoWidth === 0 && video.videoHeight === 0) {
+					console.log('🢄[CAMERA] Playwright detected with 0x0 video, creating synthetic stream');
+					const synCanvas = document.createElement('canvas');
+					synCanvas.width = 640;
+					synCanvas.height = 480;
+					const ctx = synCanvas.getContext('2d')!;
+					ctx.fillStyle = '#226688';
+					ctx.fillRect(0, 0, 640, 480);
+					ctx.fillStyle = '#ffffff';
+					ctx.font = '24px sans-serif';
+					ctx.fillText('Playwright fake camera', 160, 240);
+					const synStream = synCanvas.captureStream(1);
+					stream!.getTracks().forEach(t => t.stop());
+					stream = synStream;
+					video.srcObject = synStream;
+					await video.play();
+				}
+
 				cameraReady = true;
 				cameraError = null;
 				needsPermission = false;
@@ -429,6 +462,20 @@
 							const settings = videoTrack.getSettings() as any;
 							zoomLevel = settings.zoom || 1;
 						}
+						// Check focus distance support (manual focus)
+						if ('focusDistance' in capabilities && capabilities.focusDistance) {
+							focusDistanceSupported = true;
+							minFocusDistance = capabilities.focusDistance.min || 0;
+							maxFocusDistance = capabilities.focusDistance.max || 10;
+							const settings = videoTrack.getSettings() as any;
+							focusDistance = settings.focusDistance || minFocusDistance;
+							console.log('📷 [CAMERA] Focus distance supported:', minFocusDistance, '-', maxFocusDistance, 'm');
+						}
+						// Check tap-to-meter support (exposure metering via pointsOfInterest)
+						if ('focusMode' in capabilities && capabilities.focusMode) {
+							focusSupported = capabilities.focusMode.includes('single-shot') || capabilities.focusMode.includes('manual');
+							console.log('📷 [CAMERA] Focus modes:', capabilities.focusMode);
+						}
 					}
 				}
 
@@ -479,6 +526,71 @@
 		setZoom(parseFloat(target.value));
 	}
 
+	async function setFocusDistance(distance: number) {
+		if (!videoTrack || !focusDistanceSupported) return;
+
+		try {
+			await videoTrack.applyConstraints({
+				advanced: [{
+					focusMode: 'manual',
+					focusDistance: distance
+				} as any]
+			} as MediaTrackConstraints);
+			focusDistance = distance;
+		} catch (error) {
+			console.error('📷 Failed to set focus distance:', error);
+		}
+	}
+
+	function handleFocusDistanceChange(event: Event) {
+		const target = event.target as HTMLInputElement;
+		setFocusDistance(parseFloat(target.value));
+	}
+
+	async function handleTapToFocus(event: MouseEvent | TouchEvent) {
+		if (!focusSupported || !videoTrack) return;
+
+		// Get tap coordinates relative to video element
+		const rect = video.getBoundingClientRect();
+		let clientX: number, clientY: number;
+
+		if ('touches' in event) {
+			clientX = event.touches[0].clientX;
+			clientY = event.touches[0].clientY;
+		} else {
+			clientX = event.clientX;
+			clientY = event.clientY;
+		}
+
+		// Calculate normalized coordinates (0-1)
+		const x = (clientX - rect.left) / rect.width;
+		const y = (clientY - rect.top) / rect.height;
+
+		// Show focus indicator
+		focusIndicator = { x: clientX, y: clientY, visible: true };
+
+		// Clear previous timeout
+		if (focusTimeout) clearTimeout(focusTimeout);
+
+		try {
+			// Apply focus at the tapped point
+			await videoTrack.applyConstraints({
+				advanced: [{
+					focusMode: 'single-shot' as any,
+					pointsOfInterest: [{ x, y }] as any
+				}]
+			});
+			console.log('🢄[CAMERA] Focus applied at:', JSON.stringify(
+				{ x: x.toFixed(2), y: y.toFixed(2) }));
+		} catch (err) {
+			console.warn('🢄[CAMERA] Tap-to-focus failed:', err);
+		}
+
+		// Hide indicator after animation
+		focusTimeout = setTimeout(() => {
+			focusIndicator = { ...focusIndicator, visible: false };
+		}, 800);
+	}
 
 	async function selectCamera(camera: CameraDevice) {
 		console.log('🢄[CAMERA] Selecting camera:', camera.label);
@@ -598,10 +710,24 @@
 							const settings = videoTrack.getSettings() as any;
 							zoomLevel = settings.zoom || 1;
 						}
+						// Check focus distance support (manual focus)
+						if ('focusDistance' in capabilities && capabilities.focusDistance) {
+							focusDistanceSupported = true;
+							minFocusDistance = capabilities.focusDistance.min || 0;
+							maxFocusDistance = capabilities.focusDistance.max || 10;
+							const settings = videoTrack.getSettings() as any;
+							focusDistance = settings.focusDistance || minFocusDistance;
+							console.log('📷 [CAMERA] Focus distance supported:', minFocusDistance, '-', maxFocusDistance, 'm');
+						}
+						// Check tap-to-meter support
+						if ('focusMode' in capabilities && capabilities.focusMode) {
+							focusSupported = capabilities.focusMode.includes('single-shot') || capabilities.focusMode.includes('manual');
+							console.log('📷 [CAMERA] Focus modes:', capabilities.focusMode);
+						}
 					}
 				}
 			} else {
-				console.error('🢄[CAMERA] Video element not available in startCameraWithDevice!');
+				console.error('📷 [CAMERA] Video element not available in startCameraWithDevice!');
 				throw new Error('Video element not available');
 			}
 		} catch (error) {
@@ -684,7 +810,7 @@
 			longitude: locationData.longitude!,
 			altitude: locationData.altitude,
 			accuracy: locationData.accuracy || 1,
-			heading: locationData.heading,
+			bearing: locationData.bearing!,  // Assert non-null since bearingState always provides it
 			location_source: locationData.location_source,
 			bearing_source: locationData.bearing_source,
 		};
@@ -936,7 +1062,7 @@
 			longitude: $spatialState.center.lng,
 			altitude: null,
 			accuracy: undefined,
-			heading: $bearingState.bearing,
+			bearing: $bearingState.bearing,
 			location_source: $spatialState.source || 'unknown',
 			bearing_source: $bearingState.source || 'unknown',
 		};
@@ -982,7 +1108,7 @@
 
 		if (TAURI) {
 			try {
-				await addPluginListener('hillview', 'device-orientation', (data: any) => {
+				deviceOrientationUnlisten = await addPluginListener('hillview', 'device-orientation', (data: any) => {
 					console.log('🢄🔍📡 Received device-orientation event from plugin:', JSON.stringify(data));
 					updateDeviceOrientationExif(data.exif_code);
 				});
@@ -1059,13 +1185,18 @@
 
 	onDestroy(() => {
 		if (TAURI) {
-			invoke('plugin:hillview|cmd', {command: 'stop_device_orientation_sensor'});
+			invoke('plugin:hillview|cmd', {command: 'stop_device_orientation_sensor'})
+				.catch(err => console.warn('🢄[CAMERA] Failed to stop device orientation sensor:', err));
 		}
 		if (absoluteOrientationSensor) {
 			absoluteOrientationSensor.stop();
 		}
 		if (stream) {
 			stream.getTracks().forEach(track => track.stop());
+			stream = null;
+		}
+		if (videoTrack) {
+			videoTrack = null;
 		}
 		if (permissionCheckInterval) {
 			clearInterval(permissionCheckInterval);
@@ -1085,9 +1216,15 @@
 		if (calibrationHintTimeout) {
 			clearTimeout(calibrationHintTimeout);
 		}
+		// Properly unregister plugin listeners
+		if (deviceOrientationUnlisten) {
+			console.log('🢄[CAMERA] Cleaning up device orientation event listener');
+			deviceOrientationUnlisten.unregister();
+			deviceOrientationUnlisten = null;
+		}
 		if (cameraPermissionUnlisten) {
 			console.log('🢄[CAMERA] Cleaning up camera permission event listener');
-			// Note: PluginListener cleanup is handled automatically by Tauri
+			cameraPermissionUnlisten.unregister();
 			cameraPermissionUnlisten = null;
 		}
 		document.removeEventListener('visibilitychange', handleVisibilityChange);
@@ -1107,10 +1244,25 @@
 				<!-- Debug: cameraError = {cameraError}, needsPermission = {needsPermission}, cameraReady = {cameraReady} -->
 
 				<!-- Always render video element so it's available for binding -->
-				<video bind:this={video} class="camera-video" class:blink={isBlinking} playsinline
-					   style:display={(cameraError || needsStoragePermission) ? 'none' : 'block'}>
+				<video
+					bind:this={video}
+					class="camera-video"
+					class:blink={isBlinking}
+					playsinline
+					style:display={(cameraError || needsStoragePermission) ? 'none' : 'block'}
+					on:click={handleTapToFocus}
+					on:touchstart|preventDefault={handleTapToFocus}
+				>
 					<track kind="captions"/>
 				</video>
+
+				<!-- Tap-to-focus indicator -->
+				{#if focusIndicator.visible}
+					<div
+						class="focus-indicator"
+						style="left: {focusIndicator.x}px; top: {focusIndicator.y}px;"
+					></div>
+				{/if}
 
 				{#if needsStoragePermission && storagePermissionChecked}
 					<div class="camera-error">
@@ -1191,7 +1343,7 @@
 
 				<!-- Auto-upload prompt (shows after photo capture) -->
 				<AutoUploadPrompt
-					photoCaptured={photoCapturedCount > 0}
+					photoCaptured={photoCapturedCount}
 				/>
 
 				<!-- Calibrate Compass button - shows when compass accuracy is low -->
@@ -1206,18 +1358,18 @@
 				{:else if $shouldShowSwitchToCarModeHint}
 					<button
 						class="switch-to-car-mode-button"
-						on:click={() => {bearingMode.set('car');disableCompass(); enableGpsOrientation();}}
+						on:click={() => {bearingMode.set('car'); disableBearingTracking(); enableBearingTracking();}}
 						data-testid="switch-to-car-mode-btn"
 					>
 						<div class="hint-title">
-							<Car size={16}/>
-							In a vehicle?
+<!--							<Car size={16}/>-->
+							In a car?
 						</div>
 						<div class="compass-button-preview target">
 							<CompassButtonInner bearingMode="car"/>
 						</div>
 					</button>
-				{:else if showCalibrationHint}
+				{:else if showCalibrationHint && !$shouldShowBearingTrackingHint && !$shouldShowLocationTrackingHint}
 					<div class="instruction-row">
 						<div class="figure8-animation">
 							<CalibrationFigure />
@@ -1232,6 +1384,44 @@
 							Verify location.
 <!--							 <MyExternalLink href="https://calibratecompass.com/" >Help</MyExternalLink>-->
 						</div>
+					</div>
+				{/if}
+
+				<!-- Bearing tracking hint -->
+				{#if $shouldShowBearingTrackingHint}
+					<div class="tracking-hint" data-testid="bearing-tracking-hint">
+						<div class="hint-message">
+							<span>Turn on bearing tracking?</span>
+						</div>
+						<div class="compass-button-preview target">
+							<CompassButtonInner bearingMode={$bearingMode}/>
+						</div>
+						<button
+							class="dismiss-hint-btn"
+							on:click={() => hideBearingTrackingHint.set(true)}
+							data-testid="dismiss-bearing-hint"
+						>
+							Do not show again
+						</button>
+					</div>
+				{/if}
+
+				<!-- Location tracking hint -->
+				{#if $shouldShowLocationTrackingHint}
+					<div class="tracking-hint" data-testid="location-tracking-hint">
+						<div class="hint-message">
+							<span>Turn on location tracking?</span>
+						</div>
+						<div class="location-button-preview target">
+							<MapPin size={24}/>
+						</div>
+						<button
+							class="dismiss-hint-btn"
+							on:click={() => hideLocationTrackingHint.set(true)}
+							data-testid="dismiss-location-hint"
+						>
+							Do not show again
+						</button>
 					</div>
 				{/if}
 			</div>
@@ -1255,94 +1445,113 @@
 				</div>
 			{/if}
 
+			{#if focusDistanceSupported && cameraReady}
+				<div class="focus-control">
+					<label for="focus-slider" class="focus-label">
+						<!--{focusDistance.toFixed(1)}m-->
+						focus
+					</label>
+					<input
+						id="focus-slider"
+						type="range"
+						min={minFocusDistance}
+						max={maxFocusDistance}
+						step="0.01"
+						value={focusDistance}
+						on:input={handleFocusDistanceChange}
+						class="focus-slider"
+						aria-label="Focus distance"
+					/>
+				</div>
+			{/if}
 
-			<div class="camera-controls">
-				<!-- Camera selector button (lower-left) -->
-				<!-- Debug: cameraEnumerationSupported = {$cameraEnumerationSupported}, availableCameras.length = {$availableCameras.length} -->
-				<div class="camera-selector-container">
-					<button
-						class="camera-selector-button"
-						on:click={handleCameraSelectorToggle}
-						aria-label="Select camera"
-					>
-						📷
-					</button>
 
-					{#if showCameraSelector}
-						<div class="camera-selector-dropdown">
-							{#if $availableCameras.length > 0}
-								{#each $availableCameras as camera}
-									<div class="camera-group">
-										<button
-											class="camera-option"
-											class:selected={$selectedCameraId === camera.deviceId}
-											on:click={() => selectCamera(camera)}
-											data-testid="camera-option-{camera.deviceId}"
-										>
-                                                <span class="camera-facing">
-                                                    {#if camera.facingMode === 'front'}🤳{:else if camera.facingMode === 'back'}📷{:else}📹{/if}
-                                                </span>
-											<span class="camera-label">
-                                                    {camera.label}
-												{#if camera.isPreferred}⭐{/if}
-                                                </span>
-										</button>
+			<!-- Camera selector button (lower-left) -->
+			<div class="camera-selector-container">
+				<button
+					class="camera-selector-button"
+					on:click={handleCameraSelectorToggle}
+					aria-label="Select camera"
+				>
+					📷
+				</button>
 
-										{#if $selectedCameraId === camera.deviceId}
-											<div class="resolution-options">
-												{#if $resolutionsLoading.has(camera.deviceId)}
-													<div class="resolution-loading">
-														🔄 Loading resolutions...
-													</div>
-												{:else if camera.resolutions && camera.resolutions.length > 0}
-													{#each camera.resolutions as resolution}
-														<button
-															class="resolution-option"
-															class:selected={$selectedResolution?.width === resolution.width}
-															on:click={() => selectResolution(resolution)}
-															data-testid="resolution-option-{resolution.width}x{resolution.height}"
-														>
-															{resolution.label}
-														</button>
-													{/each}
-												{:else if camera.resolutions && camera.resolutions.length === 0}
-													<div class="resolution-error">
-														No resolutions available
-													</div>
-												{/if}
-											</div>
-										{/if}
-									</div>
-								{/each}
-							{:else}
-								<div class="camera-error-message">
-									{#if !$cameraEnumerationSupported}
-										<div class="error-icon">⚠️</div>
-										<div class="error-text">
-											<div class="error-title">Camera enumeration not supported</div>
-											<div class="error-subtitle">enumeration failed.</div>
-										</div>
-									{:else}
-										<div class="error-icon">📷</div>
-										<div class="error-text">
-											<div class="error-title">No cameras found</div>
-											<div class="error-subtitle">Make sure camera permissions are granted</div>
+				{#if showCameraSelector}
+					<div class="camera-selector-dropdown">
+						{#if $availableCameras.length > 0}
+							{#each $availableCameras as camera}
+								<div class="camera-group">
+									<button
+										class="camera-option"
+										class:selected={$selectedCameraId === camera.deviceId}
+										on:click={() => selectCamera(camera)}
+										data-testid="camera-option-{camera.deviceId}"
+									>
+											<span class="camera-facing">
+												{#if camera.facingMode === 'front'}🤳{:else if camera.facingMode === 'back'}📷{:else}📹{/if}
+											</span>
+										<span class="camera-label">
+												{camera.label}
+											{#if camera.isPreferred}⭐{/if}
+											</span>
+									</button>
+
+									{#if $selectedCameraId === camera.deviceId}
+										<div class="resolution-options">
+											{#if $resolutionsLoading.has(camera.deviceId)}
+												<div class="resolution-loading">
+													🔄 Loading resolutions...
+												</div>
+											{:else if camera.resolutions && camera.resolutions.length > 0}
+												{#each camera.resolutions as resolution}
+													<button
+														class="resolution-option"
+														class:selected={$selectedResolution?.width === resolution.width}
+														on:click={() => selectResolution(resolution)}
+														data-testid="resolution-option-{resolution.width}x{resolution.height}"
+													>
+														{resolution.label}
+													</button>
+												{/each}
+											{:else if camera.resolutions && camera.resolutions.length === 0}
+												<div class="resolution-error">
+													No resolutions available
+												</div>
+											{/if}
 										</div>
 									{/if}
 								</div>
-							{/if}
-						</div>
-					{/if}
-				</div>
+							{/each}
+						{:else}
+							<div class="camera-error-message">
+								{#if !$cameraEnumerationSupported}
+									<div class="error-icon">⚠️</div>
+									<div class="error-text">
+										<div class="error-title">Camera enumeration not supported</div>
+										<div class="error-subtitle">enumeration failed.</div>
+									</div>
+								{:else}
+									<div class="error-icon">📷</div>
+									<div class="error-text">
+										<div class="error-title">No cameras found</div>
+										<div class="error-subtitle">Make sure camera permissions are granted</div>
+									</div>
+								{/if}
+							</div>
+						{/if}
+					</div>
+				{/if}
+			</div>
 
 
-				{#if !cameraError && !needsPermission}
+			{#if !cameraError && !needsPermission}
+				<div class="shutter-container">
 					<DualCaptureButton
 						disabled={!cameraReady || !locationData}
 						on:capture={handleCapture}
 					/>
-				{/if}
-			</div>
+				</div>
+			{/if}
 
 			{#if $app.debug === 5}
 				<div class="queue-status-overlay">
@@ -1400,6 +1609,36 @@
 		opacity: 0.3;
 	}
 
+	.focus-indicator {
+		position: fixed;
+		width: 70px;
+		height: 70px;
+		border: 2px solid rgba(255, 255, 255, 0.9);
+		border-radius: 50%;
+		transform: translate(-50%, -50%);
+		pointer-events: none;
+		z-index: 1003;
+		animation: focus-pulse 0.8s ease-out forwards;
+	}
+
+	@keyframes focus-pulse {
+		0% {
+			transform: translate(-50%, -50%) scale(1.5);
+			opacity: 0;
+			border-width: 3px;
+		}
+		30% {
+			transform: translate(-50%, -50%) scale(1);
+			opacity: 1;
+			border-width: 2px;
+		}
+		100% {
+			transform: translate(-50%, -50%) scale(0.8);
+			opacity: 0;
+			border-width: 1px;
+		}
+	}
+
 	.camera-error {
 		text-align: center;
 		color: white;
@@ -1439,30 +1678,57 @@
 		cursor: pointer;
 		font-size: 1rem;
 		transition: background 0.2s;
-		z-index: 100;
+		z-index: 1010;
 	}
 
 	.calibrate-compass-button:hover {
 		background: #c83a3a;
 	}
 
-	.camera-controls {
+	.switch-to-car-mode-button {
 		position: absolute;
-		bottom: calc(6px + var(--safe-area-inset-bottom, 0px));
-		left: calc(0px + var(--safe-area-inset-left, 0px));
-		right: 0;
+		bottom: 150px;
+		right: 0px;
+		padding: 0.175rem 0.1rem;
+		background: rgba(180, 0, 0, 0.5);
+		backdrop-filter: blur(10px);
+		color: white;
+		border: 1px solid rgba(255, 255, 255, 0.2);
+		border-radius: 8px;
+		cursor: pointer;
+		font-size: 0.9rem;
+		transition: background 0.2s;
+		z-index: 1010;
 		display: flex;
-		justify-content: center;
+		flex-direction: column;
 		align-items: center;
-		gap: 2rem;
-		padding: 2rem;
+		gap: 0.5rem;
+	}
+
+	.switch-to-car-mode-button:hover {
+		background: rgba(0, 0, 0, 0.9);
+		border-color: rgba(255, 255, 255, 0.4);
+	}
+
+	.switch-to-car-mode-button .hint-title {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
 	}
 
 	.camera-selector-container {
 		position: absolute;
-		z-index: 100000;
-		left: 0rem;
-		bottom: 0rem;
+		z-index: 1003;
+		left: calc(0px + var(--safe-area-inset-left, 0px));
+		bottom: 6px;
+	}
+
+	.shutter-container {
+		position: absolute;
+		z-index: 50;
+		bottom: 6px;
+		left: 50%;
+		transform: translateX(-50%);
 	}
 
 	.camera-selector-button {
@@ -1632,80 +1898,170 @@
 
 	.zoom-control {
 		position: absolute;
-		left: 0px;
-		bottom: 0px;
-		transform: translateY(-50%);
+		left: calc(0px + var(--safe-area-inset-left, 0px));
+		bottom: 67px;
+		height: 150px;
+		width: 40px;
 		display: flex;
 		flex-direction: column;
 		align-items: center;
+		justify-content: flex-start;
 		background: rgba(0, 0, 0, 0.6);
+		/*background: rgba(0, 0, 200, 0.6);*/
 		border-radius: 8px;
 		backdrop-filter: blur(10px);
+		padding: 8px 0;
+		z-index: 1002;
 	}
 
 	.zoom-label {
 		color: white;
-		font-size: 0.9rem;
+		font-size: 0.85rem;
 		font-weight: 500;
 		min-width: 3em;
 		text-align: center;
+		margin-bottom: 4px;
+		flex-shrink: 0;
 	}
 
 	.zoom-slider {
-		width: 150px;
+		width: 120px;
+		height: 50px;
 		transform: rotate(-90deg);
 		transform-origin: center;
-		margin: 60px 0;
+		margin: 40px 0;
 		cursor: pointer;
+		touch-action: none;
 	}
 
 	.zoom-slider::-webkit-slider-track {
 		background: rgba(255, 255, 255, 0.3);
-		height: 4px;
-		border-radius: 2px;
+		height: 6px;
+		border-radius: 3px;
 	}
 
 	.zoom-slider::-webkit-slider-thumb {
 		-webkit-appearance: none;
 		appearance: none;
-		width: 16px;
-		height: 16px;
+		width: 28px;
+		height: 28px;
 		background: white;
 		border-radius: 50%;
 		cursor: pointer;
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
 	}
 
 	.zoom-slider::-moz-range-track {
 		background: rgba(255, 255, 255, 0.3);
-		height: 4px;
-		border-radius: 2px;
+		height: 6px;
+		border-radius: 3px;
 	}
 
 	.zoom-slider::-moz-range-thumb {
-		width: 16px;
-		height: 16px;
+		width: 50px;
+		height: 50px;
 		background: white;
 		border-radius: 50%;
 		border: none;
 		cursor: pointer;
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+	}
+
+	.focus-control {
+		position: absolute;
+		right: calc(16px + var(--safe-area-inset-right, 0px));
+		bottom: 67px;
+		height: 150px;
+		width: 40px;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: flex-start;
+		background: rgba(0, 0, 0, 0.2);
+		border-radius: 8px;
+		backdrop-filter: blur(2px);
+		padding: 8px 0;
+		z-index: 1002;
+	}
+
+	.focus-label {
+		color: white;
+		font-size: 0.85rem;
+		font-weight: 500;
+		min-width: 3em;
+		text-align: center;
+		margin-bottom: 4px;
+		flex-shrink: 0;
+	}
+
+	.focus-slider {
+		width: 120px;
+		height: 50px;
+		transform: rotate(-90deg);
+		transform-origin: center;
+		margin: 40px 0;
+		cursor: pointer;
+		touch-action: none;
+	}
+
+	.focus-slider::-webkit-slider-track {
+		background: rgba(255, 255, 255, 0.3);
+		height: 6px;
+		border-radius: 3px;
+	}
+
+	.focus-slider::-webkit-slider-thumb {
+		-webkit-appearance: none;
+		appearance: none;
+		width: 28px;
+		height: 28px;
+		background: #4a90e2;
+		border-radius: 50%;
+		cursor: pointer;
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+	}
+
+	.focus-slider::-moz-range-track {
+		background: rgba(255, 255, 255, 0.3);
+		height: 6px;
+		border-radius: 3px;
+	}
+
+	.focus-slider::-moz-range-thumb {
+		width: 50px;
+		height: 50px;
+		background: #4a90e2;
+		border-radius: 50%;
+		border: none;
+		cursor: pointer;
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
 	}
 
 
 	@media (max-width: 600px) {
-
-		.camera-controls {
-			padding: 1rem;
-			gap: 1rem;
-		}
-
 		.zoom-control {
-			right: 0.5rem;
-			padding: 0.5rem;
+			/*background: rgba(200, 0, 0, 1);*/
+			height: 160px;
+			width: 40px;
+			padding: 6px 0;
 		}
 
 		.zoom-slider {
-			width: 100px;
-			margin: 40px 0;
+			width: 120px;
+			height: 50px;
+			margin: 35px 0;
+		}
+
+		.focus-control {
+			height: 160px;
+			width: 40px;
+			padding: 6px 0;
+		}
+
+		.focus-slider {
+			width: 120px;
+			height: 50px;
+			margin: 35px 0;
 		}
 	}
 
@@ -1739,6 +2095,22 @@
 		animation: pulse-hint 2s infinite;
 	}
 
+	.location-button-preview {
+		border: 2px solid #ddd;
+		border-radius: 4px;
+		padding: 8px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.location-button-preview.target {
+		background: #4285F4;
+		border-color: #4285F4;
+		color: white;
+		animation: pulse-hint 2s infinite;
+	}
+
 	.instruction-row {
 		font-size: 0.75em;
 		position: absolute;
@@ -1758,5 +2130,84 @@
 		flex-shrink: 0;
 	}
 
+	.tracking-hint {
+		position: absolute;
+		bottom: 60px;
+		left: 50%;
+		transform: translateX(-50%);
+		background: rgba(255, 255, 255, 0.95);
+		backdrop-filter: blur(10px);
+		border-radius: 8px;
+		padding: 0.75rem 1rem;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.5rem;
+		z-index: 1010;
+		border: 1px solid rgba(0, 0, 0, 0.1);
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+	}
+
+	.tracking-hint .hint-message {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		color: #333;
+		font-size: 0.9rem;
+	}
+
+	.tracking-hint .dismiss-hint-btn {
+		background: transparent;
+		border: 1px solid rgba(0, 0, 0, 0.2);
+		color: rgba(0, 0, 0, 0.6);
+		padding: 0.3rem 0.6rem;
+		border-radius: 4px;
+		font-size: 0.75rem;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.tracking-hint .dismiss-hint-btn:hover {
+		background: rgba(0, 0, 0, 0.05);
+		color: #333;
+		border-color: rgba(0, 0, 0, 0.3);
+	}
+
+	/* Landscape mode: apply bottom safe area insets */
+	@media (orientation: landscape) {
+		.camera-selector-container {
+			bottom: calc(6px + var(--safe-area-inset-bottom, 0px));
+		}
+
+		.shutter-container {
+			bottom: calc(6px + var(--safe-area-inset-bottom, 0px));
+		}
+
+		.calibrate-compass-button {
+			bottom: calc(0px + var(--safe-area-inset-bottom, 0px));
+		}
+
+		.switch-to-car-mode-button {
+			bottom: calc(150px + var(--safe-area-inset-bottom, 0px));
+			right: calc(0px + var(--safe-area-inset-right, 0px));
+		}
+
+		.zoom-control {
+			bottom: calc(67px + var(--safe-area-inset-bottom, 0px));
+		}
+
+		.focus-control {
+			bottom: calc(67px + var(--safe-area-inset-bottom, 0px));
+		}
+
+		.queue-indicator-overlay {
+			bottom: calc(6px + var(--safe-area-inset-bottom, 0px));
+			right: calc(0px + var(--safe-area-inset-right, 0px));
+		}
+
+		.tracking-hint {
+			bottom: calc(60px + var(--safe-area-inset-bottom, 0px));
+		}
+	}
 
 </style>

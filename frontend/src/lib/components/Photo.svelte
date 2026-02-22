@@ -12,7 +12,7 @@
 	import {zoomViewData} from '$lib/zoomView.svelte.js';
 	import {singleTap} from '$lib/actions/singleTap';
 	import {portal} from '$lib/actions/portal';
-	import {getFullPhotoInfo} from '$lib/photoUtils';
+	import {getFullPhotoInfo, getPhotoSource} from '$lib/photoUtils';
 	import type {PhotoData} from '$lib/sources';
 
 	export let photo: PhotoData | null = null;
@@ -219,14 +219,6 @@
 		}
 	}
 
-	// Helper functions to determine photo source and get user info
-	function getPhotoSource(photo: PhotoData): string {
-		if (typeof photo.source === 'string')
-			return photo.source;
-		if (!photo.source?.id) throw new Error('photo?.source?.id is missing:' + JSON.stringify(photo));
-		return photo.source.id;
-	}
-
 	function getUserId(photo: PhotoData): string | null {
 		if (!photo) return null;
 
@@ -295,7 +287,9 @@
 			}
 
 			// Call webworker to remove all photos by this user from cache
-			simplePhotoWorker.removeUserPhotosFromCache?.(userId, photoSource);
+			if (photoSource) {
+				simplePhotoWorker.removeUserPhotosFromCache?.(userId, photoSource);
+			}
 
 			hideMessage = 'User hidden successfully';
 			scheduleTimeout(() => hideMessage = '', 2000);
@@ -364,7 +358,7 @@
 	{#if photo && !photo.is_placeholder}
 		<img
 			src={displayedUrl}
-			alt={photo.file}
+			alt={photo.filename}
 			style="{bg_style_stretched_photo} {border_style}"
 			fetchpriority={fetchPriority as any}
 			data-testid="main-photo"

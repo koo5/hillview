@@ -19,7 +19,7 @@
 	import type {User} from '$lib/auth.svelte';
 	import type {ActivityLogEntry} from '$lib/types/activityLog';
 	import {http, handleApiError, TokenExpiredError} from '$lib/http';
-	import {TAURI} from '$lib/tauri';
+	import {TAURI, BROWSER} from '$lib/tauri';
 	import {navigateWithHistory} from '$lib/navigation.svelte';
 	import {updateKotlinPhotoStatuses} from '$lib/photoStatusSync';
 	import UploadSettingsComponent from '$lib/components/UploadSettings.svelte';
@@ -31,8 +31,9 @@
 	import DevicePhotoStats from "$lib/components/DevicePhotoStats.svelte";
 	import PhotoItem from '$lib/components/PhotoItem.svelte';
 	import { showDropdownMenu, type DropdownMenuItem } from '$lib/components/dropdown-menu/dropdownMenu.svelte';
-	import { getAnonymizationMenuItemsForServerPhoto } from '$lib/photoAnonymizationMenu';
+	import { getPhotoMenuItemsForServerPhoto } from '$lib/photoAnonymizationMenu';
 	import DropdownMenu from '$lib/components/dropdown-menu/DropdownMenu.svelte';
+	import AnonymizationModal from '$lib/components/anonymization-modal/AnonymizationModal.svelte';
 
 	let photos: UserPhoto[] = [];
 	let isLoading = true;
@@ -155,7 +156,7 @@
 				const statuses = newPhotos.map((p: UserPhoto) => ({
 					id: p.id,
 					processing_status: p.processing_status,
-					error: p.error || null
+					error: null  // UserPhoto doesn't have error field
 				}));
 				updateKotlinPhotoStatuses(statuses).catch(err =>
 					console.error('Failed to sync photo statuses to Kotlin:', err)
@@ -194,7 +195,7 @@
 		await fetchPhotos(true); // Reset and fetch from the beginning
 	}
 
-	async function deletePhoto(photoId: number) {
+	async function deletePhoto(photoId: string) {
 		console.log(`🢄DEBUG: deletePhoto called with photoId: ${photoId}`);
 		if (!confirm('Are you sure you want to delete this photo?')) {
 			console.log('🢄DEBUG: User cancelled delete');
@@ -255,7 +256,7 @@
 		}
 	}
 
-	async function setPhotoRating(photoId: number, rating: 'thumbs_up' | 'thumbs_down') {
+	async function setPhotoRating(photoId: string, rating: 'thumbs_up' | 'thumbs_down') {
 		console.log(`🢄Setting ${rating} for photo ${photoId}`);
 
 		try {
@@ -289,7 +290,7 @@
 		}
 	}
 
-	async function removePhotoRating(photoId: number) {
+	async function removePhotoRating(photoId: string) {
 		console.log(`🢄Removing rating for photo ${photoId}`);
 
 		try {
@@ -323,7 +324,7 @@
 		}
 	}
 
-	async function handleRatingClick(photoId: number, rating: 'thumbs_up' | 'thumbs_down') {
+	async function handleRatingClick(photoId: string, rating: 'thumbs_up' | 'thumbs_down') {
 		const photo = photos.find(p => p.id === photoId);
 		if (!photo) return;
 
@@ -338,7 +339,7 @@
 
 	function showPhotoMenu(event: MouseEvent, photo: UserPhoto) {
 		const button = event.currentTarget as HTMLButtonElement;
-		const items: DropdownMenuItem[] = getAnonymizationMenuItemsForServerPhoto(photo.id);
+		const items: DropdownMenuItem[] = getPhotoMenuItemsForServerPhoto(photo.id);
 
 		showDropdownMenu(items, button, {
 			placement: 'above-right',
@@ -348,16 +349,17 @@
 </script>
 
 <StandardHeaderWithAlert
-	title={"My Photos" + ' (' + totalCount + ')'}
+	title={"My Photos" + ($auth.is_authenticated ? ' (' + totalCount + ')' : '')}
 	showMenuButton={true}
 	fallbackHref="/"
 />
 
 <StandardBody>
-	{#if TAURI}
+	{#if TAURI || BROWSER}
 
 		<div class="page-actions">
-			<button class="action-button primary" on:click={() => showSettings = !showSettings}>
+			<button class="action-button primary" on:click={() => showSettings = !showSettings}
+					data-testid="settings-button">
 				<Settings size={20}/>
 				Settings
 			</button>
@@ -371,21 +373,21 @@
 		<div class="error-message">{error}</div>
 	{/if}
 
-	{#if TAURI && showSettings}
+	{#if (TAURI || BROWSER) && showSettings}
 		<div class="settings-panel">
 			<UploadSettingsComponent
 				onSaveSuccess={(message) => {
 					addLogEntry(message, 'success');
-					showSettings = false;
 				}}
-				onCancel={() => showSettings = false}
 			/>
 		</div>
 	{/if}
 
-	<DevicePhotoStats addLogEntry={addLogEntry} />
+	{#if $auth.is_authenticated}
+		<DevicePhotoStats addLogEntry={addLogEntry} />
+	{/if}
 
-	{#if TAURI}
+	{#if (TAURI || BROWSER) && $auth.is_authenticated}
 		<div class="refresh-section">
 			<button
 				class="action-button primary"
@@ -411,7 +413,7 @@
 							on:click={() => activeTab = 'upload'}
 							data-testid="upload-tab"
 						>
-							Upload Photos
+							Upload Files
 						</button>
 					{:else}
 						{#if $app.debug_enabled}
@@ -432,7 +434,7 @@
 				<div class="tab-content">
 					{#if activeTab === 'upload'}
 						{#if !TAURI}
-							<LicenseSelector required={true}/>
+							<LicenseSelector />
 							<PhotoUpload
 								{user}
 								onLogEntry={addLogEntry}
@@ -443,7 +445,7 @@
 						{/if}
 					{:else if activeTab === 'import'}
 						<div class="license-section">
-							<LicenseSelector required={true}/>
+							<LicenseSelector />
 						</div>
 						<PhotoImport
 							{user}
@@ -565,6 +567,7 @@
 </StandardBody>
 
 <DropdownMenu />
+<AnonymizationModal />
 
 <style>
 	.photos-container {

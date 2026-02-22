@@ -16,3 +16,4 @@ backend/uploads/
 **/.idea/copilot.data.migration*xml
 **/*.pyc
 
+**/*.kate-swp
