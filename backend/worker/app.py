@@ -330,11 +330,11 @@ async def await_handler(task_id: int):
 
 
 @app.get("/appcheck")
-async def health_check():
+async def appcheck():
 	"""Health check endpoint."""
 	return {"status": "healthy", "service": "photo-processor"}
 @app.get("/servicecheck")
-async def health_check():
+async def servicecheck():
 	"""Health check endpoint."""
 	return {"status": "healthy", "service": "photo-processor"}
 

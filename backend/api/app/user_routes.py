@@ -1623,7 +1623,7 @@ async def get_user_photos(
             Photo,
             ST_Y(Photo.geometry).label('latitude'),
             ST_X(Photo.geometry).label('longitude')
-        ).where(Photo.owner_id == user_id)
+        ).where(Photo.owner_id == user_id, Photo.deleted == False)
 
         # Apply hidden content filtering
         query = apply_hidden_content_filters(

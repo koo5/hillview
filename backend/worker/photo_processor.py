@@ -395,6 +395,7 @@ class PhotoProcessor:
 			# this takes a while to import, so do it here dynamically
 			logger.info(f"Importing anonymization module for {source_path}")
 			from anonymize import anonymize_image as _  # noqa: F401
+			logger.info(f"Successfully imported anonymization module")
 
 		async with throttle.rate_limit(PARALLEL_PROCESSING_START_DELAY, 1500):
 
@@ -421,7 +422,7 @@ class PhotoProcessor:
 								'blur': 500
 							})
 					from blur import apply_blur
-					apply_blur(image, detections['objects'])
+					apply_blur(source_path, image, detections['objects'])
 
 
 			size_variants = ['full', 320, 640, 1024, 2048, 3072, 4096]
@@ -558,6 +559,7 @@ class PhotoProcessor:
 		"""
 		from anonymize import anonymize_image
 		anonymized_path, detections = anonymize_image(source_path)
+		logger.info(f"Anonymization completed for {source_path}, detections: {detections}")
 		return anonymized_path, detections
 
 
