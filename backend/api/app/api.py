@@ -316,7 +316,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 		pass
 	# Return standard FastAPI validation error response (use jsonable_encoder to handle non-serializable types)
 	return JSONResponse(
-		status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+		status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
 		content={"detail": jsonable_encoder(errors)}
 	)
 
