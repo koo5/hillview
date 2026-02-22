@@ -28,7 +28,8 @@ export function createRemoteStore<T>(opts: {
 		initial = undefined,
 		load,
 		save,
-		autoLoadOnSubscribe = true
+		autoLoadOnSubscribe = true,
+		cancelOnUnsubscribe = false
 	} = opts;
 
 	let state: RemoteState<T> = {
@@ -72,7 +73,10 @@ export function createRemoteStore<T>(opts: {
 
 		// STOP — last subscriber unsubscribed
 		return () => {
-			cancelled = true;
+			if (cancelOnUnsubscribe)
+			{
+				cancelled = true;
+			}
 		};
 	});
 

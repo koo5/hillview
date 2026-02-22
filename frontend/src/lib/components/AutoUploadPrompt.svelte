@@ -4,7 +4,7 @@
 	import { navigateWithHistory } from '$lib/navigation.svelte.js';
 	import {auth} from '$lib/auth.svelte';
 	import {get} from "svelte/store";
-	import { settings, updateSettings } from '$lib/settings';
+	import {getSettings, settings, updateSettings} from '$lib/settings';
 
 	// Event from parent when a photo was captured
 	export let photoCaptured = 0;
@@ -45,11 +45,11 @@
 	}
 
 	async function checkSettings() {
-		const currentSettings = get(settings);
-		if (currentSettings?.value) {
-			console.log('AutoUploadPrompt: settings:', JSON.stringify(currentSettings.value), ' authed=', authed);
-			autoUploadEnabled = currentSettings.value.auto_upload_enabled || false;
-			autoUploadPromptEnabled = currentSettings.value.auto_upload_prompt_enabled ?? true;
+		const currentSettings = await getSettings();
+		console.log('AutoUploadPrompt: settings:', JSON.stringify(currentSettings), ' authed=', authed);
+		if (currentSettings) {
+			autoUploadEnabled = currentSettings.auto_upload_enabled || false;
+			autoUploadPromptEnabled = currentSettings.auto_upload_prompt_enabled ?? true;
 		}
 
 		visible = (!authed || !autoUploadEnabled) && autoUploadPromptEnabled;

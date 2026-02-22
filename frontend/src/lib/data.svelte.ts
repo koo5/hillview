@@ -63,7 +63,7 @@ const deviceSources: Source[] = TAURI ? [
 		name: 'Device',
 		type: 'device',
 		enabled: !import.meta.env.VITE_PICS_OFF,
-		color: '#4a90e2',
+		color: '#4ae24d',
 		subtype: 'hillview'
 	}
 ] : [];

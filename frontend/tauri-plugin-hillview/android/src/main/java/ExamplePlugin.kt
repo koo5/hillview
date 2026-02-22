@@ -941,16 +941,16 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 			CoroutineScope(Dispatchers.IO).launch {
 				try {
 					Log.d(TAG, "🔐 Calling authManager.storeAuthToken...")
-					val success = authManager.storeAuthToken(token, expiresAt, refreshToken, refreshExpiresAt)
-					Log.d(TAG, "🔐 authManager.storeAuthToken returned: $success")
+					val storeResult = authManager.storeAuthToken(token, expiresAt, refreshToken, refreshExpiresAt)
+					Log.d(TAG, "🔐 authManager.storeAuthToken returned: ${storeResult.success}, error: ${storeResult.error}")
 
 					CoroutineScope(Dispatchers.Main).launch {
 						val result = JSObject()
-						result.put("success", success)
-						if (!success) {
-							result.put("error", "Failed to store auth token")
+						result.put("success", storeResult.success)
+						if (!storeResult.success) {
+							result.put("error", storeResult.error ?: "Unknown error storing auth token")
 						}
-						Log.d(TAG, "🔐 Resolving with success: $success")
+						Log.d(TAG, "🔐 Resolving with success: ${storeResult.success}")
 						invoke.resolve(result)
 					}
 
@@ -1282,13 +1282,13 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 					}
 
 					// Use the existing registerClientPublicKey method from AuthenticationManager
-					val success = authManager.registerClientPublicKey(token)
+					val keyResult = authManager.registerClientPublicKey(token)
 
 					CoroutineScope(Dispatchers.Main).launch {
 						val result = JSObject()
-						result.put("success", success)
-						if (!success) {
-							result.put("error", "Client public key registration failed")
+						result.put("success", keyResult.success)
+						if (!keyResult.success) {
+							result.put("error", keyResult.error ?: "Client public key registration failed")
 						}
 						invoke.resolve(result)
 					}
@@ -2333,9 +2333,12 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 				"force_new_key" -> {
 					CoroutineScope(Dispatchers.IO).launch {
 						try {
-							authManager.forceNewKeyPair()
+							val keyResult = authManager.forceNewKeyPair()
 							val result = JSObject()
-							result.put("success", true)
+							result.put("success", keyResult.success)
+							if (!keyResult.success) {
+								result.put("error", keyResult.error ?: "Unknown error")
+							}
 							invoke.resolve(result)
 						} catch (e: Exception) {
 							resolveWithError(invoke, "Failed to force new key pair: ${e.message}", e)

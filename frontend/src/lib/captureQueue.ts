@@ -8,7 +8,7 @@ import {storageSettings} from "$lib/storageSettings";
 import { TAURI, BROWSER } from './tauri';
 import { browserCaptureAdapter } from './browser/captureAdapter';
 import { uploadManager } from './browser/uploadManager';
-import { settings } from './settings';
+import {getSettings, settings} from './settings';
 import { auth } from './authStore';
 
 export interface CaptureLocation {
@@ -188,7 +188,7 @@ class CaptureQueueManager {
 					removePlaceholder(item.placeholder_id);
 
 					// Check if we should auto-upload
-					const currentSettings = get(settings)?.value;
+					const currentSettings = await getSettings();
 					const authState = get(auth);
 
 					// Only attempt upload if authenticated and auto-upload is enabled

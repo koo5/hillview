@@ -2,7 +2,7 @@ import { writable, derived, get } from 'svelte/store';
 import { TAURI, TAURI_MOBILE, tauriSensor, isSensorAvailable, type SensorData, SensorMode } from './tauri';
 import {PluginListener} from "@tauri-apps/api/core";
 import {bearingMode, bearingState, updateBearing} from "$lib/mapState";
-import {settings, settingsDefaults} from "$lib/settings";
+import {getSettings, settings, settingsDefaults} from "$lib/settings";
 
 export interface CompassData {
     magnetic_heading: number | null;  // 0-360 degrees from magnetic north
@@ -296,14 +296,14 @@ async function startTauriSensor(mode: SensorMode = SensorMode.UPRIGHT_ROTATION_V
  * webkitCompassHeading (iOS) and tilt-compensated computation (Android/desktop),
  * and populating a debug trace of all inputs and intermediate values.
  */
-function extractHeadingFromEvent(event: DeviceOrientationEvent): {
+async function extractHeadingFromEvent(event: DeviceOrientationEvent): Promise<{
     magnetic_heading: number | null;
     true_heading: number | null;
     accuracy_level: number | null;
     source: string;
     debug: CompassData['debug'];
-} {
-    const isAbsolute = event.absolute === true;
+}> {
+    const isAbsolute = event.absolute;
     const screenAngle = window.screen?.orientation?.angle;
 
     const debug: CompassData['debug'] = {
@@ -330,8 +330,8 @@ function extractHeadingFromEvent(event: DeviceOrientationEvent): {
         rawHeading = event.webkitCompassHeading;
     } else if (event.alpha != null && event.beta != null && event.gamma != null) {
         debug.headingMethod = 'tiltCompensated';
-        const currentSettings = get(settings);
-        const landscapeWorkaround = currentSettings?.value?.landscape_armor22_workaround ?? settingsDefaults.landscape_armor22_workaround;
+        const currentSettings = await getSettings();
+        const landscapeWorkaround = currentSettings?.landscape_armor22_workaround ?? settingsDefaults.landscape_armor22_workaround;
         const result = computeTiltCompensatedHeading(event.alpha, event.beta, event.gamma, landscapeWorkaround);
         rawHeading = result.heading;
         debug.faceDown = result.faceDown;
@@ -361,8 +361,8 @@ async function startWebCompass(): Promise<boolean> {
         let hasResolved = false;
         let usingAbsolute = false;
 
-        orientationHandler = (event: DeviceOrientationEvent) => {
-            const isAbsolute = event.absolute === true;
+        orientationHandler = async (event: DeviceOrientationEvent) => {
+            const isAbsolute = event.absolute;
 
             // Once we receive an absolute event, drop the regular listener
             // to avoid duplicate updates with different north references
@@ -390,7 +390,7 @@ async function startWebCompass(): Promise<boolean> {
                 resolve(true);
             }
 
-            const extracted = extractHeadingFromEvent(event);
+            const extracted = await extractHeadingFromEvent(event);
 
             const data: CompassData = {
                 ...extracted,

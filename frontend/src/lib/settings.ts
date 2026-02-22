@@ -49,6 +49,28 @@ const browserSettingsStore = localStorageSharedStore('settings', {
 });
 
 
+export async function getSettings(): Promise<Settings> {
+	if (BROWSER) {
+		const current = get(browserSettingsStore);
+		return current.value;
+	} else if (TAURI) {
+		// settings load asynchronously, so we need to wait for it to be ready
+		let current;
+		while (true) {
+			current = get(tauriSettingsStore);
+			if (current?.value) {
+				break;
+			}
+			console.log('Waiting for settings to load...');
+			await new Promise(resolve => setTimeout(resolve, 10));
+		}
+		return current.value;
+	}
+	// Fallback to defaults if something goes wrong
+	return settingsDefaults;
+}
+
+
 export async function updateSettings(newSettings: Partial<Settings>): Promise<void> {
 	if (BROWSER) {
 		const current = get(browserSettingsStore);
