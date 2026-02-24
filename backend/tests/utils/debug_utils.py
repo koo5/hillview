@@ -272,7 +272,7 @@ def base64_to_pem(base64_key: str):
 		return None, None
 
 
-async def _parallel_upload(items, parallel, get_image_data, token_or_manager, format_success, timeout=60, get_captured_at=None):
+async def _parallel_upload(items, parallel, get_image_data, token_or_manager, format_success, timeout=60, get_captured_at=None, anonymization_override=None, version=None):
 	"""Core parallel upload logic.
 
 	Args:
@@ -285,6 +285,8 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 		get_captured_at: Optional callable() -> str. If None, captured_at is omitted
 		                 and the worker extracts it from EXIF. For test images,
 		                 use generate_test_captured_at from secure_upload_utils.
+		anonymization_override: JSON string passed to worker. None=auto, "[]"=skip.
+		version: Optional version number for authorize-upload request.
 	"""
 	import asyncio
 	from .secure_upload_utils import SecureUploadClient
@@ -322,7 +324,7 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 				auth_data = await upload_client.authorize_upload_with_params(
 					token, filename, len(image_data), lat, lon,
 					description, is_public=True, file_data=image_data,
-					captured_at=captured_at
+					captured_at=captured_at, version=version
 				)
 
 				if auth_data.get("duplicate"):
@@ -330,7 +332,7 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 					results["duplicates"] += 1
 					return
 
-				result = await upload_client.upload_to_worker(image_data, auth_data, client_keys, filename)
+				result = await upload_client.upload_to_worker(image_data, auth_data, client_keys, filename, anonymization_override=anonymization_override)
 				photo_id = result.get('photo_id', auth_data.get('photo_id'))
 
 				photo_data = wait_for_photo_processing(photo_id, get_token(), timeout=timeout)
@@ -476,13 +478,15 @@ def upload_random_photos(count: int = 10, parallel: int = 1, user: str = None, p
 		traceback.print_exc()
 
 
-def upload_files(files: list, parallel: int = 1, user: str = None, password: str = None):
+def upload_files(files: list, parallel: int = 1, user: str = None, password: str = None, skip_anonymization: bool = False, version: int = None):
 	"""Upload files from command line paths."""
 	import asyncio
 	import os
 
 	async def _upload():
-		print(f"📸 Uploading {len(files)} files (parallelism: {parallel})...")
+		anon_msg = " (anonymization skipped)" if skip_anonymization else ""
+		ver_msg = f" (version {version})" if version is not None else ""
+		print(f"📸 Uploading {len(files)} files (parallelism: {parallel}){anon_msg}{ver_msg}...")
 
 		token_manager = TokenManager(user, password)
 
@@ -504,7 +508,8 @@ def upload_files(files: list, parallel: int = 1, user: str = None, password: str
 				loc = ""
 			return f"  [{i+1}/{total}] {filename} ✓{loc}"
 
-		await _parallel_upload(items, parallel, read_file, token_manager, format_success, timeout=60)
+		anon_override = "[]" if skip_anonymization else None
+		await _parallel_upload(items, parallel, read_file, token_manager, format_success, timeout=60, anonymization_override=anon_override, version=version)
 
 	try:
 		asyncio.run(_upload())
@@ -590,7 +595,7 @@ def main():
 		print("  python debug_utils.py populate-photos       # Create test photos (fixed locations)")
 		print("  python debug_utils.py populate-photos 6     # Create N test photos (max 6)")
 		print("  python debug_utils.py upload-random-photos [N] [--parallel P] [--user U --pass P]")
-		print("  python debug_utils.py upload-files [--parallel P] [--user U --pass P] file1.jpg ...")
+		print("  python debug_utils.py upload-files [--parallel P] [--user U --pass P] [--skip-anonymization] [--version N] file1.jpg ...")
 		print("  python debug_utils.py mock-mapillary        # Set up mock Mapillary data")
 		print("  python debug_utils.py clear-mapillary       # Clear mock Mapillary data")
 		print("  python debug_utils.py verify-signature <message_json> <signature_base64> <public_key_pem>")
@@ -632,6 +637,9 @@ def main():
 			elif args[i] == "--pass":
 				password = args[i + 1]
 				i += 2
+			elif args[i].startswith("--"):
+				print(f"Unknown option: {args[i]}")
+				return
 			else:
 				positional.append(args[i])
 				i += 1
@@ -641,6 +649,8 @@ def main():
 	elif command == "upload-files":
 		args = sys.argv[2:]
 		parallel, user, password = 1, None, None
+		skip_anonymization = False
+		version = None
 		files = []
 		i = 0
 		while i < len(args):
@@ -653,13 +663,22 @@ def main():
 			elif args[i] == "--pass":
 				password = args[i + 1]
 				i += 2
+			elif args[i] == "--skip-anonymization":
+				skip_anonymization = True
+				i += 1
+			elif args[i] == "--version":
+				version = int(args[i + 1])
+				i += 2
+			elif args[i].startswith("--"):
+				print(f"Unknown option: {args[i]}")
+				return
 			else:
 				files.append(args[i])
 				i += 1
 		if not files:
-			print("Usage: upload-files [--parallel N] [--user U --pass P] file1.jpg ...")
+			print("Usage: upload-files [--parallel N] [--user U --pass P] [--skip-anonymization] [--version N] file1.jpg ...")
 		else:
-			upload_files(files, parallel, user, password)
+			upload_files(files, parallel, user, password, skip_anonymization=skip_anonymization, version=version)
 	elif command == "mock-mapillary":
 		setup_mock_mapillary()
 	elif command == "clear-mapillary":

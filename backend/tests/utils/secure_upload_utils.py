@@ -211,12 +211,13 @@ class SecureUploadClient:
 	async def authorize_upload_with_params(self, auth_token: str, filename: str, file_size: int,
 										   latitude: float, longitude: float, description: str,
 										   is_public: bool = True, file_data: bytes = None,
-										   captured_at: str = None):
+										   captured_at: str = None, version: int = None):
 		"""Request upload authorization with custom parameters.
 
 		Args:
 			captured_at: Optional ISO timestamp. If None, the server will extract it from EXIF.
 			             For test images without real EXIF, use generate_test_captured_at().
+			version: Optional version number. If >1, allows re-uploading completed photos.
 		"""
 		import hashlib
 		if file_data:
@@ -240,16 +241,20 @@ class SecureUploadClient:
 		if captured_at is not None:
 			upload_request["captured_at"] = captured_at
 
+		if version is not None:
+			upload_request["version"] = version
+
 		if not upload_request["client_key_id"]:
 			raise Exception("client_key_id is required - make sure to call register_client_key first")
 
 		return await self._request_upload_authorization(auth_token, upload_request)
 
-	async def upload_to_worker(self, file_input, auth_data, client_keys, filename="secure_test.jpg", timeout: float = 600_00.0):
+	async def upload_to_worker(self, file_input, auth_data, client_keys, filename="secure_test.jpg", timeout: float = 600_00.0, anonymization_override: str = None):
 		"""Phase 3: Upload file to worker with proper client signature.
 
 		Args:
 			file_input: Either a file path (str) or file data (bytes)
+			anonymization_override: JSON string - None=auto, "[]"=skip anonymization
 		"""
 		upload_jwt = auth_data["upload_jwt"]
 		worker_url = auth_data["worker_url"]
@@ -277,6 +282,8 @@ class SecureUploadClient:
 				files = {'file': (filename, file_data, get_content_type(filename))}
 
 			data = {'client_signature': client_signature}
+			if anonymization_override is not None:
+				data['anonymization_override'] = anonymization_override
 			headers = {
 				'Authorization': f'Bearer {upload_jwt}',
 				'Expect': '100-continue'

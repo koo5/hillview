@@ -1,7 +1,10 @@
 """
 photo processing service
 """
+
 import os
+os.environ["OPENCV_IMGCODECS_WEBP_MAX_FILE_SIZE"] = "209715200"  # 200MB
+
 import pathlib
 import json
 import logging
@@ -11,12 +14,10 @@ from typing import Optional, Dict, Any, List, Tuple
 from uuid import UUID
 from datetime import datetime, timezone
 
-from blur import read_image
-
-os.environ["OPENCV_IMGCODECS_WEBP_MAX_FILE_SIZE"] = "209715200"  # 200MB
 import cv2
 from PIL import Image
 import httpx
+from blur import read_image
 from throttle import Throttle
 
 
