@@ -6,8 +6,15 @@ Debug utilities using the centralized API client.
 import sys
 import json
 import traceback
+from datetime import datetime
 from .api_client import api_client
 from .auth_utils import auth_helper
+
+
+def tprint(*args, **kwargs):
+	"""Print with timestamp prefix."""
+	ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+	print(f"[{ts}]", *args, **kwargs)
 
 
 def debug_photos():
@@ -306,9 +313,9 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 	upload_client = SecureUploadClient(api_url=API_URL)
 	client_keys = upload_client.generate_client_keys()
 	token = get_token()
-	print("  Registering client key...")
+	tprint("  Registering client key...")
 	await upload_client.register_client_key(token, client_keys)
-	print(f"  Starting {total} uploads with {parallel} parallel workers...")
+	tprint(f"  Starting {total} uploads with {parallel} parallel workers...")
 
 	async def upload_one(item):
 		i, filename, description, extra_data = item
@@ -328,7 +335,7 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 				)
 
 				if auth_data.get("duplicate"):
-					print(f"  [{i+1}/{total}] {filename} ⏭ duplicate")
+					tprint(f"  [{i+1}/{total}] {filename} ⏭ duplicate")
 					results["duplicates"] += 1
 					return
 
@@ -338,20 +345,20 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 				photo_data = wait_for_photo_processing(photo_id, get_token(), timeout=timeout)
 				if photo_data['processing_status'] == 'completed':
 					results["created"] += 1
-					print(format_success(i, total, filename, photo_data, extra_data))
+					tprint(format_success(i, total, filename, photo_data, extra_data))
 				else:
 					results["failed"] += 1
-					print(f"  [{i+1}/{total}] {filename} ✗ {photo_data.get('error', 'Unknown error')}")
+					tprint(f"  [{i+1}/{total}] {filename} ✗ {photo_data.get('error', 'Unknown error')}")
 			except Exception as e:
 				results["failed"] += 1
 				err_text = getattr(e, "message", None) or str(e) or repr(e) or e.__class__.__name__
-				print(f"  [{i+1}/{total}] {filename} ✗ {err_text}")
+				tprint(f"  [{i+1}/{total}] {filename} ✗ {err_text}")
 				traceback.print_exc()
 
 	await asyncio.gather(*[upload_one(item) for item in items])
 
-	print(f"\n✅ Uploaded {results['created']}/{total} "
-		  f"({results['duplicates']} duplicates, {results['failed']} failed)")
+	tprint(f"\n✅ Uploaded {results['created']}/{total} "
+		   f"({results['duplicates']} duplicates, {results['failed']} failed)")
 
 
 class TokenManager:
@@ -444,7 +451,7 @@ def upload_random_photos(count: int = 10, parallel: int = 1, user: str = None, p
 	from .secure_upload_utils import generate_test_captured_at
 
 	async def _upload():
-		print(f"📸 Uploading {count} random photos (parallelism: {parallel})...")
+		tprint(f"📸 Uploading {count} random photos (parallelism: {parallel})...")
 
 		random.seed(42)
 		token_manager = TokenManager(user, password)
@@ -486,7 +493,7 @@ def upload_files(files: list, parallel: int = 1, user: str = None, password: str
 	async def _upload():
 		anon_msg = " (anonymization skipped)" if skip_anonymization else ""
 		ver_msg = f" (version {version})" if version is not None else ""
-		print(f"📸 Uploading {len(files)} files (parallelism: {parallel}){anon_msg}{ver_msg}...")
+		tprint(f"📸 Uploading {len(files)} files (parallelism: {parallel}){anon_msg}{ver_msg}...")
 
 		token_manager = TokenManager(user, password)
 
@@ -526,7 +533,7 @@ def populate_photos(count: int = 4):
 	from .test_utils import wait_for_photo_processing, API_URL
 
 	async def _populate():
-		print(f"📸 Creating {count} test Hillview photos...")
+		tprint(f"📸 Creating {count} test Hillview photos...")
 
 		# Get auth token for test user
 		token = auth_helper.get_test_user_token("test")
@@ -547,7 +554,7 @@ def populate_photos(count: int = 4):
 		for i in range(min(count, len(photo_configs))):
 			filename, color, lat, lon, bearing = photo_configs[i]
 
-			print(f"  Uploading {filename}...")
+			tprint(f"  Uploading {filename}...")
 
 			# Create image with full GPS data
 			image_data = create_test_image_full_gps(400, 300, color, lat, lon, bearing)
@@ -571,11 +578,11 @@ def populate_photos(count: int = 4):
 			photo_data = wait_for_photo_processing(photo_id, token, timeout=30)
 			if photo_data['processing_status'] == 'completed':
 				created += 1
-				print(f"    ✓ {filename}: lat={photo_data.get('latitude'):.4f}, lon={photo_data.get('longitude'):.4f}, bearing={photo_data.get('bearing')}°")
+				tprint(f"    ✓ {filename}: lat={photo_data.get('latitude'):.4f}, lon={photo_data.get('longitude'):.4f}, bearing={photo_data.get('bearing')}°")
 			else:
-				print(f"    ✗ {filename} failed: {photo_data.get('error', 'Unknown error')}")
+				tprint(f"    ✗ {filename} failed: {photo_data.get('error', 'Unknown error')}")
 
-		print(f"\n✅ Created {created}/{count} test photos")
+		tprint(f"\n✅ Created {created}/{count} test photos")
 
 	try:
 		asyncio.run(_populate())

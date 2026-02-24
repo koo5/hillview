@@ -286,8 +286,7 @@
 			// Stop any existing stream
 			if (stream) {
 				console.log('🢄[CAMERA] Stopping existing stream');
-				stream.getTracks().forEach(track => track.stop());
-				stream = null;
+				stopStream();
 			}
 
 			// Clear any previous errors
@@ -510,6 +509,32 @@
 		}
 	}
 
+	function resetCameraCapabilities() {
+		videoTrack = null;
+		zoomSupported = false;
+		zoomLevel = 1;
+		minZoom = 1;
+		maxZoom = 1;
+		focusDistanceSupported = false;
+		focusDistance = 1;
+		minFocusDistance = 0;
+		maxFocusDistance = 1;
+		focusSupported = false;
+		focusIndicator = { x: 0, y: 0, visible: false };
+		if (focusTimeout) {
+			clearTimeout(focusTimeout);
+			focusTimeout = null;
+		}
+	}
+
+	function stopStream() {
+		if (stream) {
+			stream.getTracks().forEach(track => track.stop());
+			stream = null;
+		}
+		resetCameraCapabilities();
+	}
+
 	function detectCameraCapabilities() {
 		if (!stream || !stream.getVideoTracks) return;
 
@@ -608,10 +633,7 @@
 		console.log('🢄[CAMERA] Switching to camera:', camera.label);
 
 		// Stop current stream if it exists
-		if (stream) {
-			stream.getTracks().forEach(track => track.stop());
-			stream = null;
-		}
+		stopStream();
 
 		cameraReady = false;
 		cameraError = null;
@@ -738,10 +760,7 @@
 		console.log('🢄[CAMERA] Switching to resolution:', resolution.label);
 
 		// Stop current stream if it exists
-		if (stream) {
-			stream.getTracks().forEach(track => track.stop());
-			stream = null;
-		}
+		stopStream();
 
 		cameraReady = false;
 		cameraError = null;
@@ -871,8 +890,7 @@
 			wasShowingBeforeHidden = show && !!stream;
 			if (stream) {
 				console.log('🢄App going to background, stopping camera');
-				stream.getTracks().forEach(track => track.stop());
-				stream = null;
+				stopStream();
 				cameraReady = false;
 			}
 			// Clear any pending retries when going to background
@@ -1007,8 +1025,7 @@
 	} else if (!show && stream) {
 		// Stop camera when modal closes
 		console.log('🢄Modal hidden, stopping camera');
-		stream.getTracks().forEach(track => track.stop());
-		stream = null;
+		stopStream();
 		cameraReady = false;
 		cameraError = null;
 		needsPermission = false;
@@ -1160,13 +1177,7 @@
 		if (absoluteOrientationSensor) {
 			absoluteOrientationSensor.stop();
 		}
-		if (stream) {
-			stream.getTracks().forEach(track => track.stop());
-			stream = null;
-		}
-		if (videoTrack) {
-			videoTrack = null;
-		}
+		stopStream();
 		if (permissionCheckInterval) {
 			clearInterval(permissionCheckInterval);
 		}
@@ -1184,6 +1195,9 @@
 		}
 		if (calibrationHintTimeout) {
 			clearTimeout(calibrationHintTimeout);
+		}
+		if (focusTimeout) {
+			clearTimeout(focusTimeout);
 		}
 		// Properly unregister plugin listeners
 		if (deviceOrientationUnlisten) {
