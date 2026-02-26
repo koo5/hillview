@@ -289,6 +289,8 @@ class SecureUploadClient:
 				'Expect': '100-continue'
 			}
 
+			await self.test_worker_server_connectivity(worker_url)
+
 			response = await client.post(
 				f"{worker_url}/upload",
 				files=files,
@@ -340,13 +342,13 @@ class SecureUploadClient:
 			assert response.status_code == 200
 			assert response.json()["status"] == "ok"
 
-	async def test_worker_server_connectivity(self):
+	async def test_worker_server_connectivity(self, worker_url: str = None):
 		"""Test basic worker server health."""
-		# Use fallback URL since health endpoint doesn't need authorization
-		worker_url = os.getenv("TEST_WORKER_URL", "http://localhost:8056")
+		if worker_url is None:
+			worker_url = os.getenv("TEST_WORKER_URL", "http://localhost:8056")
 		try:
 			async with httpx.AsyncClient() as client:
-				response = await client.get(f"{worker_url}/health")
+				response = await client.get(f"{worker_url}/health", timeout=100.0)
 				if response.status_code == 200:
 					print("✅ Worker server is healthy")
 				else:

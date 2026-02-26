@@ -456,28 +456,42 @@ async def _upload_inner(file: UploadFile, client_signature: str, photo_id: str, 
 			logger.info(f"Sending processing result to API server for photo {photo_id}")
 			logger.info(f"Payload: {payload}")
 
+			max_retries = 5
 			async with httpx.AsyncClient() as client:
-				response = await client.post(
-					f"{API_URL}/photos/processed",
-					json=payload,
-					headers={"Content-Type": "application/json"},
-					timeout=120.0
-				)
+				for attempt in range(max_retries):
+					try:
+						response = await client.post(
+							f"{API_URL}/photos/processed",
+							json=payload,
+							headers={"Content-Type": "application/json"},
+							timeout=220.0
+						)
+					except (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError) as e:
+						if attempt < max_retries - 1:
+							delay = 2 ** attempt
+							logger.warning(f"Connection error sending result for photo {photo_id} (attempt {attempt+1}/{max_retries}): {e}, retrying in {delay}s")
+							await asyncio.sleep(delay)
+							continue
+						logger.error(f"Connection error sending result for photo {photo_id} after {max_retries} attempts: {e}")
+						raise
 
-				if response.status_code == 410:
-					# Photo was deleted while processing - this is expected, clean up gracefully
-					logger.info(f"Photo {photo_id} was deleted during processing, skipping result submission")
-					return ProcessPhotoResponse(
-						success=True,
-						photo_id=photo_id,
-						message="Photo was deleted during processing"
-					)
+					if response.status_code == 410:
+						logger.info(f"Photo {photo_id} was deleted during processing, skipping result submission")
+						return ProcessPhotoResponse(
+							success=True,
+							photo_id=photo_id,
+							message="Photo was deleted during processing"
+						)
 
-				if response.status_code != 200:
-					logger.error(f"Failed to notify API for photo {photo_id}: {response.status_code} - {response.text}")
-					raise HTTPException(status_code=500, detail="Failed to register result with API server")
+					if response.status_code >= 500 and attempt < max_retries - 1:
+						delay = 2 ** attempt
+						logger.warning(f"Server error {response.status_code} for photo {photo_id} (attempt {attempt+1}/{max_retries}), retrying in {delay}s")
+						await asyncio.sleep(delay)
+						continue
 
-				logger.info(f"Successfully notified API server for photo {photo_id}")
+					response.raise_for_status()
+					logger.info(f"Successfully notified API server for photo {photo_id}")
+					break
 
 		except Exception as e:
 			import traceback

@@ -1212,7 +1212,7 @@
                     radius={$spatialState.range}
                     color="#4AE092"
                     fillColor="#ffffff"
-                    weight={1.8}
+                    weight={8.8}
 					dashArray={[5, 15]}
             />
             <!-- arrow -->
