@@ -302,6 +302,8 @@ async function startProcess(type: 'config' | 'area' | 'sourcesPhotosInArea', mes
         if (type === 'config') {
             if (doLog) console.log(`🢄NewWorker: Calling PROCESSCONFIG for ${processId}`);
             if (currentState.config.data) {
+                // Update query options before processing config
+                photoOperations.setQueryOptions(currentState.config.data.queryOptions);
                 photoOperations.processConfig(processId, messageId, currentState.config.data, operationCallbacks);
             } else {
                 console.warn(`🢄NewWorker: PROCESSCONFIG - Config data is null for process ${processId}`);

@@ -1,5 +1,6 @@
 import {photosInArea, photosInRange, spatialState, picks} from './mapState';
 import {sourceLoadingStatus, sources} from './data.svelte';
+import {filters} from './components/filters-modal/filtersStore';
 import {get} from 'svelte/store';
 import {getCurrentToken} from './auth.svelte';
 import {createTokenManager} from './tokenManagerFactory';
@@ -43,7 +44,8 @@ class SimplePhotoWorker {
             this.sendMessage('configUpdated', {
                 config: {
                     expectedWorkerVersion: __WORKER_VERSION__,
-					sources: get(sources)
+					sources: get(sources),
+					queryOptions: get(filters)
                 }
             });
             this.isInitialized = true;
@@ -272,38 +274,48 @@ class SimplePhotoWorker {
 
         // React to source config changes (filter out loading status changes)
         let lastConfigHash = '';
-        sources.subscribe(async (sourceList) => {
+        const sendConfigUpdate = () => {
             if (!this.isInitialized) return;
 
+            const sourceList = get(sources);
+            const currentFilters = get(filters);
+
             // Create hash of config-relevant fields only (ignore loading states)
-            const configHash = JSON.stringify(sourceList.map(source => ({
-                id: source.id,
-                name: source.name,
-                type: source.type,
-                enabled: source.enabled,
-                url: source.url,
-                path: source.path,
-                subtype: source.subtype,
-                clientId: source.client_id,
-                backendUrl: source.backend_url
-            })));
+            const configHash = JSON.stringify({
+                sources: sourceList.map(source => ({
+                    id: source.id,
+                    name: source.name,
+                    type: source.type,
+                    enabled: source.enabled,
+                    url: source.url,
+                    path: source.path,
+                    subtype: source.subtype,
+                    clientId: source.client_id,
+                    backendUrl: source.backend_url
+                })),
+                queryOptions: currentFilters
+            });
 
             // Only trigger config update if actual config changed (not loading states)
             if (configHash === lastConfigHash) {
-                //console.log('🢄SimplePhotoWorker: Ignoring source change - only loading states changed');
+                //console.log('🢄SimplePhotoWorker: Ignoring config change - no relevant changes');
                 return;
             }
 
             lastConfigHash = configHash;
-            //console.log('🢄SimplePhotoWorker: Sending config update with sources...');
+            //console.log('🢄SimplePhotoWorker: Sending config update with sources and queryOptions...');
 
             this.sendMessage('configUpdated', {
                 config: {
                     expectedWorkerVersion: __WORKER_VERSION__,
-                    sources: sourceList
+                    sources: sourceList,
+                    queryOptions: currentFilters
                 }
             });
-		});
+        };
+
+        sources.subscribe(() => sendConfigUpdate());
+        filters.subscribe(() => sendConfigUpdate());
     }
 
     private sendMessage(type: string, data?: any): void {

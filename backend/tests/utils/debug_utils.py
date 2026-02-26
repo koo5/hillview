@@ -590,6 +590,117 @@ def populate_photos(count: int = 4):
 		print(f"❌ Error: {e}")
 
 
+def find_duplicate_md5s():
+	"""Find photos with duplicate MD5 hashes."""
+	import asyncio
+	from sqlalchemy import select, func
+	from common.database import SessionLocal
+	from common.models import Photo, User
+
+	async def _find():
+		async with SessionLocal() as db:
+			# Find MD5s that appear more than once
+			subquery = (
+				select(Photo.file_md5, func.count(Photo.id).label('count'))
+				.where(Photo.file_md5.isnot(None))
+				.group_by(Photo.file_md5)
+				.having(func.count(Photo.id) > 1)
+				.subquery()
+			)
+
+			# Get the actual photos with duplicate MD5s, joined with user
+			query = (
+				select(Photo.id, Photo.file_md5, Photo.original_filename, Photo.uploaded_at, User.username)
+				.join(User, Photo.owner_id == User.id)
+				.where(Photo.file_md5.in_(select(subquery.c.file_md5)))
+				.order_by(Photo.file_md5, Photo.uploaded_at)
+			)
+
+			result = await db.execute(query)
+			rows = result.all()
+
+			if not rows:
+				print("✅ No duplicate MD5 hashes found")
+				return
+
+			print(f"⚠️  Found {len(rows)} photos with duplicate MD5 hashes:\n")
+
+			current_md5 = None
+			for photo_id, file_md5, filename, uploaded_at, username in rows:
+				if file_md5 != current_md5:
+					if current_md5:
+						print()
+					print(f"MD5: {file_md5}")
+					current_md5 = file_md5
+				print(f"  {photo_id}  {username}  {filename}  ({uploaded_at})")
+
+	try:
+		asyncio.run(_find())
+	except Exception as e:
+		print(f"❌ Error: {e}")
+		traceback.print_exc()
+
+
+def set_analyses(distilled_json_path: str):
+	"""Set analysis data for photos from a distilled.json file."""
+	import requests
+	from .test_utils import API_URL
+
+	try:
+		with open(distilled_json_path, 'r') as f:
+			entries = json.load(f)
+
+		tprint(f"📊 Setting analysis for {len(entries)} photos...")
+
+		success = 0
+		not_found = 0
+		failed = 0
+
+		for entry in entries:
+			file_md5 = entry.get('original_file_md5')
+			if not file_md5:
+				tprint(f"  ⚠ Skipping entry without MD5")
+				continue
+
+			# Extract the fields we want to set
+			analysis = {}
+			for field in ['features', 'time_of_day', 'closest_object_distance', 'farthest_object_distance', 'location_type']:
+				if field in entry:
+					analysis[field] = entry[field]
+
+			if not analysis:
+				continue
+
+			try:
+				response = requests.post(
+					f"{API_URL}/hillview/internal/set-analysis",
+					json={"file_md5": file_md5, "analysis": analysis}
+				)
+
+				if response.status_code == 200:
+					success += 1
+				elif response.status_code == 404:
+					not_found += 1
+				elif response.status_code == 409:
+					# Multiple photos with same MD5 - stop processing
+					detail = response.json().get('detail', 'Multiple photos found')
+					print(f"\n❌ {detail}")
+					print("Stopping - please resolve duplicate MD5 hashes before continuing.")
+					return
+				else:
+					failed += 1
+					tprint(f"  ✗ MD5 {file_md5[:16]}... failed: {response.status_code}")
+			except Exception as e:
+				failed += 1
+				tprint(f"  ✗ MD5 {file_md5[:16]}... error: {e}")
+
+		tprint(f"\n✅ Set analysis: {success} success, {not_found} not found, {failed} failed")
+
+	except Exception as e:
+		print(f"❌ Error: {e}")
+		traceback.print_exc()
+
+
 def main():
 	"""Command-line interface."""
 	if len(sys.argv) < 2:
@@ -609,6 +720,9 @@ def main():
 		print("                                              # Verify ECDSA signature")
 		print("  python debug_utils.py base64-to-pem <base64_key>")
 		print("                                              # Convert Android pubkey to PEM & show fingerprint")
+		print("  python debug_utils.py set-analyses <distilled.json>")
+		print("                                              # Set photo analysis from distilled.json")
+		print("  python debug_utils.py find-duplicate-md5s   # Find photos with duplicate MD5 hashes")
 		return
 
 	command = sys.argv[1]
@@ -705,6 +819,13 @@ def main():
 			print("              (the value logged by: Base64.encodeToString(publicKey.encoded, NO_WRAP))")
 			return
 		base64_to_pem(sys.argv[2])
+	elif command == "set-analyses":
+		if len(sys.argv) < 3:
+			print("Usage: set-analyses <distilled.json>")
+			return
+		set_analyses(sys.argv[2])
+	elif command == "find-duplicate-md5s":
+		find_duplicate_md5s()
 	else:
 		print(f"Unknown command: {command}")
 

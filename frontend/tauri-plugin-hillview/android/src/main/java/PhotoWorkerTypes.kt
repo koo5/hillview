@@ -122,9 +122,19 @@ data class ProcessInfo(
 
 
 @Serializable
+data class QueryOptions(
+    val time_of_day: String? = null,  // day, night, dawn_dusk
+    val location_type: String? = null,  // indoors, outdoors, mixed
+    val min_farthest_distance: Double? = null,  // meters
+    val max_closest_distance: Double? = null,  // meters
+    val features: List<String> = emptyList()  // OR logic
+)
+
+@Serializable
 data class ConfigData(
     val sources: List<SourceConfig>,
-    val expectedWorkerVersion: String? = null
+    val expectedWorkerVersion: String? = null,
+    val queryOptions: QueryOptions? = null
 )
 
 @Serializable

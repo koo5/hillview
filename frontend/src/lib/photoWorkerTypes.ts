@@ -3,6 +3,16 @@ import type {PhotoId, SimpleCoord, PhotoSize, BasePhotoData} from './types/photo
 // Re-export common types for use in other worker files
 export type {PhotoId, SimpleCoord, PhotoSize};
 
+// Query options for photo filtering/sorting based on AI analysis
+export interface QueryOptions {
+    time_of_day: string | null;  // day, night, dawn_dusk
+    location_type: string | null;  // indoors, outdoors, mixed
+    min_farthest_distance: number | null;  // meters
+    max_closest_distance: number | null;  // meters
+    features: string[];  // OR logic
+    // Future: sorting options can be added here
+}
+
 // Worker-specific photo data (extends base with SimpleCoord)
 export interface PhotoData extends BasePhotoData {
     coord: SimpleCoord;  // Override with SimpleCoord for workers

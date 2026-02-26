@@ -5,6 +5,7 @@ import uuid
 import enum
 
 from sqlalchemy import String, Float, Integer, Boolean, DateTime, Text, JSON, Enum, ForeignKey, CheckConstraint
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 from sqlalchemy.sql import func
 from geoalchemy2 import Geometry
@@ -84,6 +85,7 @@ class Photo(Base):
 	exif_data: Mapped[Optional[dict]] = mapped_column(JSON)
 	detected_objects: Mapped[Optional[dict]] = mapped_column(JSON)
 	sizes: Mapped[Optional[dict]] = mapped_column(JSON)
+	analysis: Mapped[Optional[dict]] = mapped_column(JSONB)  # AI-generated photo analysis (indexed)
 
 	# Client signature fields for secure uploads
 	client_signature: Mapped[Optional[str]] = mapped_column(Text)  # Base64-encoded ECDSA signature from client

@@ -10,6 +10,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { get } from 'svelte/store';
 import { spatialState } from './mapState';
 import { sources, sourceLoadingStatus } from './data.svelte';
+import { filters } from './components/filters-modal/filtersStore';
 import { kotlinMessageQueue, type QueuedMessage } from './KotlinMessageQueue';
 import { MAX_PHOTOS_IN_AREA, MAX_PHOTOS_IN_RANGE, DEFAULT_RANGE_METERS } from './photoWorkerConstants';
 
@@ -97,15 +98,17 @@ export class KotlinPhotoWorker {
                     processId,
                     priority: 1, // High priority for config changes
                     data: JSON.stringify({
-                        sources: message.data?.config?.sources || []
+                        sources: message.data?.config?.sources || [],
+                        queryOptions: message.data?.config?.queryOptions || null
                     })
                 };
                 break;
 
             case 'areaUpdated':
                 messageType = 'PROCESS_AREA';
-                // Get current sources from store (frontend context)
+                // Get current sources and filters from stores (frontend context)
                 const currentSources = get(sources);
+                const currentFilters = get(filters);
 
                 // Range and center handling is now done by Kotlin worker
 
@@ -118,7 +121,8 @@ export class KotlinPhotoWorker {
                         sources: currentSources,
                         bounds: message.data?.area,
                         range: message.data?.range ?? DEFAULT_RANGE_METERS, // Use default if not provided
-                        maxPhotos: MAX_PHOTOS_IN_AREA // Use constant from shared config
+                        maxPhotos: MAX_PHOTOS_IN_AREA, // Use constant from shared config
+                        queryOptions: currentFilters
                     })
                 };
                 break;
