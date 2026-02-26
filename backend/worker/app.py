@@ -227,7 +227,7 @@ def background_loop():
 						"pending_tasks": l,
 						"task0_id": task0
 					},
-					timeout=30
+					timeout=60
 				)
 				time.sleep(1)
 			except requests.Timeout:
@@ -321,6 +321,7 @@ async def await_handler(task_id: int):
 				if task_id not in pending_background_tasks:
 					yield b'{"status": "completed"}\n'
 					return
+			logger.debug(f"Awaiting task {task_id}, sending heartbeat...")
 			yield b'.\n'  # Heartbeat
 			await asyncio.sleep(5)
 

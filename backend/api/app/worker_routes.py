@@ -3,6 +3,7 @@ Worker management routes for handling worker keepalive pings.
 """
 import logging
 import os
+import threading
 from typing import Optional
 
 import httpx
@@ -35,15 +36,24 @@ async def worker_pending_background_tasks_ping(request: WorkerPingRequest):
 		# Ping back the worker to keep it alive
 		# fixme: verify worker signature
 		try:
-			async with httpx.AsyncClient() as client:
-				response = await client.post(
-					f"{WORKER_URL}/await",
-					headers={"fly-force-instance-id": request.fly_machine_id},
-					params={'task_id': request.task0_id},
-					timeout=60000.0# might need to set low timeout and reconnect in a loop, if fly.io keeps killing the connection.
-				)
-				log.info(f"Ping back to worker {request.fly_machine_id}: status={response.status_code}")
+			t1 = threading.Thread(target=worker_pingback_thread, args=(request,))
+			t1.start()
+			t2 = threading.Thread(target=worker_pingback_thread, args=(request,))
+			t2.start()
+			for t in [t1, t2]:
+				t.join(timeout=45.0)
 		except Exception as e:
 			err_text = getattr(e, "message", None) or str(e) or repr(e) or e.__class__.__name__
 			log.error(f"Failed to ping back worker {request.fly_machine_id}: {err_text}")
 	return {"status": "ok"}
+
+
+def worker_pingback_thread(request: WorkerPingRequest):
+	response = httpx.post(
+		f"{WORKER_URL}/await",
+		headers={"fly-force-instance-id": request.fly_machine_id},
+		params={'task_id': request.task0_id},
+		timeout=30.0  # might need to set low timeout and reconnect in a loop, if fly.io keeps killing the connection.
+	)
+	log.info(f"Ping back to worker {request.fly_machine_id} done: status={response.status_code}")
+	return response
