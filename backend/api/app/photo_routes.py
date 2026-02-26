@@ -299,13 +299,27 @@ async def save_processed_photo(
 
 @router.post("/upload-file")
 async def upload_processed_file(
-	photo_id: str = Form(...),
-	relative_path: str = Form(...),  # Path relative to pics folder where file should be saved
-	client_signature: str = Form(...),
-	file: UploadFile = File(...),
+	request: Request,
 	db: AsyncSession = Depends(get_db)
 ):
-	"""Upload processed photo file from worker service to API server storage."""
+	"""Upload processed photo file from worker service to API server storage.
+
+	Metadata is passed via headers to avoid multipart parsing (which blocks the async event loop):
+	- X-Photo-Id: photo ID
+	- X-Relative-Path: path relative to pics folder
+	- X-Client-Signature: ECDSA signature for verification
+	"""
+
+	# Read metadata from headers
+	photo_id = request.headers.get("X-Photo-Id")
+	relative_path = request.headers.get("X-Relative-Path")
+	client_signature = request.headers.get("X-Client-Signature")
+
+	if not photo_id or not relative_path or not client_signature:
+		raise HTTPException(
+			status_code=status.HTTP_400_BAD_REQUEST,
+			detail="Missing required headers: X-Photo-Id, X-Relative-Path, X-Client-Signature"
+		)
 
 	# Check if CDN is enabled - if so, reject this request
 	use_cdn = os.getenv("USE_CDN", "false").lower() in ("true", "1", "yes")
@@ -338,12 +352,6 @@ async def upload_processed_file(
 			raise HTTPException(
 				status_code=status.HTTP_400_BAD_REQUEST,
 				detail=f"Photo not in valid state for file upload: {photo.processing_status}"
-			)
-
-		if not client_signature:
-			raise HTTPException(
-				status_code=status.HTTP_400_BAD_REQUEST,
-				detail="Client signature is required for secure uploads"
 			)
 
 		# Get client's public key for signature verification
@@ -402,11 +410,12 @@ async def upload_processed_file(
 		# Ensure parent directory exists
 		file_path.parent.mkdir(parents=True, exist_ok=True)
 
-		# Save the file
-		file_size = get_file_size_from_upload(file.file)
+		# Stream body directly to file — avoids multipart spool blocking the event loop
+		file_size = 0
 		async with aiofiles.open(file_path, 'wb') as f:
-			content = await file.read()
-			await f.write(content)
+			async for chunk in request.stream():
+				await f.write(chunk)
+				file_size += len(chunk)
 
 		r = {
 			"message": "File uploaded successfully",
@@ -418,8 +427,6 @@ async def upload_processed_file(
 
 		logger.info(f"Processed file uploaded for photo {photo_id} to {file_path} ({file_size} bytes)")
 		return r
-
-
 
 	except HTTPException:
 		raise

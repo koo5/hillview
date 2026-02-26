@@ -474,7 +474,10 @@ class PhotoProcessor:
 
 
 	async def _upload_file_to_api(self, file_path: str, relative_path: str, photo_id: str, client_signature: str) -> str:
-		"""Upload file to API server storage.
+		"""Upload file to API server storage as a raw stream.
+
+		Sends the file as a raw body with metadata in headers,
+		avoiding multipart encoding (which causes sync spool I/O on the API server).
 
 		Returns the URL where the file can be accessed.
 		Raises PhotoDeletedException if photo was deleted during processing.
@@ -484,50 +487,49 @@ class PhotoProcessor:
 			raise RuntimeError("API_URL environment variable is required for file uploads")
 		upload_url = f"{api_url}/photos/upload-file"
 
+		headers = {
+			'Content-Type': 'application/octet-stream',
+			'X-Photo-Id': photo_id,
+			'X-Relative-Path': relative_path,
+			'X-Client-Signature': client_signature,
+		}
+
 		try:
 			async with httpx.AsyncClient() as client:
-				with open(file_path, 'rb') as f:
-					files = {'file': (os.path.basename(relative_path), f, 'image/jpeg')}
-					data = {
-						'photo_id': photo_id,
-						'relative_path': relative_path,
-						'client_signature': client_signature
-					}
-
-					max_retries = 5
-					for attempt in range(max_retries):
-						try:
-							response = await client.post(upload_url, files=files, data=data, timeout=360.0)
-						except (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError) as e:
-							if attempt < max_retries - 1:
-								delay = 2 ** attempt
-								logger.warning(f"Connection error uploading {relative_path} (attempt {attempt+1}/{max_retries}): {e}, retrying in {delay}s")
-								await asyncio.sleep(delay)
-								continue
-							logger.error(f"Connection error uploading {relative_path} after {max_retries} attempts: {e}")
-							raise
-
-						if response.status_code == 410:
-							logger.info(f"Photo {photo_id} was deleted, aborting file upload for {relative_path}")
-							raise PhotoDeletedException(f"Photo {photo_id} was deleted during processing")
-
-						if response.status_code >= 500 and attempt < max_retries - 1:
+				max_retries = 5
+				for attempt in range(max_retries):
+					try:
+						with open(file_path, 'rb') as f:
+							file_data = f.read()
+						response = await client.post(upload_url, content=file_data, headers=headers, timeout=360.0)
+					except (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError) as e:
+						if attempt < max_retries - 1:
 							delay = 2 ** attempt
-							logger.warning(f"Server error {response.status_code} uploading {relative_path} (attempt {attempt+1}/{max_retries}), retrying in {delay}s")
+							logger.warning(f"Connection error uploading {relative_path} (attempt {attempt+1}/{max_retries}): {e}, retrying in {delay}s")
 							await asyncio.sleep(delay)
 							continue
+						logger.error(f"Connection error uploading {relative_path} after {max_retries} attempts: {e}")
+						raise
 
-						response.raise_for_status()
-						break
+					if response.status_code == 410:
+						logger.info(f"Photo {photo_id} was deleted, aborting file upload for {relative_path}")
+						raise PhotoDeletedException(f"Photo {photo_id} was deleted during processing")
 
-					#result = response.json()
-					logger.info(f"Successfully uploaded {relative_path} to API server")
+					if response.status_code >= 500 and attempt < max_retries - 1:
+						delay = 2 ** attempt
+						logger.warning(f"Server error {response.status_code} uploading {relative_path} (attempt {attempt+1}/{max_retries}), retrying in {delay}s")
+						await asyncio.sleep(delay)
+						continue
 
-					# Return the URL where the file can be accessed
-					if PICS_URL:
-						return PICS_URL + relative_path
-					else:
-						raise RuntimeError("PICS_URL not configured for file access")
+					response.raise_for_status()
+					break
+
+				logger.info(f"Successfully uploaded {relative_path} to API server")
+
+				if PICS_URL:
+					return PICS_URL + relative_path
+				else:
+					raise RuntimeError("PICS_URL not configured for file access")
 
 		except PhotoDeletedException:
 			raise

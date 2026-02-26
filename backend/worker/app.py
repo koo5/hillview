@@ -27,7 +27,7 @@ from typing import Optional, Any
 from uuid import UUID
 from pathlib import Path
 from datetime import datetime
-from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, BackgroundTasks, Request
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -312,16 +312,22 @@ async def health_check():
 	return {"status": "healthy", "service": "photo-processor"}
 
 @app.post("/await")
-async def await_handler(task_id: int):
+async def await_handler(task_id: int, request: Request):
 	"""Wait for a background task to complete, sending periodic heartbeats to keep connection alive."""
 
 	async def heartbeat_generator():
 		while True:
+			if request.is_disconnected():
+				logger.info(f"Client {str(request.client)} disconnected while awaiting task {task_id}")
+				return
 			with pending_background_tasks_mutex:
 				if task_id not in pending_background_tasks:
 					yield b'{"status": "completed"}\n'
 					return
-			logger.debug(f"Awaiting task {task_id}, sending heartbeat...")
+			try:
+				logger.debug(f"Awaiting task {task_id}, sending heartbeat to client {str(request.client)}")
+			except Exception as e:
+				logger.debug(f"Awaiting task {task_id}, sending heartbeat (client info unavailable: {e})")
 			yield b'.\n'  # Heartbeat
 			await asyncio.sleep(5)
 
