@@ -300,7 +300,7 @@ async function startProcess(type: 'config' | 'area' | 'sourcesPhotosInArea', mes
     // Start the actual business logic operations
     try {
         if (type === 'config') {
-            if (doLog) console.log(`🢄NewWorker: Calling PROCESSCONFIG for ${processId}`);
+            if (doLog) console.log(`🢄NewWorker: Starting PROCESSCONFIG for ${processId}, currentPicks: ${currentPicks.size}`);  
             if (currentState.config.data) {
                 // Update query options before processing config
                 photoOperations.setQueryOptions(currentState.config.data.queryOptions);
@@ -451,11 +451,13 @@ async function loop(): Promise<void> {
 			switch (message.type) {
 
 				case 'picksUpdated':
+					if (doLog) console.log(`🢄NewWorker: [${message.frontendMessageId}] Processing picksUpdated with ${message.data.picks?.length || 0} picks`);
 					currentPicks = new Set(message.data.picks);
 					photoOperations.setPicks(currentPicks);
 					break;
 
 				case 'configUpdated':
+					if (doLog) console.log(`🢄NewWorker: [${message.frontendMessageId}] Processing configUpdated`);
 					updateState('config', message);
 					break;
 

@@ -86,14 +86,15 @@ class StreamPhotoLoader {
         maxPhotos: Int,
         authToken: String?,
         shouldAbort: () -> Boolean,
-        picks: Set<String> = emptySet()
+        picks: Set<String> = emptySet(),
+        queryOptions: QueryOptions? = null
     ): List<PhotoData> {
         if (bounds == null) {
             Log.d(TAG, "StreamPhotoLoader: Started ${source.id} without bounds - waiting for area update")
             return emptyList()
         }
 
-        return loadPhotosWithEventSource(source, bounds, maxPhotos, authToken, shouldAbort, picks)
+        return loadPhotosWithEventSource(source, bounds, maxPhotos, authToken, shouldAbort, picks, queryOptions)
     }
 
     private suspend fun loadPhotosWithEventSource(
@@ -102,7 +103,8 @@ class StreamPhotoLoader {
         maxPhotos: Int,
         authToken: String?,
         shouldAbort: () -> Boolean,
-        picks: Set<String> = emptySet()
+        picks: Set<String> = emptySet(),
+        queryOptions: QueryOptions? = null
     ): List<PhotoData> {
         val photos = mutableListOf<PhotoData>()
         var retryCount = 0
@@ -110,7 +112,7 @@ class StreamPhotoLoader {
 
         while (retryCount <= maxRetries && !shouldAbort()) {
             try {
-                val url = buildStreamUrl(source, bounds, maxPhotos, authToken, picks)
+                val url = buildStreamUrl(source, bounds, maxPhotos, authToken, picks, queryOptions)
                 Log.d(TAG, "StreamPhotoLoader: Starting stream from $url (attempt ${retryCount + 1}/${maxRetries + 1})")
 
                 var streamCompleted = false
@@ -307,7 +309,7 @@ class StreamPhotoLoader {
         }
     }
 
-    private fun buildStreamUrl(source: SourceConfig, bounds: Bounds, maxPhotos: Int, authToken: String?, picks: Set<String> = emptySet()): String {
+    private fun buildStreamUrl(source: SourceConfig, bounds: Bounds, maxPhotos: Int, authToken: String?, picks: Set<String> = emptySet(), queryOptions: QueryOptions? = null): String {
         val baseUrl = source.url ?: throw IllegalArgumentException("Stream source missing URL")
 
         return buildString {
@@ -331,6 +333,23 @@ class StreamPhotoLoader {
             if (picks.isNotEmpty()) {
                 // Convert Set to comma-separated string
                 append("&picks=${picks.joinToString(",")}")
+            }
+
+            // Add analysis_filters parameter if any filters are active
+            queryOptions?.let { opts ->
+                val hasActiveFilters = opts.time_of_day != null ||
+                    opts.location_type != null ||
+                    opts.min_farthest_distance != null ||
+                    opts.max_closest_distance != null ||
+                    opts.min_scenic_score != null ||
+                    opts.visibility_distance != null ||
+                    opts.tallest_building != null ||
+                    opts.features.isNotEmpty()
+
+                if (hasActiveFilters) {
+                    val filtersJson = json.encodeToString(QueryOptions.serializer(), opts)
+                    append("&analysis_filters=${java.net.URLEncoder.encode(filtersJson, "UTF-8")}")
+                }
             }
 
             // Add auth token if available

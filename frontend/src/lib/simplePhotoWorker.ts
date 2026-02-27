@@ -242,6 +242,7 @@ class SimplePhotoWorker {
 		picks.subscribe((picksSet) => {
 			if (!this.isInitialized) return;
 			// Notify worker of pick changes (convert Set to Array for serialization)
+			console.log('🢄SimplePhotoWorker: Picks updated, sending to worker...', Array.from(picksSet));
 			this.sendMessage('picksUpdated', {
 				picks: Array.from(picksSet)
 			});
@@ -274,11 +275,13 @@ class SimplePhotoWorker {
 
         // React to source config changes (filter out loading status changes)
         let lastConfigHash = '';
+        let lastFiltersHash = '';
         const sendConfigUpdate = () => {
             if (!this.isInitialized) return;
 
             const sourceList = get(sources);
             const currentFilters = get(filters);
+            const filtersHash = JSON.stringify(currentFilters);
 
             // Create hash of config-relevant fields only (ignore loading states)
             const configHash = JSON.stringify({
@@ -302,6 +305,16 @@ class SimplePhotoWorker {
                 return;
             }
 
+            // Clear picks when filters change (not on initial load or source-only changes)
+            if (lastFiltersHash !== '' && filtersHash !== lastFiltersHash) {
+                console.log('🢄SimplePhotoWorker: Filters changed, clearing picks');
+                picks.set(new Set());
+                // Send picksUpdated synchronously BEFORE configUpdated
+                // (picks.subscribe runs async, so we must send manually here)
+                this.sendMessage('picksUpdated', { picks: [] });
+            }
+            lastFiltersHash = filtersHash;
+
             lastConfigHash = configHash;
             //console.log('🢄SimplePhotoWorker: Sending config update with sources and queryOptions...');
 
@@ -322,11 +335,11 @@ class SimplePhotoWorker {
         const frontendMessageId = `frontend_${++this.frontendMessageId}`;
         const message = {frontendMessageId, type, data};
 
+        console.log(`🢄SimplePhotoWorker: [${frontendMessageId}] Sending ${type} to worker`);
+
         if (this.kotlinWorker) {
-            //console.log(`🢄SimplePhotoWorker: Sending message to Kotlin worker: ${type}`);
             this.kotlinWorker.postMessage(message);
         } else if (this.worker) {
-            //console.log(`🢄SimplePhotoWorker: Sending message to Web worker: ${type}`);
             this.worker.postMessage(message);
         } else {
             throw new Error('No worker initialized');

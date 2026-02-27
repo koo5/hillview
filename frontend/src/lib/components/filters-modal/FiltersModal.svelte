@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Modal from '../Modal.svelte';
 	import { Sun, Moon, Sunrise, Home, Trees, RotateCcw } from 'lucide-svelte';
-	import { filters, filtersModalState, closeFiltersModal, type QueryOptions } from './filtersStore';
+	import { filters, hasActiveFilters, filtersModalState, closeFiltersModal, type QueryOptions } from './filtersStore';
 
 	function setTimeOfDay(value: string | null) {
 		filters.update(f => ({ ...f, time_of_day: f.time_of_day === value ? null : value }));
@@ -13,6 +13,22 @@
 
 	function setMinFarthestDistance(value: number | null) {
 		filters.update(f => ({ ...f, min_farthest_distance: f.min_farthest_distance === value ? null : value }));
+	}
+
+	function setMaxClosestDistance(value: number | null) {
+		filters.update(f => ({ ...f, max_closest_distance: f.max_closest_distance === value ? null : value }));
+	}
+
+	function setMinScenicScore(value: number | null) {
+		filters.update(f => ({ ...f, min_scenic_score: f.min_scenic_score === value ? null : value }));
+	}
+
+	function setVisibilityDistance(value: string | null) {
+		filters.update(f => ({ ...f, visibility_distance: f.visibility_distance === value ? null : value }));
+	}
+
+	function setTallestBuilding(value: string | null) {
+		filters.update(f => ({ ...f, tallest_building: f.tallest_building === value ? null : value }));
 	}
 
 	function toggleFeature(feature: string) {
@@ -30,6 +46,9 @@
 			location_type: null,
 			min_farthest_distance: null,
 			max_closest_distance: null,
+			min_scenic_score: null,
+			visibility_distance: null,
+			tallest_building: null,
 			features: []
 		});
 	}
@@ -55,6 +74,35 @@
 		{ label: '500m+', value: 500 },
 		{ label: '1km+', value: 1000 },
 		{ label: '5km+', value: 5000 }
+	];
+
+	const maxClosestPresets = [
+		{ label: '<5m', value: 5 },
+		{ label: '<20m', value: 20 },
+		{ label: '<50m', value: 50 },
+		{ label: '<100m', value: 100 }
+	];
+
+	const scenicScoreOptions = [
+		{ value: 2, label: '2+ Good' },
+		{ value: 3, label: '3+ Nice' },
+		{ value: 4, label: '4+ Great' },
+		{ value: 5, label: '5 Exceptional' }
+	];
+
+	const visibilityOptions = [
+		{ value: 'near', label: 'Near' },
+		{ value: 'medium', label: 'Medium' },
+		{ value: 'far', label: 'Far' },
+		{ value: 'panoramic', label: 'Panoramic' }
+	];
+
+	const buildingOptions = [
+		{ value: 'none', label: 'None' },
+		{ value: 'low_rise', label: 'Low-rise' },
+		{ value: 'mid_rise', label: 'Mid-rise' },
+		{ value: 'high_rise', label: 'High-rise' },
+		{ value: 'skyscraper', label: 'Skyscraper' }
 	];
 </script>
 
@@ -118,6 +166,70 @@
 		</section>
 
 		<section class="filter-section">
+			<h4>Maximum Close Object Distance</h4>
+			<p class="hint">Show photos with a close subject within this distance</p>
+			<div class="option-chips">
+				{#each maxClosestPresets as preset}
+					<button
+						class="chip"
+						class:selected={$filters.max_closest_distance === preset.value}
+						onclick={() => setMaxClosestDistance(preset.value)}
+					>
+						{preset.label}
+					</button>
+				{/each}
+			</div>
+		</section>
+
+		<section class="filter-section">
+			<h4>Scenic Score</h4>
+			<p class="hint">Minimum scenic beauty rating</p>
+			<div class="option-chips">
+				{#each scenicScoreOptions as opt}
+					<button
+						class="chip"
+						class:selected={$filters.min_scenic_score === opt.value}
+						onclick={() => setMinScenicScore(opt.value)}
+					>
+						{opt.label}
+					</button>
+				{/each}
+			</div>
+		</section>
+
+		<section class="filter-section">
+			<h4>Visibility Distance</h4>
+			<p class="hint">How far you can see in the photo</p>
+			<div class="option-chips">
+				{#each visibilityOptions as opt}
+					<button
+						class="chip"
+						class:selected={$filters.visibility_distance === opt.value}
+						onclick={() => setVisibilityDistance(opt.value)}
+					>
+						{opt.label}
+					</button>
+				{/each}
+			</div>
+		</section>
+
+		<section class="filter-section">
+			<h4>Tallest Building</h4>
+			<p class="hint">Maximum building height visible</p>
+			<div class="option-chips">
+				{#each buildingOptions as opt}
+					<button
+						class="chip"
+						class:selected={$filters.tallest_building === opt.value}
+						onclick={() => setTallestBuilding(opt.value)}
+					>
+						{opt.label}
+					</button>
+				{/each}
+			</div>
+		</section>
+
+		<section class="filter-section">
 			<h4>Features</h4>
 			<p class="hint">Show photos with any of these features</p>
 			<div class="option-chips wrap">
@@ -133,12 +245,10 @@
 			</div>
 		</section>
 
-		{#if $filters.time_of_day || $filters.location_type || $filters.min_farthest_distance !== null || $filters.features.length > 0}
-			<button class="clear-button" onclick={handleClear}>
-				<RotateCcw size={14} />
-				Clear all filters
-			</button>
-		{/if}
+		<button class="clear-button" onclick={handleClear} disabled={!$hasActiveFilters}>
+			<RotateCcw size={14} />
+			Clear all filters
+		</button>
 	</div>
 </Modal>
 
@@ -219,8 +329,13 @@
 		transition: all 0.15s ease;
 	}
 
-	.clear-button:hover {
+	.clear-button:hover:not(:disabled) {
 		background: #f3f4f6;
 		color: #374151;
+	}
+
+	.clear-button:disabled {
+		opacity: 0.4;
+		cursor: default;
 	}
 </style>

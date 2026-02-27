@@ -33,6 +33,9 @@ class AnalysisFilters(BaseModel):
 	location_type: Optional[str] = None  # indoors, outdoors, mixed
 	min_farthest_distance: Optional[float] = None  # farthest object must be at least X meters away
 	max_closest_distance: Optional[float] = None  # closest object must be at most X meters away
+	min_scenic_score: Optional[int] = None  # 1-5, minimum scenic beauty score
+	visibility_distance: Optional[str] = None  # near, medium, far, panoramic
+	tallest_building: Optional[str] = None  # none, low_rise, mid_rise, high_rise, skyscraper
 	features: Optional[List[str]] = None  # any of these features (OR logic)
 
 
@@ -75,6 +78,17 @@ def apply_analysis_filters(query, filters: AnalysisFilters):
 		conditions.append(
 			Photo.analysis['closest_object_distance'].astext.cast(Float) <= filters.max_closest_distance
 		)
+
+	if filters.min_scenic_score is not None:
+		conditions.append(
+			Photo.analysis['scenic_score'].astext.cast(Float) >= filters.min_scenic_score
+		)
+
+	if filters.visibility_distance:
+		conditions.append(Photo.analysis['visibility_distance'].astext == filters.visibility_distance)
+
+	if filters.tallest_building:
+		conditions.append(Photo.analysis['tallest_building'].astext == filters.tallest_building)
 
 	if filters.features:
 		# OR logic: any of the features matches

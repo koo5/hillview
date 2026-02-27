@@ -9,6 +9,9 @@ export interface QueryOptions {
     location_type: string | null;  // indoors, outdoors, mixed
     min_farthest_distance: number | null;  // meters
     max_closest_distance: number | null;  // meters
+    min_scenic_score: number | null;  // 1-5
+    visibility_distance: string | null;  // near, medium, far, panoramic
+    tallest_building: string | null;  // none, low_rise, mid_rise, high_rise, skyscraper
     features: string[];  // OR logic
     // Future: sorting options can be added here
 }

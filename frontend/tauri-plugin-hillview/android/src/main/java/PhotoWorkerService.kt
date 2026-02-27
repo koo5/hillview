@@ -83,6 +83,24 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
     )
 
     /**
+     * Parse QueryOptions from JSON object
+     */
+    private fun parseQueryOptions(jsonObject: kotlinx.serialization.json.JsonObject?): QueryOptions? {
+        return jsonObject?.let { queryObj ->
+            QueryOptions(
+                time_of_day = queryObj["time_of_day"]?.jsonPrimitive?.content,
+                location_type = queryObj["location_type"]?.jsonPrimitive?.content,
+                min_farthest_distance = queryObj["min_farthest_distance"]?.jsonPrimitive?.content?.toDoubleOrNull(),
+                max_closest_distance = queryObj["max_closest_distance"]?.jsonPrimitive?.content?.toDoubleOrNull(),
+                min_scenic_score = queryObj["min_scenic_score"]?.jsonPrimitive?.content?.toIntOrNull(),
+                visibility_distance = queryObj["visibility_distance"]?.jsonPrimitive?.content,
+                tallest_building = queryObj["tallest_building"]?.jsonPrimitive?.content,
+                features = queryObj["features"]?.jsonArray?.map { it.jsonPrimitive.content } ?: emptyList()
+            )
+        }
+    }
+
+    /**
      * Parse WorkerMessage manually to avoid serialization issues
      */
     private fun parseWorkerMessage(messageJson: String): WorkerMessage {
@@ -142,7 +160,8 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
 
         return ConfigData(
             sources = sources,
-            expectedWorkerVersion = expectedWorkerVersion
+            expectedWorkerVersion = expectedWorkerVersion,
+            queryOptions = parseQueryOptions(jsonObject["queryOptions"]?.jsonObject)
         )
     }
 
@@ -199,7 +218,8 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
             sources = sources,
             bounds = bounds,
             maxPhotos = maxPhotos,
-            range = range
+            range = range,
+            queryOptions = parseQueryOptions(jsonObject["queryOptions"]?.jsonObject)
         )
     }
 
@@ -276,6 +296,9 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
             try {
                 // Store current sources state like new.worker.ts
                 currentSources = config.sources
+
+                // Update query options before processing
+                photoOperations.setQueryOptions(config.queryOptions)
 
                 // Implement selective clearing like new.worker.ts updatePhotosInArea callback
                 val enabledSourceIds = config.sources.filter { it.enabled }.map { it.id }.toSet()
@@ -382,8 +405,9 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
                 lastProcessedBounds = areaData.bounds
                 lastProcessedRange = areaData.range
 
-                // Update picks in photoOperations before processing area
+                // Update picks and query options in photoOperations before processing area
                 photoOperations.setPicks(currentPicks)
+                photoOperations.setQueryOptions(areaData.queryOptions)
 
                 // Process area photos with per-source loading status callbacks
                 val sourcesPhotosInArea = photoOperations.processArea(
@@ -692,5 +716,6 @@ private data class AreaData(
     val bounds: Bounds,
     val maxPhotos: Int,
     val range: Double,
-    val picks: List<String> = emptyList()
+    val picks: List<String> = emptyList(),
+    val queryOptions: QueryOptions? = null
 )

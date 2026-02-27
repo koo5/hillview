@@ -133,6 +133,9 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
                 this.queryOptions.location_type ||
                 this.queryOptions.min_farthest_distance !== null ||
                 this.queryOptions.max_closest_distance !== null ||
+                this.queryOptions.min_scenic_score !== null ||
+                this.queryOptions.visibility_distance ||
+                this.queryOptions.tallest_building ||
                 this.queryOptions.features.length > 0;
 
             if (hasActiveFilters) {

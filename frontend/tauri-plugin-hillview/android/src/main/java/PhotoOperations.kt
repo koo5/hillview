@@ -22,10 +22,15 @@ class PhotoOperations(private val context: Context) {
     private val sourceCache = mutableMapOf<String, SourceCache>()
     private var maxPhotosInArea: Int = 200
     private var picks: Set<String> = emptySet()
+    private var queryOptions: QueryOptions? = null
 
 
     fun setPicks(newPicks: Set<String>) {
         picks = newPicks
+    }
+
+    fun setQueryOptions(options: QueryOptions?) {
+        queryOptions = options
     }
 
     /**
@@ -94,7 +99,7 @@ class PhotoOperations(private val context: Context) {
                     }
                     "stream" -> {
                         val authToken = authTokenProvider()
-                        streamLoader.loadPhotos(source, null, maxPhotosInArea, authToken, shouldAbort, sourcePickIds)
+                        streamLoader.loadPhotos(source, null, maxPhotosInArea, authToken, shouldAbort, sourcePickIds, queryOptions)
                     }
                     else -> {
                         Log.w(TAG, "PhotoOperations: Unknown source type: ${source.type}")
@@ -174,7 +179,7 @@ class PhotoOperations(private val context: Context) {
                         }
                         "stream" -> {
                             val authToken = authTokenProvider()
-                            streamLoader.loadPhotos(source, bounds, maxPhotosInArea, authToken, shouldAbort, sourcePickIds)
+                            streamLoader.loadPhotos(source, bounds, maxPhotosInArea, authToken, shouldAbort, sourcePickIds, queryOptions)
                         }
                         else -> {
                             Log.w(TAG, "PhotoOperations: Unknown source type: ${source.type}")

@@ -9,6 +9,9 @@ const defaultFilters: QueryOptions = {
 	location_type: null,
 	min_farthest_distance: null,
 	max_closest_distance: null,
+	min_scenic_score: null,
+	visibility_distance: null,
+	tallest_building: null,
 	features: []
 };
 
@@ -20,9 +23,14 @@ export const activeFilterCount = derived(filters, ($filters) => {
 	if ($filters.location_type) count++;
 	if ($filters.min_farthest_distance !== null) count++;
 	if ($filters.max_closest_distance !== null) count++;
+	if ($filters.min_scenic_score !== null) count++;
+	if ($filters.visibility_distance) count++;
+	if ($filters.tallest_building) count++;
 	if ($filters.features.length > 0) count++;
 	return count;
 });
+
+export const hasActiveFilters = derived(activeFilterCount, ($count) => $count > 0);
 
 export function clearFilters(): void {
 	filters.set(defaultFilters);
@@ -35,6 +43,9 @@ export function buildFiltersQueryParam(): string | null {
 		$filters.location_type ||
 		$filters.min_farthest_distance !== null ||
 		$filters.max_closest_distance !== null ||
+		$filters.min_scenic_score !== null ||
+		$filters.visibility_distance ||
+		$filters.tallest_building ||
 		$filters.features.length > 0;
 
 	if (!hasAnyFilter) return null;
