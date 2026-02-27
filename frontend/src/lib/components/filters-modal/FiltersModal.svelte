@@ -65,9 +65,42 @@
 		{ value: 'mixed', label: 'Mixed', icon: null }
 	];
 
-	const featureOptions = [
-		'playground', 'hill', 'mountain', 'street', 'building', 'bench', 'cityscape', 'art'
+	// All features organized by category (matching analyze_photo.py schema)
+	const featureCategories = [
+		{
+			name: 'Nature',
+			features: ['hill', 'mountain', 'river', 'stream', 'water_body', 'landscape', 'rock_outcrop', 'tree_lined_path', 'path', 'nature']
+		},
+		{
+			name: 'Urban',
+			features: ['street', 'building', 'cityscape', 'high_rise_building', 'church', 'playground', 'bench']
+		},
+		{
+			name: 'Structures',
+			features: ['bridge', 'tower', 'observation_tower', 'water_tower', 'cooling_tower', 'crane', 'curved_structure', 'mast']
+		},
+		{
+			name: 'Infrastructure',
+			features: ['lamp_post', 'powerline_pole', 'utility_pole', 'high_mast_lighting', 'row_of_streetlights', 'ev_charger']
+		},
+		{
+			name: 'Activity',
+			features: ['construction', 'roadworks', 'ski_slope', 'accident']
+		},
+		{
+			name: 'Animals',
+			features: ['cat', 'dog']
+		},
+		{
+			name: 'Other',
+			features: ['art', 'signage']
+		}
 	];
+
+	// Helper to format feature names for display
+	function formatFeature(feature: string): string {
+		return feature.replace(/_/g, ' ');
+	}
 
 	const distancePresets = [
 		{ label: '100m+', value: 100 },
@@ -232,17 +265,22 @@
 		<section class="filter-section">
 			<h4>Features</h4>
 			<p class="hint">Show photos with any of these features</p>
-			<div class="option-chips wrap">
-				{#each featureOptions as feature}
-					<button
-						class="chip"
-						class:selected={$filters.features.includes(feature)}
-						onclick={() => toggleFeature(feature)}
-					>
-						{feature}
-					</button>
-				{/each}
-			</div>
+			{#each featureCategories as category}
+				<div class="feature-category">
+					<h5>{category.name}</h5>
+					<div class="option-chips wrap">
+						{#each category.features as feature}
+							<button
+								class="chip"
+								class:selected={$filters.features.includes(feature)}
+								onclick={() => toggleFeature(feature)}
+							>
+								{formatFeature(feature)}
+							</button>
+						{/each}
+					</div>
+				</div>
+			{/each}
 		</section>
 
 		<button class="clear-button" onclick={handleClear} disabled={!$hasActiveFilters}>
@@ -276,6 +314,19 @@
 		margin: 0;
 		font-size: 12px;
 		color: #6b7280;
+	}
+
+	.feature-category {
+		margin-top: 8px;
+	}
+
+	.feature-category h5 {
+		margin: 0 0 6px 0;
+		font-size: 12px;
+		font-weight: 500;
+		color: #6b7280;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
 	}
 
 	.option-chips {

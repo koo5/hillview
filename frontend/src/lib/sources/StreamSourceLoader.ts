@@ -3,7 +3,7 @@
  * Uses EventSource for real-time photo streaming with bounds-based filtering
  */
 
-import type { PhotoData, Bounds, PhotoId, QueryOptions } from '../photoWorkerTypes';
+import type { PhotoData, Bounds, PhotoId } from '../photoWorkerTypes';
 import { BasePhotoSourceLoader, type PhotoSourceCallbacks } from './PhotoSourceLoader';
 import { verbalizeEventSourceReadyState } from './eventSourceUtils';
 import { postToast } from '../workerToast';
@@ -23,13 +23,13 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
     private currentBounds?: Bounds;
     private maxPhotos?: number;
     private picks?: Set<PhotoId>;
-    private queryOptions?: QueryOptions;
+    private queryOptionsJson?: string | null;  // Pre-serialized analysis filters
 
     constructor(source: any, callbacks: PhotoSourceCallbacks, options?: PhotoSourceOptions) {
         super(source, callbacks);
         this.maxPhotos = options?.maxPhotos;
         this.picks = options?.picks;
-        this.queryOptions = options?.queryOptions;
+        this.queryOptionsJson = options?.queryOptionsJson;
     }
 
     private async getAuthTokenWithTimeout(timeoutMs: number = 5000, forceRefresh: boolean = false): Promise<string | null> {
@@ -126,21 +126,9 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
             url.searchParams.set('max_photos', this.maxPhotos.toString());
         }
 
-        // Add analysis_filters parameter if any filters are active
-        if (this.queryOptions) {
-            const hasActiveFilters =
-                this.queryOptions.time_of_day ||
-                this.queryOptions.location_type ||
-                this.queryOptions.min_farthest_distance !== null ||
-                this.queryOptions.max_closest_distance !== null ||
-                this.queryOptions.min_scenic_score !== null ||
-                this.queryOptions.visibility_distance ||
-                this.queryOptions.tallest_building ||
-                this.queryOptions.features.length > 0;
-
-            if (hasActiveFilters) {
-                url.searchParams.set('analysis_filters', JSON.stringify(this.queryOptions));
-            }
+        // Add analysis_filters parameter if pre-serialized filters are provided
+        if (this.queryOptionsJson) {
+            url.searchParams.set('analysis_filters', this.queryOptionsJson);
         }
 
         // Add authentication token (force refresh on retry attempts)

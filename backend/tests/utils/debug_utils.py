@@ -664,7 +664,7 @@ def set_analyses(distilled_json_path: str):
 
 			# Extract the fields we want to set
 			analysis = {}
-			for field in ['features', 'time_of_day', 'closest_object_distance', 'farthest_object_distance', 'location_type']:
+			for field in ['features', 'time_of_day', 'closest_object_distance', 'farthest_object_distance', 'location_type', 'scenic_score', 'visibility_distance', 'tallest_building']:
 				if field in entry:
 					analysis[field] = entry[field]
 

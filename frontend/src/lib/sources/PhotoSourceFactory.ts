@@ -2,14 +2,14 @@
  * Factory for creating appropriate photo source loaders
  */
 
-import type { SourceConfig, PhotoId, QueryOptions } from '../photoWorkerTypes';
+import type { SourceConfig, PhotoId } from '../photoWorkerTypes';
 import type { PhotoSourceLoader, PhotoSourceCallbacks } from './PhotoSourceLoader';
 import { StreamSourceLoader } from './StreamSourceLoader';
 
 export interface PhotoSourceOptions {
     maxPhotos?: number;
     picks?: Set<PhotoId>;
-    queryOptions?: QueryOptions;
+    queryOptionsJson?: string | null;  // Pre-serialized analysis filters, null if no active filters
 }
 
 export class PhotoSourceFactory {

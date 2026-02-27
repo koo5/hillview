@@ -120,24 +120,11 @@ data class ProcessInfo(
     var shouldAbort: Boolean = false
 )
 
-
-@Serializable
-data class QueryOptions(
-    val time_of_day: String? = null,  // day, night, dawn_dusk
-    val location_type: String? = null,  // indoors, outdoors, mixed
-    val min_farthest_distance: Double? = null,  // meters
-    val max_closest_distance: Double? = null,  // meters
-    val min_scenic_score: Int? = null,  // 1-5
-    val visibility_distance: String? = null,  // near, medium, far, panoramic
-    val tallest_building: String? = null,  // none, low_rise, mid_rise, high_rise, skyscraper
-    val features: List<String> = emptyList()  // OR logic
-)
-
 @Serializable
 data class ConfigData(
     val sources: List<SourceConfig>,
     val expectedWorkerVersion: String? = null,
-    val queryOptions: QueryOptions? = null
+    val queryOptionsJson: String? = null  // Pre-serialized analysis filters
 )
 
 @Serializable

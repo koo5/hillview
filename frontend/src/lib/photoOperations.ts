@@ -2,7 +2,7 @@
  * Photo Operations - Pure Business Logic
  */
 
-import type { PhotoData, SourceConfig, Bounds, PhotoId, QueryOptions } from './photoWorkerTypes';
+import type { PhotoData, SourceConfig, Bounds, PhotoId } from './photoWorkerTypes';
 import { PhotoSourceFactory, type PhotoSourceOptions } from './sources/PhotoSourceFactory';
 import type { PhotoSourceLoader, PhotoSourceCallbacks } from './sources/PhotoSourceLoader';
 import { filterPhotosByArea } from './workerUtils';
@@ -36,7 +36,7 @@ export class PhotoOperations {
     private sourceCache = new Map<string, SourceCache>(); // Cache for each source
     private maxPhotosInArea: number = MAX_PHOTOS_IN_AREA;
 	private picks: Set<PhotoId> = new Set();
-    private queryOptions?: QueryOptions;
+    private queryOptionsJson?: string | null;  // Pre-serialized analysis filters
 
     constructor() {}
 
@@ -48,8 +48,8 @@ export class PhotoOperations {
         this.picks = picks;
     }
 
-    setQueryOptions(options: QueryOptions | undefined): void {
-        this.queryOptions = options;
+    setQueryOptionsJson(json: string | null | undefined): void {
+        this.queryOptionsJson = json;
     }
 
     /**
@@ -242,7 +242,7 @@ export class PhotoOperations {
         const options: PhotoSourceOptions = {
             maxPhotos: this.maxPhotosInArea,
             picks: sourcePickIds,
-            queryOptions: this.queryOptions
+            queryOptionsJson: this.queryOptionsJson
         };
 
         const loader = PhotoSourceFactory.createLoader(source, sourceCallbacks, options);

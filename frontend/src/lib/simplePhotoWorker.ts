@@ -1,6 +1,6 @@
 import {photosInArea, photosInRange, spatialState, picks} from './mapState';
 import {sourceLoadingStatus, sources} from './data.svelte';
-import {filters} from './components/filters-modal/filtersStore';
+import {filters, buildFiltersQueryParam} from './components/filters-modal/filtersStore';
 import {get} from 'svelte/store';
 import {getCurrentToken} from './auth.svelte';
 import {createTokenManager} from './tokenManagerFactory';
@@ -45,7 +45,7 @@ class SimplePhotoWorker {
                 config: {
                     expectedWorkerVersion: __WORKER_VERSION__,
 					sources: get(sources),
-					queryOptions: get(filters)
+					queryOptionsJson: buildFiltersQueryParam()  // Pre-serialized, null if no active filters
                 }
             });
             this.isInitialized = true;
@@ -322,7 +322,7 @@ class SimplePhotoWorker {
                 config: {
                     expectedWorkerVersion: __WORKER_VERSION__,
                     sources: sourceList,
-                    queryOptions: currentFilters
+                    queryOptionsJson: buildFiltersQueryParam()  // Pre-serialized, null if no active filters
                 }
             });
         };
