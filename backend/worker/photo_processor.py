@@ -497,10 +497,12 @@ class PhotoProcessor:
 		try:
 			async with httpx.AsyncClient() as client:
 				max_retries = 5
+				with open(file_path, 'rb') as f:
+					file_data = f.read()
+				file_size = len(file_data)
+				logger.info(f"Uploading {relative_path} ({file_size} bytes) to API server")
 				for attempt in range(max_retries):
 					try:
-						with open(file_path, 'rb') as f:
-							file_data = f.read()
 						response = await client.post(upload_url, content=file_data, headers=headers, timeout=360.0)
 					except (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError) as e:
 						if attempt < max_retries - 1:
@@ -517,14 +519,14 @@ class PhotoProcessor:
 
 					if response.status_code >= 500 and attempt < max_retries - 1:
 						delay = 2 ** attempt
-						logger.warning(f"Server error {response.status_code} uploading {relative_path} (attempt {attempt+1}/{max_retries}), retrying in {delay}s")
+						logger.warning(f"Server error {response.status_code} uploading {relative_path} (attempt {attempt+1}/{max_retries}): {response.text}, retrying in {delay}s")
 						await asyncio.sleep(delay)
 						continue
 
 					response.raise_for_status()
 					break
 
-				logger.info(f"Successfully uploaded {relative_path} to API server")
+				logger.info(f"Successfully uploaded {relative_path} ({file_size} bytes) to API server")
 
 				if PICS_URL:
 					return PICS_URL + relative_path

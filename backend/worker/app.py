@@ -491,10 +491,12 @@ async def _upload_inner(file: UploadFile, client_signature: str, photo_id: str, 
 
 					if response.status_code >= 500 and attempt < max_retries - 1:
 						delay = 2 ** attempt
-						logger.warning(f"Server error {response.status_code} for photo {photo_id} (attempt {attempt+1}/{max_retries}), retrying in {delay}s")
+						logger.warning(f"Server error {response.status_code} for photo {photo_id} (attempt {attempt+1}/{max_retries}): {response.text}, retrying in {delay}s")
 						await asyncio.sleep(delay)
 						continue
 
+					if response.status_code != 200:
+						logger.error(f"API rejected processing result for photo {photo_id}: {response.status_code} - {response.text}")
 					response.raise_for_status()
 					logger.info(f"Successfully notified API server for photo {photo_id}")
 					break

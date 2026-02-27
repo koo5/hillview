@@ -181,6 +181,11 @@ async def save_processed_photo(
 
 	# Verify that photo is in authorized status (not already processed)
 	if photo.processing_status != "authorized":
+		# If already processed (e.g. a retry after the first request succeeded but
+		# the response was lost), return success instead of 400 to make this idempotent.
+		if photo.processing_status in ("completed", "error"):
+			logger.info(f"Photo {photo_id} already processed (status={photo.processing_status}), returning success for idempotent retry")
+			return {"message": "Photo already processed", "photo_id": photo_id}
 		raise HTTPException(
 			status_code=status.HTTP_400_BAD_REQUEST,
 			detail=f"Photo not in valid state for processing: {photo.processing_status}"
@@ -331,7 +336,8 @@ async def upload_processed_file(
 
 	# --- Phase 1: Validate with DB, then release the session ---
 	# All DB work happens here so the connection is freed before the slow file streaming.
-	logger.info(f"Processing file upload from worker for photo {photo_id}, path: {relative_path}")
+	content_length = request.headers.get("Content-Length", "unknown")
+	logger.info(f"Processing file upload from worker for photo {photo_id}, path: {relative_path}, size: {content_length} bytes")
 
 	# Get photo from database
 	result = await db.execute(select(Photo).where(Photo.id == photo_id))
