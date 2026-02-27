@@ -317,7 +317,7 @@ async def await_handler(task_id: int, request: Request):
 
 	async def heartbeat_generator():
 		while True:
-			if request.is_disconnected():
+			if await request.is_disconnected():
 				logger.info(f"Client {str(request.client)} disconnected while awaiting task {task_id}")
 				return
 			with pending_background_tasks_mutex:
