@@ -209,6 +209,7 @@ task_id_counter = 1
 
 
 def background_loop():
+	consecutive_failures = 0
 	while True:
 		l = None
 		task0 = None
@@ -219,7 +220,7 @@ def background_loop():
 		if l > 0:
 			logger.info(f"Pending background tasks: {l}")
 			try:
-				requests.post(
+				resp = requests.post(
 					f"{API_URL}/worker_pending_background_tasks_ping",
 					json={
 						"worker_identity": WORKER_IDENTITY,
@@ -229,12 +230,24 @@ def background_loop():
 					},
 					timeout=60
 				)
-				time.sleep(1)
+				if resp.status_code == 200:
+					consecutive_failures = 0
+					time.sleep(10)
+				else:
+					consecutive_failures += 1
+					delay = min(2 ** consecutive_failures, 30)
+					logger.warning(f"Ping returned {resp.status_code}, backing off {delay}s")
+					time.sleep(delay)
 			except requests.Timeout:
-				pass
+				consecutive_failures += 1
+				time.sleep(min(2 ** consecutive_failures, 30))
 			except Exception as e:
-				logger.warning(f"Failed to ping API with pending tasks: {e}")
+				consecutive_failures += 1
+				delay = min(2 ** consecutive_failures, 30)
+				logger.warning(f"Failed to ping API with pending tasks: {e}, backing off {delay}s")
+				time.sleep(delay)
 		else:
+			consecutive_failures = 0
 			time.sleep(10)
 
 
