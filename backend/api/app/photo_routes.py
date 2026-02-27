@@ -329,62 +329,68 @@ async def upload_processed_file(
 			detail="File uploads not supported when USE_CDN is enabled"
 		)
 
-	try:
-		logger.info(f"Processing file upload from worker for photo {photo_id}, path: {relative_path}")
+	# --- Phase 1: Validate with DB, then release the session ---
+	# All DB work happens here so the connection is freed before the slow file streaming.
+	logger.info(f"Processing file upload from worker for photo {photo_id}, path: {relative_path}")
 
-		# Get photo from database
-		result = await db.execute(select(Photo).where(Photo.id == photo_id))
-		photo = result.scalar_one_or_none()
-		if not photo:
-			raise HTTPException(
-				status_code=status.HTTP_404_NOT_FOUND,
-				detail="Photo not found"
-			)
-
-		if photo.deleted:
-			raise HTTPException(
-				status_code=status.HTTP_410_GONE,
-				detail="Photo was deleted"
-			)
-
-		# Verify that photo is in authorized status
-		if photo.processing_status != "authorized":
-			raise HTTPException(
-				status_code=status.HTTP_400_BAD_REQUEST,
-				detail=f"Photo not in valid state for file upload: {photo.processing_status}"
-			)
-
-		# Get client's public key for signature verification
-		key_result = await db.execute(
-			select(UserPublicKey).where(
-				UserPublicKey.user_id == photo.owner_id,
-				UserPublicKey.key_id == photo.client_public_key_id,
-				UserPublicKey.is_active == True
-			)
+	# Get photo from database
+	result = await db.execute(select(Photo).where(Photo.id == photo_id))
+	photo = result.scalar_one_or_none()
+	if not photo:
+		raise HTTPException(
+			status_code=status.HTTP_404_NOT_FOUND,
+			detail="Photo not found"
 		)
-		client_public_key = key_result.scalars().first()
 
-		if not client_public_key:
-			raise HTTPException(
-				status_code=status.HTTP_400_BAD_REQUEST,
-				detail="Client public key not found or inactive"
-			)
+	if photo.deleted:
+		raise HTTPException(
+			status_code=status.HTTP_410_GONE,
+			detail="Photo was deleted"
+		)
 
-		if not verify_ecdsa_signature(
-			signature_base64=client_signature,
-			public_key_pem=client_public_key.public_key_pem,
-			message_data=[
-			photo.original_filename,
-			photo_id,
-			int(photo.upload_authorized_at.timestamp())
-			]
-		):
-			logger.error(f"Client signature verification failed for photo {photo_id}")
-			raise HTTPException(
-				status_code=status.HTTP_403_FORBIDDEN,
-				detail="Client signature verification failed"
-			)
+	# Verify that photo is in authorized status
+	if photo.processing_status != "authorized":
+		raise HTTPException(
+			status_code=status.HTTP_400_BAD_REQUEST,
+			detail=f"Photo not in valid state for file upload: {photo.processing_status}"
+		)
 
+	# Get client's public key for signature verification
+	key_result = await db.execute(
+		select(UserPublicKey).where(
+			UserPublicKey.user_id == photo.owner_id,
+			UserPublicKey.key_id == photo.client_public_key_id,
+			UserPublicKey.is_active == True
+		)
+	)
+	client_public_key = key_result.scalars().first()
+
+	if not client_public_key:
+		raise HTTPException(
+			status_code=status.HTTP_400_BAD_REQUEST,
+			detail="Client public key not found or inactive"
+		)
+
+	if not verify_ecdsa_signature(
+		signature_base64=client_signature,
+		public_key_pem=client_public_key.public_key_pem,
+		message_data=[
+		photo.original_filename,
+		photo_id,
+		int(photo.upload_authorized_at.timestamp())
+		]
+	):
+		logger.error(f"Client signature verification failed for photo {photo_id}")
+		raise HTTPException(
+			status_code=status.HTTP_403_FORBIDDEN,
+			detail="Client signature verification failed"
+		)
+
+	# Release DB session before the slow file streaming
+	await db.close()
+
+	# --- Phase 2: Stream file to disk (no DB connection held) ---
+	try:
 		# Validate and sanitize the relative path
 		if not relative_path or '..' in relative_path or relative_path.startswith('/'):
 			raise HTTPException(
@@ -431,7 +437,9 @@ async def upload_processed_file(
 	except HTTPException:
 		raise
 	except Exception as e:
-		logger.error(f"Error uploading file for photo {photo_id}: {str(e)}")
+		import traceback
+		logger.error(f"Error uploading file for photo {photo_id}: {type(e).__name__}: {e}")
+		logger.error(f"Traceback: {traceback.format_exc()}")
 		# Cleanup file if it was partially written
 		if 'file_path' in locals() and file_path.exists():
 			try:
