@@ -12,7 +12,8 @@ const defaultFilters: QueryOptions = {
 	min_scenic_score: null,
 	visibility_distance: null,
 	tallest_building: null,
-	features: []
+	features: [],
+	show_unanalyzed: true
 };
 
 export const filters = localStorageReadOnceSharedStore<QueryOptions>('hillview_filters', defaultFilters);

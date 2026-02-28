@@ -13,6 +13,7 @@ export interface QueryOptions {
     visibility_distance: string | null;  // near, medium, far, panoramic
     tallest_building: string | null;  // none, low_rise, mid_rise, high_rise, skyscraper
     features: string[];  // OR logic
+    show_unanalyzed: boolean;  // include photos without analysis
     // Future: sorting options can be added here
 }
 

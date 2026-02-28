@@ -1262,7 +1262,7 @@
 		data-testid="filters-button"
 	>
 		<SlidersHorizontal size={18} />
-		Filters{#if $activeFilterCount > 0}({$activeFilterCount}){/if}
+		<span class="filters-button-text">Filters</span>{#if $activeFilterCount > 0}({$activeFilterCount}){/if}
 	</button>
 </div>
 
@@ -1507,6 +1507,12 @@
 		.location-button-container {
 			top: calc(6px + var(--safe-area-inset-top, 0px));
 		}
+		.filters-button-container {
+			top: calc(0px + var(--safe-area-inset-top, 0px));
+		}
+		.filters-button-text {
+			display: true;
+		}
 	}
 
     .location-button-container button {
@@ -1676,6 +1682,13 @@
         transform: translateX(-50%);
         z-index: 30000;
     }
+
+	@media (orientation: portrait) {
+		.filters-button-text {
+			display: none;
+		}
+	}
+
 
     .filters-button {
         display: flex;

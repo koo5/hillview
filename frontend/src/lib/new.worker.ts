@@ -300,7 +300,7 @@ async function startProcess(type: 'config' | 'area' | 'sourcesPhotosInArea', mes
     // Start the actual business logic operations
     try {
         if (type === 'config') {
-            if (doLog) console.log(`🢄NewWorker: Starting PROCESSCONFIG for ${processId}, currentPicks: ${currentPicks.size}`);  
+            if (doLog) console.log(`🢄NewWorker: Starting PROCESSCONFIG for ${processId}, currentPicks: ${currentPicks.size}`);
             if (currentState.config.data) {
                 // Update query options before processing config
                 photoOperations.setQueryOptionsJson(currentState.config.data.queryOptionsJson);

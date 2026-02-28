@@ -62,7 +62,6 @@
 	const locationOptions = [
 		{ value: 'outdoors', label: 'Outdoors', icon: Trees },
 		{ value: 'indoors', label: 'Indoors', icon: Home },
-		{ value: 'mixed', label: 'Mixed', icon: null }
 	];
 
 	// All features organized by category (matching analyze_photo.py schema)
@@ -113,7 +112,8 @@
 		{ label: '<5m', value: 5 },
 		{ label: '<20m', value: 20 },
 		{ label: '<50m', value: 50 },
-		{ label: '<100m', value: 100 }
+		{ label: '<100m', value: 100 },
+		{ label: '<500m', value: 500 },
 	];
 
 	const scenicScoreOptions = [
@@ -283,10 +283,21 @@
 			{/each}
 		</section>
 
-		<button class="clear-button" onclick={handleClear} disabled={!$hasActiveFilters}>
-			<RotateCcw size={14} />
-			Clear all filters
-		</button>
+		<div class="bottom-controls">
+			<label class="toggle-label" class:disabled={!$hasActiveFilters}>
+				<input
+					type="checkbox"
+					checked={$filters.show_unanalyzed}
+					disabled={!$hasActiveFilters}
+					onchange={() => filters.update(f => ({ ...f, show_unanalyzed: !f.show_unanalyzed }))}
+				/>
+				Show unanalyzed photos
+			</label>
+			<button class="clear-button" onclick={handleClear} disabled={!$hasActiveFilters}>
+				<RotateCcw size={14} />
+				Clear all filters
+			</button>
+		</div>
 	</div>
 </Modal>
 
@@ -363,6 +374,27 @@
 		color: white;
 	}
 
+	.bottom-controls {
+		display: flex;
+		flex-direction: column;
+		gap: 10px;
+		margin-top: 8px;
+	}
+
+	.toggle-label {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		font-size: 13px;
+		color: #374151;
+		cursor: pointer;
+	}
+
+	.toggle-label.disabled {
+		opacity: 0.4;
+		cursor: default;
+	}
+
 	.clear-button {
 		display: flex;
 		align-items: center;
@@ -370,7 +402,6 @@
 		gap: 6px;
 		width: 100%;
 		padding: 10px 16px;
-		margin-top: 8px;
 		border: 1px solid #d1d5db;
 		border-radius: 8px;
 		background: white;

@@ -37,6 +37,7 @@ class AnalysisFilters(BaseModel):
 	visibility_distance: Optional[str] = None  # near, medium, far, panoramic
 	tallest_building: Optional[str] = None  # none, low_rise, mid_rise, high_rise, skyscraper
 	features: Optional[List[str]] = None  # any of these features (OR logic)
+	show_unanalyzed: bool = True  # include photos without analysis data
 
 
 class SetAnalysisRequest(BaseModel):
@@ -95,12 +96,14 @@ def apply_analysis_filters(query, filters: AnalysisFilters):
 		feature_conditions = [Photo.analysis['features'].contains([f]) for f in filters.features]
 		conditions.append(or_(*feature_conditions))
 
-	if conditions:
+	if filters.show_unanalyzed:
 		# Include photo if: no analysis OR all conditions pass
 		query = query.where(or_(
 			Photo.analysis.is_(None),
 			and_(*conditions)
 		))
+	else:
+		query = query.where(and_(*conditions))
 
 	return query
 
