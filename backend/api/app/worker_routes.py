@@ -4,6 +4,7 @@ Worker management routes for handling worker keepalive pings.
 import logging
 import os
 import threading
+import time
 from typing import Optional
 
 import httpx
@@ -27,7 +28,7 @@ class WorkerPingRequest(BaseModel):
 	worker_identity: str
 	fly_machine_id: Optional[str] = None
 	pending_tasks: int
-	task0_id: int
+	task0_id: str
 
 
 @router.post("/worker_pending_background_tasks_ping")
@@ -59,16 +60,25 @@ def _worker_pingback_thread(request: WorkerPingRequest):
 	with _active_pingbacks_lock:
 		_active_pingbacks[machine_id] = _active_pingbacks.get(machine_id, 0) + 1
 	try:
-		response = httpx.post(
-			f"{WORKER_URL}/await",
-			headers={"fly-force-instance-id": machine_id},
-			params={'task_id': request.task0_id},
-			timeout=90.0,
-		)
-		log.info(f"Pingback to worker {machine_id} done: status={response.status_code}")
-	except Exception as e:
-		err_text = getattr(e, "message", None) or str(e) or repr(e) or e.__class__.__name__
-		log.warning(f"Pingback to worker {machine_id} failed: {err_text}")
+		while True:
+			try:
+				response = httpx.post(
+					f"{WORKER_URL}/await",
+					headers={
+						"fly-force-instance-id": machine_id,
+						"Connection": "close",
+					},
+					params={'task_id': request.task0_id},
+					timeout=30.0,
+				)
+				body = response.text
+				log.info(f"Pingback to worker {machine_id}: status={response.status_code}, body={body!r}")
+				if '"completed"' in body:
+					break
+			except Exception as e:
+				err_text = getattr(e, "message", None) or str(e) or repr(e) or e.__class__.__name__
+				log.warning(f"Pingback to worker {machine_id} failed: {err_text}")
+				time.sleep(5)
 	finally:
 		with _active_pingbacks_lock:
 			_active_pingbacks[machine_id] = _active_pingbacks.get(machine_id, 1) - 1

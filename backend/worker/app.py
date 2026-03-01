@@ -169,7 +169,7 @@ logger.info(f"PARALLEL_PROCESSING_CONCURRENCY: {PARALLEL_PROCESSING_CONCURRENCY}
 processing_semaphore = asyncio.Semaphore(PARALLEL_PROCESSING_CONCURRENCY)
 
 
-def run_photo_processing_sync(file_path: str, filename: str, user_id: UUID, photo_id: str, client_signature: str, ctx_photo_id: str = None, ctx_task_id: int = None, anonymization_override: str = None, metadata: Dict[str, Any] = None):
+def run_photo_processing_sync(file_path: str, filename: str, user_id: UUID, photo_id: str, client_signature: str, ctx_photo_id: str = None, ctx_task_id: str = None, anonymization_override: str = None, metadata: Dict[str, Any] = None):
 	"""
 	Sync wrapper to run async photo processing in a dedicated event loop.
 	This runs in a thread pool to avoid blocking the main event loop.
@@ -325,11 +325,13 @@ async def health_check():
 	return {"status": "healthy", "service": "photo-processor"}
 
 @app.post("/await")
-async def await_handler(task_id: int, request: Request):
-	"""Wait for a background task to complete, sending periodic heartbeats to keep connection alive."""
+async def await_handler(task_id: str, request: Request):
+	"""Wait for a background task to complete, sending periodic heartbeats to keep connection alive.
+	Closes after 15s with {"status": "timeout"} to force fresh TCP connections from the caller."""
 
 	async def heartbeat_generator():
-		while True:
+		deadline = time.time() + 15
+		while time.time() < deadline:
 			if await request.is_disconnected():
 				logger.info(f"Client {str(request.client)} disconnected while awaiting task {task_id}")
 				return
@@ -343,6 +345,7 @@ async def await_handler(task_id: int, request: Request):
 				logger.debug(f"Awaiting task {task_id}, sending heartbeat (client info unavailable: {e})")
 			yield b'.\n'  # Heartbeat
 			await asyncio.sleep(5)
+		yield b'{"status": "timeout"}\n'
 
 	return StreamingResponse(heartbeat_generator(), media_type="application/x-ndjson")
 
@@ -405,7 +408,7 @@ async def upload_async(
 	global task_id_counter
 	photo_id, user_id = validate_upload_parameters(upload_auth, file)
 	with pending_background_tasks_mutex:
-		task_id = task_id_counter
+		task_id = f"{task_id_counter}_{time.time()}"
 		task_id_counter += 1
 		pending_background_tasks.add(task_id)
 	background_tasks.add_task(upload, file, client_signature, photo_id, user_id, task_id, anonymization_override, metadata)
