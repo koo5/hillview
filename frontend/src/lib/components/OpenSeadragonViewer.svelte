@@ -146,13 +146,15 @@
 		annotator.on('createAnnotation', async (annotation: any) => {
 			const textBody =
 				(annotation.body?.find((b: any) => b.purpose === 'commenting')?.value) ?? '';
-			const prompted = window.prompt('Add a label for this annotation:') ?? '';
-			const body = textBody || prompted;
-			if (body === null) {
+			// If the annotation already carries a body (e.g. from a tool), use it;
+			// otherwise prompt the user.  Pressing Cancel returns null → discard the shape.
+			const prompted = textBody || window.prompt('Add a label for this annotation:');
+			if (prompted === null) {
 				// User cancelled – remove the shape
 				annotator.removeAnnotation(annotation);
 				return;
 			}
+			const body = prompted;
 			try {
 				const saved = await createAnnotation(data.photo_id!, {
 					body,
