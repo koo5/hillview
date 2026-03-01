@@ -19,10 +19,25 @@ export interface SimpleCoord {
 /**
  * Base photo size information
  */
+export interface PyramidMetadata {
+	type: 'dzi';
+	dzi_url: string;
+	tiles_url: string;
+	tile_size: number;
+	overlap: number;
+	format: string;
+	width: number;
+	height: number;
+}
+
+/**
+ * Base photo size information
+ */
 export interface PhotoSize {
     url: string;
     width: number;
     height: number;
+    pyramid?: PyramidMetadata;
 }
 
 /**

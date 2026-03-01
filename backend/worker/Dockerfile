@@ -23,6 +23,7 @@ RUN apt-get update && apt-get install -y \
     imagemagick \
     jpegoptim \
     libimage-exiftool-perl \
+    libvips-tools \
     procps \
     htop \
     mc \
