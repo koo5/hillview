@@ -142,7 +142,8 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
 
         return ConfigData(
             sources = sources,
-            expectedWorkerVersion = expectedWorkerVersion
+            expectedWorkerVersion = expectedWorkerVersion,
+            queryOptionsJson = jsonObject["queryOptionsJson"]?.jsonPrimitive?.content  // Pre-serialized string
         )
     }
 
@@ -199,7 +200,8 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
             sources = sources,
             bounds = bounds,
             maxPhotos = maxPhotos,
-            range = range
+            range = range,
+            queryOptionsJson = jsonObject["queryOptionsJson"]?.jsonPrimitive?.content  // Pre-serialized string
         )
     }
 
@@ -276,6 +278,9 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
             try {
                 // Store current sources state like new.worker.ts
                 currentSources = config.sources
+
+                // Update query options before processing
+                photoOperations.setQueryOptionsJson(config.queryOptionsJson)
 
                 // Implement selective clearing like new.worker.ts updatePhotosInArea callback
                 val enabledSourceIds = config.sources.filter { it.enabled }.map { it.id }.toSet()
@@ -382,8 +387,9 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
                 lastProcessedBounds = areaData.bounds
                 lastProcessedRange = areaData.range
 
-                // Update picks in photoOperations before processing area
+                // Update picks and query options in photoOperations before processing area
                 photoOperations.setPicks(currentPicks)
+                photoOperations.setQueryOptionsJson(areaData.queryOptionsJson)
 
                 // Process area photos with per-source loading status callbacks
                 val sourcesPhotosInArea = photoOperations.processArea(
@@ -692,5 +698,6 @@ private data class AreaData(
     val bounds: Bounds,
     val maxPhotos: Int,
     val range: Double,
-    val picks: List<String> = emptyList()
+    val picks: List<String> = emptyList(),
+    val queryOptionsJson: String? = null  // Pre-serialized analysis filters
 )

@@ -1,13 +1,13 @@
 #!/bin/bash
 cd "$(dirname "$(readlink -f -- "$0")")/.."
 
-uv sync --frozen --package hillview-worker --all-extras
+uv sync --quiet --frozen --package hillview-worker --all-extras
 
 cd worker
 export PYTHONPATH="$(pwd):$(pwd)/.."
 
 if [ $# -eq 0 ]; then
-    uv run pytest tests/unit/ -v
+    uv run --quiet pytest tests/unit/ -v
 else
-    uv run pytest "$@"
+    uv run --quiet pytest "$@"
 fi

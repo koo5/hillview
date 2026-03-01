@@ -2,7 +2,9 @@
     import {onMount, onDestroy, tick} from 'svelte';
     import {LeafletMap, TileLayer, Marker, Circle, ScaleControl} from 'svelte-leafletjs';
     import {LatLng} from 'leaflet';
-    import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle, MapPin, Pause, ArrowUp, ArrowDown, Layers, Eye, Map as MapIcon, Info} from 'lucide-svelte';
+    import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle, MapPin, Pause, ArrowUp, ArrowDown, Layers, Eye, Map as MapIcon, Info, SlidersHorizontal} from 'lucide-svelte';
+	import FiltersModal from './filters-modal/FiltersModal.svelte';
+	import { activeFilterCount, openFiltersModal } from './filters-modal/filtersStore';
     import L from 'leaflet';
     import 'leaflet/dist/leaflet.css';
     import { getCurrentProviderConfig, setTileProvider, currentTileProvider } from '$lib/tileProviders';
@@ -1212,7 +1214,7 @@
                     radius={$spatialState.range}
                     color="#4AE092"
                     fillColor="#ffffff"
-                    weight={1.8}
+                    weight={8.8}
 					dashArray={[5, 15]}
             />
             <!-- arrow -->
@@ -1251,6 +1253,21 @@
 
 
     </LeafletMap>
+
+<div class="filters-button-container">
+	<button
+		class="filters-button"
+		class:active={$activeFilterCount > 0}
+		on:click={() => openFiltersModal()}
+		data-testid="filters-button"
+	>
+		<SlidersHorizontal size={18} />
+		<span class="filters-button-text">Filters</span>{#if $activeFilterCount > 0}({$activeFilterCount}){/if}
+	</button>
+</div>
+
+<FiltersModal />
+
 <div class="provider-selector-container">
     <TileProviderSelector />
 </div>
@@ -1490,6 +1507,12 @@
 		.location-button-container {
 			top: calc(6px + var(--safe-area-inset-top, 0px));
 		}
+		.filters-button-container {
+			top: calc(0px + var(--safe-area-inset-top, 0px));
+		}
+		.filters-button-text {
+			display: true;
+		}
 	}
 
     .location-button-container button {
@@ -1650,6 +1673,52 @@
         left: 10px;
         z-index: 30000;
 		background-color: rgba(255, 255, 255, 0.5);
+    }
+
+    .filters-button-container {
+        position: absolute;
+        top: calc(10px + var(--safe-area-inset-top, 0px));
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 30000;
+    }
+
+	@media (orientation: portrait) {
+		.filters-button-text {
+			display: none;
+		}
+	}
+
+
+    .filters-button {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 14px;
+        border: 1px solid #ccc;
+        border-radius: 20px;
+        background-color: rgba(255, 255, 255, 0.9);
+        font-size: 14px;
+        font-weight: 500;
+        color: #374151;
+        cursor: pointer;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+        transition: all 0.15s ease;
+    }
+
+    .filters-button:hover {
+        background-color: white;
+        box-shadow: 0 3px 8px rgba(0, 0, 0, 0.2);
+    }
+
+    .filters-button.active {
+        background-color: #3b82f6;
+        border-color: #3b82f6;
+        color: white;
+    }
+
+    .filters-button.active:hover {
+        background-color: #2563eb;
     }
 
     .attribution-info-button {

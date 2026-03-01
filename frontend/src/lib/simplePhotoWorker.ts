@@ -1,5 +1,6 @@
 import {photosInArea, photosInRange, spatialState, picks} from './mapState';
 import {sourceLoadingStatus, sources} from './data.svelte';
+import {filters, buildFiltersQueryParam} from './components/filters-modal/filtersStore';
 import {get} from 'svelte/store';
 import {getCurrentToken} from './auth.svelte';
 import {createTokenManager} from './tokenManagerFactory';
@@ -43,7 +44,8 @@ class SimplePhotoWorker {
             this.sendMessage('configUpdated', {
                 config: {
                     expectedWorkerVersion: __WORKER_VERSION__,
-					sources: get(sources)
+					sources: get(sources),
+					queryOptionsJson: buildFiltersQueryParam()  // Pre-serialized, null if no active filters
                 }
             });
             this.isInitialized = true;
@@ -240,6 +242,7 @@ class SimplePhotoWorker {
 		picks.subscribe((picksSet) => {
 			if (!this.isInitialized) return;
 			// Notify worker of pick changes (convert Set to Array for serialization)
+			console.log('🢄SimplePhotoWorker: Picks updated, sending to worker...', Array.from(picksSet));
 			this.sendMessage('picksUpdated', {
 				picks: Array.from(picksSet)
 			});
@@ -272,49 +275,71 @@ class SimplePhotoWorker {
 
         // React to source config changes (filter out loading status changes)
         let lastConfigHash = '';
-        sources.subscribe(async (sourceList) => {
+        let lastFiltersHash = '';
+        const sendConfigUpdate = () => {
             if (!this.isInitialized) return;
 
+            const sourceList = get(sources);
+            const currentFilters = get(filters);
+            const filtersHash = JSON.stringify(currentFilters);
+
             // Create hash of config-relevant fields only (ignore loading states)
-            const configHash = JSON.stringify(sourceList.map(source => ({
-                id: source.id,
-                name: source.name,
-                type: source.type,
-                enabled: source.enabled,
-                url: source.url,
-                path: source.path,
-                subtype: source.subtype,
-                clientId: source.client_id,
-                backendUrl: source.backend_url
-            })));
+            const configHash = JSON.stringify({
+                sources: sourceList.map(source => ({
+                    id: source.id,
+                    name: source.name,
+                    type: source.type,
+                    enabled: source.enabled,
+                    url: source.url,
+                    path: source.path,
+                    subtype: source.subtype,
+                    clientId: source.client_id,
+                    backendUrl: source.backend_url
+                })),
+                queryOptions: currentFilters
+            });
 
             // Only trigger config update if actual config changed (not loading states)
             if (configHash === lastConfigHash) {
-                //console.log('🢄SimplePhotoWorker: Ignoring source change - only loading states changed');
+                //console.log('🢄SimplePhotoWorker: Ignoring config change - no relevant changes');
                 return;
             }
 
+            // Clear picks when filters change (not on initial load or source-only changes)
+            if (lastFiltersHash !== '' && filtersHash !== lastFiltersHash) {
+                console.log('🢄SimplePhotoWorker: Filters changed, clearing picks');
+                picks.set(new Set());
+                // Send picksUpdated synchronously BEFORE configUpdated
+                // (picks.subscribe runs async, so we must send manually here)
+                this.sendMessage('picksUpdated', { picks: [] });
+            }
+            lastFiltersHash = filtersHash;
+
             lastConfigHash = configHash;
-            //console.log('🢄SimplePhotoWorker: Sending config update with sources...');
+            //console.log('🢄SimplePhotoWorker: Sending config update with sources and queryOptions...');
 
             this.sendMessage('configUpdated', {
                 config: {
                     expectedWorkerVersion: __WORKER_VERSION__,
-                    sources: sourceList
+                    sources: sourceList,
+                    queryOptionsJson: buildFiltersQueryParam()  // Pre-serialized, null if no active filters
                 }
             });
-		});
+        };
+
+        sources.subscribe(() => sendConfigUpdate());
+        filters.subscribe(() => sendConfigUpdate());
     }
 
     private sendMessage(type: string, data?: any): void {
         const frontendMessageId = `frontend_${++this.frontendMessageId}`;
         const message = {frontendMessageId, type, data};
 
+        console.log(`🢄SimplePhotoWorker: [${frontendMessageId}] Sending ${type} to worker`);
+
         if (this.kotlinWorker) {
-            //console.log(`🢄SimplePhotoWorker: Sending message to Kotlin worker: ${type}`);
             this.kotlinWorker.postMessage(message);
         } else if (this.worker) {
-            //console.log(`🢄SimplePhotoWorker: Sending message to Web worker: ${type}`);
             this.worker.postMessage(message);
         } else {
             throw new Error('No worker initialized');

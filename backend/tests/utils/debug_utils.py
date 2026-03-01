@@ -6,8 +6,15 @@ Debug utilities using the centralized API client.
 import sys
 import json
 import traceback
+from datetime import datetime
 from .api_client import api_client
 from .auth_utils import auth_helper
+
+
+def tprint(*args, **kwargs):
+	"""Print with timestamp prefix."""
+	ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+	print(f"[{ts}]", *args, **kwargs)
 
 
 def debug_photos():
@@ -272,7 +279,7 @@ def base64_to_pem(base64_key: str):
 		return None, None
 
 
-async def _parallel_upload(items, parallel, get_image_data, token_or_manager, format_success, timeout=60, get_captured_at=None):
+async def _parallel_upload(items, parallel, get_image_data, token_or_manager, format_success, timeout=60, get_captured_at=None, anonymization_override=None, version=None):
 	"""Core parallel upload logic.
 
 	Args:
@@ -285,6 +292,8 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 		get_captured_at: Optional callable() -> str. If None, captured_at is omitted
 		                 and the worker extracts it from EXIF. For test images,
 		                 use generate_test_captured_at from secure_upload_utils.
+		anonymization_override: JSON string passed to worker. None=auto, "[]"=skip.
+		version: Optional version number for authorize-upload request.
 	"""
 	import asyncio
 	from .secure_upload_utils import SecureUploadClient
@@ -304,9 +313,9 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 	upload_client = SecureUploadClient(api_url=API_URL)
 	client_keys = upload_client.generate_client_keys()
 	token = get_token()
-	print("  Registering client key...")
+	tprint("  Registering client key...")
 	await upload_client.register_client_key(token, client_keys)
-	print(f"  Starting {total} uploads with {parallel} parallel workers...")
+	tprint(f"  Starting {total} uploads with {parallel} parallel workers...")
 
 	async def upload_one(item):
 		i, filename, description, extra_data = item
@@ -322,34 +331,34 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 				auth_data = await upload_client.authorize_upload_with_params(
 					token, filename, len(image_data), lat, lon,
 					description, is_public=True, file_data=image_data,
-					captured_at=captured_at
+					captured_at=captured_at, version=version
 				)
 
 				if auth_data.get("duplicate"):
-					print(f"  [{i+1}/{total}] {filename} ⏭ duplicate")
+					tprint(f"  [{i+1}/{total}] {filename} ⏭ duplicate")
 					results["duplicates"] += 1
 					return
 
-				result = await upload_client.upload_to_worker(image_data, auth_data, client_keys, filename)
+				result = await upload_client.upload_to_worker(image_data, auth_data, client_keys, filename, anonymization_override=anonymization_override)
 				photo_id = result.get('photo_id', auth_data.get('photo_id'))
 
 				photo_data = wait_for_photo_processing(photo_id, get_token(), timeout=timeout)
 				if photo_data['processing_status'] == 'completed':
 					results["created"] += 1
-					print(format_success(i, total, filename, photo_data, extra_data))
+					tprint(format_success(i, total, filename, photo_data, extra_data))
 				else:
 					results["failed"] += 1
-					print(f"  [{i+1}/{total}] {filename} ✗ {photo_data.get('error', 'Unknown error')}")
+					tprint(f"  [{i+1}/{total}] {filename} ✗ {photo_data.get('error', 'Unknown error')}")
 			except Exception as e:
 				results["failed"] += 1
 				err_text = getattr(e, "message", None) or str(e) or repr(e) or e.__class__.__name__
-				print(f"  [{i+1}/{total}] {filename} ✗ {err_text}")
+				tprint(f"  [{i+1}/{total}] {filename} ✗ {err_text}")
 				traceback.print_exc()
 
 	await asyncio.gather(*[upload_one(item) for item in items])
 
-	print(f"\n✅ Uploaded {results['created']}/{total} "
-		  f"({results['duplicates']} duplicates, {results['failed']} failed)")
+	tprint(f"\n✅ Uploaded {results['created']}/{total} "
+		   f"({results['duplicates']} duplicates, {results['failed']} failed)")
 
 
 class TokenManager:
@@ -442,7 +451,7 @@ def upload_random_photos(count: int = 10, parallel: int = 1, user: str = None, p
 	from .secure_upload_utils import generate_test_captured_at
 
 	async def _upload():
-		print(f"📸 Uploading {count} random photos (parallelism: {parallel})...")
+		tprint(f"📸 Uploading {count} random photos (parallelism: {parallel})...")
 
 		random.seed(42)
 		token_manager = TokenManager(user, password)
@@ -476,13 +485,15 @@ def upload_random_photos(count: int = 10, parallel: int = 1, user: str = None, p
 		traceback.print_exc()
 
 
-def upload_files(files: list, parallel: int = 1, user: str = None, password: str = None):
+def upload_files(files: list, parallel: int = 1, user: str = None, password: str = None, skip_anonymization: bool = False, version: int = None):
 	"""Upload files from command line paths."""
 	import asyncio
 	import os
 
 	async def _upload():
-		print(f"📸 Uploading {len(files)} files (parallelism: {parallel})...")
+		anon_msg = " (anonymization skipped)" if skip_anonymization else ""
+		ver_msg = f" (version {version})" if version is not None else ""
+		tprint(f"📸 Uploading {len(files)} files (parallelism: {parallel}){anon_msg}{ver_msg}...")
 
 		token_manager = TokenManager(user, password)
 
@@ -504,7 +515,8 @@ def upload_files(files: list, parallel: int = 1, user: str = None, password: str
 				loc = ""
 			return f"  [{i+1}/{total}] {filename} ✓{loc}"
 
-		await _parallel_upload(items, parallel, read_file, token_manager, format_success, timeout=60)
+		anon_override = "[]" if skip_anonymization else None
+		await _parallel_upload(items, parallel, read_file, token_manager, format_success, timeout=60, anonymization_override=anon_override, version=version)
 
 	try:
 		asyncio.run(_upload())
@@ -521,7 +533,7 @@ def populate_photos(count: int = 4):
 	from .test_utils import wait_for_photo_processing, API_URL
 
 	async def _populate():
-		print(f"📸 Creating {count} test Hillview photos...")
+		tprint(f"📸 Creating {count} test Hillview photos...")
 
 		# Get auth token for test user
 		token = auth_helper.get_test_user_token("test")
@@ -542,7 +554,7 @@ def populate_photos(count: int = 4):
 		for i in range(min(count, len(photo_configs))):
 			filename, color, lat, lon, bearing = photo_configs[i]
 
-			print(f"  Uploading {filename}...")
+			tprint(f"  Uploading {filename}...")
 
 			# Create image with full GPS data
 			image_data = create_test_image_full_gps(400, 300, color, lat, lon, bearing)
@@ -566,16 +578,127 @@ def populate_photos(count: int = 4):
 			photo_data = wait_for_photo_processing(photo_id, token, timeout=30)
 			if photo_data['processing_status'] == 'completed':
 				created += 1
-				print(f"    ✓ {filename}: lat={photo_data.get('latitude'):.4f}, lon={photo_data.get('longitude'):.4f}, bearing={photo_data.get('bearing')}°")
+				tprint(f"    ✓ {filename}: lat={photo_data.get('latitude'):.4f}, lon={photo_data.get('longitude'):.4f}, bearing={photo_data.get('bearing')}°")
 			else:
-				print(f"    ✗ {filename} failed: {photo_data.get('error', 'Unknown error')}")
+				tprint(f"    ✗ {filename} failed: {photo_data.get('error', 'Unknown error')}")
 
-		print(f"\n✅ Created {created}/{count} test photos")
+		tprint(f"\n✅ Created {created}/{count} test photos")
 
 	try:
 		asyncio.run(_populate())
 	except Exception as e:
 		print(f"❌ Error: {e}")
+
+
+def find_duplicate_md5s():
+	"""Find photos with duplicate MD5 hashes."""
+	import asyncio
+	from sqlalchemy import select, func
+	from common.database import SessionLocal
+	from common.models import Photo, User
+
+	async def _find():
+		async with SessionLocal() as db:
+			# Find MD5s that appear more than once
+			subquery = (
+				select(Photo.file_md5, func.count(Photo.id).label('count'))
+				.where(Photo.file_md5.isnot(None))
+				.group_by(Photo.file_md5)
+				.having(func.count(Photo.id) > 1)
+				.subquery()
+			)
+
+			# Get the actual photos with duplicate MD5s, joined with user
+			query = (
+				select(Photo.id, Photo.file_md5, Photo.original_filename, Photo.uploaded_at, User.username)
+				.join(User, Photo.owner_id == User.id)
+				.where(Photo.file_md5.in_(select(subquery.c.file_md5)))
+				.order_by(Photo.file_md5, Photo.uploaded_at)
+			)
+
+			result = await db.execute(query)
+			rows = result.all()
+
+			if not rows:
+				print("✅ No duplicate MD5 hashes found")
+				return
+
+			print(f"⚠️  Found {len(rows)} photos with duplicate MD5 hashes:\n")
+
+			current_md5 = None
+			for photo_id, file_md5, filename, uploaded_at, username in rows:
+				if file_md5 != current_md5:
+					if current_md5:
+						print()
+					print(f"MD5: {file_md5}")
+					current_md5 = file_md5
+				print(f"  {photo_id}  {username}  {filename}  ({uploaded_at})")
+
+	try:
+		asyncio.run(_find())
+	except Exception as e:
+		print(f"❌ Error: {e}")
+		traceback.print_exc()
+
+
+def set_analyses(distilled_json_path: str):
+	"""Set analysis data for photos from a distilled.json file."""
+	import requests
+	from .test_utils import API_URL
+
+	try:
+		with open(distilled_json_path, 'r') as f:
+			entries = json.load(f)
+
+		tprint(f"📊 Setting analysis for {len(entries)} photos...")
+
+		success = 0
+		not_found = 0
+		failed = 0
+
+		for entry in entries:
+			file_md5 = entry.get('original_file_md5')
+			if not file_md5:
+				tprint(f"  ⚠ Skipping entry without MD5")
+				continue
+
+			# Extract the fields we want to set
+			analysis = {}
+			for field in ['features', 'time_of_day', 'closest_object_distance', 'farthest_object_distance', 'location_type', 'scenic_score', 'visibility_distance', 'tallest_building']:
+				if field in entry:
+					analysis[field] = entry[field]
+
+			if not analysis:
+				continue
+
+			try:
+				response = requests.post(
+					f"{API_URL}/hillview/internal/set-analysis",
+					json={"file_md5": file_md5, "analysis": analysis}
+				)
+
+				if response.status_code == 200:
+					success += 1
+				elif response.status_code == 404:
+					not_found += 1
+				elif response.status_code == 409:
+					# Multiple photos with same MD5 - stop processing
+					detail = response.json().get('detail', 'Multiple photos found')
+					print(f"\n❌ {detail}")
+					print("Stopping - please resolve duplicate MD5 hashes before continuing.")
+					return
+				else:
+					failed += 1
+					tprint(f"  ✗ MD5 {file_md5[:16]}... failed: {response.status_code}")
+			except Exception as e:
+				failed += 1
+				tprint(f"  ✗ MD5 {file_md5[:16]}... error: {e}")
+
+		tprint(f"\n✅ Set analysis: {success} success, {not_found} not found, {failed} failed")
+
+	except Exception as e:
+		print(f"❌ Error: {e}")
+		traceback.print_exc()
 
 
 def main():
@@ -590,13 +713,16 @@ def main():
 		print("  python debug_utils.py populate-photos       # Create test photos (fixed locations)")
 		print("  python debug_utils.py populate-photos 6     # Create N test photos (max 6)")
 		print("  python debug_utils.py upload-random-photos [N] [--parallel P] [--user U --pass P]")
-		print("  python debug_utils.py upload-files [--parallel P] [--user U --pass P] file1.jpg ...")
+		print("  python debug_utils.py upload-files [--parallel P] [--user U --pass P] [--skip-anonymization] [--version N] file1.jpg ...")
 		print("  python debug_utils.py mock-mapillary        # Set up mock Mapillary data")
 		print("  python debug_utils.py clear-mapillary       # Clear mock Mapillary data")
 		print("  python debug_utils.py verify-signature <message_json> <signature_base64> <public_key_pem>")
 		print("                                              # Verify ECDSA signature")
 		print("  python debug_utils.py base64-to-pem <base64_key>")
 		print("                                              # Convert Android pubkey to PEM & show fingerprint")
+		print("  python debug_utils.py set-analyses <distilled.json>")
+		print("                                              # Set photo analysis from distilled.json")
+		print("  python debug_utils.py find-duplicate-md5s   # Find photos with duplicate MD5 hashes")
 		return
 
 	command = sys.argv[1]
@@ -632,6 +758,9 @@ def main():
 			elif args[i] == "--pass":
 				password = args[i + 1]
 				i += 2
+			elif args[i].startswith("--"):
+				print(f"Unknown option: {args[i]}")
+				return
 			else:
 				positional.append(args[i])
 				i += 1
@@ -641,6 +770,8 @@ def main():
 	elif command == "upload-files":
 		args = sys.argv[2:]
 		parallel, user, password = 1, None, None
+		skip_anonymization = False
+		version = None
 		files = []
 		i = 0
 		while i < len(args):
@@ -653,13 +784,22 @@ def main():
 			elif args[i] == "--pass":
 				password = args[i + 1]
 				i += 2
+			elif args[i] == "--skip-anonymization":
+				skip_anonymization = True
+				i += 1
+			elif args[i] == "--version":
+				version = int(args[i + 1])
+				i += 2
+			elif args[i].startswith("--"):
+				print(f"Unknown option: {args[i]}")
+				return
 			else:
 				files.append(args[i])
 				i += 1
 		if not files:
-			print("Usage: upload-files [--parallel N] [--user U --pass P] file1.jpg ...")
+			print("Usage: upload-files [--parallel N] [--user U --pass P] [--skip-anonymization] [--version N] file1.jpg ...")
 		else:
-			upload_files(files, parallel, user, password)
+			upload_files(files, parallel, user, password, skip_anonymization=skip_anonymization, version=version)
 	elif command == "mock-mapillary":
 		setup_mock_mapillary()
 	elif command == "clear-mapillary":
@@ -679,6 +819,13 @@ def main():
 			print("              (the value logged by: Base64.encodeToString(publicKey.encoded, NO_WRAP))")
 			return
 		base64_to_pem(sys.argv[2])
+	elif command == "set-analyses":
+		if len(sys.argv) < 3:
+			print("Usage: set-analyses <distilled.json>")
+			return
+		set_analyses(sys.argv[2])
+	elif command == "find-duplicate-md5s":
+		find_duplicate_md5s()
 	else:
 		print(f"Unknown command: {command}")
 

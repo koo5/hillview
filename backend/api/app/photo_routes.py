@@ -181,6 +181,11 @@ async def save_processed_photo(
 
 	# Verify that photo is in authorized status (not already processed)
 	if photo.processing_status != "authorized":
+		# If already processed (e.g. a retry after the first request succeeded but
+		# the response was lost), return success instead of 400 to make this idempotent.
+		if photo.processing_status in ("completed", "error"):
+			logger.info(f"Photo {photo_id} already processed (status={photo.processing_status}), returning success for idempotent retry")
+			return {"message": "Photo already processed", "photo_id": photo_id}
 		raise HTTPException(
 			status_code=status.HTTP_400_BAD_REQUEST,
 			detail=f"Photo not in valid state for processing: {photo.processing_status}"
@@ -299,13 +304,27 @@ async def save_processed_photo(
 
 @router.post("/upload-file")
 async def upload_processed_file(
-	photo_id: str = Form(...),
-	relative_path: str = Form(...),  # Path relative to pics folder where file should be saved
-	client_signature: str = Form(...),
-	file: UploadFile = File(...),
+	request: Request,
 	db: AsyncSession = Depends(get_db)
 ):
-	"""Upload processed photo file from worker service to API server storage."""
+	"""Upload processed photo file from worker service to API server storage.
+
+	Metadata is passed via headers to avoid multipart parsing (which blocks the async event loop):
+	- X-Photo-Id: photo ID
+	- X-Relative-Path: path relative to pics folder
+	- X-Client-Signature: ECDSA signature for verification
+	"""
+
+	# Read metadata from headers
+	photo_id = request.headers.get("X-Photo-Id")
+	relative_path = request.headers.get("X-Relative-Path")
+	client_signature = request.headers.get("X-Client-Signature")
+
+	if not photo_id or not relative_path or not client_signature:
+		raise HTTPException(
+			status_code=status.HTTP_400_BAD_REQUEST,
+			detail="Missing required headers: X-Photo-Id, X-Relative-Path, X-Client-Signature"
+		)
 
 	# Check if CDN is enabled - if so, reject this request
 	use_cdn = os.getenv("USE_CDN", "false").lower() in ("true", "1", "yes")
@@ -315,68 +334,69 @@ async def upload_processed_file(
 			detail="File uploads not supported when USE_CDN is enabled"
 		)
 
-	try:
-		logger.info(f"Processing file upload from worker for photo {photo_id}, path: {relative_path}")
+	# --- Phase 1: Validate with DB, then release the session ---
+	# All DB work happens here so the connection is freed before the slow file streaming.
+	content_length = request.headers.get("Content-Length", "unknown")
+	logger.info(f"Processing file upload from worker for photo {photo_id}, path: {relative_path}, size: {content_length} bytes")
 
-		# Get photo from database
-		result = await db.execute(select(Photo).where(Photo.id == photo_id))
-		photo = result.scalar_one_or_none()
-		if not photo:
-			raise HTTPException(
-				status_code=status.HTTP_404_NOT_FOUND,
-				detail="Photo not found"
-			)
-
-		if photo.deleted:
-			raise HTTPException(
-				status_code=status.HTTP_410_GONE,
-				detail="Photo was deleted"
-			)
-
-		# Verify that photo is in authorized status
-		if photo.processing_status != "authorized":
-			raise HTTPException(
-				status_code=status.HTTP_400_BAD_REQUEST,
-				detail=f"Photo not in valid state for file upload: {photo.processing_status}"
-			)
-
-		if not client_signature:
-			raise HTTPException(
-				status_code=status.HTTP_400_BAD_REQUEST,
-				detail="Client signature is required for secure uploads"
-			)
-
-		# Get client's public key for signature verification
-		key_result = await db.execute(
-			select(UserPublicKey).where(
-				UserPublicKey.user_id == photo.owner_id,
-				UserPublicKey.key_id == photo.client_public_key_id,
-				UserPublicKey.is_active == True
-			)
+	# Get photo from database
+	result = await db.execute(select(Photo).where(Photo.id == photo_id))
+	photo = result.scalar_one_or_none()
+	if not photo:
+		raise HTTPException(
+			status_code=status.HTTP_404_NOT_FOUND,
+			detail="Photo not found"
 		)
-		client_public_key = key_result.scalars().first()
 
-		if not client_public_key:
-			raise HTTPException(
-				status_code=status.HTTP_400_BAD_REQUEST,
-				detail="Client public key not found or inactive"
-			)
+	if photo.deleted:
+		raise HTTPException(
+			status_code=status.HTTP_410_GONE,
+			detail="Photo was deleted"
+		)
 
-		if not verify_ecdsa_signature(
-			signature_base64=client_signature,
-			public_key_pem=client_public_key.public_key_pem,
-			message_data=[
-			photo.original_filename,
-			photo_id,
-			int(photo.upload_authorized_at.timestamp())
-			]
-		):
-			logger.error(f"Client signature verification failed for photo {photo_id}")
-			raise HTTPException(
-				status_code=status.HTTP_403_FORBIDDEN,
-				detail="Client signature verification failed"
-			)
+	# Verify that photo is in authorized status
+	if photo.processing_status != "authorized":
+		raise HTTPException(
+			status_code=status.HTTP_400_BAD_REQUEST,
+			detail=f"Photo not in valid state for file upload: {photo.processing_status}"
+		)
 
+	# Get client's public key for signature verification
+	key_result = await db.execute(
+		select(UserPublicKey).where(
+			UserPublicKey.user_id == photo.owner_id,
+			UserPublicKey.key_id == photo.client_public_key_id,
+			UserPublicKey.is_active == True
+		)
+	)
+	client_public_key = key_result.scalars().first()
+
+	if not client_public_key:
+		raise HTTPException(
+			status_code=status.HTTP_400_BAD_REQUEST,
+			detail="Client public key not found or inactive"
+		)
+
+	if not verify_ecdsa_signature(
+		signature_base64=client_signature,
+		public_key_pem=client_public_key.public_key_pem,
+		message_data=[
+		photo.original_filename,
+		photo_id,
+		int(photo.upload_authorized_at.timestamp())
+		]
+	):
+		logger.error(f"Client signature verification failed for photo {photo_id}")
+		raise HTTPException(
+			status_code=status.HTTP_403_FORBIDDEN,
+			detail="Client signature verification failed"
+		)
+
+	# Release DB session before the slow file streaming
+	await db.close()
+
+	# --- Phase 2: Stream file to disk (no DB connection held) ---
+	try:
 		# Validate and sanitize the relative path
 		if not relative_path or '..' in relative_path or relative_path.startswith('/'):
 			raise HTTPException(
@@ -402,11 +422,12 @@ async def upload_processed_file(
 		# Ensure parent directory exists
 		file_path.parent.mkdir(parents=True, exist_ok=True)
 
-		# Save the file
-		file_size = get_file_size_from_upload(file.file)
+		# Stream body directly to file — avoids multipart spool blocking the event loop
+		file_size = 0
 		async with aiofiles.open(file_path, 'wb') as f:
-			content = await file.read()
-			await f.write(content)
+			async for chunk in request.stream():
+				await f.write(chunk)
+				file_size += len(chunk)
 
 		r = {
 			"message": "File uploaded successfully",
@@ -419,12 +440,12 @@ async def upload_processed_file(
 		logger.info(f"Processed file uploaded for photo {photo_id} to {file_path} ({file_size} bytes)")
 		return r
 
-
-
 	except HTTPException:
 		raise
 	except Exception as e:
-		logger.error(f"Error uploading file for photo {photo_id}: {str(e)}")
+		import traceback
+		logger.error(f"Error uploading file for photo {photo_id}: {type(e).__name__}: {e}")
+		logger.error(f"Traceback: {traceback.format_exc()}")
 		# Cleanup file if it was partially written
 		if 'file_path' in locals() and file_path.exists():
 			try:

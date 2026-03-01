@@ -9,6 +9,7 @@ import { StreamSourceLoader } from './StreamSourceLoader';
 export interface PhotoSourceOptions {
     maxPhotos?: number;
     picks?: Set<PhotoId>;
+    queryOptionsJson?: string | null;  // Pre-serialized analysis filters, null if no active filters
 }
 
 export class PhotoSourceFactory {

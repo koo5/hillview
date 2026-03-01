@@ -36,6 +36,7 @@ export class PhotoOperations {
     private sourceCache = new Map<string, SourceCache>(); // Cache for each source
     private maxPhotosInArea: number = MAX_PHOTOS_IN_AREA;
 	private picks: Set<PhotoId> = new Set();
+    private queryOptionsJson?: string | null;  // Pre-serialized analysis filters
 
     constructor() {}
 
@@ -45,6 +46,10 @@ export class PhotoOperations {
 
     setPicks(picks: Set<PhotoId>): void {
         this.picks = picks;
+    }
+
+    setQueryOptionsJson(json: string | null | undefined): void {
+        this.queryOptionsJson = json;
     }
 
     /**
@@ -236,7 +241,8 @@ export class PhotoOperations {
 
         const options: PhotoSourceOptions = {
             maxPhotos: this.maxPhotosInArea,
-            picks: sourcePickIds
+            picks: sourcePickIds,
+            queryOptionsJson: this.queryOptionsJson
         };
 
         const loader = PhotoSourceFactory.createLoader(source, sourceCallbacks, options);

@@ -11,6 +11,7 @@
 	import CaptureQueueIndicator from './CaptureQueueIndicator.svelte';
 	import CameraOverlay from './CameraOverlay.svelte';
 	import AutoUploadPrompt from './AutoUploadPrompt.svelte';
+	import VerticalSlider from './VerticalSlider.svelte';
 	import {captureQueue} from '$lib/captureQueue';
 	import {injectPlaceholder, removePlaceholder} from '$lib/placeholderInjector';
 	import {generatePhotoId, type PlaceholderLocation} from '$lib/utils/placeholderUtils';
@@ -285,8 +286,7 @@
 			// Stop any existing stream
 			if (stream) {
 				console.log('🢄[CAMERA] Stopping existing stream');
-				stream.getTracks().forEach(track => track.stop());
-				stream = null;
+				stopStream();
 			}
 
 			// Clear any previous errors
@@ -449,35 +449,7 @@
 					console.log('🢄[CAMERA] Camera enumeration failed, but stream is working:', error);
 				}
 
-				// Check zoom support
-				if (stream && stream.getVideoTracks) {
-					videoTrack = stream.getVideoTracks()[0];
-					if (videoTrack) {
-						const capabilities = videoTrack.getCapabilities() as any;
-						console.log('🢄[CAMERA] Video track capabilities:', JSON.stringify(capabilities));
-						if ('zoom' in capabilities && capabilities.zoom) {
-							zoomSupported = true;
-							minZoom = capabilities.zoom.min || 1;
-							maxZoom = capabilities.zoom.max || 1;
-							const settings = videoTrack.getSettings() as any;
-							zoomLevel = settings.zoom || 1;
-						}
-						// Check focus distance support (manual focus)
-						if ('focusDistance' in capabilities && capabilities.focusDistance) {
-							focusDistanceSupported = true;
-							minFocusDistance = capabilities.focusDistance.min || 0;
-							maxFocusDistance = capabilities.focusDistance.max || 10;
-							const settings = videoTrack.getSettings() as any;
-							focusDistance = settings.focusDistance || minFocusDistance;
-							console.log('📷 [CAMERA] Focus distance supported:', minFocusDistance, '-', maxFocusDistance, 'm');
-						}
-						// Check tap-to-meter support (exposure metering via pointsOfInterest)
-						if ('focusMode' in capabilities && capabilities.focusMode) {
-							focusSupported = capabilities.focusMode.includes('single-shot') || capabilities.focusMode.includes('manual');
-							console.log('📷 [CAMERA] Focus modes:', capabilities.focusMode);
-						}
-					}
-				}
+				detectCameraCapabilities();
 
 				requestAnimationFrame(() => {
 					doCalibrationHint();
@@ -521,11 +493,6 @@
 	}
 
 
-	function handleZoomChange(event: Event) {
-		const target = event.target as HTMLInputElement;
-		setZoom(parseFloat(target.value));
-	}
-
 	async function setFocusDistance(distance: number) {
 		if (!videoTrack || !focusDistanceSupported) return;
 
@@ -542,9 +509,64 @@
 		}
 	}
 
-	function handleFocusDistanceChange(event: Event) {
-		const target = event.target as HTMLInputElement;
-		setFocusDistance(parseFloat(target.value));
+	function resetCameraCapabilities() {
+		videoTrack = null;
+		zoomSupported = false;
+		zoomLevel = 1;
+		minZoom = 1;
+		maxZoom = 1;
+		focusDistanceSupported = false;
+		focusDistance = 1;
+		minFocusDistance = 0;
+		maxFocusDistance = 1;
+		focusSupported = false;
+		focusIndicator = { x: 0, y: 0, visible: false };
+		if (focusTimeout) {
+			clearTimeout(focusTimeout);
+			focusTimeout = null;
+		}
+	}
+
+	function stopStream() {
+		if (stream) {
+			stream.getTracks().forEach(track => track.stop());
+			stream = null;
+		}
+		resetCameraCapabilities();
+	}
+
+	function detectCameraCapabilities() {
+		if (!stream || !stream.getVideoTracks) return;
+
+		videoTrack = stream.getVideoTracks()[0];
+		if (!videoTrack) return;
+
+		const capabilities = videoTrack.getCapabilities() as any;
+		const settings = videoTrack.getSettings() as any;
+		console.log('📷 [CAMERA] Video track capabilities:', JSON.stringify(capabilities));
+
+		// Check zoom support
+		if ('zoom' in capabilities && capabilities.zoom) {
+			zoomSupported = true;
+			minZoom = capabilities.zoom.min || 1;
+			maxZoom = capabilities.zoom.max || 1;
+			zoomLevel = settings.zoom || 1;
+		}
+
+		// Check focus distance support (manual focus)
+		if ('focusDistance' in capabilities && capabilities.focusDistance) {
+			focusDistanceSupported = true;
+			minFocusDistance = capabilities.focusDistance.min || 0;
+			maxFocusDistance = capabilities.focusDistance.max || 10;
+			focusDistance = settings.focusDistance || minFocusDistance;
+			console.log('📷 [CAMERA] Focus distance supported:', minFocusDistance, '-', maxFocusDistance, 'm');
+		}
+
+		// Check tap-to-meter support (exposure metering via pointsOfInterest)
+		if ('focusMode' in capabilities && capabilities.focusMode) {
+			focusSupported = capabilities.focusMode.includes('single-shot') || capabilities.focusMode.includes('manual');
+			console.log('📷 [CAMERA] Focus modes:', capabilities.focusMode);
+		}
 	}
 
 	async function handleTapToFocus(event: MouseEvent | TouchEvent) {
@@ -611,10 +633,7 @@
 		console.log('🢄[CAMERA] Switching to camera:', camera.label);
 
 		// Stop current stream if it exists
-		if (stream) {
-			stream.getTracks().forEach(track => track.stop());
-			stream = null;
-		}
+		stopStream();
 
 		cameraReady = false;
 		cameraError = null;
@@ -697,35 +716,7 @@
 				cameraError = null;
 				needsPermission = false;
 
-				// Check zoom support
-				if (stream && stream.getVideoTracks) {
-					videoTrack = stream.getVideoTracks()[0];
-					if (videoTrack) {
-						const capabilities = videoTrack.getCapabilities() as any;
-						console.log('🢄[CAMERA] Video track capabilities:', JSON.stringify(capabilities));
-						if ('zoom' in capabilities && capabilities.zoom) {
-							zoomSupported = true;
-							minZoom = capabilities.zoom.min || 1;
-							maxZoom = capabilities.zoom.max || 1;
-							const settings = videoTrack.getSettings() as any;
-							zoomLevel = settings.zoom || 1;
-						}
-						// Check focus distance support (manual focus)
-						if ('focusDistance' in capabilities && capabilities.focusDistance) {
-							focusDistanceSupported = true;
-							minFocusDistance = capabilities.focusDistance.min || 0;
-							maxFocusDistance = capabilities.focusDistance.max || 10;
-							const settings = videoTrack.getSettings() as any;
-							focusDistance = settings.focusDistance || minFocusDistance;
-							console.log('📷 [CAMERA] Focus distance supported:', minFocusDistance, '-', maxFocusDistance, 'm');
-						}
-						// Check tap-to-meter support
-						if ('focusMode' in capabilities && capabilities.focusMode) {
-							focusSupported = capabilities.focusMode.includes('single-shot') || capabilities.focusMode.includes('manual');
-							console.log('📷 [CAMERA] Focus modes:', capabilities.focusMode);
-						}
-					}
-				}
+				detectCameraCapabilities();
 			} else {
 				console.error('📷 [CAMERA] Video element not available in startCameraWithDevice!');
 				throw new Error('Video element not available');
@@ -769,10 +760,7 @@
 		console.log('🢄[CAMERA] Switching to resolution:', resolution.label);
 
 		// Stop current stream if it exists
-		if (stream) {
-			stream.getTracks().forEach(track => track.stop());
-			stream = null;
-		}
+		stopStream();
 
 		cameraReady = false;
 		cameraError = null;
@@ -902,8 +890,7 @@
 			wasShowingBeforeHidden = show && !!stream;
 			if (stream) {
 				console.log('🢄App going to background, stopping camera');
-				stream.getTracks().forEach(track => track.stop());
-				stream = null;
+				stopStream();
 				cameraReady = false;
 			}
 			// Clear any pending retries when going to background
@@ -1038,8 +1025,7 @@
 	} else if (!show && stream) {
 		// Stop camera when modal closes
 		console.log('🢄Modal hidden, stopping camera');
-		stream.getTracks().forEach(track => track.stop());
-		stream = null;
+		stopStream();
 		cameraReady = false;
 		cameraError = null;
 		needsPermission = false;
@@ -1191,13 +1177,7 @@
 		if (absoluteOrientationSensor) {
 			absoluteOrientationSensor.stop();
 		}
-		if (stream) {
-			stream.getTracks().forEach(track => track.stop());
-			stream = null;
-		}
-		if (videoTrack) {
-			videoTrack = null;
-		}
+		stopStream();
 		if (permissionCheckInterval) {
 			clearInterval(permissionCheckInterval);
 		}
@@ -1215,6 +1195,9 @@
 		}
 		if (calibrationHintTimeout) {
 			clearTimeout(calibrationHintTimeout);
+		}
+		if (focusTimeout) {
+			clearTimeout(focusTimeout);
 		}
 		// Properly unregister plugin listeners
 		if (deviceOrientationUnlisten) {
@@ -1427,42 +1410,32 @@
 			</div>
 
 			{#if zoomSupported && cameraReady}
-				<div class="zoom-control">
-					<label for="zoom-slider" class="zoom-label">
-						{zoomLevel.toFixed(1)}x
-					</label>
-					<input
-						id="zoom-slider"
-						type="range"
-						min={minZoom}
-						max={maxZoom}
-						step="0.1"
-						value={zoomLevel}
-						on:input={handleZoomChange}
-						class="zoom-slider"
-						aria-label="Camera zoom"
-					/>
-				</div>
+				<VerticalSlider
+					class="zoom-slider-position"
+					id="zoom-slider"
+					value={zoomLevel}
+					min={minZoom}
+					max={maxZoom}
+					step={0.1}
+					label="{zoomLevel.toFixed(1)}x"
+					ariaLabel="Camera zoom"
+					on:change={(e) => setZoom(e.detail)}
+				/>
 			{/if}
 
 			{#if focusDistanceSupported && cameraReady}
-				<div class="focus-control">
-					<label for="focus-slider" class="focus-label">
-						<!--{focusDistance.toFixed(1)}m-->
-						focus
-					</label>
-					<input
-						id="focus-slider"
-						type="range"
-						min={minFocusDistance}
-						max={maxFocusDistance}
-						step="0.01"
-						value={focusDistance}
-						on:input={handleFocusDistanceChange}
-						class="focus-slider"
-						aria-label="Focus distance"
-					/>
-				</div>
+				<VerticalSlider
+					class="focus-slider-position"
+					id="focus-slider"
+					value={focusDistance}
+					min={minFocusDistance}
+					max={maxFocusDistance}
+					step={0.01}
+					label="focus"
+					ariaLabel="Focus distance"
+					thumbColor="#4a90e2"
+					on:change={(e) => setFocusDistance(e.detail)}
+				/>
 			{/if}
 
 
@@ -1896,173 +1869,15 @@
 	}
 
 
-	.zoom-control {
-		position: absolute;
+	/* Positioning for vertical sliders */
+	:global(.zoom-slider-position) {
 		left: calc(0px + var(--safe-area-inset-left, 0px));
 		bottom: 67px;
-		height: 150px;
-		width: 40px;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: flex-start;
-		background: rgba(0, 0, 0, 0.6);
-		/*background: rgba(0, 0, 200, 0.6);*/
-		border-radius: 8px;
-		backdrop-filter: blur(10px);
-		padding: 8px 0;
-		z-index: 1002;
 	}
 
-	.zoom-label {
-		color: white;
-		font-size: 0.85rem;
-		font-weight: 500;
-		min-width: 3em;
-		text-align: center;
-		margin-bottom: 4px;
-		flex-shrink: 0;
-	}
-
-	.zoom-slider {
-		width: 120px;
-		height: 50px;
-		transform: rotate(-90deg);
-		transform-origin: center;
-		margin: 40px 0;
-		cursor: pointer;
-		touch-action: none;
-	}
-
-	.zoom-slider::-webkit-slider-track {
-		background: rgba(255, 255, 255, 0.3);
-		height: 6px;
-		border-radius: 3px;
-	}
-
-	.zoom-slider::-webkit-slider-thumb {
-		-webkit-appearance: none;
-		appearance: none;
-		width: 28px;
-		height: 28px;
-		background: white;
-		border-radius: 50%;
-		cursor: pointer;
-		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-	}
-
-	.zoom-slider::-moz-range-track {
-		background: rgba(255, 255, 255, 0.3);
-		height: 6px;
-		border-radius: 3px;
-	}
-
-	.zoom-slider::-moz-range-thumb {
-		width: 50px;
-		height: 50px;
-		background: white;
-		border-radius: 50%;
-		border: none;
-		cursor: pointer;
-		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-	}
-
-	.focus-control {
-		position: absolute;
+	:global(.focus-slider-position) {
 		right: calc(16px + var(--safe-area-inset-right, 0px));
 		bottom: 67px;
-		height: 150px;
-		width: 40px;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: flex-start;
-		background: rgba(0, 0, 0, 0.2);
-		border-radius: 8px;
-		backdrop-filter: blur(2px);
-		padding: 8px 0;
-		z-index: 1002;
-	}
-
-	.focus-label {
-		color: white;
-		font-size: 0.85rem;
-		font-weight: 500;
-		min-width: 3em;
-		text-align: center;
-		margin-bottom: 4px;
-		flex-shrink: 0;
-	}
-
-	.focus-slider {
-		width: 120px;
-		height: 50px;
-		transform: rotate(-90deg);
-		transform-origin: center;
-		margin: 40px 0;
-		cursor: pointer;
-		touch-action: none;
-	}
-
-	.focus-slider::-webkit-slider-track {
-		background: rgba(255, 255, 255, 0.3);
-		height: 6px;
-		border-radius: 3px;
-	}
-
-	.focus-slider::-webkit-slider-thumb {
-		-webkit-appearance: none;
-		appearance: none;
-		width: 28px;
-		height: 28px;
-		background: #4a90e2;
-		border-radius: 50%;
-		cursor: pointer;
-		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-	}
-
-	.focus-slider::-moz-range-track {
-		background: rgba(255, 255, 255, 0.3);
-		height: 6px;
-		border-radius: 3px;
-	}
-
-	.focus-slider::-moz-range-thumb {
-		width: 50px;
-		height: 50px;
-		background: #4a90e2;
-		border-radius: 50%;
-		border: none;
-		cursor: pointer;
-		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-	}
-
-
-	@media (max-width: 600px) {
-		.zoom-control {
-			/*background: rgba(200, 0, 0, 1);*/
-			height: 160px;
-			width: 40px;
-			padding: 6px 0;
-		}
-
-		.zoom-slider {
-			width: 120px;
-			height: 50px;
-			margin: 35px 0;
-		}
-
-		.focus-control {
-			height: 160px;
-			width: 40px;
-			padding: 6px 0;
-		}
-
-		.focus-slider {
-			width: 120px;
-			height: 50px;
-			margin: 35px 0;
-		}
 	}
 
 	.queue-status-overlay {
@@ -2192,11 +2007,11 @@
 			right: calc(0px + var(--safe-area-inset-right, 0px));
 		}
 
-		.zoom-control {
+		:global(.zoom-slider-position) {
 			bottom: calc(67px + var(--safe-area-inset-bottom, 0px));
 		}
 
-		.focus-control {
+		:global(.focus-slider-position) {
 			bottom: calc(67px + var(--safe-area-inset-bottom, 0px));
 		}
 

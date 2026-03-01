@@ -23,11 +23,13 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
     private currentBounds?: Bounds;
     private maxPhotos?: number;
     private picks?: Set<PhotoId>;
+    private queryOptionsJson?: string | null;  // Pre-serialized analysis filters
 
     constructor(source: any, callbacks: PhotoSourceCallbacks, options?: PhotoSourceOptions) {
         super(source, callbacks);
         this.maxPhotos = options?.maxPhotos;
         this.picks = options?.picks;
+        this.queryOptionsJson = options?.queryOptionsJson;
     }
 
     private async getAuthTokenWithTimeout(timeoutMs: number = 5000, forceRefresh: boolean = false): Promise<string | null> {
@@ -122,6 +124,11 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
         // Add max_photos parameter if specified
         if (this.maxPhotos !== undefined) {
             url.searchParams.set('max_photos', this.maxPhotos.toString());
+        }
+
+        // Add analysis_filters parameter if pre-serialized filters are provided
+        if (this.queryOptionsJson) {
+            url.searchParams.set('analysis_filters', this.queryOptionsJson);
         }
 
         // Add authentication token (force refresh on retry attempts)

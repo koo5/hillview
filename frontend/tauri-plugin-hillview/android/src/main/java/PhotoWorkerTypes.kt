@@ -120,11 +120,11 @@ data class ProcessInfo(
     var shouldAbort: Boolean = false
 )
 
-
 @Serializable
 data class ConfigData(
     val sources: List<SourceConfig>,
-    val expectedWorkerVersion: String? = null
+    val expectedWorkerVersion: String? = null,
+    val queryOptionsJson: String? = null  // Pre-serialized analysis filters
 )
 
 @Serializable

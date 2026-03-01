@@ -27,7 +27,7 @@ from typing import Optional, Any
 from uuid import UUID
 from pathlib import Path
 from datetime import datetime
-from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, BackgroundTasks, Request
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -209,6 +209,7 @@ task_id_counter = 1
 
 
 def background_loop():
+	consecutive_failures = 0
 	while True:
 		l = None
 		task0 = None
@@ -219,7 +220,7 @@ def background_loop():
 		if l > 0:
 			logger.info(f"Pending background tasks: {l}")
 			try:
-				requests.post(
+				resp = requests.post(
 					f"{API_URL}/worker_pending_background_tasks_ping",
 					json={
 						"worker_identity": WORKER_IDENTITY,
@@ -227,14 +228,26 @@ def background_loop():
 						"pending_tasks": l,
 						"task0_id": task0
 					},
-					timeout=30
+					timeout=60
 				)
-				time.sleep(1)
+				if resp.status_code == 200:
+					consecutive_failures = 0
+					time.sleep(10)
+				else:
+					consecutive_failures += 1
+					delay = min(2 ** consecutive_failures, 30)
+					logger.warning(f"Ping returned {resp.status_code}, backing off {delay}s")
+					time.sleep(delay)
 			except requests.Timeout:
-				pass
+				consecutive_failures += 1
+				time.sleep(min(2 ** consecutive_failures, 30))
 			except Exception as e:
-				logger.warning(f"Failed to ping API with pending tasks: {e}")
+				consecutive_failures += 1
+				delay = min(2 ** consecutive_failures, 30)
+				logger.warning(f"Failed to ping API with pending tasks: {e}, backing off {delay}s")
+				time.sleep(delay)
 		else:
+			consecutive_failures = 0
 			time.sleep(10)
 
 
@@ -312,15 +325,22 @@ async def health_check():
 	return {"status": "healthy", "service": "photo-processor"}
 
 @app.post("/await")
-async def await_handler(task_id: int):
+async def await_handler(task_id: int, request: Request):
 	"""Wait for a background task to complete, sending periodic heartbeats to keep connection alive."""
 
 	async def heartbeat_generator():
 		while True:
+			if await request.is_disconnected():
+				logger.info(f"Client {str(request.client)} disconnected while awaiting task {task_id}")
+				return
 			with pending_background_tasks_mutex:
 				if task_id not in pending_background_tasks:
 					yield b'{"status": "completed"}\n'
 					return
+			try:
+				logger.debug(f"Awaiting task {task_id}, sending heartbeat to client {str(request.client)}")
+			except Exception as e:
+				logger.debug(f"Awaiting task {task_id}, sending heartbeat (client info unavailable: {e})")
 			yield b'.\n'  # Heartbeat
 			await asyncio.sleep(5)
 
@@ -455,28 +475,44 @@ async def _upload_inner(file: UploadFile, client_signature: str, photo_id: str, 
 			logger.info(f"Sending processing result to API server for photo {photo_id}")
 			logger.info(f"Payload: {payload}")
 
+			max_retries = 5
 			async with httpx.AsyncClient() as client:
-				response = await client.post(
-					f"{API_URL}/photos/processed",
-					json=payload,
-					headers={"Content-Type": "application/json"},
-					timeout=120.0
-				)
+				for attempt in range(max_retries):
+					try:
+						response = await client.post(
+							f"{API_URL}/photos/processed",
+							json=payload,
+							headers={"Content-Type": "application/json"},
+							timeout=220.0
+						)
+					except (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError) as e:
+						if attempt < max_retries - 1:
+							delay = 2 ** attempt
+							logger.warning(f"Connection error sending result for photo {photo_id} (attempt {attempt+1}/{max_retries}): {e}, retrying in {delay}s")
+							await asyncio.sleep(delay)
+							continue
+						logger.error(f"Connection error sending result for photo {photo_id} after {max_retries} attempts: {e}")
+						raise
 
-				if response.status_code == 410:
-					# Photo was deleted while processing - this is expected, clean up gracefully
-					logger.info(f"Photo {photo_id} was deleted during processing, skipping result submission")
-					return ProcessPhotoResponse(
-						success=True,
-						photo_id=photo_id,
-						message="Photo was deleted during processing"
-					)
+					if response.status_code == 410:
+						logger.info(f"Photo {photo_id} was deleted during processing, skipping result submission")
+						return ProcessPhotoResponse(
+							success=True,
+							photo_id=photo_id,
+							message="Photo was deleted during processing"
+						)
 
-				if response.status_code != 200:
-					logger.error(f"Failed to notify API for photo {photo_id}: {response.status_code} - {response.text}")
-					raise HTTPException(status_code=500, detail="Failed to register result with API server")
+					if response.status_code >= 500 and attempt < max_retries - 1:
+						delay = 2 ** attempt
+						logger.warning(f"Server error {response.status_code} for photo {photo_id} (attempt {attempt+1}/{max_retries}): {response.text}, retrying in {delay}s")
+						await asyncio.sleep(delay)
+						continue
 
-				logger.info(f"Successfully notified API server for photo {photo_id}")
+					if response.status_code != 200:
+						logger.error(f"API rejected processing result for photo {photo_id}: {response.status_code} - {response.text}")
+					response.raise_for_status()
+					logger.info(f"Successfully notified API server for photo {photo_id}")
+					break
 
 		except Exception as e:
 			import traceback

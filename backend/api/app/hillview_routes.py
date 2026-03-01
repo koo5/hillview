@@ -3,11 +3,12 @@ import os
 import sys
 import logging
 from typing import Optional, Dict, Any, List
+from pydantic import BaseModel
 
 from fastapi import APIRouter, Query, HTTPException, status, Depends, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, Float
 from geoalchemy2.functions import ST_MakeEnvelope, ST_Within, ST_X, ST_Y
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
@@ -21,7 +22,90 @@ from rate_limiter import general_rate_limiter
 log = logging.getLogger(__name__)
 log.setLevel(logging.DEBUG)
 
+from sqlalchemy import or_, and_
+
 router = APIRouter(prefix="/api/hillview", tags=["hillview"])
+
+
+class AnalysisFilters(BaseModel):
+	"""Filters based on photo analysis data"""
+	time_of_day: Optional[str] = None  # day, night, dawn_dusk
+	location_type: Optional[str] = None  # indoors, outdoors, mixed
+	min_farthest_distance: Optional[float] = None  # farthest object must be at least X meters away
+	max_closest_distance: Optional[float] = None  # closest object must be at most X meters away
+	min_scenic_score: Optional[int] = None  # 1-5, minimum scenic beauty score
+	visibility_distance: Optional[str] = None  # near, medium, far, panoramic
+	tallest_building: Optional[str] = None  # none, low_rise, mid_rise, high_rise, skyscraper
+	features: Optional[List[str]] = None  # any of these features (OR logic)
+	show_unanalyzed: bool = True  # include photos without analysis data
+
+
+class SetAnalysisRequest(BaseModel):
+	"""Request to set analysis data for a photo"""
+	file_md5: Optional[str] = None  # identify by MD5 hash
+	photo_id: Optional[str] = None  # identify by photo UID
+	analysis: Dict[str, Any]  # the analysis data to set
+
+
+def parse_analysis_filters(
+	analysis_filters: str = Query(None, description="JSON object with analysis filters")
+) -> Optional[AnalysisFilters]:
+	if not analysis_filters:
+		return None
+	try:
+		return AnalysisFilters.model_validate_json(analysis_filters)
+	except Exception as e:
+		raise HTTPException(status_code=400, detail=f"Invalid analysis_filters: {e}")
+
+
+def apply_analysis_filters(query, filters: AnalysisFilters):
+	"""Apply analysis-based filters to a photo query.
+	Photos without analysis are always included.
+	"""
+	conditions = []
+
+	if filters.time_of_day:
+		conditions.append(Photo.analysis['time_of_day'].astext == filters.time_of_day)
+
+	if filters.location_type:
+		conditions.append(Photo.analysis['location_type'].astext == filters.location_type)
+
+	if filters.min_farthest_distance is not None:
+		conditions.append(
+			Photo.analysis['farthest_object_distance'].astext.cast(Float) >= filters.min_farthest_distance
+		)
+
+	if filters.max_closest_distance is not None:
+		conditions.append(
+			Photo.analysis['closest_object_distance'].astext.cast(Float) <= filters.max_closest_distance
+		)
+
+	if filters.min_scenic_score is not None:
+		conditions.append(
+			Photo.analysis['scenic_score'].astext.cast(Float) >= filters.min_scenic_score
+		)
+
+	if filters.visibility_distance:
+		conditions.append(Photo.analysis['visibility_distance'].astext == filters.visibility_distance)
+
+	if filters.tallest_building:
+		conditions.append(Photo.analysis['tallest_building'].astext == filters.tallest_building)
+
+	if filters.features:
+		# OR logic: any of the features matches
+		feature_conditions = [Photo.analysis['features'].contains([f]) for f in filters.features]
+		conditions.append(or_(*feature_conditions))
+
+	if filters.show_unanalyzed:
+		# Include photo if: no analysis OR all conditions pass
+		query = query.where(or_(
+			Photo.analysis.is_(None),
+			and_(*conditions)
+		))
+	else:
+		query = query.where(and_(*conditions))
+
+	return query
 
 
 def convert_photo_to_response(photo, username: str, longitude: float, latitude: float) -> Dict[str, Any]:
@@ -63,7 +147,8 @@ async def query_photos_in_bounds(
 	bbox,
 	current_user_id: Optional[str],
 	exclude_ids: Optional[List[str]] = None,
-	limit: Optional[int] = None
+	limit: Optional[int] = None,
+	analysis_filters: Optional[AnalysisFilters] = None
 ) -> List[Dict[str, Any]]:
 	"""Query photos within bounds, with optional exclusions and limit"""
 	query = select(
@@ -78,6 +163,10 @@ async def query_photos_in_bounds(
 		Photo.processing_status == 'completed',
 		Photo.deleted == False
 	).order_by(Photo.captured_at.desc())
+
+	# Apply analysis filters if provided
+	if analysis_filters:
+		query = apply_analysis_filters(query, analysis_filters)
 
 	# Exclude specific photo IDs if provided
 	if exclude_ids:
@@ -156,6 +245,7 @@ async def get_hillview_images(
 	client_id: str = Query(..., description="Client ID"),
 	picks: str = Query(None, description="Comma-separated list of picked photo IDs"),
 	max_photos: int = Query(400, description="Maximum number of photos to return"),
+	analysis_filters: Optional[AnalysisFilters] = Depends(parse_analysis_filters),
 	db: AsyncSession = Depends(get_db),
 	current_user: Optional[User] = Depends(get_current_user_optional_with_query)
 ):
@@ -189,7 +279,8 @@ async def get_hillview_images(
 			regular_photos = await query_photos_in_bounds(
 				db, bbox, current_user_id,
 				exclude_ids=picked_ids,
-				limit=remaining_limit
+				limit=remaining_limit,
+				analysis_filters=analysis_filters
 			)
 			log.info(f"Found {len(regular_photos)} regular photos")
 
@@ -244,3 +335,39 @@ async def get_hillview_images(
 			status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
 			detail=f"Database error: {str(e)}"
 		)
+
+
+@router.post("/internal/set-analysis")
+async def set_photo_analysis(
+	request: SetAnalysisRequest,
+	db: AsyncSession = Depends(get_db)
+):
+	"""Internal endpoint to set analysis data for a photo by MD5 or photo ID"""
+	if not request.file_md5 and not request.photo_id:
+		raise HTTPException(status_code=400, detail="Must provide either file_md5 or photo_id")
+
+	# Build query to find the photo
+	if request.photo_id:
+		query = select(Photo).where(Photo.id == request.photo_id)
+	else:
+		query = select(Photo).where(Photo.file_md5 == request.file_md5)
+
+	result = await db.execute(query)
+	photos = result.scalars().all()
+
+	if not photos:
+		raise HTTPException(status_code=404, detail="Photo not found")
+
+	if len(photos) > 1:
+		raise HTTPException(
+			status_code=409,
+			detail=f"Multiple photos ({len(photos)}) found for MD5 {request.file_md5}"
+		)
+
+	photo = photos[0]
+
+	# Update the analysis field
+	photo.analysis = request.analysis
+	await db.commit()
+
+	return {"status": "ok", "photo_id": photo.id}
