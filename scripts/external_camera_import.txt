@@ -10,6 +10,9 @@ darktable .
 cp darktable_exported/* webp/ 
 
 
+/home/koom/repos/koo5/hillview/0/hillview/scripts/exif_tags_from_cr2_to_webp.sh
+
+
 # connect your phone
 pushd ~
 adb pull '/storage/emulated/0/Android/data/cz.hillview/files/GeoTrackingDumps/'
@@ -17,7 +20,7 @@ popd
 
 
 # determine required exif tag correction in seconds by taking values in photos of phone clock and subtracting their DateTimeOriginal
-exiftool -s webp/* | grep -e DateTimeOriginal -e FileName | grep -v SubSec
+exiftool -s *.CR2 | grep -e DateTimeOriginal -e FileName | grep -v SubSec
 
 
 # add location and bearing tags

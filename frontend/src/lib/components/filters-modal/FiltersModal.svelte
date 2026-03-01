@@ -248,7 +248,7 @@
 
 		<section class="filter-section">
 			<h4>Tallest Building</h4>
-			<p class="hint">Maximum building height visible</p>
+			<p class="hint">Minimum building height visible</p>
 			<div class="option-chips">
 				{#each buildingOptions as opt}
 					<button
