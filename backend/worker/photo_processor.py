@@ -469,9 +469,97 @@ class PhotoProcessor:
 
 			logger.info(f"Created {len(sizes_info)} size variants for {unique_id}")
 
+		# Generate DZI pyramid from the full-resolution (anonymized) image
+		# Store metadata inline in sizes['full']['pyramid'] so the client can
+		# initialise OpenSeadragon without an extra round-trip for the .dzi file.
+		if 'full' in sizes_info:
+			pyramid = await self.generate_dzi_pyramid(source_path, unique_id, width, height, photo_id, client_signature)
+			if pyramid:
+				sizes_info['full']['pyramid'] = pyramid
+
 		return sizes_info, detections
 
 
+
+	async def generate_dzi_pyramid(self, source_path: str, unique_id: str, width: int, height: int, photo_id: str = None, client_signature: str = None) -> Optional[Dict[str, Any]]:
+		"""Generate a DZI (Deep Zoom Image) pyramid using vips and upload the tiles.
+
+		Returns pyramid metadata dict for inline use by OpenSeadragon, or None if generation fails.
+		The metadata allows the client to open the deep-zoom viewer without a separate .dzi fetch.
+		"""
+		try:
+			user_id_part, photo_id_part = unique_id.split('/', 1)
+			user_id_part = validate_user_id(user_id_part)
+			safe_photo_id = sanitize_filename(photo_id_part)
+
+			output_base = os.environ.get('PICS_DIR', self.upload_dir)
+			dzi_dir = validate_file_path(os.path.join(output_base, 'opt', 'dzi', user_id_part), output_base)
+			os.makedirs(dzi_dir, exist_ok=True)
+
+			# vips dzsave writes <base>.dzi + <base>_files/
+			dzi_output_base = os.path.join(dzi_dir, safe_photo_id)
+			dzi_file = dzi_output_base + '.dzi'
+			tiles_dir = dzi_output_base + '_files'
+
+			tile_size = 254
+			overlap = 1
+
+			# Validate source path before passing to subprocess
+			validated_source = validate_file_path(source_path, "/app")
+
+			cmd = [
+				'vips', 'dzsave', validated_source, dzi_output_base,
+				'--tile-size', str(tile_size),
+				'--overlap', str(overlap),
+				'--suffix', '.webp[Q=85]',
+			]
+			logger.info(f"Generating DZI pyramid for {unique_id}: {shlex.join(cmd)}")
+			result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+
+			if result.returncode != 0:
+				logger.warning(f"DZI generation failed for {unique_id}: {result.stderr}")
+				return None
+
+			logger.info(f"DZI generated for {unique_id}, uploading files")
+
+			# Upload the .dzi XML descriptor
+			dzi_relative = os.path.relpath(dzi_file, output_base)
+			dzi_url = await self._get_size_url(dzi_file, dzi_relative, photo_id, client_signature)
+
+			# Derive the tiles base URL from the dzi URL
+			# OpenSeadragon uses {tiles_url}/{level}/{col}_{row}.{format}
+			tiles_url_base = dzi_url.removesuffix('.dzi') + '_files'
+
+			# Upload all tile files
+			if os.path.exists(tiles_dir):
+				tile_count = 0
+				for level_name in sorted(os.listdir(tiles_dir)):
+					level_path = os.path.join(tiles_dir, level_name)
+					if not os.path.isdir(level_path):
+						continue
+					for tile_name in sorted(os.listdir(level_path)):
+						tile_path = os.path.join(level_path, tile_name)
+						if not os.path.isfile(tile_path):
+							continue
+						tile_relative = os.path.relpath(tile_path, output_base)
+						await self._get_size_url(tile_path, tile_relative, photo_id, client_signature)
+						tile_count += 1
+				logger.info(f"Uploaded {tile_count} DZI tiles for {unique_id}")
+
+			return {
+				'type': 'dzi',
+				'dzi_url': dzi_url,
+				'tiles_url': tiles_url_base,
+				'tile_size': tile_size,
+				'overlap': overlap,
+				'format': 'webp',
+				'width': width,
+				'height': height,
+			}
+
+		except Exception as e:
+			logger.warning(f"DZI pyramid generation failed for {unique_id}: {e}", exc_info=True)
+			return None
 
 	async def _upload_file_to_api(self, file_path: str, relative_path: str, photo_id: str, client_signature: str) -> str:
 		"""Upload file to API server storage as a raw stream.
