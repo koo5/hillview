@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 import cv2
 from PIL import Image
 import httpx
-from blur import read_image
+from blur import read_image, apply_blackout
 from throttle import Throttle
 
 
@@ -154,6 +154,8 @@ def parse_exif_datetime(value) -> Optional[datetime]:
 PICS_URL = os.environ.get("PICS_URL")
 PARALLEL_PROCESSING_START_DELAY = float(os.environ.get("PARALLEL_PROCESSING_START_DELAY", 5))
 logger.info(f"PARALLEL_PROCESSING_START_DELAY={PARALLEL_PROCESSING_START_DELAY} seconds")
+
+LLM_VARIANT_SIZE = 640
 
 throttle = Throttle('photo_processor')
 
@@ -468,6 +470,37 @@ class PhotoProcessor:
 				sizes_info[size] = size_info
 
 			logger.info(f"Created {len(sizes_info)} size variants for {unique_id}")
+
+			# Create 640_llm variant (black fill over detections, no colors/stick figures, for LLM analysis)
+			if LLM_VARIANT_SIZE <= width:
+				llm_image = read_image(source_path)
+				apply_blackout(llm_image, detections.get("objects", []))
+
+				llm_scale = LLM_VARIANT_SIZE / width
+				llm_width = LLM_VARIANT_SIZE
+				llm_height = int(height * llm_scale)
+
+				user_id_part, photo_id_part = unique_id.split('/', 1)
+				user_id_part = validate_user_id(user_id_part)
+				llm_size_dir = os.path.join(output_base, 'opt', '640_llm', user_id_part)
+				llm_filename = sanitize_filename(f"{photo_id_part}.webp")
+				llm_output_path = validate_file_path(os.path.join(llm_size_dir, llm_filename), output_base)
+				llm_relative_path = os.path.relpath(llm_output_path, output_base)
+				os.makedirs(pathlib.Path(llm_output_path).parent, exist_ok=True)
+
+				llm_resized = cv2.resize(llm_image, (llm_width, llm_height), interpolation=cv2.INTER_AREA)
+				llm_rgb = cv2.cvtColor(llm_resized, cv2.COLOR_BGR2RGB)
+				Image.fromarray(llm_rgb).save(llm_output_path, format='WEBP', quality=97, method=6)
+				copy_exif_data(source_path, llm_output_path)
+				logger.info(f"Created 640_llm variant for {unique_id}: {llm_width}x{llm_height} at {llm_output_path}")
+
+				llm_url = await self._get_size_url(llm_output_path, llm_relative_path, photo_id, client_signature)
+				sizes_info['640_llm'] = {
+					'path': llm_relative_path,
+					'width': llm_width,
+					'height': llm_height,
+					'url': llm_url
+				}
 
 		return sizes_info, detections
 

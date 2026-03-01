@@ -19,7 +19,7 @@ console.setLevel(logging.DEBUG)
 # Load YOLO model
 model = None
 model_dir = "/app/worker/models"
-model_name = "yolov5su.pt"
+model_name = "yolov5s6u.pt"
 model_path = os.path.join(model_dir, model_name)
 
 def detect_targets(image):
