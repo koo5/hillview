@@ -14,7 +14,6 @@ declare global {
 	const __BUILD_VERSION__: string;
 	const __BUILD_GIT_COMMIT__: string;
 	const __DEBUG_MODE__: string;
-	const __WORKER_VERSION__: string;
 
 	// AbsoluteOrientationSensor API types
 	interface AbsoluteOrientationSensorOptions {

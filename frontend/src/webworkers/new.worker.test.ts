@@ -3,7 +3,7 @@
  * Tests by importing the worker module directly and calling handleMessage
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import type { PhotoData, SourceConfig } from './photoWorkerTypes';
+import type { PhotoData, SourceConfig } from '../lib/photoWorkerTypes';
 
 // Track worker reference for auth responses
 let workerRef: typeof import('./new.worker') | null = null;
@@ -29,9 +29,6 @@ const mockSelf = {
 // Mock global worker environment
 (globalThis as any).self = mockSelf;
 (globalThis as any).postMessage = mockPostMessage;
-
-// Mock __WORKER_VERSION__ for tests
-(globalThis as any).__WORKER_VERSION__ = 'test-version-' + Date.now();
 
 // No longer need fetch mock since we're using EventSource
 
@@ -220,8 +217,6 @@ describe('New Worker Integration Tests', () => {
       postMessage: mockPostMessage
     };
     (globalThis as any).postMessage = mockPostMessage;
-    (globalThis as any).__WORKER_VERSION__ = 'test-version-' + Date.now();
-
     // Set EventSource on both global and globalThis for Node.js compatibility
     (globalThis as any).EventSource = MockEventSource;
     (global as any).EventSource = MockEventSource;
@@ -289,11 +284,9 @@ describe('New Worker Integration Tests', () => {
       createStreamSource('source2')
     ];
 
-    // Send config update with proper version check
     await sendMessage('configUpdated', {
       config: {
-        sources,
-        expectedWorkerVersion: (globalThis as any).__WORKER_VERSION__
+        sources
       }
     });
 
@@ -573,64 +566,6 @@ describe('New Worker Integration Tests', () => {
 
     // Test that worker can handle rapid consecutive updates without breaking
     expect(responses.every(r => typeof r.photos_in_area.length === 'number')).toBe(true);
-  });
-
-  it('should handle worker version validation correctly', async () => {
-    const sources = [createStreamSource('source1')];
-
-    // Test with correct version - should work
-    const response = await sendMessage('configUpdated', {
-      config: {
-        sources,
-        expectedWorkerVersion: (globalThis as any).__WORKER_VERSION__
-      }
-    });
-
-    // Verify correct version produces a valid response
-    expect(response.type).toBe('photosUpdate');
-
-    // Clear messages and test with wrong version
-    mockPostMessage.mockClear();
-
-    // Capture the expected version mismatch error
-    let caughtError: Error | null = null;
-    const errorHandler = (error: Error) => {
-      if (error.message.includes('Worker version mismatch')) {
-        caughtError = error;
-      }
-    };
-    process.on('unhandledRejection', errorHandler);
-
-    try {
-      // Send message with wrong version - processConfig will throw but the error
-      // happens asynchronously (processConfig is not awaited in the worker).
-      worker.handleMessage({
-        frontendMessageId: 'frontend_version_test',
-        type: 'configUpdated',
-        data: {
-          config: {
-            sources,
-            expectedWorkerVersion: 'wrong-version-123'
-          }
-        },
-        id: 999
-      });
-
-      // Wait a short time for the async error to occur
-      await new Promise(resolve => setTimeout(resolve, 200));
-
-      // Verify NO photosUpdate was sent for the invalid version
-      const photosUpdateCalls = mockPostMessage.mock.calls
-        .filter(call => call[0]?.type === 'photosUpdate');
-
-      expect(photosUpdateCalls.length).toBe(0);
-
-      // Verify the version mismatch error was thrown
-      expect(caughtError).not.toBeNull();
-      expect(caughtError!.message).toContain('Worker version mismatch');
-    } finally {
-      process.removeListener('unhandledRejection', errorHandler);
-    }
   });
 
   it('should exclude data from removed sources after config change', async () => {

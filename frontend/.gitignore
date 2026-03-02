@@ -48,6 +48,3 @@ debug_*
 window_dump.xml
 .mcp.json
 
-# Generated service worker bundle
-static/serviceWorkerBundle.js
-

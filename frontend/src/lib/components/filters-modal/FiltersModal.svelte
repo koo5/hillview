@@ -2,6 +2,7 @@
 	import Modal from '../Modal.svelte';
 	import { Sun, Moon, Sunrise, Home, Trees, RotateCcw } from 'lucide-svelte';
 	import { filters, hasActiveFilters, filtersModalState, closeFiltersModal, type QueryOptions } from './filtersStore';
+	import { maxPhotosInArea } from '$lib/data.svelte';
 
 	function setTimeOfDay(value: string | null) {
 		filters.update(f => ({ ...f, time_of_day: f.time_of_day === value ? null : value }));
@@ -146,6 +147,24 @@
 	testId="filters-modal"
 >
 	<div class="filters-content">
+		<section class="filter-section">
+			<h4>Max Photos in Area</h4>
+			<p class="hint">Maximum number of photos to load and display on the map</p>
+			<input
+				type="number"
+				class="max-photos-input"
+				min="10"
+				max="1000"
+				step="10"
+				value={$maxPhotosInArea}
+				oninput={(e) => {
+					const val = parseInt((e.target as HTMLInputElement).value);
+					if (val && val >= 10 && val <= 1000) maxPhotosInArea.set(val);
+				}}
+				data-testid="max-photos-input"
+			/>
+		</section>
+
 		<section class="filter-section">
 			<h4>Time of Day</h4>
 			<div class="option-chips">
@@ -419,5 +438,20 @@
 	.clear-button:disabled {
 		opacity: 0.4;
 		cursor: default;
+	}
+
+	.max-photos-input {
+		width: 80px;
+		padding: 6px 10px;
+		border: 1px solid #d1d5db;
+		border-radius: 8px;
+		font-size: 14px;
+		color: #374151;
+	}
+
+	.max-photos-input:focus {
+		outline: none;
+		border-color: #3b82f6;
+		box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
 	}
 </style>

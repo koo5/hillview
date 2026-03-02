@@ -8,9 +8,6 @@ import type { PhotoSourceLoader, PhotoSourceCallbacks } from './sources/PhotoSou
 import { filterPhotosByArea } from './workerUtils';
 import { MAX_PHOTOS_IN_AREA } from './photoWorkerConstants';
 
-// Import worker version for validation
-declare const __WORKER_VERSION__: string;
-
 export interface OperationCallbacks {
     shouldAbort: (processId: string) => boolean;
     postMessage: (message: any) => void;
@@ -79,7 +76,7 @@ export class PhotoOperations {
     async processConfig(
         processId: string,
         messageId: number,
-        config: { sources: SourceConfig[]; expectedWorkerVersion?: string; [key: string]: any },
+        config: { sources: SourceConfig[]; [key: string]: any },
         callbacks: OperationCallbacks
     ): Promise<void> {
         if (doLog) console.log(`🢄PhotoOperations: Processing config update (${processId})`);
@@ -87,11 +84,6 @@ export class PhotoOperations {
         if (callbacks.shouldAbort(processId)) {
             if (doLog) console.log(`🢄PhotoOperations: PROCESSCONFIG: Config process ${processId} aborted before completion`);
             return;
-        }
-
-        // Check worker version if provided
-        if (config.expectedWorkerVersion && config.expectedWorkerVersion !== __WORKER_VERSION__) {
-            throw new Error(`Worker version mismatch! Expected: ${config.expectedWorkerVersion}, Actual: ${__WORKER_VERSION__}`);
         }
 
         config.sources = config.sources || [];

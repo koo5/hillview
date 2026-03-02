@@ -208,8 +208,8 @@ class BrowserPhotoStorage {
         await this.updateStorageStats();
         await this.updateQueueStatus();
 
-        // Trigger background sync if service worker is available
-        await this.requestBackgroundSync();
+        // Photo sync is triggered by the caller (captureQueue), not here.
+        // This keeps photoStorage focused on storage only.
     }
 
     async getNextPhotoForUpload(): Promise<StoredPhoto | null> {
@@ -350,7 +350,6 @@ class BrowserPhotoStorage {
         }
 
         await this.updateQueueStatus();
-        await this.requestBackgroundSync();
     }
 
     async deletePhoto(photoId: string): Promise<void> {
@@ -482,18 +481,6 @@ class BrowserPhotoStorage {
         } catch (error) {
             console.error(`${this.LOG_PREFIX} Failed to request persistent storage:`, error);
             return false;
-        }
-    }
-
-    async requestBackgroundSync(): Promise<void> {
-        if (isBackgroundSyncSupported()) {
-            try {
-                const registration = await navigator.serviceWorker.ready;
-                await (registration as any).sync.register('photo-upload');
-                console.log(`${this.LOG_PREFIX} Background sync requested`);
-            } catch (error) {
-                console.warn(`${this.LOG_PREFIX} Background sync not available:`, error);
-            }
         }
     }
 

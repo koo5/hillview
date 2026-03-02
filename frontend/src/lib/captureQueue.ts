@@ -7,8 +7,7 @@ import {frontendBusy} from "$lib/data.svelte";
 import {storageSettings} from "$lib/storageSettings";
 import { TAURI, BROWSER } from './tauri';
 import { browserCaptureAdapter } from './browser/captureAdapter';
-import { uploadManager } from './browser/uploadManager';
-import {getSettings, settings} from './settings';
+import { triggerPhotoSync } from './browser/photoSync';
 import { auth } from './authStore';
 
 export interface CaptureLocation {
@@ -187,22 +186,8 @@ class CaptureQueueManager {
 					// Remove placeholder after successful save
 					removePlaceholder(item.placeholder_id);
 
-					// Check if we should auto-upload
-					const currentSettings = await getSettings();
-					const authState = get(auth);
-
-					// Only attempt upload if authenticated and auto-upload is enabled
-					if (navigator.onLine && authState.is_authenticated && currentSettings?.auto_upload_enabled) {
-						uploadManager.uploadPending().catch(error => {
-							console.error('Upload error:', error);
-						});
-					} else {
-						console.log('🢄[CaptureQueue] Skipping auto-upload:', {
-							online: navigator.onLine,
-							authenticated: authState.is_authenticated,
-							auto_upload_enabled: currentSettings?.auto_upload_enabled
-						});
-					}
+					// Trigger upload sync (background or foreground)
+					triggerPhotoSync();
 				} catch (error) {
 					this.totalFailed++;
 					this.log(this.LOG_TAGS.PHOTO_ERROR, 'Failed to save to browser storage', {
@@ -249,7 +234,7 @@ class CaptureQueueManager {
 
 	private initWorker(): void {
 		this.worker = new Worker(
-			new URL('../workers/captureWorker.ts', import.meta.url),
+			new URL('../webworkers/captureWorker.ts', import.meta.url),
 			{ type: 'module' }
 		);
 
@@ -402,3 +387,15 @@ class CaptureQueueManager {
 }
 
 export const captureQueue = new CaptureQueueManager();
+
+// When user logs in, automatically upload any pending browser photos
+if (BROWSER) {
+	let wasAuthenticated = false;
+	auth.subscribe(authState => {
+		if (authState.is_authenticated && !wasAuthenticated) {
+			console.log('🢄[CaptureQueue] Auth state changed to authenticated, triggering pending uploads');
+			triggerPhotoSync();
+		}
+		wasAuthenticated = authState.is_authenticated;
+	});
+}

@@ -44,21 +44,16 @@
 
 /// <reference lib="webworker" />
 
-import type {PhotoData, SourceConfig, Bounds, PhotoId} from './photoWorkerTypes';
-import { MessageQueue } from './MessageQueue';
-import { PhotoOperations } from './photoOperations';
-import { CullingGrid, type SourceId } from './CullingGrid';
-import {AngularRangeCuller, sortPhotosByBearing} from './AngularRangeCuller';
-import { TAURI } from './tauri';
+import type {PhotoData, SourceConfig, Bounds, PhotoId} from '../lib/photoWorkerTypes';
+import { MessageQueue } from '../lib/MessageQueue';
+import { PhotoOperations } from '../lib/photoOperations';
+import { CullingGrid, type SourceId } from '../lib/CullingGrid';
+import {AngularRangeCuller, sortPhotosByBearing} from '../lib/AngularRangeCuller';
+import { TAURI } from '../lib/tauri';
 import { invoke } from '@tauri-apps/api/core';
-import { MAX_PHOTOS_IN_AREA, MAX_PHOTOS_IN_RANGE, DEFAULT_RANGE_METERS } from './photoWorkerConstants';
-
-declare const __WORKER_VERSION__: string;
-export const WORKER_VERSION = __WORKER_VERSION__;
+import { MAX_PHOTOS_IN_AREA, MAX_PHOTOS_IN_RANGE, DEFAULT_RANGE_METERS } from '../lib/photoWorkerConstants';
 
 const doLog = false;
-
-if (doLog) console.log(`🢄NewWorker: Worker script loaded with version: ${WORKER_VERSION}`);
 
 
 // Process tracking
@@ -90,6 +85,9 @@ let processMonitorInterval: NodeJS.Timeout | null = null;
 // Photo storage now unified in currentState.sourcesPhotosInArea.data
 let cullingGrid: CullingGrid | null = null;
 const angularRangeCuller = new AngularRangeCuller();
+
+// Dynamic max photos in area - updated from config messages, defaults to constant
+let maxPhotosInAreaValue = MAX_PHOTOS_IN_AREA;
 
 // Version tracking for sourcesPhotosInArea state
 let sourcesPhotosInAreaVersion = 0;
@@ -129,8 +127,8 @@ function mergeAndCullPhotos(): { photos_in_area: PhotoData[], photos_in_range: P
     }
 
     // Apply smart culling for uniform screen coverage (picks are always included)
-    const photosInArea = cullingGrid.cullPhotos(photosInAreaPerSource, MAX_PHOTOS_IN_AREA, currentPicks);
-    //if (doLog) console.log(`🢄NewWorker: After culling - ${photosInArea.length} photos in area (max: ${MAX_PHOTOS_IN_AREA})`);
+    const photosInArea = cullingGrid.cullPhotos(photosInAreaPerSource, maxPhotosInAreaValue, currentPicks);
+    //if (doLog) console.log(`🢄NewWorker: After culling - ${photosInArea.length} photos in area (max: ${maxPhotosInAreaValue})`);
 
     // Log a few photo locations for debugging
     /*if (photosInArea.length > 0) {
@@ -302,6 +300,11 @@ async function startProcess(type: 'config' | 'area' | 'sourcesPhotosInArea', mes
         if (type === 'config') {
             if (doLog) console.log(`🢄NewWorker: Starting PROCESSCONFIG for ${processId}, currentPicks: ${currentPicks.size}`);
             if (currentState.config.data) {
+                // Update max photos in area if provided in config
+                if (currentState.config.data.maxPhotosInArea !== undefined) {
+                    maxPhotosInAreaValue = currentState.config.data.maxPhotosInArea;
+                    photoOperations.setMaxPhotosInArea(maxPhotosInAreaValue);
+                }
                 // Update query options before processing config
                 photoOperations.setQueryOptionsJson(currentState.config.data.queryOptionsJson);
                 photoOperations.processConfig(processId, messageId, currentState.config.data, operationCallbacks);

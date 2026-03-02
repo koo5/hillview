@@ -22,6 +22,10 @@ from rate_limiter import general_rate_limiter
 log = logging.getLogger(__name__)
 log.setLevel(logging.DEBUG)
 
+# Server-side caps
+MAX_PHOTOS_PER_REQUEST = int(os.getenv("MAX_HILLVIEW_PHOTOS", "1000"))
+MAX_PICKS_PER_REQUEST = int(os.getenv("MAX_HILLVIEW_PICKS", "200"))
+
 from sqlalchemy import or_, and_
 
 router = APIRouter(prefix="/api/hillview", tags=["hillview"])
@@ -244,7 +248,7 @@ async def get_hillview_images(
 	bottom_right_lon: float = Query(..., description="Bottom right longitude"),
 	client_id: str = Query(..., description="Client ID"),
 	picks: str = Query(None, description="Comma-separated list of picked photo IDs"),
-	max_photos: int = Query(400, description="Maximum number of photos to return"),
+	max_photos: int = Query(400, description="Maximum number of photos to return", ge=1),
 	analysis_filters: Optional[AnalysisFilters] = Depends(parse_analysis_filters),
 	db: AsyncSession = Depends(get_db),
 	current_user: Optional[User] = Depends(get_current_user_optional_with_query)
@@ -253,11 +257,14 @@ async def get_hillview_images(
 	# Apply rate limiting with optional user context (better limits for authenticated users)
 	await general_rate_limiter.enforce_rate_limit(request, 'public_read', current_user)
 
+	# Cap max_photos at server limit
+	effective_max_photos = min(max_photos, MAX_PHOTOS_PER_REQUEST)
+
 	try:
-		# Parse picks parameter if provided
+		# Parse picks parameter if provided, capped at server limit
 		picked_ids = []
 		if picks:
-			picked_ids = [id.strip() for id in picks.split(',') if id.strip()]
+			picked_ids = [id.strip() for id in picks.split(',') if id.strip()][:MAX_PICKS_PER_REQUEST]
 			log.debug(f"Processing picks: {picked_ids}")
 
 		# Create bounding box geometry (min_lng, min_lat, max_lng, max_lat, srid)
@@ -273,7 +280,7 @@ async def get_hillview_images(
 		log.info(f"Found {len(picked_photos)} picked photos in bounds")
 
 		# Get regular photos up to the limit minus picked photos
-		remaining_limit = max_photos - len(picked_photos)
+		remaining_limit = effective_max_photos - len(picked_photos)
 		regular_photos = []
 		if remaining_limit > 0:
 			regular_photos = await query_photos_in_bounds(
@@ -286,7 +293,7 @@ async def get_hillview_images(
 
 		# Combine picked photos first, then regular photos
 		filtered_photos = picked_photos + regular_photos
-		log.info(f"Found {len(filtered_photos)} total photos in database for bbox (max_photos: {max_photos})")
+		log.info(f"Found {len(filtered_photos)} total photos in database for bbox (requested: {max_photos}, effective: {effective_max_photos}, picks cap: {MAX_PICKS_PER_REQUEST})")
 
 		# Create generator for EventSource streaming
 		async def generate_stream():

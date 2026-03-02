@@ -1,5 +1,9 @@
+/*
+This module manages the new.worker.ts
+*/
+
 import {photosInArea, photosInRange, spatialState, picks} from './mapState';
-import {sourceLoadingStatus, sources} from './data.svelte';
+import {sourceLoadingStatus, sources, maxPhotosInArea} from './data.svelte';
 import {filters, buildFiltersQueryParam} from './components/filters-modal/filtersStore';
 import {get} from 'svelte/store';
 import {getCurrentToken} from './auth.svelte';
@@ -9,9 +13,6 @@ import type {WorkerToastMessage} from './workerToast';
 import {removePlaceholder, placeholderPhotos, embedPlaceholders} from './placeholderInjector';
 import {TAURI} from './tauri';
 import {KotlinPhotoWorker} from './KotlinPhotoWorker';
-
-declare const __WORKER_VERSION__: string;
-
 
 class SimplePhotoWorker {
     private worker: Worker | null = null;
@@ -34,7 +35,7 @@ class SimplePhotoWorker {
                 console.log('🢄SimplePhotoWorker: Initializing Web Worker for browser');
                 // Create worker directly
                 this.worker = new Worker(
-                    new URL('./new.worker.ts', import.meta.url),
+                    new URL('../webworkers/new.worker.ts', import.meta.url),
                     {type: 'module'}
                 );
                 this.setupWorkerHandlers();
@@ -43,9 +44,9 @@ class SimplePhotoWorker {
             // Initialize worker with config update including version check
             this.sendMessage('configUpdated', {
                 config: {
-                    expectedWorkerVersion: __WORKER_VERSION__,
 					sources: get(sources),
-					queryOptionsJson: buildFiltersQueryParam()  // Pre-serialized, null if no active filters
+					queryOptionsJson: buildFiltersQueryParam(),  // Pre-serialized, null if no active filters
+					maxPhotosInArea: get(maxPhotosInArea)
                 }
             });
             this.isInitialized = true;
@@ -281,6 +282,7 @@ class SimplePhotoWorker {
 
             const sourceList = get(sources);
             const currentFilters = get(filters);
+            const currentMaxPhotos = get(maxPhotosInArea);
             const filtersHash = JSON.stringify(currentFilters);
 
             // Create hash of config-relevant fields only (ignore loading states)
@@ -296,7 +298,8 @@ class SimplePhotoWorker {
                     clientId: source.client_id,
                     backendUrl: source.backend_url
                 })),
-                queryOptions: currentFilters
+                queryOptions: currentFilters,
+                maxPhotosInArea: currentMaxPhotos
             });
 
             // Only trigger config update if actual config changed (not loading states)
@@ -320,15 +323,16 @@ class SimplePhotoWorker {
 
             this.sendMessage('configUpdated', {
                 config: {
-                    expectedWorkerVersion: __WORKER_VERSION__,
                     sources: sourceList,
-                    queryOptionsJson: buildFiltersQueryParam()  // Pre-serialized, null if no active filters
+                    queryOptionsJson: buildFiltersQueryParam(),  // Pre-serialized, null if no active filters
+                    maxPhotosInArea: currentMaxPhotos
                 }
             });
         };
 
         sources.subscribe(() => sendConfigUpdate());
         filters.subscribe(() => sendConfigUpdate());
+        maxPhotosInArea.subscribe(() => sendConfigUpdate());
     }
 
     private sendMessage(type: string, data?: any): void {

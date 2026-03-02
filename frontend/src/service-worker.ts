@@ -3,12 +3,22 @@
 /// <reference lib="webworker" />
 /// <reference types="@sveltejs/kit" />
 
-import { swUploader } from '$lib/browser/serviceWorkerBundle';
+import { handleSync } from '$lib/sw/backgroundSync';
+import { handleFetch, handleMessage } from '$lib/sw/tileHandler';
 
 declare const self: ServiceWorkerGlobalScope;
 
+// Background Sync for photo uploads
 self.addEventListener('sync', (event) => {
-    if (event.tag === 'photo-upload') {
-        event.waitUntil(swUploader.uploadPendingPhotos());
-    }
+    handleSync(event);
+});
+
+// Tile fetch interception (error tiles on failure)
+self.addEventListener('fetch', (event) => {
+    handleFetch(event);
+});
+
+// Messages from main thread (tile provider updates)
+self.addEventListener('message', (event) => {
+    handleMessage(event);
 });

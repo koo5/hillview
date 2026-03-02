@@ -5,7 +5,7 @@
 	import {Upload} from 'lucide-svelte';
 	import {invoke} from "@tauri-apps/api/core";
 	import {fetchPhotoStats} from "$lib/photoStatsAdapter";
-	import {uploadManager} from "$lib/browser/uploadManager";
+	import {triggerPhotoSync} from "$lib/browser/photoSync";
 
 	export let photo: { id: string | number; processing_status?: string, upload_status?: string } = { id: 'global' };
 	export let addLogEntry: any = () => {};
@@ -29,8 +29,8 @@
 					addLogEntry('Failed to trigger manual upload', 'error');
 				}
 			} else if (BROWSER) {
-				// Browser: trigger upload manager
-				await uploadManager.uploadPending();
+				// Browser: trigger upload sync (background or foreground)
+				triggerPhotoSync();
 				addLogEntry('Manual upload triggered', 'success');
 				setTimeout(() => {
 					fetchPhotoStats();
