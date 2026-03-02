@@ -34,6 +34,58 @@ def _tile_starts(length, tile_size, step):
 	return starts
 
 
+def deduplicate_boxes(boxes, tolerance=10, subsumption_threshold=0.8):
+	"""Remove near-duplicate and subsumed bounding boxes.
+
+	Two boxes are considered near-duplicates if all four coordinates are within
+	`tolerance` pixels of each other. A box is considered subsumed if more than
+	`subsumption_threshold` of its own area is covered by a single larger box.
+
+	Boxes are processed in descending area order so larger boxes take precedence.
+	This produces a minimally-redundant set suitable for manual editing.
+
+	Args:
+		boxes: list of (cls_id, (x1, y1, x2, y2)).
+		tolerance: pixel tolerance for near-duplicate coordinate comparison.
+		subsumption_threshold: fraction of a box's area that must be covered by
+			a larger box to discard it (0.8 = 80%).
+
+	Returns:
+		Deduplicated list in the same format.
+	"""
+	if not boxes:
+		return boxes
+
+	def _area(coords):
+		x1, y1, x2, y2 = coords
+		return max(0, x2 - x1) * max(0, y2 - y1)
+
+	# Sort by area descending; attach area to avoid recomputing in the loop
+	sorted_boxes = sorted(boxes, key=lambda b: _area(b[1]), reverse=True)
+
+	kept = []
+	for cls_id, (x1, y1, x2, y2) in sorted_boxes:
+		curr_area = _area((x1, y1, x2, y2))
+		redundant = False
+		for _, (kx1, ky1, kx2, ky2) in kept:
+			# near-duplicate: all coordinates within tolerance
+			if (abs(x1 - kx1) <= tolerance and abs(y1 - ky1) <= tolerance and
+					abs(x2 - kx2) <= tolerance and abs(y2 - ky2) <= tolerance):
+				redundant = True
+				break
+			# subsumption: current box is mostly inside the kept box
+			if curr_area > 0:
+				ix1, iy1 = max(x1, kx1), max(y1, ky1)
+				ix2, iy2 = min(x2, kx2), min(y2, ky2)
+				inter_area = max(0, ix2 - ix1) * max(0, iy2 - iy1)
+				if inter_area / curr_area >= subsumption_threshold:
+					redundant = True
+					break
+		if not redundant:
+			kept.append((cls_id, (x1, y1, x2, y2)))
+	return kept
+
+
 def run_yolo_multiscale(image, model_instance, max_tile_size=1280, min_scale_size=4096, overlap=0.2):
 	"""Run YOLO inference over a multi-scale pyramid with tiling.
 
@@ -95,7 +147,7 @@ def run_yolo_multiscale(image, model_instance, max_tile_size=1280, min_scale_siz
 
 		scale *= 0.5
 
-	return all_boxes
+	return deduplicate_boxes(all_boxes)
 
 
 def detect_targets(image, max_tile_size=1280, min_scale_size=4096, overlap=0.2):
