@@ -21,8 +21,8 @@
 - **Concurrent Refreshes**: Both get new token pairs - wasteful but works
 
 ### Service Worker
-- **serviceWorkerSecureUpload.ts**: Uses authStorage.getValidToken() directly
-- **serviceWorkerBundle.js**: Bundled TypeScript modules for service worker use
+- **serviceWorkerSecureUpload.ts**: Thin wrapper over shared `uploadProtocol.ts`, uses authStorage.getValidToken() directly
+- **uploadProtocol.ts**: Shared upload protocol (types, errors, hash, auth, signing, worker upload) used by both main thread and service worker
 - **Background Sync API**: Triggered when photos are saved for upload
 
 ## Potential Improvements
