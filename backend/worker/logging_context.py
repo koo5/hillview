@@ -10,7 +10,7 @@ from contextlib import contextmanager
 
 # Context variables for task tracking
 current_photo_id: ContextVar[str] = ContextVar('current_photo_id', default=None)
-current_task_id: ContextVar[int] = ContextVar('current_task_id', default=None)
+current_task_id: ContextVar[str] = ContextVar('current_task_id', default=None)
 
 
 class TaskContextFilter(logging.Filter):
@@ -40,7 +40,7 @@ class TaskContextFilter(logging.Filter):
 
 
 @contextmanager
-def task_context(photo_id: str = None, task_id: int = None):
+def task_context(photo_id: str = None, task_id: str = None):
     """
     Context manager to set the current photo/task ID for logging.
 
