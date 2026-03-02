@@ -2,6 +2,7 @@
 
 import os
 import logging
+import cv2
 import torch
 from ultralytics import YOLO
 from detections import TARGET_CLASSES
@@ -22,8 +23,83 @@ model_dir = "/app/worker/models"
 model_name = "yolov5s6u.pt"
 model_path = os.path.join(model_dir, model_name)
 
-def detect_targets(image):
-	"""Detect target objects in the image using YOLO."""
+def _tile_starts(length, tile_size, step):
+	"""Return tile start positions along one axis, always covering the full length."""
+	if length <= tile_size:
+		return [0]
+	starts = list(range(0, length - tile_size, step))
+	# ensure the trailing edge is always covered
+	if not starts or starts[-1] + tile_size < length:
+		starts.append(length - tile_size)
+	return starts
+
+
+def run_yolo_multiscale(image, model_instance, max_tile_size=1280, min_scale_size=4096, overlap=0.2):
+	"""Run YOLO inference over a multi-scale pyramid with tiling.
+
+	Starts at full resolution and halves the scale each iteration until the
+	image fits within a single tile (max_tile_size) or the scaled image's
+	smaller dimension drops to or below min_scale_size (coarsest useful scale).
+	At each scale the image is split into overlapping tiles of max_tile_size
+	and the model is run on each tile. Detections from all tiles at all scales
+	are collected and returned in original-image pixel coordinates.
+	No NMS is applied — all bounding boxes are returned so callers can simply
+	paint over every detected region.
+
+	Args:
+		image: BGR numpy array (original full-resolution image).
+		model_instance: loaded Ultralytics YOLO model.
+		max_tile_size: tile size in pixels (should match the model's native
+			input resolution, e.g. 1280 for yolov5s6u).
+		min_scale_size: stop halving once the shorter side of the scaled image
+			falls to or below this value (prevents runaway tiling on very wide
+			or very tall images where one dimension is already tiny).
+		overlap: fractional overlap between adjacent tiles (0.2 = 20%).
+
+	Returns:
+		List of (cls_id, (x1, y1, x2, y2)) in original image coordinates.
+	"""
+	h, w = image.shape[:2]
+	all_boxes = []
+	step = max(1, int(max_tile_size * (1.0 - overlap)))
+
+	scale = 1.0
+	while True:
+		sw = max(1, int(w * scale))
+		sh = max(1, int(h * scale))
+		inv_scale = 1.0 / scale
+
+		scaled = cv2.resize(image, (sw, sh), interpolation=cv2.INTER_AREA) if scale < 1.0 else image
+
+		for ty in _tile_starts(sh, max_tile_size, step):
+			for tx in _tile_starts(sw, max_tile_size, step):
+				tile = scaled[ty:min(ty + max_tile_size, sh), tx:min(tx + max_tile_size, sw)]
+				results = model_instance(tile)[0]
+				for box in results.boxes:
+					cls_id = int(box.cls)
+					if cls_id in TARGET_CLASSES:
+						tx1, ty1, tx2, ty2 = map(int, box.xyxy[0])
+						all_boxes.append((cls_id, (
+							int((tx + tx1) * inv_scale),
+							int((ty + ty1) * inv_scale),
+							int((tx + tx2) * inv_scale),
+							int((ty + ty2) * inv_scale),
+						)))
+
+		# stop once the whole image fits in a single tile (we've done a full pass)
+		if sw <= max_tile_size and sh <= max_tile_size:
+			break
+		# stop once the shorter side reaches the coarsest useful scale
+		if sw <= min_scale_size or sh <= min_scale_size:
+			break
+
+		scale *= 0.5
+
+	return all_boxes
+
+
+def detect_targets(image, max_tile_size=1280, min_scale_size=4096, overlap=0.2):
+	"""Detect target objects in the image using YOLO with multi-scale tiling."""
 	global model
 
 	if model is None:
@@ -45,14 +121,7 @@ def detect_targets(image):
 			# Restore original torch.load
 			torch.load = original_load
 
-	results = model(image)[0]
-	boxes = []
-	for box in results.boxes:
-		cls_id = int(box.cls)
-		if cls_id in TARGET_CLASSES:
-			x1, y1, x2, y2 = map(int, box.xyxy[0])
-			boxes.append((cls_id, (x1, y1, x2, y2)))
-	return boxes
+	return run_yolo_multiscale(image, model, max_tile_size=max_tile_size, min_scale_size=min_scale_size, overlap=overlap)
 
 
 
