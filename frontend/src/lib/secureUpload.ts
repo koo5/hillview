@@ -163,7 +163,13 @@ export async function secureUploadFile(
 		);
 
 		console.log(`🢄🔐 Secure upload completed: ${file.name}`);
-		return uploadResult;
+
+		// /upload_async returns {success: true} without photo_id —
+		// photo_id comes from the authorization step.
+		return {
+			...uploadResult,
+			photo_id: authResponse.photo_id
+		};
 
 	} catch (error) {
 		console.error(`🢄🔐 Secure upload failed for ${file.name}:`, error);

@@ -380,7 +380,7 @@ def validate_upload_parameters(upload_auth: dict, file) -> (str, str):
 			detail=f"Invalid upload parameters: {str(e)}"
 		)
 
-	logger.info(f"/upload photo {photo_id}, user {user_id}, key {client_key_id}: {file.filename}")
+	logger.info(f"receive photo {photo_id}, user {user_id}, key {client_key_id}: {file.filename} ...")
 	return photo_id, user_id
 
 

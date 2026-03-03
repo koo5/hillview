@@ -108,37 +108,57 @@ export async function getLatestPhoto(page: Page): Promise<PhotoInfo | null> {
 	});
 }
 
-/** Wait for N photos to reach 'uploaded' status in IndexedDB */
+/** Wait for N photos to reach 'uploaded' status in IndexedDB.
+ *  Polls from Node.js side so we can log intermediate states. */
 export async function waitForUploadedCount(page: Page, target: number, timeoutMs = 30000): Promise<void> {
-	await page.evaluate(async ({ target, timeoutMs }: { target: number; timeoutMs: number }) => {
-		const interval = 500;
-		let elapsed = 0;
-		while (elapsed < timeoutMs) {
-			const uploadedCount = await new Promise<number>((resolve) => {
+	const interval = 500;
+	let elapsed = 0;
+	let lastLog = '';
+
+	while (elapsed < timeoutMs) {
+		const statuses = await page.evaluate(() => {
+			return new Promise<Array<{ id: string; status: string; server_photo_id: string | null; retry_count?: number; error?: string }>>((resolve) => {
 				const request = indexedDB.open('HillviewPhotoDB');
-				request.onerror = () => resolve(0);
+				request.onerror = () => resolve([]);
 				request.onsuccess = () => {
 					const db = request.result;
-					if (!db.objectStoreNames.contains('photos')) { db.close(); resolve(0); return; }
+					if (!db.objectStoreNames.contains('photos')) { db.close(); resolve([]); return; }
 					const tx = db.transaction('photos', 'readonly');
 					const store = tx.objectStore('photos');
 					const allReq = store.getAll();
 					allReq.onsuccess = () => {
 						db.close();
-						const photos = allReq.result;
-						const count = photos.filter((p: any) => p.status === 'uploaded').length;
-						resolve(count);
+						resolve(allReq.result.map((p: any) => ({
+							id: p.id,
+							status: p.status,
+							server_photo_id: p.server_photo_id || null,
+							retry_count: p.retry_count,
+							error: p.last_error
+						})));
 					};
-					allReq.onerror = () => { db.close(); resolve(0); };
+					allReq.onerror = () => { db.close(); resolve([]); };
 				};
-				request.onupgradeneeded = () => { (request as IDBOpenDBRequest).result.close(); resolve(0); };
+				request.onupgradeneeded = () => { (request as IDBOpenDBRequest).result.close(); resolve([]); };
 			});
-			if (uploadedCount >= target) return;
-			await new Promise(r => setTimeout(r, interval));
-			elapsed += interval;
+		});
+
+		const uploadedCount = statuses.filter(p => p.status === 'uploaded').length;
+		if (uploadedCount >= target) return;
+
+		// Log status changes (not every poll)
+		const statusSummary = statuses.map(p => `${p.id.slice(-8)}:${p.status}${p.error ? '(' + p.error.slice(0, 40) + ')' : ''}`).join(', ');
+		if (statusSummary !== lastLog) {
+			console.log(`[waitForUploadedCount] ${elapsed}ms: ${statusSummary || '(no photos)'}`);
+			lastLog = statusSummary;
 		}
-		throw new Error(`Timed out waiting for ${target} uploaded photos (waited ${timeoutMs}ms)`);
-	}, { target, timeoutMs });
+
+		await new Promise(r => setTimeout(r, interval));
+		elapsed += interval;
+	}
+
+	// Final state dump on timeout
+	const finalStatuses = await getAllPhotosDetailed(page);
+	throw new Error(`Timed out waiting for ${target} uploaded photos (waited ${timeoutMs}ms). Final: ${JSON.stringify(finalStatuses)}`);
 }
 
 /** Get all photos with their status and server_photo_id */
