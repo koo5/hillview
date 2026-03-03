@@ -4,12 +4,7 @@ import { defineConfig } from 'vite';
 import { sharedDefines } from './config/shared';
 
 export default defineConfig({
-	plugins: [sentrySvelteKit({
-        sourceMapsUploadOptions: {
-            org: "sfi-n0",
-            project: "hillview-prod"
-        }
-    }), sveltekit()],
+	plugins: [sentrySvelteKit(), sveltekit()],
 	server: {
 		allowedHosts: ["dev.hillview.cz"],
 		host: true,

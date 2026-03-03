@@ -1,90 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { createTestUsers, loginAsTestUser } from './helpers/testUsers';
 import { setupConsoleLogging } from './helpers/consoleLogging';
-
-/** Helper: get photo count from IndexedDB */
-async function getPhotoCount(page: any): Promise<number> {
-	return page.evaluate(() => {
-		return new Promise<number>((resolve) => {
-			const request = indexedDB.open('HillviewPhotoDB', 1);
-			request.onerror = () => resolve(0);
-			request.onsuccess = () => {
-				const db = request.result;
-				if (!db.objectStoreNames.contains('photos')) {
-					db.close();
-					resolve(0);
-					return;
-				}
-				const tx = db.transaction('photos', 'readonly');
-				const store = tx.objectStore('photos');
-				const countReq = store.count();
-				countReq.onsuccess = () => { db.close(); resolve(countReq.result); };
-				countReq.onerror = () => { db.close(); resolve(0); };
-			};
-			request.onupgradeneeded = () => { request.result.close(); resolve(0); };
-		});
-	});
-}
-
-/** Helper: wait for IndexedDB photo count to reach target */
-async function waitForPhotoCount(page: any, target: number, timeoutMs = 10000): Promise<void> {
-	await page.evaluate(async ({ target, timeoutMs }: { target: number; timeoutMs: number }) => {
-		const interval = 200;
-		let elapsed = 0;
-		while (elapsed < timeoutMs) {
-			const count = await new Promise<number>((resolve) => {
-				const request = indexedDB.open('HillviewPhotoDB', 1);
-				request.onerror = () => resolve(0);
-				request.onsuccess = () => {
-					const db = request.result;
-					if (!db.objectStoreNames.contains('photos')) { db.close(); resolve(0); return; }
-					const tx = db.transaction('photos', 'readonly');
-					const store = tx.objectStore('photos');
-					const c = store.count();
-					c.onsuccess = () => { db.close(); resolve(c.result); };
-					c.onerror = () => { db.close(); resolve(0); };
-				};
-			});
-			if (count >= target) return;
-			await new Promise(r => setTimeout(r, interval));
-			elapsed += interval;
-		}
-		throw new Error(`Timed out waiting for ${target} photos (waited ${timeoutMs}ms)`);
-	}, { target, timeoutMs });
-}
-
-/** Helper: get the latest photo from IndexedDB */
-async function getLatestPhoto(page: any): Promise<any> {
-	return page.evaluate(() => {
-		return new Promise<any>((resolve) => {
-			const request = indexedDB.open('HillviewPhotoDB', 1);
-			request.onerror = () => resolve(null);
-			request.onsuccess = () => {
-				const db = request.result;
-				if (!db.objectStoreNames.contains('photos')) { db.close(); resolve(null); return; }
-				const tx = db.transaction('photos', 'readonly');
-				const store = tx.objectStore('photos');
-				const allReq = store.getAll();
-				allReq.onsuccess = () => {
-					db.close();
-					const photos = allReq.result;
-					if (photos.length === 0) { resolve(null); return; }
-					const newest = photos[photos.length - 1];
-					resolve({
-						id: newest.id,
-						blobSize: newest.blob?.size ?? 0,
-						latitude: newest.location?.latitude,
-						longitude: newest.location?.longitude,
-						uploaded: newest.uploaded,
-						mode: newest.mode,
-						captured_at: newest.captured_at
-					});
-				};
-				allReq.onerror = () => { db.close(); resolve(null); };
-			};
-		});
-	});
-}
+import { getPhotoCount, waitForPhotoCount, getLatestPhoto } from './helpers/indexedDbPhotos';
 
 // Camera capture only works with Chromium's fake device support
 test.describe('Camera Capture', () => {
@@ -154,10 +71,11 @@ test.describe('Camera Capture', () => {
 
 		const photo1 = await getLatestPhoto(page);
 		expect(photo1).not.toBeNull();
-		expect(photo1.blobSize).toBeGreaterThan(0);
-		expect(photo1.latitude).toBeCloseTo(50.11692, 3);
-		expect(photo1.longitude).toBeCloseTo(14.48837, 3);
-		expect(photo1.uploaded).toBe(false);
+		expect(photo1!.blobSize).toBeGreaterThan(0);
+		expect(photo1!.latitude).toBeCloseTo(50.11692, 3);
+		expect(photo1!.longitude).toBeCloseTo(14.48837, 3);
+		// Photo should be pending (or uploading/uploaded if auto-upload is fast)
+		expect(['pending', 'uploading', 'uploaded']).toContain(photo1!.status);
 
 		// --- Capture photo 2 ---
 		await captureButton.click();
@@ -165,8 +83,8 @@ test.describe('Camera Capture', () => {
 
 		const photo2 = await getLatestPhoto(page);
 		expect(photo2).not.toBeNull();
-		expect(photo2.blobSize).toBeGreaterThan(0);
-		expect(photo2.id).not.toBe(photo1.id);
+		expect(photo2!.blobSize).toBeGreaterThan(0);
+		expect(photo2!.id).not.toBe(photo1!.id);
 
 		// --- Auto-upload prompt should appear (user not configured auto-upload) ---
 		const autoUploadPrompt = page.locator('[data-testid="auto-upload-prompt"]');

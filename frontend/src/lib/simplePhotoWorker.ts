@@ -13,6 +13,7 @@ import type {WorkerToastMessage} from './workerToast';
 import {removePlaceholder, placeholderPhotos, embedPlaceholders} from './placeholderInjector';
 import {TAURI} from './tauri';
 import {KotlinPhotoWorker} from './KotlinPhotoWorker';
+import type {WorkerConfigData} from './photoWorkerTypes';
 
 class SimplePhotoWorker {
     private worker: Worker | null = null;
@@ -42,13 +43,12 @@ class SimplePhotoWorker {
             }
 
             // Initialize worker with config update including version check
-            this.sendMessage('configUpdated', {
-                config: {
-					sources: get(sources),
-					queryOptionsJson: buildFiltersQueryParam(),  // Pre-serialized, null if no active filters
-					maxPhotosInArea: get(maxPhotosInArea)
-                }
-            });
+            const initConfig: WorkerConfigData = {
+                sources: get(sources),
+                queryOptionsJson: buildFiltersQueryParam(),
+                maxPhotosInArea: get(maxPhotosInArea)
+            };
+            this.sendMessage('configUpdated', { config: initConfig });
             this.isInitialized = true;
 
             // Set up reactive subscriptions
@@ -321,13 +321,12 @@ class SimplePhotoWorker {
             lastConfigHash = configHash;
             //console.log('🢄SimplePhotoWorker: Sending config update with sources and queryOptions...');
 
-            this.sendMessage('configUpdated', {
-                config: {
-                    sources: sourceList,
-                    queryOptionsJson: buildFiltersQueryParam(),  // Pre-serialized, null if no active filters
-                    maxPhotosInArea: currentMaxPhotos
-                }
-            });
+            const config: WorkerConfigData = {
+                sources: sourceList,
+                queryOptionsJson: buildFiltersQueryParam(),
+                maxPhotosInArea: currentMaxPhotos
+            };
+            this.sendMessage('configUpdated', { config });
         };
 
         sources.subscribe(() => sendConfigUpdate());

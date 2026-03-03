@@ -40,6 +40,14 @@ export interface SourceConfig {
     client_id?: string;    // For Mapillary API
 }
 
+// Config payload sent from simplePhotoWorker to web/kotlin workers
+export interface WorkerConfigData {
+    sources: SourceConfig[];
+    queryOptionsJson: string | null;
+    maxPhotosInArea: number;
+    expectedWorkerVersion?: string;
+}
+
 // Worker message types
 export type WorkerMessageType =
     | 'init'

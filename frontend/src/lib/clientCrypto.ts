@@ -51,10 +51,14 @@
  * USAGE PATTERN:
  * ==============
  *
- * 1. On app startup: getOrCreateKeyPair() - ensures keys exist
- * 2. On login: getPublicKeyInfo() → register with server
+ * 1. On app startup: getOrCreateKeyPair() - ensures keys exist (main thread only)
+ * 2. On login: getPublicKeyInfo() → register with server (blocks login)
  * 3. On upload: signUploadData() → create proof of authorization
  * 4. On logout: clearStoredKeys() → cleanup (optional)
+ *
+ * SERVICE WORKER: Keys are mirrored to IndexedDB by the main thread.
+ * The SW only reads keys, never generates — unregistered keys would
+ * cause all uploads to fail with "Client public key not found".
  */
 
 export interface ClientKeyPair {
@@ -109,7 +113,6 @@ export class ClientCryptoManager {
      */
     async getOrCreateKeyPair(): Promise<ClientKeyPair> {
         try {
-            // Sync from localStorage to IndexedDB if needed (one-time migration)
             if (this.useIndexedDB) {
                 await this.initIndexedDB();
             }
@@ -121,11 +124,17 @@ export class ClientCryptoManager {
                 return existingKeys;
             }
 
-            // Generate new key pair
+            // In service worker context, keys must be mirrored from main thread.
+            // Never generate new keys here — they'd be unregistered with the server.
+            if (this.useIndexedDB) {
+                throw new Error('Client keys not found in IndexedDB. Main thread must generate and mirror keys first.');
+            }
+
+            // Main thread: generate new key pair
             console.log(`${this.LOG_PREFIX} Generating new client ECDSA key pair`);
             const keyPair = await this.generateKeyPair();
 
-            // Store keys
+            // Store keys (localStorage + mirror to IndexedDB for SW)
             await this.storeKeys(keyPair);
 
             console.log(`${this.LOG_PREFIX} New client key pair generated and stored`);

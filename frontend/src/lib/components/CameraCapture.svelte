@@ -598,9 +598,9 @@
 			// Apply focus at the tapped point
 			await videoTrack.applyConstraints({
 				advanced: [{
-					focusMode: 'single-shot' as any,
-					pointsOfInterest: [{ x, y }] as any
-				}]
+					focusMode: 'single-shot',
+					pointsOfInterest: [{ x, y }]
+				} as any]
 			});
 			console.log('🢄[CAMERA] Focus applied at:', JSON.stringify(
 				{ x: x.toFixed(2), y: y.toFixed(2) }));

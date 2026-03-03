@@ -158,7 +158,7 @@ export async function secureUploadFile(
 			file,
 			authResponse.upload_jwt,
 			signatureData.signature,
-			authResponse.worker_url + '/upload',
+			authResponse.worker_url,
 			browserMetadata  // Pass metadata for form parameters
 		);
 

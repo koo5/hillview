@@ -13,6 +13,7 @@ import { sources, sourceLoadingStatus, maxPhotosInArea } from './data.svelte';
 import { buildFiltersQueryParam } from './components/filters-modal/filtersStore';
 import { kotlinMessageQueue, type QueuedMessage } from './KotlinMessageQueue';
 import { MAX_PHOTOS_IN_AREA, MAX_PHOTOS_IN_RANGE, DEFAULT_RANGE_METERS } from './photoWorkerConstants';
+import type { WorkerConfigData } from './photoWorkerTypes';
 
 // Kotlin Photo Worker message types
 type MessageType = 'PROCESS_CONFIG' | 'PROCESS_AREA' | 'PICKS_UPDATED' | 'ABORT_PROCESS' | 'CLEANUP';
@@ -92,15 +93,16 @@ export class KotlinPhotoWorker {
         switch (message.type) {
             case 'configUpdated':
                 messageType = 'PROCESS_CONFIG';
+                const configData: WorkerConfigData = message.data?.config;
                 workerMessage = {
                     type: messageType,
                     messageId,
                     processId,
                     priority: 1, // High priority for config changes
                     data: JSON.stringify({
-                        sources: message.data?.config?.sources || [],
-                        queryOptionsJson: message.data?.config?.queryOptionsJson || null,  // Pre-serialized
-                        maxPhotosInArea: message.data?.config?.maxPhotosInArea
+                        sources: configData?.sources || [],
+                        queryOptionsJson: configData?.queryOptionsJson || null,
+                        maxPhotosInArea: configData?.maxPhotosInArea
                     })
                 };
                 break;

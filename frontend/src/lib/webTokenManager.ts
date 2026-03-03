@@ -230,6 +230,7 @@ export class WebTokenManager implements TokenManager {
 
             auth.update(state => ({
                 ...state,
+                is_authenticated: true,
                 refresh_status: 'idle',
                 refresh_attempt: undefined
             }));
@@ -292,7 +293,9 @@ export class WebTokenManager implements TokenManager {
 
         console.log(`${this.LOG_PREFIX} Tokens stored in IndexedDB`);
 
-        auth.update(state => ({ ...state, is_authenticated: true }));
+        // NOTE: We intentionally do NOT set is_authenticated here.
+        // Auth state is managed by callers (completeAuthentication, performRefresh)
+        // so that key registration can complete before triggering photo sync.
     }
 
     async registerClientPublicKey(): Promise<void> {
@@ -306,12 +309,14 @@ export class WebTokenManager implements TokenManager {
             created_at: keyInfo.created_at
         });
 
-        if (!response.ok) {
-            const error = await response.json();
-            throw new Error(`Registration failed: ${error.detail || response.statusText}`);
+        // 409 = key already registered — treat as success (like Kotlin)
+        if (response.ok || response.status === 409) {
+            console.log(`${this.LOG_PREFIX} Client public key registered (status: ${response.status})`);
+            return;
         }
 
-        console.log(`${this.LOG_PREFIX} Client public key registered`);
+        const error = await response.json().catch(() => ({ detail: response.statusText }));
+        throw new Error(`Key registration failed: ${error.detail || response.statusText}`);
     }
 
     async clearTokens(): Promise<void> {

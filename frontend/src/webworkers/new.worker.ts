@@ -44,7 +44,7 @@
 
 /// <reference lib="webworker" />
 
-import type {PhotoData, SourceConfig, Bounds, PhotoId} from '../lib/photoWorkerTypes';
+import type {PhotoData, SourceConfig, Bounds, PhotoId, WorkerConfigData} from '../lib/photoWorkerTypes';
 import { MessageQueue } from '../lib/MessageQueue';
 import { PhotoOperations } from '../lib/photoOperations';
 import { CullingGrid, type SourceId } from '../lib/CullingGrid';
@@ -71,7 +71,7 @@ let messageIdCounter = 0;
 
 // Current state - only the latest data matters
 const currentState = {
-    config: { data: null as { sources: SourceConfig[]; [key: string]: any } | null, lastUpdateId: -1, lastProcessedId: -1 },
+    config: { data: null as WorkerConfigData | null, lastUpdateId: -1, lastProcessedId: -1 },
     area: { data: null as Bounds | null, lastUpdateId: -1, lastProcessedId: -1 },
     sourcesPhotosInArea: { data: new Map<SourceId, PhotoData[]>(), lastUpdateId: -1, lastProcessedId: -1 }
 };

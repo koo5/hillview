@@ -91,7 +91,7 @@ export class ServiceWorkerSecureUploader {
 				file,
 				authResponse.upload_jwt,
 				signatureData.signature,
-				authResponse.worker_url + '/upload',
+				authResponse.worker_url,
 				metadata
 			);
 

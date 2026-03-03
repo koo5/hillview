@@ -44,7 +44,7 @@ export interface UploadAuthorizationResponse {
 
 export interface SecureUploadResult {
 	success: boolean;
-	message: string;
+	message?: string;
 	photo_id?: string;
 	error?: string;
 }
@@ -208,15 +208,15 @@ export async function uploadToWorker(
 	file: File,
 	uploadJwt: string,
 	signature: string,
-	workerUrl?: string,
+	workerUrl: string,
 	browserMetadata?: any // Additional metadata that can't be in EXIF
 ): Promise<SecureUploadResult> {
 	const maxRetries = 3;
 	const baseDelay = 2000; // Longer delay for file uploads
 
 	// Use configured worker URL or default to backend URL with worker port
-	const workerEndpoint = workerUrl || `${backendUrl.replace(':8055', ':8056')}/upload`;
-	const workerBase = workerEndpoint.replace(/\/upload$/, '');
+	const workerBase = workerUrl;
+	const workerEndpoint = `${workerBase}/upload_async`;
 
 	for (let attempt = 0; attempt <= maxRetries; attempt++) {
 		try {

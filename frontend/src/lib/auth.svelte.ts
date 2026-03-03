@@ -54,18 +54,26 @@ export async function completeAuthentication(tokenData: {
         // Clear accumulated alerts on successful login
         clearAlerts();
 
-        // Update auth store - tokens stored means authenticated
+        // Register client public key BEFORE setting is_authenticated.
+        // Like Kotlin: registration must succeed for login to succeed.
+        // This prevents the race where triggerPhotoSync fires (via auth
+        // subscription) before the key is registered on the server.
+        if ('registerClientPublicKey' in tokenManager) {
+            try {
+                await (tokenManager as any).registerClientPublicKey();
+                console.log('🢄[AUTH] Client public key registered');
+            } catch (error: any) {
+                console.error('🢄[AUTH] Key registration failed, aborting login:', error);
+                await tokenManager.clearTokens();
+                return false;
+            }
+        }
+
+        // NOW set authenticated — key is registered, safe to trigger photo sync
         auth.update(a => ({
             ...a,
             is_authenticated: true
         }));
-
-        // Register client public key for web (async, don't block authentication)
-        if ('registerClientPublicKey' in tokenManager) {
-            (tokenManager as any).registerClientPublicKey().catch((error: any) => {
-                console.debug('🢄[AUTH] Failed to register client public key:', error);
-            });
-        }
 
         // Fetch user data
         const userData = await fetchUserData();
@@ -75,18 +83,6 @@ export async function completeAuthentication(tokenData: {
             console.error('🢄[AUTH] Failed to fetch user data after authentication');
             return false;
         }
-
-        // Ensure is_authenticated is still true after fetching user data
-        auth.update(a => {
-            if (!a.is_authenticated && a.user) {
-                console.log('🢄[AUTH] Fixing inconsistent state: user exists but not authenticated');
-                return {
-                    ...a,
-                    is_authenticated: true
-                };
-            }
-            return a;
-        });
 
         // Double-check auth state
         console.log('🢄[AUTH] Auth state after authentication:', debugAuth());

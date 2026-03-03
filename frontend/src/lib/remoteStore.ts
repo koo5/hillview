@@ -23,6 +23,7 @@ export function createRemoteStore<T>(opts: {
 	load: () => Promise<T>;          // load from backend
 	save: (value: T) => Promise<void>; // save to backend
 	autoLoadOnSubscribe?: boolean;   // default true
+	cancelOnUnsubscribe?: boolean;   // default false — cancel pending load when last subscriber leaves
 }): RemoteStore<T> {
 	const {
 		initial = undefined,
