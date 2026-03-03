@@ -25,20 +25,22 @@ let lastGpsHeading: number | null = null;
 // Flag to prevent recursion when reverting user preference
 let revertingUserPreference = false;
 
+const doLog = false;
+
 // Simple user-level API functions
 export function enableGpsOrientation() {
-	console.log('🚗 User enabled GPS orientation tracking');
+	if (doLog) console.log('🚗 User enabled GPS orientation tracking');
 	gpsOrientationEnabled.set(true);
 }
 
 export function disableGpsOrientation() {
-	console.log('🚗 User disabled GPS orientation tracking');
+	if (doLog) console.log('🚗 User disabled GPS orientation tracking');
 	gpsOrientationEnabled.set(false);
 }
 
 // Stop GPS orientation tracking internally
 async function stopGpsOrientationInternal() {
-	console.log('🚗 Stopping GPS orientation tracking internal state');
+	if (doLog) console.log('🚗 Stopping GPS orientation tracking internal state');
 	gpsOrientationInternalState.set('inactive');
 	lastGpsHeading = null;
 	gpsOrientationError.set(null);
@@ -56,7 +58,7 @@ async function updateGpsOrientationState() {
 	const onMapRoute = get(isOnMapRoute);
 	const currentInternalState = get(gpsOrientationInternalState);
 
-	console.log('🚗🎛️ GPS orientation state update:', JSON.stringify(
+	if (doLog) console.log('🚗🎛️ GPS orientation state update:', JSON.stringify(
 		{userEnabled, onMapRoute, currentInternalState}));
 
 	if (!userEnabled || !onMapRoute) {
@@ -70,12 +72,12 @@ async function updateGpsOrientationState() {
 			gpsOrientationInternalState.set('starting');
 			gpsOrientationError.set(null);
 			lastGpsHeading = null;
-			console.log('🚗 GPS orientation tracking starting, waiting for GPS data');
+			if (doLog) console.log('🚗 GPS orientation tracking starting, waiting for GPS data');
 
 			// Request location service
 			try {
 				await locationManager.requestLocation('gps-orientation');
-				console.log('🚗 GPS orientation requested location service successfully');
+				if (doLog) console.log('🚗 GPS orientation requested location service successfully');
 			} catch (error) {
 				console.error('🚗 GPS orientation failed to request location service:', error);
 				gpsOrientationInternalState.set('error');
@@ -95,7 +97,7 @@ if (browser) {
 	gpsLocation.subscribe((position) => {
 		const internalState = get(gpsOrientationInternalState);
 
-		console.log('🚗 GPS orientation received location update:', JSON.stringify(position));
+		if (doLog) console.log('🚗 GPS orientation received location update:', JSON.stringify(position));
 
 		// Only process GPS heading if internal tracking is active or starting
 		if (internalState !== 'active' && internalState !== 'starting') {
@@ -106,7 +108,7 @@ if (browser) {
 			|| position.coords.speed === null || position.coords.speed === undefined || isNaN(position.coords.speed) || position.coords.speed < 2) {
 			// No valid GPS heading available
 			if (internalState === 'starting' || internalState === 'active') {
-				console.log('🚗 No GPS heading available in this sample');
+				if (doLog) console.log('🚗 No GPS heading available in this sample');
 				/*gpsOrientationInternalState.set('error');
 				gpsOrientationError.set('GPS heading not available');
 				lastGpsHeading = null;*/
@@ -121,7 +123,7 @@ if (browser) {
 			gpsOrientationInternalState.set('active');
 			gpsOrientationError.set(null);
 			lastGpsHeading = currentGpsHeading;
-			console.log('🚗 GPS orientation: first heading locked at', currentGpsHeading.toFixed(1), '°');
+			if (doLog) console.log('🚗 GPS orientation: first heading locked at', currentGpsHeading.toFixed(1), '°');
 			return;
 		}
 
@@ -133,7 +135,7 @@ if (browser) {
 			// Apply the difference to the current map bearing
 			if (Math.abs(headingDiff) > 1) { // Ignore tiny changes to reduce noise
 				updateBearingByDiff(headingDiff);
-				console.log(`🚗 GPS orientation: heading changed by ${headingDiff.toFixed(1)}°, applied to map bearing`);
+				if (doLog) console.log(`🚗 GPS orientation: heading changed by ${headingDiff.toFixed(1)}°, applied to map bearing`);
 			}
 
 			lastGpsHeading = currentGpsHeading;

@@ -233,11 +233,11 @@ export function resizableSplit(node: HTMLElement, options: SplitOptions = {}) {
 
 	// Initialize
 	const init = () => {
-		console.log('🔄SPLIT: resizableSplit.init called', JSON.stringify({
+		/*console.log('🔄SPLIT: resizableSplit.init called', JSON.stringify({
 			direction,
 			defaultSplit,
 			currentSplit
-		}));
+		}));*/
 		updateContainerStyles();
 		node.appendChild(divider);
 		updatePanelSizes();
@@ -264,10 +264,10 @@ export function resizableSplit(node: HTMLElement, options: SplitOptions = {}) {
 
 		// Update direction if it changed
 		if (newOptions.direction && newOptions.direction !== oldDirection) {
-			console.log('🔄SPLIT: Direction changed, updating divider and panels', JSON.stringify({
+			/*console.log('🔄SPLIT: Direction changed, updating divider and panels', JSON.stringify({
 				from: oldDirection,
 				to: newOptions.direction
-			}));
+			}));*/
 
 			// Update divider styles for new direction
 			const halfSize = Math.floor(options.dividerSize || 12) / 2;

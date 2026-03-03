@@ -9,6 +9,9 @@ import { verbalizeEventSourceReadyState } from './eventSourceUtils';
 import { postToast } from '../workerToast';
 import type { PhotoSourceOptions } from './PhotoSourceFactory';
 
+const LOG_PREFIX = '🢄🔍StreamSourceLoader';
+const doLog = false;
+
 export class StreamSourceLoader extends BasePhotoSourceLoader {
     private eventSource?: EventSource;
     private streamPhotos: PhotoData[] = [];
@@ -50,10 +53,10 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
 
         // Show toast based on pre-completion state
         if (shouldShowToast) {
-            console.log(`🔍 StreamSourceLoader: Showing Connection lost toast for ${this.source.id} (connection lost during streaming)`);
+            console.log(`${LOG_PREFIX}: Showing Connection lost toast for ${this.source.id} (connection lost during streaming)`);
             postToast('error', 'Connection lost', this.source.name || this.source.id, 0);
         } else {
-            console.log(`🔍 StreamSourceLoader: NOT showing Connection lost toast for ${this.source.id}`, {
+            console.log(`${LOG_PREFIX}: NOT showing Connection lost toast for ${this.source.id}`, {
                 reason: !this.wasConnected ? 'never connected' : 'stream already completed'
             });
         }
@@ -96,7 +99,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
             throw new Error('Stream source missing URL');
         }
 
-        console.log(`StreamSourceLoader: Starting stream from ${this.source.url} (attempt ${this.retryCount + 1}/${this.maxRetries + 1})`);
+        if (doLog) console.log(`StreamSourceLoader: Starting stream from ${this.source.url} (attempt ${this.retryCount + 1}/${this.maxRetries + 1})`);
 
         // Create abort controller for this request
         this.abortController = new AbortController();
@@ -155,12 +158,12 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
         // Let OS handle connection lifecycle - no artificial timeout
 
         this.eventSource = new EventSource(url.toString());
-        console.log(`StreamSourceLoader: Created EventSource for ${this.source.id} with URL:`, url.toString());
-        console.log(`StreamSourceLoader: Initial EventSource readyState: ${verbalizeEventSourceReadyState(this.eventSource.readyState)}`);
+        if (doLog) console.log(`StreamSourceLoader: Created EventSource for ${this.source.id} with URL:`, url.toString());
+        if (doLog) console.log(`StreamSourceLoader: Initial EventSource readyState: ${verbalizeEventSourceReadyState(this.eventSource.readyState)}`);
 
         // Connect abort signal to EventSource
         this.abortController.signal.addEventListener('abort', () => {
-            console.log(`StreamSourceLoader: Abort signal received, closing EventSource for ${this.source.id}`);
+            if (doLog) console.log(`StreamSourceLoader: Abort signal received, closing EventSource for ${this.source.id}`);
             if (this.eventSource) {
                 this.eventSource.close();
                 this.eventSource = undefined; // Clear reference to allow garbage collection
@@ -173,7 +176,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
                 const data = JSON.parse(event.data);
                 this.handleStreamMessage(data);
             } catch (error) {
-                console.error('🢄StreamSourceLoader: Error parsing stream message:', error);
+                console.error('🢄🔍StreamSourceLoader: Error parsing stream message:', error);
                 this.callbacks.onError?.(new Error('Error parsing stream data'));
                 // Close EventSource on parsing error to prevent further errors
                 if (this.eventSource) {
@@ -186,7 +189,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
         };
 
         this.eventSource.onerror = (error) => {
-            console.log(`🔍 StreamSourceLoader: onerror triggered for ${this.source.id}`, {
+            console.log(`${LOG_PREFIX}: onerror triggered for ${this.source.id}`, {
                 isComplete: this.isComplete,
                 wasConnected: this.wasConnected,
                 wasErrored: this.wasErrored,
@@ -197,16 +200,16 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
 
             // Check if stream is already complete - if so, this is normal connection closure
             if (this.isComplete) {
-                console.log(`StreamSourceLoader: EventSource connection closed normally after stream completion for ${this.source.id}`);
+                if (doLog) console.log(`StreamSourceLoader: EventSource connection closed normally after stream completion for ${this.source.id}`);
                 // Don't show "Connection lost" toast for normal stream completion
                 this.wasConnected = false;
-                console.log(`🔍 StreamSourceLoader: Set wasConnected=false for completed stream ${this.source.id}`);
+                if (doLog) console.log(`${LOG_PREFIX}: Set wasConnected=false for completed stream ${this.source.id}`);
                 return;
             }
 
             // Check if we've been cancelled/aborted
             if (this.abortController?.signal.aborted) {
-                console.log(`StreamSourceLoader: EventSource error after abort for ${this.source.id} - ignoring`);
+                if (doLog) console.log(`StreamSourceLoader: EventSource error after abort for ${this.source.id} - ignoring`);
                 return;
             }
 
@@ -236,7 +239,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
 
             // Check if we should show toast BEFORE marking as complete
             const shouldShowToast = this.wasConnected && !this.isComplete;
-            console.log(`🔍 StreamSourceLoader: Checking toast conditions for ${this.source.id}`, {
+            if (doLog) console.log(`${LOG_PREFIX}: Checking toast conditions for ${this.source.id}`, {
                 wasConnected: this.wasConnected,
                 isComplete: this.isComplete,
                 willShowToast: shouldShowToast
@@ -283,7 +286,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
 
         this.eventSource.onopen = () => {
             const timeFromStart = Date.now() - this.startTime;
-            console.log(`🔍 StreamSourceLoader: Stream opened for ${this.source.id}`, {
+            if (doLog) console.log(`${LOG_PREFIX}: Stream opened for ${this.source.id}`, {
                 readyState: this.eventSource ? verbalizeEventSourceReadyState(this.eventSource.readyState) : 'undefined',
                 timeFromStart,
                 wasErrored: this.wasErrored
@@ -296,14 +299,14 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
             }
 			this.wasErrored= false;
             this.wasConnected = true;
-            console.log(`🔍 StreamSourceLoader: Set wasConnected=true for ${this.source.id} after ${timeFromStart}ms`);
+            if (doLog) console.log(`${LOG_PREFIX}: Set wasConnected=true for ${this.source.id} after ${timeFromStart}ms`);
         };
 
         // Monitor readyState changes
         let lastReadyState = this.eventSource.readyState;
         this.readyStateMonitorId = setInterval(() => {
             if (this.eventSource && this.eventSource.readyState !== lastReadyState) {
-                console.log(`StreamSourceLoader: ReadyState changed from ${verbalizeEventSourceReadyState(lastReadyState)} to ${verbalizeEventSourceReadyState(this.eventSource.readyState)} for ${this.source.id}`);
+                if (doLog) console.log(`StreamSourceLoader: ReadyState changed from ${verbalizeEventSourceReadyState(lastReadyState)} to ${verbalizeEventSourceReadyState(this.eventSource.readyState)} for ${this.source.id}`);
                 lastReadyState = this.eventSource.readyState;
                 if (this.eventSource.readyState === EventSource.CLOSED) {
                     if (this.readyStateMonitorId) {
@@ -339,7 +342,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
         }
         // Ensure EventSource is cleaned up
         if (this.eventSource) {
-            console.log(`StreamSourceLoader: Cleaning up EventSource in resolveCompletion for ${this.source.id}`);
+            if (doLog) console.log(`StreamSourceLoader: Cleaning up EventSource in resolveCompletion for ${this.source.id}`);
             this.eventSource.close();
             this.eventSource = undefined;
         }
@@ -349,7 +352,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
         switch (data.type) {
             case 'photos':
                 if (data.photos && Array.isArray(data.photos)) {
-                    console.log(`StreamSourceLoader: Received ${data.photos.length} photos`);
+                    if (doLog) console.log(`StreamSourceLoader: Received ${data.photos.length} photos`);
 
                     const convertedPhotos: PhotoData[] = data.photos.map((photo: any) => {
 
@@ -416,7 +419,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
                 break;
 
             case 'stream_complete':
-                console.log(`🔍 StreamSourceLoader: Stream complete for ${this.source.id}`, {
+                console.log(`${LOG_PREFIX}: Stream complete for ${this.source.id}`, {
                     wasConnected: this.wasConnected,
                     wasErrored: this.wasErrored,
                     totalPhotos: this.streamPhotos.length
@@ -437,7 +440,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
 
                 // Close EventSource since stream is complete
                 if (this.eventSource) {
-                    console.log(`🔍 StreamSourceLoader: Closing EventSource after stream completion for ${this.source.id} (wasConnected=${this.wasConnected})`);
+                    if (doLog) console.log(`${LOG_PREFIX}: Closing EventSource after stream completion for ${this.source.id} (wasConnected=${this.wasConnected})`);
                     this.eventSource.close();
                     this.eventSource = undefined; // Clear reference to allow garbage collection
                 }
@@ -460,7 +463,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
     }
 
     cancel(): void {
-        console.log(`StreamSourceLoader: Cancelling stream for ${this.source.id} - called from:`, new Error().stack?.split('\n')[2]);
+        if (doLog) console.log(`StreamSourceLoader: Cancelling stream for ${this.source.id} - called from:`, new Error().stack?.split('\n')[2]);
         super.cancel();
 
         // Clear loading status
@@ -473,7 +476,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
         }
 
         if (this.eventSource) {
-            console.log(`StreamSourceLoader: Closing EventSource for ${this.source.id} (readyState: ${verbalizeEventSourceReadyState(this.eventSource.readyState)})`);
+            if (doLog) console.log(`StreamSourceLoader: Closing EventSource for ${this.source.id} (readyState: ${verbalizeEventSourceReadyState(this.eventSource.readyState)})`);
             this.eventSource.close();
             this.eventSource = undefined; // Clear reference to allow garbage collection
         }

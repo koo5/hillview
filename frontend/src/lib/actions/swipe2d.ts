@@ -69,7 +69,7 @@ export function swipe2d(node: HTMLElement, initialOptions: Swipe2DOptions) {
 		canGoDown
 	} = optionsWithDefaults;
 
-	console.log('🢄swipe2d: Initialized with options:', optionsWithDefaults);
+	//console.log('🢄swipe2d: Initialized with options:', optionsWithDefaults);
 
 	let dragState: DragState = {
 		isDragging: false,
@@ -336,7 +336,7 @@ export function swipe2d(node: HTMLElement, initialOptions: Swipe2DOptions) {
 	}
 
 	function cancelDrag() {
-		console.log('🢄swipe2d: cancelDrag called, isDragging:', dragState.isDragging);
+		//console.log('🢄swipe2d: cancelDrag called, isDragging:', dragState.isDragging);
 
 		// Clean up any pending transition listener to prevent race conditions
 		if (dragState.pendingTransitionListener) {
