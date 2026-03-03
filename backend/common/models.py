@@ -338,7 +338,7 @@ class PhotoAnnotation(Base):
 	user: Mapped["User"] = relationship()
 
 
-
+class PushRegistration(Base):
 	__tablename__ = "push_registrations"
 
 	id: Mapped[str] = mapped_column(String, primary_key=True, default=generate_uuid)
