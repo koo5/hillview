@@ -84,7 +84,7 @@
 	function buildTileSource() {
 		const p = data.pyramid;
 		if (p && p.type === 'dzi') {
-			// Inline DZI metadata – no extra fetch needed
+			console.log('[OSD] Using DZI pyramid for tile source:', p);
 			return {
 				Image: {
 					xmlns: 'http://schemas.microsoft.com/deepzoom/2008',
@@ -100,6 +100,7 @@
 			};
 		}
 		// Fallback: single full-size image
+		console.warn('[OSD] No DZI pyramid available, falling back to single-image source: ', JSON.stringify(p));
 		return {
 			type: 'image',
 			url: data.url,

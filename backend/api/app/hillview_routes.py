@@ -132,7 +132,8 @@ def convert_photo_to_response(photo, username: str, longitude: float, latitude: 
 		photo_data['sizes'][k] = {
 			'url': v.get('url'),
 			'width': v.get('width'),
-			'height': v.get('height')
+			'height': v.get('height'),
+			'pyramid': v.get('pyramid', None)
 		}
 
 	# Add file hash if available for deduplication
