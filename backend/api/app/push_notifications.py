@@ -237,21 +237,19 @@ async def send_activity_broadcast_notification(
 	Uses non-blocking advisory lock to prevent duplicate notifications from concurrent calls.
 	If lock cannot be acquired, skips notification (another request will handle it).
 	"""
-	# Use non-blocking advisory lock to avoid serializing concurrent requests
-	# This prevents timeout issues when multiple uploads complete simultaneously
+	# Use non-blocking transaction-level advisory lock to avoid duplicate notifications
+	# from concurrent requests. The xact lock auto-releases on commit/rollback,
+	# avoiding issues with session-level locks leaking across pooled connections.
 	lock_id = 12345  # Arbitrary unique ID for activity broadcast lock
-	lock_result = await db.execute(text(f"SELECT pg_try_advisory_lock({lock_id})"))
+	lock_result = await db.execute(text(f"SELECT pg_try_advisory_xact_lock({lock_id})"))
 	acquired = lock_result.scalar()
-	logger.debug(f"Activity broadcast lock_result: {lock_result}, acquired: {acquired}")
+	logger.debug(f"Activity broadcast lock acquired: {acquired}")
 
 	if not acquired:
 		logger.debug("Activity broadcast lock not acquired, skipping (another request will handle it)")
 		return
 
-	try:
-		await _send_activity_broadcast_notification_impl(db, activity_originator_user_id)
-	finally:
-		await db.execute(text(f"SELECT pg_advisory_unlock({lock_id})"))
+	await _send_activity_broadcast_notification_impl(db, activity_originator_user_id)
 
 
 async def _send_activity_broadcast_notification_impl(
