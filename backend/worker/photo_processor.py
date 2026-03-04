@@ -444,8 +444,9 @@ class PhotoProcessor:
 
 				size_info = {'path': relative_path}
 
-				scale = 1
-				if size != 'full':
+				if size == 'full':
+					scale = 1 if width <= 8192 else 8192 / width
+				else:
 					scale = size / width
 
 				new_width = int(width * scale)

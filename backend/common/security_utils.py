@@ -28,7 +28,7 @@ ALLOWED_MIME_TYPES = {'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'ima
 MAX_FILE_SIZE = int(os.environ.get('MAX_FILE_SIZE', 150 * 1024 * 1024))
 MAX_FILENAME_LENGTH = 255
 #MAX_IMAGE_DIMENSIONS = (32192, 32192)  # Max width, height
-MAX_IMAGE_DIMENSIONS = (os.environ.get('MAX_IMAGE_WIDTH', 32192), os.environ.get('MAX_IMAGE_HEIGHT', 32192))
+MAX_IMAGE_DIMENSIONS = (int(os.environ.get('MAX_IMAGE_WIDTH', 32192)), int(os.environ.get('MAX_IMAGE_HEIGHT', 32192)))
 #MAX_IMAGE_PIXELS = 167108864
 MAX_IMAGE_PIXELS = int(os.environ.get('MAX_IMAGE_PIXELS', 167108864))
 
