@@ -41,7 +41,8 @@
 	let viewer: any = null;
 	let annotator: any = null;
 	let annotations: AnnotationData[] = [];
-	let annotatingEnabled = false;
+	type AnnotationMode = 'view' | 'draw' | 'edit';
+	let annotationMode: AnnotationMode = 'view';
 	let selectedAnnotation: AnnotationData | null = null;
 	let editingAnnotation: AnnotationData | null = null;
 	let editBody = '';
@@ -54,8 +55,10 @@
 
 	async function loadAnnotations() {
 		if (!data.photo_id) return;
+		console.log('[OSD] Loading annotations for photo:', data.photo_id);
 		try {
 			annotations = await fetchAnnotations(data.photo_id);
+			console.log('[OSD] Fetched annotations:', annotations.length, annotations);
 			syncAnnotationsToViewer();
 		} catch (e) {
 			console.error('[OSD] Failed to load annotations:', e);
@@ -63,22 +66,24 @@
 	}
 
 	function syncAnnotationsToViewer() {
-		if (!annotator) return;
+		if (!annotator) {
+			console.warn('[OSD] syncAnnotationsToViewer: annotator not ready');
+			return;
+		}
+		const w3cAnnotations = annotations
+			.filter((a) => a.target)
+			.map((a) => ({
+				'@context': 'http://www.w3.org/ns/anno.jsonld',
+				id: a.id,
+				type: 'Annotation',
+				body: a.body
+					? [{ type: 'TextualBody', value: a.body, purpose: 'commenting' }]
+					: [],
+				target: a.target,
+			}));
+		console.log('[OSD] Syncing annotations to viewer:', w3cAnnotations.length, w3cAnnotations);
 		try {
-			// Clear existing and re-add from server state
-			annotator.setAnnotations(
-				annotations
-					.filter((a) => a.target)
-					.map((a) => ({
-						'@context': 'http://www.w3.org/ns/anno.jsonld',
-						id: a.id,
-						type: 'Annotation',
-						body: a.body
-							? [{ type: 'TextualBody', value: a.body, purpose: 'commenting' }]
-							: [],
-						target: a.target,
-					}))
-			);
+			annotator.setAnnotations(w3cAnnotations);
 		} catch (e) {
 			console.warn('[OSD] Could not sync annotations to viewer:', e);
 		}
@@ -138,44 +143,58 @@
 	 * leader line.  Safe to call when viewer or canvas is not yet ready.
 	 */
 	function drawLabels() {
-		if (!labelCanvas || !viewer?.viewport) return;
+		if (!labelCanvas || !viewer?.viewport) {
+			console.log('[OSD] drawLabels: skipped — labelCanvas:', !!labelCanvas, 'viewport:', !!viewer?.viewport);
+			return;
+		}
 		const ctx = labelCanvas.getContext('2d');
 		if (!ctx) return;
 		const W = labelCanvas.width;
 		const H = labelCanvas.height;
 		ctx.clearRect(0, 0, W, H);
+		console.log('[OSD] drawLabels: canvas', W, 'x', H, '| annotations:', annotations.length);
 
 		for (const ann of annotations) {
 			const label = ann.body;
-			if (!label) continue;
+			if (!label) {
+				console.log('[OSD] drawLabels: skipping annotation with no body:', ann.id);
+				continue;
+			}
 
-			// Support both a single selector object and an array of selectors;
-			// find the first fragment selector in case of mixed-type arrays
+			// Extract rectangle geometry from the annotation target.
+			// Annotorious v3 uses {type: "RECTANGLE", geometry: {x, y, w, h}}
+			// while the W3C fragment format uses xywh=pixel:x,y,w,h
 			const raw = ann.target as any;
-			const selectorList: any[] = Array.isArray(raw?.selector)
-				? raw.selector
-				: raw?.selector
-					? [raw.selector]
-					: [];
-			const selector = selectorList.find(
-				(s: any) => typeof s?.value === 'string' && s.value.includes('xywh=pixel:')
-			);
-			if (!selector) continue;
+			let sx: number, sy: number, sw: number, sh: number;
 
-			// Only handle the fragment selector produced by Annotorious rectangles
-			const match = (selector.value as string).match(
-				/xywh=pixel:([\d.]+),([\d.]+),([\d.]+),([\d.]+)/
-			);
-			if (!match) continue;
-			const [, sx, sy, sw, sh] = match.map(Number);
+			const selector = Array.isArray(raw?.selector) ? raw.selector[0] : raw?.selector;
+			if (selector?.type === 'RECTANGLE' && selector.geometry) {
+				const g = selector.geometry;
+				sx = g.x; sy = g.y; sw = g.w; sh = g.h;
+			} else if (typeof selector?.value === 'string') {
+				const match = selector.value.match(/xywh=pixel:([\d.]+),([\d.]+),([\d.]+),([\d.]+)/);
+				if (!match) {
+					console.log('[OSD] drawLabels: unrecognized selector value for annotation:', ann.id, '| selector:', JSON.stringify(selector));
+					continue;
+				}
+				[, sx, sy, sw, sh] = match.map(Number);
+			} else {
+				console.log('[OSD] drawLabels: unrecognized selector for annotation:', ann.id, '| target:', JSON.stringify(ann.target));
+				continue;
+			}
 
 			// Project centroid: image pixels → viewport fraction → screen pixels
+			console.log('[OSD] drawLabels: annotation', ann.id, '| label:', label, '| rect:', sx, sy, sw, sh);
 			const vpPt = viewer.viewport.imageToViewportCoordinates(sx + sw / 2, sy + sh / 2);
 			const scPt = viewer.viewport.viewportToViewerElementCoordinates(vpPt);
 			const cx = scPt.x;
 			const cy = scPt.y;
+			console.log('[OSD] drawLabels: projected centroid:', cx, cy, '| canvas:', W, 'x', H);
 			// Skip if the centroid is off-screen
-			if (cx < 0 || cx > W || cy < 0 || cy > H) continue;
+			if (cx < 0 || cx > W || cy < 0 || cy > H) {
+				console.log('[OSD] drawLabels: centroid off-screen, skipping');
+				continue;
+			}
 
 			// Find the nearest edge and set the label anchor point
 			const margin = 14;
@@ -239,7 +258,7 @@
 			gestureSettingsTouch: { clickToZoom: false, dblClickToZoom: true },
 			immediateRender: false,
 			imageLoaderLimit: 1,
-			debugMode: true
+			//debugMode: true
 		});
 
 		viewer.addHandler('open', () => {
@@ -255,6 +274,13 @@
 		// Drawing starts disabled; the toolbar toggle enables it for authenticated users.
 		annotator = createOSDAnnotator(viewer, {
 			drawingEnabled: false,
+			userSelectAction: 'NONE',
+			style: {
+				fill: '#00ff00',
+				fillOpacity: 0.1,
+				stroke: '#00ff00',
+				strokeWidth: 1,
+			}
 		});
 
 		// When the user finishes drawing a shape, open the text-entry dialog
@@ -339,7 +365,7 @@
 		// event.quick distinguishes a tap/click from a pan/zoom drag — OSD sets
 		// quick=false when the pointer moved significantly before release.
 		viewer.addHandler('canvas-click', (event: any) => {
-			if (!event.quick || annotatingEnabled) return;
+			if (!event.quick || annotationMode !== 'view') return;
 			const item = viewer.world.getItemAt(0);
 			if (!item) { onClose(); return; }
 			const imgBounds = item.getBounds(); // viewport coordinates
@@ -369,11 +395,15 @@
 		viewer?.destroy?.();
 	});
 
-	function toggleAnnotating() {
+	function setAnnotationMode(mode: AnnotationMode) {
 		if (!annotator) return;
-		annotatingEnabled = !annotatingEnabled;
-		annotator.setDrawingEnabled(annotatingEnabled);
-		if (annotatingEnabled) {
+		annotationMode = mode;
+		annotator.setDrawingEnabled(mode === 'draw');
+		annotator.setUserSelectAction(mode === 'edit' ? 'EDIT' : 'NONE');
+		if (mode !== 'edit') {
+			annotator.setSelected();
+		}
+		if (mode === 'draw') {
 			annotator.setDrawingTool('rectangle');
 		}
 	}
@@ -398,12 +428,21 @@
 		<div class="annotation-toolbar">
 			<button
 				class="toolbar-btn"
-				class:active={annotatingEnabled}
-				onclick={toggleAnnotating}
-				title={annotatingEnabled ? 'Stop annotating' : 'Draw annotation'}
-				data-testid="osd-annotate-toggle"
+				class:active={annotationMode === 'draw'}
+				onclick={() => setAnnotationMode(annotationMode === 'draw' ? 'view' : 'draw')}
+				title={annotationMode === 'draw' ? 'Stop drawing' : 'Draw annotation'}
+				data-testid="osd-annotate-draw"
 			>
-				✏️ {annotatingEnabled ? 'Cancel' : 'Annotate'}
+				✏️ Draw
+			</button>
+			<button
+				class="toolbar-btn"
+				class:active={annotationMode === 'edit'}
+				onclick={() => setAnnotationMode(annotationMode === 'edit' ? 'view' : 'edit')}
+				title={annotationMode === 'edit' ? 'Stop editing' : 'Edit annotations'}
+				data-testid="osd-annotate-edit"
+			>
+				🔧 Edit
 			</button>
 		</div>
 	{/if}
@@ -530,7 +569,7 @@
 		bottom: 20px;
 		left: 50%;
 		transform: translateX(-50%);
-		background: rgba(0,0,0,0.7);
+		background: rgba(0,0,0,0.4);
 		color: #fff;
 		padding: 6px 16px;
 		border-radius: 20px;
@@ -542,4 +581,6 @@
 		z-index: 10;
 		pointer-events: none;
 	}
+
+
 </style>
