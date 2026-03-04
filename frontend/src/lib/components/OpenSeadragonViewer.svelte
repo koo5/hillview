@@ -15,12 +15,13 @@
 	 * (creates a new DB row, marks the old one is_current=false) to preserve
 	 * edit history.
 	 *
-	 * --- Edge-label annotation display (future work) ---
-	 * The problem statement requests labels displayed at the screen edge with
-	 * a line connecting them to the annotation shape.  This is not part of
-	 * standard Annotorious and would require a custom Canvas overlay that
-	 * listens to viewport changes and redraws leader lines on every pan/zoom
-	 * tick.  A TODO is left at the bottom of this file.
+	 * Edge labels: a transparent <canvas> overlays the OSD container and is
+	 * redrawn on every viewport-change event.  For each annotation the centroid
+	 * is projected from image→screen space; the label is drawn near the nearest
+	 * screen edge, connected to the centroid by a leader line.
+	 *
+	 * Background close: clicking/tapping the black area outside the image
+	 * closes the viewer (mirroring the original ZoomView behaviour).
 	 */
 	import { onMount, onDestroy } from 'svelte';
 	import { auth } from '$lib/auth.svelte.js';
@@ -46,6 +47,8 @@
 	let editBody = '';
 	let errorMessage = '';
 	let isLoading = true;
+	let labelCanvas: HTMLCanvasElement | null = null;
+	let resizeObserver: ResizeObserver | null = null;
 
 	$: isAuthenticated = $auth.is_authenticated;
 
@@ -79,6 +82,7 @@
 		} catch (e) {
 			console.warn('[OSD] Could not sync annotations to viewer:', e);
 		}
+		drawLabels();
 	}
 
 	/**
@@ -125,6 +129,95 @@
 			type: 'image',
 			url: data.url,
 		};
+	}
+
+	/**
+	 * Draw edge-label callouts for all current annotations onto the label canvas.
+	 * Each annotation's centroid is projected from image→screen space.  The label
+	 * is placed near the nearest screen edge and connected to the centroid with a
+	 * leader line.  Safe to call when viewer or canvas is not yet ready.
+	 */
+	function drawLabels() {
+		if (!labelCanvas || !viewer?.viewport) return;
+		const ctx = labelCanvas.getContext('2d');
+		if (!ctx) return;
+		const W = labelCanvas.width;
+		const H = labelCanvas.height;
+		ctx.clearRect(0, 0, W, H);
+
+		for (const ann of annotations) {
+			const label = ann.body;
+			if (!label) continue;
+
+			// Support both a single selector object and an array of selectors;
+			// find the first fragment selector in case of mixed-type arrays
+			const raw = ann.target as any;
+			const selectorList: any[] = Array.isArray(raw?.selector)
+				? raw.selector
+				: raw?.selector
+					? [raw.selector]
+					: [];
+			const selector = selectorList.find(
+				(s: any) => typeof s?.value === 'string' && s.value.includes('xywh=pixel:')
+			);
+			if (!selector) continue;
+
+			// Only handle the fragment selector produced by Annotorious rectangles
+			const match = (selector.value as string).match(
+				/xywh=pixel:([\d.]+),([\d.]+),([\d.]+),([\d.]+)/
+			);
+			if (!match) continue;
+			const [, sx, sy, sw, sh] = match.map(Number);
+
+			// Project centroid: image pixels → viewport fraction → screen pixels
+			const vpPt = viewer.viewport.imageToViewportCoordinates(sx + sw / 2, sy + sh / 2);
+			const scPt = viewer.viewport.viewportToViewerElementCoordinates(vpPt);
+			const cx = scPt.x;
+			const cy = scPt.y;
+			// Skip if the centroid is off-screen
+			if (cx < 0 || cx > W || cy < 0 || cy > H) continue;
+
+			// Find the nearest edge and set the label anchor point
+			const margin = 14;
+			const dLeft = cx;
+			const dRight = W - cx;
+			const dTop = cy;
+			const dBottom = H - cy;
+			const nearest = Math.min(dLeft, dRight, dTop, dBottom);
+			let lx = cx;
+			let ly = cy;
+			if (nearest === dLeft)       lx = margin;
+			else if (nearest === dRight) lx = W - margin;
+			else if (nearest === dTop)   ly = margin;
+			else                         ly = H - margin;
+
+			// Leader line from centroid to label anchor
+			ctx.beginPath();
+			ctx.moveTo(cx, cy);
+			ctx.lineTo(lx, ly);
+			ctx.strokeStyle = 'rgba(255,230,50,0.9)';
+			ctx.lineWidth = 1.5;
+			ctx.stroke();
+
+			// Label pill: pill is drawn to the left of the anchor on right-edge labels
+			ctx.font = 'bold 12px system-ui,sans-serif';
+			const tw = ctx.measureText(label).width;
+			const pad = 6;
+			const pillW = tw + pad * 2;
+			const pillH = 20;
+			const tx = lx > W / 2 ? lx - pillW : lx;
+			const ty = ly > H / 2 ? ly - pillH : ly;
+			ctx.fillStyle = 'rgba(0,0,0,0.75)';
+			ctx.beginPath();
+			if (typeof (ctx as any).roundRect === 'function') {
+				(ctx as any).roundRect(tx, ty, pillW, pillH, 4);
+			} else {
+				ctx.rect(tx, ty, pillW, pillH);
+			}
+			ctx.fill();
+			ctx.fillStyle = '#fff';
+			ctx.fillText(label, tx + pad, ty + pillH - 5);
+		}
 	}
 
 	onMount(async () => {
@@ -190,6 +283,7 @@
 					id: saved.id,
 					body: [{ type: 'TextualBody', value: body, purpose: 'commenting' }],
 				});
+				drawLabels();
 			} catch (e) {
 				console.error('[OSD] Failed to save annotation:', e);
 				annotator.removeAnnotation(annotation);
@@ -207,6 +301,7 @@
 				annotations = annotations
 					.filter((a) => a.id !== previous.id)
 					.concat(saved);
+				drawLabels();
 			} catch (e) {
 				console.error('[OSD] Failed to update annotation:', e);
 			}
@@ -216,8 +311,47 @@
 			try {
 				await deleteAnnotation(annotation.id);
 				annotations = annotations.filter((a) => a.id !== annotation.id);
+				drawLabels();
 			} catch (e) {
 				console.error('[OSD] Failed to delete annotation:', e);
+			}
+		});
+
+		// The canvas is created imperatively so it can't use Svelte scoped styles;
+		// inline style is intentional here.
+		labelCanvas = document.createElement('canvas');
+		labelCanvas.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:2';
+		container.appendChild(labelCanvas);
+
+		resizeObserver = new ResizeObserver(() => {
+			if (!labelCanvas) return;
+			labelCanvas.width  = container.offsetWidth;
+			labelCanvas.height = container.offsetHeight;
+			drawLabels();
+		});
+		resizeObserver.observe(container);
+
+		viewer.addHandler('viewport-change', drawLabels);
+		viewer.addHandler('update-viewport',  drawLabels);
+
+		// Close the viewer when the user clicks/taps the black background
+		// outside the image bounds (mirrors original ZoomView behaviour).
+		// event.quick distinguishes a tap/click from a pan/zoom drag — OSD sets
+		// quick=false when the pointer moved significantly before release.
+		viewer.addHandler('canvas-click', (event: any) => {
+			if (!event.quick || annotatingEnabled) return;
+			const item = viewer.world.getItemAt(0);
+			if (!item) { onClose(); return; }
+			const imgBounds = item.getBounds(); // viewport coordinates
+			const scrBounds = viewer.viewport.viewportToViewerElementRectangle(imgBounds);
+			const pt = event.position; // viewer-element coordinates
+			if (
+				pt.x < scrBounds.x ||
+				pt.x > scrBounds.x + scrBounds.width ||
+				pt.y < scrBounds.y ||
+				pt.y > scrBounds.y + scrBounds.height
+			) {
+				onClose();
 			}
 		});
 
@@ -228,6 +362,9 @@
 	});
 
 	onDestroy(() => {
+		resizeObserver?.disconnect();
+		viewer?.removeHandler('viewport-change', drawLabels);
+		viewer?.removeHandler('update-viewport',  drawLabels);
 		annotator?.destroy?.();
 		viewer?.destroy?.();
 	});
@@ -290,17 +427,6 @@
 	<div class="filename-bar">{data.filename}</div>
 </div>
 
-<!--
-  TODO: Edge-label annotation display
-  Future implementation should add a <canvas> overlay that:
-    1. Listens to the OSD viewport-change event
-    2. For each annotation, projects its shape centroid into screen space
-    3. Finds the nearest screen edge and draws the label there
-    4. Draws a leader line from the label to the shape centroid
-  This is similar to cartographic callout labels and would require custom
-  rendering outside of standard Annotorious.
--->
-
 <style>
 	.osd-overlay {
 		position: fixed;
@@ -315,6 +441,7 @@
 		flex: 1;
 		width: 100%;
 		height: 100%;
+		position: relative;
 	}
 
 	/* Annotorious CSS is imported in the parent component */
