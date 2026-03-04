@@ -23,6 +23,8 @@
 	 * tick.  A TODO is left at the bottom of this file.
 	 */
 	import { onMount, onDestroy } from 'svelte';
+	import OpenSeadragon from 'openseadragon';
+	import { createOSDAnnotator } from '@annotorious/openseadragon';
 	import { auth } from '$lib/auth.svelte.js';
 	import {
 		fetchAnnotations,
@@ -81,10 +83,29 @@
 		}
 	}
 
+	/**
+	 * Compute the lowest DZI level whose image is at least tile_size pixels
+	 * on its longest side.  Levels below this are single sub-tile images —
+	 * fetching them is wasteful (one HTTP request each for a tiny image that
+	 * OSD never even displays at normal zoom).
+	 */
+	function computeMinLevel(width: number, height: number, tileSize: number): number {
+		const maxDim = Math.max(width, height);
+		const maxLevel = Math.ceil(Math.log2(maxDim));
+		// Walk from the top level down; the first level where the image fits
+		// in a single tile is the last one we want.  Everything below is waste.
+		for (let level = maxLevel; level >= 0; level--) {
+			const levelDim = Math.ceil(maxDim / Math.pow(2, maxLevel - level));
+			if (levelDim <= tileSize) return level;
+		}
+		return 0;
+	}
+
 	function buildTileSource() {
 		const p = data.pyramid;
 		if (p && p.type === 'dzi') {
-			console.log('[OSD] Using DZI pyramid for tile source:', p);
+			const minLevel = computeMinLevel(p.width, p.height, p.tile_size);
+			console.log('[OSD] Using DZI pyramid for tile source:', p, '| minLevel:', minLevel);
 			return {
 				Image: {
 					xmlns: 'http://schemas.microsoft.com/deepzoom/2008',
@@ -97,6 +118,7 @@
 						Height: String(p.height),
 					},
 				},
+				minLevel,
 			};
 		}
 		// Fallback: single full-size image
@@ -107,15 +129,7 @@
 		};
 	}
 
-	onMount(async () => {
-		// Dynamic import so the library is not in the SSR bundle
-		const [OSD, { createOSDAnnotator }] = await Promise.all([
-			import('openseadragon'),
-			import('@annotorious/openseadragon'),
-		]);
-
-		const OpenSeadragon = OSD.default ?? OSD;
-
+	onMount(() => {
 		viewer = new OpenSeadragon.Viewer({
 			element: container,
 			tileSources: buildTileSource(),
@@ -126,6 +140,9 @@
 			// Allow dragging even without a button press (touch-friendly)
 			gestureSettingsMouse: { clickToZoom: false, dblClickToZoom: true },
 			gestureSettingsTouch: { clickToZoom: false, dblClickToZoom: true },
+			immediateRender: false,
+			imageLoaderLimit: 1,
+			debugMode: true
 		});
 
 		viewer.addHandler('open', () => {

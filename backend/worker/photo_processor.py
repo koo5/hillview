@@ -501,7 +501,7 @@ class PhotoProcessor:
 			dzi_file = dzi_output_base + '.dzi'
 			tiles_dir = dzi_output_base + '_files'
 
-			tile_size = 254
+			tile_size = 1024
 			overlap = 1
 
 			# Validate source path before passing to subprocess
