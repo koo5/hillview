@@ -1,4 +1,5 @@
-import { test, type Page } from '@playwright/test';
+import { test } from '../fixtures';
+import type { Page } from '@playwright/test';
 
 /**
  * Playwright helpers for managing map source states in tests.

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 import { MAX_DEBUG_MODES } from '../src/lib/constants';
 
 test.describe.skip('Enhanced Debug Page', () => {

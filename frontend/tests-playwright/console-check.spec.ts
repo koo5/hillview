@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 test.describe('Console Error Check', () => {
   test('should show all console messages and check for runtime errors', async ({ page }) => {

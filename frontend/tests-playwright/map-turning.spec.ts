@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 test.describe('Map Turning and Rotation Operations', () => {
   test.beforeEach(async ({ page }) => {

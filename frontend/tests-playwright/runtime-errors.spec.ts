@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 test.describe('Runtime Error Detection', () => {
   test.beforeEach(async ({ page }) => {

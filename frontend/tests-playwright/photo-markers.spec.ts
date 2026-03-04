@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 test.describe('Photo Markers', () => {
   test('should only show markers for photos in current map area', async ({ page }) => {

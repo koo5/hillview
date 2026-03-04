@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 import { createTestUsers, loginAsTestUser } from './helpers/testUsers';
 import { setupConsoleLogging } from './helpers/consoleLogging';
 import {
@@ -99,6 +99,7 @@ test.describe('Browser Capture → Upload', () => {
 		expect(uploadedPhoto).not.toBeNull();
 		expect(uploadedPhoto!.status).toBe('uploaded');
 		expect(uploadedPhoto!.server_photo_id).toBeTruthy();
+		const expectedPhotoId = uploadedPhoto!.server_photo_id;
 
 		// Navigate to My Photos and verify photo appears on server
 		await page.goto('/photos');
@@ -110,17 +111,18 @@ test.describe('Browser Capture → Upload', () => {
 			await refreshButton.click();
 		}
 
-		// Wait for at least 1 photo in the server photos list
+		// Wait for photos list and verify our specific photo is present
 		const photosList = page.locator('[data-testid="photos-list"]');
 		await photosList.waitFor({ state: 'visible', timeout: 15000 });
 
-		const photoItems = photosList.locator(':scope > *');
-		await expect(photoItems.first()).toBeVisible({ timeout: 10000 });
-		const serverPhotoCount = await photoItems.count();
-		expect(serverPhotoCount).toBeGreaterThanOrEqual(1);
+		const ourPhoto = photosList.locator(`[data-photo-id="${expectedPhotoId}"]`);
+		await expect(ourPhoto.first()).toBeVisible({ timeout: 10000 });
 	});
 
 	test('subsequent photo after login uploads automatically', async ({ page }) => {
+		// Clean slate: clear server photos from test 1
+		await fetch('http://localhost:8055/api/debug/recreate-test-users', { method: 'POST' });
+
 		// Login first
 		await loginAsTestUser(page, testPasswords.test);
 		await page.goto('/');
@@ -160,6 +162,9 @@ test.describe('Browser Capture → Upload', () => {
 		expect(uploadedPhotos[0].server_photo_id).toBeTruthy();
 		expect(uploadedPhotos[1].server_photo_id).toBeTruthy();
 
+		// Collect the server_photo_ids we expect to find
+		const expectedIds = new Set(uploadedPhotos.map(p => p.server_photo_id));
+
 		// Close camera and verify photos on server
 		await cameraButton.click({ force: true });
 		await page.goto('/photos');
@@ -175,7 +180,13 @@ test.describe('Browser Capture → Upload', () => {
 
 		const photoItems = photosList.locator(':scope > *');
 		await expect(photoItems.first()).toBeVisible({ timeout: 10000 });
-		const serverPhotoCount = await photoItems.count();
-		expect(serverPhotoCount).toBeGreaterThanOrEqual(2);
+
+		// Verify the exact photos we uploaded appear on the server
+		const serverPhotoIds = await photosList.locator('[data-photo-id]').evaluateAll(
+			els => els.map(el => el.getAttribute('data-photo-id'))
+		);
+		for (const expectedId of expectedIds) {
+			expect(serverPhotoIds, `server should contain photo ${expectedId}`).toContain(expectedId);
+		}
 	});
 });

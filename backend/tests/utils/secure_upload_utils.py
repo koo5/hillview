@@ -99,12 +99,13 @@ class SecureUploadClient:
 		from cryptography.hazmat.primitives.asymmetric import ec
 		from cryptography.hazmat.primitives import hashes
 
-		# Create the exact message format that matches both frontend and API server
-		# Frontend uses: JSON.stringify([filename, photo_id, timestamp], null, 0)
-		# Backend API expects: json.dumps([filename, photo_id, timestamp], separators=(',', ':'))
-		# Both produce the same compact JSON array format
+		# Create the exact message format matching frontend and API server verification.
+		# Frontend: JSON.stringify([filename, photo_id, timestamp], null, 0)  — raw unicode
+		# Server:   json.dumps(..., separators=(',',':'), ensure_ascii=False, sort_keys=True)
+		# ensure_ascii=False is critical: without it, non-ASCII filenames (emojis etc.)
+		# get \uXXXX-escaped, producing a different string than the server expects.
 		message_data = [filename, photo_id, timestamp]
-		message = json.dumps(message_data, separators=(',', ':'))  # Compact JSON, no spaces
+		message = json.dumps(message_data, separators=(',', ':'), ensure_ascii=False)
 
 		# Sign the message using the client's private key
 		signature_bytes = client_private_key.sign(

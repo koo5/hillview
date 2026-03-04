@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 import { configureSources } from './helpers/sourceHelpers';
 import { uploadTestPhotosWithLocation } from './helpers/photoUpload';
 import { createTestUsers, loginAsTestUser } from './helpers/testUsers';

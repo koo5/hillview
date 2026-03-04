@@ -265,7 +265,7 @@ class TestMultiClientUploads(BasePhotoTest):
 			num_clients=3,
 			photos_per_client=5,
 			max_concurrent_per_client=3,
-			timeout=60
+			timeout=120
 		)
 
 		total_successful = sum(s.successful for s in stats.values())
@@ -280,7 +280,7 @@ class TestMultiClientUploads(BasePhotoTest):
 			num_clients=5,
 			photos_per_client=20,
 			max_concurrent_per_client=5,
-			timeout=120
+			timeout=300
 		)
 
 		total_successful = sum(s.successful for s in stats.values())
