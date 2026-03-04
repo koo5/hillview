@@ -23,8 +23,6 @@
 	 * tick.  A TODO is left at the bottom of this file.
 	 */
 	import { onMount, onDestroy } from 'svelte';
-	import OpenSeadragon from 'openseadragon';
-	import { createOSDAnnotator } from '@annotorious/openseadragon';
 	import { auth } from '$lib/auth.svelte.js';
 	import {
 		fetchAnnotations,
@@ -129,7 +127,13 @@
 		};
 	}
 
-	onMount(() => {
+	onMount(async () => {
+		const [OSD, { createOSDAnnotator }] = await Promise.all([
+			import('openseadragon'),
+			import('@annotorious/openseadragon'),
+		]);
+		const OpenSeadragon = OSD.default ?? OSD;
+
 		viewer = new OpenSeadragon.Viewer({
 			element: container,
 			tileSources: buildTileSource(),
