@@ -13,6 +13,7 @@
  *    JWT in Authorization header. No upload_jwt/auth_timestamp/client_public_key_id in FormData.
  */
 
+import CryptoJS from 'crypto-js';
 import { clientCrypto } from './clientCrypto';
 import { backendUrl } from './config';
 
@@ -93,8 +94,6 @@ export type AuthFetch = (url: string, init: RequestInit) => Promise<Response>;
  * crypto-js is pure JS — works in both main thread and service worker.
  */
 export async function calculateFileHash(file: File): Promise<string> {
-	const CryptoJS = await import('crypto-js');
-
 	const buffer = await file.arrayBuffer();
 	const wordArray = CryptoJS.lib.WordArray.create(buffer);
 

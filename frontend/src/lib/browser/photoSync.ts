@@ -6,6 +6,7 @@ import { uploadPendingPhotos, type UploadResult } from './uploadManager';
 import { isBackgroundSyncSupported, type StoredPhoto } from './photoStorage';
 import { secureUploadFile } from '../secureUpload';
 import { auth } from '../authStore';
+import { getSettings } from '../settings';
 import { get } from 'svelte/store';
 
 const LOG_PREFIX = '🢄[PhotoSync]';
@@ -60,10 +61,16 @@ async function foregroundUploader(photo: StoredPhoto): Promise<UploadResult> {
  * Does not await the foreground upload — it fires and forgets
  * so callers are never blocked by the upload queue.
  */
-export function triggerPhotoSync(): void {
+export async function triggerPhotoSync(): Promise<void> {
     const authState = get(auth);
     if (!authState.is_authenticated) {
         console.log(`${LOG_PREFIX} Skipping sync — not authenticated`);
+        return;
+    }
+
+    const settings = await getSettings();
+    if (!settings.auto_upload_enabled) {
+        console.log(`${LOG_PREFIX} Skipping sync — auto_upload is disabled`);
         return;
     }
 

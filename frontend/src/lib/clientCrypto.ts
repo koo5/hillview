@@ -515,8 +515,8 @@ export class ClientCryptoManager {
     }
 }
 
-// Global instance - only create in browser context to avoid SSR logs
-const isBrowser = typeof window !== 'undefined';
-export const clientCrypto: ClientCryptoManager = isBrowser
+// Global instance - create in browser or service worker context, skip SSR
+const isBrowserOrSW = typeof window !== 'undefined' || typeof ServiceWorkerGlobalScope !== 'undefined';
+export const clientCrypto: ClientCryptoManager = isBrowserOrSW
     ? new ClientCryptoManager()
     : (null as unknown as ClientCryptoManager);

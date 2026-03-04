@@ -4,6 +4,7 @@
 // background (service worker) contexts via uploadPendingPhotos().
 
 import { browserPhotoStorage, type StoredPhoto } from './photoStorage';
+import { readSettings } from './settingsIndexedDb';
 import { writable } from 'svelte/store';
 
 const LOG_PREFIX = '🢄[PhotoUpload]';
@@ -64,6 +65,12 @@ export async function uploadPendingPhotos(uploader: PhotoUploader): Promise<void
         for (const photo of pendingPhotos) {
             if (typeof navigator !== 'undefined' && !navigator.onLine) {
                 console.log(`${LOG_PREFIX} Offline, stopping upload`);
+                break;
+            }
+
+            const settings = await readSettings();
+            if (!settings?.auto_upload_enabled) {
+                console.log(`${LOG_PREFIX} Auto-upload disabled, stopping upload loop`);
                 break;
             }
 

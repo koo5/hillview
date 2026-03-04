@@ -9,6 +9,7 @@ import { TAURI, BROWSER } from './tauri';
 import { browserCaptureAdapter } from './browser/captureAdapter';
 import { triggerPhotoSync } from './browser/photoSync';
 import { auth } from './authStore';
+import { settings } from './settings';
 
 export interface CaptureLocation {
 	latitude: number;
@@ -388,7 +389,7 @@ class CaptureQueueManager {
 
 export const captureQueue = new CaptureQueueManager();
 
-// When user logs in, automatically upload any pending browser photos
+// When user logs in or enables auto-upload, upload any pending browser photos
 if (BROWSER) {
 	let wasAuthenticated = false;
 	auth.subscribe(authState => {
@@ -397,5 +398,15 @@ if (BROWSER) {
 			triggerPhotoSync();
 		}
 		wasAuthenticated = authState.is_authenticated;
+	});
+
+	let wasAutoUploadEnabled = false;
+	settings.subscribe(state => {
+		const enabled = state?.value?.auto_upload_enabled || false;
+		if (enabled && !wasAutoUploadEnabled) {
+			console.log('🢄[CaptureQueue] Auto-upload enabled, triggering pending uploads');
+			triggerPhotoSync();
+		}
+		wasAutoUploadEnabled = enabled;
 	});
 }

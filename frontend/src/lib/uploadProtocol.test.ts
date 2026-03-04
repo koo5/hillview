@@ -100,7 +100,7 @@ describe('uploadProtocol', () => {
 		});
 
 		it('should read file as ArrayBuffer and pass to WordArray.create', async () => {
-			const CryptoJS = await import('crypto-js');
+			const CryptoJS = (await import('crypto-js')).default;
 			const file = new File(['hello'], 'test.jpg');
 			await calculateFileHash(file);
 			expect(CryptoJS.lib.WordArray.create).toHaveBeenCalled();
@@ -108,7 +108,7 @@ describe('uploadProtocol', () => {
 		});
 
 		it('should propagate errors without fallback', async () => {
-			const CryptoJS = await import('crypto-js');
+			const CryptoJS = (await import('crypto-js')).default;
 			vi.mocked(CryptoJS.MD5).mockImplementationOnce(() => {
 				throw new Error('MD5 calculation failed');
 			});

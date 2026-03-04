@@ -1,13 +1,16 @@
 // IndexedDB settings storage for service worker access
 import type { Settings } from '../settings';
-import { browser } from '$app/environment';
 
 const DB_NAME = 'HillviewSettingsDB';
 const DB_VERSION = 1;
 const STORE_NAME = 'settings';
 
+function hasIndexedDB(): boolean {
+	return typeof indexedDB !== 'undefined';
+}
+
 async function openDB(): Promise<IDBDatabase> {
-	if (!browser || typeof indexedDB === 'undefined') {
+	if (!hasIndexedDB()) {
 		throw new Error('IndexedDB not available');
 	}
 	return new Promise((resolve, reject) => {
@@ -24,7 +27,7 @@ async function openDB(): Promise<IDBDatabase> {
 }
 
 export async function writeSettings(settings: Settings): Promise<void> {
-	if (!browser || typeof indexedDB === 'undefined') {
+	if (!hasIndexedDB()) {
 		return; // Skip on server-side
 	}
 	try {
@@ -42,7 +45,7 @@ export async function writeSettings(settings: Settings): Promise<void> {
 }
 
 export async function readSettings(): Promise<Settings | null> {
-	if (!browser || typeof indexedDB === 'undefined') {
+	if (!hasIndexedDB()) {
 		return null; // Skip on server-side
 	}
 	try {
