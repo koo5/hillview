@@ -4,7 +4,7 @@
     import {LatLng} from 'leaflet';
     import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle, MapPin, Pause, ArrowUp, ArrowDown, Layers, Eye, Map as MapIcon, Info, SlidersHorizontal} from 'lucide-svelte';
 	import FiltersModal from './filters-modal/FiltersModal.svelte';
-	import { activeFilterCount, openFiltersModal } from './filters-modal/filtersStore';
+	import { activeFilterCount, openFiltersModal, clearFilters } from './filters-modal/filtersStore';
     import L from 'leaflet';
     import 'leaflet/dist/leaflet.css';
     import { getCurrentProviderConfig, setTileProvider, currentTileProvider } from '$lib/tileProviders';
@@ -260,6 +260,11 @@
 			top_left: bounds.getNorthWest(),
 			bottom_right: bounds.getSouthEast()
 		};
+
+		// Clear filters when navigating via URL so the target photo isn't filtered out
+		if (positionChanged || photoParam) {
+			clearFilters();
+		}
 
 		// Handle photo parameter and enable corresponding source
 		const photoUid = parsePhotoUid(photoParam);

@@ -539,7 +539,14 @@
 				pt.y < scrBounds.y ||
 				pt.y > scrBounds.y + scrBounds.height
 			) {
-				onClose();
+				event.preventDefaultAction = true;
+				event.originalEvent?.stopPropagation?.();
+				event.originalEvent?.preventDefault?.();
+				// Delay close so the overlay stays in the DOM long enough to
+				// absorb the browser's touch→click synthesis (~300ms on mobile).
+				// Without this, the overlay unmounts and the synthesized click
+				// falls through to the map underneath.
+				setTimeout(onClose, 50);
 			}
 		});
 
