@@ -33,6 +33,8 @@ async function drawAnnotation(
   label: string,
   region = { x1: 0.3, y1: 0.3, x2: 0.6, y2: 0.6 },
 ) {
+  // Ensure OSD viewer is open before interacting with canvas
+  await expect(page.locator('[data-testid="osd-viewer-overlay"]')).toBeVisible({ timeout: 5000 });
   const box = await canvasBox(page);
 
   const startX = box.x + box.width * region.x1;
@@ -108,6 +110,9 @@ async function openViewer(page: Page) {
   await mainPhoto.waitFor({ state: 'visible', timeout: 30000 });
   await mainPhoto.click();
   await page.locator('[data-testid="osd-viewer-overlay"]').waitFor({ state: 'visible', timeout: 15000 });
+  // Wait for OpenSeadragon canvas to initialize (tiled mode)
+  await page.locator('.openseadragon-canvas').waitFor({ state: 'visible', timeout: 15000 });
+  await page.waitForTimeout(500);
 }
 
 /** Close the OSD viewer. */
@@ -213,7 +218,7 @@ test.describe('Annotation Tests', () => {
     });
     expect(photoId).toBeTruthy();
 
-    // Open the OSD zoom view
+    // Open the OSD zoom view (waits for OSD canvas to initialize)
     await openViewer(page);
   });
 
@@ -329,7 +334,7 @@ test.describe('Annotation Tests', () => {
     // Round 2: reopen, create a second annotation in a different spot
     await openViewer(page);
     await enterDrawMode(page);
-    await drawAnnotation(page, 'round-2', { x1: 0.05, y1: 0.05, x2: 0.25, y2: 0.25 });
+    await drawAnnotation(page, 'round-2', { x1: 0.1, y1: 0.6, x2: 0.35, y2: 0.85 });
     await closeViewer(page);
 
     // Verify both persisted
@@ -446,9 +451,9 @@ test.describe('Annotation Tests', () => {
   });
 
   test('should handle multiple annotations: create, edit different ones, delete one', async ({ page }) => {
-    const regionA = { x1: 0.05, y1: 0.05, x2: 0.25, y2: 0.25 };
+    const regionA = { x1: 0.1, y1: 0.15, x2: 0.3, y2: 0.35 };
     const regionB = { x1: 0.4, y1: 0.4, x2: 0.65, y2: 0.65 };
-    const regionC = { x1: 0.7, y1: 0.05, x2: 0.95, y2: 0.25 };
+    const regionC = { x1: 0.7, y1: 0.15, x2: 0.9, y2: 0.35 };
 
     // Create three annotations in different spots
     await enterDrawMode(page);
@@ -651,27 +656,6 @@ test.describe('Annotation Tests', () => {
 
   // ── Cleanup ──
 
-  test.afterEach(async ({ page }) => {
-    // Close zoom view if open
-    try {
-      const closeBtn = page.locator('[data-testid="osd-viewer-close"]');
-      if (await closeBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
-        await closeBtn.click();
-        await page.waitForTimeout(500);
-      }
-    } catch (_) {}
-
-    // Logout
-    try {
-      await page.goto('/');
-      await page.waitForTimeout(1000);
-      await page.click('.hamburger');
-      await page.waitForTimeout(500);
-      const logoutButton = page.locator('button:has-text("Logout")');
-      if (await logoutButton.isVisible()) {
-        await logoutButton.click();
-        await page.waitForTimeout(1000);
-      }
-    } catch (_) {}
-  });
+  // No afterEach needed — beforeEach calls recreate-test-users which
+  // resets all state, and logs in fresh each time.
 });

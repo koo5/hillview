@@ -58,6 +58,11 @@
 	// the user confirms via the edit panel (Save) or discards (Cancel/Escape).
 	let pendingNewAnnotation: any = null;
 
+	/** Deep clone that preserves Date objects (structuredClone works here). */
+	function deepClone<T>(obj: T): T {
+		return structuredClone(obj);
+	}
+
 	// UI IDs whose next updateAnnotation event should be swallowed.
 	// Populated by save/cancel before calling setSelected(), consumed
 	// (one-shot) by the updateAnnotation handler.  Deterministic — no
@@ -317,6 +322,8 @@
 			gestureSettingsTouch: { clickToZoom: false, dblClickToZoom: true },
 			immediateRender: false,
 			imageLoaderLimit: 1,
+			// Allow WebGL to use cross-origin images as textures
+			crossOriginPolicy: 'Anonymous',
 			//debugMode: true
 		});
 
@@ -392,7 +399,7 @@
 				event_type: 'created',
 				owner_username: null,
 			};
-			originalW3cSnapshot = JSON.parse(JSON.stringify(annotation));
+			originalW3cSnapshot = deepClone(annotation);
 			originalDbId = null;
 			// Pause drawing while the panel is open so accidental drags
 			// don't create more shapes.  Mode stays as 'draw'.
@@ -491,7 +498,7 @@
 				// the deselect comparison uses internal format.
 				originalDbId = dbId;
 				const internal = annotator.state.store.getAnnotation(uiId);
-				originalW3cSnapshot = internal ? JSON.parse(JSON.stringify(internal)) : null;
+				originalW3cSnapshot = internal ? deepClone(internal) : null;
 				console.log('[OSD] selectionChanged — editing dbId:', dbId, 'body:', editBody);
 			} else if (selected.length === 0 && editingAnnotation) {
 				saveEditBody();
