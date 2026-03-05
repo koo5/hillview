@@ -5,20 +5,40 @@ import { ensureSourceEnabled } from './helpers/sourceHelpers';
 
 const BACKEND_URL = 'http://localhost:8055';
 
-/**
- * Helper: draw a rectangle on the OSD canvas and fill the label via the edit panel.
- * Returns the canvas bounding box for subsequent interactions.
- */
-async function drawAnnotation(page: import('@playwright/test').Page, label: string) {
+// ─── Helpers ───────────────────────────────────────────────────────────
+
+type Page = import('@playwright/test').Page;
+
+/** Fetch current annotations for a photo from the API. */
+async function apiAnnotations(photoId: string) {
+  const res = await fetch(`${BACKEND_URL}/api/annotations/photos/${photoId}`);
+  return res.json();
+}
+
+/** Get the bounding box of the OSD canvas — waits for it to be visible. */
+async function canvasBox(page: Page) {
   const canvas = page.locator('.openseadragon-canvas');
   await canvas.waitFor({ state: 'visible' });
   const box = await canvas.boundingBox();
   expect(box).toBeTruthy();
+  return box!;
+}
 
-  const startX = box!.x + box!.width * 0.3;
-  const startY = box!.y + box!.height * 0.3;
-  const endX = box!.x + box!.width * 0.6;
-  const endY = box!.y + box!.height * 0.6;
+/**
+ * Draw a rectangle on the OSD canvas at the given fractional region
+ * and fill the label via the edit panel.
+ */
+async function drawAnnotation(
+  page: Page,
+  label: string,
+  region = { x1: 0.3, y1: 0.3, x2: 0.6, y2: 0.6 },
+) {
+  const box = await canvasBox(page);
+
+  const startX = box.x + box.width * region.x1;
+  const startY = box.y + box.height * region.y1;
+  const endX = box.x + box.width * region.x2;
+  const endY = box.y + box.height * region.y2;
 
   await page.mouse.move(startX, startY);
   await page.mouse.down();
@@ -38,18 +58,120 @@ async function drawAnnotation(page: import('@playwright/test').Page, label: stri
   // Wait for server persist
   await page.waitForTimeout(1000);
 
-  return box!;
+  return box;
 }
 
 /**
- * Annotation tests — serial because they share a single uploaded photo
- * and build on each other (create → edit → delete).
+ * Click the center of the given fractional region on the canvas.
+ * Used to select an annotation we drew at that region.
  */
+async function clickRegion(page: Page, region = { x1: 0.3, y1: 0.3, x2: 0.6, y2: 0.6 }) {
+  const box = await canvasBox(page);
+  const cx = box.x + box.width * ((region.x1 + region.x2) / 2);
+  const cy = box.y + box.height * ((region.y1 + region.y2) / 2);
+  await page.mouse.click(cx, cy);
+}
+
+/**
+ * Drag from the center of `fromRegion` by `(dx, dy)` fraction of canvas size.
+ * Used to move an annotation that's already selected for editing.
+ */
+async function dragAnnotation(
+  page: Page,
+  fromRegion: { x1: number; y1: number; x2: number; y2: number },
+  dx: number,
+  dy: number,
+) {
+  const box = await canvasBox(page);
+  const startX = box.x + box.width * ((fromRegion.x1 + fromRegion.x2) / 2);
+  const startY = box.y + box.height * ((fromRegion.y1 + fromRegion.y2) / 2);
+  const endX = startX + box.width * dx;
+  const endY = startY + box.height * dy;
+
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(endX, endY, { steps: 10 });
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+}
+
+/** Wait for the edit panel to appear. */
+async function waitForEditPanel(page: Page) {
+  const panel = page.locator('[data-testid="osd-edit-body-panel"]');
+  await panel.waitFor({ state: 'visible', timeout: 10000 });
+  return panel;
+}
+
+/** Open the OSD viewer by clicking the main photo. */
+async function openViewer(page: Page) {
+  const mainPhoto = page.locator('[data-testid="main-photo"]');
+  await mainPhoto.waitFor({ state: 'visible', timeout: 30000 });
+  await mainPhoto.click();
+  await page.locator('[data-testid="osd-viewer-overlay"]').waitFor({ state: 'visible', timeout: 15000 });
+}
+
+/** Close the OSD viewer. */
+async function closeViewer(page: Page) {
+  await page.click('[data-testid="osd-viewer-close"]');
+  await expect(page.locator('[data-testid="osd-viewer-overlay"]')).not.toBeVisible({ timeout: 5000 });
+  await page.waitForTimeout(500);
+}
+
+/** Enter edit mode. */
+async function enterEditMode(page: Page) {
+  await page.click('[data-testid="osd-annotate-edit"]');
+}
+
+/** Enter draw mode. */
+async function enterDrawMode(page: Page) {
+  await page.click('[data-testid="osd-annotate-draw"]');
+}
+
+/** Select an annotation in edit mode and wait for panel. */
+async function selectAnnotation(page: Page, region = { x1: 0.3, y1: 0.3, x2: 0.6, y2: 0.6 }) {
+  await clickRegion(page, region);
+  return waitForEditPanel(page);
+}
+
+/** Read the current value from the edit panel input. */
+async function editPanelValue(page: Page) {
+  return page.locator('[data-testid="osd-edit-body-input"]').inputValue();
+}
+
+/** Save the current edit via the panel button. */
+async function clickSave(page: Page) {
+  await page.click('[data-testid="osd-edit-body-save"]');
+  await expect(page.locator('[data-testid="osd-edit-body-panel"]')).not.toBeVisible({ timeout: 5000 });
+  await page.waitForTimeout(500);
+}
+
+/** Cancel the current edit via the panel button. */
+async function clickCancel(page: Page) {
+  await page.click('[data-testid="osd-edit-body-cancel"]');
+  await expect(page.locator('[data-testid="osd-edit-body-panel"]')).not.toBeVisible({ timeout: 5000 });
+  await page.waitForTimeout(500);
+}
+
+/** Delete via the edit panel button. */
+async function clickDelete(page: Page) {
+  await page.click('[data-testid="osd-edit-body-delete"]');
+  await expect(page.locator('[data-testid="osd-edit-body-panel"]')).not.toBeVisible({ timeout: 5000 });
+  await page.waitForTimeout(500);
+}
+
+/** Change the label text in the edit panel (clear + fill). */
+async function setLabel(page: Page, text: string) {
+  const input = page.locator('[data-testid="osd-edit-body-input"]');
+  await input.clear();
+  await input.fill(text);
+}
+
+// ─── Tests ─────────────────────────────────────────────────────────────
+
 test.describe('Annotation Tests', () => {
   test.describe.configure({ mode: 'serial' });
 
   let testPassword: string;
-  /** The photo_id extracted from the uploaded photo's data attribute */
   let photoId: string;
 
   test.beforeEach(async ({ page }) => {
@@ -70,7 +192,7 @@ test.describe('Annotation Tests', () => {
     await page.waitForURL('/', { timeout: 15000 });
     await page.waitForLoadState('networkidle');
 
-    // Upload a geotagged test photo (coords ~50.1153, 14.4938)
+    // Upload a geotagged test photo
     await uploadPhoto(page, testPhotos[0]);
 
     // Navigate to the map centred on the test photo's GPS coords
@@ -78,108 +200,456 @@ test.describe('Annotation Tests', () => {
     await page.waitForLoadState('networkidle');
 
     // Enable Hillview source
-    await ensureSourceEnabled(page, 'Hillview', true);
+    await ensureSourceEnabled(page, 'hillview', true);
 
-    // Wait for the gallery photo to appear, then click to open zoom view
+    // Wait for the gallery photo to appear
     const mainPhoto = page.locator('[data-testid="main-photo"]');
     await mainPhoto.waitFor({ state: 'visible', timeout: 30000 });
 
-    // Extract the photo_id from the data-photo attribute
+    // Extract photo_id
     photoId = await mainPhoto.evaluate((el) => {
       const data = JSON.parse(el.getAttribute('data-photo') || '{}');
       return data.id;
     });
     expect(photoId).toBeTruthy();
 
-    // Click to open the OSD zoom view
-    await mainPhoto.click();
-    await page.locator('[data-testid="osd-viewer-overlay"]').waitFor({ state: 'visible', timeout: 15000 });
+    // Open the OSD zoom view
+    await openViewer(page);
   });
 
-  test('should create an annotation on a photo', async ({ page }) => {
-    // Enter draw mode
-    await page.click('[data-testid="osd-annotate-draw"]');
+  // ── Basic CRUD ──
 
-    // Draw annotation and label it via edit panel
+  test('should create an annotation on a photo', async ({ page }) => {
+    await enterDrawMode(page);
     await drawAnnotation(page, 'test-label');
 
-    // Verify via API
-    const res = await fetch(`${BACKEND_URL}/api/annotations/photos/${photoId}`);
-    const annotations = await res.json();
+    const annotations = await apiAnnotations(photoId);
     expect(annotations).toHaveLength(1);
     expect(annotations[0].body).toBe('test-label');
   });
 
   test('should edit an annotation label', async ({ page }) => {
-    // Create an annotation first
-    await page.click('[data-testid="osd-annotate-draw"]');
-    const box = await drawAnnotation(page, 'original-label');
+    await enterDrawMode(page);
+    await drawAnnotation(page, 'original-label');
 
-    // Switch to edit mode
-    await page.click('[data-testid="osd-annotate-edit"]');
+    await enterEditMode(page);
+    await selectAnnotation(page);
+    await setLabel(page, 'updated-label');
+    await clickSave(page);
 
-    // Click on the annotation area (center of where we drew)
-    const centerX = box.x + box.width * 0.45;
-    const centerY = box.y + box.height * 0.45;
-    await page.mouse.click(centerX, centerY);
-
-    // Wait for edit panel
-    const editPanel = page.locator('[data-testid="osd-edit-body-panel"]');
-    await editPanel.waitFor({ state: 'visible', timeout: 10000 });
-
-    // Clear and fill with new label
-    const input = page.locator('[data-testid="osd-edit-body-input"]');
-    await input.clear();
-    await input.fill('updated-label');
-
-    // Click Save
-    await page.click('[data-testid="osd-edit-body-save"]');
-
-    // Verify panel closes
-    await expect(editPanel).not.toBeVisible({ timeout: 5000 });
-
-    // Verify via API
-    await page.waitForTimeout(1000);
-    const res = await fetch(`${BACKEND_URL}/api/annotations/photos/${photoId}`);
-    const annotations = await res.json();
+    await page.waitForTimeout(500);
+    const annotations = await apiAnnotations(photoId);
     expect(annotations).toHaveLength(1);
     expect(annotations[0].body).toBe('updated-label');
   });
 
   test('should delete an annotation via edit panel', async ({ page }) => {
-    // Create an annotation first
-    await page.click('[data-testid="osd-annotate-draw"]');
-    const box = await drawAnnotation(page, 'to-delete');
+    await enterDrawMode(page);
+    await drawAnnotation(page, 'to-delete');
 
-    // Verify annotation exists
-    let res = await fetch(`${BACKEND_URL}/api/annotations/photos/${photoId}`);
-    let annotations = await res.json();
+    let annotations = await apiAnnotations(photoId);
     expect(annotations).toHaveLength(1);
 
-    // Switch to edit mode
-    await page.click('[data-testid="osd-annotate-edit"]');
+    await enterEditMode(page);
+    await selectAnnotation(page);
+    await clickDelete(page);
 
-    // Click on the annotation
-    const centerX = box.x + box.width * 0.45;
-    const centerY = box.y + box.height * 0.45;
-    await page.mouse.click(centerX, centerY);
-
-    // Wait for edit panel
-    const editPanel = page.locator('[data-testid="osd-edit-body-panel"]');
-    await editPanel.waitFor({ state: 'visible', timeout: 10000 });
-
-    // Click Delete
-    await page.click('[data-testid="osd-edit-body-delete"]');
-
-    // Verify panel closes
-    await expect(editPanel).not.toBeVisible({ timeout: 5000 });
-
-    // Verify via API: 0 annotations
-    await page.waitForTimeout(1000);
-    res = await fetch(`${BACKEND_URL}/api/annotations/photos/${photoId}`);
-    annotations = await res.json();
+    await page.waitForTimeout(500);
+    annotations = await apiAnnotations(photoId);
     expect(annotations).toHaveLength(0);
   });
+
+  // ── Cancel reverts ──
+
+  test('should cancel a label edit without persisting', async ({ page }) => {
+    await enterDrawMode(page);
+    await drawAnnotation(page, 'keep-me');
+
+    await enterEditMode(page);
+    await selectAnnotation(page);
+
+    // Verify the input shows the current label
+    expect(await editPanelValue(page)).toBe('keep-me');
+
+    // Change text then cancel
+    await setLabel(page, 'nope-changed');
+    await clickCancel(page);
+
+    // API should still have the original label
+    await page.waitForTimeout(500);
+    const annotations = await apiAnnotations(photoId);
+    expect(annotations).toHaveLength(1);
+    expect(annotations[0].body).toBe('keep-me');
+  });
+
+  test('should cancel a new annotation without persisting', async ({ page }) => {
+    await enterDrawMode(page);
+
+    // Start drawing but cancel instead of saving
+    const box = await canvasBox(page);
+    await page.mouse.move(box.x + box.width * 0.3, box.y + box.height * 0.3);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.6, { steps: 10 });
+    await page.mouse.up();
+
+    await waitForEditPanel(page);
+    await setLabel(page, 'will-be-cancelled');
+    await clickCancel(page);
+
+    // Nothing should be persisted
+    await page.waitForTimeout(500);
+    const annotations = await apiAnnotations(photoId);
+    expect(annotations).toHaveLength(0);
+  });
+
+  // ── Viewer open/close round-trips ──
+
+  test('should persist annotation across viewer close/reopen', async ({ page }) => {
+    // Create
+    await enterDrawMode(page);
+    await drawAnnotation(page, 'survives-close');
+
+    // Close and reopen
+    await closeViewer(page);
+    await openViewer(page);
+
+    // Switch to edit mode and verify the annotation is still clickable
+    await enterEditMode(page);
+    await selectAnnotation(page);
+    expect(await editPanelValue(page)).toBe('survives-close');
+    await clickCancel(page);
+  });
+
+  test('should handle multiple create-close-reopen cycles', async ({ page }) => {
+    // Round 1: create annotation, close viewer
+    await enterDrawMode(page);
+    await drawAnnotation(page, 'round-1');
+    await closeViewer(page);
+
+    // Round 2: reopen, create a second annotation in a different spot
+    await openViewer(page);
+    await enterDrawMode(page);
+    await drawAnnotation(page, 'round-2', { x1: 0.05, y1: 0.05, x2: 0.25, y2: 0.25 });
+    await closeViewer(page);
+
+    // Verify both persisted
+    const annotations = await apiAnnotations(photoId);
+    expect(annotations).toHaveLength(2);
+    const bodies = annotations.map((a: any) => a.body).sort();
+    expect(bodies).toEqual(['round-1', 'round-2']);
+
+    // Round 3: reopen, edit one, close, verify
+    await openViewer(page);
+    await enterEditMode(page);
+    await selectAnnotation(page); // clicks center of default region = round-1
+    await setLabel(page, 'round-1-edited');
+    await clickSave(page);
+    await closeViewer(page);
+
+    await page.waitForTimeout(500);
+    const updated = await apiAnnotations(photoId);
+    expect(updated).toHaveLength(2);
+    const updatedBodies = updated.map((a: any) => a.body).sort();
+    expect(updatedBodies).toEqual(['round-1-edited', 'round-2']);
+  });
+
+  // ── Move + save / move + cancel ──
+
+  test('should persist position change after move + save', async ({ page }) => {
+    await enterDrawMode(page);
+    await drawAnnotation(page, 'moveable');
+
+    // Grab the original target from API
+    let annotations = await apiAnnotations(photoId);
+    const originalTarget = annotations[0].target;
+
+    // Edit mode: select, move, save
+    await enterEditMode(page);
+    await selectAnnotation(page);
+    await dragAnnotation(page, { x1: 0.3, y1: 0.3, x2: 0.6, y2: 0.6 }, 0.1, 0.1);
+    await clickSave(page);
+
+    // Verify position changed on server
+    await page.waitForTimeout(500);
+    annotations = await apiAnnotations(photoId);
+    expect(annotations).toHaveLength(1);
+    expect(annotations[0].body).toBe('moveable');
+    expect(annotations[0].target).not.toEqual(originalTarget);
+  });
+
+  test('should revert position change after move + cancel', async ({ page }) => {
+    await enterDrawMode(page);
+    await drawAnnotation(page, 'stay-put');
+
+    // Grab the original target
+    let annotations = await apiAnnotations(photoId);
+    const originalTarget = annotations[0].target;
+
+    // Edit mode: select, move, cancel
+    await enterEditMode(page);
+    await selectAnnotation(page);
+    await dragAnnotation(page, { x1: 0.3, y1: 0.3, x2: 0.6, y2: 0.6 }, 0.15, 0.15);
+    await clickCancel(page);
+
+    // Position should be unchanged on server
+    await page.waitForTimeout(500);
+    annotations = await apiAnnotations(photoId);
+    expect(annotations).toHaveLength(1);
+    expect(annotations[0].body).toBe('stay-put');
+    expect(annotations[0].target).toEqual(originalTarget);
+  });
+
+  // ── Complex multi-step workflows ──
+
+  test('should handle create → move → cancel → move → save → edit text → save', async ({ page }) => {
+    const region = { x1: 0.3, y1: 0.3, x2: 0.6, y2: 0.6 };
+
+    // Step 1: Create
+    await enterDrawMode(page);
+    await drawAnnotation(page, 'workflow-label', region);
+
+    let annotations = await apiAnnotations(photoId);
+    expect(annotations).toHaveLength(1);
+    const targetAfterCreate = annotations[0].target;
+
+    // Step 2: Move and cancel — position should revert
+    await enterEditMode(page);
+    await selectAnnotation(page, region);
+    await dragAnnotation(page, region, 0.1, 0.1);
+    await clickCancel(page);
+
+    await page.waitForTimeout(500);
+    annotations = await apiAnnotations(photoId);
+    expect(annotations[0].target).toEqual(targetAfterCreate);
+
+    // Step 3: Move and save — position should update
+    await selectAnnotation(page, region);
+    await dragAnnotation(page, region, -0.05, -0.05);
+    await clickSave(page);
+
+    await page.waitForTimeout(500);
+    annotations = await apiAnnotations(photoId);
+    expect(annotations[0].target).not.toEqual(targetAfterCreate);
+    const targetAfterMove = annotations[0].target;
+
+    // Step 4: Edit text only, save
+    await selectAnnotation(page, region);
+    await setLabel(page, 'workflow-renamed');
+    await clickSave(page);
+
+    await page.waitForTimeout(500);
+    annotations = await apiAnnotations(photoId);
+    expect(annotations).toHaveLength(1);
+    expect(annotations[0].body).toBe('workflow-renamed');
+    // Target should be approximately the same (no move this time)
+    expect(annotations[0].target).toEqual(targetAfterMove);
+  });
+
+  test('should handle multiple annotations: create, edit different ones, delete one', async ({ page }) => {
+    const regionA = { x1: 0.05, y1: 0.05, x2: 0.25, y2: 0.25 };
+    const regionB = { x1: 0.4, y1: 0.4, x2: 0.65, y2: 0.65 };
+    const regionC = { x1: 0.7, y1: 0.05, x2: 0.95, y2: 0.25 };
+
+    // Create three annotations in different spots
+    await enterDrawMode(page);
+    await drawAnnotation(page, 'alpha', regionA);
+    await drawAnnotation(page, 'beta', regionB);
+    await drawAnnotation(page, 'gamma', regionC);
+
+    let annotations = await apiAnnotations(photoId);
+    expect(annotations).toHaveLength(3);
+
+    // Edit beta's label
+    await enterEditMode(page);
+    await selectAnnotation(page, regionB);
+    expect(await editPanelValue(page)).toBe('beta');
+    await setLabel(page, 'beta-v2');
+    await clickSave(page);
+
+    // Delete gamma
+    await selectAnnotation(page, regionC);
+    expect(await editPanelValue(page)).toBe('gamma');
+    await clickDelete(page);
+
+    // Verify: alpha unchanged, beta updated, gamma gone
+    await page.waitForTimeout(500);
+    annotations = await apiAnnotations(photoId);
+    expect(annotations).toHaveLength(2);
+    const bodies = annotations.map((a: any) => a.body).sort();
+    expect(bodies).toEqual(['alpha', 'beta-v2']);
+  });
+
+  test('should survive: create → close → reopen → edit → cancel → edit → save → close → reopen → delete', async ({ page }) => {
+    // Create
+    await enterDrawMode(page);
+    await drawAnnotation(page, 'resilient');
+
+    // Close and reopen
+    await closeViewer(page);
+    await openViewer(page);
+
+    // Edit label but cancel
+    await enterEditMode(page);
+    await selectAnnotation(page);
+    expect(await editPanelValue(page)).toBe('resilient');
+    await setLabel(page, 'nope');
+    await clickCancel(page);
+
+    // Verify cancel didn't persist
+    let annotations = await apiAnnotations(photoId);
+    expect(annotations[0].body).toBe('resilient');
+
+    // Edit label and save this time
+    await selectAnnotation(page);
+    await setLabel(page, 'resilient-v2');
+    await clickSave(page);
+
+    await page.waitForTimeout(500);
+    annotations = await apiAnnotations(photoId);
+    expect(annotations[0].body).toBe('resilient-v2');
+
+    // Close and reopen again
+    await closeViewer(page);
+    await openViewer(page);
+
+    // Delete
+    await enterEditMode(page);
+    await selectAnnotation(page);
+    expect(await editPanelValue(page)).toBe('resilient-v2');
+    await clickDelete(page);
+
+    await page.waitForTimeout(500);
+    annotations = await apiAnnotations(photoId);
+    expect(annotations).toHaveLength(0);
+  });
+
+  test('should handle rapid mode switching without breaking state', async ({ page }) => {
+    // Create an annotation
+    await enterDrawMode(page);
+    await drawAnnotation(page, 'mode-test');
+
+    // Rapidly switch modes
+    await enterEditMode(page);
+    await enterDrawMode(page);
+    await enterEditMode(page);
+    await enterDrawMode(page);
+    await enterEditMode(page);
+
+    // After all the switching, the annotation should still be selectable
+    await selectAnnotation(page);
+    expect(await editPanelValue(page)).toBe('mode-test');
+    await clickCancel(page);
+
+    // And still persisted
+    const annotations = await apiAnnotations(photoId);
+    expect(annotations).toHaveLength(1);
+    expect(annotations[0].body).toBe('mode-test');
+  });
+
+  test('should handle draw → cancel → draw → save cycle', async ({ page }) => {
+    await enterDrawMode(page);
+
+    // Draw and cancel
+    const box = await canvasBox(page);
+    await page.mouse.move(box.x + box.width * 0.3, box.y + box.height * 0.3);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.6, { steps: 10 });
+    await page.mouse.up();
+    await waitForEditPanel(page);
+    await clickCancel(page);
+
+    // Nothing persisted
+    let annotations = await apiAnnotations(photoId);
+    expect(annotations).toHaveLength(0);
+
+    // Draw again and save this time
+    await drawAnnotation(page, 'second-attempt');
+
+    annotations = await apiAnnotations(photoId);
+    expect(annotations).toHaveLength(1);
+    expect(annotations[0].body).toBe('second-attempt');
+  });
+
+  test('should auto-save when clicking away from annotation in edit mode', async ({ page }) => {
+    await enterDrawMode(page);
+    await drawAnnotation(page, 'auto-save-me');
+
+    await enterEditMode(page);
+    await selectAnnotation(page);
+    await setLabel(page, 'auto-saved');
+
+    // Click on empty area (far corner) instead of pressing Save
+    const box = await canvasBox(page);
+    await page.mouse.click(box.x + box.width * 0.95, box.y + box.height * 0.95);
+
+    // Panel should close (auto-save on deselect)
+    await expect(page.locator('[data-testid="osd-edit-body-panel"]')).not.toBeVisible({ timeout: 5000 });
+
+    await page.waitForTimeout(1000);
+    const annotations = await apiAnnotations(photoId);
+    expect(annotations).toHaveLength(1);
+    expect(annotations[0].body).toBe('auto-saved');
+  });
+
+  test('should handle move + text change + save together', async ({ page }) => {
+    const region = { x1: 0.3, y1: 0.3, x2: 0.6, y2: 0.6 };
+
+    await enterDrawMode(page);
+    await drawAnnotation(page, 'combo-test', region);
+
+    let annotations = await apiAnnotations(photoId);
+    const originalTarget = annotations[0].target;
+
+    // Select, move, change text, save — all in one edit session
+    await enterEditMode(page);
+    await selectAnnotation(page, region);
+    await dragAnnotation(page, region, 0.05, 0.05);
+    await setLabel(page, 'combo-updated');
+    await clickSave(page);
+
+    await page.waitForTimeout(500);
+    annotations = await apiAnnotations(photoId);
+    expect(annotations).toHaveLength(1);
+    expect(annotations[0].body).toBe('combo-updated');
+    expect(annotations[0].target).not.toEqual(originalTarget);
+  });
+
+  test('should handle Escape key to cancel edit', async ({ page }) => {
+    await enterDrawMode(page);
+    await drawAnnotation(page, 'escape-test');
+
+    await enterEditMode(page);
+    await selectAnnotation(page);
+    await setLabel(page, 'should-not-persist');
+    await page.keyboard.press('Escape');
+
+    await expect(page.locator('[data-testid="osd-edit-body-panel"]')).not.toBeVisible({ timeout: 5000 });
+
+    await page.waitForTimeout(500);
+    const annotations = await apiAnnotations(photoId);
+    expect(annotations[0].body).toBe('escape-test');
+  });
+
+  test('should handle Enter key to save edit', async ({ page }) => {
+    await enterDrawMode(page);
+    await drawAnnotation(page, 'enter-test');
+
+    await enterEditMode(page);
+    await selectAnnotation(page);
+    await setLabel(page, 'enter-saved');
+
+    // Focus the input and press Enter
+    await page.locator('[data-testid="osd-edit-body-input"]').focus();
+    await page.keyboard.press('Enter');
+
+    await expect(page.locator('[data-testid="osd-edit-body-panel"]')).not.toBeVisible({ timeout: 5000 });
+
+    await page.waitForTimeout(500);
+    const annotations = await apiAnnotations(photoId);
+    expect(annotations[0].body).toBe('enter-saved');
+  });
+
+  // ── Cleanup ──
 
   test.afterEach(async ({ page }) => {
     // Close zoom view if open
