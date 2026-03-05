@@ -34,7 +34,7 @@ def _tile_starts(length, tile_size, step):
 	return starts
 
 
-def deduplicate_boxes(boxes, tolerance=10, subsumption_threshold=0.8):
+def deduplicate_boxes(boxes, tolerance=1, subsumption_threshold=1):
 	"""Remove near-duplicate and subsumed bounding boxes.
 
 	Two boxes are considered near-duplicates if all four coordinates are within
