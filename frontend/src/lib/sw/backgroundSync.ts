@@ -13,6 +13,9 @@ interface SyncEvent extends Event {
 import { uploadPendingPhotos, type UploadResult, type PhotoUploader } from '$lib/browser/uploadManager';
 import { swSecureUploader } from './serviceWorkerSecureUpload';
 import type { StoredPhoto } from '$lib/browser/photoStorage';
+import { clientCrypto } from '$lib/clientCrypto';
+import { authStorage } from '$lib/browser/authStorage';
+import { createSwStatusReporter } from './swStatusReporter';
 
 const LOG_PREFIX = '[SW BackgroundSync]';
 
@@ -29,8 +32,9 @@ const serviceWorkerUploader: PhotoUploader = async (photo: StoredPhoto): Promise
 /** Handle sync events for photo uploads */
 export function handleSync(event: SyncEvent): void {
     if (event.tag === 'photo-upload' || event.tag === 'photo-upload-retry') {
+        const reporter = createSwStatusReporter();
         event.waitUntil(
-            uploadPendingPhotos(serviceWorkerUploader).then(() => {
+            uploadPendingPhotos(serviceWorkerUploader, { source: 'sw', reporter }).then(() => {
                 console.log(`${LOG_PREFIX} Background sync complete`);
             })
         );

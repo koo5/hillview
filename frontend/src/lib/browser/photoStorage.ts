@@ -286,6 +286,28 @@ class BrowserPhotoStorage {
         await this.updateQueueStatus();
     }
 
+    /**
+     * Atomically claim a photo for uploading: re-reads status inside a readwrite
+     * transaction and only marks it as 'uploading' if it's still 'pending'.
+     * Returns true if claimed, false if another context already took it.
+     */
+    async tryClaimPhoto(photoId: string): Promise<boolean> {
+        if (!this.db) await this.init();
+
+        const transaction = this.db!.transaction([PHOTO_STORE], 'readwrite');
+        const store = transaction.objectStore(PHOTO_STORE);
+
+        const photo = await this.promisifyRequest(store.get(photoId));
+        if (!photo || photo.status !== 'pending') {
+            return false;
+        }
+
+        photo.status = 'uploading';
+        await this.promisifyRequest(store.put(photo));
+        await this.updateQueueStatus();
+        return true;
+    }
+
     async markPhotoAsUploaded(photoId: string, serverPhotoId: string): Promise<void> {
         if (!this.db) await this.init();
 

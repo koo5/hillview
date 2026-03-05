@@ -1,6 +1,9 @@
 // Unified photo sync trigger
 // Single entry point for triggering photo uploads, whether via
 // Background Sync (service worker) or foreground (main thread).
+// Uses a probe-then-fallback pattern: registers background sync,
+// waits briefly for the SW to report activity, then falls back
+// to foreground upload if the SW is unresponsive.
 
 import { uploadPendingPhotos, type UploadResult } from './uploadManager';
 import { isBackgroundSyncSupported, type StoredPhoto } from './photoStorage';
@@ -8,6 +11,7 @@ import { secureUploadFile } from '../secureUpload';
 import { auth } from '../authStore';
 import { getSettings } from '../settings';
 import { get } from 'svelte/store';
+import { initSyncStatusListener, isSwAlive, createFgStatusReporter } from '../syncStatus';
 
 const LOG_PREFIX = '🢄[PhotoSync]';
 
@@ -58,8 +62,9 @@ async function foregroundUploader(photo: StoredPhoto): Promise<UploadResult> {
  * Skips silently if user is not authenticated — uploads would fail anyway
  * and we'd needlessly mark photos as 'failed' with retry counts burned.
  *
- * Does not await the foreground upload — it fires and forgets
- * so callers are never blocked by the upload queue.
+ * Uses probe-then-fallback: registers background sync, waits 500ms for
+ * the SW to report activity via postMessage, then falls back to foreground
+ * if the SW is unresponsive (stale cache, crash, etc).
  */
 export async function triggerPhotoSync(): Promise<void> {
     const authState = get(auth);
@@ -74,15 +79,26 @@ export async function triggerPhotoSync(): Promise<void> {
         return;
     }
 
+    initSyncStatusListener(); // idempotent
+
     if (isBackgroundSyncSupported()) {
-        navigator.serviceWorker.ready
-            .then(reg => (reg as any).sync.register('photo-upload'))
-            .then(() => console.log(`${LOG_PREFIX} Background sync registered`))
-            .catch(error => {
-                console.warn(`${LOG_PREFIX} Background sync failed, falling back to foreground:`, error);
-                startForegroundSync();
-            });
-        return;
+        try {
+            const reg = await navigator.serviceWorker.ready;
+            await (reg as any).sync.register('photo-upload');
+            console.log(`${LOG_PREFIX} Background sync registered, probing SW...`);
+
+            // Wait for SW to respond with a status report
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            if (isSwAlive(1000)) {
+                console.log(`${LOG_PREFIX} SW is alive and uploading`);
+                return;
+            }
+
+            console.warn(`${LOG_PREFIX} SW did not respond, falling back to foreground`);
+        } catch (error) {
+            console.warn(`${LOG_PREFIX} Background sync failed, falling back to foreground:`, error);
+        }
     }
 
     startForegroundSync();
@@ -90,7 +106,8 @@ export async function triggerPhotoSync(): Promise<void> {
 
 function startForegroundSync(): void {
     console.log(`${LOG_PREFIX} Using foreground upload`);
-    uploadPendingPhotos(foregroundUploader).catch(error => {
+    const reporter = createFgStatusReporter();
+    uploadPendingPhotos(foregroundUploader, { source: 'fg', reporter }).catch(error => {
         console.error(`${LOG_PREFIX} Foreground upload error:`, error);
     });
 }

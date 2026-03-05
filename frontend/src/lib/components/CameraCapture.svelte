@@ -5,7 +5,7 @@
 	import {invoke} from '@tauri-apps/api/core';
 	import {get} from 'svelte/store';
 	import {playShutterSound} from '$lib/utils/shutterSound';
-	import {app} from "$lib/data.svelte.js";
+	import {app, mockCamera} from "$lib/data.svelte.js";
 	import DualCaptureButton from './DualCaptureButton.svelte';
 	import CaptureQueueStatus from './CaptureQueueStatus.svelte';
 	import CaptureQueueIndicator from './CaptureQueueIndicator.svelte';
@@ -108,6 +108,9 @@
 
 	let blinkTimeout: ReturnType<typeof setTimeout> | null = null;
 	let calibrationHintTimeout: ReturnType<typeof setTimeout> | null = null;
+
+	// Mock camera state
+	let mockCanvas: HTMLCanvasElement;
 
 	// Store to track which cameras are loading resolutions
 	import {writable} from 'svelte/store';
@@ -778,7 +781,7 @@
 	}
 
 	async function handleCapture(event: CustomEvent<{ mode: 'slow' | 'fast' }>) {
-		if (!video || !cameraReady || !locationData ||
+		if ((!video && !$mockCamera) || !cameraReady || !locationData ||
 			locationData.latitude === undefined || locationData.longitude === undefined) {
 			console.warn('🢄📍 Cannot capture: camera not ready or no location');
 			return;
@@ -819,20 +822,32 @@
 
 			// Get ImageData directly from canvas
 			const canvasStartTime = performance.now();
-			const canvas = document.createElement('canvas');
-			canvas.width = video.videoWidth;
-			canvas.height = video.videoHeight;
+			let canvas: HTMLCanvasElement;
+			let context: CanvasRenderingContext2D | null;
 
-			const context = canvas.getContext('2d');
+			if ($mockCamera && mockCanvas) {
+				// Mock mode: draw a fresh frame and use the mock canvas directly
+				drawMockFrame();
+				canvas = mockCanvas;
+				context = canvas.getContext('2d');
+			} else {
+				canvas = document.createElement('canvas');
+				canvas.width = video.videoWidth;
+				canvas.height = video.videoHeight;
+				context = canvas.getContext('2d');
+			}
+
 			if (!context) {
 				console.error('🢄Capture error: Unable to get canvas context');
 				return;
 			}
 
-			// Draw video frame to canvas
+			// Draw video frame to canvas (skip for mock - already drawn)
 			const drawStartTime = performance.now();
 			const drawStartTimestamp = Date.now();
-			context.drawImage(video, 0, 0);
+			if (!$mockCamera) {
+				context.drawImage(video, 0, 0);
+			}
 			const drawEndTime = performance.now();
 			const drawEndTimestamp = Date.now();
 			console.log(`🢄handleCapture TIMING: captured_at: ${timestamp}, drawStartTimestamp: ${drawStartTimestamp}, drawEndTimestamp: ${drawEndTimestamp}, drawTime: ${(drawEndTime - drawStartTime).toFixed(1)}ms`);
@@ -1009,23 +1024,38 @@
 
 	// Try to auto-start camera with permission lock coordination
 	$: if (show) {
-		if (!stream && !cameraError && !cameraReady && !hasRequestedPermission && !switchingCamera) {
-			console.log('🢄[CAMERA] Modal shown, checking storage permission first...');
-			retryCount = 0; // Reset retry count when modal opens
-
-			// Check storage permission first, then camera
-			checkStoragePermission().then(hasStorage => {
-				if (hasStorage) {
-					checkAndStartCamera();
-				} else {
-					console.log('🢄[STORAGE] Storage permission needed, showing storage permission button');
-				}
-			});
+		if ($mockCamera) {
+			// Mock camera mode - stop real stream if running, start mock if not running
+			if (stream) {
+				stopStream();
+				cameraReady = false;
+			}
+			if (mockRafId === null) {
+				startMockCamera();
+			}
+		} else {
+			// Real camera mode - stop mock if running
+			if (mockRafId !== null) {
+				stopMockCamera();
+				cameraReady = false;
+			}
+			if (!stream && !cameraError && !cameraReady && !hasRequestedPermission && !switchingCamera) {
+				console.log('🢄[CAMERA] Modal shown, checking storage permission first...');
+				retryCount = 0;
+				checkStoragePermission().then(hasStorage => {
+					if (hasStorage) {
+						checkAndStartCamera();
+					} else {
+						console.log('🢄[STORAGE] Storage permission needed, showing storage permission button');
+					}
+				});
+			}
 		}
-	} else if (!show && stream) {
+	} else if (!show && (stream || mockRafId !== null)) {
 		// Stop camera when modal closes
 		console.log('🢄Modal hidden, stopping camera');
 		stopStream();
+		stopMockCamera();
 		cameraReady = false;
 		cameraError = null;
 		needsPermission = false;
@@ -1085,6 +1115,77 @@
 			showCalibrationHint = false;
 			calibrationHintTimeout = null;
 		}, 4000);
+	}
+
+	let mockRafId: number | null = null;
+
+	function startMockCamera() {
+		console.log('🢄[CAMERA] Starting mock camera');
+		cameraError = null;
+		needsPermission = false;
+		cameraReady = true;
+
+		function loop() {
+			drawMockFrame();
+			mockRafId = requestAnimationFrame(loop);
+		}
+		mockRafId = requestAnimationFrame(loop);
+	}
+
+	function drawMockFrame() {
+		if (!mockCanvas) return;
+		const ctx = mockCanvas.getContext('2d');
+		if (!ctx) return;
+
+		const w = mockCanvas.width;
+		const h = mockCanvas.height;
+
+		// Background
+		ctx.fillStyle = '#1a1a2e';
+		ctx.fillRect(0, 0, w, h);
+
+		// Grid lines
+		ctx.strokeStyle = 'rgba(100, 100, 200, 0.3)';
+		ctx.lineWidth = 1;
+		for (let x = 0; x < w; x += 40) {
+			ctx.beginPath();
+			ctx.moveTo(x, 0);
+			ctx.lineTo(x, h);
+			ctx.stroke();
+		}
+		for (let y = 0; y < h; y += 40) {
+			ctx.beginPath();
+			ctx.moveTo(0, y);
+			ctx.lineTo(w, y);
+			ctx.stroke();
+		}
+
+		// Timestamp
+		const now = new Date();
+		const ms = String(now.getMilliseconds()).padStart(3, '0');
+		const timeStr = now.toLocaleTimeString(undefined, { hour12: false }) + '.' + ms;
+		const dateStr = now.toLocaleDateString();
+
+		ctx.fillStyle = '#00ff88';
+		ctx.font = 'bold 48px monospace';
+		ctx.textAlign = 'center';
+		ctx.textBaseline = 'middle';
+		ctx.fillText(timeStr, w / 2, h / 2 - 30);
+
+		ctx.fillStyle = '#88aaff';
+		ctx.font = '24px monospace';
+		ctx.fillText(dateStr, w / 2, h / 2 + 20);
+
+		ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+		ctx.font = '16px monospace';
+		ctx.fillText('MOCK CAMERA', w / 2, h / 2 + 60);
+	}
+
+	function stopMockCamera() {
+		if (mockRafId !== null) {
+			cancelAnimationFrame(mockRafId);
+			mockRafId = null;
+		}
 	}
 
 	onMount(async () => {
@@ -1178,6 +1279,7 @@
 			absoluteOrientationSensor.stop();
 		}
 		stopStream();
+		stopMockCamera();
 		if (permissionCheckInterval) {
 			clearInterval(permissionCheckInterval);
 		}
@@ -1226,18 +1328,30 @@
 			<div class="camera-view">
 				<!-- Debug: cameraError = {cameraError}, needsPermission = {needsPermission}, cameraReady = {cameraReady} -->
 
-				<!-- Always render video element so it's available for binding -->
-				<video
-					bind:this={video}
-					class="camera-video"
-					class:blink={isBlinking}
-					playsinline
-					style:display={(cameraError || needsStoragePermission) ? 'none' : 'block'}
-					on:click={handleTapToFocus}
-					on:touchstart|preventDefault={handleTapToFocus}
-				>
-					<track kind="captions"/>
-				</video>
+				{#if $mockCamera}
+					<!-- Mock camera canvas -->
+					<canvas
+						bind:this={mockCanvas}
+						class="camera-video"
+						class:blink={isBlinking}
+						width="640"
+						height="480"
+						style:display={(cameraError) ? 'none' : 'block'}
+					></canvas>
+				{:else}
+					<!-- Always render video element so it's available for binding -->
+					<video
+						bind:this={video}
+						class="camera-video"
+						class:blink={isBlinking}
+						playsinline
+						style:display={(cameraError || needsStoragePermission) ? 'none' : 'block'}
+						on:click={handleTapToFocus}
+						on:touchstart|preventDefault={handleTapToFocus}
+					>
+						<track kind="captions"/>
+					</video>
+				{/if}
 
 				<!-- Tap-to-focus indicator -->
 				{#if focusIndicator.visible}

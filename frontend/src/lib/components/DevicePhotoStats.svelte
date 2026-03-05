@@ -7,6 +7,7 @@
 	import RetryUploadsButton from "$lib/components/RetryUploadsButton.svelte";
 	import {BROWSER} from '$lib/tauri';
 	import {isBackgroundSyncSupported} from '$lib/browser/photoStorage';
+	import {combinedSyncStatus} from '$lib/syncStatus';
 
 	export let addLogEntry: (message: string, type?: 'success' | 'warning' | 'error' | 'info', metadata?: any) => void = () => {};
 	export let onRefresh: (() => void | Promise<void>) | null = null;
@@ -141,6 +142,11 @@
 				</p>
 			</div>
 		{/if}
+	{:else if BROWSER && $combinedSyncStatus.activeSource === 'fg' && isBackgroundSyncSupported()}
+		<div class="sync-limitation-info sync-fallback-info">
+			<AlertCircle size={14}/>
+			<span>Service worker not available, using foreground upload</span>
+		</div>
 	{/if}
 
 	{#if showDetailedStats}
@@ -220,6 +226,12 @@
 		margin-bottom: 12px;
 		color: #c2410c;
 		position: relative;
+	}
+
+	.sync-fallback-info {
+		background: #fefce8;
+		border-color: #facc15;
+		color: #854d0e;
 	}
 
 	.info-button {

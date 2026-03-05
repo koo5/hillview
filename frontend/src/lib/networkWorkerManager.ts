@@ -2,6 +2,7 @@
 // Communicates with SvelteKit's service worker (src/service-worker.ts)
 // which handles tile fetch interception via $lib/sw/tileHandler.ts
 import { currentTileProvider, getProviderConfig, type ProviderName } from './tileProviders';
+import { initSyncStatusListener } from './syncStatus';
 
 class NetworkWorkerManager {
     private isInitialized = false;
@@ -21,6 +22,10 @@ class NetworkWorkerManager {
             navigator.serviceWorker.addEventListener('message', (event) => {
                 this.handleWorkerMessage(event.data);
             });
+
+            // Set up sync status listener early so SW health-check
+            // messages are captured as soon as they arrive.
+            initSyncStatusListener();
 
             this.isInitialized = true;
             console.log('Service worker ready for tile handling');
