@@ -21,6 +21,7 @@ export interface AnnotationData {
 	is_current: boolean;
 	superseded_by: string | null;
 	created_at: string | null;
+	event_type: string; // 'created' | 'updated' | 'deleted'
 	owner_username: string | null;
 }
 

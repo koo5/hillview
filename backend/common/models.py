@@ -331,7 +331,7 @@ class PhotoAnnotation(Base):
 	)
 
 	created_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), server_default=func.now())
-	deleted: Mapped[bool] = mapped_column(Boolean, default=False)
+	event_type: Mapped[str] = mapped_column(String(16), default='created')
 
 	# Relationships
 	photo: Mapped["Photo"] = relationship()

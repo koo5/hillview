@@ -34,6 +34,7 @@ class AnnotationResponse(BaseModel):
     is_current: bool
     superseded_by: Optional[str]
     created_at: Optional[str]
+    event_type: str  # 'created' | 'updated' | 'deleted'
     owner_username: Optional[str] = None
 
 
@@ -47,6 +48,7 @@ def _serialize(ann: PhotoAnnotation, username: Optional[str] = None) -> Annotati
         is_current=ann.is_current,
         superseded_by=ann.superseded_by,
         created_at=ann.created_at.isoformat() if ann.created_at else None,
+        event_type=ann.event_type,
         owner_username=username,
     )
 
@@ -61,7 +63,7 @@ async def list_annotations(photo_id: str, db: AsyncSession = Depends(get_db)):
             and_(
                 PhotoAnnotation.photo_id == photo_id,
                 PhotoAnnotation.is_current == True,
-                PhotoAnnotation.deleted == False,
+                PhotoAnnotation.event_type != 'deleted',
             )
         )
         .order_by(PhotoAnnotation.created_at)
@@ -89,7 +91,7 @@ async def create_annotation(
         body=data.body,
         target=data.target,
         is_current=True,
-        deleted=False,
+        event_type='created',
     )
     db.add(ann)
     await db.commit()
@@ -112,7 +114,7 @@ async def update_annotation(
     (free-for-all model).  Future versions should restrict editing based on trust scores.
     """
     old = await db.get(PhotoAnnotation, annotation_id)
-    if not old or old.deleted:
+    if not old or old.event_type == 'deleted':
         raise HTTPException(status_code=404, detail="Annotation not found")
     if not old.is_current:
         raise HTTPException(status_code=409, detail="Annotation has already been superseded")
@@ -124,7 +126,7 @@ async def update_annotation(
         body=data.body,
         target=data.target,
         is_current=True,
-        deleted=False,
+        event_type='updated',
     )
     db.add(new_ann)
     await db.flush()  # populate new_ann.id
@@ -144,16 +146,32 @@ async def delete_annotation(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Soft-delete an annotation.
+    """Delete an annotation by creating a tombstone row in the supersede chain.
 
+    The tombstone records the deleting user's ID, enabling per-user undo.
     Any authenticated user can delete any annotation (free-for-all model).
     Future versions should restrict deletion based on ownership and trust scores.
     """
-    ann = await db.get(PhotoAnnotation, annotation_id)
-    if not ann or ann.deleted:
+    old = await db.get(PhotoAnnotation, annotation_id)
+    if not old or old.event_type == 'deleted':
         raise HTTPException(status_code=404, detail="Annotation not found")
+    if not old.is_current:
+        raise HTTPException(status_code=409, detail="Annotation has already been superseded")
 
-    ann.deleted = True
-    ann.is_current = False
+    # Create tombstone row — records who deleted and when
+    tombstone = PhotoAnnotation(
+        photo_id=old.photo_id,
+        user_id=current_user.id,  # the DELETING user, not the original author
+        body=None,
+        target=None,
+        is_current=True,
+        event_type='deleted',
+    )
+    db.add(tombstone)
+    await db.flush()
+
+    # Mark old row as superseded by the tombstone
+    old.is_current = False
+    old.superseded_by = tombstone.id
     await db.commit()
-    logger.info(f"Annotation {annotation_id} deleted by user {current_user.id}")
+    logger.info(f"Annotation {annotation_id} deleted (tombstone {tombstone.id}) by user {current_user.id}")
