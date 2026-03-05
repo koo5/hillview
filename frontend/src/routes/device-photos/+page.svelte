@@ -84,10 +84,10 @@
 			accuracy: location.accuracy,
 			width: bp.width,
 			height: bp.height,
-			upload_status: bp.status === 'uploaded' ? 'completed' : bp.status,
+			upload_status: bp.status,
 			uploaded_at: bp.uploaded_at ?? null,
 			retry_count: bp.retry_count,
-			last_upload_attempt: bp.retry_after ?? null,
+			last_upload_attempt: bp.last_attempt ?? null,
 			blob: bp.blob,
 			blobUrl: URL.createObjectURL(bp.blob)
 		};

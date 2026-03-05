@@ -41,6 +41,24 @@ export const combinedSyncStatus = derived(
 	})
 );
 
+// ── Window-exposed snapshots (debugging + Playwright tests) ─────────
+
+if (typeof window !== 'undefined') {
+	const w = window as any;
+	w.__stores = w.__stores ?? {};
+	w.__stores.fgSyncStatus = null;
+	w.__stores.swSyncStatus = null;
+	w.__stores.combinedSyncStatus = null;
+	w.__stores.fgSyncHistory = [] as SyncStatusReport[];
+
+	fgSyncStatus.subscribe((v) => {
+		w.__stores.fgSyncStatus = v;
+		if (v) w.__stores.fgSyncHistory.push(v);
+	});
+	swSyncStatus.subscribe((v) => { w.__stores.swSyncStatus = v; });
+	combinedSyncStatus.subscribe((v) => { w.__stores.combinedSyncStatus = v; });
+}
+
 // ── Foreground reporter ─────────────────────────────────────────────
 
 /** Creates a reporter that writes directly into the fgSyncStatus store */

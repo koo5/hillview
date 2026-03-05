@@ -24,13 +24,13 @@ export interface StoredPhoto {
         captured_at: number;
         orientation_code: number; // EXIF orientation (1, 3, 6, 8)
     };
-    status: 'pending' | 'uploading' | 'uploaded' | 'failed';
+    status: 'pending' | 'uploading' | 'processing' | 'completed' | 'failed';
     retry_count: number;
     last_error?: string;
     uploaded_at?: number;
     server_photo_id?: string;
     added_at: number;
-    retry_after?: number;
+    last_attempt?: number;
 }
 
 // Store for tracking storage usage
@@ -50,14 +50,30 @@ export const browserStorageUsage = writable<{
 export const browserUploadQueueStatus = writable<{
     pending: number;
     uploading: number;
-    uploaded: number;
+    processing: number;
+    completed: number;
     failed: number;
 }>({
     pending: 0,
     uploading: 0,
-    uploaded: 0,
+    processing: 0,
+    completed: 0,
     failed: 0
 });
+
+/** Exponential backoff: 1min, 2min, 4min, 8min, ... up to 1 day max */
+function calculateBackoffTime(retryCount: number): number {
+    const baseDelay = 60_000; // 1 minute
+    const maxDelay = 24 * 60 * 60 * 1000; // 1 day
+    return Math.min(baseDelay * Math.pow(2, retryCount - 1), maxDelay);
+}
+
+/** Check if a failed photo's backoff period has elapsed */
+function isRetryEligible(photo: StoredPhoto, now: number): boolean {
+    if (!photo.last_attempt) return true;
+    const requiredWait = calculateBackoffTime(photo.retry_count);
+    return now - photo.last_attempt >= requiredWait;
+}
 
 class BrowserPhotoStorage {
     private db: IDBDatabase | null = null;
@@ -236,8 +252,9 @@ class BrowserPhotoStorage {
             photoStore.index('status').openCursor(IDBKeyRange.only('failed'))
         );
         if (failedCursor) {
+            const now = Date.now();
             await this.iterateCursor(failedCursor, (photo) => {
-                if (!photo.retry_after || photo.retry_after <= Date.now()) {
+                if (isRetryEligible(photo, now)) {
                     pendingPhotos.push(photo);
                 }
             });
@@ -288,7 +305,7 @@ class BrowserPhotoStorage {
 
     /**
      * Atomically claim a photo for uploading: re-reads status inside a readwrite
-     * transaction and only marks it as 'uploading' if it's still 'pending'.
+     * transaction and only marks it as 'uploading' if it's still 'pending' or 'failed'.
      * Returns true if claimed, false if another context already took it.
      */
     async tryClaimPhoto(photoId: string): Promise<boolean> {
@@ -298,7 +315,7 @@ class BrowserPhotoStorage {
         const store = transaction.objectStore(PHOTO_STORE);
 
         const photo = await this.promisifyRequest(store.get(photoId));
-        if (!photo || photo.status !== 'pending') {
+        if (!photo || (photo.status !== 'pending' && photo.status !== 'failed')) {
             return false;
         }
 
@@ -316,7 +333,7 @@ class BrowserPhotoStorage {
 
         const photo = await this.promisifyRequest(photoStore.get(photoId));
         if (photo) {
-            photo.status = 'uploaded';
+            photo.status = 'processing';
             photo.uploaded_at = Date.now();
             photo.server_photo_id = serverPhotoId;
             await this.promisifyRequest(photoStore.put(photo));
@@ -342,10 +359,7 @@ class BrowserPhotoStorage {
             photo.status = 'failed';
             photo.last_error = error;
             photo.retry_count = (photo.retry_count || 0) + 1;
-
-            // Set retry delay with exponential backoff
-            const retryDelay = Math.min(60000 * Math.pow(2, photo.retry_count - 1), 3600000); // Max 1 hour
-            photo.retry_after = Date.now() + retryDelay;
+            photo.last_attempt = Date.now();
 
             await this.promisifyRequest(photoStore.put(photo));
         }
@@ -364,10 +378,9 @@ class BrowserPhotoStorage {
             photoStore.index('status').getAll('failed')
         );
 
-        // Reset their status to pending and clear retry delay
+        // Reset their status to pending
         for (const photo of failedPhotos) {
             photo.status = 'pending';
-            photo.retry_after = undefined;
             await this.promisifyRequest(photoStore.put(photo));
         }
 
@@ -392,11 +405,11 @@ class BrowserPhotoStorage {
         const store = transaction.objectStore(PHOTO_STORE);
 
         const photo = await this.promisifyRequest(store.get(photoId));
-        if (photo && photo.status === 'uploaded') {
+        if (photo && (photo.status === 'processing' || photo.status === 'completed')) {
             // Keep metadata but remove the blob to save space
             photo.blob = new Blob([], { type: 'image/jpeg' });
             await this.promisifyRequest(store.put(photo));
-            console.log(`${this.LOG_PREFIX} Deleted blob for uploaded photo ${photoId}`);
+            console.log(`${this.LOG_PREFIX} Deleted blob for ${photo.status} photo ${photoId}`);
         }
 
         await this.updateStorageStats();
@@ -414,9 +427,31 @@ class BrowserPhotoStorage {
         if (!this.db) await this.init();
 
         const transaction = this.db!.transaction([PHOTO_STORE], 'readonly');
-        const store = transaction.objectStore(PHOTO_STORE);
-        const index = store.index('status');
-        return await this.promisifyRequest(index.getAll('pending')) as StoredPhoto[];
+        const photoStore = transaction.objectStore(PHOTO_STORE);
+
+        const photos: StoredPhoto[] = [];
+
+        // Get pending photos
+        const pending = await this.promisifyRequest(
+            photoStore.index('status').getAll('pending')
+        ) as StoredPhoto[];
+        photos.push(...pending);
+
+        // Get failed photos whose backoff has elapsed
+        const failed = await this.promisifyRequest(
+            photoStore.index('status').getAll('failed')
+        ) as StoredPhoto[];
+        const now = Date.now();
+        for (const photo of failed) {
+            if (isRetryEligible(photo, now)) {
+                photos.push(photo);
+            }
+        }
+
+        // Sort by added_at (older first)
+        photos.sort((a, b) => a.added_at - b.added_at);
+
+        return photos;
     }
 
     async getPhotoCount(): Promise<number> {
@@ -454,17 +489,19 @@ class BrowserPhotoStorage {
         const store = transaction.objectStore(PHOTO_STORE);
         const index = store.index('status');
 
-        const [pending, uploading, uploaded, failed] = await Promise.all([
+        const [pending, uploading, processing, completed, failed] = await Promise.all([
             this.promisifyRequest(index.count('pending')),
             this.promisifyRequest(index.count('uploading')),
-            this.promisifyRequest(index.count('uploaded')),
+            this.promisifyRequest(index.count('processing')),
+            this.promisifyRequest(index.count('completed')),
             this.promisifyRequest(index.count('failed'))
         ]);
 
         browserUploadQueueStatus.set({
             pending: pending as number,
             uploading: uploading as number,
-            uploaded: uploaded as number,
+            processing: processing as number,
+            completed: completed as number,
             failed: failed as number
         });
     }
@@ -479,11 +516,11 @@ class BrowserPhotoStorage {
         const photos = await this.promisifyRequest(store.getAll());
 
         for (const photo of photos) {
-            if (photo.status === 'uploaded' &&
+            if (photo.status === 'completed' &&
                 photo.uploaded_at &&
                 photo.uploaded_at < cutoffTime) {
                 await this.promisifyRequest(store.delete(photo.id));
-                console.log(`${this.LOG_PREFIX} Deleted old uploaded photo ${photo.id}`);
+                console.log(`${this.LOG_PREFIX} Deleted old completed photo ${photo.id}`);
             }
         }
 

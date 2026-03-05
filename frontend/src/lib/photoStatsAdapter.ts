@@ -43,8 +43,8 @@ export async function fetchPhotoStats(): Promise<PhotoStats | null> {
                 total: photos.length,
                 pending: uploadStatus.pending,
                 uploading: uploadStatus.uploading,
-                processing: 0, // Browser doesn't have separate processing state
-                completed: uploadStatus.uploaded,
+                processing: uploadStatus.processing,
+                completed: uploadStatus.completed,
                 failed: uploadStatus.failed,
                 deleted: 0, // Could track if we implement soft delete
                 // Browser-specific storage info

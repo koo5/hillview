@@ -9,7 +9,6 @@ import { writable } from 'svelte/store';
 import type { StatusReporter, SyncStatusReport } from '$lib/syncStatus';
 
 const LOG_PREFIX = '🢄[PhotoUpload]';
-const MAX_RETRIES = 3;
 
 export interface UploadResult {
     success: boolean;
@@ -112,11 +111,6 @@ export async function uploadPendingPhotos(
             if (!settings?.auto_upload_enabled) {
                 console.log(`${LOG_PREFIX} Auto-upload disabled, stopping upload loop`);
                 break;
-            }
-
-            if (photo.retry_count >= MAX_RETRIES) {
-                console.log(`${LOG_PREFIX} Skipping ${photo.id} - too many attempts`);
-                continue;
             }
 
             uploadStatus.update(s => ({
