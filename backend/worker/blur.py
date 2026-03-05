@@ -3,6 +3,7 @@ import logging
 import os
 import cv2
 import numpy as np
+import security_utils
 
 from detections import TARGET_CLASSES
 
@@ -15,7 +16,7 @@ def read_image(source_path):
 	# Validate file size before processing to prevent memory exhaustion
 	try:
 		file_size = os.path.getsize(source_path)
-		if file_size > 300 * 1024 * 1024:
+		if file_size > security_utils.MAX_FILE_SIZE:
 			logging.warning(f"Image file too large for processing: {file_size} bytes")
 			raise ValueError(f"Image file too large for processing: {file_size} bytes")
 	except OSError:
@@ -30,7 +31,7 @@ def read_image(source_path):
 
 	# Validate image dimensions to prevent memory exhaustion
 	height, width = image.shape[:2]
-	if width > 65536 or height > 65536 or (width * height) > 65536*10000:
+	if width > security_utils.MAX_IMAGE_DIMENSIONS[0] or height > security_utils.MAX_IMAGE_DIMENSIONS[1] or width * height > security_utils.MAX_IMAGE_PIXELS:
 		raise ValueError(f"Image size too large or invalid ({width}x{height}). Please use a smaller image.")
 
 	return image

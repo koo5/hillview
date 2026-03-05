@@ -90,6 +90,13 @@ services:
     build:
       context: backend
       dockerfile: worker/Dockerfile
+      args:
+        MAGICK_MEMORY_LIMIT: ${MAGICK_MEMORY_LIMIT:-2GiB}
+        MAGICK_MAP_LIMIT: ${MAGICK_MAP_LIMIT:-4GiB}
+        MAGICK_DISK_LIMIT: ${MAGICK_DISK_LIMIT:-8GiB}
+        MAGICK_WIDTH_LIMIT: ${MAGICK_WIDTH_LIMIT:-65536}
+        MAGICK_HEIGHT_LIMIT: ${MAGICK_HEIGHT_LIMIT:-65536}
+        MAGICK_AREA_LIMIT: ${MAGICK_AREA_LIMIT:-1GP}
     container_name: hillview_worker
     network_mode: host
     ports:
