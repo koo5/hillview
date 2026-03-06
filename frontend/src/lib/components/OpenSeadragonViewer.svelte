@@ -24,6 +24,8 @@
 	 * closes the viewer (mirroring the original ZoomView behaviour).
 	 */
 	import { onMount, onDestroy } from 'svelte';
+	import OpenSeadragon from 'openseadragon';
+	import { createOSDAnnotator } from '@annotorious/openseadragon';
 	import { auth } from '$lib/auth.svelte.js';
 	import {
 		fetchAnnotations,
@@ -223,6 +225,30 @@
 		}
 	}
 
+	// Whether the initial tileSources used the fallback thumbnail
+	let usingFallback = false;
+
+	/**
+	 * Animate a TiledImage's opacity from 0 → 1 over `duration` ms.
+	 * Resolves when the animation completes.
+	 */
+	function fadeInItem(item: any, duration = 300): Promise<void> {
+		return new Promise((resolve) => {
+			const start = performance.now();
+			item.setOpacity(0);
+			function step(now: number) {
+				const t = Math.min((now - start) / duration, 1);
+				item.setOpacity(t);
+				if (t < 1) {
+					requestAnimationFrame(step);
+				} else {
+					resolve();
+				}
+			}
+			requestAnimationFrame(step);
+		});
+	}
+
 	// Fingerprint of last drawn state — skip redraw if nothing changed
 	let lastDrawFingerprint = '';
 
@@ -304,17 +330,25 @@
 	}
 
 	onMount(async () => {
-		const [OSD, { createOSDAnnotator }] = await Promise.all([
+		/*const [OSD, { createOSDAnnotator }] = await Promise.all([
 			import('openseadragon'),
 			import('@annotorious/openseadragon'),
 		]);
-		const OpenSeadragon = OSD.default ?? OSD;
+		const OpenSeadragon = OSD.default ?? OSD;*/
 
+
+		// If we have a fallback thumbnail (likely browser-cached), show it
+		// immediately while the main source (DZI or full-size) loads.
+		console.log('[OSD] fallback_url:', JSON.stringify(data.fallback_url), 'main url:', JSON.stringify(data.url));
+		usingFallback = !!data.fallback_url;
+		const initialSource = usingFallback
+			? { type: 'image', url: data.fallback_url }
+			: buildTileSource();
 
 		const options = {
 			element: container,
-			drawer: 'canvas',
-			tileSources: buildTileSource(),
+			drawer: 'canvas' as const,
+			tileSources: initialSource,
 			// Disable default controls – we supply our own close button
 			showNavigationControl: false,
 			showNavigator: false,
@@ -324,18 +358,67 @@
 			gestureSettingsTouch: { clickToZoom: false, dblClickToZoom: true },
 			immediateRender: false,
 			imageLoaderLimit: 1,
+			// Allow zooming well beyond native resolution (default is 1.1)
+			maxZoomPixelRatio: 4,
 			// Allow WebGL to use cross-origin images as textures
-			crossOriginPolicy: 'Anonymous',
-			//debugMode: true
+			crossOriginPolicy: 'Anonymous' as const,
+			debugMode: true
 		}
 
 		viewer = new OpenSeadragon.Viewer(options);
 
 		viewer.addHandler('open', () => {
+			console.log('[OSD] open event fired, usingFallback:', usingFallback, 'itemCount:', viewer.world.getItemCount());
+			if (!usingFallback) {
+				// No fallback path — the real source loaded directly
+				isLoading = false;
+				return;
+			}
+			// Fallback thumbnail loaded (from browser cache) — dismiss spinner
 			isLoading = false;
+			console.log('[OSD] Fallback loaded, spinner dismissed. Adding main source...');
+
+			// Now layer the real source on top at opacity 0
+			const mainSource = buildTileSource();
+			viewer.addTiledImage({
+				tileSource: mainSource,
+				opacity: 0,
+				success: (event: any) => {
+					const mainItem = event.item;
+					// Wait until all tiles for the main image are loaded
+					const onFullyLoaded = (e: any) => {
+						if (!e.fullyLoaded) return;
+						viewer.world.removeHandler('metrics-change', onFullyLoaded);
+						// Fade in the main image, then remove the fallback
+						fadeInItem(mainItem).then(() => {
+							const fallbackItem = viewer.world.getItemAt(0);
+							if (fallbackItem && viewer.world.getItemCount() > 1) {
+								viewer.world.removeItem(fallbackItem);
+							}
+						});
+					};
+					// 'metrics-change' fires when tile loading state changes;
+					// check immediately in case it's already loaded
+					if (mainItem.getFullyLoaded()) {
+						fadeInItem(mainItem).then(() => {
+							const fallbackItem = viewer.world.getItemAt(0);
+							if (fallbackItem && viewer.world.getItemCount() > 1) {
+								viewer.world.removeItem(fallbackItem);
+							}
+						});
+					} else {
+						viewer.world.addHandler('metrics-change', onFullyLoaded);
+					}
+				},
+				error: () => {
+					// Main source failed — keep the fallback visible
+					console.warn('[OSD] Main tile source failed to load, keeping fallback');
+				},
+			});
 		});
 
-		viewer.addHandler('open-failed', () => {
+		viewer.addHandler('open-failed', (event: any) => {
+			console.error('[OSD] open-failed event:', event);
 			isLoading = false;
 			errorMessage = 'Failed to load image';
 		});
@@ -532,7 +615,8 @@
 		// quick=false when the pointer moved significantly before release.
 		viewer.addHandler('canvas-click', (event: any) => {
 			if (!event.quick || annotationMode !== 'view') return;
-			const item = viewer.world.getItemAt(0);
+			const itemCount = viewer.world.getItemCount();
+			const item = itemCount > 0 ? viewer.world.getItemAt(itemCount - 1) : null;
 			if (!item) { onClose(); return; }
 			const imgBounds = item.getBounds(); // viewport coordinates
 			const scrBounds = viewer.viewport.viewportToViewerElementRectangle(imgBounds);
