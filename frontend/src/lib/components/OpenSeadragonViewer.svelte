@@ -310,8 +310,10 @@
 		]);
 		const OpenSeadragon = OSD.default ?? OSD;
 
-		viewer = new OpenSeadragon.Viewer({
+
+		const options = {
 			element: container,
+			drawer: 'canvas',
 			tileSources: buildTileSource(),
 			// Disable default controls – we supply our own close button
 			showNavigationControl: false,
@@ -325,7 +327,9 @@
 			// Allow WebGL to use cross-origin images as textures
 			crossOriginPolicy: 'Anonymous',
 			//debugMode: true
-		});
+		}
+
+		viewer = new OpenSeadragon.Viewer(options);
 
 		viewer.addHandler('open', () => {
 			isLoading = false;
