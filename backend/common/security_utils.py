@@ -21,13 +21,17 @@ logger = logging.getLogger(__name__)
 ALLOWED_IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff'}
 ALLOWED_MIME_TYPES = {'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/bmp', 'image/tiff'}
 
-# Maximum file sizes (in bytes)
-MAX_FILE_SIZE = 150 * 1024 * 1024
-MAX_FILENAME_LENGTH = 255
 
 # Image processing limits
-MAX_IMAGE_DIMENSIONS = (32192, 32192)  # Max width, height
-MAX_IMAGE_PIXELS = 167108864
+# Maximum file sizes (in bytes)
+#MAX_FILE_SIZE = 150 * 1024 * 1024
+MAX_FILE_SIZE = int(os.environ.get('MAX_FILE_SIZE', 150 * 1024 * 1024))
+MAX_FILENAME_LENGTH = 255
+#MAX_IMAGE_DIMENSIONS = (32192, 32192)  # Max width, height
+MAX_IMAGE_DIMENSIONS = (int(os.environ.get('MAX_IMAGE_WIDTH', 32192)), int(os.environ.get('MAX_IMAGE_HEIGHT', 32192)))
+#MAX_IMAGE_PIXELS = 167108864
+MAX_IMAGE_PIXELS = int(os.environ.get('MAX_IMAGE_PIXELS', 167108864))
+
 
 # Regex patterns for validation
 SAFE_FILENAME_PATTERN = re.compile(r'^[a-zA-Z0-9_\-\.]+$')

@@ -1,0 +1,1063 @@
+<script lang="ts">
+	/**
+	 * OpenSeadragonViewer.svelte
+	 *
+	 * Full-screen deep-zoom viewer powered by OpenSeadragon.
+	 * When the photo has a DZI pyramid (sizes.full.pyramid), it is used for
+	 * tile-based deep zoom so the viewer can show the image progressively
+	 * without waiting for the full file to download.
+	 *
+	 * When no pyramid is available, the viewer falls back to a single full-size
+	 * image as a Simple Image source so OpenSeadragon still provides pan/zoom.
+	 *
+	 * Annotorious is mounted on top of the viewer to allow users to create,
+	 * view, and edit annotations.  Each edit supersedes the old annotation
+	 * (creates a new DB row, marks the old one is_current=false) to preserve
+	 * edit history.
+	 *
+	 * Edge labels: a transparent <canvas> overlays the OSD container and is
+	 * redrawn on every viewport-change event.  For each annotation the centroid
+	 * is projected from image→screen space; the label is drawn near the nearest
+	 * screen edge, connected to the centroid by a leader line.
+	 *
+	 * Background close: clicking/tapping the black area outside the image
+	 * closes the viewer (mirroring the original ZoomView behaviour).
+	 */
+	import { onMount, onDestroy } from 'svelte';
+	import { auth } from '$lib/auth.svelte.js';
+	import {
+		fetchAnnotations,
+		createAnnotation,
+		updateAnnotation,
+		deleteAnnotation,
+		type AnnotationData,
+	} from '$lib/annotationApi';
+	import { Origin, UserSelectAction } from '@annotorious/core';
+	import type { ZoomViewData } from '$lib/zoomView.svelte';
+
+	export let data: ZoomViewData;
+	export let onClose: () => void;
+
+	let container: HTMLDivElement;
+	let viewer: any = null;
+	let annotator: any = null;
+	let annotations: AnnotationData[] = [];
+	type AnnotationMode = 'view' | 'draw' | 'edit';
+	let annotationMode: AnnotationMode = 'view';
+	let selectedAnnotation: AnnotationData | null = null;
+	let editingAnnotation: AnnotationData | null = null;
+	let editBody = '';
+	let errorMessage = '';
+	let errorTimeout: ReturnType<typeof setTimeout> | null = null;
+
+	// Edit session state — captured when edit panel opens, used for revert on Cancel
+	let originalW3cSnapshot: any = null;
+	let originalDbId: string | null = null;
+
+	// When a new shape is drawn, we hold the Annotorious annotation here until
+	// the user confirms via the edit panel (Save) or discards (Cancel/Escape).
+	let pendingNewAnnotation: any = null;
+
+	/** Deep clone that preserves Date objects (structuredClone works here). */
+	function deepClone<T>(obj: T): T {
+		return structuredClone(obj);
+	}
+
+	// UI IDs whose next updateAnnotation event should be swallowed.
+	// Populated by save/cancel before calling setSelected(), consumed
+	// (one-shot) by the updateAnnotation handler.  Deterministic — no
+	// timing assumptions about when Annotorious flushes the editor commit.
+	const suppressedUiIds = new Set<string>();
+
+	// Bidirectional mapping: Annotorious UI IDs ↔ server DB IDs
+	const uiToDb = new Map<string, string>();
+	const dbToUi = new Map<string, string>();
+	function showError(msg: string) {
+		errorMessage = msg;
+		if (errorTimeout) clearTimeout(errorTimeout);
+		errorTimeout = setTimeout(() => { errorMessage = ''; }, 5000);
+	}
+	let isLoading = true;
+	let labelCanvas: HTMLCanvasElement | null = null;
+	let resizeObserver: ResizeObserver | null = null;
+
+	$: isAuthenticated = $auth.is_authenticated;
+
+	async function loadAnnotations() {
+		if (!data.photo_id) return;
+		console.log('[OSD] Loading annotations for photo:', data.photo_id);
+		try {
+			annotations = await fetchAnnotations(data.photo_id);
+			console.log('[OSD] Fetched annotations:', annotations.length, annotations);
+			syncAnnotationsToViewer();
+		} catch (e) {
+			console.error('[OSD] Failed to load annotations:', e);
+			showError('Failed to load annotations');
+		}
+	}
+
+	function syncAnnotationsToViewer() {
+		if (!annotator) {
+			console.warn('[OSD] syncAnnotationsToViewer: annotator not ready');
+			return;
+		}
+		const w3cAnnotations = annotations
+			.filter((a) => a.target)
+			.map((a) => ({
+				'@context': 'http://www.w3.org/ns/anno.jsonld',
+				id: a.id,
+				type: 'Annotation',
+				body: a.body
+					? [{ type: 'TextualBody', value: a.body, purpose: 'commenting' }]
+					: [],
+				target: a.target,
+			}));
+		console.log('[OSD] Syncing annotations to viewer:', w3cAnnotations.length, w3cAnnotations);
+		try {
+			annotator.setAnnotations(w3cAnnotations);
+		} catch (e) {
+			console.warn('[OSD] Could not sync annotations to viewer:', e);
+		}
+		// On initial load, UI IDs = DB IDs (1:1)
+		uiToDb.clear();
+		dbToUi.clear();
+		for (const a of annotations) {
+			if (!a.target) continue;
+			uiToDb.set(a.id, a.id);
+			dbToUi.set(a.id, a.id);
+		}
+		rebuildParsedAnnotations();
+		scheduleDrawLabels();
+	}
+
+	/**
+	 * Compute the lowest DZI level whose image is at least tile_size pixels
+	 * on its longest side.  Levels below this are single sub-tile images —
+	 * fetching them is wasteful (one HTTP request each for a tiny image that
+	 * OSD never even displays at normal zoom).
+	 */
+	function computeMinLevel(width: number, height: number, tileSize: number): number {
+		const maxDim = Math.max(width, height);
+		const maxLevel = Math.ceil(Math.log2(maxDim));
+		// Walk from the top level down; the first level where the image fits
+		// in a single tile is the last one we want.  Everything below is waste.
+		for (let level = maxLevel; level >= 0; level--) {
+			const levelDim = Math.ceil(maxDim / Math.pow(2, maxLevel - level));
+			if (levelDim <= tileSize) return level;
+		}
+		return 0;
+	}
+
+	function buildTileSource() {
+		const p = data.pyramid;
+		if (p && p.type === 'dzi') {
+			const minLevel = computeMinLevel(p.width, p.height, p.tile_size);
+			console.log('[OSD] Using DZI pyramid for tile source:', p, '| minLevel:', minLevel);
+			return {
+				Image: {
+					xmlns: 'http://schemas.microsoft.com/deepzoom/2008',
+					Url: p.tiles_url + '/',
+					Format: p.format,
+					Overlap: String(p.overlap),
+					TileSize: String(p.tile_size),
+					Size: {
+						Width: String(p.width),
+						Height: String(p.height),
+					},
+				},
+				minLevel,
+			};
+		}
+		// Fallback: single full-size image
+		console.warn('[OSD] No DZI pyramid available, falling back to single-image source: ', JSON.stringify(p));
+		return {
+			type: 'image',
+			url: data.url,
+		};
+	}
+
+	// Pre-parsed annotation data for drawLabels — rebuilt only when annotations change
+	interface ParsedAnnotation {
+		dbId: string;
+		label: string;
+		// Image-space centroid
+		imgCx: number;
+		imgCy: number;
+	}
+	let parsedAnnotations: ParsedAnnotation[] = [];
+
+	function rebuildParsedAnnotations() {
+		parsedAnnotations = [];
+		for (const ann of annotations) {
+			const label = ann.body;
+			if (!label) continue;
+
+			const raw = ann.target as any;
+			const selector = Array.isArray(raw?.selector) ? raw.selector[0] : raw?.selector;
+
+			let sx: number, sy: number, sw: number, sh: number;
+			if (selector?.type === 'RECTANGLE' && selector.geometry) {
+				const g = selector.geometry;
+				sx = g.x; sy = g.y; sw = g.w; sh = g.h;
+			} else if (typeof selector?.value === 'string') {
+				const match = selector.value.match(/xywh=pixel:([\d.]+),([\d.]+),([\d.]+),([\d.]+)/);
+				if (!match) continue;
+				[, sx, sy, sw, sh] = match.map(Number);
+			} else {
+				continue;
+			}
+			parsedAnnotations.push({ dbId: ann.id, label, imgCx: sx + sw / 2, imgCy: sy + sh / 2 });
+		}
+		lastDrawFingerprint = '';
+		console.log('[OSD] rebuildParsedAnnotations:', parsedAnnotations.length, 'labels');
+	}
+
+	let drawLabelsRaf = 0;
+
+	function scheduleDrawLabels() {
+		if (!drawLabelsRaf) {
+			drawLabelsRaf = requestAnimationFrame(() => {
+				drawLabelsRaf = 0;
+				drawLabelsNow();
+			});
+		}
+	}
+
+	// Fingerprint of last drawn state — skip redraw if nothing changed
+	let lastDrawFingerprint = '';
+
+	interface LabelDrawCmd {
+		label: string;
+		cx: number; cy: number;
+		lx: number; ly: number;
+	}
+
+	function drawLabelsNow() {
+		if (!labelCanvas || !viewer?.viewport) return;
+		const W = labelCanvas.width;
+		const H = labelCanvas.height;
+
+		// Build draw commands and fingerprint in one pass
+		const cmds: LabelDrawCmd[] = [];
+		const fpParts: string[] = [];
+		const margin = 14;
+
+		for (const { label, imgCx, imgCy } of parsedAnnotations) {
+			const vpPt = viewer.viewport.imageToViewportCoordinates(imgCx, imgCy);
+			const scPt = viewer.viewport.viewportToViewerElementCoordinates(vpPt);
+			const cx = Math.round(scPt.x);
+			const cy = Math.round(scPt.y);
+			if (cx < 0 || cx > W || cy < 0 || cy > H) continue;
+
+			const dLeft = cx;
+			const dRight = W - cx;
+			const dTop = cy;
+			const dBottom = H - cy;
+			const nearest = Math.min(dLeft, dRight, dTop, dBottom);
+			let lx = cx;
+			let ly = cy;
+			if (nearest === dLeft)       lx = margin;
+			else if (nearest === dRight) lx = W - margin;
+			else if (nearest === dTop)   ly = margin;
+			else                         ly = H - margin;
+
+			cmds.push({ label, cx, cy, lx, ly });
+			fpParts.push(`${cx},${cy},${lx},${ly}`);
+		}
+
+		const fp = fpParts.join('|');
+		if (fp === lastDrawFingerprint) return;
+		lastDrawFingerprint = fp;
+
+		const ctx = labelCanvas.getContext('2d');
+		if (!ctx) return;
+		ctx.clearRect(0, 0, W, H);
+
+		for (const { label, cx, cy, lx, ly } of cmds) {
+			// Leader line from centroid to label anchor
+			ctx.beginPath();
+			ctx.moveTo(cx, cy);
+			ctx.lineTo(lx, ly);
+			ctx.strokeStyle = 'rgba(255,230,50,0.9)';
+			ctx.lineWidth = 1.5;
+			ctx.stroke();
+
+			// Label pill
+			ctx.font = 'bold 12px system-ui,sans-serif';
+			const tw = ctx.measureText(label).width;
+			const pad = 6;
+			const pillW = tw + pad * 2;
+			const pillH = 20;
+			const tx = lx > W / 2 ? lx - pillW : lx;
+			const ty = ly > H / 2 ? ly - pillH : ly;
+			ctx.fillStyle = 'rgba(0,0,0,0.75)';
+			ctx.beginPath();
+			if (typeof (ctx as any).roundRect === 'function') {
+				(ctx as any).roundRect(tx, ty, pillW, pillH, 4);
+			} else {
+				ctx.rect(tx, ty, pillW, pillH);
+			}
+			ctx.fill();
+			ctx.fillStyle = '#fff';
+			ctx.fillText(label, tx + pad, ty + pillH - 5);
+		}
+	}
+
+	onMount(async () => {
+		const [OSD, { createOSDAnnotator }] = await Promise.all([
+			import('openseadragon'),
+			import('@annotorious/openseadragon'),
+		]);
+		const OpenSeadragon = OSD.default ?? OSD;
+
+		viewer = new OpenSeadragon.Viewer({
+			element: container,
+			tileSources: buildTileSource(),
+			// Disable default controls – we supply our own close button
+			showNavigationControl: false,
+			showNavigator: false,
+			animationTime: 0.3,
+			// Allow dragging even without a button press (touch-friendly)
+			gestureSettingsMouse: { clickToZoom: false, dblClickToZoom: true },
+			gestureSettingsTouch: { clickToZoom: false, dblClickToZoom: true },
+			immediateRender: false,
+			imageLoaderLimit: 1,
+			// Allow WebGL to use cross-origin images as textures
+			crossOriginPolicy: 'Anonymous',
+			//debugMode: true
+		});
+
+		viewer.addHandler('open', () => {
+			isLoading = false;
+		});
+
+		viewer.addHandler('open-failed', () => {
+			isLoading = false;
+			errorMessage = 'Failed to load image';
+		});
+
+		// Mount Annotorious on the OSD viewer
+		// Drawing starts disabled; the toolbar toggle enables it for authenticated users.
+		annotator = createOSDAnnotator(viewer, {
+			drawingEnabled: false,
+			userSelectAction: UserSelectAction.NONE,
+			style: {
+				fill: '#00ff00',
+				fillOpacity: 0.06,
+				stroke: '#00ff00',
+				strokeWidth: 1,
+			},drawingMode: 'drag'
+		});
+
+		// Direct store observer: catches geometry changes during drag (the
+		// updateAnnotation event only fires for body changes or on deselect).
+		// This keeps edge labels tracking the shape in real time.
+		annotator.state.store.observe(({ changes }: any) => {
+			const updated = changes.updated;
+			if (!updated?.length) return;
+			let changed = false;
+			for (const { newValue } of updated) {
+				const sel = newValue.target?.selector;
+				if (sel?.type !== 'RECTANGLE' || !sel.geometry) continue;
+				const dbId = uiToDb.get(newValue.id);
+				if (!dbId) continue;
+				const idx = parsedAnnotations.findIndex((p) => p.dbId === dbId);
+				if (idx < 0) continue;
+				const g = sel.geometry;
+				parsedAnnotations[idx] = {
+					...parsedAnnotations[idx],
+					imgCx: g.x + g.w / 2,
+					imgCy: g.y + g.h / 2,
+				};
+				changed = true;
+			}
+			if (changed) {
+				lastDrawFingerprint = '';
+				scheduleDrawLabels();
+			}
+		});
+
+		// When the user finishes drawing a shape, open the edit panel for labelling.
+		annotator.on('createAnnotation', (annotation: any) => {
+			console.log('[OSD] createAnnotation event — uiId:', annotation.id, 'target:', annotation.target);
+			const textBody =
+				(annotation.body?.find((b: any) => b.purpose === 'commenting')?.value) ?? '';
+			// Park the annotation and open the edit panel so the user can type a label.
+			pendingNewAnnotation = annotation;
+			editBody = textBody;
+			// Synthesize an editingAnnotation so the panel renders.  It has no real
+			// DB id yet — saveEditBody checks pendingNewAnnotation to decide the path.
+			editingAnnotation = {
+				id: '__pending__',
+				photo_id: data.photo_id!,
+				user_id: '',
+				body: textBody,
+				target: annotation.target,
+				is_current: true,
+				superseded_by: null,
+				created_at: null,
+				event_type: 'created',
+				owner_username: null,
+			};
+			originalW3cSnapshot = deepClone(annotation);
+			originalDbId = null;
+			// Pause drawing while the panel is open so accidental drags
+			// don't create more shapes.  Mode stays as 'draw'.
+			annotator.setDrawingEnabled(false);
+		});
+
+		annotator.on('updateAnnotation', async (annotation: any, previous: any) => {
+			console.log('[OSD] updateAnnotation event — uiId:', previous.id, '→ annotation:', annotation.id);
+			// After our own save/cancel, setSelected() may trigger a shape commit — ignore it.
+			if (suppressedUiIds.delete(previous.id)) {
+				console.log('[OSD] updateAnnotation — suppressed (post-save/cancel) for', previous.id);
+				return;
+			}
+			// When the edit panel is open, defer persistence — the Save button commits everything.
+			// This avoids saving intermediate shape drags to the server.
+			if (editingAnnotation) {
+				console.log('[OSD] updateAnnotation — edit panel open, deferring persistence');
+				return;
+			}
+			const body =
+				annotation.body?.find((b: any) => b.purpose === 'commenting')?.value ?? '';
+			const dbId = uiToDb.get(previous.id);
+			if (!dbId) {
+				console.warn('[OSD] updateAnnotation: no DB ID for UI ID', previous.id, '— map contents:', [...uiToDb.entries()]);
+				showError('Failed to update — annotation mapping lost');
+				return;
+			}
+			console.log('[OSD] updateAnnotation — uiId:', previous.id, '→ dbId:', dbId, ', body:', body);
+			try {
+				const saved = await updateAnnotation(dbId, {
+					body,
+					target: annotation.target,
+				});
+				console.log('[OSD] updateAnnotation — saved, old dbId:', dbId, '→ new dbId:', saved.id);
+				// Update maps: UI ID now points to new DB row
+				uiToDb.set(previous.id, saved.id);
+				dbToUi.delete(dbId);           // old DB ID no longer valid
+				dbToUi.set(saved.id, previous.id);
+				// Update local annotations array
+				annotations = annotations.filter((a) => a.id !== dbId).concat(saved);
+				rebuildParsedAnnotations();
+				scheduleDrawLabels();
+			} catch (e) {
+				console.error('[OSD] Failed to update annotation:', e);
+				showError('Failed to update annotation');
+			}
+		});
+
+		annotator.on('deleteAnnotation', async (annotation: any) => {
+			console.log('[OSD] deleteAnnotation event — uiId:', annotation.id);
+			const dbId = uiToDb.get(annotation.id);
+			if (!dbId) {
+				console.warn('[OSD] deleteAnnotation: no DB ID for UI ID', annotation.id, '— ignoring (map contents:', [...uiToDb.entries()], ')');
+				return;  // programmatic remove or unknown — ignore
+			}
+			console.log('[OSD] deleteAnnotation — uiId:', annotation.id, '→ dbId:', dbId, ', deleting on server');
+			try {
+				await deleteAnnotation(dbId);
+				console.log('[OSD] deleteAnnotation — deleted dbId:', dbId, ', cleaning up maps');
+				uiToDb.delete(annotation.id);
+				dbToUi.delete(dbId);
+				annotations = annotations.filter((a) => a.id !== dbId);
+				rebuildParsedAnnotations();
+				scheduleDrawLabels();
+			} catch (e) {
+				console.error('[OSD] Failed to delete annotation:', e);
+				showError('Failed to delete annotation');
+			}
+		});
+
+		annotator.on('clickAnnotation', (annotation: any, originalEvent: PointerEvent) => {
+			console.log('[OSD] clickAnnotation event — uiId:', annotation.id, 'mode:', annotationMode);
+		});
+
+		// Open the edit panel when Annotorious actually selects an annotation,
+		// not on click (which can fire without selection happening).
+		// Also auto-save on deselect so there's no silent data loss.
+		annotator.on('selectionChanged', (selected: any[]) => {
+			console.log('[OSD] selectionChanged — count:', selected.length, 'mode:', annotationMode,
+				selected.length > 0 ? 'uiId:' + selected[0].id : '');
+			if (selected.length > 0 && annotationMode === 'edit') {
+				const annotation = selected[0];
+				const uiId = annotation.id;
+				const dbId = uiToDb.get(uiId);
+				if (!dbId) {
+					console.warn('[OSD] selectionChanged: no DB ID for UI ID', uiId);
+					return;
+				}
+				// If we're already editing this annotation, don't reset the text input
+				if (editingAnnotation && editingAnnotation.id === dbId) return;
+				const match = annotations.find((a) => a.id === dbId);
+				editingAnnotation = match ?? null;
+				editBody = match?.body ?? '';
+				// Capture snapshot for Cancel revert — must use store.getAnnotation
+				// (internal format) not getAnnotationById (W3C-serialized), because
+				// the deselect comparison uses internal format.
+				originalDbId = dbId;
+				const internal = annotator.state.store.getAnnotation(uiId);
+				originalW3cSnapshot = internal ? deepClone(internal) : null;
+				console.log('[OSD] selectionChanged — editing dbId:', dbId, 'body:', editBody);
+			} else if (selected.length === 0 && editingAnnotation) {
+				saveEditBody();
+			}
+		});
+
+		// The canvas is created imperatively so it can't use Svelte scoped styles;
+		// inline style is intentional here.
+		labelCanvas = document.createElement('canvas');
+		labelCanvas.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:2';
+		container.appendChild(labelCanvas);
+
+		resizeObserver = new ResizeObserver(() => {
+			if (!labelCanvas) return;
+			labelCanvas.width  = container.offsetWidth;
+			labelCanvas.height = container.offsetHeight;
+			scheduleDrawLabels();
+		});
+		resizeObserver.observe(container);
+
+		viewer.addHandler('viewport-change', scheduleDrawLabels);
+		viewer.addHandler('update-viewport',  scheduleDrawLabels);
+
+		// Close the viewer when the user clicks/taps the black background
+		// outside the image bounds (mirrors original ZoomView behaviour).
+		// event.quick distinguishes a tap/click from a pan/zoom drag — OSD sets
+		// quick=false when the pointer moved significantly before release.
+		viewer.addHandler('canvas-click', (event: any) => {
+			if (!event.quick || annotationMode !== 'view') return;
+			const item = viewer.world.getItemAt(0);
+			if (!item) { onClose(); return; }
+			const imgBounds = item.getBounds(); // viewport coordinates
+			const scrBounds = viewer.viewport.viewportToViewerElementRectangle(imgBounds);
+			const pt = event.position; // viewer-element coordinates
+			if (
+				pt.x < scrBounds.x ||
+				pt.x > scrBounds.x + scrBounds.width ||
+				pt.y < scrBounds.y ||
+				pt.y > scrBounds.y + scrBounds.height
+			) {
+				event.preventDefaultAction = true;
+				event.originalEvent?.stopPropagation?.();
+				event.originalEvent?.preventDefault?.();
+				// Delay close so the overlay stays in the DOM long enough to
+				// absorb the browser's touch→click synthesis (~300ms on mobile).
+				// Without this, the overlay unmounts and the synthesized click
+				// falls through to the map underneath.
+				setTimeout(onClose, 50);
+			}
+		});
+
+		// Load annotations after viewer is ready
+		if (data.photo_id) {
+			loadAnnotations();
+		}
+	});
+
+	onDestroy(() => {
+		resizeObserver?.disconnect();
+		viewer?.removeHandler('viewport-change', scheduleDrawLabels);
+		viewer?.removeHandler('update-viewport',  scheduleDrawLabels);
+		if (drawLabelsRaf) { cancelAnimationFrame(drawLabelsRaf); drawLabelsRaf = 0; }
+		annotator?.destroy?.();
+		viewer?.destroy?.();
+	});
+
+	function setAnnotationMode(mode: AnnotationMode) {
+		if (!annotator) return;
+		annotationMode = mode;
+		annotator.setDrawingEnabled(mode === 'draw');
+		annotator.setUserSelectAction(mode === 'edit' ? UserSelectAction.EDIT : UserSelectAction.NONE);
+		if (mode !== 'edit') {
+			annotator.setSelected();
+			cancelEditBody();
+		}
+		if (mode === 'draw') {
+			annotator.setDrawingTool('rectangle');
+		}
+	}
+
+	function cancelEditBody() {
+		const snapshot = originalW3cSnapshot;
+		const wasCreate = !!pendingNewAnnotation;
+
+		if (pendingNewAnnotation && annotator) {
+			// Create path: discard the unpersisted shape entirely
+			console.log('[OSD] cancelEditBody — removing unpersisted shape:', pendingNewAnnotation.id);
+			try { annotator.removeAnnotation(pendingNewAnnotation); } catch (_) {}
+			pendingNewAnnotation = null;
+		}
+
+		// Clear panel state before deselecting so the selectionChanged handler
+		// doesn't re-enter via saveEditBody.
+		editingAnnotation = null;
+		editBody = '';
+		originalW3cSnapshot = null;
+		originalDbId = null;
+
+		// Suppress the lifecycle event that the revert will trigger.
+		// Must be set BEFORE the store update so the handler sees it.
+		if (snapshot) suppressedUiIds.add(snapshot.id);
+
+		// Revert the store to the internal-format snapshot captured at selection
+		// time.  Do NOT use Origin.SILENT — that skips the rendering observer,
+		// leaving the annotation visually in the moved position.  The default
+		// origin (LOCAL) triggers both the rendering layer and the lifecycle
+		// bridge; the latter is suppressed by suppressedUiIds above.
+		if (snapshot && annotator && !wasCreate) {
+			try {
+				annotator.state.store.updateAnnotation(
+					snapshot.id,
+					snapshot
+				);
+				console.log('[OSD] cancelEditBody — reverted shape to original snapshot');
+			} catch (e) {
+				console.warn('[OSD] cancelEditBody — could not revert shape:', e);
+			}
+		}
+		annotator?.setSelected?.();
+
+		// Re-enable drawing if we're still in draw mode (was paused for the panel)
+		if (annotationMode === 'draw' && annotator) {
+			annotator.setDrawingEnabled(true);
+		}
+	}
+
+	async function saveEditBody() {
+		if (!editingAnnotation || !annotator) return;
+
+		// ── Create path: new shape not yet persisted ──
+		if (pendingNewAnnotation) {
+			const ann = pendingNewAnnotation;
+			const body = editBody;
+			console.log('[OSD] saveEditBody (create) — uiId:', ann.id, 'body:', body);
+			try {
+				const saved = await createAnnotation(data.photo_id!, {
+					body,
+					target: ann.target,
+				});
+				console.log('[OSD] saveEditBody (create) — saved, uiId:', ann.id, '→ dbId:', saved.id);
+				annotations = [...annotations, saved];
+				uiToDb.set(ann.id, saved.id);
+				dbToUi.set(saved.id, ann.id);
+				// Sync the body into Annotorious so subsequent edits carry it.
+				annotator.state.store.updateAnnotation(ann.id, {
+					...ann,
+					body: [{ type: 'TextualBody', value: body, purpose: 'commenting' }],
+				}, Origin.SILENT);
+				rebuildParsedAnnotations();
+				scheduleDrawLabels();
+			} catch (e) {
+				console.error('[OSD] saveEditBody (create) — failed:', e);
+				annotator.removeAnnotation(ann);
+				showError('Failed to save annotation');
+			}
+			// Clean up panel state
+			suppressedUiIds.add(ann.id);
+			annotator.setSelected();
+			pendingNewAnnotation = null;
+			editingAnnotation = null;
+			editBody = '';
+			originalW3cSnapshot = null;
+			originalDbId = null;
+			// Re-enable drawing if we're still in draw mode
+			if (annotationMode === 'draw') {
+				annotator.setDrawingEnabled(true);
+			}
+			return;
+		}
+
+		// ── Update path: existing annotation ──
+		const dbId = editingAnnotation.id;
+		const uiId = dbToUi.get(dbId);
+		if (!uiId) {
+			console.warn('[OSD] saveEditBody: no UI ID for DB ID', dbId);
+			showError('Could not save — annotation mapping lost');
+			cancelEditBody();
+			return;
+		}
+		console.log('[OSD] saveEditBody — uiId:', uiId, 'dbId:', dbId, 'newBody:', editBody);
+		// Get the current W3C annotation (with any shape changes the user made)
+		const w3c = annotator.getAnnotationById(uiId);
+		if (!w3c) {
+			console.warn('[OSD] saveEditBody: annotation not found in Annotorious, uiId:', uiId);
+			showError('Could not save — annotation not found in viewer');
+			cancelEditBody();
+			return;
+		}
+		try {
+			// Persist body + target (possibly moved shape) to server
+			const saved = await updateAnnotation(dbId, {
+				body: editBody,
+				target: w3c.target,
+			});
+			console.log('[OSD] saveEditBody — saved, old dbId:', dbId, '→ new dbId:', saved.id);
+			// Update ID maps (supersede chain)
+			uiToDb.set(uiId, saved.id);
+			dbToUi.delete(dbId);
+			dbToUi.set(saved.id, uiId);
+			// Update local annotations array
+			annotations = annotations.filter((a) => a.id !== dbId).concat(saved);
+			// Sync the body into Annotorious silently (so it reflects the new label)
+			annotator.state.store.updateAnnotation(uiId, {
+				...w3c,
+				body: [{ type: 'TextualBody', value: editBody, purpose: 'commenting' }],
+			}, Origin.SILENT);
+			rebuildParsedAnnotations();
+			scheduleDrawLabels();
+			// Deselect — mark this annotation so the editor's deselect-commit
+			// doesn't trigger a redundant server persist.
+			suppressedUiIds.add(uiId);
+			annotator.setSelected();
+			// Close panel state
+			editingAnnotation = null;
+			editBody = '';
+			originalW3cSnapshot = null;
+			originalDbId = null;
+		} catch (e) {
+			console.error('[OSD] saveEditBody — failed:', e);
+			showError('Failed to update annotation');
+			// Revert shape and close panel so the user isn't stuck
+			cancelEditBody();
+		}
+	}
+
+	async function deleteEditingAnnotation() {
+		if (!editingAnnotation || !annotator) return;
+
+		// Create path: shape isn't persisted yet — just discard it
+		if (pendingNewAnnotation) {
+			cancelEditBody();
+			return;
+		}
+
+		const dbId = editingAnnotation.id;
+		const uiId = dbToUi.get(dbId);
+		console.log('[OSD] deleteEditingAnnotation — dbId:', dbId, 'uiId:', uiId);
+		try {
+			await deleteAnnotation(dbId);
+			// Clean up maps
+			if (uiId) {
+				uiToDb.delete(uiId);
+				// Remove from Annotorious silently (avoid triggering the deleteAnnotation handler again)
+				try { annotator.removeAnnotation(uiId); } catch (_) {}
+			}
+			dbToUi.delete(dbId);
+			annotations = annotations.filter((a) => a.id !== dbId);
+			rebuildParsedAnnotations();
+			scheduleDrawLabels();
+			// Close panel
+			editingAnnotation = null;
+			editBody = '';
+			originalW3cSnapshot = null;
+			originalDbId = null;
+		} catch (e) {
+			console.error('[OSD] deleteEditingAnnotation — failed:', e);
+			showError('Failed to delete annotation');
+			// Close panel so the user isn't stuck — annotation remains on canvas
+			editingAnnotation = null;
+			editBody = '';
+			originalW3cSnapshot = null;
+			originalDbId = null;
+		}
+	}
+
+	function autofocus(node: HTMLElement) { node.focus(); }
+
+	function handleKeydown(e: KeyboardEvent) {
+		if (e.key === 'Escape') {
+			if (editingAnnotation) {
+				cancelEditBody();
+			} else {
+				onClose();
+			}
+		}
+	}
+</script>
+
+<svelte:window on:keydown={handleKeydown} />
+
+<div class="osd-overlay" data-testid="osd-viewer-overlay">
+	<!-- Close button -->
+	<button class="close-btn" onclick={onClose} aria-label="Close zoom view" data-testid="osd-viewer-close">
+		<svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+			<path d="M18 6L6 18M6 6L18 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+		</svg>
+	</button>
+
+	<!-- Annotation toolbar (authenticated users only) -->
+	{#if isAuthenticated}
+		<div class="annotation-toolbar">
+			<button
+				class="toolbar-btn toolbar-btn-draw"
+				class:active={annotationMode === 'draw'}
+				onclick={() => setAnnotationMode(annotationMode === 'draw' ? 'view' : 'draw')}
+				title={annotationMode === 'draw' ? 'Stop drawing' : 'Draw annotation'}
+				data-testid="osd-annotate-draw"
+			>
+				✏️ Draw
+			</button>
+			<button
+				class="toolbar-btn toolbar-btn-edit"
+				class:active={annotationMode === 'edit'}
+				onclick={() => setAnnotationMode(annotationMode === 'edit' ? 'view' : 'edit')}
+				title={annotationMode === 'edit' ? 'Stop editing' : 'Edit annotations'}
+				data-testid="osd-annotate-edit"
+			>
+				🔧 Edit
+			</button>
+		</div>
+	{/if}
+
+	<!-- Loading indicator -->
+	{#if isLoading}
+		<div class="loading-overlay">
+			<div class="spinner"></div>
+		</div>
+	{/if}
+
+	<!-- Annotation body edit panel -->
+	{#if editingAnnotation}
+		<div class="edit-body-panel" data-testid="osd-edit-body-panel">
+			<label class="edit-body-label" for="edit-body-input">Label</label>
+			<input
+				id="edit-body-input"
+				class="edit-body-input"
+				type="text"
+				bind:value={editBody}
+				onkeydown={(e) => { if (e.key === 'Enter') saveEditBody(); }}
+				use:autofocus
+				data-testid="osd-edit-body-input"
+			/>
+			<div class="edit-body-actions">
+				<button class="edit-body-btn delete" onclick={deleteEditingAnnotation} data-testid="osd-edit-body-delete">Delete</button>
+				<div style="flex:1"></div>
+				<button class="edit-body-btn cancel" onclick={cancelEditBody} data-testid="osd-edit-body-cancel">Cancel</button>
+				<button class="edit-body-btn save" onclick={saveEditBody} data-testid="osd-edit-body-save">Save</button>
+			</div>
+		</div>
+	{/if}
+
+	<!-- Error message -->
+	{#if errorMessage}
+		<div class="error-banner">{errorMessage}</div>
+	{/if}
+
+	<!-- OpenSeadragon container -->
+	<div bind:this={container} class="osd-container"></div>
+
+	<!-- Filename bar -->
+	<div class="filename-bar">{data.filename}</div>
+</div>
+
+<style>
+	.osd-overlay {
+		position: fixed;
+		inset: 0;
+		background: #000;
+		z-index: 999999;
+		display: flex;
+		flex-direction: column;
+	}
+
+	.osd-container {
+		flex: 1;
+		width: 100%;
+		height: 100%;
+		position: relative;
+	}
+
+	/* Annotorious CSS is imported in the parent component */
+
+	.close-btn {
+		position: absolute;
+		top: calc(12px + var(--safe-area-inset-top, 0px));
+		right: calc(12px + var(--safe-area-inset-right, 0px));
+		z-index: 10;
+		background: rgba(255,255,255,0.85);
+		border: none;
+		border-radius: 50%;
+		width: 44px;
+		height: 44px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		cursor: pointer;
+		color: #333;
+	}
+
+	.close-btn:hover { background: rgba(255,255,255,1); }
+
+	.annotation-toolbar {
+		position: absolute;
+		top: calc(12px + var(--safe-area-inset-top, 0px));
+		left: calc(12px + var(--safe-area-inset-left, 0px));
+		z-index: 10;
+		display: flex;
+		gap: 8px;
+	}
+
+	.toolbar-btn {
+		background: rgba(255,255,255,0.85);
+		border: 2px solid transparent;
+		border-radius: 8px;
+		padding: 8px 12px;
+		cursor: pointer;
+		font-size: 14px;
+		font-weight: 500;
+		color: #222;
+	}
+
+	.toolbar-btn:hover {
+		background: rgba(255,255,255,1);
+	}
+
+	.toolbar-btn-draw.active {
+		border-color: #e2904a;
+		background: rgba(226,144,74,0.75);
+		color: #fff;
+	}
+
+	.toolbar-btn-draw.active:hover {
+		background: rgba(226,144,74,0.9);
+	}
+
+	.toolbar-btn-edit.active {
+		border-color: #4a90e2;
+		background: rgba(74,144,226,0.75);
+		color: #fff;
+	}
+
+	.toolbar-btn-edit.active:hover {
+		background: rgba(74,144,226,0.9);
+	}
+
+	.loading-overlay {
+		position: absolute;
+		inset: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: rgba(0,0,0,0.6);
+		z-index: 5;
+	}
+
+	.spinner {
+		width: 48px;
+		height: 48px;
+		border: 4px solid rgba(255,255,255,0.3);
+		border-top-color: #fff;
+		border-radius: 50%;
+		animation: spin 0.8s linear infinite;
+	}
+
+	@keyframes spin { to { transform: rotate(360deg); } }
+
+	.error-banner {
+		position: absolute;
+		bottom: 60px;
+		left: 50%;
+		transform: translateX(-50%);
+		background: rgba(220,53,69,0.9);
+		color: #fff;
+		padding: 8px 16px;
+		border-radius: 8px;
+		font-size: 14px;
+		z-index: 10;
+	}
+
+	.edit-body-panel {
+		position: absolute;
+		bottom: 80px;
+		left: 50%;
+		transform: translateX(-50%);
+		z-index: 10;
+		background: rgba(30,30,30,0.95);
+		border: 1px solid rgba(255,255,255,0.2);
+		border-radius: 10px;
+		padding: 12px 16px;
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		min-width: 260px;
+		max-width: 90vw;
+	}
+
+	.edit-body-label {
+		color: rgba(255,255,255,0.7);
+		font-size: 12px;
+		font-weight: 500;
+	}
+
+	.edit-body-input {
+		background: rgba(255,255,255,0.1);
+		border: 1px solid rgba(255,255,255,0.3);
+		border-radius: 6px;
+		color: #fff;
+		padding: 8px 10px;
+		font-size: 14px;
+		outline: none;
+	}
+
+	.edit-body-input:focus {
+		border-color: #4a90e2;
+	}
+
+	.edit-body-actions {
+		display: flex;
+		gap: 8px;
+		justify-content: flex-end;
+	}
+
+	.edit-body-btn {
+		border: none;
+		border-radius: 6px;
+		padding: 6px 14px;
+		font-size: 13px;
+		font-weight: 500;
+		cursor: pointer;
+	}
+
+	.edit-body-btn.save {
+		background: #4a90e2;
+		color: #fff;
+	}
+
+	.edit-body-btn.save:hover { background: #357abd; }
+
+	.edit-body-btn.cancel {
+		background: rgba(255,255,255,0.15);
+		color: #fff;
+	}
+
+	.edit-body-btn.cancel:hover { background: rgba(255,255,255,0.25); }
+
+	.edit-body-btn.delete {
+		background: #dc3545;
+		color: #fff;
+	}
+
+	.edit-body-btn.delete:hover { background: #c82333; }
+
+	.filename-bar {
+		position: absolute;
+		bottom: 20px;
+		left: 50%;
+		transform: translateX(-50%);
+		background: rgba(0,0,0,0.2);
+		color: #fff;
+		padding: 6px 16px;
+		border-radius: 20px;
+		font-size: 13px;
+		max-width: 80vw;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		z-index: 10;
+		pointer-events: none;
+	}
+
+
+</style>

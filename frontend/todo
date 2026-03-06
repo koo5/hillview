@@ -24,3 +24,6 @@ unify BROWSER and TAURI autoUploadSettings stores - wrap localStoreage logic in 
 
 
 photo-upload-retry?
+
+Add vitest mock aliases for openseadragon and @annotorious/openseadragon so OpenSeadragonViewer.svelte can use static imports instead of dynamic ones. See tauri mock pattern in vitest.config.ts.
+

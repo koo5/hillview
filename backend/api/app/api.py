@@ -392,6 +392,10 @@ import worker_routes
 
 app.include_router(worker_routes.router)
 
+import annotation_routes
+
+app.include_router(annotation_routes.router)
+
 
 # Database migration function
 def run_migrations():

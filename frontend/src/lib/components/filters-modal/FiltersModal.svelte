@@ -1,8 +1,8 @@
 <script lang="ts">
 	import Modal from '../Modal.svelte';
 	import { Sun, Moon, Sunrise, Home, Trees, RotateCcw } from 'lucide-svelte';
-	import { filters, hasActiveFilters, filtersModalState, closeFiltersModal, type QueryOptions } from './filtersStore';
 	import { maxPhotosInArea } from '$lib/data.svelte';
+	import { filters, hasActiveFilters, clearFilters, filtersModalState, closeFiltersModal, type QueryOptions } from './filtersStore';
 
 	function setTimeOfDay(value: string | null) {
 		filters.update(f => ({ ...f, time_of_day: f.time_of_day === value ? null : value }));
@@ -42,17 +42,7 @@
 	}
 
 	function handleClear() {
-		filters.set({
-			time_of_day: null,
-			location_type: null,
-			min_farthest_distance: null,
-			max_closest_distance: null,
-			min_scenic_score: null,
-			visibility_distance: null,
-			tallest_building: null,
-			features: [],
-			show_unanalyzed: true
-		});
+		clearFilters();
 	}
 
 	const timeOptions = [
@@ -174,6 +164,9 @@
 						class="chip"
 						class:selected={$filters.time_of_day === opt.value}
 						onclick={() => setTimeOfDay(opt.value)}
+						data-testid="filter"
+						data-filter-name="time_of_day"
+						data-filter-value={opt.value}
 					>
 						{#if opt.icon}
 							<svelte:component this={opt.icon} size={16} />
@@ -192,6 +185,9 @@
 						class="chip"
 						class:selected={$filters.location_type === opt.value}
 						onclick={() => setLocationType(opt.value)}
+						data-testid="filter"
+						data-filter-name="location_type"
+						data-filter-value={opt.value}
 					>
 						{#if opt.icon}
 							<svelte:component this={opt.icon} size={16} />
@@ -211,6 +207,9 @@
 						class="chip"
 						class:selected={$filters.min_farthest_distance === preset.value}
 						onclick={() => setMinFarthestDistance(preset.value)}
+						data-testid="filter"
+						data-filter-name="min_farthest_distance"
+						data-filter-value={preset.value}
 					>
 						{preset.label}
 					</button>
@@ -227,6 +226,9 @@
 						class="chip"
 						class:selected={$filters.max_closest_distance === preset.value}
 						onclick={() => setMaxClosestDistance(preset.value)}
+						data-testid="filter"
+						data-filter-name="max_closest_distance"
+						data-filter-value={preset.value}
 					>
 						{preset.label}
 					</button>
@@ -243,6 +245,9 @@
 						class="chip"
 						class:selected={$filters.min_scenic_score === opt.value}
 						onclick={() => setMinScenicScore(opt.value)}
+						data-testid="filter"
+						data-filter-name="min_scenic_score"
+						data-filter-value={opt.value}
 					>
 						{opt.label}
 					</button>
@@ -259,6 +264,9 @@
 						class="chip"
 						class:selected={$filters.visibility_distance === opt.value}
 						onclick={() => setVisibilityDistance(opt.value)}
+						data-testid="filter"
+						data-filter-name="visibility_distance"
+						data-filter-value={opt.value}
 					>
 						{opt.label}
 					</button>
@@ -275,6 +283,9 @@
 						class="chip"
 						class:selected={$filters.tallest_building === opt.value}
 						onclick={() => setTallestBuilding(opt.value)}
+						data-testid="filter"
+						data-filter-name="tallest_building"
+						data-filter-value={opt.value}
 					>
 						{opt.label}
 					</button>
@@ -294,6 +305,9 @@
 								class="chip"
 								class:selected={$filters.features.includes(feature)}
 								onclick={() => toggleFeature(feature)}
+								data-testid="filter"
+								data-filter-name="feature"
+								data-filter-value={feature}
 							>
 								{formatFeature(feature)}
 							</button>
@@ -304,16 +318,15 @@
 		</section>
 
 		<div class="bottom-controls">
-			<label class="toggle-label" class:disabled={!$hasActiveFilters}>
+			<label class="toggle-label" class:disabled={!$hasActiveFilters} data-testid="show-unanalyzed">
 				<input
 					type="checkbox"
-					checked={$filters.show_unanalyzed}
+					bind:checked={$filters.show_unanalyzed}
 					disabled={!$hasActiveFilters}
-					onchange={() => filters.update(f => ({ ...f, show_unanalyzed: !f.show_unanalyzed }))}
 				/>
 				Show unanalyzed photos
 			</label>
-			<button class="clear-button" onclick={handleClear} disabled={!$hasActiveFilters}>
+			<button class="clear-button" onclick={handleClear} disabled={!$hasActiveFilters} data-testid="clear-filters">
 				<RotateCcw size={14} />
 				Clear all filters
 			</button>

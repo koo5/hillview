@@ -302,6 +302,42 @@ class ContactMessage(Base):
 	replied_by_user: Mapped[Optional["User"]] = relationship(foreign_keys=[replied_by], back_populates=None)
 
 
+class PhotoAnnotation(Base):
+	"""A user-created annotation on a photo.
+
+	The data model is intentionally simple (free-for-all) for the initial implementation.
+	Future evolution should move toward a web-of-trust / RDF-based schema where:
+	  - trust/karma scores determine annotation visibility
+	  - conflict resolution is handled by the trust graph rather than central moderation
+	  - annotations are linked to each other via superseded_by for transparent edit history
+	  - the full RDF graph could be exported / federated across instances
+	  - per-annotation endorsements / disputes form the basis of decentralised moderation
+	"""
+	__tablename__ = "photo_annotations"
+
+	id: Mapped[str] = mapped_column(String, primary_key=True, default=generate_uuid)
+	photo_id: Mapped[str] = mapped_column(String, ForeignKey("photos.id", ondelete="CASCADE"), index=True)
+	user_id: Mapped[str] = mapped_column(String, ForeignKey("users.id", ondelete="CASCADE"))
+
+	# Annotation content – W3C Web Annotation compatible fields
+	body: Mapped[Optional[str]] = mapped_column(Text)  # Human-readable text
+	# target stores the complete Annotorious selector JSON (shape, coordinates, etc.)
+	target: Mapped[Optional[dict]] = mapped_column(JSON)
+
+	# Version tracking: updating an annotation creates a new row and marks this one superseded
+	is_current: Mapped[bool] = mapped_column(Boolean, default=True)
+	superseded_by: Mapped[Optional[str]] = mapped_column(
+		String, ForeignKey("photo_annotations.id", ondelete="SET NULL"), nullable=True
+	)
+
+	created_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), server_default=func.now())
+	event_type: Mapped[str] = mapped_column(String(16), default='created')
+
+	# Relationships
+	photo: Mapped["Photo"] = relationship()
+	user: Mapped["User"] = relationship()
+
+
 class PushRegistration(Base):
 	__tablename__ = "push_registrations"
 

@@ -23,6 +23,7 @@ RUN apt-get update && apt-get install -y \
     imagemagick \
     jpegoptim \
     libimage-exiftool-perl \
+    libvips-tools \
     procps \
     htop \
     mc \
@@ -80,12 +81,19 @@ RUN python -m compileall -b /app
 RUN chown -R worker:worker /app
 
 
-RUN    sed -i 's/<policy domain="resource" name="memory" value="[^"]*"/<policy domain="resource" name="memory" value="2GiB"/' /etc/ImageMagick-7/policy.xml \
-    && sed -i 's/<policy domain="resource" name="map" value="[^"]*"/<policy domain="resource" name="map" value="4GiB"/' /etc/ImageMagick-7/policy.xml \
-    && sed -i 's/<policy domain="resource" name="disk" value="[^"]*"/<policy domain="resource" name="disk" value="8GiB"/' /etc/ImageMagick-7/policy.xml \
-    && sed -i 's/<policy domain="resource" name="width" value="[^"]*"/<policy domain="resource" name="width" value="65536"/' /etc/ImageMagick-7/policy.xml \
-    && sed -i 's/<policy domain="resource" name="height" value="[^"]*"/<policy domain="resource" name="height" value="65536"/' /etc/ImageMagick-7/policy.xml \
-    && sed -i 's/<policy domain="resource" name="area" value="[^"]*"/<policy domain="resource" name="area" value="1GP"/' /etc/ImageMagick-7/policy.xml
+ARG MAGICK_MEMORY_LIMIT=2GiB
+ARG MAGICK_MAP_LIMIT=4GiB
+ARG MAGICK_DISK_LIMIT=8GiB
+ARG MAGICK_WIDTH_LIMIT=65536
+ARG MAGICK_HEIGHT_LIMIT=65536
+ARG MAGICK_AREA_LIMIT=1GP
+
+RUN    sed -i "s/<policy domain=\"resource\" name=\"memory\" value=\"[^\"]*\"/<policy domain=\"resource\" name=\"memory\" value=\"${MAGICK_MEMORY_LIMIT}\"/" /etc/ImageMagick-7/policy.xml \
+    && sed -i "s/<policy domain=\"resource\" name=\"map\" value=\"[^\"]*\"/<policy domain=\"resource\" name=\"map\" value=\"${MAGICK_MAP_LIMIT}\"/" /etc/ImageMagick-7/policy.xml \
+    && sed -i "s/<policy domain=\"resource\" name=\"disk\" value=\"[^\"]*\"/<policy domain=\"resource\" name=\"disk\" value=\"${MAGICK_DISK_LIMIT}\"/" /etc/ImageMagick-7/policy.xml \
+    && sed -i "s/<policy domain=\"resource\" name=\"width\" value=\"[^\"]*\"/<policy domain=\"resource\" name=\"width\" value=\"${MAGICK_WIDTH_LIMIT}\"/" /etc/ImageMagick-7/policy.xml \
+    && sed -i "s/<policy domain=\"resource\" name=\"height\" value=\"[^\"]*\"/<policy domain=\"resource\" name=\"height\" value=\"${MAGICK_HEIGHT_LIMIT}\"/" /etc/ImageMagick-7/policy.xml \
+    && sed -i "s/<policy domain=\"resource\" name=\"area\" value=\"[^\"]*\"/<policy domain=\"resource\" name=\"area\" value=\"${MAGICK_AREA_LIMIT}\"/" /etc/ImageMagick-7/policy.xml
 
 
 

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { constructPhotoMapUrl } from '$lib/urlUtils';
 	import { app } from '$lib/data.svelte';
+	import { clearFilters } from '$lib/components/filters-modal/filtersStore';
 	import type { PhotoItemData } from '$lib/types/photoItemTypes';
 	import { ChevronDown } from 'lucide-svelte';
 
@@ -49,6 +50,7 @@
 			e.preventDefault();
 			return;
 		}
+		clearFilters();
 		app.update(a => ({ ...a, activity: 'view' }));
 		// Navigation is handled by the anchor tag, alerts cleared by layout's beforeNavigate
 	}

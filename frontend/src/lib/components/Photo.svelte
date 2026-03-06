@@ -322,7 +322,9 @@
 			url: fullPhotoInfo.url,
 			filename: photo.filename,
 			width: fullPhotoInfo.width,
-			height: fullPhotoInfo.height
+			height: fullPhotoInfo.height,
+			photo_id: photo.id,
+			pyramid: (photo as any).sizes?.full?.pyramid ?? undefined,
 		});
 	}
 
