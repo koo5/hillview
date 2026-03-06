@@ -339,3 +339,21 @@ def apply_blur(source_path, image, detections):
 			draw_fn(image, x1, y1, x2, y2, ic, rng)
 
 		logging.info(f"Colored over {label} at ({x1},{y1})-({x2},{y2})")
+
+
+def apply_blackout(image, detections):
+	"""Fill detected regions with black for LLM analysis (no colors, no stick figures)."""
+	for det in detections:
+		x1 = det['bbox']['x1']
+		y1 = det['bbox']['y1']
+		x2 = det['bbox']['x2']
+		y2 = det['bbox']['y2']
+
+		x1, y1 = max(0, x1), max(0, y1)
+		x2, y2 = min(x2, image.shape[1]), min(y2, image.shape[0])
+
+		if x2 <= x1 or y2 <= y1:
+			continue
+
+		image[y1:y2, x1:x2] = 0
+		logging.info(f"Blacked out detection at ({x1},{y1})-({x2},{y2})")
