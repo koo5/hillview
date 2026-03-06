@@ -400,7 +400,7 @@
 								<span class="path-value">{photo.file_path}</span>
 							</div>
 						{/if}
-						<RetryUploadsButton {photo} />
+						<RetryUploadsButton {photo} onSync={() => fetchDevicePhotos(1, false)} />
 					</div>
 				{/each}
 			</div>

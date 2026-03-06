@@ -7,6 +7,7 @@ import { browserPhotoStorage, type StoredPhoto } from './photoStorage';
 import { readSettings } from './settingsIndexedDb';
 import { writable } from 'svelte/store';
 import type { StatusReporter, SyncStatusReport } from '$lib/syncStatus';
+import { syncProcessingPhotosStatus, type AuthFetch } from '$lib/uploadProtocol';
 
 const LOG_PREFIX = '🢄[PhotoUpload]';
 
@@ -45,6 +46,7 @@ let isRunning = false;
 export interface UploadOptions {
     source?: 'sw' | 'fg';
     reporter?: StatusReporter;
+    authFetch?: AuthFetch;
 }
 
 export async function uploadPendingPhotos(
@@ -87,21 +89,17 @@ export async function uploadPendingPhotos(
     }
 
     try {
-        const pendingPhotos = await browserPhotoStorage.getPendingPhotos();
-        totalPending = pendingPhotos.length;
-
         uploadStatus.update(s => ({
             ...s,
-            pendingCount: pendingPhotos.length,
             successCount: 0,
             failureCount: 0
         }));
 
         emit('starting', true);
 
-        console.log(`${LOG_PREFIX} Found ${pendingPhotos.length} pending uploads`);
-
-        for (const photo of pendingPhotos) {
+        // Fetch and upload one photo at a time (like Kotlin's upload loop).
+        // New photos added during upload get picked up automatically.
+        while (true) {
             if (typeof navigator !== 'undefined' && !navigator.onLine) {
                 console.log(`${LOG_PREFIX} Offline, stopping upload`);
                 break;
@@ -112,6 +110,14 @@ export async function uploadPendingPhotos(
                 console.log(`${LOG_PREFIX} Auto-upload disabled, stopping upload loop`);
                 break;
             }
+
+            const photo = await browserPhotoStorage.getNextPhotoForUpload();
+            if (!photo) {
+                console.log(`${LOG_PREFIX} No more photos to upload`);
+                break;
+            }
+
+            totalPending++;
 
             uploadStatus.update(s => ({
                 ...s,
@@ -164,9 +170,18 @@ export async function uploadPendingPhotos(
             }
         }
 
+        // Sync processing statuses with server (like Kotlin's syncProcessingPhotosStatus)
+        if (options?.authFetch) {
+            try {
+                await syncProcessingPhotosStatus(options.authFetch);
+            } catch (error) {
+                console.warn(`${LOG_PREFIX} Processing status sync failed:`, error);
+            }
+        }
+
     } finally {
         isRunning = false;
-        emit('complete', false);
+        emit('finished', false);
         uploadStatus.update(s => ({
             ...s,
             isUploading: false,

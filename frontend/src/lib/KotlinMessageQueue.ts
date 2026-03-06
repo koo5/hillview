@@ -7,6 +7,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { browser } from '$app/environment';
+import { TAURI } from '$lib/tauri';
 
 export interface QueuedMessage {
     type: string;
@@ -129,6 +130,6 @@ export class KotlinMessageQueue {
 }
 
 // Global instance - only create in browser context to avoid SSR logs
-export const kotlinMessageQueue: KotlinMessageQueue = browser
+export const kotlinMessageQueue: KotlinMessageQueue = (browser && TAURI)
     ? new KotlinMessageQueue()
     : (null as unknown as KotlinMessageQueue);

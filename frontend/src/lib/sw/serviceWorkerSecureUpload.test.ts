@@ -81,6 +81,7 @@ function makeStoredPhoto(overrides: Partial<StoredPhoto> = {}): StoredPhoto {
 			orientation_code: 1
 		},
 		status: 'pending',
+		deleted: false,
 		retry_count: 0,
 		added_at: Date.now(),
 		...overrides

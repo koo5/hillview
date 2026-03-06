@@ -383,9 +383,9 @@
 		</div>
 	{/if}
 
-	{#if $auth.is_authenticated}
-		<DevicePhotoStats addLogEntry={addLogEntry} />
-	{/if}
+	<!--{#if $auth.is_authenticated}-->
+		<DevicePhotoStats addLogEntry={addLogEntry} onRefresh={() => fetchPhotos()} />
+	<!--{/if}-->
 
 	{#if (TAURI || BROWSER) && $auth.is_authenticated}
 		<div class="refresh-section">
@@ -551,7 +551,7 @@
 									</button>
 								{/if}
 							</div>
-							<RetryUploadsButton {photo} {addLogEntry} />
+							<RetryUploadsButton {photo} {addLogEntry} onSync={() => fetchPhotos()} />
 						</svelte:fragment>
 					</PhotoItem>
 				{/each}

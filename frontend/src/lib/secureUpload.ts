@@ -25,7 +25,7 @@ export { UploadError, NonRetryableUploadError, RetryableUploadError } from './up
  * Main-thread authFetch: delegates to http.post which auto-attaches auth via interceptor.
  * Wraps http.post to match the AuthFetch signature (url, RequestInit) => Response.
  */
-const mainThreadAuthFetch: AuthFetch = async (url: string, init: RequestInit): Promise<Response> => {
+export const mainThreadAuthFetch: AuthFetch = async (url: string, init: RequestInit): Promise<Response> => {
 	// http.post already handles auth headers, JSON content-type, and token refresh.
 	// We need to pass the raw body since http.post expects a data object for JSON.
 	const data = init.body ? JSON.parse(init.body as string) : undefined;

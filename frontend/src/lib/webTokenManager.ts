@@ -34,7 +34,8 @@ export class WebTokenManager implements TokenManager {
                 auth.update(state => ({ ...state, is_authenticated: true }));
                 // If we just gained tokens (login in another tab), fetch user data
                 if (!hadTokens) {
-                    fetchUserData();
+                    console.log(`${this.LOG_PREFIX} Detected new login, fetching user data`);
+					fetchUserData();
                 }
             } else {
                 auth.update(state => ({ ...state, is_authenticated: false, user: null }));

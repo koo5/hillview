@@ -28,25 +28,27 @@ export const photoStatsError = writable<string | null>(null);
 
 // Fetch stats based on current platform
 export async function fetchPhotoStats(): Promise<PhotoStats | null> {
+	console.log('Fetching photo stats...');
     photoStatsLoading.set(true);
     photoStatsError.set(null);
 
     try {
         if (BROWSER) {
-            // Browser: Calculate stats from IndexedDB
-            const photos = await browserPhotoStorage.getAllPhotos();
-            const storageInfo = get(browserStorageUsage);
+            // Browser: Refresh queue counts from IDB, then read from store
+            await browserPhotoStorage.updateQueueStatus();
             const uploadStatus = get(browserUploadQueueStatus);
+            const storageInfo = get(browserStorageUsage);
 
             const stats: PhotoStats = {
 				ts: Date.now(),
-                total: photos.length,
+                total: uploadStatus.pending + uploadStatus.uploading + uploadStatus.processing
+                    + uploadStatus.completed + uploadStatus.failed + uploadStatus.deleted,
                 pending: uploadStatus.pending,
                 uploading: uploadStatus.uploading,
                 processing: uploadStatus.processing,
                 completed: uploadStatus.completed,
                 failed: uploadStatus.failed,
-                deleted: 0, // Could track if we implement soft delete
+                deleted: uploadStatus.deleted,
                 // Browser-specific storage info
                 storageUsed: storageInfo.used,
                 storageQuota: storageInfo.quota,
@@ -86,14 +88,6 @@ export function hasUploadsToRetry(stats: PhotoStats | null): boolean {
         stats.processing > 0 ||
         stats.uploading > 0
     );
-}
-
-// Auto-refresh stats when browser upload status changes
-if (BROWSER) {
-    browserUploadQueueStatus.subscribe(() => {
-        // Debounce to avoid too many updates
-        setTimeout(() => fetchPhotoStats(), 100);
-    });
 }
 
 // Platform-specific storage info display helper

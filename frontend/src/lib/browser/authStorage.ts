@@ -56,7 +56,7 @@ export class AuthStorage {
     async open(): Promise<void> {
         if (this.db) return;
 
-        console.log('[AuthStorage] Opening IndexedDB...');
+        //console.log('[AuthStorage] Opening IndexedDB...');
         return new Promise((resolve, reject) => {
             // Timeout to prevent hanging forever if blocked
             const timeout = setTimeout(() => {
@@ -73,7 +73,7 @@ export class AuthStorage {
             };
             request.onsuccess = () => {
                 clearTimeout(timeout);
-                console.log('[AuthStorage] IndexedDB opened successfully');
+                //console.log('[AuthStorage] IndexedDB opened successfully');
                 this.db = request.result;
                 resolve();
             };

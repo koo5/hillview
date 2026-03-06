@@ -97,8 +97,6 @@ class UserOut(BaseModel):
 	is_active: bool
 	is_test: bool
 	created_at: datetime
-	auto_upload_enabled: bool
-	auto_upload_folder: Optional[str] = None
 
 	class Config:
 		from_attributes = True

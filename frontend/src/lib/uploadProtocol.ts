@@ -16,6 +16,7 @@
 import CryptoJS from 'crypto-js';
 import { clientCrypto } from './clientCrypto';
 import { backendUrl } from './config';
+import { browserPhotoStorage } from './browser/photoStorage';
 
 // ── Types ──
 
@@ -311,4 +312,98 @@ export async function uploadToWorker(
 	}
 
 	throw new RetryableUploadError('Maximum retries exceeded');
+}
+
+// ── Processing status sync ──
+
+interface ServerPhotoStatus {
+	id: string;
+	processing_status: string;
+	error: string | null;
+	deleted: boolean;
+}
+
+const STATUS_LOG_PREFIX = '🢄[StatusSync]';
+
+/**
+ * Query the server for the processing status of photos and update local IDB.
+ * Mirrors Kotlin's syncProcessingPhotosStatus():
+ * - completed → mark as 'completed'
+ * - error → mark as 'failed' (increments retry_count)
+ * - authorized → still processing, no change
+ * - deleted → mark as 'failed' with deletion error
+ *
+ * Works in both main thread and service worker via the authFetch parameter.
+ */
+export async function syncProcessingPhotosStatus(authFetch: AuthFetch): Promise<void> {
+	const processingPhotos = await browserPhotoStorage.getProcessingPhotos();
+
+	if (processingPhotos.length === 0) {
+		return;
+	}
+
+	const serverPhotoIds = processingPhotos
+		.map(p => p.server_photo_id)
+		.filter((id): id is string => id != null);
+
+	if (serverPhotoIds.length === 0) {
+		return;
+	}
+
+	console.log(`${STATUS_LOG_PREFIX} Syncing status for ${serverPhotoIds.length} processing photos`);
+
+	// Build lookup: server_photo_id → local photo
+	const photosByServerId = new Map(
+		processingPhotos
+			.filter(p => p.server_photo_id != null)
+			.map(p => [p.server_photo_id!, p])
+	);
+
+	let statuses: ServerPhotoStatus[];
+	try {
+		const response = await authFetch(`${backendUrl}/photos/status`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ photo_ids: serverPhotoIds })
+		});
+
+		if (!response.ok) {
+			console.warn(`${STATUS_LOG_PREFIX} Server returned ${response.status}`);
+			return;
+		}
+
+		const data = await response.json();
+		statuses = data.photos;
+	} catch (error) {
+		console.warn(`${STATUS_LOG_PREFIX} Failed to query statuses:`, error);
+		return;
+	}
+
+	for (const status of statuses) {
+		const localPhoto = photosByServerId.get(status.id);
+		if (!localPhoto) continue;
+
+		if (status.deleted) {
+			console.log(`${STATUS_LOG_PREFIX} Photo ${localPhoto.id} deleted on server`);
+			await browserPhotoStorage.markPhotoAsDeleted(localPhoto.id);
+			continue;
+		}
+
+		switch (status.processing_status) {
+			case 'completed':
+				console.log(`${STATUS_LOG_PREFIX} Photo ${localPhoto.id} completed`);
+				await browserPhotoStorage.markPhotoAsCompleted(localPhoto.id);
+				break;
+			case 'error':
+				console.warn(`${STATUS_LOG_PREFIX} Photo ${localPhoto.id} failed: ${status.error}`);
+				await browserPhotoStorage.markPhotoAsFailed(
+					localPhoto.id,
+					status.error || 'Server processing error'
+				);
+				break;
+			default:
+				// 'authorized' or other — still processing, no change
+				break;
+		}
+	}
 }

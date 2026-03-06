@@ -7,7 +7,8 @@
 
 import { uploadPendingPhotos, type UploadResult } from './uploadManager';
 import { isBackgroundSyncSupported, type StoredPhoto } from './photoStorage';
-import { secureUploadFile } from '../secureUpload';
+import { secureUploadFile, mainThreadAuthFetch } from '../secureUpload';
+import { syncProcessingPhotosStatus } from '../uploadProtocol';
 import { auth } from '../authStore';
 import { getSettings } from '../settings';
 import { get } from 'svelte/store';
@@ -81,6 +82,13 @@ export async function triggerPhotoSync(): Promise<void> {
 
     initSyncStatusListener(); // idempotent
 
+    // Sync processing → completed/failed before starting new uploads
+    try {
+        await syncProcessingPhotosStatus(mainThreadAuthFetch);
+    } catch (error) {
+        console.warn(`${LOG_PREFIX} Processing status sync failed:`, error);
+    }
+
     if (isBackgroundSyncSupported()) {
         try {
             const reg = await navigator.serviceWorker.ready;
@@ -107,7 +115,11 @@ export async function triggerPhotoSync(): Promise<void> {
 function startForegroundSync(): void {
     console.log(`${LOG_PREFIX} Using foreground upload`);
     const reporter = createFgStatusReporter();
-    uploadPendingPhotos(foregroundUploader, { source: 'fg', reporter }).catch(error => {
+    uploadPendingPhotos(foregroundUploader, {
+        source: 'fg',
+        reporter,
+        authFetch: mainThreadAuthFetch
+    }).catch(error => {
         console.error(`${LOG_PREFIX} Foreground upload error:`, error);
     });
 }

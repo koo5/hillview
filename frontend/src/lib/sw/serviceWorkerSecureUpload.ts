@@ -20,7 +20,7 @@ const LOG_PREFIX = '🢄[SW SecureUpload]';
  * Unlike the main thread http client, the service worker has no interceptor,
  * so we attach the Authorization header ourselves.
  */
-const swAuthFetch: AuthFetch = async (url: string, init: RequestInit): Promise<Response> => {
+export const swAuthFetch: AuthFetch = async (url: string, init: RequestInit): Promise<Response> => {
 	const token = await authStorage.getValidToken();
 	if (!token) throw new Error('No auth token available');
 	return fetch(url, {

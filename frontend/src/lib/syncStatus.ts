@@ -10,7 +10,7 @@ export interface SyncStatusReport {
 	source: 'sw' | 'fg';
 	timestamp: number;
 	active: boolean;
-	phase: 'idle' | 'starting' | 'uploading' | 'complete' | 'error';
+	phase: 'idle' | 'starting' | 'uploading' | 'finished' | 'error';
 	currentPhotoId: string | null;
 	totalPending: number;
 	successCount: number;
@@ -99,7 +99,7 @@ export function initSyncStatusListener(): void {
  *
  * Considers the SW alive if it:
  * - Is actively uploading (active: true), OR
- * - Recently completed (phase: 'complete') — e.g. zero pending photos
+ * - Recently finished (phase: 'finished') — e.g. zero pending photos
  *   processed instantly before the probe timeout.
  *
  * In both cases the timestamp must be within the threshold.
@@ -110,5 +110,5 @@ export function isSwAlive(thresholdMs = 1000): boolean {
 	const recent = Date.now() - status.timestamp < thresholdMs;
 	if (!recent) return false;
 	// Active upload OR recently completed — either proves the SW is functional
-	return status.active || status.phase === 'complete';
+	return status.active || status.phase === 'finished';
 }

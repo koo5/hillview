@@ -3,7 +3,7 @@
 	import {browser} from '$app/environment';
 	import {photoStats, fetchPhotoStats, hasUploadsToRetry, formatStorageInfo, getPlatformName} from '$lib/photoStatsAdapter';
 	import {app} from "$lib/data.svelte";
-	import {Upload, Clock, AlertCircle, CheckCircle, Loader, Trash2, Info, HelpCircle} from 'lucide-svelte';
+	import {Upload, Clock, AlertCircle, CheckCircle, Loader, Trash2, Info, HelpCircle, ChevronDown} from 'lucide-svelte';
 	import RetryUploadsButton from "$lib/components/RetryUploadsButton.svelte";
 	import {BROWSER} from '$lib/tauri';
 	import {isBackgroundSyncSupported} from '$lib/browser/photoStorage';
@@ -14,6 +14,16 @@
 	export let showDetailedStats = false;
 
 	let showSyncInfo = false;
+	let showSyncDetails = false;
+
+	function formatTimeAgo(timestamp: number): string {
+		const seconds = Math.round((Date.now() - timestamp) / 1000);
+		if (seconds < 5) return 'just now';
+		if (seconds < 60) return `${seconds}s ago`;
+		const minutes = Math.floor(seconds / 60);
+		if (minutes < 60) return `${minutes}m ago`;
+		return `${Math.floor(minutes / 60)}h ago`;
+	}
 
 	const REFRESH_INTERVAL = 5000; // 5 seconds
 	let refreshTimer: ReturnType<typeof setInterval> | null = null;
@@ -92,17 +102,60 @@
 						{$photoStats.pending + $photoStats.failed} pending, {$photoStats.processing} processing
 					</span>
 			{/if}
-			<RetryUploadsButton global={true} {addLogEntry}/>
+			<RetryUploadsButton global={true} {addLogEntry} onSync={onRefresh}/>
 			<div class="info-text">
 				Uploads may be delayed to save battery.
+				{#if BROWSER}
+					<button class="sync-details-inline-toggle" class:expanded={showSyncDetails}
+							on:click={() => showSyncDetails = !showSyncDetails}>
+						<ChevronDown size={12}/>
+						details
+						{#if $combinedSyncStatus.activeSource}
+							<span class="active-source-badge">
+								{$combinedSyncStatus.activeSource === 'sw' ? 'SW' : 'FG'}
+							</span>
+						{/if}
+					</button>
+				{/if}
 			</div>
 		</div>
-	{/if}
-
-	{#if BROWSER && $photoStats.storageUsed}
-		<div class="storage-info">
-			{formatStorageInfo($photoStats)}
-		</div>
+		{#if BROWSER && showSyncDetails}
+			<div class="sync-details-panel">
+				{#if !$combinedSyncStatus.sw && !$combinedSyncStatus.fg}
+					<span class="sync-counter muted">No data</span>
+				{/if}
+				{#each [{ label: 'Service Worker', status: $combinedSyncStatus.sw }, { label: 'Foreground', status: $combinedSyncStatus.fg }] as { label, status }}
+					{#if status}
+						<div class="sync-source-row">
+							<div class="sync-source-header">
+								<span class="sync-source-label">{label}</span>
+								<span class="sync-phase-badge phase-{status.phase}">{status.phase}</span>
+								<span class="sync-time">{formatTimeAgo(status.timestamp)}</span>
+							</div>
+							{#if status.phase === 'uploading' && status.currentPhotoId}
+								<div class="sync-detail-line">
+									Current: <code>{status.currentPhotoId}</code>
+								</div>
+							{/if}
+							<div class="sync-counters">
+								{#if status.successCount > 0}
+									<span class="sync-counter success">{status.successCount} uploaded</span>
+								{/if}
+								{#if status.failureCount > 0}
+									<span class="sync-counter failure">{status.failureCount} failed</span>
+								{/if}
+								{#if status.successCount === 0 && status.failureCount === 0}
+									<span class="sync-counter muted">no activity</span>
+								{/if}
+							</div>
+							{#if status.error}
+								<div class="sync-error">{status.error}</div>
+							{/if}
+						</div>
+					{/if}
+				{/each}
+			</div>
+		{/if}
 	{/if}
 
 	{#if BROWSER && !isBackgroundSyncSupported() && ($photoStats.pending > 0 || $photoStats.failed > 0)}
@@ -149,6 +202,12 @@
 		</div>
 	{/if}
 
+	{#if BROWSER && $photoStats.storageUsed}
+		<div class="storage-info">
+			{formatStorageInfo($photoStats)}
+		</div>
+	{/if}
+
 	{#if showDetailedStats}
 		<div class="upload-stats" data-testid="upload-stats">
 			<div class="stat-item">
@@ -161,6 +220,12 @@
 					<span>{$photoStats.pending} pending</span>
 				</div>
 			{/if}
+			{#if $photoStats.failed > 0}
+				<div class="stat-item failed">
+					<Clock size={14}/>
+					<span>{$photoStats.failed} waiting to retry</span>
+				</div>
+			{/if}
 			{#if $photoStats.uploading > 0}
 				<div class="stat-item uploading">
 					<Upload size={14}/>
@@ -171,12 +236,6 @@
 				<div class="stat-item processing">
 					<Loader size={14}/>
 					<span>{$photoStats.processing} processing</span>
-				</div>
-			{/if}
-			{#if $photoStats.failed > 0}
-				<div class="stat-item failed">
-					<Clock size={14}/>
-					<span>{$photoStats.failed} waiting to retry</span>
 				</div>
 			{/if}
 			{#if $photoStats.deleted > 0}
@@ -362,5 +421,150 @@
 
 	.stat-item.deleted {
 		color: #6b7280;
+	}
+
+	/* Sync details inline toggle */
+
+	.sync-details-inline-toggle {
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+		background: none;
+		border: none;
+		cursor: pointer;
+		font-size: 0.75rem;
+		color: #92400e;
+		padding: 0 2px;
+		text-decoration: underline;
+		text-decoration-style: dotted;
+		text-underline-offset: 2px;
+	}
+
+	.sync-details-inline-toggle:hover {
+		color: #78350f;
+	}
+
+	.sync-details-inline-toggle :global(svg) {
+		transition: transform 0.2s ease;
+		flex-shrink: 0;
+	}
+
+	.sync-details-inline-toggle.expanded :global(svg) {
+		transform: rotate(180deg);
+	}
+
+	.active-source-badge {
+		font-size: 0.65rem;
+		padding: 0 4px;
+		border-radius: 3px;
+		background: #fef3c7;
+		color: #92400e;
+		border: 1px solid #fcd34d;
+	}
+
+	.sync-details-panel {
+		border: 1px solid #e5e7eb;
+		border-radius: 6px;
+		padding: 10px;
+		margin-bottom: 12px;
+		background: #fafafa;
+		display: flex;
+		flex-direction: column;
+		gap: 10px;
+		font-size: 0.8rem;
+	}
+
+	.sync-source-row {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+
+	.sync-source-header {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+
+	.sync-source-label {
+		font-weight: 600;
+		color: #374151;
+	}
+
+	.sync-phase-badge {
+		font-size: 0.7rem;
+		padding: 1px 6px;
+		border-radius: 4px;
+		background: #f3f4f6;
+		color: #6b7280;
+	}
+
+	.sync-phase-badge.phase-uploading {
+		background: #dbeafe;
+		color: #1d4ed8;
+	}
+
+	.sync-phase-badge.phase-starting {
+		background: #fef3c7;
+		color: #92400e;
+	}
+
+	.sync-phase-badge.phase-finished {
+		background: #d1fae5;
+		color: #065f46;
+	}
+
+	.sync-phase-badge.phase-error {
+		background: #fee2e2;
+		color: #991b1b;
+	}
+
+	.sync-time {
+		margin-left: auto;
+		color: #9ca3af;
+		font-size: 0.7rem;
+	}
+
+	.sync-detail-line {
+		color: #6b7280;
+		padding-left: 4px;
+	}
+
+	.sync-detail-line code {
+		font-size: 0.7rem;
+		background: #f3f4f6;
+		padding: 1px 4px;
+		border-radius: 3px;
+	}
+
+	.sync-counters {
+		display: flex;
+		gap: 8px;
+		padding-left: 4px;
+	}
+
+	.sync-counter {
+		font-size: 0.75rem;
+	}
+
+	.sync-counter.success {
+		color: #059669;
+	}
+
+	.sync-counter.failure {
+		color: #dc2626;
+	}
+
+	.sync-counter.muted {
+		color: #d1d5db;
+		font-style: italic;
+	}
+
+	.sync-error {
+		color: #dc2626;
+		font-size: 0.75rem;
+		padding: 4px 6px;
+		background: #fef2f2;
+		border-radius: 4px;
 	}
 </style>

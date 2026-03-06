@@ -1,5 +1,6 @@
 <script lang="ts">
 
+    import { auth } from '$lib/auth.svelte.js';
 	import {settings} from "$lib/settings";
 	import {TAURI, BROWSER} from '$lib/tauri.js';
 	import {Upload} from 'lucide-svelte';
@@ -10,6 +11,7 @@
 	export let photo: { id: string | number; processing_status?: string, upload_status?: string } = { id: 'global' };
 	export let addLogEntry: any = () => {};
 	export let global: boolean = false;
+	export let onSync: (() => void | Promise<void>) | null = null;
 
 
 	async function manualUpload(photoId: string | number) {
@@ -22,8 +24,9 @@
 				}) as { success: boolean };
 				if (result.success) {
 					addLogEntry('Manual upload triggered successfully', 'success');
-					setTimeout(() => {
-						fetchPhotoStats();
+					setTimeout(async () => {
+						await fetchPhotoStats();
+						await onSync?.();
 					}, 2000);
 				} else {
 					addLogEntry('Failed to trigger manual upload', 'error');
@@ -32,8 +35,9 @@
 				// Browser: trigger upload sync (background or foreground)
 				triggerPhotoSync();
 				addLogEntry('Manual upload triggered', 'success');
-				setTimeout(() => {
-					fetchPhotoStats();
+				setTimeout(async () => {
+					await fetchPhotoStats();
+					await onSync?.();
 				}, 2000);
 			} else {
 				addLogEntry('Manual upload is not available', 'warning');
@@ -46,8 +50,8 @@
 
 
 </script>
-{#if (TAURI || BROWSER) && (global || (photo.processing_status && photo.processing_status !== 'completed') || (photo.upload_status && photo.upload_status !== 'completed'))}
-	{#if $settings?.value?.auto_upload_enabled}
+{#if (global || (photo.processing_status && photo.processing_status !== 'completed') || (photo.upload_status && photo.upload_status !== 'completed'))}
+	{#if $settings?.value?.auto_upload_enabled && $auth.is_authenticated}
 		<button class="action-button upload" data-testid="manual-upload-button"
 				data-photo-id={photo.id} on:click={() => manualUpload(photo.id)}>
 			<Upload size={16}/>

@@ -76,6 +76,7 @@ export async function completeAuthentication(tokenData: {
         }));
 
         // Fetch user data
+		console.log('🢄[AUTH] Fetching user data after authentication...');
         const userData = await fetchUserData();
         console.log('🢄[AUTH] User data fetched:', userData);
 
@@ -108,6 +109,7 @@ async function ensureAuthInitialized() {
             ...state,
             is_authenticated: true
         }));
+		console.log('🢄[AUTH] ensureAuthInitialized: Fetching user data during initialization...');
         fetchUserData();
     } else {
         console.log('🢄[AUTH] No valid token found during initialization');
@@ -281,13 +283,13 @@ export async function authenticatedFetch(url: string, options: RequestInit = {})
 export async function fetchUserData() {
     const a = get(auth);
 
-    console.log('🢄[AUTH] fetchUserData - Current auth state: is_authenticated:', a.is_authenticated, 'Has user:', !!a.user);
+    console.log('🢄[AUTH] fetchUserData start - Current auth state: is_authenticated:', a.is_authenticated, 'Has user:', !!a.user);
 
     try {
-        console.log('🢄[AUTH] Making API request to /api/auth/me');
+        //console.log('🢄[AUTH] Making API request to /api/auth/me');
         const response = await http.get('/auth/me');
 
-        console.log('🢄[AUTH] - API response status:', response.status);
+        //console.log('🢄[AUTH] - API response status:', response.status);
 
         if (!response.ok) {
             console.error('🢄[AUTH] API request failed:', response.status, response.statusText);
@@ -295,16 +297,10 @@ export async function fetchUserData() {
         }
 
         const userData = await response.json();
-        console.log('🢄[AUTH] USER DATA FETCHED SUCCESSFULLY:');
-        console.log('🢄[AUTH] - User ID:', userData.id);
-        console.log('🢄[AUTH] - Username:', userData.username);
-        console.log('🢄[AUTH] - Email:', userData.email);
+        console.log('🢄[AUTH] fetchUserData - User data received:', JSON.stringify(userData));
 
         // If we successfully got user data, ensure is_authenticated: is true
-        console.log('🢄[AUTH] Updating auth store with user data');
         auth.update(a => {
-            console.log('🢄[AUTH] - Setting is_authenticated: to true');
-            console.log('🢄[AUTH] - Updating user data');
             return {
                 ...a,
                 is_authenticated: true,
@@ -336,7 +332,7 @@ export async function checkAuth() {
 
     // If we have a valid token, fetch user data
     if (validToken) {
-        //console.log('🢄[AUTH] Valid token found, fetching user data');
+        console.log('🢄[AUTH] checkAuth: Valid token found, fetching user data');
         fetchUserData();
     } else if (a.user) {
         // We have user data but no valid token - inconsistent state
