@@ -3,9 +3,8 @@
 Shared authentication utilities for tests.
 Consolidates common authentication patterns to reduce duplication.
 """
-import os
 import requests
-from typing import Dict, Optional, Tuple
+from typing import Dict, Tuple
 from .test_utils import recreate_test_users, API_URL
 
 # Standard test credentials

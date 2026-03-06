@@ -38,6 +38,10 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.ConcurrentLinkedQueue
 
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+
 @InvokeArg
 class PingArgs {
 	var value: String? = null
@@ -52,17 +56,6 @@ class LocationUpdateArgs {
 @InvokeArg
 class SensorModeArgs {
 	var mode: Int? = null
-}
-
-@InvokeArg
-class AutoUploadArgs {
-	var enabled: Boolean? = null
-	var prompt_enabled: Boolean? = null
-}
-
-@InvokeArg
-class UploadConfigArgs {
-	var server_url: String? = null
 }
 
 @InvokeArg
@@ -126,6 +119,8 @@ class GetDevicePhotosArgs {
 	var max_lat: Double? = null
 	var min_lng: Double? = null
 	var max_lng: Double? = null
+
+	var picks: Array<String>? = null
 }
 
 @InvokeArg
@@ -165,7 +160,7 @@ class CmdArgs {
 }
 
 @InvokeArg
-class SavePhotoToGalleryArgs {
+class SavePhotoToMediaStoreArgs {
 	var filename: String? = null
 	var imageData: ByteArray = byteArrayOf()
 	var hideFromGallery: Boolean? = null
@@ -180,6 +175,14 @@ class SavePhotoToGalleryArgs {
 		Permission(
 			strings = [Manifest.permission.WRITE_EXTERNAL_STORAGE],
 			alias = "write_external_storage"
+		),
+		Permission(
+			strings = [Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION],
+			alias = "location"
+		),
+		Permission(
+			strings = [Manifest.permission.CAMERA],
+			alias = "camera"
 		)
 	]
 )
@@ -272,10 +275,28 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 	private var sensorService: EnhancedSensorService? = null
 	private var preciseLocationService: PreciseLocationService? = null
 	private var deviceOrientationProvider: DeviceOrientationProvider? = null
-	private val database: PhotoDatabase = PhotoDatabase.getDatabase(activity)
+
+	// Lazy database initialization with error tracking
+	private var _database: PhotoDatabase? = null
+	private var databaseInitError: String? = null
+	private val database: PhotoDatabase?
+		get() {
+			if (_database == null && databaseInitError == null) {
+				_database = try {
+					PhotoDatabase.getDatabase(activity)
+				} catch (e: Exception) {
+					Log.e(TAG, "Database initialization failed", e)
+					databaseInitError = e.message
+					null
+				}
+			}
+			return _database
+		}
+
 	private val authManager: AuthenticationManager = AuthenticationManager(activity)
 	private val photoWorkerService: PhotoWorkerService = PhotoWorkerService(activity, this)
 	private val photoUploadManager: PhotoUploadManager = PhotoUploadManager(activity)
+	private val photoUploadLogic: PhotoUploadLogic = PhotoUploadLogic(activity)
 	private val geoTrackingManager: GeoTrackingManager = GeoTrackingManager(activity)
 
 	private val myDeviceOrientationSensor: MyDeviceOrientationSensor =
@@ -306,6 +327,9 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 		initializationCount++
 		val processId = android.os.Process.myPid()
 
+		// Clean up previous plugin instance before setting new one
+		cleanupPreviousInstance()
+
 		// Clean up static state from any previous plugin instance
 		cleanupStaticState()
 		geoTrackingManager.dumpAndClear()
@@ -314,9 +338,109 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 		Log.i(TAG, "🢄🎥 Plugin init #$initializationCount - Process ID: $processId")
 	}
 
+	/**
+	 * Clean up resources from previous plugin instance to prevent resource leaks
+	 */
+	private fun cleanupPreviousInstance() {
+		pluginInstance?.let { old ->
+			Log.i(TAG, "🢄🧹 Cleaning up previous plugin instance")
+			try {
+				old.sensorService?.stopSensor()
+			} catch (e: Exception) {
+				Log.w(TAG, "🢄🧹 Error stopping sensor service: ${e.message}")
+			}
+			try {
+				old.preciseLocationService?.stopLocationUpdates()
+			} catch (e: Exception) {
+				Log.w(TAG, "🢄🧹 Error stopping location service: ${e.message}")
+			}
+			try {
+				old.deviceOrientationProvider?.stopOrientationProvider()
+			} catch (e: Exception) {
+				Log.w(TAG, "🢄🧹 Error stopping orientation provider: ${e.message}")
+			}
+			try {
+				old.stopScreenOrientationListener()
+			} catch (e: Exception) {
+				Log.w(TAG, "🢄🧹 Error stopping screen orientation listener: ${e.message}")
+			}
+			try {
+				old.myDeviceOrientationSensor.setRunning(false)
+			} catch (e: Exception) {
+				Log.w(TAG, "🢄🧹 Error stopping device orientation sensor: ${e.message}")
+			}
+			Log.i(TAG, "🢄🧹 Previous plugin instance cleanup completed")
+		}
+	}
+
+	/**
+	 * Clean up all resources when plugin is destroyed
+	 */
+	private fun cleanup() {
+		Log.i(TAG, "🢄🧹 Plugin cleanup started")
+		try {
+			sensorService?.stopSensor()
+			sensorService = null
+		} catch (e: Exception) {
+			Log.w(TAG, "🢄🧹 Error in cleanup - sensor: ${e.message}")
+		}
+		try {
+			preciseLocationService?.stopLocationUpdates()
+			preciseLocationService = null
+		} catch (e: Exception) {
+			Log.w(TAG, "🢄🧹 Error in cleanup - location: ${e.message}")
+		}
+		try {
+			deviceOrientationProvider?.stopOrientationProvider()
+			deviceOrientationProvider = null
+		} catch (e: Exception) {
+			Log.w(TAG, "🢄🧹 Error in cleanup - orientation provider: ${e.message}")
+		}
+		try {
+			stopScreenOrientationListener()
+		} catch (e: Exception) {
+			Log.w(TAG, "🢄🧹 Error in cleanup - screen orientation: ${e.message}")
+		}
+		try {
+			myDeviceOrientationSensor.setRunning(false)
+		} catch (e: Exception) {
+			Log.w(TAG, "🢄🧹 Error in cleanup - device orientation sensor: ${e.message}")
+		}
+		Log.i(TAG, "🢄🧹 Plugin cleanup completed")
+	}
+
+	override fun onDestroy() {
+		Log.i(TAG, "🢄🧹 Plugin onDestroy called")
+		cleanup()
+		if (pluginInstance === this) {
+			pluginInstance = null
+		}
+		super.onDestroy()
+	}
+
+	/*override fun onCreate(savedInstanceState: Bundle?) {
+		Log.i(TAG, "🢄🎥 onCreate called")
+		super.onCreate(savedInstanceState)
+		WindowCompat.setDecorFitsSystemWindows(window, true)
+		setContentView(R.layout.activity_main)
+	}*/
+
+
 	override fun load(webView: WebView) {
 		Log.i(TAG, "🢄🎥 Plugin load() called with WebView: $webView")
 		Log.d(TAG, "📲 intent: ${activity.intent}")
+
+		// Configure window to handle insets the old way (non-edge-to-edge)
+		//WindowCompat.setDecorFitsSystemWindows(activity.window, true)
+		/*// Tell Android we will handle insets ourselves (edge-to-edge).
+		WindowCompat.setDecorFitsSystemWindows(activity.window, false)
+		// Apply system bar insets as padding to the WebView.
+		ViewCompat.setOnApplyWindowInsetsListener(webView) { v, insets ->
+		  val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+		  v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+		  // Return insets as-is (don’t consume), so other views can also react if needed.
+		  insets
+		}*/
 
 		super.load(webView)
 		setupWebViewCameraPermissions(webView)
@@ -329,7 +453,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 		val existingClient = webView.webChromeClient
 		Log.i(TAG, "🢄🎥 Existing WebChromeClient: ${existingClient?.javaClass?.simpleName}")
 
-		webView.webChromeClient = object : WebChromeClient() {
+		/*webView.webChromeClient = object : WebChromeClient() {
 			// Prevent duplicate console logging by not forwarding to Android logs
 			override fun onConsoleMessage(consoleMessage: ConsoleMessage): Boolean {
 				// Don't forward console messages to prevent duplication
@@ -354,7 +478,81 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 					activity.runOnUiThread { request.grant(request.resources) }
 				}
 			}
-		}
+
+			// Delegate all other WebChromeClient methods to preserve Tauri functionality
+			override fun onProgressChanged(view: WebView?, newProgress: Int) {
+				existingClient?.onProgressChanged(view, newProgress)
+					?: super.onProgressChanged(view, newProgress)
+			}
+
+			override fun onReceivedTitle(view: WebView?, title: String?) {
+				existingClient?.onReceivedTitle(view, title)
+					?: super.onReceivedTitle(view, title)
+			}
+
+			override fun onJsAlert(
+				view: WebView?,
+				url: String?,
+				message: String?,
+				result: android.webkit.JsResult?
+			): Boolean {
+				return existingClient?.onJsAlert(view, url, message, result)
+					?: super.onJsAlert(view, url, message, result)
+			}
+
+			override fun onJsConfirm(
+				view: WebView?,
+				url: String?,
+				message: String?,
+				result: android.webkit.JsResult?
+			): Boolean {
+				return existingClient?.onJsConfirm(view, url, message, result)
+					?: super.onJsConfirm(view, url, message, result)
+			}
+
+			override fun onJsPrompt(
+				view: WebView?,
+				url: String?,
+				message: String?,
+				defaultValue: String?,
+				result: android.webkit.JsPromptResult?
+			): Boolean {
+				return existingClient?.onJsPrompt(view, url, message, defaultValue, result)
+					?: super.onJsPrompt(view, url, message, defaultValue, result)
+			}
+
+			override fun onShowFileChooser(
+				webView: WebView?,
+				filePathCallback: android.webkit.ValueCallback<Array<Uri>>?,
+				fileChooserParams: FileChooserParams?
+			): Boolean {
+				return existingClient?.onShowFileChooser(webView, filePathCallback, fileChooserParams)
+					?: super.onShowFileChooser(webView, filePathCallback, fileChooserParams)
+			}
+
+			override fun onGeolocationPermissionsShowPrompt(
+				origin: String?,
+				callback: android.webkit.GeolocationPermissions.Callback?
+			) {
+				existingClient?.onGeolocationPermissionsShowPrompt(origin, callback)
+					?: super.onGeolocationPermissionsShowPrompt(origin, callback)
+			}
+
+			override fun onCreateWindow(
+				view: WebView?,
+				isDialog: Boolean,
+				isUserGesture: Boolean,
+				resultMsg: android.os.Message?
+			): Boolean {
+				return existingClient?.onCreateWindow(view, isDialog, isUserGesture, resultMsg)
+					?: super.onCreateWindow(view, isDialog, isUserGesture, resultMsg)
+			}
+
+			override fun onCloseWindow(window: WebView?) {
+				existingClient?.onCloseWindow(window)
+					?: super.onCloseWindow(window)
+			}
+		}*/
 	}
 
 	private fun handleCameraPermissionRequest(
@@ -513,7 +711,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 					val data = JSObject()
 					data.put("magnetic_heading", sensorData.magneticHeading)
 					data.put("true_heading", sensorData.trueHeading)
-					data.put("heading_accuracy", sensorData.headingAccuracy)
+					data.put("accuracy_level", sensorData.accuracyLevel)
 					data.put("pitch", sensorData.pitch)
 					data.put("roll", sensorData.roll)
 					data.put("timestamp", sensorData.timestamp)
@@ -532,10 +730,10 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 		sensorService?.startSensor(mode)
 
 		// Also start precise location service for better GPS accuracy // magnetic declination // but approximate would probably be enough?
-		if (preciseLocationService == null) {
+		/*if (preciseLocationService == null) {
 			Log.d(TAG, "📍 Initializing PreciseLocationService alongside sensor")
 			initializePreciseLocationService()
-		}
+		}*/
 
 		// Start Google Play Services device orientation provider // fixme - maybe has more accuracy, but has same gimbal lock problem and also cant seem to throttle it (although i guess that wouldnt be a problem)
 		/*if (deviceOrientationProvider == null) {
@@ -554,7 +752,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 		sensorService?.stopSensor()
 
 		// Also stop precise location service
-		Log.d(TAG, "📍 Stopping precise location service")
+		//Log.d(TAG, "📍 Stopping precise location service")
 		//preciseLocationService?.stopLocationUpdates()
 
 		// Stop device orientation provider
@@ -581,7 +779,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 		preciseLocationService?.stopLocationUpdates()
 		invoke.resolve()
 	}
-
+/*
 	@Command
 	fun getSensorAccuracy(invoke: Invoke) {
 		//Log.d(TAG, "🔍 get_sensor_accuracy command called")
@@ -601,7 +799,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 		Log.d(TAG, "🔍 Returning sensor accuracy: $accuracy")
 		invoke.resolve(result)
 	}
-
+*/
 	private fun initializePreciseLocationService() {
 		preciseLocationService = PreciseLocationService(activity, { locationData ->
 
@@ -650,176 +848,6 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 
 		// Start location updates automatically
 		preciseLocationService?.startLocationUpdates()
-	}
-
-	@Command
-	fun setAutoUploadEnabled(invoke: Invoke) {
-		try {
-			val args = invoke.parseArgs(AutoUploadArgs::class.java)
-			val enabled = args.enabled ?: false
-			val promptEnabled = args.prompt_enabled ?: true
-
-			Log.i(TAG, "📤 [setAutoUploadEnabled] CALLED with enabled: $enabled, promptEnabled: $promptEnabled")
-
-			// Update shared preferences
-			val prefs = activity.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
-			val previousEnabled = prefs.getBoolean("auto_upload_enabled", false)
-			val previousPromptEnabled = prefs.getBoolean("auto_upload_prompt_enabled", true)
-
-			Log.i(
-				TAG,
-				"📤 [setAutoUploadEnabled] Previous values - enabled: $previousEnabled, promptEnabled: $previousPromptEnabled"
-			)
-			Log.i(TAG, "📤 [setAutoUploadEnabled] New values - enabled: $enabled, promptEnabled: $promptEnabled")
-
-			// Apply the new settings
-			val editor = prefs.edit()
-			editor.putBoolean("auto_upload_enabled", enabled)
-			editor.putBoolean("auto_upload_prompt_enabled", promptEnabled)
-			val commitSuccess = editor.commit()
-
-			Log.i(TAG, "📤 [setAutoUploadEnabled] SharedPreferences commit result: $commitSuccess")
-
-			// Verify the settings were persisted correctly
-			val verifyEnabled = prefs.getBoolean("auto_upload_enabled", false)
-			val verifyPromptEnabled = prefs.getBoolean("auto_upload_prompt_enabled", true)
-			Log.i(
-				TAG,
-				"📤 [setAutoUploadEnabled] Verification - enabled: $verifyEnabled, promptEnabled: $verifyPromptEnabled"
-			)
-
-			// Schedule or cancel the upload worker based on enabled state
-			val workManager = WorkManager.getInstance(activity)
-			Log.i(TAG, "📤 [setAutoUploadEnabled] WorkManager instance obtained")
-
-			if (enabled) {
-				Log.i(TAG, "📤 [setAutoUploadEnabled] Scheduling upload worker...")
-				photoUploadManager.scheduleUploadWorker(workManager, enabled)
-				Log.i(TAG, "📤 [setAutoUploadEnabled] Auto upload worker scheduled successfully")
-			} else {
-				Log.i(TAG, "📤 [setAutoUploadEnabled] Cancelling upload worker...")
-				workManager.cancelUniqueWork(PhotoUploadWorker.WORK_NAME)
-				Log.i(TAG, "📤 [setAutoUploadEnabled] Auto upload worker cancelled successfully")
-			}
-
-			val result = JSObject()
-			result.put("success", true)
-			result.put("enabled", enabled as Boolean)
-			result.put("prompt_enabled", promptEnabled as Boolean)
-
-			Log.i(
-				TAG,
-				"📤 [setAutoUploadEnabled] SUCCESS - returning result: enabled=$enabled, promptEnabled=$promptEnabled"
-			)
-			invoke.resolve(result)
-
-		} catch (e: Exception) {
-			Log.e(TAG, "📤 [setAutoUploadEnabled] ERROR occurred", e)
-			val error = JSObject()
-			error.put("success", false)
-			error.put("error", e.message)
-			invoke.resolve(error)
-		}
-	}
-
-	@Command
-	fun getUploadStatus(invoke: Invoke) {
-		//Log.i(TAG, "📤 [getUploadStatus] CALLED - retrieving current auto-upload status")
-
-		CoroutineScope(Dispatchers.IO).launch {
-			try {
-				//Log.d(TAG, "📤 [getUploadStatus] Getting database counts...")
-				val photoDao = database.photoDao()
-				val pendingCount = photoDao.getPendingUploadCount()
-				val failedCount = photoDao.getFailedUploadCount()
-
-				//Log.d(TAG, "📤 [getUploadStatus] Database counts - pending: $pendingCount, failed: $failedCount")
-
-				//Log.d(TAG, "📤 [getUploadStatus] Reading SharedPreferences...")
-				val prefs = activity.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
-				val autoUploadEnabled = prefs.getBoolean("auto_upload_enabled", false)
-				val autoUploadPromptEnabled = prefs.getBoolean("auto_upload_prompt_enabled", true)
-
-				//Log.i(TAG, "📤 [getUploadStatus] Settings - enabled: $autoUploadEnabled, promptEnabled: $autoUploadPromptEnabled")
-
-				val result = JSObject()
-				result.put("auto_upload_enabled", autoUploadEnabled)
-				result.put("auto_upload_prompt_enabled", autoUploadPromptEnabled)
-				result.put("pending_uploads", pendingCount)
-				result.put("failed_uploads", failedCount)
-
-				Log.i(
-					TAG,
-					"📤 [getUploadStatus] enabled=$autoUploadEnabled, promptEnabled=$autoUploadPromptEnabled, pendingUploads=$pendingCount, failedUploads=$failedCount"
-				)
-
-				CoroutineScope(Dispatchers.Main).launch {
-					invoke.resolve(result)
-				}
-
-			} catch (e: Exception) {
-				Log.e(TAG, "📤 [getUploadStatus] ERROR occurred", e)
-				CoroutineScope(Dispatchers.Main).launch {
-					val error = JSObject()
-					error.put("error", e.message)
-					invoke.resolve(error)
-				}
-			}
-		}
-	}
-
-	@Command
-	fun setUploadConfig(invoke: Invoke) {
-		try {
-			val args = invoke.parseArgs(UploadConfigArgs::class.java)
-
-			args.server_url?.let { backendUrl ->
-				if (backendUrl.isBlank()) {
-					Log.e(TAG, "📤 Backend URL is required")
-					val error = JSObject()
-					error.put("success", false)
-					error.put("error", "Backend URL is required")
-					invoke.resolve(error)
-					return
-				}
-
-				Log.d(TAG, "📤 Setting backend URL: $backendUrl")
-
-				// Store in upload preferences for all managers to use
-				val uploadPrefs = activity.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
-				val previousUrl = uploadPrefs.getString("server_url", null)
-
-				uploadPrefs.edit()
-					.putString("server_url", backendUrl)
-					.apply()
-
-				Log.d(TAG, "📤 Backend URL stored in preferences")
-
-				// Trigger push registration (enhanced autoRegisterIfNeeded will handle retries)
-				CoroutineScope(Dispatchers.IO).launch {
-					try {
-						val pushManager = PushDistributorManager(activity)
-						pushManager.autoRegisterIfNeeded()
-						Log.d(TAG, "📤 Push registration check completed")
-					} catch (e: Exception) {
-						Log.e(TAG, "📤 Error during push registration", e)
-					}
-				}
-			}
-
-			Log.d(TAG, "📤 Upload config updated")
-
-			val result = JSObject()
-			result.put("success", true)
-			invoke.resolve(result)
-
-		} catch (e: Exception) {
-			Log.e(TAG, "📤 Error setting upload config", e)
-			val error = JSObject()
-			error.put("success", false)
-			error.put("error", e.message)
-			invoke.resolve(error)
-		}
 	}
 
 	// startAutomaticUpload
@@ -913,16 +941,16 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 			CoroutineScope(Dispatchers.IO).launch {
 				try {
 					Log.d(TAG, "🔐 Calling authManager.storeAuthToken...")
-					val success = authManager.storeAuthToken(token, expiresAt, refreshToken, refreshExpiresAt)
-					Log.d(TAG, "🔐 authManager.storeAuthToken returned: $success")
+					val storeResult = authManager.storeAuthToken(token, expiresAt, refreshToken, refreshExpiresAt)
+					Log.d(TAG, "🔐 authManager.storeAuthToken returned: ${storeResult.success}, error: ${storeResult.error}")
 
 					CoroutineScope(Dispatchers.Main).launch {
 						val result = JSObject()
-						result.put("success", success)
-						if (!success) {
-							result.put("error", "Failed to store auth token")
+						result.put("success", storeResult.success)
+						if (!storeResult.success) {
+							result.put("error", storeResult.error ?: "Unknown error storing auth token")
 						}
-						Log.d(TAG, "🔐 Resolving with success: $success")
+						Log.d(TAG, "🔐 Resolving with success: ${storeResult.success}")
 						invoke.resolve(result)
 					}
 
@@ -1176,7 +1204,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 	}
 
 
-	// Notification settings management (stored in hillview_upload_prefs)
+	// Notification settings management (fixme: stored in hillview_upload_prefs)
 	@Command
 	fun getNotificationSettings(invoke: Invoke) {
 		try {
@@ -1232,26 +1260,6 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 		}
 	}
 
-	@Command
-	fun testAuthExpiredNotification(invoke: Invoke) {
-		try {
-			Log.d(TAG, "🔔 Testing auth expired notification")
-			val notificationHelper = NotificationHelper(activity)
-			notificationHelper.showAuthExpiredNotification()
-
-			val result = JSObject()
-			result.put("success", true)
-			result.put("message", "Test notification sent")
-			invoke.resolve(result)
-
-		} catch (e: Exception) {
-			Log.e(TAG, "🔔 Error sending test notification", e)
-			val error = JSObject()
-			error.put("success", false)
-			error.put("error", e.message)
-			invoke.resolve(error)
-		}
-	}
 
 	@Command
 	fun registerClientPublicKey(invoke: Invoke) {
@@ -1274,13 +1282,13 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 					}
 
 					// Use the existing registerClientPublicKey method from AuthenticationManager
-					val success = authManager.registerClientPublicKey(token)
+					val keyResult = authManager.registerClientPublicKey(token)
 
 					CoroutineScope(Dispatchers.Main).launch {
 						val result = JSObject()
-						result.put("success", success)
-						if (!success) {
-							result.put("error", "Client public key registration failed")
+						result.put("success", keyResult.success)
+						if (!keyResult.success) {
+							result.put("error", keyResult.error ?: "Client public key registration failed")
 						}
 						invoke.resolve(result)
 					}
@@ -1334,9 +1342,19 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 		val pageSize = args.page_size.coerceIn(1, 1000) // Allow larger limits for spatial queries
 
 		CoroutineScope(Dispatchers.IO).launch {
+			val db = database
+			if (db == null) {
+				CoroutineScope(Dispatchers.Main).launch {
+					val error = JSObject()
+					error.put("error", "Database unavailable: ${databaseInitError ?: "initialization failed"}")
+					invoke.resolve(error)
+				}
+				return@launch
+			}
+
 			val page = if (hasBounds) 1 else args.page.coerceAtLeast(1)
 
-			val photoDao = database.photoDao()
+			val photoDao = db.photoDao()
 
 			val photos: List<PhotoEntity>
 			val totalCount: Int
@@ -1349,9 +1367,24 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 					"📸 Getting device photos in bounds: [${args.min_lat}, ${args.min_lng}] to [${args.max_lat}, ${args.max_lng}] limit: $pageSize (bearing order)"
 				)
 
-				photos = photoDao.getPhotosInBounds(
+				val regularPhotos = photoDao.getPhotosInBounds(
 					args.min_lat!!, args.max_lat!!, args.min_lng!!, args.max_lng!!, pageSize
 				)
+
+				// Get picked photos if any picks are specified
+				val picksSet = args.picks?.toSet() ?: emptySet()
+				val pickedPhotos = if (picksSet.isNotEmpty()) {
+					photoDao.getPickedPhotosInBounds(
+						args.min_lat!!, args.max_lat!!, args.min_lng!!, args.max_lng!!, picksSet
+					)
+				} else {
+					emptyList()
+				}
+
+				// Combine picked photos first (prioritized), then regular photos
+				photos = pickedPhotos + regularPhotos.filter { regular ->
+					pickedPhotos.none { picked -> picked.id == regular.id }
+				}
 
 				// For spatial queries, return simple response without pagination metadata
 				totalCount = photos.size
@@ -1413,46 +1446,46 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 
 	@Command
 	fun refreshPhotoScan(invoke: Invoke) {
-		try {
-			Log.d(TAG, "🔄 Starting photo scan refresh")
-
-			CoroutineScope(Dispatchers.IO).launch {
-				try {
-					// This would typically scan the device for new photos
-					// For now, return a simple success response
-					val response = JSObject()
-					response.put("photos_added", 0)
-					response.put("scan_errors", 0)
-					response.put("success", true)
-
-					Log.d(TAG, "🔄 Photo scan refresh completed")
-
-					CoroutineScope(Dispatchers.Main).launch {
-						invoke.resolve(response)
-					}
-
-				} catch (e: Exception) {
-					Log.e(TAG, "🔄 Error during photo scan refresh", e)
-					CoroutineScope(Dispatchers.Main).launch {
-						val error = JSObject()
-						error.put("photos_added", 0)
-						error.put("scan_errors", 1)
-						error.put("success", false)
-						error.put("error", e.message)
-						invoke.resolve(error)
-					}
-				}
-			}
-
-		} catch (e: Exception) {
-			Log.e(TAG, "🔄 Error starting photo scan refresh", e)
-			val error = JSObject()
-			error.put("photos_added", 0)
-			error.put("scan_errors", 1)
-			error.put("success", false)
-			error.put("error", e.message)
-			invoke.resolve(error)
-		}
+//		try {
+//			Log.d(TAG, "🔄 Starting photo scan refresh")
+//
+//			CoroutineScope(Dispatchers.IO).launch {
+//				try {
+//					// This would scan configured directories or mediastore api for new photos
+//					// For now, return a simple success response
+//					val response = JSObject()
+//					response.put("photos_added", 0)
+//					response.put("scan_errors", 0)
+//					response.put("success", true)
+//
+//					Log.d(TAG, "🔄 Photo scan refresh completed")
+//
+//					CoroutineScope(Dispatchers.Main).launch {
+//						invoke.resolve(response)
+//					}
+//
+//				} catch (e: Exception) {
+//					Log.e(TAG, "🔄 Error during photo scan refresh", e)
+//					CoroutineScope(Dispatchers.Main).launch {
+//						val error = JSObject()
+//						error.put("photos_added", 0)
+//						error.put("scan_errors", 1)
+//						error.put("success", false)
+//						error.put("error", e.message)
+//						invoke.resolve(error)
+//					}
+//				}
+//			}
+//
+//		} catch (e: Exception) {
+//			Log.e(TAG, "🔄 Error starting photo scan refresh", e)
+//			val error = JSObject()
+//			error.put("photos_added", 0)
+//			error.put("scan_errors", 1)
+//			error.put("success", false)
+//			error.put("error", e.message)
+//			invoke.resolve(error)
+//		}
 	}
 
 	@Command
@@ -1500,6 +1533,15 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 
 			CoroutineScope(Dispatchers.IO).launch {
 				try {
+					val db = database
+					if (db == null) {
+						val error = JSObject()
+						error.put("success", false)
+						error.put("error", "Database unavailable: ${databaseInitError ?: "initialization failed"}")
+						invoke.resolve(error)
+						return@launch
+					}
+
 					// Hash is always provided by Rust (calculated from bytes in memory)
 					val fileHash = args.file_hash ?: throw Exception("File hash is required")
 
@@ -1532,9 +1574,9 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 					)
 
 					// Insert into database (will replace if exists due to OnConflictStrategy.REPLACE)
-					database.photoDao().insertPhoto(photoEntity)
+					db.photoDao().insertPhoto(photoEntity)
 
-					Log.d(TAG, "📸 Photo added to Android database: ${photoId}")
+					Log.d(TAG, "📸 Photo added to photoDao: ${photoId}")
 
 					val result = JSObject()
 					result.put("success", true)
@@ -1629,35 +1671,19 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 		}
 	}
 
-	// Handle permission request results and forward to PreciseLocationService
+	// Handle permission request results (camera only - location now handled via Tauri permission system)
 	fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
-		Log.e(TAG, "🔒🔒🔒 PERMISSION RESULT CALLBACK RECEIVED 🔒🔒🔒")
-		Log.e(TAG, "🔒 requestCode: $requestCode")
-		Log.e(TAG, "🔒 permissions: ${permissions.joinToString(", ")}")
-		Log.e(
-			TAG,
-			"🔒 grantResults: ${grantResults.joinToString(", ") { if (it == PackageManager.PERMISSION_GRANTED) "GRANTED" else "DENIED" }}"
-		)
+		Log.d(TAG, "🔒 Permission result received: requestCode=$requestCode")
 
 		when (requestCode) {
 			CAMERA_PERMISSION_REQUEST_CODE -> {
-				Log.e(TAG, "🔒 Routing to camera permission handler")
+				Log.d(TAG, "🔒 Routing to camera permission handler")
 				handleCameraPermissionResult(requestCode, permissions, grantResults)
 			}
-
-			1001 -> { // LOCATION_PERMISSION_REQUEST_CODE
-				Log.e(TAG, "🔒 Routing to location permission handler")
-				preciseLocationService?.onRequestPermissionsResult(requestCode, permissions, grantResults)
-			}
-
 			else -> {
-				Log.w(TAG, "🔒 Unknown permission request code: $requestCode")
-				// Still try location service as fallback
-				preciseLocationService?.onRequestPermissionsResult(requestCode, permissions, grantResults)
+				Log.d(TAG, "🔒 Unknown permission request code: $requestCode (may be handled by Tauri)")
 			}
 		}
-
-		Log.e(TAG, "🔒 Permission result processing complete")
 	}
 
 
@@ -1686,6 +1712,12 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 				// Use coroutine to handle async import - reuse existing photo processing logic
 				CoroutineScope(Dispatchers.IO).launch {
 					try {
+						val db = database
+						if (db == null) {
+							invoke.reject("Database unavailable: ${databaseInitError ?: "initialization failed"}")
+							return@launch
+						}
+
 						val importedFiles = mutableListOf<String>()
 						val failedFiles = mutableListOf<String>()
 						val errors = mutableListOf<String>()
@@ -1698,13 +1730,13 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 									// Calculate hash and check for existing photo
 									val fileHash = PhotoUtils.calculateFileHash(copiedFile)
 									if (fileHash != null) {
-										val existingPhoto = database.photoDao().getPhotoByHash(fileHash)
+										val existingPhoto = db.photoDao().getPhotoByHash(fileHash)
 
 										if (existingPhoto == null) {
 											// Create new PhotoEntity using the permanent file path
 											val photoEntity =
 												PhotoUtils.createPhotoEntityFromFile(copiedFile, fileHash, "imported")
-											database.photoDao().insertPhoto(photoEntity)
+											db.photoDao().insertPhoto(photoEntity)
 											importedFiles.add(copiedFile.path)
 											Log.d(TAG, "📂 Successfully imported: ${copiedFile.name}")
 										} else {
@@ -1777,25 +1809,16 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 	fun photoWorkerProcess(invoke: Invoke) {
 		try {
 			//Log.d(TAG, "🢄📸 photoWorkerProcess command called")
-
-			// Add debugging to see raw invoke data
 			//Log.d(TAG, "🢄📸 invoke object: $invoke")
 
 			val args = invoke.parseArgs(PhotoWorkerProcessArgs::class.java)
-			//Log.d(TAG, "🢄📸 args parsed: args = $args")
-
-			// Args is never null from parseArgs(), proceed directly
-
 			val messageJson = args.message_json ?: args.message_json
+
 			//Log.d(TAG, "🢄📸 messageJson extracted: '${messageJson}' (length: ${messageJson?.length ?: 0})")
 			//Log.d(TAG, "🢄📸 field values - messageJson: ${args.message_json}, message_json: ${args.message_json}")
 
 			if (messageJson.isNullOrEmpty()) {
-				Log.e(TAG, "🢄📸 photoWorkerProcess failed: messageJson is required")
-				val error = JSObject()
-				error.put("success", false)
-				error.put("error", "messageJson is required")
-				invoke.resolve(error)
+				resolveWithError(invoke, "🢄📸 photoWorkerProcess failed: messageJson is required")
 				return
 			}
 
@@ -1816,7 +1839,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 					// Process the photos using PhotoWorkerService (fire and forget like web worker)
 					photoWorkerService.processPhotos(messageJson, authTokenProvider)
 
-					Log.d(TAG, "🢄📸 PhotoWorkerService message processed")
+					//Log.d(TAG, "🢄📸 PhotoWorkerService message processed")
 
 					CoroutineScope(Dispatchers.Main).launch {
 						val result = JSObject()
@@ -1825,22 +1848,14 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 					}
 
 				} catch (e: Exception) {
-					Log.e(TAG, "🢄📸 Error in photoWorkerProcess coroutine", e)
 					CoroutineScope(Dispatchers.Main).launch {
-						val error = JSObject()
-						error.put("success", false)
-						error.put("error", e.message ?: "Photo processing failed")
-						invoke.resolve(error)
+						resolveWithError(invoke, "🢄📸 Error in photoWorkerProcess coroutine", e)
 					}
 				}
 			}
 
 		} catch (e: Exception) {
-			Log.e(TAG, "🢄📸 Error parsing photoWorkerProcess args", e)
-			val error = JSObject()
-			error.put("success", false)
-			error.put("error", e.message ?: "Failed to parse arguments")
-			invoke.resolve(error)
+			resolveWithError(invoke, "🢄📸 Error parsing photoWorkerProcess args", e)
 		}
 	}
 
@@ -1857,11 +1872,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 			Log.d(TAG, "📤 Share args - title: $title, text: $text, url: $url")
 
 			if (url.isNullOrEmpty()) {
-				Log.e(TAG, "📤 Share failed: URL is required")
-				val error = JSObject()
-				error.put("success", false)
-				error.put("error", "URL is required for sharing")
-				invoke.resolve(error)
+				resolveWithError(invoke, "📤 Share failed: URL is required")
 				return
 			}
 
@@ -1886,19 +1897,11 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 				result.put("message", "Share intent launched successfully")
 				invoke.resolve(result)
 			} else {
-				Log.e(TAG, "📤 No apps available to handle share intent")
-				val error = JSObject()
-				error.put("success", false)
-				error.put("error", "No apps available for sharing")
-				invoke.resolve(error)
+				resolveWithError(invoke, "📤 No apps available to handle share intent")
 			}
 
 		} catch (e: Exception) {
-			Log.e(TAG, "📤 Error sharing photo", e)
-			val error = JSObject()
-			error.put("success", false)
-			error.put("error", e.message)
-			invoke.resolve(error)
+			resolveWithError(invoke, "📤 Error sharing photo", e)
 		}
 	}
 
@@ -1912,15 +1915,23 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 				throw Exception("Timestamp argument is required")
 			}
 
-			val timestamp = args.timestamp!!
+			val timestamp = args.timestamp!! / 1000  // Convert to milliseconds
 			Log.d(TAG, "📡 getBearingForTimestamp: Looking up bearing for timestamp $timestamp")
 
 			CoroutineScope(Dispatchers.IO).launch {
 				try {
-					val bearingEntity = database.bearingDao().getBearingNearTimestamp(timestamp)
+					val db = database
+					if (db == null) {
+						CoroutineScope(Dispatchers.Main).launch {
+							resolveWithError(invoke, "📡 getBearingForTimestamp: Database unavailable: ${databaseInitError ?: "initialization failed"}")
+						}
+						return@launch
+					}
+
+					val bearingEntity = db.bearingDao().getBearingNearTimestamp(timestamp)
 					var sourceName = "unknown"
 					if (bearingEntity != null) {
-						sourceName = database.sourceDao().getSourceNameById(bearingEntity.sourceId) ?: "unknown"
+						sourceName = db.sourceDao().getSourceNameById(bearingEntity.sourceId) ?: "unknown"
 					}
 
 					CoroutineScope(Dispatchers.Main).launch {
@@ -1934,7 +1945,6 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 							result.put("true_heading", bearingEntity.trueHeading.toDouble())
 
 							bearingEntity.magneticHeading?.let { result.put("magnetic_heading", it.toDouble()) }
-							bearingEntity.headingAccuracy?.let { result.put("heading_accuracy", it.toDouble()) }
 							bearingEntity.accuracyLevel?.let { result.put("accuracy", it) }
 							bearingEntity.pitch?.let { result.put("pitch", it.toDouble()) }
 							bearingEntity.roll?.let { result.put("roll", it.toDouble()) }
@@ -1952,28 +1962,18 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 					}
 
 				} catch (e: Exception) {
-					Log.e(TAG, "📡 getBearingForTimestamp: Database error", e)
 					CoroutineScope(Dispatchers.Main).launch {
-						val error = JSObject()
-						error.put("success", false)
-						error.put("error", e.message)
-						invoke.resolve(error)
+						resolveWithError(invoke,"📡 getBearingForTimestamp: Database error", e)
 					}
 				}
 			}
 
 		} catch (e: Exception) {
-			Log.e(TAG, "📡 getBearingForTimestamp: Error", e)
-			val error = JSObject()
-			error.put("success", false)
-			error.put("error", e.message)
-			invoke.resolve(error)
+			resolveWithError(invoke, "📡 getBearingForTimestamp: Error", e)
 		}
 	}
 
-
-	// Message Queue System for reliable Kotlin-frontend communication
-	/* todo: replace with tauri events?*/
+	// Message Queue System for reliable Kotlin-frontend communication. Messages are queued until frontend is loaded.
 	// ================================================================
 
 	/**
@@ -2005,16 +2005,13 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 			result.put("count", messages.size)
 
 			if (messages.isNotEmpty()) {
-				Log.d(TAG, "📨 Polled ${messages.size} messages")
+				//Log.d(TAG, "📨 Polled ${messages.size} messages")
 			}
 
 			invoke.resolve(result)
 
 		} catch (e: Exception) {
-			Log.e(TAG, "📨 Error polling messages: ${e.message}", e)
-			val error = JSObject()
-			error.put("error", e.message)
-			invoke.resolve(error)
+			resolveWithError(invoke, "📨 Error polling messages: ${e.message}", e)
 		}
 	}
 
@@ -2055,11 +2052,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 			invoke.resolve(result)
 
 		} catch (e: Exception) {
-			Log.e(TAG, "Error getting push distributors", e)
-			val error = JSObject()
-			error.put("success", false)
-			error.put("error", e.message)
-			invoke.resolve(error)
+			resolveWithError(invoke, "Error getting push distributors", e)
 		}
 	}
 
@@ -2096,11 +2089,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 			invoke.resolve(result)
 
 		} catch (e: Exception) {
-			Log.e(TAG, "Error getting push registration status", e)
-			val error = JSObject()
-			error.put("success", false)
-			error.put("error", e.message)
-			invoke.resolve(error)
+			resolveWithError(invoke, "Error getting push registration status", e)
 		}
 	}
 
@@ -2126,11 +2115,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 				invoke.resolve(result)
 
 			} catch (e: Exception) {
-				Log.e(TAG, "Error selecting push distributor", e)
-				val error = JSObject()
-				error.put("success", false)
-				error.put("error", e.message)
-				invoke.resolve(error)
+				resolveWithError(invoke, "Error selecting push distributor", e)
 			}
 		}
 	}
@@ -2164,16 +2149,24 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 			invoke.resolve(result)
 
 		} catch (e: Exception) {
-			Log.e(TAG, "🔔 Error showing test notification", e)
-			val error = JSObject()
-			error.put("success", false)
-			error.put("error", e.message ?: "Failed to show test notification")
-			invoke.resolve(error)
+			resolveWithError(invoke, "🔔 Error showing test notification", e)
 		}
 	}
 
 	override fun onNewIntent(intent: Intent) {
 		Log.d(TAG, "📲 onNewIntent called with intent: $intent")
+
+		// Update activity intent so getIntentData reads the new intent
+		activity.intent = intent
+
+		// Check for notification click action and queue message for frontend
+		val clickAction = intent.getStringExtra("click_action")
+		if (clickAction != null) {
+			Log.d(TAG, "📲 Notification click detected, route: $clickAction")
+			val eventData = JSObject()
+			eventData.put("route", clickAction)
+			queueMessage("notification-click", eventData)
+		}
 	}
 
 	@Command
@@ -2186,12 +2179,6 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 			if (intent != null) {
 				result.put("action", intent.action)
 				result.put("dataString", intent.dataString)
-
-				/*fixme result.put("extras", JSObject())
-				intent.extras?.keySet()?.forEach { key ->
-					val value = intent.extras?.get(key)
-					result.getJSObject("extras")?.put(key, value.toString())
-				}*/
 
 				val urlFromIntent = intent.getStringExtra("click_action")
 				if (urlFromIntent != null) {
@@ -2206,10 +2193,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 			invoke.resolve(result)
 
 		} catch (e: Exception) {
-			Log.e(TAG, "📲 Error getting intent data", e)
-			val error = JSObject()
-			error.put("error", e.message)
-			invoke.resolve(error)
+			resolveWithError(invoke, "📲 Error getting intent data", e)
 		}
 	}
 
@@ -2225,7 +2209,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 				JSObject()
 			}
 
-			Log.d(TAG, "🔧cmd called: command=$command, params=$params")
+			//Log.d(TAG, "🔧cmd called: command=$command, params=$params")
 
 			when (command) {
 				"start_device_orientation_sensor" -> {
@@ -2243,12 +2227,9 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 				"update_orientation" -> {
 					try {
 						geoTrackingManager.storeOrientationManual(params)
-						Log.d(TAG, "🔧 Stored manual orientation data")
+						//Log.d(TAG, "🔧 Stored manual orientation data")
 					} catch (e: Exception) {
-						Log.e(TAG, "🔧 Failed to store orientation data: ${e.message}", e)
-						val error = JSObject()
-						error.put("error", "Failed to store orientation: ${e.message}")
-						invoke.resolve(error)
+						resolveWithError(invoke, "🔧 Failed to store orientation data: ${e.message}", e)
 						return
 					}
 				}
@@ -2256,22 +2237,193 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 				"update_location" -> {
 					try {
 						geoTrackingManager.storeLocationManual(params)
-						Log.d(TAG, "🔧 Stored manual location data")
+						//Log.d(TAG, "🔧 Stored manual location data")
 					} catch (e: Exception) {
-						Log.e(TAG, "🔧 Failed to store location data: ${e.message}", e)
-						val error = JSObject()
-						error.put("error", "Failed to store location: ${e.message}")
-						invoke.resolve(error)
+						resolveWithError(invoke, "🔧 Failed to store location data: ${e.message}", e)
 						return
 					}
 				}
 
+				"geo_tracking_export" -> {
+					geoTrackingManager.dumpAndClear(forceDump = true)
+					Log.i(TAG, "🔧 Manual geo tracking export triggered")
+				}
+
+				"geo_tracking_set_auto_export" -> {
+					val enabled = params.getBoolean("enabled") ?: false
+					val prefs = activity.getSharedPreferences("hillview_tracking_prefs", Context.MODE_PRIVATE)
+					prefs.edit().putBoolean("auto_export", enabled).apply()
+					Log.i(TAG, "🔧 Set geo tracking auto_export: $enabled")
+				}
+
+				"geo_tracking_get_auto_export" -> {
+					val prefs = activity.getSharedPreferences("hillview_tracking_prefs", Context.MODE_PRIVATE)
+					val enabled = prefs.getBoolean("auto_export", false)
+					val result = JSObject()
+					result.put("enabled", enabled)
+					invoke.resolve(result)
+					return
+				}
+
+				"get_settings" -> {
+					val uploadPrefs = activity.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
+					val compassPrefs = activity.getSharedPreferences("hillview_compass_prefs", Context.MODE_PRIVATE)
+					val result = JSObject()
+					result.put("auto_upload_enabled", uploadPrefs.getBoolean("auto_upload_enabled", false))
+					result.put("auto_upload_prompt_enabled", uploadPrefs.getBoolean("auto_upload_prompt_enabled", true))
+					result.put("wifi_only", uploadPrefs.getBoolean("wifi_only", true))
+					result.put("landscape_armor22_workaround", compassPrefs.getBoolean("landscape_armor22_workaround", false))
+					invoke.resolve(result)
+					return
+				}
+
+				"set_settings" -> {
+					val uploadPrefs = activity.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
+					val compassPrefs = activity.getSharedPreferences("hillview_compass_prefs", Context.MODE_PRIVATE)
+
+					val autoUploadEnabled = params.getBoolean("auto_upload_enabled") ?: false
+					val wifiOnly = params.getBoolean("wifi_only") ?: true
+
+					uploadPrefs.edit()
+						.putBoolean("auto_upload_enabled", autoUploadEnabled)
+						.putBoolean("auto_upload_prompt_enabled", params.getBoolean("auto_upload_prompt_enabled") ?: true)
+						.putBoolean("wifi_only", wifiOnly)
+						.apply()
+
+					compassPrefs.edit()
+						.putBoolean("landscape_armor22_workaround", params.getBoolean("landscape_armor22_workaround") ?: false)
+						.apply()
+
+					// Schedule or cancel the upload worker based on enabled state
+					val workManager = WorkManager.getInstance(activity)
+					if (autoUploadEnabled) {
+						photoUploadManager.scheduleUploadWorker(workManager, autoUploadEnabled, wifiOnly)
+						Log.i(TAG, "🔧 Settings saved, upload worker scheduled")
+					} else {
+						workManager.cancelUniqueWork(PhotoUploadWorker.WORK_NAME)
+						Log.i(TAG, "🔧 Settings saved, upload worker cancelled")
+					}
+				}
+
+				"device_photos_stats" -> {
+					CoroutineScope(Dispatchers.IO).launch {
+						try {
+							val db = database
+							if (db == null) {
+								resolveWithError(invoke, "Database unavailable: ${databaseInitError ?: "initialization failed"}")
+								return@launch
+							}
+							val dao = db.photoDao()
+							val result = JSObject()
+							result.put("total", dao.getTotalPhotoCount())
+							result.put("pending", dao.getPendingUploadCount())
+							result.put("uploading", dao.getUploadingCount())
+							result.put("processing", dao.getProcessingCount())
+							result.put("completed", dao.getCompletedUploadCount())
+							result.put("failed", dao.getFailedUploadCount())
+							result.put("deleted", dao.getDeletedCount())
+							invoke.resolve(result)
+						} catch (e: Exception) {
+							resolveWithError(invoke, "Failed to get device photo stats: ${e.message}", e)
+						}
+					}
+					return
+				}
+
+				"force_new_key" -> {
+					CoroutineScope(Dispatchers.IO).launch {
+						try {
+							val keyResult = authManager.forceNewKeyPair()
+							val result = JSObject()
+							result.put("success", keyResult.success)
+							if (!keyResult.success) {
+								result.put("error", keyResult.error ?: "Unknown error")
+							}
+							invoke.resolve(result)
+						} catch (e: Exception) {
+							resolveWithError(invoke, "Failed to force new key pair: ${e.message}", e)
+						}
+					}
+					return
+				}
+
+				"retry_uploads" -> {
+					photoUploadManager.startAutomaticUpload("retry_button")
+				}
+
+				"update_photo_statuses" -> {
+					photoUploadLogic.handleUpdatePhotoStatuses(invoke, params)
+					return
+				}
+
+				"get_processing_photo_ids" -> {
+					photoUploadLogic.handleGetProcessingPhotoIds(invoke)
+					return
+				}
+
+				"create_edit" -> {
+					photoUploadLogic.handleCreateEdit(invoke, params)
+					return
+				}
+
+				"get_photo_id_by_server_photo_id" -> {
+					photoUploadLogic.handleGetPhotoIdByServerPhotoId(invoke, params)
+					return
+				}
+
+				"check_photo_file_exists" -> {
+					photoUploadLogic.handleCheckPhotoFileExists(invoke, params)
+					return
+				}
+
+				"get_photo_anonymization_state" -> {
+					photoUploadLogic.handleGetPhotoAnonymizationState(invoke, params)
+					return
+				}
+
+				"set_backend_url" -> {
+					val url = params?.getString("url")
+					if (url.isNullOrBlank()) {
+						resolveWithError(invoke, "Backend URL is required")
+						return
+					}
+					Log.d(TAG, "📤 Setting backend URL: $url")
+					val uploadPrefs = activity.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
+					uploadPrefs.edit().putString("server_url", url).apply()
+					// Trigger push registration
+					CoroutineScope(Dispatchers.IO).launch {
+						try {
+							val pushManager = PushDistributorManager(activity)
+							pushManager.autoRegisterIfNeeded()
+						} catch (e: Exception) {
+							Log.e(TAG, "📤 Error during push registration", e)
+						}
+					}
+					val result = JSObject()
+					result.put("success", true)
+					invoke.resolve(result)
+					return
+				}
+
+				"get_device_photos" -> {
+					val args = GetDevicePhotosArgs().apply {
+						params.getInteger("page")?.let { page = it }
+						params.getInteger("page_size")?.let { page_size = it }
+						if (params.has("min_lat")) min_lat = params.getDouble("min_lat")
+						if (params.has("max_lat")) max_lat = params.getDouble("max_lat")
+						if (params.has("min_lng")) min_lng = params.getDouble("min_lng")
+						if (params.has("max_lng")) max_lng = params.getDouble("max_lng")
+						if (params.has("picks")) {
+							val arr = params.getJSONArray("picks")
+							picks = (0 until arr.length()).map { arr.getString(it) }.toTypedArray()
+						}
+					}
+					processDevicePhotosRequest(invoke, args)
+					return
+				}
 
 				else -> {
-					Log.w(TAG, "🔧 Unknown command: $command")
-					val error = JSObject()
-					error.put("error", "Unknown command: $command")
-					invoke.resolve(error)
+					resolveWithError(invoke, "🔧 Unknown command: $command")
 					return
 				}
 			}
@@ -2280,18 +2432,15 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 			invoke.resolve(result)
 
 		} catch (e: Exception) {
-			Log.e(TAG, "🔧 Error in generic cmd", e)
-			val error = JSObject()
-			error.put("error", e.message)
-			invoke.resolve(error)
+			resolveWithError(invoke, "🔧 Error in generic cmd", e)
 		}
 	}
 
 	@Command
-	fun savePhotoToGallery(invoke: Invoke) {
+	fun savePhotoToMediaStore(invoke: Invoke) {
 		try {
-			val args = invoke.parseArgs(SavePhotoToGalleryArgs::class.java)
-			Log.d(TAG, "📷 savePhotoToGallery called: filename=${args.filename}, dataLength=${args.imageData.size}")
+			val args = invoke.parseArgs(SavePhotoToMediaStoreArgs::class.java)
+			Log.d(TAG, "📷 savePhotoToMediaStore called: filename=${args.filename}, dataLength=${args.imageData.size}")
 
 			val contentResolver = activity.contentResolver
 			val folderName = if (args.hideFromGallery == true) ".Hillview" else "Hillview"
@@ -2300,7 +2449,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 			val contentValues = ContentValues().apply {
 				put(MediaStore.Images.Media.DISPLAY_NAME, args.filename)
 				put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
-				put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/$folderName")
+				put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_DCIM}/$folderName")
 			}
 
 			Log.d(TAG, "📷 Inserting into MediaStore: ${args.filename} in $folderName")
@@ -2315,43 +2464,30 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 					outputStream.flush()
 				}
 
-				// Get the actual file path (if possible)
-				val projection = arrayOf(MediaStore.Images.Media.DATA)
-				var filePath: String? = null
-
-				contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
-					if (cursor.moveToFirst()) {
-						val columnIndex = cursor.getColumnIndex(MediaStore.Images.Media.DATA)
-						if (columnIndex >= 0) {
-							filePath = cursor.getString(columnIndex)
-						}
-					}
-				}
-
 				val result = JSObject()
 				result.put("success", true)
-				result.put("uri", uri.toString())
-				result.put("path", filePath ?: "MediaStore managed")
+				result.put("path", uri.toString())  // Return content:// URI as path
 
-				Log.d(TAG, "📷✅ Photo saved to gallery via MediaStore: $filePath")
+				Log.d(TAG, "📷✅ Photo saved to MediaStore: ${uri}")
 				invoke.resolve(result)
 
 			} else {
-				val result = JSObject()
-				result.put("success", false)
-				result.put("error", "Failed to create MediaStore entry")
-				Log.e(TAG, "📷❌ Failed to create MediaStore entry")
-				invoke.resolve(result)
+				resolveWithError(invoke, "Failed to create MediaStore entry")
 			}
 
 		} catch (e: Exception) {
-			Log.e(TAG, "📷❌ MediaStore save failed", e)
-			val result = JSObject()
-			result.put("success", false)
-			result.put("error", e.message)
-			invoke.resolve(result)
+			resolveWithError(invoke, "📷❌ MediaStore save failed", e)
 		}
 	}
+
+
+	private fun resolveWithError(invoke: Invoke, message: String, exception: Exception? = null) {
+		Log.e(TAG, "📱 $message", exception)
+		val error = JSObject()
+		error.put("error", message + (exception?.message?.let { ": $it" } ?: ""))
+		invoke.resolve(error)
+	}
+
 
 	private fun triggerOrientationEvent(currentDeviceOrientation: DeviceOrientation) {
 		val event = JSObject()
@@ -2376,37 +2512,13 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 		startScreenOrientationListener()
 	}
 
-	/*	override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
-			super.onConfigurationChanged(newConfig)
+	override fun onStop() {
+		super.onStop()
+		Log.d(TAG, "🔄 Activity onStop - exporting geo tracking data if enabled")
+		geoTrackingManager.dumpAndClear()
+	}
 
-			Log.d(TAG, "📱 onConfigurationChanged called")
 
-			// Get the actual rotation from the window manager
-			val windowManager = activity.getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager
-			val rotation = windowManager.defaultDisplay.rotation
-
-			val orientationAngle = when (rotation) {
-				android.view.Surface.ROTATION_0 -> 0      // Portrait
-				android.view.Surface.ROTATION_90 -> 90    // Landscape (rotated left)
-				android.view.Surface.ROTATION_180 -> 180  // Portrait upside down
-				android.view.Surface.ROTATION_270 -> 270  // Landscape (rotated right)
-				else -> 0 // fallback
-			}
-
-			Log.d(TAG, "📱 device-orientation Activity orientation changed - rotation: $rotation, angle: $orientationAngle°")
-
-			// Emit screen-angle event to match Main.svelte listener
-			val event = JSObject()
-			event.put("angle", orientationAngle)
-			event.put("timestamp", System.currentTimeMillis())
-			try {
-				trigger("screen-angle", event)
-				Log.d(TAG, "📱 Emitted device-orientation screen-angle event: angle=$orientationAngle°")
-			} catch (e: Exception) {
-				Log.e(TAG, "📱 Error emitting device-orientation screen-angle event: ${e.message}", e)
-			}
-		}
-	*/
 	private fun startScreenOrientationListener() {
 		if (screenOrientationListener == null) {
 			screenOrientationListener = object : OrientationEventListener(activity) {
@@ -2462,12 +2574,4 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 		Log.d(TAG, "📱 Screen orientation listener disabled")
 	}
 
-	/*
-	private fun resolveWithError(invoke: Invoke, message: String, exception: Exception? = null) {
-		Log.e(TAG, "📱 $message", exception)
-		val error = JSObject()
-		error.put("error", exception?.message ?: message)
-		invoke.resolve(error)
-	}
-*/
 }

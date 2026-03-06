@@ -1,16 +1,17 @@
-//import { sentrySvelteKit } from "@sentry/sveltekit";
+import { sentrySvelteKit } from "@sentry/sveltekit";
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
 import { sharedDefines } from './config/shared';
 
 export default defineConfig({
-	plugins: [/*sentrySvelteKit({
+	plugins: [sentrySvelteKit({
         sourceMapsUploadOptions: {
-            org: "ook-sy",
-            project: "hillview"
+            org: "sfi-n0",
+            project: "hillview-prod"
         }
-    }), */sveltekit()],
+    }), sveltekit()],
 	server: {
+		allowedHosts: ["dev.hillview.cz"],
 		host: true,
 		port: parseInt(process.env.VITE_DEV_PORT || '8212'),
 		hmr: {

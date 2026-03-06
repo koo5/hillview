@@ -22,7 +22,7 @@
 
 <style>
 	.spatial-state-arrow-icon {
-		width: 32px;
+		width: 24px;
 		height: 16px;
 	}
 </style>

@@ -31,6 +31,14 @@ export async function uploadPhoto(page: Page, photoFilename: string): Promise<vo
   const fileInput = page.locator('[data-testid="photo-file-input"]');
   await fileInput.setInputFiles(photoPath);
 
+  // Check the license checkbox if not already checked
+  const licenseCheckbox = page.locator('[data-testid="license-checkbox"]');
+  await licenseCheckbox.waitFor({ state: 'visible', timeout: 10000 });
+  const isChecked = await licenseCheckbox.isChecked();
+  if (!isChecked) {
+    await licenseCheckbox.check();
+  }
+
   // Wait for upload button to be enabled
   const uploadButton = page.locator('[data-testid="upload-submit-button"]');
   await page.waitForFunction(() => {

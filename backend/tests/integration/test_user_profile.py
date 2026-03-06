@@ -3,9 +3,7 @@
 Test suite for user profile management endpoints.
 Tests profile retrieval, account deletion, and security.
 """
-import pytest
 import requests
-import json
 import sys
 import os
 

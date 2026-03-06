@@ -14,14 +14,11 @@ Tests all aspects of how hidden content affects Hillview API responses:
 """
 
 import requests
-import json
 import time
 import os
 import sys
 import pytest
-import asyncio
-from datetime import datetime
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Optional
 from PIL import Image
 import io
 
@@ -29,8 +26,8 @@ import io
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from tests.utils.test_utils import clear_test_database, API_URL, create_test_photos, query_hillview_endpoint
-from tests.utils.base_test import BaseUserManagementTest
+from utils.test_utils import clear_test_database, API_URL, query_hillview_endpoint
+from utils.base_test import BaseUserManagementTest
 
 class TestHillviewFiltering(BaseUserManagementTest):
     """Comprehensive test suite for Hillview API content filtering."""

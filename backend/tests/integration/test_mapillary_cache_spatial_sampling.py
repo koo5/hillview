@@ -29,8 +29,8 @@ def create_clustered_mock_data_for_sampling(num_photos=20):
 				"type": "Point",
 				"coordinates": [base_lon + lon_offset, base_lat + lat_offset]
 			},
-			"bearing": 45.0 + (i * 10),
-			"computed_bearing": 45.0 + (i * 10),
+			"bearing": (45.0 + (i * 10)) % 360,
+			"computed_bearing": (45.0 + (i * 10)) % 360,
 			"computed_rotation": 0.0,
 			"computed_altitude": 200.0 + i,
 			"captured_at": f"2024-01-15T{10 + (i % 12):02d}:30:00Z",

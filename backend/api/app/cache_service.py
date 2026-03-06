@@ -1,26 +1,23 @@
-import asyncio
 import datetime
 from datetime import timezone
 import logging
 import sys
 import os
+
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
-from common.utc import utcnow
+
 from typing import List, Optional, Tuple, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import and_, func, text
+from sqlalchemy import func, text
 from sqlalchemy.dialects.postgresql import insert
 from geoalchemy2 import functions as geo_func
 from geoalchemy2.shape import from_shape, to_shape
 from shapely.geometry import Point, Polygon
 from shapely.ops import unary_union
 
-import sys
-import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
+from common.utc import utcnow, format_utc
 from common.models import CachedRegion, MapillaryPhotoCache
-from common.database import get_db
 
 log = logging.getLogger(__name__)
 
@@ -184,7 +181,7 @@ class MapillaryCacheService:
 				"computed_bearing": row.computed_compass_angle,
 				"computed_rotation": row.computed_rotation,
 				"computed_altitude": row.computed_altitude,
-				"captured_at": row.captured_at.isoformat() if row.captured_at else None,
+				"captured_at": format_utc(row.captured_at),
 				"is_pano": row.is_pano,
 				"thumb_1024_url": row.thumb_1024_url,
 				"creator": {
@@ -221,7 +218,7 @@ class MapillaryCacheService:
 			distribution_score = self.calculate_spatial_distribution(photos) if photos else 0.0
 			coverage_status = "COMPLETE (with sampling)" if is_complete_coverage else "INCOMPLETE"
 			log.info(f"Cache result: {len(photos)} photos from {coverage_status} coverage, distribution={distribution_score:.2%}")
-			# TODO: even with incomplete coverage, we should immediately send tne cached photos (just culling each cell to photos_per_cell)
+			# TODO: even with incomplete coverage, we should immediately send the cached photos (just culling each cell to photos_per_cell)
 			return {
 				'photos': photos,
 				'is_complete_coverage': is_complete_coverage,
@@ -245,14 +242,14 @@ class MapillaryCacheService:
 		complete_regions = [r for r in cached_regions if r.is_complete]
 
 		if not complete_regions:
-			log.info(f"Completeness check: No complete cached regions found")
+			log.info("Completeness check: No complete cached regions found")
 			return False
 
 		# Create the requested bbox as WKT polygon
 		request_bbox_wkt = f"POLYGON(({top_left_lon} {top_left_lat}, {bottom_right_lon} {top_left_lat}, {bottom_right_lon} {bottom_right_lat}, {top_left_lon} {bottom_right_lat}, {top_left_lon} {top_left_lat}))"
 
 		# Use PostGIS to check if the union of all complete regions covers the entire request bbox
-		from sqlalchemy import text
+
 		coverage_query = text("""
 			WITH complete_regions AS (
 				SELECT bbox FROM cached_regions
@@ -261,17 +258,21 @@ class MapillaryCacheService:
 			regions_union AS (
 				SELECT ST_Union(bbox) as coverage_area FROM complete_regions
 			)
-			SELECT ST_Contains(coverage_area, ST_GeomFromText(:request_bbox, 4326)) as is_fully_covered
+			SELECT ST_Within(coverage_area, ST_GeomFromText(:request_bbox, 4326)) as is_fully_covered
 			FROM regions_union
 		""")
 
 		region_ids = [r.id for r in complete_regions]
+
+		log.debug(f"Completeness check: Checking coverage with region IDs: {region_ids}, request_bbox={request_bbox_wkt}")
+
 		result = await self.db.execute(coverage_query, {
 			'region_ids': region_ids,
 			'request_bbox': request_bbox_wkt
 		})
 
 		coverage_result = result.scalar()
+		log.debug(f"Completeness check SQL result: {coverage_result}, type={type(coverage_result)}")
 		is_fully_covered = coverage_result is True
 
 		log.info(f"Completeness check: Found {len(complete_regions)} complete regions, full coverage: {is_fully_covered}")
@@ -477,13 +478,18 @@ class MapillaryCacheService:
 			coords = photo_data['geometry']['coordinates']
 			point = Point(coords[0], coords[1])
 
-			# Parse captured_at date
+			# Parse captured_at date (handle Mapillary sometimes returning "null" string)
 			captured_at = None
-			if photo_data.get('captured_at'):
-				try:
-					captured_at = datetime.datetime.fromisoformat(photo_data['captured_at'].replace('Z', '+00:00'))
-				except:
-					pass
+			raw_captured_at = photo_data.get('captured_at')
+			if raw_captured_at and raw_captured_at != "null":
+				if isinstance(raw_captured_at, int):
+					# Handle Unix timestamp
+					captured_at = datetime.datetime.fromtimestamp(raw_captured_at/1000, tz=timezone.utc)
+				else:
+					try:
+						captured_at = datetime.datetime.fromisoformat(raw_captured_at.replace('Z', '+00:00'))
+					except ValueError:
+						log.debug(f"Could not parse captured_at date: {raw_captured_at!r}")
 
 			# Handle computed_rotation - it may be a list/array
 			computed_rotation = photo_data.get('computed_rotation')

@@ -10,11 +10,12 @@ import { invoke } from '@tauri-apps/api/core';
 import { get } from 'svelte/store';
 import { spatialState } from './mapState';
 import { sources, sourceLoadingStatus } from './data.svelte';
+import { buildFiltersQueryParam } from './components/filters-modal/filtersStore';
 import { kotlinMessageQueue, type QueuedMessage } from './KotlinMessageQueue';
 import { MAX_PHOTOS_IN_AREA, MAX_PHOTOS_IN_RANGE, DEFAULT_RANGE_METERS } from './photoWorkerConstants';
 
 // Kotlin Photo Worker message types
-type MessageType = 'PROCESS_CONFIG' | 'PROCESS_AREA' | 'ABORT_PROCESS' | 'CLEANUP';
+type MessageType = 'PROCESS_CONFIG' | 'PROCESS_AREA' | 'PICKS_UPDATED' | 'ABORT_PROCESS' | 'CLEANUP';
 
 interface WorkerMessage {
     type: MessageType;
@@ -97,7 +98,8 @@ export class KotlinPhotoWorker {
                     processId,
                     priority: 1, // High priority for config changes
                     data: JSON.stringify({
-                        sources: message.data?.config?.sources || []
+                        sources: message.data?.config?.sources || [],
+                        queryOptionsJson: message.data?.config?.queryOptionsJson || null  // Pre-serialized
                     })
                 };
                 break;
@@ -118,7 +120,21 @@ export class KotlinPhotoWorker {
                         sources: currentSources,
                         bounds: message.data?.area,
                         range: message.data?.range ?? DEFAULT_RANGE_METERS, // Use default if not provided
-                        maxPhotos: MAX_PHOTOS_IN_AREA // Use constant from shared config
+                        maxPhotos: MAX_PHOTOS_IN_AREA, // Use constant from shared config
+                        queryOptionsJson: buildFiltersQueryParam()  // Pre-serialized, null if no active filters
+                    })
+                };
+                break;
+
+            case 'picksUpdated':
+                messageType = 'PICKS_UPDATED';
+                workerMessage = {
+                    type: messageType,
+                    messageId,
+                    processId,
+                    priority: 1, // High priority - picks should be processed immediately
+                    data: JSON.stringify({
+                        picks: message.data?.picks || []
                     })
                 };
                 break;
@@ -362,7 +378,7 @@ export class KotlinPhotoWorker {
      * Validate WorkerMessage structure before sending to Kotlin
      */
     private validateWorkerMessage(message: WorkerMessage): void {
-        if (!message.type || !['PROCESS_CONFIG', 'PROCESS_AREA', 'ABORT_PROCESS', 'CLEANUP'].includes(message.type)) {
+        if (!message.type || !['PROCESS_CONFIG', 'PROCESS_AREA', 'PICKS_UPDATED', 'ABORT_PROCESS', 'CLEANUP'].includes(message.type)) {
             throw new Error(`Invalid message type: ${message.type}`);
         }
 

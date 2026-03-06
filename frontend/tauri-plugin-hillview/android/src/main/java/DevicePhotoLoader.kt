@@ -22,7 +22,8 @@ class DevicePhotoLoader(private val context: Context) {
         source: SourceConfig,
         bounds: Bounds?,
         maxPhotos: Int,
-        shouldAbort: () -> Boolean
+        shouldAbort: () -> Boolean,
+        picks: Set<String> = emptySet()
     ): List<PhotoData> {
         return try {
             Log.d(TAG, " Loading device photos from database")
@@ -30,22 +31,42 @@ class DevicePhotoLoader(private val context: Context) {
             Log.d(TAG, " Bounds: $bounds")
             Log.d(TAG, " MaxPhotos: $maxPhotos")
 
-            /*
             val photoEntities = if (bounds != null) {
-                // Apply spatial filtering using Room query with bounds
-                photoDao.getPhotosInBounds(
-                    minLat = bounds.bottom_right.lat,
-                    maxLat = bounds.top_left.lat,
-                    minLng = bounds.top_left.lng,
-                    maxLng = bounds.bottom_right.lng,
-                    limit = maxPhotos
-                )
+                // First get picked photos that are in bounds (they always stay on map)
+                val pickedPhotos = if (picks.isNotEmpty()) {
+                    photoDao.getPickedPhotosInBounds(
+                        minLat = bounds.bottom_right.lat,
+                        maxLat = bounds.top_left.lat,
+                        minLng = bounds.top_left.lng,
+                        maxLng = bounds.bottom_right.lng,
+                        picks = picks
+                    )
+                } else {
+                    emptyList()
+                }
+
+                // Then get regular photos up to the limit minus picked photos
+                val remainingLimit = maxPhotos - pickedPhotos.size
+                val regularPhotos = if (remainingLimit > 0) {
+                    photoDao.getPhotosInBounds(
+                        minLat = bounds.bottom_right.lat,
+                        maxLat = bounds.top_left.lat,
+                        minLng = bounds.top_left.lng,
+                        maxLng = bounds.bottom_right.lng,
+                        limit = remainingLimit
+                    ).filter { photo -> !picks.contains(photo.id) } // Exclude already picked photos
+                } else {
+                    emptyList()
+                }
+
+                // Combine picked photos first, then regular photos
+                pickedPhotos + regularPhotos
             } else {
                 // No bounds specified, get all photos with limit
                 photoDao.getPhotosPaginated(limit = maxPhotos, offset = 0)
             }
-            */
 
+            /*
             // TEMPORARY: Load all photos without bounds filtering for debugging
             // First, check database status
             val totalCount = photoDao.getTotalPhotoCount()
@@ -64,6 +85,7 @@ class DevicePhotoLoader(private val context: Context) {
 
             val photoEntities = photoDao.getPhotosPaginated(limit = maxPhotos, offset = 0)
             Log.d(TAG, " DEBUG - Loading ALL photos (bounds disabled), found ${photoEntities.size} photos")
+            */
 
             if (shouldAbort()) {
                 Log.d(TAG, " Aborted during photo loading")
@@ -85,7 +107,12 @@ class DevicePhotoLoader(private val context: Context) {
     }
 
     private fun convertToPhotoData(photoEntity: PhotoEntity, source: SourceConfig): PhotoData {
-        val fileUrl = "file://${photoEntity.path}"
+        // content:// URIs stay as-is, file paths get file:// prefix
+        val fileUrl = if (PhotoUtils.isContentUri(photoEntity.path)) {
+            photoEntity.path
+        } else {
+            "file://${photoEntity.path}"
+        }
 
         // Create sizes dict with 'full' size entry for consistency with other photo sources
         val sizes = mapOf(
@@ -100,7 +127,7 @@ class DevicePhotoLoader(private val context: Context) {
             id = photoEntity.id,
             uid = "${source.id}-${photoEntity.id}",
             source_type = source.type,
-            file = photoEntity.filename,
+            filename = photoEntity.filename,
             coord = LatLng(
                 lat = photoEntity.latitude,
                 lng = photoEntity.longitude

@@ -11,10 +11,31 @@
 	import {simplePhotoWorker} from '$lib/simplePhotoWorker';
 	import {zoomViewData} from '$lib/zoomView.svelte.js';
 	import {singleTap} from '$lib/actions/singleTap';
-	import {getFullPhotoInfo} from '$lib/photoUtils';
+	import {portal} from '$lib/actions/portal';
+	import {getFullPhotoInfo, getPhotoSource} from '$lib/photoUtils';
 	import type {PhotoData} from '$lib/sources';
 
 	export let photo: PhotoData | null = null;
+
+	// Track pending timeouts for cleanup
+	const pendingTimeouts = new Set<ReturnType<typeof setTimeout>>();
+
+	function scheduleTimeout(callback: () => void, delay: number): ReturnType<typeof setTimeout> {
+		const id = setTimeout(() => {
+			pendingTimeouts.delete(id);
+			callback();
+		}, delay);
+		pendingTimeouts.add(id);
+		return id;
+	}
+
+	onDestroy(() => {
+		zoomViewData.set(null);
+		for (const id of pendingTimeouts) {
+			clearTimeout(id);
+		}
+		pendingTimeouts.clear();
+	});
 	export let className = '';
 	export let clientWidth: number | undefined = undefined;
 	export let onInteraction: (() => void) | undefined = undefined;
@@ -45,7 +66,7 @@
 	let hideMessage = '';
 
 
-	$: console.log('🢄Photo.svelte: photo changed:', JSON.stringify(photo));
+	//$: console.log('🢄Photo.svelte: photo changed:', JSON.stringify(photo));
 
 	// Get current user authentication state
 	$: is_authenticated = $auth.is_authenticated;
@@ -106,7 +127,7 @@
 			return;
 		}
 
-		console.log('🢄Photo.svelte: Processing sizes for photo:', photo.id, 'is_device_photo:', photo.is_device_photo, 'sizes:', Object.keys(photo.sizes), 'clientWidth:', clientWidth2);
+		//console.log('🢄Photo.svelte: Processing sizes for photo:', photo.id, 'is_device_photo:', photo.is_device_photo, 'sizes:', Object.keys(photo.sizes), 'clientWidth:', clientWidth2);
 
 		// Find the best scaled version based on container width. Take the 'full' size if this fails
 		const sizes = Object.keys(photo.sizes).filter(size => size !== 'full').sort((a, b) => Number(a) - Number(b));
@@ -136,30 +157,30 @@
 		// Handle device photo URLs for full size
 		if (photo.is_device_photo && photo.sizes.full) {
 			selectedUrl = getDevicePhotoUrl(photo.sizes.full.url);
-			console.log('🢄Photo.svelte: Using full size for device photo:', photo.id, 'original:', photo.sizes.full.url, 'converted:', selectedUrl);
+			//console.log('🢄Photo.svelte: Using full size for device photo:', photo.id, 'original:', photo.sizes.full.url, 'converted:', selectedUrl);
 		} else {
 			selectedUrl = photo.sizes.full?.url || '';
-			console.log('🢄Photo.svelte: Using full size for regular photo:', {
+			/*console.log('🢄Photo.svelte: Using full size for regular photo:', {
 				photoId: photo.id,
 				selectedUrl: selectedUrl
-			});
+			});*/
 		}
 
-		console.log('🢄Photo.svelte: URL flow debug:', JSON.stringify({
+		/*console.log('🢄Photo.svelte: URL flow debug:', JSON.stringify({
 			photoId: photo.id,
 			is_device_photo: photo.is_device_photo,
 			selectedUrl: selectedUrl,
 			currentDisplayedUrl: displayedUrl,
 			willTriggerImageChange: selectedUrl !== displayedUrl
-		}));
+		}));*/
 	}
 
 	async function handleImageChange(newUrl: string) {
-		console.log('🢄Photo.svelte: handleImageChange called:', JSON.stringify({
+		/*console.log('🢄Photo.svelte: handleImageChange called:', JSON.stringify({
 			newUrl: newUrl,
 			currentDisplayedUrl: displayedUrl,
 			willReturn: !newUrl || newUrl === displayedUrl
-		}));
+		}));*/
 
 		// hmm..
 		if (!newUrl || newUrl === displayedUrl) {
@@ -196,12 +217,6 @@
 			console.error('🢄Error preloading image:', error);
 			isLoadingNewImage = false;
 		}
-	}
-
-	// Helper functions to determine photo source and get user info
-	function getPhotoSource(photo: PhotoData): string {
-		if (!photo?.source?.id) throw new Error('Photo source information is missing');
-		return photo.source.id;
 	}
 
 	function getUserId(photo: PhotoData): string | null {
@@ -244,7 +259,7 @@
 		const userId = getUserId(photo);
 		if (!userId) {
 			hideMessage = 'Cannot hide user: User information not available';
-			setTimeout(() => hideMessage = '', 5000);
+			scheduleTimeout(() => hideMessage = '', 5000);
 			showHideUserDialog = false;
 			return;
 		}
@@ -272,15 +287,17 @@
 			}
 
 			// Call webworker to remove all photos by this user from cache
-			simplePhotoWorker.removeUserPhotosFromCache?.(userId, photoSource);
+			if (photoSource) {
+				simplePhotoWorker.removeUserPhotosFromCache?.(userId, photoSource);
+			}
 
 			hideMessage = 'User hidden successfully';
-			setTimeout(() => hideMessage = '', 2000);
+			scheduleTimeout(() => hideMessage = '', 2000);
 			showHideUserDialog = false;
 		} catch (error) {
 			console.error('🢄Error hiding user:', error);
 			hideMessage = `Error: ${handleApiError(error)}`;
-			setTimeout(() => hideMessage = '', 5000);
+			scheduleTimeout(() => hideMessage = '', 5000);
 		} finally {
 			isHiding = false;
 		}
@@ -303,9 +320,11 @@
 		zoomViewData.set({
 			fallback_url: fallbackUrl,
 			url: fullPhotoInfo.url,
-			filename: photo.file || 'Photo',
+			filename: photo.filename,
 			width: fullPhotoInfo.width,
-			height: fullPhotoInfo.height
+			height: fullPhotoInfo.height,
+			photo_id: photo.id,
+			pyramid: (photo as any).sizes?.full?.pyramid ?? undefined,
 		});
 	}
 
@@ -341,7 +360,7 @@
 	{#if photo && !photo.is_placeholder}
 		<img
 			src={displayedUrl}
-			alt={photo.file}
+			alt={photo.filename}
 			style="{bg_style_stretched_photo} {border_style}"
 			fetchpriority={fetchPriority as any}
 			data-testid="main-photo"
@@ -398,7 +417,7 @@
 
 <!-- Hide User Confirmation Dialog -->
 {#if showHideUserDialog}
-	<div class="dialog-overlay">
+	<div class="dialog-overlay" use:portal>
 		<div class="dialog">
 			<h3>Hide User</h3>
 			<p>This will hide all photos by
@@ -410,6 +429,7 @@
 				<input
 					id="hide-reason"
 					type="text"
+
 					bind:value={hideUserReason}
 					placeholder="e.g., Inappropriate content, spam, etc."
 					maxlength="100"
@@ -538,7 +558,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		z-index: 1000;
+		z-index: 100000;
 		animation: fadeIn 0.2s ease;
 	}
 

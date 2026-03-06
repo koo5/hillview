@@ -1,41 +1,26 @@
-import type {PhotoId} from './types/photoTypes';
+import type {PhotoId, SimpleCoord, PhotoSize, BasePhotoData} from './types/photoCommon';
 
-// Re-export PhotoId for use in other worker files
-export type {PhotoId};
+// Re-export common types for use in other worker files
+export type {PhotoId, SimpleCoord, PhotoSize};
 
-// Simple coordinate interface for worker compatibility (can't import leaflet in workers)
-export interface SimpleCoord {
-    lat: number;
-    lng: number;
+// Query options for photo filtering/sorting based on AI analysis
+export interface QueryOptions {
+    time_of_day: string | null;  // day, night, dawn_dusk
+    location_type: string | null;  // indoors, outdoors, mixed
+    min_farthest_distance: number | null;  // meters
+    max_closest_distance: number | null;  // meters
+    min_scenic_score: number | null;  // 1-5
+    visibility_distance: string | null;  // near, medium, far, panoramic
+    tallest_building: string | null;  // none, low_rise, mid_rise, high_rise, skyscraper
+    features: string[];  // OR logic
+    show_unanalyzed: boolean;  // include photos without analysis
+    // Future: sorting options can be added here
 }
 
-// Photo data types
-export interface PhotoData {
-    id: PhotoId;
-	uid: string;
-    source_type: string;
-    file: string;
-    url: string;
-    coord: SimpleCoord;
-    bearing: number;
-    altitude: number;
-    source?: any;
-    sizes?: Record<string, PhotoSize>;
-    is_user_photo?: boolean;
-    is_device_photo?: boolean;
-    captured_at?: number;
-    accuracy?: number;
-    abs_bearing_diff?: number;
-    bearing_color?: string;
-    range_distance?: number | null;
-    angular_distance_abs?: number;
-    file_hash?: string;
-}
-
-export interface PhotoSize {
-    url: string;
-    width: number;
-    height: number;
+// Worker-specific photo data (extends base with SimpleCoord)
+export interface PhotoData extends BasePhotoData {
+    coord: SimpleCoord;  // Override with SimpleCoord for workers
+    source?: any;  // Worker version uses any instead of Source type
 }
 
 export interface Bounds {

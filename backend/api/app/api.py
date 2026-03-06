@@ -1,5 +1,8 @@
-import logging, yaml
+import logging
+import yaml
 import logging.config
+
+from dsl_utils import y
 
 # Load and apply logging config before uvicorn can override it
 with open('logging.yaml', 'r') as f:
@@ -13,11 +16,10 @@ root_logger.warning('root WARNING')
 root_logger.error('root ERROR')
 
 log = logging.getLogger(__name__)
-
-# log.warning("STARTING_API_APPLICATION")
 # log.warning("Configuring logging levels for noisy libraries")
 
-for level, loggers in yaml.safe_load("""
+
+for level, loggers in y("""
 	INFO:
 		- common.security_utils
 		- google.auth._default
@@ -28,11 +30,12 @@ for level, loggers in yaml.safe_load("""
 		- hpack
 		- httpcore
 		- httpx
-""".replace("\t", "  ")).items():
+""").items():
 	# log.warning(f"Setting {level} level for loggers: {loggers}, {type(loggers)}")
+	level = getattr(logging, level)
 	for name in loggers:
-		# log.warning(f" - {name}")
-		logging.getLogger(name).setLevel(getattr(logging, level))
+		logging.getLogger(name).setLevel(level)
+
 
 # log.warning("Importing FastAPI and related modules")
 
@@ -43,6 +46,7 @@ from fastapi import FastAPI, HTTPException, status, Request, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
 from starlette.middleware.base import BaseHTTPMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -52,9 +56,9 @@ import sys
 # Add common module path for both local development and Docker
 common_path = os.path.join(os.path.dirname(__file__), '..', '..', 'common')
 sys.path.append(common_path)
-from common.database import Base, engine, get_db
+from common.database import get_db
 from common.config import is_rate_limiting_disabled, rate_limit_config, get_cors_origins
-from debug_utils import debug_only, safe_str_id, clear_system_tables, cleanup_upload_directories
+from debug_utils import debug_only, clear_system_tables, cleanup_upload_directories
 from user_routes import start_session_cleanup
 import fcm_push
 
@@ -80,7 +84,6 @@ async def lifespan(app: FastAPI):
 
 from fastapi import FastAPI
 from fastapi.openapi.docs import (
-	get_redoc_html,
 	get_swagger_ui_html,
 	get_swagger_ui_oauth2_redirect_html,
 )
@@ -297,6 +300,27 @@ app.add_middleware(ReverseProxyMiddleware)
 
 
 # Add exception handlers
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+	"""Log Pydantic validation errors (422) with full details."""
+	from fastapi.encoders import jsonable_encoder
+	errors = exc.errors()
+	log.error(f"Validation error on {request.method} {request.url.path}")
+	log.error(f"Validation errors: {errors}")
+	# Also log the body if available (for debugging)
+	try:
+		body = await request.body()
+		if body:
+			log.error(f"Request body: {body[:2000].decode('utf-8', errors='replace')}")
+	except Exception:
+		pass
+	# Return standard FastAPI validation error response (use jsonable_encoder to handle non-serializable types)
+	return JSONResponse(
+		status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+		content={"detail": jsonable_encoder(errors)}
+	)
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
 	import traceback
@@ -364,6 +388,14 @@ import contact_routes
 
 app.include_router(contact_routes.router)
 
+import worker_routes
+
+app.include_router(worker_routes.router)
+
+import annotation_routes
+
+app.include_router(annotation_routes.router)
+
 
 # Database migration function
 def run_migrations():
@@ -409,7 +441,7 @@ async def clear_database():
 	from sqlalchemy import select, text
 	import auth
 	from common.database import get_db
-	from common.models import User, CachedRegion, MapillaryPhotoCache
+	from common.models import User
 
 	# Get database session
 	async for db in get_db():
@@ -422,7 +454,6 @@ async def clear_database():
 		delete_summary = await auth.delete_users_by_usernames(db, all_usernames)
 
 		# Clear any remaining orphaned photos (photos without owners)
-		from sqlalchemy import select
 		from common.models import Photo
 		from photos import delete_all_user_photo_files
 
@@ -457,7 +488,7 @@ async def clear_database():
 		await db.commit()
 		break
 
-	log.info(f"Database cleared completely")
+	log.info("Database cleared completely")
 	return {
 		"status": "success",
 		"message": "Database cleared successfully",

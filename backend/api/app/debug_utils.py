@@ -19,7 +19,7 @@ def debug_only(func: Callable) -> Callable:
     """
     @wraps(func)
     async def wrapper(*args, **kwargs) -> Any:
-        if not os.getenv("DEBUG_ENDPOINTS", "false").lower() in ("true", "1", "yes"):
+        if os.getenv("DEBUG_ENDPOINTS", "false").lower() not in ("true", "1", "yes"):
             raise HTTPException(status_code=404, detail="Debug endpoints disabled")
         return await func(*args, **kwargs)
     return wrapper

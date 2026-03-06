@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.*
 
+
 /**
  * Photo Operations - Pure Business Logic
  *
@@ -13,12 +14,24 @@ import kotlinx.coroutines.*
 class PhotoOperations(private val context: Context) {
     companion object {
         private const val TAG = "PhotoOperations"
+        private const val doLog = false
     }
 
     private val deviceLoader = DevicePhotoLoader(context)
     private val streamLoader = StreamPhotoLoader()
     private val sourceCache = mutableMapOf<String, SourceCache>()
     private var maxPhotosInArea: Int = 200
+    private var picks: Set<String> = emptySet()
+    private var queryOptionsJson: String? = null  // Pre-serialized analysis filters
+
+
+    fun setPicks(newPicks: Set<String>) {
+        picks = newPicks
+    }
+
+    fun setQueryOptionsJson(json: String?) {
+        queryOptionsJson = json
+    }
 
     /**
      * Source cache for each source - matches TypeScript interface
@@ -43,12 +56,12 @@ class PhotoOperations(private val context: Context) {
         shouldAbort: () -> Boolean,
         authTokenProvider: suspend () -> String?
     ): List<PhotoData> {
-        Log.d(TAG, "PhotoOperations: Processing config update ($processId)")
+        if (doLog) Log.d(TAG, "PhotoOperations: Processing config update ($processId)")
 
         if (shouldAbort()) return emptyList()
 
         if (config.sources.isEmpty()) {
-            Log.d(TAG, "PhotoOperations: PROCESSCONFIG: No sources in config ($processId)")
+            if (doLog) Log.d(TAG, "PhotoOperations: PROCESSCONFIG: No sources in config ($processId)")
             return emptyList()
         }
 
@@ -59,7 +72,7 @@ class PhotoOperations(private val context: Context) {
         val enabledSources = sources.filter { it.enabled }
         val enabledSourceIds = enabledSources.map { it.id }.toSet()
 
-        Log.d(TAG, "PhotoOperations: PROCESSCONFIG: enabledSourceIds: ${enabledSourceIds.joinToString(", ")}")
+        if (doLog) Log.d(TAG, "PhotoOperations: PROCESSCONFIG: enabledSourceIds: ${enabledSourceIds.joinToString(", ")}")
 
         // Clear cache for disabled sources
         val sourcesToRemove = sourceCache.keys.filter { !enabledSourceIds.contains(it) }
@@ -70,15 +83,23 @@ class PhotoOperations(private val context: Context) {
             if (shouldAbort()) break
 
             try {
-                Log.d(TAG, "PhotoOperations: Processing source ${source.id} of type ${source.type}")
+                if (doLog) Log.d(TAG, "PhotoOperations: Processing source ${source.id} of type ${source.type}")
+
+                // Extract picks for this specific source
+                // picks contain UIDs like "hillview-abc123", we need to extract "abc123" for the backend
+                val sourcePrefix = "${source.id}-"
+                val sourcePickIds = picks
+                    .filter { it.startsWith(sourcePrefix) }
+                    .map { it.substring(sourcePrefix.length) }
+                    .toSet()
 
                 val photos = when (source.type) {
                     "device" -> {
-                        deviceLoader.loadPhotos(source, null, maxPhotosInArea, shouldAbort)
+                        deviceLoader.loadPhotos(source, null, maxPhotosInArea, shouldAbort, sourcePickIds)
                     }
                     "stream" -> {
                         val authToken = authTokenProvider()
-                        streamLoader.loadPhotos(source, null, maxPhotosInArea, authToken, shouldAbort)
+                        streamLoader.loadPhotos(source, null, maxPhotosInArea, authToken, shouldAbort, sourcePickIds, queryOptionsJson)
                     }
                     else -> {
                         Log.w(TAG, "PhotoOperations: Unknown source type: ${source.type}")
@@ -96,7 +117,7 @@ class PhotoOperations(private val context: Context) {
                         cachedBounds = null
                     )
 
-                    Log.d(TAG, "PhotoOperations: Loaded ${photos.size} photos from source ${source.id}")
+                    if (doLog) Log.d(TAG, "PhotoOperations: Loaded ${photos.size} photos from source ${source.id}")
                 }
 
             } catch (error: Exception) {
@@ -105,7 +126,7 @@ class PhotoOperations(private val context: Context) {
             }
         }
 
-        Log.d(TAG, "PhotoOperations: PROCESSCONFIG: Config processing complete ($processId) - loaded ${allLoadedPhotos.size} photos")
+        if (doLog) Log.d(TAG, "PhotoOperations: PROCESSCONFIG: Config processing complete ($processId) - loaded ${allLoadedPhotos.size} photos")
         return allLoadedPhotos
     }
 
@@ -120,7 +141,7 @@ class PhotoOperations(private val context: Context) {
         authTokenProvider: suspend () -> String?,
         onSourceLoadingStatus: ((sourceId: String, isLoading: Boolean, progress: String?, error: String?) -> Unit)? = null
     ): Map<String, List<PhotoData>> {
-        Log.d(TAG, "PhotoOperations: Processing area update ($processId) with ${sources.size} sources")
+        if (doLog) Log.d(TAG, "PhotoOperations: Processing area update ($processId) with ${sources.size} sources")
 
         val sourcesPhotosInArea = mutableMapOf<String, List<PhotoData>>()
 
@@ -131,26 +152,34 @@ class PhotoOperations(private val context: Context) {
                 // Send loading status for this individual source
                 onSourceLoadingStatus?.invoke(source.id, true, "Loading photos...", null)
 
-                Log.d(TAG, "PhotoOperations: Processing area for source ${source.id}")
+                if (doLog) Log.d(TAG, "PhotoOperations: Processing area for source ${source.id}")
 
                 // Check if we have cached data that covers this area
                 val cache = sourceCache[source.id]
                 val canUseCache = cache != null && cache.isComplete &&
                     cache.cachedBounds?.let { isAreaWithinCachedBounds(bounds, it) } == true
 
+                // Extract picks for this specific source
+                // picks contain UIDs like "hillview-abc123", we need to extract "abc123" for the backend
+                val sourcePrefix = "${source.id}-"
+                val sourcePickIds = picks
+                    .filter { it.startsWith(sourcePrefix) }
+                    .map { it.substring(sourcePrefix.length) }
+                    .toSet()
+
                 val photos = if (canUseCache) {
-                    Log.d(TAG, "PhotoOperations: Using cached data for ${source.id}")
+                    if (doLog) Log.d(TAG, "PhotoOperations: Using cached data for ${source.id}")
                     filterPhotosByArea(cache!!.photos, bounds)
                 } else {
-                    Log.d(TAG, "PhotoOperations: No cache for ${source.id}, performing bounded load")
+                    if (doLog) Log.d(TAG, "PhotoOperations: No cache for ${source.id}, performing bounded load (picks: ${sourcePickIds.size})")
 
                     when (source.type) {
                         "device" -> {
-                            deviceLoader.loadPhotos(source, bounds, maxPhotosInArea, shouldAbort)
+                            deviceLoader.loadPhotos(source, bounds, maxPhotosInArea, shouldAbort, sourcePickIds)
                         }
                         "stream" -> {
                             val authToken = authTokenProvider()
-                            streamLoader.loadPhotos(source, bounds, maxPhotosInArea, authToken, shouldAbort)
+                            streamLoader.loadPhotos(source, bounds, maxPhotosInArea, authToken, shouldAbort, sourcePickIds, queryOptionsJson)
                         }
                         else -> {
                             Log.w(TAG, "PhotoOperations: Unknown source type: ${source.type}")
@@ -161,7 +190,7 @@ class PhotoOperations(private val context: Context) {
 
                 if (!shouldAbort()) {
                     sourcesPhotosInArea[source.id] = photos
-                    Log.d(TAG, "PhotoOperations: Area load complete for ${source.id}: ${photos.size} photos")
+                    if (doLog) Log.d(TAG, "PhotoOperations: Area load complete for ${source.id}: ${photos.size} photos")
 
                     // Send completion status for this individual source
                     onSourceLoadingStatus?.invoke(source.id, false, "Loaded ${photos.size} photos", null)
@@ -177,7 +206,7 @@ class PhotoOperations(private val context: Context) {
             }
         }
 
-        Log.d(TAG, "PhotoOperations: Area processing complete ($processId) - ${sourcesPhotosInArea.values.sumOf { it.size }} photos in area")
+        if (doLog) Log.d(TAG, "PhotoOperations: Area processing complete ($processId) - ${sourcesPhotosInArea.values.sumOf { it.size }} photos in area")
         return sourcesPhotosInArea
     }
 
@@ -209,7 +238,7 @@ class PhotoOperations(private val context: Context) {
      * Clean up all resources
      */
     fun cleanup() {
-        Log.d(TAG, "PhotoOperations: Cleaning up all resources")
+        if (doLog) Log.d(TAG, "PhotoOperations: Cleaning up all resources")
         sourceCache.clear()
     }
 }

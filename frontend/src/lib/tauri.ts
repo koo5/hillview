@@ -7,7 +7,7 @@ const hasWindow = typeof window !== 'undefined';
 
 // Core constants for platform detection
 export const TAURI = hasWindow && Object.prototype.hasOwnProperty.call(window, '__TAURI_INTERNALS__');
-export const BROWSER = !TAURI;
+export const BROWSER = hasWindow && !TAURI;
 
 // Platform detection
 let platformName = 'browser';
@@ -29,7 +29,7 @@ export const TAURI_DESKTOP = TAURI && !TAURI_MOBILE;
 export interface SensorData {
     magnetic_heading: number;  // Compass bearing in degrees from magnetic north (0-360°)
     true_heading: number;      // Compass bearing corrected for magnetic declination
-    heading_accuracy: number;
+    accuracy_level: number;
     pitch: number;
     roll: number;
     timestamp: number;
@@ -87,14 +87,14 @@ export const tauriSensor = TAURI ? {
     }
 } : null;
 
-console.log('🢄🔍 environment:', JSON.stringify({
+/*console.log('🢄🔍 environment:', JSON.stringify({
     TAURI,
     hasWindow,
     platformName,
     TAURI_MOBILE,
     TAURI_DESKTOP,
     hasTauriSensor: !!tauriSensor
-}));
+}));*/
 
 // Utility function to check if Tauri APIs are available
 export function isTauriAvailable(): boolean {
@@ -111,13 +111,23 @@ export function isSensorAvailable(): boolean {
 // Camera permission checking
 export const tauriCamera = TAURI ? {
     checkCameraPermission: async (): Promise<boolean> => {
-        const result = await invoke('plugin:hillview|check_camera_permission');
-        return (result as { granted: boolean }).granted;
+        try {
+            const result = await invoke('plugin:hillview|check_camera_permission');
+            return (result as { granted: boolean }).granted;
+        } catch (err) {
+            console.error('🢄📷 Failed to check camera permission:', err);
+            return false;
+        }
     },
 
     requestCameraPermission: async (): Promise<{ granted: boolean; error?: string }> => {
-        const result = await invoke('plugin:hillview|request_camera_permission');
-        return result as { granted: boolean; error?: string };
+        try {
+            const result = await invoke('plugin:hillview|request_camera_permission');
+            return result as { granted: boolean; error?: string };
+        } catch (err) {
+            console.error('🢄📷 Failed to request camera permission:', err);
+            return { granted: false, error: String(err) };
+        }
     }
 } : null;
 

@@ -10,8 +10,7 @@ This mirrors the failing test in frontend/tests-playwright/mapillary-marker-cons
 """
 
 import pytest
-import requests
-from typing import Dict, List, Any
+from typing import Dict, Any
 import math
 
 from utils.api_client import APIClient
@@ -36,7 +35,7 @@ class TestMapillaryMarkerConsistency:
         print("📍 Creating mock data with frontend-identical structure...")
         mock_data = self._create_mock_mapillary_data_frontend_identical()
 
-        print(f"📊 Mock data structure:")
+        print("📊 Mock data structure:")
         print(f"   Photos count: {len(mock_data['data'])}")
         print(f"   First photo: {mock_data['data'][0]}")
         print(f"   Photo IDs: {[p['id'] for p in mock_data['data'][:5]]}...")
@@ -122,7 +121,7 @@ class TestMapillaryMarkerConsistency:
 
         if photo_count2 == 30:
             print("❌ DUPLICATION BUG REPRODUCED: Got 30 photos instead of 15!")
-            print(f"   This matches the frontend bug - backend is duplicating photos")
+            print("   This matches the frontend bug - backend is duplicating photos")
             # Print the actual duplicate analysis
             for pid in set(photo_ids2):
                 count = photo_ids2.count(pid)

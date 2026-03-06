@@ -11,7 +11,6 @@ warnings.filterwarnings("ignore", message="Support for class-based `config` is d
 warnings.filterwarnings("ignore", message="The 'app' shortcut is now deprecated", category=DeprecationWarning)
 
 import pytest
-import json
 from unittest.mock import Mock, patch, AsyncMock
 import sys
 import os
@@ -28,7 +27,6 @@ backend_dir = os.path.join(api_app_dir, '..', '..')
 sys.path.insert(1, os.path.abspath(backend_dir))
 
 from fastapi.testclient import TestClient
-import common.config as config
 
 # Import the API app directly
 import api
@@ -36,7 +34,7 @@ app = api.app
 client = TestClient(app)
 
 # Import models and types
-from common.models import PhotoRating, PhotoRatingType, User
+from common.models import PhotoRating, PhotoRatingType
 from rating_routes import validate_photo_source, validate_rating_type, get_rating_counts
 
 

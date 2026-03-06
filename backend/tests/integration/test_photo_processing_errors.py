@@ -12,10 +12,10 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from tests.utils.base_test import BasePhotoTest
-from tests.utils.test_utils import clear_test_database, API_URL, upload_test_image, wait_for_photo_processing, recreate_test_users
-from tests.utils.auth_utils import AuthTestHelper
-from tests.utils.image_utils import (
+from utils.base_test import BasePhotoTest
+from utils.test_utils import API_URL, upload_test_image, wait_for_photo_processing, recreate_test_users
+from utils.auth_utils import AuthTestHelper
+from utils.image_utils import (
 	create_test_image_no_exif,
 	create_test_image_coords_only,
 	create_test_image_bearing_only,
@@ -145,7 +145,6 @@ async def test_successful_processing():
 	sizes = photo_data['sizes']
 	assert sizes, "No sizes data found in photo response"
 
-	import requests
 	for size_name, size_info in sizes.items():
 		url = size_info['url']
 		print(f"Testing {size_name} URL: {url}")
@@ -182,7 +181,7 @@ async def test_corrupted_exif_handling():
 		assert "Traceback" not in error_msg, f"Error message should not contain raw traceback: {error_msg}"
 		print(f"✓ Graceful error handling: {error_msg}")
 	else:
-		print(f"✓ Successfully processed despite potential corruption")
+		print("✓ Successfully processed despite potential corruption")
 
 	print("✓ Corrupted EXIF handling test passed\n")
 

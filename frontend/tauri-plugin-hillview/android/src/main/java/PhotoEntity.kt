@@ -32,12 +32,26 @@ data class PhotoEntity(
     val createdAt: Long,
 
     // Upload tracking fields
-    val uploadStatus: String = "pending", // pending, uploading, completed, failed
+    val uploadStatus: String = "pending", // pending, uploading, processing, completed, failed
     val uploadedAt: Long = 0L,
     val retryCount: Int = 0,
     val lastUploadAttempt: Long = 0L,
     val uploadError: String = "",
-    val fileHash: String = ""
+    val fileHash: String = "",
+    val serverPhotoId: String? = null,  // Server's photo ID (UUID) for status queries
+
+    // Soft delete flag - synced from server
+    val deleted: Boolean = false,
+
+    // Version for re-upload support (e.g., changing anonymization settings)
+    // Bumped when user edits photo settings and wants to re-upload
+    val version: Int = 1,
+
+    // Anonymization override as JSON string:
+    // - null: auto-detect faces/plates and blur them (default)
+    // - "[]": skip anonymization entirely
+    // - "[{\"x\":10,\"y\":20,\"width\":100,\"height\":50}]": manual blur rectangles
+    val anonymizationOverride: String? = null
 )
 
 enum class UploadStatus {

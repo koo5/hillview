@@ -1,6 +1,6 @@
 """Photo rating routes for thumbs up/down functionality."""
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Optional
 from pydantic import BaseModel
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request

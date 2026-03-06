@@ -1,25 +1,26 @@
-import {writable, derived, get} from 'svelte/store';
-import {LatLng} from 'leaflet';
+import {writable, derived, get, type Writable} from 'svelte/store';
 import {
 	staggeredLocalStorageSharedStore,
 	localStorageReadOnceSharedStore,
 	localStorageSharedStore
 } from './svelte-shared-store';
-import type {PhotoData} from './types/photoTypes';
+import type {PhotoData, PhotoId} from './types/photoTypes';
+import type {SimpleCoord} from './photoWorkerTypes';
 import {AngularRangeCuller, sortPhotosByBearing} from './AngularRangeCuller';
-import {normalizeBearing} from './utils/bearingUtils';
+import {normalizeBearing, getBearingColor} from './utils/bearingUtils';
 import {invoke} from "@tauri-apps/api/core";
 import {TAURI} from "$lib/tauri";
+;
 
 const angularRangeCuller = new AngularRangeCuller();
 
 export interface Bounds {
-	top_left: LatLng;
-	bottom_right: LatLng;
+	top_left: SimpleCoord;
+	bottom_right: SimpleCoord;
 }
 
 export interface SpatialState {
-	center: LatLng;
+	center: SimpleCoord;
 	zoom: number;
 	bounds: Bounds | null;
 	range: number;
@@ -30,7 +31,7 @@ export interface BearingState {
 	bearing: number;
 	source: string;
 	photoUid?: string;
-	accuracy?: number | null;
+	accuracy_level?: number | null;
 }
 
 // Bearing mode for controlling automatic bearing source
@@ -38,7 +39,7 @@ export type BearingMode = 'car' | 'walking';
 
 // Spatial state - triggers photo filtering in worker
 export const spatialState = localStorageReadOnceSharedStore<SpatialState>('spatialState', {
-	center: new LatLng(50.114429599683604, 14.523528814315798),
+	center: {lat: 50.11692048550961, lng: 14.488374441862108},
 	zoom: 20,
 	bounds: null,
 	range: 1000,
@@ -48,13 +49,15 @@ export const spatialState = localStorageReadOnceSharedStore<SpatialState>('spati
 
 // Visual state - only affects rendering, optimized with debounced writes
 export const bearingState = staggeredLocalStorageSharedStore<BearingState>('bearingState', {
-	bearing: 230,
+	bearing: 141,
 	source: 'map',
-	accuracy: null
+	accuracy_level: null
 }, 500);
 
 // Bearing mode state - controls automatic bearing source (car = GPS, walking = compass)
 export const bearingMode = localStorageSharedStore<BearingMode>('bearingMode', 'walking');
+
+export const picks: Writable<Set<PhotoId>> = writable(new Set());
 
 // Photos filtered by spatial criteria (from worker)
 export const photosInArea = writable<PhotoData[]>([]);
@@ -149,15 +152,23 @@ export const newPhotoInFront = derived(
 		}
 
 		const p = photos[closestIndex];
-
-		console.log(`🢄Navigation: photoInFront ${p.uid} selected from ${photos.length} photos in range by bearing proximity`);
+		//console.debug(`🢄Navigation: photoInFront ${p.uid} selected from ${photos.length} photos in range by bearing proximity`);
 		return p;
 	}
 );
 
 newPhotoInFront.subscribe(photo => {
-	if (photo != get(photoInFront)) {
+	/*console.log(`picks: newPhotoInFront...`)
+	console.log(`picks: photo: ${JSON.stringify(photo)}`);
+	console.log(`picks: photoInFront: ${JSON.stringify(get(photoInFront))}`);*/
+	if (photo?.uid != get(photoInFront)?.uid) {
 		photoInFront.set(photo);
+		const photoUid = photo?.uid;
+		if (photoUid)
+		{
+			picks.set(new Set([photoUid]));
+			//console.log(`🢄picks: set to photoInFront uid ${photoUid}`);
+		}
 	}
 });
 
@@ -198,18 +209,22 @@ function photoUpDownLogic(direction: 'up' | 'down') {
 	const front = get(photoInFront);
 	if (!front) return null;
 
+	const frontPitch = front.pitch ?? 0;
 	const targetBearing = front.bearing;
 	const bearingThreshold = 5; // degrees
 	for (const photo of inRange) {
 		if (photo.uid === front.uid) continue;
+		const photoPitch = photo.pitch ?? 0;
 		const bearingDiff = calculateAbsBearingDiff(photo.bearing, targetBearing);
 		if (bearingDiff <= bearingThreshold) {
-			if (direction === 'up' && photo.pitch > front.pitch) {
-				if (!winner || photo.pitch > winner.pitch) {
+			if (direction === 'up' && photoPitch > frontPitch) {
+				const winnerPitch = winner?.pitch ?? 0;
+				if (!winner || photoPitch > winnerPitch) {
 					winner = photo;
 				}
-			} else if (direction === 'down' && photo.pitch < front.pitch) {
-				if (!winner || photo.pitch < winner.pitch) {
+			} else if (direction === 'down' && photoPitch < frontPitch) {
+				const winnerPitch = winner?.pitch ?? 0;
+				if (!winner || photoPitch < winnerPitch) {
 					winner = photo;
 				}
 			}
@@ -255,35 +270,45 @@ function calculateAbsBearingDiff(bearing1: number, bearing2: number): number {
 	return Math.min(diff, 360 - diff);
 }
 
-function getBearingColor(absBearingDiff: number): string {
-	if (absBearingDiff === null || absBearingDiff === undefined) return '#9E9E9E';
-	return `hsl(${Math.round(100 - absBearingDiff / 2)}, 100%, 70%)`;
-}
 
 // Update functions with selective reactivity
-export function updateSpatialState(updates: Partial<SpatialState>, source: 'gps' | 'map' = 'map') {
+export async function updateSpatialState(updates: Partial<SpatialState>, source: 'gps' | 'map' = 'map') {
+	//console.log(`Spatial: updateSpatialState called with updates ${JSON.stringify(updates)} from source ${source}`);
+	let old = get(spatialState);
+	if (JSON.stringify(old) === JSON.stringify({...old, ...updates, source})) {
+		//console.log('Spatial: No changes in spatial state, skipping update');
+		return;
+	}
 	spatialState.update(state => ({...state, ...updates, source}));
-	if (source === 'map' && TAURI)
+	if (source !== 'gps' && TAURI)
 	{
 		const state = get(spatialState);
-		invoke('plugin:hillview|cmd', {command: 'update_location', params: {
-			timestamp: Date.now(),
-			latitude: state.center.lat,
-			longitude: state.center.lng,
-			source: 'map'
-		}});
+		try
+		{
+			await invoke('plugin:hillview|cmd', {command: 'update_location', params: {
+				timestamp: Date.now(),
+				latitude: state.center.lat,
+				longitude: state.center.lng,
+				source: 'map'
+			}});
+		}
+		catch (e)
+		{
+			console.error('Error invoking update_location in Tauri:', e);
+		}
 	}
 }
 
-export function updateBearing(bearing: number, source: string = 'map', photoUid?: string, accuracy?: number | null) {
-	bearingState.update(state => ({...state, bearing, source, photoUid, accuracy}));
+export function updateBearing(bearing: number, source: string = 'map', photoUid?: string, accuracy_level?: number | null) {
+	//console.log('🢄📍 updateBearing called:', bearing, source, accuracy_level);
+	bearingState.update(state => ({...state, bearing, source, photoUid, accuracy_level}));
 	if (!source.startsWith('android') && TAURI) {
 		invoke('plugin:hillview|cmd', {command: 'update_orientation', params: {
 			timestamp: Date.now(),
 			trueHeading: bearing,
 			source: source,
-			headingAccuracy: accuracy
-		}});
+			accuracyLevel: accuracy_level
+		}}).catch(err => console.error('🢄📍 Failed to update orientation:', err));
 	}
 }
 
@@ -293,10 +318,8 @@ export function updateBearingByDiff(diff: number) {
 	updateBearing(newBearing);
 }
 
-export function updateBearingWithPhoto(photo: PhotoData, source: string = 'photo_navigation') {
-	updateBearing(photo.bearing, source, photo.uid);
-}
 
+/*
 // Calculate range from map center and bounds
 export function calculateRange(center: LatLng, bounds: Bounds): number {
 	if (!bounds) return 1000;
@@ -306,7 +329,7 @@ export function calculateRange(center: LatLng, bounds: Bounds): number {
 	const sideDistance = center.distanceTo(new LatLng(center.lat, bounds.bottom_right.lng));
 
 	return Math.max(cornerDistance, sideDistance);
-}
+}*/
 
 // Update bounds and recalculate range
 /*export function updateBounds(bounds: Bounds) {

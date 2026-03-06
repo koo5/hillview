@@ -5,6 +5,7 @@ import { completeAuthentication } from './auth.svelte';
 import { myGoto } from './navigation.svelte';
 import { invoke } from '@tauri-apps/api/core';
 import { onOpenUrl } from '@tauri-apps/plugin-deep-link';
+import { addAlert } from './alertSystem.svelte';
 
 export interface AuthToken {
     token: string;
@@ -60,9 +61,12 @@ export async function handleAuthCallback(url?: string): Promise<boolean> {
 
             // Compare timestamps directly to handle timezone correctly
             if (expiryDate.getTime() <= now.getTime()) {
-                console.warn('🢄🔐 Token appears expired, but continuing anyway for testing');
-                // Temporarily commenting out the return to test the rest of the flow
-                // return false;
+                console.warn('🢄🔐 Token is expired, rejecting authentication');
+                addAlert('Login failed: authentication token has expired. Please try again.', 'error', {
+                    source: 'auth_callback',
+                    duration: 0,
+                });
+                return false;
             }
 
             console.log('🢄🔐 Auth callback received, completing authentication');
@@ -102,11 +106,16 @@ export async function getStoredToken(): Promise<string | null> {
     if (!TAURI) {
         return null;
     }
-    const result = await invoke('plugin:hillview|get_auth_token') as AuthTokenResponse;
+    try {
+        const result = await invoke('plugin:hillview|get_auth_token') as AuthTokenResponse;
         if (result.success && result.token) {
             return result.token;
         }
         return null;
+    } catch (err) {
+        console.error('🢄🔐 Failed to get stored token:', err);
+        return null;
+    }
 }
 
 /**
@@ -116,8 +125,13 @@ export async function clearStoredToken(): Promise<boolean> {
     if (!TAURI) {
         return false;
     }
-    const result = await invoke('plugin:hillview|clear_auth_token') as BasicResponse;
-    return result.success;
+    try {
+        const result = await invoke('plugin:hillview|clear_auth_token') as BasicResponse;
+        return result.success;
+    } catch (err) {
+        console.error('🢄🔐 Failed to clear stored token:', err);
+        return false;
+    }
 }
 
 /**
@@ -127,7 +141,8 @@ export async function hasValidAuth(): Promise<boolean> {
     if (!TAURI) {
         return false;
     }
-    const result = await invoke('get_auth_token') as AuthTokenResponse;
+    try {
+        const result = await invoke('plugin:hillview|get_auth_token') as AuthTokenResponse;
         if (!result.success || !result.token) {
             return false;
         }
@@ -150,6 +165,10 @@ export async function hasValidAuth(): Promise<boolean> {
         }
 
         return true;
+    } catch (err) {
+        console.error('🢄🔐 Failed to check auth validity:', err);
+        return false;
+    }
 }
 
 /**
@@ -163,14 +182,17 @@ export async function setupDeepLinkListener(): Promise<void> {
     }
 
     // Listen for deep link URLs
-    const unlisten = await onOpenUrl((urls) => {
+    const unlisten = await onOpenUrl(async (urls) => {
             console.log('🢄🔗 Deep link received:', urls);
 
             for (const url of urls) {
                 const expectedScheme = import.meta.env.VITE_DEV_MODE === 'true' ? 'cz.hillviedev://auth' : 'cz.hillview://auth';
                 if (url.startsWith(expectedScheme)) {
                     console.log('🢄🔐 Processing auth callback from deep link:', url);
-                    handleAuthCallback(url);
+                    const success = await handleAuthCallback(url);
+                    if (!success) {
+                        console.error('🢄🔐 Auth callback failed for deep link:', url);
+                    }
                     break;
                 }
             }

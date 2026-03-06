@@ -52,11 +52,6 @@ test.describe('Console Error Check', () => {
     await page.keyboard.press('v');
     await page.waitForTimeout(200);
 
-    console.log('🢄🔍 Testing debug button toggle...');
-    const debugButton = page.locator('button.debug-toggle');
-    await debugButton.click();
-    await page.waitForTimeout(200);
-
     console.log('🢄🔍 Final wait...');
     await page.waitForTimeout(1000);
 

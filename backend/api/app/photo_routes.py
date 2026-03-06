@@ -37,43 +37,32 @@
 """
 
 import os
+import sys
 import logging
-import base64
-import json
 from pathlib import Path
 from typing import Optional, Dict, Any
 from datetime import datetime, timezone
-import aiofiles
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.hazmat.primitives import serialization
-from pydantic import BaseModel
 
+import aiofiles
+from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Request
-from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from geoalchemy2.functions import ST_Point, ST_X, ST_Y
 
-import sys
-import os
-
-from app.push_notifications import send_activity_broadcast_notification
-
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
+
+from push_notifications import send_activity_broadcast_notification
 from common.database import get_db
-from common.models import Photo, User
+from common.models import Photo, User, PhotoRating, UserPublicKey
+from common.utc import format_utc
 from auth import get_current_active_user
 from common.file_utils import (
-	validate_and_prepare_photo_file,
-	verify_saved_file_content,
-	cleanup_file_on_error,
 	get_file_size_from_upload
 )
 from common.security_utils import verify_ecdsa_signature
-from jwt_service import validate_token
-from rate_limiter import rate_limit_photo_upload, rate_limit_photo_operations
-from photos import delete_photo_files, determine_storage_type, StorageType
+from rate_limiter import rate_limit_photo_operations
+from photos import delete_photo_files
 
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
@@ -89,6 +78,49 @@ router = APIRouter(prefix="/api/photos", tags=["photos"])
 # Upload directory configuration
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "./uploads"))
 UPLOAD_DIR.mkdir(exist_ok=True)
+
+from sqlalchemy import func, and_
+
+async def get_ratings_for_photos(db: AsyncSession, photo_ids: list, user_id: str) -> dict:
+	"""Get ratings data for a list of photo IDs.
+
+	Returns dict mapping photo_id to {user_rating, rating_counts}
+	"""
+	if not photo_ids:
+		return {}
+
+	# Get all ratings for these photos
+	result = await db.execute(
+		select(
+			PhotoRating.photo_id,
+			PhotoRating.rating,
+			PhotoRating.user_id
+		).where(
+			and_(
+				PhotoRating.photo_source == 'hillview',
+				PhotoRating.photo_id.in_([str(pid) for pid in photo_ids])
+			)
+		)
+	)
+
+	# Build rating counts and user ratings
+	ratings_data = {}
+	for photo_id, rating, rating_user_id in result.fetchall():
+		if photo_id not in ratings_data:
+			ratings_data[photo_id] = {
+				'user_rating': None,
+				'rating_counts': {'thumbs_up': 0, 'thumbs_down': 0}
+			}
+
+		# Increment count
+		rating_key = rating.value.lower()
+		ratings_data[photo_id]['rating_counts'][rating_key] += 1
+
+		# Check if this is the current user's rating
+		if str(rating_user_id) == str(user_id):
+			ratings_data[photo_id]['user_rating'] = rating_key
+
+	return ratings_data
 
 # Request models for processed photo data
 class ProcessedPhotoData(BaseModel):
@@ -107,6 +139,7 @@ class ProcessedPhotoData(BaseModel):
 	client_signature: Optional[str] = None  # Base64-encoded ECDSA signature from client
 	processed_by_worker: Optional[str] = None  # Worker identity for audit trail
 	filename: Optional[str] = None  # Secure filename after processing
+	captured_at: Optional[str] = None  # ISO datetime when photo was taken (from EXIF DateTimeOriginal)
 
 class WorkerProcessedPhotoRequest(BaseModel):
 	"""Request model for processed photo data from worker with signature."""
@@ -140,8 +173,19 @@ async def save_processed_photo(
 			detail="Photo not found"
 		)
 
+	if photo.deleted:
+		raise HTTPException(
+			status_code=status.HTTP_410_GONE,
+			detail="Photo was deleted"
+		)
+
 	# Verify that photo is in authorized status (not already processed)
 	if photo.processing_status != "authorized":
+		# If already processed (e.g. a retry after the first request succeeded but
+		# the response was lost), return success instead of 400 to make this idempotent.
+		if photo.processing_status in ("completed", "error"):
+			logger.info(f"Photo {photo_id} already processed (status={photo.processing_status}), returning success for idempotent retry")
+			return {"message": "Photo already processed", "photo_id": photo_id}
 		raise HTTPException(
 			status_code=status.HTTP_400_BAD_REQUEST,
 			detail=f"Photo not in valid state for processing: {photo.processing_status}"
@@ -154,7 +198,6 @@ async def save_processed_photo(
 		)
 
 	# Get client's public key for signature verification
-	from common.models import UserPublicKey
 	key_result = await db.execute(
 		select(UserPublicKey).where(
 			UserPublicKey.user_id == photo.owner_id,
@@ -198,6 +241,14 @@ async def save_processed_photo(
 			detail="Invalid processing status"
 		)
 
+	# Validate bearing/compass_angle is in valid range [0, 360]
+	if processed_data.compass_angle is not None:
+		if processed_data.compass_angle < 0 or processed_data.compass_angle > 360:
+			raise HTTPException(
+				status_code=status.HTTP_400_BAD_REQUEST,
+				detail=f"Invalid bearing value: {processed_data.compass_angle}. Must be between 0 and 360 degrees."
+			)
+
 	photo.processing_status = processed_data.processing_status
 	photo.width = processed_data.width
 	photo.height = processed_data.height
@@ -222,13 +273,28 @@ async def save_processed_photo(
 	photo.client_signature = processed_data.client_signature  # Store signature for audit trail
 	photo.processed_by_worker = processed_data.processed_by_worker  # Track which worker processed this
 	photo.processed_at = datetime.now(timezone.utc)  # When processing was completed
+	# Update captured_at from EXIF if worker extracted it
+	# Store as naive datetime (assumed UTC) since column is TIMESTAMP WITHOUT TIME ZONE
+	if processed_data.captured_at:
+		dt = datetime.fromisoformat(processed_data.captured_at.replace('Z', '+00:00'))
+		# Convert to UTC if it has timezone, then strip timezone for storage
+		if dt.tzinfo is not None:
+			dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+		photo.captured_at = dt
 
 	await db.commit()
 	await db.refresh(photo)
 
 	logger.info(f"Photo {photo_id} processing data saved successfully with verified client signature")
 
-	await send_activity_broadcast_notification(db, photo.owner_id)
+	# Send activity broadcast notification - wrapped in try/except so notification
+	# errors don't fail the photo upload
+	try:
+		await send_activity_broadcast_notification(db, photo.owner_id)
+	except Exception as e:
+		logger.warning(f"Failed to send activity broadcast notification for photo {photo_id}: {e}")
+	logger.warning(f"Failed to send activity broadcast notification for photo {photo_id}.")
+		# Don't re-raise - photo upload succeeded, notification is non-critical
 
 	return {
 		"message": "Processed photo data saved successfully",
@@ -238,13 +304,27 @@ async def save_processed_photo(
 
 @router.post("/upload-file")
 async def upload_processed_file(
-	photo_id: str = Form(...),
-	relative_path: str = Form(...),  # Path relative to pics folder where file should be saved
-	client_signature: str = Form(...),
-	file: UploadFile = File(...),
+	request: Request,
 	db: AsyncSession = Depends(get_db)
 ):
-	"""Upload processed photo file from worker service to API server storage."""
+	"""Upload processed photo file from worker service to API server storage.
+
+	Metadata is passed via headers to avoid multipart parsing (which blocks the async event loop):
+	- X-Photo-Id: photo ID
+	- X-Relative-Path: path relative to pics folder
+	- X-Client-Signature: ECDSA signature for verification
+	"""
+
+	# Read metadata from headers
+	photo_id = request.headers.get("X-Photo-Id")
+	relative_path = request.headers.get("X-Relative-Path")
+	client_signature = request.headers.get("X-Client-Signature")
+
+	if not photo_id or not relative_path or not client_signature:
+		raise HTTPException(
+			status_code=status.HTTP_400_BAD_REQUEST,
+			detail="Missing required headers: X-Photo-Id, X-Relative-Path, X-Client-Signature"
+		)
 
 	# Check if CDN is enabled - if so, reject this request
 	use_cdn = os.getenv("USE_CDN", "false").lower() in ("true", "1", "yes")
@@ -254,63 +334,69 @@ async def upload_processed_file(
 			detail="File uploads not supported when USE_CDN is enabled"
 		)
 
-	try:
-		logger.info(f"Processing file upload from worker for photo {photo_id}, path: {relative_path}")
+	# --- Phase 1: Validate with DB, then release the session ---
+	# All DB work happens here so the connection is freed before the slow file streaming.
+	content_length = request.headers.get("Content-Length", "unknown")
+	logger.info(f"Processing file upload from worker for photo {photo_id}, path: {relative_path}, size: {content_length} bytes")
 
-		# Get photo from database
-		result = await db.execute(select(Photo).where(Photo.id == photo_id))
-		photo = result.scalar_one_or_none()
-		if not photo:
-			raise HTTPException(
-				status_code=status.HTTP_404_NOT_FOUND,
-				detail="Photo not found"
-			)
-
-		# Verify that photo is in authorized status
-		if photo.processing_status != "authorized":
-			raise HTTPException(
-				status_code=status.HTTP_400_BAD_REQUEST,
-				detail=f"Photo not in valid state for file upload: {photo.processing_status}"
-			)
-
-		if not client_signature:
-			raise HTTPException(
-				status_code=status.HTTP_400_BAD_REQUEST,
-				detail="Client signature is required for secure uploads"
-			)
-
-		# Get client's public key for signature verification
-		from common.models import UserPublicKey
-		key_result = await db.execute(
-			select(UserPublicKey).where(
-				UserPublicKey.user_id == photo.owner_id,
-				UserPublicKey.key_id == photo.client_public_key_id,
-				UserPublicKey.is_active == True
-			)
+	# Get photo from database
+	result = await db.execute(select(Photo).where(Photo.id == photo_id))
+	photo = result.scalar_one_or_none()
+	if not photo:
+		raise HTTPException(
+			status_code=status.HTTP_404_NOT_FOUND,
+			detail="Photo not found"
 		)
-		client_public_key = key_result.scalars().first()
 
-		if not client_public_key:
-			raise HTTPException(
-				status_code=status.HTTP_400_BAD_REQUEST,
-				detail="Client public key not found or inactive"
-			)
+	if photo.deleted:
+		raise HTTPException(
+			status_code=status.HTTP_410_GONE,
+			detail="Photo was deleted"
+		)
 
-		if not verify_ecdsa_signature(
-			signature_base64=client_signature,
-			public_key_pem=client_public_key.public_key_pem,
-			message_data=[
-			photo.original_filename,
-			photo_id,
-			int(photo.upload_authorized_at.timestamp())
-			]
-		):
-			logger.error(f"Client signature verification failed for photo {photo_id}")
-			raise HTTPException(
-				status_code=status.HTTP_403_FORBIDDEN,
-				detail="Client signature verification failed"
-			)
+	# Verify that photo is in authorized status
+	if photo.processing_status != "authorized":
+		raise HTTPException(
+			status_code=status.HTTP_400_BAD_REQUEST,
+			detail=f"Photo not in valid state for file upload: {photo.processing_status}"
+		)
 
+	# Get client's public key for signature verification
+	key_result = await db.execute(
+		select(UserPublicKey).where(
+			UserPublicKey.user_id == photo.owner_id,
+			UserPublicKey.key_id == photo.client_public_key_id,
+			UserPublicKey.is_active == True
+		)
+	)
+	client_public_key = key_result.scalars().first()
+
+	if not client_public_key:
+		raise HTTPException(
+			status_code=status.HTTP_400_BAD_REQUEST,
+			detail="Client public key not found or inactive"
+		)
+
+	if not verify_ecdsa_signature(
+		signature_base64=client_signature,
+		public_key_pem=client_public_key.public_key_pem,
+		message_data=[
+		photo.original_filename,
+		photo_id,
+		int(photo.upload_authorized_at.timestamp())
+		]
+	):
+		logger.error(f"Client signature verification failed for photo {photo_id}")
+		raise HTTPException(
+			status_code=status.HTTP_403_FORBIDDEN,
+			detail="Client signature verification failed"
+		)
+
+	# Release DB session before the slow file streaming
+	await db.close()
+
+	# --- Phase 2: Stream file to disk (no DB connection held) ---
+	try:
 		# Validate and sanitize the relative path
 		if not relative_path or '..' in relative_path or relative_path.startswith('/'):
 			raise HTTPException(
@@ -336,11 +422,12 @@ async def upload_processed_file(
 		# Ensure parent directory exists
 		file_path.parent.mkdir(parents=True, exist_ok=True)
 
-		# Save the file
-		file_size = get_file_size_from_upload(file.file)
+		# Stream body directly to file — avoids multipart spool blocking the event loop
+		file_size = 0
 		async with aiofiles.open(file_path, 'wb') as f:
-			content = await file.read()
-			await f.write(content)
+			async for chunk in request.stream():
+				await f.write(chunk)
+				file_size += len(chunk)
 
 		r = {
 			"message": "File uploaded successfully",
@@ -353,12 +440,12 @@ async def upload_processed_file(
 		logger.info(f"Processed file uploaded for photo {photo_id} to {file_path} ({file_size} bytes)")
 		return r
 
-
-
 	except HTTPException:
 		raise
 	except Exception as e:
-		logger.error(f"Error uploading file for photo {photo_id}: {str(e)}")
+		import traceback
+		logger.error(f"Error uploading file for photo {photo_id}: {type(e).__name__}: {e}")
+		logger.error(f"Traceback: {traceback.format_exc()}")
 		# Cleanup file if it was partially written
 		if 'file_path' in locals() and file_path.exists():
 			try:
@@ -395,16 +482,15 @@ async def list_photos(
 		Photo,
 		ST_X(Photo.geometry).label('longitude'),
 		ST_Y(Photo.geometry).label('latitude')
-	).where(Photo.owner_id == str(current_user.id))
+	).where(Photo.owner_id == str(current_user.id), Photo.deleted == False)
 
 		if only_processed:
 			base_query = base_query.where(Photo.processing_status == "completed")
 
 		# Get counts by processing status (separate query for performance)
-		from sqlalchemy import func
 		counts_result = await db.execute(
 			select(Photo.processing_status, func.count(Photo.id))
-			.where(Photo.owner_id == str(current_user.id))
+			.where(Photo.owner_id == str(current_user.id), Photo.deleted == False)
 			.group_by(Photo.processing_status)
 		)
 		counts_by_status = dict(counts_result.fetchall())
@@ -419,7 +505,6 @@ async def list_photos(
 		query = base_query
 		if cursor:
 			try:
-				from datetime import datetime, timezone
 				# Handle both Z and +00:00 timezone formats, and fix URL decoding issues
 				cursor_fixed = cursor
 				if cursor.endswith('Z'):
@@ -451,27 +536,39 @@ async def list_photos(
 		# Generate next cursor
 		next_cursor = None
 		if has_more and photo_records:
-			next_cursor = photo_records[-1][0].uploaded_at.isoformat()
+			next_cursor = format_utc(photo_records[-1][0].uploaded_at)
 
-		photos_data = [{
-			"id": photo.id,
-			"filename": photo.filename,
-			"original_filename": photo.original_filename,
-			"description": photo.description,
-			"is_public": photo.is_public,
-			"latitude": latitude,
-			"longitude": longitude,
-			"bearing": photo.compass_angle,
-			"width": photo.width,
-			"height": photo.height,
-			"uploaded_at": photo.uploaded_at,
-			"captured_at": photo.captured_at,
-			"processing_status": photo.processing_status,
-			"error": photo.error,
-			"sizes": photo.sizes,
-			"owner_id": photo.owner_id,
-			"owner_username": current_user.username
-		} for photo, longitude, latitude in photo_records]
+		# Fetch ratings for all photos in one query
+		photo_ids = [photo.id for photo, _, _ in photo_records]
+		ratings_data = await get_ratings_for_photos(db, photo_ids, current_user.id)
+
+		photos_data = []
+		for photo, longitude, latitude in photo_records:
+			photo_rating = ratings_data.get(photo.id, {
+				'user_rating': None,
+				'rating_counts': {'thumbs_up': 0, 'thumbs_down': 0}
+			})
+			photos_data.append({
+				"id": photo.id,
+				"filename": photo.filename,
+				"original_filename": photo.original_filename,
+				"description": photo.description,
+				"is_public": photo.is_public,
+				"latitude": latitude,
+				"longitude": longitude,
+				"bearing": photo.compass_angle,
+				"width": photo.width,
+				"height": photo.height,
+				"uploaded_at": format_utc(photo.uploaded_at),
+				"captured_at": format_utc(photo.captured_at),
+				"processing_status": photo.processing_status,
+				"error": photo.error,
+				"sizes": photo.sizes,
+				"owner_id": photo.owner_id,
+				"owner_username": current_user.username,
+				"user_rating": photo_rating['user_rating'],
+				"rating_counts": photo_rating['rating_counts']
+			})
 
 		return {
 			"photos": photos_data,
@@ -509,10 +606,9 @@ async def get_photo_count(
 
 	try:
 		# Get counts by processing status
-		from sqlalchemy import func
 		counts_result = await db.execute(
 			select(Photo.processing_status, func.count(Photo.id))
-			.where(Photo.owner_id == str(current_user.id))
+			.where(Photo.owner_id == str(current_user.id), Photo.deleted == False)
 			.group_by(Photo.processing_status)
 		)
 		counts_by_status = dict(counts_result.fetchall())
@@ -540,6 +636,52 @@ async def get_photo_count(
 			detail="Failed to get photo counts"
 		)
 
+class PhotoStatusRequest(BaseModel):
+	"""Request model for batch photo status query."""
+	photo_ids: list[str]
+
+@router.post("/status")
+async def get_photos_status(
+	request: Request,
+	status_request: PhotoStatusRequest,
+	current_user: User = Depends(get_current_active_user),
+	db: AsyncSession = Depends(get_db)
+):
+	"""Get processing status for a list of photo IDs."""
+	await rate_limit_photo_operations(request, current_user.id)
+
+	try:
+		if not status_request.photo_ids:
+			return {"photos": []}
+
+		result = await db.execute(
+			select(Photo.id, Photo.processing_status, Photo.error, Photo.deleted)
+			.where(
+				Photo.owner_id == str(current_user.id),
+				Photo.id.in_(status_request.photo_ids)
+			)
+		)
+		photos = result.fetchall()
+
+		return {
+			"photos": [
+				{
+					"id": photo.id,
+					"processing_status": photo.processing_status,
+					"error": photo.error,
+					"deleted": photo.deleted
+				}
+				for photo in photos
+			]
+		}
+
+	except Exception as e:
+		logger.error(f"Error getting photo statuses for user {current_user.id}: {e}")
+		raise HTTPException(
+			status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+			detail="Failed to get photo statuses"
+		)
+
 @router.get("/{photo_id}")
 async def get_photo(
 	request: Request,
@@ -559,7 +701,8 @@ async def get_photo(
 				ST_Y(Photo.geometry).label('latitude')
 			).where(
 				Photo.id == photo_id,
-				Photo.owner_id == str(current_user.id)
+				Photo.owner_id == str(current_user.id),
+				Photo.deleted == False
 			)
 		)
 		photo_record = result.first()
@@ -571,6 +714,13 @@ async def get_photo(
 			)
 
 		photo, longitude, latitude = photo_record
+
+		# Get rating data for this photo
+		ratings_data = await get_ratings_for_photos(db, [photo.id], current_user.id)
+		photo_rating = ratings_data.get(photo.id, {
+			'user_rating': None,
+			'rating_counts': {'thumbs_up': 0, 'thumbs_down': 0}
+		})
 
 		return {
 			"id": photo.id,
@@ -584,15 +734,17 @@ async def get_photo(
 			"altitude": photo.altitude,
 			"width": photo.width,
 			"height": photo.height,
-			"captured_at": photo.captured_at,
-			"uploaded_at": photo.uploaded_at,
+			"captured_at": format_utc(photo.captured_at),
+			"uploaded_at": format_utc(photo.uploaded_at),
 			"processing_status": photo.processing_status,
 			"error": photo.error,
 			"exif_data": photo.exif_data,
 			"detected_objects": photo.detected_objects,
 			"sizes": photo.sizes,
 			"owner_id": photo.owner_id,
-			"owner_username": current_user.username  # Since this is the current user's photo
+			"owner_username": current_user.username,  # Since this is the current user's photo
+			"user_rating": photo_rating['user_rating'],
+			"rating_counts": photo_rating['rating_counts']
 		}
 
 	except HTTPException:
@@ -612,7 +764,7 @@ async def delete_photo(
 	current_user: User = Depends(get_current_active_user),
 	db: AsyncSession = Depends(get_db)
 ):
-	"""Delete a photo and its files."""
+	"""Delete a photo's files and mark it as deleted."""
 	# Apply photo operations rate limiting
 	await rate_limit_photo_operations(request, current_user.id)
 
@@ -620,7 +772,8 @@ async def delete_photo(
 		result = await db.execute(
 			select(Photo).where(
 				Photo.id == photo_id,
-				Photo.owner_id == str(current_user.id)
+				Photo.owner_id == str(current_user.id),
+				Photo.deleted == False
 			)
 		)
 		photo = result.scalars().first()
@@ -639,8 +792,8 @@ async def delete_photo(
 				detail="Failed to delete photo files"
 			)
 
-		# Delete database record
-		await db.delete(photo)
+		# Soft delete - mark as deleted, keep the row
+		photo.deleted = True
 		await db.commit()
 
 		logger.info(f"Photo {photo_id} deleted by user {current_user.id}")
@@ -686,7 +839,7 @@ async def get_photo_share_metadata(
 					Photo.description,
 					ST_X(Photo.geometry).label('longitude'),
 					ST_Y(Photo.geometry).label('latitude')
-				).where(Photo.id == photo_id)
+				).where(Photo.id == photo_id, Photo.deleted == False)
 			)
 
 			photo_data = result.first()
@@ -726,7 +879,7 @@ async def get_photo_share_metadata(
 				"thumbnail_url": thumbnail_url,
 				"width": width,
 				"height": height,
-				"captured_at": photo_data.captured_at.isoformat() if hasattr(photo_data, 'captured_at') and photo_data.captured_at else None,
+				"captured_at": format_utc(photo_data.captured_at) if hasattr(photo_data, 'captured_at') else None,
 				"latitude": photo_data.latitude,
 				"longitude": photo_data.longitude
 			}

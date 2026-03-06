@@ -2,9 +2,9 @@ import { writable, get } from 'svelte/store';
 import { goto } from '$app/navigation';
 import { browser } from '$app/environment';
 import { page } from '$app/stores';
-import { clearAlerts } from './alertSystem.svelte';
 
 // Smart goto wrapper that avoids redundant navigation
+// Note: Alert clearing is handled by beforeNavigate in +layout.svelte
 export async function myGoto(path: string, options?: any): Promise<void> {
     if (!browser) return goto(path, options);
 
@@ -18,9 +18,6 @@ export async function myGoto(path: string, options?: any): Promise<void> {
     }
 
     console.log(`🢄🧭 [NAV] myGoto: Navigating from "${currentPath}" to "${path}"`);
-
-    // Clear alerts when navigating to a new page
-    clearAlerts();
 
     return goto(path, options);
 }
@@ -78,6 +75,8 @@ export function navigateWithHistory(path: string, options?: { replaceState?: boo
  * Falls back to a default path if no history available
  */
 export function goBack(fallbackPath: string = '/') {
+	console.log(`🢄🧭 [NAV] goBack() called, fallbackPath="${fallbackPath}, browser=${browser}"`);
+
     if (!browser) return myGoto(fallbackPath);
 
     const history = get(navigationHistory);
@@ -137,5 +136,3 @@ export function canNavigateBack(): boolean {
     return get(navigationHistory).length > 0;
 }
 
-// Export readonly version of history for debugging/inspection
-export const readonlyNavigationHistory = { subscribe: navigationHistory.subscribe };

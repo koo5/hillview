@@ -13,6 +13,7 @@ import kotlinx.serialization.Serializable
 enum class MessageType {
     PROCESS_CONFIG,
     PROCESS_AREA,
+    PICKS_UPDATED,
     ABORT_PROCESS,
     CLEANUP
 }
@@ -71,7 +72,7 @@ data class PhotoData(
     val id: String,
     val uid: String,
     val source_type: String,
-    val file: String? = null,
+    val filename: String? = null,
     val url: String? = null,
     val coord: LatLng,
     val bearing: Double,
@@ -119,11 +120,16 @@ data class ProcessInfo(
     var shouldAbort: Boolean = false
 )
 
-
 @Serializable
 data class ConfigData(
     val sources: List<SourceConfig>,
-    val expectedWorkerVersion: String? = null
+    val expectedWorkerVersion: String? = null,
+    val queryOptionsJson: String? = null  // Pre-serialized analysis filters
+)
+
+@Serializable
+data class PicksData(
+    val picks: List<String> = emptyList()
 )
 
 @Serializable

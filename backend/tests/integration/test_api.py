@@ -3,7 +3,6 @@
 Simple test script to verify the API is working correctly.
 """
 import requests
-import json
 import sys
 import os
 

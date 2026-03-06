@@ -1,7 +1,8 @@
 import { photoCaptureSettings } from '$lib/stores';
+import { get } from 'svelte/store';
 
 export function playShutterSound() {
-	if (!$photoCaptureSettings.shutterSoundEnabled) return;
+	if (!get(photoCaptureSettings).shutterSoundEnabled) return;
 
 	try {
 		// Create a realistic camera shutter sound using Web Audio API

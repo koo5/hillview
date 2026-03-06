@@ -162,22 +162,51 @@ async function initializeLocationListeners(): Promise<void> {
     }
 }
 
+// Check and request location permission via Tauri's permission system
+async function ensureLocationPermission(): Promise<boolean> {
+    try {
+        console.log('🢄📍 Checking location permission via Tauri...');
+        const permissionStatus = await invoke('plugin:hillview|check_tauri_permissions') as Record<string, string>;
+        console.log('🢄📍 Permission status:', JSON.stringify(permissionStatus));
+
+        if (permissionStatus?.location === 'Granted') {
+            console.log('🢄📍 Location permission already granted');
+            return true;
+        }
+
+        // Need to request permission
+        console.log('🢄📍 Requesting location permission via Tauri...');
+        const result = await invoke('plugin:hillview|request_tauri_permission', {
+            permission: 'location'
+        }) as string;
+        console.log('🢄📍 Permission request result:', result);
+
+        return result === 'Granted' || result === 'granted';
+    } catch (err) {
+        console.error('🢄📍 Failed to check/request location permission:', err);
+        return false;
+    }
+}
+
 // Start location tracking (platform-aware)
 export async function startPreciseLocationUpdates(): Promise<void> {
     // Initialize listeners if not already done
     await initializeLocationListeners();
 
     if (TAURI_MOBILE) {
+        // First ensure we have location permission via Tauri's system
+        const hasPermission = await ensureLocationPermission();
+        if (!hasPermission) {
+            throw new Error('Location permission denied');
+        }
+
+        console.log('🢄📍 Starting Android precise location service');
         try {
-            console.log('🢄📍 Starting Android precise location service');
-
-            // Just start the Android service - listeners are already set up
             await invoke('plugin:hillview|start_precise_location_listener');
-
             console.log('🢄📍 Android precise location service started successfully');
-        } catch (error) {
-            console.error('🢄📍 Failed to start Android precise location service:', error);
-            throw error;
+        } catch (err) {
+            console.error('🢄📍 Failed to start Android location service:', err);
+            throw err;
         }
     } else {
         // Web: Browser geolocation is already active, nothing more to do
@@ -191,8 +220,12 @@ export async function stopPreciseLocationUpdates(): Promise<void> {
 
     if (TAURI_MOBILE) {
         // Just stop the Android service - listeners remain active
-        await invoke('plugin:hillview|stop_precise_location_listener');
-        console.log('🢄📍 Android precise location service stopped');
+        try {
+            await invoke('plugin:hillview|stop_precise_location_listener');
+            console.log('🢄📍 Android precise location service stopped');
+        } catch (err) {
+            console.error('🢄📍 Failed to stop Android location service:', err);
+        }
     } else {
         // Web: For now, don't clear the watch to keep it persistent
         // In the future, we could add a flag to control whether web geolocation

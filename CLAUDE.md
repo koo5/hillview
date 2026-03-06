@@ -112,7 +112,12 @@ Each subdirectory has its own `CLAUDE.md` with detailed instructions:
 
 ### Authentication Issues
 - OAuth setup requires proper redirect URIs for both web and mobile
-- Test credentials: `test/test123` for development
+- Test credentials: `test/StrongTestPassword123!` for development (see backend/CLAUDE.md for full list)
+
+## Coding Guidelines
+
+- **Never delete commented-out code** - preserve it in edits, the user keeps it for reference
+- Always use well-scoped data-testid attributes, following the project's style
 
 ## Project Goals
 

@@ -7,7 +7,6 @@ warnings.filterwarnings("ignore", message="'crypt' is deprecated", category=Depr
 warnings.filterwarnings("ignore", message="Support for class-based `config` is deprecated", category=DeprecationWarning)
 warnings.filterwarnings("ignore", message="The 'app' shortcut is now deprecated", category=DeprecationWarning)
 
-import pytest
 import os
 import sys
 
@@ -23,7 +22,6 @@ backend_dir = os.path.join(api_app_dir, '..', '..')
 sys.path.insert(1, os.path.abspath(backend_dir))
 
 from fastapi.testclient import TestClient
-import common.config as config
 
 # Import the API app directly
 import api

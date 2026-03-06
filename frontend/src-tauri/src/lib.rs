@@ -5,6 +5,8 @@ mod types;
 use log::info;
 #[cfg(debug_assertions)]
 use tauri::Manager;
+#[cfg(mobile)]
+use tauri_plugin_camera::CameraExt;
 
 #[cfg(target_os = "android")]
 fn setup_logging() {
@@ -39,19 +41,22 @@ pub fn run() {
         }
         info!("🢄Current dir: {:?}", std::env::current_dir());
     }
-    tauri::Builder::default()
+    match tauri::Builder::default()
+        .plugin(tauri_plugin_edge_to_edge::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_hillview::init())
+        .plugin(tauri_plugin_camera::init())
         .invoke_handler(tauri::generate_handler![
             commands::log,
             commands::is_debug_mode,
             commands::get_build_commit_hash,
             commands::get_build_branch,
             commands::get_build_ts,
+            commands::take_native_photo,
             device_photos::store_photo_chunk,
             device_photos::save_photo_with_metadata,
         ])
@@ -83,5 +88,11 @@ pub fn run() {
             Ok(())
         })
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+    {
+        Ok(()) => info!("Application exited normally"),
+        Err(e) => {
+            log::error!("Tauri application failed to start: {:?}", e);
+            std::process::exit(1); // Clean exit instead of panic
+        }
+    }
 }

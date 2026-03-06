@@ -1,20 +1,19 @@
 """Security audit logging service for tracking authentication events and security incidents."""
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 import sys
 import os
+
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
-from common.utc import utcnow, utc_minus_timedelta
+
 from typing import Optional, Dict, Any
 from fastapi import Request
-from rate_limiter import get_client_ip
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import and_
 
-import sys
-import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
+from common.utc import utc_minus_timedelta
+from rate_limiter import get_client_ip
 
 # Import models dynamically to avoid import issues during startup
 def get_security_audit_model():

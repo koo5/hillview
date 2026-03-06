@@ -165,8 +165,25 @@
         </div>
         <div style="font-size: 10px; opacity: 0.8">True
             bearing: {$compassData.true_heading?.toFixed(1) || 'N/A'}° | Accuracy:
-            ±{$compassData.heading_accuracy?.toFixed(0) || 'N/A'}°
+            {$compassData.accuracy_level}
         </div>
+        {#if $compassData.debug}
+            <div>
+                Method: {$compassData.debug.headingMethod} |
+                Raw: {$compassData.debug.rawHeading?.toFixed(1) ?? 'N/A'}° |
+                Norm: {$compassData.debug.normalizedHeading?.toFixed(1) ?? 'N/A'}°
+            </div>
+            <div>
+                α: {$compassData.debug.alpha?.toFixed(1) ?? 'N/A'}°
+                β: {$compassData.debug.beta?.toFixed(1) ?? 'N/A'}°
+                γ: {$compassData.debug.gamma?.toFixed(1) ?? 'N/A'}°
+            </div>
+            <div>
+                Screen: {$compassData.debug.screenAngle}° |
+                FaceDown: {$compassData.debug.faceDown ? '⚠️' : '✓'} |
+                Armor22LandscapeWorkaround: {$compassData.debug.landscapeWorkaroundApplied ? '✓' : '-'}
+            </div>
+        {/if}
         {#if $deviceOrientation}
             <div style="font-size: 10px; opacity: 0.8">Device tilt -
                 Pitch: {$deviceOrientation.beta?.toFixed(1)}° |
@@ -187,7 +204,7 @@
         <div><strong>🎯 Compass Bearing:</strong></div>
         <div>Heading: <span class="highlight">{$currentCompassHeading.heading?.toFixed(1)}°</span></div>
         <div>Source: {$currentCompassHeading.source}</div>
-        <div>Accuracy: {$currentCompassHeading.accuracy?.toFixed(0) || 'N/A'}°</div>
+        <div>Accuracy: {$currentCompassHeading.accuracy_level}</div>
     </div>
 {/if}
 

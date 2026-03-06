@@ -10,7 +10,7 @@ export interface PhotoItemData {
 	bearing?: number;
 	width?: number;
 	height?: number;
-	sizes?: Record<string, { path: string; url: string; width: number; height: number }>;
+	sizes?: Record<string, { path?: string; url: string; width: number; height: number }>;
 	description?: string;
 	// Activity-specific fields
 	owner_username?: string;

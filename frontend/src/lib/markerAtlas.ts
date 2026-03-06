@@ -30,11 +30,11 @@ export class ArrowAtlas {
 
   private generateAtlas(): void {
     const { arrowSize, strokeWidth } = this.config;
-    
+
     // Create horizontal atlas: all arrows in a single row
     this.canvas.width = arrowSize * this.orientationCount;
     this.canvas.height = arrowSize;
-    
+
     const ctx = this.canvas.getContext('2d')!;
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
@@ -43,27 +43,27 @@ export class ArrowAtlas {
     for (let i = 0; i < this.orientationCount; i++) {
       const bearing = i * this.config.bearingStep;
       const x = i * arrowSize;
-      
+
       this.renderArrowAt(ctx, x, 0, bearing, arrowSize, strokeWidth);
     }
-    
+
     // Cache the data URL for CSS background-image
     this.dataUrl = this.canvas.toDataURL('image/png');
-    console.log(`Generated arrow atlas: ${this.orientationCount} orientations, ${this.canvas.width}x${this.canvas.height}px`);
+    //console.log(`Generated arrow atlas: ${this.orientationCount} orientations, ${this.canvas.width}x${this.canvas.height}px`);
   }
 
   private renderArrowAt(
-    ctx: CanvasRenderingContext2D, 
-    x: number, 
-    y: number, 
-    bearing: number, 
-    size: number, 
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    bearing: number,
+    size: number,
     strokeWidth: number
   ): void {
     const centerX = x + size / 2;
     const centerY = y + size / 2;
     const radius = size * 0.35; // Arrow length from center
-    
+
     ctx.save();
     ctx.translate(centerX, centerY);
     ctx.rotate((bearing * Math.PI) / 180);
@@ -78,7 +78,7 @@ export class ArrowAtlas {
     // Fill with white (will be masked by bearing circle behind)
     ctx.fillStyle = 'white';
     ctx.fill();
-    
+
     // Black outline for visibility
     ctx.strokeStyle = 'black';
     ctx.lineWidth = strokeWidth;

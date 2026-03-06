@@ -7,8 +7,7 @@
 	import {onMount} from 'svelte';
 	import {get} from 'svelte/store';
 	import {myGoto} from '$lib/navigation.svelte';
-	import {constructPhotoMapUrl} from '$lib/urlUtils';
-	import {Trash2, Map, Settings, ThumbsUp, ThumbsDown, Upload} from 'lucide-svelte';
+	import {Trash2, Map, Settings, ThumbsUp, ThumbsDown, Upload, RefreshCw, MoreVertical} from 'lucide-svelte';
 	import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';
 	import StandardBody from '$lib/components/StandardBody.svelte';
 	import Spinner from '$lib/components/Spinner.svelte';
@@ -20,14 +19,21 @@
 	import type {User} from '$lib/auth.svelte';
 	import type {ActivityLogEntry} from '$lib/types/activityLog';
 	import {http, handleApiError, TokenExpiredError} from '$lib/http';
-	import {TAURI} from '$lib/tauri';
+	import {TAURI, BROWSER} from '$lib/tauri';
 	import {navigateWithHistory} from '$lib/navigation.svelte';
+	import {updateKotlinPhotoStatuses} from '$lib/photoStatusSync';
 	import UploadSettingsComponent from '$lib/components/UploadSettings.svelte';
 	import {invoke} from "@tauri-apps/api/core";
-	import {autoUploadSettings} from "$lib/autoUploadSettings";
 	import LoadMoreButton from "$lib/components/LoadMoreButton.svelte";
 	import LicenseSelector from '$lib/components/LicenseSelector.svelte';
 	import {photoLicense} from '$lib/data.svelte';
+	import RetryUploadsButton from "$lib/components/RetryUploadsButton.svelte";
+	import DevicePhotoStats from "$lib/components/DevicePhotoStats.svelte";
+	import PhotoItem from '$lib/components/PhotoItem.svelte';
+	import { showDropdownMenu, type DropdownMenuItem } from '$lib/components/dropdown-menu/dropdownMenu.svelte';
+	import { getPhotoMenuItemsForServerPhoto } from '$lib/photoAnonymizationMenu';
+	import DropdownMenu from '$lib/components/dropdown-menu/DropdownMenu.svelte';
+	import AnonymizationModal from '$lib/components/anonymization-modal/AnonymizationModal.svelte';
 
 	let photos: UserPhoto[] = [];
 	let isLoading = true;
@@ -63,7 +69,6 @@
 
 
 	onMount(() => {
-
 		// Subscribe to userId changes to avoid reactive loops from auth store updates during token refresh
 		const unsubscribe = userId.subscribe(async (currentUserId) => {
 
@@ -116,14 +121,16 @@
 	}
 
 	async function fetchPhotos(reset = false) {
-		try {
-			if (reset) {
-				photos = [];
-				nextCursor = null;
-				hasMore = false;
-				totalCount = 0;
-			}
+		// Only show full loading state on reset/initial load, not during pagination
+		if (reset) {
+			isLoading = true;
+			photos = [];
+			nextCursor = null;
+			hasMore = false;
+			totalCount = 0;
+		}
 
+		try {
 			const url = nextCursor ? `/photos/?cursor=${encodeURIComponent(nextCursor)}` : '/photos/';
 			const response = await http.get(url);
 
@@ -144,6 +151,18 @@
 			hasMore = data.pagination?.has_more || false;
 			totalCount = data.counts?.total || 0;
 
+			// Update Kotlin local DB with server statuses
+			if (TAURI && newPhotos.length > 0) {
+				const statuses = newPhotos.map((p: UserPhoto) => ({
+					id: p.id,
+					processing_status: p.processing_status,
+					error: null  // UserPhoto doesn't have error field
+				}));
+				updateKotlinPhotoStatuses(statuses).catch(err =>
+					console.error('Failed to sync photo statuses to Kotlin:', err)
+				);
+			}
+
 		} catch (err) {
 			console.error('🢄Error fetching photos:', err);
 			const errorMessage = handleApiError(err);
@@ -155,6 +174,9 @@
 				// No need to handle manually, http client already logged out
 				return;
 			}
+		}
+		finally {
+			isLoading = false;
 		}
 	}
 
@@ -173,7 +195,7 @@
 		await fetchPhotos(true); // Reset and fetch from the beginning
 	}
 
-	async function deletePhoto(photoId: number) {
+	async function deletePhoto(photoId: string) {
 		console.log(`🢄DEBUG: deletePhoto called with photoId: ${photoId}`);
 		if (!confirm('Are you sure you want to delete this photo?')) {
 			console.log('🢄DEBUG: User cancelled delete');
@@ -222,38 +244,6 @@
 	}
 
 
-	function formatDate(dateString: string) {
-		const date = new Date(dateString);
-		return date.toLocaleString();
-	}
-
-	function viewOnMap(photo: UserPhoto) {
-		if (photo.latitude && photo.longitude) {
-			myGoto(constructPhotoMapUrl(photo));
-		}
-	}
-
-	async function manualUpload(photoId: number) {
-		console.log(`🢄Manual upload requested for photo ${photoId}`);
-
-		try {
-			if (TAURI) {
-				const result = await invoke('plugin:hillview|retry_failed_uploads') as { success: boolean };
-				if (result.success) {
-					addLogEntry('Manual upload triggered successfully', 'success');
-					// Refresh photos to update processing status
-					await fetchPhotos(true);
-				} else {
-					addLogEntry('Failed to trigger manual upload', 'error');
-				}
-			} else {
-				addLogEntry('Manual upload is only available on mobile', 'warning');
-			}
-		} catch (error) {
-			console.error('🢄Error triggering manual upload:', error);
-			addLogEntry(`Manual upload failed: ${error}`, 'error');
-		}
-	}
 
 	function goToLogin() {
 		navigateWithHistory('/login');
@@ -266,7 +256,7 @@
 		}
 	}
 
-	async function setPhotoRating(photoId: number, rating: 'thumbs_up' | 'thumbs_down') {
+	async function setPhotoRating(photoId: string, rating: 'thumbs_up' | 'thumbs_down') {
 		console.log(`🢄Setting ${rating} for photo ${photoId}`);
 
 		try {
@@ -300,7 +290,7 @@
 		}
 	}
 
-	async function removePhotoRating(photoId: number) {
+	async function removePhotoRating(photoId: string) {
 		console.log(`🢄Removing rating for photo ${photoId}`);
 
 		try {
@@ -334,7 +324,7 @@
 		}
 	}
 
-	async function handleRatingClick(photoId: number, rating: 'thumbs_up' | 'thumbs_down') {
+	async function handleRatingClick(photoId: string, rating: 'thumbs_up' | 'thumbs_down') {
 		const photo = photos.find(p => p.id === photoId);
 		if (!photo) return;
 
@@ -346,22 +336,34 @@
 			await setPhotoRating(photoId, rating);
 		}
 	}
+
+	function showPhotoMenu(event: MouseEvent, photo: UserPhoto) {
+		const button = event.currentTarget as HTMLButtonElement;
+		const items: DropdownMenuItem[] = getPhotoMenuItemsForServerPhoto(photo.id);
+
+		showDropdownMenu(items, button, {
+			placement: 'above-right',
+			testId: 'my-photo-menu'
+		});
+	}
 </script>
 
 <StandardHeaderWithAlert
-	title="My Photos"
+	title={"My Photos" + ($auth.is_authenticated ? ' (' + totalCount + ')' : '')}
 	showMenuButton={true}
 	fallbackHref="/"
 />
 
 <StandardBody>
-	{#if TAURI}
+	{#if TAURI || BROWSER}
+
 		<div class="page-actions">
-			<button class="settings-button" on:click={() => showSettings = !showSettings}>
+			<button class="action-button primary" on:click={() => showSettings = !showSettings}
+					data-testid="settings-button">
 				<Settings size={20}/>
 				Settings
 			</button>
-			<button class="device-photos-button" on:click={() => myGoto('/device-photos')}
+			<button class="action-button primary" on:click={() => myGoto('/device-photos')}
 					data-testid="device-photos-button">
 				Device Photos
 			</button>
@@ -371,22 +373,38 @@
 		<div class="error-message">{error}</div>
 	{/if}
 
-	{#if TAURI && showSettings}
+	{#if (TAURI || BROWSER) && showSettings}
 		<div class="settings-panel">
 			<UploadSettingsComponent
 				onSaveSuccess={(message) => {
 					addLogEntry(message, 'success');
-					showSettings = false;
 				}}
-				onCancel={() => showSettings = false}
 			/>
+		</div>
+	{/if}
+
+	{#if $auth.is_authenticated}
+		<DevicePhotoStats addLogEntry={addLogEntry} />
+	{/if}
+
+	{#if (TAURI || BROWSER) && $auth.is_authenticated}
+		<div class="refresh-section">
+			<button
+				class="action-button primary"
+				on:click={() => fetchPhotos(true)}
+				disabled={isLoading}
+				data-testid="refresh-photos-button"
+			>
+				<RefreshCw size={16} class={isLoading ? 'spinning' : ''} />
+				{isLoading ? 'Loading...' : 'Refresh Photos'}
+			</button>
 		</div>
 	{/if}
 
 	{#if !TAURI}
 		<div class="photo-management-section" data-testid="photo-management-section">
 			<div class="tabs-header">
-				<h2>Photo Management</h2>
+				<h2>Upload Photos</h2>
 				<div class="tabs">
 					{#if !TAURI}
 						<button
@@ -395,7 +413,7 @@
 							on:click={() => activeTab = 'upload'}
 							data-testid="upload-tab"
 						>
-							Upload Photos
+							Upload Files
 						</button>
 					{:else}
 						{#if $app.debug_enabled}
@@ -416,7 +434,7 @@
 				<div class="tab-content">
 					{#if activeTab === 'upload'}
 						{#if !TAURI}
-							<LicenseSelector required={true}/>
+							<LicenseSelector />
 							<PhotoUpload
 								{user}
 								onLogEntry={addLogEntry}
@@ -427,7 +445,7 @@
 						{/if}
 					{:else if activeTab === 'import'}
 						<div class="license-section">
-							<LicenseSelector required={true}/>
+							<LicenseSelector />
 						</div>
 						<PhotoImport
 							{user}
@@ -466,7 +484,9 @@
 	{/if}
 
 	<div class="photos-grid" data-testid="photos-grid">
-		<h2>My Photos ({totalCount})</h2>
+		{#if !TAURI}
+			<h2>My Photos ({totalCount})</h2>
+		{/if}
 
 		{#if isLoading}
 			<div class="loading-container" data-testid="loading-container">
@@ -476,7 +496,11 @@
 		{:else if photos.length === 0}
 			<p class="no-photos" data-testid="no-photos-message">
 				{#if user}
-					You haven't uploaded any photos yet.
+					{#if !error}
+						You haven't uploaded any photos yet.
+					{:else}
+						There was an error loading photos.
+					{/if}
 				{:else}
 					Please
 					<button type="button" class="login-link" on:click={goToLogin}>log in</button>
@@ -486,40 +510,9 @@
 		{:else}
 			<div class="grid" data-testid="photos-list">
 				{#each photos as photo (photo.id)}
-					<div class="photo-card" data-testid="photo-card" data-photo-id={photo.id}
-						 data-filename={photo.original_filename}>
-
-						{#if $app.debug_enabled}
-							<details>
-								<summary>[debug]</summary>
-								<pre>{JSON.stringify(photo, null, 2)}</pre>
-							</details>
-						{/if}
-
-						<div class="photo-image">
-							<img
-								src={photo.sizes?.['320']?.url}
-								alt={photo.description || photo.original_filename}
-								data-testid="photo-thumbnail"
-							/>
-						</div>
-						<div class="photo-info">
-							<h3 data-testid="photo-filename">{photo.original_filename}</h3>
-							{#if photo.description}
-								<p class="description">{photo.description}</p>
-							{/if}
-							<p class="meta">
-								Uploaded: {photo.uploaded_at ? formatDate(photo.uploaded_at) : 'Unknown'}</p>
-							{#if photo.captured_at}
-								<p class="meta">Captured: {formatDate(photo.captured_at)}</p>
-							{/if}
+					<PhotoItem {photo} variant="card">
+						<svelte:fragment slot="actions">
 							<div class="photo-actions">
-								{#if photo.latitude && photo.longitude}
-									<button class="action-button" on:click={() => viewOnMap(photo)}>
-										<Map size={16}/>
-										View on Map
-									</button>
-								{/if}
 								<button
 									class="action-button rating {photo.user_rating === 'thumbs_up' ? 'active' : ''}"
 									data-testid="thumbs-up-button"
@@ -542,27 +535,25 @@
 										{photo.rating_counts?.thumbs_down || 0}
 									</span>
 								</button>
-								{#if TAURI && photo.processing_status && photo.processing_status !== 'completed'}
-									{#if $autoUploadSettings.value?.auto_upload_enabled}
-										<button class="action-button upload" data-testid="manual-upload-button"
-												data-photo-id={photo.id} on:click={() => manualUpload(photo.id)}>
-											<Upload size={16}/>
-											Retry Uploads
-										</button>
-									{:else}
-										<span class="help-text">
-											Enable auto-upload in settings to retry failed uploads.
-										</span>
-									{/if}
-								{/if}
 								<button class="action-button delete" data-testid="delete-photo-button"
 										data-photo-id={photo.id} on:click={() => deletePhoto(photo.id)}>
 									<Trash2 size={16}/>
 									Delete
 								</button>
+								{#if TAURI}
+									<button
+										class="action-button menu-button"
+										on:click={(e) => showPhotoMenu(e, photo)}
+										title="Anonymization options"
+										data-testid="photo-menu-button"
+									>
+										<MoreVertical size={16}/>
+									</button>
+								{/if}
 							</div>
-						</div>
-					</div>
+							<RetryUploadsButton {photo} {addLogEntry} />
+						</svelte:fragment>
+					</PhotoItem>
 				{/each}
 			</div>
 
@@ -575,6 +566,9 @@
 	</div>
 </StandardBody>
 
+<DropdownMenu />
+<AnonymizationModal />
+
 <style>
 	.photos-container {
 		max-width: 1200px;
@@ -584,46 +578,15 @@
 
 	.page-actions {
 		display: flex;
-		justify-content: flex-end;
 		gap: 12px;
-		margin-bottom: 16px;
+		margin-bottom: 20px;
+		flex-wrap: wrap;
+		justify-content: center;
 	}
 
 	h2 {
 		margin-top: 0;
 		color: #444;
-	}
-
-	.settings-button {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		padding: 8px 16px;
-		background-color: #f5f5f5;
-		border: 1px solid #ddd;
-		border-radius: 4px;
-		cursor: pointer;
-		transition: background-color 0.3s;
-	}
-
-	.settings-button:hover {
-		background-color: #e5e5e5;
-	}
-
-	.device-photos-button {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		padding: 8px 16px;
-		background-color: #f5f5f5;
-		border: 1px solid #ddd;
-		border-radius: 4px;
-		cursor: pointer;
-		transition: background-color 0.3s;
-	}
-
-	.device-photos-button:hover {
-		background-color: #e5e5e5;
 	}
 
 	.settings-panel {
@@ -805,119 +768,14 @@
 		margin-top: 16px;
 	}
 
-	.photo-card {
-		border: 1px solid #eee;
-		border-radius: 8px;
-		overflow: hidden;
-		transition: transform 0.3s, box-shadow 0.3s;
-	}
-
-	.photo-card:hover {
-		transform: translateY(-4px);
-		box-shadow: 0 6px 12px rgba(0, 0, 0, 0.1);
-	}
-
-	.photo-image {
-		height: 200px;
-		overflow: hidden;
-	}
-
-	.photo-image img {
-		width: 100%;
-		height: 100%;
-		object-fit: cover;
-		transition: transform 0.3s;
-	}
-
-	.photo-card:hover .photo-image img {
-		transform: scale(1.05);
-	}
-
-	.photo-info {
-		padding: 16px;
-	}
-
-	.photo-info h3 {
-		margin: 0 0 8px 0;
-		font-size: 18px;
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-
-	.description {
-		color: #555;
-		margin: 0 0 12px 0;
-		display: -webkit-box;
-		line-clamp: 2;
-		-webkit-line-clamp: 2;
-		-webkit-box-orient: vertical;
-		overflow: hidden;
-	}
-
-	.meta {
-		font-size: 14px;
-		color: #777;
-		margin: 4px 0;
-	}
-
 	.photo-actions {
 		display: flex;
-		gap: 8px;
+		gap: 4px;
 		margin-top: 12px;
 	}
 
-	.action-button {
-		display: flex;
-		align-items: center;
-		gap: 4px;
-		padding: 6px 12px;
-		background-color: #f5f5f5;
-		border: 1px solid #ddd;
-		border-radius: 4px;
-		font-size: 14px;
-		cursor: pointer;
-		transition: background-color 0.3s;
-	}
-
-	.action-button:hover {
-		background-color: #e5e5e5;
-	}
-
-	.action-button.delete {
-		color: #e53935;
-	}
-
-	.action-button.delete:hover {
-		background-color: #ffebee;
-	}
-
-	.action-button.rating {
-		color: #6b7280;
-		position: relative;
-	}
-
-	.action-button.rating:hover {
-		background-color: #f0f9ff;
-		color: #1e40af;
-	}
-
-	.action-button.rating.active {
-		background-color: #dbeafe;
-		color: #1e40af;
-		border-color: #3b82f6;
-	}
-
-	.action-button.rating.active:hover {
-		background-color: #bfdbfe;
-	}
-
-	.action-button.upload {
-		color: #059669;
-	}
-
-	.action-button.upload:hover {
-		background-color: #f0fdf4;
+	.menu-button {
+		margin-left: auto;
 	}
 
 	.rating-count {
@@ -935,21 +793,6 @@
 		margin-bottom: 20px;
 	}
 
-	.login-notice {
-		background: #fff3cd;
-		color: #856404;
-		padding: 0.75em;
-		border-radius: 6px;
-		margin-top: 0.5em;
-	}
-
-	.urgent-login-notice {
-		background: #f8d7da;
-		color: #721c24;
-		font-weight: bold;
-		border: 2px solid #dc3545;
-		animation: urgentPulse 1s infinite alternate;
-	}
 
 	@keyframes urgentPulse {
 		0% {
@@ -983,15 +826,20 @@
 		.grid {
 			grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
 		}
+
+		.page-actions {
+			justify-content: stretch;
+		}
+
+		.page-actions .action-button {
+			flex: 1;
+			justify-content: center;
+		}
 	}
 
 	@media (max-width: 480px) {
 		.grid {
 			grid-template-columns: 1fr;
-		}
-
-		.photo-actions {
-			flex-direction: column;
 		}
 	}
 
@@ -1011,5 +859,19 @@
 		color: #0d47a1;
 	}
 
+	.refresh-section {
+		display: flex;
+		justify-content: center;
+		margin-top: 16px;
+		margin-bottom: 16px;
+	}
 
+	:global(.spinning) {
+		animation: spin 1s linear infinite;
+	}
+
+	@keyframes spin {
+		from { transform: rotate(0deg); }
+		to { transform: rotate(360deg); }
+	}
 </style>

@@ -4,6 +4,12 @@
     import {app, mapillary_cache_status, sources, sourceLoadingStatus, toggleDebug, closeDebug} from '$lib/data.svelte.js';
     import {MAX_DEBUG_MODES} from '$lib/config';
     import {captureQueue, type QueueStats} from '$lib/captureQueue';
+	import {
+		deviceOrientationExif, getCssRotationFromOrientation,
+		getRotationFromOrientation, getWebviewOrientation, relativeOrientationExif,
+		screenOrientationAngle
+	} from "$lib/deviceOrientationExif";
+    import {getPhotoSourceColor, getPhotoSourceName} from '$lib/photoUtils';
 
     // Access the stats store properly
     $: queueStats = captureQueue.stats;
@@ -169,7 +175,7 @@
                                     <div class="photo-header">
                                         <span class="photo-index">#{index + 1}</span>
                                         <span class="photo-id">{photo.id}</span>
-                                        <span class="photo-source" style="color: {photo.source?.color || '#888'}">{photo.source?.name || 'Unknown'}</span>
+                                        <span class="photo-source" style="color: {getPhotoSourceColor(photo) || '#888'}">{getPhotoSourceName(photo) || 'Unknown'}</span>
                                     </div>
                                     <div class="photo-location">
                                         📍 {photo.coord.lat?.toFixed(6)}, {photo.coord.lng?.toFixed(6)}
@@ -179,8 +185,8 @@
                                         {#if photo.altitude}| ⛰️ {photo.altitude?.toFixed(0)}m{/if}
                                         {#if photo.captured_at}| 📅 {new Date(photo.captured_at).toLocaleDateString()}{/if}
                                     </div>
-                                    {#if photo.file}
-                                        <div class="photo-file">{photo.file}</div>
+                                    {#if photo.filename}
+                                        <div class="photo-file">{photo.filename}</div>
                                     {/if}
                                 </div>
                             {/each}
@@ -199,12 +205,13 @@
             {#if $app.debug === 3}
 
                 <div class="debug">
-                    <b>Debug Information</b><br>
+					<b>EfixOrientation:</b> {$relativeOrientationExif}<br>
+					<b>CssRotation:</b>{getCssRotationFromOrientation($relativeOrientationExif)}<br>
                     <b>Bearing:</b>  {$bearingState.bearing}<br>
                     <b>Pos.center:</b> {$spatialState.center}<br>
-                    <b>Left:</b>  {$photoToLeft?.file}<br>
-                    <b>Front:</b> {$photoInFront?.file}<br>
-                    <b>Right:</b>  {$photoToRight?.file}<br>
+                    <b>Left:</b>  {$photoToLeft?.filename}<br>
+                    <b>Front:</b> {$photoInFront?.filename}<br>
+                    <b>Right:</b>  {$photoToRight?.filename}<br>
                     <b>Photos in range:</b> {$photosInRange.length}<br>
                     <b>Range:</b> {$spatialState.range / 1000} km<br>
                     <b>Photos to left:</b>
@@ -219,7 +226,7 @@
                     <b>Photos to right:</b>
                     <ul>
                         {#each $photoToRight ? [$photoToRight] : [] as photo}
-                            <li>{photo.id},{photo.file}
+                            <li>{photo.id},{photo.filename}
                                 {JSON.stringify(photo.sizes, null, 2)}
                             </li>
                         {/each}
@@ -319,8 +326,9 @@
 <style>
     .debug-overlay {
         position: fixed;
-        top: 100px;
+        top: calc(50px + var(--safe-area-inset-top, 0px));
         right: 10px;
+        bottom: calc(10px + var(--safe-area-inset-bottom, 0px));
         background: rgba(0, 0, 0, 0.7);
         color: #0f0;
         font-family: monospace;
@@ -330,24 +338,23 @@
         z-index: 999999;
         min-width: 280px;
         max-width: 350px;
-        max-height: calc(100vh - 120px);
         box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
         display: flex;
         flex-direction: column;
+		border: 1px solid rgba(0, 255, 255, 0.3);
     }
 
     .debug-overlay.left-position {
-        top: 100px;
-        left: 10px;
+        left: 5px;
         right: auto;
-        max-height: calc(100vh - 120px);
+        bottom: calc(10px + var(--safe-area-inset-bottom, 0px));
     }
 
     .debug-header {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        padding: 4px 8px;
+        padding: 0px 0px;
         background: rgba(0, 255, 0, 0.1);
         border-bottom: 1px solid #0f0;
         font-size: 10px;
@@ -823,16 +830,20 @@
 
     @media (max-width: 600px) {
         .debug-overlay {
-            top: 50px;
+			border: 1px solid rgba(255, 2, 2, 0.3);
+            top: calc(50px + var(--safe-area-inset-top, 0px));
             right: 5px;
             left: 5px;
+            bottom: calc(10px + var(--safe-area-inset-bottom, 0px));
             min-width: auto;
+            max-width: none;
         }
 
         .debug-overlay.left-position {
-            top: 50px;
+            top: calc(50px + var(--safe-area-inset-top, 0px));
             left: 5px;
             right: 5px;
+            bottom: calc(10px + var(--safe-area-inset-bottom, 0px));
         }
     }
 </style>

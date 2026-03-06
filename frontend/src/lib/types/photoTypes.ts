@@ -1,46 +1,17 @@
 import { LatLng } from 'leaflet';
 import type { Source } from '../data.svelte';
 import type { PhotoItemData } from './photoItemTypes';
+import type { PhotoId, PhotoSize, SimpleCoord, BasePhotoData } from './photoCommon';
+
+// Re-export common types
+export type { PhotoId, PhotoSize, SimpleCoord };
 
 /**
- * Unique identifier for photos
+ * Main app photo data (extends base with LatLng and Source)
  */
-export type PhotoId = string;
-
-/**
- * Base photo size information
- */
-export interface PhotoSize {
-    url: string;
-    width: number;
-    height: number;
-}
-
-/**
- * Base photo data structure used throughout the application
- */
-export interface PhotoData {
-    id: PhotoId;
-    uid: string;
-    source_type: string;
-    file: string;
-    url: string;
-    coord: LatLng;
-    bearing: number;
-    altitude: number;
-    source?: Source;
-    sizes?: Record<string, PhotoSize>;
-    is_user_photo?: boolean;
-    is_device_photo?: boolean;
-    is_placeholder?: boolean;
-    is_directory_photo?: boolean;
-    captured_at?: number;
-    accuracy?: number;
-    // Computed properties (added by processing)
-    abs_bearing_diff?: number;
-    bearing_color?: string;
-    range_distance?: number | null;
-    angular_distance_abs?: number;
+export interface PhotoData extends BasePhotoData {
+    coord: LatLng;  // Override with LatLng for main app
+    source?: Source | string;
 }
 
 /**

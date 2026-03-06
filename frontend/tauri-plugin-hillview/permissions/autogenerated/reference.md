@@ -4,16 +4,11 @@ Default permissions for the plugin
 
 #### This default permission set includes the following:
 
-- `allow-ping`
 - `allow-start-sensor`
 - `allow-stop-sensor`
-- `allow-get-sensor-accuracy`
 - `allow-register-listener`
 - `allow-start-precise-location-listener`
 - `allow-stop-precise-location-listener`
-- `allow-set-auto-upload-enabled`
-- `allow-get-upload-status`
-- `allow-set-upload-config`
 - `allow-retry-failed-uploads`
 - `allow-store-auth-token`
 - `allow-get-auth-token`
@@ -24,11 +19,9 @@ Default permissions for the plugin
 - `allow-request-camera-permission`
 - `allow-get-notification-settings`
 - `allow-set-notification-settings`
-- `allow-test-auth-expired-notification`
 - `allow-check-tauri-permissions`
-- `allow-request-post-notification-permission`
+- `allow-request-tauri-permission`
 - `allow-test-show-notification`
-- `allow-get-device-photos`
 - `allow-refresh-photo-scan`
 - `allow-import-photos`
 - `allow-share-photo`
@@ -39,7 +32,6 @@ Default permissions for the plugin
 - `allow-get-intent-data`
 - `allow-poll-messages`
 - `allow-cmd`
-- `allow-request-tauri-permission`
 
 ## Permission Table
 
@@ -183,32 +175,6 @@ Denies the get_auth_token command without any pre-configured scope.
 <tr>
 <td>
 
-`hillview:allow-get-device-photos`
-
-</td>
-<td>
-
-Enables the get_device_photos command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`hillview:deny-get-device-photos`
-
-</td>
-<td>
-
-Denies the get_device_photos command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
 `hillview:allow-get-intent-data`
 
 </td>
@@ -339,32 +305,6 @@ Denies the getSensorAccuracy command without any pre-configured scope.
 <tr>
 <td>
 
-`hillview:allow-get-upload-status`
-
-</td>
-<td>
-
-Enables the get_upload_status command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`hillview:deny-get-upload-status`
-
-</td>
-<td>
-
-Denies the get_upload_status command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
 `hillview:allow-import-photos`
 
 </td>
@@ -436,32 +376,6 @@ Enables the photo_worker_process command without any pre-configured scope.
 <td>
 
 Denies the photo_worker_process command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`hillview:allow-ping`
-
-</td>
-<td>
-
-Enables the ping command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`hillview:deny-ping`
-
-</td>
-<td>
-
-Denies the ping command without any pre-configured scope.
 
 </td>
 </tr>
@@ -696,32 +610,6 @@ Enables the select_push_distributor command without any pre-configured scope.
 <td>
 
 Denies the select_push_distributor command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`hillview:allow-set-auto-upload-enabled`
-
-</td>
-<td>
-
-Enables the set_auto_upload_enabled command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`hillview:deny-set-auto-upload-enabled`
-
-</td>
-<td>
-
-Denies the set_auto_upload_enabled command without any pre-configured scope.
 
 </td>
 </tr>

@@ -3,9 +3,7 @@
 Test suite for OAuth authentication endpoints.
 Tests the unified authentication flow for both web and mobile platforms.
 """
-import pytest
 import requests
-import json
 from urllib.parse import urlparse, parse_qs
 import sys
 import os

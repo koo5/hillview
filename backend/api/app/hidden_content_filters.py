@@ -1,12 +1,13 @@
 """SQL filtering utilities for hidden content."""
 from sqlalchemy import select, and_
 from sqlalchemy.sql import Select
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
 import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
-from common.models import Photo, User, HiddenPhoto, HiddenUser
+from common.models import Photo, HiddenPhoto, HiddenUser
 
 
 def apply_hidden_content_filters(
@@ -92,18 +93,19 @@ def apply_mapillary_hidden_content_filters(
 		return ""
 	
 	# Generate SQL fragments for hidden photo and user filtering
-	hidden_photo_filter = f"""
+	# Uses parameterized :current_user_id placeholder - caller must include current_user_id in query params
+	hidden_photo_filter = """
 		AND p.mapillary_id NOT IN (
-			SELECT photo_id FROM hidden_photos 
-			WHERE user_id = '{current_user_id}' 
+			SELECT photo_id FROM hidden_photos
+			WHERE user_id = :current_user_id
 			AND photo_source = 'mapillary'
 		)
 	"""
-	
-	hidden_user_filter = f"""
+
+	hidden_user_filter = """
 		AND (p.creator_id IS NULL OR p.creator_id NOT IN (
-			SELECT target_user_id FROM hidden_users 
-			WHERE hiding_user_id = '{current_user_id}' 
+			SELECT target_user_id FROM hidden_users
+			WHERE hiding_user_id = :current_user_id
 			AND target_user_source = 'mapillary'
 		))
 	"""
@@ -152,9 +154,9 @@ def get_hidden_user_subquery(current_user_id: str, user_source: str):
 
 
 async def filter_mapillary_photos_list(
-	photos: list, 
+	photos: list,
 	current_user_id: Optional[str],
-	db: "AsyncSession"
+	db: AsyncSession
 ) -> list:
 	"""
 	Filter a list of Mapillary photos to remove hidden content.

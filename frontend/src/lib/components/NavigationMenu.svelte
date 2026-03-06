@@ -4,12 +4,24 @@
     } from 'lucide-svelte';
     import { auth, logout } from '$lib/auth.svelte.js';
     import { FEATURE_USER_ACCOUNTS } from '$lib/config';
-    import { BUILD_TIME, BUILD_VERSION, formatBuildTime } from '$lib/buildInfo';
+    import { BUILD_TIME, BUILD_VERSION, BUILD_GIT_COMMIT, APP_VERSION, formatBuildTime } from '$lib/buildInfo';
     import { TAURI } from '$lib/tauri.js';
     import { openExternalUrl } from '$lib/urlUtils';
 	import {backendUrl} from "$lib/config";
+    import { Bug } from 'lucide-svelte';
+    import * as Sentry from '@sentry/sveltekit';
 
     export let isOpen = false;
+
+    async function handleFeedbackClick() {
+        closeMenu();
+        const feedback = Sentry.getFeedback();
+        if (feedback) {
+            const form = await feedback.createForm();
+            form.appendToDom();
+            form.open();
+        }
+    }
     export let onClose: () => void = () => {};
 
     // Subscribe to auth store
@@ -81,20 +93,10 @@
                 Users
             </a></li>
 
-
-            <li><a href="/about" on:click={closeMenu}>
-                <Info size={18}/>
-                About
-            </a></li>
-
-            <li>
-                <a href="http://hillview.cz/download" data-external-link="true" target="_blank" rel="noopener noreferrer">
-                    <Download size={18}/>
-                    Download App
-                </a>
-            </li>
-
             {#if FEATURE_USER_ACCOUNTS}
+
+				<hr/>
+
                 <li>
                     <a href="/settings" on:click={closeMenu} data-testid="settings-menu-link">
                         <Settings size={18}/>
@@ -128,24 +130,52 @@
                         </a>
                     </li>
                 {/if}
-            {:else}
-                <li class="feature-disabled">FEATURE_USER_ACCOUNTS off</li>
             {/if}
 
-<li>
-        <div class="build-info">
-            <div class="build-version">
-                Hillview v{BUILD_VERSION}
-            </div>
-            <div class="build-timestamp">
-                {formatUtcDate(new Date(BUILD_TIME))}
-            </div>
-            <div class="build-timestamp">
-                {backendUrl}
-            </div>
-        </div>
+			<hr/>
 
-</li>
+            <li><a href="/about" on:click={closeMenu}>
+                <Info size={18}/>
+                About
+            </a></li>
+
+            <li>
+                <button class="menu-button" on:click={handleFeedbackClick}>
+                    <Bug size={18}/>
+                    Report Bug
+                </button>
+            </li>
+
+			{#if !TAURI}
+				<li>
+					<a href="/download" data-external-link="true" target="_blank" rel="noopener noreferrer">
+						<Download size={18}/>
+						Download App
+					</a>
+				</li>
+			{/if}
+
+
+			<hr/>
+			<li>
+					<div class="build-info">
+						<div class="app-version">
+							Hillview version {APP_VERSION}
+						</div>
+						<div class="build-commit">
+							{BUILD_GIT_COMMIT}
+						</div>
+						<div class="build-version">
+							Build timestamp: {formatUtcDate(new Date(BUILD_TIME))}
+						</div>
+						<div class="build-timestamp">
+							API server: {backendUrl}
+						</div>
+					</div>
+
+			</li>
+
+
         </ul>
 
     </nav>
@@ -155,7 +185,7 @@
 
     .menu-backdrop {
         position: fixed;
-        top: 60px; /* Start below header */
+        top: 0px;
         left: 0;
         right: 0;
         bottom: 0;
@@ -165,10 +195,10 @@
 
     .nav-menu {
         position: fixed;
-        top: 60px; /* Align directly below header */
-        left: 0;
+        top: calc(60px + var(--safe-area-inset-top, 0px));
+        left: calc(0px + var(--safe-area-inset-left, 0px));
         width: 280px;
-        height: calc(100vh - 60px);
+        height: calc(100vh - (60px + var(--safe-area-inset-top, 0px)));
         background: white;
         z-index: 130100;
         box-shadow: 2px 0 10px rgba(0, 0, 0, 0.2);
@@ -222,21 +252,15 @@
         color: #991b1b;
     }
 
-    .feature-disabled {
-        padding: 12px 24px;
-        color: #9ca3af;
-        font-size: 0.9rem;
-        font-style: italic;
-    }
-
     .build-info {
         padding: 16px 24px;
-        border-top: 1px solid #e5e7eb;
         background: #f9fafb;
         font-family: monospace;
-        font-size: 0.75rem;
+        font-size: 0.5rem;
         color: #6b7280;
         line-height: 1.4;
+        user-select: text;
+        -webkit-user-select: text;
     }
 
     .build-timestamp {

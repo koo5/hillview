@@ -125,7 +125,7 @@ export function swipe2d(node: HTMLElement, initialOptions: Swipe2DOptions) {
 			const syntheticEvent = {
 				target: targetElement,
 				propertyName: 'transform'
-			} as TransitionEvent;
+			} as unknown as TransitionEvent;
 
 			// Call the handler directly
 			listener(syntheticEvent);
@@ -447,7 +447,7 @@ export function swipe2d(node: HTMLElement, initialOptions: Swipe2DOptions) {
 		},
 
 		update(newOptions: Swipe2DOptions) {
-			console.log('🢄swipe2d: update called with newOptions:', newOptions);
+			//console.log('🢄swipe2d: update called with newOptions:', newOptions);
 			// Only update boundary parameters and transform target
 			if (newOptions.canGoLeft !== undefined) canGoLeft = newOptions.canGoLeft;
 			if (newOptions.canGoRight !== undefined) canGoRight = newOptions.canGoRight;

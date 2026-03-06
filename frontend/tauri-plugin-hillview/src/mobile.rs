@@ -26,13 +26,6 @@ pub fn init<R: Runtime, C: DeserializeOwned>(
 pub struct Hillview<R: Runtime>(PluginHandle<R>);
 
 impl<R: Runtime> Hillview<R> {
-  pub fn ping(&self, payload: PingRequest) -> crate::Result<PingResponse> {
-    self
-      .0
-      .run_mobile_plugin("ping", payload)
-      .map_err(Into::into)
-  }
-
   pub fn start_sensor(&self, mode: Option<i32>) -> crate::Result<()> {
     #[derive(serde::Serialize)]
     struct Args {
@@ -52,36 +45,6 @@ impl<R: Runtime> Hillview<R> {
       .map_err(Into::into)
   }
 
-  pub fn set_auto_upload_enabled(&self, enabled: bool, prompt_enabled: bool) -> crate::Result<AutoUploadResponse> {
-    #[derive(serde::Serialize)]
-    struct Args {
-      enabled: bool,
-      prompt_enabled: bool,
-    }
-
-    self
-      .0
-      .run_mobile_plugin("setAutoUploadEnabled", Args { enabled, prompt_enabled })
-      .map_err(Into::into)
-  }
-
-  pub fn get_upload_status(&self) -> crate::Result<UploadStatusResponse> {
-    self
-      .0
-      .run_mobile_plugin("getUploadStatus", ())
-      .map_err(Into::into)
-  }
-
-// todo delete me
-  pub fn set_upload_config(&self, config: UploadConfig) -> crate::Result<BasicResponse> {
-    self
-      .0
-      .run_mobile_plugin("setUploadConfig", config)
-      .map_err(Into::into)
-  }
-
-
-// todo rename to try_uploads
   pub fn retry_failed_uploads(&self) -> crate::Result<BasicResponse> {
     self
       .0
@@ -134,13 +97,6 @@ impl<R: Runtime> Hillview<R> {
       .map_err(Into::into)
   }
 
-  pub fn get_device_photos(&self) -> crate::Result<crate::models::DevicePhotosResponse> {
-    self
-      .0
-      .run_mobile_plugin("getDevicePhotos", ())
-      .map_err(Into::into)
-  }
-
   pub fn refresh_photo_scan(&self) -> crate::Result<crate::models::PhotoScanResponse> {
     self
       .0
@@ -152,13 +108,6 @@ impl<R: Runtime> Hillview<R> {
     self
       .0
       .run_mobile_plugin("importPhotos", ())
-      .map_err(Into::into)
-  }
-
-  pub fn register_client_public_key(&self) -> crate::Result<BasicResponse> {
-    self
-      .0
-      .run_mobile_plugin("registerClientPublicKey", ())
       .map_err(Into::into)
   }
 
@@ -283,24 +232,15 @@ impl<R: Runtime> Hillview<R> {
       .map_err(Into::into)
   }
 
-  pub fn request_tauri_permission(&self, permission: String) -> crate::Result<tauri::plugin::PermissionState> {
+  pub fn request_tauri_permission(&self, permission: String) -> crate::Result<crate::models::TauriPermissionResponse> {
     info!("🢄🔐request_tauri_permission for permission: {}", permission);
 
-    match permission.as_str() {
-      "post_notification" => {
-        self.0
-          .run_mobile_plugin::<crate::models::TauriPermissionResponse>("requestPermissions", crate::models::RequestPermission { post_notification: true, write_external_storage: false })
-          .map(|r| r.post_notification)
-          .map_err(Into::into)
-      },
-      "write_external_storage" => {
-        self.0
-          .run_mobile_plugin::<crate::models::TauriPermissionResponse>("requestPermissions", crate::models::RequestPermission { post_notification: false, write_external_storage: true })
-          .map(|r| r.write_external_storage)
-          .map_err(Into::into)
-      },
-      _ => Err(crate::Error::from("Unknown permission"))
-    }
+    self.0
+      .run_mobile_plugin::<crate::models::TauriPermissionResponse>(
+        "requestPermissions",
+        crate::models::RequestPermission { permissions: vec![permission] }
+      )
+      .map_err(Into::into)
   }
 
   pub fn test_show_notification(&self, title: String, message: String) -> crate::Result<BasicResponse> {
@@ -333,6 +273,26 @@ impl<R: Runtime> Hillview<R> {
     self
       .0
       .run_mobile_plugin("cmd", Args { command, params })
+      .map_err(Into::into)
+  }
+
+  pub fn save_photo_to_media_store(
+    &self,
+    filename: String,
+    image_data: Vec<u8>,
+    hide_from_gallery: bool,
+  ) -> crate::Result<crate::models::SavePhotoToMediaStoreResponse> {
+    #[derive(serde::Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Args {
+      filename: String,
+      image_data: Vec<u8>,
+      hide_from_gallery: bool,
+    }
+
+    self
+      .0
+      .run_mobile_plugin("savePhotoToMediaStore", Args { filename, image_data, hide_from_gallery })
       .map_err(Into::into)
   }
 

@@ -13,6 +13,7 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
 from common.models import Photo, User
+from common.utc import format_utc
 from auth import get_current_user_optional_with_query
 from hidden_content_filters import apply_hidden_content_filters
 from rate_limiter import general_rate_limiter
@@ -42,13 +43,15 @@ async def get_recent_activity(
 			ST_X(Photo.geometry).label('longitude')
 		).join(
 			User, Photo.owner_id == User.id
-		).order_by(Photo.uploaded_at.desc())
+		).where(Photo.deleted == False).order_by(Photo.uploaded_at.desc())
 
 		# Apply cursor-based pagination if cursor is provided
 		if cursor:
 			try:
 				# Cursor is the uploaded_at timestamp of the last photo from previous page
-				cursor_datetime = datetime.fromisoformat(cursor.replace('Z', '+00:00'))
+				# Handle URL decoding: '+' in timezone offset gets decoded as space
+				normalized_cursor = cursor.replace(' ', '+').replace('Z', '+00:00')
+				cursor_datetime = datetime.fromisoformat(normalized_cursor)
 				query = query.filter(Photo.uploaded_at < cursor_datetime)
 			except (ValueError, TypeError) as e:
 				logger.warning(f"Invalid cursor format: {cursor}, error: {e}")
@@ -82,7 +85,8 @@ async def get_recent_activity(
 			activity_data.append({
 				"id": photo.id,
 				"original_filename": photo.original_filename,
-				"uploaded_at": photo.uploaded_at.isoformat() if photo.uploaded_at else None,
+				"uploaded_at": format_utc(photo.uploaded_at),
+				"captured_at": format_utc(photo.captured_at),
 				"processing_status": photo.processing_status,
 				"latitude": latitude,
 				"longitude": longitude,
@@ -96,7 +100,7 @@ async def get_recent_activity(
 
 			# Set next_cursor to the last photo's uploaded_at timestamp
 			if photo.uploaded_at:
-				next_cursor = photo.uploaded_at.isoformat()
+				next_cursor = format_utc(photo.uploaded_at)
 
 		return {
 			"photos": activity_data,

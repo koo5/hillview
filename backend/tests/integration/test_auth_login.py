@@ -3,9 +3,7 @@
 Test suite for username/password authentication with test users.
 Tests the complete login flow including token validation and user roles.
 """
-import pytest
 import requests
-import json
 import sys
 import os
 import time
@@ -14,8 +12,8 @@ import time
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from tests.utils.base_test import BaseAuthTest
-from tests.utils.auth_utils import TEST_CREDENTIALS
+from utils.base_test import BaseAuthTest
+from utils.auth_utils import TEST_CREDENTIALS
 
 API_URL = os.getenv("API_URL", "http://localhost:8055/api")
 

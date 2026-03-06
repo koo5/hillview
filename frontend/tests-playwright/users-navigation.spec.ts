@@ -1,14 +1,14 @@
 import { test, expect } from '@playwright/test';
 import { uploadTestPhotosWithLocation } from './helpers/photoUpload';
+import { createTestUsers, loginAsTestUser } from './helpers/testUsers';
 
 test.describe('Users Pages and Navigation', () => {
-  test.beforeEach(async ({ page }) => {
-    // Clean up test users before each test
-    const response = await fetch('http://localhost:8055/api/debug/recreate-test-users', {
-      method: 'POST'
-    });
-    const result = await response.json();
-    console.log('🢄Test cleanup result:', result);
+  let testPasswords: { test: string; admin: string; testuser: string };
+
+  test.beforeEach(async () => {
+    // Clean up and recreate test users before each test
+    const result = await createTestUsers();
+    testPasswords = result.passwords;
   });
 
   test('should load users list page and display user cards', async ({ page }) => {
@@ -65,21 +65,7 @@ test.describe('Users Pages and Navigation', () => {
 
   test('should navigate from activity page usernames to user pages', async ({ page }) => {
     // Login first
-    const response = await fetch('http://localhost:8055/api/debug/recreate-test-users', {
-      method: 'POST'
-    });
-    const result = await response.json();
-    const testPassword = result.details?.user_passwords?.test;
-    if (!testPassword) {
-      throw new Error(`Test password not found in API response: ${JSON.stringify(result)}`);
-    }
-
-    await page.goto('/login');
-    await page.waitForLoadState('networkidle');
-    await page.fill('input[type="text"]', 'test');
-    await page.fill('input[type="password"]', testPassword);
-    await page.click('button[type="submit"]');
-    await page.waitForURL('/', { timeout: 15000 });
+    await loginAsTestUser(page, testPasswords.test);
 
     // Navigate to activity page
     await page.goto('/activity');
@@ -96,21 +82,7 @@ test.describe('Users Pages and Navigation', () => {
 
   test('should make photos clickable to navigate to map', async ({ page }) => {
     // Login and ensure we have some photos
-    const response = await fetch('http://localhost:8055/api/debug/recreate-test-users', {
-      method: 'POST'
-    });
-    const result = await response.json();
-    const testPassword = result.details?.user_passwords?.test;
-    if (!testPassword) {
-      throw new Error(`Test password not found in API response: ${JSON.stringify(result)}`);
-    }
-
-    await page.goto('/login');
-    await page.waitForLoadState('networkidle');
-    await page.fill('input[type="text"]', 'test');
-    await page.fill('input[type="password"]', testPassword);
-    await page.click('button[type="submit"]');
-    await page.waitForURL('/', { timeout: 15000 });
+    await loginAsTestUser(page, testPasswords.test);
 
     // Upload some test photos with location data for the test user
     await uploadTestPhotosWithLocation(page, 2);

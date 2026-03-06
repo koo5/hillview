@@ -23,23 +23,46 @@ class StreamPhotoLoader {
         private const val CONNECTION_TIMEOUT_SECONDS = 30L
         private const val READ_TIMEOUT_SECONDS = 60L
 
+        // Thread-local SimpleDateFormat to avoid creating new instances for each photo
+        // SimpleDateFormat is not thread-safe, so we use ThreadLocal for coroutine safety
+        private val isoDateFormat = ThreadLocal.withInitial {
+            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
+        }
+        private val isoDateFormatNoMillis = ThreadLocal.withInitial {
+            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
+        }
+
         /**
          * Sanitize captured_at timestamps to handle common formatting issues
          */
         private fun sanitizeCapturedAt(timestamp: String?): String? {
-            if (timestamp.isNullOrBlank()) {
-                //Log.w(TAG, "Skipping empty captured_at timestamp")
+            if (timestamp.isNullOrBlank() || timestamp == "null") {
                 return null
             }
 
             return try {
+                var result = timestamp
+
                 // Handle ISO timestamps without timezone by adding 'Z'
-                if (timestamp.matches(Regex("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}$"))) {
-                    //Log.d(TAG, "Adding timezone to ISO timestamp: $timestamp")
-                    "${timestamp}Z"
-                } else {
-                    timestamp
+                if (result.matches(Regex("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}$"))) {
+                    result = "${result}Z"
                 }
+
+                // Normalize fractional seconds to exactly 3 digits (milliseconds)
+                // Handles .064000Z -> .064Z, .1Z -> .100Z, etc.
+                val fracMatch = Regex("(\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2})\\.(\\d+)Z").find(result)
+                if (fracMatch != null) {
+                    val base = fracMatch.groupValues[1]
+                    val frac = fracMatch.groupValues[2]
+                    val normalizedFrac = frac.padEnd(3, '0').substring(0, 3)
+                    result = "$base.${normalizedFrac}Z"
+                }
+
+                result
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to sanitize timestamp '$timestamp': ${e.message}")
                 null
@@ -62,14 +85,16 @@ class StreamPhotoLoader {
         bounds: Bounds?,
         maxPhotos: Int,
         authToken: String?,
-        shouldAbort: () -> Boolean
+        shouldAbort: () -> Boolean,
+        picks: Set<String> = emptySet(),
+        queryOptionsJson: String? = null  // Pre-serialized analysis filters
     ): List<PhotoData> {
         if (bounds == null) {
             Log.d(TAG, "StreamPhotoLoader: Started ${source.id} without bounds - waiting for area update")
             return emptyList()
         }
 
-        return loadPhotosWithEventSource(source, bounds, maxPhotos, authToken, shouldAbort)
+        return loadPhotosWithEventSource(source, bounds, maxPhotos, authToken, shouldAbort, picks, queryOptionsJson)
     }
 
     private suspend fun loadPhotosWithEventSource(
@@ -77,7 +102,9 @@ class StreamPhotoLoader {
         bounds: Bounds,
         maxPhotos: Int,
         authToken: String?,
-        shouldAbort: () -> Boolean
+        shouldAbort: () -> Boolean,
+        picks: Set<String> = emptySet(),
+        queryOptionsJson: String? = null  // Pre-serialized analysis filters
     ): List<PhotoData> {
         val photos = mutableListOf<PhotoData>()
         var retryCount = 0
@@ -85,7 +112,7 @@ class StreamPhotoLoader {
 
         while (retryCount <= maxRetries && !shouldAbort()) {
             try {
-                val url = buildStreamUrl(source, bounds, maxPhotos, authToken)
+                val url = buildStreamUrl(source, bounds, maxPhotos, authToken, picks, queryOptionsJson)
                 Log.d(TAG, "StreamPhotoLoader: Starting stream from $url (attempt ${retryCount + 1}/${maxRetries + 1})")
 
                 var streamCompleted = false
@@ -176,14 +203,13 @@ class StreamPhotoLoader {
             .header("Cache-Control", "no-cache")
             .build()
 
-        val response = client.newCall(request).execute()
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw Exception("HTTP ${response.code}: ${response.message}")
+            }
 
-        if (!response.isSuccessful) {
-            throw Exception("HTTP ${response.code}: ${response.message}")
-        }
-
-        response.body?.byteStream()?.let { inputStream ->
-            BufferedReader(InputStreamReader(inputStream)).use { reader ->
+            response.body?.byteStream()?.let { inputStream ->
+                BufferedReader(InputStreamReader(inputStream)).use { reader ->
                 val eventData = StringBuilder()
                 var eventType: String? = null
 
@@ -228,6 +254,7 @@ class StreamPhotoLoader {
                     }
                 }
             }
+        }
         }
     }
 
@@ -282,7 +309,7 @@ class StreamPhotoLoader {
         }
     }
 
-    private fun buildStreamUrl(source: SourceConfig, bounds: Bounds, maxPhotos: Int, authToken: String?): String {
+    private fun buildStreamUrl(source: SourceConfig, bounds: Bounds, maxPhotos: Int, authToken: String?, picks: Set<String> = emptySet(), queryOptionsJson: String? = null): String {
         val baseUrl = source.url ?: throw IllegalArgumentException("Stream source missing URL")
 
         return buildString {
@@ -301,6 +328,17 @@ class StreamPhotoLoader {
 
             // Add max_photos parameter
             append("&max_photos=$maxPhotos")
+
+            // Add picks parameter if there are any selected photos
+            if (picks.isNotEmpty()) {
+                // Convert Set to comma-separated string
+                append("&picks=${picks.joinToString(",")}")
+            }
+
+            // Add analysis_filters parameter if pre-serialized filters are provided
+            queryOptionsJson?.let {
+                append("&analysis_filters=${java.net.URLEncoder.encode(it, "UTF-8")}")
+            }
 
             // Add auth token if available
             authToken?.let {
@@ -394,7 +432,7 @@ class StreamPhotoLoader {
             id = id,
             uid = "stream-$id", // Will be replaced by convertToPhotoData
             source_type = "stream",
-            file = file,
+            filename = file,
             url = url,
             coord = coord,
             bearing = bearing,
@@ -427,19 +465,29 @@ class StreamPhotoLoader {
     }
 
     /**
-     * Parse ISO 8601 timestamp string to Unix timestamp in milliseconds
-     * @param isoString ISO 8601 formatted string (e.g., "2023-12-01T15:30:45Z")
+     * Parse timestamp string to Unix timestamp in milliseconds
+     * Handles both ISO 8601 format and raw Unix timestamps
+     * @param timestampString ISO 8601 formatted string or Unix timestamp in millis
      * @return Unix timestamp in milliseconds, or null if parsing fails
      */
-    private fun parseIsoToTimestamp(isoString: String): Long? {
+    private fun parseIsoToTimestamp(timestampString: String): Long? {
+        // Check if it's already a numeric Unix timestamp
+        val numericValue = timestampString.toLongOrNull()
+        if (numericValue != null) {
+            return numericValue
+        }
+
         return try {
-            val format = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
-                timeZone = TimeZone.getTimeZone("UTC")
-            }
-            format.parse(isoString)?.time
+            // Try ISO format with milliseconds first
+            isoDateFormat.get()?.parse(timestampString)?.time
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to parse ISO timestamp: $isoString", e)
-            null
+            try {
+                // Fall back to format without milliseconds
+                isoDateFormatNoMillis.get()?.parse(timestampString)?.time
+            } catch (e2: Exception) {
+                Log.w(TAG, "Failed to parse timestamp: $timestampString", e2)
+                null
+            }
         }
     }
 }

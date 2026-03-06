@@ -76,7 +76,7 @@
 			seen.add(key);
 			keys[i] = key;
 		}
-		console.log('🢄Gallery: Generated keys', keys);
+		//console.log('🢄Gallery: Generated keys', keys);
 		return keys;
 	}
 

@@ -1,5 +1,6 @@
-import {photosInArea, photosInRange, spatialState} from './mapState';
+import {photosInArea, photosInRange, spatialState, picks} from './mapState';
 import {sourceLoadingStatus, sources} from './data.svelte';
+import {filters, buildFiltersQueryParam} from './components/filters-modal/filtersStore';
 import {get} from 'svelte/store';
 import {getCurrentToken} from './auth.svelte';
 import {createTokenManager} from './tokenManagerFactory';
@@ -40,11 +41,13 @@ class SimplePhotoWorker {
             }
 
             // Initialize worker with config update including version check
-            // this.sendMessage('configUpdated', {
-            //     config: {
-            //         expectedWorkerVersion: __WORKER_VERSION__
-            //     }
-            // });
+            this.sendMessage('configUpdated', {
+                config: {
+                    expectedWorkerVersion: __WORKER_VERSION__,
+					sources: get(sources),
+					queryOptionsJson: buildFiltersQueryParam()  // Pre-serialized, null if no active filters
+                }
+            });
             this.isInitialized = true;
 
             // Set up reactive subscriptions
@@ -124,7 +127,7 @@ class SimplePhotoWorker {
             case 'sourceLoadingStatus':
                 sourceLoadingStatus.update(status => ({
                     ...status,
-                    [message.sourceId]: {
+                    [message.source_id]: {
                         is_loading: message.is_loading,
                         progress: message.progress,
                         error: message.error
@@ -236,9 +239,24 @@ class SimplePhotoWorker {
     }
 
     private setupReactivity(): void {
+		picks.subscribe((picksSet) => {
+			if (!this.isInitialized) return;
+			// Notify worker of pick changes (convert Set to Array for serialization)
+			console.log('🢄SimplePhotoWorker: Picks updated, sending to worker...', Array.from(picksSet));
+			this.sendMessage('picksUpdated', {
+				picks: Array.from(picksSet)
+			});
+		});
         // React to spatial changes - triggers area updates with hysteresis
         spatialState.subscribe((spatial) => {
-            if (!this.isInitialized || !spatial.bounds) return;
+            if (!this.isInitialized) return;
+
+            // Reset lastBounds when bounds become null (e.g., map unmounted)
+            // so next bounds update is treated as fresh
+            if (!spatial.bounds) {
+                this.lastBounds = null;
+                return;
+            }
 
             // Skip update if bounds haven't changed significantly (hysteresis)
 			// TODO: we could skip area load, but we can't skip range filter
@@ -247,7 +265,7 @@ class SimplePhotoWorker {
                 return;
             }
 
-            console.log(`🢄SimplePhotoWorker: Sending area update with range ${spatial.range}m...`);
+            //console.log(`🢄SimplePhotoWorker: Sending area update with range ${spatial.range}m...`);
             this.lastBounds = spatial.bounds;
             this.sendMessage('areaUpdated', {
                 area: spatial.bounds,
@@ -257,49 +275,71 @@ class SimplePhotoWorker {
 
         // React to source config changes (filter out loading status changes)
         let lastConfigHash = '';
-        sources.subscribe(async (sourceList) => {
+        let lastFiltersHash = '';
+        const sendConfigUpdate = () => {
             if (!this.isInitialized) return;
 
+            const sourceList = get(sources);
+            const currentFilters = get(filters);
+            const filtersHash = JSON.stringify(currentFilters);
+
             // Create hash of config-relevant fields only (ignore loading states)
-            const configHash = JSON.stringify(sourceList.map(source => ({
-                id: source.id,
-                name: source.name,
-                type: source.type,
-                enabled: source.enabled,
-                url: source.url,
-                path: source.path,
-                subtype: source.subtype,
-                clientId: source.client_id,
-                backendUrl: source.backend_url
-            })));
+            const configHash = JSON.stringify({
+                sources: sourceList.map(source => ({
+                    id: source.id,
+                    name: source.name,
+                    type: source.type,
+                    enabled: source.enabled,
+                    url: source.url,
+                    path: source.path,
+                    subtype: source.subtype,
+                    clientId: source.client_id,
+                    backendUrl: source.backend_url
+                })),
+                queryOptions: currentFilters
+            });
 
             // Only trigger config update if actual config changed (not loading states)
             if (configHash === lastConfigHash) {
-                //console.log('🢄SimplePhotoWorker: Ignoring source change - only loading states changed');
+                //console.log('🢄SimplePhotoWorker: Ignoring config change - no relevant changes');
                 return;
             }
 
+            // Clear picks when filters change (not on initial load or source-only changes)
+            if (lastFiltersHash !== '' && filtersHash !== lastFiltersHash) {
+                console.log('🢄SimplePhotoWorker: Filters changed, clearing picks');
+                picks.set(new Set());
+                // Send picksUpdated synchronously BEFORE configUpdated
+                // (picks.subscribe runs async, so we must send manually here)
+                this.sendMessage('picksUpdated', { picks: [] });
+            }
+            lastFiltersHash = filtersHash;
+
             lastConfigHash = configHash;
-            //console.log('🢄SimplePhotoWorker: Sending config update with sources...');
+            //console.log('🢄SimplePhotoWorker: Sending config update with sources and queryOptions...');
 
             this.sendMessage('configUpdated', {
                 config: {
                     expectedWorkerVersion: __WORKER_VERSION__,
-                    sources: sourceList
+                    sources: sourceList,
+                    queryOptionsJson: buildFiltersQueryParam()  // Pre-serialized, null if no active filters
                 }
             });
-		});
+        };
+
+        sources.subscribe(() => sendConfigUpdate());
+        filters.subscribe(() => sendConfigUpdate());
     }
 
     private sendMessage(type: string, data?: any): void {
         const frontendMessageId = `frontend_${++this.frontendMessageId}`;
         const message = {frontendMessageId, type, data};
 
+        console.log(`🢄SimplePhotoWorker: [${frontendMessageId}] Sending ${type} to worker`);
+
         if (this.kotlinWorker) {
-            //console.log(`🢄SimplePhotoWorker: Sending message to Kotlin worker: ${type}`);
             this.kotlinWorker.postMessage(message);
         } else if (this.worker) {
-            //console.log(`🢄SimplePhotoWorker: Sending message to Web worker: ${type}`);
             this.worker.postMessage(message);
         } else {
             throw new Error('No worker initialized');

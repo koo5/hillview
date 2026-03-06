@@ -1,6 +1,5 @@
 import { get } from 'svelte/store';
-import { TAURI, TAURI_MOBILE } from './tauri';
-import { invoke } from '@tauri-apps/api/core';
+import { browser } from '$app/environment';
 import { http } from '$lib/http';
 
 import { backendUrl } from './config';
@@ -14,9 +13,11 @@ export type { User, AuthState };
 export { auth };
 
 
-auth.subscribe(authState => {
-	console.log('🢄auth store updated:', JSON.stringify(authState));
-});
+if (browser) {
+	auth.subscribe(authState => {
+		console.log('🢄auth store updated:', JSON.stringify(authState));
+	});
+}
 
 
 // Shared function to complete authentication after successful login (exported for authCallback)

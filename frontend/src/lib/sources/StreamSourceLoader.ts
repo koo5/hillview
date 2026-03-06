@@ -3,7 +3,7 @@
  * Uses EventSource for real-time photo streaming with bounds-based filtering
  */
 
-import type { PhotoData, Bounds } from '../photoWorkerTypes';
+import type { PhotoData, Bounds, PhotoId } from '../photoWorkerTypes';
 import { BasePhotoSourceLoader, type PhotoSourceCallbacks } from './PhotoSourceLoader';
 import { verbalizeEventSourceReadyState } from './eventSourceUtils';
 import { postToast } from '../workerToast';
@@ -22,10 +22,14 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
     private maxRetries = 1; // Only retry once for auth errors
     private currentBounds?: Bounds;
     private maxPhotos?: number;
+    private picks?: Set<PhotoId>;
+    private queryOptionsJson?: string | null;  // Pre-serialized analysis filters
 
     constructor(source: any, callbacks: PhotoSourceCallbacks, options?: PhotoSourceOptions) {
         super(source, callbacks);
         this.maxPhotos = options?.maxPhotos;
+        this.picks = options?.picks;
+        this.queryOptionsJson = options?.queryOptionsJson;
     }
 
     private async getAuthTokenWithTimeout(timeoutMs: number = 5000, forceRefresh: boolean = false): Promise<string | null> {
@@ -107,6 +111,12 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
         url.searchParams.set('bottom_right_lat', bounds.bottom_right.lat.toString());
         url.searchParams.set('bottom_right_lon', bounds.bottom_right.lng.toString()); // Changed from bottom_right_lng
 
+        // Add picks parameter if there are any selected photos
+        if (this.picks && this.picks.size > 0) {
+            // Convert Set to Array and join with comma
+            url.searchParams.set('picks', Array.from(this.picks).join(','));
+        }
+
         // Add client_id parameter (required by server)
         const clientId = this.source.client_id || 'default';
         url.searchParams.set('client_id', clientId);
@@ -114,6 +124,11 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
         // Add max_photos parameter if specified
         if (this.maxPhotos !== undefined) {
             url.searchParams.set('max_photos', this.maxPhotos.toString());
+        }
+
+        // Add analysis_filters parameter if pre-serialized filters are provided
+        if (this.queryOptionsJson) {
+            url.searchParams.set('analysis_filters', this.queryOptionsJson);
         }
 
         // Add authentication token (force refresh on retry attempts)
@@ -358,7 +373,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
                                 photo.coord,
                             bearing,
                             url: photo.thumb_1024_url || photo.url || '',
-                            file: photo.file || `stream_${photo.id}`,
+                            filename: photo.filename,
                             source_type: this.source.type,
                             source: this.source,
                             altitude: photo.computed_altitude || photo.altitude || 0,

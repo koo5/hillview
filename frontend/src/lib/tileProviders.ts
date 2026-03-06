@@ -1,6 +1,7 @@
 import L from 'leaflet';
 import 'leaflet-providers';
 import { writable, get } from 'svelte/store';
+import {localStorageSharedStore} from "$lib/svelte-shared-store";
 
 export interface TileProviderConfig {
     url: string;
@@ -23,7 +24,14 @@ export interface TileProviderConfig {
 }
 
 // API Keys configuration
+// SECURITY: Frontend API keys for map tiles are industry standard practice (Google Maps, Mapbox, etc.)
+// These keys are protected by:
+// 1. Referrer/domain restrictions configured in the provider's console
+// 2. Read-only access (tile fetching only, no write operations)
+// 3. Provider-side rate limiting
+// Proxying tiles through backend would add latency and server load with no security benefit.
 const API_KEYS = {
+    // Configured with referrer restrictions at console.tracestrack.com
     TRACESTRACK: '262a38b16c187cfca361f1776efb9421'
 } as const;
 
@@ -46,12 +54,19 @@ const CUSTOM_PROVIDERS: Record<string, TileProviderConfig> = {
 		attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
 		maxZoom: 23,
 		maxNativeZoom: 20,
+	},
+	'tiles4.ueueeu.eu': {
+		url: 'https://tiles4.ueueeu.eu/tile/{z}/{x}/{y}.png',
+		attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+		maxZoom: 23,
+		maxNativeZoom: 20,
 	}
 };
 
 // Available tile providers with descriptions
 export const AVAILABLE_PROVIDERS = {
-	'tiles.ueueeu.eu': 'tiles.ueueeu.eu',
+	'tiles.ueueeu.eu': 'Hillview (CZ)',
+	'tiles4.ueueeu.eu': 'Hillview (world)',
 
     // Standard 'leaflet-providers' providers
     'OpenStreetMap.Mapnik': 'OpenStreetMap',
@@ -69,10 +84,11 @@ export const AVAILABLE_PROVIDERS = {
 export type ProviderName = keyof typeof AVAILABLE_PROVIDERS;
 
 // Default tile provider
-export const DEFAULT_TILE_PROVIDER: ProviderName = 'tiles.ueueeu.eu';//'OpenStreetMap.Mapnik';
+export const DEFAULT_TILE_PROVIDER: ProviderName = 'tiles4.ueueeu.eu';
+//'OpenStreetMap.Mapnik';
 
 // Current selected provider (can be changed at runtime)
-export const currentTileProvider = writable<ProviderName>(DEFAULT_TILE_PROVIDER);
+export const currentTileProvider = localStorageSharedStore<ProviderName>('currentTileProvider', DEFAULT_TILE_PROVIDER);
 
 /**
  * Set the current tile provider
@@ -119,10 +135,12 @@ function processAttributionTemplates(attribution: string, providers: any): strin
  * Get provider configuration from custom providers or leaflet-providers
  */
 export function getProviderConfig(providerName: ProviderName): TileProviderConfig {
-	console.log('tileProviders.getProviderConfig()', providerName);
+	providerName = providerName || DEFAULT_TILE_PROVIDER;
+
+	//console.log('tileProviders.getProviderConfig()', providerName);
     // Check custom providers first
     if (CUSTOM_PROVIDERS[providerName]) {
-		console.log('tileProviders.getProviderConfig() - using custom provider');
+		//console.log('tileProviders.getProviderConfig() - using custom provider');
         return { ...CUSTOM_PROVIDERS[providerName] };
     }
 

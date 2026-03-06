@@ -11,21 +11,16 @@ Tests how hidden photos and users are filtered out of API responses:
 """
 
 import requests
-import json
 import time
 import os
 import sys
-import pytest
-import asyncio
-from datetime import datetime
 
 # Add paths for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from utils.base_test import BaseUserManagementTest
-from utils.test_utils import query_hillview_endpoint, create_test_photos
-from utils.auth_utils import auth_helper
+from utils.test_utils import query_hillview_endpoint
 
 # Test configuration
 API_URL = os.getenv("API_URL", "http://localhost:8055/api")
@@ -118,7 +113,6 @@ class TestContentFiltering(BaseUserManagementTest):
         assert photos_created > 0, "Failed to create test photos for activity feed test"
         
         # Wait a moment for activity feed to update
-        import time
         time.sleep(2)
         
         # Get baseline activity feed

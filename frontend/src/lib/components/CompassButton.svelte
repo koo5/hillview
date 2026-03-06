@@ -1,9 +1,11 @@
 <script lang="ts">
     import { Compass, Disc, Car, PersonStanding, ChevronDown } from 'lucide-svelte';
-    import { compassState, compassEnabled, compassAvailable, enableCompass, disableCompass, compassError } from '$lib/compass.svelte';
-    import { gpsOrientationInternalState, gpsOrientationEnabled, enableGpsOrientation, disableGpsOrientation, gpsOrientationError } from '$lib/gpsOrientation.svelte';
+    import { compassState, compassEnabled, compassAvailable, compassError } from '$lib/compass.svelte';
+    import { gpsOrientationInternalState, gpsOrientationEnabled, gpsOrientationError } from '$lib/gpsOrientation.svelte';
     import { bearingMode, type BearingMode } from '$lib/mapState';
+    import { enableBearingTracking, disableBearingTracking } from '$lib/bearingTracking';
     import { createEventDispatcher } from 'svelte';
+	import CompassButtonInner from "$lib/components/CompassButtonInner.svelte";
 
     const dispatch = createEventDispatcher<{
         showMenu: { buttonRect: DOMRect };
@@ -101,46 +103,17 @@
         const isAnyTrackingEnabled = $compassEnabled || $gpsOrientationEnabled;
 
         if (isAnyTrackingEnabled) {
-            console.log('toggleTracking: Disabling orientation tracking');
-            disableCompass();
-            disableGpsOrientation();
+            disableBearingTracking();
         } else {
-            // Enable the system based on current bearing mode
-            if ($bearingMode === 'walking') {
-                console.log('toggleTracking: Enabling compass (walking mode)');
-                enableCompass();
-            } else {
-                console.log('toggleTracking: Enabling GPS orientation (car mode)');
-                enableGpsOrientation();
-            }
+            enableBearingTracking();
         }
     }
 
     export function selectMode(mode: BearingMode) {
-        const wasAnyTrackingEnabled = $compassEnabled || $gpsOrientationEnabled;
-
         bearingMode.set(mode);
         hideMenu();
-
-        if (wasAnyTrackingEnabled) {
-            // Switch tracking system while maintaining enabled state
-            if (mode === 'walking') {
-                disableGpsOrientation();
-                enableCompass();
-            } else {
-                disableCompass();
-                enableGpsOrientation();
-            }
-        } else {
-            // If tracking was off, enable it for the selected mode
-            if (mode === 'walking') {
-                disableGpsOrientation();
-                enableCompass();
-            } else {
-                disableCompass();
-                enableGpsOrientation();
-            }
-        }
+        disableBearingTracking();
+        enableBearingTracking();
     }
 
 
@@ -186,27 +159,10 @@
         disabled={isButtonDisabled}
         data-testid="compass-button"
     >
-        <div class="button-content">
-            <Compass />
-            <div class="mode-section">
-                <div class="mode-indicator">
-                    {#if $bearingMode === 'car'}
-                        <Car size={16} />
-                    {:else}
-                        <PersonStanding size={16} />
-                    {/if}
-                </div>
-                {#if !isTouch}
-                    <div class="dropdown-trigger">
-                        <ChevronDown size={12} />
-                    </div>
-                {:else}
-                    <div class="long-press-indicator">
-                        <ChevronDown size={12} />
-                    </div>
-                {/if}
-            </div>
-        </div>
+        <CompassButtonInner bearingMode={$bearingMode} />
+
+
+
     </button>
 
 </div>

@@ -6,7 +6,7 @@ import asyncio
 import os
 import sys
 from sqlalchemy import text
-from sqlalchemy.exc import OperationalError, ProgrammingError
+from sqlalchemy.exc import OperationalError
 from dotenv import load_dotenv
 
 # Add the api directory to the path to import our modules

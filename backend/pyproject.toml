@@ -1,0 +1,15 @@
+[project]
+name = "hillview-backend"
+version = "1.0.0"
+description = "Hillview backend workspace"
+requires-python = ">=3.12"
+
+[tool.uv.workspace]
+members = ["common", "api/app", "worker", "tests"]
+
+[tool.ruff]
+exclude = [
+    "*/alembic/versions/*",
+    "**/venv/**",
+    "**/.venv/**",
+]

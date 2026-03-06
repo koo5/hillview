@@ -9,7 +9,7 @@
 	});
 </script>
 
-{#if stats}
+{#if stats && (stats.size > 0 || stats.processing || stats.totalCaptured)}
 	<div class="queue-indicator" data-testid="capture-queue-indicator">
 
 		{#if stats.size > 0}

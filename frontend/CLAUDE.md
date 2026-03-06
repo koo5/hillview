@@ -1,5 +1,54 @@
 # Hillview Frontend - Project Instructions
 
+## Android App Development
+
+### App Package Identifiers
+- **Development**: `cz.hillviedev` (used by `./scripts/android/dev.sh`)
+- **Production**: `cz.hillview` (release builds)
+- **Important**: Always use the correct package ID for development testing
+
+### Android Development Commands
+```bash
+# Start Android development server with proper environment
+./scripts/android/dev.sh
+
+# View Android app logs (essential for debugging)
+./scripts/android/logs.sh
+
+# Build debug APK
+./scripts/android/debug-build.sh
+```
+
+### Android App Architecture
+- **Framework**: Tauri v2 hybrid app (Rust + WebView)
+- **WebView**: Uses Android WebView to render Svelte frontend
+- **Deep Links**: Configured for `cz.hillview://auth` OAuth callbacks
+- **Configuration**: `src-tauri/tauri.conf.json` (prod) and `src-tauri/tauri.android-dev.conf.json` (dev)
+
+### Network Configuration
+- **Emulator Host Mapping**: `localhost` becomes `10.0.2.2` in Android emulator
+- **Backend URL**: App uses `VITE_BACKEND_ANDROID` env var for emulator networking
+- **Browser Testing**: Chrome in emulator can reach `http://10.0.2.2:8055/api/debug` to verify backend connectivity
+
+### Authentication Flow
+- **Browser-Based OAuth**: App redirects to system browser for OAuth (Google/GitHub)
+- **Deep Link Return**: Browser redirects back via `cz.hillview://auth?token=...&expires_at=...`
+- **Error States**: "error sending request" typically indicates:
+  - Backend not reachable from emulator
+  - Authentication required (normal state before login)
+  - Network configuration issues
+
+### App State Management
+- **WebView Ready**: Look for 2 WebView elements in UI hierarchy
+- **MainActivity**: App runs in `.MainActivity` activity
+- **App States**: 0=not installed, 1=not running, 2=background, 3=background suspended, 4=foreground
+- **Normal Behavior**: App consistently maintains state 4 when working properly
+
+### Testing Limitations
+- **Deep Links**: Don't work reliably in emulator test environment
+- **OAuth Flow**: Full browser OAuth can't be automated (use simulation)
+- **UI Elements**: May need WebView context switching for HTML elements
+
 ## Android Testing
 
 ### Running Specific Test Files

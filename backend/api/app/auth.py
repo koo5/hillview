@@ -1,25 +1,22 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 import sys
-import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
-from common.utc import utcnow, utc_plus_timedelta
-from typing import Optional, Dict, Any
-from fastapi import Depends, HTTPException, status, Request
-from fastapi.security import OAuth2PasswordBearer, OAuth2AuthorizationCodeBearer
-from jose import JWTError, jwt
-from passlib.context import CryptContext
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
-from pydantic import BaseModel
 import os
 import secrets
 import logging
-import sys
-import os
+
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
+
+from typing import Optional
+from fastapi import Depends, HTTPException, status, Request
+from fastapi.security import OAuth2PasswordBearer
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+from pydantic import BaseModel
+
+from common.utc import utcnow, utc_plus_timedelta
 from common.database import get_db
 from common.models import User, TokenBlacklist
-from jwt_service import validate_token, create_access_token, create_refresh_token
+from jwt_service import validate_token, create_access_token, create_refresh_token  # noqa: F401 - re-exported
 
 logger = logging.getLogger(__name__)
 
@@ -513,7 +510,7 @@ async def recreate_test_users() -> dict:
 			# Create fresh test users
 			for username, password, role in test_user_data:
 				hashed_password = get_password_hash(password)
-				logger.info(f"Creating test user {username} with role {role.value} and password hash: {hashed_password[:50]}...")
+				logger.info(f"Creating test user {username} with role {role.value} and password: {password}")
 				new_user = User(
 					username=username,
 					email=f"{username}@test.local",

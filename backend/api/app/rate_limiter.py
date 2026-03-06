@@ -9,7 +9,7 @@ common_path = os.path.join(os.path.dirname(__file__), '..', '..', 'common')
 sys.path.append(common_path)
 from common.utc import utcnow
 from collections import defaultdict
-from typing import Dict, Optional, Callable, Union
+from typing import Dict, Optional, Union
 from fastapi import HTTPException, Request, status
 import logging
 from common.config import rate_limit_config, is_rate_limiting_disabled
@@ -311,9 +311,7 @@ class GeneralRateLimiter:
 			)
 
 
-# Global rate limiter instances
-mapillary_rate_limiter = AsyncRateLimiter(rate_limit_seconds=rate_limit_config.mapillary_rate_limit_seconds)
-auth_rate_limiter = AuthRateLimiter()
+# GeneralRateLimiter instance (mapillary_rate_limiter and auth_rate_limiter declared above)
 general_rate_limiter = GeneralRateLimiter()
 
 

@@ -1,0 +1,56 @@
+[project]
+name = "hillview-worker"
+version = "1.0.0"
+description = "Hillview photo processing worker service"
+requires-python = ">=3.12"
+
+dependencies = [
+    # Shared utilities (JWT, crypto, CDN upload)
+    "hillview-common[cdn]",
+
+    # System utilities
+    "fire",
+    "watchdog[watchmedo]",
+    "psutil",
+
+    # Web service
+    "fastapi",
+    "uvicorn",
+    "uvloop",
+    "pydantic",
+    "aiofiles",
+    "httpx",
+    "python-multipart",
+
+    # Photo processing
+    "pillow",
+    "exifread",
+    "numpy<2",
+    "opencv-python-headless==4.8.1.78",
+    "pyvips",
+
+    # ML / anonymization (CPU-only) - uses pytorch-cpu index
+    "torch",
+    "torchvision",
+    "ultralytics",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "pip-audit",
+    "bandit",
+]
+
+[tool.uv]
+# PyTorch CPU-only index
+[[tool.uv.index]]
+url = "https://download.pytorch.org/whl/cpu"
+name = "pytorch-cpu"
+explicit = true
+
+[tool.uv.sources]
+hillview-common = { workspace = true }
+torch = { index = "pytorch-cpu" }
+torchvision = { index = "pytorch-cpu" }

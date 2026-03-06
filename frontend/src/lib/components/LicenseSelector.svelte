@@ -3,9 +3,6 @@
     import { CreativeCommons, ExternalLink } from 'lucide-svelte';
     import { openExternalUrl } from '$lib/urlUtils';
 
-    export let disabled = false;
-    export let required = false;
-
     $: isChecked = $photoLicense === 'CC BY-SA 4.0';
     $: isLicenseSet = $photoLicense !== null;
 
@@ -19,13 +16,13 @@
     }
 </script>
 
-<div class="license-selector" class:disabled>
+<div class={isLicenseSet ? '' : 'requirement-notice'}>
     <label class="checkbox-label">
         <input
             type="checkbox"
             checked={isChecked}
             on:change={handleChange}
-            {disabled}
+            data-testid="license-checkbox"
         />
 
         <div class="label-content">
@@ -37,53 +34,44 @@
                     class="info-link"
                     on:click={openLicenseInfo}
                     title="Learn more about this license"
-                    tabindex={disabled ? -1 : 0}
+                    tabindex={0}
                 >
                     <ExternalLink size={14} />
                 </button>
             </div>
-			{#if required && !isLicenseSet}
-				<div class="requirement-notice">
-					Upload is disabled until you select a license for your photos.
-				</div>
+			{#if !isLicenseSet}
+					Select a license to enable uploads.
+
 			{/if}
 
         </div>
     </label>
-
 </div>
-
 <style>
-    .license-selector {
-        transition: opacity 0.2s ease;
-    }
-
-    .license-selector.disabled {
-        opacity: 0.6;
-        pointer-events: none;
-    }
 
     .checkbox-label {
         display: flex;
         align-items: flex-start;
-        gap: 12px;
-        cursor: pointer;
-        padding: 16px;
+        gap: 0.75rem;
+        padding: 0.75rem;
         border: 1px solid #e5e7eb;
-        border-radius: 8px;
-        background: white;
-        transition: all 0.2s ease;
+        border-radius: 0.5rem;
+        cursor: pointer;
+        transition: border-color 0.2s, background-color 0.2s;
     }
 
-    .checkbox-label:hover:not(.disabled .checkbox-label) {
+    .checkbox-label:hover {
         border-color: #d1d5db;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        background-color: #f9fafb;
+    }
+
+    .checkbox-label:has(input:checked) {
+        border-color: #3b82f6;
+        background-color: #eff6ff;
     }
 
     input[type="checkbox"] {
-        margin: 2px 0 0 0;
-        width: 18px;
-        height: 18px;
+        margin-top: 0.125rem;
         flex-shrink: 0;
         cursor: pointer;
     }
@@ -98,8 +86,6 @@
         align-items: center;
         gap: 8px;
         margin-bottom: 4px;
-        font-weight: 500;
-        color: #374151;
     }
 
     .info-link {

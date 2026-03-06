@@ -119,7 +119,7 @@ export function constructShareUrl(photo: PhotoData | any): string {
     }
 
     return constructMapUrl({
-        zoom: 20, // now we can reference individual photos via uid
+        zoom: 20,
         lat: coords.lat,
         lon: coords.lon,
         bearing: coords.bearing,
@@ -150,7 +150,8 @@ export function constructPhotoMapUrl(photo: any): string {
         lat: coords.lat,
         lon: coords.lon,
         bearing: coords.bearing,
-        photoUid: photoUid
+        photoUid: photoUid,
+		zoom: 20
     });
 }
 

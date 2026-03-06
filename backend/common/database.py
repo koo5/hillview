@@ -1,9 +1,7 @@
-from sqlalchemy import create_engine, text
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 import os
-import logging
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -39,6 +37,8 @@ Base = declarative_base()
 
 # Dependency to get DB session
 async def get_db():
+	if SessionLocal is None:
+		raise RuntimeError("Database not initialized (ALEMBIC_SYNC_MODE is set)")
 	db = SessionLocal()
 	try:
 		yield db

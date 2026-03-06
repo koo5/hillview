@@ -1,6 +1,10 @@
 import { startPreciseLocationUpdates, stopPreciseLocationUpdates } from './preciseLocation';
+import {locationTracking, setLocationError, setLocationTracking, updateGpsLocation} from "$lib/location.svelte";
+import { writable } from 'svelte/store';
+import { get } from 'svelte/store';
 
 export type LocationConsumer = 'user' | 'compass' | string;
+export let locationTrackingLoading = writable<boolean>(false);
 
 class LocationReferenceManager {
     private consumers = new Set<LocationConsumer>();
@@ -12,12 +16,12 @@ class LocationReferenceManager {
      */
     async requestLocation(consumer: LocationConsumer): Promise<void> {
         console.log(`🢄📍🔢 LocationManager: ${consumer} requesting location service`);
-        
+
         const wasEmpty = this.consumers.size === 0;
         this.consumers.add(consumer);
-        
+
         console.log(`🢄📍🔢 Active consumers: ${Array.from(this.consumers).join(', ')}`);
-        
+
         if (wasEmpty && !this.isServiceRunning) {
             console.log(`🢄📍🔢 Starting location service (first consumer: ${consumer})`);
             try {
@@ -41,16 +45,16 @@ class LocationReferenceManager {
      */
     async releaseLocation(consumer: LocationConsumer): Promise<void> {
         console.log(`🢄📍🔢 LocationManager: ${consumer} releasing location service`);
-        
+
         const hadConsumer = this.consumers.has(consumer);
         this.consumers.delete(consumer);
-        
+
         if (!hadConsumer) {
             console.log(`🢄📍🔢 ⚠️ Consumer ${consumer} was not actively using location service`);
         }
-        
+
         console.log(`🢄📍🔢 Active consumers: ${Array.from(this.consumers).join(', ') || 'none'}`);
-        
+
         if (this.consumers.size === 0 && this.isServiceRunning) {
             console.log(`🢄📍🔢 No consumers left, stopping location service`);
             try {
@@ -98,13 +102,13 @@ class LocationReferenceManager {
      */
     async reset(): Promise<void> {
         console.log(`🢄📍🔢 LocationManager: Resetting (clearing ${this.consumers.size} stale consumers)`);
-        
+
         const hadConsumers = this.consumers.size > 0;
         const wasRunning = this.isServiceRunning;
-        
+
         // Clear all consumers
         this.consumers.clear();
-        
+
         // Stop service if it was running
         if (wasRunning) {
             console.log(`🢄📍🔢 Stopping location service during reset`);
@@ -115,9 +119,9 @@ class LocationReferenceManager {
                 console.error(`🢄📍🔢 ❌ Failed to stop location service during reset:`, error);
             }
         }
-        
+
         this.isServiceRunning = false;
-        
+
         if (hadConsumers || wasRunning) {
             console.log(`🢄📍🔢 ✅ Reset complete - cleared stale state`);
         } else {
@@ -132,7 +136,7 @@ class LocationReferenceManager {
     forceReleaseConsumer(consumer: LocationConsumer): void {
         const had = this.consumers.has(consumer);
         this.consumers.delete(consumer);
-        
+
         if (had) {
             console.log(`🢄📍🔢 Force released consumer: ${consumer}`);
             console.log(`🢄📍🔢 Remaining consumers: ${Array.from(this.consumers).join(', ') || 'none'}`);
@@ -155,3 +159,75 @@ if (typeof window !== 'undefined') {
         }
     }, 0);
 }
+
+
+    // Start tracking user location
+export    async function startLocationTracking() {
+        locationTrackingLoading.set(true);
+
+        try {
+            console.log("📍 Map.svelte Starting location tracking");
+            await locationManager.requestLocation('user');
+
+            locationTrackingLoading.set(false);
+            console.log("📍 Location tracking started successfully");
+
+        } catch (error: any) {
+            console.error("📍 Error starting location tracking:", error);
+            setLocationError(error?.message || "Unknown error");
+
+            let errorMessage = "Unable to get your location: ";
+            if (error?.name === 'GeolocationPositionError' || error?.code) {
+                switch(error.code) {
+                    case 1:
+                        errorMessage += "Permission denied. Please allow location access.";
+                        break;
+                    case 2:
+                        errorMessage += "Position unavailable. Please check if location services are enabled.";
+                        break;
+                    case 3:
+                        errorMessage += "Request timed out.";
+                        break;
+                    default:
+                        errorMessage += error?.message || "Unknown error";
+                }
+            } else {
+                errorMessage += error?.message || "Unknown error";
+            }
+
+            alert(errorMessage);
+            setLocationTracking(false);
+            locationTrackingLoading.set(false);
+        }
+    }
+
+    // Stop tracking user location
+export    async function stopLocationTracking() {
+        locationTrackingLoading.set(false);
+
+        try {
+            console.log("📍 Stopping location tracking");
+            await locationManager.releaseLocation('user');
+        } catch (error) {
+            console.error("📍 Error stopping location tracking:", error);
+        }
+
+        // Clear the location data when stopping
+        updateGpsLocation(null);
+        setLocationError(null);
+    }
+
+    // Export location tracking functions for use by parent
+    export function enableLocationTracking() {
+        if (!get(locationTracking)) {
+            setLocationTracking(true);
+            startLocationTracking();
+        }
+    }
+
+    export function disableLocationTracking() {
+        if (get(locationTracking)) {
+            setLocationTracking(false);
+            stopLocationTracking();
+        }
+    }

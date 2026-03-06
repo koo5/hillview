@@ -169,34 +169,27 @@ class FcmDirectService : FirebaseMessagingService() {
 
         // Handle notification in background thread
         CoroutineScope(Dispatchers.IO).launch {
+            val context = applicationContext
+            val notificationManager = NotificationManager(context)
+
+            // Extract FCM content for fallback
+            val fcmTitle = remoteMessage.notification?.title
+            val fcmBody = remoteMessage.notification?.body
+            val fcmRoute = remoteMessage.data["click_action"]
+
             try {
-                val context = applicationContext
-                val manager = PushDistributorManager.getInstance(context)
-
-                // Extract notification trigger data
-                val notificationId = remoteMessage.data["notification_id"]
-                val type = remoteMessage.data["type"] ?: "smart_poke"
-
-                when (type) {
-                    "smart_poke" -> {
-                        // Standard smart poke - fetch notifications from backend
-                        Log.d(TAG, "🔔 Processing smart poke notification")
-                        //manager.handleSmartPoke(notificationId) //todo
-                    }
-                    "direct" -> {
-                        // Direct notification with content in FCM payload (discouraged)
-                        Log.d(TAG, "📬 Processing direct notification")
-                        val title = remoteMessage.data["title"]
-                        val body = remoteMessage.data["body"]
-                        //manager.handleDirectNotification(title, body, remoteMessage.data) //todo
-                    }
-                    else -> {
-                        Log.w(TAG, "⚠️  Unknown notification type: $type")
-                    }
-                }
-
+                // Try to fetch and display notifications from backend API
+                Log.d(TAG, "🔔 Fetching notifications from backend...")
+                notificationManager.checkForNewNotifications()
+                Log.d(TAG, "✅ Backend notifications displayed")
             } catch (e: Exception) {
-                Log.e(TAG, "❌ Failed to process FCM message", e)
+                // Fallback: display FCM content directly
+                Log.w(TAG, "⚠️ Backend fetch failed: ${e.message}, using FCM fallback")
+                if (fcmTitle != null && fcmBody != null) {
+                    notificationManager.displaySingleNotification(fcmTitle, fcmBody, fcmRoute)
+                } else {
+                    Log.e(TAG, "❌ No fallback content available")
+                }
             }
         }
     }

@@ -1,36 +1,13 @@
 #!/bin/bash
+cd "$(dirname "$(readlink -f -- "$0")")/.."
 
-cd "$(dirname "$(readlink -f -- "$0")")"
+uv sync --quiet --frozen --package hillview-tests
 
-# Create test virtual environment if it doesn't exist
-if [ ! -d "venv" ]; then
-    echo "Creating test virtual environment..."
-    python3 -m venv venv
-fi
+cd tests
+export PYTHONPATH="$(pwd)/../api/app:$(pwd)/.."
 
-# Activate virtual environment
-source venv/bin/activate
-
-# Install backend dev dependencies (includes app + test dependencies)
-echo "Installing backend dev dependencies..."
-pip install -q -r ../api/app/requirements-dev.txt
-
-# Install additional integration test dependencies
-echo "Installing integration test dependencies..."
-pip install -q -r requirements.txt
-
-# Run integration tests
 if [ $# -eq 0 ]; then
-    echo "Running all integration tests..."
-    python -m pytest integration/ -v
-    set_exit=$?
+    uv run --quiet pytest integration/ -v
 else
-    echo "Running integration tests: $*"
-    python -m pytest "$@"
-    set_exit=$?
+    uv run --quiet pytest "$@"
 fi
-
-# Deactivate virtual environment
-deactivate
-
-exit $set_exit
