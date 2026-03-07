@@ -172,6 +172,7 @@
 					},
 				},
 				minLevel,
+				// crossOriginPolicy: 'Anonymous', // only needed for WebGL; causes CORS cache poisoning with fallback images
 			};
 		}
 		// Fallback: single full-size image
@@ -364,8 +365,10 @@
 			imageLoaderLimit: 1,
 			// Allow zooming well beyond native resolution (default is 1.1)
 			maxZoomPixelRatio: 4,
-			// Allow WebGL to use cross-origin images as textures
-			crossOriginPolicy: 'Anonymous' as const,
+			// Note: crossOriginPolicy is set per-source (on DZI tile sources), NOT here.
+			// Setting it on the viewer would apply to fallback images too, which share
+			// URLs with regular <img> tags. If the browser cached a non-CORS response,
+			// loading with crossOrigin='anonymous' would fail (CORS cache poisoning).
 			//debugMode: true
 		}
 
