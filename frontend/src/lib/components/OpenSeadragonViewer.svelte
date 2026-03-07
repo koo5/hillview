@@ -362,7 +362,7 @@
 			maxZoomPixelRatio: 4,
 			// Allow WebGL to use cross-origin images as textures
 			crossOriginPolicy: 'Anonymous' as const,
-			debugMode: true
+			//debugMode: true
 		}
 
 		viewer = new OpenSeadragon.Viewer(options);
@@ -378,36 +378,31 @@
 			isLoading = false;
 			console.log('[OSD] Fallback loaded, spinner dismissed. Adding main source...');
 
-			// Now layer the real source on top at opacity 0
+			// Now add the real source on top — it renders over the fallback
+			// as tiles arrive, then we remove the fallback once fully loaded.
 			const mainSource = buildTileSource();
 			viewer.addTiledImage({
 				tileSource: mainSource,
-				opacity: 0,
 				success: (event: any) => {
 					const mainItem = event.item;
-					// Wait until all tiles for the main image are loaded
-					const onFullyLoaded = (e: any) => {
-						if (!e.fullyLoaded) return;
-						viewer.world.removeHandler('metrics-change', onFullyLoaded);
-						// Fade in the main image, then remove the fallback
-						fadeInItem(mainItem).then(() => {
-							const fallbackItem = viewer.world.getItemAt(0);
-							if (fallbackItem && viewer.world.getItemCount() > 1) {
-								viewer.world.removeItem(fallbackItem);
-							}
-						});
+					const removeFallback = () => {
+						const fallbackItem = viewer.world.getItemAt(0);
+						if (fallbackItem && fallbackItem !== mainItem && viewer.world.getItemCount() > 1) {
+							viewer.world.removeItem(fallbackItem);
+							console.log('[OSD] Fallback image removed');
+						}
 					};
-					// 'metrics-change' fires when tile loading state changes;
-					// check immediately in case it's already loaded
+					// Listen on the TiledImage itself for fully-loaded-change,
+					// which fires reliably for DZI sources (unlike world metrics-change).
 					if (mainItem.getFullyLoaded()) {
-						fadeInItem(mainItem).then(() => {
-							const fallbackItem = viewer.world.getItemAt(0);
-							if (fallbackItem && viewer.world.getItemCount() > 1) {
-								viewer.world.removeItem(fallbackItem);
-							}
-						});
+						removeFallback();
 					} else {
-						viewer.world.addHandler('metrics-change', onFullyLoaded);
+						const onLoaded = (e: any) => {
+							if (!e.fullyLoaded) return;
+							mainItem.removeHandler('fully-loaded-change', onLoaded);
+							removeFallback();
+						};
+						mainItem.addHandler('fully-loaded-change', onLoaded);
 					}
 				},
 				error: () => {

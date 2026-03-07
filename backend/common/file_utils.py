@@ -4,6 +4,7 @@ Non-database file operations shared between API and worker services.
 """
 
 import logging
+import os
 from pathlib import Path
 from typing import Tuple
 
@@ -16,20 +17,20 @@ from .security_utils import (
 logger = logging.getLogger(__name__)
 
 def validate_and_prepare_photo_file(
-	filename: str, 
-	file_size: int, 
+	filename: str,
+	file_size: int,
 	content_type: str,
 	user_id: str,
 	upload_base_dir: str = "./uploads"
 ) -> Tuple[str, str, Path]:
 	"""
 	Validate uploaded file and prepare secure file path.
-	
+
 	Returns:
 		- safe_filename: Sanitized original filename
 		- secure_filename: Secure filename for storage
 		- file_path: Full path where file should be saved
-	
+
 	Raises:
 		SecurityValidationError: If validation fails
 	"""
@@ -39,24 +40,24 @@ def validate_and_prepare_photo_file(
 		file_size=file_size,
 		content_type=content_type
 	)
-	
+
 	# Generate secure filename with user ID
 	secure_filename = generate_secure_filename(safe_filename, user_id)
-	
+
 	# Create user-specific upload directory
 	upload_dir = Path(upload_base_dir)
 	user_upload_dir = upload_dir / user_id
 	user_upload_dir.mkdir(parents=True, exist_ok=True)
-	
+
 	# Full file path
 	file_path = user_upload_dir / secure_filename
-	
+
 	return safe_filename, secure_filename, file_path
 
 def verify_saved_file_content(file_path: str, expected_type: str = "image") -> bool:
 	"""
 	Verify that saved file content matches expected type.
-	
+
 	Returns:
 		bool: True if content is valid, False otherwise
 	"""
@@ -73,8 +74,11 @@ def cleanup_file_on_error(file_path: Path):
 	"""
 	try:
 		if file_path.exists():
-			file_path.unlink()
-			logger.info(f"Cleaned up file: {file_path}")
+			if os.environ.get('DEV_MODE', 'false').lower() != 'true':
+				file_path.unlink()
+				logger.info(f"Cleaned up file: {file_path}")
+			else:
+				logger.info(f"DEV_MODE is on, skipping file cleanup: {file_path}")
 	except Exception as e:
 		logger.warning(f"Failed to cleanup file {file_path}: {str(e)}")
 

@@ -3,8 +3,6 @@ photo processing service
 """
 import asyncio
 import os
-os.environ["OPENCV_IMGCODECS_WEBP_MAX_FILE_SIZE"] = "209715200"  # 200MB
-
 import pathlib
 import json
 import logging
@@ -13,21 +11,28 @@ import shlex
 from typing import Optional, Dict, Any, List, Tuple
 from uuid import UUID
 from datetime import datetime, timezone
-
 import cv2
+import numpy as np
 from PIL import Image
 import httpx
-from blur import read_image, apply_blackout
+from blur import read_image, apply_blackout, normalize_to_srgb
 from throttle import Throttle
-
-
 from pydantic import BaseModel
-
 from common.security_utils import sanitize_filename, validate_file_path, check_file_content, validate_image_dimensions, SecurityValidationError, validate_user_id
-
 from common.cdn_uploader import cdn_uploader
 
+
 logger = logging.getLogger(__name__)
+
+os.environ["OPENCV_IMGCODECS_WEBP_MAX_FILE_SIZE"] = "209715200"  # 200MB
+
+PICS_URL = os.environ.get("PICS_URL")
+PARALLEL_PROCESSING_START_DELAY = float(os.environ.get("PARALLEL_PROCESSING_START_DELAY", 5))
+logger.info(f"PARALLEL_PROCESSING_START_DELAY={PARALLEL_PROCESSING_START_DELAY} seconds")
+
+LLM_VARIANT_SIZE = 640
+WEBP_QUALITY_SIZES = 97
+WEBP_QUALITY_DZI = 97
 
 
 class AnonymizationOverride(BaseModel):
@@ -150,12 +155,6 @@ def parse_exif_datetime(value) -> Optional[datetime]:
 	logger.warning(f"Could not parse DateTimeOriginal: {value}")
 	return None
 
-
-PICS_URL = os.environ.get("PICS_URL")
-PARALLEL_PROCESSING_START_DELAY = float(os.environ.get("PARALLEL_PROCESSING_START_DELAY", 5))
-logger.info(f"PARALLEL_PROCESSING_START_DELAY={PARALLEL_PROCESSING_START_DELAY} seconds")
-
-LLM_VARIANT_SIZE = 640
 
 throttle = Throttle('photo_processor')
 
@@ -428,6 +427,10 @@ class PhotoProcessor:
 					apply_blur(source_path, image, detections['objects'])
 
 
+			# Use actual image dimensions (may differ from EXIF width/height
+			# due to auto-rotation during pyvips loading)
+			height, width = image.shape[:2]
+
 			size_variants = ['full', 320, 640, 1024, 2048, 3072, 4096]
 
 			for size in size_variants:
@@ -459,7 +462,7 @@ class PhotoProcessor:
 				logger.debug(f"Resized image to {new_width}x{new_height} for size {size}")
 				new_image_rgb = cv2.cvtColor(new_image, cv2.COLOR_BGR2RGB)
 				logger.debug(f"Converted image to RGB color space for size {size}")
-				Image.fromarray(new_image_rgb).save(output_file_path, format='WEBP', quality=97, method=6)
+				Image.fromarray(new_image_rgb).save(output_file_path, format='WEBP', quality=WEBP_QUALITY_SIZES, method=6)
 				copy_exif_data(source_path, output_file_path)
 				logger.info(f"Created size {size} for {unique_id}: {new_width}x{new_height} at {output_file_path}")
 
@@ -476,15 +479,16 @@ class PhotoProcessor:
 		# Use original size if image is smaller than LLM_VARIANT_SIZE
 		llm_image = read_image(source_path)
 		apply_blackout(llm_image, detections.get("objects", []))
+		llm_h, llm_w = llm_image.shape[:2]
 
-		if width <= LLM_VARIANT_SIZE:
-			llm_width = width
-			llm_height = height
+		if llm_w <= LLM_VARIANT_SIZE:
+			llm_width = llm_w
+			llm_height = llm_h
 			llm_resized = llm_image
 		else:
-			llm_scale = LLM_VARIANT_SIZE / width
+			llm_scale = LLM_VARIANT_SIZE / llm_w
 			llm_width = LLM_VARIANT_SIZE
-			llm_height = int(height * llm_scale)
+			llm_height = int(llm_h * llm_scale)
 			llm_resized = cv2.resize(llm_image, (llm_width, llm_height), interpolation=cv2.INTER_AREA)
 
 		user_id_part, photo_id_part = unique_id.split('/', 1)
@@ -496,7 +500,7 @@ class PhotoProcessor:
 		os.makedirs(pathlib.Path(llm_output_path).parent, exist_ok=True)
 
 		llm_rgb = cv2.cvtColor(llm_resized, cv2.COLOR_BGR2RGB)
-		Image.fromarray(llm_rgb).save(llm_output_path, format='WEBP', quality=97, method=6)
+		Image.fromarray(llm_rgb).save(llm_output_path, format='WEBP', quality=WEBP_QUALITY_SIZES, method=6)
 		copy_exif_data(source_path, llm_output_path)
 		logger.info(f"Created 640_llm variant for {unique_id}: {llm_width}x{llm_height} at {llm_output_path}")
 
@@ -508,11 +512,11 @@ class PhotoProcessor:
 			'url': llm_url
 		}
 
-		# Generate DZI pyramid from the full-resolution (anonymized) image
+		# Generate DZI pyramid from the anonymized image (not the original source)
 		# Store metadata inline in sizes['full']['pyramid'] so the client can
 		# initialise OpenSeadragon without an extra round-trip for the .dzi file.
 		if 'full' in sizes_info:
-			pyramid = await self.generate_dzi_pyramid(source_path, unique_id, width, height, photo_id, client_signature)
+			pyramid = await self.generate_dzi_pyramid(image, unique_id, photo_id, client_signature)
 			if pyramid:
 				sizes_info['full']['pyramid'] = pyramid
 
@@ -520,8 +524,11 @@ class PhotoProcessor:
 
 
 
-	async def generate_dzi_pyramid(self, source_path: str, unique_id: str, width: int, height: int, photo_id: str = None, client_signature: str = None) -> Optional[Dict[str, Any]]:
-		"""Generate a DZI (Deep Zoom Image) pyramid using vips and upload the tiles.
+	async def generate_dzi_pyramid(self, image: np.ndarray, unique_id: str, photo_id: str = None, client_signature: str = None) -> Optional[Dict[str, Any]]:
+		"""Generate a DZI (Deep Zoom Image) pyramid from an anonymized image.
+
+		Args:
+			image: Anonymized image as a numpy BGR array (already sRGB 8-bit).
 
 		Returns pyramid metadata dict for inline use by OpenSeadragon, or None if generation fails.
 		The metadata allows the client to open the deep-zoom viewer without a separate .dzi fetch.
@@ -543,21 +550,13 @@ class PhotoProcessor:
 			tile_size = 1024
 			overlap = 1
 
-			# Validate source path before passing to subprocess
-			validated_source = validate_file_path(source_path, "/app")
-
-			cmd = [
-				'vips', 'dzsave', validated_source, dzi_output_base,
-				'--tile-size', str(tile_size),
-				'--overlap', str(overlap),
-				'--suffix', '.webp[Q=85]',
-			]
-			logger.info(f"Generating DZI pyramid for {unique_id}: {shlex.join(cmd)}")
-			result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
-
-			if result.returncode != 0:
-				logger.warning(f"DZI generation failed for {unique_id}: {result.stderr}")
-				return None
+			import pyvips
+			# Convert BGR numpy array to pyvips RGB image
+			h, w = image.shape[:2]
+			logger.info(f"Generating DZI pyramid for {unique_id} from anonymized image ({w}x{h})")
+			rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+			img = pyvips.Image.new_from_memory(rgb.data, w, h, 3, 'uchar')
+			img.dzsave(dzi_output_base, tile_size=tile_size, overlap=overlap, suffix=f'.webp[Q={WEBP_QUALITY_DZI}]')
 
 			logger.info(f"DZI generated for {unique_id}, uploading files")
 
@@ -592,8 +591,8 @@ class PhotoProcessor:
 				'tile_size': tile_size,
 				'overlap': overlap,
 				'format': 'webp',
-				'width': width,
-				'height': height,
+				'width': w,
+				'height': h,
 			}
 
 		except Exception as e:

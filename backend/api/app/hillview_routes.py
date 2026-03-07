@@ -100,14 +100,15 @@ def apply_analysis_filters(query, filters: AnalysisFilters):
 		feature_conditions = [Photo.analysis['features'].contains([f]) for f in filters.features]
 		conditions.append(or_(*feature_conditions))
 
-	if filters.show_unanalyzed:
-		# Include photo if: no analysis OR all conditions pass
-		query = query.where(or_(
-			Photo.analysis.is_(None),
-			and_(*conditions)
-		))
-	else:
-		query = query.where(and_(*conditions))
+	if conditions:
+		if filters.show_unanalyzed:
+			# Include photo if: no analysis OR all conditions pass
+			query = query.where(or_(
+				Photo.analysis.is_(None),
+				and_(*conditions)
+			))
+		else:
+			query = query.where(and_(*conditions))
 
 	return query
 

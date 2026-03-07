@@ -4,12 +4,45 @@ import os
 import cv2
 import numpy as np
 import security_utils
+import pyvips
 
 from detections import TARGET_CLASSES
 
 
 # Predefined pretty hues (degrees): pink, coral, teal, lavender, mint, gold, sky blue, salmon
 PRETTY_HUES = [330, 15, 175, 270, 155, 45, 200, 5]
+
+
+def normalize_to_srgb(img):
+	"""Convert a pyvips image to sRGB 8-bit RGB (3 bands).
+
+	Handles:
+	- Alpha channel removal
+	- ICC profile-based color space conversion
+	- Linear light (gamma 1.0) to sRGB gamma correction for 16-bit images
+	  where the ICC profile is sRGB but the data is actually linear
+	  (common with panorama stitching software)
+	- 16→8 bit scaling
+	"""
+	if img.bands > 3:
+		img = img[:3]
+	# Try ICC transform for images with non-sRGB profiles
+	if img.get_typeof('icc-profile-data') != 0 and img.format != 'uchar':
+		try:
+			transformed = img.icc_transform('srgb')
+			# icc_transform is a no-op when input profile is already sRGB;
+			# detect this by checking if the format/interpretation changed
+			if transformed.format == 'uchar' or transformed.interpretation == 'srgb':
+				return transformed
+		except Exception:
+			pass
+	# For 16-bit images (typically linear light from stitching software),
+	# convert to float 0-1 and mark as scene-referred (linear) sRGB so
+	# colourspace applies the proper sRGB gamma curve.
+	if img.format == 'ushort':
+		img = (img.cast('float') / 65535.0).copy(interpretation='scrgb')
+	img = img.colourspace('srgb')
+	return img
 
 
 def read_image(source_path):
@@ -24,10 +57,24 @@ def read_image(source_path):
 		raise ValueError("Invalid image file path")
 
 	logging.info(f"Reading image: {source_path}")
-	image = cv2.imread(source_path)
-	if image is None:
-		logging.warning(f"Could not read image: {source_path}")
-		raise ValueError("Invalid image file content")
+
+	# Use pyvips for loading to correctly handle ICC profiles and 16-bit images.
+	# cv2.imread silently drops ICC profiles and crudely converts 16→8 bit,
+	# causing images with non-sRGB profiles (e.g. linear gamma from stitching
+	# software) to appear dark.
+
+	try:
+		img = pyvips.Image.new_from_file(source_path)
+		img = img.autorot()
+		img = normalize_to_srgb(img)
+		np_img = img.numpy()
+		image = cv2.cvtColor(np_img, cv2.COLOR_RGB2BGR)
+	except Exception as e:
+		logging.warning(f"pyvips load failed for {source_path}, falling back to cv2: {e}")
+		image = cv2.imread(source_path)
+		if image is None:
+			logging.warning(f"Could not read image: {source_path}")
+			raise ValueError("Invalid image file content")
 
 	# Validate image dimensions to prevent memory exhaustion
 	height, width = image.shape[:2]
@@ -92,11 +139,11 @@ def _draw_person(img, x1, y1, x2, y2, color, rng):
 
 	# arms — slight random angle
 	arm_y = body_top + (body_bot - body_top) // 3
-	arm_len = w // 3
+	arm_len = w / 3
 	arm_angle = int(rng.integers(-15, 16))
 	dy = int(arm_len * 0.3) + arm_angle
-	cv2.line(img, (cx, arm_y), (cx - arm_len, arm_y + dy), color, t)
-	cv2.line(img, (cx, arm_y), (cx + arm_len, arm_y - dy), color, t)
+	cv2.line(img, (cx, arm_y), (cx - int(arm_len), arm_y + dy), color, t)
+	cv2.line(img, (cx, arm_y), (cx + int(arm_len), arm_y - dy), color, t)
 
 	# legs
 	leg_len = h - (body_bot - y1)
