@@ -8,9 +8,13 @@ import {TAURI} from "$lib/tauri";
 
 function handleException(event: any)
 {
-	console.warn('UNCAUGHT ERROR:', event);
-	console.error(JSON.stringify(event, null, 2));
-	console.error('Stack trace:\n', event.error?.stack);
+	// Extract the actual Error from the Event wrapper.
+	// unhandledrejection → event.reason, error event → event.error
+	const error = event.reason ?? event.error ?? event.message ?? event;
+	console.warn('UNCAUGHT ERROR:', error);
+	if (error?.stack) {
+		console.error('Stack trace:\n', error.stack);
+	}
 }
 
 window?.addEventListener('unhandledrejection', handleException);

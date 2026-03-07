@@ -654,6 +654,111 @@ test.describe('Annotation Tests', () => {
     expect(annotations[0].body).toBe('enter-saved');
   });
 
+  // ── Label layout (canvas-rendered) ──
+
+  /**
+   * Read the resolved label draw commands exposed by the debug hook.
+   * Returns an empty array if labels haven't rendered yet.
+   */
+  async function getLabelCmds(page: Page) {
+    return page.evaluate(() => (window as any).__labelDebugCmds ?? []);
+  }
+
+  /**
+   * Wait until __labelDebugCmds has at least `count` entries.
+   * Labels are drawn on rAF after annotations sync, so we poll briefly.
+   */
+  async function waitForLabels(page: Page, count: number, timeoutMs = 5000) {
+    await page.waitForFunction(
+      (n) => ((window as any).__labelDebugCmds ?? []).length >= n,
+      count,
+      { timeout: timeoutMs },
+    );
+    return getLabelCmds(page);
+  }
+
+  test('labels appear for each annotation', async ({ page }) => {
+    await enterDrawMode(page);
+    await drawAnnotation(page, 'label-A', { x1: 0.2, y1: 0.2, x2: 0.4, y2: 0.4 });
+    await drawAnnotation(page, 'label-B', { x1: 0.6, y1: 0.6, x2: 0.8, y2: 0.8 });
+
+    const cmds = await waitForLabels(page, 2);
+    expect(cmds).toHaveLength(2);
+    const labels = cmds.map((c: any) => c.label).sort();
+    expect(labels).toEqual(['label-A', 'label-B']);
+  });
+
+  test('labels on same edge do not overlap', async ({ page }) => {
+    // Create 3 annotations near the left edge — all should assign to 'left'
+    await enterDrawMode(page);
+    await drawAnnotation(page, 'L1', { x1: 0.05, y1: 0.15, x2: 0.15, y2: 0.25 });
+    await drawAnnotation(page, 'L2', { x1: 0.05, y1: 0.35, x2: 0.15, y2: 0.45 });
+    await drawAnnotation(page, 'L3', { x1: 0.05, y1: 0.55, x2: 0.15, y2: 0.65 });
+
+    const cmds = await waitForLabels(page, 3);
+    expect(cmds).toHaveLength(3);
+
+    // All should be on the left edge
+    for (const cmd of cmds) {
+      expect(cmd.edge).toBe('left');
+    }
+
+    // Sort by vertical position and check no bounding-box overlaps
+    const sorted = [...cmds].sort((a: any, b: any) => a.ty - b.ty);
+    for (let i = 1; i < sorted.length; i++) {
+      const prev = sorted[i - 1];
+      const curr = sorted[i];
+      // Previous pill bottom must not exceed current pill top
+      expect(prev.ty + prev.pillH).toBeLessThanOrEqual(curr.ty);
+    }
+  });
+
+  test('labels stay within canvas bounds', async ({ page }) => {
+    // Annotations near corners to stress boundary clamping
+    await enterDrawMode(page);
+    await drawAnnotation(page, 'TL', { x1: 0.02, y1: 0.02, x2: 0.12, y2: 0.12 });
+    await drawAnnotation(page, 'BR', { x1: 0.88, y1: 0.88, x2: 0.98, y2: 0.98 });
+
+    const cmds = await waitForLabels(page, 2);
+    expect(cmds).toHaveLength(2);
+
+    // Read canvas dimensions
+    const dims = await page.evaluate(() => {
+      const c = document.querySelector('.osd-container canvas[style*="pointer-events:none"]') as HTMLCanvasElement | null;
+      return c ? { w: c.width, h: c.height } : null;
+    });
+    expect(dims).toBeTruthy();
+
+    for (const cmd of cmds) {
+      expect(cmd.tx).toBeGreaterThanOrEqual(0);
+      expect(cmd.ty).toBeGreaterThanOrEqual(0);
+      expect(cmd.tx + cmd.pillW).toBeLessThanOrEqual(dims!.w);
+      expect(cmd.ty + cmd.pillH).toBeLessThanOrEqual(dims!.h);
+    }
+  });
+
+  test('labels update after annotation is moved', async ({ page }) => {
+    // Create annotation on the left side → label should be on left edge
+    const regionLeft = { x1: 0.05, y1: 0.4, x2: 0.15, y2: 0.6 };
+    await enterDrawMode(page);
+    await drawAnnotation(page, 'mover', regionLeft);
+
+    let cmds = await waitForLabels(page, 1);
+    expect(cmds[0].edge).toBe('left');
+
+    // Move annotation to the right side
+    await enterEditMode(page);
+    await selectAnnotation(page, regionLeft);
+    await dragAnnotation(page, regionLeft, 0.7, 0);
+    await clickSave(page);
+
+    // Wait for label to re-render with updated position
+    await page.waitForTimeout(500);
+    cmds = await getLabelCmds(page);
+    expect(cmds).toHaveLength(1);
+    expect(cmds[0].edge).toBe('right');
+  });
+
   // ── Cleanup ──
 
   // No afterEach needed — beforeEach calls recreate-test-users which

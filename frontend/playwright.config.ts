@@ -2,11 +2,18 @@ import { defineConfig, devices } from '@playwright/test';
 
 /**
  * @see https://playwright.dev/docs/test-configuration
+ *
+ * IMPORTANT: Do not run multiple `npx playwright test` processes at the same
+ * time against the same backend. Many tests call recreate-test-users which
+ * wipes shared database state. Running concurrent processes causes 500 errors
+ * and login failures. Use a single `npx playwright test` invocation instead.
  */
 export default defineConfig({
   testDir: './tests-playwright',
   /* Global setup for database initialization */
   globalSetup: './tests-playwright/helpers/globalSetup.ts',
+  /* Global teardown to release cross-suite test lock */
+  globalTeardown: './tests-playwright/helpers/globalTeardown.ts',
   /* Run tests in series to avoid database conflicts */
   fullyParallel: false,
   /* Fail the build on CI if you accidentally left test.only in the source code. */

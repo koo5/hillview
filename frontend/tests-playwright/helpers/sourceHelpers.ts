@@ -32,7 +32,21 @@ export async function ensureSourceEnabled(page: Page, sourceName: string, enable
         // Click if we need to change the state
         if (isCurrentlyEnabled !== enabled) {
             await sourceButton.click();
-            await page.waitForTimeout(1000); // Allow state change to propagate
+            // Verify the button state actually changed
+            await sourceButton.evaluate((el: HTMLElement, shouldBeActive: boolean) => {
+                return new Promise<void>((resolve) => {
+                    const check = () => {
+                        if (el.classList.contains('active') === shouldBeActive) {
+                            resolve();
+                        } else {
+                            requestAnimationFrame(check);
+                        }
+                    };
+                    check();
+                });
+            }, enabled);
+            // Allow state change to propagate to photo worker
+            await page.waitForTimeout(2000);
             console.log(`🗺️ ${enabled ? 'Enabled' : 'Disabled'} ${sourceName} source`);
         } else {
             console.log(`🗺️ ${sourceName} source already ${enabled ? 'enabled' : 'disabled'}`);
@@ -84,15 +98,13 @@ export async function configureSources(page: Page, config: { [sourceName: string
  * @param page - Playwright page object
  * @param timeoutMs - Maximum time to wait in milliseconds (default: 10000)
  */
-export async function waitForSourceDataLoad(page: Page, timeoutMs: number = 10000): Promise<void> {
+export async function waitForSourceDataLoad(page: Page, timeoutMs: number = 15000): Promise<void> {
     console.log('🗺️ Waiting for source data to load...');
 
     try {
-        // Wait for photo worker to complete processing
+        // Wait for photo markers to appear on the map (set by the photo worker)
         await page.waitForFunction(() => {
-            // Look for console logs or DOM changes that indicate loading is complete
-            // This might need to be customized based on how the app signals completion
-            return window.performance.now() > 0; // Placeholder - replace with actual loading check
+            return document.querySelectorAll('.leaflet-marker-icon').length > 0;
         }, { timeout: timeoutMs });
 
         console.log('🗺️ Source data loading complete');

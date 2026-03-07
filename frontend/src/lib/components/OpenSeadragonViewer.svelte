@@ -257,70 +257,58 @@
 	// Fingerprint of last drawn state — skip redraw if nothing changed
 	let lastDrawFingerprint = '';
 
-	interface LabelDrawCmd {
-		label: string;
-		cx: number; cy: number;
-		lx: number; ly: number;
-	}
+	import { buildLabelCommands, resolveOverlaps, LABEL_PAD, type LabelInput } from '$lib/utils/labelLayout';
+
+	const LABEL_FONT = 'bold 12px system-ui,sans-serif';
 
 	function drawLabelsNow() {
 		if (!labelCanvas || !viewer?.viewport) return;
 		const W = labelCanvas.width;
 		const H = labelCanvas.height;
 
-		// Build draw commands and fingerprint in one pass
-		const cmds: LabelDrawCmd[] = [];
-		const fpParts: string[] = [];
-		const margin = 14;
+		const ctx = labelCanvas.getContext('2d');
+		if (!ctx) return;
+		ctx.font = LABEL_FONT;
 
+		// Convert image-space annotations to screen-space inputs
+		const inputs: LabelInput[] = [];
 		for (const { label, imgCx, imgCy } of parsedAnnotations) {
 			const vpPt = viewer.viewport.imageToViewportCoordinates(imgCx, imgCy);
 			const scPt = viewer.viewport.viewportToViewerElementCoordinates(vpPt);
 			const cx = Math.round(scPt.x);
 			const cy = Math.round(scPt.y);
-			if (cx < 0 || cx > W || cy < 0 || cy > H) continue;
-
-			const dLeft = cx;
-			const dRight = W - cx;
-			const dTop = cy;
-			const dBottom = H - cy;
-			const nearest = Math.min(dLeft, dRight, dTop, dBottom);
-			let lx = cx;
-			let ly = cy;
-			if (nearest === dLeft)       lx = margin;
-			else if (nearest === dRight) lx = W - margin;
-			else if (nearest === dTop)   ly = margin;
-			else                         ly = H - margin;
-
-			cmds.push({ label, cx, cy, lx, ly });
-			fpParts.push(`${cx},${cy},${lx},${ly}`);
+			const tw = ctx.measureText(label).width;
+			const pillW = tw + LABEL_PAD * 2;
+			inputs.push({ label, cx, cy, pillW });
 		}
 
-		const fp = fpParts.join('|');
+		const { cmds, fingerprint: fp } = buildLabelCommands(inputs, W, H, 14);
 		if (fp === lastDrawFingerprint) return;
 		lastDrawFingerprint = fp;
 
-		const ctx = labelCanvas.getContext('2d');
-		if (!ctx) return;
+		resolveOverlaps(cmds, W, H);
+
+		// Expose resolved label state for Playwright tests
+		if (typeof window !== 'undefined') {
+			(window as any).__labelDebugCmds = cmds;
+		}
+
 		ctx.clearRect(0, 0, W, H);
 
-		for (const { label, cx, cy, lx, ly } of cmds) {
-			// Leader line from centroid to label anchor
+		for (const { label, cx, cy, edge, tx, ty, pillW, pillH } of cmds) {
+			// Leader line from centroid to pill center (after overlap resolution)
+			const pillCx = tx + pillW / 2;
+			const pillCy = ty + pillH / 2;
 			ctx.beginPath();
 			ctx.moveTo(cx, cy);
-			ctx.lineTo(lx, ly);
+			ctx.lineTo(edge === 'left' || edge === 'right' ? tx + (edge === 'left' ? 0 : pillW) : pillCx,
+			           edge === 'top' || edge === 'bottom' ? ty + (edge === 'top' ? 0 : pillH) : pillCy);
 			ctx.strokeStyle = 'rgba(255,230,50,0.9)';
 			ctx.lineWidth = 1.5;
 			ctx.stroke();
 
 			// Label pill
-			ctx.font = 'bold 12px system-ui,sans-serif';
-			const tw = ctx.measureText(label).width;
-			const pad = 6;
-			const pillW = tw + pad * 2;
-			const pillH = 20;
-			const tx = lx > W / 2 ? lx - pillW : lx;
-			const ty = ly > H / 2 ? ly - pillH : ly;
+			ctx.font = LABEL_FONT;
 			ctx.fillStyle = 'rgba(0,0,0,0.75)';
 			ctx.beginPath();
 			if (typeof (ctx as any).roundRect === 'function') {
@@ -330,7 +318,7 @@
 			}
 			ctx.fill();
 			ctx.fillStyle = '#fff';
-			ctx.fillText(label, tx + pad, ty + pillH - 5);
+			ctx.fillText(label, tx + LABEL_PAD, ty + pillH - 5);
 		}
 	}
 
