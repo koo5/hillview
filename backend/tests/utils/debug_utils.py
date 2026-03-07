@@ -3,6 +3,7 @@
 Debug utilities using the centralized API client.
 """
 
+import os
 import sys
 import json
 import traceback
@@ -333,6 +334,11 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 					description, is_public=True, file_data=image_data,
 					captured_at=captured_at, version=version
 				)
+
+				# Allow overriding the server-supplied worker URL via env var
+				worker_url_override = os.getenv("WORKER_URL")
+				if worker_url_override:
+					auth_data["worker_url"] = worker_url_override
 
 				if auth_data.get("duplicate"):
 					tprint(f"  [{i+1}/{total}] {filename} ⏭ duplicate")
