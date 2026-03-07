@@ -12,8 +12,8 @@ import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
-from common.models import Photo, PhotoAnnotation, User
-from auth import get_current_active_user
+from common.models import Photo, PhotoAnnotation, User, HiddenUser
+from auth import get_current_active_user, get_current_user_optional
 
 logger = logging.getLogger(__name__)
 
@@ -54,9 +54,13 @@ def _serialize(ann: PhotoAnnotation, username: Optional[str] = None) -> Annotati
 
 
 @router.get("/photos/{photo_id}", response_model=List[AnnotationResponse])
-async def list_annotations(photo_id: str, db: AsyncSession = Depends(get_db)):
+async def list_annotations(
+    photo_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """Return all current (non-deleted) annotations for a photo."""
-    result = await db.execute(
+    query = (
         select(PhotoAnnotation, User.username)
         .join(User, PhotoAnnotation.user_id == User.id)
         .where(
@@ -68,6 +72,18 @@ async def list_annotations(photo_id: str, db: AsyncSession = Depends(get_db)):
         )
         .order_by(PhotoAnnotation.created_at)
     )
+
+    # Filter out annotations by users the current user has hidden
+    if current_user:
+        hidden_user_ids = select(HiddenUser.target_user_id).where(
+            and_(
+                HiddenUser.hiding_user_id == current_user.id,
+                HiddenUser.target_user_source == 'hillview',
+            )
+        )
+        query = query.where(PhotoAnnotation.user_id.notin_(hidden_user_ids))
+
+    result = await db.execute(query)
     rows = result.all()
     return [_serialize(ann, username) for ann, username in rows]
 
