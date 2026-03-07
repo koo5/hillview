@@ -52,6 +52,10 @@
 	let errorMessage = '';
 	let errorTimeout: ReturnType<typeof setTimeout> | null = null;
 
+	// Track the mobile keyboard height via the Visual Viewport API so the
+	// edit panel stays visible above it.
+	let keyboardOffset = 0;
+
 	// Edit session state — captured when edit panel opens, used for revert on Cancel
 	let originalW3cSnapshot: any = null;
 	let originalDbId: string | null = null;
@@ -405,9 +409,10 @@
 						mainItem.addHandler('fully-loaded-change', onLoaded);
 					}
 				},
-				error: () => {
+				error: (event: any) => {
 					// Main source failed — keep the fallback visible
 					console.warn('[OSD] Main tile source failed to load, keeping fallback');
+					throw new Error(`[OSD] addTiledImage error: ${event?.message || event?.source || JSON.stringify(event)}`);
 				},
 			});
 		});
@@ -416,6 +421,7 @@
 			console.error('[OSD] open-failed event:', event);
 			isLoading = false;
 			errorMessage = 'Failed to load image';
+			throw new Error(`[OSD] open-failed: ${event?.message || event?.source || JSON.stringify(event)}`);
 		});
 
 		// Mount Annotorious on the OSD viewer
@@ -427,7 +433,8 @@
 				fill: '#00ff00',
 				fillOpacity: 0.06,
 				stroke: '#00ff00',
-				strokeWidth: 1,
+				strokeWidth: 1.5,
+				strokeOpacity: 0.6,
 			},drawingMode: 'drag'
 		});
 
@@ -466,7 +473,7 @@
 				(annotation.body?.find((b: any) => b.purpose === 'commenting')?.value) ?? '';
 			// Park the annotation and open the edit panel so the user can type a label.
 			pendingNewAnnotation = annotation;
-			editBody = textBody;
+			editBody = textBody || '?';
 			// Synthesize an editingAnnotation so the panel renders.  It has no real
 			// DB id yet — saveEditBody checks pendingNewAnnotation to decide the path.
 			editingAnnotation = {
@@ -639,7 +646,19 @@
 		}
 	});
 
+	// Track mobile keyboard via Visual Viewport API
+	function onViewportResize() {
+		const vv = window.visualViewport;
+		if (vv) {
+			keyboardOffset = window.innerHeight - vv.height;
+		}
+	}
+	if (typeof window !== 'undefined' && window.visualViewport) {
+		window.visualViewport.addEventListener('resize', onViewportResize);
+	}
+
 	onDestroy(() => {
+		window.visualViewport?.removeEventListener('resize', onViewportResize);
 		resizeObserver?.disconnect();
 		viewer?.removeHandler('viewport-change', scheduleDrawLabels);
 		viewer?.removeHandler('update-viewport',  scheduleDrawLabels);
@@ -702,9 +721,9 @@
 		}
 		annotator?.setSelected?.();
 
-		// Re-enable drawing if we're still in draw mode (was paused for the panel)
-		if (annotationMode === 'draw' && annotator) {
-			annotator.setDrawingEnabled(true);
+		// After cancel on a new shape, return to view mode (one-shot draw).
+		if (wasCreate && annotationMode === 'draw') {
+			setAnnotationMode('view');
 		}
 	}
 
@@ -745,9 +764,9 @@
 			editBody = '';
 			originalW3cSnapshot = null;
 			originalDbId = null;
-			// Re-enable drawing if we're still in draw mode
+			// After saving a new shape, return to view mode (one-shot draw).
 			if (annotationMode === 'draw') {
-				annotator.setDrawingEnabled(true);
+				setAnnotationMode('view');
 			}
 			return;
 		}
@@ -847,15 +866,27 @@
 		}
 	}
 
-	function autofocus(node: HTMLElement) { node.focus(); }
+	function autofocus(node: HTMLElement) { node.focus(); (node as HTMLInputElement).select?.(); }
 
 	function handleKeydown(e: KeyboardEvent) {
+		// Don't handle shortcuts while typing in the edit panel input
+		const tag = (e.target as HTMLElement)?.tagName;
+		if (tag === 'INPUT' || tag === 'TEXTAREA') {
+			if (e.key === 'Escape') {
+				cancelEditBody();
+			}
+			return;
+		}
 		if (e.key === 'Escape') {
 			if (editingAnnotation) {
 				cancelEditBody();
 			} else {
 				onClose();
 			}
+		} else if (e.key === 'd' && isAuthenticated) {
+			setAnnotationMode(annotationMode === 'draw' ? 'view' : 'draw');
+		} else if (e.key === 'e' && isAuthenticated) {
+			setAnnotationMode(annotationMode === 'edit' ? 'view' : 'edit');
 		}
 	}
 </script>
@@ -903,7 +934,8 @@
 
 	<!-- Annotation body edit panel -->
 	{#if editingAnnotation}
-		<div class="edit-body-panel" data-testid="osd-edit-body-panel">
+		<div class="edit-body-panel" data-testid="osd-edit-body-panel"
+			style:bottom="{Math.max(16, keyboardOffset + 16)}px">
 			<label class="edit-body-label" for="edit-body-input">Label</label>
 			<input
 				id="edit-body-input"
@@ -932,7 +964,9 @@
 	<div bind:this={container} class="osd-container"></div>
 
 	<!-- Filename bar -->
-	<div class="filename-bar">{data.filename}</div>
+	{#if annotationMode === 'view'}
+		<div class="filename-bar">{data.filename}</div>
+	{/if}
 </div>
 
 <style>
@@ -943,6 +977,9 @@
 		z-index: 999999;
 		display: flex;
 		flex-direction: column;
+		/* Use dynamic viewport height so the overlay shrinks when the
+		   mobile keyboard is visible (supported in modern browsers). */
+		height: 100dvh;
 	}
 
 	.osd-container {
@@ -1053,7 +1090,7 @@
 
 	.edit-body-panel {
 		position: absolute;
-		bottom: 80px;
+		/* bottom is set via inline style (keyboardOffset-aware) */
 		left: 50%;
 		transform: translateX(-50%);
 		z-index: 10;
