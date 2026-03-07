@@ -2,13 +2,16 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { http, handleApiError } from '$lib/http';
+	import { auth } from '$lib/auth.svelte.js';
 	import { myGoto } from '$lib/navigation.svelte';
 	import { constructPhotoMapUrl, constructUserPhotosUrl } from '$lib/urlUtils';
+	import { UserX } from 'lucide-svelte';
 	import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';
 	import StandardBody from '$lib/components/StandardBody.svelte';
 	import Spinner from '$lib/components/Spinner.svelte';
 	import PhotoItem from '$lib/components/PhotoItem.svelte';
 	import LoadMoreButton from '$lib/components/LoadMoreButton.svelte';
+	import HideUserDialog from '$lib/components/HideUserDialog.svelte';
 
 	interface UsersPhotosItem {
 		id: string;
@@ -51,6 +54,10 @@
 	let nextCursor: string | null = null;
 	let hasMore = false;
 	let totalCount = 0;
+	let showHideUserDialog = false;
+
+	$: isAuthenticated = $auth.is_authenticated;
+	$: isOwnProfile = $auth.user?.id === userId;
 
 	// React to route parameter changes
 	$: userId = $page.params.id!;
@@ -122,6 +129,26 @@
 	title={user ? `${user.username}'s Photos (${totalCount})` : 'User Photos'}
 	showMenuButton={true}
 	fallbackHref="/users"
+>
+	<svelte:fragment slot="actions">
+		{#if isAuthenticated && user && !isOwnProfile}
+			<button
+				class="hide-user-btn"
+				onclick={() => showHideUserDialog = true}
+				title="Hide this user's photos"
+				data-testid="user-page-hide-user"
+			>
+				<UserX size={20} />
+			</button>
+		{/if}
+	</svelte:fragment>
+</StandardHeaderWithAlert>
+
+<HideUserDialog
+	bind:show={showHideUserDialog}
+	{userId}
+	username={user?.username ?? null}
+	userSource="hillview"
 />
 
 <StandardBody>
@@ -133,7 +160,7 @@
 	{:else if error}
 		<div class="error">
 			<p>Error loading user photos: {error}</p>
-			<button on:click={() => loadUserPhotos(true)} class="retry-button">
+			<button onclick={() => loadUserPhotos(true)} class="retry-button">
 				Try Again
 			</button>
 		</div>
@@ -166,6 +193,28 @@
 </StandardBody>
 
 <style>
+	.hide-user-btn {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 40px;
+		height: 40px;
+		padding: 0;
+		background: white;
+		color: #374151;
+		border: none;
+		border-radius: 50%;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+	}
+
+	.hide-user-btn:hover {
+		transform: scale(1.05);
+		box-shadow: 0 4px 8px rgba(0, 0, 0, 0.25);
+		color: #dc3545;
+	}
+
 	.loading-container {
 		display: flex;
 		flex-direction: column;

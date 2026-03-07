@@ -14,7 +14,7 @@
 
 	let autoUploadEnabled = false;
 	let autoUploadPromptEnabled = true;
-	let wifiOnly = true;
+	let wifiOnly = false;
 	let user: User | null = null;
 	let alert: { type: string, message: string } | null = null;
 

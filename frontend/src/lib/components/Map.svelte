@@ -36,6 +36,7 @@
 
 		bearingMode,
 		type BearingMode, updateBearing,
+		picks,
 	} from "$lib/mapState";
 	import {updateBearingWithPhoto} from "$lib/bearingTracking";
 	import {enableSourceForPhotoUid, sources} from "$lib/data.svelte.js";
@@ -271,6 +272,7 @@
 		if (photoUid) {
 			//console.log('🢄Photo parameter from URL:', photoUid);
 			enableSourceForPhotoUid(photoUid);
+			picks.set(new Set([photoUid])); // ensure culling grid keeps this photo
 			// Switch to view mode when opening a specific photo
 			app.update(a => ({...a, activity: 'view'}));
 		}

@@ -35,6 +35,10 @@ async function drawAnnotation(
 ) {
   // Ensure OSD viewer is open before interacting with canvas
   await expect(page.locator('[data-testid="osd-viewer-overlay"]')).toBeVisible({ timeout: 5000 });
+
+  // Draw mode is one-shot (turns off after each shape), so re-enter it
+  await enterDrawMode(page);
+
   const box = await canvasBox(page);
 
   const startX = box.x + box.width * region.x1;
@@ -122,14 +126,20 @@ async function closeViewer(page: Page) {
   await page.waitForTimeout(500);
 }
 
-/** Enter edit mode. */
+/** Enter edit mode (idempotent — won't toggle off if already active). */
 async function enterEditMode(page: Page) {
-  await page.click('[data-testid="osd-annotate-edit"]');
+  const btn = page.locator('[data-testid="osd-annotate-edit"]');
+  await btn.waitFor({ state: 'visible', timeout: 5000 });
+  const isActive = await btn.evaluate(el => el.classList.contains('active'));
+  if (!isActive) await btn.click();
 }
 
-/** Enter draw mode. */
+/** Enter draw mode (idempotent — won't toggle off if already active). */
 async function enterDrawMode(page: Page) {
-  await page.click('[data-testid="osd-annotate-draw"]');
+  const btn = page.locator('[data-testid="osd-annotate-draw"]');
+  await btn.waitFor({ state: 'visible', timeout: 5000 });
+  const isActive = await btn.evaluate(el => el.classList.contains('active'));
+  if (!isActive) await btn.click();
 }
 
 /** Select an annotation in edit mode and wait for panel. */
@@ -714,17 +724,17 @@ test.describe('Annotation Tests', () => {
   });
 
   test('labels stay within canvas bounds', async ({ page }) => {
-    // Annotations near corners to stress boundary clamping
+    // Annotations near edges but away from toolbar to stress boundary clamping
     await enterDrawMode(page);
-    await drawAnnotation(page, 'TL', { x1: 0.02, y1: 0.02, x2: 0.12, y2: 0.12 });
-    await drawAnnotation(page, 'BR', { x1: 0.88, y1: 0.88, x2: 0.98, y2: 0.98 });
+    await drawAnnotation(page, 'TL', { x1: 0.05, y1: 0.15, x2: 0.18, y2: 0.28 });
+    await drawAnnotation(page, 'BR', { x1: 0.82, y1: 0.72, x2: 0.95, y2: 0.85 });
 
     const cmds = await waitForLabels(page, 2);
     expect(cmds).toHaveLength(2);
 
     // Read canvas dimensions
     const dims = await page.evaluate(() => {
-      const c = document.querySelector('.osd-container canvas[style*="pointer-events:none"]') as HTMLCanvasElement | null;
+      const c = document.querySelector('[data-testid="osd-label-canvas"]') as HTMLCanvasElement | null;
       return c ? { w: c.width, h: c.height } : null;
     });
     expect(dims).toBeTruthy();

@@ -19,7 +19,7 @@ class PhotoUploadManager(private val context: Context) {
         val workManager = WorkManager.getInstance(context)
         val prefs = context.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
         val autoUploadEnabled = prefs.getBoolean("auto_upload_enabled", false)
-        val wifiOnly = prefs.getBoolean("wifi_only", true)
+        val wifiOnly = prefs.getBoolean("wifi_only", false)
 
         if (autoUploadEnabled) {
             // Manual retry button bypasses wifi-only constraint
