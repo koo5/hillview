@@ -1,7 +1,7 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { setupConsoleLogging } from './helpers/consoleLogging';
+
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -26,7 +26,7 @@ test.describe('Filters Modal', () => {
 	});
 
 	test.beforeEach(async ({ page }) => {
-		setupConsoleLogging(page);
+
 
 		// Login
 		await page.goto('/login');
@@ -229,7 +229,7 @@ test.describe('Filters with uploaded photos', () => {
 	}
 
 	test('applying a filter should hide unanalyzed photos on map', async ({ page }) => {
-		setupConsoleLogging(page);
+
 		await loginAndUploadPhoto(page);
 
 		// Go to map
@@ -262,7 +262,7 @@ test.describe('Filters with uploaded photos', () => {
 	});
 
 	test('disabling show-unanalyzed should hide unanalyzed photos', async ({ page }) => {
-		setupConsoleLogging(page);
+
 		await loginAndUploadPhoto(page);
 
 		// Go to map
@@ -296,7 +296,7 @@ test.describe('Filters with uploaded photos', () => {
 	});
 
 	test('re-enabling show-unanalyzed should bring photos back', async ({ page }) => {
-		setupConsoleLogging(page);
+
 		await loginAndUploadPhoto(page);
 
 		// Go to map

@@ -1,7 +1,7 @@
 import { test, expect } from './fixtures';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { setupConsoleLogging } from './helpers/consoleLogging';
+
 
 test.describe('Photo Upload Tests', () => {
   test.describe.configure({ mode: 'serial' });
@@ -18,9 +18,6 @@ test.describe('Photo Upload Tests', () => {
   ];
 
   test.beforeEach(async ({ page }) => {
-    // Setup console logging if enabled
-    setupConsoleLogging(page);
-
     // Clean up test users and photos before each test
     const response = await fetch('http://localhost:8055/api/debug/recreate-test-users', {
       method: 'POST'

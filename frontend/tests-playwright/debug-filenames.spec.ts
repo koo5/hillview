@@ -1,18 +1,10 @@
 import { test, expect } from './fixtures';
-import { createTestUsers, loginAsTestUser } from './helpers/testUsers';
+import { loginAsTestUser } from './helpers/testUsers';
 
 test.describe('Debug Filenames', () => {
-  let testPasswords: { test: string; admin: string; testuser: string };
-
-  test.beforeEach(async () => {
-    // Clean up and recreate test users before each test
-    const result = await createTestUsers();
-    testPasswords = result.passwords;
-  });
-
-  test('debug filenames', async ({ page }) => {
+  test('debug filenames', async ({ page, testUsers }) => {
     // Login first
-    await loginAsTestUser(page, testPasswords.test);
+    await loginAsTestUser(page, testUsers.passwords.test);
 
     // Go to photos page
     await page.goto('/photos');

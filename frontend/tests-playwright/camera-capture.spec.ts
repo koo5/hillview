@@ -1,14 +1,12 @@
 import { test, expect } from './fixtures';
-import { createTestUsers, loginAsTestUser } from './helpers/testUsers';
-import { setupConsoleLogging } from './helpers/consoleLogging';
+import { loginAsTestUser } from './helpers/testUsers';
+
 import { getPhotoCount, waitForPhotoCount, getLatestPhoto } from './helpers/indexedDbPhotos';
 
 // Camera capture only works with Chromium's fake device support
 test.describe('Camera Capture', () => {
-	test.beforeEach(async ({ page, browserName }) => {
+	test.beforeEach(async ({ page, browserName, testUsers }) => {
 		test.skip(browserName !== 'chromium', 'Fake camera only works in Chromium');
-
-		setupConsoleLogging(page);
 
 		// Pre-seed localStorage so camera button is visible (needs debug_enabled)
 		// and location data is available for capture
@@ -32,9 +30,7 @@ test.describe('Camera Capture', () => {
 			}));
 		});
 
-		// Create test users
-		const result = await createTestUsers();
-		await loginAsTestUser(page, result.passwords.test);
+		await loginAsTestUser(page, testUsers.passwords.test);
 		await page.waitForLoadState('networkidle');
 	});
 

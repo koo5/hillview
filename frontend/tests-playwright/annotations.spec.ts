@@ -1,5 +1,5 @@
-import { test, expect } from '@playwright/test';
-import { setupConsoleLogging } from './helpers/consoleLogging';
+import { test, expect } from './fixtures';
+
 import { uploadPhoto, testPhotos } from './helpers/photoUpload';
 import { ensureSourceEnabled } from './helpers/sourceHelpers';
 
@@ -190,7 +190,6 @@ test.describe('Annotation Tests', () => {
   let photoId: string;
 
   test.beforeEach(async ({ page }) => {
-    setupConsoleLogging(page);
 
     // Recreate test users (also cleans photos)
     const res = await fetch(`${BACKEND_URL}/api/debug/recreate-test-users`, { method: 'POST' });

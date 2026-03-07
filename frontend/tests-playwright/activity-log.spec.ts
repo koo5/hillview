@@ -1,19 +1,11 @@
 import { test, expect } from './fixtures';
 import { uploadPhoto } from './helpers/photoUpload';
-import { createTestUsers, loginAsTestUser } from './helpers/testUsers';
+import { loginAsTestUser } from './helpers/testUsers';
 
 test.describe('Activity Log', () => {
-  let testPasswords: { test: string; admin: string; testuser: string };
-
-  test.beforeEach(async () => {
-    // Clean up and recreate test users before each test
-    const result = await createTestUsers();
-    testPasswords = result.passwords;
-  });
-
-  test('Activity log should show upload activities', async ({ page }) => {
+  test('Activity log should show upload activities', async ({ page, testUsers }) => {
     // Login with test user
-    await loginAsTestUser(page, testPasswords.test);
+    await loginAsTestUser(page, testUsers.passwords.test);
 
     // Upload a photo using the shared helper (handles license checkbox)
     await uploadPhoto(page, '2025-07-10-19-10-37_🔶∏🗿↻🌞🌲.jpg');

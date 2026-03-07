@@ -1,15 +1,8 @@
 import { test, expect } from './fixtures';
 import { uploadTestPhotosWithLocation } from './helpers/photoUpload';
-import { createTestUsers, loginAsTestUser } from './helpers/testUsers';
+import { loginAsTestUser } from './helpers/testUsers';
 
 test.describe('Users Pages and Navigation', () => {
-  let testPasswords: { test: string; admin: string; testuser: string };
-
-  test.beforeEach(async () => {
-    // Clean up and recreate test users before each test
-    const result = await createTestUsers();
-    testPasswords = result.passwords;
-  });
 
   test('should load users list page and display user cards', async ({ page }) => {
     await page.goto('/users');
@@ -63,9 +56,9 @@ test.describe('Users Pages and Navigation', () => {
     }
   });
 
-  test('should navigate from activity page usernames to user pages', async ({ page }) => {
+  test('should navigate from activity page usernames to user pages', async ({ page, testUsers }) => {
     // Login first
-    await loginAsTestUser(page, testPasswords.test);
+    await loginAsTestUser(page, testUsers.passwords.test);
 
     // Navigate to activity page
     await page.goto('/activity');
@@ -80,9 +73,9 @@ test.describe('Users Pages and Navigation', () => {
     }
   });
 
-  test('should make photos clickable to navigate to map', async ({ page }) => {
+  test('should make photos clickable to navigate to map', async ({ page, testUsers }) => {
     // Login and ensure we have some photos
-    await loginAsTestUser(page, testPasswords.test);
+    await loginAsTestUser(page, testUsers.passwords.test);
 
     // Upload some test photos with location data for the test user
     await uploadTestPhotosWithLocation(page, 2);

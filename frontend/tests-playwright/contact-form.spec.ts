@@ -1,19 +1,11 @@
 import { test, expect } from './fixtures';
-import { createTestUsers, loginAsTestUser } from './helpers/testUsers';
+import { loginAsTestUser } from './helpers/testUsers';
 import { callAdminAPI } from './helpers/adminAuth';
 
 test.describe('Contact Form', () => {
-  let testPasswords: { test: string; admin: string; testuser: string };
-
-  test.beforeEach(async () => {
-    // Clean up and recreate test users before each test
-    const result = await createTestUsers();
-    testPasswords = result.passwords;
-  });
-
-  test('should submit contact form as logged-in user and verify via admin endpoint', async ({ page }) => {
+  test('should submit contact form as logged-in user and verify via admin endpoint', async ({ page, testUsers }) => {
     // Login as test user
-    await loginAsTestUser(page, testPasswords.test);
+    await loginAsTestUser(page, testUsers.passwords.test);
 
     // Give auth state time to settle after login
     await page.waitForTimeout(1000);
@@ -51,7 +43,7 @@ test.describe('Contact Form', () => {
     await expect(page.locator('text=Thank you for contacting us')).toBeVisible();
 
     // Now verify the message was stored correctly via admin endpoint
-    const adminResponse = await callAdminAPI('/api/admin/contact/messages', testPasswords.admin);
+    const adminResponse = await callAdminAPI('/api/admin/contact/messages', testUsers.passwords.admin);
     const adminData = await adminResponse.json();
 
     expect(adminResponse.status).toBe(200);
@@ -79,7 +71,7 @@ test.describe('Contact Form', () => {
     });
   });
 
-  test('should submit contact form as guest user', async ({ page }) => {
+  test('should submit contact form as guest user', async ({ page, testUsers }) => {
     // Don't login - test as guest
     await page.goto('/contact');
     await page.waitForLoadState('networkidle');
@@ -103,7 +95,7 @@ test.describe('Contact Form', () => {
     await expect(page.locator('text=Thank you for contacting us')).toBeVisible();
 
     // Verify message via admin API
-    const adminResponse = await callAdminAPI('/api/admin/contact/messages', testPasswords.admin);
+    const adminResponse = await callAdminAPI('/api/admin/contact/messages', testUsers.passwords.admin);
     const adminData = await adminResponse.json();
 
     expect(adminResponse.status).toBe(200);

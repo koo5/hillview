@@ -1,6 +1,6 @@
 import { test, expect } from './fixtures';
-import { createTestUsers, loginAsTestUser } from './helpers/testUsers';
-import { setupConsoleLogging } from './helpers/consoleLogging';
+import { loginAsTestUser } from './helpers/testUsers';
+
 import {
 	getPhotoCount,
 	waitForPhotoCount,
@@ -35,20 +35,12 @@ function addCameraInitScript(page: any) {
 test.describe('Browser Capture → Upload', () => {
 	test.describe.configure({ mode: 'serial' });
 
-	let testPasswords: any;
-
-	test.beforeAll(async () => {
-		const result = await createTestUsers();
-		testPasswords = result.passwords;
-	});
-
 	test.beforeEach(async ({ page, browserName }) => {
 		test.skip(browserName !== 'chromium', 'Fake camera only works in Chromium');
-		setupConsoleLogging(page);
 		await addCameraInitScript(page);
 	});
 
-	test('capture photo before login, login triggers auto-upload, photo appears on server', async ({ page }) => {
+	test('capture photo before login, login triggers auto-upload, photo appears on server', async ({ page, testUsers }) => {
 		// Navigate to main page (not logged in)
 		await page.goto('/');
 		await page.waitForLoadState('networkidle');
@@ -84,7 +76,7 @@ test.describe('Browser Capture → Upload', () => {
 		await cameraButton.click({ force: true });
 
 		// Login — this triggers triggerPhotoSync() via auth subscription in captureQueue.ts
-		await loginAsTestUser(page, testPasswords.test);
+		await loginAsTestUser(page, testUsers.passwords.test);
 		await page.waitForLoadState('networkidle');
 
 		// Debug: check photo status and console for upload activity
@@ -119,12 +111,12 @@ test.describe('Browser Capture → Upload', () => {
 		await expect(ourPhoto.first()).toBeVisible({ timeout: 10000 });
 	});
 
-	test('subsequent photo after login uploads automatically', async ({ page }) => {
+	test('subsequent photo after login uploads automatically', async ({ page, testUsers }) => {
 		// Clean slate: clear server photos from test 1
 		await fetch('http://localhost:8055/api/debug/recreate-test-users', { method: 'POST' });
 
 		// Login first
-		await loginAsTestUser(page, testPasswords.test);
+		await loginAsTestUser(page, testUsers.passwords.test);
 		await page.goto('/');
 		await page.waitForLoadState('networkidle');
 
