@@ -107,7 +107,7 @@ services:
       - uploads:/app/uploads
       # - pics:/app/pics
     environment:
-      - MAGICK_TEMPORARY_PATH=/app/worker/tmp/
+      #- MAGICK_TEMPORARY_PATH=/app/worker/tmp/
       - UPLOAD_DIR=/app/uploads
       #- PICS_DIR=/app/pics
       - PICS_URL=${PICS_URL:-}
