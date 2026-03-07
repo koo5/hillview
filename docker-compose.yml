@@ -107,12 +107,13 @@ services:
       - uploads:/app/uploads
       # - pics:/app/pics
     environment:
+      - MAGICK_TEMPORARY_PATH=/app/worker/tmp/
       - UPLOAD_DIR=/app/uploads
       #- PICS_DIR=/app/pics
       - PICS_URL=${PICS_URL:-}
-      - WORKER_PORT=8056
-      - WORKER_HOST=0.0.0.0
-      - API_URL=http://localhost:8055/api
+      - WORKER_PORT=${WORKER_PORT:-8056}
+      - WORKER_HOST=0.0.0.0 # not used
+      - API_URL=${API_URL:-http://localhost:8055/api}
       - DEV_MODE=${DEV_MODE:-}
       - BUCKET_NAME=${BUCKET_NAME:-}
       - CDN_BASE_URL=${CDN_BASE_URL:-}
