@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures';
-import { loginAsTestUser } from './helpers/testUsers';
+import { createTestUsers, loginAsTestUser } from './helpers/testUsers';
 
 import { uploadPhoto, testPhotos } from './helpers/photoUpload';
 import { ensureSourceEnabled } from './helpers/sourceHelpers';
@@ -67,6 +67,11 @@ async function goToOtherUserProfile(page: any): Promise<string> {
 }
 
 test.describe('Hide User', () => {
+	// Tests hide/unhide users — need per-test isolation
+	test.beforeEach(async () => {
+		await createTestUsers();
+	});
+
 	test('user profile page shows hide button when authenticated', async ({ page, testUsers }) => {
 		await loginAsTestUser(page, testUsers.passwords.test);
 		await goToOtherUserProfile(page);
@@ -355,6 +360,11 @@ const hideVariants: HideVariant[] = [
 ];
 
 test.describe('Hide User - Full Flow', () => {
+	// Each variant uploads photos + hides users — need per-test isolation
+	test.beforeEach(async () => {
+		await createTestUsers();
+	});
+
 	for (const variant of hideVariants) {
 		test(`${variant.name}: upload → hide → verify photo gone → reload → verify still gone`, async ({ page, testUsers }) => {
 			// Step 1: Login as 'test' (target) and upload a geotagged photo

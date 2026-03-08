@@ -11,7 +11,7 @@
  */
 
 import { test, expect } from './fixtures';
-import { loginAsTestUser } from './helpers/testUsers';
+import { createTestUsers, loginAsTestUser } from './helpers/testUsers';
 
 import {
 	waitForPhotoCount,
@@ -59,8 +59,10 @@ async function getFgSyncHistory(page: any): Promise<any[]> {
 test.describe('Sync Status Reporting', () => {
 	test.describe.configure({ mode: 'serial' });
 
+	// Each test captures + uploads — need per-test isolation
 	test.beforeEach(async ({ page, browserName }) => {
 		test.skip(browserName !== 'chromium', 'Fake camera only works in Chromium');
+		await createTestUsers();
 		await addCameraInitScript(page);
 	});
 

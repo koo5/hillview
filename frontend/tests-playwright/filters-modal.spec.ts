@@ -180,17 +180,14 @@ test.describe('Filters Modal', () => {
 test.describe('Filters with uploaded photos', () => {
 	test.describe.configure({ mode: 'serial' });
 
-	let testPassword: string;
-
-	test.beforeAll(async () => {
+	// Each test uploads photos — need per-test isolation
+	test.beforeEach(async () => {
 		const response = await fetch('http://localhost:8055/api/debug/recreate-test-users', {
 			method: 'POST'
 		});
 		const result = await response.json();
-		testPassword = result.details?.user_passwords?.test;
-		if (!testPassword) {
-			throw new Error('Test user password not returned from recreate-test-users');
-		}
+		const pw = result.details?.user_passwords?.test;
+		if (!pw) throw new Error('Test user password not returned from recreate-test-users');
 	});
 
 	async function loginAndUploadPhoto(page: import('@playwright/test').Page) {

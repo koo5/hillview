@@ -1,7 +1,7 @@
 import { test, expect } from './fixtures';
 import { configureSources } from './helpers/sourceHelpers';
 import { uploadTestPhotosWithLocation } from './helpers/photoUpload';
-import { loginAsTestUser } from './helpers/testUsers';
+import { createTestUsers, loginAsTestUser } from './helpers/testUsers';
 
 // Helper to filter expected errors (image loading, network errors for mock data)
 function isUnexpectedError(text: string): boolean {
@@ -144,6 +144,11 @@ test.describe('Photo UID Functionality', () => {
   });
 
   test.describe('Photo UID in Sharing URLs', () => {
+    // Tests upload photos — need per-test isolation
+    test.beforeEach(async () => {
+      await createTestUsers();
+    });
+
     test('should include photo uid in constructed share URLs', async ({ page, testUsers }) => {
       // Login and upload a test photo
       await loginAsTestUser(page, testUsers.passwords.test);
@@ -205,6 +210,11 @@ test.describe('Photo UID Functionality', () => {
   });
 
   test.describe('Cross-Route Photo UID Navigation', () => {
+    // One test uploads photos — need per-test isolation
+    test.beforeEach(async () => {
+      await createTestUsers();
+    });
+
     test('should handle photo uid navigation on activity page', async ({ page }) => {
       const errors: string[] = [];
       page.on('console', (msg) => {

@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures';
-import { loginAsTestUser } from './helpers/testUsers';
+import { createTestUsers, loginAsTestUser } from './helpers/testUsers';
 
 import {
 	getPhotoCount,
@@ -35,8 +35,10 @@ function addCameraInitScript(page: any) {
 test.describe('Browser Capture → Upload', () => {
 	test.describe.configure({ mode: 'serial' });
 
+	// Each test captures + uploads — need per-test isolation
 	test.beforeEach(async ({ page, browserName }) => {
 		test.skip(browserName !== 'chromium', 'Fake camera only works in Chromium');
+		await createTestUsers();
 		await addCameraInitScript(page);
 	});
 
