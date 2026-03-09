@@ -37,8 +37,6 @@
 
     // Expose show/hide dialog state to parent
     export let showHideUserDialog = false;
-    export let hideUserReason = '';
-    export let flagUserForReview = false;
 
     // Menu state
     let isMenuOpen = false;
@@ -144,8 +142,6 @@
         if (!photo || !is_authenticated) return;
 
         showHideUserDialog = true;
-        hideUserReason = '';
-        flagUserForReview = false;
         closeMenu();
     }
 

@@ -15,7 +15,7 @@ export interface Settings {
 export const settingsDefaults: Settings = {
 	auto_upload_enabled: false,
 	auto_upload_prompt_enabled: true,
-	wifi_only: true,
+	wifi_only: false,
 	landscape_armor22_workaround: false
 };
 

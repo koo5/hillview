@@ -2271,7 +2271,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 					val result = JSObject()
 					result.put("auto_upload_enabled", uploadPrefs.getBoolean("auto_upload_enabled", false))
 					result.put("auto_upload_prompt_enabled", uploadPrefs.getBoolean("auto_upload_prompt_enabled", true))
-					result.put("wifi_only", uploadPrefs.getBoolean("wifi_only", true))
+					result.put("wifi_only", uploadPrefs.getBoolean("wifi_only", false))
 					result.put("landscape_armor22_workaround", compassPrefs.getBoolean("landscape_armor22_workaround", false))
 					invoke.resolve(result)
 					return
@@ -2282,7 +2282,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 					val compassPrefs = activity.getSharedPreferences("hillview_compass_prefs", Context.MODE_PRIVATE)
 
 					val autoUploadEnabled = params.getBoolean("auto_upload_enabled") ?: false
-					val wifiOnly = params.getBoolean("wifi_only") ?: true
+					val wifiOnly = params.getBoolean("wifi_only") ?: false
 
 					uploadPrefs.edit()
 						.putBoolean("auto_upload_enabled", autoUploadEnabled)

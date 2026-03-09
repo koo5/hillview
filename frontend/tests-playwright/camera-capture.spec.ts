@@ -1,14 +1,12 @@
 import { test, expect } from './fixtures';
-import { createTestUsers, loginAsTestUser } from './helpers/testUsers';
-import { setupConsoleLogging } from './helpers/consoleLogging';
+import { loginAsTestUser } from './helpers/testUsers';
 import { getPhotoCount, waitForPhotoCount, getLatestPhoto } from './helpers/indexedDbPhotos';
+import { configureAutoUploadFromPrompt } from './helpers/autoUpload';
 
 // Camera capture only works with Chromium's fake device support
 test.describe('Camera Capture', () => {
-	test.beforeEach(async ({ page, browserName }) => {
+	test.beforeEach(async ({ page, browserName, testUsers }) => {
 		test.skip(browserName !== 'chromium', 'Fake camera only works in Chromium');
-
-		setupConsoleLogging(page);
 
 		// Pre-seed localStorage so camera button is visible (needs debug_enabled)
 		// and location data is available for capture
@@ -32,9 +30,7 @@ test.describe('Camera Capture', () => {
 			}));
 		});
 
-		// Create test users
-		const result = await createTestUsers();
-		await loginAsTestUser(page, result.passwords.test);
+		await loginAsTestUser(page, testUsers.passwords.test);
 		await page.waitForLoadState('networkidle');
 	});
 
@@ -87,14 +83,7 @@ test.describe('Camera Capture', () => {
 		expect(photo2!.id).not.toBe(photo1!.id);
 
 		// --- Auto-upload prompt should appear (user not configured auto-upload) ---
-		const autoUploadPrompt = page.locator('[data-testid="auto-upload-prompt"]');
-		await autoUploadPrompt.waitFor({ state: 'visible', timeout: 15000 });
-
-		// Click the green "Configure auto-upload" button
-		const configureBtn = page.locator('[data-testid="configure-auto-upload"]');
-		await configureBtn.click();
-
-		// Should navigate to upload settings page
-		await page.waitForURL('**/settings/upload', { timeout: 10000 });
+		// Walk through: prompt → settings/upload → license → enable
+		await configureAutoUploadFromPrompt(page);
 	});
 });

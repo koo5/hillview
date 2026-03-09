@@ -100,13 +100,13 @@
     <div bind:clientWidth bind:this={photoContainer} class="photo-container" use:swipe2d={swipeOptions}>
         <!-- Navigation buttons on sides -->
         {#if $photoToLeft}
-            <button class="nav-button nav-left" on:click={() => handleSwipe('left')} title="Previous photo">
+            <button class="nav-button nav-left" on:click={() => handleSwipe('left')} title="Previous photo" data-testid="gallery-nav-left">
                 <PhotoMarkerIcon bearing={-90} />
             </button>
         {/if}
 
         {#if $photoToRight}
-            <button class="nav-button nav-right" on:click={() => handleSwipe('right')} title="Next photo">
+            <button class="nav-button nav-right" on:click={() => handleSwipe('right')} title="Next photo" data-testid="gallery-nav-right">
                 <PhotoMarkerIcon bearing={90} />
             </button>
         {/if}

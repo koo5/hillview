@@ -198,8 +198,6 @@
 <slot/>
 <AuthStatusWatcher/>
 <DropdownMenu/>
-{#if $zoomViewData }
-	<ZoomView/>
-{/if}
+<ZoomView/>
 <InsetGradients />
 

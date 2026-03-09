@@ -96,6 +96,7 @@ RUN    sed -i "s/<policy domain=\"resource\" name=\"memory\" value=\"[^\"]*\"/<p
     && sed -i "s/<policy domain=\"resource\" name=\"area\" value=\"[^\"]*\"/<policy domain=\"resource\" name=\"area\" value=\"${MAGICK_AREA_LIMIT}\"/" /etc/ImageMagick-7/policy.xml
 
 
+RUN chmod a=rwx,o+t /tmp
 
 USER worker
 RUN chmod +x /app/worker/start*.sh

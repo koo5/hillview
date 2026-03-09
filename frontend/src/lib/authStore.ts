@@ -9,6 +9,7 @@ export interface User {
 
 export interface AuthState {
     is_authenticated: boolean;
+    checked: boolean;
     user: User | null;
     refresh_status: 'idle' | 'refreshing' | 'retrying' | 'failed';
     refresh_attempt?: number;
@@ -17,6 +18,7 @@ export interface AuthState {
 // Create the auth store
 export const auth = writable<AuthState>({
     is_authenticated: false,
+    checked: false,
     user: null,
     refresh_status: 'idle',
     refresh_attempt: undefined

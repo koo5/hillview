@@ -1,16 +1,8 @@
 import { test, expect } from './fixtures';
-import { createTestUsers, loginAsTestUser } from './helpers/testUsers';
+import { loginAsTestUser } from './helpers/testUsers';
 
 test.describe('Debug Login', () => {
-  let testPasswords: { test: string; admin: string; testuser: string };
-
-  test.beforeEach(async () => {
-    // Clean up and recreate test users before each test
-    const result = await createTestUsers();
-    testPasswords = result.passwords;
-  });
-
-  test('debug login', async ({ page }) => {
+  test('debug login', async ({ page, testUsers }) => {
     // Navigate to login page
     await page.goto('/login');
     await page.waitForLoadState('networkidle');
@@ -29,7 +21,7 @@ test.describe('Debug Login', () => {
 
     // Fill form
     await usernameInput.fill('test');
-    await passwordInput.fill(testPasswords.test);
+    await passwordInput.fill(testUsers.passwords.test);
 
     console.log('🢄Username value:', await usernameInput.inputValue());
     console.log('🢄Password value:', await passwordInput.inputValue());

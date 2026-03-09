@@ -1,12 +1,10 @@
-import { test, expect } from '@playwright/test';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import { setupConsoleLogging } from './helpers/consoleLogging';
+import { test, expect } from './fixtures';
+import { loginAsTestUser } from './helpers/testUsers';
+import { uploadPhoto, testPhotos } from './helpers/photoUpload';
+import { ensureSourceEnabled } from './helpers/sourceHelpers';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const testAssetsDir = path.join(__dirname, '..', 'test-assets');
-const testPhoto = '2025-07-10-19-10-37_🔶∏🗿↻🌞🌲.jpg';
+// GPS location of the test photos
+const TEST_PHOTO_MAP_URL = '/?lat=50.1153&lon=14.4938&zoom=18';
 
 test.describe('Filters Modal', () => {
 	test.describe.configure({ mode: 'serial' });
@@ -26,7 +24,7 @@ test.describe('Filters Modal', () => {
 	});
 
 	test.beforeEach(async ({ page }) => {
-		setupConsoleLogging(page);
+
 
 		// Login
 		await page.goto('/login');
@@ -180,61 +178,26 @@ test.describe('Filters Modal', () => {
 test.describe('Filters with uploaded photos', () => {
 	test.describe.configure({ mode: 'serial' });
 
-	let testPassword: string;
-
-	test.beforeAll(async () => {
+	// Each test uploads photos — need per-test isolation
+	test.beforeEach(async () => {
 		const response = await fetch('http://localhost:8055/api/debug/recreate-test-users', {
 			method: 'POST'
 		});
 		const result = await response.json();
-		testPassword = result.details?.user_passwords?.test;
-		if (!testPassword) {
-			throw new Error('Test user password not returned from recreate-test-users');
-		}
+		const pw = result.details?.user_passwords?.test;
+		if (!pw) throw new Error('Test user password not returned from recreate-test-users');
 	});
 
-	async function loginAndUploadPhoto(page: import('@playwright/test').Page) {
-		// Login
-		await page.goto('/login');
-		await page.waitForLoadState('networkidle');
-		await page.fill('input[type="text"]', 'test');
-		await page.fill('input[type="password"]', testPassword);
-		await page.click('button[type="submit"]');
-		await page.waitForURL('/', { timeout: 15000 });
-		await page.waitForLoadState('networkidle');
+	test('applying a filter should hide unanalyzed photos on map', async ({ page, testUsers }) => {
 
-		// Clear filters
+		await loginAsTestUser(page, testUsers.passwords.test);
 		await page.evaluate(() => localStorage.removeItem('hillview_filters'));
+		await uploadPhoto(page, testPhotos[0]);
 
-		// Upload a test photo
-		await page.goto('/photos');
-		await page.waitForLoadState('networkidle');
-
-		const photoPath = path.join(testAssetsDir, testPhoto);
-		await page.locator('[data-testid="photo-file-input"]').setInputFiles(photoPath);
-
-		const licenseCheckbox = page.locator('[data-testid="license-checkbox"]');
-		if (!await licenseCheckbox.isChecked()) {
-			await licenseCheckbox.check();
-		}
-
-		await expect(page.locator('[data-testid="upload-submit-button"]')).toBeEnabled({ timeout: 10000 });
-		await page.locator('[data-testid="upload-submit-button"]').click();
-
-		// Wait for upload completion
-		await page.waitForFunction(() => {
-			const input = document.querySelector('[data-testid="photo-file-input"]') as HTMLInputElement;
-			return input && input.value === '';
-		}, { timeout: 15000 });
-	}
-
-	test('applying a filter should hide unanalyzed photos on map', async ({ page }) => {
-		setupConsoleLogging(page);
-		await loginAndUploadPhoto(page);
-
-		// Go to map
-		await page.goto('/');
+		// Go to map at the test photo's GPS location
+		await page.goto(TEST_PHOTO_MAP_URL);
 		await page.waitForSelector('.leaflet-container', { timeout: 10000 });
+		await ensureSourceEnabled(page, 'hillview', true);
 		await page.waitForTimeout(3000); // wait for photos to load on map
 
 		// Check that photo markers are visible (unanalyzed photos show by default)
@@ -261,13 +224,16 @@ test.describe('Filters with uploaded photos', () => {
 		expect(countWithFilter).toBeGreaterThan(0);
 	});
 
-	test('disabling show-unanalyzed should hide unanalyzed photos', async ({ page }) => {
-		setupConsoleLogging(page);
-		await loginAndUploadPhoto(page);
+	test('disabling show-unanalyzed should hide unanalyzed photos', async ({ page, testUsers }) => {
 
-		// Go to map
-		await page.goto('/');
+		await loginAsTestUser(page, testUsers.passwords.test);
+		await page.evaluate(() => localStorage.removeItem('hillview_filters'));
+		await uploadPhoto(page, testPhotos[0]);
+
+		// Go to map at the test photo's GPS location
+		await page.goto(TEST_PHOTO_MAP_URL);
 		await page.waitForSelector('.leaflet-container', { timeout: 10000 });
+		await ensureSourceEnabled(page, 'hillview', true);
 		await page.waitForTimeout(3000);
 
 		// Confirm markers exist
@@ -295,13 +261,16 @@ test.describe('Filters with uploaded photos', () => {
 		await expect(markersAfter).toHaveCount(0, { timeout: 10000 });
 	});
 
-	test('re-enabling show-unanalyzed should bring photos back', async ({ page }) => {
-		setupConsoleLogging(page);
-		await loginAndUploadPhoto(page);
+	test('re-enabling show-unanalyzed should bring photos back', async ({ page, testUsers }) => {
 
-		// Go to map
-		await page.goto('/');
+		await loginAsTestUser(page, testUsers.passwords.test);
+		await page.evaluate(() => localStorage.removeItem('hillview_filters'));
+		await uploadPhoto(page, testPhotos[0]);
+
+		// Go to map at the test photo's GPS location
+		await page.goto(TEST_PHOTO_MAP_URL);
 		await page.waitForSelector('.leaflet-container', { timeout: 10000 });
+		await ensureSourceEnabled(page, 'hillview', true);
 		await page.waitForTimeout(3000);
 
 		// Open filters, select a filter, uncheck show-unanalyzed

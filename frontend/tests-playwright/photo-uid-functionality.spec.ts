@@ -16,13 +16,6 @@ function isUnexpectedError(text: string): boolean {
 }
 
 test.describe('Photo UID Functionality', () => {
-  let testPasswords: { test: string; admin: string; testuser: string };
-
-  test.beforeEach(async () => {
-    // Clean up and recreate test users before each test
-    const result = await createTestUsers();
-    testPasswords = result.passwords;
-  });
 
   test.describe('URL Parameter Parsing', () => {
     test('should parse photo uid from URL and navigate to correct location', async ({ page }) => {
@@ -151,9 +144,14 @@ test.describe('Photo UID Functionality', () => {
   });
 
   test.describe('Photo UID in Sharing URLs', () => {
-    test('should include photo uid in constructed share URLs', async ({ page }) => {
+    // Tests upload photos — need per-test isolation
+    test.beforeEach(async () => {
+      await createTestUsers();
+    });
+
+    test('should include photo uid in constructed share URLs', async ({ page, testUsers }) => {
       // Login and upload a test photo
-      await loginAsTestUser(page, testPasswords.test);
+      await loginAsTestUser(page, testUsers.passwords.test);
 
       // Upload test photos with location
       await uploadTestPhotosWithLocation(page, 1);
@@ -212,6 +210,11 @@ test.describe('Photo UID Functionality', () => {
   });
 
   test.describe('Cross-Route Photo UID Navigation', () => {
+    // One test uploads photos — need per-test isolation
+    test.beforeEach(async () => {
+      await createTestUsers();
+    });
+
     test('should handle photo uid navigation on activity page', async ({ page }) => {
       const errors: string[] = [];
       page.on('console', (msg) => {
@@ -254,7 +257,7 @@ test.describe('Photo UID Functionality', () => {
       expect(errors.length, `Found errors on photos page: ${errors.join(', ')}`).toBe(0);
     });
 
-    test('should navigate from user profile photo to map with photo uid', async ({ page }) => {
+    test('should navigate from user profile photo to map with photo uid', async ({ page, testUsers }) => {
       const errors: string[] = [];
       page.on('console', (msg) => {
         if (msg.type() === 'error' && isUnexpectedError(msg.text())) {
@@ -263,7 +266,7 @@ test.describe('Photo UID Functionality', () => {
       });
 
       // Login and upload a test photo with location to ensure test data exists
-      await loginAsTestUser(page, testPasswords.test);
+      await loginAsTestUser(page, testUsers.passwords.test);
       await uploadTestPhotosWithLocation(page, 1);
       await page.waitForTimeout(2000);
 

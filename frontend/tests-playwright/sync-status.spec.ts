@@ -12,7 +12,7 @@
 
 import { test, expect } from './fixtures';
 import { createTestUsers, loginAsTestUser } from './helpers/testUsers';
-import { setupConsoleLogging } from './helpers/consoleLogging';
+
 import {
 	waitForPhotoCount,
 	waitForUploadedCount,
@@ -59,22 +59,16 @@ async function getFgSyncHistory(page: any): Promise<any[]> {
 test.describe('Sync Status Reporting', () => {
 	test.describe.configure({ mode: 'serial' });
 
-	let testPasswords: any;
-
-	test.beforeAll(async () => {
-		const result = await createTestUsers();
-		testPasswords = result.passwords;
-	});
-
+	// Each test captures + uploads — need per-test isolation
 	test.beforeEach(async ({ page, browserName }) => {
 		test.skip(browserName !== 'chromium', 'Fake camera only works in Chromium');
-		setupConsoleLogging(page);
+		await createTestUsers();
 		await addCameraInitScript(page);
 	});
 
-	test('fgSyncStatus reports correct phases and counts after upload', async ({ page }) => {
+	test('fgSyncStatus reports correct phases and counts after upload', async ({ page, testUsers }) => {
 		// Login first so upload triggers immediately after capture
-		await loginAsTestUser(page, testPasswords.test);
+		await loginAsTestUser(page, testUsers.passwords.test);
 		await page.goto('/');
 		await page.waitForLoadState('networkidle');
 
@@ -95,7 +89,7 @@ test.describe('Sync Status Reporting', () => {
 		await waitForPhotoCount(page, 1);
 
 		// Wait for the upload to complete (triggers triggerPhotoSync → FG path)
-		await waitForUploadedCount(page, 1, 30000);
+		await waitForUploadedCount(page, 1);
 
 		// After upload completes, fgSyncStatus should show 'complete' phase
 		const completedStatus = await getFgSyncStatus(page);
@@ -110,11 +104,11 @@ test.describe('Sync Status Reporting', () => {
 		expect(completedStatus.timestamp).toBeGreaterThan(0);
 	});
 
-	test('fgSyncHistory records phase transitions in order', async ({ page }) => {
+	test('fgSyncHistory records phase transitions in order', async ({ page, testUsers }) => {
 		// Clean slate
 		await fetch('http://localhost:8055/api/debug/recreate-test-users', { method: 'POST' });
 
-		await loginAsTestUser(page, testPasswords.test);
+		await loginAsTestUser(page, testUsers.passwords.test);
 		await page.goto('/');
 		await page.waitForLoadState('networkidle');
 
@@ -129,7 +123,7 @@ test.describe('Sync Status Reporting', () => {
 
 		await captureButton.click();
 		await waitForPhotoCount(page, 1);
-		await waitForUploadedCount(page, 1, 30000);
+		await waitForUploadedCount(page, 1);
 
 		const history = await getFgSyncHistory(page);
 		expect(history.length).toBeGreaterThanOrEqual(3); // starting, uploading, complete at minimum
@@ -158,11 +152,11 @@ test.describe('Sync Status Reporting', () => {
 		}
 	});
 
-	test('combinedSyncStatus reflects foreground source after upload', async ({ page }) => {
+	test('combinedSyncStatus reflects foreground source after upload', async ({ page, testUsers }) => {
 		// Clean slate
 		await fetch('http://localhost:8055/api/debug/recreate-test-users', { method: 'POST' });
 
-		await loginAsTestUser(page, testPasswords.test);
+		await loginAsTestUser(page, testUsers.passwords.test);
 		await page.goto('/');
 		await page.waitForLoadState('networkidle');
 
@@ -183,7 +177,7 @@ test.describe('Sync Status Reporting', () => {
 
 		await captureButton.click();
 		await waitForPhotoCount(page, 1);
-		await waitForUploadedCount(page, 1, 30000);
+		await waitForUploadedCount(page, 1);
 
 		// After completion, verify the final combined status
 		const finalCombined = await getCombinedSyncStatus(page);
@@ -195,7 +189,7 @@ test.describe('Sync Status Reporting', () => {
 		expect(finalCombined.sw).toBeNull();
 	});
 
-	test('console logs confirm foreground upload path', async ({ page }) => {
+	test('console logs confirm foreground upload path', async ({ page, testUsers }) => {
 		// Clean slate
 		await fetch('http://localhost:8055/api/debug/recreate-test-users', { method: 'POST' });
 
@@ -205,7 +199,7 @@ test.describe('Sync Status Reporting', () => {
 			consoleMessages.push(msg.text());
 		});
 
-		await loginAsTestUser(page, testPasswords.test);
+		await loginAsTestUser(page, testUsers.passwords.test);
 		await page.goto('/');
 		await page.waitForLoadState('networkidle');
 
@@ -220,7 +214,7 @@ test.describe('Sync Status Reporting', () => {
 
 		await captureButton.click();
 		await waitForPhotoCount(page, 1);
-		await waitForUploadedCount(page, 1, 30000);
+		await waitForUploadedCount(page, 1);
 
 		// Verify FG path was taken
 		const fgLogFound = consoleMessages.some(msg =>

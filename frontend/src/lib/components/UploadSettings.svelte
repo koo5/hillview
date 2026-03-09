@@ -14,7 +14,7 @@
 
 	let autoUploadEnabled = false;
 	let autoUploadPromptEnabled = true;
-	let wifiOnly = true;
+	let wifiOnly = false;
 	let user: User | null = null;
 	let alert: { type: string, message: string } | null = null;
 
@@ -51,6 +51,7 @@
 			wifi_only: wifiOnly
 		});
 
+		/* fixme: either we need to wire up LicenseSelector to trigger an onSaveSuccess with proper message too, or we need to subscribe to the settings store (which are modified by changing license), or we need to get rid of these messages altogether, because currently changing the license doesn't trigger any success message, which is inconsistent with changing the auto-upload settings */
 		const statusText = autoUploadEnabled ? 'enabled' :
 			!autoUploadPromptEnabled ? 'disabled (never prompt)' : 'disabled';
 		const msg = `Auto-upload ${statusText}`;

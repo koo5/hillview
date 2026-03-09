@@ -1,22 +1,9 @@
 import { test, expect } from './fixtures';
-import { createTestUsers, loginAsTestUser } from './helpers/testUsers';
+import { loginAsTestUser } from './helpers/testUsers';
 
 test.describe('Authentication Integration', () => {
-  test.beforeEach(async ({ page }) => {
-    // Clean up test users before each test
-    const response = await fetch('http://localhost:8055/api/debug/recreate-test-users', {
-      method: 'POST'
-    });
-    const result = await response.json();
-    console.log('🢄Test cleanup result:', result);
-  });
-
-  test('should login successfully with valid credentials', async ({ page }) => {
-    // Create test users for this test
-    const result = await createTestUsers();
-    const testPassword = result.passwords.test;
-
-    await loginAsTestUser(page, testPassword);
+  test('should login successfully with valid credentials', async ({ page, testUsers }) => {
+    await loginAsTestUser(page, testUsers.passwords.test);
     await expect(page).toHaveURL('/');
   });
 

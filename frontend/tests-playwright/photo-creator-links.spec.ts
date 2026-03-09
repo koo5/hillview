@@ -1,20 +1,12 @@
 import { test, expect } from './fixtures';
 import { setupDefaultMockMapillaryData } from './helpers/mapillaryMocks';
-import { createTestUsers, loginAsTestUser } from './helpers/testUsers';
+import { loginAsTestUser } from './helpers/testUsers';
 import { uploadPhoto, testPhotos } from './helpers/photoUpload';
 
 test.describe('Photo Creator Name Links', () => {
-  let testPasswords: { test: string; admin: string; testuser: string };
-
-  test.beforeEach(async () => {
-    // Clean up and recreate test users before each test
-    const result = await createTestUsers();
-    testPasswords = result.passwords;
-  });
-
-  test('should make Hillview photo creator names clickable', async ({ page }) => {
+  test('should make Hillview photo creator names clickable', async ({ page, testUsers }) => {
     // Login as test user
-    await loginAsTestUser(page, testPasswords.test);
+    await loginAsTestUser(page, testUsers.passwords.test);
 
     // Upload a photo to create Hillview content
     await uploadPhoto(page, testPhotos[0]);

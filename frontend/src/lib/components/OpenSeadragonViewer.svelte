@@ -23,6 +23,7 @@
 	 * Background close: clicking/tapping the black area outside the image
 	 * closes the viewer (mirroring the original ZoomView behaviour).
 	 */
+	import { openExternalUrl } from '$lib/urlUtils';
 	import { onMount, onDestroy } from 'svelte';
 	import OpenSeadragon from 'openseadragon';
 	import { createOSDAnnotator } from '@annotorious/openseadragon';
@@ -36,6 +37,14 @@
 	} from '$lib/annotationApi';
 	import { Origin, UserSelectAction } from '@annotorious/core';
 	import type { ZoomViewData } from '$lib/zoomView.svelte';
+	import { parseAnnotationBody, type BodyItem } from '$lib/utils/annotationBody';
+	import {
+		showDropdownMenu,
+		closeDropdownMenu,
+		type DropdownMenuItem,
+	} from '$lib/components/dropdown-menu/dropdownMenu.svelte';
+	import { constructUserProfileUrl } from '$lib/urlUtilsServer';
+	import { myGoto } from '$lib/navigation.svelte';
 
 	export let data: ZoomViewData;
 	export let onClose: () => void;
@@ -64,6 +73,14 @@
 	// the user confirms via the edit panel (Save) or discards (Cancel/Escape).
 	let pendingNewAnnotation: any = null;
 
+	// View-mode annotation context menu state
+	let viewSelectedAnnotation: AnnotationData | null = null;
+	let viewSelectedGeometry: { x: number; y: number; w: number; h: number } | null = null;
+	let menuBtnX = 0;
+	let menuBtnY = 0;
+	let menuBtnEl: HTMLButtonElement | null = null;
+	let textModalContent: string | null = null;
+
 	/** Deep clone that preserves Date objects (structuredClone works here). */
 	function deepClone<T>(obj: T): T {
 		return structuredClone(obj);
@@ -83,6 +100,88 @@
 		if (errorTimeout) clearTimeout(errorTimeout);
 		errorTimeout = setTimeout(() => { errorMessage = ''; }, 5000);
 	}
+	/** Recompute the "..." button position from the annotation's image-space geometry. */
+	function updateMenuBtnPosition() {
+		if (!viewSelectedGeometry || !viewer?.viewport) return;
+		const g = viewSelectedGeometry;
+		const imgX = g.x + g.w / 2;
+		const imgY = g.y + g.h; // bottom edge
+		const vpPt = viewer.viewport.imageToViewportCoordinates(imgX, imgY);
+		const scPt = viewer.viewport.viewportToViewerElementCoordinates(vpPt);
+		menuBtnX = scPt.x;
+		menuBtnY = scPt.y + 4; // slight offset below shape
+	}
+
+	/** Clear view-mode selection state and close any open menu. */
+	function clearViewSelection() {
+		viewSelectedAnnotation = null;
+		viewSelectedGeometry = null;
+		textModalContent = null;
+		closeDropdownMenu();
+	}
+
+	/** Build dropdown menu items for the selected annotation. */
+	function buildAnnotationMenuItems(ann: AnnotationData): DropdownMenuItem[] {
+		const items: DropdownMenuItem[] = [];
+
+		// @username link
+		if (ann.owner_username) {
+			items.push({
+				id: 'annotation-menu-user',
+				label: `@${ann.owner_username}`,
+				onclick: () => {
+					closeDropdownMenu();
+					myGoto(constructUserProfileUrl(ann.user_id));
+				},
+				testId: 'annotation-menu-user',
+			});
+		}
+
+		// Parse body into structured items
+		const bodyItems = ann.body ? parseAnnotationBody(ann.body) : [];
+		if (bodyItems.length > 0 && ann.owner_username) {
+			items.push({ type: 'divider' });
+		}
+
+		for (let i = 0; i < bodyItems.length; i++) {
+			const item = bodyItems[i];
+			if (item.type === 'url') {
+				items.push({
+					id: `annotation-menu-body-${i}`,
+					label: item.display,
+					onclick: () => {
+						closeDropdownMenu();
+						openExternalUrl(item.value);
+					},
+					testId: `annotation-menu-body-${i}`,
+				});
+			} else {
+				const text = item.value;
+				items.push({
+					id: `annotation-menu-body-${i}`,
+					label: text.length > 30 ? text.slice(0, 30) + '\u2026' : text,
+					onclick: () => {
+						closeDropdownMenu();
+						textModalContent = text;
+					},
+					testId: `annotation-menu-body-${i}`,
+				});
+			}
+		}
+
+		return items;
+	}
+
+	/** Toggle the annotation context menu from the "..." button. */
+	function toggleAnnotationMenu() {
+		if (!viewSelectedAnnotation || !menuBtnEl) return;
+		const items = buildAnnotationMenuItems(viewSelectedAnnotation);
+		showDropdownMenu(items, menuBtnEl, {
+			placement: 'below-left',
+			testId: 'annotation-context-menu',
+		});
+	}
+
 	let isLoading = true;
 	let labelCanvas: HTMLCanvasElement | null = null;
 	let resizeObserver: ResizeObserver | null = null;
@@ -196,7 +295,9 @@
 	function rebuildParsedAnnotations() {
 		parsedAnnotations = [];
 		for (const ann of annotations) {
-			const label = ann.body;
+			if (!ann.body) continue;
+			const firstItem = parseAnnotationBody(ann.body)[0];
+			const label = firstItem ? firstItem.value : ann.body;
 			if (!label) continue;
 
 			const raw = ann.target as any;
@@ -226,6 +327,7 @@
 			drawLabelsRaf = requestAnimationFrame(() => {
 				drawLabelsRaf = 0;
 				drawLabelsNow();
+				if (viewSelectedAnnotation) updateMenuBtnPosition();
 			});
 		}
 	}
@@ -257,70 +359,58 @@
 	// Fingerprint of last drawn state — skip redraw if nothing changed
 	let lastDrawFingerprint = '';
 
-	interface LabelDrawCmd {
-		label: string;
-		cx: number; cy: number;
-		lx: number; ly: number;
-	}
+	import { buildLabelCommands, resolveOverlaps, LABEL_PAD, type LabelInput } from '$lib/utils/labelLayout';
+
+	const LABEL_FONT = 'bold 12px system-ui,sans-serif';
 
 	function drawLabelsNow() {
 		if (!labelCanvas || !viewer?.viewport) return;
 		const W = labelCanvas.width;
 		const H = labelCanvas.height;
 
-		// Build draw commands and fingerprint in one pass
-		const cmds: LabelDrawCmd[] = [];
-		const fpParts: string[] = [];
-		const margin = 14;
+		const ctx = labelCanvas.getContext('2d');
+		if (!ctx) return;
+		ctx.font = LABEL_FONT;
 
+		// Convert image-space annotations to screen-space inputs
+		const inputs: LabelInput[] = [];
 		for (const { label, imgCx, imgCy } of parsedAnnotations) {
 			const vpPt = viewer.viewport.imageToViewportCoordinates(imgCx, imgCy);
 			const scPt = viewer.viewport.viewportToViewerElementCoordinates(vpPt);
 			const cx = Math.round(scPt.x);
 			const cy = Math.round(scPt.y);
-			if (cx < 0 || cx > W || cy < 0 || cy > H) continue;
-
-			const dLeft = cx;
-			const dRight = W - cx;
-			const dTop = cy;
-			const dBottom = H - cy;
-			const nearest = Math.min(dLeft, dRight, dTop, dBottom);
-			let lx = cx;
-			let ly = cy;
-			if (nearest === dLeft)       lx = margin;
-			else if (nearest === dRight) lx = W - margin;
-			else if (nearest === dTop)   ly = margin;
-			else                         ly = H - margin;
-
-			cmds.push({ label, cx, cy, lx, ly });
-			fpParts.push(`${cx},${cy},${lx},${ly}`);
+			const tw = ctx.measureText(label).width;
+			const pillW = tw + LABEL_PAD * 2;
+			inputs.push({ label, cx, cy, pillW });
 		}
 
-		const fp = fpParts.join('|');
+		const { cmds, fingerprint: fp } = buildLabelCommands(inputs, W, H, 14);
 		if (fp === lastDrawFingerprint) return;
 		lastDrawFingerprint = fp;
 
-		const ctx = labelCanvas.getContext('2d');
-		if (!ctx) return;
+		resolveOverlaps(cmds, W, H);
+
+		// Expose resolved label state for Playwright tests
+		if (typeof window !== 'undefined') {
+			(window as any).__labelDebugCmds = cmds;
+		}
+
 		ctx.clearRect(0, 0, W, H);
 
-		for (const { label, cx, cy, lx, ly } of cmds) {
-			// Leader line from centroid to label anchor
+		for (const { label, cx, cy, edge, tx, ty, pillW, pillH } of cmds) {
+			// Leader line from centroid to pill center (after overlap resolution)
+			const pillCx = tx + pillW / 2;
+			const pillCy = ty + pillH / 2;
 			ctx.beginPath();
 			ctx.moveTo(cx, cy);
-			ctx.lineTo(lx, ly);
+			ctx.lineTo(edge === 'left' || edge === 'right' ? tx + (edge === 'left' ? 0 : pillW) : pillCx,
+			           edge === 'top' || edge === 'bottom' ? ty + (edge === 'top' ? 0 : pillH) : pillCy);
 			ctx.strokeStyle = 'rgba(255,230,50,0.9)';
 			ctx.lineWidth = 1.5;
 			ctx.stroke();
 
 			// Label pill
-			ctx.font = 'bold 12px system-ui,sans-serif';
-			const tw = ctx.measureText(label).width;
-			const pad = 6;
-			const pillW = tw + pad * 2;
-			const pillH = 20;
-			const tx = lx > W / 2 ? lx - pillW : lx;
-			const ty = ly > H / 2 ? ly - pillH : ly;
+			ctx.font = LABEL_FONT;
 			ctx.fillStyle = 'rgba(0,0,0,0.75)';
 			ctx.beginPath();
 			if (typeof (ctx as any).roundRect === 'function') {
@@ -330,7 +420,7 @@
 			}
 			ctx.fill();
 			ctx.fillStyle = '#fff';
-			ctx.fillText(label, tx + pad, ty + pillH - 5);
+			ctx.fillText(label, tx + LABEL_PAD, ty + pillH - 5);
 		}
 	}
 
@@ -431,7 +521,7 @@
 		// Drawing starts disabled; the toolbar toggle enables it for authenticated users.
 		annotator = createOSDAnnotator(viewer, {
 			drawingEnabled: false,
-			userSelectAction: UserSelectAction.NONE,
+			userSelectAction: UserSelectAction.SELECT,
 			style: {
 				fill: '#00ff00',
 				fillOpacity: 0.06,
@@ -592,8 +682,29 @@
 				const internal = annotator.state.store.getAnnotation(uiId);
 				originalW3cSnapshot = internal ? deepClone(internal) : null;
 				console.log('[OSD] selectionChanged — editing dbId:', dbId, 'body:', editBody);
+			} else if (selected.length > 0 && annotationMode !== 'edit') {
+				// View-mode selection: show the "..." context menu button
+				const annotation = selected[0];
+				const uiId = annotation.id;
+				const dbId = uiToDb.get(uiId);
+				if (!dbId) { clearViewSelection(); return; }
+				const match = annotations.find((a) => a.id === dbId);
+				if (!match) { clearViewSelection(); return; }
+
+				// Extract geometry for positioning
+				const sel = annotation.target?.selector;
+				const rawSel = Array.isArray(sel) ? sel[0] : sel;
+				const g = rawSel?.type === 'RECTANGLE' ? rawSel.geometry : null;
+				if (!g) { clearViewSelection(); return; }
+
+				viewSelectedAnnotation = match;
+				viewSelectedGeometry = { x: g.x, y: g.y, w: g.w, h: g.h };
+				updateMenuBtnPosition();
+				console.log('[OSD] selectionChanged — view-selected dbId:', dbId);
 			} else if (selected.length === 0 && editingAnnotation) {
 				saveEditBody();
+			} else if (selected.length === 0) {
+				clearViewSelection();
 			}
 		});
 
@@ -601,6 +712,7 @@
 		// inline style is intentional here.
 		labelCanvas = document.createElement('canvas');
 		labelCanvas.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:2';
+		labelCanvas.dataset.testid = 'osd-label-canvas';
 		container.appendChild(labelCanvas);
 
 		resizeObserver = new ResizeObserver(() => {
@@ -661,6 +773,7 @@
 	}
 
 	onDestroy(() => {
+		clearViewSelection();
 		window.visualViewport?.removeEventListener('resize', onViewportResize);
 		resizeObserver?.disconnect();
 		viewer?.removeHandler('viewport-change', scheduleDrawLabels);
@@ -673,8 +786,12 @@
 	function setAnnotationMode(mode: AnnotationMode) {
 		if (!annotator) return;
 		annotationMode = mode;
+		clearViewSelection();
 		annotator.setDrawingEnabled(mode === 'draw');
-		annotator.setUserSelectAction(mode === 'edit' ? UserSelectAction.EDIT : UserSelectAction.NONE);
+		const selectAction = mode === 'edit' ? UserSelectAction.EDIT
+			: mode === 'view' ? UserSelectAction.SELECT
+			: UserSelectAction.NONE;
+		annotator.setUserSelectAction(selectAction);
 		if (mode !== 'edit') {
 			annotator.setSelected();
 			cancelEditBody();
@@ -881,8 +998,13 @@
 			return;
 		}
 		if (e.key === 'Escape') {
-			if (editingAnnotation) {
+			if (textModalContent) {
+				textModalContent = null;
+			} else if (editingAnnotation) {
 				cancelEditBody();
+			} else if (viewSelectedAnnotation) {
+				clearViewSelection();
+				annotator?.setSelected?.();
 			} else {
 				onClose();
 			}
@@ -954,6 +1076,31 @@
 				<div style="flex:1"></div>
 				<button class="edit-body-btn cancel" onclick={cancelEditBody} data-testid="osd-edit-body-cancel">Cancel</button>
 				<button class="edit-body-btn save" onclick={saveEditBody} data-testid="osd-edit-body-save">Save</button>
+			</div>
+		</div>
+	{/if}
+
+	<!-- View-mode annotation context menu button -->
+	{#if viewSelectedAnnotation}
+		<button
+			class="annotation-menu-btn"
+			style:left="{menuBtnX}px"
+			style:top="{menuBtnY}px"
+			bind:this={menuBtnEl}
+			data-testid="annotation-menu-btn"
+			onclick={toggleAnnotationMenu}
+			aria-label="Annotation menu"
+		>⋯</button>
+	{/if}
+
+	<!-- Annotation text detail modal -->
+	{#if textModalContent}
+		<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+		<div class="text-modal-overlay" data-testid="annotation-text-modal" onclick={() => textModalContent = null}>
+			<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+			<div class="text-modal" onclick={(e) => e.stopPropagation()}>
+				<p class="text-modal-body">{textModalContent}</p>
+				<button class="text-modal-close" onclick={() => textModalContent = null} data-testid="annotation-text-modal-close">Close</button>
 			</div>
 		</div>
 	{/if}
@@ -1163,6 +1310,78 @@
 	}
 
 	.edit-body-btn.delete:hover { background: #c82333; }
+
+	.annotation-menu-btn {
+		position: absolute;
+		z-index: 10;
+		transform: translateX(-50%);
+		background: rgba(255,255,255,0.9);
+		border: none;
+		border-radius: 50%;
+		width: 32px;
+		height: 32px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		cursor: pointer;
+		font-size: 18px;
+		font-weight: bold;
+		color: #333;
+		box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+		line-height: 1;
+		padding: 0;
+	}
+
+	.annotation-menu-btn:hover {
+		background: rgba(255,255,255,1);
+	}
+
+	.text-modal-overlay {
+		position: absolute;
+		inset: 0;
+		z-index: 20;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: rgba(0,0,0,0.5);
+	}
+
+	.text-modal {
+		background: rgba(30,30,30,0.95);
+		border: 1px solid rgba(255,255,255,0.2);
+		border-radius: 10px;
+		padding: 20px 24px;
+		max-width: 80vw;
+		max-height: 60vh;
+		overflow-y: auto;
+		display: flex;
+		flex-direction: column;
+		gap: 16px;
+	}
+
+	.text-modal-body {
+		color: #fff;
+		font-size: 15px;
+		line-height: 1.6;
+		margin: 0;
+		white-space: pre-wrap;
+		word-break: break-word;
+	}
+
+	.text-modal-close {
+		align-self: flex-end;
+		background: rgba(255,255,255,0.15);
+		border: none;
+		border-radius: 6px;
+		color: #fff;
+		padding: 6px 16px;
+		font-size: 13px;
+		cursor: pointer;
+	}
+
+	.text-modal-close:hover {
+		background: rgba(255,255,255,0.25);
+	}
 
 	.filename-bar {
 		position: absolute;

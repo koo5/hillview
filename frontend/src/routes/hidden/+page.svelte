@@ -1,5 +1,4 @@
 <script lang="ts">
-    import { onMount } from 'svelte';
     import { myGoto } from '$lib/navigation.svelte';
     import { EyeOff, Trash2, User, Image, MapPin } from 'lucide-svelte';
     import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';
@@ -29,15 +28,17 @@
     let successMessage = '';
     let activeTab: 'photos' | 'users' = 'photos';
 
-    onMount(async () => {
-        // Check if user is authenticated
-        if (!$auth.is_authenticated) {
-            myGoto('/login');
-            return;
-        }
+    // Redirect when auth is definitively not authenticated
+    $: if ($auth.checked && !$auth.is_authenticated) {
+        myGoto('/login');
+    }
 
-        await loadHiddenContent();
-    });
+    // Load content once auth is confirmed
+    let contentLoaded = false;
+    $: if ($auth.checked && $auth.is_authenticated && !contentLoaded) {
+        contentLoaded = true;
+        loadHiddenContent();
+    }
 
     async function loadHiddenContent() {
         isLoading = true;
