@@ -1,6 +1,11 @@
 #!/bin/bash
 cd "$(dirname "$(readlink -f -- "$0")")/.."
 
+if ! ldconfig -p 2>/dev/null | grep -q libvips; then
+    echo "libvips not found, installing libvips-dev..."
+    sudo apt-get install -y -qq libvips-dev
+fi
+
 uv sync --quiet --frozen --package hillview-worker --all-extras
 
 cd worker
