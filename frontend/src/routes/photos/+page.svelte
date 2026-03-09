@@ -433,16 +433,14 @@
 			{#if !TAURI && activeTab === 'upload'}
 				<div class="tab-content">
 					{#if activeTab === 'upload'}
-						{#if !TAURI}
-							<LicenseSelector />
-							<PhotoUpload
-								{user}
-								onLogEntry={addLogEntry}
-								onUploadComplete={handleUploadComplete}
-								{goToLogin}
-								disabled={$photoLicense === null}
-							/>
-						{/if}
+						<LicenseSelector />
+						<PhotoUpload
+							{user}
+							onLogEntry={addLogEntry}
+							onUploadComplete={handleUploadComplete}
+							{goToLogin}
+							disabled={$photoLicense === null}
+						/>
 					{:else if activeTab === 'import'}
 						<div class="license-section">
 							<LicenseSelector />

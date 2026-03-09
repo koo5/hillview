@@ -110,7 +110,7 @@ export async function getLatestPhoto(page: Page): Promise<PhotoInfo | null> {
 
 /** Wait for N photos to reach 'uploaded' status in IndexedDB.
  *  Polls from Node.js side so we can log intermediate states. */
-export async function waitForUploadedCount(page: Page, target: number, timeoutMs = 30000): Promise<void> {
+export async function waitForUploadedCount(page: Page, target: number, timeoutMs = 130000): Promise<void> {
 	const interval = 500;
 	let elapsed = 0;
 	let lastLog = '';

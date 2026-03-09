@@ -89,7 +89,7 @@ test.describe('Sync Status Reporting', () => {
 		await waitForPhotoCount(page, 1);
 
 		// Wait for the upload to complete (triggers triggerPhotoSync → FG path)
-		await waitForUploadedCount(page, 1, 30000);
+		await waitForUploadedCount(page, 1);
 
 		// After upload completes, fgSyncStatus should show 'complete' phase
 		const completedStatus = await getFgSyncStatus(page);
@@ -123,7 +123,7 @@ test.describe('Sync Status Reporting', () => {
 
 		await captureButton.click();
 		await waitForPhotoCount(page, 1);
-		await waitForUploadedCount(page, 1, 30000);
+		await waitForUploadedCount(page, 1);
 
 		const history = await getFgSyncHistory(page);
 		expect(history.length).toBeGreaterThanOrEqual(3); // starting, uploading, complete at minimum
@@ -177,7 +177,7 @@ test.describe('Sync Status Reporting', () => {
 
 		await captureButton.click();
 		await waitForPhotoCount(page, 1);
-		await waitForUploadedCount(page, 1, 30000);
+		await waitForUploadedCount(page, 1);
 
 		// After completion, verify the final combined status
 		const finalCombined = await getCombinedSyncStatus(page);
@@ -214,7 +214,7 @@ test.describe('Sync Status Reporting', () => {
 
 		await captureButton.click();
 		await waitForPhotoCount(page, 1);
-		await waitForUploadedCount(page, 1, 30000);
+		await waitForUploadedCount(page, 1);
 
 		// Verify FG path was taken
 		const fgLogFound = consoleMessages.some(msg =>

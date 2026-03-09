@@ -113,6 +113,7 @@ async function ensureAuthInitialized() {
         fetchUserData();
     } else {
         console.log('🢄[AUTH] No valid token found during initialization');
+        auth.update(a => ({ ...a, checked: true }));
     }
 }
 
@@ -226,6 +227,7 @@ export async function logout(reason?: string) {
         return {
             ...a,
             is_authenticated: false,
+            checked: true,
             user: null
         };
     });
@@ -304,6 +306,7 @@ export async function fetchUserData() {
             return {
                 ...a,
                 is_authenticated: true,
+                checked: true,
                 user: userData
             };
         });
@@ -312,7 +315,8 @@ export async function fetchUserData() {
     } catch (error) {
         console.error('🢄[AUTH] Error fetching user data:', error);
         // If it's a TokenExpiredError, logout was already handled by the http client
-        // For other errors, just return null
+        // For other errors, mark as checked so auth-gated pages stop waiting
+        auth.update(a => ({ ...a, checked: true }));
         return null;
     }
 }
@@ -347,6 +351,7 @@ export async function checkAuth() {
     } else {
         // Not authenticated
         console.log('🢄[AUTH] Not authenticated');
+        auth.update(a => ({ ...a, checked: true }));
     }
 }
 

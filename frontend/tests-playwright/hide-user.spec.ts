@@ -226,9 +226,9 @@ async function loginAs(page: Page, username: string, password: string) {
 	await page.waitForURL('/', { timeout: 15000 });
 }
 
-/** Logout the current user via hamburger menu. */
+/** Logout the current user via menu. */
 async function logout(page: Page) {
-	await page.click('.hamburger');
+	await page.getByLabel('Toggle menu').click();
 	await page.locator('button:has-text("Logout")').click();
 	await page.waitForLoadState('networkidle');
 }
@@ -279,7 +279,7 @@ function extractOwnerUsername(photoData: any): string | undefined {
 
 /** Read owner info from the currently displayed gallery photo. */
 async function getPhotoOwner(page: Page): Promise<{ photoId: string; ownerId: HillviewUserId; ownerUsername: string | undefined }> {
-	const mainPhoto = page.locator('[data-testid="main-photo"]');
+	const mainPhoto = page.locator('[data-testid="main-photo"].front');
 	await mainPhoto.waitFor({ state: 'visible', timeout: 30000 });
 	const data = await mainPhoto.evaluate((el) => {
 		return JSON.parse(el.getAttribute('data-photo') || '{}');

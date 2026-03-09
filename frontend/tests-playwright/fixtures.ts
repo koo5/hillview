@@ -43,6 +43,24 @@ export const test = base.extend<{ testUsers: TestUserSetupResult }>({
 		// Relay browser console/errors to test output (gated by PLAYWRIGHT_CONSOLE_LOG env var)
 		setupConsoleLogging(page);
 
+		// Instrument waits so we can see which sleeps are slow / unnecessary
+		const origTimeout = page.waitForTimeout.bind(page);
+		page.waitForTimeout = async (ms: number) => {
+			const caller = new Error().stack?.split('\n')[2]?.trim() || '?';
+			console.log(`⏱️ [SLEEP] waitForTimeout(${ms}) — start — ${caller}`);
+			const t = Date.now();
+			await origTimeout(ms);
+			console.log(`⏱️ [SLEEP] waitForTimeout(${ms}) — done in ${Date.now() - t}ms`);
+		};
+		const origLoadState = page.waitForLoadState.bind(page);
+		page.waitForLoadState = async (state?: any, options?: any) => {
+			const caller = new Error().stack?.split('\n')[2]?.trim() || '?';
+			console.log(`⏱️ [SLEEP] waitForLoadState(${state}) — start — ${caller}`);
+			const t = Date.now();
+			await origLoadState(state, options);
+			console.log(`⏱️ [SLEEP] waitForLoadState(${state}) — done in ${Date.now() - t}ms`);
+		};
+
 		await use(page);
 	},
 

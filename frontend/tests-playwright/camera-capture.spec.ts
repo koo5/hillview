@@ -1,7 +1,7 @@
 import { test, expect } from './fixtures';
 import { loginAsTestUser } from './helpers/testUsers';
-
 import { getPhotoCount, waitForPhotoCount, getLatestPhoto } from './helpers/indexedDbPhotos';
+import { configureAutoUploadFromPrompt } from './helpers/autoUpload';
 
 // Camera capture only works with Chromium's fake device support
 test.describe('Camera Capture', () => {
@@ -83,14 +83,7 @@ test.describe('Camera Capture', () => {
 		expect(photo2!.id).not.toBe(photo1!.id);
 
 		// --- Auto-upload prompt should appear (user not configured auto-upload) ---
-		const autoUploadPrompt = page.locator('[data-testid="auto-upload-prompt"]');
-		await autoUploadPrompt.waitFor({ state: 'visible', timeout: 15000 });
-
-		// Click the green "Configure auto-upload" button
-		const configureBtn = page.locator('[data-testid="configure-auto-upload"]');
-		await configureBtn.click();
-
-		// Should navigate to upload settings page
-		await page.waitForURL('**/settings/upload', { timeout: 10000 });
+		// Walk through: prompt → settings/upload → license → enable
+		await configureAutoUploadFromPrompt(page);
 	});
 });
