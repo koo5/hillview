@@ -1,0 +1,4 @@
+```
+docker volume create pics
+```
+
