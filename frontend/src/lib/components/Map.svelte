@@ -2,7 +2,7 @@
     import {onMount, onDestroy, tick} from 'svelte';
     import {LeafletMap, TileLayer, Marker, Circle, ScaleControl} from 'svelte-leafletjs';
     import {LatLng} from 'leaflet';
-    import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle, LocateFixed, Pause, ArrowUp, ArrowDown, Layers, Eye, Map as MapIcon, Info, Funnel} from 'lucide-svelte';
+    import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle, LocateFixed, Pause, ArrowUp, ArrowDown, Layers, Eye, Map as MapIcon, Info, Filter} from 'lucide-svelte';
 	import FiltersModal from './filters-modal/FiltersModal.svelte';
 	import { activeFilterCount, openFiltersModal, clearFilters } from './filters-modal/filtersStore';
     import L from 'leaflet';
@@ -1268,7 +1268,7 @@
 		on:click={() => openFiltersModal()}
 		data-testid="filters-button"
 	>
-		<Funnel size={18} />
+		<Filter size={18} />
 		<span class="filters-button-text">Filters</span>{#if $activeFilterCount > 0}({$activeFilterCount}){/if}
 	</button>
 </div>
