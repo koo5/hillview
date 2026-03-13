@@ -1,6 +1,8 @@
 #!/bin/bash
 cd "$(dirname "$(readlink -f -- "$0")")/.."
 
+export PYTHONUNBUFFERED=1
+
 uv sync --quiet --frozen --package hillview-tests
 
 cd tests

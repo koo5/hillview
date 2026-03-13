@@ -431,7 +431,7 @@ class PhotoProcessor:
 			# due to auto-rotation during pyvips loading)
 			height, width = image.shape[:2]
 
-			size_variants = ['full', 320, 640, 1024, 2048, 3072, 4096]
+			size_variants = ['full', 320, 640, 1200, 2048, 3072, 4096]
 
 			for size in size_variants:
 
