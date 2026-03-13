@@ -857,7 +857,7 @@ async def get_photo_share_metadata(
 
 			if photo_data.sizes:
 				# Try to find a good resolution for OpenGraph (prefer 1024 or 800)
-				for size_key in	 ['full']:
+				for size_key in	 ['1024', '640', '320', 'full']:
 					if size_key in photo_data.sizes:
 						size_data = photo_data.sizes[size_key]
 						photo_url = size_data.get('url')
@@ -866,7 +866,7 @@ async def get_photo_share_metadata(
 						break
 
 				# Try to find thumbnail (prefer smaller sizes)
-				for size_key in ['400', '320']:
+				for size_key in ['400', '320', '640']:
 					if size_key in photo_data.sizes:
 						thumbnail_url = photo_data.sizes[size_key].get('url')
 						break

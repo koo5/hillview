@@ -2,7 +2,7 @@
     import {onMount, onDestroy, tick} from 'svelte';
     import {LeafletMap, TileLayer, Marker, Circle, ScaleControl} from 'svelte-leafletjs';
     import {LatLng} from 'leaflet';
-    import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle, MapPin, Pause, ArrowUp, ArrowDown, Layers, Eye, Map as MapIcon, Info, SlidersHorizontal} from 'lucide-svelte';
+    import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle, LocateFixed, Pause, ArrowUp, ArrowDown, Layers, Eye, Map as MapIcon, Info, Funnel} from 'lucide-svelte';
 	import FiltersModal from './filters-modal/FiltersModal.svelte';
 	import { activeFilterCount, openFiltersModal, clearFilters } from './filters-modal/filtersStore';
     import L from 'leaflet';
@@ -1268,7 +1268,7 @@
 		on:click={() => openFiltersModal()}
 		data-testid="filters-button"
 	>
-		<SlidersHorizontal size={18} />
+		<Funnel size={18} />
 		<span class="filters-button-text">Filters</span>{#if $activeFilterCount > 0}({$activeFilterCount}){/if}
 	</button>
 </div>
@@ -1395,7 +1395,7 @@
         title="Track my location"
         class:flash={locationApiEventFlash}
     >
-        <MapPin />
+        <LocateFixed />
         {#if $locationTrackingLoading}
             <Spinner show={true} color="#4285F4"></Spinner>
         {/if}
