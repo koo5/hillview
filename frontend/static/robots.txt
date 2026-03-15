@@ -1,0 +1,35 @@
+User-agent: *
+Allow: /$
+Allow: /about
+Allow: /privacy
+Allow: /terms
+Allow: /download
+Allow: /contact
+Disallow: /api/
+Disallow: /auth/
+Disallow: /oauth/
+Disallow: /login
+Disallow: /photos
+Disallow: /account
+Disallow: /account-deletion
+Disallow: /activity
+Disallow: /device-photos
+Disallow: /hidden
+Disallow: /settings/
+Disallow: /users/
+Disallow: /tile
+
+User-agent: GPTBot
+Disallow: /
+
+User-agent: CCBot
+Disallow: /
+
+User-agent: Google-Extended
+Disallow: /
+
+User-agent: anthropic-ai
+Disallow: /
+
+User-agent: ClaudeBot
+Disallow: /

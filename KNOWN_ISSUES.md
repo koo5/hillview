@@ -55,9 +55,6 @@
 
 ## PLANNED FEATURES - available in master, not yet released
 
-### webp
-* switch to webp for photo storage
-
 ### annotations
 * support for tiled large photos/panoramas - research OpenSeadragon etc
 * ability to add/edit/view annotations on photos

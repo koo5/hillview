@@ -167,6 +167,25 @@ def format_ts_utc(timestamp_ms: int) -> str:
 def get_photo_timestamp(photo_path: Path) -> Optional[int]:
     """Get the EXIF DateTimeOriginal as Unix timestamp in milliseconds."""
     try:
+        # SubSecDateTimeOriginal includes subseconds and timezone offset,
+        # e.g. "2026:03:10 16:52:43.00+01:00"
+        result = subprocess.run(
+            ['exiftool', '-SubSecDateTimeOriginal', '-s3', str(photo_path)],
+            capture_output=True, text=True, check=True
+        )
+        datetime_str = result.stdout.strip()
+        if datetime_str:
+            for fmt in ("%Y:%m:%d %H:%M:%S.%f%z", "%Y:%m:%d %H:%M:%S%z",
+                        "%Y:%m:%d %H:%M:%S.%f", "%Y:%m:%d %H:%M:%S"):
+                try:
+                    dt = datetime.strptime(datetime_str, fmt)
+                    if dt.tzinfo is None:
+                        print(f"  Warning: no timezone in EXIF, interpreting as local time")
+                    return int(dt.timestamp() * 1000)
+                except ValueError:
+                    continue
+
+        # Fallback: separate tags for older files without SubSecDateTimeOriginal
         result = subprocess.run(
             ['exiftool', '-DateTimeOriginal', '-SubSecTimeOriginal', '-s3', str(photo_path)],
             capture_output=True, text=True, check=True
@@ -177,6 +196,7 @@ def get_photo_timestamp(photo_path: Path) -> Optional[int]:
         datetime_str = lines[0].strip()
         subsec = lines[1].strip() if len(lines) > 1 and lines[1].strip() else "0"
         dt = datetime.strptime(datetime_str, "%Y:%m:%d %H:%M:%S")
+        print(f"  Warning: no timezone in EXIF, interpreting as local time")
         timestamp_ms = int(dt.timestamp() * 1000)
         if subsec:
             subsec_ms = int(float(f"0.{subsec}") * 1000)
@@ -284,15 +304,17 @@ def process_photo(photo_path: Path, locations: list[LocationRecord],
 
     log(f"  Command: {' '.join(args)}")
 
+    # Build summary with ages
+    loc_age_sec = (corrected_ts - location.timestamp) / 1000 if location else None
+    bearing_age_sec = (corrected_ts - orientation.timestamp) / 1000 if orientation else None
+    loc_str = f"{location.latitude:.6f}, {location.longitude:.6f} (age: {loc_age_sec:.1f}s)" if location else "n/a"
+    heading_str = f"{orientation.true_heading:.1f}° (age: {bearing_age_sec:.1f}s)" if orientation else "n/a"
+
     if dry_run:
-        loc_str = f"{location.latitude:.6f}, {location.longitude:.6f}" if location else "n/a"
-        heading_str = f"{orientation.true_heading:.1f}°" if orientation else "n/a"
         return PhotoResult(photo_path, True, f"Would tag: {loc_str}, heading: {heading_str}", '\n'.join(lines) if lines else None)
 
     try:
         subprocess.run(args, capture_output=True, text=True, check=True)
-        loc_str = f"{location.latitude:.6f}, {location.longitude:.6f}" if location else "n/a"
-        heading_str = f"{orientation.true_heading:.1f}°" if orientation else "n/a"
         return PhotoResult(photo_path, True, f"Tagged: {loc_str}, heading: {heading_str}", '\n'.join(lines) if lines else None)
     except subprocess.CalledProcessError as e:
         return PhotoResult(photo_path, False, f"exiftool error: {e.stderr}", '\n'.join(lines) if lines else None)
