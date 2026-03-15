@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hillview-geotag"
+version = "1.0.0"
+description = "Geo-tagging tools for Hillview external camera workflow"
+requires-python = ">=3.12"
+
+dependencies = [
+    "zxing-cpp",
+    "Pillow",
+]
+
+[project.scripts]
+hillview-geotag = "geo_tag_photos:main"
+hillview-qr-time-correction = "qr_time_correction:main"
+
+[tool.setuptools]
+py-modules = [
+    "exif",
+    "geo_tag_photos",
+    "qr_time_correction",
+]

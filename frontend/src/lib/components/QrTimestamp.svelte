@@ -2,13 +2,27 @@
 	import { onMount, onDestroy } from 'svelte';
 	import QRCode from 'qrcode';
 
-	let canvas: HTMLCanvasElement;
+	let canvases: [HTMLCanvasElement, HTMLCanvasElement] = [null as any, null as any];
+	let slots: [HTMLDivElement, HTMLDivElement] = [null as any, null as any];
+	let container: HTMLDivElement;
 	let animationId: number;
 	let running = false;
+	let qrWidth = 256;
+	let timestamps: [string | null, string | null] = [null, null];
+	let activeIdx = 0;
+	let resizeObserver: ResizeObserver;
 
 	function getTimestamp(): string {
-		const now = new Date();
-		return now.toISOString(); // e.g. 2026-03-15T14:30:05.123Z
+		return Date.now().toString();
+	}
+
+	function updateQrWidth() {
+		// Use the first slot's width to size the QR canvas
+		const slot = slots[0];
+		if (slot) {
+			const w = slot.clientWidth;
+			if (w > 0) qrWidth = w;
+		}
 	}
 
 	function startRendering() {
@@ -23,22 +37,30 @@
 			const now = Date.now();
 			const ms = now % 1000;
 
-			// Only re-render when the millisecond portion changes enough (~30fps = every ~33ms)
 			if (Math.abs(ms - lastRenderedMs) >= 33 || ms < lastRenderedMs) {
 				lastRenderedMs = ms;
-				const timestamp = getTimestamp();
+				const ts = getTimestamp();
 
-				QRCode.toCanvas(canvas, timestamp, {
-					width: 256,
-					margin: 1,
-					errorCorrectionLevel: 'L', // Low error correction for speed
-					color: {
-						dark: '#000000',
-						light: '#ffffff'
-					}
-				}).catch((err: Error) => {
-					console.error('QR render error:', err);
-				});
+				const backIdx = activeIdx === 0 ? 1 : 0;
+				const backCanvas = canvases[backIdx];
+
+				if (backCanvas) {
+					QRCode.toCanvas(backCanvas, ts, {
+						width: qrWidth,
+						margin: 0,
+						errorCorrectionLevel: 'L',
+						color: {
+							dark: '#000000',
+							light: '#ffffff'
+						}
+					}).then(() => {
+						timestamps[backIdx] = ts;
+						timestamps = timestamps;
+						activeIdx = backIdx;
+					}).catch((err: Error) => {
+						console.error('QR render error:', err);
+					});
+				}
 			}
 
 			animationId = requestAnimationFrame(frame);
@@ -55,59 +77,81 @@
 	}
 
 	onMount(() => {
+		updateQrWidth();
+
+		resizeObserver = new ResizeObserver(() => {
+			updateQrWidth();
+		});
+		if (container) resizeObserver.observe(container);
+
 		startRendering();
 	});
 
 	onDestroy(() => {
 		stopRendering();
+		if (resizeObserver) resizeObserver.disconnect();
 	});
 </script>
 
-<div class="qr-timestamp-container" data-testid="qr-timestamp-section">
-	<p class="qr-description">
-		Point your external camera at this QR code while taking photos.
-		The QR code contains the current UTC timestamp (ISO 8601 with milliseconds),
-		updated at ~30fps. This can be used to correlate external camera timestamps
-		with Hillview's location/orientation data.
-	</p>
-	<div class="qr-canvas-wrapper">
-		<canvas bind:this={canvas} data-testid="qr-timestamp-canvas"></canvas>
-	</div>
-	<p class="qr-format-hint">
-		Format: <code>2026-03-15T14:30:05.123Z</code>
-	</p>
+<div class="qr-container" bind:this={container} data-testid="qr-timestamp-section">
+	{#each [0, 1] as idx}
+		<div class="qr-slot" class:active={idx === activeIdx} bind:this={slots[idx]}>
+			<canvas bind:this={canvases[idx]} data-testid="qr-timestamp-canvas-{idx}"></canvas>
+			<p class="ts-label">
+				{#if idx === activeIdx}●{:else}○{/if}
+				{timestamps[idx] ? new Date(Number(timestamps[idx])).toISOString() : ''}
+			</p>
+		</div>
+	{/each}
 </div>
 
 <style>
-	.qr-timestamp-container {
-		margin-top: 0.5rem;
-	}
-
-	.qr-description {
-		font-size: 0.85rem;
-		color: #4b5563;
-		line-height: 1.5;
-	}
-
-	.qr-canvas-wrapper {
+	.qr-container {
 		display: flex;
-		justify-content: center;
-		padding: 1rem 0;
+		flex-direction: column;
+		width: 100%;
+		height: 100%;
 		background: white;
-		border-radius: 0.5rem;
-		border: 1px solid #e5e7eb;
+		overflow: hidden;
 	}
 
-	.qr-format-hint {
-		font-size: 0.75rem;
-		color: #9ca3af;
+	/* Landscape: side by side */
+	@media (orientation: landscape) {
+		.qr-container {
+			flex-direction: row;
+		}
+	}
+
+	.qr-slot {
+		flex: 1;
+		min-width: 0;
+		min-height: 0;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		overflow: hidden;
+		padding: 1rem;
+	}
+
+	.qr-slot.active {
+	}
+
+	.qr-slot :global(canvas) {
+		display: block;
+		flex: 1;
+		min-height: 0;
+		max-width: 100%;
+		object-fit: contain;
+	}
+
+	.ts-label {
+		flex-shrink: 0;
+		font-size: clamp(0.75rem, 2vw, 1.5rem);
 		text-align: center;
-	}
-
-	.qr-format-hint code {
-		background-color: #f3f4f6;
-		padding: 0.125rem 0.375rem;
-		border-radius: 0.25rem;
-		font-size: 0.75rem;
+		font-weight: 900;
+		padding: 0;
+		margin: 0.25rem 0 0 0;
+		white-space: nowrap;
 	}
 </style>

@@ -1,0 +1,10 @@
+exif.py
+geo_tag_photos.py
+pyproject.toml
+qr_time_correction.py
+hillview_geotag.egg-info/PKG-INFO
+hillview_geotag.egg-info/SOURCES.txt
+hillview_geotag.egg-info/dependency_links.txt
+hillview_geotag.egg-info/entry_points.txt
+hillview_geotag.egg-info/requires.txt
+hillview_geotag.egg-info/top_level.txt

@@ -13,7 +13,7 @@
 	import SettingsSectionHeader from "$lib/components/SettingsSectionHeader.svelte";
 	import SettingsSectionDivider from "$lib/components/SettingsSectionDivider.svelte";
 	import {app} from "$lib/data.svelte";
-	import QrTimestamp from "$lib/components/QrTimestamp.svelte";
+	import { QrCode } from "lucide-svelte";
 
 	let autoExportEnabled = false;
 
@@ -67,6 +67,10 @@
 <StandardBody>
 
 		<SettingsSectionDivider />
+		<DebugSettings />
+
+
+		<SettingsSectionDivider />
 		<SettingsSectionHeader>Advanced Settings</SettingsSectionHeader>
 
 		{#if TAURI}
@@ -88,9 +92,6 @@
 			</div>
 			<ChevronRight size={16} />
 		</a>
-
-		<SettingsSectionDivider />
-		<DebugSettings />
 
 	{#if TAURI}
 		<SettingsSectionDivider />
@@ -148,9 +149,24 @@
 
 	{/if}
 
-		<SettingsSectionDivider />
-		<SettingsSectionHeader>Timestamp QR Code</SettingsSectionHeader>
-		<QrTimestamp />
+	<SettingsSectionDivider />
+	<SettingsSectionHeader>External Camera</SettingsSectionHeader>
+
+		<a href="/settings/advanced/qr-timestamp" class="settings-navigation-link" data-testid="qr-timestamp-link">
+			<QrCode size={18}/>
+			<div class="link-text">
+				<span class="link-title">Timestamp QR Code</span>
+				<span class="link-description">Display live QR code for external camera time sync</span>
+			</div>
+			<ChevronRight size={16} />
+		</a>
+		<p class="qr-hint">
+			Point your external camera at the QR code while taking photos.
+			It contains the current UTC timestamp (Unix ms) updated at ~30fps,
+			using double-buffered canvases so the camera always captures a fully
+			rendered code. Use <code>qr_time_correction.py</code> to calculate
+			the clock offset. Tap anywhere to close.
+		</p>
 
 	<br/>
 	<br/>
@@ -218,5 +234,19 @@
 
 	.checkbox-row label {
 		cursor: pointer;
+	}
+
+	.qr-hint {
+		font-size: 0.75rem;
+		color: #6b7280;
+		line-height: 1.4;
+		margin-top: 0.25rem;
+	}
+
+	.qr-hint code {
+		background-color: #f3f4f6;
+		padding: 0.1rem 0.3rem;
+		border-radius: 0.2rem;
+		font-size: 0.7rem;
 	}
 </style>
