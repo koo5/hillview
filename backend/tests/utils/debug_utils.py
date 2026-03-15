@@ -491,7 +491,7 @@ def upload_random_photos(count: int = 10, parallel: int = 1, user: str = None, p
 		traceback.print_exc()
 
 
-def upload_files(files: list, parallel: int = 1, user: str = None, password: str = None, skip_anonymization: bool = False, version: int = None):
+def upload_files(files: list, parallel: int = 1, user: str = None, password: str = None, skip_anonymization: bool = False, version: int = None, description: str = None):
 	"""Upload files from command line paths."""
 	import asyncio
 	import os
@@ -503,7 +503,7 @@ def upload_files(files: list, parallel: int = 1, user: str = None, password: str
 
 		token_manager = TokenManager(user, password)
 
-		items = [(i, os.path.basename(f), f"CLI upload: {os.path.basename(f)}", f) for i, f in enumerate(files)]
+		items = [(i, os.path.basename(f), description, f) for i, f in enumerate(files)]
 
 		def read_file(filepath):
 			with open(filepath, 'rb') as f:
@@ -778,6 +778,7 @@ def main():
 		parallel, user, password = 1, None, None
 		skip_anonymization = False
 		version = None
+		description = None
 		files = []
 		i = 0
 		while i < len(args):
@@ -796,6 +797,9 @@ def main():
 			elif args[i] == "--version":
 				version = int(args[i + 1])
 				i += 2
+			elif args[i] == "--description":
+				description = args[i + 1]
+				i += 2
 			elif args[i].startswith("--"):
 				print(f"Unknown option: {args[i]}")
 				return
@@ -803,9 +807,9 @@ def main():
 				files.append(args[i])
 				i += 1
 		if not files:
-			print("Usage: upload-files [--parallel N] [--user U --pass P] [--skip-anonymization] [--version N] file1.jpg ...")
+			print("Usage: upload-files [--parallel N] [--user U --pass P] [--skip-anonymization] [--version N] [--description TEXT] file1.jpg ...")
 		else:
-			upload_files(files, parallel, user, password, skip_anonymization=skip_anonymization, version=version)
+			upload_files(files, parallel, user, password, skip_anonymization=skip_anonymization, version=version, description=description)
 	elif command == "mock-mapillary":
 		setup_mock_mapillary()
 	elif command == "clear-mapillary":

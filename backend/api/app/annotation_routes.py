@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import and_
+from sqlalchemy import and_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
@@ -18,6 +18,27 @@ from auth import get_current_active_user, get_current_user_optional
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/annotations", tags=["annotations"])
+
+
+def effective_annotation_count_subquery():
+    """Return a subquery giving the count of effective (current, non-deleted) annotations per photo.
+
+    Columns: photo_id, annotation_count.
+    """
+    return (
+        select(
+            PhotoAnnotation.photo_id,
+            func.count(PhotoAnnotation.id).label('annotation_count')
+        )
+        .where(
+            and_(
+                PhotoAnnotation.is_current == True,
+                PhotoAnnotation.event_type != 'deleted',
+            )
+        )
+        .group_by(PhotoAnnotation.photo_id)
+        .subquery('effective_annotations')
+    )
 
 
 class AnnotationCreate(BaseModel):

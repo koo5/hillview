@@ -1,6 +1,6 @@
 <script lang="ts">
     import {
-        Map, Images, Activity, Database, Info, Download, User, EyeOff, LogOut, Users, Settings
+        Map, Images, Activity, Award, Database, Info, Download, User, EyeOff, LogOut, Users, Settings
     } from 'lucide-svelte';
     import { auth, logout } from '$lib/auth.svelte.js';
     import { FEATURE_USER_ACCOUNTS } from '$lib/config';
@@ -83,9 +83,16 @@
                 My Photos
             </a></li>
 
+			<hr/>
+
             <li><a href="/activity" on:click={closeMenu}>
                 <Activity size={18}/>
                 Activity
+            </a></li>
+
+            <li><a href="/bestof" on:click={closeMenu} data-testid="bestof-menu-link">
+                <Award size={18}/>
+                Best of
             </a></li>
 
             <li><a href="/users" on:click={closeMenu}>

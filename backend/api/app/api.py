@@ -362,6 +362,11 @@ if USER_ACCOUNTS:
 
 	app.include_router(activity_routes.router)
 
+	# Include best-of routes (only with user accounts)
+	import bestof_routes
+
+	app.include_router(bestof_routes.router)
+
 	# Include push notification routes (only with user accounts)
 	import push_routes
 

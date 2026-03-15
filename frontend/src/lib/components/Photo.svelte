@@ -128,7 +128,7 @@
 		//console.log('🢄Photo.svelte: Processing sizes for photo:', photo.id, 'is_device_photo:', photo.is_device_photo, 'sizes:', Object.keys(photo.sizes), 'clientWidth:', clientWidth2);
 
 		// Find the best scaled version based on container width. Take the 'full' size if this fails
-		const sizes = Object.keys(photo.sizes).filter(size => size !== 'full').sort((a, b) => Number(a) - Number(b));
+		const sizes = Object.keys(photo.sizes).filter(size => /^\d+$/.test(size)).sort((a, b) => Number(a) - Number(b));
 		let p: any;
 		for (let i = 0; i < sizes.length; i++) {
 			const size = sizes[i];

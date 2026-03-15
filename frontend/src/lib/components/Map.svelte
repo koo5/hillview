@@ -42,7 +42,7 @@
 	import {enableSourceForPhotoUid, sources} from "$lib/data.svelte.js";
     import { simplePhotoWorker } from '$lib/simplePhotoWorker';
     import { turn_to_photo_to, app, sourceLoadingStatus } from "$lib/data.svelte.js";
-    import { updateGpsLocation, setLocationTracking, setLocationError, gpsLocation, locationTracking } from "$lib/location.svelte.js";
+    import { updateGpsLocation, setLocationTracking, setLocationError, gpsLocation, locationTracking, lastKnownGpsLocation } from "$lib/location.svelte.js";
     import { isOnMapRoute, compassEnabled, disableCompass } from "$lib/compass.svelte.js";
     import { optimizedMarkerSystem, setupMarkerClickDelegation } from '$lib/optimizedMarkers';
     import '$lib/styles/optimizedMarkers.css';
@@ -981,11 +981,32 @@
             // The visibility change handler will take care of restarting
         });
 
-        return gpsLocation.subscribe((position: GeolocationPosition | null) => {
+        const unsubGps = gpsLocation.subscribe((position: GeolocationPosition | null) => {
             if (position) {
                 handleGpsLocationUpdate(position);
             }
         });
+
+        const gpsMarkerIcon = L.divIcon({
+            html: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#4285F4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="2" x2="5" y1="12" y2="12"/><line x1="19" x2="22" y1="12" y2="12"/><line x1="12" x2="12" y1="2" y2="5"/><line x1="12" x2="12" y1="19" y2="22"/><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="3" fill="#4285F4"/></svg>`,
+            className: 'gps-location-icon',
+            iconSize: [24, 24],
+            iconAnchor: [12, 12],
+        });
+
+        const unsubLastKnown = lastKnownGpsLocation.subscribe((loc) => {
+            if (!map) return;
+            if (loc) {
+                const latLng = new L.LatLng(loc.lat, loc.lng);
+                if (userLocationMarker) {
+                    userLocationMarker.setLatLng(latLng);
+                } else {
+                    userLocationMarker = L.marker(latLng, { icon: gpsMarkerIcon, interactive: false }).addTo(map);
+                }
+            }
+        });
+
+        return () => { unsubGps(); unsubLastKnown(); };
     });
 
     //import.meta.hot?.dispose(() => (map = null));
@@ -1433,9 +1454,6 @@
 </div>
 
 <style>
-
-
-
 
     .map {
         width: 100%;

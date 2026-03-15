@@ -24,7 +24,7 @@
 			<div class="document-meta">
 				<div class="meta-item">
 					<Calendar size={16} />
-					<span>Last updated: December 2025</span>
+					<span>Last updated: March 2026</span>
 				</div>
 			</div>
 		</header>
@@ -73,8 +73,29 @@
 		</section>
 
 		<section class="document-section">
+			<h2>5. Annotations and User Contributions</h2>
+			<p>
+				When you submit annotations, tags, labels, or other descriptive metadata through
+				Hillview (collectively "Annotations"), you grant the Hillview project a perpetual,
+				worldwide, royalty-free, non-exclusive license to use, reproduce, modify, distribute,
+				and display those Annotations in any way the project sees fit, including but not limited to:
+			</p>
+			<ul>
+				<li>Improving and training algorithms and models used by the service</li>
+				<li>Publishing aggregated or individual annotation data as open datasets</li>
+				<li>Incorporating Annotations into derived works or research</li>
+				<li>Sharing Annotations with third parties for purposes aligned with the project's goals</li>
+			</ul>
+			<p>
+				Annotations are factual or descriptive in nature and are not considered personal creative
+				works. By submitting Annotations, you represent that they are made in good faith and to
+				the best of your knowledge.
+			</p>
+		</section>
+
+		<section class="document-section">
 			<h2>
-				5. Privacy Protection and Automatic Anonymization
+				6. Privacy Protection and Automatic Anonymization
 			</h2>
 
 				<p><strong>Important Privacy Features:</strong></p>
@@ -116,7 +137,7 @@
 		</section>
 
 		<section class="document-section">
-			<h2>6. Privacy and Data Protection</h2>
+			<h2>7. Privacy and Data Protection</h2>
 			<p>
 				Your privacy is important to us. Our collection and use of personal information is
 				governed by our <a href="/privacy" class="legal-link">Privacy Policy</a>, which is
@@ -125,7 +146,7 @@
 		</section>
 
 		<section class="document-section">
-			<h2>7. Prohibited Uses</h2>
+			<h2>8. Prohibited Uses</h2>
 			<p>You agree not to use Hillview to:</p>
 			<ul>
 				<li>Upload content that is illegal, harmful, or violates others' rights</li>
@@ -138,7 +159,7 @@
 		</section>
 
 		<section class="document-section">
-			<h2>8. Intellectual Property</h2>
+			<h2>9. Intellectual Property</h2>
 			<p>
 				Hillview and its original content, features, and functionality are owned by the
 				Hillview team and are protected by copyright, trademark, and other intellectual
@@ -147,7 +168,7 @@
 		</section>
 
 		<section class="document-section">
-			<h2>9. Disclaimer of Warranties</h2>
+			<h2>10. Disclaimer of Warranties</h2>
 			<p>
 				Hillview is provided "as is" without any warranties, express or implied. We do not
 				guarantee that the service will be uninterrupted, secure, or error-free. Location
@@ -158,7 +179,7 @@
 		</section>
 
 		<section class="document-section">
-			<h2>10. Limitation of Liability</h2>
+			<h2>11. Limitation of Liability</h2>
 			<p>
 				To the fullest extent permitted by law, Hillview and its developers shall not be
 				liable for any indirect, incidental, special, consequential, or punitive damages
@@ -168,7 +189,7 @@
 		</section>
 
 		<section class="document-section">
-			<h2>11. Termination</h2>
+			<h2>12. Termination</h2>
 			<p>
 				We may terminate or suspend your account and access to the service at any time,
 				without prior notice, for conduct that we believe violates these terms or is
@@ -177,7 +198,7 @@
 		</section>
 
 		<section class="document-section">
-			<h2>12. Changes to Terms</h2>
+			<h2>13. Changes to Terms</h2>
 			<p>
 				We reserve the right to modify these terms at any time. We will notify users of
 				significant changes by posting the new terms on this page. Your continued use of
@@ -186,7 +207,7 @@
 		</section>
 
 		<section class="document-section">
-			<h2>13. Contact Information</h2>
+			<h2>14. Contact Information</h2>
 			<p>
 				If you have questions about these Terms of Service, please contact us:
 			</p>

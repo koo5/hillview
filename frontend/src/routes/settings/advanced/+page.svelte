@@ -13,6 +13,7 @@
 	import SettingsSectionHeader from "$lib/components/SettingsSectionHeader.svelte";
 	import SettingsSectionDivider from "$lib/components/SettingsSectionDivider.svelte";
 	import {app} from "$lib/data.svelte";
+	import QrTimestamp from "$lib/components/QrTimestamp.svelte";
 
 	let autoExportEnabled = false;
 
@@ -146,6 +147,11 @@
 		<div class="section-divider"></div>
 
 	{/if}
+
+		<SettingsSectionDivider />
+		<SettingsSectionHeader>Timestamp QR Code</SettingsSectionHeader>
+		<QrTimestamp />
+
 	<br/>
 	<br/>
 

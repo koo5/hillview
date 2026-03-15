@@ -35,6 +35,31 @@ WEBP_QUALITY_SIZES = 97
 WEBP_QUALITY_DZI = 97
 
 
+def create_center_crop(image, target_width: int, target_height: int):
+	"""Resize and center-crop an image to exact target dimensions.
+
+	Scales the image so the smaller dimension matches the target,
+	then center-crops the larger dimension.
+
+	Args:
+		image: BGR numpy array (from cv2)
+		target_width: Desired output width in pixels
+		target_height: Desired output height in pixels
+
+	Returns:
+		Cropped BGR numpy array of exactly (target_height, target_width).
+	"""
+	h, w = image.shape[:2]
+	# Scale so that the dimension that would be cropped fills the target
+	scale = max(target_width / w, target_height / h)
+	new_w = int(w * scale)
+	new_h = int(h * scale)
+	resized = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_AREA)
+	x_start = (new_w - target_width) // 2
+	y_start = (new_h - target_height) // 2
+	return resized[y_start:y_start + target_height, x_start:x_start + target_width]
+
+
 class AnonymizationOverride(BaseModel):
 	"""Controls anonymization behavior.
 
@@ -472,6 +497,32 @@ class PhotoProcessor:
 					'url': await self._get_size_url(output_file_path, relative_path, photo_id, client_signature)
 				})
 				sizes_info[size] = size_info
+
+		# Create cropped thumbnail variants for images wider than the target aspect ratio
+		crop_variants = [('320_crop', 320, 240)]  # (key, width, height)
+		for crop_key, crop_tw, crop_th in crop_variants:
+			if height > 0 and width / height > crop_tw / crop_th:
+				cropped = create_center_crop(image, crop_tw, crop_th)
+
+				user_id_part, photo_id_part = unique_id.split('/', 1)
+				user_id_part = validate_user_id(user_id_part)
+				crop_dir = os.path.join(output_base, 'opt', crop_key, user_id_part)
+				unique_filename = sanitize_filename(f"{photo_id_part}.webp")
+				crop_file_path = validate_file_path(os.path.join(crop_dir, unique_filename), output_base)
+				crop_relative_path = os.path.relpath(crop_file_path, output_base)
+				os.makedirs(pathlib.Path(crop_file_path).parent, exist_ok=True)
+
+				cropped_rgb = cv2.cvtColor(cropped, cv2.COLOR_BGR2RGB)
+				Image.fromarray(cropped_rgb).save(crop_file_path, format='WEBP', quality=WEBP_QUALITY_SIZES, method=6)
+				copy_exif_data(source_path, crop_file_path)
+				logger.info(f"Created {crop_key} for {unique_id}: {crop_tw}x{crop_th} at {crop_file_path}")
+
+				sizes_info[crop_key] = {
+					'path': crop_relative_path,
+					'width': crop_tw,
+					'height': crop_th,
+					'url': await self._get_size_url(crop_file_path, crop_relative_path, photo_id, client_signature)
+				}
 
 		logger.info(f"Created {len(sizes_info)} size variants for {unique_id}")
 

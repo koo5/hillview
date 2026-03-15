@@ -4,6 +4,9 @@ import type { GeolocationPosition } from '$lib/preciseLocation';
 // Store for current GPS location from device
 export const gpsLocation = writable<GeolocationPosition | null>(null);
 
+// Last known GPS position — only set when real GPS data arrives, never cleared.
+export const lastKnownGpsLocation = writable<{ lat: number; lng: number } | null>(null);
+
 // Store for whether location tracking is active
 export const locationTracking = writable<boolean>(false);
 
@@ -38,6 +41,10 @@ export function updateGpsLocation(position: GeolocationPosition | null) {
 
     //console.debug('🢄Updating GPS location store:', JSON.stringify(position));
     gpsLocation.set(position);
+
+    if (position) {
+        lastKnownGpsLocation.set({ lat: position.coords.latitude, lng: position.coords.longitude });
+    }
 
     // Capture location updates are now handled by captureLocationManager.ts
     return true;

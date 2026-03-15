@@ -4,7 +4,7 @@
 	export let data;
 
 	function getPhotoUrl(photo: any): string {
-		return photo.sizes?.['320']?.url || '';
+		return photo.sizes?.['320_crop']?.url || photo.sizes?.['320']?.url || '';
 	}
 
 	function openPhoto(photo: any) {

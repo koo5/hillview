@@ -10,6 +10,7 @@
 	export let variant: 'card' | 'thumbnail' = 'card';
 	export let showDates = true;
 	export let showDescription = true;
+	export let preferDescription = false;
 
 	// State
 	let detailsExpanded = false;
@@ -35,7 +36,7 @@
 	}
 
 	function getPhotoUrl(photo: PhotoItemData): string {
-		return photo.sizes?.['320']?.url || '';
+		return photo.sizes?.['320_crop']?.url || photo.sizes?.['320']?.url || '';
 	}
 
 	function getMapUrl(photo: PhotoItemData): string | null {
@@ -95,9 +96,9 @@
 	</a>
 
 	<div class="photo-info">
-		<h3 class="filename">{photo.original_filename}</h3>
+		<h3 class="filename">{preferDescription && photo.description ? photo.description : photo.original_filename}</h3>
 
-		{#if showDescription && photo.description}
+		{#if showDescription && photo.description && !preferDescription}
 			<p class="description">{photo.description}</p>
 		{/if}
 
