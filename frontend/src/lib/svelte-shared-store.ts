@@ -84,12 +84,26 @@ export function localStorageSharedStore<T>(name: string, default_: T): Writable<
 
 
 
-export function localStorageReadOnceSharedStore<T>(name: string, default_: T): Writable<T> {
+export function localStorageReadOnceSharedStore<T>(name: string, default_: T, debounceMs?: number): Writable<T> {
+ let writeTimeout: ReturnType<typeof setTimeout> | null = null;
+
  function setStorage(value: T): void {
   if (!browser) return;
   const str = JSON.stringify(value);
   //console.log('🢄SAVE', name, str);
   window.localStorage.setItem(name, str);
+ }
+
+ function scheduleSetStorage(value: T): void {
+  if (!debounceMs) {
+   setStorage(value);
+   return;
+  }
+  if (writeTimeout) clearTimeout(writeTimeout);
+  writeTimeout = setTimeout(() => {
+   setStorage(value);
+   writeTimeout = null;
+  }, debounceMs);
  }
 
  function getStorage(): T {
@@ -128,14 +142,14 @@ export function localStorageReadOnceSharedStore<T>(name: string, default_: T): W
   set(value: T): void {
    modifiedBeforeSubscribe = true;
    currentValue = value;
-   setStorage(value);
+   scheduleSetStorage(value);
    set(value);
   },
   update(fn: (value: T) => T): void {
    modifiedBeforeSubscribe = true;
    const value2 = fn(currentValue);
    currentValue = value2;
-   setStorage(value2);
+   scheduleSetStorage(value2);
    set(value2);
   },
  };

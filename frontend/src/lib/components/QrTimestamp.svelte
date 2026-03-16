@@ -134,8 +134,6 @@
 		padding: 1rem;
 	}
 
-	.qr-slot.active {
-	}
 
 	.qr-slot :global(canvas) {
 		display: block;
