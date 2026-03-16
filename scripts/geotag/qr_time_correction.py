@@ -160,27 +160,34 @@ def main():
 
     # Phase 2: display pairs
     #
-    # EXIF subsecond values are unreliable for absolute timing (Canon "work
-    # timer" resets per shooting sequence).  We ignore subseconds and treat
-    # each photo's EXIF time as the whole second only.  The photo was taken
-    # somewhere in [exif_whole_s, exif_whole_s + 1.0).
+    # Canon "work timer" model:  on the first shot of a sequence the camera
+    # snapshots the main-clock whole second S and initialises a work timer
+    # to S.000.  The work timer ticks forward accurately from there.  The
+    # unknown offset δ ∈ [0, 1) is the fractional second lost at init.
+    #
+    # The work timer reads (exif_whole_s + subsec) exactly.  The real
+    # camera time is (exif_whole_s + subsec + δ), so:
+    #   real_time ∈ [exif_full, exif_full + 1.0)
+    # where exif_full = exif_whole_s + subsec.
+    #
     # With correction c:  real_time = camera_time + c
-    # Per-photo valid range for c:  (qr_s - exif_whole_s - 1.0, qr_s - exif_whole_s]
+    # Per-photo valid range for c:  (qr_s - exif_full - 1.0, qr_s - exif_full]
 
     print(f"\n--- {len(photos)} photo(s) with QR+EXIF, sorted by QR time ---\n")
 
-    # Build per-photo data: (exif_whole_s, qr_s, range_lo, range_hi)
+    # Build per-photo data: (exif_full, qr_s, range_lo, range_hi)
     photo_data = []
     for info in photos:
-        exif_whole_s = int(info.exif_dt.replace(microsecond=0).timestamp())
+        exif_full = info.exif_dt.timestamp()
         qr_s = info.qr_dt.timestamp()
-        range_lo = qr_s - exif_whole_s - 1.0   # exclusive lower bound
-        range_hi = qr_s - exif_whole_s          # inclusive upper bound
-        photo_data.append((exif_whole_s, qr_s, range_lo, range_hi))
+        range_lo = qr_s - exif_full - 1.0   # exclusive lower bound
+        range_hi = qr_s - exif_full          # inclusive upper bound
+        photo_data.append((exif_full, qr_s, range_lo, range_hi))
 
         exif_utc = info.exif_dt.astimezone(timezone.utc)
+        subsec = exif_full - int(exif_full)
         print(f"  {info.path.name}")
-        print(f"    EXIF (camera):  {format_dt(exif_utc)}")
+        print(f"    EXIF (camera):  {format_dt(exif_utc)}  (subsec: {subsec:.3f})")
         print(f"    QR   (real):    {format_dt(info.qr_dt)}  ({info.qr_raw})")
         print(f"    valid c range:  ({range_lo:+.3f}s, {range_hi:+.3f}s]")
         print()
@@ -240,6 +247,10 @@ def find_correction_range(photos, photo_data, leeway_ms):
     midpoint_s = (match_start_s + match_end_s) / 2.0
     range_width_s = match_end_s - match_start_s
 
+    # Optimal correction: mean of (qr - exif_full) minimizes mean error to 0
+    mean_diff = sum(qr_s - exif_full for exif_full, qr_s, _, _ in photo_data) / len(photo_data)
+    optimal_s = mean_diff
+
     print("=" * 60)
     if leeway_ms > 0:
         print(f"  Leeway:     {leeway_ms}ms (each photo's range widened by +/-{leeway_ms}ms)")
@@ -248,16 +259,30 @@ def find_correction_range(photos, photo_data, leeway_ms):
     print(f"    End:      {match_end_s:+.3f}s")
     print(f"    Width:    {range_width_s:.3f}s")
     print(f"    Midpoint: {midpoint_s:+.3f}s")
+    print(f"    Optimal:  {optimal_s:+.3f}s (minimizes mean error)")
     print()
     print(f"  Recommended correction for geo_tag_photos.py:")
-    print(f"    python geo_tag_photos.py <csv_dir> {midpoint_s:+.3f} <photos...>")
+    print(f"    python geo_tag_photos.py <csv_dir> {optimal_s:+.3f} <photos...>")
     print()
-    if midpoint_s > 0:
-        print(f"  Camera is ~{abs(midpoint_s):.1f}s slow (EXIF behind real time, correction adds time)")
-    elif midpoint_s < 0:
-        print(f"  Camera is ~{abs(midpoint_s):.1f}s fast (EXIF ahead of real time, correction subtracts time)")
+    if optimal_s > 0:
+        print(f"  Camera is ~{abs(optimal_s):.1f}s slow (EXIF behind real time, correction adds time)")
+    elif optimal_s < 0:
+        print(f"  Camera is ~{abs(optimal_s):.1f}s fast (EXIF ahead of real time, correction subtracts time)")
     else:
         print(f"  Camera clock appears accurate")
+
+    # Phase 4: per-photo error analysis using optimal correction
+    print(f"\n--- Per-photo error (corrected EXIF vs QR) using c = {optimal_s:+.3f}s ---\n")
+    errors = []
+    for info, (exif_full, qr_s, _, _) in zip(photos, photo_data):
+        corrected_s = exif_full + optimal_s
+        error_ms = (corrected_s - qr_s) * 1000
+        errors.append(error_ms)
+        print(f"  {info.path.name}:  error = {error_ms:+.0f}ms")
+
+    print()
+    print(f"  Mean error:     {sum(errors) / len(errors):+.0f}ms")
+    print(f"  Max |error|:    {max(abs(e) for e in errors):.0f}ms")
 
     return True
 
