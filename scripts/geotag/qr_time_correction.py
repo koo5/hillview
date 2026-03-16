@@ -27,12 +27,16 @@ from typing import Optional
 
 from exif import check_exiftool, get_photo_timestamp
 
+
+def eprint(*args, **kwargs):
+    print(*args, file=sys.stderr, **kwargs)
+
 try:
     from PIL import Image
     import zxingcpp
 except ImportError:
-    print("Missing dependencies. Install with:")
-    print("  cd scripts/geotag && pip install -e .")
+    eprint("Missing dependencies. Install with:")
+    eprint("  cd scripts/geotag && pip install -e .")
     sys.exit(1)
 
 
@@ -131,10 +135,10 @@ def main():
     valid_paths = [p for p in args.photos if p.exists()]
     missing = [p for p in args.photos if not p.exists()]
     for p in missing:
-        print(f"  {p.name}: file not found, skipping")
+        eprint(f"  {p.name}: file not found, skipping")
 
     workers = min(len(valid_paths), os.cpu_count() or 4)
-    print(f"Scanning {len(valid_paths)} file(s) with {workers} workers...\n")
+    eprint(f"Scanning {len(valid_paths)} file(s) with {workers} workers...\n")
 
     photos: list[PhotoInfo] = []
     with ProcessPoolExecutor(max_workers=workers) as executor:
@@ -149,10 +153,10 @@ def main():
                     reasons.append("no QR")
                 if info.exif_dt is None:
                     reasons.append("no EXIF")
-                print(f"  {info.path.name}: {', '.join(reasons)}, skipping")
+                eprint(f"  {info.path.name}: {', '.join(reasons)}, skipping")
 
     if not photos:
-        print("\nNo photos with both QR and EXIF timestamps found.")
+        eprint("\nNo photos with both QR and EXIF timestamps found.")
         sys.exit(1)
 
     # Sort by QR timestamp
@@ -170,33 +174,38 @@ def main():
     #   real_time ∈ [exif_full, exif_full + 1.0)
     # where exif_full = exif_whole_s + subsec.
     #
-    # With correction c:  real_time = camera_time + c
-    # Per-photo valid range for c:  (qr_s - exif_full - 1.0, qr_s - exif_full]
+    # The camera captures the QR after it was rendered, so:
+    #   corrected_time ≥ qr_time,  i.e.  c ≥ qr - exif_full
+    # The work timer δ adds up to 1s:
+    #   c < qr - exif_full + 1.0
+    # Per-photo valid range for c:  [qr_s - exif_full, qr_s - exif_full + 1.0)
 
-    print(f"\n--- {len(photos)} photo(s) with QR+EXIF, sorted by QR time ---\n")
+    eprint(f"\n--- {len(photos)} photo(s) with QR+EXIF, sorted by QR time ---\n")
 
     # Build per-photo data: (exif_full, qr_s, range_lo, range_hi)
     photo_data = []
     for info in photos:
         exif_full = info.exif_dt.timestamp()
         qr_s = info.qr_dt.timestamp()
-        range_lo = qr_s - exif_full - 1.0   # exclusive lower bound
-        range_hi = qr_s - exif_full          # inclusive upper bound
+        range_lo = qr_s - exif_full            # inclusive lower bound
+        range_hi = qr_s - exif_full + 1.0      # exclusive upper bound
         photo_data.append((exif_full, qr_s, range_lo, range_hi))
 
         exif_utc = info.exif_dt.astimezone(timezone.utc)
         subsec = exif_full - int(exif_full)
-        print(f"  {info.path.name}")
-        print(f"    EXIF (camera):  {format_dt(exif_utc)}  (subsec: {subsec:.3f})")
-        print(f"    QR   (real):    {format_dt(info.qr_dt)}  ({info.qr_raw})")
-        print(f"    valid c range:  ({range_lo:+.3f}s, {range_hi:+.3f}s]")
-        print()
+        eprint(f"  {info.path.name}")
+        eprint(f"    EXIF (camera):  {format_dt(exif_utc)}  (subsec: {subsec:.3f})")
+        eprint(f"    QR   (real):    {format_dt(info.qr_dt)}  ({info.qr_raw})")
+        eprint(f"    valid c range:  [{range_lo:+.3f}s, {range_hi:+.3f}s)")
+        eprint()
 
     for leeway_ms in range(1000):
-        if find_correction_range(photos, photo_data, leeway_ms):
+        optimal = find_correction_range(photos, photo_data, leeway_ms)
+        if optimal is not None:
+            print(f"{optimal:+.3f}")
             return
 
-    print("No valid correction found even with 999ms leeway.")
+    eprint("No valid correction found even with 999ms leeway.")
     sys.exit(1)
 
 
@@ -218,7 +227,7 @@ def find_correction_range(photos, photo_data, leeway_ms):
     def all_match(c_ms: int) -> bool:
         c_s = c_ms / 1000.0
         for lo, hi in zip(all_lo, all_hi):
-            if not (lo < c_s <= hi):
+            if not (lo <= c_s < hi):
                 return False
         return True
 
@@ -237,7 +246,7 @@ def find_correction_range(photos, photo_data, leeway_ms):
         c_ms += 1
 
     if match_start_ms is None:
-        return False
+        return None
 
     if match_end_ms is None:
         match_end_ms = end_c_ms
@@ -251,40 +260,40 @@ def find_correction_range(photos, photo_data, leeway_ms):
     mean_diff = sum(qr_s - exif_full for exif_full, qr_s, _, _ in photo_data) / len(photo_data)
     optimal_s = mean_diff
 
-    print("=" * 60)
+    eprint("=" * 60)
     if leeway_ms > 0:
-        print(f"  Leeway:     {leeway_ms}ms (each photo's range widened by +/-{leeway_ms}ms)")
-    print(f"  Valid correction range:")
-    print(f"    Start:    {match_start_s:+.3f}s")
-    print(f"    End:      {match_end_s:+.3f}s")
-    print(f"    Width:    {range_width_s:.3f}s")
-    print(f"    Midpoint: {midpoint_s:+.3f}s")
-    print(f"    Optimal:  {optimal_s:+.3f}s (minimizes mean error)")
-    print()
-    print(f"  Recommended correction for geo_tag_photos.py:")
-    print(f"    python geo_tag_photos.py <csv_dir> {optimal_s:+.3f} <photos...>")
-    print()
+        eprint(f"  Leeway:     {leeway_ms}ms (each photo's range widened by +/-{leeway_ms}ms)")
+    eprint(f"  Valid correction range:")
+    eprint(f"    Start:    {match_start_s:+.3f}s")
+    eprint(f"    End:      {match_end_s:+.3f}s")
+    eprint(f"    Width:    {range_width_s:.3f}s")
+    eprint(f"    Midpoint: {midpoint_s:+.3f}s")
+    eprint(f"    Optimal:  {optimal_s:+.3f}s (minimizes mean error)")
+    eprint()
+    eprint(f"  Recommended correction for geo_tag_photos.py:")
+    eprint(f"    python geo_tag_photos.py <csv_dir> {optimal_s:+.3f} <photos...>")
+    eprint()
     if optimal_s > 0:
-        print(f"  Camera is ~{abs(optimal_s):.1f}s slow (EXIF behind real time, correction adds time)")
+        eprint(f"  Camera is ~{abs(optimal_s):.1f}s slow (EXIF behind real time, correction adds time)")
     elif optimal_s < 0:
-        print(f"  Camera is ~{abs(optimal_s):.1f}s fast (EXIF ahead of real time, correction subtracts time)")
+        eprint(f"  Camera is ~{abs(optimal_s):.1f}s fast (EXIF ahead of real time, correction subtracts time)")
     else:
-        print(f"  Camera clock appears accurate")
+        eprint(f"  Camera clock appears accurate")
 
     # Phase 4: per-photo error analysis using optimal correction
-    print(f"\n--- Per-photo error (corrected EXIF vs QR) using c = {optimal_s:+.3f}s ---\n")
+    eprint(f"\n--- Per-photo error (corrected EXIF vs QR) using c = {optimal_s:+.3f}s ---\n")
     errors = []
     for info, (exif_full, qr_s, _, _) in zip(photos, photo_data):
         corrected_s = exif_full + optimal_s
         error_ms = (corrected_s - qr_s) * 1000
         errors.append(error_ms)
-        print(f"  {info.path.name}:  error = {error_ms:+.0f}ms")
+        eprint(f"  {info.path.name}:  error = {error_ms:+.0f}ms")
 
-    print()
-    print(f"  Mean error:     {sum(errors) / len(errors):+.0f}ms")
-    print(f"  Max |error|:    {max(abs(e) for e in errors):.0f}ms")
+    eprint()
+    eprint(f"  Mean error:     {sum(errors) / len(errors):+.0f}ms")
+    eprint(f"  Max |error|:    {max(abs(e) for e in errors):.0f}ms")
 
-    return True
+    return optimal_s
 
 
 if __name__ == '__main__':
