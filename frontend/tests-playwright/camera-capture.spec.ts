@@ -2,33 +2,14 @@ import { test, expect } from './fixtures';
 import { loginAsTestUser } from './helpers/testUsers';
 import { getPhotoCount, waitForPhotoCount, getLatestPhoto } from './helpers/indexedDbPhotos';
 import { configureAutoUploadFromPrompt } from './helpers/autoUpload';
+import { addCameraInitScript } from './helpers/cameraSetup';
 
 // Camera capture only works with Chromium's fake device support
 test.describe('Camera Capture', () => {
 	test.beforeEach(async ({ page, browserName, testUsers }) => {
 		test.skip(browserName !== 'chromium', 'Fake camera only works in Chromium');
 
-		// Pre-seed localStorage so camera button is visible (needs debug_enabled)
-		// and location data is available for capture
-		await page.addInitScript(() => {
-			localStorage.setItem('appSettings', JSON.stringify({
-				debug: 0,
-				debug_enabled: true,
-				activity: 'view'
-			}));
-			localStorage.setItem('spatialState', JSON.stringify({
-				center: { lat: 50.11692, lng: 14.48837 },
-				zoom: 20,
-				bounds: null,
-				range: 1000,
-				source: 'map'
-			}));
-			localStorage.setItem('bearingState', JSON.stringify({
-				bearing: 141,
-				source: 'map',
-				accuracy_level: null
-			}));
-		});
+		await addCameraInitScript(page);
 
 		await loginAsTestUser(page, testUsers.passwords.test);
 		await page.waitForLoadState('networkidle');
@@ -70,8 +51,8 @@ test.describe('Camera Capture', () => {
 		expect(photo1!.blobSize).toBeGreaterThan(0);
 		expect(photo1!.latitude).toBeCloseTo(50.11692, 3);
 		expect(photo1!.longitude).toBeCloseTo(14.48837, 3);
-		// Photo should be pending (or uploading/uploaded if auto-upload is fast)
-		expect(['pending', 'uploading', 'uploaded']).toContain(photo1!.status);
+		// Photo should be pending (or uploading/processing/completed if auto-upload is fast)
+		expect(['pending', 'uploading', 'processing', 'completed']).toContain(photo1!.status);
 
 		// --- Capture photo 2 ---
 		await captureButton.click();

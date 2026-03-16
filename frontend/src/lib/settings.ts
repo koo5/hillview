@@ -76,8 +76,8 @@ export async function updateSettings(newSettings: Partial<Settings>): Promise<vo
 		const current = get(browserSettingsStore);
 		const updated = {...current.value, ...newSettings};
 		browserSettingsStore.set({...current, value: updated});
-		// Fire-and-forget for service worker
-		writeSettings(updated);
+		// Also persist to IndexedDB so the upload loop (which reads from IDB) sees the change
+		await writeSettings(updated);
 	} else if (TAURI) {
 		const current = get(tauriSettingsStore);
 		const updated = {...current?.value, ...newSettings} as Settings;

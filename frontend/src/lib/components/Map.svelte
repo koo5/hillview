@@ -1521,7 +1521,7 @@
 
     .location-button-container {
         position: absolute;
-		top: 6px;
+		top: 16px;
         right: calc(6px + var(--safe-area-inset-right, 0px));
         z-index: 30000;
         display: flex;
@@ -1702,7 +1702,7 @@
 
     .filters-button-container {
         position: absolute;
-        top: calc(10px + var(--safe-area-inset-top, 0px));
+        top: 16px;
         left: 50%;
         transform: translateX(-50%);
         z-index: 30000;

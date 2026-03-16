@@ -1,8 +1,12 @@
 import type { Page } from '@playwright/test';
 
+function isEnvFlagEnabled(value: string | undefined): boolean {
+    return /^(1|true|yes|on)$/i.test(value?.trim() ?? '');
+}
+
 export function setupConsoleLogging(page: Page): void {
-    // Only enable if environment variable is set
-    if (process.env.PLAYWRIGHT_CONSOLE_LOG !== 'true') {
+    // Only enable if the environment variable is set to a truthy value
+    if (!isEnvFlagEnabled(process.env.PLAYWRIGHT_CONSOLE_LOG)) {
         return;
     }
 

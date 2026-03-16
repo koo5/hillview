@@ -1,6 +1,7 @@
 import { test, expect } from './fixtures';
 import { createTestUsers, loginAsTestUser } from './helpers/testUsers';
 import { configureAutoUploadFromPrompt } from './helpers/autoUpload';
+import { addCameraInitScript } from './helpers/cameraSetup';
 
 import {
 	getPhotoCount,
@@ -9,29 +10,6 @@ import {
 	waitForUploadedCount,
 	getAllPhotosDetailed
 } from './helpers/indexedDbPhotos';
-
-// Pre-seed localStorage so camera button is visible and location data is available
-function addCameraInitScript(page: any) {
-	return page.addInitScript(() => {
-		localStorage.setItem('appSettings', JSON.stringify({
-			debug: 0,
-			debug_enabled: true,
-			activity: 'view'
-		}));
-		localStorage.setItem('spatialState', JSON.stringify({
-			center: { lat: 50.11692, lng: 14.48837 },
-			zoom: 20,
-			bounds: null,
-			range: 1000,
-			source: 'map'
-		}));
-		localStorage.setItem('bearingState', JSON.stringify({
-			bearing: 141,
-			source: 'map',
-			accuracy_level: null
-		}));
-	});
-}
 
 test.describe('Browser Capture → Upload', () => {
 	test.describe.configure({ mode: 'serial' });
@@ -83,13 +61,13 @@ test.describe('Browser Capture → Upload', () => {
 		await loginAsTestUser(page, testUsers.passwords.test);
 		await page.waitForLoadState('networkidle');
 
-		// Wait for auto-upload to complete (IndexedDB status changes to 'uploaded')
+		// Wait for auto-upload to complete (IndexedDB status changes to 'processing' or 'completed')
 		await waitForUploadedCount(page, 1);
 
 		// Verify IndexedDB photo is now uploaded with server_photo_id
 		const uploadedPhoto = await getLatestPhoto(page);
 		expect(uploadedPhoto).not.toBeNull();
-		expect(uploadedPhoto!.status).toBe('uploaded');
+		expect(['processing', 'completed']).toContain(uploadedPhoto!.status);
 		expect(uploadedPhoto!.server_photo_id).toBeTruthy();
 		const expectedPhotoId = uploadedPhoto!.server_photo_id;
 
@@ -142,7 +120,7 @@ test.describe('Browser Capture → Upload', () => {
 
 		const photo1 = await getLatestPhoto(page);
 		expect(photo1).not.toBeNull();
-		expect(photo1!.status).toBe('uploaded');
+		expect(['processing', 'completed']).toContain(photo1!.status);
 		expect(photo1!.server_photo_id).toBeTruthy();
 
 		// Go back to camera for second capture
@@ -159,7 +137,7 @@ test.describe('Browser Capture → Upload', () => {
 		await waitForUploadedCount(page, 2);
 
 		const allPhotos = await getAllPhotosDetailed(page);
-		const uploadedPhotos = allPhotos.filter(p => p.status === 'uploaded');
+		const uploadedPhotos = allPhotos.filter(p => p.status === 'processing' || p.status === 'completed');
 		expect(uploadedPhotos.length).toBe(2);
 		expect(uploadedPhotos[0].server_photo_id).toBeTruthy();
 		expect(uploadedPhotos[1].server_photo_id).toBeTruthy();

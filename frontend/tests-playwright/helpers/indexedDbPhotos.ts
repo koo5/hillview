@@ -49,7 +49,7 @@ export async function getPhotoCount(page: Page): Promise<number> {
 /** Wait for IndexedDB photo count to reach target */
 export async function waitForPhotoCount(page: Page, target: number, timeoutMs = 10000): Promise<void> {
 	await page.evaluate(async ({ target, timeoutMs }: { target: number; timeoutMs: number }) => {
-		const interval = 200;
+		const interval = 1400;
 		let elapsed = 0;
 		while (elapsed < timeoutMs) {
 			const count = await new Promise<number>((resolve) => {
@@ -67,6 +67,7 @@ export async function waitForPhotoCount(page: Page, target: number, timeoutMs = 
 				request.onupgradeneeded = () => { (request as IDBOpenDBRequest).result.close(); resolve(0); };
 			});
 			if (count >= target) return;
+			console.log(`[waitForPhotoCount] ${elapsed}ms: count=${count}, waiting for ${target}`);
 			await new Promise(r => setTimeout(r, interval));
 			elapsed += interval;
 		}
@@ -111,7 +112,7 @@ export async function getLatestPhoto(page: Page): Promise<PhotoInfo | null> {
 /** Wait for N photos to reach 'uploaded' status in IndexedDB.
  *  Polls from Node.js side so we can log intermediate states. */
 export async function waitForUploadedCount(page: Page, target: number, timeoutMs = 130000): Promise<void> {
-	const interval = 500;
+	const interval = 1500;
 	let elapsed = 0;
 	let lastLog = '';
 
@@ -142,9 +143,10 @@ export async function waitForUploadedCount(page: Page, target: number, timeoutMs
 			});
 		});
 
-		const uploadedCount = statuses.filter(p => p.status === 'uploaded').length;
+		const uploadedCount = statuses.filter(p => p.status === 'processing' || p.status === 'completed').length;
 		if (uploadedCount >= target) return;
 
+		console.log(`[waitForUploadedCount] ${elapsed}ms: ${uploadedCount}/${target} uploaded`);
 		// Log status changes (not every poll)
 		const statusSummary = statuses.map(p => `${p.id.slice(-8)}:${p.status}${p.error ? '(' + p.error.slice(0, 40) + ')' : ''}`).join(', ');
 		if (statusSummary !== lastLog) {
