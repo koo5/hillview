@@ -17,7 +17,6 @@ Dependencies (install via pyproject.toml):
 """
 
 import argparse
-import math
 import os
 import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -97,15 +96,11 @@ def scan_qr_timestamp(photo_path: Path) -> tuple[Optional[datetime], Optional[st
 
     return best_dt, best_raw
 
-    return None, None
-
 
 def process_photo(path: Path) -> PhotoInfo:
     """Read EXIF and scan QR for a single photo. Top-level for multiprocessing."""
     info = PhotoInfo(path=path)
-    exif_dt = get_photo_timestamp(path)
-    if exif_dt is not None:
-        info.exif_dt = exif_dt.replace(microsecond=0)
+    info.exif_dt = get_photo_timestamp(path)
     info.qr_dt, info.qr_raw = scan_qr_timestamp(path)
     return info
 
@@ -164,39 +159,59 @@ def main():
     photos.sort(key=lambda p: p.qr_dt)
 
     # Phase 2: display pairs
+    #
+    # EXIF subsecond values are unreliable for absolute timing (Canon "work
+    # timer" resets per shooting sequence).  We ignore subseconds and treat
+    # each photo's EXIF time as the whole second only.  The photo was taken
+    # somewhere in [exif_whole_s, exif_whole_s + 1.0).
+    # With correction c:  real_time = camera_time + c
+    # Per-photo valid range for c:  (qr_s - exif_whole_s - 1.0, qr_s - exif_whole_s]
+
     print(f"\n--- {len(photos)} photo(s) with QR+EXIF, sorted by QR time ---\n")
+
+    # Build per-photo data: (exif_whole_s, qr_s, range_lo, range_hi)
+    photo_data = []
     for info in photos:
+        exif_whole_s = int(info.exif_dt.replace(microsecond=0).timestamp())
+        qr_s = info.qr_dt.timestamp()
+        range_lo = qr_s - exif_whole_s - 1.0   # exclusive lower bound
+        range_hi = qr_s - exif_whole_s          # inclusive upper bound
+        photo_data.append((exif_whole_s, qr_s, range_lo, range_hi))
+
         exif_utc = info.exif_dt.astimezone(timezone.utc)
-        diff_s = info.qr_dt.timestamp() - info.exif_dt.timestamp()
         print(f"  {info.path.name}")
         print(f"    EXIF (camera):  {format_dt(exif_utc)}")
         print(f"    QR   (real):    {format_dt(info.qr_dt)}  ({info.qr_raw})")
-        print(f"    diff:           {diff_s:+.3f}s")
+        print(f"    valid c range:  ({range_lo:+.3f}s, {range_hi:+.3f}s]")
         print()
 
-    # Phase 3: find the correction range
-    #
-    # For correction c, photo i matches when the corrected EXIF time is
-    # within 1 second of the QR time:
-    #   abs((exif_s + c) - qr_s) < 1.0
-    #
-    # exif_s is integer seconds (EXIF precision), qr_s is full-precision.
-    # We sweep c from an extreme by 1ms to find where all photos match.
+    for leeway_ms in range(1000):
+        if find_correction_range(photos, photo_data, leeway_ms):
+            return
 
-    pairs = []  # (exif_s: int, qr_s: float)
-    for info in photos:
-        exif_s = int(info.exif_dt.timestamp())
-        qr_s = info.qr_dt.timestamp()
-        pairs.append((exif_s, qr_s))
+    print("No valid correction found even with 999ms leeway.")
+    sys.exit(1)
 
-    diffs = [qs - es for es, qs in pairs]
-    start_c_ms = int((min(diffs) - 2) * 1000)
-    end_c_ms = int((max(diffs) + 2) * 1000)
+
+def find_correction_range(photos, photo_data, leeway_ms):
+    """Try to find a correction range with the given leeway.
+
+    Leeway widens each photo's valid range by leeway_ms in each direction,
+    accounting for timing uncertainty beyond the subsecond lower bound.
+
+    Returns True if a valid range was found.
+    """
+    leeway_s = leeway_ms / 1000.0
+
+    all_lo = [lo - leeway_s for _, _, lo, _ in photo_data]
+    all_hi = [hi + leeway_s for _, _, _, hi in photo_data]
+    start_c_ms = int(min(all_lo) * 1000) - 1000
+    end_c_ms = int(max(all_hi) * 1000) + 1000
 
     def all_match(c_ms: int) -> bool:
         c_s = c_ms / 1000.0
-        for exif_s, qr_s in pairs:
-            if abs(exif_s + c_s - qr_s) >= 1.0:
+        for lo, hi in zip(all_lo, all_hi):
+            if not (lo < c_s <= hi):
                 return False
         return True
 
@@ -215,37 +230,27 @@ def main():
         c_ms += 1
 
     if match_start_ms is None:
-        print("No correction value found that makes all photos match.")
-        print("No correction makes all photos match within 1 second.")
-
-        # Show per-photo valid ranges for debugging
-        print("\nPer-photo valid ranges (c where |exif+c - qr| < 1):")
-        for info, (es, qs) in zip(photos, pairs):
-            lo = qs - es - 1
-            hi = qs - es + 1
-            print(f"  {info.path.name}: ({lo:+.3f}s, {hi:+.3f}s)")
-        sys.exit(1)
+        return False
 
     if match_end_ms is None:
-        # Ran off the end of search range, shouldn't happen but handle it
         match_end_ms = end_c_ms
 
     match_start_s = match_start_ms / 1000.0
-    match_end_s = (match_end_ms - 1) / 1000.0  # last matching value
+    match_end_s = (match_end_ms - 1) / 1000.0  # last matching ms
     midpoint_s = (match_start_s + match_end_s) / 2.0
     range_width_s = match_end_s - match_start_s
 
     print("=" * 60)
+    if leeway_ms > 0:
+        print(f"  Leeway:     {leeway_ms}ms (each photo's range widened by +/-{leeway_ms}ms)")
     print(f"  Valid correction range:")
     print(f"    Start:    {match_start_s:+.3f}s")
     print(f"    End:      {match_end_s:+.3f}s")
     print(f"    Width:    {range_width_s:.3f}s")
     print(f"    Midpoint: {midpoint_s:+.3f}s")
     print()
-
-    recommended = round(midpoint_s, 1)
     print(f"  Recommended correction for geo_tag_photos.py:")
-    print(f"    python geo_tag_photos.py <csv_dir> {recommended:+.1f} <photos...>")
+    print(f"    python geo_tag_photos.py <csv_dir> {midpoint_s:+.3f} <photos...>")
     print()
     if midpoint_s > 0:
         print(f"  Camera is ~{abs(midpoint_s):.1f}s slow (EXIF behind real time, correction adds time)")
@@ -253,6 +258,8 @@ def main():
         print(f"  Camera is ~{abs(midpoint_s):.1f}s fast (EXIF ahead of real time, correction subtracts time)")
     else:
         print(f"  Camera clock appears accurate")
+
+    return True
 
 
 if __name__ == '__main__':
