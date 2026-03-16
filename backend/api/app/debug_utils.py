@@ -78,9 +78,11 @@ async def cleanup_upload_directories() -> Dict[str, int]:
     """
     logger = logging.getLogger(__name__)
 
+    from common.config import get_pics_dir
+
     # Get directories from environment or use defaults
     upload_dir = Path(os.getenv("UPLOAD_DIR", "./uploads"))
-    pics_dir = Path(os.getenv("PICS_DIR", "./pics"))
+    pics_dir = get_pics_dir()
 
     total_files_deleted = 0
     total_directories_deleted = 0

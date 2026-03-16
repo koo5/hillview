@@ -512,7 +512,8 @@ async def clear_database():
 @app.post("/api/debug/mock-mapillary")
 @debug_only
 async def set_mock_mapillary_data(mock_data: Dict[str, Any], db: AsyncSession = Depends(get_db)):
-	from mock_mapillary import mock_mapillary_service
+	from mock_mapillary import mock_mapillary_service, generate_mock_images
+	mock_data = generate_mock_images(mock_data)
 	mock_mapillary_service.set_mock_data(mock_data)
 
 	# Get cache info to warn about potential confusion
@@ -546,8 +547,9 @@ async def set_mock_mapillary_data(mock_data: Dict[str, Any], db: AsyncSession = 
 @app.delete("/api/debug/mock-mapillary")
 @debug_only
 async def clear_mock_mapillary_data():
-	from mock_mapillary import mock_mapillary_service
+	from mock_mapillary import mock_mapillary_service, cleanup_mock_images
 	mock_mapillary_service.clear_mock_data()
+	cleanup_mock_images()
 
 	return {
 		"status": "success",

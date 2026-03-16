@@ -10,6 +10,7 @@ from . import env_init  # noqa: F401 - side effect import
 
 import os
 import logging
+from pathlib import Path
 from typing import Dict, Any, List
 from dataclasses import dataclass
 
@@ -31,6 +32,14 @@ def get_cors_origins() -> List[str]:
 		"https://api.hillview.cz",
 		"https://api.ipv4.hillview.cz",
 	]
+
+def get_pics_dir() -> Path:
+	"""Get the pics directory path from environment."""
+	return Path(os.getenv("PICS_DIR", "./pics"))
+
+def get_pics_url() -> str:
+	"""Get the pics URL prefix from environment."""
+	return os.getenv("PICS_URL", "")
 
 @dataclass
 class RateLimitConfig:
