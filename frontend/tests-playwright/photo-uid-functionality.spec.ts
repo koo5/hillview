@@ -10,7 +10,9 @@ function isUnexpectedError(text: string): boolean {
     'ERR_NAME_NOT_RESOLVED',
     'Image load error',
     'Failed to load resource',
-    'net::ERR_'
+    'net::ERR_',
+    'access control checks',   // WebKit blocks ES module loading in workers from Vite dev server
+    'Worker error'             // consequence of the above in SimplePhotoWorker
   ];
   return !expectedPatterns.some(pattern => text.includes(pattern));
 }
