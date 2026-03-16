@@ -55,6 +55,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from push_notifications import send_activity_broadcast_notification
 from common.database import get_db
 from common.models import Photo, User, PhotoRating, UserPublicKey
+from common.config import get_pics_dir
 from common.utc import format_utc
 from auth import get_current_active_user
 from common.file_utils import (
@@ -405,7 +406,8 @@ async def upload_processed_file(
 			)
 
 		# Construct full file path within PICS_DIR
-		pics_dir = Path(os.getenv("PICS_DIR", "/app/pics"))
+
+		pics_dir = get_pics_dir()
 		pics_dir.mkdir(parents=True, exist_ok=True)
 
 		file_path = pics_dir / relative_path

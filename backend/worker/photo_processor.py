@@ -20,13 +20,14 @@ from throttle import Throttle
 from pydantic import BaseModel
 from common.security_utils import sanitize_filename, validate_file_path, check_file_content, validate_image_dimensions, SecurityValidationError, validate_user_id
 from common.cdn_uploader import cdn_uploader
+from common.config import get_pics_url
 
 
 logger = logging.getLogger(__name__)
 
 os.environ["OPENCV_IMGCODECS_WEBP_MAX_FILE_SIZE"] = "209715200"  # 200MB
 
-PICS_URL = os.environ.get("PICS_URL")
+PICS_URL = get_pics_url()
 PARALLEL_PROCESSING_START_DELAY = float(os.environ.get("PARALLEL_PROCESSING_START_DELAY", 5))
 logger.info(f"PARALLEL_PROCESSING_START_DELAY={PARALLEL_PROCESSING_START_DELAY} seconds")
 
@@ -414,7 +415,7 @@ class PhotoProcessor:
 		"""Create optimized versions with anonymization and unique IDs."""
 
 		sizes_info = {}
-		output_base = os.environ.get('PICS_DIR', self.upload_dir)
+		output_base = self.upload_dir
 
 		logger.info(f"Starting anonymization for {unique_id}")
 
@@ -589,7 +590,7 @@ class PhotoProcessor:
 			user_id_part = validate_user_id(user_id_part)
 			safe_photo_id = sanitize_filename(photo_id_part)
 
-			output_base = os.environ.get('PICS_DIR', self.upload_dir)
+			output_base = self.upload_dir
 			dzi_dir = validate_file_path(os.path.join(output_base, 'opt', 'dzi', user_id_part), output_base)
 			os.makedirs(dzi_dir, exist_ok=True)
 

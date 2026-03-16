@@ -35,7 +35,7 @@ def get_cors_origins() -> List[str]:
 
 def get_pics_dir() -> Path:
 	"""Get the pics directory path from environment."""
-	return Path(os.getenv("PICS_DIR", "./pics"))
+	return Path(os.getenv("PICS_DIR", "/app/pics"))
 
 def get_pics_url() -> str:
 	"""Get the pics URL prefix from environment."""

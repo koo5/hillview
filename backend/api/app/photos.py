@@ -5,6 +5,8 @@ from pathlib import Path
 from typing import List, Dict, Any
 from enum import Enum
 
+from common.config import get_pics_dir, get_pics_url
+
 logger = logging.getLogger(__name__)
 
 # Upload directory configuration
@@ -33,7 +35,7 @@ def determine_storage_type(size_data: Dict[str, Any]) -> StorageType:
 		return StorageType.UNKNOWN
 
 	cdn_base_url = os.getenv("CDN_BASE_URL")
-	pics_url = os.getenv("PICS_URL")
+	pics_url = get_pics_url()
 
 	if cdn_base_url and size_data['url'].startswith(cdn_base_url):
 		return StorageType.CDN
@@ -73,7 +75,7 @@ async def delete_photo_files(photo) -> bool:
 
 		elif storage_type == StorageType.LOCAL:
 			# Photo is stored locally, use filesystem deletion
-			pics_url = os.getenv("PICS_URL")
+			pics_url = get_pics_url()
 			logger.debug(f"Deleting local files for photo {str(photo.id)}, PICS_URL: {pics_url}")
 
 			for size_info in photo.sizes.values():
@@ -81,7 +83,7 @@ async def delete_photo_files(photo) -> bool:
 					logger.debug(f"Processing URL: {size_info['url']}")
 					# Cut off PICS_URL prefix to get local path suffix
 					local_path_suffix = size_info['url'][len(pics_url):].lstrip('/')
-					full_path = os.path.join(os.getenv("PICS_DIR"), local_path_suffix)
+					full_path = os.path.join(str(get_pics_dir()), local_path_suffix)
 					logger.debug(f"Attempting to delete: {full_path}")
 
 					if os.path.exists(full_path):
