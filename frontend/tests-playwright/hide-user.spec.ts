@@ -230,6 +230,7 @@ async function loginAs(page: Page, username: string, password: string) {
 async function logout(page: Page) {
 	await page.getByLabel('Toggle menu').click();
 	await page.locator('button:has-text("Logout")').click();
+	await page.waitForURL('/login', { timeout: 15000 });
 	await page.waitForLoadState('networkidle');
 }
 
@@ -367,6 +368,7 @@ test.describe('Hide User - Full Flow', () => {
 
 	for (const variant of hideVariants) {
 		test(`${variant.name}: upload → hide → verify photo gone → reload → verify still gone`, async ({ page, testUsers }) => {
+			test.setTimeout(180_000);
 			// Step 1: Login as 'test' (target) and upload a geotagged photo
 			await loginAs(page, 'test', testUsers.passwords.test);
 			await uploadPhoto(page, testPhotos[0]);

@@ -30,8 +30,8 @@
         is_authenticated = value.is_authenticated;
     });
 
-    function handleLogout() {
-        logout();
+    async function handleLogout() {
+        await logout();
         onClose();
     }
 
