@@ -391,6 +391,10 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
                             } : undefined)
                         };
 
+                        if (photo.featured) {
+                            convertedPhoto.featured = true;
+                        }
+
                         // Add file hash if available for deduplication with device photos
                         if (photo.file_md5) {
                             convertedPhoto.file_hash = photo.file_md5;

@@ -31,7 +31,10 @@
 	}
 
 	onDestroy(() => {
-		zoomViewData.set(null);
+		// Note: do NOT clear zoomViewData here. When the gallery re-keys
+		// (e.g. photo worker update), Photo components are destroyed and
+		// recreated — clearing the store would close the OSD viewer the
+		// user explicitly opened. Cleanup is handled by Gallery instead.
 		for (const id of pendingTimeouts) {
 			clearTimeout(id);
 		}

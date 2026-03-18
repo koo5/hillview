@@ -36,6 +36,11 @@
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 
+.bearing-circle.grayed {
+  filter: grayscale(1) contrast(20%);
+  opacity: 1;
+}
+
 .bearing-circle.selected {
   /* Pulsing animation for selected photo */
   animation: selectedPulse 2s infinite;

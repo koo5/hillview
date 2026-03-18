@@ -120,20 +120,12 @@ def format_dt(dt: datetime) -> str:
     return dt.strftime(fmt)
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description='Scan photos for Hillview QR timestamps and calculate camera time correction.',
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=__doc__
-    )
-    parser.add_argument('photos', type=Path, nargs='+', help='Image files to scan')
-
-    args = parser.parse_args()
+def compute_correction(photo_paths: list[Path]) -> str:
     check_exiftool()
 
     # Phase 1: read EXIF timestamps + scan QR codes in parallel
-    valid_paths = [p for p in args.photos if p.exists()]
-    missing = [p for p in args.photos if not p.exists()]
+    valid_paths = [p for p in photo_paths if p.exists()]
+    missing = [p for p in photo_paths if not p.exists()]
     for p in missing:
         eprint(f"  {p.name}: file not found, skipping")
 
@@ -157,7 +149,7 @@ def main():
 
     if not photos:
         eprint("\nNo photos with both QR and EXIF timestamps found.")
-        sys.exit(1)
+        raise SystemExit(1)
 
     # Sort by QR timestamp
     photos.sort(key=lambda p: p.qr_dt)
@@ -202,11 +194,10 @@ def main():
     for leeway_ms in range(1000):
         optimal = find_correction_range(photos, photo_data, leeway_ms)
         if optimal is not None:
-            print(f"{optimal:+.3f}")
-            return
+            return f"{optimal:+.3f}"
 
     eprint("No valid correction found even with 999ms leeway.")
-    sys.exit(1)
+    raise SystemExit(1)
 
 
 def find_correction_range(photos, photo_data, leeway_ms):
@@ -294,6 +285,18 @@ def find_correction_range(photos, photo_data, leeway_ms):
     eprint(f"  Max |error|:    {max(abs(e) for e in errors):.0f}ms")
 
     return optimal_s
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='Scan photos for Hillview QR timestamps and calculate camera time correction.',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=__doc__
+    )
+    parser.add_argument('photos', type=Path, nargs='+', help='Image files to scan')
+
+    args = parser.parse_args()
+    print(compute_correction(args.photos))
 
 
 if __name__ == '__main__':

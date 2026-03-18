@@ -2,7 +2,7 @@
  * Tests for photo-in-front persistence through map panning
  * Verifies that navigated-to photos stay loaded on the map
  */
-
+rs1tr1s1trs1rs
 import { test, expect } from '@playwright/test';
 
 // Declare debug properties on window for TypeScript

@@ -1,6 +1,7 @@
 import { test, expect } from './fixtures';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { createTestUsers, loginAsTestUser, logoutUser } from './helpers/testUsers';
 
 
 test.describe('Photo Upload Tests', () => {
@@ -19,29 +20,8 @@ test.describe('Photo Upload Tests', () => {
 
   test.beforeEach(async ({ page }) => {
     // Clean up test users and photos before each test
-    const response = await fetch('http://localhost:8055/api/debug/recreate-test-users', {
-      method: 'POST'
-    });
-    const result = await response.json();
-    console.log('🢄Test cleanup result:', result);
-
-    // Get test user password from response
-    const testPassword = result.details?.user_passwords?.test;
-    if (!testPassword) {
-      throw new Error('Test user password not returned from recreate-test-users');
-    }
-
-    // Login with test user before each test
-    await page.goto('/login');
-    await page.waitForLoadState('networkidle');
-
-    await page.fill('input[type="text"]', 'test');
-    await page.fill('input[type="password"]', testPassword);
-    await page.click('button[type="submit"]');
-
-    // Wait for login success and redirect
-    await page.waitForURL('/', { timeout: 15000 });
-    await page.waitForLoadState('networkidle');
+    const { passwords } = await createTestUsers();
+    await loginAsTestUser(page, passwords.test);
   });
 
   test('should handle upload validation correctly', async ({ page }) => {
@@ -354,19 +334,8 @@ test.describe('Photo Upload Tests', () => {
   });
 
   test.afterEach(async ({ page }) => {
-    // Logout after each test
     try {
-      await page.goto('/');
-      await page.waitForTimeout(1000);
-
-      await page.click('.hamburger');
-      await page.waitForTimeout(500);
-
-      const logoutButton = page.locator('button:has-text("Logout")');
-      if (await logoutButton.isVisible()) {
-        await logoutButton.click();
-        await page.waitForTimeout(1000);
-      }
+      await logoutUser(page);
     } catch (error) {
       console.log('🢄Logout failed in afterEach:', error);
     }

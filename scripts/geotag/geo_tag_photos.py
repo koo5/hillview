@@ -359,6 +359,42 @@ def process_photos_parallel(photos: list[Path], locations: list[LocationRecord],
     return results
 
 
+def run_geotagging(csv_dir: Path, time_correction: float, photos: list[Path],
+                   dry_run: bool = False, parallel: int | None = None,
+                   verbose: bool = False) -> int:
+    if not csv_dir.is_dir():
+        print(f"Error: {csv_dir} is not a directory")
+        return 1
+
+    check_exiftool()
+
+    locations, orientations = load_csv_dir(csv_dir)
+    if not locations and not orientations:
+        print("Error: No valid CSV files found")
+        return 1
+
+    time_correction_ms = int(time_correction * 1000)
+    print(f"\nTime correction: {time_correction:+.3f}s")
+    if dry_run:
+        print("DRY RUN - no changes will be made")
+
+    if parallel is not None:
+        workers = parallel if parallel > 0 else os.cpu_count() or 4
+        results = process_photos_parallel(
+            photos, locations, orientations, time_correction_ms,
+            dry_run, verbose, workers
+        )
+    else:
+        results = process_photos_sequential(
+            photos, locations, orientations, time_correction_ms,
+            dry_run, verbose
+        )
+
+    success_count = sum(1 for r in results if r.success)
+    print(f"\n{'Would process' if dry_run else 'Processed'} {success_count}/{len(photos)} photos")
+    return 0 if success_count == len(photos) else 1
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='Geo-tag photos using Hillview CSV files.',
@@ -374,40 +410,11 @@ def main():
     parser.add_argument('--verbose', '-v', action='store_true', help='Show detailed output for each photo')
 
     args = parser.parse_args()
-
-    if not args.csv_dir.is_dir():
-        print(f"Error: {args.csv_dir} is not a directory")
-        sys.exit(1)
-
-    check_exiftool()
-
-    locations, orientations = load_csv_dir(args.csv_dir)
-    if not locations and not orientations:
-        print("Error: No valid CSV files found")
-        sys.exit(1)
-
-    time_correction_ms = int(args.time_correction * 1000)
-    print(f"\nTime correction: {args.time_correction:+.3f}s")
-    if args.dry_run:
-        print("DRY RUN - no changes will be made")
-
-    # Process photos
-    if args.parallel is not None:
-        workers = args.parallel if args.parallel > 0 else os.cpu_count() or 4
-        results = process_photos_parallel(
-            args.photos, locations, orientations, time_correction_ms,
-            args.dry_run, args.verbose, workers
-        )
-    else:
-        results = process_photos_sequential(
-            args.photos, locations, orientations, time_correction_ms,
-            args.dry_run, args.verbose
-        )
-
-    # Summary
-    success_count = sum(1 for r in results if r.success)
-    print(f"\n{'Would process' if args.dry_run else 'Processed'} {success_count}/{len(args.photos)} photos")
-
-
-if __name__ == '__main__':
-    main()
+    sys.exit(run_geotagging(
+        csv_dir=args.csv_dir,
+        time_correction=args.time_correction,
+        photos=args.photos,
+        dry_run=args.dry_run,
+        parallel=args.parallel,
+        verbose=args.verbose,
+    ))

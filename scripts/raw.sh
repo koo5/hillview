@@ -35,5 +35,4 @@ end
 time wait
 
 $DIR/exif_tags_from_cr2_to_webp.sh
-$DIR/geo_tag.sh $argv
-
+uv run $DIR/geotag/geo_tag.py $argv

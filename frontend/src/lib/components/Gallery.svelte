@@ -1,4 +1,5 @@
 <script lang="ts">
+    import {onDestroy} from 'svelte';
     import {photoInFront, photosInRange, photoToLeft, photoToRight, photoUp, photoDown, updateBearing} from "$lib/mapState";
     import {turn_to_photo_to} from "$lib/data.svelte";
     import {swipe2d} from "$lib/actions/swipe2d";
@@ -7,6 +8,11 @@
     import {anySourceLoading} from "$lib/data.svelte.js";
     import type {PhotoData} from '$lib/sources';
 	import PhotoMarkerIcon from "$lib/components/PhotoMarkerIcon.svelte";
+    import {zoomViewData} from '$lib/zoomView.svelte.js';
+
+    onDestroy(() => {
+        zoomViewData.set(null);
+    });
 
     let clientWidth: number;
     let photoContainer: HTMLElement;

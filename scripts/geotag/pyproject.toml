@@ -14,12 +14,14 @@ dependencies = [
 ]
 
 [project.scripts]
+hillview-geo-tag = "geo_tag:main"
 hillview-geotag = "geo_tag_photos:main"
 hillview-qr-time-correction = "qr_time_correction:main"
 
 [tool.setuptools]
 py-modules = [
     "exif",
+    "geo_tag",
     "geo_tag_photos",
     "qr_time_correction",
 ]

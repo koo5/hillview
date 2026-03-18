@@ -73,7 +73,11 @@ export class OptimizedMarkerSystem {
 		const currentPhotoInFront = get(photoInFront);
 		const isSelected = currentPhotoInFront && photo.id === currentPhotoInFront.id && (get(app).activity != 'capture')
 
-		// Apply selection styling and store reference
+		// Always set z-index: regular(0) < featured(500000) < selected(1000000)
+		// Must be explicit to reset stale offsets on pooled markers
+		marker.setZIndexOffset(photo.featured ? 500000 : 0);
+
+		// Apply selection styling and store reference (overrides featured z-index)
 		if (isSelected) {
 			this.applySelectedStyling(marker);
 			this.currentSelectedMarker = marker;
@@ -97,11 +101,13 @@ export class OptimizedMarkerSystem {
              data-source="${getPhotoSourceId(photo) || 'unknown'}"
              data-is-placeholder="${photo.is_placeholder || false}"`;
 
+		const bearingColor = photo.featured ? 'gold' : photo.bearing_color;
+
 		return L.divIcon({
 			className: 'optimized-photo-marker',
 			html: this.markerDivsHtml(
 					photo.bearing,
-					photo.bearing_color,
+					bearingColor,
 					isSelected,
 					getPhotoSourceColor(photo),
 					data,
@@ -186,6 +192,9 @@ export class OptimizedMarkerSystem {
 			if (!marker) return; // Skip undefined/null markers
 			const photoData = (marker as any)._photoData as PhotoData;
 			if (!photoData) return;
+
+			// Featured photos keep gold color
+			if (photoData.featured) return;
 
 			// Recalculate bearing diff color
 			const bearingDiff = this.calculateAbsBearingDiff(photoData.bearing, currentBearing);
@@ -394,7 +403,8 @@ export class OptimizedMarkerSystem {
 	 * Remove selected state styling from a marker
 	 */
 	private removeSelectedStyling(marker: L.Marker): void {
-		marker.setZIndexOffset(0);
+		const photoData = (marker as any)._photoData as PhotoData;
+		marker.setZIndexOffset(photoData?.featured ? 500000 : 0);
 
 		const element = marker.getElement();
 		if (element) {
@@ -410,6 +420,26 @@ export class OptimizedMarkerSystem {
 			if (arrow) {
 				(arrow as HTMLElement).style.transform = 'scale(1.0)';
 			}
+		}
+	}
+
+	/**
+	 * Update grayed state on all active markers based on featured photos in range.
+	 * Non-featured photos in range get grayed when any featured photo exists in range.
+	 */
+	updateFeaturedGraying(photosInRangeIds: Set<string>, anyFeatured: boolean): void {
+		for (const marker of this.activeMarkers) {
+			if (!marker) continue;
+			const photoData = (marker as any)._photoData as PhotoData;
+			if (!photoData) continue;
+
+			const element = marker.getElement();
+			if (!element) continue;
+			const circle = element.querySelector('.bearing-circle');
+			if (!circle) continue;
+
+			const shouldGray = anyFeatured && photosInRangeIds.has(photoData.id) && !photoData.featured;
+			circle.classList.toggle('grayed', shouldGray);
 		}
 	}
 

@@ -37,6 +37,8 @@
 		bearingMode,
 		type BearingMode, updateBearing,
 		picks,
+		anyFeatured,
+		showAll,
 	} from "$lib/mapState";
 	import {updateBearingWithPhoto} from "$lib/bearingTracking";
 	import {enableSourceForPhotoUid, sources} from "$lib/data.svelte.js";
@@ -705,6 +707,10 @@
         const isInRange = inRange.some(p => p.uid === photo.uid);
 
         if (isInRange) {
+            // If clicking a grayed (non-featured) marker, enable showAll so it becomes navigable
+            if (get(anyFeatured) && !get(showAll) && !photo.featured) {
+                showAll.set(true);
+            }
             // Photo is in range, just update bearing to select it
             console.log('🢄Photo in range, selecting directly');
             updateBearingWithPhoto(photo, 'marker_click');
@@ -1166,6 +1172,15 @@
 		}
     }
 
+    // Update grayed state when photosInRange, anyFeatured, or showAll changes
+    $: {
+        const graying = $anyFeatured && !$showAll;
+        if ($photosInRange && map && currentMarkers.length > 0) {
+            const inRangeIds = new Set($photosInRange.map(p => p.id));
+            optimizedMarkerSystem.updateFeaturedGraying(inRangeIds, graying);
+        }
+    }
+
 </script>
 
 
@@ -1283,6 +1298,20 @@
     </LeafletMap>
 
 <div class="filters-button-container">
+	<button
+		class="filters-button"
+		class:active={$showAll}
+		class:grayed={!$anyFeatured}
+		on:click={() => showAll.update(v => !v)}
+		data-testid="show-all-button"
+	>
+		<span class="show-all-marker-icon" class:grayed={!$showAll}>
+			<PhotoMarkerIcon bearing={0} />
+		</span>
+		<span class="filters-button-text">All
+<!--			({$showAll})-->
+		</span>
+	</button>
 	<button
 		class="filters-button"
 		class:active={$activeFilterCount > 0}
@@ -1706,6 +1735,8 @@
         left: 50%;
         transform: translateX(-50%);
         z-index: 30000;
+        display: flex;
+        gap: 8px;
     }
 
 	@media (orientation: portrait) {
@@ -1714,6 +1745,16 @@
 		}
 	}
 
+
+    .show-all-marker-icon {
+        display: flex;
+        align-items: center;
+    }
+
+    .show-all-marker-icon.grayed :global(.bearing-circle) {
+        filter: grayscale(1);
+        opacity: 0.35;
+    }
 
     .filters-button {
         display: flex;
@@ -1741,6 +1782,18 @@
         border-color: #3b82f6;
         color: white;
     }
+
+	.filters-button.grayed {
+		background-color: rgba(255, 255, 255, 0.5);
+		color: rgba(155, 155, 155, 0.5) !important;
+	}
+
+	.filters-button.active.grayed {
+		background-color: rgba(59, 130, 246, 0.5);
+		border-color: rgba(59, 130, 246, 0.5);
+		color: rgba(155, 155,155, 0.5) !important;
+	}
+
 
     .filters-button.active:hover {
         background-color: #2563eb;

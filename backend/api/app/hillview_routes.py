@@ -145,6 +145,9 @@ def convert_photo_to_response(photo, username: str, longitude: float, latitude: 
 	if photo.file_md5:
 		photo_data['file_md5'] = photo.file_md5
 
+	if photo.featured:
+		photo_data['featured'] = True
+
 	return photo_data
 
 

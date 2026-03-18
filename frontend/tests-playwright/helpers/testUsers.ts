@@ -70,16 +70,33 @@ export async function setupCleanTestEnvironment(): Promise<void> {
 }
 
 /**
- * Login as test user with provided credentials
+ * Login as any user by username and password.
  */
-export async function loginAsTestUser(page: any, password: string) {
+export async function loginAs(page: any, username: string, password: string) {
   await page.goto('/login');
   await page.waitForLoadState('networkidle');
 
-  await page.fill('input[type="text"]', 'test');
+  await page.fill('input[type="text"]', username);
   await page.fill('input[type="password"]', password);
   await page.click('button[type="submit"]');
 
   // Wait for successful login redirect
   await page.waitForURL('/', { timeout: 15000 });
+}
+
+/**
+ * Login as test user with provided credentials
+ */
+export async function loginAsTestUser(page: any, password: string) {
+  await loginAs(page, 'test', password);
+}
+
+/**
+ * Logout the current user via the navigation menu.
+ */
+export async function logoutUser(page: any) {
+  await page.getByLabel('Toggle menu').click();
+  await page.locator('button:has-text("Logout")').click();
+  await page.waitForURL('/login', { timeout: 15000 });
+  await page.waitForLoadState('networkidle');
 }

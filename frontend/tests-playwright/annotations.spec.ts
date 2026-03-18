@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures';
+import { loginAsTestUser } from './helpers/testUsers';
 
 import { uploadPhoto, testPhotos } from './helpers/photoUpload';
 import { ensureSourceEnabled } from './helpers/sourceHelpers';
@@ -198,13 +199,7 @@ test.describe('Annotation Tests', () => {
     if (!testPassword) throw new Error('Test user password not returned');
 
     // Login
-    await page.goto('/login');
-    await page.waitForLoadState('networkidle');
-    await page.fill('input[type="text"]', 'test');
-    await page.fill('input[type="password"]', testPassword);
-    await page.click('button[type="submit"]');
-    await page.waitForURL('/', { timeout: 15000 });
-    await page.waitForLoadState('networkidle');
+    await loginAsTestUser(page, testPassword);
 
     // Upload a geotagged test photo
     await uploadPhoto(page, testPhotos[0]);

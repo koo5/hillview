@@ -1,22 +1,11 @@
 import { test, expect } from './fixtures';
-import { createTestUsers, loginAsTestUser } from './helpers/testUsers';
+import { createTestUsers, loginAs, loginAsTestUser, logoutUser } from './helpers/testUsers';
 
 import { uploadPhoto, testPhotos } from './helpers/photoUpload';
 import { ensureSourceEnabled } from './helpers/sourceHelpers';
+import { getUserToken } from './helpers/adminAuth';
 
 const BACKEND_URL = 'http://localhost:8055';
-
-/** Get a JWT token for a given username/password. */
-async function getUserToken(username: string, password: string): Promise<string> {
-	const res = await fetch(`${BACKEND_URL}/api/auth/token`, {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-		body: new URLSearchParams({ username, password, grant_type: 'password' }),
-	});
-	if (!res.ok) throw new Error(`Failed to get token for ${username}: ${res.status}`);
-	const data = await res.json();
-	return data.access_token;
-}
 
 /** List hidden users for a given user (via API). */
 async function apiGetHiddenUsers(token: string): Promise<any[]> {
@@ -216,24 +205,6 @@ type Page = import('@playwright/test').Page;
 
 const MAP_URL = '/?lat=50.1153&lon=14.4938&zoom=18';
 
-/** Login as any user by username and password. */
-async function loginAs(page: Page, username: string, password: string) {
-	await page.goto('/login');
-	await page.waitForLoadState('networkidle');
-	await page.fill('input[type="text"]', username);
-	await page.fill('input[type="password"]', password);
-	await page.click('button[type="submit"]');
-	await page.waitForURL('/', { timeout: 15000 });
-}
-
-/** Logout the current user via menu. */
-async function logout(page: Page) {
-	await page.getByLabel('Toggle menu').click();
-	await page.locator('button:has-text("Logout")').click();
-	await page.waitForURL('/login', { timeout: 15000 });
-	await page.waitForLoadState('networkidle');
-}
-
 /** Navigate to the map at the test photo GPS coords and enable Hillview source. */
 async function navigateToMap(page: Page) {
 	await page.goto(MAP_URL);
@@ -372,12 +343,12 @@ test.describe('Hide User - Full Flow', () => {
 			// Step 1: Login as 'test' (target) and upload a geotagged photo
 			await loginAs(page, 'test', testUsers.passwords.test);
 			await uploadPhoto(page, testPhotos[0]);
-			await logout(page);
+			await logoutUser(page);
 
 			// Step 2: Login as 'admin' (control) and upload a different photo at the same location
 			await loginAs(page, 'admin', testUsers.passwords.admin);
 			await uploadPhoto(page, testPhotos[1]);
-			await logout(page);
+			await logoutUser(page);
 
 			// Step 3: Login as 'testuser' (observer)
 			await loginAs(page, 'testuser', testUsers.passwords.testuser);

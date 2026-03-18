@@ -96,6 +96,9 @@ class Photo(Base):
 	processed_by_worker: Mapped[Optional[str]] = mapped_column(String)  # Worker ID/signature that processed this photo
 	processed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))  # When worker completed processing
 
+	# Featured photo flag
+	featured: Mapped[bool] = mapped_column(Boolean, default=False, server_default='false')
+
 	# Soft delete
 	deleted: Mapped[bool] = mapped_column(Boolean, default=False)
 

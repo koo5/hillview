@@ -65,6 +65,23 @@ export const photosInArea = writable<PhotoData[]>([]);
 // Photos in range for navigation (from worker)
 export const photosInRange = writable<PhotoData[]>([]);
 
+// Whether any photo in range is featured
+export const anyFeatured = writable<boolean>(false);
+
+// Whether to show all photos or only featured (persisted in localStorage)
+export const showAll = localStorageReadOnceSharedStore<boolean>('showAll', false);
+
+// Update anyFeatured when photosInRange changes
+photosInRange.subscribe(photos => {
+	anyFeatured.set(photos.some(p => p.featured === true));
+});
+
+// Photos eligible for navigation: when featured photos exist and showAll is off, only featured are navigable
+export const navigablePhotos = derived(
+	[photosInRange, anyFeatured, showAll],
+	([photos, hasFeatured, all]) => (hasFeatured && !all) ? photos.filter(p => p.featured) : photos
+);
+
 // Combined photos for rendering (includes placeholders)
 // Only recalculates when photo list changes, not on bearing changes
 export const visiblePhotos = derived(
@@ -119,7 +136,7 @@ Then, photosInRange should already be sorted by bearing and id here, and then we
 */
 
 export const newPhotoInFront = derived(
-	[photosInRange, bearingState],
+	[navigablePhotos, bearingState],
 	([photos, visual]) => {
 		if (photos.length === 0) {
 			//console.log('🢄Navigation: No photos available for photoInFront');
@@ -173,7 +190,7 @@ newPhotoInFront.subscribe(photo => {
 });
 
 export const photoToLeft = derived(
-	[photosInRange, photoInFront],
+	[navigablePhotos, photoInFront],
 	([photos, front]) => {
 		if (photos.length === 0) return null;
 		if (!front) return null;
@@ -188,7 +205,7 @@ export const photoToLeft = derived(
 );
 
 export const photoToRight = derived(
-	[photosInRange, photoInFront],
+	[navigablePhotos, photoInFront],
 	([photos, front]) => {
 		if (photos.length === 0) return null;
 		if (!front) return null;
@@ -204,7 +221,7 @@ export const photoToRight = derived(
 
 // Find photo with bearing within 5 degrees of front bearing but more or less yaw (simulating looking down/up)
 function photoUpDownLogic(direction: 'up' | 'down') {
-	const inRange = get(photosInRange);
+	const inRange = get(navigablePhotos);
 	let winner: PhotoData | null = null;
 	const front = get(photoInFront);
 	if (!front) return null;
@@ -238,7 +255,7 @@ function photoUpDownLogic(direction: 'up' | 'down') {
 
 
 export const photoUp = derived(
-	[photosInRange, photoInFront],
+	[navigablePhotos, photoInFront],
 	([photos, front]) => {
 		if (photos.length === 0) return null;
 		if (!front) return null;
@@ -252,7 +269,7 @@ export const photoUp = derived(
 
 
 export const photoDown = derived(
-	[photosInRange, photoInFront],
+	[navigablePhotos, photoInFront],
 	([photos, front]) => {
 		if (photos.length === 0) return null;
 		if (!front) return null;
