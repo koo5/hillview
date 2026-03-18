@@ -555,3 +555,22 @@ async def clear_mock_mapillary_data():
 		"status": "success",
 		"message": "Mock Mapillary data cleared"
 	}
+
+
+@app.post("/api/debug/set-featured")
+@debug_only
+async def set_featured(photo_id: str, featured: bool):
+	"""Set or unset the featured flag on a photo"""
+	from common.database import get_db
+	from common.models import Photo
+	from sqlalchemy import select
+
+	async for db in get_db():
+		result = await db.execute(select(Photo).where(Photo.id == photo_id))
+		photo = result.scalar_one_or_none()
+		if not photo:
+			from fastapi import HTTPException
+			raise HTTPException(status_code=404, detail="Photo not found")
+		photo.featured = featured
+		await db.commit()
+		return {"status": "ok", "photo_id": photo_id, "featured": featured}
