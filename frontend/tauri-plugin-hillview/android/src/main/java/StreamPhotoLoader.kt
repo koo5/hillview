@@ -5,6 +5,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.serialization.json.*
 import okhttp3.*
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.text.SimpleDateFormat

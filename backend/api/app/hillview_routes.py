@@ -59,6 +59,7 @@ def parse_analysis_filters(
 	try:
 		return AnalysisFilters.model_validate_json(analysis_filters)
 	except Exception as e:
+		log.error(f"Invalid analysis_filters value: {analysis_filters!r} — error: {e}")
 		raise HTTPException(status_code=400, detail=f"Invalid analysis_filters: {e}")
 
 

@@ -1,5 +1,5 @@
 import { acquireTestLock } from './testLock';
-import { setupCleanTestEnvironment, createTestUsers } from './testUsers';
+import { setupCleanTestEnvironment, recreateTestUsers } from './testUsers';
 
 /**
  * Global setup that runs once before all tests
@@ -20,7 +20,7 @@ async function globalSetup() {
 
   console.log('Global Setup: Creating test users...');
   try {
-    await createTestUsers();
+    await recreateTestUsers();
     console.log('Global Setup: Test users created, ready for tests');
   } catch (error) {
     console.error('Global Setup: Failed to create test users:', error);

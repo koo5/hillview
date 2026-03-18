@@ -5,7 +5,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { Database, Wifi, ChevronRight } from "lucide-svelte";
-	import { TAURI } from "$lib/tauri";
+	import { TAURI, autoExportEnabled, fetchAutoExportState, setAutoExportEnabled } from "$lib/tauri";
 	import { invoke } from '@tauri-apps/api/core';
 	import DebugSettings from "$lib/components/DebugSettings.svelte";
 	import StandardHeaderWithAlert from "$lib/components/StandardHeaderWithAlert.svelte";
@@ -15,19 +15,8 @@
 	import {app} from "$lib/data.svelte";
 	import { QrCode } from "lucide-svelte";
 
-	let autoExportEnabled = false;
-
-	onMount(async () => {
-		if (TAURI) {
-			try {
-				const result = await invoke('plugin:hillview|cmd', {
-					command: 'geo_tracking_get_auto_export'
-				}) as { enabled: boolean };
-				autoExportEnabled = result.enabled;
-			} catch (error) {
-				console.error('Failed to get auto export setting:', error);
-			}
-		}
+	onMount(() => {
+		fetchAutoExportState();
 	});
 
 	async function handleExport() {
@@ -44,11 +33,7 @@
 		const target = event.target as HTMLInputElement;
 		const enabled = target.checked;
 		try {
-			await invoke('plugin:hillview|cmd', {
-				command: 'geo_tracking_set_auto_export',
-				params: { enabled }
-			});
-			autoExportEnabled = enabled;
+			await setAutoExportEnabled(enabled);
 		} catch (error) {
 			console.error('Failed to update auto export setting:', error);
 			alert('Failed to update automatic export setting.');
@@ -115,7 +100,7 @@
 			<input
 				type="checkbox"
 				id="auto-export-checkbox"
-				checked={autoExportEnabled}
+				checked={$autoExportEnabled}
 				on:change={handleAutoExportChange}
 				data-testid="geo-tracking-auto-export-checkbox"
 			/>

@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures';
-import { loginAsTestUser } from './helpers/testUsers';
+import { recreateTestUsers, loginAsTestUser } from './helpers/testUsers';
 import { uploadPhoto, testPhotos } from './helpers/photoUpload';
 import { ensureSourceEnabled } from './helpers/sourceHelpers';
 
@@ -9,22 +9,12 @@ const TEST_PHOTO_MAP_URL = '/?lat=50.1153&lon=14.4938&zoom=18';
 test.describe('Filters Modal', () => {
 	test.describe.configure({ mode: 'serial' });
 
-	let testPassword: string;
-
 	test.beforeAll(async () => {
-		// Clean up and get test credentials
-		const response = await fetch('http://localhost:8055/api/debug/recreate-test-users', {
-			method: 'POST'
-		});
-		const result = await response.json();
-		testPassword = result.details?.user_passwords?.test;
-		if (!testPassword) {
-			throw new Error('Test user password not returned from recreate-test-users');
-		}
+		await recreateTestUsers();
 	});
 
-	test.beforeEach(async ({ page }) => {
-		await loginAsTestUser(page, testPassword);
+	test.beforeEach(async ({ page, testUsers }) => {
+		await loginAsTestUser(page, testUsers.passwords.test);
 
 		// Clear localStorage filters to start fresh
 		await page.evaluate(() => localStorage.removeItem('hillview_filters'));
@@ -171,12 +161,7 @@ test.describe('Filters with uploaded photos', () => {
 
 	// Each test uploads photos — need per-test isolation
 	test.beforeEach(async () => {
-		const response = await fetch('http://localhost:8055/api/debug/recreate-test-users', {
-			method: 'POST'
-		});
-		const result = await response.json();
-		const pw = result.details?.user_passwords?.test;
-		if (!pw) throw new Error('Test user password not returned from recreate-test-users');
+		await recreateTestUsers();
 	});
 
 	test('applying a filter should hide unanalyzed photos on map', async ({ page, testUsers }) => {

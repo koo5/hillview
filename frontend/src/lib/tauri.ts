@@ -135,3 +135,30 @@ export const tauriCamera = TAURI ? {
 export function isCameraPermissionCheckAvailable(): boolean {
     return TAURI && tauriCamera !== null;
 }
+
+// Geo tracking auto-export state
+import { writable } from 'svelte/store';
+
+export const autoExportEnabled = writable(false);
+export const autoExportChecked = writable(false);
+
+export async function fetchAutoExportState() {
+    if (!TAURI) return;
+    try {
+        const result = await invoke('plugin:hillview|cmd', {
+            command: 'geo_tracking_get_auto_export'
+        }) as { enabled: boolean };
+        autoExportEnabled.set(result.enabled);
+    } catch (error) {
+        console.error('Failed to get auto export setting:', error);
+    }
+    autoExportChecked.set(true);
+}
+
+export async function setAutoExportEnabled(enabled: boolean) {
+    await invoke('plugin:hillview|cmd', {
+        command: 'geo_tracking_set_auto_export',
+        params: { enabled }
+    });
+    autoExportEnabled.set(enabled);
+}

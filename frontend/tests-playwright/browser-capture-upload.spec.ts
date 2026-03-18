@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures';
-import { createTestUsers, loginAsTestUser } from './helpers/testUsers';
+import { recreateTestUsers, loginAsTestUser } from './helpers/testUsers';
 import { configureAutoUploadFromPrompt } from './helpers/autoUpload';
 import { addCameraInitScript } from './helpers/cameraSetup';
 
@@ -17,7 +17,7 @@ test.describe('Browser Capture → Upload', () => {
 	// Each test captures + uploads — need per-test isolation
 	test.beforeEach(async ({ page, browserName }) => {
 		test.skip(browserName !== 'chromium', 'Fake camera only works in Chromium');
-		await createTestUsers();
+		await recreateTestUsers();
 		await addCameraInitScript(page);
 	});
 
@@ -92,7 +92,7 @@ test.describe('Browser Capture → Upload', () => {
 	test('subsequent photo after login uploads automatically', async ({ page, testUsers }) => {
 		test.setTimeout(180_000);
 		// Clean slate: clear server photos from test 1
-		await fetch('http://localhost:8055/api/debug/recreate-test-users', { method: 'POST' });
+		await recreateTestUsers();
 
 		// Login first
 		await loginAsTestUser(page, testUsers.passwords.test);

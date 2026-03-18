@@ -2,6 +2,8 @@
  * Shared utilities for managing test users across Playwright tests
  */
 
+import { BACKEND_URL } from './adminAuth';
+
 export interface TestUserCredentials {
   test: string;
   admin: string;
@@ -20,7 +22,7 @@ export interface TestUserSetupResult {
  * Clear the entire database - use with caution!
  */
 export async function clearDatabase(): Promise<void> {
-  const response = await fetch('http://localhost:8055/api/debug/clear-database', {
+  const response = await fetch(`${BACKEND_URL}/api/debug/clear-database`, {
     method: 'POST'
   });
 
@@ -33,8 +35,8 @@ export async function clearDatabase(): Promise<void> {
  * Create test users and return their credentials
  * Should be called after clearDatabase() for clean state
  */
-export async function createTestUsers(): Promise<TestUserSetupResult> {
-  const response = await fetch('http://localhost:8055/api/debug/recreate-test-users', {
+export async function recreateTestUsers(): Promise<TestUserSetupResult> {
+  const response = await fetch(`${BACKEND_URL}/api/debug/recreate-test-users`, {
     method: 'POST'
   });
 
@@ -63,7 +65,7 @@ export async function createTestUsers(): Promise<TestUserSetupResult> {
 
 /**
  * Clear database only - for global setup
- * Individual tests should call createTestUsers() as needed
+ * Individual tests should call recreateTestUsers() as needed
  */
 export async function setupCleanTestEnvironment(): Promise<void> {
   await clearDatabase();

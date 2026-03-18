@@ -1,11 +1,9 @@
 import { test, expect } from './fixtures';
-import { createTestUsers, loginAs, loginAsTestUser, logoutUser } from './helpers/testUsers';
+import { recreateTestUsers, loginAs, loginAsTestUser, logoutUser } from './helpers/testUsers';
 
 import { uploadPhoto, testPhotos } from './helpers/photoUpload';
 import { ensureSourceEnabled } from './helpers/sourceHelpers';
-import { getUserToken } from './helpers/adminAuth';
-
-const BACKEND_URL = 'http://localhost:8055';
+import { getUserToken, BACKEND_URL } from './helpers/adminAuth';
 
 /** List hidden users for a given user (via API). */
 async function apiGetHiddenUsers(token: string): Promise<any[]> {
@@ -58,7 +56,7 @@ async function goToOtherUserProfile(page: any): Promise<string> {
 test.describe('Hide User', () => {
 	// Tests hide/unhide users — need per-test isolation
 	test.beforeEach(async () => {
-		await createTestUsers();
+		await recreateTestUsers();
 	});
 
 	test('user profile page shows hide button when authenticated', async ({ page, testUsers }) => {
@@ -334,7 +332,7 @@ const hideVariants: HideVariant[] = [
 test.describe('Hide User - Full Flow', () => {
 	// Each variant uploads photos + hides users — need per-test isolation
 	test.beforeEach(async () => {
-		await createTestUsers();
+		await recreateTestUsers();
 	});
 
 	for (const variant of hideVariants) {

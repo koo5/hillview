@@ -33,8 +33,8 @@ describe('Android Photo Import', () => {
 				await screenshots.takeScreenshot('initial-state');
 
 				// Step 1: Create test users and get password
-				const testPassword = await workflows.createTestUsers();
-				
+				const testPassword = await workflows.recreateTestUsers();
+
 				// Step 2: Login
 				const loginSuccess = await workflows.quickLogin('test', testPassword);
 				expect(loginSuccess).toBe(true);
@@ -61,7 +61,7 @@ describe('Android Photo Import', () => {
 
 			try {
 				// Create test users and login
-				const testPassword = await workflows.createTestUsers();
+				const testPassword = await workflows.recreateTestUsers();
 				const loginSuccess = await workflows.quickLogin('test', testPassword);
 				expect(loginSuccess).toBe(true);
 

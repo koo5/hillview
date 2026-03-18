@@ -11,7 +11,7 @@
  */
 
 import { test, expect } from './fixtures';
-import { createTestUsers, loginAsTestUser } from './helpers/testUsers';
+import { recreateTestUsers, loginAsTestUser } from './helpers/testUsers';
 import { enableAutoUpload } from './helpers/autoUpload';
 import { addCameraInitScript } from './helpers/cameraSetup';
 
@@ -58,7 +58,7 @@ test.describe('Sync Status Reporting', () => {
 	// Each test captures + uploads — need per-test isolation
 	test.beforeEach(async ({ page, browserName, testUsers }) => {
 		test.skip(browserName !== 'chromium', 'Fake camera only works in Chromium');
-		await createTestUsers();
+		await recreateTestUsers();
 		await addCameraInitScript(page);
 
 		// Login and enable auto-upload so triggerPhotoSync doesn't skip

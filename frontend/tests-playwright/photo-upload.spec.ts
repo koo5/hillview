@@ -1,7 +1,7 @@
 import { test, expect } from './fixtures';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { createTestUsers, loginAsTestUser, logoutUser } from './helpers/testUsers';
+import { recreateTestUsers, loginAsTestUser, logoutUser } from './helpers/testUsers';
 
 
 test.describe('Photo Upload Tests', () => {
@@ -20,7 +20,7 @@ test.describe('Photo Upload Tests', () => {
 
   test.beforeEach(async ({ page }) => {
     // Clean up test users and photos before each test
-    const { passwords } = await createTestUsers();
+    const { passwords } = await recreateTestUsers();
     await loginAsTestUser(page, passwords.test);
   });
 

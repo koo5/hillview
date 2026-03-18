@@ -58,9 +58,9 @@ export const testPhotos = [
 ];
 
 /**
- * Upload a single photo file
+ * Upload a single photo file. Returns the photo ID assigned by the server.
  */
-export async function uploadPhoto(page: Page, photoFilename: string): Promise<void> {
+export async function uploadPhoto(page: Page, photoFilename: string): Promise<string> {
   const photoPath = path.join(testAssetsDir, photoFilename);
 
   // Go to photos page
@@ -112,6 +112,8 @@ export async function uploadPhoto(page: Page, photoFilename: string): Promise<vo
   if (photoId) {
     await waitForPhotoProcessing(page, photoId);
   }
+
+  return photoId;
 }
 
 /**

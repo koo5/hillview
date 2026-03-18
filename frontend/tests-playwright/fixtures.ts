@@ -1,5 +1,5 @@
 import { test as base } from '@playwright/test';
-import { createTestUsers, type TestUserSetupResult } from './helpers/testUsers';
+import { recreateTestUsers, type TestUserSetupResult } from './helpers/testUsers';
 import { setupConsoleLogging } from './helpers/consoleLogging';
 
 /**
@@ -69,7 +69,7 @@ export const test = base.extend<{ testUsers: TestUserSetupResult }>({
 		// Subsequent tests within the same file reuse the cached result.
 		if (testInfo.file !== lastSetupFile) {
 			lastSetupFile = testInfo.file;
-			cachedResult = await createTestUsers();
+			cachedResult = await recreateTestUsers();
 		}
 		await use(cachedResult!);
 	}, { auto: true }],

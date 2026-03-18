@@ -2,11 +2,13 @@
  * Utilities for API authentication in Playwright tests
  */
 
+export const BACKEND_URL = 'http://localhost:8055';
+
 /**
  * Get a JWT token for any user by username and password.
  */
 export async function getUserToken(username: string, password: string): Promise<string> {
-  const response = await fetch('http://localhost:8055/api/auth/token', {
+  const response = await fetch(`${BACKEND_URL}/api/auth/token`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
@@ -44,7 +46,7 @@ export async function callAdminAPI(
 ): Promise<Response> {
   const token = await getAdminToken(adminPassword);
 
-  return fetch(`http://localhost:8055${endpoint}`, {
+  return fetch(`${BACKEND_URL}${endpoint}`, {
     ...options,
     headers: {
       ...options.headers,

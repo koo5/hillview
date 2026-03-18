@@ -1,10 +1,9 @@
 import { test, expect } from './fixtures';
-import { loginAsTestUser } from './helpers/testUsers';
+import { recreateTestUsers, loginAsTestUser } from './helpers/testUsers';
 
 import { uploadPhoto, testPhotos } from './helpers/photoUpload';
 import { ensureSourceEnabled } from './helpers/sourceHelpers';
-
-const BACKEND_URL = 'http://localhost:8055';
+import { BACKEND_URL } from './helpers/adminAuth';
 
 // ─── Helpers ───────────────────────────────────────────────────────────
 
@@ -187,19 +186,15 @@ async function setLabel(page: Page, text: string) {
 test.describe('Annotation Tests', () => {
   test.describe.configure({ mode: 'serial' });
 
-  let testPassword: string;
   let photoId: string;
 
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async ({ page, testUsers }) => {
 
     // Recreate test users (also cleans photos)
-    const res = await fetch(`${BACKEND_URL}/api/debug/recreate-test-users`, { method: 'POST' });
-    const result = await res.json();
-    testPassword = result.details?.user_passwords?.test;
-    if (!testPassword) throw new Error('Test user password not returned');
+    await recreateTestUsers();
 
     // Login
-    await loginAsTestUser(page, testPassword);
+    await loginAsTestUser(page, testUsers.passwords.test);
 
     // Upload a geotagged test photo
     await uploadPhoto(page, testPhotos[0]);
@@ -765,6 +760,6 @@ test.describe('Annotation Tests', () => {
 
   // ── Cleanup ──
 
-  // No afterEach needed — beforeEach calls recreate-test-users which
+  // No afterEach needed — beforeEach calls recreateTestUsers() which
   // resets all state, and logs in fresh each time.
 });

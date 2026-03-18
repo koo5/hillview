@@ -14,13 +14,13 @@ export class TestWorkflows {
     /**
      * Create test users via API and get dynamic password
      */
-    async createTestUsers(): Promise<string> {
+    async recreateTestUsers(): Promise<string> {
         console.log('🧪 Creating test users via API...');
-        
+
         try {
             // Switch to WebView context to execute JavaScript
             await this.auth.switchToWebView();
-            
+
             // Make HTTP request to recreate test users
             const response = await driver.executeScript(`
                 return fetch('http://10.0.2.2:8055/api/debug/recreate-test-users', {
@@ -29,19 +29,19 @@ export class TestWorkflows {
             `, []);
 
             console.log('🢄Test user creation result:', response);
-            
+
             const testPassword = response?.details?.user_passwords?.test;
             if (!testPassword) {
                 throw new Error('Test user password not returned from recreate-test-users');
             }
-            
+
             // Switch back to native context
             await driver.switchContext('NATIVE_APP');
-            
+
             this.testPassword = testPassword;
             console.log('✅ Test users created, password obtained');
             return testPassword;
-            
+
         } catch (error) {
             console.error('❌ Failed to create test users:', error);
             // Make sure we're back in native context
@@ -57,36 +57,36 @@ export class TestWorkflows {
      */
     async performCompleteLogin(username: string, password: string): Promise<boolean> {
         console.log('🔐 Starting complete login workflow...');
-        
+
         try {
             // Step 1: Take initial screenshot
             await this.app.takeScreenshot('login-workflow-start');
-            
+
             // Step 2: Open menu
             await this.app.openMenu();
             await this.app.takeScreenshot('login-menu-opened');
-            
+
             // Step 3: Switch to WebView and login
             const webViewAvailable = await this.auth.switchToWebView();
             if (!webViewAvailable) {
                 console.error('❌ WebView not available for login');
                 return false;
             }
-            
+
             const loginSuccess = await this.auth.performLogin(username, password);
             if (!loginSuccess) {
                 console.error('❌ Login failed');
                 return false;
             }
-            
+
             // Step 4: Switch back to native and close menu
             await this.auth.switchToNativeApp();
             await this.app.closeMenu();
-            
+
             await this.app.takeScreenshot('login-workflow-completed');
             console.log('🎉 Complete login workflow successful');
             return true;
-            
+
         } catch (error) {
             console.error('❌ Complete login workflow failed:', error.message);
             await this.app.takeScreenshot('login-workflow-error');
@@ -99,26 +99,26 @@ export class TestWorkflows {
      */
     async performCompletePhotoCapture(): Promise<boolean> {
         console.log('📸 Starting complete photo capture workflow...');
-        
+
         try {
             // Step 1: Take initial screenshot
             await this.app.takeScreenshot('photo-workflow-start');
-            
+
             // Step 2: Click camera button
             await this.app.clickCameraButton();
             await this.app.takeScreenshot('photo-camera-opened');
-            
+
             // Step 3: Complete camera workflow
             const cameraSuccess = await this.camera.completeCameraWorkflow();
             if (!cameraSuccess) {
                 console.error('❌ Camera workflow failed');
                 return false;
             }
-            
+
             await this.app.takeScreenshot('photo-workflow-completed');
             console.log('🎉 Complete photo capture workflow successful');
             return true;
-            
+
         } catch (error) {
             console.error('❌ Complete photo capture workflow failed:', error.message);
             await this.app.takeScreenshot('photo-workflow-error');
@@ -131,7 +131,7 @@ export class TestWorkflows {
      */
     async performCompleteAuthAndPhotoWorkflow(username: string = 'test', password: string = 'test123'): Promise<boolean> {
         console.log('🚀 Starting complete auth + photo workflow...');
-        
+
         try {
             // Step 1: Login
             const loginSuccess = await this.performCompleteLogin(username, password);
@@ -139,20 +139,20 @@ export class TestWorkflows {
                 console.error('❌ Login phase failed');
                 return false;
             }
-            
+
             // Step 2: Wait a moment between workflows
             await driver.pause(3000);
-            
+
             // Step 3: Photo capture
             const photoSuccess = await this.performCompletePhotoCapture();
             if (!photoSuccess) {
                 console.error('❌ Photo capture phase failed');
                 return false;
             }
-            
+
             console.log('🎉 Complete auth + photo workflow successful');
             return true;
-            
+
         } catch (error) {
             console.error('❌ Complete auth + photo workflow failed:', error.message);
             await this.app.takeScreenshot('complete-workflow-error');
@@ -165,35 +165,35 @@ export class TestWorkflows {
      */
     async configureSourcesForTesting(): Promise<boolean> {
         console.log('📊 Configuring sources for testing...');
-        
+
         try {
             // Step 1: Open menu
             await this.app.openMenu();
-            
+
             // Step 2: Switch to WebView and navigate to sources
             const webViewAvailable = await this.auth.switchToWebView();
             if (!webViewAvailable) {
                 console.error('❌ WebView not available for sources');
                 return false;
             }
-            
+
             const sourcesSuccess = await this.auth.navigateToSources();
             if (!sourcesSuccess) {
                 console.error('❌ Could not navigate to sources');
                 return false;
             }
-            
+
             // Step 3: Disable Mapillary
             await this.auth.toggleMapillarySource(false);
             await this.app.takeScreenshot('sources-configured');
-            
+
             // Step 4: Return to main app
             await this.auth.switchToNativeApp();
             await this.app.closeMenu();
-            
+
             console.log('✅ Sources configured successfully');
             return true;
-            
+
         } catch (error) {
             console.error('❌ Source configuration failed:', error.message);
             await this.app.takeScreenshot('sources-config-error');
@@ -206,23 +206,23 @@ export class TestWorkflows {
      */
     async performQuickHealthCheck(): Promise<boolean> {
         console.log('🏥 Performing quick health check...');
-        
+
         try {
             // Check for critical errors (will throw if found)
             await this.app.checkForCriticalError();
-            
+
             // Check basic functionality
             await this.app.waitForAppReady();
             const cameraTexts = await this.app.getCameraButtonTexts();
-            
+
             if (cameraTexts.length === 0) {
                 console.error('❌ No camera button found');
                 return false;
             }
-            
+
             console.log(`✅ Health check passed - found camera buttons: ${cameraTexts.join(', ')}`);
             return true;
-            
+
         } catch (error) {
             console.error('❌ Health check failed:', error.message);
             await this.app.takeScreenshot('health-check-error');
@@ -244,17 +244,17 @@ export class TestWorkflows {
      */
     async navigateToPhotoImport(): Promise<boolean> {
         console.log('📂 Navigating to Photo Import tab...');
-        
+
         try {
             // Open menu and verify it opened
             await this.app.openMenu();
             await driver.pause(1000);
-            
+
             // Verify menu is open by checking for My Photos link (already in WebView context from menu open)
             console.log('🔍 Looking for My Photos menu item...');
             const photosLink = await $('a[href="/photos"]');
             await photosLink.waitForDisplayed({timeout: 10000});
-            
+
             // Navigate to My Photos
             await photosLink.click();
             await driver.pause(2000);
@@ -275,7 +275,7 @@ export class TestWorkflows {
      */
     async selectPhotosFromFilePicker(): Promise<boolean> {
         console.log('📱 Interacting with Android file picker...');
-        
+
         try {
             // Wait for file picker to appear
             await driver.pause(3000);
@@ -283,17 +283,17 @@ export class TestWorkflows {
 
             // Simple approach: try to find any clickable image elements directly
             console.log('📸 Looking for clickable images...');
-            
+
             // Try multiple approaches to find and click images in the file picker
             console.log('📸 Attempting to find and click images in file picker...');
-            
+
             // Method 1: Try to find image elements using resource-id (more reliable)
             try {
                 const thumbnails = await driver.$$({
                     strategy: '-android uiautomator',
                     selector: 'new UiSelector().resourceIdMatches(".*thumbnail.*")'
                 });
-                
+
                 if (thumbnails.length > 0) {
                     console.log(`📸 Found ${thumbnails.length} thumbnail elements via resource-id`);
                     await thumbnails[0].click();
@@ -309,11 +309,11 @@ export class TestWorkflows {
             // Method 2: Try coordinate-based tap in likely image areas
             console.log('📸 Trying coordinate-based tap approach');
             const { width, height } = await driver.getWindowSize();
-            
+
             // Tap in the upper portion where images are likely to be
             const imageAreaX = Math.round(width / 3);
             const imageAreaY = Math.round(height / 3);
-            
+
             await driver.touchAction([
                 { action: 'tap', x: imageAreaX, y: imageAreaY }
             ]);
@@ -325,7 +325,7 @@ export class TestWorkflows {
             console.log('✅ Looking for confirmation buttons...');
             const buttonTexts = ['Select', 'OK', 'Done', 'OPEN', 'Choose'];
             let confirmed = false;
-            
+
             for (const text of buttonTexts) {
                 try {
                     const button = await $(`android=new UiSelector().text("${text}")`);
@@ -351,7 +351,7 @@ export class TestWorkflows {
 
             await driver.pause(2000);
             return true;
-            
+
         } catch (error) {
             console.error('❌ File picker interaction failed:', error.message);
             await this.app.takeScreenshot('file-picker-error');
@@ -364,10 +364,10 @@ export class TestWorkflows {
      */
     async cancelFilePicker(): Promise<boolean> {
         console.log('❌ Cancelling file picker...');
-        
+
         try {
             const cancelButtons = ['Cancel', 'CANCEL'];
-            
+
             for (const buttonText of cancelButtons) {
                 try {
                     const button = await $(`android=new UiSelector().text("${buttonText}")`);
@@ -385,7 +385,7 @@ export class TestWorkflows {
             await driver.back();
             console.log('🔙 Used back button to cancel');
             return true;
-            
+
         } catch (error) {
             console.error('❌ File picker cancellation failed:', error.message);
             return false;
@@ -397,19 +397,19 @@ export class TestWorkflows {
      */
     async ensureSourceEnabled(sourceName: string, enabled: boolean): Promise<boolean> {
         console.log(`🗺️ Ensuring ${sourceName} source is ${enabled ? 'enabled' : 'disabled'}...`);
-        
+
         try {
             // Make sure we're in WebView context for source controls
             await this.auth.switchToWebView();
-            
+
             // Find the source toggle button on main page map
             const sourceButton = await $(`[data-testid="source-toggle-${sourceName}"]`);
             await sourceButton.waitForDisplayed({timeout: 10000});
-            
+
             // Check current state by looking for 'active' class
             const classes = await sourceButton.getAttribute('class');
             const isCurrentlyEnabled = classes && classes.includes('active');
-            
+
             // Click if we need to change the state
             if (isCurrentlyEnabled !== enabled) {
                 await sourceButton.click();
@@ -418,7 +418,7 @@ export class TestWorkflows {
             } else {
                 console.log(`🗺️ ${sourceName} source already ${enabled ? 'enabled' : 'disabled'}`);
             }
-            
+
             return true;
         } catch (error) {
             console.error(`❌ Failed to set ${sourceName} source to ${enabled}:`, error.message);
@@ -431,14 +431,14 @@ export class TestWorkflows {
      */
     async configureAutoUploadSettings(enabled: boolean): Promise<boolean> {
         console.log(`⚙️ Configuring auto-upload settings (${enabled ? 'enabled' : 'disabled'})...`);
-        
+
         try {
             // Try to switch to WebView context, but don't fail if not available
             const webViewAvailable = await this.auth.switchToWebView();
             if (!webViewAvailable) {
                 console.log('⚠️ WebView not available, trying to find settings in native context');
             }
-            
+
             // Try to find the settings button with multiple strategies
             let settingsButton;
             try {
@@ -457,14 +457,14 @@ export class TestWorkflows {
             await settingsButton.click();
             await driver.pause(1000);
             console.log('⚙️ Opened settings panel');
-            
+
             // Find the auto-upload checkbox
             const autoUploadCheckbox = await $('[data-testid="auto-upload-checkbox"]');
             await autoUploadCheckbox.waitForDisplayed({timeout: 10000});
-            
+
             // Check current state
             const isCurrentlyEnabled = await autoUploadCheckbox.isSelected();
-            
+
             // Click if we need to change the state
             if (isCurrentlyEnabled !== enabled) {
                 await autoUploadCheckbox.click();
@@ -473,13 +473,13 @@ export class TestWorkflows {
             } else {
                 console.log(`⚙️ Auto-upload already ${enabled ? 'enabled' : 'disabled'}`);
             }
-            
+
             // Close settings panel by clicking Cancel
             const cancelButton = await $('.secondary-button');
             await cancelButton.click();
             await driver.pause(1000);
             console.log('⚙️ Closed settings panel');
-            
+
             return true;
         } catch (error) {
             console.error(`❌ Failed to configure auto-upload settings:`, error.message);
@@ -492,12 +492,12 @@ export class TestWorkflows {
      */
     async performPhotoImportWorkflow(): Promise<boolean> {
         console.log('📂 Starting photo import workflow...');
-        
+
         try {
             // First navigate to main page to access source toggles
             console.log('🏠 Navigating to main page...');
             await this.auth.switchToWebView();
-            
+
             // Try multiple approaches to get to main page
             try {
                 // Method 1: Direct navigation via URL
@@ -540,7 +540,7 @@ export class TestWorkflows {
             // Click import button
             const importButton = await $('[data-testid="import-from-device-button"]');
             await importButton.waitForDisplayed({timeout: 10000});
-            
+
             // Verify button is enabled
             const isEnabled = await importButton.isEnabled();
             if (!isEnabled) {
@@ -565,7 +565,7 @@ export class TestWorkflows {
 
             console.log('✅ Photo import workflow completed');
             return true;
-            
+
         } catch (error) {
             console.error('❌ Photo import workflow failed:', error.message);
             await this.app.takeScreenshot('import-workflow-error');
