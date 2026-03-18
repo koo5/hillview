@@ -124,7 +124,8 @@ data class ProcessInfo(
 data class ConfigData(
     val sources: List<SourceConfig>,
     val expectedWorkerVersion: String? = null,
-    val queryOptionsJson: String? = null  // Pre-serialized analysis filters
+    val queryOptionsJson: String? = null,  // Pre-serialized analysis filters
+    val maxPhotosInArea: Int? = null  // User-configurable max photos limit
 )
 
 @Serializable

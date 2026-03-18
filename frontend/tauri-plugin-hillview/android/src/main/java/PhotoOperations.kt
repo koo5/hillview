@@ -15,12 +15,13 @@ class PhotoOperations(private val context: Context) {
     companion object {
         private const val TAG = "PhotoOperations"
         private const val doLog = false
+        private const val MAX_PHOTOS_IN_AREA = 400  // Should match photoWorkerConstants.ts
     }
 
     private val deviceLoader = DevicePhotoLoader(context)
     private val streamLoader = StreamPhotoLoader()
     private val sourceCache = mutableMapOf<String, SourceCache>()
-    private var maxPhotosInArea: Int = 200
+    private var maxPhotosInArea: Int = MAX_PHOTOS_IN_AREA
     private var picks: Set<String> = emptySet()
     private var queryOptionsJson: String? = null  // Pre-serialized analysis filters
 
