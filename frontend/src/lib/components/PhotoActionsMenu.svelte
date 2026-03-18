@@ -4,10 +4,9 @@
     import { http, handleApiError } from '$lib/http';
     import { auth } from '$lib/auth.svelte.js';
     import { simplePhotoWorker } from '$lib/simplePhotoWorker';
-    import { constructUserProfileUrl, constructShareUrl, openExternalUrl } from '$lib/urlUtils';
+    import { constructUserProfileUrl, openExternalUrl } from '$lib/urlUtils';
+    import { sharePhoto as sharePhotoUtil } from '$lib/shareUtils';
     import { myGoto } from '$lib/navigation.svelte.js';
-    import { TAURI } from '$lib/tauri.js';
-    import { invoke } from '@tauri-apps/api/core';
     import type { PhotoData } from '$lib/sources';
 	import {getPhotoSource} from "$lib/photoUtils";
 
@@ -227,51 +226,14 @@
     async function sharePhoto() {
         if (!photo) return;
 
-        try {
-            const shareUrl = constructShareUrl(photo);
-            const shareText = `Check out this photo on Hillview${getUserName(photo) ? ` by @${getUserName(photo)}` : ''}`;
-
-            if (TAURI) {
-                // Use native Android sharing through Tauri plugin
-                const result = await invoke('plugin:hillview|share_photo', {
-                    title: 'Photo on Hillview',
-                    text: shareText,
-                    url: shareUrl
-                }) as { success: boolean; error?: string; message?: string };
-
-                if (result.success) {
-                    /*hideMessage = 'Shared successfully!';
-                    setTimeout(() => hideMessage = '', 2000);*/
-                } else {
-                    throw new Error(result.error || 'Share failed');
-                }
-            } else {
-                // Web fallback - copy to clipboard
-                if (navigator.clipboard) {
-                    const fullShareText = `${shareText}\n${shareUrl}`;
-                    await navigator.clipboard.writeText(fullShareText);
-                    hideMessage = 'Share link copied to clipboard!';
-                    scheduleTimeout(() => hideMessage = '', 4000);
-                } else {
-                    // Fallback for older browsers
-                    const textarea = document.createElement('textarea');
-                    textarea.value = `${shareText}\n${shareUrl}`;
-                    document.body.appendChild(textarea);
-                    textarea.select();
-                    document.execCommand('copy');
-                    document.body.removeChild(textarea);
-                    hideMessage = 'Share link copied to clipboard!';
-                    scheduleTimeout(() => hideMessage = '', 2000);
-                }
-            }
-        } catch (error) {
-            console.error('🢄Error sharing photo:', error);
-            hideMessage = 'Failed to share photo';
-            hideError = true;
+        const result = await sharePhotoUtil(photo);
+        if (result.message) {
+            hideMessage = result.message;
+            hideError = result.error;
             scheduleTimeout(() => {
                 hideMessage = '';
                 hideError = false;
-            }, 3000);
+            }, result.error ? 3000 : 4000);
         }
         closeMenu();
     }
