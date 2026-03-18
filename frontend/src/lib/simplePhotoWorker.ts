@@ -16,6 +16,7 @@ import {KotlinPhotoWorker} from './KotlinPhotoWorker';
 import type {WorkerConfigData} from './photoWorkerTypes';
 
 const doLog = false;
+const TAG = '🢄SPW: '
 
 class SimplePhotoWorker {
     private worker: Worker | null = null;
@@ -29,13 +30,13 @@ class SimplePhotoWorker {
 
         try {
             if (TAURI) {
-                if (doLog) console.log('🢄SimplePhotoWorker: Initializing Kotlin photo worker for Tauri');
+                if (doLog) console.log(TAG+'Initializing Kotlin photo worker for Tauri');
                 // Use Kotlin PhotoWorkerService via Tauri
                 this.kotlinWorker = new KotlinPhotoWorker();
                 await this.kotlinWorker.initialize();
                 this.setupKotlinWorkerHandlers();
             } else {
-                if (doLog) console.log('🢄SimplePhotoWorker: Initializing Web Worker for browser');
+                if (doLog) console.log(TAG+'Initializing Web Worker for browser');
                 // Create worker directly
                 this.worker = new Worker(
                     new URL('../webworkers/new.worker.ts', import.meta.url),
@@ -58,7 +59,7 @@ class SimplePhotoWorker {
 
             // Test: Check initial sources
             const initialSources = get(sources);
-            /*if (doLog) console.log('🢄SimplePhotoWorker: Initial sources on startup:', JSON.stringify(
+            /*if (doLog) console.log(TAG+'Initial sources on startup:', JSON.stringify(
             initialSources.map(s => ({
                 id: s.id,
                 type: s.type,
@@ -69,7 +70,7 @@ class SimplePhotoWorker {
             }))));*/
 
         } catch (error) {
-            console.error('🢄SimplePhotoWorker: Failed to initialize', error);
+            console.error(TAG+'Failed to initialize', error);
             throw error;
         }
     }
@@ -79,7 +80,7 @@ class SimplePhotoWorker {
 
         this.kotlinWorker.onmessage = (e: { data: any }) => {
             const message = e.data;
-            //if (doLog) console.log('🢄SimplePhotoWorker: Received message from Kotlin worker:', message.type);
+            //if (doLog) console.log(TAG+'Received message from Kotlin worker:', message.type);
             this.handleWorkerUpdate(message);
         };
     }
@@ -94,7 +95,7 @@ class SimplePhotoWorker {
         };
 
         this.worker.onerror = (error: ErrorEvent) => {
-            console.error('🢄SimplePhotoWorker: Worker error', error);
+            console.error(TAG+'Worker error', error);
         };
     }
 
@@ -121,7 +122,7 @@ class SimplePhotoWorker {
                 const mergedAreaPhotos = withPlaceholders.photos_in_area;
                 const mergedRangePhotos = withPlaceholders.photos_in_range;
 
-                //if (doLog) console.log(`🢄SimplePhotoWorker: Updated photos - Area: ${areaPhotos.length} + ${filteredPlaceholders.length}/${currentPlaceholders.length} placeholders (device source ${deviceSourceEnabled ? 'enabled' : 'disabled'}) = ${mergedAreaPhotos.length}, Range: ${message.current_range}m, rangePhotos.length: ${rangePhotos.length} + ${filteredPlaceholders.length} placeholders = ${mergedRangePhotos.length}`);
+                //if (doLog) console.log(TAG+`Updated photos - Area: ${areaPhotos.length} + ${filteredPlaceholders.length}/${currentPlaceholders.length} placeholders (device source ${deviceSourceEnabled ? 'enabled' : 'disabled'}) = ${mergedAreaPhotos.length}, Range: ${message.current_range}m, rangePhotos.length: ${rangePhotos.length} + ${filteredPlaceholders.length} placeholders = ${mergedRangePhotos.length}`);
 
                 photosInArea.set(mergedAreaPhotos);
                 photosInRange.set(mergedRangePhotos);
@@ -139,12 +140,12 @@ class SimplePhotoWorker {
                 break;
 
             case 'error':
-                console.error('🢄SimplePhotoWorker: Worker error', message.error);
+                console.error(TAG+'Worker error', message.error);
                 break;
 
             case 'toast':
                 const toastMessage = message as WorkerToastMessage;
-                console.log(`🢄SimplePhotoWorker: Received toast from worker: ${toastMessage.level} - ${toastMessage.message} (source: ${toastMessage.source})`);
+                console.log(TAG+`Received toast from worker: ${toastMessage.level} - ${toastMessage.message} (source: ${toastMessage.source})`);
 
                 // Convert worker toast to main thread toast
                 const duration = toastMessage.duration !== undefined ? toastMessage.duration :
@@ -158,7 +159,7 @@ class SimplePhotoWorker {
                 break;
 
             default:
-                console.warn('🢄SimplePhotoWorker: Unknown message type:', message.type);
+                console.warn(TAG+'Unknown message type:', message.type);
         }
     }
 
@@ -167,14 +168,14 @@ class SimplePhotoWorker {
             // Use the token manager to get a token with optional force refresh
             const tokenManager = createTokenManager();
             const currentToken = await tokenManager.getValidToken(forceRefresh);
-            console.log(`🢄SimplePhotoWorker: Sending auth token to worker: ${currentToken ? 'token available' : 'no token'}${forceRefresh ? ' (refreshed)' : ''}`);
+            console.log(TAG+`Sending auth token to worker: ${currentToken ? 'token available' : 'no token'}${forceRefresh ? ' (refreshed)' : ''}`);
 
             this.worker?.postMessage({
                 type: 'authToken',
                 token: currentToken
             });
         } catch (error) {
-            console.error('🢄SimplePhotoWorker: Error getting auth token for worker:', error);
+            console.error(TAG+'Error getting auth token for worker:', error);
             this.worker?.postMessage({
                 type: 'authToken',
                 token: null
@@ -200,7 +201,7 @@ class SimplePhotoWorker {
         }
 
         if (removedCount > 0) {
-            if (doLog) console.log(`🢄SimplePhotoWorker: Cleaned up ${removedCount} placeholder(s) after device photos loaded`);
+            if (doLog) console.log(TAG+`Cleaned up ${removedCount} placeholder(s) after device photos loaded`);
         }
     }
 
@@ -245,7 +246,7 @@ class SimplePhotoWorker {
 		picks.subscribe((picksSet) => {
 			if (!this.isInitialized) return;
 			// Notify worker of pick changes (convert Set to Array for serialization)
-			//if (doLog) console.log('🢄SimplePhotoWorker: Picks updated, sending to worker...', Array.from(picksSet));
+			//if (doLog) console.log(TAG+'Picks updated, sending to worker...', Array.from(picksSet));
 			this.sendMessage('picksUpdated', {
 				picks: Array.from(picksSet)
 			});
@@ -264,11 +265,11 @@ class SimplePhotoWorker {
             // Skip update if bounds haven't changed significantly (hysteresis)
 			// TODO: we could skip area load, but we can't skip range filter
             if (this.lastBounds && !this.boundsChangeSignificant(this.lastBounds, spatial.bounds)) {
-                //if (doLog) console.log('🢄SimplePhotoWorker: Skipping area update - bounds change too small');
+                //if (doLog) console.log(TAG+'Skipping area update - bounds change too small');
                 return;
             }
 
-            //if (doLog) console.log(`🢄SimplePhotoWorker: Sending area update with range ${spatial.range}m...`);
+            //if (doLog) console.log(TAG+`Sending area update with range ${spatial.range}m...`);
             this.lastBounds = spatial.bounds;
             this.sendMessage('areaUpdated', {
                 area: spatial.bounds,
@@ -306,13 +307,13 @@ class SimplePhotoWorker {
 
             // Only trigger config update if actual config changed (not loading states)
             if (configHash === lastConfigHash) {
-                //if (doLog) console.log('🢄SimplePhotoWorker: Ignoring config change - no relevant changes');
+                //if (doLog) console.log(TAG+'Ignoring config change - no relevant changes');
                 return;
             }
 
             // Clear picks when filters change (not on initial load or source-only changes)
             if (lastFiltersHash !== '' && filtersHash !== lastFiltersHash) {
-                if (doLog) console.log('🢄SimplePhotoWorker: Filters changed, clearing picks');
+                if (doLog) console.log(TAG+'Filters changed, clearing picks');
                 picks.set(new Set());
                 // Send picksUpdated synchronously BEFORE configUpdated
                 // (picks.subscribe runs async, so we must send manually here)
@@ -321,7 +322,7 @@ class SimplePhotoWorker {
             lastFiltersHash = filtersHash;
 
             lastConfigHash = configHash;
-            console.log('🢄SimplePhotoWorker: Sending config update with sources and queryOptions...');
+            console.log(TAG+'Sending config update with sources and queryOptions...');
 
             const config: WorkerConfigData = {
                 sources: sourceList,
@@ -340,7 +341,7 @@ class SimplePhotoWorker {
         const frontendMessageId = `frontend_${++this.frontendMessageId}`;
         const message = {frontendMessageId, type, data};
 
-        if (doLog) console.log(`🢄SimplePhotoWorker: [${frontendMessageId}] Sending ${type} to worker`);
+        if (doLog) console.log(TAG+`[${frontendMessageId}] Sending ${type} to worker`);
 
         if (this.kotlinWorker) {
             this.kotlinWorker.postMessage(message);
@@ -374,11 +375,11 @@ class SimplePhotoWorker {
     // Cache removal methods for hidden content
     removePhotoFromCache(photoId: string, photoSource: string): void {
         if (!this.isInitialized || (!this.worker && !this.kotlinWorker)) {
-            console.warn('🢄SimplePhotoWorker: Cannot remove photo from cache - worker not initialized');
+            console.warn(TAG+'Cannot remove photo from cache - worker not initialized');
             return;
         }
 
-        if (doLog) console.log(`🢄SimplePhotoWorker: Removing photo ${photoId} from ${photoSource} cache...`);
+        if (doLog) console.log(TAG+`Removing photo ${photoId} from ${photoSource} cache...`);
         this.sendMessage('removePhoto', {
             photoId: photoId,
             source: photoSource
@@ -387,11 +388,11 @@ class SimplePhotoWorker {
 
     removeUserPhotosFromCache(userId: string, userSource: string): void {
         if (!this.isInitialized || (!this.worker && !this.kotlinWorker)) {
-            console.warn('🢄SimplePhotoWorker: Cannot remove user photos from cache - worker not initialized');
+            console.warn(TAG+'Cannot remove user photos from cache - worker not initialized');
             return;
         }
 
-        if (doLog) console.log(`🢄SimplePhotoWorker: Removing all photos by user ${userId} from ${userSource} cache...`);
+        if (doLog) console.log(TAG+`Removing all photos by user ${userId} from ${userSource} cache...`);
         this.sendMessage('removeUserPhotos', {
             userId: userId,
             source: userSource
