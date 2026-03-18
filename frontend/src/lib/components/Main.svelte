@@ -197,11 +197,18 @@
 			});
 		});
 
+		const unsubscribeBearing = bearingState.subscribe(onBearingStateChange);
+		const unsubscribeSpatial = spatialState.subscribe(onSpatialStateChange);
+
 		return () => {
 			unsubscribe1();
 			unsubscribeZoomBounds();
 			unsubscribeZoomClose();
 			unsubscribePendingZoom();
+			unsubscribeBearing();
+			unsubscribeSpatial();
+			if (bearingUrlUpdateTimeout) clearTimeout(bearingUrlUpdateTimeout);
+			if (spatialUrlUpdateTimeout) clearTimeout(spatialUrlUpdateTimeout);
 		};
 
 	});
@@ -229,8 +236,7 @@
 	let bearingUrlUpdateTimeout: ReturnType<typeof setTimeout> | null = null;
 	let lastBearingState: any = undefined;
 
-	bearingState.subscribe(visual => {
-
+	function onBearingStateChange(visual: any) {
 		if (!update_url) {
 			return;
 		}
@@ -259,8 +265,9 @@
 
 			replaceState2(url.toString());
 		}, 2000);
+	}
 
-	});
+	// Subscribed in onMount, cleaned up on destroy
 
 	let desiredUrl: string | null = null;
 
@@ -280,7 +287,7 @@
 
 	let spatialUrlUpdateTimeout: ReturnType<typeof setTimeout> | null = null;
 
-	spatialState.subscribe(p => {
+	function onSpatialStateChange(p: any) {
 		if (!update_url) {
 			return;
 		}
@@ -296,7 +303,9 @@
 			url.searchParams.set('zoom', String(p.zoom));
 			replaceState2(url.toString());
 		}, 500);
-	});
+	}
+
+	// Subscribed in onMount, cleaned up on destroy
 
 	const toggleMenu = () => {
 		menuOpen = !menuOpen;

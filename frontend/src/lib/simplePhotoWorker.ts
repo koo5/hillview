@@ -58,7 +58,7 @@ class SimplePhotoWorker {
             this.setupReactivity();
 
             // Test: Check initial sources
-            const initialSources = get(sources);
+            //const initialSources = get(sources);
             /*if (doLog) console.log(TAG+'Initial sources on startup:', JSON.stringify(
             initialSources.map(s => ({
                 id: s.id,

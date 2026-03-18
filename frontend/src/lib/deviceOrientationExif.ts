@@ -8,7 +8,7 @@ export let deviceOrientationExif: Writable<ExifOrientation> = writable(1);
 export let screenOrientationAngle: Writable<number> = writable(0);
 export let relativeOrientationExif = derived([deviceOrientationExif, screenOrientationAngle], ([$deviceOrientationExif, $screenOrientationAngle]) => {
 	   let r = calculateWebviewRelativeOrientation($deviceOrientationExif, $screenOrientationAngle);
-	   console.log(`🢄🔍📱 Calculated relativeOrientationExif: ${r} from deviceOrientationExif: ${$deviceOrientationExif} and screenOrientationAngle: ${$screenOrientationAngle}`);
+	   //console.log(`🢄🔍📱 Calculated relativeOrientationExif: ${r} from deviceOrientationExif: ${$deviceOrientationExif} and screenOrientationAngle: ${$screenOrientationAngle}`);
 	   return r;
 });
 
