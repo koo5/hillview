@@ -2,7 +2,7 @@
 This module manages the new.worker.ts
 */
 
-import {photosInArea, photosInRange, spatialState, picks} from './mapState';
+import {photosInArea, photosInRange, spatialState, picks, mapReady} from './mapState';
 import {sourceLoadingStatus, sources, maxPhotosInArea} from './data.svelte';
 import {filters, buildFiltersQueryParam} from './components/filters-modal/filtersStore';
 import {get} from 'svelte/store';
@@ -251,9 +251,25 @@ class SimplePhotoWorker {
 				picks: Array.from(picksSet)
 			});
 		});
+        // Guaranteed first area load when afterInit() signals readiness.
+        // Handles the case where spatialState doesn't change from localStorage
+        // (same window size, same position) so the subscription below wouldn't fire.
+        mapReady.subscribe((ready) => {
+            if (!this.isInitialized) return;
+            if (!ready) return;
+            const spatial = get(spatialState);
+            if (!spatial.bounds) return;
+            this.lastBounds = spatial.bounds;
+            this.sendMessage('areaUpdated', {
+                area: spatial.bounds,
+                range: spatial.range
+            });
+        });
+
         // React to spatial changes - triggers area updates with hysteresis
         spatialState.subscribe((spatial) => {
             if (!this.isInitialized) return;
+            if (!get(mapReady)) return;
 
             // Reset lastBounds when bounds become null (e.g., map unmounted)
             // so next bounds update is treated as fresh

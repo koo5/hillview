@@ -39,6 +39,7 @@
 		picks,
 		anyFeatured,
 		showAll,
+		mapReady,
 	} from "$lib/mapState";
 	import {updateBearingWithPhoto} from "$lib/bearingTracking";
 	import {enableSourceForPhotoUid, sources} from "$lib/data.svelte.js";
@@ -264,6 +265,9 @@
 			top_left: bounds.getNorthWest(),
 			bottom_right: bounds.getSouthEast()
 		};
+		// Compute range from actual map zoom level (not stale localStorage value)
+		const centerLatLng = p.center instanceof LatLng ? p.center : new LatLng(p.center.lat, p.center.lng);
+		p.range = get_range(centerLatLng);
 
 		// Clear filters when navigating via URL so the target photo isn't filtered out
 		if (positionChanged || photoParam) {
@@ -281,6 +285,7 @@
 		}
 
 		await updateSpatialState({...p}, 'map');
+		mapReady.set(true);
 
 		if (bearingParam) {
 			//console.log('🢄Setting bearing to', bearingParam, 'from URL');
@@ -1039,6 +1044,7 @@
 			invalidateSizeTimeout = null;
 		}
 		// Clear cached photos and reset bounds so we fetch fresh data when map remounts
+		mapReady.set(false);
 		photosInArea.set([]);
 		spatialState.update(s => ({...s, bounds: null}));
         // Signal that we're no longer on map route
@@ -1266,7 +1272,7 @@
         {/key}
 
 
-        {#if ($app.activity != 'capture') && $spatialState.center}
+        {#if ($app.activity != 'capture') && $spatialState.center && $mapReady}
             <Circle
                     latLng={$spatialState.center}
                     radius={$spatialState.range}

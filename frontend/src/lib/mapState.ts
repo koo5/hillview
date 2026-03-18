@@ -59,6 +59,10 @@ export const bearingMode = localStorageSharedStore<BearingMode>('bearingMode', '
 
 export const picks: Writable<Set<PhotoId>> = writable(new Set());
 
+// Gate: true after afterInit() has established real spatial state from map + URL params.
+// Prevents premature worker requests and rendering with stale localStorage values.
+export const mapReady = writable<boolean>(false);
+
 // Photos filtered by spatial criteria (from worker)
 export const photosInArea = writable<PhotoData[]>([]);
 
