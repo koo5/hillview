@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures';
-import { recreateTestUsers, loginAsTestUser, logoutUser } from './helpers/testUsers';
+import { loginAsTestUser, logoutUser } from './helpers/testUsers';
 import { uploadPhoto, testPhotos } from './helpers/photoUpload';
 import { ensureSourceEnabled } from './helpers/sourceHelpers';
 import { BACKEND_URL } from './helpers/adminAuth';
@@ -40,24 +40,13 @@ test.describe('Featured Photos', () => {
 	let photoId1: string;
 	let photoId2: string;
 
-	test.beforeAll(async ({ browser }) => {
-		const { passwords } = await recreateTestUsers();
-		const context = await browser.newContext();
-		const page = await context.newPage();
-
-		await loginAsTestUser(page, passwords.test);
+	test('setup: upload test photos', async ({ page, testUsers }) => {
+		test.setTimeout(180_000);
+		await loginAsTestUser(page, testUsers.passwords.test);
 		photoId1 = await uploadPhoto(page, testPhotos[0]);
-		photoId2 = await uploadPhoto(page, testPhotos[1]);
+		photoId2 = await uploadPhoto(page, testPhotos[2]); // different GPS location to avoid marker overlap
 		expect(photoId1).toBeTruthy();
 		expect(photoId2).toBeTruthy();
-
-		await logoutUser(page);
-		await context.close();
-	});
-
-	test.afterAll(async () => {
-		await setFeatured(photoId1, false).catch(() => {});
-		await setFeatured(photoId2, false).catch(() => {});
 	});
 
 	test('show-all button is visible on map', async ({ page, testUsers }) => {

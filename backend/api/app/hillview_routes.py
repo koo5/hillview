@@ -54,7 +54,7 @@ class SetAnalysisRequest(BaseModel):
 def parse_analysis_filters(
 	analysis_filters: str = Query(None, description="JSON object with analysis filters")
 ) -> Optional[AnalysisFilters]:
-	if not analysis_filters:
+	if not analysis_filters or analysis_filters == 'null':
 		return None
 	try:
 		return AnalysisFilters.model_validate_json(analysis_filters)

@@ -313,41 +313,27 @@ class StreamPhotoLoader {
     private fun buildStreamUrl(source: SourceConfig, bounds: Bounds, maxPhotos: Int, authToken: String?, picks: Set<String> = emptySet(), queryOptionsJson: String? = null): String {
         val baseUrl = source.url ?: throw IllegalArgumentException("Stream source missing URL")
 
-        return buildString {
-            append(baseUrl)
-            append("?")
+        val urlBuilder = baseUrl.toHttpUrl().newBuilder()
+            .addQueryParameter("top_left_lat", bounds.top_left.lat.toString())
+            .addQueryParameter("top_left_lon", bounds.top_left.lng.toString())
+            .addQueryParameter("bottom_right_lat", bounds.bottom_right.lat.toString())
+            .addQueryParameter("bottom_right_lon", bounds.bottom_right.lng.toString())
+            .addQueryParameter("client_id", "default")
+            .addQueryParameter("max_photos", maxPhotos.toString())
 
-            // Add bounds parameters using the same format as working TypeScript implementation
-            append("top_left_lat=${bounds.top_left.lat}")
-            append("&top_left_lon=${bounds.top_left.lng}")  // Note: lon not lng
-            append("&bottom_right_lat=${bounds.bottom_right.lat}")
-            append("&bottom_right_lon=${bounds.bottom_right.lng}")  // Note: lon not lng
-
-            // Add client_id parameter (required by server)
-            val clientId = "default"  // Match TypeScript default
-            append("&client_id=$clientId")
-
-            // Add max_photos parameter
-            append("&max_photos=$maxPhotos")
-
-            // Add picks parameter if there are any selected photos
-            if (picks.isNotEmpty()) {
-                // Convert Set to comma-separated string
-                append("&picks=${picks.joinToString(",")}")
-            }
-
-            // Add analysis_filters parameter if pre-serialized filters are provided
-            queryOptionsJson?.let {
-                append("&analysis_filters=${java.net.URLEncoder.encode(it, "UTF-8")}")
-            }
-
-            // Add auth token if available
-            authToken?.let {
-                append("&token=$it")
-            }
-
-            // Note: format=stream not needed - /mapillary endpoint returns SSE by default
+        if (picks.isNotEmpty()) {
+            urlBuilder.addQueryParameter("picks", picks.joinToString(","))
         }
+
+        queryOptionsJson?.takeIf { it != "null" }?.let {
+            urlBuilder.addQueryParameter("analysis_filters", it)
+        }
+
+        authToken?.let {
+            urlBuilder.addQueryParameter("token", it)
+        }
+
+        return urlBuilder.build().toString()
     }
 
     /**

@@ -93,7 +93,8 @@
 		max-width: 400px;
 		width: 100%;
 		max-height: 90vh;
-		overflow-y: auto;
+		display: flex;
+		flex-direction: column;
 		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
 	}
 
@@ -128,6 +129,7 @@
 
 	.modal-content {
 		padding: 20px;
+		overflow-y: auto;
 	}
 
 	.modal-actions {

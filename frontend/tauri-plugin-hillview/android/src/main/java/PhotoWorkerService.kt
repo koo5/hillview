@@ -328,6 +328,7 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
                     }
                     put("maxPhotos", MAX_PHOTOS_IN_AREA)
                     put("range", lastProcessedRange)
+                    config.queryOptionsJson?.let { put("queryOptionsJson", it) }
                 }.toString()
 
                 val areaMessage = WorkerMessage(
