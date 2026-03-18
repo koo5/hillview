@@ -150,7 +150,7 @@
 				value={$maxPhotosInArea}
 				oninput={(e) => {
 					const val = parseInt((e.target as HTMLInputElement).value);
-					if (val && val >= 10 && val <= 1000) maxPhotosInArea.set(val);
+					if (val !== undefined) maxPhotosInArea.set(val);
 				}}
 				data-testid="max-photos-input"
 			/>

@@ -33,7 +33,9 @@
 	} from "$lib/mapState";
 	import {LatLng} from 'leaflet';
 	import {replaceState} from "$app/navigation";
-	import {get} from "svelte/store";
+	import {derived, get} from "svelte/store";
+	import {zoomViewData, pendingZoomView, zoomViewportBounds} from '$lib/zoomView.svelte';
+	import {getFullPhotoInfo} from '$lib/photoUtils';
 	import CameraCapture from './CameraCapture.svelte';
 	import DebugOverlay from './DebugOverlay.svelte';
 	import CompassCalibration from './CompassCalibration.svelte';
@@ -151,8 +153,55 @@
 			replaceState2(url.toString());
 		});
 
+		// Sync zoom viewport bounds to URL params
+		const unsubscribeZoomBounds = zoomViewportBounds.subscribe(bounds => {
+			if (!update_url) return;
+			const url = new URL(window.location.href);
+			if (bounds) {
+				url.searchParams.set('x1', bounds.x1.toFixed(6));
+				url.searchParams.set('y1', bounds.y1.toFixed(6));
+				url.searchParams.set('x2', bounds.x2.toFixed(6));
+				url.searchParams.set('y2', bounds.y2.toFixed(6));
+			} else {
+				url.searchParams.delete('x1');
+				url.searchParams.delete('y1');
+				url.searchParams.delete('x2');
+				url.searchParams.delete('y2');
+			}
+			replaceState2(url.toString());
+		});
+
+		// Clear zoom URL params when zoom view closes
+		const unsubscribeZoomClose = zoomViewData.subscribe(data => {
+			if (!update_url) return;
+			if (!data) {
+				zoomViewportBounds.set(null);
+			}
+		});
+
+		// Bridge: when pending zoom is set and photo arrives, open zoom view
+		const unsubscribePendingZoom = derived(
+			[pendingZoomView, photoInFront],
+			([pending, photo]) => ({ pending, photo })
+		).subscribe(({ pending, photo }) => {
+			if (!pending || !photo) return;
+			const fullPhotoInfo = getFullPhotoInfo(photo);
+			zoomViewData.set({
+				fallback_url: '',
+				url: fullPhotoInfo.url,
+				filename: photo.filename,
+				width: fullPhotoInfo.width,
+				height: fullPhotoInfo.height,
+				photo_id: photo.id,
+				pyramid: (photo as any).sizes?.full?.pyramid ?? undefined,
+			});
+		});
+
 		return () => {
 			unsubscribe1();
+			unsubscribeZoomBounds();
+			unsubscribeZoomClose();
+			unsubscribePendingZoom();
 		};
 
 	});

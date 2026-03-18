@@ -37,6 +37,7 @@
 	} from '$lib/annotationApi';
 	import { Origin, UserSelectAction } from '@annotorious/core';
 	import type { ZoomViewData } from '$lib/zoomView.svelte';
+	import { zoomViewportBounds, type ZoomViewInitialBounds } from '$lib/zoomView.svelte';
 	import { parseAnnotationBody, type BodyItem } from '$lib/utils/annotationBody';
 	import {
 		showDropdownMenu,
@@ -48,6 +49,7 @@
 
 	export let data: ZoomViewData;
 	export let onClose: () => void;
+	export let initialBounds: ZoomViewInitialBounds | null = null;
 
 	let container: HTMLDivElement;
 	let viewer: any = null;
@@ -332,6 +334,38 @@
 		}
 	}
 
+	// Debounced viewport bounds emission for URL sync
+	let viewportBoundsTimeout: ReturnType<typeof setTimeout> | null = null;
+	let initialBoundsApplied = false;
+
+	function emitViewportBounds() {
+		if (viewportBoundsTimeout) clearTimeout(viewportBoundsTimeout);
+		viewportBoundsTimeout = setTimeout(() => {
+			viewportBoundsTimeout = null;
+			if (!viewer?.viewport) return;
+			const bounds = viewer.viewport.getBounds();
+			zoomViewportBounds.set({
+				x1: bounds.x,
+				y1: bounds.y,
+				x2: bounds.x + bounds.width,
+				y2: bounds.y + bounds.height
+			});
+		}, 500);
+	}
+
+	function applyInitialBounds() {
+		if (initialBoundsApplied || !initialBounds || !viewer?.viewport) return;
+		initialBoundsApplied = true;
+		const rect = new OpenSeadragon.Rect(
+			initialBounds.x1,
+			initialBounds.y1,
+			initialBounds.x2 - initialBounds.x1,
+			initialBounds.y2 - initialBounds.y1
+		);
+		viewer.viewport.fitBounds(rect, true);
+		console.log('[OSD] Applied initial viewport bounds from URL:', initialBounds);
+	}
+
 	// Whether the initial tileSources used the fallback thumbnail
 	let usingFallback = false;
 
@@ -469,10 +503,12 @@
 			if (!usingFallback) {
 				// No fallback path — the real source loaded directly
 				isLoading = false;
+				applyInitialBounds();
 				return;
 			}
 			// Fallback thumbnail loaded (from browser cache) — dismiss spinner
 			isLoading = false;
+			applyInitialBounds();
 			console.log('[OSD] Fallback loaded, spinner dismissed. Adding main source...');
 
 			// Now add the real source on top — it renders over the fallback
@@ -725,6 +761,8 @@
 
 		viewer.addHandler('viewport-change', scheduleDrawLabels);
 		viewer.addHandler('update-viewport',  scheduleDrawLabels);
+		viewer.addHandler('viewport-change', emitViewportBounds);
+		viewer.addHandler('update-viewport',  emitViewportBounds);
 
 		// Close the viewer when the user clicks/taps the black background
 		// outside the image bounds (mirrors original ZoomView behaviour).
@@ -778,6 +816,10 @@
 		resizeObserver?.disconnect();
 		viewer?.removeHandler('viewport-change', scheduleDrawLabels);
 		viewer?.removeHandler('update-viewport',  scheduleDrawLabels);
+		viewer?.removeHandler('viewport-change', emitViewportBounds);
+		viewer?.removeHandler('update-viewport',  emitViewportBounds);
+		if (viewportBoundsTimeout) { clearTimeout(viewportBoundsTimeout); viewportBoundsTimeout = null; }
+		zoomViewportBounds.set(null);
 		if (drawLabelsRaf) { cancelAnimationFrame(drawLabelsRaf); drawLabelsRaf = 0; }
 		annotator?.destroy?.();
 		viewer?.destroy?.();

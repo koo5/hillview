@@ -56,6 +56,7 @@
 	import {stringifyCircularJSON} from "$lib/utils/json";
 	import {TAURI} from "$lib/tauri";
 	import {parsePhotoUid} from "$lib/urlUtilsServer";
+	import {pendingZoomView} from '$lib/zoomView.svelte';
 	import {openExternalUrl} from "$lib/urlUtils";
 	import InsetGradients from "$lib/components/InsetGradients.svelte";
 
@@ -285,6 +286,20 @@
 			//console.log('🢄Setting bearing to', bearingParam, 'from URL');
 			const bearing = parseFloat(bearingParam);
 			updateBearing(bearing, 'url', photoUid ?? undefined);
+		}
+
+		// Read zoom view URL params — only activate if photo param is also present
+		const x1 = urlParams.get('x1');
+		const y1 = urlParams.get('y1');
+		const x2 = urlParams.get('x2');
+		const y2 = urlParams.get('y2');
+		if (x1 !== null && y1 !== null && x2 !== null && y2 !== null && photoParam) {
+			pendingZoomView.set({
+				x1: parseFloat(x1),
+				y1: parseFloat(y1),
+				x2: parseFloat(x2),
+				y2: parseFloat(y2)
+			});
 		}
 
 		setTimeout(() => {

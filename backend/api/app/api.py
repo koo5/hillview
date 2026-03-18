@@ -221,12 +221,14 @@ class CORSLoggingMiddleware(BaseHTTPMiddleware):
 		access_control_request_headers = request.headers.get("access-control-request-headers")
 
 		if request.method == "OPTIONS" or origin:
-			log.info(f"CORS Request: {request.method} {request.url}")
-			log.info(f"  Origin: {origin}")
+			#log.info(f"CORS Request: {request.method} {request.url}")
+			#log.info(f"  Origin: {origin}")
 			if access_control_request_method:
-				log.info(f"  Access-Control-Request-Method: {access_control_request_method}")
+				#log.info(f"  Access-Control-Request-Method: {access_control_request_method}")
+				pass
 			if access_control_request_headers:
-				log.info(f"  Access-Control-Request-Headers: {access_control_request_headers}")
+				#log.info(f"  Access-Control-Request-Headers: {access_control_request_headers}")
+				pass
 
 		response = await call_next(request)
 
@@ -237,14 +239,17 @@ class CORSLoggingMiddleware(BaseHTTPMiddleware):
 			access_control_allow_headers = response.headers.get("access-control-allow-headers")
 			access_control_allow_credentials = response.headers.get("access-control-allow-credentials")
 
-			log.info(f"CORS Response: {response.status_code}")
-			log.info(f"  Access-Control-Allow-Origin: {access_control_allow_origin}")
+			#log.info(f"CORS Response: {response.status_code}")
+			#log.info(f"  Access-Control-Allow-Origin: {access_control_allow_origin}")
 			if access_control_allow_methods:
-				log.info(f"  Access-Control-Allow-Methods: {access_control_allow_methods}")
+				#log.info(f"  Access-Control-Allow-Methods: {access_control_allow_methods}")
+				pass
 			if access_control_allow_headers:
-				log.info(f"  Access-Control-Allow-Headers: {access_control_allow_headers}")
+				#log.info(f"  Access-Control-Allow-Headers: {access_control_allow_headers}")
+				pass
 			if access_control_allow_credentials:
-				log.info(f"  Access-Control-Allow-Credentials: {access_control_allow_credentials}")
+				#log.info(f"  Access-Control-Allow-Credentials: {access_control_allow_credentials}")
+				pass
 
 		return response
 

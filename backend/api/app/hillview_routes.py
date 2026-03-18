@@ -172,7 +172,7 @@ async def query_photos_in_bounds(
 		Photo.is_public == True,
 		Photo.processing_status == 'completed',
 		Photo.deleted == False
-	).order_by(Photo.captured_at.desc())
+	).order_by(Photo.featured.desc(), Photo.captured_at.desc())
 
 	# Apply analysis filters if provided
 	if analysis_filters:

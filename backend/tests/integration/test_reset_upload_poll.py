@@ -122,13 +122,8 @@ class TestResetUploadPoll:
         colors = ['red', 'blue', 'green', 'yellow', 'purple']
         color = colors[cycle_num - 1] if cycle_num <= len(colors) else 'red'
 
-        # Try to create test image with GPS data, fall back to simple image
-        try:
-            image_data = self.create_test_image_with_gps(location_data, color)
-            print(f"   Created {color} test image with GPS data: {location_data['latitude']}, {location_data['longitude']}")
-        except Exception as e:
-            print(f"   Failed to create GPS image, using simple image: {e}")
-            image_data = self.create_simple_test_image()
+        image_data = self.create_test_image_with_gps(location_data, color)
+        print(f"   Created {color} test image with GPS data: {location_data['latitude']}, {location_data['longitude']}")
 
         # Use secure upload workflow
         upload_client = SecureUploadClient(api_url=API_URL)
@@ -258,7 +253,7 @@ class TestResetUploadPoll:
                     for i, photo in enumerate(photos[:3]):
                         coords = photo.get('geometry', {}).get('coordinates', [])
                         print(f"     {i+1}. ID: {photo.get('id')}, coords: {coords}")
-                        
+
             except Exception as e:
                 print(f"   Failed to query hillview endpoint: {e}")
 

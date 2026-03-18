@@ -114,14 +114,15 @@ export async function clearMockMapillaryData(page: any) {
  * Use this for tests that need fresh Mapillary data
  */
 export async function setupMockMapillaryData(page: any, mockData: MockMapillaryData) {
-  // Set mock data (overwrites any existing mock data)
-  await setMockMapillaryData(page, mockData);
-
-  // Clear database/cache to remove any cached data (prevents cache+live duplication)
+  // Clear database/cache first to remove any cached data (prevents cache+live duplication)
+  // Must happen before setting mock data, since clear-database wipes PICS_DIR including mock images
   const cacheResponse = await page.request.post('http://localhost:8055/api/debug/clear-database');
   if (cacheResponse.status() === 200) {
     console.log('✓ Cleared database/cache');
   }
+
+  // Set mock data (generates mock images in PICS_DIR/mapillary-mock/)
+  await setMockMapillaryData(page, mockData);
 
   // Reload page so frontend fetches the new mocked data
   await page.reload();

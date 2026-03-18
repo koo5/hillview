@@ -118,7 +118,7 @@ spatialState.subscribe(spatial => {
 
 	const photos = get(photosInArea);
 	const center = {lat: spatial.center.lat, lng: spatial.center.lng};
-	const inRange = angularRangeCuller.cullPhotosInRange(photos, center, spatial.range, 300);
+	const inRange = angularRangeCuller.cullPhotosInRange(photos, center, spatial.range, 300, get(picks));
 
 	// Sort by bearing for consistent navigation order
 	sortPhotosByBearing(inRange);
