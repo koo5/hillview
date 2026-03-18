@@ -231,6 +231,8 @@ export class PhotoOperations {
                 .map(uid => uid.substring(sourcePrefix.length))
         );
 
+		console.log(`🢄PhotoOperations: picks for source ${source.id} before load start:`, Array.from(sourcePickIds));
+
         const options: PhotoSourceOptions = {
             maxPhotos: this.maxPhotosInArea,
             picks: sourcePickIds,

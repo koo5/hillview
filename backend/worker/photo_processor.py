@@ -576,6 +576,9 @@ class PhotoProcessor:
 
 
 
+	# Skip DZI pyramid generation for images where both dimensions are below this threshold
+	DZI_MIN_DIMENSION = 2048
+
 	async def generate_dzi_pyramid(self, image: np.ndarray, unique_id: str, photo_id: str = None, client_signature: str = None) -> Optional[Dict[str, Any]]:
 		"""Generate a DZI (Deep Zoom Image) pyramid from an anonymized image.
 
@@ -586,6 +589,11 @@ class PhotoProcessor:
 		The metadata allows the client to open the deep-zoom viewer without a separate .dzi fetch.
 		"""
 		try:
+			h, w = image.shape[:2]
+			if max(w, h) < self.DZI_MIN_DIMENSION:
+				logger.info(f"Skipping DZI pyramid for {unique_id}: image ({w}x{h}) below {self.DZI_MIN_DIMENSION}px threshold")
+				return None
+
 			user_id_part, photo_id_part = unique_id.split('/', 1)
 			user_id_part = validate_user_id(user_id_part)
 			safe_photo_id = sanitize_filename(photo_id_part)
@@ -604,7 +612,6 @@ class PhotoProcessor:
 
 			import pyvips
 			# Convert BGR numpy array to pyvips RGB image
-			h, w = image.shape[:2]
 			logger.info(f"Generating DZI pyramid for {unique_id} from anonymized image ({w}x{h})")
 			rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 			img = pyvips.Image.new_from_memory(rgb.data, w, h, 3, 'uchar')

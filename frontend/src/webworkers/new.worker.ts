@@ -454,7 +454,8 @@ async function loop(): Promise<void> {
 			switch (message.type) {
 
 				case 'picksUpdated':
-					if (doLog) console.log(`🢄NewWorker: [${message.frontendMessageId}] Processing picksUpdated with ${message.data.picks?.length || 0} picks`);
+					//if (doLog)
+						console.log(`🢄NewWorker: [${message.frontendMessageId}] Processing picksUpdated with ${message.data.picks?.length || 0} picks`);
 					currentPicks = new Set(message.data.picks);
 					photoOperations.setPicks(currentPicks);
 					break;

@@ -14,6 +14,7 @@ import {removePlaceholder, placeholderPhotos, embedPlaceholders} from './placeho
 import {TAURI} from './tauri';
 import {KotlinPhotoWorker} from './KotlinPhotoWorker';
 import type {WorkerConfigData} from './photoWorkerTypes';
+import {tick} from 'svelte';
 
 const doLog = false;
 const TAG = '🢄SPW: '
@@ -267,7 +268,7 @@ class SimplePhotoWorker {
         });
 
         // React to spatial changes - triggers area updates with hysteresis
-        spatialState.subscribe((spatial) => {
+        spatialState.subscribe(async (spatial) => {
             if (!this.isInitialized) return;
             if (!get(mapReady)) return;
 
@@ -287,6 +288,8 @@ class SimplePhotoWorker {
 
             //if (doLog) console.log(TAG+`Sending area update with range ${spatial.range}m...`);
             this.lastBounds = spatial.bounds;
+			await tick(); // Ensure any pending picks updates are processed before area
+			console.log('picks at time of areaUpdate trigger:', get(picks));
             this.sendMessage('areaUpdated', {
                 area: spatial.bounds,
                 range: spatial.range

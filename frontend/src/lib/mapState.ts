@@ -188,7 +188,7 @@ newPhotoInFront.subscribe(photo => {
 		if (photoUid)
 		{
 			picks.set(new Set([photoUid]));
-			//console.log(`🢄picks: set to photoInFront uid ${photoUid}`);
+			console.log(`🢄picks: set to photoInFront uid ${photoUid}`);
 		}
 	}
 });

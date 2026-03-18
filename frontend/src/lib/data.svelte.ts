@@ -352,7 +352,7 @@ export function closeDebug() {
 
 export let mockCamera = localStorageSharedStore('mockCamera', false);
 
-export let maxPhotosInArea = localStorageReadOnceSharedStore('maxPhotosInArea', 200);
+export let maxPhotosInArea = localStorageReadOnceSharedStore('maxPhotosInArea', 100);
 
 export let frontendBusy = writable(0);
 

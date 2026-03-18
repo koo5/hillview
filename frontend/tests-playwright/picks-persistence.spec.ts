@@ -88,19 +88,20 @@ test.describe('Picks Persistence', () => {
 		expect(initialMarkerIds.length).toBeGreaterThanOrEqual(1);
 		expect(initialMarkerIds.length).toBeLessThanOrEqual(3);
 
-		// Find the "front" photo (the pick) — it's the selected marker
-		// Click the first marker to make it the definite pick
-		const firstMarkerId = initialMarkerIds[0];
-		const firstMarker = page.locator(`[data-photo-id="${firstMarkerId}"]`);
-		await firstMarker.click();
-		await page.waitForTimeout(1000);
-		console.log(`Clicked marker ${firstMarkerId} — it is now the pick`);
+		// The app auto-selects a front photo (the pick) — read its ID from the selected marker
+		const selectedId = await page.evaluate(() => {
+			const selected = document.querySelector('.bearing-circle.selected');
+			return selected?.closest('.marker-container')?.getAttribute('data-photo-id') || null;
+		});
+		expect(selectedId).toBeTruthy();
+		const pickId = selectedId!;
+		console.log(`Front photo (auto-selected pick): ${pickId}`);
 
 		// Mark all OTHER photos as featured.
 		// On the next area update, the backend prioritizes featured photos.
 		// With max_photos=3, only featured photos fill the quota.
 		// The picked photo (non-featured) would be dropped WITHOUT picks support.
-		const otherIds = photoIds.filter(id => id !== firstMarkerId);
+		const otherIds = photoIds.filter(id => id !== pickId);
 		expect(otherIds.length).toBe(3);
 		for (const id of otherIds) {
 			await setFeatured(id, true);
@@ -116,13 +117,13 @@ test.describe('Picks Persistence', () => {
 
 		// The picked photo's marker should still be on the map
 		// because it was sent as a pick to the backend via the URL params
-		const markerAfterPan = page.locator(`[data-photo-id="${firstMarkerId}"]`);
+		const markerAfterPan = page.locator(`[data-photo-id="${pickId}"]`);
 		await expect(markerAfterPan).toBeVisible({ timeout: 10000 });
 
 		// Verify the marker is still among the visible markers
 		const markersAfterPan = await getVisibleMarkerIds(page);
 		console.log(`Markers after pan: ${markersAfterPan.join(', ')}`);
-		expect(markersAfterPan).toContain(firstMarkerId);
+		expect(markersAfterPan).toContain(pickId);
 	});
 
 	test.afterEach(async ({ page }) => {
