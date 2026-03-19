@@ -1,7 +1,7 @@
 <script lang="ts">
 	import {addPluginListener, invoke, type PluginListener} from '@tauri-apps/api/core';
 	import {BROWSER, TAURI} from '$lib/tauri';
-	import {onDestroy, onMount, tick} from 'svelte';
+	import {onDestroy, onMount} from 'svelte';
 	import {browser} from '$app/environment';
 	import {parsePhotoUid} from '$lib/urlUtils';
 	import PhotoGallery from './Gallery.svelte';
@@ -141,34 +141,22 @@
 
 		const unsubscribe1 = photoInFront.subscribe(photo => {
 			if (!update_url) return;
-
-			const url = new URL(window.location.href);
-
-			if (photo?.uid) {
-				url.searchParams.set('photo', encodeURIComponent(photo.uid));
-			} else {
-				url.searchParams.delete('photo');
-			}
-
-			replaceState2(url.toString());
+			updateUrlParams({ photo: photo?.uid ? encodeURIComponent(photo.uid) : null });
 		});
 
 		// Sync zoom viewport bounds to URL params
 		const unsubscribeZoomBounds = zoomViewportBounds.subscribe(bounds => {
 			if (!update_url) return;
-			const url = new URL(window.location.href);
 			if (bounds) {
-				url.searchParams.set('x1', bounds.x1.toFixed(6));
-				url.searchParams.set('y1', bounds.y1.toFixed(6));
-				url.searchParams.set('x2', bounds.x2.toFixed(6));
-				url.searchParams.set('y2', bounds.y2.toFixed(6));
+				updateUrlParams({
+					x1: bounds.x1.toFixed(6),
+					y1: bounds.y1.toFixed(6),
+					x2: bounds.x2.toFixed(6),
+					y2: bounds.y2.toFixed(6),
+				});
 			} else {
-				url.searchParams.delete('x1');
-				url.searchParams.delete('y1');
-				url.searchParams.delete('x2');
-				url.searchParams.delete('y2');
+				updateUrlParams({ x1: null, y1: null, x2: null, y2: null });
 			}
-			replaceState2(url.toString());
 		});
 
 		// Clear zoom URL params when zoom view closes
@@ -209,6 +197,7 @@
 			unsubscribeSpatial();
 			if (bearingUrlUpdateTimeout) clearTimeout(bearingUrlUpdateTimeout);
 			if (spatialUrlUpdateTimeout) clearTimeout(spatialUrlUpdateTimeout);
+			if (urlFlushTimeout) clearTimeout(urlFlushTimeout);
 		};
 
 	});
@@ -252,37 +241,47 @@
 			if (lastBearingState === undefined || lastBearingState === null || lastBearingState.bearing === undefined) {
 				return;
 			}
-			const url = new URL(window.location.href);
-			url.searchParams.set('bearing', String(lastBearingState.bearing));
+			updateUrlParams({ bearing: String(lastBearingState.bearing) });
 
 			/*
 			if (lastBearingState?.photoUid) {
-				url.searchParams.set('photo', encodeURIComponent(lastBearingState.photoUid));
+				updateUrlParams({ photo: encodeURIComponent(lastBearingState.photoUid) });
 			} else {
-				url.searchParams.delete('photo');
+				updateUrlParams({ photo: null });
 			}
 			*/
-
-			replaceState2(url.toString());
 		}, 2000);
 	}
 
 	// Subscribed in onMount, cleaned up on destroy
 
-	let desiredUrl: string | null = null;
+	// Centralized URL param updates. Subscribers deposit key-value pairs here
+	// and a debounced flush merges them into a single replaceState call,
+	// preventing races where one subscriber overwrites another's params.
+	let pendingUrlParams: Record<string, string | null> = {};
+	let urlFlushTimeout: ReturnType<typeof setTimeout> | null = null;
 
-	async function replaceState2(url: string) {
-		//console.log('replaceState2: updating URL to', url);
-		await tick();
-		desiredUrl = url;
-		try {
-			replaceState(url, {});
-		} catch (e) {
-			console.error('🢄Failed to update URL', e);
-			setTimeout(() => {
-				if (desiredUrl) replaceState(desiredUrl, {});
-			}, 1000);
-		}
+	function updateUrlParams(params: Record<string, string | null>) {
+		Object.assign(pendingUrlParams, params);
+		if (urlFlushTimeout) return;
+		urlFlushTimeout = setTimeout(() => {
+			urlFlushTimeout = null;
+			const paramsToFlush = pendingUrlParams;
+			pendingUrlParams = {};
+			const url = new URL(window.location.href);
+			for (const [key, value] of Object.entries(paramsToFlush)) {
+				if (value === null) {
+					url.searchParams.delete(key);
+				} else {
+					url.searchParams.set(key, value);
+				}
+			}
+			try {
+				replaceState(url.toString(), {});
+			} catch (e) {
+				console.error('🢄Failed to update URL', e);
+			}
+		}, 100);
 	}
 
 	let spatialUrlUpdateTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -297,11 +296,11 @@
 		}
 		spatialUrlUpdateTimeout = setTimeout(() => {
 			spatialUrlUpdateTimeout = null;
-			const url = new URL(window.location.href);
-			url.searchParams.set('lat', String(p.center.lat));
-			url.searchParams.set('lon', String(p.center.lng));
-			url.searchParams.set('zoom', String(p.zoom));
-			replaceState2(url.toString());
+			updateUrlParams({
+				lat: String(p.center.lat),
+				lon: String(p.center.lng),
+				zoom: String(p.zoom),
+			});
 		}, 500);
 	}
 
