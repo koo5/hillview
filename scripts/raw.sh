@@ -22,6 +22,10 @@ for f in *.CR2
 	eval $cmd &
 end
 time wait
+# rawtherapee-cli outputs .tif instead of .tiff despite -o flag
+for f in tiff/*.tif
+	test -f $f; and cp --reflink=auto $f (string replace -r '\.tif$' '.tiff' $f)
+end
 #mv *.tiff tiff/
 set profile -preset photo -q 98# -m 6 -af -metadata all
 for f in ./*.CR2
