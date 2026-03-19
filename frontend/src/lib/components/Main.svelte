@@ -98,6 +98,24 @@
 
 	$: showCameraView = $app.activity === 'capture';
 
+	function flushPhotoToUrl(photo: any) {
+		if (!photo) return;
+		let mapState = get(spatialState);
+		updateUrlParams({
+			photo: photo.uid,
+			bearing: photo.bearing != null ? photo.bearing.toString() : null,
+			zoom: mapState.zoom.toString(),
+			lat: mapState.center.lat.toString(),
+			lon: mapState.center.lng.toString()
+		});
+	}
+
+	// When update_url becomes true, flush current photo state that may have
+	// been missed (photoInFront can fire before update_url is enabled).
+	$: if (update_url) {
+		flushPhotoToUrl(get(photoInFront));
+	}
+
 
 	onMount(() => {
 
@@ -141,17 +159,7 @@
 
 		const unsubscribe1 = photoInFront.subscribe(photo => {
 			if (!update_url) return;
-			if (!photo) {
-				return;
-			}
-			let mapState = get(spatialState);
-				updateUrlParams({
-					photo: photo.uid,
-					bearing: photo.bearing.toString(),
-					zoom: mapState.zoom.toString(),
-					lat: mapState.center.lat.toString(),
-					lon: mapState.center.lng.toString()
-				});
+			flushPhotoToUrl(photo);
 		});
 
 		// Sync zoom viewport bounds to URL params
@@ -174,6 +182,14 @@
 			if (!update_url) return;
 			if (!data) {
 				zoomViewportBounds.set(null);
+			}
+		});
+
+		// Clear zoom URL params when pending overlay closes (photo never loaded)
+		const unsubscribePendingClose = pendingZoomView.subscribe(pending => {
+			if (!update_url) return;
+			if (!pending && !get(zoomViewData)) {
+				updateUrlParams({ x1: null, y1: null, x2: null, y2: null });
 			}
 		});
 
@@ -202,6 +218,7 @@
 			unsubscribe1();
 			unsubscribeZoomBounds();
 			unsubscribeZoomClose();
+			unsubscribePendingClose();
 			unsubscribePendingZoom();
 			unsubscribeBearing();
 			unsubscribeSpatial();

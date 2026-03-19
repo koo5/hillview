@@ -336,8 +336,23 @@ test.describe('Zoom View URL Parameters', () => {
       await recreateTestUsers();
     });
 
-    test('share URL from zoom view should include x1/y1/x2/y2 params', async ({ page, context, testUsers }) => {
-      await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    /** Intercept clipboard.writeText so we can read what was shared across all browsers. */
+    async function installClipboardInterceptor(page: Page) {
+      await page.evaluate(() => {
+        (window as any).__lastClipboardText = '';
+        const orig = navigator.clipboard.writeText.bind(navigator.clipboard);
+        navigator.clipboard.writeText = async (text: string) => {
+          (window as any).__lastClipboardText = text;
+          return orig(text).catch(() => {}); // swallow permission errors
+        };
+      });
+    }
+
+    async function getLastClipboardText(page: Page): Promise<string> {
+      return page.evaluate(() => (window as any).__lastClipboardText as string);
+    }
+
+    test('share URL from zoom view should include x1/y1/x2/y2 params', async ({ page, testUsers }) => {
       await loginAsTestUser(page, testUsers.passwords.test);
       await uploadPhoto(page, testPhotos[0]);
 
@@ -346,6 +361,7 @@ test.describe('Zoom View URL Parameters', () => {
       await ensureSourceEnabled(page, 'hillview', true);
 
       await openViewer(page);
+      await installClipboardInterceptor(page);
       // Wait for viewport bounds to settle (debounced at 500ms)
       await page.waitForTimeout(1500);
 
@@ -353,9 +369,8 @@ test.describe('Zoom View URL Parameters', () => {
       await page.click('[data-testid="osd-share"]');
       await page.waitForTimeout(500);
 
-      // Read share URL from clipboard
-      const clipboardText = await page.evaluate(() => navigator.clipboard.readText());
-      // The clipboard text includes a message line and the URL
+      // Read share URL from intercepted clipboard
+      const clipboardText = await getLastClipboardText(page);
       const urlMatch = clipboardText.match(/https?:\/\/\S+/);
       expect(urlMatch, 'Share clipboard should contain a URL').toBeTruthy();
 
@@ -378,8 +393,7 @@ test.describe('Zoom View URL Parameters', () => {
       expect(shareUrl.searchParams.get('photo')).toMatch(/^hillview-/);
     });
 
-    test('share URL viewport bounds should reflect zoomed-in state', async ({ page, context, testUsers }) => {
-      await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    test('share URL viewport bounds should reflect zoomed-in state', async ({ page, testUsers }) => {
       await loginAsTestUser(page, testUsers.passwords.test);
       await uploadPhoto(page, testPhotos[0]);
 
@@ -388,12 +402,13 @@ test.describe('Zoom View URL Parameters', () => {
       await ensureSourceEnabled(page, 'hillview', true);
 
       await openViewer(page);
+      await installClipboardInterceptor(page);
       await page.waitForTimeout(1500);
 
       // Share at default zoom
       await page.click('[data-testid="osd-share"]');
       await page.waitForTimeout(500);
-      const defaultClip = await page.evaluate(() => navigator.clipboard.readText());
+      const defaultClip = await getLastClipboardText(page);
       const defaultUrl = new URL(defaultClip.match(/https?:\/\/\S+/)![0]);
       const defaultWidth = parseFloat(defaultUrl.searchParams.get('x2')!) - parseFloat(defaultUrl.searchParams.get('x1')!);
 
@@ -410,7 +425,7 @@ test.describe('Zoom View URL Parameters', () => {
       // Share at zoomed-in state
       await page.click('[data-testid="osd-share"]');
       await page.waitForTimeout(500);
-      const zoomedClip = await page.evaluate(() => navigator.clipboard.readText());
+      const zoomedClip = await getLastClipboardText(page);
       const zoomedUrl = new URL(zoomedClip.match(/https?:\/\/\S+/)![0]);
       const zoomedWidth = parseFloat(zoomedUrl.searchParams.get('x2')!) - parseFloat(zoomedUrl.searchParams.get('x1')!);
 
