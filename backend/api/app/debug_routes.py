@@ -15,7 +15,7 @@ USER_ACCOUNTS = os.getenv("USER_ACCOUNTS", "false").lower() in ("true", "1", "ye
 router = APIRouter(prefix="/api/debug", tags=["debug"])
 
 
-@router.get("/")
+@router.get("")
 async def debug_endpoint():
 	"""Debug endpoint to check if the API is working properly"""
 	return {"status": "ok", "message": "API is working properly"}
