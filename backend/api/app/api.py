@@ -58,7 +58,6 @@ common_path = os.path.join(os.path.dirname(__file__), '..', '..', 'common')
 sys.path.append(common_path)
 from common.database import get_db
 from common.config import is_rate_limiting_disabled, rate_limit_config, get_cors_origins
-from debug_utils import debug_only, clear_system_tables, cleanup_upload_directories
 from user_routes import start_session_cleanup
 import fcm_push
 
@@ -405,6 +404,10 @@ app.include_router(worker_routes.router)
 import annotation_routes
 
 app.include_router(annotation_routes.router)
+
+import debug_routes
+
+app.include_router(debug_routes.router)
 
 
 # Database migration function

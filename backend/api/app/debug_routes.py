@@ -1,14 +1,27 @@
+import logging
+import os
+from typing import Dict, Any
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from common.database import get_db
+from debug_utils import debug_only, clear_system_tables, cleanup_upload_directories
+
+log = logging.getLogger(__name__)
+
+USER_ACCOUNTS = os.getenv("USER_ACCOUNTS", "false").lower() in ("true", "1", "yes")
+
+router = APIRouter(prefix="/api/debug", tags=["debug"])
 
 
-router = APIRouter(prefix="/api/debug", tags=["users"])
-
-@app.get("/")
+@router.get("/")
 async def debug_endpoint():
 	"""Debug endpoint to check if the API is working properly"""
 	return {"status": "ok", "message": "API is working properly"}
 
 
-@app.post("/recreate-test-users")
+@router.post("/recreate-test-users")
 @debug_only
 async def recreate_test_users():
 	if not USER_ACCOUNTS:
@@ -19,7 +32,7 @@ async def recreate_test_users():
 	return {"status": "success", "message": "Test users re-created", "details": result}
 
 
-@app.post("/clear-database")
+@router.post("/clear-database")
 @debug_only
 async def clear_database():
 	from sqlalchemy import select, text
@@ -88,7 +101,7 @@ async def clear_database():
 	}
 
 
-@app.post("/mock-mapillary")
+@router.post("/mock-mapillary")
 @debug_only
 async def set_mock_mapillary_data(mock_data: Dict[str, Any], db: AsyncSession = Depends(get_db)):
 	from mock_mapillary import mock_mapillary_service, generate_mock_images
@@ -123,7 +136,7 @@ async def set_mock_mapillary_data(mock_data: Dict[str, Any], db: AsyncSession = 
 	}
 
 
-@app.delete("/mock-mapillary")
+@router.delete("/mock-mapillary")
 @debug_only
 async def clear_mock_mapillary_data():
 	from mock_mapillary import mock_mapillary_service, cleanup_mock_images
@@ -136,7 +149,7 @@ async def clear_mock_mapillary_data():
 	}
 
 
-@app.post("/set-featured")
+@router.post("/set-featured")
 @debug_only
 async def set_featured(photo_id: str, featured: bool):
 	"""Set or unset the featured flag on a photo"""
@@ -148,7 +161,6 @@ async def set_featured(photo_id: str, featured: bool):
 		result = await db.execute(select(Photo).where(Photo.id == photo_id))
 		photo = result.scalar_one_or_none()
 		if not photo:
-			from fastapi import HTTPException
 			raise HTTPException(status_code=404, detail="Photo not found")
 		photo.featured = featured
 		await db.commit()
