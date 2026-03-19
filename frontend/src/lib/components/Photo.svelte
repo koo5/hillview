@@ -6,7 +6,6 @@
 	import {auth} from '$lib/auth.svelte.js';
 	import {http, handleApiError} from '$lib/http';
 	import {myGoto} from '$lib/navigation.svelte.js';
-	import {constructShareUrl} from '$lib/urlUtils';
 	import {getDevicePhotoUrl} from '$lib/devicePhotoHelper';
 	import {simplePhotoWorker} from '$lib/simplePhotoWorker';
 	import {zoomViewData} from '$lib/zoomView.svelte.js';

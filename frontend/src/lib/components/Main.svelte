@@ -141,7 +141,17 @@
 
 		const unsubscribe1 = photoInFront.subscribe(photo => {
 			if (!update_url) return;
-			updateUrlParams({ photo: photo?.uid ? encodeURIComponent(photo.uid) : null });
+			if (!photo) {
+				return;
+			}
+			let mapState = get(spatialState);
+				updateUrlParams({
+					photo: photo.uid,
+					bearing: photo.bearing.toString(),
+					zoom: mapState.zoom.toString(),
+					lat: mapState.center.lat.toString(),
+					lon: mapState.center.lng.toString()
+				});
 		});
 
 		// Sync zoom viewport bounds to URL params

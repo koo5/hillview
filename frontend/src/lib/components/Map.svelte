@@ -313,10 +313,6 @@
 	}
 
 
-    export function getLocationData() {
-        return userLocation;
-    }
-
     // Handle zoom button clicks to re-enable location tracking
     function handleZoomButtonClick() {
         console.log('🢄[LOCATION] Zoom button clicked');

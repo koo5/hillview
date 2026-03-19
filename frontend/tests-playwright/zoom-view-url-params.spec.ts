@@ -330,6 +330,95 @@ test.describe('Zoom View URL Parameters', () => {
     });
   });
 
+  test.describe('Share includes viewport bounds', () => {
+
+    test.beforeEach(async ({ testUsers }) => {
+      await recreateTestUsers();
+    });
+
+    test('share URL from zoom view should include x1/y1/x2/y2 params', async ({ page, context, testUsers }) => {
+      await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+      await loginAsTestUser(page, testUsers.passwords.test);
+      await uploadPhoto(page, testPhotos[0]);
+
+      await page.goto('/?lat=50.1153&lon=14.4938&zoom=18');
+      await page.waitForLoadState('networkidle');
+      await ensureSourceEnabled(page, 'hillview', true);
+
+      await openViewer(page);
+      // Wait for viewport bounds to settle (debounced at 500ms)
+      await page.waitForTimeout(1500);
+
+      // Click Share button
+      await page.click('[data-testid="osd-share"]');
+      await page.waitForTimeout(500);
+
+      // Read share URL from clipboard
+      const clipboardText = await page.evaluate(() => navigator.clipboard.readText());
+      // The clipboard text includes a message line and the URL
+      const urlMatch = clipboardText.match(/https?:\/\/\S+/);
+      expect(urlMatch, 'Share clipboard should contain a URL').toBeTruthy();
+
+      const shareUrl = new URL(urlMatch![0]);
+      const x1 = shareUrl.searchParams.get('x1');
+      const y1 = shareUrl.searchParams.get('y1');
+      const x2 = shareUrl.searchParams.get('x2');
+      const y2 = shareUrl.searchParams.get('y2');
+
+      expect(x1, 'Share URL should contain x1').not.toBeNull();
+      expect(y1, 'Share URL should contain y1').not.toBeNull();
+      expect(x2, 'Share URL should contain x2').not.toBeNull();
+      expect(y2, 'Share URL should contain y2').not.toBeNull();
+
+      // Bounds should be valid numbers with x2 > x1, y2 > y1
+      expect(parseFloat(x2!) - parseFloat(x1!)).toBeGreaterThan(0);
+      expect(parseFloat(y2!) - parseFloat(y1!)).toBeGreaterThan(0);
+
+      // Should also have photo param
+      expect(shareUrl.searchParams.get('photo')).toMatch(/^hillview-/);
+    });
+
+    test('share URL viewport bounds should reflect zoomed-in state', async ({ page, context, testUsers }) => {
+      await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+      await loginAsTestUser(page, testUsers.passwords.test);
+      await uploadPhoto(page, testPhotos[0]);
+
+      await page.goto('/?lat=50.1153&lon=14.4938&zoom=18');
+      await page.waitForLoadState('networkidle');
+      await ensureSourceEnabled(page, 'hillview', true);
+
+      await openViewer(page);
+      await page.waitForTimeout(1500);
+
+      // Share at default zoom
+      await page.click('[data-testid="osd-share"]');
+      await page.waitForTimeout(500);
+      const defaultClip = await page.evaluate(() => navigator.clipboard.readText());
+      const defaultUrl = new URL(defaultClip.match(/https?:\/\/\S+/)![0]);
+      const defaultWidth = parseFloat(defaultUrl.searchParams.get('x2')!) - parseFloat(defaultUrl.searchParams.get('x1')!);
+
+      // Zoom in by double-clicking
+      const canvas = page.locator('.openseadragon-canvas');
+      const canvasBox = await canvas.boundingBox();
+      await page.mouse.dblclick(
+        canvasBox!.x + canvasBox!.width / 2,
+        canvasBox!.y + canvasBox!.height / 2
+      );
+      // Wait for zoom animation + debounce
+      await page.waitForTimeout(1500);
+
+      // Share at zoomed-in state
+      await page.click('[data-testid="osd-share"]');
+      await page.waitForTimeout(500);
+      const zoomedClip = await page.evaluate(() => navigator.clipboard.readText());
+      const zoomedUrl = new URL(zoomedClip.match(/https?:\/\/\S+/)![0]);
+      const zoomedWidth = parseFloat(zoomedUrl.searchParams.get('x2')!) - parseFloat(zoomedUrl.searchParams.get('x1')!);
+
+      // After zooming in, viewport width should be smaller
+      expect(zoomedWidth).toBeLessThan(defaultWidth);
+    });
+  });
+
   test.describe('Error handling', () => {
 
     test('should handle malformed zoom params gracefully', async ({ page }) => {

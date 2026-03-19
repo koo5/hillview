@@ -71,8 +71,9 @@ export function constructMapUrl(options: {
     bearing?: number;
     photoUid?: string;
     baseUrl?: string;
+    zoomViewBounds?: { x1: number; y1: number; x2: number; y2: number };
 }): string {
-    const { lat, lon, bearing, photoUid, baseUrl = '' } = options;
+    const { lat, lon, bearing, photoUid, baseUrl = '', zoomViewBounds } = options;
 
     // Use provided zoom, current map zoom, or default to 18
     let zoom = options.zoom;
@@ -91,6 +92,10 @@ export function constructMapUrl(options: {
         url += `&photo=${encodeURIComponent(photoUid)}`;
     }
 
+    if (zoomViewBounds) {
+        url += `&x1=${zoomViewBounds.x1.toFixed(6)}&y1=${zoomViewBounds.y1.toFixed(6)}&x2=${zoomViewBounds.x2.toFixed(6)}&y2=${zoomViewBounds.y2.toFixed(6)}`;
+    }
+
     return url;
 }
 
@@ -99,16 +104,11 @@ export function constructMapUrl(options: {
  * @param photo Photo data containing location information and uid
  * @returns Complete hillview.cz URL with location and photo parameters
  */
-export function constructShareUrl(photo: PhotoData | any): string {
+export function constructShareUrl(photo: PhotoData | any, zoomViewBounds?: { x1: number; y1: number; x2: number; y2: number }): string {
     const coords = extractCoordinates(photo);
 
     if (!coords) {
-        console.warn('🔗 constructShareUrl: No valid coordinates found in photo:', {
-            hasCoord: !!photo?.coord,
-            hasLatLng: !!(photo?.latitude && photo?.longitude),
-            hasLatLon: !!(photo?.lat && photo?.lon),
-            photoKeys: photo ? Object.keys(photo) : 'no photo'
-        });
+        console.warn('🔗 constructShareUrl: No valid coordinates found in photo:', JSON.stringify(photo));
         return HILLVIEW_BASE_URL;
     }
 
@@ -124,7 +124,8 @@ export function constructShareUrl(photo: PhotoData | any): string {
         lon: coords.lon,
         bearing: coords.bearing,
         photoUid: photoUid, // include photo uid for precise navigation
-        baseUrl: HILLVIEW_BASE_URL
+        baseUrl: HILLVIEW_BASE_URL,
+        zoomViewBounds,
     });
 }
 

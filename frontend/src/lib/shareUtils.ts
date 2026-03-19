@@ -24,11 +24,11 @@ export interface ShareResult {
  * Share a photo using native sharing (Tauri) or clipboard fallback (web).
  * Returns a result with a user-facing message and error flag.
  */
-export async function sharePhoto(photo: PhotoData | any): Promise<ShareResult> {
+export async function sharePhoto(photo: PhotoData | any, zoomViewBounds?: { x1: number; y1: number; x2: number; y2: number }): Promise<ShareResult> {
 	if (!photo) return { message: '', error: false };
 
 	try {
-		const shareUrl = constructShareUrl(photo);
+		const shareUrl = constructShareUrl(photo, zoomViewBounds);
 		const shareText = `Check out this photo on Hillview${getUserName(photo) ? ` by @${getUserName(photo)}` : ''}`;
 
 		if (TAURI) {
@@ -43,7 +43,7 @@ export async function sharePhoto(photo: PhotoData | any): Promise<ShareResult> {
 			}
 			return { message: '', error: false };
 		} else {
-			const fullShareText = `${shareText}\n${shareUrl}`;
+			const fullShareText = shareUrl//`${shareText}\n${shareUrl}`;
 			if (navigator.clipboard) {
 				await navigator.clipboard.writeText(fullShareText);
 			} else {

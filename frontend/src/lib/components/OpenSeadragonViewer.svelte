@@ -73,7 +73,9 @@
 	async function handleShare() {
 		const photo = $photoInFront;
 		if (!photo) return;
-		const result = await sharePhotoUtil(photo);
+		const bounds = viewer?.viewport?.getBounds();
+		const zoomViewBounds = bounds ? { x1: bounds.x, y1: bounds.y, x2: bounds.x + bounds.width, y2: bounds.y + bounds.height } : undefined;
+		const result = await sharePhotoUtil(photo, zoomViewBounds);
 		if (result.message) {
 			shareMessage = result.message;
 			shareMessageError = result.error;
@@ -124,13 +126,22 @@
 		if (errorTimeout) clearTimeout(errorTimeout);
 		errorTimeout = setTimeout(() => { errorMessage = ''; }, 5000);
 	}
+	/** Get the main (topmost) TiledImage — avoids multi-image viewport warnings. */
+	function getMainTiledImage(): any | null {
+		if (!viewer?.world) return null;
+		const count = viewer.world.getItemCount();
+		return count > 0 ? viewer.world.getItemAt(count - 1) : null;
+	}
+
 	/** Recompute the "..." button position from the annotation's image-space geometry. */
 	function updateMenuBtnPosition() {
 		if (!viewSelectedGeometry || !viewer?.viewport) return;
+		const item = getMainTiledImage();
+		if (!item) return;
 		const g = viewSelectedGeometry;
 		const imgX = g.x + g.w / 2;
 		const imgY = g.y + g.h; // bottom edge
-		const vpPt = viewer.viewport.imageToViewportCoordinates(imgX, imgY);
+		const vpPt = item.imageToViewportCoordinates(imgX, imgY);
 		const scPt = viewer.viewport.viewportToViewerElementCoordinates(vpPt);
 		menuBtnX = scPt.x;
 		menuBtnY = scPt.y + 4; // slight offset below shape
@@ -429,9 +440,11 @@
 		ctx.font = LABEL_FONT;
 
 		// Convert image-space annotations to screen-space inputs
+		const item = getMainTiledImage();
+		if (!item) return;
 		const inputs: LabelInput[] = [];
 		for (const { label, imgCx, imgCy } of parsedAnnotations) {
-			const vpPt = viewer.viewport.imageToViewportCoordinates(imgCx, imgCy);
+			const vpPt = item.imageToViewportCoordinates(imgCx, imgCy);
 			const scPt = viewer.viewport.viewportToViewerElementCoordinates(vpPt);
 			const cx = Math.round(scPt.x);
 			const cy = Math.round(scPt.y);
