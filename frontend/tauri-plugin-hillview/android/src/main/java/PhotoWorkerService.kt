@@ -64,10 +64,11 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
     private val sourcesPhotosInArea = ConcurrentHashMap<String, List<PhotoData>>()
     private var currentPicks = setOf<String>()
 
-    // Store current sources, bounds and range state like new.worker.ts
+    // Store current sources, bounds, range and maxPhotos state like new.worker.ts
     private var currentSources: List<SourceConfig> = emptyList()
     private var lastProcessedBounds: Bounds? = null
     private var lastProcessedRange: Double = DEFAULT_RANGE_METERS
+    private var currentMaxPhotosInArea: Int = MAX_PHOTOS_IN_AREA
 
     /**
      * Process info for tracking active operations
@@ -143,7 +144,8 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
         return ConfigData(
             sources = sources,
             expectedWorkerVersion = expectedWorkerVersion,
-            queryOptionsJson = jsonObject["queryOptionsJson"]?.jsonPrimitive?.content  // Pre-serialized string
+            queryOptionsJson = jsonObject["queryOptionsJson"]?.jsonPrimitive?.content,  // Pre-serialized string
+            maxPhotosInArea = jsonObject["maxPhotosInArea"]?.jsonPrimitive?.intOrNull
         )
     }
 
@@ -279,6 +281,12 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
                 // Store current sources state like new.worker.ts
                 currentSources = config.sources
 
+                // Update max photos in area if provided in config (like new.worker.ts lines 304-306)
+                config.maxPhotosInArea?.let {
+                    currentMaxPhotosInArea = it
+                    photoOperations.setMaxPhotosInArea(it)
+                }
+
                 // Update query options before processing
                 photoOperations.setQueryOptionsJson(config.queryOptionsJson)
 
@@ -326,7 +334,7 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
                             put("lng", lastProcessedBounds!!.bottom_right.lng)
                         }
                     }
-                    put("maxPhotos", MAX_PHOTOS_IN_AREA)
+                    put("maxPhotos", currentMaxPhotosInArea)
                     put("range", lastProcessedRange)
                     config.queryOptionsJson?.let { put("queryOptionsJson", it) }
                 }.toString()

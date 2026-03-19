@@ -24,6 +24,8 @@
 	 * closes the viewer (mirroring the original ZoomView behaviour).
 	 */
 	import { openExternalUrl } from '$lib/urlUtils';
+	import { sharePhoto as sharePhotoUtil } from '$lib/shareUtils';
+	import { photoInFront } from '$lib/mapState';
 	import { onMount, onDestroy } from 'svelte';
 	import OpenSeadragon from 'openseadragon';
 	import { createOSDAnnotator } from '@annotorious/openseadragon';
@@ -62,6 +64,26 @@
 	let editBody = '';
 	let errorMessage = '';
 	let errorTimeout: ReturnType<typeof setTimeout> | null = null;
+
+	// Share state
+	let shareMessage = '';
+	let shareMessageError = false;
+	let shareMessageTimeout: ReturnType<typeof setTimeout> | null = null;
+
+	async function handleShare() {
+		const photo = $photoInFront;
+		if (!photo) return;
+		const result = await sharePhotoUtil(photo);
+		if (result.message) {
+			shareMessage = result.message;
+			shareMessageError = result.error;
+			if (shareMessageTimeout) clearTimeout(shareMessageTimeout);
+			shareMessageTimeout = setTimeout(() => {
+				shareMessage = '';
+				shareMessageError = false;
+			}, result.error ? 3000 : 4000);
+		}
+	}
 
 	// Track the mobile keyboard height via the Visual Viewport API so the
 	// edit panel stays visible above it.
@@ -1068,9 +1090,9 @@
 		</svg>
 	</button>
 
-	<!-- Annotation toolbar (authenticated users only) -->
-	{#if isAuthenticated}
-		<div class="annotation-toolbar">
+	<!-- Toolbar -->
+	<div class="annotation-toolbar">
+		{#if isAuthenticated}
 			<button
 				class="toolbar-btn toolbar-btn-draw"
 				class:active={annotationMode === 'draw'}
@@ -1089,7 +1111,22 @@
 			>
 				🔧 Edit
 			</button>
-		</div>
+		{/if}
+		{#if $photoInFront}
+			<button
+				class="toolbar-btn toolbar-btn-share"
+				onclick={handleShare}
+				title="Share photo"
+				data-testid="osd-share"
+			>
+				🔗 Share
+			</button>
+		{/if}
+	</div>
+
+	<!-- Share status message -->
+	{#if shareMessage}
+		<div class="share-message" class:error={shareMessageError}>{shareMessage}</div>
 	{/if}
 
 	<!-- Loading indicator -->
@@ -1246,6 +1283,24 @@
 		background: rgba(74,144,226,0.9);
 	}
 
+	.share-message {
+		position: absolute;
+		top: calc(56px + var(--safe-area-inset-top, 0px));
+		left: calc(12px + var(--safe-area-inset-left, 0px));
+		z-index: 10;
+		background: rgba(40, 167, 69, 0.9);
+		color: white;
+		padding: 8px 12px;
+		border-radius: 4px;
+		font-size: 14px;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+		animation: fadeIn 0.3s ease;
+	}
+
+	.share-message.error {
+		background: rgba(220, 53, 69, 0.9);
+	}
+
 	.loading-overlay {
 		position: absolute;
 		inset: 0;
@@ -1266,6 +1321,7 @@
 	}
 
 	@keyframes spin { to { transform: rotate(360deg); } }
+	@keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
 
 	.error-banner {
 		position: absolute;
