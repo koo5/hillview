@@ -48,7 +48,6 @@
     "svelte": "^5.22.6",
     "svelte-check": "^4.1.4",
     "svelte-leafletjs": "^2.0.0",
-    "tauri": "^0.15.0",
     "tauri-plugin-hillview-api": "file:./tauri-plugin-hillview",
     "tsgeo": "^1.2.2",
     "typescript": "^5.7.3",
@@ -104,7 +103,5 @@
     "openseadragon": "^6.0.1",
     "qrcode": "^1.5.4"
   },
-  "trustedDependencies": [
-    "tauri"
-  ]
+  "trustedDependencies": []
 }

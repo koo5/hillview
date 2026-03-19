@@ -118,8 +118,10 @@ export function constructShareUrl(photo: PhotoData | any, zoomViewBounds?: { x1:
         photoUid = `hillview-${photo.id}`;
     }
 
+	let state = get(spatialState);
+
     return constructMapUrl({
-        zoom: 20,
+        zoom: state.zoom,
         lat: coords.lat,
         lon: coords.lon,
         bearing: coords.bearing,
