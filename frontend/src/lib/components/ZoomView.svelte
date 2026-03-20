@@ -63,8 +63,8 @@ function handlePendingKeydown(e: KeyboardEvent) {
 
 	.pending-close-btn {
 		position: absolute;
-		top: 16px;
-		right: 16px;
+		top: calc(16px + var(--safe-area-inset-top, 0px));
+		right: calc(16px + var(--safe-area-inset-right, 0px));
 		z-index: 40001;
 		background: rgba(255, 255, 255, 0.15);
 		border: none;

@@ -401,6 +401,10 @@ class PhotoUploadLogic(private val context: Context) {
 			val authResponse = requestUploadAuthorization(photo)
 			Log.d(TAG, "Upload authorized, response: $authResponse")
 
+			// Store server photo ID mapping immediately after authorization,
+			// so the frontend can look up the device photo while upload is in progress
+			photoDao.updateServerPhotoId(photo.id, authResponse.photo_id)
+
 			// Step 2: Generate client signature using authorization timestamp
 			val signatureData =
 				generateClientSignature(authResponse.photo_id, photo.filename, authResponse.upload_authorized_at)

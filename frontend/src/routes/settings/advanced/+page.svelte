@@ -79,6 +79,7 @@
 		</a>
 
 	{#if TAURI}
+
 		<SettingsSectionDivider />
 		<SettingsSectionHeader>Location/Orientation Data</SettingsSectionHeader>
 
@@ -106,10 +107,28 @@
 			/>
 			<label for="auto-export-checkbox">Automatically export on app start/exit</label>
 		</p>
+	{/if}
 
-		<div class="section-divider"></div>
+	<SettingsSectionDivider />
+	<SettingsSectionHeader>External Camera Time</SettingsSectionHeader>
 
-		{#if $app.debug_enabled}
+		<p>
+			Point your external camera at the QR code while taking photos.
+			It contains the current UTC timestamp (Unix ms) updated at ~30fps,
+			using double-buffered canvases so the camera always captures a fully
+			rendered code. Use <code>qr_time_correction.py</code> to calculate
+			the clock offset. Tap anywhere to close.
+		</p>
+
+		<a href="/settings/advanced/qr-timestamp" class="settings-navigation-link" data-testid="qr-timestamp-link">
+			<QrCode size={18}/>
+			<div class="link-text">
+				<span class="link-title">Timestamp QR Code</span>
+				<span class="link-description">Display live QR code for external camera time sync</span>
+			</div>
+			<ChevronRight size={16} />
+		</a>
+		{#if TAURI && $app.debug_enabled}
 			<SettingsSectionDivider />
 			<SettingsSectionHeader>Client Key</SettingsSectionHeader>
 			<p>Your client key is used to identify your device to the Hillview server. It is generated when you first run the app.</p>
@@ -130,28 +149,7 @@
 			</p>
 		{/if}
 
-		<div class="section-divider"></div>
 
-	{/if}
-
-	<SettingsSectionDivider />
-	<SettingsSectionHeader>External Camera</SettingsSectionHeader>
-
-		<a href="/settings/advanced/qr-timestamp" class="settings-navigation-link" data-testid="qr-timestamp-link">
-			<QrCode size={18}/>
-			<div class="link-text">
-				<span class="link-title">Timestamp QR Code</span>
-				<span class="link-description">Display live QR code for external camera time sync</span>
-			</div>
-			<ChevronRight size={16} />
-		</a>
-		<p class="qr-hint">
-			Point your external camera at the QR code while taking photos.
-			It contains the current UTC timestamp (Unix ms) updated at ~30fps,
-			using double-buffered canvases so the camera always captures a fully
-			rendered code. Use <code>qr_time_correction.py</code> to calculate
-			the clock offset. Tap anywhere to close.
-		</p>
 
 	<br/>
 	<br/>

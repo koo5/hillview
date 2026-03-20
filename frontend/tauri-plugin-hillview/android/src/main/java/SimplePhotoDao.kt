@@ -117,6 +117,9 @@ interface SimplePhotoDao {
     @Query("UPDATE photos SET uploadStatus = :status, uploadedAt = :uploadedAt WHERE id = :photoId")
     fun updateUploadStatus(photoId: String, status: String, uploadedAt: Long)
 
+    @Query("UPDATE photos SET serverPhotoId = :serverPhotoId WHERE id = :photoId")
+    fun updateServerPhotoId(photoId: String, serverPhotoId: String)
+
     @Query("UPDATE photos SET uploadStatus = :status, serverPhotoId = :serverPhotoId, lastUploadAttempt = :lastAttempt WHERE id = :photoId")
     fun updateUploadStatusAndServerId(photoId: String, status: String, serverPhotoId: String, lastAttempt: Long)
 

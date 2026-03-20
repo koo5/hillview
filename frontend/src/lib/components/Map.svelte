@@ -1325,9 +1325,7 @@
 		<span class="show-all-marker-icon" class:grayed={!$showAll}>
 			<PhotoMarkerIcon bearing={0} />
 		</span>
-		<span class="filters-button-text">All
-<!--			({$showAll})-->
-		</span>
+		<span class="filters-button-text">All</span>
 	</button>
 	<button
 		class="filters-button"
@@ -1336,7 +1334,7 @@
 		data-testid="filters-button"
 	>
 		<Filter size={18} />
-		<span class="filters-button-text">Filters</span>{#if $activeFilterCount > 0}({$activeFilterCount}){/if}
+		<span class="filters-button-text">Filters</span>({$activeFilterCount})
 	</button>
 </div>
 
@@ -1369,6 +1367,7 @@
     {/if}
 {/if}
 
+<div class="bottom-gesture-guard"></div>
 </div>
 
 <!-- Debug bounds info -->
@@ -1505,8 +1504,18 @@
         width: 100%;
         height: 100%;
         position: relative;
+        container-type: inline-size;
     }
 
+    .bottom-gesture-guard {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: var(--safe-area-inset-bottom, 0px);
+        z-index: 29999;
+        touch-action: none;
+    }
 
     .control-buttons-container {
         position: absolute;
@@ -1578,11 +1587,11 @@
 		.location-button-container {
 			top: calc(6px + var(--safe-area-inset-top, 0px));
 		}
+	}
+
+	@container (min-width: 500px) {
 		.filters-button-container {
 			top: calc(0px + var(--safe-area-inset-top, 0px));
-		}
-		.filters-button-text {
-			display: true;
 		}
 	}
 
@@ -1625,7 +1634,7 @@
 
     .source-buttons-container {
         position: absolute;
-        top: calc(60px + var(--safe-area-inset-top, 0px));
+        top: calc(75px + var(--safe-area-inset-top, 0px));
         right: calc(6px + var(--safe-area-inset-right, 0px));
         z-index: 30000;
         display: flex;
@@ -1749,23 +1758,20 @@
     .filters-button-container {
         position: absolute;
         top: 16px;
-        left: 50%;
-        transform: translateX(-50%);
+        left: 100px;
         z-index: 30000;
         display: flex;
         gap: 8px;
     }
 
-	@media (orientation: portrait) {
-		.filters-button-text {
-			display: none;
-		}
-	}
-
-
     .show-all-marker-icon {
         display: flex;
         align-items: center;
+    }
+
+    .show-all-marker-icon :global(.photo-marker-icon) {
+        width: 32px;
+        height: 32px;
     }
 
     .show-all-marker-icon.grayed :global(.bearing-circle) {
@@ -1776,10 +1782,11 @@
     .filters-button {
         display: flex;
         align-items: center;
+        justify-content: center;
         gap: 6px;
-        padding: 8px 14px;
+        padding: 0px 10px;
         border: 1px solid #ccc;
-        border-radius: 20px;
+        border-radius: 4px;
         background-color: rgba(255, 255, 255, 0.9);
         font-size: 14px;
         font-weight: 500;
@@ -1815,6 +1822,15 @@
     .filters-button.active:hover {
         background-color: #2563eb;
     }
+
+	@container (max-width: 500px) {
+		.filters-button-text {
+			display: none;
+		}
+		.filters-button {
+			padding: 8px;
+		}
+	}
 
     .attribution-info-button {
         position: absolute;

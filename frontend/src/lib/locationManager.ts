@@ -2,6 +2,7 @@ import { startPreciseLocationUpdates, stopPreciseLocationUpdates } from './preci
 import {locationTracking, setLocationError, setLocationTracking, updateGpsLocation} from "$lib/location.svelte";
 import { writable } from 'svelte/store';
 import { get } from 'svelte/store';
+import {clearFilters} from "$lib/components/filters-modal/filtersStore";
 
 export type LocationConsumer = 'user' | 'compass' | string;
 export let locationTrackingLoading = writable<boolean>(false);
@@ -162,7 +163,7 @@ if (typeof window !== 'undefined') {
 
 
     // Start tracking user location
-export    async function startLocationTracking() {
+export async function startLocationTracking() {
         locationTrackingLoading.set(true);
 
         try {
@@ -194,7 +195,7 @@ export    async function startLocationTracking() {
             } else {
                 errorMessage += error?.message || "Unknown error";
             }
-
+			/*debug!*/clearFilters();
             alert(errorMessage);
             setLocationTracking(false);
             locationTrackingLoading.set(false);

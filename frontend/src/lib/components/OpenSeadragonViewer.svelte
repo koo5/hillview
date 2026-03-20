@@ -1508,7 +1508,7 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-		z-index: 10;
+		z-index: 1;
 		pointer-events: none;
 	}
 

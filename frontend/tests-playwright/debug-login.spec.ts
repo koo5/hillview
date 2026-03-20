@@ -1,5 +1,6 @@
 import { test, expect } from './fixtures';
 import { loginAsTestUser } from './helpers/testUsers';
+import { BACKEND_URL } from './helpers/adminAuth';
 
 test.describe('Debug Login', () => {
   test('debug login', async ({ page, testUsers }) => {
@@ -54,7 +55,7 @@ test.describe('Debug Login', () => {
     // Check if backend is responding
     try {
       const response = await page.evaluate(async () => {
-        const res = await fetch('http://localhost:8055/api/debug');
+        const res = await fetch('${BACKEND_URL}/api/debug');
         return { status: res.status, text: await res.text() };
       });
       console.log('🢄Backend debug response:', response);
