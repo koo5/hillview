@@ -227,10 +227,13 @@ export async function stopPreciseLocationUpdates(): Promise<void> {
             console.error('🢄📍 Failed to stop Android location service:', err);
         }
     } else {
-        // Web: For now, don't clear the watch to keep it persistent
-        // In the future, we could add a flag to control whether web geolocation
-        // should keep running in the background
-        console.log('🢄📍 Web geolocation remains active (persistent mode)');
+        // Web: Clear the watch to actually stop geolocation
+        if (webWatchId !== null) {
+            navigator.geolocation.clearWatch(webWatchId);
+            webWatchId = null;
+            listenersInitialized = false;
+            console.log('🢄📍 Web geolocation watch cleared');
+        }
     }
 }
 

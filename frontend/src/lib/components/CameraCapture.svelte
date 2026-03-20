@@ -1,5 +1,5 @@
 <script lang="ts">
-	import {Car, ArrowRight, Compass, MapPin} from 'lucide-svelte';
+	import {Car, ArrowRight, Compass} from 'lucide-svelte';
 	import {createEventDispatcher, onDestroy, onMount} from 'svelte';
 	import {TAURI} from '$lib/tauri';
 	import {invoke} from '@tauri-apps/api/core';
@@ -32,6 +32,19 @@
 	} from '$lib/cameraDevices.svelte.js';
 	import {tauriCamera, isCameraPermissionCheckAvailable} from '$lib/tauri';
 	import {addPluginListener, type PluginListener} from '@tauri-apps/api/core';
+
+	// Store to track which cameras are loading resolutions
+	import {writable} from 'svelte/store';
+	import {
+		deviceOrientationExif, relativeOrientationExif,
+		type ExifOrientation
+	} from "$lib/deviceOrientationExif";
+	import {enableBearingTracking, disableBearingTracking} from "$lib/bearingTracking";
+	import {enableLocationTracking} from "$lib/locationManager";
+	import CompassButtonInner from "$lib/components/CompassButtonInner.svelte";
+	import LocationButtonInner from "$lib/components/LocationButtonInner.svelte";
+	import CalibrationFigure from "$lib/components/CalibrationFigure.svelte";
+
 
 	const dispatch = createEventDispatcher();
 
@@ -111,18 +124,6 @@
 
 	// Mock camera state
 	let mockCanvas: HTMLCanvasElement;
-
-	// Store to track which cameras are loading resolutions
-	import {writable} from 'svelte/store';
-	import {
-		calculateWebviewRelativeOrientation,
-		deviceOrientationExif, relativeOrientationExif,
-		type ExifOrientation
-	} from "$lib/deviceOrientationExif";
-	import {enableBearingTracking, disableBearingTracking} from "$lib/bearingTracking";
-	import CompassButtonInner from "$lib/components/CompassButtonInner.svelte";
-	import CalibrationFigure from "$lib/components/CalibrationFigure.svelte";
-
 	const resolutionsLoading = writable<Set<string>>(new Set());
 
 	function triggerCameraBlink() {
@@ -1490,9 +1491,9 @@
 						<div class="hint-message">
 							<span>Turn on bearing tracking?</span>
 						</div>
-						<div class="compass-button-preview target">
+						<button class="compass-button-preview target" on:click={() => enableBearingTracking()} data-testid="enable-bearing-hint">
 							<CompassButtonInner bearingMode={$bearingMode}/>
-						</div>
+						</button>
 						<button
 							class="dismiss-hint-btn"
 							on:click={() => hideBearingTrackingHint.set(true)}
@@ -1509,9 +1510,9 @@
 						<div class="hint-message">
 							<span>Turn on location tracking?</span>
 						</div>
-						<div class="location-button-preview target">
-							<MapPin size={24}/>
-						</div>
+						<button class="location-button-preview target" on:click={() => enableLocationTracking()} data-testid="enable-location-hint">
+							<LocationButtonInner showSpinner={false} />
+						</button>
 						<button
 							class="dismiss-hint-btn"
 							on:click={() => hideLocationTrackingHint.set(true)}

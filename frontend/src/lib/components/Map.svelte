@@ -1,6 +1,6 @@
 <script lang="ts">
     import {onMount, onDestroy, tick} from 'svelte';
-    import {LeafletMap, TileLayer, Marker, Circle, ScaleControl} from 'svelte-leafletjs';
+    import {Polygon, LeafletMap, TileLayer, Marker, Circle, ScaleControl} from 'svelte-leafletjs';
     import {LatLng} from 'leaflet';
     import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle, LocateFixed, Pause, ArrowUp, ArrowDown, Layers, Eye, Map as MapIcon, Info, Filter} from 'lucide-svelte';
 	import FiltersModal from './filters-modal/FiltersModal.svelte';
@@ -11,6 +11,7 @@
     import Spinner from './Spinner.svelte';
     import TileProviderSelector from './TileProviderSelector.svelte';
     import CompassButton from './CompassButton.svelte';
+    import LocationButtonInner from './LocationButtonInner.svelte';
     import CompassModeMenu from './CompassModeMenu.svelte';
     import { getCurrentPosition, type GeolocationPosition } from '$lib/preciseLocation';
 	import {
@@ -412,12 +413,10 @@
     spatialState.subscribe((spatial) => {
 
 		//console.log(`spatialState: ${stringifyCircularJSON(spatial)}`);
+		// Check if map is fully initialized with container
+        if (!map || !map.getContainer() || !map._loaded || programmaticMove) return;
 
-        if (!map || programmaticMove) return;
         try {
-            // Check if map is fully initialized with container
-            if (!map.getContainer() || !map._loaded) return;
-
             const currentCenter = map.getCenter();
             const currentZoom = map.getZoom();
             if (!currentCenter || currentCenter.lat !== spatial.center.lat || currentCenter.lng !== spatial.center.lng || currentZoom !== spatial.zoom) {
@@ -431,29 +430,33 @@
         }
     });
 
-    let moveEventCount = 0;
-    let lastPruneTime = Date.now();
 	let seenFirstMoveEnd = false;
 
     async function mapStateUserEvent(event: any) {
 
-		if (event.type == 'moveend')
+		console.log(`🢄🗺Map event: ${event.type}`);
+
+		/*if (event.type == 'moveend')
 		{
 			if (!seenFirstMoveEnd)
 			{
 				seenFirstMoveEnd = true;
 				return;
 			}
-		}
+		}*/
 
-		if (TAURI && event.type == 'moveend')
+		let isDesktopBrowser = !TAURI && (window.matchMedia("(pointer: fine)").matches || window.matchMedia("(hover: hover)").matches);
+
+		if (/*(isDesktopBrowser || TAURI) && */event.type == 'moveend')
 		{
-			return // ignore moveend in android, as those fire off even when the map is moved programmatically - there's no way to distinguish user-initiated location changes from programmatic (gps). The tradeoff is that keyboard cant be used. Mouse/touch works by triggering dragend.
+			//return // ignore moveend in android, as those fire off even when the map is moved programmatically - there's no way to distinguish user-initiated location changes from programmatic (gps). The tradeoff is that keyboard cant be used. Mouse/touch works by triggering dragend.
 		}
 
 		//console.log('🢄🗺mapStateUserEvent:', stringifyCircularJSON(event.type));
 
-        if (!flying) {
+        //if (!flying)
+		if (event.type == 'dragend' || event.type == 'zoomend')
+		{
             let _center = map.getCenter();
             let p = get(spatialState);
 
@@ -468,8 +471,9 @@
                     //console.log('🢄Zoom button event detected - not disabling location tracking');
                 }
             }
-			await onMapStateChange(true, 'mapStateUserEvent');
+
         }
+		await onMapStateChange(true, 'mapStateUserEvent');
     }
 
 
@@ -482,7 +486,7 @@
         try {
             let _center = map.getCenter();
             let _zoom = map.getZoom();
-            // console.log('🢄onMapStateChange: force:', force, 'reason:', reason, 'center:', JSON.stringify(_center), 'zoom:', _zoom);
+            console.log('🢄onMapStateChange: force:', force, 'reason:', reason, 'center:', JSON.stringify(_center), 'zoom:', _zoom);
 
             const currentSpatial = get(spatialState);
             const bounds = map.getBounds();
@@ -776,7 +780,7 @@
         // Store the location data locally
         userLocation = position;
 
-        //console.log("handleGpsLocationUpdate:", latitude, longitude, accuracy);
+        console.log("handleGpsLocationUpdate:", latitude, longitude, accuracy);
         locationTrackingLoading.set(false);
         locationApiEventFlash = true;
         if (locationApiEventFlashTimer !== null) {
@@ -1207,11 +1211,12 @@
             bind:this={elMap}
             events={
             	{
+					//movestart: (e) => { console.log('🗺movestart', stringifyCircularJSON(e)) },
+					//dragstart: (e) => { console.log('🗺dragstart', stringifyCircularJSON(e)) },
 					moveend: mapStateUserEvent,
 					zoomend: mapStateUserEvent,
 	            	dragend: mapStateUserEvent,
     	        	dragstart: (e) => {disableLocationTracking()},
-    	        	//movestart: (e) => {console.log('🗺movestart', stringifyCircularJSON(e))},
             	}
             	}
             options={{
@@ -1294,22 +1299,22 @@
         </div>
 
 
-    <!-- Debug bounds rectangle -->
-    <!--{#if $app.debug > 0 && $spatialState.bounds}-->
-    <!--    <Polygon-->
-    <!--            latLngs={[-->
-    <!--                [$spatialState.bounds.top_left.lat, $spatialState.bounds.top_left.lng],-->
-    <!--                [$spatialState.bounds.top_left.lat, $spatialState.bounds.bottom_right.lng],-->
-    <!--                [$spatialState.bounds.bottom_right.lat, $spatialState.bounds.bottom_right.lng],-->
-    <!--                [$spatialState.bounds.bottom_right.lat, $spatialState.bounds.top_left.lng]-->
-    <!--            ]}-->
-    <!--            color="#FF0000"-->
-    <!--            fillColor="#FF0000"-->
-    <!--            fillOpacity={0.1}-->
-    <!--            weight={2}-->
-    <!--            dashArray="5, 10"-->
-    <!--        />-->
-    <!--{/if}-->
+<!--     Debug bounds rectangle-->
+    {#if $spatialState.bounds}
+        <Polygon
+                latLngs={[
+                    [$spatialState.bounds.top_left.lat, $spatialState.bounds.top_left.lng],
+                    [$spatialState.bounds.top_left.lat, $spatialState.bounds.bottom_right.lng],
+                    [$spatialState.bounds.bottom_right.lat, $spatialState.bounds.bottom_right.lng],
+                    [$spatialState.bounds.bottom_right.lat, $spatialState.bounds.top_left.lng]
+                ]}
+                color="#FF0000"
+                fillColor="#FF0000"
+                fillOpacity={0.2}
+                weight={4}
+                dashArray="5, 10"
+            />
+    {/if}
 
 
     </LeafletMap>
@@ -1461,10 +1466,7 @@
         title="Track my location"
         class:flash={locationApiEventFlash}
     >
-        <LocateFixed />
-        {#if $locationTrackingLoading}
-            <Spinner show={true} color="#4285F4"></Spinner>
-        {/if}
+        <LocationButtonInner />
     </button>
     <CompassButton bind:this={compassButtonRef} on:showMenu={handleCompassShowMenu} on:hideMenu={handleCompassHideMenu} />
 </div>

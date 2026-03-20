@@ -289,7 +289,7 @@ class SimplePhotoWorker {
             //if (doLog) console.log(TAG+`Sending area update with range ${spatial.range}m...`);
             this.lastBounds = spatial.bounds;
 			await tick(); // Ensure any pending picks updates are processed before area
-			console.log('picks at time of areaUpdate trigger:', get(picks));
+			//console.log('picks at time of areaUpdate trigger:', get(picks));
             this.sendMessage('areaUpdated', {
                 area: spatial.bounds,
                 range: spatial.range

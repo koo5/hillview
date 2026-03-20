@@ -1,6 +1,7 @@
 /**
  * Shared utilities for mocking Mapillary data across Playwright tests
  */
+import { BACKEND_URL } from './adminAuth';
 
 export interface MockMapillaryPhoto {
   id: string;
@@ -75,7 +76,7 @@ export function createMockMapillaryData(
  * Set mock Mapillary data via backend debug endpoint
  */
 export async function setMockMapillaryData(page: any, mockData: MockMapillaryData) {
-  const response = await page.request.post('http://localhost:8055/api/debug/mock-mapillary', {
+  const response = await page.request.post(`${BACKEND_URL}/api/debug/mock-mapillary`, {
     data: mockData
   });
 
@@ -94,13 +95,13 @@ export async function setMockMapillaryData(page: any, mockData: MockMapillaryDat
 export async function clearMockMapillaryData(page: any) {
   try {
     // Clear mock data
-    const mockResponse = await page.request.delete('http://localhost:8055/api/debug/mock-mapillary');
+    const mockResponse = await page.request.delete(`${BACKEND_URL}/api/debug/mock-mapillary`);
     if (mockResponse.status() === 200) {
       console.log('✓ Cleared mock Mapillary data');
     }
 
     // Clear database/cache to force fresh requests
-    const cacheResponse = await page.request.post('http://localhost:8055/api/debug/clear-database');
+    const cacheResponse = await page.request.post(`${BACKEND_URL}/api/debug/clear-database`);
     if (cacheResponse.status() === 200) {
       console.log('✓ Cleared database/cache');
     }
@@ -116,7 +117,7 @@ export async function clearMockMapillaryData(page: any) {
 export async function setupMockMapillaryData(page: any, mockData: MockMapillaryData) {
   // Clear database/cache first to remove any cached data (prevents cache+live duplication)
   // Must happen before setting mock data, since clear-database wipes PICS_DIR including mock images
-  const cacheResponse = await page.request.post('http://localhost:8055/api/debug/clear-database');
+  const cacheResponse = await page.request.post(`${BACKEND_URL}/api/debug/clear-database`);
   if (cacheResponse.status() === 200) {
     console.log('✓ Cleared database/cache');
   }

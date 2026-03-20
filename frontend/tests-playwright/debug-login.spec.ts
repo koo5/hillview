@@ -54,10 +54,10 @@ test.describe('Debug Login', () => {
 
     // Check if backend is responding
     try {
-      const response = await page.evaluate(async () => {
-        const res = await fetch('${BACKEND_URL}/api/debug');
+      const response = await page.evaluate(async (url) => {
+        const res = await fetch(`${url}/api/debug`);
         return { status: res.status, text: await res.text() };
-      });
+      }, BACKEND_URL);
       console.log('🢄Backend debug response:', response);
     } catch (error) {
       console.log('🢄Backend debug error:', error);
