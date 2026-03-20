@@ -64,7 +64,7 @@
 
 	export let update_url = false;
 
-    let flying = false;
+    //let flying = false;
     let programmaticMove = false; // Flag to prevent position sync conflicts
 
     let locationApiEventFlashTimer: any = null;
@@ -422,7 +422,7 @@
             if (!currentCenter || currentCenter.lat !== spatial.center.lat || currentCenter.lng !== spatial.center.lng || currentZoom !== spatial.zoom) {
                 //console.log('🢄setView', JSON.stringify(spatial.center), spatial.zoom);
                 map.setView(new LatLng(spatial.center.lat, spatial.center.lng), spatial.zoom);
-                onMapStateChange(true, 'spatialState.subscribe');
+                onMapStateChange('spatialState.subscribe');
             }
         } catch (e) {
             // Map not ready yet, ignore
@@ -473,11 +473,11 @@
             }
 
         }
-		await onMapStateChange(true, 'mapStateUserEvent');
+		await onMapStateChange('mapStateUserEvent');
     }
 
 
-    async function onMapStateChange(force: boolean, reason: string) {
+    async function onMapStateChange(reason: string) {
         await tick();
         if (!map) {
             console.warn('🢄onMapStateChange called before map is ready');
@@ -486,7 +486,6 @@
         try {
             let _center = map.getCenter();
             let _zoom = map.getZoom();
-            console.log('🢄onMapStateChange: force:', force, 'reason:', reason, 'center:', JSON.stringify(_center), 'zoom:', _zoom);
 
             const currentSpatial = get(spatialState);
             const bounds = map.getBounds();
@@ -522,11 +521,16 @@
             // Debug log to verify normalization
             //console.log(`Map: Normalized bounds - TL: [${newSpatialState.bounds.top_left.lat.toFixed(6)}, ${newSpatialState.bounds.top_left.lng.toFixed(6)}], BR: [${newSpatialState.bounds.bottom_right.lat.toFixed(6)}, ${newSpatialState.bounds.bottom_right.lng.toFixed(6)}]`);
 
-            if (force === true ||
-                currentSpatial.center.lat !== newSpatialState.center.lat ||
+            // bounds?.top_left is null on initial load from localStorage, which naturally triggers the update
+            if (currentSpatial.center.lat !== newSpatialState.center.lat ||
                 currentSpatial.center.lng !== newSpatialState.center.lng ||
-                currentSpatial.zoom !== newSpatialState.zoom) {
+                currentSpatial.zoom !== newSpatialState.zoom ||
+                currentSpatial.bounds?.top_left.lat !== newSpatialState.bounds.top_left.lat ||
+                currentSpatial.bounds?.top_left.lng !== newSpatialState.bounds.top_left.lng ||
+                currentSpatial.bounds?.bottom_right.lat !== newSpatialState.bounds.bottom_right.lat ||
+                currentSpatial.bounds?.bottom_right.lng !== newSpatialState.bounds.bottom_right.lng) {
 
+                console.log('🢄onMapStateChange:', reason, 'center:', JSON.stringify(_center), 'zoom:', _zoom);
                 updateSpatialState(newSpatialState);
 
                 /*console.log('🢄Map bounds updated:', JSON.stringify({
@@ -795,21 +799,6 @@
 
             // Center map on user location if tracking is active
             if (get(locationTracking)) {
-                flying = true;
-                updateSpatialState({
-                    center: new LatLng(latitude, longitude),
-                    zoom: map.getZoom(),
-                    bounds: null, // Will be updated by onMapStateChange
-                    range: get_range(new LatLng(latitude, longitude))
-                }, 'gps');
-                await tick();
-                map.flyTo(latLng);
-                await tick();
-                setTimeout(() => {
-                    flying = false;
-                }, 500);
-
-                // Update the spatial state
                 updateSpatialState({
                     center: new LatLng(latitude, longitude),
                     zoom: map.getZoom(),
@@ -960,7 +949,7 @@
                 console.error('🢄Failed to initialize SimplePhotoWorker:', error);
             }
 
-            /*await onMapStateChange(true, 'mount');
+            /*await onMapStateChange('mount');
             console.log('🢄Map component mounted - after onMapStateChange');*/
 
             // Add zoom control after scale control for proper ordering
@@ -1310,7 +1299,7 @@
                 ]}
                 color="#FF0000"
                 fillColor="#FF0000"
-                fillOpacity={0.2}
+                fillOpacity={0}
                 weight={4}
                 dashArray="5, 10"
             />
