@@ -364,11 +364,13 @@ export function swipe2d(node: HTMLElement, initialOptions: Swipe2DOptions) {
 
 	// Touch event handlers
 	function handleTouchStart(e: TouchEvent) {
+		if (e.touches.length > 1) { cancelDrag(); return; }
 		const touch = e.touches[0];
 		startDrag(touch.clientX, touch.clientY);
 	}
 
 	function handleTouchMove(e: TouchEvent) {
+		if (e.touches.length > 1) { cancelDrag(); return; }
 		const touch = e.touches[0];
 		if (updateDrag(touch.clientX, touch.clientY)) {
 			e.preventDefault();

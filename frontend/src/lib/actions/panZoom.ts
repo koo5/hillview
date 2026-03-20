@@ -6,6 +6,7 @@ interface PanZoomState {
 
 interface PanZoomOptions {
 	onUpdate: (state: PanZoomState) => void;
+	onZoomChange?: (isZoomed: boolean) => void;
 	initialScale?: number;
 	minScale?: number;
 	maxScale?: number;
@@ -13,6 +14,9 @@ interface PanZoomOptions {
 	imageHeight?: number;
 	containerWidth?: number;
 	containerHeight?: number;
+	/** When true, only capture events when pinching or zoomed in.
+	 *  Single-touch at 1x scale passes through to parent handlers (e.g. swipe2d). */
+	isEmbedded?: boolean;
 }
 
 export function panZoom(node: HTMLElement, options: PanZoomOptions) {
@@ -20,13 +24,28 @@ export function panZoom(node: HTMLElement, options: PanZoomOptions) {
 	let translateX = 0;
 	let translateY = 0;
 
-	const minScale = options.minScale || 0.5;
-	const maxScale = options.maxScale || 5;
+	let minScale = options.minScale || 0.5;
+	let maxScale = options.maxScale || 5;
+	let isEmbedded = options.isEmbedded || false;
 
+	// Track whether we're in zoomed state (for embedded mode)
+	let wasZoomed = false;
+
+	function isZoomed() {
+		return scale > 1.01;
+	}
+
+	function checkZoomChange() {
+		const zoomed = isZoomed();
+		if (zoomed !== wasZoomed) {
+			wasZoomed = zoomed;
+			options.onZoomChange?.(zoomed);
+		}
+	}
 
 	// Touch handling
 	let initialDistance = 0;
-	let initialScale = 1;
+	let pinchInitialScale = 1;
 	let initialX = 0;
 	let initialY = 0;
 	let lastTouchX = 0;
@@ -40,94 +59,77 @@ export function panZoom(node: HTMLElement, options: PanZoomOptions) {
 	let lastMouseY = 0;
 
 	function constrainPan() {
-		if (!options.imageWidth || !options.imageHeight || !options.containerWidth || !options.containerHeight) {
-			return; // Can't constrain without dimensions
+		if (!options.containerWidth || !options.containerHeight) {
+			return;
 		}
+
+		if (isEmbedded) {
+			// Embedded mode: transform is translate(tx,ty) scale(s) with origin 0 0.
+			// Scaled content spans (tx, ty) to (tx + cw*s, ty + ch*s).
+			// Clamp so viewport stays within scaled content.
+			const cw = options.containerWidth;
+			const ch = options.containerHeight;
+			translateX = Math.max(cw * (1 - scale), Math.min(0, translateX));
+			translateY = Math.max(ch * (1 - scale), Math.min(0, translateY));
+			return;
+		}
+
+		if (!options.imageWidth || !options.imageHeight) return;
 
 		const scaledImageWidth = options.imageWidth * scale;
 		const scaledImageHeight = options.imageHeight * scale;
 
-		const beforeX = translateX;
-		const beforeY = translateY;
-
-		// Constraint logic: center all images, allow panning within reasonable bounds
 		if (scaledImageWidth <= options.containerWidth) {
-			// Image is smaller than container, keep it centered
 			translateX = (options.containerWidth - scaledImageWidth) / 2;
 		} else {
-			// Image is larger than container, allow panning around center
-			// Center position would be: (containerWidth - scaledImageWidth) / 2 (negative value)
 			const centerX = (options.containerWidth - scaledImageWidth) / 2;
 			const excess = scaledImageWidth - options.containerWidth;
-			const minTranslateX = centerX - excess / 2; // Can pan left from center
-			const maxTranslateX = centerX + excess / 2; // Can pan right from center
+			const minTranslateX = centerX - excess / 2;
+			const maxTranslateX = centerX + excess / 2;
 			translateX = Math.max(minTranslateX, Math.min(maxTranslateX, translateX));
 		}
 
 		if (scaledImageHeight <= options.containerHeight) {
-			// Image is smaller than container, keep it centered
 			translateY = (options.containerHeight - scaledImageHeight) / 2;
 		} else {
-			// Image is larger than container, allow panning around center
-			// Center position would be: (containerHeight - scaledImageHeight) / 2 (negative value)
 			const centerY = (options.containerHeight - scaledImageHeight) / 2;
 			const excess = scaledImageHeight - options.containerHeight;
-			const minTranslateY = centerY - excess / 2; // Can pan up from center
-			const maxTranslateY = centerY + excess / 2; // Can pan down from center
+			const minTranslateY = centerY - excess / 2;
+			const maxTranslateY = centerY + excess / 2;
 			translateY = Math.max(minTranslateY, Math.min(maxTranslateY, translateY));
 		}
 	}
 
-	// Convert screen coordinates to image-space coordinates
 	function screenToImageSpace(screenX: number, screenY: number) {
 		if (!options.imageWidth || !options.imageHeight) {
 			return { x: 0, y: 0 };
 		}
-
-		// translateX/Y are now screen coordinates, so this is simple
 		const imageRelativeX = screenX - translateX;
 		const imageRelativeY = screenY - translateY;
-
-		// Convert from CSS pixels to actual image pixels
 		const scaledImageWidth = options.imageWidth * scale;
 		const scaledImageHeight = options.imageHeight * scale;
 		const imagePixelX = imageRelativeX * (options.imageWidth / scaledImageWidth);
 		const imagePixelY = imageRelativeY * (options.imageHeight / scaledImageHeight);
-
-
-		// Return actual image coordinates (0,0 at top-left of image)
-		return {
-			x: imagePixelX,
-			y: imagePixelY
-		};
+		return { x: imagePixelX, y: imagePixelY };
 	}
 
-	// Convert image-space point to container-relative coordinates
-	function imageToContainerSpace(imageX: number, imageY: number) {
-		return {
-			x: translateX + imageX * scale,
-			y: translateY + imageY * scale
-		};
-	}
-
-	// Apply zoom-to-point transformation
 	function applyZoomToPoint(containerX: number, containerY: number, screenX: number, screenY: number, newScale: number) {
-		// Find the point in the image that's currently under the screen position
 		const imagePoint = screenToImageSpace(screenX, screenY);
-
-
-		// Calculate new scaled dimensions
 		const newScaledImageWidth = (options.imageWidth || 0) * newScale;
 		const newScaledImageHeight = (options.imageHeight || 0) * newScale;
-
-		// Position image so the same image point stays under the screen position
 		const newTranslateX = screenX - (imagePoint.x / (options.imageWidth || 1)) * newScaledImageWidth;
 		const newTranslateY = screenY - (imagePoint.y / (options.imageHeight || 1)) * newScaledImageHeight;
-
-		// Update state
 		translateX = newTranslateX;
 		translateY = newTranslateY;
 		scale = newScale;
+	}
+
+	function resetToIdentity() {
+		scale = 1;
+		translateX = 0;
+		translateY = 0;
+		updateState();
+		checkZoomChange();
 	}
 
 	function updateState() {
@@ -147,14 +149,20 @@ export function panZoom(node: HTMLElement, options: PanZoomOptions) {
 			isPinching = true;
 			isPanning = false;
 			initialDistance = getDistance(event.touches);
-			initialScale = scale;
+			pinchInitialScale = scale;
+			// In embedded mode, stop propagation so swipe2d doesn't see the pinch
+			if (isEmbedded) {
+				event.stopPropagation();
+			}
 		} else if (event.touches.length === 1) {
-			// Allow panning if image is larger than container in any dimension
+			// In embedded mode at 1x: don't capture, let swipe2d handle it
+			if (isEmbedded && !isZoomed()) {
+				return;
+			}
 			const scaledImageWidth = (options.imageWidth || 0) * scale;
 			const scaledImageHeight = (options.imageHeight || 0) * scale;
 			const canPan = scaledImageWidth > (options.containerWidth || 0) ||
 						   scaledImageHeight > (options.containerHeight || 0);
-
 			if (canPan) {
 				isPanning = true;
 				isPinching = false;
@@ -162,55 +170,73 @@ export function panZoom(node: HTMLElement, options: PanZoomOptions) {
 				initialY = translateY;
 				lastTouchX = event.touches[0].clientX;
 				lastTouchY = event.touches[0].clientY;
+				if (isEmbedded) {
+					event.stopPropagation();
+				}
 			}
 		}
 	}
 
 	function handleTouchMove(event: TouchEvent) {
-		event.preventDefault();
-
 		if (isPinching && event.touches.length === 2) {
+			event.preventDefault();
+			if (isEmbedded) event.stopPropagation();
+
 			const currentDistance = getDistance(event.touches);
 			const scaleChange = currentDistance / initialDistance;
-			const newScale = Math.max(minScale, Math.min(maxScale, initialScale * scaleChange));
+			const newScale = Math.max(minScale, Math.min(maxScale, pinchInitialScale * scaleChange));
 
-			// Calculate the center point of the pinch gesture
 			const centerX = (event.touches[0].clientX + event.touches[1].clientX) / 2;
 			const centerY = (event.touches[0].clientY + event.touches[1].clientY) / 2;
 
-			// Get container bounds to convert to relative coordinates
-			const rect = (event.target as HTMLElement).getBoundingClientRect();
+			const rect = node.getBoundingClientRect();
 			const relativeX = centerX - rect.left;
 			const relativeY = centerY - rect.top;
 
-			// Apply zoom-to-point for pinch center
 			const containerX = relativeX - (options.containerWidth || 0) / 2;
 			const containerY = relativeY - (options.containerHeight || 0) / 2;
 
 			applyZoomToPoint(containerX, containerY, centerX, centerY, newScale);
-
 			updateState();
+			checkZoomChange();
 		} else if (isPanning && event.touches.length === 1) {
+			event.preventDefault();
+			if (isEmbedded) event.stopPropagation();
+
 			const deltaX = event.touches[0].clientX - lastTouchX;
 			const deltaY = event.touches[0].clientY - lastTouchY;
-			// Work in actual pixels now
 			translateX = initialX + deltaX;
 			translateY = initialY + deltaY;
 			updateState();
+		} else if (isEmbedded && !isPinching && !isPanning) {
+			// Not our gesture, let it through
+			return;
+		} else {
+			// Original behavior for non-embedded
+			if (!isEmbedded) event.preventDefault();
 		}
 	}
 
 	function handleTouchEnd() {
+		const wasPinching = isPinching;
 		isPinching = false;
 		isPanning = false;
+
+		// In embedded mode, snap back to 1x if pinch ended below threshold
+		if (isEmbedded && wasPinching && scale <= 1.01) {
+			resetToIdentity();
+		}
+		checkZoomChange();
 	}
 
 	// Mouse events
 	function handleMouseDown(event: MouseEvent) {
-		console.log('🖱️ [PanZoom] Mouse down');
-		// Check if we have valid dimensions
+		if (event.button !== 0) return;
+
+		// In embedded mode at 1x: don't capture mouse, let swipe2d handle it
+		if (isEmbedded && !isZoomed()) return;
+
 		if (!options.imageWidth || !options.imageHeight || !options.containerWidth || !options.containerHeight) {
-			console.log('🖱️ [PanZoom] Missing dimensions, allowing pan anyway');
 			isDragging = true;
 			initialX = translateX;
 			initialY = translateY;
@@ -220,13 +246,10 @@ export function panZoom(node: HTMLElement, options: PanZoomOptions) {
 			return;
 		}
 
-		// Allow panning if image is larger than container in any dimension
 		const scaledImageWidth = options.imageWidth * scale;
 		const scaledImageHeight = options.imageHeight * scale;
 		const canPan = scaledImageWidth > options.containerWidth ||
 					   scaledImageHeight > options.containerHeight;
-
-		console.log('🖱️ [PanZoom] Can pan?', canPan, 'scaledSize:', scaledImageWidth, 'x', scaledImageHeight, 'container:', options.containerWidth, 'x', options.containerHeight);
 
 		if (canPan) {
 			isDragging = true;
@@ -235,15 +258,18 @@ export function panZoom(node: HTMLElement, options: PanZoomOptions) {
 			lastMouseX = event.clientX;
 			lastMouseY = event.clientY;
 			event.preventDefault();
-			console.log('🖱️ [PanZoom] Started dragging');
 		}
 	}
+
+	let hasDragged = false;
 
 	function handleMouseMove(event: MouseEvent) {
 		if (isDragging) {
 			const deltaX = event.clientX - lastMouseX;
 			const deltaY = event.clientY - lastMouseY;
-			// Work in actual pixels now
+			if (Math.abs(deltaX) > 3 || Math.abs(deltaY) > 3) {
+				hasDragged = true;
+			}
 			translateX = initialX + deltaX;
 			translateY = initialY + deltaY;
 			updateState();
@@ -251,9 +277,15 @@ export function panZoom(node: HTMLElement, options: PanZoomOptions) {
 	}
 
 	function handleMouseUp() {
+		if (isDragging && hasDragged) {
+			// Suppress the click that follows a drag-to-pan
+			const suppress = (e: Event) => { e.preventDefault(); e.stopPropagation(); };
+			node.addEventListener('click', suppress, { capture: true, once: true });
+			setTimeout(() => node.removeEventListener('click', suppress, { capture: true }), 50);
+		}
 		isDragging = false;
+		hasDragged = false;
 	}
-
 
 	// Wheel events
 	function handleWheel(event: WheelEvent) {
@@ -261,51 +293,38 @@ export function panZoom(node: HTMLElement, options: PanZoomOptions) {
 		const scaleChange = event.deltaY > 0 ? 0.9 : 1.1;
 		const newScale = Math.max(minScale, Math.min(maxScale, scale * scaleChange));
 
-		// Calculate zoom-to-point for mouse position
-		const rect = (event.target as HTMLElement).getBoundingClientRect();
+		const rect = node.getBoundingClientRect();
 		const relativeX = event.clientX - rect.left;
 		const relativeY = event.clientY - rect.top;
 
-		console.log('🎡 [PanZoom] Wheel zoom debug:', {
-			mousePos: { x: event.clientX, y: event.clientY },
-			rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
-			relativePos: { x: relativeX, y: relativeY },
-			containerSize: { w: options.containerWidth, h: options.containerHeight },
-			scaleChange: { from: scale, to: newScale },
-			currentTranslate: { x: translateX, y: translateY }
-		});
-
-		// Store old values for comparison
-		const oldTranslateX = translateX;
-		const oldTranslateY = translateY;
-
-		// Apply zoom-to-point for mouse position
 		const containerX = relativeX - (options.containerWidth || 0) / 2;
 		const containerY = relativeY - (options.containerHeight || 0) / 2;
 
 		applyZoomToPoint(containerX, containerY, event.clientX, event.clientY, newScale);
-
 		updateState();
+		checkZoomChange();
+
+		// In embedded mode, snap back if scrolled below 1x
+		if (isEmbedded && scale <= 1.01) {
+			resetToIdentity();
+		}
 	}
 
-	// Double click to zoom
+	// Double click to zoom (disabled in embedded mode — conflicts with singleTap)
 	let lastClickTime = 0;
 	function handleClick(event: MouseEvent) {
-		// Ignore clicks on the filename overlay
+		if (isEmbedded) return;
+
 		const target = event.target as HTMLElement;
-		if (target.closest('.filename-overlay')) {
-			return;
-		}
+		if (target.closest('.filename-overlay')) return;
 
 		const now = Date.now();
 		if (now - lastClickTime < 300) {
-			// Double click - toggle between initial scale and 2x initial scale
-			const initialScale = options.initialScale || 1;
-			if (Math.abs(scale - initialScale) < 0.01) { // Close to initial scale
-				scale = initialScale * 2;
+			const initScale = options.initialScale || 1;
+			if (Math.abs(scale - initScale) < 0.01) {
+				scale = initScale * 2;
 			} else {
-				scale = initialScale;
-				// Center the image when resetting (always)
+				scale = initScale;
 				if (options.imageWidth && options.imageHeight && options.containerWidth && options.containerHeight) {
 					const scaledWidth = options.imageWidth * scale;
 					const scaledHeight = options.imageHeight * scale;
@@ -317,6 +336,7 @@ export function panZoom(node: HTMLElement, options: PanZoomOptions) {
 				}
 			}
 			updateState();
+			checkZoomChange();
 		}
 		lastClickTime = now;
 	}
@@ -333,22 +353,22 @@ export function panZoom(node: HTMLElement, options: PanZoomOptions) {
 	document.addEventListener('mousemove', handleMouseMove);
 	document.addEventListener('mouseup', handleMouseUp);
 
-	// Apply initial constraints to center the image
-	console.log('📐 [PanZoom] Initial setup with dimensions:', {
-		imageWidth: options.imageWidth,
-		imageHeight: options.imageHeight,
-		containerWidth: options.containerWidth,
-		containerHeight: options.containerHeight
-	});
-	updateState();
+	if (!isEmbedded) {
+		updateState();
+	}
 
 	return {
 		update(newOptions: PanZoomOptions) {
-			console.log('📐 [PanZoom] Action updated with options:', newOptions);
 			options = newOptions;
-			// Re-apply constraints when options change (e.g., when dimensions become available)
-			updateState();
+			minScale = newOptions.minScale || 0.5;
+			maxScale = newOptions.maxScale || 5;
+			isEmbedded = newOptions.isEmbedded || false;
+			if (!isEmbedded) {
+				updateState();
+			}
 		},
+		/** Reset zoom to 1x and clear pan */
+		reset: resetToIdentity,
 		destroy() {
 			node.removeEventListener('touchstart', handleTouchStart);
 			node.removeEventListener('touchmove', handleTouchMove);

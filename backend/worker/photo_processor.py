@@ -408,7 +408,7 @@ class PhotoProcessor:
 		return dimensions[0], dimensions[1]
 
 
-	async def create_optimized_sizes(self, source_path: str, unique_id: str, width: int, height: int, photo_id: str = None, client_signature: str = None, anonymization_override: Optional[AnonymizationOverride] = None
+	async def create_optimized_sizes(self, source_path: str, unique_id: str, width: int, height: int, photo_id: str = None, client_signature: str = None, anonymization_override: Optional[AnonymizationOverride] = None, quality: Optional[int] = None
 
 
 									 ) -> tuple[Dict[str, Dict[str, Any]], Optional[Dict[str, Any]]]:
@@ -416,8 +416,10 @@ class PhotoProcessor:
 
 		sizes_info = {}
 		output_base = self.upload_dir
+		webp_quality_sizes = quality if quality is not None else WEBP_QUALITY_SIZES
+		webp_quality_dzi = quality if quality is not None else WEBP_QUALITY_DZI
 
-		logger.info(f"Starting anonymization for {unique_id}")
+		logger.info(f"Starting anonymization for {unique_id} (quality: sizes={webp_quality_sizes}, dzi={webp_quality_dzi})")
 
 		if not anonymization_override:
 			# this takes a while to import, so do it here dynamically
@@ -488,7 +490,7 @@ class PhotoProcessor:
 				logger.debug(f"Resized image to {new_width}x{new_height} for size {size}")
 				new_image_rgb = cv2.cvtColor(new_image, cv2.COLOR_BGR2RGB)
 				logger.debug(f"Converted image to RGB color space for size {size}")
-				Image.fromarray(new_image_rgb).save(output_file_path, format='WEBP', quality=WEBP_QUALITY_SIZES, method=6)
+				Image.fromarray(new_image_rgb).save(output_file_path, format='WEBP', quality=webp_quality_sizes, method=6)
 				copy_exif_data(source_path, output_file_path)
 				logger.info(f"Created size {size} for {unique_id}: {new_width}x{new_height} at {output_file_path}")
 
@@ -514,7 +516,7 @@ class PhotoProcessor:
 				os.makedirs(pathlib.Path(crop_file_path).parent, exist_ok=True)
 
 				cropped_rgb = cv2.cvtColor(cropped, cv2.COLOR_BGR2RGB)
-				Image.fromarray(cropped_rgb).save(crop_file_path, format='WEBP', quality=WEBP_QUALITY_SIZES, method=6)
+				Image.fromarray(cropped_rgb).save(crop_file_path, format='WEBP', quality=webp_quality_sizes, method=6)
 				copy_exif_data(source_path, crop_file_path)
 				logger.info(f"Created {crop_key} for {unique_id}: {crop_tw}x{crop_th} at {crop_file_path}")
 
@@ -552,7 +554,7 @@ class PhotoProcessor:
 		os.makedirs(pathlib.Path(llm_output_path).parent, exist_ok=True)
 
 		llm_rgb = cv2.cvtColor(llm_resized, cv2.COLOR_BGR2RGB)
-		Image.fromarray(llm_rgb).save(llm_output_path, format='WEBP', quality=WEBP_QUALITY_SIZES, method=6)
+		Image.fromarray(llm_rgb).save(llm_output_path, format='WEBP', quality=webp_quality_sizes, method=6)
 		copy_exif_data(source_path, llm_output_path)
 		logger.info(f"Created 640_llm variant for {unique_id}: {llm_width}x{llm_height} at {llm_output_path}")
 
@@ -568,7 +570,7 @@ class PhotoProcessor:
 		# Store metadata inline in sizes['full']['pyramid'] so the client can
 		# initialise OpenSeadragon without an extra round-trip for the .dzi file.
 		if 'full' in sizes_info:
-			pyramid = await self.generate_dzi_pyramid(image, unique_id, photo_id, client_signature)
+			pyramid = await self.generate_dzi_pyramid(image, unique_id, photo_id, client_signature, quality=quality)
 			if pyramid:
 				sizes_info['full']['pyramid'] = pyramid
 
@@ -579,7 +581,7 @@ class PhotoProcessor:
 	# Skip DZI pyramid generation for images where both dimensions are below this threshold
 	DZI_MIN_DIMENSION = 2048
 
-	async def generate_dzi_pyramid(self, image: np.ndarray, unique_id: str, photo_id: str = None, client_signature: str = None) -> Optional[Dict[str, Any]]:
+	async def generate_dzi_pyramid(self, image: np.ndarray, unique_id: str, photo_id: str = None, client_signature: str = None, quality: Optional[int] = None) -> Optional[Dict[str, Any]]:
 		"""Generate a DZI (Deep Zoom Image) pyramid from an anonymized image.
 
 		Args:
@@ -615,7 +617,8 @@ class PhotoProcessor:
 			logger.info(f"Generating DZI pyramid for {unique_id} from anonymized image ({w}x{h})")
 			rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 			img = pyvips.Image.new_from_memory(rgb.data, w, h, 3, 'uchar')
-			img.dzsave(dzi_output_base, tile_size=tile_size, overlap=overlap, suffix=f'.webp[Q={WEBP_QUALITY_DZI}]')
+			webp_quality_dzi = quality if quality is not None else WEBP_QUALITY_DZI
+			img.dzsave(dzi_output_base, tile_size=tile_size, overlap=overlap, suffix=f'.webp[Q={webp_quality_dzi}]')
 
 			logger.info(f"DZI generated for {unique_id}, uploading files")
 
@@ -782,7 +785,8 @@ class PhotoProcessor:
 		is_public: bool = True,
 		client_signature: Optional[str] = None,
 		anonymization_override: Optional[str] = None,
-		metadata: Optional[Dict[str, Any]] = None
+		metadata: Optional[Dict[str, Any]] = None,
+		quality: Optional[int] = None
 	) -> Optional[Dict[str, Any]]:
 		"""Process a user-uploaded photo and return processing results.
 
@@ -884,7 +888,7 @@ class PhotoProcessor:
 
 		# Parse anonymization override from JSON string to Pydantic model
 		override = AnonymizationOverride.from_json_string(anonymization_override)
-		sizes_info, detections = await self.create_optimized_sizes(file_path, unique_id, width, height, photo_id, client_signature, override)
+		sizes_info, detections = await self.create_optimized_sizes(file_path, unique_id, width, height, photo_id, client_signature, override, quality=quality)
 
 		# Extract captured_at from EXIF DateTimeOriginal (with corruption fix)
 		raw_data = exif_data.get('data', {})

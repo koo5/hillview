@@ -10,6 +10,7 @@
 	import {simplePhotoWorker} from '$lib/simplePhotoWorker';
 	import {zoomViewData} from '$lib/zoomView.svelte.js';
 	import {singleTap} from '$lib/actions/singleTap';
+	import {panZoom} from '$lib/actions/panZoom';
 	import {portal} from '$lib/actions/portal';
 	import {getFullPhotoInfo, getPhotoSource} from '$lib/photoUtils';
 	import HideUserDialog from './HideUserDialog.svelte';
@@ -249,6 +250,53 @@
 		return null;
 	}
 
+	// --- Pinch-zoom / pan state ---
+	let zoomScale = 1;
+	let zoomTx = 0;
+	let zoomTy = 0;
+	let isZoomedIn = false;
+
+	$: isFront = className === 'front';
+	$: zoomTransform = zoomScale > 1.01
+		? `translate(${zoomTx}px, ${zoomTy}px) scale(${zoomScale})`
+		: '';
+
+	function handlePanZoomUpdate(state: { scale: number; translateX: number; translateY: number }) {
+		zoomScale = state.scale;
+		zoomTx = state.translateX;
+		zoomTy = state.translateY;
+	}
+
+	function handleZoomChange(zoomed: boolean) {
+		isZoomedIn = zoomed;
+		if (zoomed) {
+			onInteraction?.();
+		}
+	}
+
+	// Reset zoom when photo changes
+	let lastPhotoId: string | undefined;
+	$: if (photo?.id !== lastPhotoId) {
+		lastPhotoId = photo?.id;
+		zoomScale = 1;
+		zoomTx = 0;
+		zoomTy = 0;
+		isZoomedIn = false;
+	}
+
+	// panZoom options — reactive so container size updates propagate
+	$: panZoomOptions = isFront ? {
+		onUpdate: handlePanZoomUpdate,
+		onZoomChange: handleZoomChange,
+		isEmbedded: true,
+		minScale: 0.8,
+		maxScale: 5,
+		imageWidth: width,
+		imageHeight: height,
+		containerWidth: clientWidth2 || 500,
+		containerHeight: containerElement?.clientHeight || 500,
+	} : undefined;
+
 	// --- Annotation canvas overlay ---
 	let annotationCanvas: HTMLCanvasElement | undefined;
 	let imgElement: HTMLImageElement | undefined;
@@ -276,7 +324,9 @@
 		const ctx = annotationCanvas.getContext('2d');
 		if (!ctx) return;
 
-		const {clientWidth: cw, clientHeight: ch} = imgElement;
+		// Use canvas CSS dimensions (matches container), not img element dims
+		const cw = annotationCanvas.clientWidth;
+		const ch = annotationCanvas.clientHeight;
 		// Annotation coords are in the original pyramid coordinate space
 		const pyramid = (photo as any)?.sizes?.full?.pyramid;
 		const fullW = pyramid?.width || photo?.sizes?.full?.width || imgElement.naturalWidth;
@@ -363,7 +413,8 @@
 {/if}
 
 
-<div bind:this={containerElement} class="photo-wrapper">
+<div bind:this={containerElement} class="photo-wrapper" class:zoomed={isZoomedIn}
+	 use:panZoom={panZoomOptions || { onUpdate: () => {}, isEmbedded: true }}>
 
 	{#if photo?.is_placeholder}
 		<div class="placeholder-container" data-testid="placeholder-photo">
@@ -375,49 +426,50 @@
 	{/if}
 
 	{#if photo && !photo.is_placeholder}
-		<img
-			bind:this={imgElement}
-			src={displayedUrl}
-			alt={photo.filename}
-			style="{bg_style_stretched_photo} {border_style}"
-			fetchpriority={fetchPriority as any}
-			data-testid="main-photo"
-			data-photo={JSON.stringify(photo)}
-			onerror={(e) => {
-				// onerror is "obsolete attributes" according to MDN, but still works. Eventually, we'll replace this with the service worker.
-				console.error('🢄Photo.svelte: Image load error:', JSON.stringify({
-					photoId: photo?.id,
-					displayedUrl: displayedUrl,
-					is_device_photo: photo?.is_device_photo,
-					originalUrl: photo?.url,
-					errorMessage: e?.toString?.() || 'Unknown error'
-				}));
-			}}
-			onload={() => {
-				console.log('🢄Photo.svelte: Image loaded successfully:', JSON.stringify({
-					photoId: photo?.id,
-					displayedUrl: displayedUrl,
-					is_device_photo: photo?.is_device_photo
-				}));
-				drawAnnotations();
-			}}
-			class="photo {className}"
-			use:singleTap={() => openZoomView(photo)}
-		/>
+		<div class="zoom-container" style:transform={zoomTransform} style:transform-origin="0 0">
+			<img
+				bind:this={imgElement}
+				src={displayedUrl}
+				alt={photo.filename}
+				style="{bg_style_stretched_photo} {border_style}"
+				fetchpriority={fetchPriority as any}
+				data-testid="main-photo"
+				data-photo={JSON.stringify(photo)}
+				onerror={(e) => {
+					// onerror is "obsolete attributes" according to MDN, but still works. Eventually, we'll replace this with the service worker.
+					console.error('🢄Photo.svelte: Image load error:', JSON.stringify({
+						photoId: photo?.id,
+						displayedUrl: displayedUrl,
+						is_device_photo: photo?.is_device_photo,
+						originalUrl: photo?.url,
+						errorMessage: e?.toString?.() || 'Unknown error'
+					}));
+				}}
+				onload={() => {
+					console.log('🢄Photo.svelte: Image loaded successfully:', JSON.stringify({
+						photoId: photo?.id,
+						displayedUrl: displayedUrl,
+						is_device_photo: photo?.is_device_photo
+					}));
+					drawAnnotations();
+				}}
+				class="photo {className}"
+				use:singleTap={() => openZoomView(photo)}
+			/>
 
-		<!-- Annotation rectangles overlay -->
-		{#if className === 'front' && annotations.length > 0}
-			<canvas
-				bind:this={annotationCanvas}
-				class="annotation-canvas"
-				data-testid="annotation-canvas"
-			></canvas>
-		{/if}
+			<!-- Annotation rectangles overlay -->
+			{#if className === 'front' && annotations.length > 0}
+				<canvas
+					bind:this={annotationCanvas}
+					class="annotation-canvas"
+					data-testid="annotation-canvas"
+				></canvas>
+			{/if}
+		</div>
 
 		<!-- Loading spinner overlay -->
 		{#if isLoadingNewImage}
 			<div class="photo-loading-overlay" data-testid="photo-loading-spinner">
-				<!-- Import spinner here since we don't want to import the full Spinner component -->
 				<div class="photo-spinner"></div>
 			</div>
 		{/if}
@@ -475,6 +527,20 @@
 		object-fit: contain;
 		background-repeat: no-repeat;
 		overflow: hidden;
+		touch-action: pan-x pan-y;
+	}
+
+	.photo-wrapper.zoomed {
+		touch-action: none;
+	}
+
+	.zoom-container {
+		display: flex;
+		justify-content: center;
+		align-items: center;
+		width: 100%;
+		height: 100%;
+		position: relative;
 	}
 
 	.annotation-canvas {

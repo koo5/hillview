@@ -250,12 +250,13 @@ class SecureUploadClient:
 
 		return await self._request_upload_authorization(auth_token, upload_request)
 
-	async def upload_to_worker(self, file_input, auth_data, client_keys, filename="secure_test.jpg", timeout: float = 600_00.0, anonymization_override: str = None):
+	async def upload_to_worker(self, file_input, auth_data, client_keys, filename="secure_test.jpg", timeout: float = 600_00.0, anonymization_override: str = None, quality: int = None):
 		"""Phase 3: Upload file to worker with proper client signature.
 
 		Args:
 			file_input: Either a file path (str) or file data (bytes)
 			anonymization_override: JSON string - None=auto, "[]"=skip anonymization
+			quality: WebP quality (1-100). None=use worker default (97).
 		"""
 		upload_jwt = auth_data["upload_jwt"]
 		worker_url = auth_data["worker_url"]
@@ -285,6 +286,8 @@ class SecureUploadClient:
 			data = {'client_signature': client_signature}
 			if anonymization_override is not None:
 				data['anonymization_override'] = anonymization_override
+			if quality is not None:
+				data['quality'] = str(quality)
 			headers = {
 				'Authorization': f'Bearer {upload_jwt}',
 				'Expect': '100-continue'

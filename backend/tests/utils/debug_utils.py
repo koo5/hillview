@@ -280,7 +280,7 @@ def base64_to_pem(base64_key: str):
 		return None, None
 
 
-async def _parallel_upload(items, parallel, get_image_data, token_or_manager, format_success, timeout=60, get_captured_at=None, anonymization_override=None, version=None):
+async def _parallel_upload(items, parallel, get_image_data, token_or_manager, format_success, timeout=60, get_captured_at=None, anonymization_override=None, version=None, quality=None):
 	"""Core parallel upload logic.
 
 	Args:
@@ -295,6 +295,7 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 		                 use generate_test_captured_at from secure_upload_utils.
 		anonymization_override: JSON string passed to worker. None=auto, "[]"=skip.
 		version: Optional version number for authorize-upload request.
+		quality: WebP quality (1-100). None=use worker default (97).
 	"""
 	import asyncio
 	from .secure_upload_utils import SecureUploadClient
@@ -345,7 +346,7 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 					results["duplicates"] += 1
 					return
 
-				result = await upload_client.upload_to_worker(image_data, auth_data, client_keys, filename, anonymization_override=anonymization_override)
+				result = await upload_client.upload_to_worker(image_data, auth_data, client_keys, filename, anonymization_override=anonymization_override, quality=quality)
 				photo_id = result.get('photo_id', auth_data.get('photo_id'))
 
 				photo_data = wait_for_photo_processing(photo_id, get_token(), timeout=timeout)
@@ -449,7 +450,7 @@ def _get_token(user: str = None, password: str = None) -> str:
 		return auth_helper.get_test_user_token("test")
 
 
-def upload_random_photos(count: int = 10, parallel: int = 1, user: str = None, password: str = None):
+def upload_random_photos(count: int = 10, parallel: int = 1, user: str = None, password: str = None, quality: int = None):
 	"""Upload photos with randomized locations and bearings."""
 	import asyncio
 	import random
@@ -482,7 +483,7 @@ def upload_random_photos(count: int = 10, parallel: int = 1, user: str = None, p
 
 		# Test images need fake captured_at since they don't have real EXIF
 		await _parallel_upload(items, parallel, gen_image, token_manager, format_success, timeout=30,
-							   get_captured_at=generate_test_captured_at)
+							   get_captured_at=generate_test_captured_at, quality=quality)
 
 	try:
 		asyncio.run(_upload())
@@ -491,7 +492,7 @@ def upload_random_photos(count: int = 10, parallel: int = 1, user: str = None, p
 		traceback.print_exc()
 
 
-def upload_files(files: list, parallel: int = 1, user: str = None, password: str = None, skip_anonymization: bool = False, version: int = None, description: str = None):
+def upload_files(files: list, parallel: int = 1, user: str = None, password: str = None, skip_anonymization: bool = False, version: int = None, description: str = None, quality: int = None):
 	"""Upload files from command line paths."""
 	import asyncio
 	import os
@@ -499,7 +500,8 @@ def upload_files(files: list, parallel: int = 1, user: str = None, password: str
 	async def _upload():
 		anon_msg = " (anonymization skipped)" if skip_anonymization else ""
 		ver_msg = f" (version {version})" if version is not None else ""
-		tprint(f"📸 Uploading {len(files)} files (parallelism: {parallel}){anon_msg}{ver_msg}...")
+		qual_msg = f" (quality {quality})" if quality is not None else ""
+		tprint(f"📸 Uploading {len(files)} files (parallelism: {parallel}){anon_msg}{ver_msg}{qual_msg}...")
 
 		token_manager = TokenManager(user, password)
 
@@ -522,7 +524,7 @@ def upload_files(files: list, parallel: int = 1, user: str = None, password: str
 			return f"  [{i+1}/{total}] {filename} ✓{loc}"
 
 		anon_override = "[]" if skip_anonymization else None
-		await _parallel_upload(items, parallel, read_file, token_manager, format_success, timeout=60, anonymization_override=anon_override, version=version)
+		await _parallel_upload(items, parallel, read_file, token_manager, format_success, timeout=60, anonymization_override=anon_override, version=version, quality=quality)
 
 	try:
 		asyncio.run(_upload())
@@ -718,8 +720,8 @@ def main():
 		print("  python debug_utils.py cleanup               # Delete user's photos")
 		print("  python debug_utils.py populate-photos       # Create test photos (fixed locations)")
 		print("  python debug_utils.py populate-photos 6     # Create N test photos (max 6)")
-		print("  python debug_utils.py upload-random-photos [N] [--parallel P] [--user U --pass P]")
-		print("  python debug_utils.py upload-files [--parallel P] [--user U --pass P] [--skip-anonymization] [--version N] file1.jpg ...")
+		print("  python debug_utils.py upload-random-photos [N] [--parallel P] [--user U --pass P] [--quality Q]")
+		print("  python debug_utils.py upload-files [--parallel P] [--user U --pass P] [--skip-anonymization] [--version N] [--quality Q] file1.jpg ...")
 		print("  python debug_utils.py mock-mapillary        # Set up mock Mapillary data")
 		print("  python debug_utils.py clear-mapillary       # Clear mock Mapillary data")
 		print("  python debug_utils.py verify-signature <message_json> <signature_base64> <public_key_pem>")
@@ -751,7 +753,7 @@ def main():
 		populate_photos(count)
 	elif command == "upload-random-photos":
 		args = sys.argv[2:]
-		count, parallel, user, password = 10, 1, None, None
+		count, parallel, user, password, quality = 10, 1, None, None, None
 		positional = []
 		i = 0
 		while i < len(args):
@@ -764,6 +766,9 @@ def main():
 			elif args[i] == "--pass":
 				password = args[i + 1]
 				i += 2
+			elif args[i] == "--quality":
+				quality = int(args[i + 1])
+				i += 2
 			elif args[i].startswith("--"):
 				print(f"Unknown option: {args[i]}")
 				return
@@ -772,13 +777,14 @@ def main():
 				i += 1
 		if positional:
 			count = int(positional[0])
-		upload_random_photos(count, parallel, user, password)
+		upload_random_photos(count, parallel, user, password, quality=quality)
 	elif command == "upload-files":
 		args = sys.argv[2:]
 		parallel, user, password = 1, None, None
 		skip_anonymization = False
 		version = None
 		description = None
+		quality = None
 		files = []
 		i = 0
 		while i < len(args):
@@ -800,6 +806,9 @@ def main():
 			elif args[i] == "--description":
 				description = args[i + 1]
 				i += 2
+			elif args[i] == "--quality":
+				quality = int(args[i + 1])
+				i += 2
 			elif args[i].startswith("--"):
 				print(f"Unknown option: {args[i]}")
 				return
@@ -807,9 +816,9 @@ def main():
 				files.append(args[i])
 				i += 1
 		if not files:
-			print("Usage: upload-files [--parallel N] [--user U --pass P] [--skip-anonymization] [--version N] [--description TEXT] file1.jpg ...")
+			print("Usage: upload-files [--parallel N] [--user U --pass P] [--skip-anonymization] [--version N] [--description TEXT] [--quality Q] file1.jpg ...")
 		else:
-			upload_files(files, parallel, user, password, skip_anonymization=skip_anonymization, version=version, description=description)
+			upload_files(files, parallel, user, password, skip_anonymization=skip_anonymization, version=version, description=description, quality=quality)
 	elif command == "mock-mapillary":
 		setup_mock_mapillary()
 	elif command == "clear-mapillary":
