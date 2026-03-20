@@ -2,31 +2,13 @@ import { test, expect } from './fixtures';
 import { configureSources } from './helpers/sourceHelpers';
 import { uploadTestPhotosWithLocation } from './helpers/photoUpload';
 import { recreateTestUsers, loginAsTestUser } from './helpers/testUsers';
-
-// Helper to filter expected errors (image loading, network errors for mock data)
-function isUnexpectedError(text: string): boolean {
-  const expectedPatterns = [
-    'favicon.ico',
-    'ERR_NAME_NOT_RESOLVED',
-    'Image load error',
-    'Failed to load resource',
-    'net::ERR_',
-    'access control checks',   // WebKit blocks ES module loading in workers from Vite dev server
-    'Worker error'             // consequence of the above in SimplePhotoWorker
-  ];
-  return !expectedPatterns.some(pattern => text.includes(pattern));
-}
+import { collectErrors } from './helpers/consoleLogging';
 
 test.describe('Photo UID Functionality', () => {
 
   test.describe('URL Parameter Parsing', () => {
     test('should parse photo uid from URL and navigate to correct location', async ({ page }) => {
-      const errors: string[] = [];
-      page.on('console', (msg) => {
-        if (msg.type() === 'error' && isUnexpectedError(msg.text())) {
-          errors.push(msg.text());
-        }
-      });
+      const { errors } = collectErrors(page);
 
       // Navigate with photo uid in URL
       await page.goto('/?lat=50.0755&lon=14.4378&zoom=18&bearing=45&photo=hillview-test-photo-123');
@@ -75,12 +57,7 @@ test.describe('Photo UID Functionality', () => {
     });*/
 
     test('should handle invalid photo uid formats gracefully', async ({ page }) => {
-      const errors: string[] = [];
-      page.on('console', (msg) => {
-        if (msg.type() === 'error' && isUnexpectedError(msg.text())) {
-          errors.push(msg.text());
-        }
-      });
+      const { errors } = collectErrors(page);
 
       const invalidCases = [
         'invalid-source-123',
@@ -105,12 +82,7 @@ test.describe('Photo UID Functionality', () => {
   test.describe('Automatic Source Enabling', () => {
 
     test('should enable mapillary source when mapillary photo uid is in URL', async ({ page }) => {
-      const errors: string[] = [];
-      page.on('console', (msg) => {
-        if (msg.type() === 'error' && isUnexpectedError(msg.text())) {
-          errors.push(msg.text());
-        }
-      });
+      const { errors } = collectErrors(page);
 
       // Navigate directly with mapillary photo uid
       await page.goto('/?lat=50.0755&lon=14.4378&photo=mapillary-abc123');
@@ -125,12 +97,7 @@ test.describe('Photo UID Functionality', () => {
     });
 
     test('should enable hillview source when hillview photo uid is in URL', async ({ page }) => {
-      const errors: string[] = [];
-      page.on('console', (msg) => {
-        if (msg.type() === 'error' && isUnexpectedError(msg.text())) {
-          errors.push(msg.text());
-        }
-      });
+      const { errors } = collectErrors(page);
 
       // Navigate directly with hillview photo uid
       await page.goto('/?lat=50.0755&lon=14.4378&photo=hillview-test-123');
@@ -218,12 +185,7 @@ test.describe('Photo UID Functionality', () => {
     });
 
     test('should handle photo uid navigation on activity page', async ({ page }) => {
-      const errors: string[] = [];
-      page.on('console', (msg) => {
-        if (msg.type() === 'error' && isUnexpectedError(msg.text())) {
-          errors.push(msg.text());
-        }
-      });
+      const { errors } = collectErrors(page);
 
       await page.goto('/activity?lat=50.0755&lon=14.4378&photo=hillview-activity-test');
       await page.waitForLoadState('networkidle');
@@ -239,12 +201,7 @@ test.describe('Photo UID Functionality', () => {
     });
 
     test('should handle photo uid navigation on photos page', async ({ page }) => {
-      const errors: string[] = [];
-      page.on('console', (msg) => {
-        if (msg.type() === 'error' && isUnexpectedError(msg.text())) {
-          errors.push(msg.text());
-        }
-      });
+      const { errors } = collectErrors(page);
 
       await page.goto('/photos?lat=50.0755&lon=14.4378&photo=hillview-photos-test');
       await page.waitForLoadState('networkidle');
@@ -260,12 +217,7 @@ test.describe('Photo UID Functionality', () => {
     });
 
     test('should navigate from user profile photo to map with photo uid', async ({ page, testUsers }) => {
-      const errors: string[] = [];
-      page.on('console', (msg) => {
-        if (msg.type() === 'error' && isUnexpectedError(msg.text())) {
-          errors.push(msg.text());
-        }
-      });
+      const { errors } = collectErrors(page);
 
       // Login and upload a test photo with location to ensure test data exists
       await loginAsTestUser(page, testUsers.passwords.test);
@@ -334,12 +286,7 @@ test.describe('Photo UID Functionality', () => {
 
   test.describe('Photo UID Error Handling', () => {
     test('should handle missing photo uid parameter gracefully', async ({ page }) => {
-      const errors: string[] = [];
-      page.on('console', (msg) => {
-        if (msg.type() === 'error' && isUnexpectedError(msg.text())) {
-          errors.push(msg.text());
-        }
-      });
+      const { errors } = collectErrors(page);
 
       await page.goto('/?lat=50.0755&lon=14.4378&zoom=18');
       await page.waitForLoadState('networkidle');
@@ -351,12 +298,7 @@ test.describe('Photo UID Functionality', () => {
     });
 
     test('should handle malformed photo uid parameter', async ({ page }) => {
-      const errors: string[] = [];
-      page.on('console', (msg) => {
-        if (msg.type() === 'error' && isUnexpectedError(msg.text())) {
-          errors.push(msg.text());
-        }
-      });
+      const { errors } = collectErrors(page);
 
       const malformedCases = [
         '%',

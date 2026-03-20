@@ -3,6 +3,7 @@ import { loginAsTestUser, logoutUser } from './helpers/testUsers';
 import { uploadPhoto, testPhotos } from './helpers/photoUpload';
 import { ensureSourceEnabled } from './helpers/sourceHelpers';
 import { BACKEND_URL } from './helpers/adminAuth';
+import { setMapLocation } from './helpers/mapSetup';
 
 // GPS location of the test photos (~50.1153, 14.4938)
 const TEST_PHOTO_LAT = 50.1153;
@@ -15,23 +16,6 @@ async function setFeatured(photoId: string, featured: boolean): Promise<void> {
 		{ method: 'POST' },
 	);
 	if (!res.ok) throw new Error(`Failed to set featured for ${photoId}: ${res.status}`);
-}
-
-/** Set the map view programmatically. */
-async function setMapLocation(page: any, lat: number, lng: number, zoom: number = 18): Promise<void> {
-	await page.evaluate(([lat, lng, zoom]: [number, number, number]) => {
-		const maps = [
-			(window as any).map,
-			(window as any).leafletMap,
-			(document.querySelector('.leaflet-container') as any)?._leaflet_map
-		];
-		const map = maps.find(m => m && typeof m.setView === 'function');
-		if (map) {
-			map.setView([lat, lng], zoom);
-		} else {
-			throw new Error('Could not find Leaflet map instance');
-		}
-	}, [lat, lng, zoom]);
 }
 
 /** Get all visible photo marker IDs on the map. */

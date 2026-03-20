@@ -2,22 +2,9 @@ import { test, expect } from './fixtures';
 import { recreateTestUsers, loginAsTestUser } from './helpers/testUsers';
 import { uploadPhoto, testPhotos } from './helpers/photoUpload';
 import { ensureSourceEnabled } from './helpers/sourceHelpers';
+import { collectErrors } from './helpers/consoleLogging';
 
 type Page = import('@playwright/test').Page;
-
-// Helper to filter expected errors
-function isUnexpectedError(text: string): boolean {
-  const expectedPatterns = [
-    'favicon.ico',
-    'ERR_NAME_NOT_RESOLVED',
-    'Image load error',
-    'Failed to load resource',
-    'net::ERR_',
-    'access control checks',
-    'Worker error'
-  ];
-  return !expectedPatterns.some(pattern => text.includes(pattern));
-}
 
 /** Open the OSD viewer by clicking the main photo. */
 async function openViewer(page: Page) {
@@ -437,12 +424,7 @@ test.describe('Zoom View URL Parameters', () => {
   test.describe('Error handling', () => {
 
     test('should handle malformed zoom params gracefully', async ({ page }) => {
-      const errors: string[] = [];
-      page.on('console', (msg) => {
-        if (msg.type() === 'error' && isUnexpectedError(msg.text())) {
-          errors.push(msg.text());
-        }
-      });
+      const { errors } = collectErrors(page);
 
       // Navigate with invalid (non-numeric) zoom params
       await page.goto('/?lat=50.0755&lon=14.4378&zoom=18&photo=hillview-123&x1=abc&y1=def&x2=ghi&y2=jkl');
@@ -456,12 +438,7 @@ test.describe('Zoom View URL Parameters', () => {
     });
 
     test('should handle partial zoom params gracefully (only x1 and y1)', async ({ page }) => {
-      const errors: string[] = [];
-      page.on('console', (msg) => {
-        if (msg.type() === 'error' && isUnexpectedError(msg.text())) {
-          errors.push(msg.text());
-        }
-      });
+      const { errors } = collectErrors(page);
 
       // Only 2 of 4 params — should not activate zoom view
       await page.goto('/?lat=50.0755&lon=14.4378&zoom=18&photo=hillview-123&x1=0.1&y1=0.1');

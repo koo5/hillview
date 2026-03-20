@@ -1,6 +1,7 @@
 import { test, expect } from './fixtures';
 import { uploadTestPhotosWithLocation } from './helpers/photoUpload';
 import { loginAsTestUser } from './helpers/testUsers';
+import { collectErrors } from './helpers/consoleLogging';
 
 test.describe('Users Pages and Navigation', () => {
 
@@ -139,12 +140,7 @@ test.describe('Users Pages and Navigation', () => {
   });
 
   test('should handle pages without runtime errors', async ({ page }) => {
-    const errors: string[] = [];
-    page.on('console', (msg) => {
-      if (msg.type() === 'error' && !msg.text().includes('favicon.ico')) {
-        errors.push(msg.text());
-      }
-    });
+    const { errors } = collectErrors(page);
 
     await page.goto('/users');
     await page.waitForLoadState('networkidle');

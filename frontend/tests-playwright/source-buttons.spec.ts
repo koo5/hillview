@@ -1,50 +1,7 @@
 import { test, expect } from './fixtures';
 import { configureSources } from './helpers/sourceHelpers';
 import { createMockMapillaryData, setupMockMapillaryData, clearMockMapillaryData } from './helpers/mapillaryMocks';
-
-// Helper function to set map location
-async function setMapLocation(page: any, lat: number, lng: number, zoom: number = 18, locationName?: string) {
-  if (locationName) {
-    //console.log(`🗺️ Moving map to ${locationName}...`);
-  }
-
-  // Ensure map container is visible
-  const mapContainer = page.locator('.leaflet-container').first();
-  await mapContainer.waitFor({ state: 'visible', timeout: 10000 });
-
-  const mapFound = await page.evaluate(([lat, lng, zoom, locationName]: [number, number, number, string]) => {
-    //console.log(`🢄🗺️ Attempting to set map view to ${locationName || `${lat}, ${lng}`}`);
-
-    // Try multiple ways to access the Leaflet map
-    const maps = [
-      (window as any).map,
-      (window as any).leafletMap,
-      (document.querySelector('.leaflet-container') as any)?._leaflet_map
-    ];
-
-    //console.log(`🢄🗺️ Found ${maps.filter(m => m).length} potential map objects`);
-
-    for (let i = 0; i < maps.length; i++) {
-      const mapComponent = maps[i];
-      //console.log(`🢄Map ${i}: ${mapComponent ? 'exists' : 'null'}, has setView: ${mapComponent?.setView ? 'yes' : 'no'}`);
-
-      if (mapComponent && mapComponent.setView) {
-        console.log(`🢄📍 Setting map view to ${locationName || `${lat}, ${lng}`}`);
-        mapComponent.setView([lat, lng], zoom);
-        return true;
-      }
-    }
-    console.log('🢄❌ Could not find map component to set view');
-    return false;
-  }, [lat, lng, zoom, locationName]);
-
-  if (!mapFound) {
-    throw new Error(`Failed to set map location to ${locationName || `${lat}, ${lng}`} - could not find map component`);
-  }
-
-  // Give the map a moment to update (the photo worker successfully processes the move)
-  await page.waitForTimeout(1000);
-}
+import { setMapLocation } from './helpers/mapSetup';
 
 
 test.describe('Source Buttons Toggle', () => {

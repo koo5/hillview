@@ -1,26 +1,7 @@
 import { test, expect } from './fixtures';
 import { configureSources } from './helpers/sourceHelpers';
 import { setupDefaultMockMapillaryData, clearMockMapillaryData } from './helpers/mapillaryMocks';
-
-// Helper function to set map location
-async function setMapLocation(page: any, lat: number, lng: number, zoom: number = 18) {
-  await page.evaluate(([lat, lng, zoom]: [number, number, number]) => {
-    const maps = [
-      (window as any).map,
-      (window as any).leafletMap,
-      (document.querySelector('.leaflet-container') as any)?._leaflet_map
-    ];
-
-    for (const mapComponent of maps) {
-      if (mapComponent && mapComponent.setView) {
-        mapComponent.setView([lat, lng], zoom);
-        return;
-      }
-    }
-  }, [lat, lng, zoom]);
-
-  await page.waitForTimeout(1000);
-}
+import { setMapLocation } from './helpers/mapSetup';
 
 test.describe('Photo Loading and Display', () => {
   test.beforeEach(async ({ page }) => {

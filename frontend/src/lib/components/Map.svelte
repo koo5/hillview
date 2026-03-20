@@ -1300,7 +1300,7 @@
                 color="#FF0000"
                 fillColor="#FF0000"
                 fillOpacity={0}
-                weight={4}
+                weight={6}
                 dashArray="5, 10"
             />
     {/if}

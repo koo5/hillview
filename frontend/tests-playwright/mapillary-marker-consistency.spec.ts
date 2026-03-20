@@ -5,32 +5,12 @@ import {
   clearMockMapillaryData
 } from './helpers/mapillaryMocks';
 import { configureSources } from './helpers/sourceHelpers';
+import { setMapLocation } from './helpers/mapSetup';
 
 /**
  * Test for Mapillary marker rendering consistency with mocked data
  * Based on backend test mocking approach in backend/tests/test_mapillary_filtering.py
  */
-
-
-// Helper function to set map location
-async function setMapLocation(page: any, lat: number, lng: number, zoom: number = 18) {
-  await page.evaluate(([lat, lng, zoom]: [number, number, number]) => {
-    const maps = [
-      (window as any).map,
-      (window as any).leafletMap,
-      (document.querySelector('.leaflet-container') as any)?._leaflet_map
-    ];
-
-    for (const mapComponent of maps) {
-      if (mapComponent && mapComponent.setView) {
-        mapComponent.setView([lat, lng], zoom);
-        return;
-      }
-    }
-  }, [lat, lng, zoom]);
-
-  await page.waitForTimeout(1000);
-}
 
 // Helper function to count visible markers
 async function countVisibleMarkers(page: any): Promise<number> {
