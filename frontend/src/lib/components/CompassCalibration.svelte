@@ -82,15 +82,16 @@
 	});
 </script>
 
+<button class="close-button" on:click={handleClose} aria-label="Close calibration"
+		data-testid="calibration-close-btn">
+	&times;
+</button>
+
 <div class="calibration-overlay" data-testid="compass-calibration-overlay">
+
 	<div class="calibration-content">
 		<div class="calibration-inner">
-			<button class="close-button" on:click={handleClose} aria-label="Close calibration"
-					data-testid="calibration-close-btn">
-				&times;
-			</button>
-
-			<h4 class="calibration-title">Calibrate Compass</h4>
+			<h1 class="calibration-title">Calibrate Compass</h1>
 
 			<!-- Figure-8 Animation and instruction on same line -->
 			<div class="instruction-row">
@@ -128,11 +129,11 @@
 
 			<!-- Car Mode Hint -->
 			<div class="car-mode-hint" data-testid="car-mode-hint">
-				<div class="hint-title">
+				<span class="hint-title">
 					<Car size={16}/>
 					In a vehicle?
-				</div>
-				<div class="hint-text">Long-press to switch to Car Mode for GPS-based heading:</div>
+				</span>
+				<span class="hint-text">Long-press to switch modes:</span>
 				<div class="mode-switch-visual">
 					<div class="compass-button-preview">
 						<CompassButtonInner bearingMode="walking"/>
@@ -153,7 +154,7 @@
 <style>
 	.calibration-overlay {
 		position: absolute;
-		top: 0;
+		top: 75px;
 		left: 0;
 		right: 0;
 		bottom: 0;
@@ -161,6 +162,7 @@
 		overflow: hidden;
 		display: flex;
 		flex-direction: column;
+
 	}
 
 	.calibration-content {
@@ -185,13 +187,13 @@
 
 	.close-button {
 		position: absolute;
-		top: 8px;
+		top: 40px;
 		right: 12px;
 		background: none;
 		border: none;
 		font-size: 48px;
 		cursor: pointer;
-		padding: 4px 8px;
+		padding: 0 8px;
 		line-height: 1;
 		transition: opacity 0.2s;
 		opacity: 0.5;
@@ -202,14 +204,14 @@
 	}
 
 	.calibration-title {
-		font-size: 1rem;
+		font-size: 1.2rem;
 		font-weight: 600;
 	}
 
 	.instruction-row {
 		display: flex;
 		align-items: center;
-		gap: 8px;
+		gap: 2px;
 		margin: 12px 0;
 	}
 
@@ -221,7 +223,7 @@
 
 	.calibration-instruction {
 		margin: 0;
-		font-size: 0.9rem;
+		font-size: 1rem;
 		line-height: 1.4;
 		text-align: left;
 	}

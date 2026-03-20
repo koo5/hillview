@@ -203,6 +203,7 @@
 				fallback_url: '',
 				url: fullPhotoInfo.url,
 				filename: photo.filename,
+				description: photo.description,
 				width: fullPhotoInfo.width,
 				height: fullPhotoInfo.height,
 				photo_id: photo.id,

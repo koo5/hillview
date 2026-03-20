@@ -69,21 +69,29 @@ export const photosInArea = writable<PhotoData[]>([]);
 // Photos in range for navigation (from worker)
 export const photosInRange = writable<PhotoData[]>([]);
 
-// Whether any photo in range is featured
+// Whether any photo in range is featured (excluding filtered ones)
 export const anyFeatured = writable<boolean>(false);
 
-// Whether to show all photos or only featured (persisted in localStorage)
+// Whether any photo in range is filtered out by analysis filters
+export const anyFiltered = writable<boolean>(false);
+
+// Whether to show all photos or only featured/non-filtered (persisted in localStorage)
 export const showAll = localStorageReadOnceSharedStore<boolean>('showAll', false);
 
-// Update anyFeatured when photosInRange changes
+// Update anyFeatured/anyFiltered when photosInRange changes
 photosInRange.subscribe(photos => {
-	anyFeatured.set(photos.some(p => p.featured === true));
+	anyFeatured.set(photos.some(p => p.featured === true && !p.filtered));
+	anyFiltered.set(photos.some(p => p.filtered === true));
 });
 
-// Photos eligible for navigation: when featured photos exist and showAll is off, only featured are navigable
+// Photos eligible for navigation: exclude filtered, and when featured exist exclude non-featured
 export const navigablePhotos = derived(
 	[photosInRange, anyFeatured, showAll],
-	([photos, hasFeatured, all]) => (hasFeatured && !all) ? photos.filter(p => p.featured) : photos
+	([photos, hasFeatured, all]) => {
+		if (all) return photos;
+		const navigable = photos.filter(p => !p.filtered);
+		return hasFeatured ? navigable.filter(p => p.featured) : navigable;
+	}
 );
 
 // Combined photos for rendering (includes placeholders)

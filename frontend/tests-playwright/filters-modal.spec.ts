@@ -232,9 +232,12 @@ test.describe('Filters with uploaded photos', () => {
 		await modal.locator('.close-button').click();
 		await page.waitForTimeout(3000); // wait for re-fetch
 
-		// All photos are unanalyzed, so none should show
-		const markersAfter = page.locator('[data-testid^="photo-marker-"]');
-		await expect(markersAfter).toHaveCount(0, { timeout: 10000 });
+		// All photos are unanalyzed — markers still visible but grayed
+		const markers = page.locator('[data-testid^="photo-marker-"]');
+		const markerCount = await markers.count();
+		expect(markerCount).toBeGreaterThan(0);
+		const grayedCircles = page.locator('[data-testid^="photo-marker-"] .bearing-circle.grayed');
+		await expect(grayedCircles).toHaveCount(markerCount, { timeout: 10000 });
 	});
 
 	test('re-enabling show-unanalyzed should bring photos back', async ({ page, testUsers }) => {
@@ -260,8 +263,12 @@ test.describe('Filters with uploaded photos', () => {
 		await modal.locator('.close-button').click();
 		await page.waitForTimeout(3000);
 
-		// No markers
-		await expect(page.locator('[data-testid^="photo-marker-"]')).toHaveCount(0, { timeout: 10000 });
+		// Markers visible but grayed
+		const markers = page.locator('[data-testid^="photo-marker-"]');
+		const markerCount = await markers.count();
+		expect(markerCount).toBeGreaterThan(0);
+		const grayedCircles = page.locator('[data-testid^="photo-marker-"] .bearing-circle.grayed');
+		await expect(grayedCircles).toHaveCount(markerCount, { timeout: 10000 });
 
 		// Re-open and re-enable show-unanalyzed
 		await page.locator('[data-testid="filters-button"]').click();
@@ -272,9 +279,7 @@ test.describe('Filters with uploaded photos', () => {
 		await modal.locator('.close-button').click();
 		await page.waitForTimeout(3000);
 
-		// Markers should be back
-		const markersAfter = page.locator('[data-testid^="photo-marker-"]');
-		const count = await markersAfter.count();
-		expect(count).toBeGreaterThan(0);
+		// Markers should no longer be grayed
+		await expect(grayedCircles).toHaveCount(0, { timeout: 10000 });
 	});
 });

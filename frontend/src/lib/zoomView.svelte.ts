@@ -9,6 +9,7 @@ export interface ZoomViewData {
 	fallback_url: string;  // Current thumbnail/preview URL
 	url: string;           // Full-size image URL
 	filename: string;
+	description?: string;
 	width?: number;
 	height?: number;
 	photo_id?: string;     // For fetching annotations

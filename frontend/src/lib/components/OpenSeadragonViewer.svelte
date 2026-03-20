@@ -1224,7 +1224,7 @@
 
 	<!-- Filename bar -->
 	{#if annotationMode === 'view'}
-		<div class="filename-bar">{data.filename}</div>
+		<div class="filename-bar">{data.description || data.filename}</div>
 	{/if}
 </div>
 

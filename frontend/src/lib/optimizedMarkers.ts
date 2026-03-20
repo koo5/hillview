@@ -73,9 +73,9 @@ export class OptimizedMarkerSystem {
 		const currentPhotoInFront = get(photoInFront);
 		const isSelected = currentPhotoInFront && photo.id === currentPhotoInFront.id && (get(app).activity != 'capture')
 
-		// Always set z-index: regular(0) < featured(500000) < selected(1000000)
+		// Z-index tiers: filtered(-100000) < regular(0) < featured(500000) < selected(1000000)
 		// Must be explicit to reset stale offsets on pooled markers
-		marker.setZIndexOffset(photo.featured ? 500000 : 0);
+		marker.setZIndexOffset(photo.filtered ? -100000 : (photo.featured ? 500000 : 0));
 
 		// Apply selection styling and store reference (overrides featured z-index)
 		if (isSelected) {
@@ -404,7 +404,7 @@ export class OptimizedMarkerSystem {
 	 */
 	private removeSelectedStyling(marker: L.Marker): void {
 		const photoData = (marker as any)._photoData as PhotoData;
-		marker.setZIndexOffset(photoData?.featured ? 500000 : 0);
+		marker.setZIndexOffset(photoData?.filtered ? -100000 : (photoData?.featured ? 500000 : 0));
 
 		const element = marker.getElement();
 		if (element) {
@@ -424,10 +424,12 @@ export class OptimizedMarkerSystem {
 	}
 
 	/**
-	 * Update grayed state on all active markers based on featured photos in range.
-	 * Non-featured photos in range get grayed when any featured photo exists in range.
+	 * Update grayed state on all active markers.
+	 * When showAll is off: filtered photos are grayed, and non-featured photos
+	 * in range are grayed when any featured photo exists.
+	 * When showAll is on: nothing is grayed.
 	 */
-	updateFeaturedGraying(photosInRangeIds: Set<string>, anyFeatured: boolean): void {
+	updateGraying(photosInRangeIds: Set<string>, anyFeatured: boolean, showAll: boolean): void {
 		for (const marker of this.activeMarkers) {
 			if (!marker) continue;
 			const photoData = (marker as any)._photoData as PhotoData;
@@ -438,7 +440,10 @@ export class OptimizedMarkerSystem {
 			const circle = element.querySelector('.bearing-circle');
 			if (!circle) continue;
 
-			const shouldGray = anyFeatured && photosInRangeIds.has(photoData.id) && !photoData.featured;
+			const shouldGray = !showAll && (
+				photoData.filtered ||
+				(anyFeatured && photosInRangeIds.has(photoData.id) && !photoData.featured)
+			);
 			circle.classList.toggle('grayed', shouldGray);
 		}
 	}

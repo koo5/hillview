@@ -39,6 +39,7 @@
 		type BearingMode, updateBearing,
 		picks,
 		anyFeatured,
+		anyFiltered,
 		showAll,
 		mapReady,
 	} from "$lib/mapState";
@@ -733,8 +734,8 @@
         const isInRange = inRange.some(p => p.uid === photo.uid);
 
         if (isInRange) {
-            // If clicking a grayed (non-featured) marker, enable showAll so it becomes navigable
-            if (get(anyFeatured) && !get(showAll) && !photo.featured) {
+            // If clicking a grayed marker (filtered or non-featured), enable showAll
+            if (!get(showAll) && (photo.filtered || (get(anyFeatured) && !photo.featured))) {
                 showAll.set(true);
             }
             // Photo is in range, just update bearing to select it
@@ -1107,12 +1108,17 @@
             locationApiEventFlashTimer = null;
         }
 
-        // Clean up line layers
+        // Clean up line layers and touch handler
+        if (lineTouchHandler && map) {
+            map.getContainer().removeEventListener('touchstart', lineTouchHandler);
+            lineTouchHandler = null;
+        }
         if (lineLayerGroup) {
             lineLayerGroup.clearLayers();
             lineLayerGroup.remove();
             lineLayerGroup = null;
         }
+        renderedLines = [];
 
         // Clean up optimized marker system
         optimizedMarkerSystem.destroy();
@@ -1191,19 +1197,39 @@
 		}
     }
 
-    // Update grayed state when photosInRange, anyFeatured, or showAll changes
+    // Update grayed state when photosInRange, anyFeatured, anyFiltered, or showAll changes
     $: {
-        const graying = $anyFeatured && !$showAll;
+        void $anyFiltered; // track for reactivity
         if ($photosInRange && map && currentMarkers.length > 0) {
             const inRangeIds = new Set($photosInRange.map(p => p.id));
-            optimizedMarkerSystem.updateFeaturedGraying(inRangeIds, graying);
+            optimizedMarkerSystem.updateGraying(inRangeIds, $anyFeatured, $showAll);
         }
     }
 
     // --- Line rendering ---
     let lineLayerGroup: L.LayerGroup | null = null;
+    // Track rendered line data for touch hit detection
+    let renderedLines: { index: number; polyline: L.Polyline; startMarker: L.Marker; endMarker: L.Marker }[] = [];
+    let lineTouchHandler: ((e: TouchEvent) => void) | null = null;
+
+    // Distance from a point to a line segment (in pixels)
+    function pointToSegmentDistPx(p: L.Point, a: L.Point, b: L.Point): number {
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const lenSq = dx * dx + dy * dy;
+        if (lenSq === 0) return p.distanceTo(a);
+        const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq));
+        const proj = L.point(a.x + t * dx, a.y + t * dy);
+        return p.distanceTo(proj);
+    }
 
     function renderLines(linesVal: typeof $lines, visible: boolean) {
+        // Clean up previous touch handler
+        if (lineTouchHandler && map) {
+            map.getContainer().removeEventListener('touchstart', lineTouchHandler);
+            lineTouchHandler = null;
+        }
+        renderedLines = [];
+
         // Clear previous
         if (lineLayerGroup) {
             lineLayerGroup.clearLayers();
@@ -1221,6 +1247,53 @@
 
         const endIcon = L.divIcon({ className: 'line-endpoint', iconSize: [14, 14], iconAnchor: [7, 7] });
         const startIcon = L.divIcon({ className: 'line-startpoint', iconSize: [14, 14], iconAnchor: [7, 7] });
+
+        function startRotationDrag(
+            lineData: typeof renderedLines[0],
+            line: typeof linesVal[0],
+            clientX: number, clientY: number
+        ) {
+            const origDist = distanceBetween(line.start.lat, line.start.lng, line.end.lat, line.end.lng);
+            if (origDist === 0) return;
+
+            map!.dragging.disable();
+            const container = map!.getContainer();
+
+            function applyRotation(cx: number, cy: number) {
+                const rect = container.getBoundingClientRect();
+                const point = L.point(cx - rect.left, cy - rect.top);
+                const cursor = map!.containerPointToLatLng(point);
+                const newBearing = bearingBetween(line.start.lat, line.start.lng, cursor.lat, cursor.lng);
+                const newEnd = destinationPoint(line.start.lat, line.start.lng, newBearing, origDist);
+                lineData.polyline.setLatLngs([[line.start.lat, line.start.lng], [newEnd.lat, newEnd.lng]]);
+                lineData.endMarker.setLatLng([newEnd.lat, newEnd.lng]);
+            }
+
+            function onMouseMove(me: MouseEvent) { applyRotation(me.clientX, me.clientY); }
+            function onTouchMove(te: TouchEvent) {
+                te.preventDefault();
+                applyRotation(te.touches[0].clientX, te.touches[0].clientY);
+            }
+
+            function cleanup() {
+                container.removeEventListener('mousemove', onMouseMove);
+                container.removeEventListener('mouseup', cleanup);
+                container.removeEventListener('touchmove', onTouchMove);
+                container.removeEventListener('touchend', cleanup);
+                container.removeEventListener('touchcancel', cleanup);
+                map!.dragging.enable();
+                const latlngs = lineData.polyline.getLatLngs() as L.LatLng[];
+                const finalEnd = latlngs[1];
+                lines.update(l => l.map((ln, idx) => idx === lineData.index
+                    ? { ...ln, end: { lat: finalEnd.lat, lng: finalEnd.lng } } : ln));
+            }
+
+            container.addEventListener('mousemove', onMouseMove);
+            container.addEventListener('mouseup', cleanup);
+            container.addEventListener('touchmove', onTouchMove, { passive: false });
+            container.addEventListener('touchend', cleanup);
+            container.addEventListener('touchcancel', cleanup);
+        }
 
         linesVal.forEach((line, i) => {
             if (!line.visible) return;
@@ -1255,59 +1328,46 @@
             });
             lineLayerGroup!.addLayer(endMarker);
 
-            // Line body drag → rotate around start
-            // Line body drag → rotate around start (mouse + touch)
-            function startLineDrag(e: any) {
+            const lineData = { index: i, polyline, startMarker, endMarker };
+            renderedLines.push(lineData);
+
+            // Mouse drag on polyline (works with Canvas renderer for mouse)
+            polyline.on('mousedown', (e: any) => {
                 L.DomEvent.stopPropagation(e);
-                const origDist = distanceBetween(line.start.lat, line.start.lng, line.end.lat, line.end.lng);
-                if (origDist === 0) return;
-
-                map!.dragging.disable();
-                const container = map!.getContainer();
-
-                function applyRotation(clientX: number, clientY: number) {
-                    const rect = container.getBoundingClientRect();
-                    const point = L.point(clientX - rect.left, clientY - rect.top);
-                    const cursor = map!.containerPointToLatLng(point);
-                    const newBearing = bearingBetween(line.start.lat, line.start.lng, cursor.lat, cursor.lng);
-                    const newEnd = destinationPoint(line.start.lat, line.start.lng, newBearing, origDist);
-                    polyline.setLatLngs([[line.start.lat, line.start.lng], [newEnd.lat, newEnd.lng]]);
-                    endMarker.setLatLng([newEnd.lat, newEnd.lng]);
-                }
-
-                function onMouseMove(me: MouseEvent) { applyRotation(me.clientX, me.clientY); }
-                function onTouchMove(te: TouchEvent) {
-                    te.preventDefault();
-                    const t = te.touches[0];
-                    applyRotation(t.clientX, t.clientY);
-                }
-
-                function cleanup() {
-                    container.removeEventListener('mousemove', onMouseMove);
-                    container.removeEventListener('mouseup', cleanup);
-                    container.removeEventListener('touchmove', onTouchMove);
-                    container.removeEventListener('touchend', cleanup);
-                    container.removeEventListener('touchcancel', cleanup);
-                    map!.dragging.enable();
-                    const latlngs = polyline.getLatLngs() as L.LatLng[];
-                    const finalEnd = latlngs[1];
-                    lines.update(l => l.map((ln, idx) => idx === i ? { ...ln, end: { lat: finalEnd.lat, lng: finalEnd.lng } } : ln));
-                }
-
-                container.addEventListener('mousemove', onMouseMove);
-                container.addEventListener('mouseup', cleanup);
-                container.addEventListener('touchmove', onTouchMove, { passive: false });
-                container.addEventListener('touchend', cleanup);
-                container.addEventListener('touchcancel', cleanup);
-            }
-
-            polyline.on('mousedown', startLineDrag);
-            // Leaflet doesn't fire 'mousedown' for touch — listen on the DOM element after it's rendered
-            polyline.on('add', () => {
-                const el = polyline.getElement();
-                if (el) el.addEventListener('touchstart', startLineDrag, { passive: false });
+                startRotationDrag(lineData, line, e.originalEvent.clientX, e.originalEvent.clientY);
             });
         });
+
+        // Touch handler on map container — find nearest line within threshold
+        const TOUCH_THRESHOLD_PX = 15;
+        lineTouchHandler = (e: TouchEvent) => {
+            if (!map || renderedLines.length === 0) return;
+            const touch = e.touches[0];
+            const rect = map.getContainer().getBoundingClientRect();
+            const touchPt = L.point(touch.clientX - rect.left, touch.clientY - rect.top);
+
+            let bestDist = Infinity;
+            let bestEntry: typeof renderedLines[0] | null = null;
+
+            for (const entry of renderedLines) {
+                const latlngs = entry.polyline.getLatLngs() as L.LatLng[];
+                const aPx = map.latLngToContainerPoint(latlngs[0]);
+                const bPx = map.latLngToContainerPoint(latlngs[1]);
+                const dist = pointToSegmentDistPx(touchPt, aPx, bPx);
+                if (dist < bestDist) {
+                    bestDist = dist;
+                    bestEntry = entry;
+                }
+            }
+
+            if (bestEntry && bestDist <= TOUCH_THRESHOLD_PX) {
+                e.preventDefault();
+                e.stopPropagation();
+                const currentLines = get(lines);
+                startRotationDrag(bestEntry, currentLines[bestEntry.index], touch.clientX, touch.clientY);
+            }
+        };
+        map.getContainer().addEventListener('touchstart', lineTouchHandler, { passive: false });
     }
 
     $: if (map) renderLines($lines, $linesVisible);
@@ -1410,21 +1470,21 @@
 
 
 <!--     Debug bounds rectangle-->
-    {#if $spatialState.bounds}
-        <Polygon
-                latLngs={[
-                    [$spatialState.bounds.top_left.lat, $spatialState.bounds.top_left.lng],
-                    [$spatialState.bounds.top_left.lat, $spatialState.bounds.bottom_right.lng],
-                    [$spatialState.bounds.bottom_right.lat, $spatialState.bounds.bottom_right.lng],
-                    [$spatialState.bounds.bottom_right.lat, $spatialState.bounds.top_left.lng]
-                ]}
-                color="#FF0000"
-                fillColor="#FF0000"
-                fillOpacity={0}
-                weight={6}
-                dashArray="5, 10"
-            />
-    {/if}
+<!--    {#if $spatialState.bounds}-->
+<!--        <Polygon-->
+<!--                latLngs={[-->
+<!--                    [$spatialState.bounds.top_left.lat, $spatialState.bounds.top_left.lng],-->
+<!--                    [$spatialState.bounds.top_left.lat, $spatialState.bounds.bottom_right.lng],-->
+<!--                    [$spatialState.bounds.bottom_right.lat, $spatialState.bounds.bottom_right.lng],-->
+<!--                    [$spatialState.bounds.bottom_right.lat, $spatialState.bounds.top_left.lng]-->
+<!--                ]}-->
+<!--                color="#FF0000"-->
+<!--                fillColor="#FF0000"-->
+<!--                fillOpacity={0}-->
+<!--                weight={6}-->
+<!--                dashArray="5, 10"-->
+<!--            />-->
+<!--    {/if}-->
 
 
     </LeafletMap>
@@ -1433,14 +1493,14 @@
 	<button
 		class="filters-button"
 		class:active={$showAll}
-		class:grayed={!$anyFeatured}
+		class:grayed={!$anyFeatured && !$anyFiltered}
 		on:click={() => showAll.update(v => !v)}
 		data-testid="show-all-button"
 	>
 		<span class="show-all-marker-icon" class:grayed={!$showAll}>
 			<PhotoMarkerIcon bearing={0} />
 		</span>
-		<span class="filters-button-text">All</span>
+		<span class="filters-button-text">{($showAll ? 'All' : 'Top')}</span>
 	</button>
 	<button
 		class="filters-button"
@@ -1582,13 +1642,6 @@
 </div>
 
 <div class="source-buttons-container" class:compact={compactSourceButtons}>
-    <button
-        class="toggle-compact {compactSourceButtons ? 'active' : ''}"
-        on:click={() => compactSourceButtons = !compactSourceButtons}
-        title={compactSourceButtons ? "Show labels" : "Hide labels"}
-    >
-        ?
-    </button>
     {#each $sources as source}
         <button
 
@@ -1608,6 +1661,13 @@
 			{/if}
         </button>
     {/each}
+    <button
+        class="toggle-compact {compactSourceButtons ? 'active' : ''}"
+        on:click={() => compactSourceButtons = !compactSourceButtons}
+        title={compactSourceButtons ? "Show labels" : "Hide labels"}
+    >
+        ...
+    </button>
 </div>
 
 <style>
@@ -1697,11 +1757,12 @@
 
     .filters-button-container {
         position: absolute;
-        top: 16px;
-        left: 100px;
+        bottom: calc(4px + var(--safe-area-inset-bottom, 0px));
+        left: 10px;
         z-index: 30000;
         display: flex;
-        gap: 8px;
+        flex-direction: row;
+        gap: 4px;
     }
 
 	@media (orientation: landscape) {
@@ -1709,7 +1770,7 @@
 			top: calc(6px + var(--safe-area-inset-top, 0px));
 		}
 		.filters-button-container {
-			top: calc(6px + var(--safe-area-inset-top, 0px));
+			bottom: calc(24px + var(--safe-area-inset-bottom, 0px));
 		}
 	}
 
@@ -1844,6 +1905,7 @@
         border: 1px solid #999 !important;
         background-color: #f8f8f8 !important;
         transition: all 0.2s;
+
     }
 
     .toggle-compact:hover {
@@ -1889,12 +1951,12 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        gap: 6px;
-        padding: 0px 10px;
+        gap: 1px;
+        padding: 0px 4px;
         border: 1px solid #ccc;
         border-radius: 4px;
         background-color: rgba(255, 255, 255, 0.9);
-        font-size: 14px;
+        font-size: 12;
         font-weight: 500;
         color: #374151;
         cursor: pointer;
@@ -1934,7 +1996,7 @@
 			display: none;
 		}
 		.filters-button {
-			padding: 8px;
+			padding: 4px;
 		}
 	}
 

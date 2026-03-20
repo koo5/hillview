@@ -59,7 +59,9 @@ export interface BasePhotoData {
     captured_at?: number;
     accuracy?: number;
 
+    description?: string;
     featured?: boolean;
+    filtered?: boolean;
 
     // Computed properties (added by processing)
     abs_bearing_diff?: number;

@@ -192,6 +192,12 @@
     <!--    </div>-->
     <!--{/if}-->
 
+    {#if $photoInFront?.description}
+        <div class="photo-description" data-testid="gallery-photo-description">
+            {$photoInFront.description}
+        </div>
+    {/if}
+
     {#if annotations.length > 0}
         <div class="annotation-indicator" data-testid="gallery-annotation-indicator">
             {annotations.length} annotation{annotations.length !== 1 ? 's' : ''}
@@ -377,6 +383,24 @@
         bottom: 16px;
         left: 50%;
         transform: translateX(-50%);
+    }
+
+    .photo-description {
+        position: absolute;
+        bottom: 24px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(0, 0, 0, 0.6);
+        color: #fff;
+        font-size: 0.75rem;
+        padding: 2px 8px;
+        border-radius: 8px;
+        pointer-events: none;
+        z-index: 10;
+        max-width: 80%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
     .annotation-indicator {

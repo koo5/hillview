@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from fastapi import APIRouter, Query, HTTPException, status, Depends, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, Float
+from sqlalchemy import select, Float, case, literal, case, literal
 from geoalchemy2.functions import ST_MakeEnvelope, ST_Within, ST_X, ST_Y
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
@@ -63,10 +63,8 @@ def parse_analysis_filters(
 		raise HTTPException(status_code=400, detail=f"Invalid analysis_filters: {e}")
 
 
-def apply_analysis_filters(query, filters: AnalysisFilters):
-	"""Apply analysis-based filters to a photo query.
-	Photos without analysis are always included.
-	"""
+def _build_analysis_conditions(filters: AnalysisFilters) -> list:
+	"""Build a list of SQLAlchemy conditions from analysis filter fields."""
 	conditions = []
 
 	if filters.time_of_day:
@@ -101,9 +99,15 @@ def apply_analysis_filters(query, filters: AnalysisFilters):
 		feature_conditions = [Photo.analysis['features'].contains([f]) for f in filters.features]
 		conditions.append(or_(*feature_conditions))
 
+	return conditions
+
+
+def apply_analysis_filters(query, filters: AnalysisFilters):
+	"""Apply analysis-based filters to a photo query (WHERE-clause exclusion)."""
+	conditions = _build_analysis_conditions(filters)
+
 	if conditions:
 		if filters.show_unanalyzed:
-			# Include photo if: no analysis OR all conditions pass
 			query = query.where(or_(
 				Photo.analysis.is_(None),
 				and_(*conditions)
@@ -112,6 +116,39 @@ def apply_analysis_filters(query, filters: AnalysisFilters):
 			query = query.where(and_(*conditions))
 
 	return query
+
+
+def build_filter_expressions(filters: AnalysisFilters):
+	"""Build SQL expressions for the filtered flag and 4-tier sort priority.
+
+	Returns (filtered_expr, sort_priority_expr) or (None, None) when
+	no filter conditions are active.
+
+	Sort tiers: 0=featured, 1=passes filter, 2=unanalyzed, 3=filtered out.
+	"""
+	conditions = _build_analysis_conditions(filters)
+
+	if not conditions and filters.show_unanalyzed:
+		return None, None
+
+	# "passes_filter" = all analysis conditions met (requires non-null analysis)
+	passes_filter = and_(*conditions) if conditions else literal(True)
+
+	if filters.show_unanalyzed:
+		passes = or_(Photo.analysis.is_(None), passes_filter)
+	else:
+		passes = and_(Photo.analysis.isnot(None), passes_filter)
+
+	filtered_expr = case((passes, False), else_=True).label('filtered')
+
+	sort_priority_expr = case(
+		(Photo.featured == True, literal(0)),
+		(and_(Photo.analysis.isnot(None), passes_filter), literal(1)),
+		(Photo.analysis.is_(None), literal(2)),
+		else_=literal(3)
+	).label('sort_priority')
+
+	return filtered_expr, sort_priority_expr
 
 
 def convert_photo_to_response(photo, username: str, longitude: float, latitude: float) -> Dict[str, Any]:
@@ -149,6 +186,9 @@ def convert_photo_to_response(photo, username: str, longitude: float, latitude: 
 	if photo.featured:
 		photo_data['featured'] = True
 
+	if photo.description:
+		photo_data['description'] = photo.description
+
 	return photo_data
 
 
@@ -160,23 +200,38 @@ async def query_photos_in_bounds(
 	limit: Optional[int] = None,
 	analysis_filters: Optional[AnalysisFilters] = None
 ) -> List[Dict[str, Any]]:
-	"""Query photos within bounds, with optional exclusions and limit"""
-	query = select(
+	"""Query photos within bounds, with optional exclusions and limit.
+
+	When analysis_filters are active, ALL photos are returned with a
+	'filtered' flag on non-matching ones, ordered by:
+	featured → passes filter → unanalyzed → filtered out.
+	"""
+	# Build filter expressions if filters are active
+	filtered_expr, sort_priority_expr = (None, None)
+	if analysis_filters:
+		filtered_expr, sort_priority_expr = build_filter_expressions(analysis_filters)
+
+	columns = [
 		Photo,
 		User.username,
 		ST_X(Photo.geometry).label('longitude'),
 		ST_Y(Photo.geometry).label('latitude')
-	).join(User, Photo.owner_id == User.id).where(
+	]
+	if filtered_expr is not None:
+		columns.extend([filtered_expr, sort_priority_expr])
+
+	query = select(*columns).join(User, Photo.owner_id == User.id).where(
 		Photo.geometry.isnot(None),
 		ST_Within(Photo.geometry, bbox),
 		Photo.is_public == True,
 		Photo.processing_status == 'completed',
 		Photo.deleted == False
-	).order_by(Photo.featured.desc(), Photo.captured_at.desc())
+	)
 
-	# Apply analysis filters if provided
-	if analysis_filters:
-		query = apply_analysis_filters(query, analysis_filters)
+	if sort_priority_expr is not None:
+		query = query.order_by(sort_priority_expr.asc(), Photo.captured_at.desc())
+	else:
+		query = query.order_by(Photo.featured.desc(), Photo.captured_at.desc())
 
 	# Exclude specific photo IDs if provided
 	if exclude_ids:
@@ -198,8 +253,15 @@ async def query_photos_in_bounds(
 
 	# Convert to response format
 	photos = []
-	for photo, username, longitude, latitude in records:
-		photos.append(convert_photo_to_response(photo, username, longitude, latitude))
+	if filtered_expr is not None:
+		for photo, username, longitude, latitude, is_filtered, _sort_priority in records:
+			photo_dict = convert_photo_to_response(photo, username, longitude, latitude)
+			if is_filtered:
+				photo_dict['filtered'] = True
+			photos.append(photo_dict)
+	else:
+		for photo, username, longitude, latitude in records:
+			photos.append(convert_photo_to_response(photo, username, longitude, latitude))
 
 	return photos
 

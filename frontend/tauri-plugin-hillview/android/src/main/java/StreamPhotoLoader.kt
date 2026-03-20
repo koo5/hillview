@@ -397,8 +397,12 @@ class StreamPhotoLoader {
             } else null
         }
 
-        // Extract featured flag (Hillview endpoint)
+        // Extract description (Hillview endpoint)
+        val description = photoJson["description"]?.jsonPrimitive?.content
+
+        // Extract featured and filtered flags (Hillview endpoint)
         val featured = photoJson["featured"]?.jsonPrimitive?.booleanOrNull
+        val filtered = photoJson["filtered"]?.jsonPrimitive?.booleanOrNull
 
         // Extract fileHash from file_md5 (Hillview endpoint)
         val fileHash = photoJson["file_md5"]?.jsonPrimitive?.content
@@ -412,7 +416,7 @@ class StreamPhotoLoader {
                     val height = sizeObj["height"]?.jsonPrimitive?.intOrNull
 
                     if (sizeUrl != null && width != null && height != null) {
-                        val pyramid = sizeObj["pyramid"]?.jsonObject
+                        val pyramid = sizeObj["pyramid"]?.takeIf { it !is kotlinx.serialization.json.JsonNull }?.jsonObject
                         key to PhotoSize(url = sizeUrl, width = width, height = height, pyramid = pyramid)
                     } else null
                 }
@@ -432,10 +436,12 @@ class StreamPhotoLoader {
             sizes = sizes,
             is_device_photo = false,
             captured_at = capturedAt,
+            description = description,
             is_pano = isPano,
             creator = creator,
             fileHash = fileHash,
-            featured = featured
+            featured = featured,
+            filtered = filtered
         )
     }
 
