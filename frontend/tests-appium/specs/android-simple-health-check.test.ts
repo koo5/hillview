@@ -34,7 +34,7 @@ describe('Android Simple Health Check', () => {
         // Test that we can get basic device info (indicates Appium is working properly)
         const deviceInfo = await browser.execute('mobile: deviceInfo');
         expect(deviceInfo).toBeDefined();
-        expect(deviceInfo.platformVersion).toBe('12', 'Platform version should match emulator');
+        expect(deviceInfo.platformVersion).toBe('16', 'Platform version should match emulator');
 
         // Test that we can get orientation
         const orientation = await browser.getOrientation();
@@ -55,10 +55,28 @@ describe('Android Simple Health Check', () => {
         const pageSourceBefore = await browser.getPageSource();
         expect(pageSourceBefore).toContain('Toggle menu', 'Menu button should exist in page source');
 
+        // Log how the "Toggle menu" text appears in the page source for debugging
+        const lines = pageSourceBefore.split('\n');
+        for (const line of lines) {
+            if (line.includes('Toggle menu')) {
+                console.log('📋 Found Toggle menu in:', line.substring(0, 300));
+            }
+        }
+
         console.log('🔍 Finding and clicking menu button...');
 
-        // Use a direct approach that refetches the element automatically
-        await $('//android.widget.Button[@text="Toggle menu"]').click();
+        // In WebView apps, text may appear in content-desc rather than text attribute
+        // Try content-desc first, then text
+        let menuBtn = await $('//*[@content-desc="Toggle menu"]');
+        if (!await menuBtn.isExisting()) {
+            console.log('ℹ️ Not found via content-desc, trying text attribute...');
+            menuBtn = await $('//*[@text="Toggle menu"]');
+        }
+        if (!await menuBtn.isExisting()) {
+            console.log('ℹ️ Not found via text, trying accessibility id...');
+            menuBtn = await $('~Toggle menu');
+        }
+        await menuBtn.click();
 
         console.log('✅ Menu button clicked successfully');
 

@@ -4,7 +4,7 @@ services:
 
   postgres:
     init: true
-    image: postgis/postgis:15-3.3
+    image: postgis/postgis:15-3.5
     container_name: hillview_postgres
     restart: always
     environment:
