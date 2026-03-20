@@ -60,6 +60,8 @@
 	import {parsePhotoUid} from "$lib/urlUtilsServer";
 	import {pendingZoomView} from '$lib/zoomView.svelte';
 	import {openExternalUrl} from "$lib/urlUtils";
+	import {lines, linesVisible} from "$lib/data.svelte.js";
+	import {bearingBetween, distanceBetween, destinationPoint} from "$lib/geo";
 	import InsetGradients from "$lib/components/InsetGradients.svelte";
 
 	export let update_url = false;
@@ -1105,6 +1107,13 @@
             locationApiEventFlashTimer = null;
         }
 
+        // Clean up line layers
+        if (lineLayerGroup) {
+            lineLayerGroup.clearLayers();
+            lineLayerGroup.remove();
+            lineLayerGroup = null;
+        }
+
         // Clean up optimized marker system
         optimizedMarkerSystem.destroy();
 
@@ -1190,6 +1199,118 @@
             optimizedMarkerSystem.updateFeaturedGraying(inRangeIds, graying);
         }
     }
+
+    // --- Line rendering ---
+    let lineLayerGroup: L.LayerGroup | null = null;
+
+    function renderLines(linesVal: typeof $lines, visible: boolean) {
+        // Clear previous
+        if (lineLayerGroup) {
+            lineLayerGroup.clearLayers();
+            if (!visible || !map) {
+                lineLayerGroup.remove();
+                lineLayerGroup = null;
+                return;
+            }
+        }
+        if (!visible || !map) return;
+
+        if (!lineLayerGroup) {
+            lineLayerGroup = L.layerGroup().addTo(map);
+        }
+
+        const endIcon = L.divIcon({ className: 'line-endpoint', iconSize: [14, 14], iconAnchor: [7, 7] });
+        const startIcon = L.divIcon({ className: 'line-startpoint', iconSize: [14, 14], iconAnchor: [7, 7] });
+
+        linesVal.forEach((line, i) => {
+            if (!line.visible) return;
+
+            const polyline = L.polyline(
+                [[line.start.lat, line.start.lng], [line.end.lat, line.end.lng]],
+                { color: '#4a90e2', weight: 4, interactive: true }
+            );
+            lineLayerGroup!.addLayer(polyline);
+
+            // Start marker (draggable)
+            const startMarker = L.marker([line.start.lat, line.start.lng], { draggable: true, icon: startIcon });
+            startMarker.on('drag', (e: any) => {
+                const pos = e.target.getLatLng();
+                polyline.setLatLngs([[pos.lat, pos.lng], [line.end.lat, line.end.lng]]);
+            });
+            startMarker.on('dragend', (e: any) => {
+                const pos = e.target.getLatLng();
+                lines.update(l => l.map((ln, idx) => idx === i ? { ...ln, start: { lat: pos.lat, lng: pos.lng } } : ln));
+            });
+            lineLayerGroup!.addLayer(startMarker);
+
+            // End marker (draggable)
+            const endMarker = L.marker([line.end.lat, line.end.lng], { draggable: true, icon: endIcon });
+            endMarker.on('drag', (e: any) => {
+                const pos = e.target.getLatLng();
+                polyline.setLatLngs([[line.start.lat, line.start.lng], [pos.lat, pos.lng]]);
+            });
+            endMarker.on('dragend', (e: any) => {
+                const pos = e.target.getLatLng();
+                lines.update(l => l.map((ln, idx) => idx === i ? { ...ln, end: { lat: pos.lat, lng: pos.lng } } : ln));
+            });
+            lineLayerGroup!.addLayer(endMarker);
+
+            // Line body drag → rotate around start
+            // Line body drag → rotate around start (mouse + touch)
+            function startLineDrag(e: any) {
+                L.DomEvent.stopPropagation(e);
+                const origDist = distanceBetween(line.start.lat, line.start.lng, line.end.lat, line.end.lng);
+                if (origDist === 0) return;
+
+                map!.dragging.disable();
+                const container = map!.getContainer();
+
+                function applyRotation(clientX: number, clientY: number) {
+                    const rect = container.getBoundingClientRect();
+                    const point = L.point(clientX - rect.left, clientY - rect.top);
+                    const cursor = map!.containerPointToLatLng(point);
+                    const newBearing = bearingBetween(line.start.lat, line.start.lng, cursor.lat, cursor.lng);
+                    const newEnd = destinationPoint(line.start.lat, line.start.lng, newBearing, origDist);
+                    polyline.setLatLngs([[line.start.lat, line.start.lng], [newEnd.lat, newEnd.lng]]);
+                    endMarker.setLatLng([newEnd.lat, newEnd.lng]);
+                }
+
+                function onMouseMove(me: MouseEvent) { applyRotation(me.clientX, me.clientY); }
+                function onTouchMove(te: TouchEvent) {
+                    te.preventDefault();
+                    const t = te.touches[0];
+                    applyRotation(t.clientX, t.clientY);
+                }
+
+                function cleanup() {
+                    container.removeEventListener('mousemove', onMouseMove);
+                    container.removeEventListener('mouseup', cleanup);
+                    container.removeEventListener('touchmove', onTouchMove);
+                    container.removeEventListener('touchend', cleanup);
+                    container.removeEventListener('touchcancel', cleanup);
+                    map!.dragging.enable();
+                    const latlngs = polyline.getLatLngs() as L.LatLng[];
+                    const finalEnd = latlngs[1];
+                    lines.update(l => l.map((ln, idx) => idx === i ? { ...ln, end: { lat: finalEnd.lat, lng: finalEnd.lng } } : ln));
+                }
+
+                container.addEventListener('mousemove', onMouseMove);
+                container.addEventListener('mouseup', cleanup);
+                container.addEventListener('touchmove', onTouchMove, { passive: false });
+                container.addEventListener('touchend', cleanup);
+                container.addEventListener('touchcancel', cleanup);
+            }
+
+            polyline.on('mousedown', startLineDrag);
+            // Leaflet doesn't fire 'mousedown' for touch — listen on the DOM element after it's rendered
+            polyline.on('add', () => {
+                const el = polyline.getElement();
+                if (el) el.addEventListener('touchstart', startLineDrag, { passive: false });
+            });
+        });
+    }
+
+    $: if (map) renderLines($lines, $linesVisible);
 
 </script>
 
@@ -1869,6 +1990,20 @@
         text-decoration: underline;
     }
 
+
+    :global(.line-endpoint) {
+        background: #4a90e2;
+        border: 2px solid white;
+        border-radius: 50%;
+        cursor: grab;
+    }
+
+    :global(.line-startpoint) {
+        background: #e24a4a;
+        border: 2px solid white;
+        border-radius: 50%;
+        cursor: grab;
+    }
 
 </style>
 

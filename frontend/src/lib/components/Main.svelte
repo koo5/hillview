@@ -3,7 +3,6 @@
 	import {BROWSER, TAURI} from '$lib/tauri';
 	import {onDestroy, onMount} from 'svelte';
 	import {browser} from '$app/environment';
-	import {parsePhotoUid} from '$lib/urlUtils';
 	import PhotoGallery from './Gallery.svelte';
 	import Map from './Map.svelte';
 	import {
@@ -11,14 +10,14 @@
 		Menu,
 		Bug,
 		Maximize2,
-		Minimize2
+		Minimize2,
+		Ruler
 	} from 'lucide-svelte';
 	import {
 		app,
 		sources,
 		toggleDebug,
 		turn_to_photo_to,
-		enableSourceForPhotoUid,
 		splitPercent,
 		showCalibrationView, onAppActivityChange
 	} from "$lib/data.svelte.js";
@@ -27,11 +26,9 @@
 		bearingState,
 		spatialState,
 		updateSpatialState,
-		updateBearing,
 		updateBearingByDiff,
 		photoInFront
 	} from "$lib/mapState";
-	import {LatLng} from 'leaflet';
 	import {replaceState} from "$app/navigation";
 	import {derived, get} from "svelte/store";
 	import {zoomViewData, pendingZoomView, zoomViewportBounds} from '$lib/zoomView.svelte';
@@ -39,6 +36,7 @@
 	import CameraCapture from './CameraCapture.svelte';
 	import DebugOverlay from './DebugOverlay.svelte';
 	import CompassCalibration from './CompassCalibration.svelte';
+	import Lines from './Lines.svelte';
 	import {
 		deviceOrientationExif, getCssRotationFromOrientation,
 		getRotationFromOrientation, getWebviewOrientation, relativeOrientationExif,
@@ -97,6 +95,7 @@
 	}
 
 	$: showCameraView = $app.activity === 'capture';
+	$: showLinesEditor = $app.activity === 'lines';
 
 	function flushPhotoToUrl(photo: any) {
 		if (!photo) return;
@@ -546,6 +545,18 @@
 	<Camera size={24} class="camera-button-icon" />
 </button>
 
+<button
+	class="lines-button {showLinesEditor ? 'active' : ''}"
+	on:click={() => app.update(a => ({...a, activity: showLinesEditor ? 'view' : 'lines'}))}
+	on:keydown={(e) => e.key === 'Enter' && app.update(a => ({...a, activity: showLinesEditor ? 'view' : 'lines'}))}
+	aria-label="{showLinesEditor ? 'Close lines view' : 'Show lines view'}"
+	title="{showLinesEditor ? 'Close lines view' : 'Show lines view'}"
+	data-testid="lines-button"
+>
+	<Ruler size={24} />
+</button>
+
+
 {#if BROWSER}
 	<button
 		on:click={toggleFullscreen}
@@ -622,6 +633,8 @@
 				show={true}
 				on:close={() => app.update(a => ({...a, activity: 'view'}))}
 			/>
+		{:else if showLinesEditor}
+			<Lines />
 		{:else}
 			<PhotoGallery/>
 		{/if}
@@ -721,6 +734,25 @@
 
 	.fullscreen-toggle {
 		position: absolute;
+		top: calc(55px + var(--safe-area-inset-top, 10px));
+		left: calc(0px + var(--safe-area-inset-left, 10px));
+		z-index: 30001;
+		background: white;
+		border-radius: 50%;
+		width: 40px;
+		height: 40px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+		cursor: pointer;
+		border: none;
+		padding: 0;
+		transition: all 0.2s ease;
+	}
+
+	.lines-button {
+		position: absolute;
 		top: calc(0px + var(--safe-area-inset-top, 10px));
 		left: calc(100px + var(--safe-area-inset-left, 10px));
 		z-index: 30001;
@@ -788,6 +820,15 @@
 	}
 
 	.camera-button:hover {
+		transform: scale(1.05);
+	}
+
+	.lines-button.active {
+		background: #4a90e2;
+		color: white;
+	}
+
+	.lines-button:hover {
 		transform: scale(1.05);
 	}
 

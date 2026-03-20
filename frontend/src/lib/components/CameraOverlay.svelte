@@ -143,9 +143,8 @@
 <style>
     .location-overlay {
         position: absolute;
-        top: 80px;
 		top: calc(60px + var(--safe-area-inset-top, 0px));
-        left: 0rem;
+        left: 60px;
         padding: 0rem;
         border-radius: 8px;
         font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;

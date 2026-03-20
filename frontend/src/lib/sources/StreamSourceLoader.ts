@@ -150,10 +150,12 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
             throw new Error(`Authentication failed: ${errorMessage}`);
         }
 
-        // Create completion promise with timeout
-        this.completionPromise = new Promise<void>((resolve) => {
-            this.completionResolve = resolve;
-        });
+        // Create completion promise only if one doesn't already exist (retries reuse the original)
+        if (!this.completionPromise) {
+            this.completionPromise = new Promise<void>((resolve) => {
+                this.completionResolve = resolve;
+            });
+        }
 
         // Let OS handle connection lifecycle - no artificial timeout
 

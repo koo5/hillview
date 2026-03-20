@@ -9,6 +9,29 @@
     import type {PhotoData} from '$lib/sources';
 	import PhotoMarkerIcon from "$lib/components/PhotoMarkerIcon.svelte";
     import {zoomViewData} from '$lib/zoomView.svelte.js';
+    import {fetchAnnotations, type AnnotationData} from '$lib/annotationApi';
+
+    let annotations: AnnotationData[] = [];
+    let annotationPhotoId: string | null = null;
+
+    $: if ($photoInFront?.id !== annotationPhotoId) {
+        loadAnnotations($photoInFront);
+    }
+
+    async function loadAnnotations(photo: PhotoData | null) {
+        const photoId = photo?.id ?? null;
+        annotationPhotoId = photoId;
+        if (!photoId) {
+            annotations = [];
+            return;
+        }
+        try {
+            annotations = await fetchAnnotations(photoId);
+        } catch (e) {
+            console.error('Gallery: Failed to fetch annotations:', e);
+            annotations = [];
+        }
+    }
 
     onDestroy(() => {
         zoomViewData.set(null);
@@ -147,7 +170,7 @@
 			{#each [$photoUp, $photoToLeft, $photoInFront, $photoToRight, $photoDown] as photo, index (keys[index])}
 				<div class="photo-slot {cls[index]}">
 					{#if photo}
-						<Photo photo={photo} className="{cls[index]}" {clientWidth} onInteraction={handlePhotoInteraction}/>
+						<Photo photo={photo} className="{cls[index]}" {clientWidth} onInteraction={handlePhotoInteraction} annotations={cls[index] === 'front' ? annotations : []}/>
 					{/if}
 				</div>
 			{/each}
@@ -169,6 +192,11 @@
     <!--    </div>-->
     <!--{/if}-->
 
+    {#if annotations.length > 0}
+        <div class="annotation-indicator" data-testid="gallery-annotation-indicator">
+            {annotations.length} annotation{annotations.length !== 1 ? 's' : ''}
+        </div>
+    {/if}
 
 </div>
 
@@ -351,5 +379,19 @@
         transform: translateX(-50%);
     }
 
+    .annotation-indicator {
+        position: absolute;
+        bottom: 4px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(0, 0, 0, 0.6);
+        color: #fff;
+        font-size: 0.75rem;
+        padding: 2px 8px;
+        border-radius: 8px;
+        pointer-events: none;
+        z-index: 10;
+        white-space: nowrap;
+    }
 
 </style>

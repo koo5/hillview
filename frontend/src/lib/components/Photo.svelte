@@ -14,8 +14,10 @@
 	import {getFullPhotoInfo, getPhotoSource} from '$lib/photoUtils';
 	import HideUserDialog from './HideUserDialog.svelte';
 	import type {PhotoData} from '$lib/sources';
+	import type {AnnotationData} from '$lib/annotationApi';
 
 	export let photo: PhotoData | null = null;
+	export let annotations: AnnotationData[] = [];
 
 	// Track pending timeouts for cleanup
 	const pendingTimeouts = new Set<ReturnType<typeof setTimeout>>();
@@ -247,6 +249,77 @@
 		return null;
 	}
 
+	// --- Annotation canvas overlay ---
+	let annotationCanvas: HTMLCanvasElement | undefined;
+	let imgElement: HTMLImageElement | undefined;
+
+	function parseAnnotationRect(target: any): {x: number, y: number, w: number, h: number} | null {
+		const selector = Array.isArray(target?.selector) ? target.selector[0] : target?.selector;
+		if (selector?.type === 'RECTANGLE' && selector.geometry) {
+			const g = selector.geometry;
+			return {x: g.x, y: g.y, w: g.w, h: g.h};
+		}
+		if (typeof selector?.value === 'string') {
+			const match = selector.value.match(/xywh=pixel:([\d.]+),([\d.]+),([\d.]+),([\d.]+)/);
+			if (match) return {x: +match[1], y: +match[2], w: +match[3], h: +match[4]};
+		}
+		return null;
+	}
+
+	function drawAnnotations() {
+		console.log('🢄Photo: drawAnnotations called', {
+			hasCanvas: !!annotationCanvas,
+			hasImg: !!imgElement,
+			annotationCount: annotations.length,
+		});
+		if (!annotationCanvas || !imgElement) return;
+		const ctx = annotationCanvas.getContext('2d');
+		if (!ctx) return;
+
+		const {clientWidth: cw, clientHeight: ch} = imgElement;
+		// Annotation coords are in the original pyramid coordinate space
+		const pyramid = (photo as any)?.sizes?.full?.pyramid;
+		const fullW = pyramid?.width || photo?.sizes?.full?.width || imgElement.naturalWidth;
+		const fullH = pyramid?.height || photo?.sizes?.full?.height || imgElement.naturalHeight;
+		console.log('🢄Photo: drawAnnotations dims', {fullW, fullH, cw, ch, hasPyramid: !!pyramid});
+		if (!fullW || !fullH) return;
+
+		// Match canvas pixel buffer to its CSS size
+		annotationCanvas.width = cw;
+		annotationCanvas.height = ch;
+
+		ctx.clearRect(0, 0, cw, ch);
+
+		// Compute rendered image rect within the container (object-fit: contain)
+		// Use full-res dims as the coordinate space for annotation mapping
+		const scale = Math.min(cw / fullW, ch / fullH);
+		const rw = fullW * scale, rh = fullH * scale;
+		const rx = (cw - rw) / 2, ry = (ch - rh) / 2;
+
+		ctx.strokeStyle = 'rgba(0, 255, 0, 0.8)';
+		ctx.lineWidth = 1.5;
+
+		let drawn = 0;
+		for (const ann of annotations) {
+			const rect = parseAnnotationRect(ann.target);
+			console.log('🢄Photo: annotation target →', ann.target, '→ rect:', rect);
+			if (!rect) continue;
+			ctx.strokeRect(
+				rx + rect.x * scale,
+				ry + rect.y * scale,
+				rect.w * scale,
+				rect.h * scale
+			);
+			drawn++;
+		}
+		console.log('🢄Photo: drew', drawn, 'rectangles');
+	}
+
+	$: if (annotations && displayedUrl && annotationCanvas && imgElement) {
+		// Use tick to ensure img has rendered at its new size
+		drawAnnotations();
+	}
+
 	function openZoomView(photo: PhotoData) {
 		if (!photo) return;
 
@@ -303,6 +376,7 @@
 
 	{#if photo && !photo.is_placeholder}
 		<img
+			bind:this={imgElement}
 			src={displayedUrl}
 			alt={photo.filename}
 			style="{bg_style_stretched_photo} {border_style}"
@@ -325,10 +399,20 @@
 					displayedUrl: displayedUrl,
 					is_device_photo: photo?.is_device_photo
 				}));
+				drawAnnotations();
 			}}
 			class="photo {className}"
 			use:singleTap={() => openZoomView(photo)}
 		/>
+
+		<!-- Annotation rectangles overlay -->
+		{#if className === 'front' && annotations.length > 0}
+			<canvas
+				bind:this={annotationCanvas}
+				class="annotation-canvas"
+				data-testid="annotation-canvas"
+			></canvas>
+		{/if}
 
 		<!-- Loading spinner overlay -->
 		{#if isLoadingNewImage}
@@ -381,6 +465,7 @@
 	}
 
 	.photo-wrapper {
+		position: relative;
 		display: flex;
 		justify-content: center;
 		width: 100%;
@@ -390,6 +475,16 @@
 		object-fit: contain;
 		background-repeat: no-repeat;
 		overflow: hidden;
+	}
+
+	.annotation-canvas {
+		position: absolute;
+		top: 0;
+		left: 0;
+		width: 100%;
+		height: 100%;
+		pointer-events: none;
+		z-index: 3;
 	}
 
 	.photo {

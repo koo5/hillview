@@ -16,7 +16,17 @@ import {updateSettings} from "$lib/settings";
 
 // Draggable split store for gallery/map split percentage (0-100, percentage for photo panel)
 export let splitPercent = staggeredLocalStorageSharedStore('splitPercent', 50);
-export type AppActivity = 'capture' | 'view';
+export type AppActivity = 'capture' | 'view' | 'lines';
+
+export interface Line {
+	label: string;
+	start: { lat: number; lng: number };
+	end: { lat: number; lng: number };
+	visible: boolean;
+}
+
+export let linesVisible = localStorageSharedStore('linesVisible', false);
+export let lines = localStorageSharedStore<Line[]>('lines', []);
 
 
 // Device source subtypes
@@ -128,11 +138,11 @@ photoLicense.subscribe(async value => {
 
 
 // Separate persisted app settings from session-specific state
-export let appSettings = staggeredLocalStorageSharedStore('appSettings', {
+export let appSettings = localStorageReadOnceSharedStore('appSettings', {
 	debug: 0,
 	debug_enabled: false,
 	activity: 'view' as AppActivity,
-});
+},500);
 
 // Main app store with both persisted and session-specific fields
 export let app = writable<{
@@ -173,15 +183,12 @@ app.subscribe(appState => {
 		currentSettings.debug_enabled != appState.debug_enabled ||
 		currentSettings.activity != appState.activity) {
 		console.log('🢄currentSettings.debug:', currentSettings.debug, 'appState.debug:', appState.debug, 'currentSettings.activity:', currentSettings.activity, 'appState.activity:', appState.activity);
-		setTimeout(() => {
-			//console.log('🢄Updating appSettings from app state:', JSON.stringify(appState));
-			appSettings.update(settings => ({
-				...settings,
-				debug: appState.debug,
-				debug_enabled: appState.debug_enabled,
-				activity: appState.activity
-			}));
-		}, 500);
+		appSettings.update(settings => ({
+			...settings,
+			debug: appState.debug,
+			debug_enabled: appState.debug_enabled,
+			activity: appState.activity
+		}));
 	}
 });
 
