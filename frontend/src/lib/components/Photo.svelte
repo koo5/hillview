@@ -315,54 +315,37 @@
 	}
 
 	function drawAnnotations() {
-		console.log('🢄Photo: drawAnnotations called', {
-			hasCanvas: !!annotationCanvas,
-			hasImg: !!imgElement,
-			annotationCount: annotations.length,
-		});
 		if (!annotationCanvas || !imgElement) return;
 		const ctx = annotationCanvas.getContext('2d');
 		if (!ctx) return;
 
-		// Use canvas CSS dimensions (matches container), not img element dims
-		const cw = annotationCanvas.clientWidth;
-		const ch = annotationCanvas.clientHeight;
-		// Annotation coords are in the original pyramid coordinate space
-		const pyramid = (photo as any)?.sizes?.full?.pyramid;
-		const fullW = pyramid?.width || photo?.sizes?.full?.width || imgElement.naturalWidth;
-		const fullH = pyramid?.height || photo?.sizes?.full?.height || imgElement.naturalHeight;
-		console.log('🢄Photo: drawAnnotations dims', {fullW, fullH, cw, ch, hasPyramid: !!pyramid});
-		if (!fullW || !fullH) return;
+		const cw = containerElement?.clientWidth || annotationCanvas.clientWidth;
+		const ch = containerElement?.clientHeight || annotationCanvas.clientHeight;
+		if (!width || !height) return;
 
-		// Match canvas pixel buffer to its CSS size
 		annotationCanvas.width = cw;
 		annotationCanvas.height = ch;
-
 		ctx.clearRect(0, 0, cw, ch);
 
-		// Compute rendered image rect within the container (object-fit: contain)
-		// Use full-res dims as the coordinate space for annotation mapping
-		const scale = Math.min(cw / fullW, ch / fullH);
-		const rw = fullW * scale, rh = fullH * scale;
+		// Compute rendered image rect (object-fit: contain letterboxing).
+		// Annotation coords are [0,1] normalized, so multiply by rendered dims.
+		const scale = Math.min(cw / width, ch / height);
+		const rw = width * scale, rh = height * scale;
 		const rx = (cw - rw) / 2, ry = (ch - rh) / 2;
 
 		ctx.strokeStyle = 'rgba(0, 255, 0, 0.8)';
 		ctx.lineWidth = 1.5;
 
-		let drawn = 0;
 		for (const ann of annotations) {
 			const rect = parseAnnotationRect(ann.target);
-			console.log('🢄Photo: annotation target →', ann.target, '→ rect:', rect);
 			if (!rect) continue;
 			ctx.strokeRect(
-				rx + rect.x * scale,
-				ry + rect.y * scale,
-				rect.w * scale,
-				rect.h * scale
+				rx + rect.x * rw,
+				ry + rect.y * rh,
+				rect.w * rw,
+				rect.h * rh
 			);
-			drawn++;
 		}
-		console.log('🢄Photo: drew', drawn, 'rectangles');
 	}
 
 	$: if (annotations && displayedUrl && annotationCanvas && imgElement) {

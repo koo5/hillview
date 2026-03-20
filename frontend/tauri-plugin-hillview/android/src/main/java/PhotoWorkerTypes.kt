@@ -86,7 +86,8 @@ data class PhotoData(
     val fileHash: String? = null,
     val range_distance: Double? = null, // Added during range culling
     val is_pano: Boolean? = null,
-    val creator: Creator? = null
+    val creator: Creator? = null,
+    val featured: Boolean? = null
 )
 
 @Serializable

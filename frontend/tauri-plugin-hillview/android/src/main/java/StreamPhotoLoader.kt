@@ -397,6 +397,9 @@ class StreamPhotoLoader {
             } else null
         }
 
+        // Extract featured flag (Hillview endpoint)
+        val featured = photoJson["featured"]?.jsonPrimitive?.booleanOrNull
+
         // Extract fileHash from file_md5 (Hillview endpoint)
         val fileHash = photoJson["file_md5"]?.jsonPrimitive?.content
 
@@ -430,7 +433,8 @@ class StreamPhotoLoader {
             captured_at = capturedAt,
             is_pano = isPano,
             creator = creator,
-            fileHash = fileHash
+            fileHash = fileHash,
+            featured = featured
         )
     }
 

@@ -35,6 +35,8 @@
 		createAnnotation,
 		updateAnnotation,
 		deleteAnnotation,
+		targetToPixels,
+		targetToNormalized,
 		type AnnotationData,
 	} from '$lib/annotationApi';
 	import { Origin, UserSelectAction } from '@annotorious/core';
@@ -121,6 +123,14 @@
 	// Bidirectional mapping: Annotorious UI IDs ↔ server DB IDs
 	const uiToDb = new Map<string, string>();
 	const dbToUi = new Map<string, string>();
+
+	/** Get the authoritative image dimensions for annotation coordinate conversion. */
+	function getImageDims(): { w: number; h: number } {
+		const p = data.pyramid;
+		if (p?.width && p?.height) return { w: p.width, h: p.height };
+		if (data.width && data.height) return { w: data.width, h: data.height };
+		return { w: 1, h: 1 }; // fallback — annotations will pass through unchanged
+	}
 	function showError(msg: string) {
 		errorMessage = msg;
 		if (errorTimeout) clearTimeout(errorTimeout);
@@ -241,6 +251,7 @@
 			console.warn('[OSD] syncAnnotationsToViewer: annotator not ready');
 			return;
 		}
+		const dims = getImageDims();
 		const w3cAnnotations = annotations
 			.filter((a) => a.target)
 			.map((a) => ({
@@ -250,7 +261,7 @@
 				body: a.body
 					? [{ type: 'TextualBody', value: a.body, purpose: 'commenting' }]
 					: [],
-				target: a.target,
+				target: targetToPixels(a.target, dims.w, dims.h),
 			}));
 		console.log('[OSD] Syncing annotations to viewer:', w3cAnnotations.length, w3cAnnotations);
 		try {
@@ -328,6 +339,7 @@
 	let parsedAnnotations: ParsedAnnotation[] = [];
 
 	function rebuildParsedAnnotations() {
+		const dims = getImageDims();
 		parsedAnnotations = [];
 		for (const ann of annotations) {
 			if (!ann.body) continue;
@@ -338,14 +350,16 @@
 			const raw = ann.target as any;
 			const selector = Array.isArray(raw?.selector) ? raw.selector[0] : raw?.selector;
 
+			// Coords are [0,1] normalized — multiply by image dims for OSD pixel space
 			let sx: number, sy: number, sw: number, sh: number;
 			if (selector?.type === 'RECTANGLE' && selector.geometry) {
 				const g = selector.geometry;
-				sx = g.x; sy = g.y; sw = g.w; sh = g.h;
+				sx = g.x * dims.w; sy = g.y * dims.h; sw = g.w * dims.w; sh = g.h * dims.h;
 			} else if (typeof selector?.value === 'string') {
-				const match = selector.value.match(/xywh=pixel:([\d.]+),([\d.]+),([\d.]+),([\d.]+)/);
+				const match = selector.value.match(/xywh=pixel:([\d.e+-]+),([\d.e+-]+),([\d.e+-]+),([\d.e+-]+)/);
 				if (!match) continue;
-				[, sx, sy, sw, sh] = match.map(Number);
+				[, sx, sy, sw, sh] = match.map((v) => Number(v));
+				sx *= dims.w; sy *= dims.h; sw *= dims.w; sh *= dims.h;
 			} else {
 				continue;
 			}
@@ -682,9 +696,10 @@
 			}
 			console.log('[OSD] updateAnnotation — uiId:', previous.id, '→ dbId:', dbId, ', body:', body);
 			try {
+				const dims = getImageDims();
 				const saved = await updateAnnotation(dbId, {
 					body,
-					target: annotation.target,
+					target: targetToNormalized(annotation.target, dims.w, dims.h),
 				});
 				console.log('[OSD] updateAnnotation — saved, old dbId:', dbId, '→ new dbId:', saved.id);
 				// Update maps: UI ID now points to new DB row
@@ -933,9 +948,10 @@
 			const body = editBody;
 			console.log('[OSD] saveEditBody (create) — uiId:', ann.id, 'body:', body);
 			try {
+				const dims = getImageDims();
 				const saved = await createAnnotation(data.photo_id!, {
 					body,
-					target: ann.target,
+					target: targetToNormalized(ann.target, dims.w, dims.h),
 				});
 				console.log('[OSD] saveEditBody (create) — saved, uiId:', ann.id, '→ dbId:', saved.id);
 				annotations = [...annotations, saved];
@@ -988,9 +1004,10 @@
 		}
 		try {
 			// Persist body + target (possibly moved shape) to server
+			const dims = getImageDims();
 			const saved = await updateAnnotation(dbId, {
 				body: editBody,
-				target: w3c.target,
+				target: targetToNormalized(w3c.target, dims.w, dims.h),
 			});
 			console.log('[OSD] saveEditBody — saved, old dbId:', dbId, '→ new dbId:', saved.id);
 			// Update ID maps (supersede chain)
