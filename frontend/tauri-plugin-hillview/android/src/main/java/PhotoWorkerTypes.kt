@@ -64,7 +64,8 @@ data class Bounds(
 data class PhotoSize(
     val url: String,
     val width: Int,
-    val height: Int
+    val height: Int,
+    val pyramid: kotlinx.serialization.json.JsonObject? = null
 )
 
 @Serializable

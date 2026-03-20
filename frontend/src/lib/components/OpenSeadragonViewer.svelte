@@ -235,10 +235,10 @@
 
 	async function loadAnnotations() {
 		if (!data.photo_id) return;
-		console.log('[OSD] Loading annotations for photo:', data.photo_id);
+		//console.log('[OSD] Loading annotations for photo:', data.photo_id);
 		try {
 			annotations = await fetchAnnotations(data.photo_id);
-			console.log('[OSD] Fetched annotations:', annotations.length, annotations);
+			//console.log('[OSD] Fetched annotations:', annotations.length, annotations);
 			syncAnnotationsToViewer();
 		} catch (e) {
 			console.error('[OSD] Failed to load annotations:', e);
@@ -263,7 +263,7 @@
 					: [],
 				target: targetToPixels(a.target, dims.w, dims.h),
 			}));
-		console.log('[OSD] Syncing annotations to viewer:', w3cAnnotations.length, w3cAnnotations);
+		//console.log('[OSD] Syncing annotations to viewer:', w3cAnnotations.length, w3cAnnotations);
 		try {
 			annotator.setAnnotations(w3cAnnotations);
 		} catch (e) {

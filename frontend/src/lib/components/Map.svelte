@@ -1695,17 +1695,24 @@
         gap: 8px;
     }
 
+    .filters-button-container {
+        position: absolute;
+        top: 16px;
+        left: 100px;
+        z-index: 30000;
+        display: flex;
+        gap: 8px;
+    }
+
 	@media (orientation: landscape) {
 		.location-button-container {
 			top: calc(6px + var(--safe-area-inset-top, 0px));
 		}
-	}
-
-	@container (min-width: 500px) {
 		.filters-button-container {
-			top: calc(0px + var(--safe-area-inset-top, 0px));
+			top: calc(6px + var(--safe-area-inset-top, 0px));
 		}
 	}
+
 
     .location-button-container button {
         cursor: pointer;
@@ -1850,13 +1857,9 @@
     }
 
     /* Ensure zoom controls have higher z-index than scale control */
-    :global(.leaflet-control-zoom-in) {
+    :global(.leaflet-control-zoom) {
         background-color: rgba(255, 255, 255, 0.5) !important;
-    }
-
-    /* Ensure zoom controls have higher z-index than scale control */
-    :global(.leaflet-control-zoom-out) {
-        background-color: rgba(255, 255, 255, 0.5) !important;
+		/*bottom: calc(10px + var(--safe-area-inset-bottom, 0px)) !important;*/
     }
 
     .provider-selector-container {
@@ -1865,15 +1868,6 @@
         left: 10px;
         z-index: 30000;
 		background-color: rgba(255, 255, 255, 0.5);
-    }
-
-    .filters-button-container {
-        position: absolute;
-        top: 16px;
-        left: 100px;
-        z-index: 30000;
-        display: flex;
-        gap: 8px;
     }
 
     .show-all-marker-icon {

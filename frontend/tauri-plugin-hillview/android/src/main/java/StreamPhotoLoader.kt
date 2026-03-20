@@ -412,7 +412,8 @@ class StreamPhotoLoader {
                     val height = sizeObj["height"]?.jsonPrimitive?.intOrNull
 
                     if (sizeUrl != null && width != null && height != null) {
-                        key to PhotoSize(url = sizeUrl, width = width, height = height)
+                        val pyramid = sizeObj["pyramid"]?.jsonObject
+                        key to PhotoSize(url = sizeUrl, width = width, height = height, pyramid = pyramid)
                     } else null
                 }
             }.toMap()

@@ -668,7 +668,8 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
                 "fileHash": $fileHashJson,
                 "range_distance": ${photo.range_distance ?: "null"},
                 "is_pano": ${photo.is_pano ?: "null"},
-                "creator": $creatorJson
+                "creator": $creatorJson,
+                "featured": ${photo.featured ?: "null"}
             }
             """.trimIndent()
         }
@@ -678,11 +679,13 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
 
     private fun serializeSizes(sizes: Map<String, PhotoSize>): String {
         val sizesJson = sizes.entries.joinToString(", ") { (key, size) ->
+            val pyramidJson = if (size.pyramid != null) size.pyramid.toString() else "null"
             """
             "$key": {
                 "url": "${size.url}",
                 "width": ${size.width},
-                "height": ${size.height}
+                "height": ${size.height},
+                "pyramid": $pyramidJson
             }
             """.trimIndent()
         }
