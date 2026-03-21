@@ -14,11 +14,32 @@
 	import {portal} from '$lib/actions/portal';
 	import {getFullPhotoInfo, getPhotoSource} from '$lib/photoUtils';
 	import HideUserDialog from './HideUserDialog.svelte';
+	import PhotoInfoLabels from './PhotoInfoLabels.svelte';
+	import {fetchAnnotations, type AnnotationData} from '$lib/annotationApi';
 	import type {PhotoData} from '$lib/sources';
-	import type {AnnotationData} from '$lib/annotationApi';
 
 	export let photo: PhotoData | null = null;
-	export let annotations: AnnotationData[] = [];
+	let annotations: AnnotationData[] = [];
+	let annotationPhotoId: string | null = null;
+
+	$: if (className === 'front' && photo?.id !== annotationPhotoId) {
+		loadAnnotations(photo);
+	}
+
+	async function loadAnnotations(p: PhotoData | null) {
+		const photoId = p?.id ?? null;
+		annotationPhotoId = photoId;
+		if (!photoId) {
+			annotations = [];
+			return;
+		}
+		try {
+			annotations = await fetchAnnotations(photoId);
+		} catch (e) {
+			console.error('Photo: Failed to fetch annotations:', e);
+			annotations = [];
+		}
+	}
 
 	// Track pending timeouts for cleanup
 	const pendingTimeouts = new Set<ReturnType<typeof setTimeout>>();
@@ -460,6 +481,7 @@
 
 		<!-- Photo actions for front photo only -->
 		{#if className === 'front'}
+			<PhotoInfoLabels {photo} {annotations} />
 			<div class="photo-actions-container">
 				<PhotoActionsMenu
 					{photo}

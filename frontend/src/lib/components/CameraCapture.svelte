@@ -1424,7 +1424,8 @@
                             }
                             retryCount = 0;
                             startCamera();
-                        }}>
+                        }}
+						data-testid="allow-camera-btn">
 							{needsPermission ? 'Allow Camera' : 'Try Again'}
 						</button>
 					</div>

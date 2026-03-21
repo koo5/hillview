@@ -646,12 +646,14 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
             val fileJson = if (photo.filename != null) "\"${photo.filename}\"" else "null"
             val urlJson = if (photo.url != null) "\"${photo.url}\"" else "null"
             val fileHashJson = if (photo.fileHash != null) "\"${photo.fileHash}\"" else "null"
+            val descriptionJson = if (photo.description != null) "\"${photo.description.replace("\\", "\\\\").replace("\"", "\\\"")}\"" else "null"
             """
             {
                 "id": "${photo.id}",
                 "uid": "${photo.uid}",
                 "source_type": "${photo.source_type}",
                 "filename": $fileJson,
+                "description": $descriptionJson,
                 "url": $urlJson,
                 "coord": {
                     "lat": ${photo.coord.lat},
@@ -669,7 +671,8 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
                 "range_distance": ${photo.range_distance ?: "null"},
                 "is_pano": ${photo.is_pano ?: "null"},
                 "creator": $creatorJson,
-                "featured": ${photo.featured ?: "null"}
+                "featured": ${photo.featured ?: "null"},
+                "filtered": ${photo.filtered ?: "null"}
             }
             """.trimIndent()
         }

@@ -1,4 +1,5 @@
 import { browser, $, $$ } from '@wdio/globals';
+import { byTestId, ensureWebViewContext, TESTID } from './selectors';
 
 /**
  * Helper for photo upload verification and source management
@@ -61,15 +62,17 @@ export class PhotoUploadHelper {
         await browser.back();
         await browser.pause(1000);
         
-        // Look for gallery button or photos view
-        const gallerySelectors = [
-            '//android.widget.Button[@text="Gallery"]',
-            '//android.widget.Button[contains(@text, "Photos")]',
-            '//android.widget.Button[contains(@text, "View")]',
-            '//*[contains(@text, "Gallery")]'
-        ];
-        
-        const galleryButton = await this.waitForElementWithRetries(gallerySelectors);
+        // Look for gallery button or photos view via WebView context
+        let galleryButton: WebdriverIO.Element | null = null;
+        try {
+            await ensureWebViewContext();
+            const el = await $('[data-testid="device-photos-button"]');
+            if (await el.isDisplayed()) {
+                galleryButton = el;
+            }
+        } catch (e) {
+            galleryButton = null;
+        }
         if (galleryButton) {
             await galleryButton.click();
             await browser.pause(2000);
@@ -167,7 +170,8 @@ export class PhotoUploadHelper {
             
             // Fallback: look for any recently added photos
             const allPhotos = await $$('//android.widget.Image');
-            const allThumbnails = await $$('//android.widget.Button[@text="Thumbnail"]');
+            await ensureWebViewContext();
+            const allThumbnails = await $$('[data-testid="photo-thumbnail"]');
             
             const totalPhotoElements = allPhotos.length + allThumbnails.length;
             console.log(`📷 Found ${totalPhotoElements} total photo elements in gallery`);
@@ -210,45 +214,29 @@ export class PhotoUploadHelper {
     async navigateToPhotosSettings(): Promise<void> {
         console.log('⚙️ Navigating to photos settings...');
         
-        // Try to find and click menu button
-        const menuSelectors = [
-            '//android.widget.Button[@text="Toggle menu"]',
-            '//android.widget.Button[contains(@text, "Menu")]',
-            '//android.widget.Button[contains(@text, "☰")]'
-        ];
-        
-        const menuButton = await this.waitForElementWithRetries(menuSelectors);
-        if (menuButton) {
+        // Open menu and navigate to photos settings via WebView
+        try {
+            const menuButton = await byTestId(TESTID.hamburgerMenu);
             await menuButton.click();
             await browser.pause(1000);
-            
-            // Look for photos/upload link
-            const photosSelectors = [
-                '//android.widget.TextView[@text="Photos"]',
-                '//*[contains(@text, "Photos")]',
-                '//android.widget.Button[contains(@text, "Photos")]',
-                '//*[contains(@text, "Upload")]'
-            ];
-            
-            const photosLink = await this.waitForElementWithRetries(photosSelectors);
-            if (photosLink) {
+
+            // Navigate via menu links
+            await ensureWebViewContext();
+            const photosLink = await $('a[href="/photos"]');
+            if (await photosLink.isDisplayed()) {
                 await photosLink.click();
                 await browser.pause(2000);
-                
-                // Now look for the settings button on the photos page
-                const settingsButtonSelectors = [
-                    '//android.widget.Button[contains(@text, "Settings")]',
-                    '//*[contains(@text, "Settings")][@class="android.widget.Button"]'
-                ];
-                
-                const settingsButton = await this.waitForElementWithRetries(settingsButtonSelectors);
-                if (settingsButton) {
+
+                const settingsButton = await $('[data-testid="settings-button"]');
+                if (await settingsButton.isDisplayed()) {
                     await settingsButton.click();
                     await browser.pause(1000);
                     console.log('⚙️ Navigated to photos settings');
                     return;
                 }
             }
+        } catch (e) {
+            // fall through to error
         }
         
         // Fallback: try alternative navigation

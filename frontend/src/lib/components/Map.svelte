@@ -365,11 +365,13 @@
 
             if (zoomInButton) {
                 zoomInButton.addEventListener('click', handleZoomButtonClick);
+                zoomInButton.setAttribute('data-testid', 'zoom-in-btn');
                 //console.log('🢄[LOCATION] Added zoom-in button listener');
             }
 
             if (zoomOutButton) {
                 zoomOutButton.addEventListener('click', handleZoomButtonClick);
+                zoomOutButton.setAttribute('data-testid', 'zoom-out-btn');
                 //console.log('🢄[LOCATION] Added zoom-out button listener');
             }
         }, 100);
@@ -1580,6 +1582,7 @@
         <button
                 on:click={async (e) => {await handleButtonClick('rotate-ccw', e)}}
                 title="Rotate view 15° counterclockwise"
+                data-testid="rotate-ccw-btn"
         >
             <SpatialStateArrowIcon centerX={8} centerY={8} arrowX={5} arrowY={2} />
         </button>
@@ -1587,6 +1590,7 @@
         <button
                 on:click={(e) => handleButtonClick('forward', e)}
                 title="Move forward in viewing direction"
+                data-testid="move-forward-btn"
         >
 
 			<SpatialStateArrowIcon centerX={8} centerY={8} arrowX={8} arrowY={0} />
@@ -1596,6 +1600,7 @@
         <button
                 on:click={(e) => handleButtonClick('backward', e)}
                 title="Move backward"
+                data-testid="move-backward-btn"
         >
 
 			<SpatialStateArrowIcon centerX={8} centerY={8} arrowX={8} arrowY={16} />
@@ -1605,6 +1610,7 @@
         <button
                 on:click={(e) => handleButtonClick('rotate-cw', e)}
                 title="Rotate view 15° clockwise"
+                data-testid="rotate-cw-btn"
         >
             <SpatialStateArrowIcon centerX={8} centerY={8} arrowX={11} arrowY={2} />
         </button>
@@ -1634,6 +1640,7 @@
         class={$locationTracking ? 'active' : ''}
         on:click={(e) => handleButtonClick('location', e)}
         title="Track my location"
+        data-testid="track-location-btn"
         class:flash={locationApiEventFlash}
     >
         <LocationButtonInner />

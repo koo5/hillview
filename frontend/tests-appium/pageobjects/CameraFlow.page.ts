@@ -1,12 +1,16 @@
 import { $ } from '@wdio/globals';
+import { byTestId, ensureNativeContext, ensureWebViewContext, TESTID } from '../helpers/selectors';
 
 /**
- * Page object for camera and photo capture interactions
+ * Page object for camera and photo capture interactions.
+ * The camera UI is rendered in the WebView (Svelte CameraCapture component),
+ * not as a native Android camera activity.
  */
 export class CameraFlowPage {
 
     async handlePermissions(): Promise<void> {
         console.log('📋 Handling camera and location permissions...');
+        await ensureNativeContext();
 
         const permissionButtons = [
             { selector: 'android=new UiSelector().text("Allow")', name: 'Allow' },
@@ -36,57 +40,22 @@ export class CameraFlowPage {
         await driver.pause(2000); // Wait for camera to initialize
 
         try {
-            // Try app-specific capture button first
-            const appCameraButton = await $('android=new UiSelector().text("Capture")');
-            if (await appCameraButton.isDisplayed()) {
-                console.log('📸 Using app camera capture button');
-                await appCameraButton.click();
+            // Camera UI is in the WebView — use data-testid selectors
+            const captureBtn = await byTestId('single-capture-button');
+            if (await captureBtn.isDisplayed()) {
+                console.log('📸 Using single capture button');
+                await captureBtn.click();
                 await driver.pause(3000);
                 return true;
             }
 
-            // Could add other capture methods here (native camera, etc.)
-            console.log('⚠️ Could not find capture mechanism');
+            console.log('⚠️ Could not find capture button');
             return false;
 
         } catch (e) {
             console.error('❌ Photo capture failed:', e.message);
             return false;
         }
-    }
-
-    async confirmPhoto(): Promise<boolean> {
-        console.log('✅ Looking for photo confirmation options...');
-        await driver.pause(2000); // Wait for confirmation UI to appear
-
-        const confirmButtons = [
-            'android=new UiSelector().text("OK")',
-            'android=new UiSelector().text("Save")',
-            'android=new UiSelector().text("Done")',
-            'android=new UiSelector().text("Accept")',
-            'android=new UiSelector().text("✓")', // Checkmark
-            'android=new UiSelector().description("Done")',
-            'android=new UiSelector().description("OK")',
-            'android=new UiSelector().description("Save")',
-            'android=new UiSelector().resourceId("android:id/button1")', // Standard OK button
-        ];
-
-        for (const buttonSelector of confirmButtons) {
-            try {
-                const confirmButton = await $(buttonSelector);
-                if (await confirmButton.isDisplayed()) {
-                    console.log(`✅ Confirming photo with: ${buttonSelector}`);
-                    await confirmButton.click();
-                    await driver.pause(3000);
-                    return true;
-                }
-            } catch (e) {
-                // Continue trying other confirm buttons
-            }
-        }
-
-        console.log('ℹ️ No explicit confirmation required - photo may be auto-saved');
-        return true; // Assume success if no confirmation needed
     }
 
     async returnToMainApp(maxAttempts: number = 3): Promise<boolean> {
@@ -100,8 +69,8 @@ export class CameraFlowPage {
 
             // Check if we're back in the main app by looking for hamburger menu
             try {
-                const hamburgerCheck = await $('android=new UiSelector().text("Toggle menu")');
-                if (await hamburgerCheck.isDisplayed()) {
+                const menu = await byTestId(TESTID.hamburgerMenu);
+                if (await menu.isDisplayed()) {
                     console.log('✅ Successfully returned to main app');
                     return true;
                 }
@@ -112,6 +81,7 @@ export class CameraFlowPage {
             // Special recovery for final attempt
             if (attempt === maxAttempts - 1) {
                 console.log('🏠 Trying home button approach...');
+                await ensureNativeContext();
                 await driver.pressKeyCode(3); // Android HOME key
                 await driver.pause(2000);
 
@@ -130,6 +100,7 @@ export class CameraFlowPage {
         const filename = `camera-${stepName}-${timestamp}.png`;
 
         try {
+            await ensureNativeContext();
             await driver.saveScreenshot(`./test-results/${filename}`);
             console.log(`📸 Camera screenshot saved: ${filename}`);
         } catch (e) {
@@ -153,15 +124,7 @@ export class CameraFlowPage {
             }
             await this.takeScreenshotAtStep('photo-captured');
 
-            // Step 3: Confirm photo
-            const confirmSuccess = await this.confirmPhoto();
-            if (!confirmSuccess) {
-                console.error('❌ Photo confirmation failed');
-                return false;
-            }
-            await this.takeScreenshotAtStep('photo-confirmed');
-
-            // Step 4: Return to main app
+            // Step 3: Return to main app
             const returnSuccess = await this.returnToMainApp();
             if (!returnSuccess) {
                 console.error('❌ Could not return to main app');

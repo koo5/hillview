@@ -1,101 +1,73 @@
 import { browser } from '@wdio/globals';
+import { acceptPermissionDialogIfPresent, byTestId, ensureNativeContext, ensureWebViewContext, TESTID } from '../helpers/selectors';
+import { recreateTestUsers } from '../helpers/backend';
 
 describe('Android Simple Health Check', () => {
-    it('should launch app and detect WebView successfully', async () => {
-        console.log('🏥 Starting simple app health check...');
 
-        // Wait for app to fully load
+    before(async () => {
+        await recreateTestUsers();
+    });
+
+    it('should launch app with WebView', async () => {
         await browser.pause(3000);
+        await ensureNativeContext();
 
-        // Check that we can get the page source (indicates app is responsive)
         const pageSource = await browser.getPageSource();
-        expect(pageSource.length).toBeGreaterThan(1000, 'Page source should contain substantial content');
-
-        // Check for WebView presence in page source
-        expect(pageSource).toContain('android.webkit.WebView', 'WebView should be present in the UI hierarchy');
-
-        // Check for Hillview app-specific content
-        expect(pageSource).toContain('cz.hillviedev', 'App package should be correct');
-
-        // Optional: Check for map-related content (indicates the main UI loaded)
-        const hasMapContent = pageSource.includes('Zoom') || pageSource.includes('Toggle') || pageSource.includes('Leaflet');
-        if (hasMapContent) {
-            console.log('✅ Map interface detected - app fully loaded');
-        } else {
-            console.log('ℹ️ Map not yet loaded, but app is responsive');
-        }
-
-        console.log('✅ Simple health check passed - app is functional');
+        expect(pageSource).toContain('android.webkit.WebView');
+        expect(pageSource).toContain('cz.hillviedev');
     });
 
-    it('should be able to get device information', async () => {
-        console.log('📱 Testing device capabilities...');
+    it('should have core UI elements', async () => {
+        const menuBtn = await byTestId(TESTID.hamburgerMenu);
+        await menuBtn.waitForDisplayed({ timeout: 10000 });
 
-        // Test that we can get basic device info (indicates Appium is working properly)
-        const deviceInfo = await browser.execute('mobile: deviceInfo');
-        expect(deviceInfo).toBeDefined();
-        expect(deviceInfo.platformVersion).toBe('16', 'Platform version should match emulator');
+        const cameraBtn = await byTestId(TESTID.cameraButton);
+        expect(await cameraBtn.isDisplayed()).toBe(true);
 
-        // Test that we can get orientation
-        const orientation = await browser.getOrientation();
-        expect(['PORTRAIT', 'LANDSCAPE']).toContain(orientation, 'Orientation should be valid');
-
-        console.log('✅ Device capabilities test passed');
+        const zoomIn = await byTestId(TESTID.zoomIn);
+        expect(await zoomIn.isDisplayed()).toBe(true);
     });
 
-    it('should be able to click the menu button', async () => {
-        console.log('🖱️ Testing menu button interaction...');
-
-        // Wait for app to fully load
-        await browser.pause(3000);
-
-        console.log('🔍 Verifying menu button exists in page source...');
-
-        // Verify the button exists in the page source
-        const pageSourceBefore = await browser.getPageSource();
-        expect(pageSourceBefore).toContain('Toggle menu', 'Menu button should exist in page source');
-
-        // Log how the "Toggle menu" text appears in the page source for debugging
-        const lines = pageSourceBefore.split('\n');
-        for (const line of lines) {
-            if (line.includes('Toggle menu')) {
-                console.log('📋 Found Toggle menu in:', line.substring(0, 300));
-            }
-        }
-
-        console.log('🔍 Finding and clicking menu button...');
-
-        // In WebView apps, text may appear in content-desc rather than text attribute
-        // Try content-desc first, then text
-        let menuBtn = await $('//*[@content-desc="Toggle menu"]');
-        if (!await menuBtn.isExisting()) {
-            console.log('ℹ️ Not found via content-desc, trying text attribute...');
-            menuBtn = await $('//*[@text="Toggle menu"]');
-        }
-        if (!await menuBtn.isExisting()) {
-            console.log('ℹ️ Not found via text, trying accessibility id...');
-            menuBtn = await $('~Toggle menu');
-        }
+    it('should open and close menu', async () => {
+        const menuBtn = await byTestId(TESTID.hamburgerMenu);
         await menuBtn.click();
+        await browser.pause(1000);
 
-        console.log('✅ Menu button clicked successfully');
+        await ensureWebViewContext();
+        const nav = await $('nav');
+        expect(await nav.isDisplayed()).toBe(true);
 
-        // Wait a moment for any UI changes to occur
+        const menuBtn2 = await byTestId(TESTID.hamburgerMenu);
+        await menuBtn2.click();
+        await browser.pause(500);
+    });
+
+    it('should open camera view', async () => {
+        const cameraBtn = await byTestId(TESTID.cameraButton);
+        await cameraBtn.click();
+        await browser.pause(1000);
+
+        // Accept location permission dialog (native)
+        await acceptPermissionDialogIfPresent();
+        await browser.pause(1000);
+
+        // Click "Allow Camera" button in WebView
+        const allowCameraBtn = await byTestId('allow-camera-btn');
+        await allowCameraBtn.waitForExist({ timeout: 10000 });
+        await allowCameraBtn.click();
+        await browser.pause(1000);
+
+        // Accept camera permission dialog (native)
+        await acceptPermissionDialogIfPresent();
         await browser.pause(2000);
 
-        // Get page source after click to verify the app is still responsive
-        const pageSourceAfter = await browser.getPageSource();
-        expect(pageSourceAfter.length).toBeGreaterThan(1000);
+        const captureBtn = await byTestId('single-capture-button');
+        await captureBtn.waitForExist({ timeout: 10000 });
+        expect(await captureBtn.isDisplayed()).toBe(true);
 
-        console.log('📄 Checking if click had any effect...');
-
-        // Check if the click changed anything (optional verification)
-        if (pageSourceAfter !== pageSourceBefore) {
-            console.log('✅ Page content changed after click - menu interaction detected');
-        } else {
-            console.log('ℹ️ Page content unchanged - click registered but no visible UI change');
-        }
-
-        console.log('✅ Menu button interaction test passed');
+        // Close camera
+        const cameraBtnAgain = await byTestId(TESTID.cameraButton);
+        await cameraBtnAgain.click();
+        await browser.pause(1000);
     });
 });

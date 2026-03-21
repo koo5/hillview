@@ -1,6 +1,7 @@
 import { browser, $, $$ } from '@wdio/globals';
 import { promises as fs } from 'fs';
 import path from 'path';
+import { byTestId, ensureNativeContext, nativeByDesc, TESTID } from './selectors';
 
 /**
  * Check for critical "error sending request" and fail the test immediately
@@ -9,9 +10,11 @@ import path from 'path';
 export async function checkForCriticalErrors(): Promise<void> {
     console.log('🔍 Checking for critical error: "error sending request"...');
 
-    const errorEl = await $('//*[contains(@text, "error sending request")]');
+    await ensureNativeContext();
+    // In WebView apps, text may appear in content-desc or text attribute
+    const errorEl = await $('//*[contains(@text, "error sending request") or contains(@content-desc, "error sending request")]');
     if (await errorEl.isExisting()) {
-        const errorText = await errorEl.getText();
+        const errorText = await errorEl.getText() || await errorEl.getAttribute('content-desc') || 'unknown error';
         console.error(`❌ CRITICAL ERROR DETECTED: "${errorText}"`);
         await saveDebugScreenshot('critical-error-sending-request');
 
@@ -34,26 +37,18 @@ export async function verifyAppHealth(): Promise<boolean> {
     // First check for critical errors (will throw if found)
     await checkForCriticalErrors();
 
-    // Check for expected core UI elements
-    const expectedElements = [
-        { selector: '//android.widget.Button[@text="Take photo"]', name: 'Take photo button' },
-        //{ selector: 'android.webkit.WebView', name: 'WebView container' } // already checked in ensureAppIsRunning
-    ];
-
+    // Check for expected core UI elements via data-testid in WebView context
     let foundElements = 0;
-    for (const element of expectedElements) {
-        try {
-            const el = await $(element.selector);
-            const exists = await el.isExisting();
-            if (exists) {
-                console.log(`✅ Found: ${element.name}`);
-                foundElements++;
-            } else {
-                console.log(`⚠️  Missing: ${element.name}`);
-            }
-        } catch (e) {
-            console.log(`⚠️  Error checking ${element.name}:`, e.message);
+    try {
+        const cameraBtn = await byTestId(TESTID.cameraButton);
+        if (await cameraBtn.isExisting()) {
+            console.log('✅ Found: camera button');
+            foundElements++;
+        } else {
+            console.log('⚠️  Missing: camera button');
         }
+    } catch (e) {
+        console.log('⚠️  Error checking camera button:', e.message);
     }
 
     // App is healthy if we found at least one expected element
