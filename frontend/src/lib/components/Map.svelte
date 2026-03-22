@@ -2011,7 +2011,7 @@
         position: absolute;
         top: 163px;
         left: 10px;
-        z-index: 30000;
+        z-index: 20000;
         width: 32px;
         height: 32px;
         border: 1px solid #ccc;

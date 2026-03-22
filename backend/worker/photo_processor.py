@@ -53,8 +53,11 @@ def create_center_crop(image, target_width: int, target_height: int):
 	h, w = image.shape[:2]
 	# Scale so that the dimension that would be cropped fills the target
 	scale = max(target_width / w, target_height / h)
-	new_w = int(w * scale)
-	new_h = int(h * scale)
+	# Use round() instead of int() to avoid floating-point truncation
+	# (e.g. int(7 * (240/7)) = 239 due to IEEE 754), then clamp to at
+	# least target dimensions so the center-crop slice is never short.
+	new_w = max(target_width, round(w * scale))
+	new_h = max(target_height, round(h * scale))
 	resized = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_AREA)
 	x_start = (new_w - target_width) // 2
 	y_start = (new_h - target_height) // 2

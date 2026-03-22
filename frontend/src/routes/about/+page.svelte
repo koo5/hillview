@@ -25,13 +25,55 @@
         }
     });
 
-    const technologies = [
-        { name: 'SvelteKit', url: 'https://kit.svelte.dev' },
-        { name: 'TypeScript', url: 'https://www.typescriptlang.org' },
-        { name: 'Tauri', url: 'https://tauri.app' },
-        { name: 'Leaflet', url: 'https://leafletjs.com' },
-        { name: 'Lucide Icons', url: 'https://lucide.dev' },
-        { name: 'Vite', url: 'https://vitejs.dev' }
+    const techCategories = [
+        {
+            title: 'Infrastructure & Platform',
+            items: [
+                { name: 'Linux', url: 'https://kernel.org' },
+                { name: 'Docker', url: 'https://docker.com' },
+                { name: 'PostgreSQL', url: 'https://postgresql.org' },
+                { name: 'PostGIS', url: 'https://postgis.net' },
+            ]
+        },
+        {
+            title: 'Backend',
+            items: [
+                { name: 'Python', url: 'https://python.org' },
+                { name: 'FastAPI', url: 'https://fastapi.tiangolo.com' },
+                { name: 'SQLAlchemy', url: 'https://sqlalchemy.org' },
+                { name: 'Alembic', url: 'https://alembic.sqlalchemy.org' },
+            ]
+        },
+        {
+            title: 'Frontend',
+            items: [
+                { name: 'Svelte', url: 'https://svelte.dev' },
+                { name: 'SvelteKit', url: 'https://kit.svelte.dev' },
+                { name: 'TypeScript', url: 'https://typescriptlang.org' },
+                { name: 'Tauri', url: 'https://tauri.app' },
+                { name: 'Vite', url: 'https://vitejs.dev' },
+                { name: 'Leaflet', url: 'https://leafletjs.com' },
+                { name: 'Lucide Icons', url: 'https://lucide.dev' },
+            ]
+        },
+        {
+            title: 'Image & Media Processing',
+            items: [
+                { name: 'OpenCV', url: 'https://opencv.org' },
+                { name: 'Pillow', url: 'https://pillow.readthedocs.io' },
+                { name: 'libwebp', url: 'https://developers.google.com/speed/webp' },
+                { name: 'libvips', url: 'https://www.libvips.org' },
+                { name: 'Ultralytics YOLO', url: 'https://ultralytics.com' },
+                { name: 'PyTorch', url: 'https://pytorch.org' },
+            ]
+        },
+        {
+            title: 'Visualization & Annotation',
+            items: [
+                { name: 'OpenSeadragon', url: 'https://openseadragon.github.io' },
+                { name: 'Annotorious', url: 'https://annotorious.dev' },
+            ]
+        },
     ];
 
     // Get current tile provider config
@@ -128,17 +170,23 @@
             </div>
         </div>
 
-        <h3>Libraries & Technologies</h3>
-        <div class="attribution-links" on:click={handleAttributionClick} role="presentation">
-            {#each technologies as tech}
-                <a href={tech.url} target="_blank" rel="noopener noreferrer" data-external-link="true">
-                    {tech.name}
-                </a>
-            {/each}
-        </div>
+        {#each techCategories as category}
+            <h3>{category.title}</h3>
+            <div class="attribution-links" on:click={handleAttributionClick} role="presentation">
+                {#each category.items as tech}
+                    <a href={tech.url} target="_blank" rel="noopener noreferrer" data-external-link="true">
+                        {tech.name}
+                    </a>
+                {/each}
+            </div>
+        {/each}
 
-        <h3>Services</h3>
+        <h3>Data & Services</h3>
         <div class="attribution-links" on:click={handleAttributionClick} role="presentation">
+            <a href="https://openstreetmap.org" target="_blank" rel="noopener noreferrer" data-external-link="true">
+                <Globe size={16} />
+                OpenStreetMap
+            </a>
             <a href="https://tracestrack.com" target="_blank" rel="noopener noreferrer" data-external-link="true">
                 <MapPin size={16} />
                 TracesTrack
