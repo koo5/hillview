@@ -696,12 +696,13 @@ class PhotoProcessor:
 					try:
 						response = await client.post(upload_url, content=file_data, headers=headers, timeout=360.0)
 					except (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError) as e:
+						err_detail = f"{type(e).__name__}: {e}" if str(e) else f"{type(e).__name__}: {e.__cause__ or '(no detail)'}"
 						if attempt < max_retries - 1:
 							delay = 2 ** attempt
-							logger.warning(f"Connection error uploading {relative_path} (attempt {attempt+1}/{max_retries}): {e}, retrying in {delay}s")
+							logger.warning(f"Connection error uploading {relative_path} (attempt {attempt+1}/{max_retries}): {err_detail}, retrying in {delay}s")
 							await asyncio.sleep(delay)
 							continue
-						logger.error(f"Connection error uploading {relative_path} after {max_retries} attempts: {e}")
+						logger.error(f"Connection error uploading {relative_path} after {max_retries} attempts: {err_detail}")
 						raise
 
 					if response.status_code == 410:
