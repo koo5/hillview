@@ -114,7 +114,27 @@ abstract class PhotoDatabase : RoomDatabase() {
 
 		private val MIGRATION_9_10 = object : Migration(9, 10) {
 			override fun migrate(database: SupportSQLiteDatabase) {
-				database.execSQL("ALTER TABLE bearings DROP COLUMN headingAccuracy")
+				// DROP COLUMN not supported on SQLite < 3.35.0 (Android < API 34)
+				// Recreate the table without headingAccuracy
+				database.execSQL("""
+					CREATE TABLE bearings_new (
+						timestamp INTEGER PRIMARY KEY NOT NULL,
+						trueHeading REAL NOT NULL,
+						magneticHeading REAL,
+						accuracyLevel INTEGER,
+						sourceId INTEGER NOT NULL,
+						pitch REAL,
+						roll REAL,
+						FOREIGN KEY (sourceId) REFERENCES sources (id)
+					)
+				""")
+				database.execSQL("""
+					INSERT INTO bearings_new (timestamp, trueHeading, magneticHeading, accuracyLevel, sourceId, pitch, roll)
+					SELECT timestamp, trueHeading, magneticHeading, accuracyLevel, sourceId, pitch, roll FROM bearings
+				""")
+				database.execSQL("DROP TABLE bearings")
+				database.execSQL("ALTER TABLE bearings_new RENAME TO bearings")
+				database.execSQL("CREATE INDEX IF NOT EXISTS index_bearings_sourceId ON bearings (sourceId)")
 			}
 		}
 

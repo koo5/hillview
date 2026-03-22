@@ -56,7 +56,7 @@ export const config: WebdriverIO.Config = {
         // capabilities for native Hillview app tests on Android Emulator
         platformName: 'Android',
         'appium:deviceName': 'Android GoogleAPI Emulator',
-        'appium:platformVersion': '16',
+        'appium:platformVersion': '12.0',
         'appium:automationName': 'UiAutomator2',
         'appium:appPackage': 'cz.hillviedev',
         'appium:appActivity': '.MainActivity',
