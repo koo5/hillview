@@ -39,4 +39,4 @@ end
 time wait
 
 $DIR/exif_tags_from_cr2_to_webp.sh
-uv run $DIR/geotag/geo_tag.py $argv
+uv run  --project ~/repos/koo5/hillview/0/hillview/scripts/geotag $DIR/geotag/geo_tag.py $argv
