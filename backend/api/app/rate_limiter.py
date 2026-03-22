@@ -273,7 +273,12 @@ class GeneralRateLimiter:
 			history[:] = [t for t in history if now - t < window_seconds]
 
 			if len(history) >= max_requests:
-				logger.warning(f"Rate limit exceeded for {identifier}, limit_type: {limit_type}, count: {len(history)}")
+				env_var = f"RATE_LIMIT_{limit_type.upper()}"
+				logger.warning(
+					f"Rate limit exceeded for {identifier}, limit_type: {limit_type}, "
+					f"count: {len(history)}/{max_requests} per {limit_config['window_hours']}h "
+					f"(configure via {env_var} / {env_var}_WINDOW env vars, or NO_LIMITS=true)"
+				)
 				return False
 
 			# Add current request
@@ -304,10 +309,14 @@ class GeneralRateLimiter:
 
 		if not await self.check_rate_limit(request, limit_type, user_id):
 			limit_config = self.limits[limit_type]
+			retry_seconds = limit_config['window_hours'] * 3600
 			raise HTTPException(
 				status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-				detail=f"Rate limit exceeded: {limit_config['max_requests']} requests per {limit_config['window_hours']} hour(s)",
-				headers={"Retry-After": str(limit_config['window_hours'] * 3600)}
+				detail=(
+					f"Rate limit exceeded for '{limit_type}': {limit_config['max_requests']} requests per {limit_config['window_hours']} hour(s). "
+					f"Please retry after {retry_seconds} seconds."
+				),
+				headers={"Retry-After": str(retry_seconds)}
 			)
 
 

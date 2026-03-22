@@ -81,6 +81,10 @@ class RateLimitConfig:
 	user_registration_max_requests: int
 	user_registration_window_hours: int
 
+	# Worker-to-API limits (per IP)
+	worker_upload_max_requests: int
+	worker_upload_window_hours: int
+
 	# Debug endpoints limits (per IP)
 	debug_max_requests: int
 	debug_window_hours: int
@@ -128,6 +132,10 @@ class RateLimitConfig:
 			user_registration_max_requests=int(os.getenv('RATE_LIMIT_USER_REGISTRATION', '30')),
 			user_registration_window_hours=int(os.getenv('RATE_LIMIT_USER_REGISTRATION_WINDOW', '1')),
 
+			# Worker file upload
+			worker_upload_max_requests=int(os.getenv('RATE_LIMIT_WORKER_UPLOAD', '50000')),
+			worker_upload_window_hours=int(os.getenv('RATE_LIMIT_WORKER_UPLOAD_WINDOW', '1')),
+
 			# Debug endpoints
 			debug_max_requests=int(os.getenv('RATE_LIMIT_DEBUG', '2000')),
 			debug_window_hours=int(os.getenv('RATE_LIMIT_DEBUG_WINDOW', '1')),
@@ -169,6 +177,11 @@ class RateLimitConfig:
 			'user_registration': {
 				'max_requests': self.user_registration_max_requests,
 				'window_hours': self.user_registration_window_hours,
+				'per_user': False  # Per IP
+			},
+			'worker_upload': {
+				'max_requests': self.worker_upload_max_requests,
+				'window_hours': self.worker_upload_window_hours,
 				'per_user': False  # Per IP
 			},
 			'debug': {

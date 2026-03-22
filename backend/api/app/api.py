@@ -176,9 +176,12 @@ class GlobalRateLimitMiddleware(BaseHTTPMiddleware):
 			request.url.path.startswith("/api/debug")):
 			return await call_next(request)
 
-		# Apply general API rate limiting
+		# Worker file uploads get their own limit
+		limit_type = 'worker_upload' if request.url.path == "/api/photos/upload-file" else 'general_api'
+
+		# Apply rate limiting
 		try:
-			await self.rate_limiter.enforce_rate_limit(request, 'general_api')
+			await self.rate_limiter.enforce_rate_limit(request, limit_type)
 		except HTTPException as e:
 			# Return rate limit response
 			from fastapi.responses import JSONResponse
