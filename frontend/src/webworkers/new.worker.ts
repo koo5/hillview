@@ -207,8 +207,8 @@ function markConflictingProcessesForAbortion(newProcessType: 'config' | 'area' |
         const existingPriority = getProcessPriority(processInfo.type);
 
         // Only abort existing processes if new process has HIGHER priority
-        // Config (priority 2) can abort Area (priority 1)
-        // Area (priority 1) cannot abort Config (priority 2)
+        // Config (priority 3) can abort Area (priority 2)
+        // Area (priority 2) cannot abort Config (priority 3)
         if (newPriority > existingPriority) {
             if (doLog) console.log(`🢄NewWorker: Marking process ${processId} (${processInfo.type}) for abortion due to higher priority ${newProcessType} update`);
             processInfo.shouldAbort = true;
@@ -508,6 +508,22 @@ async function loop(): Promise<void> {
 					if (doLog) console.log(`🢄NewWorker: Stream completed for ${message.sourceId}: ${message.totalPhotos || 0} total photos`);
 					// Stream is complete, no additional action needed
 					break;
+
+				case 'abortArea': {
+					// Abort area and lower priority processes (map navigated away)
+					const areaPriority = getProcessPriority('area');
+					console.log('🢄NewWorker: Aborting area and lower priority processes (map navigated away)');
+					for (const [processId, processInfo] of processTable.entries()) {
+						if (getProcessPriority(processInfo.type) <= areaPriority) {
+							processInfo.shouldAbort = true;
+							cleanupProcess(processId);
+						}
+					}
+					// Mark as processed so they won't restart
+					currentState.area.lastProcessedId = currentState.area.lastUpdateId;
+					currentState.sourcesPhotosInArea.lastProcessedId = currentState.sourcesPhotosInArea.lastUpdateId;
+					break;
+				}
 
 				case 'removePhoto':
 					// Handle removing a single photo from cache

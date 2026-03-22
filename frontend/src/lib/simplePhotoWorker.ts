@@ -391,6 +391,17 @@ class SimplePhotoWorker {
         return this.isInitialized && (this.worker !== null || this.kotlinWorker !== null);
     }
 
+    /**
+     * Abort all running area processes in the worker.
+     * Call when navigating away from the map to prevent stale results
+     * from a previous location overwriting fresh data.
+     */
+    abortAreaProcesses(): void {
+        if (!this.isInitialized || (!this.worker && !this.kotlinWorker)) return;
+        if (doLog) console.log(TAG+'Aborting area processes');
+        this.sendMessage('abortArea', {});
+    }
+
     // Cache removal methods for hidden content
     removePhotoFromCache(photoId: string, photoSource: string): void {
         if (!this.isInitialized || (!this.worker && !this.kotlinWorker)) {

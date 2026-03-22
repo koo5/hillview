@@ -62,6 +62,7 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
 
     // Persistent state like new.worker.ts currentState.sourcesPhotosInArea.data
     private val sourcesPhotosInArea = ConcurrentHashMap<String, List<PhotoData>>()
+    @Volatile
     private var currentPicks = setOf<String>()
 
     // Store current sources, bounds, range and maxPhotos state like new.worker.ts
@@ -198,12 +199,15 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
         val range = jsonObject["range"]?.jsonPrimitive?.content?.toDoubleOrNull()
             ?: DEFAULT_RANGE_METERS // Default range if not provided
 
+        val generation = jsonObject["generation"]?.jsonPrimitive?.intOrNull
+
         return AreaData(
             sources = sources,
             bounds = bounds,
             maxPhotos = maxPhotos,
             range = range,
-            queryOptionsJson = jsonObject["queryOptionsJson"]?.jsonPrimitive?.content  // Pre-serialized string
+            queryOptionsJson = jsonObject["queryOptionsJson"]?.jsonPrimitive?.content,  // Pre-serialized string
+            generation = generation
         )
     }
 
@@ -241,6 +245,11 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
                 MessageType.ABORT_PROCESS -> {
                     abortProcess(message.processId)
                 }
+                MessageType.ABORT_AREA -> {
+                    // Abort area and lower priority processes, leave config alone
+                    Log.d(TAG, "PhotoWorkerService: Aborting area and lower priority processes (map navigated away)")
+                    abortLowerPriorityProcesses(3) // 3 = config priority; aborts everything with priority < 3 (area=2 and below)
+                }
                 MessageType.CLEANUP -> {
                     cleanup()
                 }
@@ -262,6 +271,8 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
     ) {
         val config = parseConfigData(message.data)
 
+        // Abort any existing config processes to prevent stale results
+        abortSameTypeProcesses(ProcessType.CONFIG)
         // Abort any existing lower priority processes
         abortLowerPriorityProcesses(message.priority)
 
@@ -376,6 +387,8 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
     ) {
         val areaData = parseAreaData(message.data)
 
+        // Abort any existing area processes to prevent stale results overwriting new ones
+        abortSameTypeProcesses(ProcessType.AREA)
         // Abort any existing lower priority processes
         abortLowerPriorityProcesses(message.priority)
 
@@ -431,7 +444,7 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
                     }
 
                     // Send photos update to frontend like new.worker.ts does
-                    sendPhotosUpdate(finalPhotos, this@PhotoWorkerService.sourcesPhotosInArea.toMap(), areaData.bounds, areaData.range)
+                    sendPhotosUpdate(finalPhotos, this@PhotoWorkerService.sourcesPhotosInArea.toMap(), areaData.bounds, areaData.range, areaData.generation)
                 }
 
             } catch (error: Exception) {
@@ -493,13 +506,26 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
     }
 
     /**
-     * Abort lower priority processes - translation of worker priority logic
+     * Abort lower priority processes. Higher number = higher priority (matches web worker convention).
      */
     private fun abortLowerPriorityProcesses(newPriority: Priority) {
-        val processesToAbort = processTable.values.filter { it.priority > newPriority }
+        val processesToAbort = processTable.values.filter { it.priority < newPriority }
 
         for (process in processesToAbort) {
             if (doLog) Log.d(TAG, "PhotoWorkerService: Aborting lower priority process ${process.processId} (priority ${process.priority} < $newPriority)")
+            abortProcess(process.processId)
+        }
+    }
+
+    /**
+     * Abort all existing processes of the same type.
+     * Prevents stale results from an old area load overwriting a newer one.
+     */
+    private fun abortSameTypeProcesses(type: ProcessType, excludeProcessId: ProcessId? = null) {
+        val processesToAbort = processTable.values.filter { it.type == type && it.processId != excludeProcessId }
+
+        for (process in processesToAbort) {
+            Log.d(TAG, "PhotoWorkerService: Aborting same-type ${process.type} process ${process.processId}")
             abortProcess(process.processId)
         }
     }
@@ -511,7 +537,8 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
         photos: List<PhotoData>,
         sourcesPhotosInArea: Map<String, List<PhotoData>>,
         bounds: Bounds? = null,
-        range: Double? = null
+        range: Double? = null,
+        generation: Int? = null
     ) {
         try {
             // Apply angular range culling if bounds and range are available (picks are always included)
@@ -537,6 +564,7 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
             eventData.put("photos_in_area", serializePhotoDataList(photos))
             eventData.put("photos_in_range", serializePhotoDataList(photosInRange))
             eventData.put("timestamp", System.currentTimeMillis())
+            generation?.let { eventData.put("generation", it) }
 
             if (doLog) Log.d(TAG, "PhotoWorkerService: Queuing photosUpdate message with ${photos.size} area photos and ${photosInRange.size} range photos")
 
@@ -714,5 +742,6 @@ private data class AreaData(
     val maxPhotos: Int,
     val range: Double,
     val picks: List<String> = emptyList(),
-    val queryOptionsJson: String? = null  // Pre-serialized analysis filters
+    val queryOptionsJson: String? = null,  // Pre-serialized analysis filters
+    val generation: Int? = null  // Frontend generation counter for staleness detection
 )

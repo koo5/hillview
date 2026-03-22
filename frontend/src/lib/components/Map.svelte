@@ -1037,6 +1037,8 @@
 			clearTimeout(invalidateSizeTimeout);
 			invalidateSizeTimeout = null;
 		}
+		// Abort running area processes so stale results don't arrive after navigation
+		simplePhotoWorker.abortAreaProcesses();
 		// Clear cached photos and reset bounds so we fetch fresh data when map remounts
 		mapReady.set(false);
 		photosInArea.set([]);

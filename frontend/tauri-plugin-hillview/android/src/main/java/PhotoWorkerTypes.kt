@@ -15,6 +15,7 @@ enum class MessageType {
     PROCESS_AREA,
     PICKS_UPDATED,
     ABORT_PROCESS,
+    ABORT_AREA,
     CLEANUP
 }
 

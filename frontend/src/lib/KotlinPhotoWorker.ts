@@ -16,7 +16,7 @@ import { MAX_PHOTOS_IN_AREA, MAX_PHOTOS_IN_RANGE, DEFAULT_RANGE_METERS } from '.
 import type { WorkerConfigData } from './photoWorkerTypes';
 
 // Kotlin Photo Worker message types
-type MessageType = 'PROCESS_CONFIG' | 'PROCESS_AREA' | 'PICKS_UPDATED' | 'ABORT_PROCESS' | 'CLEANUP';
+type MessageType = 'PROCESS_CONFIG' | 'PROCESS_AREA' | 'PICKS_UPDATED' | 'ABORT_PROCESS' | 'ABORT_AREA' | 'CLEANUP';
 
 interface WorkerMessage {
     type: MessageType;
@@ -37,6 +37,10 @@ export class KotlinPhotoWorker {
     private processIdCounter = 0;
     private isInitialized = false;
     private onMessageCallback: ((message: any) => void) | null = null;
+    // Generation counter for discarding stale photo updates after abort.
+    // Bumped on abortArea; embedded in PROCESS_AREA messages and echoed back by Kotlin.
+    // TODO: could also bump on areaUpdated for tighter staleness filtering.
+    private generation = 0;
 
     constructor() {
         console.log('🢄KotlinPhotoWorker: Initialized Kotlin photo worker adapter');
@@ -98,7 +102,7 @@ export class KotlinPhotoWorker {
                     type: messageType,
                     messageId,
                     processId,
-                    priority: 1, // High priority for config changes
+                    priority: 3, // High priority for config changes
                     data: JSON.stringify({
                         sources: configData?.sources || [],
                         queryOptionsJson: configData?.queryOptionsJson || null,
@@ -124,7 +128,8 @@ export class KotlinPhotoWorker {
                         bounds: message.data?.area,
                         range: message.data?.range ?? DEFAULT_RANGE_METERS, // Use default if not provided
                         maxPhotos: get(maxPhotosInArea), // Use configurable store value
-                        queryOptionsJson: buildFiltersQueryParam()  // Pre-serialized, null if no active filters
+                        queryOptionsJson: buildFiltersQueryParam(),  // Pre-serialized, null if no active filters
+                        generation: this.generation
                     })
                 };
                 break;
@@ -135,10 +140,22 @@ export class KotlinPhotoWorker {
                     type: messageType,
                     messageId,
                     processId,
-                    priority: 1, // High priority - picks should be processed immediately
+                    priority: 3, // High priority - picks should be processed immediately
                     data: JSON.stringify({
                         picks: message.data?.picks || []
                     })
+                };
+                break;
+
+            case 'abortArea':
+                ++this.generation;
+                messageType = 'ABORT_AREA';
+                workerMessage = {
+                    type: messageType,
+                    messageId,
+                    processId,
+                    priority: 999, // Highest priority
+                    data: JSON.stringify({})
                 };
                 break;
 
@@ -233,6 +250,13 @@ export class KotlinPhotoWorker {
         }
 
         try {
+            // Discard stale photo updates that were queued before an abort
+            const messageGeneration = payload.generation;
+            if (messageGeneration !== undefined && messageGeneration < this.generation) {
+                console.log(`🢄KotlinPhotoWorker: Discarding stale photo update (generation ${messageGeneration} < ${this.generation})`);
+                return;
+            }
+
             // Parse the photos from the payload data
             //console.log('🔥 DEBUG: payload structure:', JSON.stringify(payload, null, 2));
             const photosInArea = JSON.parse(payload.photos_in_area || '[]');
@@ -381,7 +405,7 @@ export class KotlinPhotoWorker {
      * Validate WorkerMessage structure before sending to Kotlin
      */
     private validateWorkerMessage(message: WorkerMessage): void {
-        if (!message.type || !['PROCESS_CONFIG', 'PROCESS_AREA', 'PICKS_UPDATED', 'ABORT_PROCESS', 'CLEANUP'].includes(message.type)) {
+        if (!message.type || !['PROCESS_CONFIG', 'PROCESS_AREA', 'PICKS_UPDATED', 'ABORT_PROCESS', 'ABORT_AREA', 'CLEANUP'].includes(message.type)) {
             throw new Error(`Invalid message type: ${message.type}`);
         }
 
