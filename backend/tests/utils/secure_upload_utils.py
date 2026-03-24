@@ -136,7 +136,7 @@ class SecureUploadClient:
 		# Test authentication first
 		async with httpx.AsyncClient() as client:
 			response = await client.get(
-				f"{self.api_url}/me/",
+				f"{self.api_url}/auth/me/",
 				headers={"Authorization": f"Bearer {auth_token}"},
 				follow_redirects=True
 			)
