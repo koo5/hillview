@@ -161,7 +161,7 @@ describe('HeadingFilter', () => {
 			expect(heading!).toBeLessThan(100);
 		});
 
-		it('detects direction change after stop', () => {
+		it('detects direction change immediately after stop', () => {
 			// Drive east
 			const driving1 = driveStraight(50.0, 14.0, 90, 15, 1000, 5);
 			for (const p of driving1) {
@@ -174,9 +174,9 @@ describe('HeadingFilter', () => {
 				filter.update(pos(lastPos.lat, lastPos.lng, 0.3, lastPos.timestamp + (i + 1) * 1000));
 			}
 
-			// Resume driving NORTH
+			// Resume driving NORTH — first valid sample should give ~north
 			const resumeTime = lastPos.timestamp + 11000;
-			const driving2 = driveStraight(lastPos.lat, lastPos.lng, 0, 15, 1000, 8);
+			const driving2 = driveStraight(lastPos.lat, lastPos.lng, 0, 15, 1000, 3);
 			for (let i = 0; i < driving2.length; i++) {
 				driving2[i].timestamp = resumeTime + i * 1000;
 			}
@@ -186,65 +186,8 @@ describe('HeadingFilter', () => {
 				heading = filter.update(p) ?? heading;
 			}
 
-			// After enough northbound samples, heading should converge toward north
-			// Allow generous tolerance since it's transitioning from east
-			expect(heading!).toBeLessThan(45);
-		});
-	});
-
-	describe('uncertainty growth during stops', () => {
-		it('responds more aggressively after a long stop (high uncertainty)', () => {
-			// Drive east, establish heading
-			const driving1 = driveStraight(50.0, 14.0, 90, 15, 1000, 5);
-			for (const p of driving1) {
-				filter.update(p);
-			}
-
-			const lastPos = driving1[driving1.length - 1];
-
-			// Short stop (2 seconds), then turn north
-			const filterShort = new HeadingFilter();
-			const driving1b = driveStraight(50.0, 14.0, 90, 15, 1000, 5);
-			for (const p of driving1b) {
-				filterShort.update(p);
-			}
-			const lastPosShort = driving1b[driving1b.length - 1];
-			filterShort.update(pos(lastPosShort.lat, lastPosShort.lng, 0.3, lastPosShort.timestamp + 1000));
-			filterShort.update(pos(lastPosShort.lat, lastPosShort.lng, 0.3, lastPosShort.timestamp + 2000));
-
-			// Long stop (60 seconds), then turn north
-			for (let i = 0; i < 60; i++) {
-				filter.update(pos(lastPos.lat, lastPos.lng, 0.3, lastPos.timestamp + (i + 1) * 1000));
-			}
-
-			// Both resume northbound — one sample
-			const northShort = driveStraight(lastPosShort.lat, lastPosShort.lng, 0, 15, 1000, 3);
-			for (let i = 0; i < northShort.length; i++) {
-				northShort[i].timestamp = lastPosShort.timestamp + 3000 + i * 1000;
-			}
-
-			const northLong = driveStraight(lastPos.lat, lastPos.lng, 0, 15, 1000, 3);
-			for (let i = 0; i < northLong.length; i++) {
-				northLong[i].timestamp = lastPos.timestamp + 61000 + i * 1000;
-			}
-
-			let headingShort: number | null = null;
-			for (const p of northShort) {
-				headingShort = filterShort.update(p) ?? headingShort;
-			}
-
-			let headingLong: number | null = null;
-			for (const p of northLong) {
-				headingLong = filter.update(p) ?? headingLong;
-			}
-
-			// After long stop, heading should be closer to north (0°) than after short stop
-			// because uncertainty grew more → higher Kalman gain → trusts measurement more
-			if (headingShort !== null && headingLong !== null) {
-				// Both should be between 0 and 90 (transitioning from east to north)
-				// Long stop heading should be closer to 0 (north)
-				expect(headingLong).toBeLessThan(headingShort);
-			}
+			// Should be close to north — no smoothing to hold it toward east
+			expect(heading!).toBeLessThan(15);
 		});
 	});
 
