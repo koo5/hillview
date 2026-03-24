@@ -17,6 +17,7 @@ from datetime import timedelta
 from common.utc import utcnow, format_utc
 import sys
 import pytest
+import hashlib
 
 # Add backend directory to path for imports
 backend_dir = os.path.join(os.path.dirname(__file__), '..', '..')
@@ -173,12 +174,20 @@ class SecureUploadClient:
 	async def _request_upload_authorization(self, auth_token: str, upload_request: dict):
 		"""Internal method to make upload authorization request and handle response."""
 		async with httpx.AsyncClient() as client:
+
+			request_start_time = utcnow()
+
 			response = await client.post(
 				f"{self.api_url}/photos/authorize-upload",
 				json=upload_request,
 				headers={"Authorization": f"Bearer {auth_token}"},
 				timeout=600_00.0
 			)
+
+			request_end_time = utcnow()
+			request_duration = (request_end_time - request_start_time).total_seconds()
+			print(f"   Upload authorization request took {request_duration:.2f} seconds")
+
 
 			if response.status_code == 200:
 				auth_data = response.json()
@@ -220,11 +229,17 @@ class SecureUploadClient:
 			             For test images without real EXIF, use generate_test_captured_at().
 			version: Optional version number. If >1, allows re-uploading completed photos.
 		"""
-		import hashlib
+
+		hash_start_time = utcnow()
+
 		if file_data:
 			file_md5 = hashlib.md5(file_data).hexdigest()
 		else:
 			file_md5 = hashlib.md5(f"{filename}_{file_size}".encode()).hexdigest()
+
+		hash_end_time = utcnow()
+		hash_duration = (hash_end_time - hash_start_time).total_seconds()
+		print(f"   Calculated file MD5: {file_md5} (took {hash_duration:.2f} seconds)")
 
 		upload_request = {
 			"filename": filename,

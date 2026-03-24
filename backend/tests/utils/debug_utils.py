@@ -337,15 +337,15 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 					captured_at=captured_at, version=version
 				)
 
-				# Allow overriding the server-supplied worker URL via env var
-				worker_url_override = os.getenv("WORKER_URL")
-				if worker_url_override:
-					auth_data["worker_url"] = worker_url_override
-
 				if auth_data.get("duplicate"):
 					tprint(f"  [{i+1}/{total}] {filename} ⏭ duplicate")
 					results["duplicates"] += 1
 					return
+
+				# Allow overriding the server-supplied worker URL via env var
+				worker_url_override = os.getenv("WORKER_URL")
+				if worker_url_override:
+					auth_data["worker_url"] = worker_url_override
 
 				result = await upload_client.upload_to_worker(image_data, auth_data, client_keys, filename, anonymization_override=anonymization_override, quality=quality, fast=fast)
 				photo_id = result.get('photo_id', auth_data.get('photo_id'))
