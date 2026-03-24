@@ -14,7 +14,10 @@ import json
 import base64
 import os
 from datetime import timedelta
+import datetime
+import uuid
 from common.utc import utcnow, format_utc
+from common.jwt_utils import generate_ecdsa_key_pair, serialize_private_key, serialize_public_key
 import sys
 import pytest
 import hashlib
@@ -81,11 +84,7 @@ class SecureUploadClient:
 
 	def client_key_pair(self):
 		"""Generate a real ECDSA key pair for testing client operations."""
-		import sys
-		import os
 		sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-
-		from common.jwt_utils import generate_ecdsa_key_pair, serialize_private_key, serialize_public_key
 
 		private_key, public_key = generate_ecdsa_key_pair()
 		return {
@@ -137,7 +136,7 @@ class SecureUploadClient:
 		# Test authentication first
 		async with httpx.AsyncClient() as client:
 			response = await client.get(
-				f"{self.api_url}/photos/",
+				f"{self.api_url}/me/",
 				headers={"Authorization": f"Bearer {auth_token}"},
 				follow_redirects=True
 			)
@@ -147,8 +146,6 @@ class SecureUploadClient:
 			#print("✅ Phase 1a: Client authentication successful")
 
 			# Register client public key
-			import datetime
-			import uuid
 			key_id = client_key_pair.get("key_id", f"test-key-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}-{str(uuid.uuid4())[:8]}")
 			response = await client.post(
 				f"{self.api_url}/auth/register-client-key",

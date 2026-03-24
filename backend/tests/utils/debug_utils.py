@@ -7,7 +7,8 @@ import os
 import sys
 import json
 import traceback
-from datetime import datetime
+from datetime import datetime, timezone
+import requests
 from .api_client import api_client
 from .auth_utils import auth_helper
 
@@ -406,7 +407,6 @@ class TokenManager:
 
 	def get_token(self) -> str:
 		"""Get current token, refreshing if needed."""
-		from datetime import datetime, timezone
 		# Refresh if expiring in less than 5 minutes
 		if self.expires_at and self.refresh_token:
 			now = datetime.now(timezone.utc)
@@ -415,8 +415,6 @@ class TokenManager:
 		return self.access_token
 
 	def _refresh(self):
-		import requests
-		from datetime import datetime
 		print("🔄 Refreshing auth token...")
 		response = requests.post(
 			f"{self.api_url}/auth/refresh",
