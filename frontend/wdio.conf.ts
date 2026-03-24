@@ -161,7 +161,8 @@ export const config: WebdriverIO.Config = {
      * @param {object} config wdio configuration object
      * @param {Array.<Object>} capabilities list of capabilities details
      */
-    // onPrepare: function (config, capabilities) {
+    // Lock is acquired by lockAndRun.ts wrapper before wdio starts
+    // onPrepare: async function (config, capabilities) {
     // },
     /**
      * Gets executed before a worker process is spawned and can be used to initialize specific service
@@ -303,6 +304,7 @@ export const config: WebdriverIO.Config = {
      * @param {Array.<Object>} capabilities list of capabilities details
      * @param {<Object>} results object containing test results
      */
+    // Lock is released by lockAndRun.ts wrapper after wdio exits
     // onComplete: function(exitCode, config, capabilities, results) {
     // },
     /**

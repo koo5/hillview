@@ -358,7 +358,7 @@
 			} else if (typeof selector?.value === 'string') {
 				const match = selector.value.match(/xywh=pixel:([\d.e+-]+),([\d.e+-]+),([\d.e+-]+),([\d.e+-]+)/);
 				if (!match) continue;
-				[, sx, sy, sw, sh] = match.map((v) => Number(v));
+				[, sx, sy, sw, sh] = match.map((v: string) => Number(v));
 				sx *= dims.w; sy *= dims.h; sw *= dims.w; sh *= dims.h;
 			} else {
 				continue;

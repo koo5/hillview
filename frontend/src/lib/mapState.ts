@@ -341,10 +341,10 @@ export function updateBearing(bearing: number, source: string = 'map', photoUid?
 	}
 }
 
-export function updateBearingByDiff(diff: number) {
+export function updateBearingByDiff(diff: number, source?: string, accuracy_level?: number | null) {
 	const current = get(bearingState);
 	const newBearing = normalizeBearing(current.bearing + diff);
-	updateBearing(newBearing);
+	updateBearing(newBearing, source ?? current.source, current.photoUid, accuracy_level ?? current.accuracy_level);
 }
 
 

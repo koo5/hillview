@@ -1,7 +1,7 @@
 <script lang="ts">
     import { Compass, Disc, Car, PersonStanding, ChevronDown } from 'lucide-svelte';
     import { compassState, compassEnabled, compassAvailable, compassError } from '$lib/compass.svelte';
-    import { gpsOrientationInternalState, gpsOrientationEnabled, gpsOrientationError } from '$lib/gpsOrientation.svelte';
+    import { gpsOrientationInternalState, gpsOrientationEnabled, gpsOrientationError, gpsOrientationFlash } from '$lib/gpsOrientation.svelte';
     import { bearingMode, type BearingMode } from '$lib/mapState';
     import { enableBearingTracking, disableBearingTracking } from '$lib/bearingTracking';
     import { createEventDispatcher } from 'svelte';
@@ -150,7 +150,7 @@
 
 <div class="compass-button-container" bind:this={buttonElement}>
     <button
-        class={buttonClass}
+        class="{buttonClass}{$gpsOrientationFlash ? ' flash' : ''}"
         on:pointerdown={handlePointerDown}
         on:pointerup={handlePointerUp}
         on:pointerleave={handlePointerLeave}
@@ -216,6 +216,10 @@
         background-color: #f44336;
         border-color: #f44336;
         color: white;
+    }
+
+    .compass-button.flash {
+        border-radius: 100%;
     }
 
     .compass-button.dropdown-open {

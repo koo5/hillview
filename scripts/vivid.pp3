@@ -1,0 +1,12 @@
+[Luminance Curve]
+Enabled=true
+Chromaticity=30
+
+[Vibrance]
+Enabled=true
+Pastels=30
+Saturated=20
+PSThreshold=0;75;
+ProtectSkins=true
+AvoidColorShift=true
+PastSatTog=true

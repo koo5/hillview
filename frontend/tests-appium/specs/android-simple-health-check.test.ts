@@ -8,13 +8,25 @@ describe('Android Simple Health Check', () => {
         await recreateTestUsers();
     });
 
-    it('should launch app with WebView', async () => {
+    it('should launch app with WebView and no errors', async () => {
         await browser.pause(3000);
         await ensureNativeContext();
 
         const pageSource = await browser.getPageSource();
         expect(pageSource).toContain('android.webkit.WebView');
         expect(pageSource).toContain('cz.hillviedev');
+
+        // Check for error messages in native context
+        const errorPatterns = [
+            'error sending request',
+            'connection failed',
+            'network error',
+            'tauri error'
+        ];
+        for (const pattern of errorPatterns) {
+            const errorEl = await $(`//*[contains(@text, "${pattern}") or contains(@content-desc, "${pattern}")]`);
+            expect(await errorEl.isExisting()).toBe(false);
+        }
     });
 
     it('should have core UI elements', async () => {

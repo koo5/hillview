@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { targetToPixels, targetToNormalized } from './annotationApi';
 
+type Sel = { geometry: { x: number; y: number; w: number; h: number }; value: string };
+/** Narrow the opaque Record return to access .selector fields in tests. */
+function sel(result: Record<string, unknown> | null): Sel {
+	return (result as any).selector;
+}
+
 describe('annotation coordinate transforms', () => {
 	const IMG_W = 1000;
 	const IMG_H = 500;
@@ -30,10 +36,10 @@ describe('annotation coordinate transforms', () => {
 				},
 			};
 			const result = targetToNormalized(target, IMG_W, IMG_H);
-			expect(result!.selector.geometry.x).toBeCloseTo(0.1);
-			expect(result!.selector.geometry.y).toBeCloseTo(0.1);
-			expect(result!.selector.geometry.w).toBeCloseTo(0.2);
-			expect(result!.selector.geometry.h).toBeCloseTo(0.2);
+			expect(sel(result).geometry.x).toBeCloseTo(0.1);
+			expect(sel(result).geometry.y).toBeCloseTo(0.1);
+			expect(sel(result).geometry.w).toBeCloseTo(0.2);
+			expect(sel(result).geometry.h).toBeCloseTo(0.2);
 		});
 
 		it('normalizes FragmentSelector xywh', () => {
@@ -44,7 +50,7 @@ describe('annotation coordinate transforms', () => {
 				},
 			};
 			const result = targetToNormalized(target, IMG_W, IMG_H);
-			expect(result!.selector.value).toBe('xywh=pixel:0.1,0.1,0.2,0.2');
+			expect(sel(result).value).toBe('xywh=pixel:0.1,0.1,0.2,0.2');
 		});
 
 		it('does not mutate the original target', () => {
@@ -101,10 +107,10 @@ describe('annotation coordinate transforms', () => {
 				},
 			};
 			const result = targetToPixels(target, IMG_W, IMG_H);
-			expect(result!.selector.geometry.x).toBeCloseTo(100);
-			expect(result!.selector.geometry.y).toBeCloseTo(50);
-			expect(result!.selector.geometry.w).toBeCloseTo(200);
-			expect(result!.selector.geometry.h).toBeCloseTo(100);
+			expect(sel(result).geometry.x).toBeCloseTo(100);
+			expect(sel(result).geometry.y).toBeCloseTo(50);
+			expect(sel(result).geometry.w).toBeCloseTo(200);
+			expect(sel(result).geometry.h).toBeCloseTo(100);
 		});
 
 		it('denormalizes FragmentSelector xywh', () => {
@@ -115,7 +121,7 @@ describe('annotation coordinate transforms', () => {
 				},
 			};
 			const result = targetToPixels(target, IMG_W, IMG_H);
-			expect(result!.selector.value).toBe('xywh=pixel:100,50,200,100');
+			expect(sel(result).value).toBe('xywh=pixel:100,50,200,100');
 		});
 	});
 
@@ -129,10 +135,10 @@ describe('annotation coordinate transforms', () => {
 			};
 			const normalized = targetToNormalized(original, IMG_W, IMG_H);
 			const restored = targetToPixels(normalized, IMG_W, IMG_H);
-			expect(restored!.selector.geometry.x).toBeCloseTo(300);
-			expect(restored!.selector.geometry.y).toBeCloseTo(150);
-			expect(restored!.selector.geometry.w).toBeCloseTo(400);
-			expect(restored!.selector.geometry.h).toBeCloseTo(200);
+			expect(sel(restored).geometry.x).toBeCloseTo(300);
+			expect(sel(restored).geometry.y).toBeCloseTo(150);
+			expect(sel(restored).geometry.w).toBeCloseTo(400);
+			expect(sel(restored).geometry.h).toBeCloseTo(200);
 		});
 
 		it('round-trips FragmentSelector correctly', () => {
@@ -144,7 +150,7 @@ describe('annotation coordinate transforms', () => {
 			};
 			const normalized = targetToNormalized(original, IMG_W, IMG_H);
 			const restored = targetToPixels(normalized, IMG_W, IMG_H);
-			expect(restored!.selector.value).toBe('xywh=pixel:300,150,400,200');
+			expect(sel(restored).value).toBe('xywh=pixel:300,150,400,200');
 		});
 
 		it('round-trips array selectors correctly', () => {
@@ -155,11 +161,11 @@ describe('annotation coordinate transforms', () => {
 			};
 			const normalized = targetToNormalized(original, IMG_W, IMG_H);
 			const restored = targetToPixels(normalized, IMG_W, IMG_H);
-			const sel = (restored!.selector as any[])[0];
-			expect(sel.geometry.x).toBeCloseTo(100);
-			expect(sel.geometry.y).toBeCloseTo(200);
-			expect(sel.geometry.w).toBeCloseTo(300);
-			expect(sel.geometry.h).toBeCloseTo(100);
+			const s = (restored!.selector as any[])[0];
+			expect(s.geometry.x).toBeCloseTo(100);
+			expect(s.geometry.y).toBeCloseTo(200);
+			expect(s.geometry.w).toBeCloseTo(300);
+			expect(s.geometry.h).toBeCloseTo(100);
 		});
 
 		it('round-trips with different image dimensions', () => {
@@ -176,11 +182,11 @@ describe('annotation coordinate transforms', () => {
 				};
 				const normalized = targetToNormalized(original, w, h);
 				// Normalized values should be 0.25 and 0.5
-				expect(normalized!.selector.geometry.x).toBeCloseTo(0.25);
-				expect(normalized!.selector.geometry.w).toBeCloseTo(0.5);
+				expect(sel(normalized).geometry.x).toBeCloseTo(0.25);
+				expect(sel(normalized).geometry.w).toBeCloseTo(0.5);
 				const restored = targetToPixels(normalized, w, h);
-				expect(restored!.selector.geometry.x).toBeCloseTo(w / 4);
-				expect(restored!.selector.geometry.w).toBeCloseTo(w / 2);
+				expect(sel(restored).geometry.x).toBeCloseTo(w / 4);
+				expect(sel(restored).geometry.w).toBeCloseTo(w / 2);
 			}
 		});
 	});

@@ -784,6 +784,8 @@
 
     // Handle GPS location updates only (position/coordinates)
     async function handleGpsLocationUpdate(position: GeolocationPosition) {
+        if (!get(locationTracking)) return;
+
         const { latitude, longitude, accuracy } = position.coords;
 
         // Store the location data locally
@@ -802,15 +804,12 @@
         if (map) {
             const latLng = new L.LatLng(latitude, longitude);
 
-            // Center map on user location if tracking is active
-            if (get(locationTracking)) {
-                updateSpatialState({
-                    center: new LatLng(latitude, longitude),
-                    zoom: map.getZoom(),
-                    bounds: null, // Will be updated by onMapStateChange
-                    range: get_range(new LatLng(latitude, longitude))
-                }, 'gps');
-            }
+            updateSpatialState({
+                center: new LatLng(latitude, longitude),
+                zoom: map.getZoom(),
+                bounds: null, // Will be updated by onMapStateChange
+                range: get_range(new LatLng(latitude, longitude))
+            }, 'gps');
         }
     }
 
@@ -846,6 +845,37 @@
 
         // Disable Leaflet's built-in scroll wheel zoom since we're handling it manually
         map.scrollWheelZoom.disable();
+    }
+
+    // Prevent drags from touch events starting near screen edges (accidental touches while holding phone)
+    const EDGE_SAFE_MARGIN = 30; // px
+    let edgeDragGuardInstalled = false;
+
+    $: if (map && !edgeDragGuardInstalled) {
+        edgeDragGuardInstalled = true;
+        const mapContainer = map.getContainer();
+
+        mapContainer.addEventListener('touchstart', (e: TouchEvent) => {
+            const touch = e.touches[0];
+            if (!touch) return;
+            const rect = mapContainer.getBoundingClientRect();
+            const inMargin =
+                touch.clientX - rect.left < EDGE_SAFE_MARGIN ||
+                rect.right - touch.clientX < EDGE_SAFE_MARGIN ||
+                touch.clientY - rect.top < EDGE_SAFE_MARGIN ||
+                rect.bottom - touch.clientY < EDGE_SAFE_MARGIN;
+
+            if (inMargin && map.dragging.enabled()) {
+                map.dragging.disable();
+                const reenable = () => {
+                    map.dragging.enable();
+                    mapContainer.removeEventListener('touchend', reenable);
+                    mapContainer.removeEventListener('touchcancel', reenable);
+                };
+                mapContainer.addEventListener('touchend', reenable, { once: true });
+                mapContainer.addEventListener('touchcancel', reenable, { once: true });
+            }
+        }, { capture: true });
     }
 
     let wheelTimeout: any = null;
@@ -1016,6 +1046,7 @@
 
         const unsubLastKnown = lastKnownGpsLocation.subscribe((loc) => {
             if (!map) return;
+            if (!get(locationTracking)) return;
             if (loc) {
                 const latLng = new L.LatLng(loc.lat, loc.lng);
                 if (userLocationMarker) {

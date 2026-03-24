@@ -4,6 +4,7 @@ import {gpsLocation} from './location.svelte';
 import {updateBearingByDiff} from './mapState';
 import {isOnMapRoute} from './compass.svelte';
 import {locationManager} from './locationManager';
+import {HeadingFilter} from './utils/headingFilter';
 
 // User preference - simple enabled/disabled
 export const gpsOrientationEnabled = writable(false);
@@ -18,9 +19,16 @@ export type GpsOrientationInternalState =
 export const gpsOrientationInternalState = writable<GpsOrientationInternalState>('inactive');
 export const gpsOrientationError = writable<string | null>(null);
 
-// Track last GPS heading for differential updates
-// When GPS heading changes, apply the difference to map bearing (not absolute positioning)
+// Kalman filter: estimates heading from GPS position pairs instead of raw GPS heading
+let headingFilter = new HeadingFilter();
+
+// Track last filtered heading for differential updates
+// Only diffs are applied to map bearing, preserving any user-set base angle
 let lastGpsHeading: number | null = null;
+
+// Flash signal for UI feedback when GPS bearing updates
+export const gpsOrientationFlash = writable(false);
+let gpsOrientationFlashTimer: ReturnType<typeof setTimeout> | null = null;
 
 // Flag to prevent recursion when reverting user preference
 let revertingUserPreference = false;
@@ -42,6 +50,7 @@ export function disableGpsOrientation() {
 async function stopGpsOrientationInternal() {
 	if (doLog) console.log('🚗 Stopping GPS orientation tracking internal state');
 	gpsOrientationInternalState.set('inactive');
+	headingFilter.reset();
 	lastGpsHeading = null;
 	gpsOrientationError.set(null);
 	await locationManager.releaseLocation('gps-orientation');
@@ -71,6 +80,7 @@ async function updateGpsOrientationState() {
 		if (currentInternalState === 'inactive') {
 			gpsOrientationInternalState.set('starting');
 			gpsOrientationError.set(null);
+			headingFilter.reset();
 			lastGpsHeading = null;
 			if (doLog) console.log('🚗 GPS orientation tracking starting, waiting for GPS data');
 
@@ -99,52 +109,62 @@ if (browser) {
 
 		if (doLog) console.log('🚗 GPS orientation received location update:', JSON.stringify(position));
 
-		// Only process GPS heading if internal tracking is active or starting
+		// Only process if internal tracking is active or starting
 		if (internalState !== 'active' && internalState !== 'starting') {
 			return;
 		}
 
-		if (!position || position.coords.heading === null || position.coords.heading === undefined || isNaN(position.coords.heading)
-			|| position.coords.speed === null || position.coords.speed === undefined || isNaN(position.coords.speed) || position.coords.speed < 2) {
-			// No valid GPS heading available
-			if (internalState === 'starting' || internalState === 'active') {
-				if (doLog) console.log('🚗 No GPS heading available in this sample');
-				/*gpsOrientationInternalState.set('error');
-				gpsOrientationError.set('GPS heading not available');
-				lastGpsHeading = null;*/
-			}
+		if (!position) {
 			return;
 		}
 
-		const currentGpsHeading = (position.coords.heading + 360) % 360;
+		// Feed position to Kalman filter — it handles speed gating and
+		// reference point management internally
+		const filteredHeading = headingFilter.update({
+			lat: position.coords.latitude,
+			lng: position.coords.longitude,
+			speed: position.coords.speed ?? null,
+			timestamp: position.timestamp
+		});
 
-		// Transition from starting to active on first valid GPS data
+		if (filteredHeading === null) {
+			if (doLog) console.log('🚗 Kalman filter: position rejected (low speed or insufficient distance)');
+			return;
+		}
+
+		// Transition from starting to active on first filtered heading
 		if (internalState === 'starting') {
 			gpsOrientationInternalState.set('active');
 			gpsOrientationError.set(null);
-			lastGpsHeading = currentGpsHeading;
-			if (doLog) console.log('🚗 GPS orientation: first heading locked at', currentGpsHeading.toFixed(1), '°');
+			lastGpsHeading = filteredHeading;
+			if (doLog) console.log('🚗 GPS orientation: Kalman filter locked heading at', filteredHeading.toFixed(1), '°');
 			return;
 		}
 
 		// Apply differential updates when active
 		if (internalState === 'active' && lastGpsHeading !== null) {
-			// Calculate the shortest angular difference between old and new GPS heading
-			let headingDiff = currentGpsHeading - lastGpsHeading;
+			let headingDiff = filteredHeading - lastGpsHeading;
+			// Wrap to shortest angular path
+			headingDiff = ((headingDiff % 360) + 540) % 360 - 180;
 
-			// Apply the difference to the current map bearing
 			if (Math.abs(headingDiff) > 1) { // Ignore tiny changes to reduce noise
-				updateBearingByDiff(headingDiff);
-				if (doLog) console.log(`🚗 GPS orientation: heading changed by ${headingDiff.toFixed(1)}°, applied to map bearing`);
+				updateBearingByDiff(headingDiff, 'gps-kalman');
+				if (doLog) console.log(`🚗 GPS orientation: Kalman heading diff ${headingDiff.toFixed(1)}°, estimated heading ${filteredHeading.toFixed(1)}°`);
+
+				// Flash the compass button
+				gpsOrientationFlash.set(true);
+				if (gpsOrientationFlashTimer) clearTimeout(gpsOrientationFlashTimer);
+				gpsOrientationFlashTimer = setTimeout(() => gpsOrientationFlash.set(false), 100);
 			}
 
-			lastGpsHeading = currentGpsHeading;
+			lastGpsHeading = filteredHeading;
 		}
 	});
 
 // Reset tracking when internal state changes to inactive
 	gpsOrientationInternalState.subscribe(state => {
 		if (state === 'inactive') {
+			headingFilter.reset();
 			lastGpsHeading = null;
 		}
 	});

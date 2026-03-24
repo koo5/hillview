@@ -47,5 +47,7 @@ if not string match -q -- '*platform-tools*' $PATH
     set -gx PATH $PATH $ANDROID_HOME/platform-tools
 end
 
-# Run wdio with processed arguments
-npx @wdio/cli run wdio.conf.ts $wdio_args
+# Acquire shared test lock, then run wdio.
+# Lock is held before Appium starts, preventing port conflicts
+# and backend state races with Playwright/pytest.
+npx tsx tests-appium/helpers/lockAndRun.ts npx @wdio/cli run wdio.conf.ts $wdio_args

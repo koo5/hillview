@@ -157,11 +157,6 @@
 </StandardBody>
 
 <style>
-	.section-divider {
-		height: 1px;
-		padding: 0.5rem 0;
-	}
-
 	.settings-navigation-link {
 		display: flex;
 		align-items: center;
@@ -219,17 +214,4 @@
 		cursor: pointer;
 	}
 
-	.qr-hint {
-		font-size: 0.75rem;
-		color: #6b7280;
-		line-height: 1.4;
-		margin-top: 0.25rem;
-	}
-
-	.qr-hint code {
-		background-color: #f3f4f6;
-		padding: 0.1rem 0.3rem;
-		border-radius: 0.2rem;
-		font-size: 0.7rem;
-	}
 </style>

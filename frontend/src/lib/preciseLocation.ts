@@ -75,18 +75,7 @@ function fromBrowserGeolocation(position: globalThis.GeolocationPosition): Geolo
 
 // Handle location update for both platforms
 function handleLocationUpdate(position: GeolocationPosition, source: string) {
-    /*console.debug(`📍 Received "${source}" location update:`, JSON.stringify({
-        lat: position.coords.latitude,
-        lng: position.coords.longitude,
-        accuracy: position.coords.accuracy
-    }));*/
-
-    // Only update GPS location if location tracking is enabled
-    //if (get(locationTracking)) {
-        updateGpsLocation(position);
-    //} else {
-        //console.debug('🢄📍 Ignoring location update - user-level GPS tracking is disabled');
-    //}
+	updateGpsLocation(position);
 }
 
 // Initialize persistent listeners (similar to sensor onSensorData)
