@@ -169,7 +169,7 @@ logger.info(f"PARALLEL_PROCESSING_CONCURRENCY: {PARALLEL_PROCESSING_CONCURRENCY}
 processing_semaphore = asyncio.Semaphore(PARALLEL_PROCESSING_CONCURRENCY)
 
 
-def run_photo_processing_sync(file_path: str, filename: str, user_id: UUID, photo_id: str, client_signature: str, ctx_photo_id: str = None, ctx_task_id: str = None, anonymization_override: str = None, metadata: Dict[str, Any] = None, quality: int = None):
+def run_photo_processing_sync(file_path: str, filename: str, user_id: UUID, photo_id: str, client_signature: str, ctx_photo_id: str = None, ctx_task_id: str = None, anonymization_override: str = None, metadata: Dict[str, Any] = None, quality: int = None, fast: bool = False):
 	"""
 	Sync wrapper to run async photo processing in a dedicated event loop.
 	This runs in a thread pool to avoid blocking the main event loop.
@@ -177,6 +177,7 @@ def run_photo_processing_sync(file_path: str, filename: str, user_id: UUID, phot
 	ctx_photo_id and ctx_task_id are used to restore logging context in the new thread.
 	anonymization_override: JSON string - null=auto, "[]"=none, "[{...}]"=specific rectangles
 	quality: WebP quality (1-100). None=use default (97).
+	fast: Skip pyramid, 640_llm, EXIF copy, use fast WebP encoding, reduced size set.
 	"""
 	# Restore logging context in this thread
 	with task_context(photo_id=ctx_photo_id, task_id=ctx_task_id):
@@ -192,7 +193,8 @@ def run_photo_processing_sync(file_path: str, filename: str, user_id: UUID, phot
 					client_signature=client_signature,
 					anonymization_override=anonymization_override,
 					metadata=metadata,
-					quality=quality
+					quality=quality,
+					fast=fast
 				)
 			)
 		finally:
@@ -393,10 +395,11 @@ async def upload_sync(
 	anonymization_override: Optional[str] = Form(None),  # JSON: null=auto, "[]"=none, "[{...}]"=specific
 	metadata: Optional[str] = Form(None),  # JSON: metadata when EXIF can't be written (e.g., browser capture)
 	quality: Optional[int] = Form(None),  # WebP quality (1-100). None=use default (97).
+	fast: Optional[bool] = Form(None),  # Skip pyramid, 640_llm, EXIF copy, use fast WebP encoding
 	upload_auth: dict = Depends(get_upload_authorization)
 ):
 	photo_id, user_id = validate_upload_parameters(upload_auth, file)
-	return await upload(file, client_signature, photo_id, user_id, anonymization_override=anonymization_override, metadata=metadata, quality=quality)
+	return await upload(file, client_signature, photo_id, user_id, anonymization_override=anonymization_override, metadata=metadata, quality=quality, fast=bool(fast))
 
 
 @app.post("/upload_async")
@@ -406,6 +409,7 @@ async def upload_async(
 	anonymization_override: Optional[str] = Form(None),  # JSON: null=auto, "[]"=none, "[{...}]"=specific
 	metadata: Optional[str] = Form(None),  # JSON: metadata when EXIF can't be written (e.g., browser capture)
 	quality: Optional[int] = Form(None),  # WebP quality (1-100). None=use default (97).
+	fast: Optional[bool] = Form(None),  # Skip pyramid, 640_llm, EXIF copy, use fast WebP encoding
 	upload_auth: dict = Depends(get_upload_authorization),
 	background_tasks: BackgroundTasks = None
 ):
@@ -415,21 +419,21 @@ async def upload_async(
 		task_id = f"{task_id_counter}_{time.time()}"
 		task_id_counter += 1
 		pending_background_tasks.add(task_id)
-	background_tasks.add_task(upload, file, client_signature, photo_id, user_id, task_id, anonymization_override, metadata, quality)
+	background_tasks.add_task(upload, file, client_signature, photo_id, user_id, task_id, anonymization_override, metadata, quality, bool(fast))
 
 	return {'success': True}
 
 
-async def upload(file: UploadFile, client_signature: str, photo_id: str, user_id: str, task_id = None, anonymization_override: Optional[str] = None, metadata: Optional[str] = None, quality: Optional[int] = None):
+async def upload(file: UploadFile, client_signature: str, photo_id: str, user_id: str, task_id = None, anonymization_override: Optional[str] = None, metadata: Optional[str] = None, quality: Optional[int] = None, fast: bool = False):
 
 	with task_context(photo_id=photo_id, task_id=task_id):
-		return await _upload_inner(file, client_signature, photo_id, user_id, task_id, anonymization_override, metadata, quality)
+		return await _upload_inner(file, client_signature, photo_id, user_id, task_id, anonymization_override, metadata, quality, fast)
 
 
-async def _upload_inner(file: UploadFile, client_signature: str, photo_id: str, user_id: str, task_id = None, anonymization_override: Optional[str] = None, metadata: Optional[str] = None, quality: Optional[int] = None):
+async def _upload_inner(file: UploadFile, client_signature: str, photo_id: str, user_id: str, task_id = None, anonymization_override: Optional[str] = None, metadata: Optional[str] = None, quality: Optional[int] = None, fast: bool = False):
 
 	try:
-		file_path, processing_status, error_message, retry_after_minutes, processing_result, secure_filename = await process(file, client_signature, photo_id, user_id, anonymization_override, metadata, quality)
+		file_path, processing_status, error_message, retry_after_minutes, processing_result, secure_filename = await process(file, client_signature, photo_id, user_id, anonymization_override, metadata, quality, fast)
 
 		# Handle deleted photos early - no need to notify API
 		if processing_status == "deleted":
@@ -545,7 +549,7 @@ async def _upload_inner(file: UploadFile, client_signature: str, photo_id: str, 
 	)
 
 
-async def process(file: UploadFile, client_signature: str, photo_id: str, user_id: str, anonymization_override: Optional[str] = None, metadata: Optional[str] = None, quality: Optional[int] = None):
+async def process(file: UploadFile, client_signature: str, photo_id: str, user_id: str, anonymization_override: Optional[str] = None, metadata: Optional[str] = None, quality: Optional[int] = None, fast: bool = False):
 
 	file_path = None
 	error_message = None
@@ -605,7 +609,8 @@ async def process(file: UploadFile, client_signature: str, photo_id: str, user_i
 				ctx_task_id,
 				anonymization_override,
 				parsed_metadata,
-				quality
+				quality,
+				fast
 			)
 
 		if not processing_result:

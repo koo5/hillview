@@ -34,6 +34,8 @@ logger.info(f"PARALLEL_PROCESSING_START_DELAY={PARALLEL_PROCESSING_START_DELAY} 
 LLM_VARIANT_SIZE = 640
 WEBP_QUALITY_SIZES = 97
 WEBP_QUALITY_DZI = 97
+NORMAL_WEBP_METHOD = 6
+FAST_WEBP_METHOD = 0  # fastest encoding (vs 6 = slowest/best compression)
 
 
 def create_center_crop(image, target_width: int, target_height: int):
@@ -411,18 +413,22 @@ class PhotoProcessor:
 		return dimensions[0], dimensions[1]
 
 
-	async def create_optimized_sizes(self, source_path: str, unique_id: str, width: int, height: int, photo_id: str = None, client_signature: str = None, anonymization_override: Optional[AnonymizationOverride] = None, quality: Optional[int] = None
+	async def create_optimized_sizes(self, source_path: str, unique_id: str, width: int, height: int, photo_id: str = None, client_signature: str = None, anonymization_override: Optional[AnonymizationOverride] = None, quality: Optional[int] = None, fast: bool = False
 
 
 									 ) -> tuple[Dict[str, Dict[str, Any]], Optional[Dict[str, Any]]]:
-		"""Create optimized versions with anonymization and unique IDs."""
+		"""Create optimized versions with anonymization and unique IDs.
+
+		fast: Skip pyramid, 640_llm, EXIF copy, use fast WebP encoding, reduced size set.
+		"""
 
 		sizes_info = {}
 		output_base = self.upload_dir
 		webp_quality_sizes = quality if quality is not None else WEBP_QUALITY_SIZES
 		webp_quality_dzi = quality if quality is not None else WEBP_QUALITY_DZI
+		webp_method = FAST_WEBP_METHOD if fast else NORMAL_WEBP_METHOD
 
-		logger.info(f"Starting anonymization for {unique_id} (quality: sizes={webp_quality_sizes}, dzi={webp_quality_dzi})")
+		logger.info(f"Starting anonymization for {unique_id} (quality: sizes={webp_quality_sizes}, dzi={webp_quality_dzi}, fast={fast})")
 
 		if not anonymization_override:
 			# this takes a while to import, so do it here dynamically
@@ -462,7 +468,10 @@ class PhotoProcessor:
 			# due to auto-rotation during pyvips loading)
 			height, width = image.shape[:2]
 
-			size_variants = ['full', 320, 640, 1200, 2048, 3072, 4096]
+			if fast:
+				size_variants = ['full', 320, 1200, 2048]
+			else:
+				size_variants = ['full', 320, 640, 1200, 2048, 3072, 4096]
 
 			for size in size_variants:
 
@@ -493,8 +502,9 @@ class PhotoProcessor:
 				logger.debug(f"Resized image to {new_width}x{new_height} for size {size}")
 				new_image_rgb = cv2.cvtColor(new_image, cv2.COLOR_BGR2RGB)
 				logger.debug(f"Converted image to RGB color space for size {size}")
-				Image.fromarray(new_image_rgb).save(output_file_path, format='WEBP', quality=webp_quality_sizes, method=6)
-				copy_exif_data(source_path, output_file_path)
+				Image.fromarray(new_image_rgb).save(output_file_path, format='WEBP', quality=webp_quality_sizes, method=webp_method)
+				if not fast:
+					copy_exif_data(source_path, output_file_path)
 				logger.info(f"Created size {size} for {unique_id}: {new_width}x{new_height} at {output_file_path}")
 
 				size_info.update({
@@ -519,8 +529,9 @@ class PhotoProcessor:
 				os.makedirs(pathlib.Path(crop_file_path).parent, exist_ok=True)
 
 				cropped_rgb = cv2.cvtColor(cropped, cv2.COLOR_BGR2RGB)
-				Image.fromarray(cropped_rgb).save(crop_file_path, format='WEBP', quality=webp_quality_sizes, method=6)
-				copy_exif_data(source_path, crop_file_path)
+				Image.fromarray(cropped_rgb).save(crop_file_path, format='WEBP', quality=webp_quality_sizes, method=webp_method)
+				if not fast:
+					copy_exif_data(source_path, crop_file_path)
 				logger.info(f"Created {crop_key} for {unique_id}: {crop_tw}x{crop_th} at {crop_file_path}")
 
 				sizes_info[crop_key] = {
@@ -532,50 +543,52 @@ class PhotoProcessor:
 
 		logger.info(f"Created {len(sizes_info)} size variants for {unique_id}")
 
-		# Create 640_llm variant (black fill over detections, no colors/stick figures, for LLM analysis)
-		# Use original size if image is smaller than LLM_VARIANT_SIZE
-		llm_image = read_image(source_path)
-		apply_blackout(llm_image, detections.get("objects", []))
-		llm_h, llm_w = llm_image.shape[:2]
+		if not fast:
+			# Create 640_llm variant (black fill over detections, no colors/stick figures, for LLM analysis)
+			# Use original size if image is smaller than LLM_VARIANT_SIZE
+			llm_image = read_image(source_path)
+			apply_blackout(llm_image, detections.get("objects", []))
+			llm_h, llm_w = llm_image.shape[:2]
 
-		if llm_w <= LLM_VARIANT_SIZE:
-			llm_width = llm_w
-			llm_height = llm_h
-			llm_resized = llm_image
-		else:
-			llm_scale = LLM_VARIANT_SIZE / llm_w
-			llm_width = LLM_VARIANT_SIZE
-			llm_height = int(llm_h * llm_scale)
-			llm_resized = cv2.resize(llm_image, (llm_width, llm_height), interpolation=cv2.INTER_AREA)
+			if llm_w <= LLM_VARIANT_SIZE:
+				llm_width = llm_w
+				llm_height = llm_h
+				llm_resized = llm_image
+			else:
+				llm_scale = LLM_VARIANT_SIZE / llm_w
+				llm_width = LLM_VARIANT_SIZE
+				llm_height = int(llm_h * llm_scale)
+				llm_resized = cv2.resize(llm_image, (llm_width, llm_height), interpolation=cv2.INTER_AREA)
 
-		user_id_part, photo_id_part = unique_id.split('/', 1)
-		user_id_part = validate_user_id(user_id_part)
-		llm_size_dir = os.path.join(output_base, 'opt', '640_llm', user_id_part)
-		llm_filename = sanitize_filename(f"{photo_id_part}.webp")
-		llm_output_path = validate_file_path(os.path.join(llm_size_dir, llm_filename), output_base)
-		llm_relative_path = os.path.relpath(llm_output_path, output_base)
-		os.makedirs(pathlib.Path(llm_output_path).parent, exist_ok=True)
+			user_id_part, photo_id_part = unique_id.split('/', 1)
+			user_id_part = validate_user_id(user_id_part)
+			llm_size_dir = os.path.join(output_base, 'opt', '640_llm', user_id_part)
+			llm_filename = sanitize_filename(f"{photo_id_part}.webp")
+			llm_output_path = validate_file_path(os.path.join(llm_size_dir, llm_filename), output_base)
+			llm_relative_path = os.path.relpath(llm_output_path, output_base)
+			os.makedirs(pathlib.Path(llm_output_path).parent, exist_ok=True)
 
-		llm_rgb = cv2.cvtColor(llm_resized, cv2.COLOR_BGR2RGB)
-		Image.fromarray(llm_rgb).save(llm_output_path, format='WEBP', quality=webp_quality_sizes, method=6)
-		copy_exif_data(source_path, llm_output_path)
-		logger.info(f"Created 640_llm variant for {unique_id}: {llm_width}x{llm_height} at {llm_output_path}")
+			llm_rgb = cv2.cvtColor(llm_resized, cv2.COLOR_BGR2RGB)
+			Image.fromarray(llm_rgb).save(llm_output_path, format='WEBP', quality=webp_quality_sizes, method=webp_method)
+			copy_exif_data(source_path, llm_output_path)
+			logger.info(f"Created 640_llm variant for {unique_id}: {llm_width}x{llm_height} at {llm_output_path}")
 
-		llm_url = await self._get_size_url(llm_output_path, llm_relative_path, photo_id, client_signature)
-		sizes_info['640_llm'] = {
-			'path': llm_relative_path,
-			'width': llm_width,
-			'height': llm_height,
-			'url': llm_url
-		}
+			llm_url = await self._get_size_url(llm_output_path, llm_relative_path, photo_id, client_signature)
+			sizes_info['640_llm'] = {
+				'path': llm_relative_path,
+				'width': llm_width,
+				'height': llm_height,
+				'url': llm_url
+			}
 
-		# Generate DZI pyramid from the anonymized image (not the original source)
-		# Store metadata inline in sizes['full']['pyramid'] so the client can
-		# initialise OpenSeadragon without an extra round-trip for the .dzi file.
-		if 'full' in sizes_info:
-			pyramid = await self.generate_dzi_pyramid(image, unique_id, photo_id, client_signature, quality=quality)
-			if pyramid:
-				sizes_info['full']['pyramid'] = pyramid
+		if not fast:
+			# Generate DZI pyramid from the anonymized image (not the original source)
+			# Store metadata inline in sizes['full']['pyramid'] so the client can
+			# initialise OpenSeadragon without an extra round-trip for the .dzi file.
+			if 'full' in sizes_info:
+				pyramid = await self.generate_dzi_pyramid(image, unique_id, photo_id, client_signature, quality=quality)
+				if pyramid:
+					sizes_info['full']['pyramid'] = pyramid
 
 		return sizes_info, detections
 
@@ -790,7 +803,8 @@ class PhotoProcessor:
 		client_signature: Optional[str] = None,
 		anonymization_override: Optional[str] = None,
 		metadata: Optional[Dict[str, Any]] = None,
-		quality: Optional[int] = None
+		quality: Optional[int] = None,
+		fast: bool = False
 	) -> Optional[Dict[str, Any]]:
 		"""Process a user-uploaded photo and return processing results.
 
@@ -798,6 +812,7 @@ class PhotoProcessor:
 			- None or "null": auto-detect faces/plates and blur them (default)
 			- "[]": skip anonymization entirely
 			- "[{...}]": use specific rectangles (future feature)
+		fast: Skip pyramid, 640_llm, EXIF copy, use fast WebP encoding, reduced size set.
 		"""
 
 		validate_user_id(str(user_id))
@@ -892,7 +907,7 @@ class PhotoProcessor:
 
 		# Parse anonymization override from JSON string to Pydantic model
 		override = AnonymizationOverride.from_json_string(anonymization_override)
-		sizes_info, detections = await self.create_optimized_sizes(file_path, unique_id, width, height, photo_id, client_signature, override, quality=quality)
+		sizes_info, detections = await self.create_optimized_sizes(file_path, unique_id, width, height, photo_id, client_signature, override, quality=quality, fast=fast)
 
 		# Extract captured_at from EXIF DateTimeOriginal (with corruption fix)
 		raw_data = exif_data.get('data', {})
